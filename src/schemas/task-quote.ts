@@ -46,7 +46,8 @@ export const discountTypeSchema = z.enum([
 // =====================
 
 export const paymentConditionSchema = z.enum([
-  PAYMENT_CONDITION.CASH,
+  PAYMENT_CONDITION.CASH_5,
+  PAYMENT_CONDITION.CASH_40,
   PAYMENT_CONDITION.INSTALLMENTS_2,
   PAYMENT_CONDITION.INSTALLMENTS_3,
   PAYMENT_CONDITION.INSTALLMENTS_4,
@@ -424,14 +425,8 @@ export const taskQuoteCustomerConfigCreateNestedSchema = z.object({
   customerId: z.string().uuid('ID de cliente invalido'),
   subtotal: moneySchema.optional().default(0),
   total: moneySchema.optional().default(0),
-  // Payment condition + downPaymentDate are input-only fields used to generate installments
+  // Payment condition used to generate installments at BILLING_APPROVED time
   paymentCondition: paymentConditionSchema.optional().nullable(),
-  downPaymentDate: z
-    .preprocess(
-      val => (val === null || val === undefined || val === '' ? null : val),
-      z.coerce.date().nullable(),
-    )
-    .optional(),
   customPaymentText: z.string().max(2000).optional().nullable(),
   generateInvoice: z.boolean().optional().default(true),
   responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),

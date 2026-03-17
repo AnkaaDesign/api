@@ -19,7 +19,6 @@ export interface TaskQuoteCustomerConfig extends BaseEntity {
   generateInvoice?: boolean;
   responsibleId?: string | null;
   paymentCondition?: string | null;
-  downPaymentDate?: Date | null;
 
   // Customer Signature (uploaded by customer on public page)
   customerSignatureId?: string | null;

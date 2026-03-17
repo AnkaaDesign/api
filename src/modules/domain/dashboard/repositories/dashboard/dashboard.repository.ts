@@ -299,6 +299,50 @@ export abstract class DashboardRepository {
   abstract countNewVacationsToday(): Promise<number>;
   abstract countApprovedVacationsThisMonth(dateFilter: DateFilter): Promise<number>;
 
+  // Financial dashboard queries
+  abstract getFinancialInvoiceStatistics(dateFilter?: DateFilter, customerId?: string): Promise<{
+    totalInvoices: number;
+    activeInvoices: number;
+    paidInvoices: number;
+    cancelledInvoices: number;
+    totalInvoicedAmount: number;
+    totalPaidAmount: number;
+    totalPendingAmount: number;
+    overdueAmount: number;
+    byStatus: DashboardChartData;
+  }>;
+  abstract getFinancialBankSlipStatistics(dateFilter?: DateFilter): Promise<{
+    totalBankSlips: number;
+    activeBankSlips: number;
+    overdueBankSlips: number;
+    paidBankSlips: number;
+  }>;
+  abstract getFinancialNfseStatistics(dateFilter?: DateFilter): Promise<{
+    totalNfse: number;
+    authorizedNfse: number;
+    pendingNfse: number;
+    cancelledNfse: number;
+  }>;
+  abstract getFinancialQuoteStatistics(dateFilter?: DateFilter): Promise<{
+    totalQuotes: number;
+    pendingQuotes: number;
+    approvedQuotes: number;
+    settledQuotes: number;
+    byStatus: DashboardChartData;
+  }>;
+  abstract getFinancialTopCustomers(dateFilter?: DateFilter, limit?: number): Promise<DashboardListItem[]>;
+  abstract getFinancialRevenueByCustomer(dateFilter?: DateFilter, limit?: number): Promise<DashboardChartData>;
+  abstract getFinancialMonthlyRevenue(months?: number): Promise<DashboardChartData>;
+  abstract getFinancialRecentActivities(dateFilter?: DateFilter, limit?: number): Promise<
+    Array<{
+      id: string;
+      title: string;
+      description: string;
+      type?: string;
+      timestamp: Date;
+    }>
+  >;
+
   // Home dashboard queries
   abstract getTasksWithCloseDeadline(today: Date, limit?: number, sectorId?: string | null): Promise<HomeDashboardTask[]>;
   abstract getTasksWithCloseForecast(

@@ -12,6 +12,7 @@ import {
   ProductionDashboardResponse,
   UnifiedDashboardResponse,
   HomeDashboardResponse,
+  FinancialDashboardResponse,
 } from '../../../types';
 import {
   inventoryDashboardQuerySchema,
@@ -21,6 +22,7 @@ import {
   productionDashboardQuerySchema,
   unifiedDashboardQuerySchema,
   homeDashboardQuerySchema,
+  financialDashboardQuerySchema,
   InventoryDashboardQueryFormData,
   HRDashboardQueryFormData,
   AdministrationDashboardQueryFormData,
@@ -28,6 +30,7 @@ import {
   ProductionDashboardQueryFormData,
   UnifiedDashboardQueryFormData,
   HomeDashboardQueryFormData,
+  FinancialDashboardQueryFormData,
 } from '../../../schemas/dashboard';
 
 @Controller('dashboards')
@@ -158,6 +161,19 @@ export class DashboardController {
     @UserId() userId: string,
   ): Promise<UnifiedDashboardResponse> {
     return this.dashboardService.getUnifiedDashboard(query, userId);
+  }
+
+  @Get('financial')
+  @Roles(
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  @UsePipes(new ZodQueryValidationPipe(financialDashboardQuerySchema))
+  async getFinancialDashboard(
+    @Query() query: FinancialDashboardQueryFormData,
+    @UserId() userId: string,
+  ): Promise<FinancialDashboardResponse> {
+    return this.dashboardService.getFinancialDashboard(query, userId);
   }
 
   @Get('home')

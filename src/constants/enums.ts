@@ -2142,7 +2142,8 @@ export enum DISCOUNT_TYPE {
 // Payment condition enum - used in forms for selecting installment structure
 // Converted to Installment records on save
 export enum PAYMENT_CONDITION {
-  CASH = 'CASH',
+  CASH_5 = 'CASH_5',
+  CASH_40 = 'CASH_40',
   INSTALLMENTS_2 = 'INSTALLMENTS_2',
   INSTALLMENTS_3 = 'INSTALLMENTS_3',
   INSTALLMENTS_4 = 'INSTALLMENTS_4',

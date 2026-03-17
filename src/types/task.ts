@@ -42,6 +42,7 @@ export interface Task extends BaseEntity {
   startedAt: Date | null;
   finishedAt: Date | null;
   forecastDate: Date | null;
+  cleared: boolean;
   paintId: string | null;
   customerId: string | null;
   sectorId: string | null;

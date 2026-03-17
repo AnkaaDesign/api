@@ -8,6 +8,7 @@ import {
   UnifiedDashboardResponse,
   HomeDashboardResponse,
   HomeDashboardData,
+  FinancialDashboardResponse,
   DateFilter,
   DashboardActivityWhere,
   DashboardOrderWhere,
@@ -22,6 +23,7 @@ import {
   ProductionDashboardQueryFormData,
   UnifiedDashboardQueryFormData,
   HomeDashboardQueryFormData,
+  FinancialDashboardQueryFormData,
 } from '../../../schemas';
 import { DASHBOARD_TIME_PERIOD, ACTIVE_USER_STATUSES, SECTOR_PRIVILEGES } from '../../../constants';
 import {
@@ -1491,6 +1493,86 @@ export class DashboardService {
     }
 
     return config;
+  }
+
+  async getFinancialDashboard(
+    query: FinancialDashboardQueryFormData,
+    userId: string,
+  ): Promise<FinancialDashboardResponse> {
+    try {
+      this.logger.log('Fetching financial dashboard data');
+
+      const dateFilter = this.getDateFilter(query);
+
+      const [
+        invoiceStats,
+        bankSlipStats,
+        nfseStats,
+        quoteStats,
+        topCustomers,
+        revenueByCustomer,
+        monthlyRevenue,
+        recentActivities,
+      ] = await Promise.all([
+        this.dashboardRepository.getFinancialInvoiceStatistics(dateFilter, query.customerId),
+        this.dashboardRepository.getFinancialBankSlipStatistics(dateFilter),
+        this.dashboardRepository.getFinancialNfseStatistics(dateFilter),
+        this.dashboardRepository.getFinancialQuoteStatistics(dateFilter),
+        this.dashboardRepository.getFinancialTopCustomers(dateFilter, 10),
+        this.dashboardRepository.getFinancialRevenueByCustomer(dateFilter, 10),
+        this.dashboardRepository.getFinancialMonthlyRevenue(6),
+        this.dashboardRepository.getFinancialRecentActivities(dateFilter, 10),
+      ]);
+
+      return {
+        success: true,
+        message: 'Dashboard financeiro carregado com sucesso',
+        data: {
+          revenueMetrics: {
+            totalInvoiced: { label: 'Total Faturado', value: invoiceStats.totalInvoicedAmount, unit: 'currency' },
+            totalPaid: { label: 'Total Recebido', value: invoiceStats.totalPaidAmount, unit: 'currency' },
+            totalPending: { label: 'Total Pendente', value: invoiceStats.totalPendingAmount, unit: 'currency' },
+            overdueAmount: { label: 'Boletos Vencidos', value: invoiceStats.overdueAmount, unit: 'currency' },
+            authorizedNfse: { label: 'NFS-e Autorizadas', value: nfseStats.authorizedNfse },
+          },
+          invoiceMetrics: {
+            totalInvoices: { label: 'Total de Faturas', value: invoiceStats.totalInvoices },
+            activeInvoices: { label: 'Faturas Ativas', value: invoiceStats.activeInvoices },
+            paidInvoices: { label: 'Faturas Pagas', value: invoiceStats.paidInvoices },
+            cancelledInvoices: { label: 'Faturas Canceladas', value: invoiceStats.cancelledInvoices },
+          },
+          bankSlipMetrics: {
+            totalBankSlips: { label: 'Total de Boletos', value: bankSlipStats.totalBankSlips },
+            activeBankSlips: { label: 'Boletos Ativos', value: bankSlipStats.activeBankSlips },
+            overdueBankSlips: { label: 'Boletos Vencidos', value: bankSlipStats.overdueBankSlips },
+            paidBankSlips: { label: 'Boletos Pagos', value: bankSlipStats.paidBankSlips },
+          },
+          nfseMetrics: {
+            totalNfse: { label: 'Total NFS-e', value: nfseStats.totalNfse },
+            authorizedNfse: { label: 'Autorizadas', value: nfseStats.authorizedNfse },
+            pendingNfse: { label: 'Pendentes', value: nfseStats.pendingNfse },
+            cancelledNfse: { label: 'Canceladas', value: nfseStats.cancelledNfse },
+          },
+          quoteMetrics: {
+            totalQuotes: { label: 'Total Orçamentos', value: quoteStats.totalQuotes },
+            pendingQuotes: { label: 'Pendentes', value: quoteStats.pendingQuotes },
+            approvedQuotes: { label: 'Aprovados', value: quoteStats.approvedQuotes },
+            settledQuotes: { label: 'Liquidados', value: quoteStats.settledQuotes },
+          },
+          customerAnalysis: {
+            topCustomers,
+            revenueByCustomer,
+          },
+          invoicesByStatus: invoiceStats.byStatus,
+          quotesByStatus: quoteStats.byStatus,
+          monthlyRevenue,
+          recentActivities,
+        },
+      };
+    } catch (error) {
+      this.logger.error('Error fetching financial dashboard', error);
+      throw error;
+    }
   }
 
   /**

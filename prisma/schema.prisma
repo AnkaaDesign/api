@@ -1198,7 +1198,6 @@ model TaskQuoteCustomerConfig {
   generateInvoice     Boolean          @default(true)
   responsibleId       String?
   paymentCondition    String?
-  downPaymentDate     DateTime?
   customerSignatureId String?
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
@@ -1260,6 +1259,7 @@ model Task {
   startedAt             DateTime?
   finishedAt            DateTime?
   forecastDate          DateTime?
+  cleared               Boolean              @default(false)
   paintId               String?
   customerId            String?
   sectorId              String?

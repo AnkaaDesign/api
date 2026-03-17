@@ -317,6 +317,8 @@ export class TaskNotificationScheduler {
             status: {
               in: [TASK_STATUS.PREPARATION, TASK_STATUS.WAITING_PRODUCTION],
             },
+            // Skip cleared tasks - they've already been released
+            cleared: false,
           },
           include: {
             sector: {
@@ -391,6 +393,8 @@ export class TaskNotificationScheduler {
           status: {
             in: [TASK_STATUS.PREPARATION, TASK_STATUS.WAITING_PRODUCTION],
           },
+          // Skip cleared tasks - they've already been released
+          cleared: false,
         },
         include: {
           sector: {
