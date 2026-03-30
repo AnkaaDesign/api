@@ -162,6 +162,12 @@ export class PpeDeliveryPrismaRepository
       },
       reviewedByUser: true,
       ppeSchedule: true,
+      signature: {
+        include: {
+          signedByUser: { select: { id: true, name: true } },
+          signedDocument: true,
+        },
+      },
     };
   }
 

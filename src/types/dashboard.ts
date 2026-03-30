@@ -662,6 +662,9 @@ export interface HomeDashboardTask {
   forecastDate: Date | null;
   customerName: string | null;
   sectorName: string | null;
+  quoteTotal?: number | null;
+  quoteExpiresAt?: Date | null;
+  quoteBudgetNumber?: number | null;
 }
 
 export interface HomeDashboardServiceOrder {
@@ -705,6 +708,7 @@ export interface HomeDashboardData {
   completedTasks?: HomeDashboardTask[];
   tasksAwaitingPaymentApproval?: HomeDashboardTask[];
   tasksAwaitingQuoteApproval?: HomeDashboardTask[];
+  tasksAwaitingBudgetApproval?: HomeDashboardTask[];
   recentMessages?: HomeDashboardMessage[];
   counts: {
     tasksCloseDeadline?: number;
@@ -714,6 +718,7 @@ export interface HomeDashboardData {
     completedTasks?: number;
     tasksAwaitingPaymentApproval?: number;
     tasksAwaitingQuoteApproval?: number;
+    tasksAwaitingBudgetApproval?: number;
     recentMessages?: number;
     unreadMessages?: number;
   };

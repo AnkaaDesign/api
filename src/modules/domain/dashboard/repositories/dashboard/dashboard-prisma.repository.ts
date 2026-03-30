@@ -3586,7 +3586,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
   async getTasksAwaitingQuoteApproval(limit = 50): Promise<HomeDashboardTask[]> {
     const tasks = await this.prisma.task.findMany({
       where: {
-        status: { notIn: [TASK_STATUS.COMPLETED as any, TASK_STATUS.CANCELLED as any] },
         quote: { status: 'VERIFIED_BY_FINANCIAL' as any },
       },
       select: {
@@ -3599,6 +3598,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         customer: { select: { fantasyName: true } },
         sector: { select: { name: true } },
         truck: { select: { plate: true } },
+        quote: { select: { total: true, budgetNumber: true } },
       },
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -3614,6 +3614,45 @@ export class DashboardPrismaRepository implements DashboardRepository {
       forecastDate: t.forecastDate,
       customerName: t.customer?.fantasyName || null,
       sectorName: t.sector?.name || null,
+      quoteTotal: t.quote ? Number(t.quote.total) : null,
+      quoteBudgetNumber: t.quote?.budgetNumber || null,
+    }));
+  }
+
+  async getTasksAwaitingBudgetApproval(limit = 50): Promise<HomeDashboardTask[]> {
+    const tasks = await this.prisma.task.findMany({
+      where: {
+        quote: { status: 'PENDING' as any },
+      },
+      select: {
+        id: true,
+        name: true,
+        serialNumber: true,
+        status: true,
+        term: true,
+        forecastDate: true,
+        customer: { select: { fantasyName: true } },
+        sector: { select: { name: true } },
+        truck: { select: { plate: true } },
+        quote: { select: { total: true, expiresAt: true, budgetNumber: true } },
+      },
+      orderBy: { quote: { expiresAt: 'asc' } },
+      take: limit,
+    });
+
+    return tasks.map((t) => ({
+      id: t.id,
+      name: t.name,
+      serialNumber: t.serialNumber,
+      plate: t.truck?.plate || null,
+      status: t.status,
+      term: t.term,
+      forecastDate: t.forecastDate,
+      customerName: t.customer?.fantasyName || null,
+      sectorName: t.sector?.name || null,
+      quoteTotal: t.quote ? Number(t.quote.total) : null,
+      quoteExpiresAt: t.quote?.expiresAt || null,
+      quoteBudgetNumber: t.quote?.budgetNumber || null,
     }));
   }
 

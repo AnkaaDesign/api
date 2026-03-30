@@ -3037,87 +3037,33 @@ export class TaskService {
             }
           }
 
-          // Auto-complete task when all PRODUCTION service orders are COMPLETED
-          // This ensures task workflow progresses automatically when all production work is done
-          // IMPORTANT: CANCELLED service orders are excluded - they don't block task completion
+          // Rollback task when ALL production service orders are cancelled
+          // NOTE: Task is NOT auto-completed when all production SOs finish.
+          // Only PRODUCTION_MANAGER or ADMIN can manually finish/complete tasks.
           if (
             updatedTask &&
-            (updatedTask.status === TASK_STATUS.IN_PRODUCTION ||
-              updatedTask.status === TASK_STATUS.WAITING_PRODUCTION)
+            updatedTask.status === TASK_STATUS.IN_PRODUCTION
           ) {
-            // Get all PRODUCTION service orders for this task (from the refetched data)
             const productionServiceOrders = (updatedTask.serviceOrders || []).filter(
               (so: any) => so.type === SERVICE_ORDER_TYPE.PRODUCTION,
             );
 
-            // Filter out CANCELLED orders - they don't block task completion
             const activeProductionOrders = productionServiceOrders.filter(
               (so: any) => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
             );
 
-            // Check if there's at least 1 active production service order and ALL are COMPLETED
-            const hasActiveProductionOrders = activeProductionOrders.length > 0;
-            const allActiveProductionCompleted = activeProductionOrders.every(
-              (so: any) => so.status === SERVICE_ORDER_STATUS.COMPLETED,
-            );
-
             // If ALL production orders are now cancelled, rollback task (not cancel - only COMMERCIAL cancellation cancels task)
-            if (!hasActiveProductionOrders && productionServiceOrders.length > 0) {
-              // If task is IN_PRODUCTION, rollback to WAITING_PRODUCTION
-              if (updatedTask.status === TASK_STATUS.IN_PRODUCTION) {
-                this.logger.log(
-                  `[ROLLBACK TASK ON ALL PRODUCTION SO CANCEL] All ${productionServiceOrders.length} PRODUCTION service orders cancelled for task ${id}, rolling back to WAITING_PRODUCTION`,
-                );
-
-                // Update task status to WAITING_PRODUCTION (rollback)
-                updatedTask = (await tx.task.update({
-                  where: { id },
-                  data: {
-                    status: TASK_STATUS.WAITING_PRODUCTION,
-                    statusOrder: 2, // WAITING_PRODUCTION statusOrder
-                    startedAt: null, // Clear start date on rollback
-                  },
-                  include: {
-                    ...include,
-                    customer: true,
-                    artworks: true,
-                    observation: { include: { files: true } },
-                    truck: true,
-                    serviceOrders: true,
-                  },
-                })) as any;
-
-                // Log the rollback in changelog
-                await this.changeLogService.logChange({
-                  entityType: ENTITY_TYPE.TASK,
-                  entityId: id,
-                  action: CHANGE_ACTION.UPDATE,
-                  field: 'status',
-                  oldValue: existingTask.status,
-                  newValue: TASK_STATUS.WAITING_PRODUCTION,
-                  reason: `Tarefa retornada para aguardando produção pois todas as ${productionServiceOrders.length} ordens de serviço de produção foram canceladas`,
-                  triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-                  triggeredById: id,
-                  userId: userId || '',
-                  transaction: tx,
-                });
-
-                taskAutoTransitionedToWaitingProduction = true;
-              }
-              // If task is not IN_PRODUCTION, don't change task status
-            } else if (hasActiveProductionOrders && allActiveProductionCompleted) {
+            if (activeProductionOrders.length === 0 && productionServiceOrders.length > 0) {
               this.logger.log(
-                `[AUTO-COMPLETE TASK] All ${activeProductionOrders.length} active PRODUCTION service orders completed for task ${id}, transitioning to COMPLETED`,
+                `[ROLLBACK TASK ON ALL PRODUCTION SO CANCEL] All ${productionServiceOrders.length} PRODUCTION service orders cancelled for task ${id}, rolling back to WAITING_PRODUCTION`,
               );
 
-              // Update task status to COMPLETED
               updatedTask = (await tx.task.update({
                 where: { id },
                 data: {
-                  status: TASK_STATUS.COMPLETED,
-                  statusOrder: 4, // COMPLETED statusOrder
-                  finishedAt: updatedTask.finishedAt || new Date(),
-                  startedAt: updatedTask.startedAt || new Date(),
+                  status: TASK_STATUS.WAITING_PRODUCTION,
+                  statusOrder: 2, // WAITING_PRODUCTION statusOrder
+                  startedAt: null, // Clear start date on rollback
                 },
                 include: {
                   ...include,
@@ -3129,23 +3075,21 @@ export class TaskService {
                 },
               })) as any;
 
-              // Log the auto-complete in changelog
               await this.changeLogService.logChange({
                 entityType: ENTITY_TYPE.TASK,
                 entityId: id,
                 action: CHANGE_ACTION.UPDATE,
                 field: 'status',
                 oldValue: existingTask.status,
-                newValue: TASK_STATUS.COMPLETED,
-                reason: `Tarefa concluída automaticamente quando todas as ${activeProductionOrders.length} ordens de serviço de produção ativas foram finalizadas`,
+                newValue: TASK_STATUS.WAITING_PRODUCTION,
+                reason: `Tarefa retornada para aguardando produção pois todas as ${productionServiceOrders.length} ordens de serviço de produção foram canceladas`,
                 triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
                 triggeredById: id,
                 userId: userId || '',
                 transaction: tx,
               });
 
-              // Track that task was auto-completed for event/notification emission after transaction
-              taskAutoTransitionedToWaitingProduction = true; // Reuse this flag for event emission
+              taskAutoTransitionedToWaitingProduction = true;
             }
           }
 

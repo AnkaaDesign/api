@@ -49,7 +49,7 @@ export class InvoiceController {
    * List invoices with filters (taskId, customerId, status) and pagination.
    */
   @Get()
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findMany(@Query() query: InvoiceGetManyFormData) {
     return this.invoiceService.findMany(query);
   }
@@ -59,7 +59,7 @@ export class InvoiceController {
    * Get a single invoice with installments, bank slips, and NFS-e.
    */
   @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findById(@Param('id', ParseUUIDPipe) id: string) {
     return this.invoiceService.findById(id, {
       installments: { include: { bankSlip: { include: { pdfFile: true } } } },
@@ -89,7 +89,7 @@ export class InvoiceController {
    * Get all invoices for a specific customer.
    */
   @Get('customer/:customerId')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findByCustomerId(
     @Param('customerId', ParseUUIDPipe) customerId: string,
   ) {
@@ -104,7 +104,7 @@ export class InvoiceController {
    */
   @Put(':id/cancel')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async cancelInvoice(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: { reason?: string },
@@ -120,7 +120,7 @@ export class InvoiceController {
    */
   @Post(':installmentId/boleto/regenerate')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async regenerateBoleto(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
   ) {
@@ -163,7 +163,7 @@ export class InvoiceController {
    */
   @Put(':installmentId/boleto/cancel')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async cancelBoleto(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
   ) {
@@ -217,7 +217,7 @@ export class InvoiceController {
    */
   @Put(':installmentId/boleto/due-date')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async changeBankSlipDueDate(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Body() body: { newDueDate: string },
@@ -311,7 +311,7 @@ export class InvoiceController {
    * If no local PDF exists, fetches directly from Sicredi using linhaDigitavel.
    */
   @Get(':installmentId/boleto/pdf')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async downloadBoletoPdf(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Res() res: Response,
@@ -394,7 +394,7 @@ export class InvoiceController {
    */
   @Post(':invoiceId/nfse/emit')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async emitNfse(@Param('invoiceId', ParseUUIDPipe) invoiceId: string) {
     // Create a new NfseDocument entry with PENDING status
     const nfseDoc = await this.prisma.nfseDocument.create({
@@ -418,7 +418,7 @@ export class InvoiceController {
    */
   @Put(':invoiceId/nfse/cancel')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async cancelNfse(
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
     @Body() body: { reason?: string; reasonCode?: number; nfseDocumentId?: string },
@@ -488,7 +488,7 @@ export class InvoiceController {
    * Fetches directly from Elotech OXY using elotechNfseId.
    */
   @Get(':invoiceId/nfse/pdf')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async downloadNfsePdf(
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
     @Res() res: Response,
