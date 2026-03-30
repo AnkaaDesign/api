@@ -121,10 +121,10 @@ export class TaskQuoteController {
    * PUT /task-quotes/:id
    * Update existing quote
    *
-   * Access: COMMERCIAL, ADMIN
+   * Access: FINANCIAL, COMMERCIAL, ADMIN
    */
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(taskQuoteUpdateSchema))
@@ -187,7 +187,7 @@ export class TaskQuoteController {
    * Access: FINANCIAL, ADMIN
    */
   @Put(':id/verify')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async verify(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     return this.taskQuoteService.verify(id, userId);
   }
@@ -224,7 +224,7 @@ export class TaskQuoteController {
    * Access: FINANCIAL, ADMIN
    */
   @Get('expired/list')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findExpired() {
     const expired = await this.taskQuoteService.findAndMarkExpired();
     return {

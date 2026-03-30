@@ -207,21 +207,31 @@ export class ItemService {
         const existingItem = await prismaClient.item.findFirst({
           where: whereClause,
           include: {
-            measures: true, // Include measures to compare
+            measures: true,
           },
         });
 
         if (existingItem) {
-          // Check if items differ in measures or PPE attributes
+          // Check if items differ in uniCode, measures or PPE attributes
           const itemData = data as ItemDataWithMeasures;
           let hasDifferentAttributes = false;
 
-          // Compare PPE type if present
-          const newPpeType = itemData.ppeType || null;
-          const existingPpeType = existingItem.ppeType || null;
+          // Compare uniCode
+          const newUniCode = (data as any).uniCode || null;
+          const existingUniCode = existingItem.uniCode || null;
 
-          if (newPpeType !== existingPpeType) {
+          if (newUniCode !== existingUniCode) {
             hasDifferentAttributes = true;
+          }
+
+          // Compare PPE type if present
+          if (!hasDifferentAttributes) {
+            const newPpeType = itemData.ppeType || null;
+            const existingPpeType = existingItem.ppeType || null;
+
+            if (newPpeType !== existingPpeType) {
+              hasDifferentAttributes = true;
+            }
           }
 
           // Compare measures if present

@@ -298,6 +298,7 @@ export const TASK_SELECT_MINIMAL: TaskSelect = {
   serialNumber: true,
   term: true,
   forecastDate: true,
+  cleared: true,
   customerId: true,
   sectorId: true,
   createdAt: true,
@@ -352,6 +353,7 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
   startedAt: true,
   finishedAt: true,
   forecastDate: true,
+  cleared: true,
   paintId: true,
   customerId: true,
   sectorId: true,
@@ -510,6 +512,7 @@ export interface TaskMinimal {
   serialNumber: string | null;
   term: Date | null;
   forecastDate: Date | null;
+  cleared: boolean;
   customerId: string | null;
   sectorId: string | null;
   createdAt: Date;
@@ -548,6 +551,7 @@ export interface TaskDetailed extends BaseEntity {
   startedAt: Date | null;
   finishedAt: Date | null;
   forecastDate: Date | null;
+  cleared: boolean;
   paintId: string | null;
   customerId: string | null;
   sectorId: string | null;

@@ -199,7 +199,7 @@ export class ObservationController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,

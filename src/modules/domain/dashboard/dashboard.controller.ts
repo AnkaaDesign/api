@@ -167,6 +167,7 @@ export class DashboardController {
   @Roles(
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.COMMERCIAL,
   )
   @UsePipes(new ZodQueryValidationPipe(financialDashboardQuerySchema))
   async getFinancialDashboard(

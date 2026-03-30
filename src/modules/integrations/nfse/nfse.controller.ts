@@ -67,7 +67,7 @@ export class NfseController {
    * List NFSes from Elotech API, enriched with local invoice/task data.
    */
   @Get()
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async list(
     @Query('dataEmissaoInicial') dataEmissaoInicial?: string,
     @Query('dataEmissaoFinal') dataEmissaoFinal?: string,
@@ -161,7 +161,7 @@ export class NfseController {
    * Get detailed NFSe data from Elotech, with live status from list endpoint.
    */
   @Get(':elotechNfseId')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async detail(@Param('elotechNfseId', ParseIntPipe) elotechNfseId: number) {
     this.ensureConfigured();
     const detail = await this.elotechService.getNfseDetail(elotechNfseId);
@@ -246,7 +246,7 @@ export class NfseController {
    * Download NFSe PDF from Elotech.
    */
   @Get(':elotechNfseId/pdf')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async pdf(
     @Param('elotechNfseId', ParseIntPipe) elotechNfseId: number,
     @Res() res: Response,

@@ -1446,6 +1446,7 @@ export class DashboardService {
       completedTasks: false,
       tasksAwaitingPaymentApproval: false,
       tasksAwaitingQuoteApproval: false,
+      tasksAwaitingBudgetApproval: false,
       recentMessages: true,
     };
 
@@ -1456,6 +1457,7 @@ export class DashboardService {
         config.tasksCloseForecastSOTypes = ['COMMERCIAL'];
         config.tasksAwaitingPaymentApproval = true;
         config.tasksAwaitingQuoteApproval = true;
+        config.tasksAwaitingBudgetApproval = true;
         break;
       case SECTOR_PRIVILEGES.LOGISTIC:
         config.tasksCloseDeadline = true;
@@ -1474,6 +1476,7 @@ export class DashboardService {
         config.lowStockItems = true;
         config.tasksAwaitingPaymentApproval = true;
         config.tasksAwaitingQuoteApproval = true;
+        config.tasksAwaitingBudgetApproval = true;
         break;
       case SECTOR_PRIVILEGES.DESIGNER:
         config.openSOTypes = ['ARTWORK'];
@@ -1643,6 +1646,10 @@ export class DashboardService {
         promises.tasksAwaitingQuoteApproval = this.dashboardRepository.getTasksAwaitingQuoteApproval();
       }
 
+      if (config.tasksAwaitingBudgetApproval) {
+        promises.tasksAwaitingBudgetApproval = this.dashboardRepository.getTasksAwaitingBudgetApproval();
+      }
+
       if (config.recentMessages) {
         promises.recentMessages = this.dashboardRepository.getRecentMessages(
           userId,
@@ -1695,6 +1702,11 @@ export class DashboardService {
       if (resolved.tasksAwaitingQuoteApproval) {
         data.tasksAwaitingQuoteApproval = resolved.tasksAwaitingQuoteApproval;
         data.counts.tasksAwaitingQuoteApproval = resolved.tasksAwaitingQuoteApproval.length;
+      }
+
+      if (resolved.tasksAwaitingBudgetApproval) {
+        data.tasksAwaitingBudgetApproval = resolved.tasksAwaitingBudgetApproval;
+        data.counts.tasksAwaitingBudgetApproval = resolved.tasksAwaitingBudgetApproval.length;
       }
 
       if (resolved.recentMessages) {
