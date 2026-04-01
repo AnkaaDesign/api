@@ -220,6 +220,9 @@ export abstract class DashboardRepository {
   abstract getProductionRevenueAnalysis(where?: any): Promise<{
     totalRevenue: number;
     averageTaskValue: number;
+    expectedRevenue: number;
+    invoicedRevenue: number;
+    receivedRevenue: number;
     byMonth: TimeSeriesDataPoint[];
     bySector: DashboardChartData;
     byCustomerType: DashboardChartData;

@@ -17,6 +17,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { ArrayFixPipe } from '@modules/common/pipes/array-fix.pipe';
 import { UserService } from './user.service';
+import { UserAnalyticsService } from './user-analytics.service';
+import { AdministrationAnalyticsService } from './administration-analytics.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
@@ -62,7 +64,11 @@ import {
 
 @Controller('users')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly userAnalyticsService: UserAnalyticsService,
+    private readonly adminAnalyticsService: AdministrationAnalyticsService,
+  ) {}
 
   // Basic CRUD Operations
   @Get()
@@ -190,5 +196,25 @@ export class UserController {
     @UserId() userId: string,
   ): Promise<UserDeleteResponse> {
     return this.userService.delete(id, userId);
+  }
+
+  // =====================
+  // Analytics Endpoints
+  // =====================
+
+  @Post('analytics/team-performance')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @HttpCode(HttpStatus.OK)
+  async getTeamPerformance(@Body() filters: any) {
+    const data = await this.userAnalyticsService.getTeamPerformance(filters);
+    return { success: true, message: 'Análise de equipe carregada', data };
+  }
+
+  @Post('analytics/administration-overview')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getAdministrationOverview(@Body() filters: any) {
+    const data = await this.adminAnalyticsService.getOverviewAnalytics(filters);
+    return { success: true, message: 'Visão geral administrativa carregada', data };
   }
 }

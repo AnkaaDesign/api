@@ -25,6 +25,7 @@ import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../constants/enums';
 import { PaintService } from './paint.service';
+import { PaintAnalyticsService } from './paint-analytics.service';
 import { PaintTypeService } from './paint-type.service';
 import { PaintGroundService } from './paint-ground.service';
 import { PaintFormulaService } from './paint-formula.service';
@@ -219,6 +220,7 @@ export class PaintUnifiedController {
     private readonly paintFormulaService: PaintFormulaService,
     private readonly paintFormulaComponentService: PaintFormulaComponentService,
     private readonly paintProductionService: PaintProductionService,
+    private readonly paintAnalyticsService: PaintAnalyticsService,
     private readonly paintBrandService: PaintBrandService,
     private readonly paintCompatibilityService: PaintCompatibilityService,
   ) {}
@@ -1159,5 +1161,17 @@ export class PaintUnifiedController {
     @Query() query: PaintGetByIdFormData,
   ): Promise<PaintGetUniqueResponse> {
     return this.paintService.findById(id, query.include);
+  }
+
+  // =====================
+  // Analytics Endpoints
+  // =====================
+
+  @Post('analytics/overview')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.WAREHOUSE)
+  @HttpCode(HttpStatus.OK)
+  async getPaintProductionAnalytics(@Body() filters: any) {
+    const data = await this.paintAnalyticsService.getOverviewAnalytics(filters);
+    return { success: true, message: 'Análise de produção de tintas carregada', data };
   }
 }

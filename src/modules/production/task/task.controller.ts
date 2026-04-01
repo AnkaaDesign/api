@@ -21,9 +21,15 @@ import { FileInterceptor, FilesInterceptor, FileFieldsInterceptor } from '@nestj
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { FileService } from '@modules/common/file/file.service';
 import { TaskService } from './task.service';
+import { TaskAnalyticsService } from './task-analytics.service';
 import { UserId, User, UserPayload } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES, TASK_STATUS } from '../../../constants/enums';
+import {
+  taskThroughputFiltersSchema,
+  taskBottleneckFiltersSchema,
+  taskRevenueFiltersSchema,
+} from '../../../schemas/task-analytics';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
@@ -92,6 +98,7 @@ export class TaskController {
   constructor(
     private readonly tasksService: TaskService,
     private readonly fileService: FileService,
+    private readonly analyticsService: TaskAnalyticsService,
   ) {}
 
   // Basic CRUD Operations (static routes first)
@@ -853,5 +860,36 @@ export class TaskController {
       'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
         'Use PUT /tasks/:id com FormData incluindo o campo "artworks".',
     );
+  }
+
+  // =====================
+  // Analytics Endpoints
+  // =====================
+
+  @Post('analytics/throughput')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
+  @HttpCode(HttpStatus.OK)
+  @UsePipes(new ZodValidationPipe(taskThroughputFiltersSchema))
+  async getThroughputAnalytics(@Body() filters: any) {
+    const data = await this.analyticsService.getThroughputAnalytics(filters);
+    return { success: true, message: 'Análise de rendimento carregada', data };
+  }
+
+  @Post('analytics/bottlenecks')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
+  @HttpCode(HttpStatus.OK)
+  @UsePipes(new ZodValidationPipe(taskBottleneckFiltersSchema))
+  async getBottleneckAnalytics(@Body() filters: any) {
+    const data = await this.analyticsService.getBottleneckAnalytics(filters);
+    return { success: true, message: 'Análise de gargalos carregada', data };
+  }
+
+  @Post('analytics/revenue')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
+  @HttpCode(HttpStatus.OK)
+  @UsePipes(new ZodValidationPipe(taskRevenueFiltersSchema))
+  async getRevenueAnalytics(@Body() filters: any) {
+    const data = await this.analyticsService.getRevenueAnalytics(filters);
+    return { success: true, message: 'Análise de receita carregada', data };
   }
 }

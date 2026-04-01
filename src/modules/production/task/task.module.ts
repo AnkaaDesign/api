@@ -2,6 +2,7 @@
 import { Module } from '@nestjs/common';
 import { TaskController } from './task.controller';
 import { TaskService } from './task.service';
+import { TaskAnalyticsService } from './task-analytics.service';
 import { TaskRepository } from './repositories/task.repository';
 import { TaskPrismaRepository } from './repositories/task-prisma.repository';
 import { TaskListener } from './task.listener';
@@ -20,6 +21,7 @@ import { NfseModule } from '@modules/integrations/nfse/nfse.module';
   controllers: [TaskController],
   providers: [
     TaskService,
+    TaskAnalyticsService,
     TaskListener,
     ArtworkListener,
     TaskNotificationScheduler,

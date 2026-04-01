@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { PayrollController } from './payroll.controller';
 import { PayrollService } from './payroll.service';
+import { PayrollAnalyticsService } from './payroll-analytics.service';
 import { PayrollRepository } from './repositories/payroll/payroll.repository';
 import { PayrollPrismaRepository } from './repositories/payroll/payroll-prisma.repository';
 import { DiscountRepository } from './repositories/discount/discount.repository';
@@ -29,6 +30,7 @@ import { SecullumModule } from '@modules/integrations/secullum/secullum.module';
   controllers: [PayrollController, DiscountController],
   providers: [
     PayrollService,
+    PayrollAnalyticsService,
     DiscountService,
     BrazilianTaxCalculatorService,
     CompletePayrollCalculatorService,

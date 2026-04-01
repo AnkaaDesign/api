@@ -13,10 +13,12 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  UsePipes,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { InvoiceService } from './invoice.service';
 import { InvoiceGenerationService } from './invoice-generation.service';
+import { InvoiceAnalyticsService } from './invoice-analytics.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
@@ -37,6 +39,7 @@ export class InvoiceController {
   constructor(
     private readonly invoiceService: InvoiceService,
     private readonly invoiceGenerationService: InvoiceGenerationService,
+    private readonly invoiceAnalyticsService: InvoiceAnalyticsService,
     private readonly prisma: PrismaService,
     private readonly sicrediService: SicrediService,
     private readonly municipalNfseService: ElotechOxyNfseService,
@@ -527,5 +530,25 @@ export class InvoiceController {
         'Não foi possível obter o PDF da NFS-e.',
       );
     }
+  }
+
+  // =====================
+  // Analytics Endpoints
+  // =====================
+
+  @Post('analytics/collection')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @HttpCode(HttpStatus.OK)
+  async getCollectionAnalytics(@Body() filters: any) {
+    const data = await this.invoiceAnalyticsService.getCollectionAnalytics(filters);
+    return { success: true, message: 'Análise de cobranças carregada', data };
+  }
+
+  @Post('analytics/bank-slips')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @HttpCode(HttpStatus.OK)
+  async getBankSlipPerformance(@Body() filters: any) {
+    const data = await this.invoiceAnalyticsService.getBankSlipPerformance(filters);
+    return { success: true, message: 'Desempenho de boletos carregado', data };
   }
 }

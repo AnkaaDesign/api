@@ -231,7 +231,9 @@ export class TaskQuoteService {
                 total: config.total || 0,
                 customPaymentText: config.customPaymentText || null,
                 generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
-                responsibleId: config.responsibleId || null,
+                ...(config.responsibleId && {
+                  responsible: { connect: { id: config.responsibleId } },
+                }),
                 paymentCondition: config.paymentCondition || null,
               })),
             },
@@ -1297,10 +1299,15 @@ export class TaskQuoteService {
     currentStatus: TASK_QUOTE_STATUS,
     newStatus: TASK_QUOTE_STATUS,
   ): void {
-    // All statuses can transition to any other status (except themselves)
-    // to allow administrative corrections
     if (currentStatus === newStatus) {
       throw new BadRequestException(`O status já é ${currentStatus}`);
+    }
+
+    // BILLING_APPROVED can only be reached from VERIFIED_BY_FINANCIAL
+    if (newStatus === TASK_QUOTE_STATUS.BILLING_APPROVED && currentStatus !== TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL) {
+      throw new BadRequestException(
+        'O faturamento só pode ser aprovado quando o orçamento estiver no status "Verificado pelo Financeiro".',
+      );
     }
   }
 
@@ -1474,14 +1481,14 @@ export class TaskQuoteService {
    */
   private getStatusOrder(status: TASK_QUOTE_STATUS): number {
     const order: Record<string, number> = {
-      [TASK_QUOTE_STATUS.PENDING]: 1,
-      [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 2,
-      [TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL]: 3,
-      [TASK_QUOTE_STATUS.BILLING_APPROVED]: 4,
-      [TASK_QUOTE_STATUS.UPCOMING]: 5,
-      [TASK_QUOTE_STATUS.DUE]: 6,
-      [TASK_QUOTE_STATUS.PARTIAL]: 7,
-      [TASK_QUOTE_STATUS.SETTLED]: 8,
+      [TASK_QUOTE_STATUS.SETTLED]: 1,
+      [TASK_QUOTE_STATUS.PARTIAL]: 2,
+      [TASK_QUOTE_STATUS.UPCOMING]: 3,
+      [TASK_QUOTE_STATUS.PENDING]: 4,
+      [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 5,
+      [TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL]: 6,
+      [TASK_QUOTE_STATUS.BILLING_APPROVED]: 7,
+      [TASK_QUOTE_STATUS.DUE]: 8,
     };
     return order[status] || 1;
   }

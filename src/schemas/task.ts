@@ -1564,14 +1564,14 @@ const taskTransform = (data: any): any => {
   }
 
   // Financial-specific display logic:
-  // Show only COMPLETED tasks that have a quote and quote status is between BUDGET_APPROVED and PARTIAL
-  // (excludes PENDING and SETTLED)
+  // Show only COMPLETED tasks that have a quote and quote status from BUDGET_APPROVED onwards
+  // (excludes only PENDING)
   if (data.shouldDisplayForFinancial === true) {
     andConditions.push({
       AND: [
         { status: 'COMPLETED' },
         { quote: { isNot: null } },
-        { quote: { status: { notIn: ['PENDING', 'SETTLED'] } } },
+        { quote: { status: { notIn: ['PENDING'] } } },
       ],
     });
     delete data.shouldDisplayForFinancial;

@@ -17,6 +17,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PayrollService } from './payroll.service';
+import { PayrollAnalyticsService } from './payroll-analytics.service';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -54,7 +55,10 @@ import {
 @Controller('payroll')
 @UseGuards(AuthGuard)
 export class PayrollController {
-  constructor(private readonly payrollService: PayrollService) {}
+  constructor(
+    private readonly payrollService: PayrollService,
+    private readonly payrollAnalyticsService: PayrollAnalyticsService,
+  ) {}
 
   // =====================
   // Regular CRUD Operations (like any other entity)
@@ -528,5 +532,17 @@ export class PayrollController {
     @UserId() userId: string,
   ) {
     return this.payrollService.simulateBonuses(params);
+  }
+
+  // =====================
+  // Analytics Endpoints
+  // =====================
+
+  @Post('analytics/trends')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @HttpCode(HttpStatus.OK)
+  async getPayrollTrends(@Body() filters: any) {
+    const data = await this.payrollAnalyticsService.getPayrollTrends(filters);
+    return { success: true, message: 'Tendências da folha carregadas', data };
   }
 }

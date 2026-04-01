@@ -18,6 +18,7 @@ import { PaintProductionService } from './paint-production.service';
 import { PaintGroundService } from './paint-ground.service';
 import { PaintBrandService } from './paint-brand.service';
 import { PaintCompatibilityService } from './paint-compatibility.service';
+import { PaintAnalyticsService } from './paint-analytics.service';
 
 // Listeners
 import { PaintProductionListener } from './paint-production.listener';
@@ -61,6 +62,7 @@ import { PaintBrandPrismaRepository } from './repositories/paint-brand/paint-bra
     PaintGroundService,
     PaintBrandService,
     PaintCompatibilityService,
+    PaintAnalyticsService,
     PaintProductionListener,
     {
       provide: PaintProductionRepository,
