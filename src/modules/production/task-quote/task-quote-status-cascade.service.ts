@@ -126,14 +126,14 @@ export class TaskQuoteStatusCascadeService {
 
       if (newStatus !== quote.status) {
         const statusOrder: Record<string, number> = {
-          [TASK_QUOTE_STATUS.PENDING]: 1,
-          [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 2,
-          [TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL]: 3,
-          [TASK_QUOTE_STATUS.BILLING_APPROVED]: 4,
-          [TASK_QUOTE_STATUS.UPCOMING]: 5,
-          [TASK_QUOTE_STATUS.DUE]: 6,
-          [TASK_QUOTE_STATUS.PARTIAL]: 7,
-          [TASK_QUOTE_STATUS.SETTLED]: 8,
+          [TASK_QUOTE_STATUS.SETTLED]: 1,
+          [TASK_QUOTE_STATUS.PARTIAL]: 2,
+          [TASK_QUOTE_STATUS.UPCOMING]: 3,
+          [TASK_QUOTE_STATUS.PENDING]: 4,
+          [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 5,
+          [TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL]: 6,
+          [TASK_QUOTE_STATUS.BILLING_APPROVED]: 7,
+          [TASK_QUOTE_STATUS.DUE]: 8,
         };
 
         await this.prisma.taskQuote.update({

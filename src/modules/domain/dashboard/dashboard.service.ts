@@ -1324,6 +1324,21 @@ export class DashboardService {
         value: stats.averageTaskValue,
         unit: 'R$',
       },
+      expectedRevenue: {
+        label: 'Receita Esperada',
+        value: stats.expectedRevenue,
+        unit: 'R$',
+      },
+      invoicedRevenue: {
+        label: 'Faturado',
+        value: stats.invoicedRevenue,
+        unit: 'R$',
+      },
+      receivedRevenue: {
+        label: 'Recebido',
+        value: stats.receivedRevenue,
+        unit: 'R$',
+      },
       revenueByMonth: stats.byMonth,
       revenueBySector: stats.bySector,
       revenueByCustomerType: stats.byCustomerType,

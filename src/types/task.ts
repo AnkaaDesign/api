@@ -121,7 +121,9 @@ export interface TaskSelectFields {
   startedAt?: boolean;
   finishedAt?: boolean;
   forecastDate?: boolean;
+  cleared?: boolean;
   paintId?: boolean;
+  commissionOrder?: boolean;
   customerId?: boolean;
   sectorId?: boolean;
   createdById?: boolean;

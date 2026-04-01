@@ -1,5 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { UserService } from './user.service';
+import { UserAnalyticsService } from './user-analytics.service';
+import { AdministrationAnalyticsService } from './administration-analytics.service';
 import { UserController } from './user.controller';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { UserRepository } from './repositories/user.repository';
@@ -13,6 +15,8 @@ import { NotificationModule } from '@modules/common/notification/notification.mo
   controllers: [UserController],
   providers: [
     UserService,
+    UserAnalyticsService,
+    AdministrationAnalyticsService,
     {
       provide: UserRepository,
       useClass: UserPrismaRepository,

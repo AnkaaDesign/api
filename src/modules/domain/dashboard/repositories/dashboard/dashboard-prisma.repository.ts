@@ -2298,13 +2298,29 @@ export class DashboardPrismaRepository implements DashboardRepository {
       });
     }
 
-    // Group by service type (placeholder implementation)
+    // Group by service order type (PRODUCTION, COMMERCIAL, ARTWORK, LOGISTIC)
+    const typeLabels: Record<string, string> = {
+      PRODUCTION: 'Produção',
+      COMMERCIAL: 'Comercial',
+      ARTWORK: 'Arte',
+      LOGISTIC: 'Logística',
+    };
+    const typeGroups = orders.reduce(
+      (acc, order) => {
+        const type = order.type || 'PRODUCTION';
+        acc[type] = (acc[type] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+
+    const sortedTypeEntries = Object.entries(typeGroups).sort(([, a], [, b]) => b - a);
     const byType: DashboardChartData = {
-      labels: ['Manutenção', 'Instalação', 'Reparo', 'Outros'],
+      labels: sortedTypeEntries.map(([type]) => typeLabels[type] || type),
       datasets: [
         {
           label: 'Ordens por Tipo',
-          data: [25, 30, 20, 25], // Mock data - implement actual grouping
+          data: sortedTypeEntries.map(([, count]) => count),
         },
       ],
     };
@@ -2475,43 +2491,58 @@ export class DashboardPrismaRepository implements DashboardRepository {
     byManufacturer: DashboardChartData;
     byPosition: DashboardListItem[];
   }> {
-    const [trucks, trucksInProduction] = await Promise.all([
+    // Only count trucks with active tasks that have arrived (entryDate exists)
+    const activeTaskStatuses = [TASK_STATUS.WAITING_PRODUCTION, TASK_STATUS.IN_PRODUCTION];
+    const [activeTrucks, trucksInProduction] = await Promise.all([
       this.prisma.truck.findMany({
+        where: {
+          task: {
+            status: { in: activeTaskStatuses },
+            entryDate: { not: null, lte: new Date() },
+          },
+        },
         select: {
           id: true,
           plate: true,
           spot: true,
+          category: true,
           task: { select: { status: true, name: true } },
         },
       }),
       this.prisma.truck.count({
         where: {
-          task: { status: { in: [TASK_STATUS.IN_PRODUCTION, TASK_STATUS.WAITING_PRODUCTION] } },
+          task: {
+            status: TASK_STATUS.IN_PRODUCTION,
+            entryDate: { not: null, lte: new Date() },
+          },
         },
       }),
     ]);
 
-    const total = trucks.length;
+    const total = activeTrucks.length;
 
-    // Mock manufacturer data since it's not in the schema
-    const manufacturerGroups = {
-      Mercedes: Math.floor(total * 0.4),
-      Scania: Math.floor(total * 0.3),
-      Volvo: Math.floor(total * 0.2),
-      Outros: Math.floor(total * 0.1),
-    };
+    // Group by truck category (real data from the category field)
+    const categoryGroups = activeTrucks.reduce(
+      (acc, truck) => {
+        const category = truck.category || 'Outros';
+        acc[category] = (acc[category] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
 
+    const sortedCategories = Object.entries(categoryGroups).sort(([, a], [, b]) => b - a);
     const byManufacturer: DashboardChartData = {
-      labels: Object.keys(manufacturerGroups),
+      labels: sortedCategories.map(([cat]) => cat),
       datasets: [
         {
-          label: 'Caminhões por Fabricante',
-          data: Object.values(manufacturerGroups),
+          label: 'Caminhões por Categoria',
+          data: sortedCategories.map(([, count]) => count),
         },
       ],
     };
 
-    const byPosition = trucks.map(truck => ({
+    const byPosition = activeTrucks.map(truck => ({
       id: truck.id,
       name: `${truck.plate || 'Sem placa'} - ${truck.task?.name || 'N/A'}`,
       value: 1,
@@ -2656,28 +2687,144 @@ export class DashboardPrismaRepository implements DashboardRepository {
   async getProductionRevenueAnalysis(where?: any): Promise<{
     totalRevenue: number;
     averageTaskValue: number;
+    expectedRevenue: number;
+    invoicedRevenue: number;
+    receivedRevenue: number;
     byMonth: TimeSeriesDataPoint[];
     bySector: DashboardChartData;
     byCustomerType: DashboardChartData;
   }> {
-    const totalRevenue = 0;
-    const averageTaskValue = 0;
+    // Fetch ONLY completed tasks for actual faturamento (real revenue)
+    // Tasks in PREPARATION/WAITING/IN_PRODUCTION haven't been billed yet
+    const [completedTasks, allQuotedTasks] = await Promise.all([
+      this.prisma.task.findMany({
+        where: {
+          ...where,
+          status: TASK_STATUS.COMPLETED,
+          quote: { isNot: null },
+        },
+        select: {
+          id: true,
+          finishedAt: true,
+          sector: { select: { id: true, name: true } },
+          customer: { select: { id: true, cnpj: true, cpf: true } },
+          quote: {
+            select: {
+              total: true,
+              customerConfigs: {
+                select: {
+                  total: true,
+                  installments: {
+                    select: {
+                      amount: true,
+                      paidAmount: true,
+                      paidAt: true,
+                      status: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      // Expected revenue: all tasks with quotes (including not-yet-started/completed)
+      // Excludes CANCELLED tasks
+      this.prisma.task.findMany({
+        where: {
+          ...where,
+          status: { not: TASK_STATUS.CANCELLED },
+          quote: { isNot: null },
+        },
+        select: {
+          id: true,
+          status: true,
+          quote: { select: { total: true } },
+        },
+      }),
+    ]);
 
-    const byMonth: TimeSeriesDataPoint[] = [];
+    // EXPECTED REVENUE: Sum of ALL non-cancelled task quotes (pipeline value)
+    let expectedRevenue = 0;
+    for (const task of allQuotedTasks) {
+      expectedRevenue += task.quote?.total ? Number(task.quote.total) : 0;
+    }
 
+    // INVOICED REVENUE (Faturamento): Sum of completed task quote totals
+    // This is what has been billed (tasks completed = invoices generated or ready to generate)
+    let invoicedRevenue = 0;
+    const tasksWithRevenue: typeof completedTasks = [];
+    for (const task of completedTasks) {
+      const quoteTotal = task.quote?.total ? Number(task.quote.total) : 0;
+      if (quoteTotal > 0) {
+        invoicedRevenue += quoteTotal;
+        tasksWithRevenue.push(task);
+      }
+    }
+
+    // RECEIVED REVENUE (Recebido): Sum of actual paid installment amounts
+    // This is real money that entered the company
+    let receivedRevenue = 0;
+    for (const task of completedTasks) {
+      if (task.quote?.customerConfigs) {
+        for (const config of task.quote.customerConfigs) {
+          for (const installment of config.installments || []) {
+            receivedRevenue += installment.paidAmount ? Number(installment.paidAmount) : 0;
+          }
+        }
+      }
+    }
+
+    // totalRevenue = invoiced (what the dashboard primarily shows as "Receita Total")
+    const totalRevenue = invoicedRevenue;
+    const averageTaskValue = tasksWithRevenue.length > 0 ? invoicedRevenue / tasksWithRevenue.length : 0;
+
+    // Revenue by month (using finishedAt as the reference date for completed tasks)
+    const monthGroups: Record<string, number> = {};
+    for (const task of tasksWithRevenue) {
+      if (task.finishedAt) {
+        const monthKey = `${task.finishedAt.getFullYear()}-${String(task.finishedAt.getMonth() + 1).padStart(2, '0')}`;
+        monthGroups[monthKey] = (monthGroups[monthKey] || 0) + Number(task.quote?.total || 0);
+      }
+    }
+
+    const byMonth: TimeSeriesDataPoint[] = Object.entries(monthGroups)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, value]) => ({
+        date: month,
+        value,
+        label: month,
+      }));
+
+    // Revenue by sector (only from completed tasks)
+    const sectorGroups: Record<string, number> = {};
+    for (const task of tasksWithRevenue) {
+      const sectorName = task.sector?.name || 'Sem Setor';
+      sectorGroups[sectorName] = (sectorGroups[sectorName] || 0) + Number(task.quote?.total || 0);
+    }
+
+    const sortedSectors = Object.entries(sectorGroups).sort(([, a], [, b]) => b - a);
     const bySector: DashboardChartData = {
-      labels: [],
+      labels: sortedSectors.map(([name]) => name),
       datasets: [
         {
           label: 'Receita por Setor',
-          data: [],
+          data: sortedSectors.map(([, value]) => value),
         },
       ],
     };
 
-    const physicalPersonRevenue = 0;
-
-    const legalEntityRevenue = 0;
+    // Revenue by customer type (only from completed tasks)
+    let physicalPersonRevenue = 0;
+    let legalEntityRevenue = 0;
+    for (const task of tasksWithRevenue) {
+      const quoteTotal = Number(task.quote?.total || 0);
+      if (task.customer?.cnpj) {
+        legalEntityRevenue += quoteTotal;
+      } else {
+        physicalPersonRevenue += quoteTotal;
+      }
+    }
 
     const byCustomerType: DashboardChartData = {
       labels: ['Pessoa Física', 'Pessoa Jurídica'],
@@ -2692,6 +2839,9 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return {
       totalRevenue,
       averageTaskValue,
+      expectedRevenue,
+      invoicedRevenue,
+      receivedRevenue,
       byMonth,
       bySector,
       byCustomerType,

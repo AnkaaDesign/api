@@ -452,6 +452,7 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   invoiceToId: 'faturar para',
   customerConfigs: 'configurações de clientes para faturamento',
   quoteId: 'orçamento',
+  pricingId: 'orçamento',
   artworkIds: 'artes',
   artworks: 'artes',
   baseFileIds: 'arquivos base',

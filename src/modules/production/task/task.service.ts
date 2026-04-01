@@ -11081,16 +11081,20 @@ export class TaskService {
         include: include || undefined,
       });
 
-      await tx.taskForecastHistory.create({
-        data: {
-          taskId,
-          previousDate: previousDate ?? null,
-          newDate: data.forecastDate,
-          reason: data.reason,
-          source: 'MANUAL',
-          changedById: userId,
-        },
-      });
+      // Only create reschedule history when there was a previous forecast date.
+      // Setting a forecast for the first time (previousDate is null) is not a reschedule.
+      if (previousDate) {
+        await tx.taskForecastHistory.create({
+          data: {
+            taskId,
+            previousDate,
+            newDate: data.forecastDate,
+            reason: data.reason,
+            source: 'MANUAL',
+            changedById: userId,
+          },
+        });
+      }
 
       await tx.taskFieldChangeLog.create({
         data: {
