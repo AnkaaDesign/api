@@ -831,8 +831,8 @@ export class TaskPrismaRepository
       const truckData: any = {};
       if (truck.plate !== undefined) truckData.plate = truck.plate;
       if (truck.chassisNumber !== undefined) truckData.chassisNumber = truck.chassisNumber;
-      // Default to YARD_WAIT if no spot explicitly set
-      truckData.spot = truck.spot !== undefined ? truck.spot : 'YARD_WAIT';
+      // Spot starts as null — only set to YARD_WAIT when task is cleared
+      truckData.spot = truck.spot !== undefined ? truck.spot : null;
       if (truck.category !== undefined && truck.category !== null) {
         truckData.category = truck.category;
       }
@@ -1194,9 +1194,9 @@ export class TaskPrismaRepository
           truckCreateData.spot = truck.spot;
           truckUpdateData.spot = truck.spot;
         }
-        // Default to YARD_WAIT when creating a new truck via upsert
+        // Spot starts as null — only set to YARD_WAIT when task is cleared
         if (truckCreateData.spot === undefined) {
-          truckCreateData.spot = 'YARD_WAIT';
+          truckCreateData.spot = null;
         }
         if (truck.category !== undefined && truck.category !== '') {
           truckCreateData.category = truck.category;
@@ -1795,6 +1795,14 @@ export class TaskPrismaRepository
         data: updateInput,
         include: includeInput,
       });
+
+      // When cleared becomes true, move truck to YARD_WAIT if spot is currently null
+      if (data.cleared === true) {
+        await transaction.truck.updateMany({
+          where: { taskId: id, spot: null },
+          data: { spot: 'YARD_WAIT' },
+        });
+      }
 
       return this.mapDatabaseEntityToEntity(result);
     } catch (error) {

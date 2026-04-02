@@ -78,6 +78,29 @@ export class TaskQuoteController {
   }
 
   /**
+   * GET /task-quotes/suggest
+   * Find the most recent quote matching task name, customer, truck category, and implement type.
+   * Used to pre-fill services when creating a new budget.
+   *
+   * Query params: name, customerId, category, implementType (all required)
+   */
+  @Get('suggest')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  async findSuggestion(
+    @Query('name') name: string,
+    @Query('customerId') customerId: string,
+    @Query('category') category: string,
+    @Query('implementType') implementType: string,
+  ) {
+    if (!name || !customerId || !category || !implementType) {
+      throw new BadRequestException(
+        'Todos os campos são obrigatórios: name, customerId, category, implementType.',
+      );
+    }
+    return this.taskQuoteService.findSuggestion({ name, customerId, category, implementType });
+  }
+
+  /**
    * GET /task-quotes/:id
    * Get single quote by ID
    */

@@ -42,4 +42,14 @@ export abstract class TaskQuoteRepository extends BaseStringRepository<
    * @returns Approved quote or null
    */
   abstract findApprovedByTaskId(taskId: string): Promise<TaskQuote | null>;
+
+  /**
+   * Find the most recent quote matching task name, customerId, truck category, and implement type
+   */
+  abstract findSuggestion(params: {
+    name: string;
+    customerId: string;
+    category: string;
+    implementType: string;
+  }): Promise<(TaskQuote & { taskCreatedAt: Date }) | null>;
 }

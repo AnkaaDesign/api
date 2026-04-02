@@ -507,7 +507,7 @@ export class TaskService {
                 taskId: newTask.id,
                 plate: truckData.plate || null,
                 chassisNumber: truckData.chassisNumber || null,
-                spot: truckData.spot !== undefined ? truckData.spot : 'YARD_WAIT',
+                spot: truckData.spot !== undefined ? truckData.spot : null,
               },
             });
           }
@@ -1397,7 +1397,7 @@ export class TaskService {
                   chassisNumber: truckData.chassisNumber || null,
                   category: truckData.category || null,
                   implementType: truckData.implementType || null,
-                  spot: truckData.spot !== undefined ? truckData.spot : 'YARD_WAIT',
+                  spot: truckData.spot !== undefined ? truckData.spot : null,
                 },
               });
               truckId = newTruck.id;
@@ -6443,7 +6443,7 @@ export class TaskService {
                   chassisNumber: truckData.chassisNumber || null,
                   category: truckData.category || null,
                   implementType: truckData.implementType || null,
-                  spot: truckData.spot !== undefined ? truckData.spot : 'YARD_WAIT',
+                  spot: truckData.spot !== undefined ? truckData.spot : null,
                 },
               });
               truckId = newTruck.id;
@@ -10603,7 +10603,7 @@ export class TaskService {
                     data: {
                       implementType: sourceTask.truck.implementType,
                       taskId: destinationTaskId,
-                      spot: 'YARD_WAIT',
+                      spot: null,
                     },
                   });
                 }
@@ -10629,7 +10629,7 @@ export class TaskService {
                     data: {
                       category: sourceTask.truck.category,
                       taskId: destinationTaskId,
-                      spot: 'YARD_WAIT',
+                      spot: null,
                     },
                   });
                 }
@@ -10727,7 +10727,7 @@ export class TaskService {
                     data: {
                       ...layoutData,
                       taskId: destinationTaskId,
-                      spot: 'YARD_WAIT',
+                      spot: null,
                     },
                   });
                 }

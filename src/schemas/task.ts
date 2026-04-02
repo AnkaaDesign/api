@@ -1207,6 +1207,7 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       forecastDate: z
         .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
         .optional(),
+      cleared: z.boolean().optional(),
       finishedAt: z
         .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
         .optional(),

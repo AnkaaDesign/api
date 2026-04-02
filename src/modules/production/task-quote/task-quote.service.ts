@@ -43,7 +43,12 @@ import { CHANGE_TRIGGERED_BY } from '@constants';
 import { logQuoteServiceChanges } from '@modules/common/changelog/utils/quote-service-changelog';
 import { serializeChangelogValue } from '@modules/common/changelog/utils/serialize-changelog-value';
 import { normalizeDescription } from '@utils';
-import { SERVICE_ORDER_TYPE } from '@constants';
+import { SERVICE_ORDER_TYPE, SERVICE_ORDER_STATUS } from '@constants';
+import {
+  getQuoteItemToServiceOrderSync,
+  type SyncServiceOrder,
+} from '../../../utils/task-quote-service-order-sync';
+import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
 
 /**
  * Compute the discount amount for a service based on its discount type and value.
@@ -304,6 +309,64 @@ export class TaskQuoteService {
           triggeredById: userId,
           transaction: tx,
         });
+
+        // =====================================================================
+        // SYNC: Task Quote Services → Production Service Orders
+        // When quote services are created, automatically create corresponding
+        // PRODUCTION service orders for each service that doesn't already exist
+        // =====================================================================
+        try {
+          const existingServiceOrders = await tx.serviceOrder.findMany({
+            where: { taskId: data.taskId },
+            select: { id: true, description: true, observation: true, type: true },
+          });
+
+          const existingSOs: SyncServiceOrder[] = existingServiceOrders.map((so: any) => ({
+            id: so.id,
+            description: so.description,
+            observation: so.observation,
+            type: so.type,
+          }));
+
+          for (let i = 0; i < data.services.length; i++) {
+            const service = data.services[i];
+            if (!service.description) continue;
+
+            const syncResult = getQuoteItemToServiceOrderSync(
+              { description: service.description, observation: service.observation || null },
+              existingSOs,
+            );
+
+            if (syncResult.shouldCreateServiceOrder) {
+              this.logger.log(
+                `[QUOTE→SO SYNC] Creating PRODUCTION service order: "${syncResult.serviceOrderDescription}" for quote service`,
+              );
+
+              await tx.serviceOrder.create({
+                data: {
+                  description: syncResult.serviceOrderDescription,
+                  observation: syncResult.serviceOrderObservation,
+                  status: SERVICE_ORDER_STATUS.PENDING as any,
+                  statusOrder: getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
+                  type: SERVICE_ORDER_TYPE.PRODUCTION as any,
+                  position: i,
+                  task: { connect: { id: data.taskId } },
+                  createdBy: { connect: { id: userId } },
+                },
+              });
+
+              // Add to existing SOs to prevent duplicates within the same batch
+              existingSOs.push({
+                description: syncResult.serviceOrderDescription,
+                observation: syncResult.serviceOrderObservation,
+                type: SERVICE_ORDER_TYPE.PRODUCTION,
+              });
+            }
+          }
+        } catch (syncError) {
+          this.logger.error('[QUOTE→SO SYNC] Error during sync:', syncError);
+          // Don't throw - sync errors shouldn't block quote creation
+        }
 
         return tx.taskQuote.findUnique({
           where: { id: newQuote.id },
@@ -771,6 +834,73 @@ export class TaskQuoteService {
               }
             }
           }
+
+          // =====================================================================
+          // SYNC CREATE: When new quote services are added, create corresponding
+          // PRODUCTION service orders
+          // =====================================================================
+          try {
+            const quoteWithTask = await tx.taskQuote.findUnique({
+              where: { id },
+              select: { task: { select: { id: true } } },
+            });
+            const taskId = quoteWithTask?.task?.id;
+
+            if (taskId) {
+              const existingServiceOrders = await tx.serviceOrder.findMany({
+                where: { taskId },
+                select: { id: true, description: true, observation: true, type: true },
+              });
+
+              const existingSOs: SyncServiceOrder[] = existingServiceOrders.map((so: any) => ({
+                id: so.id,
+                description: so.description,
+                observation: so.observation,
+                type: so.type,
+              }));
+
+              const newServices = (updatedQuote as any).services || [];
+
+              for (let i = 0; i < newServices.length; i++) {
+                const service = newServices[i];
+                if (!service.description) continue;
+
+                const syncResult = getQuoteItemToServiceOrderSync(
+                  { description: service.description, observation: service.observation || null },
+                  existingSOs,
+                );
+
+                if (syncResult.shouldCreateServiceOrder) {
+                  this.logger.log(
+                    `[QUOTE→SO SYNC] Creating PRODUCTION service order: "${syncResult.serviceOrderDescription}" for updated quote service`,
+                  );
+
+                  await tx.serviceOrder.create({
+                    data: {
+                      description: syncResult.serviceOrderDescription,
+                      observation: syncResult.serviceOrderObservation,
+                      status: SERVICE_ORDER_STATUS.PENDING as any,
+                      statusOrder: getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
+                      type: SERVICE_ORDER_TYPE.PRODUCTION as any,
+                      position: service.position ?? i,
+                      task: { connect: { id: taskId } },
+                      createdBy: { connect: { id: userId } },
+                    },
+                  });
+
+                  // Add to existing SOs to prevent duplicates within the same batch
+                  existingSOs.push({
+                    description: syncResult.serviceOrderDescription,
+                    observation: syncResult.serviceOrderObservation,
+                    type: SERVICE_ORDER_TYPE.PRODUCTION,
+                  });
+                }
+              }
+            }
+          } catch (syncError) {
+            this.logger.error('[QUOTE→SO SYNC] Error during update sync:', syncError);
+            // Don't throw - sync errors shouldn't block quote update
+          }
         }
 
         return tx.taskQuote.findUnique({
@@ -1098,6 +1228,38 @@ export class TaskQuoteService {
     } catch (error: unknown) {
       this.logger.error('Error finding expired quotes:', error);
       throw new InternalServerErrorException('Erro ao buscar orçamentos expirados.');
+    }
+  }
+
+  /**
+   * Find suggestion: most recent quote matching task name, customer, truck category, and implement type.
+   * All four fields must match exactly.
+   */
+  async findSuggestion(params: {
+    name: string;
+    customerId: string;
+    category: string;
+    implementType: string;
+  }) {
+    try {
+      const suggestion = await this.taskQuoteRepository.findSuggestion(params);
+
+      if (!suggestion) {
+        return {
+          success: true,
+          data: null,
+          message: 'Nenhuma sugestão encontrada.',
+        };
+      }
+
+      return {
+        success: true,
+        data: suggestion,
+        message: 'Sugestão encontrada com sucesso.',
+      };
+    } catch (error: unknown) {
+      this.logger.error('Error finding suggestion:', error);
+      throw new InternalServerErrorException('Erro ao buscar sugestão.');
     }
   }
 
