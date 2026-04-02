@@ -521,4 +521,72 @@ export class TaskQuotePrismaRepository
 
     return quote ? this.mapDatabaseEntityToEntity(quote) : null;
   }
+
+  /**
+   * Find the most recent quote matching task name, customerId, truck category, and implement type.
+   * Tries exact name match first (case-insensitive), then falls back to startsWith.
+   * Customer, category, and implementType must always match exactly.
+   */
+  async findSuggestion(params: {
+    name: string;
+    customerId: string;
+    category: string;
+    implementType: string;
+  }): Promise<(any & { taskCreatedAt: Date }) | null> {
+    const baseWhere = {
+      customerId: params.customerId,
+      truck: {
+        category: params.category as any,
+        implementType: params.implementType as any,
+      },
+    };
+
+    const includeClause = {
+      services: {
+        orderBy: { position: 'asc' } as const,
+        include: {
+          invoiceToCustomer: {
+            select: { id: true, fantasyName: true, cnpj: true },
+          },
+        },
+      },
+      task: {
+        select: { id: true, name: true, createdAt: true },
+      },
+    };
+
+    // 1. Try exact match (case-insensitive)
+    let quote = await this.prisma.taskQuote.findFirst({
+      where: {
+        task: {
+          ...baseWhere,
+          name: { equals: params.name, mode: 'insensitive' },
+        },
+      },
+      include: includeClause,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // 2. Fallback: startsWith (case-insensitive) — e.g. "Martini" matches "Martini Frutas"
+    if (!quote) {
+      quote = await this.prisma.taskQuote.findFirst({
+        where: {
+          task: {
+            ...baseWhere,
+            name: { startsWith: params.name, mode: 'insensitive' },
+          },
+        },
+        include: includeClause,
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    if (!quote) return null;
+
+    const mapped = this.mapDatabaseEntityToEntity(quote);
+    return {
+      ...mapped,
+      taskCreatedAt: quote.task?.createdAt || quote.createdAt,
+    };
+  }
 }
