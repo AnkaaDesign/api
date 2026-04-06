@@ -332,7 +332,7 @@ export class InvoiceGenerationService {
           },
           especieDocumento: 'DUPLICATA_MERCANTIL_INDICACAO',
           seuNumero: installment.id.replace(/-/g, '').substring(0, 10),
-          dataVencimento: new Date(installment.dueDate).toISOString().split('T')[0],
+          dataVencimento: (() => { const d = new Date(installment.dueDate); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; })(),
           valor: Number(installment.amount),
         });
 
@@ -384,18 +384,42 @@ export class InvoiceGenerationService {
     if (!Number.isFinite(total) || total <= 0) return [];
     if (!paymentCondition || paymentCondition === 'CUSTOM') return [];
 
-    const baseDate = new Date(finishedAt);
+    // Use UTC-based date arithmetic to avoid timezone shifts.
+    // All due dates are set to noon UTC so no timezone can change the calendar day.
+    const baseDate = new Date(Date.UTC(
+      finishedAt.getUTCFullYear(),
+      finishedAt.getUTCMonth(),
+      finishedAt.getUTCDate(),
+      12, 0, 0,
+    ));
+
+    const addDays = (base: Date, days: number): Date => {
+      const d = new Date(base);
+      d.setUTCDate(d.getUTCDate() + days);
+      return d;
+    };
+
+    // Minimum due date: 3 days from today (noon UTC).
+    // When billing is approved long after task completion, calculated dates
+    // could be in the past. Ensure the customer always has time to pay.
+    const now = new Date();
+    const minDueDate = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() + 3,
+      12, 0, 0,
+    ));
+
+    const ensureMinDate = (date: Date): Date => {
+      return date < minDueDate ? minDueDate : date;
+    };
 
     if (paymentCondition === 'CASH_5') {
-      const dueDate = new Date(baseDate);
-      dueDate.setDate(dueDate.getDate() + 5);
-      return [{ number: 1, dueDate, amount: total }];
+      return [{ number: 1, dueDate: ensureMinDate(addDays(baseDate, 5)), amount: total }];
     }
 
     if (paymentCondition === 'CASH_40') {
-      const dueDate = new Date(baseDate);
-      dueDate.setDate(dueDate.getDate() + 40);
-      return [{ number: 1, dueDate, amount: total }];
+      return [{ number: 1, dueDate: ensureMinDate(addDays(baseDate, 40)), amount: total }];
     }
 
     const conditionMap: Record<string, number> = {
@@ -414,8 +438,7 @@ export class InvoiceGenerationService {
 
     const installments: { number: number; dueDate: Date; amount: number }[] = [];
     for (let i = 0; i < totalInstallments; i++) {
-      const dueDate = new Date(baseDate);
-      dueDate.setDate(dueDate.getDate() + 5 + i * 20);
+      const dueDate = ensureMinDate(addDays(baseDate, 5 + i * 20));
 
       const isLast = i === totalInstallments - 1;
       const amount = isLast

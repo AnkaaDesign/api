@@ -193,7 +193,22 @@ export class TaskQuotePrismaRepository
           ? {
               include: {
                 customer: {
-                  select: { id: true, fantasyName: true, cnpj: true },
+                  select: {
+                    id: true,
+                    fantasyName: true,
+                    corporateName: true,
+                    cnpj: true,
+                    cpf: true,
+                    address: true,
+                    addressNumber: true,
+                    addressComplement: true,
+                    neighborhood: true,
+                    city: true,
+                    state: true,
+                    zipCode: true,
+                    stateRegistration: true,
+                    streetType: true,
+                  },
                 },
                 responsible: {
                   select: { id: true, name: true, role: true },

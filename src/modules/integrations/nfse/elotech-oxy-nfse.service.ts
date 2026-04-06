@@ -781,7 +781,21 @@ export class ElotechOxyNfseService {
     const totalNfse = totalAmount;
     const baseCalculoIss = Math.max(0, totalNfse - totalDescontosIncondicionados);
     const valorIss = Math.round(baseCalculoIss * this.servicoLCAliquota) / 100;
-    const now = new Date().toISOString();
+    // Format date in São Paulo timezone to avoid UTC offset causing wrong day.
+    // Elotech expects ISO-like format but with the correct Brazil date.
+    const nowDate = new Date();
+    const spParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(nowDate);
+    const get = (type: string) => spParts.find(p => p.type === type)?.value ?? '';
+    const now = `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}`;
 
     return {
       formTomador,

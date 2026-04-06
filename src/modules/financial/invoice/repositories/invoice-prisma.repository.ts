@@ -23,6 +23,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
       installments: {
         include: {
           bankSlip: { include: { pdfFile: true } },
+          receiptFile: true,
         },
         orderBy: { number: 'asc' },
       },

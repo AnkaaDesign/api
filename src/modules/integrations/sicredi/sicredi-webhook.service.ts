@@ -227,6 +227,7 @@ export class SicrediWebhookService {
           status: 'PAID',
           paidAmount,
           paidAt: now,
+          paymentMethod: 'BANK_SLIP',
         },
       });
 

@@ -85,6 +85,8 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'identity', 'dates', 'status', 'truck', 'serviceOrders',
     'responsibles', 'baseFiles', 'projectFiles',
     'checkinFiles', 'checkoutFiles', 'observation',
+    // Passthrough: form sends these to preserve existing state
+    'artworks',
     'meta',
   ],
 
@@ -92,6 +94,8 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'identity', 'dates', 'status', 'truck', 'serviceOrders',
     'responsibles', 'baseFiles', 'projectFiles',
     'checkinFiles', 'checkoutFiles', 'observation',
+    // Passthrough: form sends these to preserve existing state
+    'artworks',
     'meta',
   ],
 

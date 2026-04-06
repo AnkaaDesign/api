@@ -22,10 +22,28 @@ import { InvoiceAnalyticsService } from './invoice-analytics.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
+import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
-import { SECTOR_PRIVILEGES, BANK_SLIP_STATUS } from '@constants';
+import { Public } from '@modules/common/auth/decorators/public.decorator';
+import { SECTOR_PRIVILEGES, BANK_SLIP_STATUS, INSTALLMENT_STATUS, TASK_QUOTE_STATUS, TASK_QUOTE_STATUS_ORDER } from '@constants';
 import type { InvoiceGetManyFormData } from '@types';
+
+/**
+ * Parse a YYYY-MM-DD string into a Date at noon UTC.
+ * This prevents timezone shifts — noon UTC is the same calendar day in every timezone.
+ */
+function parseDateNoonUTC(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+}
+
+/**
+ * Format a Date to YYYY-MM-DD using UTC components (timezone-safe).
+ */
+function formatDateUTC(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+}
 
 /**
  * Controller for Invoice endpoints.
@@ -43,6 +61,7 @@ export class InvoiceController {
     private readonly prisma: PrismaService,
     private readonly sicrediService: SicrediService,
     private readonly municipalNfseService: ElotechOxyNfseService,
+    private readonly nfseEmissionScheduler: NfseEmissionScheduler,
   ) {}
 
   // ─── Invoice CRUD ──────────────────────────────────────────────
@@ -126,10 +145,11 @@ export class InvoiceController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async regenerateBoleto(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
+    @Body() body: { newDueDate?: string },
   ) {
     const bankSlip = await this.prisma.bankSlip.findUnique({
       where: { installmentId },
-      include: { installment: true },
+      include: { installment: { include: { invoice: true } } },
     });
 
     if (!bankSlip) {
@@ -140,22 +160,67 @@ export class InvoiceController {
 
     if (
       bankSlip.status !== BANK_SLIP_STATUS.ERROR &&
-      bankSlip.status !== BANK_SLIP_STATUS.REJECTED
+      bankSlip.status !== BANK_SLIP_STATUS.REJECTED &&
+      bankSlip.status !== BANK_SLIP_STATUS.CANCELLED
     ) {
       throw new BadRequestException(
-        'Somente boletos com erro ou rejeitados podem ser regenerados.',
+        'Somente boletos com erro, rejeitados ou cancelados podem ser regenerados.',
       );
     }
 
-    // Reset the bank slip to ERROR status with errorCount=0 so the scheduler picks it up
+    // If a new due date is provided, update the installment due date
+    let resolvedDueDate = bankSlip.dueDate;
+    if (body?.newDueDate) {
+      const newDate = parseDateNoonUTC(body.newDueDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      if (isNaN(newDate.getTime())) {
+        throw new BadRequestException('Data de vencimento inválida.');
+      }
+
+      if (newDate < today) {
+        throw new BadRequestException(
+          'A nova data de vencimento deve ser igual ou posterior a hoje.',
+        );
+      }
+
+      resolvedDueDate = newDate;
+      await this.prisma.installment.update({
+        where: { id: installmentId },
+        data: { dueDate: newDate },
+      });
+    }
+
+    // Reset bank slip to CREATING so registerBankSlipsAtSicredi picks it up.
+    // nossoNumero is a required @unique field — use TMP-{installmentId} placeholder.
     await this.prisma.bankSlip.update({
       where: { id: bankSlip.id },
       data: {
-        status: 'ERROR',
-        errorMessage: 'Regeneration requested',
+        status: BANK_SLIP_STATUS.CREATING,
+        nossoNumero: `TMP-${installmentId}`,
+        barcode: null,
+        digitableLine: null,
+        pixQrCode: null,
+        txid: null,
+        pdfFileId: null,
+        errorMessage: null,
         errorCount: 0,
+        dueDate: resolvedDueDate,
       },
     });
+
+    // Directly register at Sicredi instead of waiting for the scheduler
+    const invoiceId = bankSlip.installment?.invoiceId;
+    if (invoiceId) {
+      try {
+        await this.invoiceGenerationService.registerBankSlipsAtSicredi([invoiceId]);
+        this.logger.log(`[BOLETO] Regenerated boleto for installment ${installmentId}`);
+      } catch (error) {
+        this.logger.error(`[BOLETO] Failed to regenerate boleto for installment ${installmentId}: ${error}`);
+        // The bank slip is already in CREATING/ERROR state — scheduler will retry as fallback
+      }
+    }
 
     return { message: 'Boleto será recriado em instantes.' };
   }
@@ -214,6 +279,200 @@ export class InvoiceController {
   }
 
   /**
+   * PUT /invoices/:installmentId/boleto/mark-paid
+   * Cancel the boleto and mark the installment as paid via PIX/cash/other.
+   */
+  @Put(':installmentId/boleto/mark-paid')
+  @HttpCode(HttpStatus.OK)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  async markBoletoAsPaid(
+    @Param('installmentId', ParseUUIDPipe) installmentId: string,
+    @Body() body: { paymentMethod: string; receiptFileId?: string },
+  ) {
+    if (!body.paymentMethod) {
+      throw new BadRequestException('Método de pagamento é obrigatório.');
+    }
+
+    const installment = await this.prisma.installment.findUnique({
+      where: { id: installmentId },
+      include: { bankSlip: true, invoice: true },
+    });
+
+    if (!installment) {
+      throw new NotFoundException(`Parcela ${installmentId} não encontrada.`);
+    }
+
+    if (installment.status === INSTALLMENT_STATUS.PAID) {
+      throw new BadRequestException('Parcela já está paga.');
+    }
+
+    // Cancel the bank slip at Sicredi if active
+    if (
+      installment.bankSlip &&
+      installment.bankSlip.nossoNumero &&
+      [BANK_SLIP_STATUS.ACTIVE, BANK_SLIP_STATUS.OVERDUE].includes(
+        installment.bankSlip.status as any,
+      )
+    ) {
+      try {
+        await this.sicrediService.cancelBoleto(installment.bankSlip.nossoNumero);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to cancel boleto at Sicredi (nossoNumero=${installment.bankSlip.nossoNumero}): ${error}`,
+        );
+      }
+    }
+
+    // Update bank slip to cancelled, store payment method in sicrediStatus for display
+    if (installment.bankSlip && installment.bankSlip.status !== BANK_SLIP_STATUS.CANCELLED) {
+      await this.prisma.bankSlip.update({
+        where: { id: installment.bankSlip.id },
+        data: {
+          status: BANK_SLIP_STATUS.CANCELLED,
+          sicrediStatus: `PAID_${body.paymentMethod}`,
+        },
+      });
+    }
+
+    // Mark installment as paid
+    const now = new Date();
+    await this.prisma.installment.update({
+      where: { id: installmentId },
+      data: {
+        status: INSTALLMENT_STATUS.PAID,
+        paidAmount: installment.amount,
+        paidAt: now,
+        paymentMethod: body.paymentMethod,
+        receiptFileId: body.receiptFileId || null,
+      },
+    });
+
+    // Recalculate invoice status
+    if (installment.invoiceId) {
+      const allInstallments = await this.prisma.installment.findMany({
+        where: { invoiceId: installment.invoiceId },
+      });
+      const allPaid = allInstallments.every(
+        (i) => i.id === installmentId || i.status === INSTALLMENT_STATUS.PAID || i.status === 'CANCELLED',
+      );
+      const paidAmount = allInstallments.reduce((sum, i) => {
+        if (i.id === installmentId) return sum + Number(installment.amount);
+        if (i.status === INSTALLMENT_STATUS.PAID) return sum + Number(i.paidAmount);
+        return sum;
+      }, 0);
+
+      await this.prisma.invoice.update({
+        where: { id: installment.invoiceId },
+        data: {
+          status: allPaid ? 'PAID' : 'PARTIALLY_PAID',
+          paidAmount,
+        },
+      });
+
+      // Cascade: recalculate task quote status based on all installments
+      const invoice = await this.prisma.invoice.findUnique({
+        where: { id: installment.invoiceId },
+        select: { customerConfig: { select: { quoteId: true } } },
+      });
+      if (invoice?.customerConfig?.quoteId) {
+        const quoteId = invoice.customerConfig.quoteId;
+        const allQuoteInstallments = await this.prisma.installment.findMany({
+          where: { customerConfig: { quoteId }, status: { not: 'CANCELLED' } },
+          select: { status: true },
+        });
+        const allPaidOrSettled = allQuoteInstallments.every(i => i.status === INSTALLMENT_STATUS.PAID);
+        const somePaid = allQuoteInstallments.some(i => i.status === INSTALLMENT_STATUS.PAID);
+
+        if (allPaidOrSettled) {
+          await this.prisma.taskQuote.update({
+            where: { id: quoteId },
+            data: { status: 'SETTLED', statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.SETTLED] },
+          });
+        } else if (somePaid) {
+          await this.prisma.taskQuote.update({
+            where: { id: quoteId },
+            data: { status: 'PARTIAL', statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.PARTIAL] },
+          });
+        }
+      }
+    }
+
+    return { message: `Parcela marcada como paga via ${body.paymentMethod}.` };
+  }
+
+  /**
+   * PUT /invoices/:installmentId/receipt
+   * Attach or update a payment receipt on any paid installment.
+   */
+  @Put(':installmentId/receipt')
+  @HttpCode(HttpStatus.OK)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  async updateInstallmentReceipt(
+    @Param('installmentId', ParseUUIDPipe) installmentId: string,
+    @Body() body: { receiptFileId: string },
+  ) {
+    if (!body.receiptFileId) {
+      throw new BadRequestException('ID do comprovante é obrigatório.');
+    }
+
+    const installment = await this.prisma.installment.findUnique({
+      where: { id: installmentId },
+    });
+
+    if (!installment) {
+      throw new NotFoundException(`Parcela ${installmentId} não encontrada.`);
+    }
+
+    if (installment.status !== INSTALLMENT_STATUS.PAID) {
+      throw new BadRequestException('Apenas parcelas pagas podem receber comprovante.');
+    }
+
+    await this.prisma.installment.update({
+      where: { id: installmentId },
+      data: { receiptFileId: body.receiptFileId },
+    });
+
+    return { message: 'Comprovante atualizado com sucesso.' };
+  }
+
+  /**
+   * GET /invoices/:installmentId/receipt/download
+   * Download the payment receipt file for an installment.
+   */
+  @Get(':installmentId/receipt/download')
+  @HttpCode(HttpStatus.OK)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  async downloadReceipt(
+    @Param('installmentId', ParseUUIDPipe) installmentId: string,
+    @Res() res: Response,
+  ) {
+    const installment = await this.prisma.installment.findUnique({
+      where: { id: installmentId },
+      include: { receiptFile: true },
+    });
+
+    if (!installment) {
+      throw new NotFoundException(`Parcela ${installmentId} não encontrada.`);
+    }
+
+    if (!installment.receiptFile) {
+      throw new NotFoundException('Nenhum comprovante anexado a esta parcela.');
+    }
+
+    const file = installment.receiptFile;
+    const fs = await import('fs');
+    const path = await import('path');
+
+    if (!fs.existsSync(file.path)) {
+      throw new NotFoundException('Arquivo do comprovante não encontrado no servidor.');
+    }
+
+    res.setHeader('Content-Type', file.mimetype);
+    res.setHeader('Content-Disposition', `inline; filename="${file.originalName}"`);
+    res.sendFile(path.resolve(file.path));
+  }
+
+  /**
    * PATCH /invoices/:installmentId/boleto/due-date
    * Change the due date of an overdue boleto.
    * Creates a new boleto at Sicredi with the new due date by using the PATCH data-vencimento endpoint.
@@ -229,7 +488,7 @@ export class InvoiceController {
       throw new BadRequestException('Nova data de vencimento é obrigatória.');
     }
 
-    const newDate = new Date(body.newDueDate);
+    const newDate = parseDateNoonUTC(body.newDueDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -266,7 +525,7 @@ export class InvoiceController {
       );
     }
 
-    const formattedDate = newDate.toISOString().split('T')[0];
+    const formattedDate = formatDateUTC(newDate);
 
     try {
       await this.sicrediService.changeDueDate(bankSlip.nossoNumero, formattedDate);
@@ -303,7 +562,7 @@ export class InvoiceController {
         `[BOLETO] Failed to change due date for installment ${installmentId}: ${errMsg}`,
       );
       throw new BadRequestException(
-        `Falha ao alterar data de vencimento: ${errMsg}`,
+        `Falha ao alterar data de vencimento no Sicredi. O boleto pode estar em um estado que não permite alteração (já baixado ou liquidado). Detalhes: ${errMsg}`,
       );
     }
   }
@@ -377,7 +636,7 @@ export class InvoiceController {
       );
 
       // Sicredi returns 404 for paid/processed boletos
-      if (bankSlip.status === 'PAID' || error?.response?.status === 404) {
+      if ((bankSlip.status as string) === 'PAID' || error?.response?.status === 404) {
         throw new NotFoundException(
           'Este boleto já foi pago ou processado. O PDF não está mais disponível no Sicredi.',
         );
@@ -405,6 +664,11 @@ export class InvoiceController {
         invoiceId,
         status: 'PENDING',
       },
+    });
+
+    // Trigger emission immediately (fire-and-forget, scheduler is fallback)
+    this.nfseEmissionScheduler.emitPendingNfses().catch((err) => {
+      this.logger.warn(`[NFSE_EMIT] Immediate emission failed (scheduler will retry): ${err}`);
     });
 
     return {
@@ -550,5 +814,60 @@ export class InvoiceController {
   async getBankSlipPerformance(@Body() filters: any) {
     const data = await this.invoiceAnalyticsService.getBankSlipPerformance(filters);
     return { success: true, message: 'Desempenho de boletos carregado', data };
+  }
+
+  // =====================
+  // PUBLIC ENDPOINTS
+  // =====================
+
+  /**
+   * GET /invoices/public/:installmentId/boleto/pdf
+   * Public endpoint to download the boleto PDF for an installment.
+   * Validates the bank slip exists before serving.
+   */
+  @Get('public/:installmentId/boleto/pdf')
+  @Public()
+  async downloadBoletoPdfPublic(
+    @Param('installmentId', ParseUUIDPipe) installmentId: string,
+    @Res() res: Response,
+  ) {
+    const bankSlip = await this.prisma.bankSlip.findUnique({
+      where: { installmentId },
+      include: { pdfFile: true },
+    });
+
+    if (!bankSlip) {
+      throw new NotFoundException('Boleto não encontrado.');
+    }
+
+    // If we have a local PDF file, serve it
+    if (bankSlip.pdfFile) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="boleto-${bankSlip.nossoNumero}.pdf"`);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.sendFile(bankSlip.pdfFile.path);
+    }
+
+    // If boleto is paid/cancelled, PDF is no longer available
+    if (bankSlip.status === 'PAID' || bankSlip.status === 'CANCELLED') {
+      throw new NotFoundException('O PDF deste boleto não está mais disponível.');
+    }
+
+    // Fetch from Sicredi on-the-fly
+    if (!bankSlip.digitableLine) {
+      throw new NotFoundException('PDF do boleto ainda não está disponível.');
+    }
+
+    try {
+      const pdfBuffer = await this.sicrediService.downloadBoletoPdf(bankSlip.digitableLine);
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="boleto-${bankSlip.nossoNumero}.pdf"`);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.send(pdfBuffer);
+    } catch (error) {
+      this.logger.error(`Failed to fetch public boleto PDF for installment ${installmentId}: ${error}`);
+      throw new NotFoundException('Não foi possível obter o PDF do boleto.');
+    }
   }
 }

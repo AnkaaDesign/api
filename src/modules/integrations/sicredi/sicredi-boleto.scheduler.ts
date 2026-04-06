@@ -244,7 +244,7 @@ export class SicrediBoletoScheduler {
           // ── End customer data validation ──────────────────────────────
 
           const dueDate = new Date(installment.dueDate);
-          const formattedDueDate = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
+          const formattedDueDate = `${dueDate.getUTCFullYear()}-${String(dueDate.getUTCMonth() + 1).padStart(2, '0')}-${String(dueDate.getUTCDate()).padStart(2, '0')}`;
 
           this.logger.log(
             `[BOLETO_CREATE] Creating boleto for installment ${installment.id}: ` +
@@ -554,6 +554,7 @@ export class SicrediBoletoScheduler {
                   status: INSTALLMENT_STATUS.PAID,
                   paidAmount: paidBoleto.valorLiquidacao,
                   paidAt: new Date(paidBoleto.dataLiquidacao),
+                  paymentMethod: 'BANK_SLIP',
                 },
               });
             }

@@ -3736,6 +3736,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
   async getTasksAwaitingQuoteApproval(limit = 50): Promise<HomeDashboardTask[]> {
     const tasks = await this.prisma.task.findMany({
       where: {
+        status: 'COMPLETED' as any,
         quote: { status: 'VERIFIED_BY_FINANCIAL' as any },
       },
       select: {

@@ -35,6 +35,7 @@ export class SicrediService implements OnModuleInit {
         config.headers['x-api-key'] = xApiKey;
         config.headers['cooperativa'] = cooperativa;
         config.headers['posto'] = posto;
+        config.headers['codigoBeneficiario'] = codigoBeneficiario;
         return config;
       } catch (error) {
         this.logger.error('Failed to add auth headers to Sicredi request', error);
