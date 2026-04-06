@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { TASK_QUOTE_STATUS } from '@constants';
+import { TASK_QUOTE_STATUS, TASK_QUOTE_STATUS_ORDER } from '@constants';
 import { Decimal } from '@prisma/client/runtime/library';
 
 /**
@@ -125,22 +125,11 @@ export class TaskQuoteStatusCascadeService {
       }
 
       if (newStatus !== quote.status) {
-        const statusOrder: Record<string, number> = {
-          [TASK_QUOTE_STATUS.SETTLED]: 1,
-          [TASK_QUOTE_STATUS.PARTIAL]: 2,
-          [TASK_QUOTE_STATUS.UPCOMING]: 3,
-          [TASK_QUOTE_STATUS.PENDING]: 4,
-          [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 5,
-          [TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL]: 6,
-          [TASK_QUOTE_STATUS.BILLING_APPROVED]: 7,
-          [TASK_QUOTE_STATUS.DUE]: 8,
-        };
-
         await this.prisma.taskQuote.update({
           where: { id: quoteId },
           data: {
             status: newStatus as any,
-            statusOrder: statusOrder[newStatus] || 1,
+            statusOrder: TASK_QUOTE_STATUS_ORDER[newStatus as TASK_QUOTE_STATUS] || 1,
           },
         });
 

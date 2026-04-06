@@ -57,6 +57,7 @@ export class PaintBrandController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
   )
   @UsePipes(new ZodQueryValidationPipe(paintBrandGetManySchema))
   async findMany(@Query() query: PaintBrandGetManyFormData) {
@@ -71,6 +72,7 @@ export class PaintBrandController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
   )
   @UsePipes(new ZodQueryValidationPipe(paintBrandGetByIdSchema))
   async findById(

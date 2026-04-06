@@ -7,9 +7,11 @@ import {
   ParseIntPipe,
   Logger,
   HttpException,
+  NotFoundException,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
+import { Public } from '@modules/common/auth/decorators/public.decorator';
 import { SECTOR_PRIVILEGES } from '@constants';
 import { ElotechOxyNfseService } from './elotech-oxy-nfse.service';
 import { ElotechOxyAuthService } from './elotech-oxy-auth.service';
@@ -258,6 +260,40 @@ export class NfseController {
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="nfse-${elotechNfseId}.pdf"`,
       'Content-Length': pdfBuffer.length,
+    });
+
+    res.send(pdfBuffer);
+  }
+
+  /**
+   * GET /nfse/public/:elotechNfseId/pdf
+   * Public endpoint to download NFSe PDF from Elotech.
+   * Validates that the NFS-e document exists in our database before proxying.
+   */
+  @Get('public/:elotechNfseId/pdf')
+  @Public()
+  async publicPdf(
+    @Param('elotechNfseId', ParseIntPipe) elotechNfseId: number,
+    @Res() res: Response,
+  ) {
+    this.ensureConfigured();
+
+    // Validate the NFSe exists in our DB (prevents arbitrary Elotech ID access)
+    const nfseDoc = await this.prisma.nfseDocument.findFirst({
+      where: { elotechNfseId, status: 'AUTHORIZED' },
+    });
+
+    if (!nfseDoc) {
+      throw new NotFoundException('NFS-e não encontrada.');
+    }
+
+    const pdfBuffer = await this.elotechService.getNfsePdf(elotechNfseId);
+
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="nfse-${elotechNfseId}.pdf"`,
+      'Content-Length': pdfBuffer.length,
+      'Cache-Control': 'public, max-age=3600',
     });
 
     res.send(pdfBuffer);

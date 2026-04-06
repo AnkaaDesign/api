@@ -37,6 +37,8 @@ import {
   ENTITY_TYPE,
   CHANGE_ACTION,
   INSTALLMENT_STATUS,
+  BANK_SLIP_STATUS,
+  INVOICE_STATUS,
 } from '@constants';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { CHANGE_TRIGGERED_BY } from '@constants';
@@ -44,6 +46,7 @@ import { logQuoteServiceChanges } from '@modules/common/changelog/utils/quote-se
 import { serializeChangelogValue } from '@modules/common/changelog/utils/serialize-changelog-value';
 import { normalizeDescription } from '@utils';
 import { SERVICE_ORDER_TYPE, SERVICE_ORDER_STATUS } from '@constants';
+import { TASK_QUOTE_STATUS_ORDER } from '@constants';
 import {
   getQuoteItemToServiceOrderSync,
   type SyncServiceOrder,
@@ -1054,8 +1057,13 @@ export class TaskQuoteService {
       // Validate status transition
       this.validateStatusTransition(existing.status as TASK_QUOTE_STATUS, status);
 
-      // Validate prerequisites for the target status
-      await this.validateStatusPrerequisites(id, existing.status as TASK_QUOTE_STATUS, status);
+      // Manual SETTLED: auto-cancel open bank slips and mark installments as paid
+      if (status === TASK_QUOTE_STATUS.SETTLED) {
+        await this.settleManually(id);
+      } else {
+        // Validate prerequisites for the target status
+        await this.validateStatusPrerequisites(id, existing.status as TASK_QUOTE_STATUS, status);
+      }
 
       // Update status
       const updated = await this.update(id, { status }, userId);
@@ -1069,6 +1077,79 @@ export class TaskQuoteService {
       this.logger.error(`Error updating quote status ${id}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Settle a quote manually — auto-cancels open bank slips and marks all installments as PAID.
+   * Used when payment was received via PIX, cash, or other non-boleto means.
+   */
+  private async settleManually(quoteId: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      // Find all installments for this quote that aren't already PAID or CANCELLED
+      const installments = await tx.installment.findMany({
+        where: {
+          customerConfig: { quoteId },
+          status: { notIn: [INSTALLMENT_STATUS.PAID, 'CANCELLED' as any] },
+        },
+        include: {
+          bankSlip: true,
+        },
+      });
+
+      const now = new Date();
+
+      for (const installment of installments) {
+        // Cancel active/overdue bank slips (local only — Sicredi cancellation is fire-and-forget)
+        if (
+          installment.bankSlip &&
+          ![BANK_SLIP_STATUS.PAID, BANK_SLIP_STATUS.CANCELLED].includes(
+            installment.bankSlip.status as BANK_SLIP_STATUS,
+          )
+        ) {
+          await tx.bankSlip.update({
+            where: { id: installment.bankSlip.id },
+            data: { status: BANK_SLIP_STATUS.CANCELLED },
+          });
+        }
+
+        // Mark installment as PAID
+        await tx.installment.update({
+          where: { id: installment.id },
+          data: {
+            status: INSTALLMENT_STATUS.PAID,
+            paidAmount: installment.amount,
+            paidAt: now,
+          },
+        });
+      }
+
+      // Update all invoices for this quote to PAID
+      const invoices = await tx.invoice.findMany({
+        where: {
+          customerConfig: { quoteId },
+          status: { not: INVOICE_STATUS.CANCELLED },
+        },
+        include: {
+          installments: { select: { amount: true } },
+        },
+      });
+
+      for (const invoice of invoices) {
+        const totalPaid = invoice.installments.reduce(
+          (sum, inst) => sum + Number(inst.amount),
+          0,
+        );
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            status: INVOICE_STATUS.PAID,
+            paidAmount: totalPaid,
+          },
+        });
+      }
+    });
+
+    this.logger.log(`[SETTLE_MANUALLY] Quote ${quoteId} settled manually. All installments marked as PAID, open bank slips cancelled.`);
   }
 
   /**
@@ -1294,6 +1375,20 @@ export class TaskQuoteService {
               },
               customerSignature: true,
               responsible: true,
+              installments: {
+                orderBy: { number: 'asc' },
+                include: {
+                  bankSlip: { select: { id: true, status: true, dueDate: true, amount: true, nossoNumero: true, seuNumero: true, barcode: true, digitableLine: true, pixQrCode: true, type: true, sicrediStatus: true, pdfFileId: true } },
+                },
+              },
+              invoice: {
+                include: {
+                  nfseDocuments: {
+                    select: { id: true, elotechNfseId: true, status: true },
+                    orderBy: { createdAt: 'desc' },
+                  },
+                },
+              },
             },
           },
           task: {
@@ -1301,6 +1396,13 @@ export class TaskQuoteService {
               customer: true,
               truck: true,
               responsibles: true,
+              serviceOrders: {
+                include: {
+                  checkinFiles: { select: { id: true, filename: true, originalName: true } },
+                  checkoutFiles: { select: { id: true, filename: true, originalName: true } },
+                },
+                orderBy: { position: 'asc' },
+              },
             },
           },
         },
@@ -1471,6 +1573,20 @@ export class TaskQuoteService {
         'O faturamento só pode ser aprovado quando o orçamento estiver no status "Verificado pelo Financeiro".',
       );
     }
+
+    // Manual SETTLED can be reached from UPCOMING, DUE, or PARTIAL
+    if (newStatus === TASK_QUOTE_STATUS.SETTLED) {
+      const allowedFrom = [
+        TASK_QUOTE_STATUS.UPCOMING,
+        TASK_QUOTE_STATUS.DUE,
+        TASK_QUOTE_STATUS.PARTIAL,
+      ];
+      if (!allowedFrom.includes(currentStatus)) {
+        throw new BadRequestException(
+          'O orçamento só pode ser liquidado quando estiver nos status "A Vencer", "Vencido" ou "Parcial".',
+        );
+      }
+    }
   }
 
   /**
@@ -1515,9 +1631,23 @@ export class TaskQuoteService {
           where: { quoteId },
           select: {
             id: true,
+            customerId: true,
             paymentCondition: true,
             customPaymentText: true,
-            customer: { select: { fantasyName: true } },
+            customer: {
+              select: {
+                fantasyName: true,
+                corporateName: true,
+                cnpj: true,
+                cpf: true,
+                address: true,
+                addressNumber: true,
+                neighborhood: true,
+                city: true,
+                state: true,
+                zipCode: true,
+              },
+            },
           },
         });
 
@@ -1539,8 +1669,31 @@ export class TaskQuoteService {
           );
         }
 
+        // Validate services: none may have negative amounts
+        const services = await this.prisma.taskQuoteService.findMany({
+          where: { quoteId },
+          select: { id: true, description: true, amount: true, invoiceToCustomerId: true },
+        });
+
+        const negativeAmountServices = services.filter(s => Number(s.amount) < 0);
+        if (negativeAmountServices.length > 0) {
+          throw new BadRequestException(
+            `Os seguintes serviços possuem valor negativo: ${negativeAmountServices.map(s => `"${s.description}"`).join(', ')}. Os serviços não podem ter valor negativo para faturamento.`,
+          );
+        }
+
+        // Multi-customer: all services must have invoiceToCustomerId
+        if (configs.length >= 2) {
+          const unassigned = services.filter(s => !s.invoiceToCustomerId);
+          if (unassigned.length > 0) {
+            throw new BadRequestException(
+              `Os seguintes serviços não possuem cliente atribuído: ${unassigned.map(s => `"${s.description}"`).join(', ')}. Quando há múltiplos clientes, todos os serviços devem ter um cliente selecionado.`,
+            );
+          }
+        }
+
         for (const config of configs) {
-          const customerName = config.customer?.fantasyName || 'Cliente';
+          const customerName = config.customer?.fantasyName || config.customer?.corporateName || 'Cliente';
           const isCustomPayment = config.paymentCondition === 'CUSTOM';
 
           if (!config.paymentCondition) {
@@ -1557,6 +1710,25 @@ export class TaskQuoteService {
               );
             }
             continue;
+          }
+
+          // Validate customer NFS-e required fields
+          const c = config.customer;
+          if (!c) continue;
+          const missing: string[] = [];
+          if (!c.cnpj && !c.cpf) missing.push('CNPJ ou CPF');
+          if (!c.fantasyName?.trim()) missing.push('Nome Fantasia');
+          if (!c.corporateName?.trim()) missing.push('Razão Social');
+          if (!c.address?.trim()) missing.push('Logradouro');
+          if (!c.addressNumber?.trim()) missing.push('Número');
+          if (!c.neighborhood?.trim()) missing.push('Bairro');
+          if (!c.city?.trim()) missing.push('Cidade');
+          if (!c.state?.trim()) missing.push('Estado');
+          if (!c.zipCode?.trim()) missing.push('CEP');
+          if (missing.length > 0) {
+            throw new BadRequestException(
+              `O cliente "${customerName}" possui dados incompletos para emissão de NFS-e. Campos faltantes: ${missing.join(', ')}.`,
+            );
           }
         }
         break;
@@ -1642,17 +1814,7 @@ export class TaskQuoteService {
    * Get sort order for a given status
    */
   private getStatusOrder(status: TASK_QUOTE_STATUS): number {
-    const order: Record<string, number> = {
-      [TASK_QUOTE_STATUS.SETTLED]: 1,
-      [TASK_QUOTE_STATUS.PARTIAL]: 2,
-      [TASK_QUOTE_STATUS.UPCOMING]: 3,
-      [TASK_QUOTE_STATUS.PENDING]: 4,
-      [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 5,
-      [TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL]: 6,
-      [TASK_QUOTE_STATUS.BILLING_APPROVED]: 7,
-      [TASK_QUOTE_STATUS.DUE]: 8,
-    };
-    return order[status] || 1;
+    return TASK_QUOTE_STATUS_ORDER[status] || 1;
   }
 
   /**

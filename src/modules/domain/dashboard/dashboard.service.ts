@@ -1505,6 +1505,7 @@ export class DashboardService {
         break;
       case SECTOR_PRIVILEGES.FINANCIAL:
         config.completedTasks = true;
+        config.tasksAwaitingQuoteApproval = true;
         break;
       default:
         break;

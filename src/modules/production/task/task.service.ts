@@ -1291,7 +1291,12 @@ export class TaskService {
                 rightSideLayout: { include: { layoutSections: true } },
               },
             }, // Include truck with layouts for file naming with measures
-            serviceOrders: true, // Include for services field changelog tracking
+            serviceOrders: {
+              include: {
+                checkinFiles: { select: { id: true } },
+                checkoutFiles: { select: { id: true } },
+              },
+            }, // Include for services field changelog tracking (with checkin/checkout files for validation)
             quote: { include: { services: { orderBy: { position: 'asc' } } } }, // Include for quote changelog tracking
           },
         });
@@ -1779,6 +1784,57 @@ export class TaskService {
             }
           }
 
+          // Validate checkin files exist on PRODUCTION service orders before starting
+          if (toStatus === TASK_STATUS.IN_PRODUCTION) {
+            const productionSOs = existingTask.serviceOrders?.filter(
+              (so: any) =>
+                so.type === SERVICE_ORDER_TYPE.PRODUCTION &&
+                so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+            ) || [];
+
+            if (productionSOs.length > 0) {
+              // Check incoming data for checkinFileIds being sent in the same request
+              const incomingSOData = (data as any).serviceOrders;
+              const sosWithoutCheckin = productionSOs.filter((so: any) => {
+                const incomingSO = incomingSOData?.find((s: any) => s.id === so.id);
+                const incomingCheckinFiles = incomingSO?.checkinFileIds?.length > 0;
+                const existingCheckinFiles = so.checkinFiles?.length > 0;
+                return !existingCheckinFiles && !incomingCheckinFiles;
+              });
+
+              if (sosWithoutCheckin.length > 0) {
+                throw new BadRequestException(
+                  `Não é possível iniciar a tarefa: ${sosWithoutCheckin.length} ordem(ns) de serviço de produção não possui(em) fotos de check-in. Adicione as fotos de check-in antes de iniciar.`,
+                );
+              }
+            }
+          }
+
+          // Validate checkout files exist on PRODUCTION service orders before completing
+          if (toStatus === TASK_STATUS.COMPLETED) {
+            const productionSOs = existingTask.serviceOrders?.filter(
+              (so: any) =>
+                so.type === SERVICE_ORDER_TYPE.PRODUCTION &&
+                so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+            ) || [];
+
+            if (productionSOs.length > 0) {
+              const incomingSOData = (data as any).serviceOrders;
+              const sosWithoutCheckout = productionSOs.filter((so: any) => {
+                const incomingSO = incomingSOData?.find((s: any) => s.id === so.id);
+                const incomingCheckoutFiles = incomingSO?.checkoutFileIds?.length > 0;
+                const existingCheckoutFiles = so.checkoutFiles?.length > 0;
+                return !existingCheckoutFiles && !incomingCheckoutFiles;
+              });
+
+              if (sosWithoutCheckout.length > 0) {
+                throw new BadRequestException(
+                  `Não é possível finalizar a tarefa: ${sosWithoutCheckout.length} ordem(ns) de serviço de produção não possui(em) fotos de check-out. Adicione as fotos de check-out antes de finalizar.`,
+                );
+              }
+            }
+          }
+
           // Auto-fill date requirements based on status transition
           // Instead of throwing an error, automatically set the required dates
           if (
@@ -2057,7 +2113,12 @@ export class TaskService {
               logoPaints: true, // Include for changelog tracking
               observation: { include: { files: true } }, // Include for changelog tracking
               truck: true, // Include for truck field changelog tracking
-              serviceOrders: true, // Include for services field changelog tracking
+              serviceOrders: {
+                include: {
+                  checkinFiles: { select: { id: true } },
+                  checkoutFiles: { select: { id: true } },
+                },
+              }, // Include for services field changelog tracking (with checkin/checkout files for validation)
               airbrushings: true, // Include for airbrushing file uploads
             },
           },
@@ -2148,6 +2209,29 @@ export class TaskService {
                 }
                 if (serviceOrderData.checkoutFileIds !== undefined) {
                   updatePayload.checkoutFiles = { set: serviceOrderData.checkoutFileIds.map((fid: string) => ({ id: fid })) };
+                }
+
+                // Auto-complete service order when checkin or checkout files are provided
+                const hasNewCheckinFiles = serviceOrderData.checkinFileIds !== undefined && serviceOrderData.checkinFileIds.length > 0;
+                const hasNewCheckoutFiles = serviceOrderData.checkoutFileIds !== undefined && serviceOrderData.checkoutFileIds.length > 0;
+                const soNotFinished =
+                  oldServiceOrder.status !== SERVICE_ORDER_STATUS.COMPLETED &&
+                  oldServiceOrder.status !== SERVICE_ORDER_STATUS.CANCELLED;
+
+                if ((hasNewCheckinFiles || hasNewCheckoutFiles) && soNotFinished) {
+                  this.logger.log(
+                    `[AUTO-COMPLETE SO] Service order ${serviceOrderData.id} auto-completed: ` +
+                    `checkin files=${hasNewCheckinFiles}, checkout files=${hasNewCheckoutFiles}`,
+                  );
+                  updatePayload.status = SERVICE_ORDER_STATUS.COMPLETED;
+                  if (!oldServiceOrder.completedById) {
+                    updatePayload.completedById = userId || null;
+                    updatePayload.finishedAt = new Date();
+                  }
+                  if (!oldServiceOrder.startedById) {
+                    updatePayload.startedById = userId || null;
+                    updatePayload.startedAt = updatePayload.finishedAt || new Date();
+                  }
                 }
 
                 // Handle date setting/clearing for status transitions
