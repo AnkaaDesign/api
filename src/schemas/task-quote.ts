@@ -468,7 +468,7 @@ export const taskQuoteServiceCreateNestedSchema = z.object({
     .transform(val => val ?? 0),
   invoiceToCustomerId: z.string().uuid('Cliente invalido').optional().nullable(),
   // Per-service discount (moved from CustomerConfig)
-  discountType: discountTypeSchema.default('NONE').optional(),
+  discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE).optional(),
   discountValue: moneySchema.nullable().optional(),
   discountReference: z.string().max(500, 'Maximo de 500 caracteres').optional().nullable(),
 });
