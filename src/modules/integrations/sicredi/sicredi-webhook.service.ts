@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { WebhookEventDto } from './dto';
 import { Decimal } from '@prisma/client/runtime/library';
@@ -59,6 +60,7 @@ export class SicrediWebhookService {
   constructor(
     private readonly prismaService: PrismaService,
     private readonly cascadeService: TaskQuoteStatusCascadeService,
+    private readonly notificationDispatchService: NotificationDispatchService,
   ) {}
 
   async processEvent(payload: WebhookEventDto): Promise<void> {
@@ -241,6 +243,83 @@ export class SicrediWebhookService {
     this.logger.log(
       `Liquidation handled for nossoNumero: ${nossoNumero}, paidAmount: ${paidAmount}`,
     );
+
+    // Dispatch push notification for boleto payment
+    await this.dispatchBankSlipPaidNotification(bankSlip, paidAmount, nossoNumero);
+  }
+
+  private async dispatchBankSlipPaidNotification(
+    bankSlip: { id: string; installment: { invoiceId: string } },
+    paidAmount: Decimal,
+    nossoNumero: string,
+  ): Promise<void> {
+    try {
+      // Fetch invoice with customer and task details for the notification
+      const invoice = await this.prismaService.invoice.findUnique({
+        where: { id: bankSlip.installment.invoiceId },
+        include: {
+          customer: { select: { fantasyName: true } },
+          task: { select: { id: true, name: true, serialNumber: true } },
+        },
+      });
+
+      if (!invoice) {
+        this.logger.warn(
+          `Cannot dispatch bank_slip.paid notification: Invoice ${bankSlip.installment.invoiceId} not found`,
+        );
+        return;
+      }
+
+      const customerName = invoice.customer?.fantasyName || 'N/A';
+      const taskName = invoice.task?.name || 'N/A';
+      const serialNumber = invoice.task?.serialNumber || '';
+      const formattedAmount = new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      }).format(Number(paidAmount));
+
+      // Build deep link URLs
+      const webUrl = `/financeiro/transacoes/detalhes/${invoice.id}`;
+      const mobileUrl = `financial/${invoice.id}`;
+      const actionUrl = JSON.stringify({
+        web: webUrl,
+        mobile: mobileUrl,
+      });
+
+      await this.notificationDispatchService.dispatchByConfiguration(
+        'bank_slip.paid',
+        'system',
+        {
+          entityType: 'Financial',
+          entityId: invoice.id,
+          action: 'paid',
+          data: {
+            customerName,
+            taskName,
+            serialNumber,
+            paidAmount: formattedAmount,
+            nossoNumero,
+            invoiceId: invoice.id,
+            bankSlipId: bankSlip.id,
+            taskId: invoice.taskId,
+          },
+          overrides: {
+            actionUrl,
+            webUrl,
+          },
+        },
+      );
+
+      this.logger.log(
+        `Bank slip paid notification dispatched for nossoNumero: ${nossoNumero}, customer: ${customerName}`,
+      );
+    } catch (error) {
+      // Don't let notification failures break the webhook processing
+      this.logger.error(
+        `Failed to dispatch bank_slip.paid notification for nossoNumero: ${nossoNumero}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 
   private async handleReversal(event: { nossoNumero: string }): Promise<void> {

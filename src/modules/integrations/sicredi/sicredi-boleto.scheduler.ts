@@ -1,10 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SicrediService } from './sicredi.service';
 import { SicrediAuthService } from './sicredi-auth.service';
 import { SicrediWebhookService } from './sicredi-webhook.service';
-import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import {
   BANK_SLIP_STATUS,
@@ -13,6 +13,7 @@ import {
 } from '@constants';
 
 const MAX_WEBHOOK_RETRIES = 3;
+const DEFAULT_WEBHOOK_URL = 'https://api.ankaadesign.com.br/webhooks/sicredi';
 
 /**
  * Scheduler for Sicredi boleto lifecycle management.
@@ -22,9 +23,12 @@ const MAX_WEBHOOK_RETRIES = 3;
  * 2. Boleto Reconciliation (10 AM) - Reconciles paid boletos from Sicredi
  * 3. Boleto Overdue Check (7 AM) - Marks overdue boletos
  * 4. Webhook Retry (11 AM) - Retries failed webhook events (up to 3 attempts)
+ *
+ * On startup (production only):
+ * - Ensures a webhook contract is registered with Sicredi for payment events
  */
 @Injectable()
-export class SicrediBoletoScheduler {
+export class SicrediBoletoScheduler implements OnModuleInit {
   private readonly logger = new Logger(SicrediBoletoScheduler.name);
   private isProcessingCreation = false;
   private isProcessingReconciliation = false;
@@ -36,9 +40,109 @@ export class SicrediBoletoScheduler {
     private readonly sicrediService: SicrediService,
     private readonly authService: SicrediAuthService,
     private readonly webhookService: SicrediWebhookService,
-    private readonly dispatchService: NotificationDispatchService,
     private readonly cascadeService: TaskQuoteStatusCascadeService,
+    private readonly configService: ConfigService,
   ) {}
+
+  // ─── Webhook Contract Auto-Registration ─────────────────────────────────────
+
+  async onModuleInit(): Promise<void> {
+    if (process.env.NODE_ENV !== 'production') {
+      this.logger.log('[WEBHOOK_CONTRACT] Skipping webhook contract check in dev mode');
+      return;
+    }
+
+    // Delay slightly to allow the auth service to initialize
+    setTimeout(() => this.ensureWebhookContract(), 5000);
+  }
+
+  /**
+   * Ensure a webhook contract is registered with Sicredi for receiving payment events.
+   * Queries existing contracts and registers/updates as needed.
+   */
+  private async ensureWebhookContract(): Promise<void> {
+    const expectedUrl = this.configService.get<string>(
+      'SICREDI_WEBHOOK_URL',
+      DEFAULT_WEBHOOK_URL,
+    );
+
+    this.logger.log(
+      `[WEBHOOK_CONTRACT] Checking webhook contract (expected URL: ${expectedUrl})`,
+    );
+
+    try {
+      const contracts = await this.sicrediService.queryWebhookContracts();
+
+      this.logger.log(
+        `[WEBHOOK_CONTRACT] Found ${Array.isArray(contracts) ? contracts.length : 0} existing contract(s)`,
+      );
+
+      if (Array.isArray(contracts) && contracts.length > 0) {
+        // Look for a contract with the correct URL and ATIVO status
+        const activeMatch = contracts.find(
+          (c: any) =>
+            c.url === expectedUrl &&
+            c.contratoStatus === 'ATIVO' &&
+            c.urlStatus === 'ATIVO',
+        );
+
+        if (activeMatch) {
+          this.logger.log(
+            `[WEBHOOK_CONTRACT] Active contract already exists (id=${activeMatch.idContrato || activeMatch.id}, url=${activeMatch.url})`,
+          );
+          return;
+        }
+
+        // Look for any contract we can update (wrong URL, INATIVO, etc.)
+        const updatable = contracts.find(
+          (c: any) =>
+            c.url !== expectedUrl ||
+            c.contratoStatus !== 'ATIVO' ||
+            c.urlStatus !== 'ATIVO',
+        );
+
+        if (updatable) {
+          const contractId = updatable.idContrato || updatable.id;
+          this.logger.log(
+            `[WEBHOOK_CONTRACT] Updating contract ${contractId}: ` +
+            `url=${updatable.url} → ${expectedUrl}, ` +
+            `contratoStatus=${updatable.contratoStatus} → ATIVO, ` +
+            `urlStatus=${updatable.urlStatus} → ATIVO`,
+          );
+
+          const result = await this.sicrediService.updateWebhookContract(contractId, {
+            url: expectedUrl,
+            urlStatus: 'ATIVO',
+            contratoStatus: 'ATIVO',
+          });
+
+          this.logger.log(
+            `[WEBHOOK_CONTRACT] Contract updated successfully: ${JSON.stringify(result)}`,
+          );
+          return;
+        }
+      }
+
+      // No contracts exist — register a new one
+      this.logger.log(
+        `[WEBHOOK_CONTRACT] No matching contract found, registering new contract with URL: ${expectedUrl}`,
+      );
+
+      const result = await this.sicrediService.registerWebhookContract(expectedUrl);
+      this.logger.log(
+        `[WEBHOOK_CONTRACT] Contract registered successfully: ${JSON.stringify(result)}`,
+      );
+    } catch (error) {
+      // Never crash the app if Sicredi is unreachable
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `[WEBHOOK_CONTRACT] Failed to ensure webhook contract: ${message}`,
+      );
+      if (error instanceof Error && error.stack) {
+        this.logger.error(`[WEBHOOK_CONTRACT] Stack: ${error.stack}`);
+      }
+    }
+  }
 
   // ─── Job 1: Boleto Creation ─────────────────────────────────────────────────
 
