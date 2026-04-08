@@ -338,14 +338,223 @@ export const paintSelectSchema = z
       ])
       .optional(),
 
-    // Relations that should NOT be included in dropdown selects
-    formulas: z.boolean().optional(), // Should be false for dropdowns
+    // Relations - with nested select support for detail views
+    formulas: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              description: z.boolean().optional(),
+              paintId: z.boolean().optional(),
+              density: z.boolean().optional(),
+              pricePerLiter: z.boolean().optional(),
+              createdAt: z.boolean().optional(),
+              updatedAt: z.boolean().optional(),
+              components: z
+                .union([z.boolean(), z.object({ select: z.record(z.any()).optional() })])
+                .optional(),
+              paintProduction: z
+                .union([z.boolean(), z.object({ select: z.record(z.any()).optional() })])
+                .optional(),
+              paint: z
+                .union([z.boolean(), z.object({ select: z.record(z.any()).optional() })])
+                .optional(),
+              _count: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    select: z
+                      .object({
+                        components: z.boolean().optional(),
+                        paintProduction: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
+
     generalPaintings: z.boolean().optional(),
     logoTasks: z.boolean().optional(),
-    relatedPaints: z.boolean().optional(),
-    relatedTo: z.boolean().optional(),
-    paintGrounds: z.boolean().optional(),
-    groundPaintFor: z.boolean().optional(),
+
+    relatedPaints: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              name: z.boolean().optional(),
+              code: z.boolean().optional(),
+              hex: z.boolean().optional(),
+              finish: z.boolean().optional(),
+              colorPreview: z.boolean().optional(),
+              colorOrder: z.boolean().optional(),
+              manufacturer: z.boolean().optional(),
+              tags: z.boolean().optional(),
+              paintTypeId: z.boolean().optional(),
+              paintBrandId: z.boolean().optional(),
+              createdAt: z.boolean().optional(),
+              updatedAt: z.boolean().optional(),
+              paintType: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    select: z
+                      .object({
+                        id: z.boolean().optional(),
+                        name: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
+              paintBrand: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    select: z
+                      .object({
+                        id: z.boolean().optional(),
+                        name: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
+
+    relatedTo: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              name: z.boolean().optional(),
+              code: z.boolean().optional(),
+              hex: z.boolean().optional(),
+              finish: z.boolean().optional(),
+              colorPreview: z.boolean().optional(),
+              colorOrder: z.boolean().optional(),
+              manufacturer: z.boolean().optional(),
+              tags: z.boolean().optional(),
+              paintTypeId: z.boolean().optional(),
+              paintBrandId: z.boolean().optional(),
+              createdAt: z.boolean().optional(),
+              updatedAt: z.boolean().optional(),
+              paintType: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    select: z
+                      .object({
+                        id: z.boolean().optional(),
+                        name: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
+              paintBrand: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    select: z
+                      .object({
+                        id: z.boolean().optional(),
+                        name: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
+
+    paintGrounds: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              paintId: z.boolean().optional(),
+              groundPaintId: z.boolean().optional(),
+              createdAt: z.boolean().optional(),
+              updatedAt: z.boolean().optional(),
+              groundPaint: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    select: z
+                      .object({
+                        id: z.boolean().optional(),
+                        name: z.boolean().optional(),
+                        code: z.boolean().optional(),
+                        hex: z.boolean().optional(),
+                        colorPreview: z.boolean().optional(),
+                        paintType: z
+                          .union([
+                            z.boolean(),
+                            z.object({
+                              select: z
+                                .object({
+                                  id: z.boolean().optional(),
+                                  name: z.boolean().optional(),
+                                })
+                                .optional(),
+                            }),
+                          ])
+                          .optional(),
+                        paintBrand: z
+                          .union([
+                            z.boolean(),
+                            z.object({
+                              select: z
+                                .object({
+                                  id: z.boolean().optional(),
+                                  name: z.boolean().optional(),
+                                })
+                                .optional(),
+                            }),
+                          ])
+                          .optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
+              paint: z
+                .union([z.boolean(), z.object({ select: z.record(z.any()).optional() })])
+                .optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
+
+    groundPaintFor: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.record(z.any()).optional(),
+        }),
+      ])
+      .optional(),
   })
   .partial();
 
