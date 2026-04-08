@@ -32,6 +32,7 @@ import type {
   PaintBatchUpdateFormData,
   PaintBatchDeleteFormData,
   PaintInclude,
+  PaintSelect,
 } from '../../schemas/paint';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { CHANGE_TRIGGERED_BY, ENTITY_TYPE, CHANGE_ACTION } from '../../constants/enums';
@@ -563,9 +564,9 @@ export class PaintService {
   /**
    * Buscar uma tinta por ID
    */
-  async findById(id: string, include?: PaintInclude): Promise<PaintGetUniqueResponse> {
+  async findById(id: string, include?: PaintInclude, select?: PaintSelect): Promise<PaintGetUniqueResponse> {
     try {
-      const paint = await this.paintRepository.findById(id, { include });
+      const paint = await this.paintRepository.findById(id, { include, select });
 
       if (!paint) {
         throw new NotFoundException('Tinta não encontrada.');

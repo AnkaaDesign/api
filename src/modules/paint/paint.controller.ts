@@ -1183,7 +1183,7 @@ export class PaintUnifiedController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: PaintGetByIdFormData,
   ): Promise<PaintGetUniqueResponse> {
-    return this.paintService.findById(id, query.include);
+    return this.paintService.findById(id, query.include, query.select);
   }
 
   // =====================
