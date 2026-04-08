@@ -338,7 +338,7 @@ export const paintSelectSchema = z
       ])
       .optional(),
 
-    // Relations - with nested select support for detail views
+    // Relations that should NOT be included in dropdown selects
     formulas: z
       .union([
         z.boolean(),
@@ -347,20 +347,11 @@ export const paintSelectSchema = z
             .object({
               id: z.boolean().optional(),
               description: z.boolean().optional(),
-              paintId: z.boolean().optional(),
               density: z.boolean().optional(),
               pricePerLiter: z.boolean().optional(),
               createdAt: z.boolean().optional(),
               updatedAt: z.boolean().optional(),
-              components: z
-                .union([z.boolean(), z.object({ select: z.record(z.any()).optional() })])
-                .optional(),
-              paintProduction: z
-                .union([z.boolean(), z.object({ select: z.record(z.any()).optional() })])
-                .optional(),
-              paint: z
-                .union([z.boolean(), z.object({ select: z.record(z.any()).optional() })])
-                .optional(),
+              paintId: z.boolean().optional(),
               _count: z
                 .union([
                   z.boolean(),
@@ -368,7 +359,6 @@ export const paintSelectSchema = z
                     select: z
                       .object({
                         components: z.boolean().optional(),
-                        paintProduction: z.boolean().optional(),
                       })
                       .optional(),
                   }),
@@ -379,10 +369,8 @@ export const paintSelectSchema = z
         }),
       ])
       .optional(),
-
     generalPaintings: z.boolean().optional(),
     logoTasks: z.boolean().optional(),
-
     relatedPaints: z
       .union([
         z.boolean(),
@@ -405,27 +393,13 @@ export const paintSelectSchema = z
               paintType: z
                 .union([
                   z.boolean(),
-                  z.object({
-                    select: z
-                      .object({
-                        id: z.boolean().optional(),
-                        name: z.boolean().optional(),
-                      })
-                      .optional(),
-                  }),
+                  z.object({ select: z.record(z.boolean()).optional() }),
                 ])
                 .optional(),
               paintBrand: z
                 .union([
                   z.boolean(),
-                  z.object({
-                    select: z
-                      .object({
-                        id: z.boolean().optional(),
-                        name: z.boolean().optional(),
-                      })
-                      .optional(),
-                  }),
+                  z.object({ select: z.record(z.boolean()).optional() }),
                 ])
                 .optional(),
             })
@@ -433,7 +407,6 @@ export const paintSelectSchema = z
         }),
       ])
       .optional(),
-
     relatedTo: z
       .union([
         z.boolean(),
@@ -456,27 +429,13 @@ export const paintSelectSchema = z
               paintType: z
                 .union([
                   z.boolean(),
-                  z.object({
-                    select: z
-                      .object({
-                        id: z.boolean().optional(),
-                        name: z.boolean().optional(),
-                      })
-                      .optional(),
-                  }),
+                  z.object({ select: z.record(z.boolean()).optional() }),
                 ])
                 .optional(),
               paintBrand: z
                 .union([
                   z.boolean(),
-                  z.object({
-                    select: z
-                      .object({
-                        id: z.boolean().optional(),
-                        name: z.boolean().optional(),
-                      })
-                      .optional(),
-                  }),
+                  z.object({ select: z.record(z.boolean()).optional() }),
                 ])
                 .optional(),
             })
@@ -484,7 +443,6 @@ export const paintSelectSchema = z
         }),
       ])
       .optional(),
-
     paintGrounds: z
       .union([
         z.boolean(),
@@ -494,8 +452,6 @@ export const paintSelectSchema = z
               id: z.boolean().optional(),
               paintId: z.boolean().optional(),
               groundPaintId: z.boolean().optional(),
-              createdAt: z.boolean().optional(),
-              updatedAt: z.boolean().optional(),
               groundPaint: z
                 .union([
                   z.boolean(),
@@ -506,31 +462,25 @@ export const paintSelectSchema = z
                         name: z.boolean().optional(),
                         code: z.boolean().optional(),
                         hex: z.boolean().optional(),
+                        finish: z.boolean().optional(),
                         colorPreview: z.boolean().optional(),
+                        colorOrder: z.boolean().optional(),
+                        manufacturer: z.boolean().optional(),
+                        tags: z.boolean().optional(),
+                        paintTypeId: z.boolean().optional(),
+                        paintBrandId: z.boolean().optional(),
+                        createdAt: z.boolean().optional(),
+                        updatedAt: z.boolean().optional(),
                         paintType: z
                           .union([
                             z.boolean(),
-                            z.object({
-                              select: z
-                                .object({
-                                  id: z.boolean().optional(),
-                                  name: z.boolean().optional(),
-                                })
-                                .optional(),
-                            }),
+                            z.object({ select: z.record(z.boolean()).optional() }),
                           ])
                           .optional(),
                         paintBrand: z
                           .union([
                             z.boolean(),
-                            z.object({
-                              select: z
-                                .object({
-                                  id: z.boolean().optional(),
-                                  name: z.boolean().optional(),
-                                })
-                                .optional(),
-                            }),
+                            z.object({ select: z.record(z.boolean()).optional() }),
                           ])
                           .optional(),
                       })
@@ -538,23 +488,12 @@ export const paintSelectSchema = z
                   }),
                 ])
                 .optional(),
-              paint: z
-                .union([z.boolean(), z.object({ select: z.record(z.any()).optional() })])
-                .optional(),
             })
             .optional(),
         }),
       ])
       .optional(),
-
-    groundPaintFor: z
-      .union([
-        z.boolean(),
-        z.object({
-          select: z.record(z.any()).optional(),
-        }),
-      ])
-      .optional(),
+    groundPaintFor: z.boolean().optional(),
   })
   .partial();
 
