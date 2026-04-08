@@ -249,7 +249,7 @@ export class SicrediWebhookService {
   }
 
   private async dispatchBankSlipPaidNotification(
-    bankSlip: { id: string; installment: { invoiceId: string } },
+    bankSlip: { id: string; dueDate: Date; installment: { invoiceId: string } },
     paidAmount: Decimal,
     nossoNumero: string,
   ): Promise<void> {
@@ -272,15 +272,17 @@ export class SicrediWebhookService {
 
       const customerName = invoice.customer?.fantasyName || 'N/A';
       const taskName = invoice.task?.name || 'N/A';
-      const serialNumber = invoice.task?.serialNumber || '';
       const formattedAmount = new Intl.NumberFormat('pt-BR', {
         style: 'currency',
         currency: 'BRL',
       }).format(Number(paidAmount));
+      const formattedDueDate = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+      }).format(bankSlip.dueDate);
 
-      // Build deep link URLs
-      const webUrl = `/financeiro/transacoes/detalhes/${invoice.id}`;
-      const mobileUrl = `financial/${invoice.id}`;
+      // Build deep link URLs (faturamento page expects task ID)
+      const webUrl = `/financeiro/faturamento/detalhes/${invoice.taskId}`;
+      const mobileUrl = `financial/${invoice.taskId}`;
       const actionUrl = JSON.stringify({
         web: webUrl,
         mobile: mobileUrl,
@@ -296,9 +298,8 @@ export class SicrediWebhookService {
           data: {
             customerName,
             taskName,
-            serialNumber,
             paidAmount: formattedAmount,
-            nossoNumero,
+            dueDate: formattedDueDate,
             invoiceId: invoice.id,
             bankSlipId: bankSlip.id,
             taskId: invoice.taskId,

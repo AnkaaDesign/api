@@ -42,6 +42,8 @@ export const TASK_FIELD_DOMAINS = {
   financialDocs: ['budgetIds', 'invoiceIds', 'receiptIds', 'bankSlipIds'],
   /** Reimbursement documents */
   reimbursements: ['reimbursementIds', 'reimbursementInvoiceIds'],
+  /** Sector assignment */
+  sector: ['sectorId'],
   /** Internal markers (not user-facing) */
   meta: ['_hasFiles'],
 } as const;
@@ -94,6 +96,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'identity', 'dates', 'status', 'truck', 'serviceOrders',
     'responsibles', 'baseFiles', 'projectFiles',
     'checkinFiles', 'checkoutFiles', 'observation',
+    'sector',
     // Passthrough: form sends these to preserve existing state
     'artworks',
     'meta',
@@ -125,6 +128,7 @@ const FIELD_DOMAIN_LABELS: Record<FieldDomain, string> = {
   checkoutFiles: 'arquivos de check-out',
   financialDocs: 'documentos financeiros',
   reimbursements: 'reembolsos',
+  sector: 'setor',
   meta: 'metadados',
 };
 

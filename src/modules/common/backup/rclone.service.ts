@@ -57,8 +57,11 @@ export class RcloneService {
     this.logger.log(`Starting upload: ${localPath} -> ${fullRemotePath}`);
 
     return new Promise(resolve => {
+      // Use 'copyto' instead of 'copy' because:
+      // - 'copy' treats destination as a DIRECTORY, creating: remote:path/file.tar.gz/file.tar.gz
+      // - 'copyto' treats destination as a FILE, creating: remote:path/file.tar.gz
       const args = [
-        'copy',
+        'copyto',
         localPath,
         fullRemotePath,
         '--config',

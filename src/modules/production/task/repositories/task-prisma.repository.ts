@@ -1393,7 +1393,7 @@ export class TaskPrismaRepository
         if (key === 'nfeReimbursements') {
           databaseInclude.invoiceReimbursements = value;
         } else {
-          databaseInclude[key] = value;
+          databaseInclude[key] = this.sanitizeSelectFields(key, value);
         }
       }
     });
@@ -1404,6 +1404,35 @@ export class TaskPrismaRepository
     );
 
     return databaseInclude as Prisma.TaskInclude;
+  }
+
+  /**
+   * Sanitizes select objects before passing to Prisma:
+   * - ServiceOrder: maps `name` → `description` (ServiceOrder has no `name` field)
+   * - User relations (createdBy, updatedBy): maps `managedSector` → `ledSector`
+   */
+  private sanitizeSelectFields(relationKey: string, value: any): any {
+    if (!value || typeof value !== 'object' || !('select' in value)) return value;
+
+    const select = { ...value.select };
+
+    if (relationKey === 'serviceOrders') {
+      // ServiceOrder has no `name` field — map to `description`
+      if ('name' in select) {
+        select.description = select.name;
+        delete select.name;
+      }
+    }
+
+    if (relationKey === 'createdBy' || relationKey === 'updatedBy') {
+      // User relation: map `managedSector` → `ledSector`
+      if ('managedSector' in select) {
+        select.ledSector = select.managedSector;
+        delete select.managedSector;
+      }
+    }
+
+    return { ...value, select };
   }
 
   protected mapOrderByToDatabaseOrderBy(

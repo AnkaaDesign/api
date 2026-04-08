@@ -46,6 +46,7 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'position',
     'sector',
     'ledSector',
+    'managedSector',
     'ppeSize',
     'preference',
     'createdTasks',
@@ -68,6 +69,7 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'observation',
     'generalPainting',
     'createdBy',
+    'updatedBy',
     'artworks',
     'logoPaints',
     'serviceOrders',
@@ -136,6 +138,7 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'position',
     'sector',
     'ledSector',
+    'managedSector',
     'ppeSize',
     'preference',
   ],
@@ -163,6 +166,7 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'customer',
     'generalPainting',
     'createdBy',
+    'updatedBy',
     'truck',
     'budgets',
     'invoices',
@@ -250,6 +254,7 @@ function getEntityTypeFromField(fieldName: string): string {
   const specialCases: Record<string, string> = {
     generalPainting: 'Paint',
     createdBy: 'User',
+    updatedBy: 'User',
     invoiceReimbursements: 'InvoiceReimbursement',
     baseFiles: 'File',
     projectFiles: 'File',
@@ -261,6 +266,7 @@ function getEntityTypeFromField(fieldName: string): string {
     economicActivity: 'EconomicActivity',
     ppeSize: 'PpeSize',
     ledSector: 'Sector',
+    managedSector: 'Sector',
   };
 
   if (specialCases[fieldName]) {

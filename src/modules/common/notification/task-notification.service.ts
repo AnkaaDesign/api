@@ -70,6 +70,18 @@ const FIELD_LABELS: Record<string, string> = {
   receipts: 'Recibos',
   reimbursements: 'Reembolsos',
   invoiceReimbursements: 'Faturas de Reembolso',
+  forecastDate: 'Data Prevista',
+  baseFiles: 'Arquivos Base',
+  logoPaints: 'Pinturas/Logo',
+  bankSlips: 'Boletos',
+  'truck.plate': 'Placa do Caminhão',
+  'truck.chassisNumber': 'Número do Chassi',
+  'truck.category': 'Categoria do Caminhão',
+  'truck.implementType': 'Tipo de Implemento',
+  'truck.spot': 'Vaga do Caminhão',
+  'truck.leftSideLayoutId': 'Layout Lateral Esquerdo',
+  'truck.rightSideLayoutId': 'Layout Lateral Direito',
+  'truck.backSideLayoutId': 'Layout Traseiro',
 };
 
 /**

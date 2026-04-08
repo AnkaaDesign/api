@@ -147,13 +147,19 @@ export class BackupService implements OnModuleInit {
   /**
    * Get date-based path for backup organization
    * Format: YYYY/MM/DD
+   * Uses São Paulo timezone (America/Sao_Paulo) to match shell scripts
    */
   private getDateBasedPath(): string {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    return `${year}/${month}/${day}`;
+    // Use São Paulo timezone to match shell scripts
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    // Format returns YYYY-MM-DD, convert to YYYY/MM/DD
+    const datePath = formatter.format(new Date()).replace(/-/g, '/');
+    return datePath;
   }
 
   /**
