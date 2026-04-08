@@ -6,6 +6,7 @@ import { SicrediService } from './sicredi.service';
 import { SicrediAuthService } from './sicredi-auth.service';
 import { SicrediWebhookService } from './sicredi-webhook.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import {
   BANK_SLIP_STATUS,
   INSTALLMENT_STATUS,
@@ -34,6 +35,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
   private isProcessingReconciliation = false;
   private isProcessingOverdue = false;
   private isProcessingWebhookRetry = false;
+  private isProcessingDueNotifications = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -42,6 +44,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     private readonly webhookService: SicrediWebhookService,
     private readonly cascadeService: TaskQuoteStatusCascadeService,
     private readonly configService: ConfigService,
+    private readonly notificationDispatchService: NotificationDispatchService,
   ) {}
 
   // ─── Webhook Contract Auto-Registration ─────────────────────────────────────
@@ -673,6 +676,14 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             await this.cascadeService.cascadeFromInvoice(invoiceId);
           }
 
+          // Dispatch bank_slip.paid notification (same as webhook path)
+          await this.dispatchBankSlipPaidNotification(
+            bankSlip.id,
+            invoiceId,
+            paidBoleto.valorLiquidacao,
+            bankSlip.dueDate,
+          );
+
           reconciled++;
           this.logger.log(
             `[BOLETO_RECONCILE] Reconciled boleto ${paidBoleto.nossoNumero} - paid ${paidBoleto.valorLiquidacao}`,
@@ -882,6 +893,130 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     }
   }
 
+  // ─── Job 5: Bank Slip Due Notifications ──────────────────────────────────
+
+  @Cron('0 8 * * *', {
+    name: 'sicredi-boleto-due-notifications',
+    timeZone: 'America/Sao_Paulo',
+  })
+  async notifyDueBankSlips(): Promise<void> {
+    if (this.isProcessingDueNotifications) {
+      this.logger.warn('[BOLETO_DUE] Due notifications already in progress, skipping');
+      return;
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      this.logger.log('[BOLETO_DUE] Skipping due notifications in dev mode');
+      return;
+    }
+
+    this.isProcessingDueNotifications = true;
+
+    try {
+      this.logger.log('[BOLETO_DUE] Starting bank slip due notification check...');
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const threeDaysFromNow = new Date(today);
+      threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
+
+      // Find ACTIVE bank slips due within the next 3 days (including today)
+      const dueBankSlips = await this.prisma.bankSlip.findMany({
+        where: {
+          status: BANK_SLIP_STATUS.ACTIVE,
+          dueDate: {
+            gte: today,
+            lte: threeDaysFromNow,
+          },
+        },
+        include: {
+          installment: {
+            include: {
+              invoice: {
+                include: {
+                  customer: { select: { fantasyName: true } },
+                  task: { select: { id: true, name: true, serialNumber: true } },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      this.logger.log(`[BOLETO_DUE] Found ${dueBankSlips.length} bank slip(s) due within 3 days`);
+
+      let notified = 0;
+
+      for (const bankSlip of dueBankSlips) {
+        try {
+          const invoice = bankSlip.installment?.invoice;
+          if (!invoice) continue;
+
+          const customerName = invoice.customer?.fantasyName || 'N/A';
+          const taskName = invoice.task?.name || 'N/A';
+          const serialNumber = invoice.task?.serialNumber || '';
+          const formattedAmount = new Intl.NumberFormat('pt-BR', {
+            style: 'currency',
+            currency: 'BRL',
+          }).format(Number(bankSlip.amount));
+
+          const dueDate = bankSlip.dueDate;
+          const diffTime = dueDate.getTime() - today.getTime();
+          const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+          const formattedDueDate = new Intl.DateTimeFormat('pt-BR', {
+            timeZone: 'America/Sao_Paulo',
+          }).format(dueDate);
+
+          const webUrl = `/financeiro/faturamento/detalhes/${invoice.taskId}`;
+          const mobileUrl = `financial/${invoice.taskId}`;
+          const actionUrl = JSON.stringify({ web: webUrl, mobile: mobileUrl });
+
+          await this.notificationDispatchService.dispatchByConfiguration(
+            'bank_slip.due',
+            'system',
+            {
+              entityType: 'Financial',
+              entityId: invoice.id,
+              action: 'due',
+              data: {
+                customerName,
+                taskName,
+                serialNumber,
+                amount: formattedAmount,
+                nossoNumero: bankSlip.nossoNumero,
+                dueDate: formattedDueDate,
+                daysRemaining: daysRemaining === 0 ? 'hoje' : `${daysRemaining} dia(s)`,
+                invoiceId: invoice.id,
+                bankSlipId: bankSlip.id,
+                taskId: invoice.taskId,
+              },
+              overrides: {
+                actionUrl,
+                webUrl,
+              },
+            },
+          );
+
+          notified++;
+        } catch (error) {
+          this.logger.error(
+            `[BOLETO_DUE] Failed to notify for bank slip ${bankSlip.id}: ${error}`,
+          );
+        }
+      }
+
+      this.logger.log(
+        `[BOLETO_DUE] Due notification check completed. Notified: ${notified}/${dueBankSlips.length}`,
+      );
+    } catch (error) {
+      this.logger.error('[BOLETO_DUE] Error during due notification job:', error);
+    } finally {
+      this.isProcessingDueNotifications = false;
+    }
+  }
+
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
   /**
@@ -942,6 +1077,76 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
       this.logger.log(
         `Invoice ${invoiceId} status updated to ${newStatus} (paid: ${totalPaid})`,
+      );
+    }
+  }
+
+  /**
+   * Dispatch bank_slip.paid notification (shared by webhook and reconciliation paths).
+   */
+  private async dispatchBankSlipPaidNotification(
+    bankSlipId: string,
+    invoiceId: string | undefined,
+    paidAmount: number | string,
+    dueDate: Date,
+  ): Promise<void> {
+    if (!invoiceId) return;
+
+    try {
+      const invoice = await this.prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          customer: { select: { fantasyName: true } },
+          task: { select: { id: true, name: true, serialNumber: true } },
+        },
+      });
+
+      if (!invoice) return;
+
+      const customerName = invoice.customer?.fantasyName || 'N/A';
+      const taskName = invoice.task?.name || 'N/A';
+      const formattedAmount = new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      }).format(Number(paidAmount));
+      const formattedDueDate = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+      }).format(dueDate);
+
+      const webUrl = `/financeiro/faturamento/detalhes/${invoice.taskId}`;
+      const mobileUrl = `financial/${invoice.taskId}`;
+      const actionUrl = JSON.stringify({ web: webUrl, mobile: mobileUrl });
+
+      await this.notificationDispatchService.dispatchByConfiguration(
+        'bank_slip.paid',
+        'system',
+        {
+          entityType: 'Financial',
+          entityId: invoice.id,
+          action: 'paid',
+          data: {
+            customerName,
+            taskName,
+            paidAmount: formattedAmount,
+            dueDate: formattedDueDate,
+            invoiceId: invoice.id,
+            bankSlipId,
+            taskId: invoice.taskId,
+          },
+          overrides: {
+            actionUrl,
+            webUrl,
+          },
+        },
+      );
+
+      this.logger.log(
+        `[BOLETO_RECONCILE] bank_slip.paid notification dispatched for bankSlip: ${bankSlipId}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[BOLETO_RECONCILE] Failed to dispatch bank_slip.paid notification for bankSlip: ${bankSlipId}`,
+        error instanceof Error ? error.stack : String(error),
       );
     }
   }

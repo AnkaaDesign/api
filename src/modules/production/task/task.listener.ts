@@ -15,6 +15,7 @@ import {
   TaskForecastOverdueEvent,
 } from './task-notification.scheduler';
 import { TASK_STATUS } from '../../../constants/enums';
+import { TASK_STATUS_LABELS } from '../../../constants/enum-labels';
 
 /**
  * Maps deadline thresholds to specific configuration keys.
@@ -56,6 +57,7 @@ const STATUS_CONFIG_MAP: Partial<Record<TASK_STATUS, string>> = {
   // WAITING_PRODUCTION is handled by notifyProductionUsersTaskReady() → 'task.ready_for_production'
   [TASK_STATUS.IN_PRODUCTION]: 'task.in_production',
   [TASK_STATUS.COMPLETED]: 'task.completed',
+  [TASK_STATUS.CANCELLED]: 'task.cancelled',
 };
 
 /**
@@ -181,8 +183,8 @@ export class TaskListener {
           serialNumber: event.task.serialNumber,
           taskSectorId: event.task.sectorId || null,
           fieldName: 'status',
-          oldValue: event.oldStatus,
-          newValue: event.newStatus,
+          oldValue: TASK_STATUS_LABELS[event.oldStatus as TASK_STATUS] || event.oldStatus,
+          newValue: TASK_STATUS_LABELS[event.newStatus as TASK_STATUS] || event.newStatus,
           changedBy: event.changedBy?.name || 'Sistema',
         },
       };
