@@ -239,6 +239,7 @@ export class TaskQuoteService {
                 total: config.total || 0,
                 customPaymentText: config.customPaymentText || null,
                 generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
+                orderNumber: (config as any).orderNumber || null,
                 ...(config.responsibleId && {
                   responsible: { connect: { id: config.responsibleId } },
                 }),
@@ -642,6 +643,7 @@ export class TaskQuoteService {
                 total: config.total || 0,
                 customPaymentText: config.customPaymentText || null,
                 generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
+                orderNumber: (config as any).orderNumber || null,
                 responsibleId: config.responsibleId || null,
                 paymentCondition: config.paymentCondition || null,
               })),
@@ -1228,19 +1230,23 @@ export class TaskQuoteService {
         );
       }
 
-      // Register bank slips at Sicredi immediately (non-blocking — errors don't prevent status transition)
+      // Emit NfSe FIRST (awaited) so the NfSe number is available for seuNumero on the bank slip.
+      // For invoices with generateInvoice=false no NfseDocument exists, so this is a no-op for them.
+      // Errors are non-fatal: bank slips will fall back to truck plate as seuNumero.
+      this.logger.log(`[INTERNAL_APPROVE] Emitting NfSe for ${invoiceIds.length} invoice(s) before registering bank slips...`);
+      try {
+        await this.nfseEmissionScheduler.emitNfseForInvoices(invoiceIds);
+      } catch (nfseError) {
+        this.logger.warn(`[INTERNAL_APPROVE] NfSe emission failed (bank slips will use truck plate as seuNumero, will be retried by scheduler): ${nfseError}`);
+      }
+
+      // Register bank slips AFTER NfSe — buildSeuNumero will now find elotechNfseId for authorized invoices.
       this.logger.log(`[INTERNAL_APPROVE] Registering bank slips at Sicredi for ${invoiceIds.length} invoice(s)...`);
       try {
         await this.invoiceGenerationService.registerBankSlipsAtSicredi(invoiceIds);
       } catch (boletoError) {
         this.logger.warn(`[INTERNAL_APPROVE] Some bank slips failed to register at Sicredi (will be retried by scheduler): ${boletoError}`);
       }
-
-      // Trigger municipal NFS-e emission (Elotech OXY - Ibiporã)
-      this.logger.log(`[INTERNAL_APPROVE] Triggering NFS-e emission for ${invoiceIds.length} invoice(s)...`);
-      this.nfseEmissionScheduler.emitPendingNfses().catch((err) => {
-        this.logger.warn(`[INTERNAL_APPROVE] NFS-e emission failed (will be retried by scheduler): ${err}`);
-      });
 
       // Auto-transition to UPCOMING after successful invoice generation
       this.logger.log(`[INTERNAL_APPROVE] Auto-transitioning quote ${id} to UPCOMING...`);

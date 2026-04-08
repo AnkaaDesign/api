@@ -429,6 +429,7 @@ export const taskQuoteCustomerConfigCreateNestedSchema = z.object({
   paymentCondition: paymentConditionSchema.optional().nullable(),
   customPaymentText: z.string().max(2000).optional().nullable(),
   generateInvoice: z.boolean().optional().default(true),
+  orderNumber: z.string().max(100, 'Máximo de 100 caracteres').optional().nullable(),
   responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),
   // Direct installments (alternative to paymentCondition-based generation)
   installments: z.array(installmentInputSchema).optional(),

@@ -220,6 +220,35 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                   id: true,
                   name: true,
                   serialNumber: true,
+                  truck: {
+                    select: {
+                      plate: true,
+                      chassisNumber: true,
+                      category: true,
+                      implementType: true,
+                    },
+                  },
+                },
+              },
+              nfseDocuments: {
+                where: { status: 'AUTHORIZED' },
+                select: { elotechNfseId: true, nfseNumber: true },
+                orderBy: { createdAt: 'desc' },
+                take: 1,
+              },
+              customerConfig: {
+                select: {
+                  generateInvoice: true,
+                  orderNumber: true,
+                  customerId: true,
+                  quote: {
+                    select: {
+                      services: {
+                        select: { description: true, invoiceToCustomerId: true },
+                        orderBy: { position: 'asc' },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -374,7 +403,8 @@ export class SicrediBoletoScheduler implements OnModuleInit {
               email: customer.email || undefined,
             },
             especieDocumento: 'DUPLICATA_MERCANTIL_INDICACAO',
-            seuNumero: installment.id.replace(/-/g, '').slice(0, 10),
+            seuNumero: this.buildSeuNumero(installment),
+            informativos: this.buildBoletoLines(installment),
             dataVencimento: formattedDueDate,
             valor: Number(installment.amount),
           });
@@ -557,6 +587,152 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     } finally {
       this.isProcessingCreation = false;
     }
+  }
+
+  /**
+   * Build the seuNumero field for a Sicredi boleto.
+   * Priority: NfSe number (if enabled + authorized) → truck plate → installment ID fragment.
+   * Max 10 alphanumeric chars per API spec.
+   */
+  private buildSeuNumero(installment: any): string {
+    const generateInvoice = installment.invoice?.customerConfig?.generateInvoice !== false;
+    const authorizedNfse = installment.invoice?.nfseDocuments?.[0];
+    const truckPlate = installment.invoice?.task?.truck?.plate;
+
+    if (generateInvoice && authorizedNfse?.nfseNumber) {
+      return `NF${authorizedNfse.nfseNumber}`.substring(0, 10);
+    }
+    if (truckPlate) {
+      return truckPlate.replace(/[^A-Za-z0-9]/g, '').substring(0, 10);
+    }
+    return installment.id.replace(/-/g, '').substring(0, 10);
+  }
+
+  /**
+   * Build informativo lines for a Sicredi boleto (INFORMATIVO box on PDF).
+   * Format matches the NfSe discriminacao.
+   */
+  private buildInformativo(installment: any): string[] | undefined {
+    return this.buildBoletoLines(installment);
+  }
+
+  /**
+   * Shared line builder for informativo and mensagem fields.
+   * Up to 5 lines of ≤ 80 chars each.
+   */
+  /**
+   * Shared line builder used for both informativos and mensagens fields.
+   * Returns up to 5 structured lines of ≤80 chars, or undefined if no content.
+   *
+   * Output format (each item = one line in the boleto PDF):
+   *   Pedido: 4564619 - NF 3039
+   *   Veiculo: Caminhao / Carga Seca
+   *   Serie: 456489 | Placa: RHN8D02 | Chassi: AS451620151A65155
+   *   Pintura Parcial
+   */
+  private buildBoletoLines(installment: any): string[] | undefined {
+    const parts: string[] = [];
+
+    const authorizedNfse = installment.invoice?.nfseDocuments?.[0];
+    const orderNumber = installment.invoice?.customerConfig?.orderNumber;
+    const task = installment.invoice?.task;
+    const truck = task?.truck;
+    const customerId = installment.invoice?.customerConfig?.customerId;
+
+    // Line 1: "Pedido: XXXXX - NF YYYY"
+    const nfPart = authorizedNfse?.nfseNumber ? `NF ${authorizedNfse.nfseNumber}` : null;
+    const pedidoPart = orderNumber ? `Pedido: ${orderNumber}` : null;
+    if (pedidoPart && nfPart) {
+      parts.push(`${pedidoPart} - ${nfPart}`);
+    } else if (pedidoPart) {
+      parts.push(pedidoPart);
+    } else if (nfPart) {
+      parts.push(nfPart);
+    }
+
+    // Lines 2-3: Vehicle description — mirrors NfSe discriminação format
+    // Line 2: "Ref. serv. no veiculo Caminhao Carga Seca"
+    // Line 3: "de n serie: X, placa: Y, chassi: Z"
+    const category = this.translateTruckCategory(truck?.category);
+    const implement = this.translateImplementType(truck?.implementType);
+    const vehicleType = [category, implement].filter(Boolean).join(' ');
+
+    const identifiers: string[] = [];
+    if (task?.serialNumber) identifiers.push(`n serie: ${task.serialNumber}`);
+    if (truck?.plate) identifiers.push(`placa: ${truck.plate}`);
+    if (truck?.chassisNumber) identifiers.push(`chassi: ${truck.chassisNumber}`);
+    const idStr = identifiers.join(', ');
+
+    if (vehicleType || idStr) {
+      parts.push(`Ref. serv. no veiculo ${vehicleType}`.trimEnd().substring(0, 80));
+      if (idStr) parts.push(idStr.substring(0, 80));
+    }
+
+    // Remaining lines: services for this customer
+    const allServices: any[] = installment.invoice?.customerConfig?.quote?.services || [];
+    const services = allServices.filter(
+      (s: any) => !s.invoiceToCustomerId || s.invoiceToCustomerId === customerId,
+    );
+    const remaining = 5 - parts.length;
+    if (services.length > 0 && remaining > 0) {
+      const serviceLines = this.buildServiceLines(
+        services.map((s: any) => s.description as string),
+        remaining,
+        80,
+      );
+      parts.push(...serviceLines);
+    }
+
+    this.logger.log(`[BOLETO_INFORMATIVO] lines=${parts.length} content=${JSON.stringify(parts)}`);
+    return parts.length > 0 ? parts : undefined;
+  }
+
+  /** Pack service descriptions into at most maxLines lines, each ≤ maxChars chars. */
+  private buildServiceLines(descriptions: string[], maxLines: number, maxChars: number): string[] {
+    const lines: string[] = [];
+    let current = '';
+    for (const desc of descriptions) {
+      if (lines.length >= maxLines) break;
+      const item = desc.substring(0, maxChars);
+      if (current === '') {
+        current = item;
+      } else if (current.length + 2 + item.length <= maxChars) {
+        current += `, ${item}`;
+      } else {
+        lines.push(current);
+        if (lines.length >= maxLines) break;
+        current = item;
+      }
+    }
+    if (current && lines.length < maxLines) {
+      lines.push(current);
+    }
+    return lines;
+  }
+
+  private translateTruckCategory(category?: string | null): string | null {
+    const map: Record<string, string> = {
+      MINI: 'Mini',
+      VUC: 'VUC',
+      THREE_QUARTER: 'Tres quartos',
+      RIGID: 'Rigido',
+      TRUCK: 'Caminhao',
+      SEMI_TRAILER: 'Semi-reboque',
+      B_DOUBLE: 'B-Double',
+    };
+    return category ? (map[category] ?? category) : null;
+  }
+
+  private translateImplementType(implement?: string | null): string | null {
+    const map: Record<string, string> = {
+      DRY_CARGO: 'Carga Seca',
+      REFRIGERATED: 'Refrigerado',
+      INSULATED: 'Isoplastic',
+      CURTAIN_SIDE: 'Sider',
+      TANK: 'Tanque',
+      FLATBED: 'Carroceria',
+    };
+    return implement ? (map[implement] ?? implement) : null;
   }
 
   // ─── Job 2: Boleto Reconciliation ───────────────────────────────────────────
