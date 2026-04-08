@@ -1197,6 +1197,7 @@ model TaskQuoteCustomerConfig {
   total               Decimal          @db.Decimal(10, 2) @default(0)
   customPaymentText   String?
   generateInvoice     Boolean          @default(true)
+  orderNumber         String?
   responsibleId       String?
   paymentCondition    String?
   customerSignatureId String?
@@ -3286,6 +3287,7 @@ model NfseDocument {
   id              String     @id @default(uuid())
   invoiceId       String
   elotechNfseId   Int?
+  nfseNumber      Int?
   status          NfseStatus @default(PENDING)
   errorMessage    String?
   errorCount      Int        @default(0)

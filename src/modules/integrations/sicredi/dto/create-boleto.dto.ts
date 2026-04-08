@@ -38,6 +38,6 @@ export class CreateBoletoDto {
   juros?: number;
   multa?: number;
   validadeAposVencimento?: number;
-  informativo?: string[];
-  mensagem?: string[];
+  informativos?: string[];
+  mensagens?: string[];
 }

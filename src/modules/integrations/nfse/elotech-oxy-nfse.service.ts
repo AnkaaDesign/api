@@ -33,7 +33,10 @@ export interface MunicipalEmitNfseInput {
   truck?: {
     plate?: string;
     chassisNumber?: string;
+    category?: string;      // TruckCategory enum value
+    implementType?: string; // ImplementType enum value
   };
+  orderNumber?: string;     // Customer's purchase order number
   services?: Array<{
     description: string;
     amount: number;
@@ -263,7 +266,7 @@ export class ElotechOxyNfseService {
         const saveErrData = saveErr?.response?.data;
         const saveErrStatus = saveErr?.response?.status;
         this.logger.error(
-          `[MUNICIPAL] salvar-nota-fiscal failed: status=${saveErrStatus}, data=${JSON.stringify(saveErrData).slice(0, 2000)}`,
+          `[MUNICIPAL] salvar-nota-fiscal failed: status=${saveErrStatus}, data=${JSON.stringify(saveErrData ?? null).slice(0, 2000)}`,
         );
         throw saveErr;
       }
@@ -278,11 +281,12 @@ export class ElotechOxyNfseService {
         );
       }
 
-      // Update NfseDocument with the Elotech ID
+      // Update NfseDocument with the Elotech ID and official NF sequence number
       await this.prisma.nfseDocument.update({
         where: { id: nfseDoc!.id },
         data: {
           elotechNfseId: Number(nfseId),
+          nfseNumber: Number(nfseNumber),
           status: NfseStatus.AUTHORIZED,
           errorMessage: null,
         },
@@ -639,6 +643,25 @@ export class ElotechOxyNfseService {
     };
   }
 
+  private readonly TRUCK_CATEGORY_LABELS: Record<string, string> = {
+    MINI: 'Mini',
+    VUC: 'VUC',
+    THREE_QUARTER: 'Três quartos',
+    RIGID: 'Rígido',
+    TRUCK: 'Caminhão',
+    SEMI_TRAILER: 'Semi-reboque',
+    B_DOUBLE: 'B-Double',
+  };
+
+  private readonly IMPLEMENT_TYPE_LABELS: Record<string, string> = {
+    DRY_CARGO: 'Carga seca',
+    REFRIGERATED: 'Refrigerado',
+    INSULATED: 'Isotérmico',
+    CURTAIN_SIDE: 'Sider',
+    TANK: 'Tanque',
+    FLATBED: 'Prancha/Plataforma',
+  };
+
   private async buildPayload(
     invoice: MunicipalEmitNfseInput,
   ): Promise<Record<string, any>> {
@@ -702,20 +725,34 @@ export class ElotechOxyNfseService {
     const totalAmount = invoice.totalAmount;
     const serialNumber = invoice.task.serialNumber || invoice.task.name;
 
-    // Build vehicle identification for description
-    const vehicleParts: string[] = [];
-    if (invoice.task.serialNumber) {
-      vehicleParts.push(`nº série: ${invoice.task.serialNumber}`);
+    // Build vehicle description — category/implement first, then identifiers
+    // Format: "Referente aos serviços executados no veículo Caminhão Carga seca de n série: X, placa: Y, chassi: Z."
+    const vehicleTypeParts: string[] = [];
+    if (invoice.truck?.category) {
+      vehicleTypeParts.push(this.TRUCK_CATEGORY_LABELS[invoice.truck.category] ?? invoice.truck.category);
     }
-    if (invoice.truck?.chassisNumber) {
-      vehicleParts.push(`chassi: ${invoice.truck.chassisNumber}`);
+    if (invoice.truck?.implementType) {
+      vehicleTypeParts.push(this.IMPLEMENT_TYPE_LABELS[invoice.truck.implementType] ?? invoice.truck.implementType);
     }
-    if (invoice.truck?.plate) {
-      vehicleParts.push(`placa: ${invoice.truck.plate}`);
+
+    const vehicleIdParts: string[] = [];
+    if (invoice.task.serialNumber) vehicleIdParts.push(`n série: ${invoice.task.serialNumber}`);
+    if (invoice.truck?.plate) vehicleIdParts.push(`placa: ${invoice.truck.plate}`);
+    if (invoice.truck?.chassisNumber) vehicleIdParts.push(`chassi: ${invoice.truck.chassisNumber}`);
+
+    const typePart = vehicleTypeParts.join(' ');
+    const idPart = vehicleIdParts.join(', ');
+
+    let vehicleRef: string;
+    if (typePart && idPart) {
+      vehicleRef = `Referente aos serviços executados no veículo ${typePart} de ${idPart}.`;
+    } else if (typePart) {
+      vehicleRef = `Referente aos serviços executados no veículo ${typePart}.`;
+    } else if (idPart) {
+      vehicleRef = `Referente aos serviços executados no veículo de ${idPart}.`;
+    } else {
+      vehicleRef = `Ref. OS ${serialNumber}`;
     }
-    const vehicleRef = vehicleParts.length > 0
-      ? `Referente aos serviços executados no veículo ${vehicleParts.join(', ')}.`
-      : `Ref. OS ${serialNumber}`;
 
     // Build line items — must use exact field names from Elotech portal
     const services = invoice.services;
@@ -767,10 +804,11 @@ export class ElotechOxyNfseService {
         buildItem(svc.description, svc.amount, i, svc.discountType, svc.discountValue),
       );
       const serviceLines = services.map((s) => s.description).join('\n');
+      const orderPrefix = invoice.orderNumber ? `Pedido: ${invoice.orderNumber}\n\n` : '';
       discriminacaoServico =
-        invoice.description || `${vehicleRef}\n\n${serviceLines}`;
+        invoice.description || `${orderPrefix}${vehicleRef}\n\n${serviceLines}`;
     } else {
-      const fallbackDesc = invoice.description || `Serviço ref. OS ${serialNumber}`;
+      const fallbackDesc = invoice.description || `${invoice.orderNumber ? `Pedido: ${invoice.orderNumber}\n\n` : ''}Serviço ref. OS ${serialNumber}`;
       formItensNFSe = [buildItem(fallbackDesc, totalAmount, 0)];
       discriminacaoServico = fallbackDesc;
     }

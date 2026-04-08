@@ -617,16 +617,26 @@ export class FileService {
                 throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
               }
             } else {
+              // Resolve file path before attempting generation
+              const absoluteFilePath = file.path.startsWith('/')
+                ? file.path
+                : resolve(file.path);
+
+              // Guard: if the source file is gone from disk, skip generation entirely
+              // and return 404 at WARN level — no ERROR noise for a known-missing file
+              if (!existsSync(absoluteFilePath)) {
+                this.logger.warn(
+                  `Source file missing on disk for thumbnail request (file ID: ${file.id}, path: ${absoluteFilePath}). ` +
+                  `The file record exists in the database but the physical file was deleted or moved.`,
+                );
+                throw new NotFoundException('Arquivo de origem não encontrado. O arquivo pode ter sido movido ou excluído.');
+              }
+
               // Start new generation with lock
               this.logger.log(`Thumbnail not found for ${file.id}, generating on-demand...`);
 
               const generatePromise = (async () => {
                 try {
-                  // Resolve file path to absolute if it's relative
-                  const absoluteFilePath = file.path.startsWith('/')
-                    ? file.path
-                    : resolve(file.path);
-
                   this.logger.log(`Generating thumbnail from path: ${absoluteFilePath}`);
 
                   const result = await this.thumbnailService.generateThumbnail(
@@ -634,10 +644,6 @@ export class FileService {
                     file.mimetype,
                     file.id,
                     { format: 'webp', quality: 80 },
-                  );
-
-                  this.logger.log(
-                    `Thumbnail generation result: ${JSON.stringify({ success: result.success, thumbnailPath: result.thumbnailPath, thumbnailUrl: result.thumbnailUrl })}`,
                   );
 
                   if (result.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
@@ -671,17 +677,17 @@ export class FileService {
                   actualPath = result.thumbnailPath;
                   contentType = 'image/webp';
                 } else {
-                  this.logger.error(
-                    `Thumbnail generation failed or file doesn't exist. Result: ${JSON.stringify(result)}`,
+                  this.logger.warn(
+                    `Thumbnail generation failed for ${file.id}. Result: ${JSON.stringify({ success: result.success, error: result.error })}`,
                   );
                   throw new NotFoundException(
                     'Não foi possível gerar thumbnail para este arquivo.',
                   );
                 }
               } catch (genError: any) {
-                this.logger.error(
-                  `Failed to generate thumbnail on-demand: ${genError.message}`,
-                  genError.stack,
+                if (genError instanceof NotFoundException) throw genError;
+                this.logger.warn(
+                  `Thumbnail generation error for ${file.id}: ${genError.message}`,
                 );
                 throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
               }

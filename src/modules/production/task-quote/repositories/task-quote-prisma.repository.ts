@@ -101,6 +101,9 @@ export class TaskQuotePrismaRepository
           subtotal: config.subtotal || 0,
           total: config.total || 0,
           customPaymentText: config.customPaymentText || null,
+          generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
+          orderNumber: config.orderNumber || null,
+          paymentCondition: config.paymentCondition || null,
           responsibleId: config.responsibleId || null,
         })),
       };

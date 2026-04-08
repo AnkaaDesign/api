@@ -102,6 +102,8 @@ export class NfseEmissionScheduler {
                     select: {
                       plate: true,
                       chassisNumber: true,
+                      category: true,
+                      implementType: true,
                     },
                   },
                   quote: {
@@ -120,6 +122,7 @@ export class NfseEmissionScheduler {
                   },
                 },
               },
+              customerConfig: { select: { orderNumber: true } },
             },
           },
         },
@@ -249,8 +252,11 @@ export class NfseEmissionScheduler {
               ? {
                   plate: truck.plate || undefined,
                   chassisNumber: truck.chassisNumber || undefined,
+                  category: truck.category || undefined,
+                  implementType: truck.implementType || undefined,
                 }
               : undefined,
+            orderNumber: (invoice as any).customerConfig?.orderNumber || undefined,
             services,
           };
 
@@ -282,5 +288,177 @@ export class NfseEmissionScheduler {
     } finally {
       this.isProcessing = false;
     }
+  }
+
+  /**
+   * Emit NfSe documents for specific invoice IDs synchronously.
+   * Called during task quote approval so NfSe is authorized BEFORE bank slips are
+   * registered at Sicredi — this ensures the NfSe number is available for seuNumero.
+   *
+   * Does NOT use the global isProcessing lock (targeted, not the full scheduled sweep).
+   * emitNfse() handles its own atomic claim internally so concurrent safety is preserved.
+   */
+  async emitNfseForInvoices(invoiceIds: string[]): Promise<void> {
+    if (invoiceIds.length === 0) return;
+
+    this.logger.log(
+      `[NFSE_TARGETED] Emitting NfSe for ${invoiceIds.length} invoice(s): [${invoiceIds.join(', ')}]`,
+    );
+
+    const docs = await this.prisma.nfseDocument.findMany({
+      where: {
+        invoiceId: { in: invoiceIds },
+        status: { in: [NfseStatus.PENDING, NfseStatus.ERROR] },
+      },
+      include: {
+        invoice: {
+          include: {
+            customer: {
+              select: {
+                id: true,
+                fantasyName: true,
+                corporateName: true,
+                cnpj: true,
+                cpf: true,
+                email: true,
+                phones: true,
+                address: true,
+                city: true,
+                state: true,
+                zipCode: true,
+                neighborhood: true,
+                addressNumber: true,
+                addressComplement: true,
+              },
+            },
+            task: {
+              select: {
+                id: true,
+                name: true,
+                serialNumber: true,
+                truck: {
+                  select: {
+                    plate: true,
+                    chassisNumber: true,
+                    category: true,
+                    implementType: true,
+                  },
+                },
+                quote: {
+                  select: {
+                    services: {
+                      select: {
+                        description: true,
+                        amount: true,
+                        invoiceToCustomerId: true,
+                        discountType: true,
+                        discountValue: true,
+                      },
+                      orderBy: { position: 'asc' as const },
+                    },
+                  },
+                },
+              },
+            },
+            customerConfig: { select: { orderNumber: true } },
+          },
+        },
+      },
+    });
+
+    this.logger.log(
+      `[NFSE_TARGETED] Found ${docs.length} NfSe document(s) to emit`,
+    );
+
+    let emitted = 0;
+    let errors = 0;
+
+    for (const doc of docs) {
+      try {
+        const invoice = doc.invoice;
+        const customer = invoice?.customer;
+        const task = invoice?.task;
+
+        if (!invoice || !customer || !task) {
+          this.logger.warn(
+            `[NFSE_TARGETED] NfseDocument ${doc.id} missing invoice/customer/task — skipping`,
+          );
+          continue;
+        }
+
+        const allServices = (task as any).quote?.services as Array<{
+          description: string;
+          amount: any;
+          invoiceToCustomerId: string | null;
+          discountType?: string;
+          discountValue?: number | null;
+        }> | undefined;
+
+        const services = allServices
+          ?.filter((s) => !s.invoiceToCustomerId || s.invoiceToCustomerId === customer.id)
+          .map((s) => ({
+            description: s.description,
+            amount: Number(s.amount),
+            discountType: s.discountType || undefined,
+            discountValue: s.discountValue != null ? Number(s.discountValue) : undefined,
+          }));
+
+        const truck = (task as any).truck;
+
+        await this.municipalNfseService.emitNfse({
+          id: invoice.id,
+          totalAmount: Number(invoice.totalAmount),
+          customer: {
+            cnpj: customer.cnpj || undefined,
+            cpf: customer.cpf || undefined,
+            name: customer.fantasyName || '',
+            corporateName: (customer as any).corporateName || undefined,
+            email: customer.email || undefined,
+            phone: customer.phones?.[0] || undefined,
+            address: customer.address
+              ? {
+                  cityName: customer.city || undefined,
+                  state: customer.state || undefined,
+                  zipCode: customer.zipCode || '',
+                  street: customer.address,
+                  number: customer.addressNumber || 'S/N',
+                  complement: customer.addressComplement || undefined,
+                  neighborhood: customer.neighborhood || '',
+                }
+              : undefined,
+          },
+          task: {
+            id: task.id,
+            name: task.name,
+            serialNumber: (task as any).serialNumber || undefined,
+          },
+          truck: truck
+            ? {
+                plate: truck.plate || undefined,
+                chassisNumber: truck.chassisNumber || undefined,
+                category: truck.category || undefined,
+                implementType: truck.implementType || undefined,
+              }
+            : undefined,
+          orderNumber: (invoice as any).customerConfig?.orderNumber || undefined,
+          services,
+        });
+
+        emitted++;
+        this.logger.log(
+          `[NFSE_TARGETED] NfSe emitted for invoice ${invoice.id} (task: ${task.name})`,
+        );
+      } catch (error) {
+        errors++;
+        this.logger.error(
+          `[NFSE_TARGETED] Failed to emit NfSe for document ${doc.id}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        // emitNfse() already updated the NfseDocument to ERROR status
+      }
+    }
+
+    this.logger.log(
+      `[NFSE_TARGETED] Done. Emitted: ${emitted}, Errors: ${errors}`,
+    );
   }
 }

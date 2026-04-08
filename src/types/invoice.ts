@@ -107,6 +107,7 @@ export interface BankSlip extends BaseEntity {
 export interface NfseDocument extends BaseEntity {
   invoiceId: string;
   elotechNfseId: number | null;
+  nfseNumber: number | null;
   status: NFSE_STATUS;
   errorMessage: string | null;
   errorCount: number;
