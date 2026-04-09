@@ -199,12 +199,6 @@ export class AuthService {
                 name: user.ledSector.name,
               }
             : null,
-          managedSector: user.ledSector
-            ? {
-                id: user.ledSector.id,
-                name: user.ledSector.name,
-              }
-            : null,
         },
       },
     };
@@ -1016,7 +1010,6 @@ export class AuthService {
 
     return {
       ...userData,
-      managedSector: userData.ledSector ?? null,
     };
   }
 
@@ -1092,12 +1085,6 @@ export class AuthService {
               }
             : null,
           ledSector: user.ledSector
-            ? {
-                id: user.ledSector.id,
-                name: user.ledSector.name,
-              }
-            : null,
-          managedSector: user.ledSector
             ? {
                 id: user.ledSector.id,
                 name: user.ledSector.name,

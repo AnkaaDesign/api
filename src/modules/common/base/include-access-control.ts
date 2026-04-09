@@ -46,7 +46,6 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'position',
     'sector',
     'ledSector',
-    'managedSector',
     'ppeSize',
     'preference',
     'createdTasks',
@@ -138,7 +137,6 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'position',
     'sector',
     'ledSector',
-    'managedSector',
     'ppeSize',
     'preference',
   ],
@@ -266,7 +264,6 @@ function getEntityTypeFromField(fieldName: string): string {
     economicActivity: 'EconomicActivity',
     ppeSize: 'PpeSize',
     ledSector: 'Sector',
-    managedSector: 'Sector',
   };
 
   if (specialCases[fieldName]) {

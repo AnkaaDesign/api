@@ -716,6 +716,8 @@ export class TaskController {
         { name: 'projectFiles', maxCount: 30 },
         { name: 'checkinFiles', maxCount: 20 },
         { name: 'checkoutFiles', maxCount: 20 },
+        { name: 'soCheckinFiles', maxCount: 60 },
+        { name: 'soCheckoutFiles', maxCount: 60 },
         { name: 'cutFiles', maxCount: 20 },
         { name: 'observationFiles', maxCount: 10 },
         // Quote layout file

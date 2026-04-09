@@ -1178,9 +1178,6 @@ model TaskQuoteService {
   updatedAt   DateTime    @updatedAt
   observation String?
   position    Int         @default(0)
-  discountType        DiscountType @default(NONE)
-  discountValue       Decimal?    @db.Decimal(10, 2)
-  discountReference   String?
   quote               TaskQuote   @relation("QUOTE_SERVICES", fields: [quoteId], references: [id], onDelete: Cascade)
   invoiceToCustomerId String?
   invoiceToCustomer   Customer?   @relation("QuoteServiceInvoiceToCustomer", fields: [invoiceToCustomerId], references: [id], onDelete: SetNull)
@@ -1195,6 +1192,9 @@ model TaskQuoteCustomerConfig {
   customerId          String
   subtotal            Decimal          @db.Decimal(10, 2) @default(0)
   total               Decimal          @db.Decimal(10, 2) @default(0)
+  discountType        DiscountType     @default(NONE)
+  discountValue       Decimal?         @db.Decimal(10, 2)
+  discountReference   String?
   customPaymentText   String?
   generateInvoice     Boolean          @default(true)
   orderNumber         String?
@@ -2955,7 +2955,7 @@ enum CommissionStatus {
 enum TaskQuoteStatus {
   PENDING
   BUDGET_APPROVED
-  VERIFIED_BY_FINANCIAL
+  COMMERCIAL_APPROVED
   BILLING_APPROVED
   UPCOMING
   DUE

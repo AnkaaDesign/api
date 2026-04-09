@@ -40,9 +40,12 @@ export interface MunicipalEmitNfseInput {
   services?: Array<{
     description: string;
     amount: number;
-    discountType?: string;
-    discountValue?: number | null;
   }>;
+  /** Global customer discount — distributed proportionally across services for NFSe line items */
+  globalDiscount?: {
+    type: string;   // 'PERCENTAGE' | 'FIXED_VALUE'
+    value: number;
+  };
   description?: string;
 }
 
@@ -760,18 +763,32 @@ export class ElotechOxyNfseService {
     let discriminacaoServico: string;
     let totalDescontosIncondicionados = 0;
 
+    // Compute the effective discount percentage from globalDiscount
+    // For PERCENTAGE: use the value directly
+    // For FIXED_VALUE: calculate the equivalent percentage from the PRE-DISCOUNT subtotal
+    // (sum of service amounts), NOT from totalAmount (which is post-discount config.total)
+    const servicesSubtotal = services && services.length > 0
+      ? services.reduce((sum, svc) => sum + svc.amount, 0)
+      : totalAmount;
+    let effectiveDiscountPercent = 0;
+    if (invoice.globalDiscount) {
+      const gd = invoice.globalDiscount;
+      if (gd.type === 'PERCENTAGE' && gd.value) {
+        effectiveDiscountPercent = gd.value;
+      } else if (gd.type === 'FIXED_VALUE' && gd.value && servicesSubtotal > 0) {
+        effectiveDiscountPercent = Math.round((gd.value / servicesSubtotal) * 100 * 100) / 100;
+      }
+    }
+
     const buildItem = (
       description: string,
       amount: number,
       index: number,
-      discountType?: string,
-      discountValue?: number | null,
     ) => {
+      // Distribute global discount proportionally to each service
       let valorDesconto = 0;
-      if (discountType === 'PERCENTAGE' && discountValue) {
-        valorDesconto = Math.round((amount * discountValue / 100) * 100) / 100;
-      } else if (discountType === 'FIXED_VALUE' && discountValue) {
-        valorDesconto = Math.min(discountValue, amount);
+      if (effectiveDiscountPercent > 0) {
+        valorDesconto = Math.round((amount * effectiveDiscountPercent / 100) * 100) / 100;
       }
       const valorLiquido = Math.max(0, Math.round((amount - valorDesconto) * 100) / 100);
       totalDescontosIncondicionados += valorDesconto;
@@ -801,7 +818,7 @@ export class ElotechOxyNfseService {
 
     if (services && services.length > 0) {
       formItensNFSe = services.map((svc, i) =>
-        buildItem(svc.description, svc.amount, i, svc.discountType, svc.discountValue),
+        buildItem(svc.description, svc.amount, i),
       );
       const serviceLines = services.map((s) => s.description).join('\n');
       const orderPrefix = invoice.orderNumber ? `Pedido: ${invoice.orderNumber}\n\n` : '';
@@ -816,7 +833,8 @@ export class ElotechOxyNfseService {
     totalDescontosIncondicionados = Math.round(totalDescontosIncondicionados * 100) / 100;
 
     // ISS computation — base = totalNfse - totalDescontosIncondicionados
-    const totalNfse = totalAmount;
+    // totalNfse is the GROSS service total (pre-discount), not the post-discount invoice amount
+    const totalNfse = servicesSubtotal;
     const baseCalculoIss = Math.max(0, totalNfse - totalDescontosIncondicionados);
     const valorIss = Math.round(baseCalculoIss * this.servicoLCAliquota) / 100;
     // Format date in São Paulo timezone to avoid UTC offset causing wrong day.

@@ -59,7 +59,6 @@ export class UserPrismaRepository
       // Map database field names to entity field names
       birth: birth || null,
       ledSector: ledSector ?? undefined,
-      managedSector: ledSector ?? undefined,
     } as User;
 
     // Calculate virtual remuneration field for the position if it exists
@@ -224,12 +223,6 @@ export class UserPrismaRepository
     if (mappedInclude.tasks !== undefined) {
       mappedInclude.createdTasks = mappedInclude.tasks;
       delete mappedInclude.tasks;
-    }
-
-    // Map managedSector to ledSector since that's the actual Prisma relation name
-    if (mappedInclude.managedSector !== undefined) {
-      mappedInclude.ledSector = mappedInclude.managedSector;
-      delete mappedInclude.managedSector;
     }
 
     return mappedInclude as Prisma.UserInclude;

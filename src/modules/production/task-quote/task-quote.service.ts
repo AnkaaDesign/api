@@ -54,12 +54,12 @@ import {
 import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
 
 /**
- * Compute the discount amount for a service based on its discount type and value.
+ * Compute the discount amount for a customer config based on its discount type, value, and subtotal.
  */
-function computeServiceDiscount(amount: number, discountType?: string, discountValue?: number | null): number {
+function computeConfigDiscount(subtotal: number, discountType?: string, discountValue?: number | null): number {
   if (!discountType || discountType === 'NONE' || !discountValue) return 0;
-  if (discountType === 'PERCENTAGE') return Math.round((amount * discountValue / 100) * 100) / 100;
-  if (discountType === 'FIXED_VALUE') return Math.min(discountValue, amount);
+  if (discountType === 'PERCENTAGE') return Math.round((subtotal * discountValue / 100) * 100) / 100;
+  if (discountType === 'FIXED_VALUE') return Math.min(discountValue, subtotal);
   return 0;
 }
 
@@ -187,18 +187,15 @@ export class TaskQuoteService {
         throw new BadRequestException('Pelo menos um serviço é obrigatório.');
       }
 
-      // Compute per-customer totals from service-level discounts
+      // Compute per-customer totals from global customer discount
       const isSingleConfig = data.customerConfigs.length === 1;
       for (const config of data.customerConfigs) {
         const assignedServices = (data.services || []).filter(s =>
           s.invoiceToCustomerId === config.customerId || (isSingleConfig && !s.invoiceToCustomerId)
         );
         const subtotal = assignedServices.reduce((sum, s) => sum + (s.amount || 0), 0);
-        const total = assignedServices.reduce((sum, s) => {
-          const amt = s.amount || 0;
-          const disc = computeServiceDiscount(amt, s.discountType as string, s.discountValue as number | null);
-          return sum + Math.max(0, amt - disc);
-        }, 0);
+        const discount = computeConfigDiscount(subtotal, (config as any).discountType, (config as any).discountValue);
+        const total = Math.max(0, subtotal - discount);
         config.subtotal = Math.round(subtotal * 100) / 100;
         config.total = Math.round(total * 100) / 100;
       }
@@ -237,6 +234,9 @@ export class TaskQuoteService {
                 customer: { connect: { id: config.customerId } },
                 subtotal: config.subtotal || 0,
                 total: config.total || 0,
+                discountType: (config as any).discountType || 'NONE',
+                discountValue: (config as any).discountValue ?? null,
+                discountReference: (config as any).discountReference || null,
                 customPaymentText: config.customPaymentText || null,
                 generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
                 orderNumber: (config as any).orderNumber || null,
@@ -252,9 +252,6 @@ export class TaskQuoteService {
                 description: service.description || '',
                 observation: service.observation || null,
                 position: index,
-                discountType: (service as any).discountType || 'NONE',
-                discountValue: (service as any).discountValue || null,
-                discountReference: (service as any).discountReference || null,
                 ...(service.invoiceToCustomerId && {
                   invoiceToCustomer: { connect: { id: service.invoiceToCustomerId } },
                 }),
@@ -446,7 +443,7 @@ export class TaskQuoteService {
         }
       }
 
-      // Compute per-customer totals from service-level discounts
+      // Compute per-customer totals from global customer discount
       if (data.customerConfigs && data.customerConfigs.length > 0 && data.services) {
         const isSingleConfig = data.customerConfigs.length === 1;
         for (const config of data.customerConfigs) {
@@ -454,11 +451,8 @@ export class TaskQuoteService {
             s.invoiceToCustomerId === config.customerId || (isSingleConfig && !s.invoiceToCustomerId)
           );
           const subtotal = assignedServices.reduce((sum, s) => sum + (s.amount || 0), 0);
-          const total = assignedServices.reduce((sum, s) => {
-            const amt = s.amount || 0;
-            const disc = computeServiceDiscount(amt, (s as any).discountType, (s as any).discountValue);
-            return sum + Math.max(0, amt - disc);
-          }, 0);
+          const discount = computeConfigDiscount(subtotal, (config as any).discountType, (config as any).discountValue);
+          const total = Math.max(0, subtotal - discount);
           config.subtotal = Math.round(subtotal * 100) / 100;
           config.total = Math.round(total * 100) / 100;
         }
@@ -507,9 +501,6 @@ export class TaskQuoteService {
                   description: service.description || '',
                   observation: service.observation || null,
                   position: index,
-                  discountType: (service as any).discountType || 'NONE',
-                  discountValue: (service as any).discountValue || null,
-                  discountReference: (service as any).discountReference || null,
                   ...(service.invoiceToCustomerId && {
                     invoiceToCustomer: { connect: { id: service.invoiceToCustomerId } },
                   }),
@@ -614,7 +605,7 @@ export class TaskQuoteService {
             // so financial can re-verify before regenerating invoices/boletos/NFS-e
             if (blockingInvoices.length > 0) {
               const billingStatuses = [
-                TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL,
+                TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
                 TASK_QUOTE_STATUS.BILLING_APPROVED,
                 TASK_QUOTE_STATUS.UPCOMING,
                 TASK_QUOTE_STATUS.DUE,
@@ -641,6 +632,9 @@ export class TaskQuoteService {
                 customerId: config.customerId,
                 subtotal: config.subtotal || 0,
                 total: config.total || 0,
+                discountType: (config as any).discountType || 'NONE',
+                discountValue: (config as any).discountValue ?? null,
+                discountReference: (config as any).discountReference || null,
                 customPaymentText: config.customPaymentText || null,
                 generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
                 orderNumber: (config as any).orderNumber || null,
@@ -1162,10 +1156,10 @@ export class TaskQuoteService {
   }
 
   /**
-   * Financial verifies the quote structure
+   * Commercial approves the quote
    */
-  async verify(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
-    return this.updateStatus(id, TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL, userId);
+  async commercialApprove(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
+    return this.updateStatus(id, TASK_QUOTE_STATUS.COMMERCIAL_APPROVED, userId);
   }
 
   /**
@@ -1183,9 +1177,9 @@ export class TaskQuoteService {
     await this.validateStatusPrerequisites(id, existing.status as TASK_QUOTE_STATUS, TASK_QUOTE_STATUS.BILLING_APPROVED);
 
     // 2. Atomically claim the status transition (prevents concurrent approvals)
-    // Only one request can win: the one that finds status=VERIFIED and sets it to BILLING_APPROVED
+    // Only one request can win: the one that finds status=COMMERCIAL_APPROVED and sets it to BILLING_APPROVED
     const claimed = await this.prisma.taskQuote.updateMany({
-      where: { id, status: TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL },
+      where: { id, status: TASK_QUOTE_STATUS.COMMERCIAL_APPROVED },
       data: {
         status: TASK_QUOTE_STATUS.BILLING_APPROVED,
         statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.BILLING_APPROVED),
@@ -1193,14 +1187,14 @@ export class TaskQuoteService {
     });
     if (claimed.count === 0) {
       throw new BadRequestException(
-        'O orçamento não está mais no status Verificado. Pode ter sido aprovado por outra requisição simultânea.',
+        'O orçamento não está mais no status Aprovado pelo Comercial. Pode ter sido aprovado por outra requisição simultânea.',
       );
     }
 
     this.logger.log(`[INTERNAL_APPROVE] Status atomically claimed to BILLING_APPROVED for quote ${id}`);
 
     // Trigger invoice generation and auto-transition to UPCOMING
-    // If anything fails, revert status back to VERIFIED so the user can retry
+    // If anything fails, revert status back to COMMERCIAL_APPROVED so the user can retry
     try {
       const task = await this.prisma.task.findFirst({
         where: { quoteId: id },
@@ -1260,21 +1254,21 @@ export class TaskQuoteService {
         this.logger.error(`[INTERNAL_APPROVE] Stack trace: ${error.stack}`);
       }
 
-      // Revert status back to VERIFIED so the quote is not stuck at BILLING_APPROVED
-      // Uses direct prisma update to bypass status transition validation (BILLING_APPROVED → VERIFIED is not normally allowed)
+      // Revert status back to COMMERCIAL_APPROVED so the quote is not stuck at BILLING_APPROVED
+      // Uses direct prisma update to bypass status transition validation (BILLING_APPROVED → COMMERCIAL_APPROVED is not normally allowed)
       try {
-        this.logger.warn(`[INTERNAL_APPROVE] Rolling back quote ${id} status from BILLING_APPROVED to VERIFIED...`);
+        this.logger.warn(`[INTERNAL_APPROVE] Rolling back quote ${id} status from BILLING_APPROVED to COMMERCIAL_APPROVED...`);
         await this.prisma.taskQuote.update({
           where: { id },
           data: {
-            status: TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL,
-            statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL),
+            status: TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
+            statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.COMMERCIAL_APPROVED),
           },
         });
-        this.logger.warn(`[INTERNAL_APPROVE] Rollback successful — quote ${id} reverted to VERIFIED`);
+        this.logger.warn(`[INTERNAL_APPROVE] Rollback successful — quote ${id} reverted to COMMERCIAL_APPROVED`);
       } catch (rollbackError) {
         this.logger.error(
-          `[INTERNAL_APPROVE] CRITICAL: Failed to rollback quote ${id} status to VERIFIED: ${rollbackError}`,
+          `[INTERNAL_APPROVE] CRITICAL: Failed to rollback quote ${id} status to COMMERCIAL_APPROVED: ${rollbackError}`,
         );
       }
 
@@ -1283,7 +1277,7 @@ export class TaskQuoteService {
         throw error;
       }
       throw new InternalServerErrorException(
-        `Falha ao gerar faturas para o orçamento. O status foi revertido para Verificado. Erro: ${error instanceof Error ? error.message : String(error)}`,
+        `Falha ao gerar faturas para o orçamento. O status foi revertido para Aprovado pelo Comercial. Erro: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
@@ -1573,10 +1567,10 @@ export class TaskQuoteService {
       throw new BadRequestException(`O status já é ${currentStatus}`);
     }
 
-    // BILLING_APPROVED can only be reached from VERIFIED_BY_FINANCIAL
-    if (newStatus === TASK_QUOTE_STATUS.BILLING_APPROVED && currentStatus !== TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL) {
+    // BILLING_APPROVED can only be reached from COMMERCIAL_APPROVED
+    if (newStatus === TASK_QUOTE_STATUS.BILLING_APPROVED && currentStatus !== TASK_QUOTE_STATUS.COMMERCIAL_APPROVED) {
       throw new BadRequestException(
-        'O faturamento só pode ser aprovado quando o orçamento estiver no status "Verificado pelo Financeiro".',
+        'O faturamento só pode ser aprovado quando o orçamento estiver no status "Aprovado pelo Comercial".',
       );
     }
 
@@ -1609,7 +1603,7 @@ export class TaskQuoteService {
 
     switch (transition) {
       case `${TASK_QUOTE_STATUS.PENDING}->${TASK_QUOTE_STATUS.BUDGET_APPROVED}`:
-      case `${TASK_QUOTE_STATUS.BUDGET_APPROVED}->${TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL}`: {
+      case `${TASK_QUOTE_STATUS.BUDGET_APPROVED}->${TASK_QUOTE_STATUS.COMMERCIAL_APPROVED}`: {
         // Must have at least one customerConfig with total > 0
         const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
           where: { quoteId },
@@ -1631,7 +1625,7 @@ export class TaskQuoteService {
         break;
       }
 
-      case `${TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL}->${TASK_QUOTE_STATUS.BILLING_APPROVED}`: {
+      case `${TASK_QUOTE_STATUS.COMMERCIAL_APPROVED}->${TASK_QUOTE_STATUS.BILLING_APPROVED}`: {
         // Each customerConfig must have valid paymentCondition; task must be finished
         const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
           where: { quoteId },
@@ -1805,7 +1799,7 @@ export class TaskQuoteService {
     const labels: Record<string, string> = {
       [TASK_QUOTE_STATUS.PENDING]: 'salvo como pendente',
       [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 'orçamento aprovado pelo cliente',
-      [TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL]: 'verificado pelo financeiro',
+      [TASK_QUOTE_STATUS.COMMERCIAL_APPROVED]: 'aprovado pelo comercial',
       [TASK_QUOTE_STATUS.BILLING_APPROVED]: 'faturamento aprovado',
       [TASK_QUOTE_STATUS.UPCOMING]: 'com parcelas a vencer',
       [TASK_QUOTE_STATUS.DUE]: 'com parcelas vencidas',

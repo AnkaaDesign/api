@@ -23,7 +23,7 @@ import {
 export const taskQuoteStatusSchema = z.enum([
   TASK_QUOTE_STATUS.PENDING,
   TASK_QUOTE_STATUS.BUDGET_APPROVED,
-  TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL,
+  TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
   TASK_QUOTE_STATUS.BILLING_APPROVED,
   TASK_QUOTE_STATUS.UPCOMING,
   TASK_QUOTE_STATUS.DUE,
@@ -425,6 +425,10 @@ export const taskQuoteCustomerConfigCreateNestedSchema = z.object({
   customerId: z.string().uuid('ID de cliente invalido'),
   subtotal: moneySchema.optional().default(0),
   total: moneySchema.optional().default(0),
+  // Global customer discount
+  discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE).optional(),
+  discountValue: moneySchema.nullable().optional(),
+  discountReference: z.string().max(500, 'Maximo de 500 caracteres').optional().nullable(),
   // Payment condition used to generate installments at BILLING_APPROVED time
   paymentCondition: paymentConditionSchema.optional().nullable(),
   customPaymentText: z.string().max(2000).optional().nullable(),
@@ -468,10 +472,6 @@ export const taskQuoteServiceCreateNestedSchema = z.object({
     .default(0)
     .transform(val => val ?? 0),
   invoiceToCustomerId: z.string().uuid('Cliente invalido').optional().nullable(),
-  // Per-service discount (moved from CustomerConfig)
-  discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE).optional(),
-  discountValue: moneySchema.nullable().optional(),
-  discountReference: z.string().max(500, 'Maximo de 500 caracteres').optional().nullable(),
 });
 
 // TaskQuote nested schema for task create/update (matches Prisma TaskQuote model)

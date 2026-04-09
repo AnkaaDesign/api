@@ -463,36 +463,37 @@ export class InvoiceGenerationService {
       parts.push(nfPart);
     }
 
-    // Lines 2-3: Vehicle description — mirrors NfSe discriminação format
-    // Line 2: "Ref. serv. no veiculo Caminhao Carga Seca"
-    // Line 3: "de n serie: X, placa: Y, chassi: Z"
+    // Lines 2-3: Vehicle description
+    // Line 2: "Referente aos servicos no veiculo Caminhao Carga Seca"
+    // Line 3: "N.º serie: X, chassi: Z" or "Placa: Y, chassi: Z"
     const category = this.translateTruckCategory(truck?.category);
     const implement = this.translateImplementType(truck?.implementType);
     const vehicleType = [category, implement].filter(Boolean).join(' ');
 
     const identifiers: string[] = [];
-    if (task?.serialNumber) identifiers.push(`n serie: ${task.serialNumber}`);
-    if (truck?.plate) identifiers.push(`placa: ${truck.plate}`);
+    if (task?.serialNumber) identifiers.push(`N.º serie: ${task.serialNumber}`);
+    else if (truck?.plate) identifiers.push(`Placa: ${truck.plate}`);
+    if (task?.serialNumber && truck?.plate) identifiers.push(`placa: ${truck.plate}`);
     if (truck?.chassisNumber) identifiers.push(`chassi: ${truck.chassisNumber}`);
     const idStr = identifiers.join(', ');
 
     if (vehicleType || idStr) {
-      parts.push(`Ref. serv. no veiculo ${vehicleType}`.trimEnd().substring(0, 80));
+      parts.push(`Referente aos servicos no veiculo ${vehicleType}`.trimEnd().substring(0, 80));
       if (idStr) parts.push(idStr.substring(0, 80));
     }
 
-    // Remaining lines: services for this customer
+    // Remaining lines: services for this customer (first letter uppercase)
     const allServices: any[] = installment.invoice?.customerConfig?.quote?.services || [];
     const services = allServices.filter(
       (s: any) => !s.invoiceToCustomerId || s.invoiceToCustomerId === customerId,
     );
     const remaining = 5 - parts.length;
     if (services.length > 0 && remaining > 0) {
-      const serviceLines = this.buildServiceLines(
-        services.map((s: any) => s.description as string),
-        remaining,
-        80,
-      );
+      const descriptions = services.map((s: any) => s.description as string);
+      if (descriptions.length > 0 && descriptions[0]) {
+        descriptions[0] = descriptions[0].charAt(0).toUpperCase() + descriptions[0].slice(1);
+      }
+      const serviceLines = this.buildServiceLines(descriptions, remaining, 80);
       parts.push(...serviceLines);
     }
 

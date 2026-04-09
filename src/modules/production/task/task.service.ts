@@ -1246,6 +1246,8 @@ export class TaskService {
       projectFiles?: Express.Multer.File[];
       checkinFiles?: Express.Multer.File[];
       checkoutFiles?: Express.Multer.File[];
+      soCheckinFiles?: Express.Multer.File[];
+      soCheckoutFiles?: Express.Multer.File[];
       quoteLayoutFile?: Express.Multer.File[];
     },
   ): Promise<TaskUpdateResponse> {
@@ -1770,7 +1772,9 @@ export class TaskService {
 
             if (finalArtworkSOs.length > 0) {
               const incompleteArtworks = finalArtworkSOs.filter(
-                (so: any) => so.status !== SERVICE_ORDER_STATUS.COMPLETED,
+                (so: any) =>
+                  so.status !== SERVICE_ORDER_STATUS.COMPLETED &&
+                  so.status !== SERVICE_ORDER_STATUS.CANCELLED,
               );
 
               if (incompleteArtworks.length > 0) {
@@ -2029,6 +2033,15 @@ export class TaskService {
         // Remove service orders from updateData to prevent Prisma nested create
         // We'll handle them explicitly below (serviceOrdersData was already extracted at line 1393)
         delete (updateData as any).serviceOrders;
+
+        // Remove serviceOrderFiles from updateData - handled explicitly after SO processing
+        delete (updateData as any).serviceOrderFiles;
+
+        // Remove _soFileMapping from updateData - it's a meta field for file upload routing
+        const soFileMapping = (data as any)._soFileMapping as
+          | Array<{ soId: string; type: 'checkin' | 'checkout'; count: number }>
+          | undefined;
+        delete (updateData as any)._soFileMapping;
 
         // Extract airbrushings data - we'll handle updates/creates explicitly
         // The repository only handles deletions (via notIn), preserving existing airbrushings and their artworks
@@ -3302,6 +3315,198 @@ export class TaskService {
         }
 
         // =====================================================================
+        // SERVICE ORDER FILE UPLOADS (direct file upload via soCheckinFiles/soCheckoutFiles)
+        // Processes uploaded files using _soFileMapping to route them to the correct SOs,
+        // then merges with existing IDs from serviceOrderFiles for backward compatibility.
+        // =====================================================================
+        // Track which SOs were already processed by direct upload so the legacy handler can skip them
+        const soFilesProcessed = new Set<string>();
+
+        // Warn if files are sent without mapping metadata (they would be silently ignored)
+        if (
+          (!soFileMapping || soFileMapping.length === 0) &&
+          files &&
+          ((files.soCheckinFiles?.length ?? 0) > 0 || (files.soCheckoutFiles?.length ?? 0) > 0)
+        ) {
+          this.logger.warn(
+            `[Task Update] soCheckinFiles/soCheckoutFiles uploaded but _soFileMapping is missing or empty — files will be ignored. Task: ${id}`,
+          );
+        }
+
+        if (soFileMapping && soFileMapping.length > 0 && files) {
+          const soCheckinFiles = files.soCheckinFiles || [];
+          const soCheckoutFiles = files.soCheckoutFiles || [];
+          let checkinOffset = 0;
+          let checkoutOffset = 0;
+
+          // Group uploaded file IDs by SO
+          const uploadedIdsBySo: Record<string, { checkinFileIds: string[]; checkoutFileIds: string[] }> = {};
+
+          const customerName =
+            updatedTask.customer?.fantasyName || existingTask.customer?.fantasyName;
+
+          for (const mapping of soFileMapping) {
+            const { soId, type, count } = mapping;
+
+            // Verify SO belongs to this task
+            const so = await tx.serviceOrder.findFirst({
+              where: { id: soId, taskId: id },
+            });
+            if (!so) {
+              this.logger.warn(
+                `[Task Update] soFileMapping: SO ${soId} not found for task ${id}, skipping ${count} ${type} files`,
+              );
+              // Still advance offsets so subsequent mappings stay aligned
+              if (type === 'checkin') checkinOffset += count;
+              else checkoutOffset += count;
+              continue;
+            }
+
+            if (!uploadedIdsBySo[soId]) {
+              uploadedIdsBySo[soId] = { checkinFileIds: [], checkoutFileIds: [] };
+            }
+
+            const sourceArray = type === 'checkin' ? soCheckinFiles : soCheckoutFiles;
+            const offset = type === 'checkin' ? checkinOffset : checkoutOffset;
+            const fileContext = type === 'checkin' ? 'serviceOrderCheckinFiles' : 'serviceOrderCheckoutFiles';
+
+            for (let i = 0; i < count; i++) {
+              const file = sourceArray[offset + i];
+              if (!file) {
+                this.logger.warn(
+                  `[Task Update] soFileMapping: Expected file at index ${offset + i} for SO ${soId} ${type}, but array only has ${sourceArray.length} files`,
+                );
+                continue;
+              }
+
+              const fileRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                file,
+                fileContext,
+                userId,
+                { entityId: id, entityType: 'TASK', customerName },
+              );
+
+              if (type === 'checkin') {
+                uploadedIdsBySo[soId].checkinFileIds.push(fileRecord.id);
+              } else {
+                uploadedIdsBySo[soId].checkoutFileIds.push(fileRecord.id);
+              }
+
+              this.logger.log(
+                `[Task Update] Uploaded SO ${type} file for SO ${soId}: ${fileRecord.id}`,
+              );
+            }
+
+            if (type === 'checkin') checkinOffset += count;
+            else checkoutOffset += count;
+          }
+
+          // Merge uploaded file IDs with existing IDs from serviceOrderFiles, then update each SO
+          const serviceOrderFilesData = (data as any).serviceOrderFiles as
+            | Record<string, { checkinFileIds?: string[]; checkoutFileIds?: string[] }>
+            | undefined;
+
+          for (const [soId, uploaded] of Object.entries(uploadedIdsBySo)) {
+            // Get existing IDs from the legacy serviceOrderFiles field (retained file IDs)
+            const existingData = serviceOrderFilesData?.[soId];
+            const existingCheckinIds = existingData?.checkinFileIds
+              ? (Array.isArray(existingData.checkinFileIds) ? existingData.checkinFileIds : Object.values(existingData.checkinFileIds))
+              : [];
+            const existingCheckoutIds = existingData?.checkoutFileIds
+              ? (Array.isArray(existingData.checkoutFileIds) ? existingData.checkoutFileIds : Object.values(existingData.checkoutFileIds))
+              : [];
+
+            const allCheckinIds = [...existingCheckinIds, ...uploaded.checkinFileIds];
+            const allCheckoutIds = [...existingCheckoutIds, ...uploaded.checkoutFileIds];
+
+            const soFileUpdates: any = {};
+            if (allCheckinIds.length > 0 || existingData?.checkinFileIds !== undefined) {
+              soFileUpdates.checkinFiles = { set: allCheckinIds.map((fid: string) => ({ id: fid })) };
+            }
+            if (allCheckoutIds.length > 0 || existingData?.checkoutFileIds !== undefined) {
+              soFileUpdates.checkoutFiles = { set: allCheckoutIds.map((fid: string) => ({ id: fid })) };
+            }
+
+            if (Object.keys(soFileUpdates).length > 0) {
+              await tx.serviceOrder.update({
+                where: { id: soId },
+                data: soFileUpdates,
+              });
+              this.logger.log(
+                `[Task Update] Updated SO ${soId} files (upload+merge): checkin=${allCheckinIds.length}, checkout=${allCheckoutIds.length}`,
+              );
+            }
+
+            soFilesProcessed.add(soId);
+          }
+        }
+
+        // =====================================================================
+        // SERVICE ORDER FILE UPDATES (checkin/checkout) - Independent of serviceOrders
+        // This allows updating SO files without sending the full serviceOrders array,
+        // which would trigger the SO deletion logic above.
+        // Skips SOs already processed by the direct upload handler above.
+        // =====================================================================
+        if ((data as any).serviceOrderFiles && typeof (data as any).serviceOrderFiles === 'object') {
+          const serviceOrderFiles = (data as any).serviceOrderFiles as Record<
+            string,
+            { checkinFileIds?: string[]; checkoutFileIds?: string[] }
+          >;
+
+          for (const [serviceOrderId, fileData] of Object.entries(serviceOrderFiles)) {
+            // Skip SOs already handled by direct file upload above
+            if (soFilesProcessed.has(serviceOrderId)) {
+              this.logger.log(
+                `[Task Update] serviceOrderFiles: SO ${serviceOrderId} already processed by direct upload, skipping`,
+              );
+              continue;
+            }
+
+            // Verify the SO belongs to this task
+            const so = await tx.serviceOrder.findFirst({
+              where: { id: serviceOrderId, taskId: id },
+            });
+            if (!so) {
+              this.logger.warn(
+                `[Task Update] serviceOrderFiles: SO ${serviceOrderId} not found for task ${id}, skipping`,
+              );
+              continue;
+            }
+
+            const fileUpdates: any = {};
+
+            if (fileData.checkinFileIds !== undefined) {
+              // Normalize to array in case client sends object with numeric keys
+              const checkinIds = Array.isArray(fileData.checkinFileIds)
+                ? fileData.checkinFileIds
+                : Object.values(fileData.checkinFileIds);
+              fileUpdates.checkinFiles = {
+                set: checkinIds.map((fid: string) => ({ id: fid })),
+              };
+            }
+            if (fileData.checkoutFileIds !== undefined) {
+              const checkoutIds = Array.isArray(fileData.checkoutFileIds)
+                ? fileData.checkoutFileIds
+                : Object.values(fileData.checkoutFileIds);
+              fileUpdates.checkoutFiles = {
+                set: checkoutIds.map((fid: string) => ({ id: fid })),
+              };
+            }
+
+            if (Object.keys(fileUpdates).length > 0) {
+              await tx.serviceOrder.update({
+                where: { id: serviceOrderId },
+                data: fileUpdates,
+              });
+              this.logger.log(
+                `[Task Update] Updated files for SO ${serviceOrderId}: checkin=${fileData.checkinFileIds?.length ?? 'unchanged'}, checkout=${fileData.checkoutFileIds?.length ?? 'unchanged'}`,
+              );
+            }
+          }
+        }
+
+        // =====================================================================
         // BIDIRECTIONAL SYNC: Task Status → Service Order Status
         // When task status changes, sync production service orders accordingly
         // =====================================================================
@@ -3524,20 +3729,47 @@ export class TaskService {
                   });
                 }
 
-                // Recalculate quote subtotal and total
+                // Recalculate quote subtotal and total with customer config discounts
                 const allItems = await tx.taskQuoteService.findMany({
                   where: { quoteId: currentQuote.id },
                 });
-                const newSubtotal = allItems.reduce(
-                  (sum, item) => sum + Number(item.amount || 0),
-                  0,
-                );
+                const allConfigs = await tx.taskQuoteCustomerConfig.findMany({
+                  where: { quoteId: currentQuote.id },
+                });
+                const isSingleConfig = allConfigs.length === 1;
+
+                let aggregateSubtotal = 0;
+                let aggregateTotal = 0;
+
+                for (const config of allConfigs) {
+                  const assignedServices = allItems.filter(s =>
+                    s.invoiceToCustomerId === config.customerId || (isSingleConfig && !s.invoiceToCustomerId),
+                  );
+                  const configSubtotal = assignedServices.reduce((sum, s) => sum + Number(s.amount || 0), 0);
+                  const discountType = config.discountType || 'NONE';
+                  const discountValue = config.discountValue ? Number(config.discountValue) : 0;
+                  let discount = 0;
+                  if (discountType === 'PERCENTAGE' && discountValue) {
+                    discount = Math.round((configSubtotal * discountValue / 100) * 100) / 100;
+                  } else if (discountType === 'FIXED_VALUE' && discountValue) {
+                    discount = Math.min(discountValue, configSubtotal);
+                  }
+                  const configTotal = Math.max(0, Math.round((configSubtotal - discount) * 100) / 100);
+
+                  await tx.taskQuoteCustomerConfig.update({
+                    where: { id: config.id },
+                    data: { subtotal: configSubtotal, total: configTotal },
+                  });
+
+                  aggregateSubtotal += configSubtotal;
+                  aggregateTotal += configTotal;
+                }
 
                 await tx.taskQuote.update({
                   where: { id: currentQuote.id },
                   data: {
-                    subtotal: newSubtotal,
-                    total: newSubtotal, // Assuming no discount, adjust if needed
+                    subtotal: Math.round(aggregateSubtotal * 100) / 100,
+                    total: Math.round(aggregateTotal * 100) / 100,
                   },
                 });
 
@@ -3546,7 +3778,7 @@ export class TaskService {
                 // already detects and logs subtotal/total changes for TASK_QUOTE.
 
                 this.logger.log(
-                  `[QUOTE↔SO SYNC] Updated quote totals. New subtotal: ${newSubtotal}`,
+                  `[QUOTE↔SO SYNC] Updated quote totals. Subtotal: ${aggregateSubtotal}, Total: ${aggregateTotal}`,
                 );
               }
 
@@ -8473,9 +8705,6 @@ export class TaskService {
                       quoteId: quoteIdToRestore,
                       observation: item.observation ?? null,
                       position: item.position !== undefined ? item.position : i,
-                      discountType: item.discountType || 'NONE',
-                      discountValue: item.discountValue ?? null,
-                      discountReference: item.discountReference ?? null,
                     },
                   });
                 }
@@ -9957,9 +10186,6 @@ export class TaskService {
             amount: true,
             observation: true,
             position: true,
-            discountType: true,
-            discountValue: true,
-            discountReference: true,
           },
         },
         customerConfigs: {
@@ -9967,6 +10193,9 @@ export class TaskService {
             customerId: true,
             subtotal: true,
             total: true,
+            discountType: true,
+            discountValue: true,
+            discountReference: true,
             customPaymentText: true,
             responsibleId: true,
             paymentCondition: true,
@@ -10008,9 +10237,6 @@ export class TaskService {
             amount: service.amount,
             observation: service.observation,
             position: service.position,
-            discountType: service.discountType,
-            discountValue: service.discountValue,
-            discountReference: service.discountReference,
           })),
         },
         ...(sourceQuote.customerConfigs.length > 0
@@ -10020,6 +10246,9 @@ export class TaskService {
                   customerId: c.customerId,
                   subtotal: c.subtotal,
                   total: c.total,
+                  discountType: c.discountType,
+                  discountValue: c.discountValue,
+                  discountReference: c.discountReference,
                   customPaymentText: c.customPaymentText,
                   responsibleId: c.responsibleId,
                   paymentCondition: c.paymentCondition,
