@@ -7,7 +7,8 @@ import type { ServiceOrder } from '@types';
  *
  * GENERAL RULES:
  * - ADMIN can always update ANY service order
- * - Only ADMIN can set status to CANCELLED
+ * - Only ADMIN can cancel non-COMMERCIAL service orders
+ * - COMMERCIAL and FINANCIAL can cancel COMMERCIAL service orders (triggers task/cascade cancellation)
  * - If assigned (assignedToId is set): Only the assigned user OR ADMIN can update
  *
  * WHEN NOT ASSIGNED (by service order type):
@@ -55,12 +56,21 @@ export function checkServiceOrderUpdatePermission(
     return { canUpdate: true };
   }
 
-  // Check if user is trying to set CANCELLED status (only ADMIN allowed)
+  // COMMERCIAL and FINANCIAL users can cancel COMMERCIAL service orders (triggers cascade cancellation)
+  // All other non-ADMIN users cannot cancel service orders
   if (newStatus === SERVICE_ORDER_STATUS.CANCELLED) {
-    return {
-      canUpdate: false,
-      reason: 'Apenas administradores podem cancelar ordens de serviço',
-    };
+    const canCancelCommercial =
+      serviceOrder.type === SERVICE_ORDER_TYPE.COMMERCIAL &&
+      (userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL ||
+        userPrivilege === SECTOR_PRIVILEGES.FINANCIAL);
+
+    if (!canCancelCommercial) {
+      return {
+        canUpdate: false,
+        reason: 'Apenas administradores podem cancelar ordens de serviço',
+      };
+    }
+    // Fall through to assignment and type-based checks for COMMERCIAL cancellation
   }
 
   // WAITING_APPROVE is ONLY valid for ARTWORK service orders (designer approval workflow)
