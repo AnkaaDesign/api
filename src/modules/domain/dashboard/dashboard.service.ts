@@ -1659,7 +1659,7 @@ export class DashboardService {
       }
 
       if (config.tasksAwaitingQuoteApproval) {
-        promises.tasksAwaitingQuoteApproval = this.dashboardRepository.getTasksAwaitingQuoteApproval();
+        promises.tasksAwaitingQuoteApproval = this.dashboardRepository.getTasksAwaitingQuoteApproval(sectorPrivileges);
       }
 
       if (config.tasksAwaitingBudgetApproval) {

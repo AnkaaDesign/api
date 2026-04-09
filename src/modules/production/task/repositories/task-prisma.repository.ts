@@ -572,7 +572,6 @@ export class TaskPrismaRepository
         services: task.quote.services?.map((service: any) => ({
           ...service,
           amount: service.amount ? Number(service.amount) : 0,
-          discountValue: service.discountValue ? Number(service.discountValue) : null,
         })),
         customerConfigs: task.quote.customerConfigs?.map((config: any) => ({
           ...config,
@@ -1409,7 +1408,6 @@ export class TaskPrismaRepository
   /**
    * Sanitizes select objects before passing to Prisma:
    * - ServiceOrder: maps `name` → `description` (ServiceOrder has no `name` field)
-   * - User relations (createdBy, updatedBy): maps `managedSector` → `ledSector`
    */
   private sanitizeSelectFields(relationKey: string, value: any): any {
     if (!value || typeof value !== 'object' || !('select' in value)) return value;
@@ -1421,14 +1419,6 @@ export class TaskPrismaRepository
       if ('name' in select) {
         select.description = select.name;
         delete select.name;
-      }
-    }
-
-    if (relationKey === 'createdBy' || relationKey === 'updatedBy') {
-      // User relation: map `managedSector` → `ledSector`
-      if ('managedSector' in select) {
-        select.ledSector = select.managedSector;
-        delete select.managedSector;
       }
     }
 
@@ -1511,6 +1501,9 @@ export class TaskPrismaRepository
                     customerId: config.customerId,
                     subtotal: config.subtotal !== undefined ? Number(config.subtotal) : 0,
                     total: config.total !== undefined ? Number(config.total) : 0,
+                    discountType: config.discountType || 'NONE',
+                    discountValue: config.discountValue ?? null,
+                    discountReference: config.discountReference ?? null,
                     customPaymentText: config.customPaymentText || null,
                     generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
                     responsibleId: config.responsibleId || null,
@@ -1523,9 +1516,6 @@ export class TaskPrismaRepository
                 description: item.description,
                 observation: item.observation || null,
                 amount: Number(item.amount || 0),
-                discountType: item.discountType || 'NONE',
-                discountValue: item.discountValue ?? null,
-                discountReference: item.discountReference ?? null,
                 ...(item.invoiceToCustomerId && {
                   invoiceToCustomer: { connect: { id: item.invoiceToCustomerId } },
                 }),
@@ -1711,6 +1701,9 @@ export class TaskPrismaRepository
                       customerId: config.customerId,
                       subtotal: config.subtotal !== undefined ? Number(config.subtotal) : 0,
                       total: config.total !== undefined ? Number(config.total) : 0,
+                      discountType: config.discountType || 'NONE',
+                      discountValue: config.discountValue ?? null,
+                      discountReference: config.discountReference ?? null,
                       customPaymentText: config.customPaymentText || null,
                       generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
                       responsibleId: config.responsibleId || null,
@@ -1725,9 +1718,6 @@ export class TaskPrismaRepository
                     observation: item.observation || null,
                     amount: Number(item.amount || 0),
                     position: index,
-                    discountType: item.discountType || 'NONE',
-                    discountValue: item.discountValue ?? null,
-                    discountReference: item.discountReference ?? null,
                     ...(item.invoiceToCustomerId && {
                       invoiceToCustomer: { connect: { id: item.invoiceToCustomerId } },
                     }),
@@ -1789,6 +1779,9 @@ export class TaskPrismaRepository
                         customerId: config.customerId,
                         subtotal: config.subtotal !== undefined ? Number(config.subtotal) : 0,
                         total: config.total !== undefined ? Number(config.total) : 0,
+                        discountType: config.discountType || 'NONE',
+                        discountValue: config.discountValue ?? null,
+                        discountReference: config.discountReference ?? null,
                         customPaymentText: config.customPaymentText || null,
                         responsibleId: config.responsibleId || null,
                         paymentCondition: config.paymentCondition || null,
@@ -1801,9 +1794,6 @@ export class TaskPrismaRepository
                     observation: item.observation || null,
                     amount: Number(item.amount || 0),
                     position: index,
-                    discountType: item.discountType || 'NONE',
-                    discountValue: item.discountValue ?? null,
-                    discountReference: item.discountReference ?? null,
                     ...(item.invoiceToCustomerId && {
                       invoiceToCustomer: { connect: { id: item.invoiceToCustomerId } },
                     }),

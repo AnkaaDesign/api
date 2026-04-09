@@ -2706,6 +2706,25 @@ export const taskUpdateSchema = z
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
     airbrushings: z.array(airbrushingCreateNestedSchema).optional(), // Support for multiple airbrushings
 
+    // Service order file updates (checkin/checkout) - independent of serviceOrders to avoid triggering SO deletion
+    // Maps { [serviceOrderId]: { checkinFileIds?: string[], checkoutFileIds?: string[] } }
+    serviceOrderFiles: z
+      .record(
+        z.string().uuid(),
+        z.object({
+          checkinFileIds: z.array(z.string().uuid('Arquivo de checkin inválido')).optional(),
+          checkoutFileIds: z.array(z.string().uuid('Arquivo de checkout inválido')).optional(),
+        }),
+      )
+      .optional(),
+
+    // SO file upload mapping - maps uploaded files from flat arrays to specific service orders
+    _soFileMapping: z.array(z.object({
+      soId: z.string().uuid(),
+      type: z.enum(['checkin', 'checkout']),
+      count: z.number().int().positive(),
+    })).optional(),
+
     // Removal operation fields (for batch updates)
     removeGeneralPainting: z.boolean().optional(),
     removeLogoPaints: z.array(z.string().uuid()).optional(),

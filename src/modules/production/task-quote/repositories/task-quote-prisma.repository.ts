@@ -54,13 +54,13 @@ export class TaskQuotePrismaRepository
       services: databaseEntity.services?.map((service: any) => ({
         ...service,
         amount: service.amount ? Number(service.amount) : 0,
-        discountValue: service.discountValue ? Number(service.discountValue) : null,
       })),
       // Pass through customerConfigs data if present
       customerConfigs: databaseEntity.customerConfigs?.map((config: any) => ({
         ...config,
         subtotal: config.subtotal ? Number(config.subtotal) : 0,
         total: config.total ? Number(config.total) : 0,
+        discountValue: config.discountValue ? Number(config.discountValue) : null,
         installments: config.installments?.map((inst: any) => ({
           ...inst,
           amount: inst.amount ? Number(inst.amount) : 0,
@@ -100,6 +100,9 @@ export class TaskQuotePrismaRepository
           customer: { connect: { id: config.customerId } },
           subtotal: config.subtotal || 0,
           total: config.total || 0,
+          discountType: config.discountType || 'NONE',
+          discountValue: config.discountValue ?? null,
+          discountReference: config.discountReference ?? null,
           customPaymentText: config.customPaymentText || null,
           generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
           orderNumber: config.orderNumber || null,
@@ -117,9 +120,6 @@ export class TaskQuotePrismaRepository
           description: service.description || '',
           observation: service.observation || null,
           position: index,
-          discountType: (service as any).discountType || 'NONE',
-          discountValue: (service as any).discountValue ?? null,
-          discountReference: (service as any).discountReference ?? null,
           ...((service as any).invoiceToCustomerId && {
             invoiceToCustomer: { connect: { id: (service as any).invoiceToCustomerId } },
           }),
@@ -477,7 +477,7 @@ export class TaskQuotePrismaRepository
       where: {
         expiresAt: { lt: now },
         status: {
-          in: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL, TASK_QUOTE_STATUS.BILLING_APPROVED],
+          in: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.COMMERCIAL_APPROVED, TASK_QUOTE_STATUS.BILLING_APPROVED],
         },
       },
       include: {

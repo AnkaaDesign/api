@@ -38,6 +38,8 @@ export const TASK_FIELD_DOMAINS = {
   checkinFiles: ['checkinFileIds'],
   /** Check-out files (departure from facility) */
   checkoutFiles: ['checkoutFileIds'],
+  /** Service order file updates (checkin/checkout per SO) */
+  serviceOrderFiles: ['serviceOrderFiles'],
   /** Financial documents: budgets, invoices, receipts, bank slips */
   financialDocs: ['budgetIds', 'invoiceIds', 'receiptIds', 'bankSlipIds'],
   /** Reimbursement documents */
@@ -45,7 +47,7 @@ export const TASK_FIELD_DOMAINS = {
   /** Sector assignment */
   sector: ['sectorId'],
   /** Internal markers (not user-facing) */
-  meta: ['_hasFiles'],
+  meta: ['_hasFiles', '_soFileMapping'],
 } as const;
 
 type FieldDomain = keyof typeof TASK_FIELD_DOMAINS;
@@ -86,7 +88,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
   [SECTOR_PRIVILEGES.LOGISTIC]: [
     'identity', 'dates', 'status', 'truck', 'serviceOrders',
     'responsibles', 'baseFiles', 'projectFiles',
-    'checkinFiles', 'checkoutFiles', 'observation',
+    'checkinFiles', 'checkoutFiles', 'serviceOrderFiles', 'observation',
     // Passthrough: form sends these to preserve existing state
     'artworks',
     'meta',
@@ -95,7 +97,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
   [SECTOR_PRIVILEGES.PRODUCTION_MANAGER]: [
     'identity', 'dates', 'status', 'truck', 'serviceOrders',
     'responsibles', 'baseFiles', 'projectFiles',
-    'checkinFiles', 'checkoutFiles', 'observation',
+    'checkinFiles', 'checkoutFiles', 'serviceOrderFiles', 'observation',
     'sector',
     // Passthrough: form sends these to preserve existing state
     'artworks',
@@ -126,6 +128,7 @@ const FIELD_DOMAIN_LABELS: Record<FieldDomain, string> = {
   projectFiles: 'arquivos de projeto',
   checkinFiles: 'arquivos de check-in',
   checkoutFiles: 'arquivos de check-out',
+  serviceOrderFiles: 'arquivos de check-in/check-out por OS',
   financialDocs: 'documentos financeiros',
   reimbursements: 'reembolsos',
   sector: 'setor',

@@ -23,9 +23,6 @@ export interface TaskQuoteService extends BaseEntity {
   amount: number;
   quoteId: string;
   invoiceToCustomerId: string | null;
-  discountType: string;
-  discountValue?: number | null;
-  discountReference?: string | null;
 
   // Relations
   quote?: TaskQuote;

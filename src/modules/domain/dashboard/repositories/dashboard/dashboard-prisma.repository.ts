@@ -3733,11 +3733,21 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return [];
   }
 
-  async getTasksAwaitingQuoteApproval(limit = 50): Promise<HomeDashboardTask[]> {
+  async getTasksAwaitingQuoteApproval(sector: string, limit = 50): Promise<HomeDashboardTask[]> {
+    // COMMERCIAL sees BUDGET_APPROVED tasks (waiting for their commercial approval)
+    // FINANCIAL sees COMMERCIAL_APPROVED tasks (waiting for their billing approval)
+    // ADMIN sees both
+    const quoteStatusFilter =
+      sector === 'COMMERCIAL'
+        ? { status: 'BUDGET_APPROVED' as any }
+        : sector === 'FINANCIAL'
+          ? { status: 'COMMERCIAL_APPROVED' as any }
+          : { status: { in: ['BUDGET_APPROVED', 'COMMERCIAL_APPROVED'] } as any };
+
     const tasks = await this.prisma.task.findMany({
       where: {
         status: 'COMPLETED' as any,
-        quote: { status: 'VERIFIED_BY_FINANCIAL' as any },
+        quote: quoteStatusFilter,
       },
       select: {
         id: true,
@@ -4006,7 +4016,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     const statusLabels: Record<string, string> = {
       PENDING: 'Pendente',
       BUDGET_APPROVED: 'Aprovado',
-      VERIFIED_BY_FINANCIAL: 'Verificado',
+      COMMERCIAL_APPROVED: 'Aprov. Comercial',
       BILLING_APPROVED: 'Fat. Aprovado',
       UPCOMING: 'A Vencer',
       DUE: 'Vencido',
@@ -4017,7 +4027,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return {
       totalQuotes: total,
       pendingQuotes: statusMap['PENDING'] || 0,
-      approvedQuotes: (statusMap['BUDGET_APPROVED'] || 0) + (statusMap['VERIFIED_BY_FINANCIAL'] || 0) + (statusMap['BILLING_APPROVED'] || 0),
+      approvedQuotes: (statusMap['BUDGET_APPROVED'] || 0) + (statusMap['COMMERCIAL_APPROVED'] || 0) + (statusMap['BILLING_APPROVED'] || 0),
       settledQuotes: statusMap['SETTLED'] || 0,
       byStatus: {
         labels: Object.values(statusLabels),

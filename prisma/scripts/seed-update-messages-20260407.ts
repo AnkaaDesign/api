@@ -67,7 +67,7 @@ const message1 = {
           '**Múltiplos Clientes por Orçamento**: Cada orçamento agora suporta configurações individuais por cliente, com subtotais, condições de pagamento e responsável próprios',
           '**Descontos por Serviço**: Descontos agora são aplicados individualmente em cada serviço do orçamento, permitindo maior flexibilidade na negociação',
           '**Sugestão de Serviços**: Ao criar um orçamento, o sistema sugere automaticamente serviços com base no histórico do cliente',
-          '**Novo Fluxo de Status**: Pendente → Aprovado pelo Orçamento → Verificado pelo Financeiro → Aprovado para Faturamento → A Vencer → Parcial → Quitado',
+          '**Novo Fluxo de Status**: Pendente → Aprovado pelo Orçamento → Aprovado pelo Comercial → Aprovado para Faturamento → A Vencer → Parcial → Quitado',
           '**Faturas e Parcelas**: Sistema completo de faturamento com geração de faturas, parcelas com datas de vencimento e controle de pagamento',
           '**Boletos Sicredi**: Geração automática de boletos bancários via integração com o Sicredi, com acompanhamento de status e baixa automática. Download individual ou em ZIP',
           '**NFS-e Elotech**: Emissão de notas fiscais de serviço eletrônicas integrada com o portal da prefeitura de Ibiporã, com visualização e download em PDF',

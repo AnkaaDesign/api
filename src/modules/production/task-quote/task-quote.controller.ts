@@ -47,8 +47,8 @@ import type {
  * Handles HTTP requests for quote management
  *
  * Access Control:
- * - COMMERCIAL: Can create, edit, view all quotes
- * - FINANCIAL: Can view all, approve/reject quotes
+ * - COMMERCIAL: Can create, edit, view all quotes, and do commercial approval
+ * - FINANCIAL: Can view all, do financial verification and billing approval
  * - ADMIN: Full access to everything
  */
 @Controller('task-quotes')
@@ -162,7 +162,7 @@ export class TaskQuoteController {
    * Update quote status
    *
    * Access: FINANCIAL, ADMIN, COMMERCIAL
-   * Note: FINANCIAL cannot set BILLING_APPROVED (only ADMIN/COMMERCIAL can)
+   * Note: COMMERCIAL cannot set BILLING_APPROVED (only ADMIN/FINANCIAL can)
    */
   @Put(':id/status')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
@@ -177,12 +177,12 @@ export class TaskQuoteController {
       throw new BadRequestException('Status inválido');
     }
 
-    // FINANCIAL cannot set BILLING_APPROVED — only ADMIN/COMMERCIAL can
+    // COMMERCIAL cannot set BILLING_APPROVED — only ADMIN/FINANCIAL can
     if (status === TASK_QUOTE_STATUS.BILLING_APPROVED) {
       const userPrivilege = (req as any).user?.role;
-      if (userPrivilege === SECTOR_PRIVILEGES.FINANCIAL) {
+      if (userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL) {
         throw new BadRequestException(
-          'Setor financeiro não pode aprovar internamente. Apenas Admin ou Comercial.',
+          'Setor comercial não pode aprovar faturamento. Apenas Admin ou Financeiro.',
         );
       }
       return this.taskQuoteService.internalApprove(id, userId);
@@ -204,25 +204,25 @@ export class TaskQuoteController {
   }
 
   /**
-   * PUT /task-quotes/:id/verify
-   * Financial verifies quote structure (BUDGET_APPROVED → VERIFIED_BY_FINANCIAL)
+   * PUT /task-quotes/:id/commercial-approve
+   * Commercial approves quote (BUDGET_APPROVED → COMMERCIAL_APPROVED)
    *
-   * Access: FINANCIAL, ADMIN
+   * Access: COMMERCIAL, ADMIN
    */
-  @Put(':id/verify')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
-  async verify(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
-    return this.taskQuoteService.verify(id, userId);
+  @Put(':id/commercial-approve')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  async commercialApprove(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
+    return this.taskQuoteService.commercialApprove(id, userId);
   }
 
   /**
    * PUT /task-quotes/:id/internal-approve
-   * Commercial/admin final approval → triggers invoices + NFS-e (VERIFIED_BY_FINANCIAL → BILLING_APPROVED)
+   * Financial/admin final approval → triggers invoices + NFS-e (COMMERCIAL_APPROVED → BILLING_APPROVED)
    *
-   * Access: COMMERCIAL, ADMIN
+   * Access: FINANCIAL, ADMIN
    */
   @Put(':id/internal-approve')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   async internalApprove(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     return this.taskQuoteService.internalApprove(id, userId);
   }

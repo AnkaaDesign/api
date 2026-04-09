@@ -113,8 +113,6 @@ export class NfseEmissionScheduler {
                           description: true,
                           amount: true,
                           invoiceToCustomerId: true,
-                          discountType: true,
-                          discountValue: true,
                         },
                         orderBy: { position: 'asc' as const },
                       },
@@ -122,7 +120,7 @@ export class NfseEmissionScheduler {
                   },
                 },
               },
-              customerConfig: { select: { orderNumber: true } },
+              customerConfig: { select: { orderNumber: true, discountType: true, discountValue: true } },
             },
           },
         },
@@ -201,8 +199,6 @@ export class NfseEmissionScheduler {
                   description: string;
                   amount: any;
                   invoiceToCustomerId: string | null;
-                  discountType?: string;
-                  discountValue?: number | null;
                 }>
               | undefined;
 
@@ -215,9 +211,12 @@ export class NfseEmissionScheduler {
             .map((s) => ({
               description: s.description,
               amount: Number(s.amount),
-              discountType: s.discountType || undefined,
-              discountValue: s.discountValue != null ? Number(s.discountValue) : undefined,
             }));
+
+          // Get customer config discount (global discount for this customer)
+          const customerConfig = (invoice as any).customerConfig;
+          const configDiscountType = customerConfig?.discountType || undefined;
+          const configDiscountValue = customerConfig?.discountValue != null ? Number(customerConfig.discountValue) : undefined;
 
           // Build the input for municipal NFSe emission (Elotech OXY)
           const truck = (task as any).truck;
@@ -258,6 +257,9 @@ export class NfseEmissionScheduler {
               : undefined,
             orderNumber: (invoice as any).customerConfig?.orderNumber || undefined,
             services,
+            globalDiscount: (configDiscountType && configDiscountType !== 'NONE' && configDiscountValue)
+              ? { type: configDiscountType, value: configDiscountValue }
+              : undefined,
           };
 
           await this.municipalNfseService.emitNfse(emitInput);
@@ -351,8 +353,6 @@ export class NfseEmissionScheduler {
                         description: true,
                         amount: true,
                         invoiceToCustomerId: true,
-                        discountType: true,
-                        discountValue: true,
                       },
                       orderBy: { position: 'asc' as const },
                     },
@@ -360,7 +360,7 @@ export class NfseEmissionScheduler {
                 },
               },
             },
-            customerConfig: { select: { orderNumber: true } },
+            customerConfig: { select: { orderNumber: true, discountType: true, discountValue: true } },
           },
         },
       },
@@ -390,8 +390,6 @@ export class NfseEmissionScheduler {
           description: string;
           amount: any;
           invoiceToCustomerId: string | null;
-          discountType?: string;
-          discountValue?: number | null;
         }> | undefined;
 
         const services = allServices
@@ -399,9 +397,12 @@ export class NfseEmissionScheduler {
           .map((s) => ({
             description: s.description,
             amount: Number(s.amount),
-            discountType: s.discountType || undefined,
-            discountValue: s.discountValue != null ? Number(s.discountValue) : undefined,
           }));
+
+        // Get customer config discount (global discount for this customer)
+        const customerConfig = (invoice as any).customerConfig;
+        const configDiscountType = customerConfig?.discountType || undefined;
+        const configDiscountValue = customerConfig?.discountValue != null ? Number(customerConfig.discountValue) : undefined;
 
         const truck = (task as any).truck;
 
@@ -440,8 +441,11 @@ export class NfseEmissionScheduler {
                 implementType: truck.implementType || undefined,
               }
             : undefined,
-          orderNumber: (invoice as any).customerConfig?.orderNumber || undefined,
+          orderNumber: customerConfig?.orderNumber || undefined,
           services,
+          globalDiscount: (configDiscountType && configDiscountType !== 'NONE' && configDiscountValue)
+            ? { type: configDiscountType, value: configDiscountValue }
+            : undefined,
         });
 
         emitted++;
