@@ -15,8 +15,9 @@ import type { ServiceOrder } from '@types';
  *
  * PRODUCTION Service Orders:
  * - LEADER can update
- * - LOGISTIC can update
+ * - PRODUCTION_MANAGER can update
  * - ADMIN can update
+ * Note: LOGISTIC can only update PRODUCTION orders when explicitly assigned to them
  *
  * FINANCIAL Service Orders:
  * - FINANCIAL can update
@@ -27,7 +28,8 @@ import type { ServiceOrder } from '@types';
  * - ADMIN can update
  *
  * LOGISTIC Service Orders:
- * - LOGISTIC can update
+ * - LOGISTIC can update ONLY when assigned to them
+ * - PRODUCTION_MANAGER can update
  * - ADMIN can update
  *
  * ARTWORK Service Orders:
@@ -93,6 +95,15 @@ export function checkServiceOrderUpdatePermission(
     };
   }
 
+  // LOGISTIC users can ONLY update service orders that are explicitly assigned to them.
+  // They cannot edit unassigned PRODUCTION or LOGISTIC service orders that don't belong to them.
+  if (userPrivilege === SECTOR_PRIVILEGES.LOGISTIC && !isAssignedUser) {
+    return {
+      canUpdate: false,
+      reason: 'Usuários de logística só podem editar ordens de serviço atribuídas a eles',
+    };
+  }
+
   // COMMERCIAL users can edit non-status fields (description, responsible, observation) on ALL service order types
   // But they can only change status on COMMERCIAL service orders
   if (
@@ -112,7 +123,8 @@ export function checkServiceOrderUpdatePermission(
   // Check permissions based on service order type (when NOT assigned)
   switch (serviceOrder.type) {
     case SERVICE_ORDER_TYPE.PRODUCTION:
-      // PRODUCTION, LOGISTIC, and PRODUCTION_MANAGER can update PRODUCTION service orders
+      // PRODUCTION and PRODUCTION_MANAGER can update PRODUCTION service orders when unassigned.
+      // LOGISTIC can also update but only when they are the assigned user (enforced above).
       if (
         userPrivilege === SECTOR_PRIVILEGES.PRODUCTION ||
         userPrivilege === SECTOR_PRIVILEGES.LOGISTIC ||
@@ -123,7 +135,7 @@ export function checkServiceOrderUpdatePermission(
       return {
         canUpdate: false,
         reason:
-          'Apenas líderes de setor, logística, gerente de produção ou administradores podem atualizar ordens de serviço de produção',
+          'Apenas líderes de setor, gerente de produção ou administradores podem atualizar ordens de serviço de produção',
       };
 
     case SERVICE_ORDER_TYPE.COMMERCIAL:
