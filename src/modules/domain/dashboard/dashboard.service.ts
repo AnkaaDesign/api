@@ -200,6 +200,7 @@ export class DashboardService {
         taskMetrics,
         userActivity,
         recentActivities,
+        totalMessages,
       ] = await Promise.all([
         this.getOrderOverview(query.supplierId, dateFilter),
         this.getNfeTracking(),
@@ -214,6 +215,7 @@ export class DashboardService {
         this.getTaskOverviewMetrics(query.sectorId, dateFilter),
         this.getUserActivity(),
         this.getRecentActivities(dateFilter),
+        this.dashboardRepository.getTotalMessages(),
       ]);
 
       return {
@@ -233,6 +235,7 @@ export class DashboardService {
           taskMetrics,
           userActivity,
           recentActivities,
+          totalMessages,
         },
       };
     } catch (error) {
@@ -818,6 +821,10 @@ export class DashboardService {
         value: stats.sent,
       },
       notificationsByType: stats.byType,
+      totalNotificationConfigs: {
+        label: 'Configurações de Notificação',
+        value: stats.totalConfigs,
+      },
     };
   }
 
@@ -997,39 +1004,87 @@ export class DashboardService {
       title: this.formatChangeLogTitle(log.entityType, log.action),
       description: log.reason || this.formatChangeLogDescription(log),
       icon: this.getChangeLogIcon(log.entityType),
-      type: log.action,
+      type: this.translateAction(log.action),
       timestamp: log.createdAt,
     }));
   }
 
-  private formatChangeLogTitle(entityType: string, action: string): string {
-    const entityLabels: Record<string, string> = {
-      USER: 'Usuário',
-      TASK: 'Tarefa',
-      ORDER: 'Pedido',
-      CUSTOMER: 'Cliente',
-      ITEM: 'Item',
-      COMMISSION: 'Comissão',
-      // Add more as needed
-    };
+  private readonly entityLabels: Record<string, string> = {
+    USER: 'Usuário',
+    TASK: 'Tarefa',
+    ORDER: 'Pedido',
+    CUSTOMER: 'Cliente',
+    ITEM: 'Item',
+    COMMISSION: 'Comissão',
+    SERVICE_ORDER: 'Ordem de Serviço',
+    SECTOR: 'Setor',
+    NOTIFICATION: 'Notificação',
+    INVOICE: 'Fatura',
+    BANK_SLIP: 'Boleto',
+    NFSE: 'NFS-e',
+    TASK_QUOTE: 'Orçamento',
+    INSTALLMENT: 'Parcela',
+    CUT: 'Corte',
+    ARTWORK: 'Arte',
+    VACATION: 'Férias',
+    PAYROLL: 'Folha de Pagamento',
+    POSITION: 'Cargo',
+    FILE: 'Arquivo',
+    MESSAGE: 'Mensagem',
+    MAINTENANCE: 'Manutenção',
+  };
 
-    const actionLabels: Record<string, string> = {
-      CREATE: 'criado',
-      UPDATE: 'atualizado',
-      DELETE: 'removido',
-      APPROVE: 'aprovado',
-      REJECT: 'rejeitado',
-      // Add more as needed
-    };
+  private readonly actionLabels: Record<string, string> = {
+    CREATE: 'criado',
+    UPDATE: 'atualizado',
+    DELETE: 'removido',
+    APPROVE: 'aprovado',
+    REJECT: 'rejeitado',
+    CANCEL: 'cancelado',
+    COMPLETE: 'concluído',
+    SEND: 'enviado',
+    ARCHIVE: 'arquivado',
+    RESTORE: 'restaurado',
+  };
 
-    return `${entityLabels[entityType] || entityType} ${actionLabels[action] || action}`;
+  private translateAction(action: string): string {
+    return this.actionLabels[action] || action;
   }
+
+  private formatChangeLogTitle(entityType: string, action: string): string {
+    const entity = this.entityLabels[entityType] || entityType;
+    const act = this.actionLabels[action] || action;
+    return `${entity} ${act}`;
+  }
+
+  private readonly fieldLabels: Record<string, string> = {
+    status: 'Status',
+    name: 'Nome',
+    email: 'E-mail',
+    phone: 'Telefone',
+    amount: 'Valor',
+    totalAmount: 'Valor Total',
+    dueDate: 'Vencimento',
+    description: 'Descrição',
+    sectorId: 'Setor',
+    customerId: 'Cliente',
+    userId: 'Usuário',
+    importance: 'Importância',
+    type: 'Tipo',
+    forecastDate: 'Previsão',
+    plate: 'Placa',
+    serialNumber: 'Número de Série',
+    paymentStatus: 'Status de Pagamento',
+  };
 
   private formatChangeLogDescription(log: any): string {
     if (log.field) {
-      return `Campo ${log.field} alterado`;
+      const fieldLabel = this.fieldLabels[log.field] || log.field;
+      return `Campo "${fieldLabel}" atualizado`;
     }
-    return `${log.entityType} ${log.action}`;
+    const entity = this.entityLabels[log.entityType] || log.entityType;
+    const act = this.actionLabels[log.action] || log.action;
+    return `${entity} ${act}`;
   }
 
   private getChangeLogIcon(entityType: string): string {
@@ -1040,7 +1095,18 @@ export class DashboardService {
       CUSTOMER: 'UserCircle',
       ITEM: 'Package',
       COMMISSION: 'DollarSign',
-      // Add more as needed
+      SERVICE_ORDER: 'Wrench',
+      SECTOR: 'Building',
+      NOTIFICATION: 'Bell',
+      INVOICE: 'FileText',
+      BANK_SLIP: 'CreditCard',
+      NFSE: 'Receipt',
+      TASK_QUOTE: 'FileCheck',
+      CUT: 'Scissors',
+      ARTWORK: 'Palette',
+      VACATION: 'Calendar',
+      PAYROLL: 'Banknote',
+      MAINTENANCE: 'Tool',
     };
 
     return iconMap[entityType] || 'Activity';

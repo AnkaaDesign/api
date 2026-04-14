@@ -137,7 +137,9 @@ export abstract class DashboardRepository {
     byImportance: DashboardChartData;
     sent: number;
     byType: DashboardChartData;
+    totalConfigs: number;
   }>;
+  abstract getTotalMessages(): Promise<number>;
   abstract getTotalRevenue(): Promise<number>;
   abstract countMissingNfe(): Promise<number>;
 

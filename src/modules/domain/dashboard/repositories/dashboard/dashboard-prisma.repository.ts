@@ -1288,11 +1288,12 @@ export class DashboardPrismaRepository implements DashboardRepository {
     byImportance: DashboardChartData;
     sent: number;
     byType: DashboardChartData;
+    totalConfigs: number;
   }> {
     const currentMonthRange = this.getCurrentMonthRange();
     const where = dateFilter ? { createdAt: dateFilter } : { createdAt: currentMonthRange };
 
-    const [total, byImportance, sent, byType] = await Promise.all([
+    const [total, byImportance, sent, byType, totalConfigs] = await Promise.all([
       this.prisma.notification.count({ where }),
       this.prisma.notification.groupBy({
         by: ['importance'],
@@ -1337,6 +1338,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
           FROM "Notification"
           GROUP BY 1`;
       })(),
+      this.prisma.notificationConfiguration.count(),
     ]);
 
     return {
@@ -1363,7 +1365,12 @@ export class DashboardPrismaRepository implements DashboardRepository {
           },
         ],
       },
+      totalConfigs,
     };
+  }
+
+  async getTotalMessages(): Promise<number> {
+    return this.prisma.message.count();
   }
 
   async getTotalRevenue(): Promise<number> {
@@ -4141,64 +4148,150 @@ export class DashboardPrismaRepository implements DashboardRepository {
       where.createdAt = dateFilter;
     }
 
-    const [recentInvoices, recentBankSlips] = await Promise.all([
+    const perType = Math.max(5, Math.ceil(limit / 5));
+
+    const [recentInvoices, recentBankSlips, recentPayments, recentNfse, recentQuotes] = await Promise.all([
       this.prisma.invoice.findMany({
         where,
         orderBy: { updatedAt: 'desc' },
-        take: Math.ceil(limit / 2),
+        take: perType,
         include: {
-          customer: { select: { corporateName: true } },
+          customer: { select: { corporateName: true, fantasyName: true } },
         },
       }),
       this.prisma.bankSlip.findMany({
         where: dateFilter?.gte || dateFilter?.lte ? { createdAt: dateFilter } : {},
         orderBy: { updatedAt: 'desc' },
-        take: Math.ceil(limit / 2),
+        take: perType,
         include: {
           installment: {
             include: {
               invoice: {
-                include: { customer: { select: { corporateName: true } } },
+                include: { customer: { select: { corporateName: true, fantasyName: true } } },
               },
             },
           },
         },
       }),
+      this.prisma.bankSlip.findMany({
+        where: {
+          status: 'PAID',
+          ...(dateFilter?.gte || dateFilter?.lte ? { paidAt: dateFilter } : {}),
+        },
+        orderBy: { paidAt: 'desc' },
+        take: perType,
+        include: {
+          installment: {
+            include: {
+              invoice: {
+                include: { customer: { select: { corporateName: true, fantasyName: true } } },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.nfseDocument.findMany({
+        where: {
+          status: 'AUTHORIZED',
+          ...(dateFilter?.gte || dateFilter?.lte ? { updatedAt: dateFilter } : {}),
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: perType,
+        include: {
+          invoice: {
+            include: { customer: { select: { corporateName: true, fantasyName: true } } },
+          },
+        },
+      }),
+      this.prisma.taskQuote.findMany({
+        where: {
+          status: { not: 'PENDING' },
+          ...(dateFilter?.gte || dateFilter?.lte ? { updatedAt: dateFilter } : {}),
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: perType,
+        include: {
+          task: {
+            include: { customer: { select: { corporateName: true, fantasyName: true } } },
+          },
+        },
+      }),
     ]);
 
-    const statusLabels: Record<string, string> = {
+    const invoiceStatusLabels: Record<string, string> = {
       DRAFT: 'Rascunho',
       ACTIVE: 'Ativa',
-      PARTIALLY_PAID: 'Parcialmente paga',
+      PARTIALLY_PAID: 'Parcialmente Paga',
       PAID: 'Paga',
       CANCELLED: 'Cancelada',
+    };
+
+    const bankSlipStatusLabels: Record<string, string> = {
       CREATING: 'Criando',
       REGISTERING: 'Registrando',
+      ACTIVE: 'Ativo',
+      PAID: 'Pago',
       OVERDUE: 'Vencido',
       REJECTED: 'Rejeitado',
       ERROR: 'Erro',
+      CANCELLED: 'Cancelado',
     };
+
+    const quoteStatusLabels: Record<string, string> = {
+      PENDING: 'Pendente',
+      BUDGET_APPROVED: 'Orç. Aprovado',
+      COMMERCIAL_APPROVED: 'Ap. Comercial',
+      BILLING_APPROVED: 'Ap. Faturamento',
+      UPCOMING: 'A Vencer',
+      DUE: 'Vencido',
+      PARTIAL: 'Parcial',
+      SETTLED: 'Liquidado',
+    };
+
+    const customerName = (c?: { corporateName: string | null; fantasyName: string | null } | null) =>
+      c?.fantasyName || c?.corporateName || 'Cliente';
 
     const activities = [
       ...recentInvoices.map(inv => ({
         id: inv.id,
-        title: `Fatura - ${inv.customer?.corporateName || 'Cliente'}`,
-        description: `Status: ${statusLabels[inv.status] || inv.status} - R$ ${Number(inv.totalAmount).toFixed(2)}`,
+        title: customerName(inv.customer),
+        description: `${invoiceStatusLabels[inv.status] || inv.status} · R$ ${Number(inv.totalAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         type: 'invoice' as const,
         timestamp: inv.updatedAt,
       })),
       ...recentBankSlips.map(bs => ({
         id: bs.id,
-        title: `Boleto - ${bs.installment?.invoice?.customer?.corporateName || 'Cliente'}`,
-        description: `Status: ${statusLabels[bs.status] || bs.status} - R$ ${Number(bs.amount).toFixed(2)}`,
+        title: customerName(bs.installment?.invoice?.customer),
+        description: `${bankSlipStatusLabels[bs.status] || bs.status} · R$ ${Number(bs.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         type: 'bankSlip' as const,
         timestamp: bs.updatedAt,
+      })),
+      ...recentPayments.map(bs => ({
+        id: `pay-${bs.id}`,
+        title: customerName(bs.installment?.invoice?.customer),
+        description: `Pago · R$ ${Number(bs.paidAmount ?? bs.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        type: 'payment' as const,
+        timestamp: bs.paidAt ?? bs.updatedAt,
+      })),
+      ...recentNfse.map(nfse => ({
+        id: nfse.id,
+        title: customerName(nfse.invoice?.customer),
+        description: `NFS-e ${nfse.nfseNumber ? `nº ${nfse.nfseNumber}` : 'Autorizada'}`,
+        type: 'nfse' as const,
+        timestamp: nfse.updatedAt,
+      })),
+      ...recentQuotes.map(q => ({
+        id: q.id,
+        title: customerName(q.task?.customer),
+        description: `${quoteStatusLabels[q.status] || q.status} · R$ ${Number(q.total).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        type: 'quote' as const,
+        timestamp: q.updatedAt,
       })),
     ];
 
     return activities
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, limit);
+      .slice(0, limit * 5);
   }
 
   async getUserSectorInfo(userId: string): Promise<{ privileges: string; sectorId: string } | null> {
