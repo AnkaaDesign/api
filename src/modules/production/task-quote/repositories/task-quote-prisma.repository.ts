@@ -16,7 +16,7 @@ import type {
   UpdateOptions,
 } from '@types';
 import type { TaskQuoteCreateFormData, TaskQuoteUpdateFormData } from '@schemas/task-quote';
-import { TASK_QUOTE_STATUS } from '@constants';
+import { TASK_QUOTE_STATUS, TASK_QUOTE_STATUS_ORDER } from '@constants';
 import { TaskQuote as PrismaTaskQuote, Prisma } from '@prisma/client';
 
 /**
@@ -138,7 +138,10 @@ export class TaskQuotePrismaRepository
     if (formData.subtotal !== undefined) updateInput.subtotal = formData.subtotal;
     if (formData.total !== undefined) updateInput.total = formData.total;
     if (formData.expiresAt !== undefined) updateInput.expiresAt = formData.expiresAt;
-    if (formData.status !== undefined) updateInput.status = formData.status as any;
+    if (formData.status !== undefined) {
+      updateInput.status = formData.status as any;
+      updateInput.statusOrder = TASK_QUOTE_STATUS_ORDER[formData.status as TASK_QUOTE_STATUS];
+    }
 
     // Guarantee Terms
     if (formData.guaranteeYears !== undefined) updateInput.guaranteeYears = formData.guaranteeYears;

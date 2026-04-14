@@ -64,7 +64,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
   [SECTOR_PRIVILEGES.FINANCIAL]: [
     'quote', 'financialDocs', 'identity', 'serviceOrders',
     // Passthrough: form sends these to preserve existing state
-    'artworks', 'baseFiles',
+    'artworks', 'baseFiles', 'truck',
     'meta',
   ],
 

@@ -16,6 +16,8 @@ import { BaseStringPrismaRepository } from '@modules/common/base/base-string-pri
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { Prisma } from '@prisma/client';
 import { TASK_STATUS, SERVICE_ORDER_STATUS, CUT_STATUS } from '../../../../constants/enums';
+import { TASK_QUOTE_STATUS_ORDER } from '../../../../constants/sortOrders';
+import { TASK_QUOTE_STATUS } from '../../../../constants';
 import {
   getTaskStatusOrder,
   getCommissionStatusOrder,
@@ -1014,7 +1016,13 @@ export class TaskPrismaRepository
     if (name !== undefined) updateData.name = name;
     if (serialNumber !== undefined) updateData.serialNumber = serialNumber;
     if (details !== undefined) updateData.details = details;
-    if (entryDate !== undefined) updateData.entryDate = entryDate;
+    if (entryDate !== undefined) {
+      updateData.entryDate = entryDate;
+      // Setting an entry date means the truck has arrived — auto-clear if not already cleared
+      if (entryDate !== null && cleared === undefined) {
+        updateData.cleared = true;
+      }
+    }
     if (term !== undefined) updateData.term = term;
     if (startedAt !== undefined) updateData.startedAt = startedAt;
     if (finishedAt !== undefined) updateData.finishedAt = finishedAt;
@@ -1679,6 +1687,9 @@ export class TaskPrismaRepository
                 total,
                 expiresAt: quoteData.expiresAt ? new Date(quoteData.expiresAt) : undefined,
                 status: quoteData.status || undefined,
+                ...(quoteData.status && {
+                  statusOrder: TASK_QUOTE_STATUS_ORDER[quoteData.status as TASK_QUOTE_STATUS],
+                }),
                 guaranteeYears:
                   quoteData.guaranteeYears !== undefined ? quoteData.guaranteeYears : undefined,
                 customGuaranteeText:
