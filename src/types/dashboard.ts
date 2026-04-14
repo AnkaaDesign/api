@@ -346,6 +346,7 @@ export interface AdministrationDashboardData {
     type?: string;
     timestamp: Date | string;
   }>;
+  totalMessages: number;
 }
 
 export interface AdministrationDashboardResponse {
