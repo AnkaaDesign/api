@@ -2687,7 +2687,9 @@ enum TruckCategory {
   RIGID
   TRUCK
   SEMI_TRAILER
+  SEMI_TRAILER_2_AXLES
   B_DOUBLE
+  BITRUCK
 }
 
 enum ImplementType {

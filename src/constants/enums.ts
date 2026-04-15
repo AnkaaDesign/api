@@ -803,7 +803,9 @@ export enum TRUCK_CATEGORY {
   RIGID = 'RIGID', // Toco - Rigid truck with single rear axle
   TRUCK = 'TRUCK', // Standard truck
   SEMI_TRAILER = 'SEMI_TRAILER', // Carreta - Semi-trailer truck
+  SEMI_TRAILER_2_AXLES = 'SEMI_TRAILER_2_AXLES', // Semirreboque 2 Eixos
   B_DOUBLE = 'B_DOUBLE', // Bitrem - B-Double (truck with double trailer)
+  BITRUCK = 'BITRUCK', // Bitruck - Rigid truck with dual steering axle
 }
 
 /**
