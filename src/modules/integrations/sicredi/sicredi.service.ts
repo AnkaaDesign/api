@@ -181,8 +181,10 @@ export class SicrediService implements OnModuleInit {
   async cancelBoleto(nossoNumero: string): Promise<void> {
     this.logger.log(`Cancelling boleto: nossoNumero=${nossoNumero}`);
 
+    // Sicredi requires an empty JSON body ({}) on the baixa PATCH — omitting body returns 400
     await this.apiClient.patch(
       `/cobranca/boleto/v1/boletos/${nossoNumero}/baixa`,
+      {},
     );
 
     this.logger.log(`Boleto cancelled successfully: nossoNumero=${nossoNumero}`);

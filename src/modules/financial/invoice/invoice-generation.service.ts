@@ -533,11 +533,13 @@ export class InvoiceGenerationService {
     const map: Record<string, string> = {
       MINI: 'Mini',
       VUC: 'VUC',
-      THREE_QUARTER: 'Tres quartos',
-      RIGID: 'Rigido',
-      TRUCK: 'Caminhao',
-      SEMI_TRAILER: 'Semi-reboque',
-      B_DOUBLE: 'B-Double',
+      THREE_QUARTER: '3/4',
+      RIGID: 'Toco',
+      TRUCK: 'Truck',
+      SEMI_TRAILER: 'Semirreboque',
+      SEMI_TRAILER_2_AXLES: 'Semirreboque 2 Eixos',
+      B_DOUBLE: 'Bitrem',
+      BITRUCK: 'Bitruck',
     };
     return category ? (map[category] ?? category) : null;
   }
