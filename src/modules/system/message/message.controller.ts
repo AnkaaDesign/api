@@ -36,7 +36,7 @@ export class MessageController {
    */
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'PRODUCTION_MANAGER')
   @ApiOperation({
     summary: 'Create a new message/announcement',
     description: 'Create a new message with targeting options. Admin only.',
@@ -78,7 +78,7 @@ export class MessageController {
    * Get all messages with filters (Admin only)
    */
   @Get()
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'PRODUCTION_MANAGER')
   @ApiOperation({
     summary: 'Get all messages',
     description: 'Retrieve all messages with optional filters. Admin only.',
@@ -164,7 +164,7 @@ export class MessageController {
    * Get message by ID (Admin only)
    */
   @Get(':id')
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'PRODUCTION_MANAGER')
   @ApiOperation({
     summary: 'Get message by ID',
     description: 'Retrieve a specific message by its ID. Admin only.',
@@ -199,7 +199,7 @@ export class MessageController {
    * Update message (Admin only)
    */
   @Put(':id')
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'PRODUCTION_MANAGER')
   @ApiOperation({
     summary: 'Update message',
     description: 'Update an existing message. Admin only.',
@@ -238,7 +238,7 @@ export class MessageController {
    * Delete message (Admin only)
    */
   @Delete(':id')
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'PRODUCTION_MANAGER')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Delete message',
@@ -350,7 +350,7 @@ export class MessageController {
    * Get message statistics (Admin only)
    */
   @Get(':id/stats')
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'PRODUCTION_MANAGER')
   @ApiOperation({
     summary: 'Get message statistics',
     description: 'Get view statistics for a specific message. Admin only.',
