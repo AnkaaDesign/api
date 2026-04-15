@@ -59,7 +59,7 @@ export class VacationController {
 
   // Basic CRUD Operations
   @Get()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async findMany(
     @Query(new ZodQueryValidationPipe(vacationGetManySchema)) query: VacationGetManyFormData,
     @UserId() userId: string,
@@ -181,7 +181,7 @@ export class VacationController {
 
   // Dynamic routes (must come after static routes)
   @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(vacationQuerySchema)) query: VacationQueryFormData,
