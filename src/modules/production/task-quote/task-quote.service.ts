@@ -219,7 +219,7 @@ export class TaskQuoteService {
             total: aggregateTotal,
             expiresAt: data.expiresAt,
             status: data.status || TASK_QUOTE_STATUS.PENDING,
-            statusOrder: 1,
+            statusOrder: TASK_QUOTE_STATUS_ORDER[(data.status || TASK_QUOTE_STATUS.PENDING) as TASK_QUOTE_STATUS] ?? 8,
             // Guarantee Terms
             guaranteeYears: data.guaranteeYears || null,
             customGuaranteeText: data.customGuaranteeText || null,

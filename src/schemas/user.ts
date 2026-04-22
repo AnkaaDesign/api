@@ -1600,9 +1600,13 @@ export const userCreateSchema = z
       .date()
       .refine(
         date => {
-          const eighteenYearsAgo = new Date();
-          eighteenYearsAgo.setFullYear(eighteenYearsAgo.getFullYear() - 18);
-          return date <= eighteenYearsAgo;
+          const [year, month, day] = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' })
+            .format(new Date())
+            .split('-')
+            .map(Number);
+          const eighteenYearsAgo = new Date(year - 18, month - 1, day);
+          const birthDateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+          return birthDateOnly <= eighteenYearsAgo;
         },
         { message: 'O colaborador deve ter pelo menos 18 anos' },
       )
@@ -1693,9 +1697,13 @@ export const userUpdateSchema = z
       .date()
       .refine(
         date => {
-          const eighteenYearsAgo = new Date();
-          eighteenYearsAgo.setFullYear(eighteenYearsAgo.getFullYear() - 18);
-          return date <= eighteenYearsAgo;
+          const [year, month, day] = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' })
+            .format(new Date())
+            .split('-')
+            .map(Number);
+          const eighteenYearsAgo = new Date(year - 18, month - 1, day);
+          const birthDateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+          return birthDateOnly <= eighteenYearsAgo;
         },
         { message: 'O colaborador deve ter pelo menos 18 anos' },
       )

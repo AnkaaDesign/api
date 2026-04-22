@@ -358,6 +358,7 @@ export class ServiceOrderService {
     include?: ServiceOrderInclude,
     userId?: string,
     userPrivilege?: string,
+    isTeamLeader?: boolean,
   ): Promise<ServiceOrderUpdateResponse> {
     try {
       const serviceOrderExists = await this.serviceOrderRepository.findById(id);
@@ -377,6 +378,7 @@ export class ServiceOrderService {
           userPrivilege,
           data.status as SERVICE_ORDER_STATUS,
           isStatusChange,
+          isTeamLeader,
         );
       }
 
@@ -484,6 +486,25 @@ export class ServiceOrderService {
           }
         }
 
+        // Automatically set pausedBy/pausedAt when status changes to PAUSED
+        if (
+          data.status === SERVICE_ORDER_STATUS.PAUSED &&
+          oldData.status !== SERVICE_ORDER_STATUS.PAUSED
+        ) {
+          updateData.pausedById = userId || null;
+          updateData.pausedAt = new Date();
+        }
+
+        // When resuming from PAUSED back to IN_PROGRESS, clear pause data and track resume time
+        if (
+          data.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+          oldData.status === SERVICE_ORDER_STATUS.PAUSED
+        ) {
+          updateData.pausedById = null;
+          updateData.pausedAt = null;
+          updateData.lastStartedAt = new Date();
+        }
+
         // If going back to IN_PROGRESS (rejection scenario), clear approval data
         if (
           data.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
@@ -512,6 +533,9 @@ export class ServiceOrderService {
           updateData.approvedAt = null;
           updateData.completedById = null;
           updateData.finishedAt = null;
+          updateData.pausedById = null;
+          updateData.pausedAt = null;
+          updateData.lastStartedAt = null;
         }
 
         const updated = await this.serviceOrderRepository.updateWithTransaction(

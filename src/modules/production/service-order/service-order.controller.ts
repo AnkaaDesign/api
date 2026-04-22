@@ -195,6 +195,7 @@ export class ServiceOrderController {
       query.include,
       userId,
       user?.role as SECTOR_PRIVILEGES,
+      user?.isTeamLeader,
     );
   }
 
@@ -245,6 +246,7 @@ export class ServiceOrderController {
       query.include,
       userId,
       user?.role as SECTOR_PRIVILEGES,
+      user?.isTeamLeader,
     );
   }
 

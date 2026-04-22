@@ -48,6 +48,15 @@ export class TimeEntryReminderService {
     private readonly cacheService: CacheService,
   ) {}
 
+  private nowInSaoPaulo(): Date {
+    return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+  }
+
+  private todayStrSaoPaulo(): string {
+    const now = this.nowInSaoPaulo();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }
+
   /**
    * Convert "HH:mm:ss" to "HH:mm", or return as-is if already "HH:mm"
    */
@@ -76,7 +85,7 @@ export class TimeEntryReminderService {
       return null;
     }
 
-    const todayDow = new Date().getDay(); // 0=Sun .. 6=Sat
+    const todayDow = this.nowInSaoPaulo().getDay(); // 0=Sun .. 6=Sat
     const dayEntry = raw.Dias.find((d) => d.DiaSemana === todayDow);
 
     if (!dayEntry) {
@@ -107,7 +116,7 @@ export class TimeEntryReminderService {
    * Check if current time is past the expected entry time (with tolerance)
    */
   private isTimePastEntry(expectedTime: string, toleranceMinutes: number = 15): boolean {
-    const now = new Date();
+    const now = this.nowInSaoPaulo();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     const expectedMinutes = this.timeToMinutes(expectedTime);
     return currentMinutes >= expectedMinutes + toleranceMinutes;
@@ -138,7 +147,7 @@ export class TimeEntryReminderService {
       const holidaysResponse = await this.secullumService.getHolidays({ year });
 
       if (holidaysResponse.success && holidaysResponse.data) {
-        const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+        const todayStr = this.todayStrSaoPaulo(); // YYYY-MM-DD
 
         const isHoliday = holidaysResponse.data.some((holiday) => {
           const holidayDate = holiday.Data.split('T')[0];
@@ -315,7 +324,7 @@ export class TimeEntryReminderService {
     }
 
     // Get today's time entries
-    const today = new Date().toISOString().split('T')[0];
+    const today = this.todayStrSaoPaulo();
     let timeEntries;
     try {
       timeEntries = await this.secullumService.getTimeEntriesBySecullumId(
@@ -393,7 +402,7 @@ export class TimeEntryReminderService {
     const users = await this.getActiveUsersForTimeCheck();
     this.logger.log(`Found ${users.length} active users to check`);
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = this.todayStrSaoPaulo();
 
     // Check each user
     for (const user of users) {
