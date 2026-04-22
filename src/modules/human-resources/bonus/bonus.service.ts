@@ -11,6 +11,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { CacheService } from '@modules/common/cache/cache.service';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { ExactBonusCalculationService } from './exact-bonus-calculation.service';
@@ -60,6 +61,12 @@ interface LiveBonusData {
   absenceDiscountPercentage?: number;
   absenceDiscountValue?: number;
   secullumAnalysis?: SecullumBonusAnalysis;
+  // Mirrors secullumAnalysis.atestadoForgiven at the top level for clients that
+  // don't surface the full analysis object.
+  atestadoForgiven?: boolean;
+  // SWR freshness markers propagated from calculateLiveBonuses → calculateLiveBonusForUser.
+  lastCalculatedAt?: string;
+  isStale?: boolean;
   // Relations for extras and discounts
   bonusExtras?: any[];
   bonusDiscounts?: any[];
@@ -78,6 +85,10 @@ interface LiveBonusCalculationResult {
   rawAverageTasksPerEmployee: number; // Average with suspended as 1.0
   calculatedAt: Date;
   isLive: true;
+  /** ISO8601 timestamp of when the cached result was produced. Set by the SWR wrapper. */
+  lastCalculatedAt?: string;
+  /** True when the response was served from the SWR cache (age > fresh window). */
+  isStale?: boolean;
 }
 
 // =====================
@@ -148,9 +159,65 @@ function getPeriodEnd(year: number, month: number): Date {
   return new Date(year, month - 1, 25, 23, 59, 59, 999);
 }
 
+/**
+ * Build a " — DD/MM, DD/MM (H:MM), …" suffix listing absence days that match
+ * `predicate`, pulled from a SecullumBonusAnalysis.dailyBreakdown.
+ *
+ * Formatting rules:
+ *   • 0 matches         → returns '' (leaves the base reference untouched).
+ *   • 1 matching day    → " — DD/MM" (no parenthesized hours; the tier label
+ *                          already shows the total, so repeating the hours is
+ *                          redundant: "(0:29) — 14/04 (0:29)" becomes
+ *                          "(0:29) — 14/04").
+ *   • 2+ matching days  → " — DD/MM (H:MM), DD/MM (H:MM)" so the reader can
+ *                          see how the days break down into the tier total.
+ *
+ * `hoursField` selects which DayAnalysis numeric field drives the per-day hour
+ * label ('unjustifiedAbsenceHours' or 'atestadoHours'). Missing/0 hours fall
+ * back to a date-only label.
+ */
+function formatAbsenceDaysSuffix(
+  breakdown: Array<{ date: string; [k: string]: any }> | undefined,
+  predicate: (d: { date: string; [k: string]: any }) => boolean,
+  hoursField?: 'unjustifiedAbsenceHours' | 'atestadoHours',
+): string {
+  if (!breakdown || breakdown.length === 0) return '';
+  type Entry = { dd: string; mm: string; hours: number };
+  const entries: Entry[] = [];
+  for (const raw of breakdown) {
+    if (!predicate(raw)) continue;
+    if (!raw.date) continue;
+    const parsed = new Date(raw.date);
+    if (isNaN(parsed.getTime())) continue;
+    entries.push({
+      dd: String(parsed.getDate()).padStart(2, '0'),
+      mm: String(parsed.getMonth() + 1).padStart(2, '0'),
+      hours: hoursField ? Number(raw[hoursField] ?? 0) : 0,
+    });
+  }
+  if (entries.length === 0) return '';
+  if (entries.length === 1) {
+    return ` — ${entries[0].dd}/${entries[0].mm}`;
+  }
+  const labels = entries.map(e => {
+    if (e.hours > 0) {
+      const h = Math.floor(e.hours);
+      const m = Math.round((e.hours - h) * 60);
+      return `${e.dd}/${e.mm} (${h}:${String(m).padStart(2, '0')})`;
+    }
+    return `${e.dd}/${e.mm}`;
+  });
+  return ` — ${labels.join(', ')}`;
+}
+
 @Injectable()
 export class BonusService {
   private readonly logger = new Logger(BonusService.name);
+
+  // SWR cache parameters for live-bonus results.
+  private readonly LIVE_BONUS_FRESH_MS = 30 * 60 * 1000; // 30 min — below this, response is fresh
+  private readonly LIVE_BONUS_CACHE_TTL_SEC = 2 * 60 * 60; // 2h hard Redis TTL (safety net)
+  private readonly ongoingLiveRevalidations = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -158,6 +225,7 @@ export class BonusService {
     private readonly exactBonusCalculationService: ExactBonusCalculationService,
     private readonly bonusRepository: BonusRepository,
     private readonly secullumBonusIntegrationService: SecullumBonusIntegrationService,
+    private readonly cacheService: CacheService,
   ) {}
 
   // =====================
@@ -580,10 +648,16 @@ export class BonusService {
         }
         if (secullumAnalysis.atestadoDiscountPercentage > 0) {
           const tierLabel = secullumAnalysis.atestadoTierLabel;
+          const daysSuffix = formatAbsenceDaysSuffix(
+            secullumAnalysis.dailyBreakdown,
+            d => d.isAtestado || (d.atestadoHours ?? 0) > 0,
+            'atestadoHours',
+          );
+          const base = tierLabel ? `Faltas - Atestado (${tierLabel})` : 'Faltas - Atestado';
           bonusDiscounts.push({
             id: `live-discount-atestado-${userId}-${year}-${month}`,
             bonusId: liveBonusId,
-            reference: tierLabel ? `Faltas - Atestado (${tierLabel})` : 'Faltas - Atestado',
+            reference: base + daysSuffix,
             percentage: secullumAnalysis.atestadoDiscountPercentage,
             value: null,
             calculationOrder: 2,
@@ -591,12 +665,18 @@ export class BonusService {
         }
         if (secullumAnalysis.unjustifiedDiscountPercentage > 0) {
           const tierLabel = secullumAnalysis.unjustifiedTierLabel;
+          const daysSuffix = formatAbsenceDaysSuffix(
+            secullumAnalysis.dailyBreakdown,
+            d => d.isUnjustifiedAbsence || (d.unjustifiedAbsenceHours ?? 0) > 0,
+            'unjustifiedAbsenceHours',
+          );
+          const base = tierLabel
+            ? `Faltas - Sem Justificativa (${tierLabel})`
+            : 'Faltas - Sem Justificativa';
           bonusDiscounts.push({
             id: `live-discount-unjustified-${userId}-${year}-${month}`,
             bonusId: liveBonusId,
-            reference: tierLabel
-              ? `Faltas - Sem Justificativa (${tierLabel})`
-              : 'Faltas - Sem Justificativa',
+            reference: base + daysSuffix,
             percentage: secullumAnalysis.unjustifiedDiscountPercentage,
             value: null,
             calculationOrder: 3,
@@ -642,10 +722,15 @@ export class BonusService {
         bonusDiscounts,
         bonusExtras,
         users: allEligibleUsers,
+        // Top-level mirrors of nested Secullum analysis flags so UI clients that
+        // don't deserialize secullumAnalysis can still show the forgiveness badge.
+        atestadoForgiven: secullumAnalysis?.atestadoForgiven ?? false,
+        secullumAnalysis,
       };
 
       this.logger.log(
-        `Live bonus calculated for user ${userId.slice(0, 8)}: R$ ${liveBonus.baseBonus} (net: R$ ${liveBonus.netBonus})`,
+        `Live bonus calculated for user ${userId.slice(0, 8)}: R$ ${liveBonus.baseBonus} (net: R$ ${liveBonus.netBonus})` +
+          (secullumAnalysis?.atestadoForgiven ? ' [atestado forgiven]' : ''),
       );
 
       return liveBonus;
@@ -1420,6 +1505,9 @@ export class BonusService {
         });
       });
 
+      // Invalidate the live SWR cache so the new discount is reflected immediately.
+      await this.invalidateLiveBonusesCache(bonus.year, bonus.month);
+
       return {
         success: true,
         data: { discount, bonus: updatedBonus },
@@ -1468,6 +1556,12 @@ export class BonusService {
           transaction: tx,
         });
       });
+
+      // Invalidate the live SWR cache so the removal is reflected immediately.
+      // discount.bonus is included above via Prisma's include option.
+      if (discount.bonus?.year && discount.bonus?.month) {
+        await this.invalidateLiveBonusesCache(discount.bonus.year, discount.bonus.month);
+      }
 
       return {
         success: true,
@@ -1551,7 +1645,111 @@ export class BonusService {
     };
   }
 
+  /**
+   * Live-bonus SWR entry point.
+   *
+   * - Cache hit, fresh (age ≤ 30 min): return cached, `isStale=false`.
+   * - Cache hit, stale (age > 30 min): return cached with `isStale=true` AND kick off
+   *   a single background revalidation (deduped per year/month).
+   * - Cache miss: block on compute, cache result, return fresh.
+   *
+   * Hard Redis TTL is 2 h (safety net if revalidations die). Pre-warm cron is
+   * expected to keep the cache fresh during working hours; the `isStale` flag
+   * exists so UIs can render a subtle "refreshing" indicator in off-hours.
+   */
   async calculateLiveBonuses(year: number, month: number): Promise<LiveBonusCalculationResult> {
+    const cacheKey = `bonus:live-period:${year}:${month}`;
+    const cached = await this.cacheService.getObject<{
+      result: LiveBonusCalculationResult;
+      calculatedAt: string;
+    }>(cacheKey);
+
+    if (cached) {
+      const age = Date.now() - new Date(cached.calculatedAt).getTime();
+      const isStale = age > this.LIVE_BONUS_FRESH_MS;
+
+      if (isStale && !this.ongoingLiveRevalidations.has(cacheKey)) {
+        this.ongoingLiveRevalidations.add(cacheKey);
+        void this.revalidateLiveBonusesCache(year, month, cacheKey);
+      }
+
+      return { ...cached.result, lastCalculatedAt: cached.calculatedAt, isStale };
+    }
+
+    const fresh = await this.computeLiveBonusesForPeriod(year, month);
+    const calculatedAt = new Date().toISOString();
+    try {
+      await this.cacheService.setObject(
+        cacheKey,
+        { result: fresh, calculatedAt },
+        this.LIVE_BONUS_CACHE_TTL_SEC,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to write live-bonus cache for ${year}/${month}: ${(err as Error)?.message || err}`,
+      );
+    }
+    return { ...fresh, lastCalculatedAt: calculatedAt, isStale: false };
+  }
+
+  /**
+   * Background revalidation for the SWR cache. Fire-and-forget from the read path;
+   * catches its own errors and always releases the dedup guard.
+   */
+  private async revalidateLiveBonusesCache(
+    year: number,
+    month: number,
+    cacheKey: string,
+  ): Promise<void> {
+    try {
+      const fresh = await this.computeLiveBonusesForPeriod(year, month);
+      const calculatedAt = new Date().toISOString();
+      await this.cacheService.setObject(
+        cacheKey,
+        { result: fresh, calculatedAt },
+        this.LIVE_BONUS_CACHE_TTL_SEC,
+      );
+      this.logger.debug(`[SWR] Revalidated live bonuses for ${year}/${month} at ${calculatedAt}`);
+    } catch (err) {
+      this.logger.warn(
+        `[SWR] Revalidation failed for ${year}/${month}: ${(err as Error)?.message || err}`,
+      );
+    } finally {
+      this.ongoingLiveRevalidations.delete(cacheKey);
+    }
+  }
+
+  /**
+   * Drop the live-bonus SWR cache for a period. Next read triggers a fresh compute.
+   * Also clears any per-user detail caches for the same period (if we later add one).
+   * Call this from admin-triggered invalidate endpoints AND after any mutation that
+   * affects the displayed bonus value for that period (discounts, extras, saves).
+   */
+  async invalidateLiveBonusesCache(year: number, month: number): Promise<void> {
+    const periodKey = `bonus:live-period:${year}:${month}`;
+    await this.cacheService.del(periodKey);
+    // Defensive: also clear any per-user detail keys for this period. The pattern
+    // is namespaced so it can't touch other modules' cache entries.
+    try {
+      await this.cacheService.clearPattern(`bonus:live-user:*:${year}:${month}`);
+    } catch (err) {
+      this.logger.warn(
+        `Pattern clear failed for period ${year}/${month}: ${(err as Error)?.message || err}`,
+      );
+    }
+    this.logger.log(`Invalidated live-bonus cache for ${year}/${month}`);
+  }
+
+  /**
+   * Core live-bonus computation (no caching). Called by calculateLiveBonuses (the
+   * cached entry point) and by revalidateLiveBonusesCache. Do not call this
+   * directly from controllers — always go through calculateLiveBonuses so the
+   * response is cached and includes freshness metadata.
+   */
+  private async computeLiveBonusesForPeriod(
+    year: number,
+    month: number,
+  ): Promise<LiveBonusCalculationResult> {
     try {
       // Get period dates (26th to 25th) - computed from year/month
       const startDate = getPeriodStart(year, month);
@@ -1840,14 +2038,18 @@ export class BonusService {
     month: number,
   ): Promise<LiveBonusData | null> {
     try {
-      // Get all live calculations - now includes ALL bonifiable users
+      // Goes through the SWR cache — typical hot-path latency is a single Redis read.
       const liveData = await this.calculateLiveBonuses(year, month);
 
-      // Find this user's bonus in the calculated list
       const userBonus = liveData.bonuses.find(b => b.userId === userId);
+      if (!userBonus) return null;
 
-      // Return the bonus (or null if user is not bonifiable/not found)
-      return userBonus || null;
+      // Propagate freshness metadata so single-user consumers see the same signals.
+      return {
+        ...userBonus,
+        lastCalculatedAt: liveData.lastCalculatedAt,
+        isStale: liveData.isStale,
+      };
     } catch (error) {
       this.logger.error(`Error calculating live bonus for user ${userId}:`, error);
       return null;
@@ -2011,13 +2213,19 @@ export class BonusService {
               });
             }
 
-            // Add live Secullum discounts
+            // Add live Secullum discounts (with per-day attribution suffix)
             if (liveBonus.secullumAnalysis.atestadoDiscountPercentage > 0) {
               const tierLabel = liveBonus.secullumAnalysis.atestadoTierLabel;
+              const daysSuffix = formatAbsenceDaysSuffix(
+                liveBonus.secullumAnalysis.dailyBreakdown,
+                d => d.isAtestado || (d.atestadoHours ?? 0) > 0,
+                'atestadoHours',
+              );
+              const base = tierLabel ? `Faltas - Atestado (${tierLabel})` : 'Faltas - Atestado';
               mergedDiscounts.push({
                 id: `live-discount-atestado-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
                 bonusId: liveBonusId,
-                reference: tierLabel ? `Faltas - Atestado (${tierLabel})` : 'Faltas - Atestado',
+                reference: base + daysSuffix,
                 percentage: liveBonus.secullumAnalysis.atestadoDiscountPercentage,
                 value: null,
                 calculationOrder: 2,
@@ -2026,12 +2234,18 @@ export class BonusService {
 
             if (liveBonus.secullumAnalysis.unjustifiedDiscountPercentage > 0) {
               const tierLabel = liveBonus.secullumAnalysis.unjustifiedTierLabel;
+              const daysSuffix = formatAbsenceDaysSuffix(
+                liveBonus.secullumAnalysis.dailyBreakdown,
+                d => d.isUnjustifiedAbsence || (d.unjustifiedAbsenceHours ?? 0) > 0,
+                'unjustifiedAbsenceHours',
+              );
+              const base = tierLabel
+                ? `Faltas - Sem Justificativa (${tierLabel})`
+                : 'Faltas - Sem Justificativa';
               mergedDiscounts.push({
                 id: `live-discount-unjustified-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
                 bonusId: liveBonusId,
-                reference: tierLabel
-                  ? `Faltas - Sem Justificativa (${tierLabel})`
-                  : 'Faltas - Sem Justificativa',
+                reference: base + daysSuffix,
                 percentage: liveBonus.secullumAnalysis.unjustifiedDiscountPercentage,
                 value: null,
                 calculationOrder: 3,
@@ -2117,10 +2331,16 @@ export class BonusService {
             }
             if (liveBonus.secullumAnalysis.atestadoDiscountPercentage > 0) {
               const tierLabel = liveBonus.secullumAnalysis.atestadoTierLabel;
+              const daysSuffix = formatAbsenceDaysSuffix(
+                liveBonus.secullumAnalysis.dailyBreakdown,
+                d => d.isAtestado || (d.atestadoHours ?? 0) > 0,
+                'atestadoHours',
+              );
+              const base = tierLabel ? `Faltas - Atestado (${tierLabel})` : 'Faltas - Atestado';
               liveBonusDiscounts.push({
                 id: `live-discount-atestado-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
                 bonusId: liveBonusId,
-                reference: tierLabel ? `Faltas - Atestado (${tierLabel})` : 'Faltas - Atestado',
+                reference: base + daysSuffix,
                 percentage: liveBonus.secullumAnalysis.atestadoDiscountPercentage,
                 value: null,
                 calculationOrder: 2,
@@ -2128,12 +2348,18 @@ export class BonusService {
             }
             if (liveBonus.secullumAnalysis.unjustifiedDiscountPercentage > 0) {
               const tierLabel = liveBonus.secullumAnalysis.unjustifiedTierLabel;
+              const daysSuffix = formatAbsenceDaysSuffix(
+                liveBonus.secullumAnalysis.dailyBreakdown,
+                d => d.isUnjustifiedAbsence || (d.unjustifiedAbsenceHours ?? 0) > 0,
+                'unjustifiedAbsenceHours',
+              );
+              const base = tierLabel
+                ? `Faltas - Sem Justificativa (${tierLabel})`
+                : 'Faltas - Sem Justificativa';
               liveBonusDiscounts.push({
                 id: `live-discount-unjustified-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
                 bonusId: liveBonusId,
-                reference: tierLabel
-                  ? `Faltas - Sem Justificativa (${tierLabel})`
-                  : 'Faltas - Sem Justificativa',
+                reference: base + daysSuffix,
                 percentage: liveBonus.secullumAnalysis.unjustifiedDiscountPercentage,
                 value: null,
                 calculationOrder: 3,
@@ -2457,11 +2683,19 @@ export class BonusService {
                 );
               }
 
-              // Create absence discount for ATESTADO
+              // Create absence discount for ATESTADO (persisted reference carries
+              // the per-day suffix so finalized bonuses show the same detail as
+              // the live view — future admin review of past months stays informative).
               if (analysis.atestadoDiscountPercentage > 0) {
-                const atestadoRef = analysis.atestadoTierLabel
+                const atestadoDaysSuffix = formatAbsenceDaysSuffix(
+                  analysis.dailyBreakdown,
+                  d => d.isAtestado || (d.atestadoHours ?? 0) > 0,
+                  'atestadoHours',
+                );
+                const atestadoBase = analysis.atestadoTierLabel
                   ? `Faltas - Atestado (${analysis.atestadoTierLabel})`
                   : 'Faltas - Atestado';
+                const atestadoRef = atestadoBase + atestadoDaysSuffix;
                 await tx.bonusDiscount.create({
                   data: {
                     bonusId,
@@ -2478,9 +2712,15 @@ export class BonusService {
 
               // Create absence discount for unjustified
               if (analysis.unjustifiedDiscountPercentage > 0) {
-                const unjustifiedRef = analysis.unjustifiedTierLabel
+                const unjustifiedDaysSuffix = formatAbsenceDaysSuffix(
+                  analysis.dailyBreakdown,
+                  d => d.isUnjustifiedAbsence || (d.unjustifiedAbsenceHours ?? 0) > 0,
+                  'unjustifiedAbsenceHours',
+                );
+                const unjustifiedBase = analysis.unjustifiedTierLabel
                   ? `Faltas - Sem Justificativa (${analysis.unjustifiedTierLabel})`
                   : 'Faltas - Sem Justificativa';
+                const unjustifiedRef = unjustifiedBase + unjustifiedDaysSuffix;
                 await tx.bonusDiscount.create({
                   data: {
                     bonusId,
@@ -2510,6 +2750,10 @@ export class BonusService {
       this.logger.log(
         `Monthly bonus calculation completed: ${successCount} success, ${failedCount} failed (${allActiveUsers.length} total active users). Suspended tasks: ${suspendedTaskIds.length}`,
       );
+
+      // After a full save, any cached live projection for this period is stale.
+      // Clients reading the list endpoint should see the persisted values.
+      await this.invalidateLiveBonusesCache(Number(year), Number(month));
 
       return { totalSuccess: successCount, totalFailed: failedCount };
     } catch (error) {

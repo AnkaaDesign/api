@@ -216,6 +216,12 @@ export interface LiveBonus {
   payrollId?: string;
   createdAt?: Date;
   updatedAt?: Date;
+  /** Set when the atestado penalty was waived (no prior atestado in 90 days). */
+  atestadoForgiven?: boolean;
+  /** ISO8601 timestamp — when the cached live calc was produced (SWR). */
+  lastCalculatedAt?: string;
+  /** True when the live response was served from the stale SWR tier (age > 30 min). */
+  isStale?: boolean;
   // Computed fields for live calculations
   _computed?: {
     ponderedTaskCount?: number;

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SecullumService } from '@modules/integrations/secullum/secullum.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { CacheService } from '@modules/common/cache/cache.service';
 import { getBonusPeriodStart, getBonusPeriodEnd } from '../../../utils/bonus';
 import { SecullumCalculationData } from '@modules/integrations/secullum/dto';
 
@@ -46,6 +47,9 @@ export interface SecullumBonusAnalysis {
   atestadoTierLabel: string;
   unjustifiedTierLabel: string;
   losesExtra: boolean;
+  // First-offense forgiveness: true when this period's atestado penalty was waived
+  // because the user had no atestado in the prior rolling 90 days.
+  atestadoForgiven?: boolean;
   dailyBreakdown: DayAnalysis[];
   holidaysCount: number; // NEW: Number of holidays in period
   // Secullum calculated totals (from /Calculos endpoint)
@@ -63,6 +67,7 @@ export class SecullumBonusIntegrationService {
   constructor(
     private readonly secullumService: SecullumService,
     private readonly prisma: PrismaService,
+    private readonly cacheService: CacheService,
   ) {}
 
   /**
@@ -205,10 +210,11 @@ export class SecullumBonusIntegrationService {
       return null;
     }
 
-    // Fetch time entries (Batidas) for electronic stamp detection
+    // Fetch time entries (Batidas) for electronic stamp detection.
+    // Uses the day-granular Redis cache — past days hit Redis instead of Secullum HTTPS.
     let entries: any[] = [];
     try {
-      entries = await this.secullumService.getTimeEntriesBySecullumId(
+      entries = await this.secullumService.getTimeEntriesBySecullumIdCached(
         secullumEmployeeId,
         startDate,
         endDate,
@@ -238,9 +244,32 @@ export class SecullumBonusIntegrationService {
       // Continue — we'll fall back to manual counting if Calculos unavailable
     }
 
-    // Parse Faltas and Atrasos from Calculos endpoint
-    const { faltasHours, atrasosHours, faltasTotal, atrasosTotal, dailyCargaHours } =
+    // Parse Faltas and Atrasos from Calculos endpoint — plus per-day maps so we
+    // can attribute the authoritative hours to specific calendar days below.
+    const { faltasTotal, atrasosTotal, dailyCargaHours, perDayFaltas, perDayAtrasos } =
       this.parseCalculationTotals(calculationData);
+
+    // Secullum's Totais.Faltas includes today's partial-day shortfall — e.g. the user
+    // clocked the morning (07:15-11:31) and is still in the afternoon break; Secullum
+    // already attributes the open afternoon as Faltas against the schedule. Using
+    // Totais as the discount basis would penalize a user for a day that hasn't closed.
+    // Instead we sum only past-day entries from the per-day map, yielding a total that
+    // matches the day list we display and the tiered discount we apply. Today/future
+    // are naturally excluded.
+    const _nowForTotals = new Date();
+    const _todayKey = `${_nowForTotals.getFullYear()}-${String(
+      _nowForTotals.getMonth() + 1,
+    ).padStart(2, '0')}-${String(_nowForTotals.getDate()).padStart(2, '0')}`;
+    let faltasHours = 0;
+    let atrasosHours = 0;
+    for (const [dateKey, hrs] of perDayFaltas.entries()) {
+      if (dateKey < _todayKey) faltasHours += hrs;
+    }
+    for (const [dateKey, hrs] of perDayAtrasos.entries()) {
+      if (dateKey < _todayKey) atrasosHours += hrs;
+    }
+    faltasHours = Math.round(faltasHours * 100) / 100;
+    atrasosHours = Math.round(atrasosHours * 100) / 100;
 
     // Determine actual workday hours from Carga (e.g., 8:45 = 8.75h instead of assumed 8h)
     const actualWorkdayHours = dailyCargaHours > 0 ? dailyCargaHours : WORKDAY_HOURS;
@@ -256,12 +285,50 @@ export class SecullumBonusIntegrationService {
     let atestadoDayEquivalent = 0; // sum of proportions (0.5 for half-day, 1 for full-day)
     let manualUnjustifiedHours = 0;
 
+    // Today midnight (local) — any entry at or after this is today or future and
+    // must not be scored yet. We keep those entries in the breakdown for display
+    // but exclude them from totals so e.g. 23/04 doesn't shrink extra% on 22/04.
+    const _now = new Date();
+    const todayMidnightMs = new Date(
+      _now.getFullYear(),
+      _now.getMonth(),
+      _now.getDate(),
+    ).getTime();
+
     for (const entry of entries) {
       const dayAnalysis = this.analyzeDay(entry, holidays);
+
+      const entryDate = new Date(dayAnalysis.date);
+      const isTodayOrFuture =
+        !isNaN(entryDate.getTime()) &&
+        new Date(
+          entryDate.getFullYear(),
+          entryDate.getMonth(),
+          entryDate.getDate(),
+        ).getTime() >= todayMidnightMs;
+
+      // Override the local missing-hours estimate with Secullum's schedule-aware
+      // per-day Faltas+Atrasos when available. This catches the "clocked in late
+      // but worked past hours" case (Secullum counts the lateness; our local math
+      // doesn't because total worked minutes ≥ 8h). Today/future stay at 0.
+      if (!isTodayOrFuture && dayAnalysis.isWorkingDay && !dayAnalysis.isAtestado) {
+        const dateKey = this.normalizeDateKey(dayAnalysis.date);
+        if (dateKey) {
+          const fDay = perDayFaltas.get(dateKey) ?? 0;
+          const aDay = perDayAtrasos.get(dateKey) ?? 0;
+          const total = Math.round((fDay + aDay) * 100) / 100;
+          if (total > 0) {
+            dayAnalysis.unjustifiedAbsenceHours = total;
+            dayAnalysis.isUnjustifiedAbsence = true;
+          }
+        }
+      }
+
       dailyBreakdown.push(dayAnalysis);
 
-      // Only count working days (Mon-Fri, excluding holidays)
-      if (dayAnalysis.isWorkingDay) {
+      // Only count working days (Mon-Fri, excluding holidays) AND only if the
+      // day has closed. Today/future are kept in the breakdown but skipped here.
+      if (dayAnalysis.isWorkingDay && !isTodayOrFuture) {
         totalWorkingDays++;
 
         if (dayAnalysis.hasAllFourStamps && dayAnalysis.allStampsElectronic) {
@@ -289,7 +356,7 @@ export class SecullumBonusIntegrationService {
     }
 
     // Calculate discount percentages from tiers
-    const atestadoDiscountPercentage = this.getAtestadoDiscountPercentage(totalAtestadoHours);
+    let atestadoDiscountPercentage = this.getAtestadoDiscountPercentage(totalAtestadoHours);
     const unjustifiedDiscountPercentage = this.getUnjustifiedDiscountPercentage(
       totalUnjustifiedAbsenceHours,
     );
@@ -299,8 +366,30 @@ export class SecullumBonusIntegrationService {
     const unjustifiedTierLabel = this.getUnjustifiedTierLabel(totalUnjustifiedAbsenceHours);
 
     // Determine if user loses extra
-    const losesExtraFromAtestado = this.doesAtestadoLoseExtra(totalAtestadoHours);
+    let losesExtraFromAtestado = this.doesAtestadoLoseExtra(totalAtestadoHours);
     const losesExtraFromUnjustified = totalUnjustifiedAbsenceHours > 0;
+
+    // First-offense forgiveness — waive the atestado-derived penalty when the user had
+    // no atestado in the rolling 90 days ending the day before periodStart. Unjustified
+    // absences are unaffected. On Secullum fetch error, hasAtestadoInPriorNinetyDays
+    // returns true (no forgiveness) — see that method's fail-safe behavior.
+    let atestadoForgiven = false;
+    if (totalAtestadoHours > 0) {
+      const periodStartDate = new Date(startDate);
+      const hadPriorAtestado = await this.hasAtestadoInPriorNinetyDays(
+        secullumEmployeeId,
+        periodStartDate,
+      );
+      if (!hadPriorAtestado) {
+        atestadoForgiven = true;
+        atestadoDiscountPercentage = 0;
+        losesExtraFromAtestado = false;
+        this.logger.log(
+          `Atestado forgiveness applied for user ${user.name} (${user.id}) — no atestado in prior 90 days`,
+        );
+      }
+    }
+
     const losesExtra = losesExtraFromAtestado || losesExtraFromUnjustified;
 
     // NEW REVERSED LOGIC: Start with total working days %, subtract 1% for each incorrectly stamped day
@@ -330,6 +419,7 @@ export class SecullumBonusIntegrationService {
       atestadoTierLabel,
       unjustifiedTierLabel,
       losesExtra,
+      atestadoForgiven,
       dailyBreakdown,
       holidaysCount: holidays.length,
       secullumFaltasTotal: faltasTotal,
@@ -338,9 +428,94 @@ export class SecullumBonusIntegrationService {
   }
 
   /**
-   * Parse Faltas and Atrasos totals from Secullum Calculos response.
-   * The response has Colunas[] (column definitions) and Totais[] (total values).
-   * We find the column index for "Faltas" and "Atras." and read their totals.
+   * Check whether the user had any atestado in the rolling 90 days ending
+   * the day before periodStart. Used to decide first-offense forgiveness:
+   * if no prior atestado exists in that window, the current period's
+   * atestado-derived penalty is waived.
+   *
+   * Window: [today - 90 days, periodStart - 1 day].
+   * Memoized in Redis for 12h at
+   *   `bonus:atestado-90d:{secullumFuncionarioId}:{yyyy-MM-dd of periodStart}`.
+   *
+   * Fail-safe: on fetch error, returns TRUE so transient Secullum failures
+   * do not accidentally waive discounts.
+   */
+  private async hasAtestadoInPriorNinetyDays(
+    secullumFuncionarioId: number,
+    periodStart: Date,
+  ): Promise<boolean> {
+    const periodStartStr = this.formatDateForSecullum(periodStart);
+    const cacheKey = `bonus:atestado-90d:${secullumFuncionarioId}:${periodStartStr}`;
+
+    const cached = await this.cacheService.get<boolean>(cacheKey);
+    if (cached !== null) {
+      return cached;
+    }
+
+    const today = new Date();
+    const windowStart = new Date(today);
+    windowStart.setDate(windowStart.getDate() - 90);
+
+    const windowEnd = new Date(periodStart);
+    windowEnd.setDate(windowEnd.getDate() - 1);
+
+    // Invalid/empty window (e.g., calculating a future period or periodStart is in the
+    // past more than 90 days beyond today) — don't grant forgiveness.
+    if (windowStart.getTime() >= windowEnd.getTime()) {
+      await this.cacheService.set(cacheKey, true, 43200);
+      return true;
+    }
+
+    const windowStartStr = this.formatDateForSecullum(windowStart);
+    const windowEndStr = this.formatDateForSecullum(windowEnd);
+
+    let entries: any[] = [];
+    try {
+      entries = await this.secullumService.getTimeEntriesBySecullumIdCached(
+        secullumFuncionarioId,
+        windowStartStr,
+        windowEndStr,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Prior-90d Batidas fetch failed (empId=${secullumFuncionarioId}): ${error?.message || error}. Defaulting to true (no forgiveness).`,
+      );
+      return true;
+    }
+
+    const isAtestad = (f: any) =>
+      !!f && typeof f === 'string' && f.toUpperCase().includes('ATESTAD');
+
+    for (const entry of entries) {
+      if (
+        isAtestad(entry?.Entrada1) ||
+        isAtestad(entry?.entrada1) ||
+        isAtestad(entry?.Saida1) ||
+        isAtestad(entry?.saida1) ||
+        isAtestad(entry?.Entrada2) ||
+        isAtestad(entry?.entrada2) ||
+        isAtestad(entry?.Saida2) ||
+        isAtestad(entry?.saida2) ||
+        isAtestad(entry?.Entrada3) ||
+        isAtestad(entry?.entrada3) ||
+        isAtestad(entry?.Saida3) ||
+        isAtestad(entry?.saida3)
+      ) {
+        await this.cacheService.set(cacheKey, true, 43200);
+        return true;
+      }
+    }
+
+    await this.cacheService.set(cacheKey, false, 43200);
+    return false;
+  }
+
+  /**
+   * Parse Faltas and Atrasos from Secullum Calculos response.
+   * Returns totals plus per-day maps keyed by 'YYYY-MM-DD' so the caller can
+   * attribute the authoritative hours to specific calendar days. Secullum's
+   * per-day numbers are schedule-aware (e.g. clocked in at 07:14 vs scheduled
+   * 07:00 = 14 min Faltas) — our local calculateMissingHours can't infer that.
    */
   private parseCalculationTotals(data: SecullumCalculationData | null): {
     faltasHours: number;
@@ -348,20 +523,25 @@ export class SecullumBonusIntegrationService {
     faltasTotal: string | null;
     atrasosTotal: string | null;
     dailyCargaHours: number;
+    perDayFaltas: Map<string, number>;
+    perDayAtrasos: Map<string, number>;
   } {
-    if (!data || !data.Colunas || !data.Totais) {
-      return {
-        faltasHours: 0,
-        atrasosHours: 0,
-        faltasTotal: null,
-        atrasosTotal: null,
-        dailyCargaHours: 0,
-      };
-    }
+    const empty = {
+      faltasHours: 0,
+      atrasosHours: 0,
+      faltasTotal: null,
+      atrasosTotal: null,
+      dailyCargaHours: 0,
+      perDayFaltas: new Map<string, number>(),
+      perDayAtrasos: new Map<string, number>(),
+    };
+    if (!data || !data.Colunas || !data.Totais) return empty;
 
     let faltasIndex = -1;
     let atrasosIndex = -1;
     let cargaIndex = -1;
+    let normaisIndex = -1;
+    let dataIndex = -1;
 
     for (let i = 0; i < data.Colunas.length; i++) {
       const col = data.Colunas[i];
@@ -382,6 +562,12 @@ export class SecullumBonusIntegrationService {
       if (nome === 'carga' || nomeExibicao === 'carga') {
         cargaIndex = i;
       }
+      if (nome === 'normais' || nomeExibicao === 'normais') {
+        normaisIndex = i;
+      }
+      if (nome === 'data' || nomeExibicao === 'data' || nome === 'dia' || nomeExibicao === 'dia') {
+        dataIndex = i;
+      }
     }
 
     const faltasTotal = faltasIndex >= 0 ? data.Totais[faltasIndex] || null : null;
@@ -399,13 +585,90 @@ export class SecullumBonusIntegrationService {
       }
     }
 
+    // Per-day attribution — keyed by 'YYYY-MM-DD'.
+    //
+    // KEY INSIGHT from Secullum's real response shape: the per-row `Faltas` and
+    // `Atras.` cells are almost always empty strings, yet the `Faltas` TOTAL is
+    // non-zero. Secullum computes the total as `sum(Carga) − sum(Normais)` for
+    // the period, not by summing a per-day Faltas column.
+    //
+    // To attribute the shortfall to specific days, we compute it ourselves:
+    //
+    //     perDayFaltas[date] = max(0, Carga_row − Normais_row)
+    //
+    // This naturally captures:
+    //   • Full absences   (Normais="" → 0h, Carga="08:45" → shortfall 8.75h)
+    //   • Partial days    (Normais="08:15", Carga="08:45" → shortfall 0.5h)
+    //   • Full attendance (Normais = Carga → 0, not flagged)
+    //   • Atestado days   (both empty → 0, correctly skipped)
+    //   • Weekends/holidays (both empty → 0)
+    //   • Overtime days   (Normais > Carga clamped to 0 by max)
+    //
+    // We also still honor an explicit per-day Faltas/Atras. value if Secullum
+    // did populate it for a given row — that takes precedence over the diff.
+    const perDayFaltas = new Map<string, number>();
+    const perDayAtrasos = new Map<string, number>();
+    if (data.Linhas && dataIndex >= 0) {
+      for (const row of data.Linhas) {
+        const dateKey = this.normalizeDateKey(row[dataIndex]);
+        if (!dateKey) continue;
+
+        let faltasForDay = 0;
+        if (faltasIndex >= 0) {
+          faltasForDay = this.parseTimeToHours(row[faltasIndex]);
+        }
+        // Fallback: derive from Carga − Normais when the explicit cell is empty.
+        if (faltasForDay === 0 && cargaIndex >= 0 && normaisIndex >= 0) {
+          const cargaHrs = this.parseTimeToHours(row[cargaIndex]);
+          const normaisHrs = this.parseTimeToHours(row[normaisIndex]);
+          if (cargaHrs > 0) {
+            const diff = Math.round((cargaHrs - normaisHrs) * 100) / 100;
+            if (diff > 0) faltasForDay = diff;
+          }
+        }
+        if (faltasForDay > 0) {
+          perDayFaltas.set(dateKey, (perDayFaltas.get(dateKey) ?? 0) + faltasForDay);
+        }
+
+        if (atrasosIndex >= 0) {
+          const a = this.parseTimeToHours(row[atrasosIndex]);
+          if (a > 0) perDayAtrasos.set(dateKey, (perDayAtrasos.get(dateKey) ?? 0) + a);
+        }
+      }
+    }
+
     return {
       faltasHours: this.parseTimeToHours(faltasTotal),
       atrasosHours: this.parseTimeToHours(atrasosTotal),
       faltasTotal,
       atrasosTotal,
       dailyCargaHours,
+      perDayFaltas,
+      perDayAtrasos,
     };
+  }
+
+  /**
+   * Normalize a raw date value (from Secullum Calculos Linhas or a DayAnalysis)
+   * to a 'YYYY-MM-DD' key suitable for map lookups. Accepts ISO strings,
+   * "DD/MM/YYYY" strings, and anything `new Date` can parse. Returns null when
+   * the value can't be interpreted.
+   */
+  private normalizeDateKey(raw: any): string | null {
+    if (raw === null || raw === undefined) return null;
+    const s = typeof raw === 'string' ? raw : String(raw);
+    const trimmed = s.trim();
+    if (!trimmed) return null;
+    const brMatch = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(trimmed);
+    if (brMatch) return `${brMatch[3]}-${brMatch[2]}-${brMatch[1]}`;
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+    return null;
   }
 
   /**
@@ -462,6 +725,12 @@ export class SecullumBonusIntegrationService {
     const isFerias = allTimeFields.some(
       f => f && typeof f === 'string' && f.toUpperCase().includes('FÉRIAS'),
     );
+    // FOLGA = scheduled day off (weekly rest or comp day). Secullum tags all
+    // stamp positions with "FOLGA" in that case. Treat identically to a holiday:
+    // exclude from working-day tally so it doesn't inflate Faltas.
+    const isFolga = allTimeFields.some(
+      f => f && typeof f === 'string' && f.toUpperCase().includes('FOLGA'),
+    );
 
     // Check if this day is a holiday
     const entryDate = new Date(date);
@@ -472,8 +741,30 @@ export class SecullumBonusIntegrationService {
         holiday.getDate() === entryDate.getDate(),
     );
 
-    // Working day = Monday-Friday, not a holiday, not vacation
-    const isWorkingDay = this.isWorkingDay(tipoDoDia, date) && !isFerias && !isHoliday;
+    // "Today or future" guard — an unfinished or not-yet-started day must never
+    // be scored as an unjustified absence. Secullum returns empty entries for
+    // future dates in the period; without this, 23/04 and 24/04 would be flagged
+    // as full-day absences on 22/04 at 2 PM. Today is also protected because the
+    // user may still clock in/out; we only judge days that have closed.
+    let isTodayOrFuture = false;
+    if (!isNaN(entryDate.getTime())) {
+      const now = new Date();
+      const todayMidnight = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+      ).getTime();
+      const entryMidnight = new Date(
+        entryDate.getFullYear(),
+        entryDate.getMonth(),
+        entryDate.getDate(),
+      ).getTime();
+      isTodayOrFuture = entryMidnight >= todayMidnight;
+    }
+
+    // Working day = Monday-Friday, not a holiday, not vacation, not a scheduled folga
+    const isWorkingDay =
+      this.isWorkingDay(tipoDoDia, date) && !isFerias && !isHoliday && !isFolga;
 
     const hasAllFourStamps =
       isValidStamp(entrada1) &&
@@ -503,8 +794,14 @@ export class SecullumBonusIntegrationService {
     let unjustifiedAbsenceHours = 0;
 
     if (isWorkingDay && isAtestado) {
+      // Atestado can still be reported for today or future (pre-authorized leave);
+      // no guard needed.
       atestadoHours = WORKDAY_HOURS * atestadoProportion;
-    } else if (isWorkingDay && !hasAllFourStamps && !isAtestado) {
+    } else if (isWorkingDay && !isAtestado && !isTodayOrFuture) {
+      // Flag BOTH full-day absences (no stamps) AND partial-day shortfalls
+      // (Atrasos — late arrival / early leave even with all 4 stamps present).
+      // Secullum's Calculos endpoint is the authoritative source for the totals,
+      // but we need a per-day view here so the UI can list which days contributed.
       const hasSomeStamps =
         isValidStamp(entrada1) ||
         isValidStamp(saida1) ||
@@ -525,8 +822,10 @@ export class SecullumBonusIntegrationService {
       allStampsElectronic,
       isAtestado,
       atestadoProportion,
+      // A day is flagged when ANY shortfall exists — full absence or just late/early.
+      // hasAllFourStamps is intentionally NOT part of the condition anymore.
       isUnjustifiedAbsence:
-        isWorkingDay && !hasAllFourStamps && !isAtestado && unjustifiedAbsenceHours > 0,
+        isWorkingDay && !isAtestado && !isTodayOrFuture && unjustifiedAbsenceHours > 0,
       atestadoHours,
       unjustifiedAbsenceHours,
       stamps: { entrada1, saida1, entrada2, saida2 },

@@ -1629,6 +1629,132 @@ export class SecullumService {
   }
 
   /**
+   * Day-granular Redis-cached wrapper around getTimeEntriesBySecullumId.
+   *
+   * Splits [dataInicio, dataFim] into per-day buckets and stores each day's
+   * Batidas under `secullum:batidas:{empId}:{YYYY-MM-DD}`. Past days are cached
+   * for 24h, today for 5min, future days are not cached. On partial cache miss,
+   * only the missing consecutive day-range(s) are fetched from Secullum — days
+   * with no entries are still cached (as `[]`) to avoid re-fetching.
+   */
+  async getTimeEntriesBySecullumIdCached(
+    secullumEmployeeId: number,
+    dataInicio: string,
+    dataFim: string,
+  ): Promise<any[]> {
+    const startDate = this.parseLocalDay(dataInicio);
+    const endDate = this.parseLocalDay(dataFim);
+
+    if (!startDate || !endDate || startDate.getTime() > endDate.getTime()) {
+      return this.getTimeEntriesBySecullumId(secullumEmployeeId, dataInicio, dataFim);
+    }
+
+    const today = this.parseLocalDay(this.toISODay(new Date())) as Date;
+
+    const days: string[] = [];
+    const cursor = new Date(startDate);
+    while (cursor.getTime() <= endDate.getTime()) {
+      days.push(this.toISODay(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    const hits: any[] = [];
+    const missing: string[] = [];
+
+    for (const iso of days) {
+      const key = `secullum:batidas:${secullumEmployeeId}:${iso}`;
+      const cached = await this.cacheService.getObject<any[]>(key);
+      if (cached !== null) {
+        hits.push(...cached);
+      } else {
+        missing.push(iso);
+      }
+    }
+
+    const fetched: any[] = [];
+
+    if (missing.length > 0) {
+      // Coalesce consecutive missing days into minimal ranges.
+      const ranges: { start: string; end: string }[] = [];
+      let rStart = missing[0];
+      let rEnd = missing[0];
+      for (let i = 1; i < missing.length; i++) {
+        const prev = this.parseLocalDay(missing[i - 1]) as Date;
+        const curr = this.parseLocalDay(missing[i]) as Date;
+        const nextOfPrev = new Date(prev);
+        nextOfPrev.setDate(nextOfPrev.getDate() + 1);
+        if (nextOfPrev.getTime() === curr.getTime()) {
+          rEnd = missing[i];
+        } else {
+          ranges.push({ start: rStart, end: rEnd });
+          rStart = missing[i];
+          rEnd = missing[i];
+        }
+      }
+      ranges.push({ start: rStart, end: rEnd });
+
+      for (const r of ranges) {
+        const rangeEntries = await this.getTimeEntriesBySecullumId(
+          secullumEmployeeId,
+          r.start,
+          r.end,
+        );
+        fetched.push(...rangeEntries);
+      }
+
+      // Group fetched entries by day and persist per-day cache entries.
+      const grouped = new Map<string, any[]>();
+      for (const entry of fetched) {
+        const raw = entry?.Data || entry?.data;
+        if (!raw) continue;
+        const parsed = new Date(raw);
+        if (isNaN(parsed.getTime())) continue;
+        const dayIso = this.toISODay(parsed);
+        const bucket = grouped.get(dayIso);
+        if (bucket) bucket.push(entry);
+        else grouped.set(dayIso, [entry]);
+      }
+
+      for (const iso of missing) {
+        const dayDate = this.parseLocalDay(iso) as Date;
+        if (dayDate.getTime() > today.getTime()) continue; // don't cache future days
+        const ttl = dayDate.getTime() === today.getTime() ? 300 : 86400;
+        const key = `secullum:batidas:${secullumEmployeeId}:${iso}`;
+        await this.cacheService.setObject(key, grouped.get(iso) || [], ttl);
+      }
+    }
+
+    const merged = [...hits, ...fetched].sort((a, b) => {
+      const da = String(a?.Data || a?.data || '');
+      const db = String(b?.Data || b?.data || '');
+      return da.localeCompare(db);
+    });
+
+    this.logger.debug(
+      `[getTimeEntriesBySecullumIdCached] empId=${secullumEmployeeId} ` +
+        `range=${dataInicio}..${dataFim} days=${days.length} hits=${days.length - missing.length} ` +
+        `misses=${missing.length} merged=${merged.length}`,
+    );
+
+    return merged;
+  }
+
+  /** Parse a 'YYYY-MM-DD' string to a Date at local midnight. Returns null if invalid. */
+  private parseLocalDay(input: string): Date | null {
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(input);
+    if (!match) return null;
+    return new Date(parseInt(match[1], 10), parseInt(match[2], 10) - 1, parseInt(match[3], 10));
+  }
+
+  /** Format a Date as 'YYYY-MM-DD' in local time. */
+  private toISODay(date: Date): string {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  /**
    * Fetch calculations for a specific Secullum employee ID.
    * Uses the /Calculos/{id}/{startDate}/{endDate} endpoint.
    * Returns column-based grid with Faltas, Atrasos, etc.

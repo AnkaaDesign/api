@@ -2,14 +2,18 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { BonusService } from '../../human-resources/bonus/bonus.service';
 import { PayrollService } from '../../human-resources/payroll/payroll.service';
+import { CacheService } from '../cache/cache.service';
 
 @Injectable()
 export class BonusCronService {
   private readonly logger = new Logger(BonusCronService.name);
+  private readonly PREWARM_LOCK_KEY = 'bonus:prewarm:lock';
+  private readonly PREWARM_LOCK_TTL_SEC = 25 * 60; // 25 min (< cron interval of 30 min)
 
   constructor(
     private readonly bonusService: BonusService,
     private readonly payrollService: PayrollService,
+    private readonly cacheService: CacheService,
   ) {}
 
   // REMOVED: Daily draft updates - bonuses are now calculated LIVE during current period
@@ -149,5 +153,89 @@ export class BonusCronService {
   isBonusCalculationDay(): boolean {
     const now = new Date();
     return now.getDate() === 6;
+  }
+
+  /**
+   * Pre-warm the live-bonus SWR cache every 30 minutes during São Paulo working hours.
+   *
+   * Flow:
+   * 1. Acquire a Redis lock (`bonus:prewarm:lock`, 25 min TTL) so parallel API instances
+   *    don't all fan-out to Secullum at the same tick. If the lock exists, skip this run.
+   * 2. Determine the current bonus period (26th-to-25th — the 5th-day rule pushes the
+   *    period forward on day 6). We pre-warm only this period.
+   * 3. Call `calculateLiveBonuses(year, month)` — the cache wrapper writes the result
+   *    to Redis; any Secullum day-cache entries it touches are also warmed.
+   * 4. On any error, log and release the lock on next expiration (do not rethrow — we
+   *    don't want a pre-warm failure to page on-call).
+   */
+  @Cron('*/30 8-18 * * 1-5', { timeZone: 'America/Sao_Paulo' })
+  async handleLiveBonusPrewarm() {
+    // Cheap non-atomic lock: if key exists, another instance/tick already has it.
+    // Not a strict mutex — worst case two instances both pre-warm for one tick.
+    let alreadyLocked = false;
+    try {
+      alreadyLocked = await this.cacheService.exists(this.PREWARM_LOCK_KEY);
+    } catch (err) {
+      this.logger.warn(
+        `[PREWARM] Failed to read lock key: ${(err as Error)?.message || err}. Proceeding anyway.`,
+      );
+    }
+    if (alreadyLocked) {
+      this.logger.debug('[PREWARM] Lock held by another instance/tick — skipping.');
+      return;
+    }
+
+    try {
+      await this.cacheService.set(this.PREWARM_LOCK_KEY, '1', this.PREWARM_LOCK_TTL_SEC);
+    } catch (err) {
+      this.logger.warn(
+        `[PREWARM] Failed to set lock: ${(err as Error)?.message || err}. Aborting this tick.`,
+      );
+      return;
+    }
+
+    const startedAt = Date.now();
+    const { year, month } = this.getCurrentBonusPeriod();
+
+    this.logger.log(`[PREWARM] Starting live-bonus cache warm for ${year}/${month}`);
+
+    try {
+      const result = await this.bonusService.calculateLiveBonuses(year, month);
+      const durationMs = Date.now() - startedAt;
+      this.logger.log(
+        `[PREWARM] Completed ${year}/${month} in ${durationMs}ms — ` +
+          `users=${result.bonuses?.length ?? 0} weightedTasks=${result.totalWeightedTasks}`,
+      );
+    } catch (err) {
+      const durationMs = Date.now() - startedAt;
+      this.logger.error(
+        `[PREWARM] Failed for ${year}/${month} after ${durationMs}ms: ${(err as Error)?.message || err}`,
+      );
+      // Release the lock so the next tick can retry immediately.
+      try {
+        await this.cacheService.del(this.PREWARM_LOCK_KEY);
+      } catch {
+        /* best-effort — will expire via TTL */
+      }
+    }
+  }
+
+  /**
+   * Current bonus period respects the 5th-day rule: days 1-5 still belong to the
+   * previous period, days 6+ belong to the current calendar month.
+   */
+  private getCurrentBonusPeriod(): { year: number; month: number } {
+    const now = new Date();
+    const day = now.getDate();
+    let month = now.getMonth() + 1;
+    let year = now.getFullYear();
+    if (day <= 5) {
+      month = month - 1;
+      if (month === 0) {
+        month = 12;
+        year = year - 1;
+      }
+    }
+    return { year, month };
   }
 }

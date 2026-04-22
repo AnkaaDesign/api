@@ -316,6 +316,28 @@ export class BonusController {
   }
 
   /**
+   * Drop the SWR cache for a live-bonus period and force the next call to recompute.
+   * Use when an admin has made a Secullum-side change or wants an on-demand fresh read
+   * without waiting for the pre-warm cron tick.
+   */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Post('cache/invalidate/:year/:month')
+  @WriteRateLimit()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async invalidateLiveBonusesCache(
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+  ) {
+    if (month < 1 || month > 12) {
+      throw new Error('Mês deve estar entre 1 e 12');
+    }
+    if (year < 2020 || year > 2030) {
+      throw new Error('Ano deve estar entre 2020 e 2030');
+    }
+    await this.bonusService.invalidateLiveBonusesCache(year, month);
+  }
+
+  /**
    * Fix all existing bonuses with netBonus=0.
    * This is a maintenance endpoint to fix legacy data where netBonus was never properly calculated.
    * Should only need to be run once.
