@@ -126,12 +126,13 @@ export class LayoutService {
   async create(data: LayoutCreateFormData, userId?: string): Promise<Layout> {
     const layout = await this.layoutRepository.create(data, userId);
 
-    // Log the change
     await this.changeLogService.logChange({
       entityType: ENTITY_TYPE.LAYOUT,
       entityId: layout.id,
       action: CHANGE_ACTION.CREATE,
       reason: 'Layout criado',
+      oldValue: null,
+      newValue: layout,
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
       triggeredById: userId || null,
       userId: userId || null,
@@ -141,20 +142,22 @@ export class LayoutService {
   }
 
   async update(id: string, data: LayoutUpdateFormData, userId?: string): Promise<Layout> {
-    // Check if layout exists
-    const existingLayout = await this.layoutRepository.findById(id);
+    const existingLayout = await this.layoutRepository.findById(id, {
+      layoutSections: { orderBy: { position: 'asc' } },
+    });
     if (!existingLayout) {
       throw new NotFoundException('Layout não encontrado');
     }
 
     const layout = await this.layoutRepository.update(id, data, userId);
 
-    // Log the change
     await this.changeLogService.logChange({
       entityType: ENTITY_TYPE.LAYOUT,
       entityId: id,
       action: CHANGE_ACTION.UPDATE,
       reason: 'Layout atualizado',
+      oldValue: existingLayout,
+      newValue: layout,
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
       triggeredById: userId || null,
       userId: userId || null,
@@ -839,6 +842,14 @@ export class LayoutService {
       return;
     }
 
+    const changedByUser = userId
+      ? await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true },
+        })
+      : null;
+    const changedByName = changedByUser?.name || 'Sistema';
+
     try {
       await this.dispatchService.dispatchByConfiguration(
         configKey,
@@ -853,6 +864,7 @@ export class LayoutService {
             truckId,
             side,
             actorId: userId,
+            changedBy: changedByName,
             layoutChangeDescription,
             oldLayoutSummary,
             newLayoutSummary,
