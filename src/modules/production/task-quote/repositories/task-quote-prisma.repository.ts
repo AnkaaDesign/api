@@ -80,7 +80,7 @@ export class TaskQuotePrismaRepository
       total: formData.total || 0,
       expiresAt: formData.expiresAt || new Date(),
       status: (formData.status as any) || TASK_QUOTE_STATUS.PENDING,
-      statusOrder: 1,
+      statusOrder: TASK_QUOTE_STATUS_ORDER[(formData.status || TASK_QUOTE_STATUS.PENDING) as TASK_QUOTE_STATUS] ?? 8,
       // Guarantee Terms
       guaranteeYears: formData.guaranteeYears || null,
       customGuaranteeText: formData.customGuaranteeText || null,

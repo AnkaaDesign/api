@@ -5,6 +5,7 @@ export interface UserPayload {
   email: string | null;
   phone: string | null;
   role: string;
+  isTeamLeader?: boolean;
 }
 
 export const User = createParamDecorator(

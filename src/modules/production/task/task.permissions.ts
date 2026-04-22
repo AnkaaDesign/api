@@ -69,7 +69,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
   ],
 
   [SECTOR_PRIVILEGES.COMMERCIAL]: [
-    'identity', 'dates', 'commission', 'truck', 'responsibles',
+    'identity', 'dates', 'status', 'commission', 'truck', 'responsibles',
     'artworks', 'paint', 'serviceOrders', 'quote',
     'baseFiles', 'projectFiles', 'observation',
     'meta',

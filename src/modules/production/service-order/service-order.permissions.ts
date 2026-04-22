@@ -49,30 +49,51 @@ export function checkServiceOrderUpdatePermission(
   userPrivilege: string,
   newStatus?: SERVICE_ORDER_STATUS,
   isStatusChange?: boolean,
+  isTeamLeader?: boolean,
 ): ServiceOrderUpdatePermissionCheck {
   const isAdmin = userPrivilege === SECTOR_PRIVILEGES.ADMIN;
   const isAssignedUser = serviceOrder.assignedToId === userId;
+  const isProductionManager = userPrivilege === SECTOR_PRIVILEGES.PRODUCTION_MANAGER;
+  const isProductionSectorLeader = userPrivilege === SECTOR_PRIVILEGES.PRODUCTION && isTeamLeader;
 
   // ADMIN can always update
   if (isAdmin) {
     return { canUpdate: true };
   }
 
-  // COMMERCIAL and FINANCIAL users can cancel COMMERCIAL service orders (triggers cascade cancellation)
-  // All other non-ADMIN users cannot cancel service orders
+  // PRODUCTION sector team leaders cannot pause service orders —
+  // they must ask a production manager or admin to pause.
+  if (newStatus === SERVICE_ORDER_STATUS.PAUSED && isProductionSectorLeader) {
+    return {
+      canUpdate: false,
+      reason:
+        'Líderes de setor não podem pausar ordens de serviço. Solicite ao gerente de produção ou administrador.',
+    };
+  }
+
+  // Cancel permissions:
+  // - ADMIN: can cancel any SO (handled above)
+  // - PRODUCTION_MANAGER: can cancel PRODUCTION and LOGISTIC SOs
+  // - COMMERCIAL / FINANCIAL: can cancel COMMERCIAL SOs (triggers task cascade cancellation)
+  // - All others: cannot cancel
   if (newStatus === SERVICE_ORDER_STATUS.CANCELLED) {
+    const canCancelProductionOrLogistic =
+      isProductionManager &&
+      (serviceOrder.type === SERVICE_ORDER_TYPE.PRODUCTION ||
+        serviceOrder.type === SERVICE_ORDER_TYPE.LOGISTIC);
+
     const canCancelCommercial =
       serviceOrder.type === SERVICE_ORDER_TYPE.COMMERCIAL &&
       (userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL ||
         userPrivilege === SECTOR_PRIVILEGES.FINANCIAL);
 
-    if (!canCancelCommercial) {
+    if (!canCancelProductionOrLogistic && !canCancelCommercial) {
       return {
         canUpdate: false,
-        reason: 'Apenas administradores podem cancelar ordens de serviço',
+        reason: 'Apenas administradores ou gerentes de produção podem cancelar ordens de serviço',
       };
     }
-    // Fall through to assignment and type-based checks for COMMERCIAL cancellation
+    // Fall through to assignment and type-based checks
   }
 
   // WAITING_APPROVE is ONLY valid for ARTWORK service orders (designer approval workflow)
@@ -201,6 +222,7 @@ export function assertCanUpdateServiceOrder(
   userPrivilege: string,
   newStatus?: SERVICE_ORDER_STATUS,
   isStatusChange?: boolean,
+  isTeamLeader?: boolean,
 ): void {
   const check = checkServiceOrderUpdatePermission(
     serviceOrder,
@@ -208,6 +230,7 @@ export function assertCanUpdateServiceOrder(
     userPrivilege,
     newStatus,
     isStatusChange,
+    isTeamLeader,
   );
 
   if (!check.canUpdate) {

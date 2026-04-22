@@ -93,6 +93,7 @@ export class AuthGuard implements CanActivate {
       }
 
       request['user'] = payload;
+      request['user'].isTeamLeader = isTeamLeader(user);
 
       // Check role-based access
       if (roles?.length) {

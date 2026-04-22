@@ -580,6 +580,9 @@ export const serviceOrderUpdateSchema = z.object({
   startedAt: nullableDate.optional(),
   approvedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
+  pausedAt: nullableDate.optional(),
+  lastStartedAt: nullableDate.optional(),
+  totalActiveTimeSeconds: z.number().int().nonnegative().optional(),
   checkinFileIds: z.array(z.string().uuid('Arquivo de checkin inválido')).optional(),
   checkoutFileIds: z.array(z.string().uuid('Arquivo de checkout inválido')).optional(),
 });

@@ -265,6 +265,7 @@ export class InvoiceGenerationService {
                 fantasyName: true,
                 corporateName: true,
                 cnpj: true,
+                cpf: true,
                 address: true,
                 city: true,
                 state: true,
@@ -341,13 +342,16 @@ export class InvoiceGenerationService {
       }
 
       const cleanCnpj = (customer.cnpj || '').replace(/\D/g, '');
+      const cleanCpf = (customer.cpf || '').replace(/\D/g, '');
+      const customerDocument = cleanCnpj.length === 14 ? cleanCnpj : cleanCpf;
+      const tipoPessoa = cleanCnpj.length === 14 ? 'PESSOA_JURIDICA' : 'PESSOA_FISICA';
       const customerName = customer.fantasyName || customer.corporateName || '';
 
-      if (cleanCnpj.length < 14 || !customerName) {
-        this.logger.error(`[BOLETO_REGISTER] Skipping installment ${installment.id}: invalid CNPJ (${cleanCnpj}) or name (${customerName})`);
+      if ((customerDocument.length !== 14 && customerDocument.length !== 11) || !customerName) {
+        this.logger.error(`[BOLETO_REGISTER] Skipping installment ${installment.id}: invalid document (${customerDocument}) or name (${customerName})`);
         await this.prisma.bankSlip.update({
           where: { id: installment.bankSlip.id },
-          data: { status: 'ERROR', errorMessage: `Dados do cliente inválidos: CNPJ=${cleanCnpj}, Nome=${customerName}`, errorCount: { increment: 1 } },
+          data: { status: 'ERROR', errorMessage: `Dados do cliente inválidos: CNPJ=${cleanCnpj}, CPF=${cleanCpf}, Nome=${customerName}`, errorCount: { increment: 1 } },
         });
         errors++;
         continue;
@@ -360,8 +364,8 @@ export class InvoiceGenerationService {
           codigoBeneficiario,
           tipoCobranca: 'NORMAL',
           pagador: {
-            tipoPessoa: 'PESSOA_JURIDICA',
-            documento: cleanCnpj,
+            tipoPessoa,
+            documento: customerDocument,
             nome: customerName,
             endereco: customer.address || undefined,
             cidade: customer.city || undefined,

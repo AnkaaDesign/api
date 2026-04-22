@@ -207,6 +207,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                   fantasyName: true,
                   corporateName: true,
                   cnpj: true,
+                  cpf: true,
                   address: true,
                   city: true,
                   state: true,
@@ -313,42 +314,14 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           }
 
           // ── Customer data validation ──────────────────────────────────
-          const cleanCnpj = customer.cnpj?.replace(/\D/g, '') || '';
+          const cleanCnpj = (customer.cnpj || '').replace(/\D/g, '');
+          const cleanCpf = (customer.cpf || '').replace(/\D/g, '');
+          const customerDocument = cleanCnpj.length === 14 ? cleanCnpj : cleanCpf;
+          const tipoPessoa = cleanCnpj.length === 14 ? 'PESSOA_JURIDICA' : 'PESSOA_FISICA';
           const customerName = customer.fantasyName || customer.corporateName || '';
 
-          if (!cleanCnpj || cleanCnpj.length < 14) {
-            const validationMsg = `Customer "${customer.fantasyName || customer.id}" has invalid or missing CNPJ (got: "${customer.cnpj || ''}")`;
-            this.logger.error(`[BOLETO_CREATE] ${validationMsg} — skipping installment ${installment.id}`);
-
-            if (installment.bankSlip) {
-              await this.prisma.bankSlip.update({
-                where: { id: installment.bankSlip.id },
-                data: {
-                  status: BANK_SLIP_STATUS.ERROR,
-                  errorMessage: `Validation failed: ${validationMsg}`,
-                  errorCount: { increment: 1 },
-                },
-              });
-            } else {
-              await this.prisma.bankSlip.create({
-                data: {
-                  installmentId: installment.id,
-                  nossoNumero: `ERR-${installment.id.slice(0, 8)}`,
-                  type: 'NORMAL',
-                  amount: Number(installment.amount),
-                  dueDate: installment.dueDate,
-                  status: BANK_SLIP_STATUS.ERROR,
-                  errorMessage: `Validation failed: ${validationMsg}`,
-                  errorCount: 1,
-                },
-              });
-            }
-            errors++;
-            continue;
-          }
-
-          if (!customerName) {
-            const validationMsg = `Customer ${customer.id} has no name (fantasyName and corporateName are both empty)`;
+          if ((customerDocument.length !== 14 && customerDocument.length !== 11) || !customerName) {
+            const validationMsg = `Customer "${customer.fantasyName || customer.id}" has invalid document (CNPJ=${cleanCnpj}, CPF=${cleanCpf}) or missing name`;
             this.logger.error(`[BOLETO_CREATE] ${validationMsg} — skipping installment ${installment.id}`);
 
             if (installment.bankSlip) {
@@ -384,7 +357,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
           this.logger.log(
             `[BOLETO_CREATE] Creating boleto for installment ${installment.id}: ` +
-            `customer=${customer.fantasyName}, cnpj=${customer.cnpj}, amount=${installment.amount}, dueDate=${formattedDueDate}`,
+            `customer=${customer.fantasyName}, document=${customerDocument} (${tipoPessoa}), amount=${installment.amount}, dueDate=${formattedDueDate}`,
           );
 
           // Create boleto via Sicredi API
@@ -392,8 +365,8 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             codigoBeneficiario,
             tipoCobranca: 'NORMAL',
             pagador: {
-              tipoPessoa: 'PESSOA_JURIDICA',
-              documento: cleanCnpj,
+              tipoPessoa,
+              documento: customerDocument,
               nome: customerName,
               endereco: customer.address || undefined,
               cidade: customer.city || undefined,

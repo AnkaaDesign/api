@@ -1105,32 +1105,37 @@ model Sector {
 }
 
 model ServiceOrder {
-  id            String             @id @default(uuid())
-  status        ServiceOrderStatus @default(PENDING)
-  statusOrder   Int                @default(1)
-  description   String
-  type          ServiceOrderType   @default(PRODUCTION)
-  observation   String?
-  assignedToId  String?
-  taskId        String
-  createdById   String
-  startedById   String?
-  approvedById  String?
-  completedById String?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  startedAt     DateTime?
-  approvedAt    DateTime?
-  finishedAt    DateTime?
-  position      Int                @default(0)
-  approvedBy    User?              @relation("SERVICE_ORDER_APPROVED_BY", fields: [approvedById], references: [id])
-  assignedTo    User?              @relation("SERVICE_ORDER_ASSIGNED_TO", fields: [assignedToId], references: [id])
-  completedBy   User?              @relation("SERVICE_ORDER_COMPLETED_BY", fields: [completedById], references: [id])
-  createdBy     User               @relation("SERVICE_ORDER_CREATED_BY", fields: [createdById], references: [id])
-  startedBy     User?              @relation("SERVICE_ORDER_STARTED_BY", fields: [startedById], references: [id])
-  task          Task               @relation("SERVICE_ORDER_TASK", fields: [taskId], references: [id], onDelete: Cascade)
-  checkinFiles  File[]             @relation("SERVICE_ORDER_CHECKIN_FILES")
-  checkoutFiles File[]             @relation("SERVICE_ORDER_CHECKOUT_FILES")
+  id                   String             @id @default(uuid())
+  status               ServiceOrderStatus @default(PENDING)
+  statusOrder          Int                @default(1)
+  description          String
+  type                 ServiceOrderType   @default(PRODUCTION)
+  observation          String?
+  assignedToId         String?
+  taskId               String
+  createdById          String
+  startedById          String?
+  approvedById         String?
+  completedById        String?
+  pausedById           String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  startedAt            DateTime?
+  approvedAt           DateTime?
+  finishedAt           DateTime?
+  pausedAt             DateTime?
+  lastStartedAt        DateTime?
+  totalActiveTimeSeconds Int              @default(0)
+  position             Int                @default(0)
+  approvedBy           User?              @relation("SERVICE_ORDER_APPROVED_BY", fields: [approvedById], references: [id])
+  assignedTo           User?              @relation("SERVICE_ORDER_ASSIGNED_TO", fields: [assignedToId], references: [id])
+  completedBy          User?              @relation("SERVICE_ORDER_COMPLETED_BY", fields: [completedById], references: [id])
+  createdBy            User               @relation("SERVICE_ORDER_CREATED_BY", fields: [createdById], references: [id])
+  startedBy            User?              @relation("SERVICE_ORDER_STARTED_BY", fields: [startedById], references: [id])
+  pausedBy             User?              @relation("SERVICE_ORDER_PAUSED_BY", fields: [pausedById], references: [id])
+  task                 Task               @relation("SERVICE_ORDER_TASK", fields: [taskId], references: [id], onDelete: Cascade)
+  checkinFiles         File[]             @relation("SERVICE_ORDER_CHECKIN_FILES")
+  checkoutFiles        File[]             @relation("SERVICE_ORDER_CHECKOUT_FILES")
 
   @@index([taskId])
   @@index([statusOrder])
@@ -1141,6 +1146,7 @@ model ServiceOrder {
   @@index([startedById])
   @@index([approvedById])
   @@index([completedById])
+  @@index([pausedById])
 }
 
 model TaskQuote {
@@ -1519,6 +1525,7 @@ model User {
   completedServiceOrders  ServiceOrder[]               @relation("SERVICE_ORDER_COMPLETED_BY")
   createdServiceOrders    ServiceOrder[]               @relation("SERVICE_ORDER_CREATED_BY")
   startedServiceOrders    ServiceOrder[]               @relation("SERVICE_ORDER_STARTED_BY")
+  pausedServiceOrders     ServiceOrder[]               @relation("SERVICE_ORDER_PAUSED_BY")
   createdTasks            Task[]                       @relation("TASK_CREATED_BY")
   taskFieldChangeLogs     TaskFieldChangeLog[]         @relation("TASK_FIELD_CHANGE_USER")
   avatar                  File?                        @relation("USER_AVATAR", fields: [avatarId], references: [id])
@@ -2344,6 +2351,7 @@ enum ServiceOrderType {
 enum ServiceOrderStatus {
   PENDING
   IN_PROGRESS
+  PAUSED
   WAITING_APPROVE
   COMPLETED
   CANCELLED
