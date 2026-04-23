@@ -82,9 +82,9 @@ export interface User extends BaseEntity {
 
   // Status timestamp tracking
   effectedAt: Date | null; // When user became permanently effected
-  exp1StartAt: Date | null; // Start of first experience period (45 days)
+  exp1StartAt: Date | null; // Start of first experience period (30 days)
   exp1EndAt: Date | null; // End of first experience period
-  exp2StartAt: Date | null; // Start of second experience period (45 days)
+  exp2StartAt: Date | null; // Start of second experience period (50 days)
   exp2EndAt: Date | null; // End of second experience period
   dismissedAt: Date | null; // When user was dismissed/terminated
 

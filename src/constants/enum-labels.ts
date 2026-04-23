@@ -158,8 +158,8 @@ export const PAYMENT_METHOD_LABELS: Record<PAYMENT_METHOD, string> = {
 };
 
 export const USER_STATUS_LABELS: Record<USER_STATUS, string> = {
-  [USER_STATUS.EXPERIENCE_PERIOD_1]: 'Experience Period 1/2 (45 days)',
-  [USER_STATUS.EXPERIENCE_PERIOD_2]: 'Experience Period 2/2 (45 days)',
+  [USER_STATUS.EXPERIENCE_PERIOD_1]: 'Experience Period 1/2 (30 days)',
+  [USER_STATUS.EXPERIENCE_PERIOD_2]: 'Experience Period 2/2 (50 days)',
   [USER_STATUS.EFFECTED]: 'Effected',
   [USER_STATUS.DISMISSED]: 'Dismissed',
 };

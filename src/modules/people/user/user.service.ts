@@ -70,31 +70,31 @@ export class UserService {
 
   /**
    * Calculate status-specific dates based on exp1StartAt
-   * Each experience period is 45 days
+   * First experience period is 30 days, second is 50 days
    */
   private calculateStatusDates(data: Partial<UserCreateFormData | UserUpdateFormData>): void {
     // If exp1StartAt is provided, calculate the experience period dates
     if (data.exp1StartAt) {
       const exp1Start = new Date(data.exp1StartAt);
 
-      // Calculate exp1EndAt (45 days after start) if not provided
+      // Calculate exp1EndAt (30 days after start) if not provided
       if (!data.exp1EndAt) {
         const exp1End = new Date(exp1Start);
-        exp1End.setDate(exp1End.getDate() + 45);
+        exp1End.setDate(exp1End.getDate() + 30);
         (data as any).exp1EndAt = exp1End;
       }
 
       // Calculate exp2StartAt (day after exp1 ends) if not provided
       if (!data.exp2StartAt) {
         const exp2Start = new Date(exp1Start);
-        exp2Start.setDate(exp2Start.getDate() + 46); // Day after exp1 ends
+        exp2Start.setDate(exp2Start.getDate() + 31); // Day after exp1 ends
         (data as any).exp2StartAt = exp2Start;
       }
 
-      // Calculate exp2EndAt (45 days after exp2 starts) if not provided
+      // Calculate exp2EndAt (50 days after exp2 starts) if not provided
       if (!data.exp2EndAt) {
         const exp2End = new Date(exp1Start);
-        exp2End.setDate(exp2End.getDate() + 90); // 45 days for exp1 + 45 for exp2
+        exp2End.setDate(exp2End.getDate() + 80); // 30 days for exp1 + 50 for exp2
         (data as any).exp2EndAt = exp2End;
       }
     }
@@ -124,10 +124,10 @@ export class UserService {
         if (!data.exp2StartAt) {
           (data as any).exp2StartAt = now;
         }
-        // If exp2EndAt is not provided, calculate it (45 days from exp2StartAt)
+        // If exp2EndAt is not provided, calculate it (50 days from exp2StartAt)
         if (!data.exp2EndAt) {
           const exp2End = new Date(data.exp2StartAt || now);
-          exp2End.setDate(exp2End.getDate() + 45);
+          exp2End.setDate(exp2End.getDate() + 50);
           (data as any).exp2EndAt = exp2End;
         }
         break;
@@ -556,13 +556,13 @@ export class UserService {
   ): { valid: boolean; error?: string } {
     // Define valid transitions according to Brazilian employment law (CLT)
     const validTransitions: Record<USER_STATUS, USER_STATUS[]> = {
-      // Primeiro período de experiência (45 dias)
+      // Primeiro período de experiência (30 dias)
       [USER_STATUS.EXPERIENCE_PERIOD_1]: [
         USER_STATUS.EXPERIENCE_PERIOD_2, // Progride para segundo período
         USER_STATUS.EFFECTED, // Pode ser efetivado diretamente
         USER_STATUS.DISMISSED, // Pode ser demitido
       ],
-      // Segundo período de experiência (45 dias)
+      // Segundo período de experiência (50 dias)
       [USER_STATUS.EXPERIENCE_PERIOD_2]: [
         USER_STATUS.EFFECTED, // Progride para efetivado
         USER_STATUS.DISMISSED, // Pode ser demitido
@@ -1197,17 +1197,17 @@ export class UserService {
             switch (status) {
               case USER_STATUS.EXPERIENCE_PERIOD_1:
                 statusTimestamps.exp1StartAt = now;
-                // Set exp1EndAt to 45 days from now
+                // Set exp1EndAt to 30 days from now
                 const exp1End = new Date(now);
-                exp1End.setDate(exp1End.getDate() + 45);
+                exp1End.setDate(exp1End.getDate() + 30);
                 statusTimestamps.exp1EndAt = exp1End;
                 break;
 
               case USER_STATUS.EXPERIENCE_PERIOD_2:
                 statusTimestamps.exp2StartAt = now;
-                // Set exp2EndAt to 45 days from now
+                // Set exp2EndAt to 50 days from now
                 const exp2End = new Date(now);
-                exp2End.setDate(exp2End.getDate() + 45);
+                exp2End.setDate(exp2End.getDate() + 50);
                 statusTimestamps.exp2EndAt = exp2End;
                 break;
 
@@ -1391,17 +1391,17 @@ export class UserService {
               switch (data.status) {
                 case USER_STATUS.EXPERIENCE_PERIOD_1:
                   processedData.exp1StartAt = now;
-                  // Set exp1EndAt to 45 days from now
+                  // Set exp1EndAt to 30 days from now
                   const exp1End = new Date(now);
-                  exp1End.setDate(exp1End.getDate() + 45);
+                  exp1End.setDate(exp1End.getDate() + 30);
                   processedData.exp1EndAt = exp1End;
                   break;
 
                 case USER_STATUS.EXPERIENCE_PERIOD_2:
                   processedData.exp2StartAt = now;
-                  // Set exp2EndAt to 45 days from now
+                  // Set exp2EndAt to 50 days from now
                   const exp2End = new Date(now);
-                  exp2End.setDate(exp2End.getDate() + 45);
+                  exp2End.setDate(exp2End.getDate() + 50);
                   processedData.exp2EndAt = exp2End;
                   break;
 
