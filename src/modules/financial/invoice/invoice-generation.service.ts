@@ -124,15 +124,14 @@ export class InvoiceGenerationService {
           continue;
         }
 
-        const generatedInstallments = this.generateInstallmentsFromCondition(
-          config.paymentCondition || null,
-          finishedAt,
-          totalAmount,
-        );
+        const paymentConfig = (config as any).paymentConfig ?? null;
+        const generatedInstallments = paymentConfig
+          ? this.generateInstallmentsFromPaymentConfig(paymentConfig, finishedAt, totalAmount)
+          : this.generateInstallmentsFromCondition(config.paymentCondition || null, finishedAt, totalAmount);
 
         if (generatedInstallments.length === 0) {
           this.logger.warn(
-            `[INVOICE_GEN] No installments generated for customerConfig ${config.id} (condition=${config.paymentCondition}), skipping invoice generation.`,
+            `[INVOICE_GEN] No installments generated for customerConfig ${config.id} (condition=${config.paymentCondition}, paymentConfig=${JSON.stringify(paymentConfig)}), skipping invoice generation.`,
           );
           continue;
         }
@@ -558,6 +557,74 @@ export class InvoiceGenerationService {
       FLATBED: 'Carroceria',
     };
     return implement ? (map[implement] ?? implement) : null;
+  }
+
+  /**
+   * Convert a structured PaymentConfig object + finishedAt + total into installment records.
+   * Supports specificDate override for both CASH and INSTALLMENTS types.
+   */
+  private generateInstallmentsFromPaymentConfig(
+    paymentConfig: { type: string; cashDays?: number; installmentCount?: number; installmentStep?: number; entryDays?: number; specificDate?: string },
+    finishedAt: Date,
+    total: number,
+  ): { number: number; dueDate: Date; amount: number }[] {
+    if (!Number.isFinite(total) || total <= 0) return [];
+
+    const baseDate = new Date(Date.UTC(
+      finishedAt.getUTCFullYear(),
+      finishedAt.getUTCMonth(),
+      finishedAt.getUTCDate(),
+      12, 0, 0,
+    ));
+
+    const now = new Date();
+    const minDueDate = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() + 3,
+      12, 0, 0,
+    ));
+
+    const addDays = (base: Date, days: number): Date => {
+      const d = new Date(base);
+      d.setUTCDate(d.getUTCDate() + days);
+      return d;
+    };
+
+    const ensureMinDate = (date: Date): Date => (date < minDueDate ? minDueDate : date);
+
+    const resolveFirstDueDate = (): Date => {
+      if (paymentConfig.specificDate) {
+        const [y, m, d] = paymentConfig.specificDate.split('-').map(Number);
+        const specific = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+        return ensureMinDate(specific);
+      }
+      if (paymentConfig.type === 'CASH') {
+        return ensureMinDate(addDays(baseDate, paymentConfig.cashDays ?? 5));
+      }
+      return ensureMinDate(addDays(baseDate, paymentConfig.entryDays ?? 5));
+    };
+
+    if (paymentConfig.type === 'CASH') {
+      return [{ number: 1, dueDate: resolveFirstDueDate(), amount: total }];
+    }
+
+    if (paymentConfig.type === 'INSTALLMENTS') {
+      const count = paymentConfig.installmentCount ?? 2;
+      const step = paymentConfig.installmentStep ?? 20;
+      const firstDue = resolveFirstDueDate();
+      const totalCents = Math.round(total * 100);
+      const baseCents = Math.floor(totalCents / count);
+
+      return Array.from({ length: count }, (_, i) => {
+        const dueDate = i === 0 ? firstDue : addDays(firstDue, step * i);
+        const isLast = i === count - 1;
+        const amount = isLast ? (totalCents - baseCents * (count - 1)) / 100 : baseCents / 100;
+        return { number: i + 1, dueDate, amount };
+      });
+    }
+
+    return [];
   }
 
   /**

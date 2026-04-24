@@ -44,6 +44,7 @@ import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { CHANGE_TRIGGERED_BY } from '@constants';
 import { logQuoteServiceChanges } from '@modules/common/changelog/utils/quote-service-changelog';
 import { serializeChangelogValue } from '@modules/common/changelog/utils/serialize-changelog-value';
+import { trackAndLogFieldChanges } from '@modules/common/changelog/utils/changelog-helpers';
 import { normalizeDescription } from '@utils';
 import { SERVICE_ORDER_TYPE, SERVICE_ORDER_STATUS } from '@constants';
 import { TASK_QUOTE_STATUS_ORDER } from '@constants';
@@ -244,6 +245,7 @@ export class TaskQuoteService {
                   responsible: { connect: { id: config.responsibleId } },
                 }),
                 paymentCondition: config.paymentCondition || null,
+                paymentConfig: (config as any).paymentConfig ?? null,
               })),
             },
             services: {
@@ -530,10 +532,6 @@ export class TaskQuoteService {
         });
 
         // Track individual field changes
-        const { trackAndLogFieldChanges } = await import(
-          '@modules/common/changelog/utils/changelog-helpers'
-        );
-
         await trackAndLogFieldChanges({
           changeLogService: this.changeLogService,
           entityType: ENTITY_TYPE.TASK_QUOTE,
@@ -640,6 +638,7 @@ export class TaskQuoteService {
                 orderNumber: (config as any).orderNumber || null,
                 responsibleId: config.responsibleId || null,
                 paymentCondition: config.paymentCondition || null,
+                paymentConfig: (config as any).paymentConfig ?? null,
               })),
             });
 
@@ -662,8 +661,17 @@ export class TaskQuoteService {
             },
           });
 
-          // Log customer configs change
+          // Log customer configs change — compare by customerId to detect actual customer changes
           const oldConfigs = (existing as any).customerConfigs || [];
+          const oldConfigIds = oldConfigs
+            .map((c: any) => c.customerId)
+            .sort()
+            .join(', ') || 'Nenhum';
+          const newConfigIds = data.customerConfigs
+            .map((c: any) => c.customerId)
+            .sort()
+            .join(', ') || 'Nenhum';
+          // Use names for human-readable log values
           const oldConfigNames = oldConfigs
             .map((c: any) => c.customer?.fantasyName || c.customerId)
             .join(', ') || 'Nenhum';
@@ -671,7 +679,7 @@ export class TaskQuoteService {
             .map((c: any) => c.customerId)
             .join(', ') || 'Nenhum';
 
-          if (oldConfigNames !== newConfigNames) {
+          if (oldConfigIds !== newConfigIds) {
             await this.changeLogService.logChange({
               entityType: ENTITY_TYPE.TASK_QUOTE,
               entityId: id,
@@ -1626,13 +1634,14 @@ export class TaskQuoteService {
       }
 
       case `${TASK_QUOTE_STATUS.COMMERCIAL_APPROVED}->${TASK_QUOTE_STATUS.BILLING_APPROVED}`: {
-        // Each customerConfig must have valid paymentCondition; task must be finished
+        // Each customerConfig must have valid paymentCondition or paymentConfig; task must be finished
         const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
           where: { quoteId },
           select: {
             id: true,
             customerId: true,
             paymentCondition: true,
+            paymentConfig: true,
             customPaymentText: true,
             customer: {
               select: {
@@ -1695,8 +1704,9 @@ export class TaskQuoteService {
         for (const config of configs) {
           const customerName = config.customer?.fantasyName || config.customer?.corporateName || 'Cliente';
           const isCustomPayment = config.paymentCondition === 'CUSTOM';
+          const hasPaymentConfig = !!(config as any).paymentConfig;
 
-          if (!config.paymentCondition) {
+          if (!config.paymentCondition && !hasPaymentConfig) {
             throw new BadRequestException(
               `A condição de pagamento não foi definida para o cliente "${customerName}".`,
             );

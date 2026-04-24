@@ -1206,6 +1206,7 @@ model TaskQuoteCustomerConfig {
   orderNumber         String?
   responsibleId       String?
   paymentCondition    String?
+  paymentConfig       Json?
   customerSignatureId String?
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt

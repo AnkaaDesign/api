@@ -23,6 +23,14 @@ export interface TaskQuoteCustomerConfig extends BaseEntity {
   orderNumber?: string | null;
   responsibleId?: string | null;
   paymentCondition?: string | null;
+  paymentConfig?: {
+    type: 'CASH' | 'INSTALLMENTS';
+    cashDays?: number;
+    installmentCount?: number;
+    installmentStep?: number;
+    entryDays?: number;
+    specificDate?: string;
+  } | null;
 
   // Customer Signature (uploaded by customer on public page)
   customerSignatureId?: string | null;

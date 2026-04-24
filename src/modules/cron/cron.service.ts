@@ -16,7 +16,7 @@ import { ORDER_STATUS } from '../../constants/enums';
 @Injectable()
 export class CronService {
   private readonly logger = new Logger(CronService.name);
-  private readonly systemUserId = 'system';
+  private readonly systemUserId: string | null = null;
 
   constructor(
     private readonly userService: UserService,

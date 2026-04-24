@@ -313,8 +313,14 @@ export class MessageService {
 
       // Map messages to include stats
       const data = messages.map(message => {
-        const views = message.views || [];
+        const allViews = message.views || [];
         const targets = message.targets || [];
+
+        // When targets are set, only count views from users in the target list
+        const targetUserIds = targets.length > 0 ? new Set(targets.map(t => t.userId)) : null;
+        const views = targetUserIds
+          ? allViews.filter(v => targetUserIds.has(v.userId))
+          : allViews;
 
         const stats = {
           views: views.length,
@@ -823,10 +829,19 @@ export class MessageService {
         throw new NotFoundException(`Mensagem com ID ${messageId} não encontrada`);
       }
 
-      const totalViews = message.views?.length || 0;
-      const uniqueViewers = new Set(message.views?.map(v => v.userId)).size;
-
       let targetedUsers = 0;
+
+      // When targets are set, only count views from users in the target list
+      const targetUserIds =
+        message.targets && message.targets.length > 0
+          ? new Set(message.targets.map(t => t.userId))
+          : null;
+      const relevantViews = targetUserIds
+        ? (message.views || []).filter(v => targetUserIds.has(v.userId))
+        : (message.views || []);
+
+      const totalViews = relevantViews.length;
+      const uniqueViewers = new Set(relevantViews.map(v => v.userId)).size;
 
       // Simplified: no targets = ALL_USERS, has targets = count of targets
       if (!message.targets || message.targets.length === 0) {
@@ -838,7 +853,7 @@ export class MessageService {
       }
 
       // Count dismissals (messages marked as "don't show again")
-      const totalDismissals = message.views?.filter(v => v.dismissedAt !== null).length || 0;
+      const totalDismissals = relevantViews.filter(v => v.dismissedAt !== null).length;
 
       return {
         totalViews,
