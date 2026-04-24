@@ -1867,7 +1867,7 @@ export class UserService {
    * - EXPERIENCE_PERIOD_1 -> EXPERIENCE_PERIOD_2 (when exp1EndAt is today)
    * - EXPERIENCE_PERIOD_2 -> EFFECTED (when exp2EndAt is today)
    */
-  async processExperiencePeriodTransitions(userId: string = 'system'): Promise<{
+  async processExperiencePeriodTransitions(userId: string | null = null): Promise<{
     totalProcessed: number;
     exp1ToExp2: number;
     exp2ToEffected: number;

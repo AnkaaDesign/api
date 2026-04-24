@@ -2170,11 +2170,14 @@ export class BonusService {
         // Format current date for createdAt/updatedAt (same as saved bonus)
         const now = new Date();
 
-        // Get all eligible user IDs for the users relation
-        const allEligibleUserRefs = liveData.bonuses.map(b => ({
-          id: b.userId,
-          name: b.userName,
-        }));
+        // Get eligible user refs — only performanceLevel > 0, matching the average denominator.
+        // Never use savedBonus.users (stale DB snapshot); always derive from current live data.
+        const allEligibleUserRefs = liveData.bonuses
+          .filter(b => b.performanceLevel > 0)
+          .map(b => ({
+            id: b.userId,
+            name: b.userName,
+          }));
 
         if (savedBonus) {
           // User has saved bonus - use it, but enrich with live Secullum analysis
@@ -2289,7 +2292,7 @@ export class BonusService {
             netBonus: savedNetBonus,
             bonusExtras: mergedExtras,
             bonusDiscounts: mergedDiscounts,
-            users: savedBonus.users || allEligibleUserRefs,
+            users: allEligibleUserRefs,
             position:
               savedBonus.position ||
               savedBonus.payroll?.position ||

@@ -421,6 +421,16 @@ export const installmentInputSchema = z.object({
   amount: moneySchema,
 });
 
+// Structured payment config (replaces paymentCondition going forward)
+export const paymentConfigSchema = z.object({
+  type: z.enum(['CASH', 'INSTALLMENTS']),
+  cashDays: z.number().int().min(1).max(365).optional(),
+  installmentCount: z.number().int().min(2).max(6).optional(),
+  installmentStep: z.number().int().min(1).max(365).optional(),
+  entryDays: z.number().int().min(1).max(365).optional(),
+  specificDate: z.string().optional(),
+});
+
 export const taskQuoteCustomerConfigCreateNestedSchema = z.object({
   customerId: z.string().uuid('ID de cliente invalido'),
   subtotal: moneySchema.optional().default(0),
@@ -429,8 +439,10 @@ export const taskQuoteCustomerConfigCreateNestedSchema = z.object({
   discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE).optional(),
   discountValue: moneySchema.nullable().optional(),
   discountReference: z.string().max(500, 'Maximo de 500 caracteres').optional().nullable(),
-  // Payment condition used to generate installments at BILLING_APPROVED time
+  // Payment condition — legacy string enum (deprecated, use paymentConfig instead)
   paymentCondition: paymentConditionSchema.optional().nullable(),
+  // Structured payment config (replaces paymentCondition for new billing flow)
+  paymentConfig: paymentConfigSchema.optional().nullable(),
   customPaymentText: z.string().max(2000).optional().nullable(),
   generateInvoice: z.boolean().optional().default(true),
   orderNumber: z.string().max(100, 'Máximo de 100 caracteres').optional().nullable(),

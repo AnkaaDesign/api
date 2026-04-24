@@ -768,6 +768,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     expiresAt: 'Data de Expiração',
     status: 'Status',
     paymentCondition: 'Condição de Pagamento',
+    paymentConfig: 'Configuração de Pagamento',
     customPaymentText: 'Texto Personalizado de Pagamento',
     orderNumber: 'N° do Pedido',
     guaranteeYears: 'Anos de Garantia',

@@ -107,6 +107,7 @@ export class TaskQuotePrismaRepository
           generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
           orderNumber: config.orderNumber || null,
           paymentCondition: config.paymentCondition || null,
+          paymentConfig: (config as any).paymentConfig ?? null,
           responsibleId: config.responsibleId || null,
         })),
       };

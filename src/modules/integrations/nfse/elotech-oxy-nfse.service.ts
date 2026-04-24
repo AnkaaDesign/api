@@ -818,16 +818,25 @@ export class ElotechOxyNfseService {
       };
     };
 
+    const cleanOrderNumber = invoice.orderNumber?.replace(/^PEDIDO\s+NR\s+/i, '').trim() ?? '';
+
     if (services && services.length > 0) {
       formItensNFSe = services.map((svc, i) =>
         buildItem(svc.description, svc.amount, i),
       );
-      const serviceLines = services.map((s) => s.description).join('\n');
-      const orderPrefix = invoice.orderNumber ? `Pedido: ${invoice.orderNumber}\n\n` : '';
-      discriminacaoServico =
-        invoice.description || `${orderPrefix}${vehicleRef}\n\n${serviceLines}`;
+
+      const DISCRIMINACAO_MAX_LINES = 11;
+      const headerLines: string[] = [];
+      if (cleanOrderNumber) headerLines.push(`Pedido: ${cleanOrderNumber}`);
+      if (vehicleRef) headerLines.push(vehicleRef);
+
+      const availableLines = Math.max(1, DISCRIMINACAO_MAX_LINES - headerLines.length);
+      const packedServices = this.packServiceLines(services.map((s) => s.description), availableLines);
+
+      discriminacaoServico = invoice.description || [...headerLines, ...packedServices].join('\n');
     } else {
-      const fallbackDesc = invoice.description || `${invoice.orderNumber ? `Pedido: ${invoice.orderNumber}\n\n` : ''}Serviço ref. OS ${serialNumber}`;
+      const fallbackDesc = invoice.description
+        || `${cleanOrderNumber ? `Pedido: ${cleanOrderNumber}\n` : ''}Serviço ref. OS ${serialNumber}`;
       formItensNFSe = [buildItem(fallbackDesc, totalAmount, 0)];
       discriminacaoServico = fallbackDesc;
     }
@@ -1063,5 +1072,24 @@ export class ElotechOxyNfseService {
         totalNfse,
       },
     };
+  }
+
+  private packServiceLines(descriptions: string[], maxLines: number): string[] {
+    const lines: string[] = [];
+    let current = '';
+    for (const desc of descriptions) {
+      if (lines.length >= maxLines) break;
+      if (current === '') {
+        current = desc;
+      } else if (current.length + 2 + desc.length <= 255) {
+        current += `, ${desc}`;
+      } else {
+        lines.push(current);
+        if (lines.length >= maxLines) break;
+        current = desc;
+      }
+    }
+    if (current && lines.length < maxLines) lines.push(current);
+    return lines;
   }
 }
