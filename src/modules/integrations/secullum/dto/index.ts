@@ -47,6 +47,119 @@ export interface SecullumUpdateTimeEntryRequest {
   lunchOut?: string;
   lunchIn?: string;
   status?: string;
+  // Pass-through of Secullum's native fields. The service forwards these as-is so
+  // callers (web/mobile time-card grid) can submit changes that match the upstream
+  // Batidas payload exactly: Entrada1..Saida5 strings (time "HH:MM" or short
+  // justification like "ATESTAD" or "" to clear), Versao for optimistic concurrency,
+  // and ListaFonteDados to attach a manual-change reason for one or more cells.
+  Id?: number;
+  FuncionarioId?: number;
+  Data?: string;
+  DataExibicao?: string;
+  TipoDoDia?: number;
+  Entrada1?: string | null;
+  Saida1?: string | null;
+  Entrada2?: string | null;
+  Saida2?: string | null;
+  Entrada3?: string | null;
+  Saida3?: string | null;
+  Entrada4?: string | null;
+  Saida4?: string | null;
+  Entrada5?: string | null;
+  Saida5?: string | null;
+  Ajuste?: string | null;
+  Abono2?: string | null;
+  Abono3?: string | null;
+  Abono4?: string | null;
+  Observacoes?: string | null;
+  AlmocoLivre?: boolean;
+  Compensado?: boolean;
+  Neutro?: boolean;
+  Folga?: boolean;
+  NBanco?: boolean;
+  Refeicao?: boolean;
+  Encerrado?: boolean;
+  AntesAdmissao?: boolean;
+  DepoisDemissao?: boolean;
+  MemoriaCalculoId?: number | null;
+  Versao?: string;
+  NumeroHorario?: number;
+  // FonteDados* — server-assigned objects describing the origin of each marking.
+  // Pass through unchanged when the client moves a marking between cells (e.g.,
+  // the "move to previous day" / "move column left" flow swaps these).
+  FonteDadosIdEntrada1?: number | null;
+  FonteDadosIdSaida1?: number | null;
+  FonteDadosIdEntrada2?: number | null;
+  FonteDadosIdSaida2?: number | null;
+  FonteDadosIdEntrada3?: number | null;
+  FonteDadosIdSaida3?: number | null;
+  FonteDadosIdEntrada4?: number | null;
+  FonteDadosIdSaida4?: number | null;
+  FonteDadosIdEntrada5?: number | null;
+  FonteDadosIdSaida5?: number | null;
+  FonteDadosEntrada1?: SecullumFonteDados | null;
+  FonteDadosSaida1?: SecullumFonteDados | null;
+  FonteDadosEntrada2?: SecullumFonteDados | null;
+  FonteDadosSaida2?: SecullumFonteDados | null;
+  FonteDadosEntrada3?: SecullumFonteDados | null;
+  FonteDadosSaida3?: SecullumFonteDados | null;
+  FonteDadosEntrada4?: SecullumFonteDados | null;
+  FonteDadosSaida4?: SecullumFonteDados | null;
+  FonteDadosEntrada5?: SecullumFonteDados | null;
+  FonteDadosSaida5?: SecullumFonteDados | null;
+  // ListaFonteDados — emitted by the client when the user manually adds/edits a
+  // time and provides a reason. Server attaches these as new FonteDados rows.
+  ListaFonteDados?: SecullumListaFonteDadosEntry[];
+  // Allow other Secullum fields to pass through unchanged (Filtro1Id, Filtro2Id,
+  // Periculosidade, Equip*, Backup*, SolicitacaoFotoId*, etc.).
+  [key: string]: unknown;
+}
+
+// Server-side metadata describing a clock-in/out marking. Returned by GET /Batidas
+// inside FonteDadosEntradaN/FonteDadosSaidaN and echoed back on save.
+export interface SecullumFonteDados {
+  Data: string;
+  Hora: string;
+  Tipo: number; // 1 = manual (red-pen), other values for collected/imported sources
+  Origem: number; // 2 = web cartão-ponto edit; varies per origem
+  Motivo: string | null;
+  Geolocalizacao: SecullumGeolocalizacao | null;
+  EhRepP: boolean;
+}
+
+// Manual-change row sent in ListaFonteDados[] when the user adds/edits a time.
+// Server creates a corresponding FonteDados row and links it via FonteDadosId{coluna}.
+export interface SecullumListaFonteDadosEntry {
+  data: string; // ISO datetime of the day (e.g., "2026-03-26T00:00:00")
+  funcionarioId: number;
+  coluna: string; // "Entrada1" | "Saida1" | ... | "Saida5"
+  tipo: number; // 1 = manual addition
+  valor: string; // "HH:MM"
+  motivo: string;
+  usaGeolocalizacao: boolean;
+}
+
+// Justification (Justificativa) — code list used by the cell dropdown when the
+// user picks "Release justification" from the right-click menu.
+// NomeAbreviado is the value persisted into Entrada1..Saida5 columns.
+export interface SecullumJustification {
+  Id: number;
+  NomeAbreviado: string;
+  NomeCompleto: string | null;
+  ValorDia: string | null;
+  Ajuste: boolean;
+  Abono2: boolean;
+  Abono3: boolean;
+  Abono4: boolean;
+  UsarJustificativaParaContagemDeFerias: boolean;
+  Desativar: boolean;
+}
+
+export interface SecullumJustificationsResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumJustification[];
+  error?: string;
 }
 
 // Calculation column definitions from Secullum
@@ -243,6 +356,7 @@ export interface SecullumRequest {
   DataFim: string | null;
   FuncionarioId: number;
   FuncionarioNome: string;
+  SolicitanteNome: string | null;
   Justificativa: string | null;
   Entrada1: string | null;
   Saida1: string | null;
@@ -323,6 +437,53 @@ export interface SecullumRequestActionResponse {
   message: string;
   error?: string;
 }
+
+// Payload accepted by POST /integrations/secullum/requests/:id/approve
+// Mirrors Secullum's /Solicitacoes/Aceitar body. SolicitacaoId comes from the URL.
+export interface SecullumApproveRequestPayload {
+  Versao: string;
+  AlteracoesFonteDados?: SecullumAlteracaoFonteDados[];
+  // Either alias is accepted; the request's `Tipo` field maps to `TipoSolicitacao` on the wire.
+  TipoSolicitacao?: number;
+  Tipo?: number;
+}
+
+// Payload accepted by POST /integrations/secullum/requests/:id/reject
+// Mirrors Secullum's /Solicitacoes/Descartar body.
+// Note: Secullum's request payload uses field "Motivo" (response payload uses "MotivoDescarte").
+// We accept legacy `MotivoDescarte` and `observacoes` as fallbacks.
+export interface SecullumRejectRequestPayload {
+  Versao: string;
+  Motivo?: string;
+  MotivoDescarte?: string;
+  observacoes?: string;
+  TipoSolicitacao?: number;
+  Tipo?: number;
+}
+
+// Tipos da Solicitação (Secullum). Source: HAR captures + TipoDescricao field.
+// 0 = "Adjusting point markings" (Ajuste de marcações)
+// 2 = "Justify Absence" (Justificar Falta)
+// Other values exist upstream (vacation, etc.) but are not yet mapped.
+export const SECULLUM_SOLICITACAO_TIPO = {
+  AJUSTE_MARCACAO: 0,
+  JUSTIFICAR_FALTA: 2,
+} as const;
+
+// Estado da Solicitação. We filter by Estado === 0 (pending) when pendingOnly is true.
+export const SECULLUM_SOLICITACAO_ESTADO = {
+  PENDENTE: 0,
+  APROVADA: 1,
+  REJEITADA: 2,
+} as const;
+
+// AlteracoesFonteDados[].Tipo (per-row change kind). Per HAR:
+//  2 = used when listing pending justify-absence rows
+//  3 = used when accepting a marking adjustment
+export const SECULLUM_ALTERACAO_TIPO = {
+  JUSTIFICAR: 2,
+  AJUSTAR: 3,
+} as const;
 
 // Secullum Schedules (Horarios) DTOs
 export interface SecullumHorario {

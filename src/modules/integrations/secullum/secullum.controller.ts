@@ -34,7 +34,10 @@ import {
   SecullumAuthStatusResponse,
   SecullumRequestsResponse,
   SecullumRequestActionResponse,
+  SecullumApproveRequestPayload,
+  SecullumRejectRequestPayload,
   SecullumHorariosResponse,
+  SecullumJustificationsResponse,
 } from './dto';
 
 @Controller('integrations/secullum')
@@ -154,6 +157,21 @@ export class SecullumController {
     this.logger.log(`User ${userId} updating time entry ${id} in Secullum`);
 
     return await this.secullumService.updateTimeEntry(id, data);
+  }
+
+  /**
+   * Fetch the list of justification codes for the time-card cell dropdown.
+   * GET /integrations/secullum/justifications
+   */
+  @Get('justifications')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getJustifications(
+    @UserId() userId: string,
+  ): Promise<SecullumJustificationsResponse> {
+    this.logger.log(`User ${userId} fetching Secullum justifications`);
+    return await this.secullumService.getJustifications();
   }
 
   /**
@@ -625,16 +643,17 @@ export class SecullumController {
   async approveRequest(
     @UserId() userId: string,
     @Param('id') requestId: string,
-    @Body() requestData: any,
+    @Body() requestData: SecullumApproveRequestPayload,
   ): Promise<SecullumRequestActionResponse> {
     this.logger.log(`User ${userId} approving Secullum request ID: ${requestId}`);
 
-    // Set the SolicitacaoId from the URL parameter
+    // TipoSolicitacao on the wire mirrors the request's `Tipo` field.
+    // Accept either alias from clients for forward-compat.
     const approvalData = {
-      SolicitacaoId: parseInt(requestId),
+      SolicitacaoId: parseInt(requestId, 10),
       Versao: requestData.Versao,
       AlteracoesFonteDados: requestData.AlteracoesFonteDados || [],
-      TipoSolicitacao: requestData.TipoSolicitacao || 0,
+      TipoSolicitacao: requestData.TipoSolicitacao ?? requestData.Tipo ?? 0,
     };
 
     return await this.secullumService.approveRequest(approvalData);
@@ -651,17 +670,21 @@ export class SecullumController {
   async rejectRequest(
     @UserId() userId: string,
     @Param('id') requestId: string,
-    @Body() requestData: any,
+    @Body() requestData: SecullumRejectRequestPayload,
   ): Promise<SecullumRequestActionResponse> {
     this.logger.log(`User ${userId} rejecting Secullum request ID: ${requestId}`);
 
-    // Set the SolicitacaoId from the URL parameter
+    // Secullum's Descartar body uses "Motivo" (verified via HAR). We accept legacy
+    // aliases (MotivoDescarte / observacoes) for backward compatibility.
     const rejectionData = {
-      SolicitacaoId: parseInt(requestId),
+      SolicitacaoId: parseInt(requestId, 10),
       Versao: requestData.Versao,
-      MotivoDescarte:
-        requestData.MotivoDescarte || requestData.observacoes || 'Rejeitado via sistema Ankaa',
-      TipoSolicitacao: requestData.TipoSolicitacao || 0,
+      Motivo:
+        requestData.Motivo ||
+        requestData.MotivoDescarte ||
+        requestData.observacoes ||
+        'Rejeitado via sistema Ankaa',
+      TipoSolicitacao: requestData.TipoSolicitacao ?? requestData.Tipo ?? 0,
     };
 
     return await this.secullumService.rejectRequest(rejectionData);
