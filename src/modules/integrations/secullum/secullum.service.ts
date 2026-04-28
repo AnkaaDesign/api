@@ -25,6 +25,8 @@ import {
   SecullumHorario,
   SecullumHorariosResponse,
   SecullumHorarioRaw,
+  SecullumJustificationsResponse,
+  SecullumJustification,
 } from './dto';
 
 @Injectable()
@@ -636,36 +638,50 @@ export class SecullumService {
   }
 
   private transformSingleEntry(data: any): any {
+    // IMPORTANT: Secullum's Batidas payload distinguishes three states for
+    // Entrada1..Saida5 cells:
+    //   - null         → cell was never touched
+    //   - "HH:MM"      → time marking
+    //   - "ATESTAD"... → justification short-name (the abbreviated NomeAbreviado)
+    //   - ""           → cell explicitly cleared (deleting a justification)
+    // Using `||` here would coerce "" to null and silently break clears, so we
+    // use ?? to preserve empty-string and only fall back when the field is
+    // truly missing.
+    const cell = (canonical: any, alias: any): string | null => {
+      if (canonical !== undefined) return canonical;
+      if (alias !== undefined) return alias;
+      return null;
+    };
     return {
-      Id: parseInt(data.id || data.Id),
-      FuncionarioId: data.FuncionarioId || data.funcionarioId || 2,
+      Id: parseInt(data.id ?? data.Id, 10),
+      FuncionarioId: data.FuncionarioId ?? data.funcionarioId ?? null,
       Data: data.Data || new Date().toISOString(),
       DataExibicao: data.DataExibicao,
-      TipoDoDia: data.TipoDoDia || 0,
-      Entrada1: data.Entrada1 || data.entry1 || null,
-      Saida1: data.Saida1 || data.exit1 || null,
-      Entrada2: data.Entrada2 || data.entry2 || null,
-      Saida2: data.Saida2 || data.exit2 || null,
-      Entrada3: data.Entrada3 || data.entry3 || null,
-      Saida3: data.Saida3 || data.exit3 || null,
-      Entrada4: data.Entrada4 || data.entry4 || null,
-      Saida4: data.Saida4 || data.exit4 || null,
-      Entrada5: data.Entrada5 || data.entry5 || null,
-      Saida5: data.Saida5 || data.exit5 || null,
-      Ajuste: data.Ajuste || null,
-      Abono2: data.Abono2 || null,
-      Abono3: data.Abono3 || null,
-      Abono4: data.Abono4 || null,
-      Observacoes: data.Observacoes || null,
-      AlmocoLivre: data.AlmocoLivre || data.freeLunch || false,
-      Compensado: data.Compensado || data.compensated || false,
-      Neutro: data.Neutro || data.neutral || false,
-      Folga: data.Folga || data.dayOff || false,
-      NBanco: data.NBanco || false,
-      Refeicao: data.Refeicao || false,
-      Encerrado: data.Encerrado || false,
-      AntesAdmissao: data.AntesAdmissao || false,
-      DepoisDemissao: data.DepoisDemissao || false,
+      TipoDoDia: data.TipoDoDia ?? 0,
+      Entrada1: cell(data.Entrada1, data.entry1),
+      Saida1: cell(data.Saida1, data.exit1),
+      Entrada2: cell(data.Entrada2, data.entry2),
+      Saida2: cell(data.Saida2, data.exit2),
+      Entrada3: cell(data.Entrada3, data.entry3),
+      Saida3: cell(data.Saida3, data.exit3),
+      Entrada4: cell(data.Entrada4, data.entry4),
+      Saida4: cell(data.Saida4, data.exit4),
+      Entrada5: cell(data.Entrada5, data.entry5),
+      Saida5: cell(data.Saida5, data.exit5),
+      Ajuste: data.Ajuste ?? null,
+      Abono2: data.Abono2 ?? null,
+      Abono3: data.Abono3 ?? null,
+      Abono4: data.Abono4 ?? null,
+      Observacoes: data.Observacoes ?? null,
+      AlmocoLivre: data.AlmocoLivre ?? data.freeLunch ?? false,
+      Compensado: data.Compensado ?? data.compensated ?? false,
+      Neutro: data.Neutro ?? data.neutral ?? false,
+      Folga: data.Folga ?? data.dayOff ?? false,
+      NBanco: data.NBanco ?? false,
+      Refeicao: data.Refeicao ?? false,
+      Encerrado: data.Encerrado ?? false,
+      AntesAdmissao: data.AntesAdmissao ?? false,
+      DepoisDemissao: data.DepoisDemissao ?? false,
       MemoriaCalculoId: data.MemoriaCalculoId || null,
       FonteDadosIdEntrada1: data.FonteDadosIdEntrada1 || null,
       FonteDadosIdSaida1: data.FonteDadosIdSaida1 || null,
@@ -713,19 +729,56 @@ export class SecullumService {
       EquipIdSaida4: data.EquipIdSaida4 || null,
       EquipIdEntrada5: data.EquipIdEntrada5 || null,
       EquipIdSaida5: data.EquipIdSaida5 || null,
-      BackupEntrada1: data.BackupEntrada1 || data.Entrada1 || data.entry1 || null,
-      BackupSaida1: data.BackupSaida1 || data.Saida1 || data.exit1 || null,
-      BackupEntrada2: data.BackupEntrada2 || data.Entrada2 || data.entry2 || null,
-      BackupSaida2: data.BackupSaida2 || data.Saida2 || data.exit2 || null,
-      BackupEntrada3: data.BackupEntrada3 || data.Entrada3 || data.entry3 || null,
-      BackupSaida3: data.BackupSaida3 || data.Saida3 || data.exit3 || null,
-      BackupEntrada4: data.BackupEntrada4 || data.Entrada4 || data.entry4 || null,
-      BackupSaida4: data.BackupSaida4 || data.Saida4 || data.exit4 || null,
-      BackupEntrada5: data.BackupEntrada5 || data.Entrada5 || data.entry5 || null,
-      BackupSaida5: data.BackupSaida5 || data.Saida5 || data.exit5 || null,
-      NumeroHorario: data.NumeroHorario || 1,
-      ListaFonteDados: data.ListaFonteDados || [],
+      BackupEntrada1: data.BackupEntrada1 ?? data.Entrada1 ?? data.entry1 ?? null,
+      BackupSaida1: data.BackupSaida1 ?? data.Saida1 ?? data.exit1 ?? null,
+      BackupEntrada2: data.BackupEntrada2 ?? data.Entrada2 ?? data.entry2 ?? null,
+      BackupSaida2: data.BackupSaida2 ?? data.Saida2 ?? data.exit2 ?? null,
+      BackupEntrada3: data.BackupEntrada3 ?? data.Entrada3 ?? data.entry3 ?? null,
+      BackupSaida3: data.BackupSaida3 ?? data.Saida3 ?? data.exit3 ?? null,
+      BackupEntrada4: data.BackupEntrada4 ?? data.Entrada4 ?? data.entry4 ?? null,
+      BackupSaida4: data.BackupSaida4 ?? data.Saida4 ?? data.exit4 ?? null,
+      BackupEntrada5: data.BackupEntrada5 ?? data.Entrada5 ?? data.entry5 ?? null,
+      BackupSaida5: data.BackupSaida5 ?? data.Saida5 ?? data.exit5 ?? null,
+      // NumeroHorario can legitimately be 0 (no schedule); only fall back when
+      // the client truly didn't send it.
+      NumeroHorario: data.NumeroHorario ?? null,
+      ListaFonteDados: data.ListaFonteDados ?? [],
     };
+  }
+
+  /**
+   * Fetches the list of justification codes used by the time-card cell dropdown
+   * (the "Release justification" right-click action). Each entry's NomeAbreviado
+   * (e.g., "ATESTAD") is what gets persisted into Entrada1..Saida5 fields when
+   * the user picks a justification for a cell.
+   *
+   * Upstream: GET /Justificativas?filtro=1 (filtro=1 returns only active codes
+   * applicable to the time-card grid; verified via HAR).
+   */
+  async getJustifications(): Promise<SecullumJustificationsResponse> {
+    try {
+      this.logger.log('Fetching Secullum justifications list');
+      const justifications = await this.makeAuthenticatedRequest<SecullumJustification[]>(
+        'GET',
+        '/Justificativas',
+        undefined,
+        { filtro: 1 },
+        { secullumbancoselecionado: this.databaseId },
+      );
+
+      return {
+        success: true,
+        message: 'Justificativas carregadas com sucesso',
+        data: Array.isArray(justifications) ? justifications : [],
+      };
+    } catch (error) {
+      this.logger.error('Error fetching Secullum justifications', error);
+      return {
+        success: false,
+        message: `Falha ao carregar justificativas: ${this.getErrorMessage(error)}`,
+        error: error.message,
+      };
+    }
   }
 
   async getCalculations(params?: {
@@ -1837,7 +1890,7 @@ export class SecullumService {
         SolicitacaoId: requestData.SolicitacaoId,
         Versao: requestData.Versao,
         AlteracoesFonteDados: requestData.AlteracoesFonteDados || [],
-        TipoSolicitacao: requestData.TipoSolicitacao || 0,
+        TipoSolicitacao: requestData.TipoSolicitacao ?? 0,
       };
 
       await this.makeAuthenticatedRequest(
@@ -1871,13 +1924,18 @@ export class SecullumService {
     try {
       this.logger.log(`Rejecting Secullum request ID: ${requestData.SolicitacaoId}`);
 
-      // For rejection, Secullum uses "Descartar" endpoint
+      // Secullum's /Solicitacoes/Descartar endpoint expects the field name "Motivo"
+      // (confirmed via HAR capture). Previously we were sending "MotivoDescarte"
+      // which is the field name on the response payload, not the request payload.
       const rejectionBody = {
         SolicitacaoId: requestData.SolicitacaoId,
         Versao: requestData.Versao,
-        MotivoDescarte:
-          requestData.MotivoDescarte || requestData.observacoes || 'Rejeitado via sistema Ankaa',
-        TipoSolicitacao: requestData.TipoSolicitacao || 0,
+        Motivo:
+          requestData.Motivo ||
+          requestData.MotivoDescarte ||
+          requestData.observacoes ||
+          'Rejeitado via sistema Ankaa',
+        TipoSolicitacao: requestData.TipoSolicitacao ?? 0,
       };
 
       await this.makeAuthenticatedRequest(
