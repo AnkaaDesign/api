@@ -14,6 +14,7 @@ import { TaskQuoteRepository } from './repositories/task-quote.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { InvoiceGenerationService } from '@modules/financial/invoice/invoice-generation.service';
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
+import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 import type {
   TaskQuoteCreateFormData,
   TaskQuoteUpdateFormData,
@@ -84,6 +85,7 @@ export class TaskQuoteService {
     @Inject(forwardRef(() => InvoiceGenerationService))
     private readonly invoiceGenerationService: InvoiceGenerationService,
     private readonly nfseEmissionScheduler: NfseEmissionScheduler,
+    private readonly sicrediService: SicrediService,
   ) {}
 
   /**
@@ -441,6 +443,47 @@ export class TaskQuoteService {
 
       if (!existing) {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Guard: lock pricing/customer/payment edits once the quote is locked-in
+      // ─────────────────────────────────────────────────────────────────────
+      // After BILLING_APPROVED the quote is committed to invoicing — services have priced
+      // installments, NFSe may already be in flight, bank slips may be live at Sicredi.
+      // Edits to price/customer/payment shape would either silently desync those artifacts
+      // or require a destructive cascade. The audit identified a window between "status reaches
+      // BILLING_APPROVED" and "slip emission completes" where this could happen — close it here.
+      //
+      // SAFE fields (still editable while locked): expiresAt, customGuaranteeText, layoutFileId
+      // (the layout/PDF artifact), and `status` itself — status transitions are routed through
+      // updateStatus()/internalApprove() which validate state machine moves, and the auto
+      // transition BILLING_APPROVED → UPCOMING calls back into this update() with only `status`.
+      // Everything else in the update payload (pricing, customer configs, services, etc.)
+      // is rejected with a clear message.
+      const STATUS_LOCKED: TASK_QUOTE_STATUS[] = [
+        TASK_QUOTE_STATUS.BILLING_APPROVED,
+        TASK_QUOTE_STATUS.UPCOMING,
+        TASK_QUOTE_STATUS.DUE,
+        TASK_QUOTE_STATUS.PARTIAL,
+        TASK_QUOTE_STATUS.SETTLED,
+      ];
+      const SAFE_AFTER_BILLING_FIELDS = new Set<string>([
+        'expiresAt',
+        'customGuaranteeText',
+        'layoutFileId',
+        'status',
+      ]);
+      const currentStatus = (existing as any).status as TASK_QUOTE_STATUS;
+      if (STATUS_LOCKED.includes(currentStatus)) {
+        for (const key of Object.keys(data)) {
+          // Ignore explicit undefined entries — only reject if the caller actually intends a change.
+          if ((data as any)[key] === undefined) continue;
+          if (!SAFE_AFTER_BILLING_FIELDS.has(key)) {
+            throw new BadRequestException(
+              'Após aprovação para faturamento, este campo não pode ser alterado. Solicite o cancelamento do orçamento para editá-lo.',
+            );
+          }
+        }
       }
 
       // Validate customerConfigs customer IDs if provided
@@ -1122,6 +1165,9 @@ export class TaskQuoteService {
    * Used when payment was received via PIX, cash, or other non-boleto means.
    */
   private async settleManually(quoteId: string): Promise<void> {
+    // Track bank slips that need to be cancelled at Sicredi (after the local transaction commits)
+    const slipsToCancelAtSicredi: Array<{ id: string; nossoNumero: string }> = [];
+
     await this.prisma.$transaction(async tx => {
       // Find all installments for this quote that aren't already PAID or CANCELLED
       const installments = await tx.installment.findMany({
@@ -1137,7 +1183,7 @@ export class TaskQuoteService {
       const now = new Date();
 
       for (const installment of installments) {
-        // Cancel active/overdue bank slips (local only — Sicredi cancellation is fire-and-forget)
+        // Cancel active/overdue bank slips locally; remote Sicredi cancellation is fired below.
         if (
           installment.bankSlip &&
           ![BANK_SLIP_STATUS.PAID, BANK_SLIP_STATUS.CANCELLED].includes(
@@ -1148,6 +1194,15 @@ export class TaskQuoteService {
             where: { id: installment.bankSlip.id },
             data: { status: BANK_SLIP_STATUS.CANCELLED },
           });
+
+          // Queue this slip for Sicredi-side cancellation. nossoNumero may be empty if registration
+          // never completed at Sicredi — in that case there is nothing to cancel remotely.
+          if (installment.bankSlip.nossoNumero) {
+            slipsToCancelAtSicredi.push({
+              id: installment.bankSlip.id,
+              nossoNumero: installment.bankSlip.nossoNumero,
+            });
+          }
         }
 
         // Mark installment as PAID
@@ -1183,6 +1238,67 @@ export class TaskQuoteService {
         });
       }
     });
+
+    // Fire Sicredi cancellations AFTER the local transaction commits.
+    // We don't block the manual settlement on Sicredi failures — if the bank is down or rejects,
+    // we persist the failure on the BankSlip.errorMessage so a future retry job (sicredi-boleto.scheduler)
+    // can pick them up. The slip is already marked CANCELLED locally so the customer-facing UI is correct
+    // even if the remote cancellation hasn't propagated yet.
+    if (slipsToCancelAtSicredi.length > 0) {
+      this.logger.log(
+        `[SETTLE_MANUALLY] Firing Sicredi cancellation for ${slipsToCancelAtSicredi.length} bank slip(s) on quote ${quoteId}...`,
+      );
+
+      const results = await Promise.allSettled(
+        slipsToCancelAtSicredi.map(slip =>
+          this.sicrediService
+            .cancelBoleto(slip.nossoNumero)
+            .then(() => ({ slip, ok: true as const }))
+            .catch(err => ({ slip, ok: false as const, err })),
+        ),
+      );
+
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          // Should not happen since we catch above, but guard anyway.
+          this.logger.error(
+            `[SETTLE_MANUALLY] Unexpected promise rejection during Sicredi cancellation: ${result.reason}`,
+          );
+          continue;
+        }
+
+        const value = result.value as
+          | { slip: { id: string; nossoNumero: string }; ok: true }
+          | { slip: { id: string; nossoNumero: string }; ok: false; err: unknown };
+        if (value.ok === true) {
+          this.logger.log(
+            `[SETTLE_MANUALLY] Sicredi cancellation OK for nossoNumero=${value.slip.nossoNumero}`,
+          );
+        } else {
+          const err = value.err;
+          const reason = err instanceof Error ? err.message : String(err ?? 'unknown error');
+          this.logger.warn(
+            `[SETTLE_MANUALLY] Sicredi cancellation FAILED for nossoNumero=${value.slip.nossoNumero}: ${reason}. ` +
+              `Slip is CANCELLED locally; needs retry by sicredi-boleto scheduler.`,
+          );
+
+          // Persist failure on the slip so a retry job can pick it up. Schema has no dedicated
+          // "needs cancellation retry" flag, so we encode it in errorMessage with a stable prefix.
+          try {
+            await this.prisma.bankSlip.update({
+              where: { id: value.slip.id },
+              data: {
+                errorMessage: `Cancellation failed at Sicredi: ${reason}`,
+              },
+            });
+          } catch (persistErr) {
+            this.logger.error(
+              `[SETTLE_MANUALLY] Failed to persist cancellation error on slip ${value.slip.id}: ${persistErr}`,
+            );
+          }
+        }
+      }
+    }
 
     this.logger.log(
       `[SETTLE_MANUALLY] Quote ${quoteId} settled manually. All installments marked as PAID, open bank slips cancelled.`,
@@ -1237,8 +1353,10 @@ export class TaskQuoteService {
       data: {
         status: TASK_QUOTE_STATUS.BILLING_APPROVED,
         statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.BILLING_APPROVED),
+        // billingApprovedAt exists in schema.prisma but the generated Prisma client is stale;
+        // cast to satisfy the type checker until `prisma generate` is rerun.
         billingApprovedAt: approvalDate,
-      },
+      } as any,
     });
     if (claimed.count === 0) {
       throw new BadRequestException(
@@ -1432,67 +1550,120 @@ export class TaskQuoteService {
    */
   async findPublic(id: string, ignoreExpiration = false): Promise<TaskQuoteGetUniqueResponse> {
     try {
+      // Public-facing select clause — DB-layer enforcement (preferred over post-fetch masking).
+      // Sensitive fields explicitly NOT selected: BankSlip.barcode/linhaDigitavel/pixQrCode/
+      // nossoNumero/sicrediStatus/errorMessage/liquidationData/pdfFileId, NfseDocument numbering
+      // and URLs, responsibleUser (entire user record), createdById/updatedById, internal status reasons.
       const quote = await this.prisma.taskQuote.findUnique({
         where: { id },
-        include: {
+        select: {
+          id: true,
+          subtotal: true,
+          total: true,
+          expiresAt: true,
+          status: true,
+          guaranteeYears: true,
+          customGuaranteeText: true,
+          customForecastDays: true,
+          simultaneousTasks: true,
+          budgetNumber: true,
+          createdAt: true,
+          updatedAt: true,
+          layoutFile: {
+            select: { id: true, filename: true, originalName: true, mimetype: true, size: true },
+          },
           services: {
             orderBy: { position: 'asc' },
-            include: {
+            select: {
+              id: true,
+              description: true,
+              observation: true,
+              amount: true,
+              position: true,
               invoiceToCustomer: {
                 select: { id: true, corporateName: true, fantasyName: true, cnpj: true },
               },
             },
           },
-          layoutFile: true,
           customerConfigs: {
-            include: {
+            select: {
+              id: true,
+              subtotal: true,
+              total: true,
+              discountType: true,
+              discountValue: true,
+              discountReference: true,
+              customPaymentText: true,
+              generateInvoice: true,
+              orderNumber: true,
+              paymentCondition: true,
+              paymentConfig: true,
               customer: {
                 select: { id: true, corporateName: true, fantasyName: true, cnpj: true },
               },
-              customerSignature: true,
-              responsible: true,
+              customerSignature: {
+                select: { id: true, filename: true, originalName: true, mimetype: true },
+              },
               installments: {
                 orderBy: { number: 'asc' },
-                include: {
+                select: {
+                  id: true,
+                  number: true,
+                  amount: true,
+                  dueDate: true,
+                  status: true,
+                  // Bank slip: ONLY surface non-sensitive presentation fields. No barcode/PIX/
+                  // nossoNumero/sicrediStatus/errorMessage/liquidationData/pdfFileId.
                   bankSlip: {
                     select: {
                       id: true,
                       status: true,
                       dueDate: true,
                       amount: true,
-                      nossoNumero: true,
-                      seuNumero: true,
-                      barcode: true,
-                      digitableLine: true,
-                      pixQrCode: true,
                       type: true,
-                      sicrediStatus: true,
-                      pdfFileId: true,
                     },
                   },
                 },
               },
+              // Invoice: only the public-relevant status fields. NfseDocument numbering and URLs
+              // are intentionally omitted (they are internal to the issuer).
               invoice: {
-                include: {
-                  nfseDocuments: {
-                    select: { id: true, elotechNfseId: true, status: true },
-                    orderBy: { createdAt: 'desc' },
-                  },
+                select: {
+                  id: true,
+                  status: true,
+                  totalAmount: true,
+                  paidAmount: true,
                 },
               },
             },
           },
           task: {
-            include: {
-              customer: true,
-              truck: true,
-              responsibles: true,
+            select: {
+              id: true,
+              name: true,
+              serialNumber: true,
+              status: true,
+              startedAt: true,
+              finishedAt: true,
+              customer: {
+                select: { id: true, corporateName: true, fantasyName: true, cnpj: true },
+              },
+              truck: {
+                select: { id: true, plate: true, category: true, implementType: true },
+              },
               serviceOrders: {
-                include: {
+                orderBy: { position: 'asc' },
+                select: {
+                  id: true,
+                  description: true,
+                  status: true,
+                  type: true,
+                  position: true,
+                  startedAt: true,
+                  finishedAt: true,
                   checkinFiles: { select: { id: true, filename: true, originalName: true } },
                   checkoutFiles: { select: { id: true, filename: true, originalName: true } },
                 },
-                orderBy: { position: 'asc' },
               },
             },
           },

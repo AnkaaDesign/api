@@ -30,6 +30,11 @@ export class NfseEmissionScheduler {
     timeZone: 'America/Sao_Paulo',
   })
   async emitPendingNfses(): Promise<void> {
+    if (process.env.NFSE_SCHEDULER_ENABLED !== 'true') {
+      this.logger.log('NFSe scheduler disabled (NFSE_SCHEDULER_ENABLED!=true)');
+      return;
+    }
+
     if (this.isProcessing) {
       this.logger.warn('NFS-e emission already in progress, skipping');
       return;

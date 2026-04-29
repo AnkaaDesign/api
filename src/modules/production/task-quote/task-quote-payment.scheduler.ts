@@ -25,6 +25,11 @@ export class TaskQuotePaymentScheduler {
     timeZone: 'America/Sao_Paulo',
   })
   async checkPaymentReminders(): Promise<void> {
+    if (process.env.NODE_ENV !== 'production') {
+      this.logger.log('Skipping task-quote payment reminder in non-production env');
+      return;
+    }
+
     if (this.isProcessing) {
       this.logger.warn('Payment reminder check already in progress, skipping');
       return;
@@ -35,14 +40,21 @@ export class TaskQuotePaymentScheduler {
     try {
       this.logger.log('Starting task quote payment reminder check...');
 
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-
-      // Start of yesterday and start of today for range query
-      const startOfYesterday = new Date(yesterday);
-      startOfYesterday.setUTCHours(0, 0, 0, 0);
-      const endOfYesterday = new Date(yesterday);
-      endOfYesterday.setUTCHours(23, 59, 59, 999);
+      // Compute "yesterday" by São Paulo wall-clock — the cron fires at 8 AM SP.
+      // Brazil abolished DST in 2019, so SP is constant UTC-3 year-round.
+      // We derive YYYY-MM-DD from the SP-localized "now", then build the UTC
+      // Date instances corresponding to SP-midnight and SP-end-of-day.
+      const SP_OFFSET = '-03:00';
+      const spDateParts = new Date().toLocaleString('en-CA', {
+        timeZone: 'America/Sao_Paulo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }); // en-CA yields "YYYY-MM-DD"
+      const todaySP = new Date(`${spDateParts}T00:00:00${SP_OFFSET}`);
+      const startOfYesterday = new Date(todaySP);
+      startOfYesterday.setUTCDate(startOfYesterday.getUTCDate() - 1);
+      const endOfYesterday = new Date(todaySP.getTime() - 1); // 23:59:59.999 SP yesterday
 
       // Find all installments due yesterday from active quotes
       const dueInstallments = await this.prisma.installment.findMany({

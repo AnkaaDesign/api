@@ -174,7 +174,7 @@ export class BonusCalculationService {
     const { salary, performanceLevel, averageTasksPerUser, salaryRange } = input;
 
     const clampedB1 = Math.min(Math.max(0, averageTasksPerUser || 0), config.ceil);
-    const anchor = polyBase(averageTasksPerUser || 0, config.pscale, config.ceil) * ANCHOR_MARKUP;
+    const anchor = polyBase(clampedB1, config.pscale, config.ceil) * ANCHOR_MARKUP;
 
     const performanceMultiplier =
       PERFORMANCE_MULTIPLIERS[performanceLevel as keyof typeof PERFORMANCE_MULTIPLIERS] ?? 0;

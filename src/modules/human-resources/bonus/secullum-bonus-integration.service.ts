@@ -57,6 +57,29 @@ export interface SecullumBonusAnalysis {
   secullumAtrasosTotal: string | null;
 }
 
+/**
+ * Result envelope for analyzeAllUsers().
+ *
+ * Distinguishes between:
+ *   - Service-wide failure (auth/network/total outage) — `secullumAvailable=false`,
+ *     callers must NOT silently zero discounts.
+ *   - Per-user failure (one user errored, but the API is up) — `secullumAvailable=true`
+ *     with `failedUsers` populated. Callers may continue.
+ *
+ * The audit identified that swallowing a service-wide failure as "no discount"
+ * over-pays employees on payroll. This shape forces callers to handle the
+ * unavailable case explicitly.
+ */
+export interface AnalyzeAllUsersResult {
+  perUser: Map<string, SecullumBonusAnalysis>;
+  metadata: {
+    secullumAvailable: boolean;
+    failedUsers: string[];
+    totalUsers: number;
+    error?: string;
+  };
+}
+
 // Standard workday duration in hours
 const WORKDAY_HOURS = 8;
 
@@ -64,21 +87,65 @@ const WORKDAY_HOURS = 8;
 export class SecullumBonusIntegrationService {
   private readonly logger = new Logger(SecullumBonusIntegrationService.name);
 
+  // In-memory circuit breaker. Three consecutive service-wide failures opens the
+  // breaker for 60s — subsequent analyzeAllUsers() calls short-circuit without
+  // hitting Secullum. Self-contained per-instance; resets on app restart.
+  private breaker = { failures: 0, openUntil: 0 };
+
   constructor(
     private readonly secullumService: SecullumService,
     private readonly prisma: PrismaService,
     private readonly cacheService: CacheService,
   ) {}
 
+  private isBreakerOpen(): boolean {
+    return Date.now() < this.breaker.openUntil;
+  }
+
+  private recordBreakerFailure(): void {
+    this.breaker.failures += 1;
+    if (this.breaker.failures >= 3) {
+      this.breaker.openUntil = Date.now() + 60_000; // 1 minute open window
+      this.breaker.failures = 0;
+      this.logger.warn(
+        'Secullum breaker OPEN for 60s — recent consecutive failures exceeded threshold',
+      );
+    }
+  }
+
+  private recordBreakerSuccess(): void {
+    this.breaker.failures = 0;
+    this.breaker.openUntil = 0;
+  }
+
   /**
    * Analyze all bonifiable users' Secullum time entries for bonus extras/discounts.
+   *
+   * Returns a structured result so callers can distinguish:
+   *   - Service-wide failure (auth/network/total outage) → `secullumAvailable=false`,
+   *     `perUser` empty. Callers MUST refuse to persist payroll-affecting data.
+   *   - Per-user failure → `secullumAvailable=true`, user listed in `failedUsers`.
+   *     Callers may continue (that user simply has no Secullum-based discount).
    */
   async analyzeAllUsers(
     year: number,
     month: number,
     users: Array<{ id: string; name: string; cpf?: string; pis?: string; payrollNumber?: number }>,
-  ): Promise<Map<string, SecullumBonusAnalysis>> {
+  ): Promise<AnalyzeAllUsersResult> {
     const results = new Map<string, SecullumBonusAnalysis>();
+    const failedUsers: string[] = [];
+    const totalUsers = users.length;
+
+    // Short-circuit when breaker is open — avoids hammering a known-down service.
+    if (this.isBreakerOpen()) {
+      const msToOpen = this.breaker.openUntil - Date.now();
+      const error = `Circuit open — recent failures, retrying in ${Math.ceil(msToOpen / 1000)}s`;
+      this.logger.warn(`Secullum breaker open, skipping analyzeAllUsers (${error})`);
+      return {
+        perUser: results,
+        metadata: { secullumAvailable: false, failedUsers, totalUsers, error },
+      };
+    }
 
     const periodStart = getBonusPeriodStart(year, month);
     const periodEnd = getBonusPeriodEnd(year, month);
@@ -91,7 +158,8 @@ export class SecullumBonusIntegrationService {
       `Analyzing Secullum time entries for ${users.length} users, period ${startDate} to ${endDate}`,
     );
 
-    // Pre-fetch all Secullum employees once (avoid N+1 API calls)
+    // Pre-fetch all Secullum employees once (avoid N+1 API calls).
+    // Failure here is a service-wide signal — auth or network is broken.
     let secullumEmployees: any[] = [];
     try {
       const employeesResponse = await this.secullumService.getEmployees();
@@ -99,12 +167,22 @@ export class SecullumBonusIntegrationService {
         secullumEmployees = employeesResponse.data;
         this.logger.log(`Loaded ${secullumEmployees.length} Secullum employees for matching`);
       } else {
-        this.logger.error('Failed to fetch Secullum employees list');
-        return results;
+        const error = 'Failed to fetch Secullum employees list (response not successful)';
+        this.logger.error(error);
+        this.recordBreakerFailure();
+        return {
+          perUser: results,
+          metadata: { secullumAvailable: false, failedUsers, totalUsers, error },
+        };
       }
     } catch (error) {
-      this.logger.error(`Failed to fetch Secullum employees: ${error?.message || error}`);
-      return results;
+      const message = `Failed to fetch Secullum employees: ${error?.message || error}`;
+      this.logger.error(message);
+      this.recordBreakerFailure();
+      return {
+        perUser: results,
+        metadata: { secullumAvailable: false, failedUsers, totalUsers, error: message },
+      };
     }
 
     // Fetch holidays for the period from Secullum
@@ -124,14 +202,32 @@ export class SecullumBonusIntegrationService {
           results.set(user.id, analysis);
         }
       } catch (error) {
+        failedUsers.push(user.id);
         this.logger.warn(
           `Failed to analyze Secullum data for user ${user.name} (${user.id}): ${error?.message || error}`,
         );
       }
     }
 
+    // Service-wide signal: if every user errored, treat as unavailable so callers
+    // refuse to persist a payroll-affecting calculation. (Empty input list is a
+    // no-op, not a failure — secullumAvailable stays true.)
+    if (totalUsers > 0 && failedUsers.length === totalUsers) {
+      const error = `All ${totalUsers} users failed Secullum analysis — treating service as unavailable`;
+      this.logger.error(error);
+      this.recordBreakerFailure();
+      return {
+        perUser: results,
+        metadata: { secullumAvailable: false, failedUsers, totalUsers, error },
+      };
+    }
+
+    this.recordBreakerSuccess();
     this.logger.log(`Secullum analysis completed: ${results.size}/${users.length} users analyzed`);
-    return results;
+    return {
+      perUser: results,
+      metadata: { secullumAvailable: true, failedUsers, totalUsers },
+    };
   }
 
   /**

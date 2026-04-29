@@ -4,6 +4,7 @@ import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 import { SicrediAuthService } from '@modules/integrations/sicredi/sicredi-auth.service';
 import { INVOICE_STATUS, INSTALLMENT_STATUS, BANK_SLIP_STATUS } from '@constants';
 import type { Invoice } from '@types';
+import { nextBrazilianBusinessDay } from '@utils/brazilian-holidays.util';
 
 /**
  * Service responsible for auto-generating invoices from approved task quotes.
@@ -632,8 +633,10 @@ export class InvoiceGenerationService {
     );
 
     const now = new Date();
-    const minDueDate = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 3, 12, 0, 0),
+    // Bumping the floor to the next business day is correct: if "today + 3" is
+    // a Saturday, the customer effectively can't pay until Monday anyway.
+    const minDueDate = nextBrazilianBusinessDay(
+      new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 3, 12, 0, 0)),
     );
 
     const addDays = (base: Date, days: number): Date => {
@@ -657,7 +660,9 @@ export class InvoiceGenerationService {
     };
 
     if (paymentConfig.type === 'CASH') {
-      return [{ number: 1, dueDate: resolveFirstDueDate(), amount: total }];
+      return [
+        { number: 1, dueDate: nextBrazilianBusinessDay(resolveFirstDueDate()), amount: total },
+      ];
     }
 
     if (paymentConfig.type === 'INSTALLMENTS') {
@@ -673,12 +678,15 @@ export class InvoiceGenerationService {
         // that anchor — they chose it intentionally.
         // Otherwise calculate each installment independently from the approval-date anchor
         // so future ones keep their natural schedule and only truly past dates get clamped.
-        const dueDate =
+        const rawDueDate =
           i === 0
             ? firstDue
             : paymentConfig.specificDate
               ? addDays(firstDue, step * i)
               : ensureMinDate(addDays(baseDate, entryDays + step * i));
+        // Roll forward off Saturdays/Sundays/national holidays so the boleto is
+        // always payable on its due date.
+        const dueDate = nextBrazilianBusinessDay(rawDueDate);
         const isLast = i === count - 1;
         const amount = isLast ? (totalCents - baseCents * (count - 1)) / 100 : baseCents / 100;
         return { number: i + 1, dueDate, amount };
@@ -722,12 +730,11 @@ export class InvoiceGenerationService {
       return d;
     };
 
-    // Minimum due date: 3 days from today (noon UTC).
-    // When billing is approved long after task completion, calculated dates
-    // could be in the past. Ensure the customer always has time to pay.
+    // Minimum due date: 3 days from today (noon UTC), then rolled to the next
+    // Brazilian business day so the floor itself is payable.
     const now = new Date();
-    const minDueDate = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 3, 12, 0, 0),
+    const minDueDate = nextBrazilianBusinessDay(
+      new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 3, 12, 0, 0)),
     );
 
     const ensureMinDate = (date: Date): Date => {
@@ -735,11 +742,23 @@ export class InvoiceGenerationService {
     };
 
     if (paymentCondition === 'CASH_5') {
-      return [{ number: 1, dueDate: ensureMinDate(addDays(baseDate, 5)), amount: total }];
+      return [
+        {
+          number: 1,
+          dueDate: nextBrazilianBusinessDay(ensureMinDate(addDays(baseDate, 5))),
+          amount: total,
+        },
+      ];
     }
 
     if (paymentCondition === 'CASH_40') {
-      return [{ number: 1, dueDate: ensureMinDate(addDays(baseDate, 40)), amount: total }];
+      return [
+        {
+          number: 1,
+          dueDate: nextBrazilianBusinessDay(ensureMinDate(addDays(baseDate, 40))),
+          amount: total,
+        },
+      ];
     }
 
     const conditionMap: Record<string, number> = {
@@ -758,7 +777,8 @@ export class InvoiceGenerationService {
 
     const installments: { number: number; dueDate: Date; amount: number }[] = [];
     for (let i = 0; i < totalInstallments; i++) {
-      const dueDate = ensureMinDate(addDays(baseDate, 5 + i * 20));
+      // Roll Saturday/Sunday/holiday due dates forward to the next business day.
+      const dueDate = nextBrazilianBusinessDay(ensureMinDate(addDays(baseDate, 5 + i * 20)));
 
       const isLast = i === totalInstallments - 1;
       const amount = isLast

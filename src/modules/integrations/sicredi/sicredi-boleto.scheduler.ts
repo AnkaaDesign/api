@@ -362,7 +362,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                   installmentId: installment.id,
                   nossoNumero: `ERR-${installment.id.slice(0, 8)}`,
                   type: 'NORMAL',
-                  amount: Number(installment.amount),
+                  amount: installment.amount,
                   dueDate: installment.dueDate,
                   status: BANK_SLIP_STATUS.ERROR,
                   errorMessage: `Validation failed: ${validationMsg}`,
@@ -402,7 +402,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             seuNumero: this.buildSeuNumero(installment),
             informativos: this.buildBoletoLines(installment),
             dataVencimento: formattedDueDate,
-            valor: Number(installment.amount),
+            valor: Number(installment.amount.toFixed(2)),
           });
 
           // Download PDF
@@ -476,7 +476,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                 pixQrCode,
                 txid: boletoResponse.txid || null,
                 type: 'NORMAL',
-                amount: Number(installment.amount),
+                amount: installment.amount,
                 dueDate: installment.dueDate,
                 status: BANK_SLIP_STATUS.ACTIVE,
                 lastSyncAt: new Date(),
@@ -524,7 +524,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                 installmentId: installment.id,
                 nossoNumero: `ERR-${installment.id.slice(0, 8)}`,
                 type: 'NORMAL',
-                amount: Number(installment.amount),
+                amount: installment.amount,
                 dueDate: installment.dueDate,
                 status: BANK_SLIP_STATUS.ERROR,
                 errorMessage,
@@ -1234,9 +1234,12 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     const allPaid = activeInstallments.every(inst => inst.status === INSTALLMENT_STATUS.PAID);
     const somePaid = activeInstallments.some(inst => inst.status === INSTALLMENT_STATUS.PAID);
 
-    const totalPaid = activeInstallments
-      .filter(inst => inst.status === INSTALLMENT_STATUS.PAID)
-      .reduce((sum, inst) => sum + Number(inst.paidAmount || 0), 0);
+    const totalPaid = Number(
+      activeInstallments
+        .filter(inst => inst.status === INSTALLMENT_STATUS.PAID)
+        .reduce((sum, inst) => sum + Number((inst.paidAmount ?? 0).toString()), 0)
+        .toFixed(2),
+    );
 
     let newStatus: string;
     if (allPaid) {
