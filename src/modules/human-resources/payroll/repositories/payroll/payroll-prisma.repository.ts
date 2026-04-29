@@ -25,7 +25,6 @@ import { Prisma, Payroll as PrismaPayroll, UserStatus } from '@prisma/client';
 import {
   getBonusPeriodStart,
   getBonusPeriodEnd,
-  calculateBonusForPosition,
   calculatePayrollDiscounts,
   calculateNetSalary,
   getPayrollCalculationBreakdown,

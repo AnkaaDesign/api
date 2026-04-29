@@ -10,11 +10,14 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { CacheService } from '@modules/common/cache/cache.service';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
-import { ExactBonusCalculationService } from './exact-bonus-calculation.service';
+import { BonusCalculationService } from './bonus-calculation.service';
+import { BonusCalculationContextService } from './bonus-calculation-context.service';
+import type { BonusCalculationContext } from './bonus-calculation-context.service';
 import { SecullumBonusIntegrationService } from './secullum-bonus-integration.service';
 import type { SecullumBonusAnalysis } from './secullum-bonus-integration.service';
 import { BonusRepository } from './repositories/bonus/bonus.repository';
@@ -222,7 +225,8 @@ export class BonusService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly changeLogService: ChangeLogService,
-    private readonly exactBonusCalculationService: ExactBonusCalculationService,
+    private readonly bonusCalculationService: BonusCalculationService,
+    private readonly bonusCalculationContextService: BonusCalculationContextService,
     private readonly bonusRepository: BonusRepository,
     private readonly secullumBonusIntegrationService: SecullumBonusIntegrationService,
     private readonly cacheService: CacheService,
@@ -298,6 +302,21 @@ export class BonusService {
           },
         },
       };
+
+      // Defensive filter: clients always want the colaboradores count to mean
+      // "users included in the B1 divisor" (performanceLevel > 0). Some legacy
+      // saved bonuses connected ALL bonifiable users to the relation, which
+      // makes the detail page disagree with the list / simulator. Coerce
+      // `users: true` (or `users: {}`) to filter by performanceLevel > 0.
+      if (defaultInclude && (defaultInclude as any).users) {
+        const u = (defaultInclude as any).users;
+        if (u === true || (typeof u === 'object' && !u.where)) {
+          (defaultInclude as any).users = {
+            ...(typeof u === 'object' ? u : {}),
+            where: { performanceLevel: { gt: 0 } },
+          };
+        }
+      }
 
       const bonus = await this.prisma.bonus.findUnique({
         where: { id },
@@ -528,19 +547,25 @@ export class BonusService {
 
       const positionName = user.position?.name || 'DEFAULT';
 
+      // Salary-based logistic algorithm — needs salary range + this user's salary.
+      const calcContext = await this.bonusCalculationContextService.load();
+      const userSalary = this.bonusCalculationContextService.resolveSalary(calcContext, user);
+
       // BASE bonus (suspended = 1.0)
-      const baseBonusValue = this.exactBonusCalculationService.calculateBonus(
-        positionName,
-        user.performanceLevel,
-        rawAverageTasksPerUser,
-      );
+      const baseBonusValue = this.bonusCalculationService.calculateBonus({
+        salary: userSalary,
+        performanceLevel: user.performanceLevel,
+        averageTasksPerUser: rawAverageTasksPerUser,
+        salaryRange: calcContext.salaryRange,
+      });
 
       // NET bonus (suspended = 0.0)
-      const calculatedNetBonus = this.exactBonusCalculationService.calculateBonus(
-        positionName,
-        user.performanceLevel,
+      const calculatedNetBonus = this.bonusCalculationService.calculateBonus({
+        salary: userSalary,
+        performanceLevel: user.performanceLevel,
         averageTasksPerUser,
-      );
+        salaryRange: calcContext.salaryRange,
+      });
       const netBonusValue = Math.min(baseBonusValue, calculatedNetBonus);
       const suspendedTasksDiscount = roundCurrency(
         Math.max(0, roundCurrency(baseBonusValue) - roundCurrency(netBonusValue)),
@@ -1522,6 +1547,118 @@ export class BonusService {
     }
   }
 
+  /**
+   * Read the period reajuste % from any saved bonus's calculationParams.
+   * The algorithm's `adjustment` config field already lives on each row;
+   * we just sample the most recent one in the period.
+   * Returns 0 when no saved bonus exists yet for the period.
+   */
+  async getPeriodAdjustment(year: number, month: number): Promise<{ adjustment: number }> {
+    const sample = await this.prisma.bonus.findFirst({
+      where: { year, month },
+      orderBy: { updatedAt: 'desc' },
+      select: { calculationParams: true },
+    });
+    const params = (sample?.calculationParams ?? null) as any;
+    const fraction = Number(params?.config?.adjustment);
+    if (!Number.isFinite(fraction)) return { adjustment: 0 };
+    // Stored as fraction (0.05 = +5%); UI wants the percentage form.
+    return { adjustment: Math.round(fraction * 10000) / 100 };
+  }
+
+  /**
+   * Set the period-wide reajuste. The algorithm already has an `adjustment`
+   * config field; we simply recompute every saved Bonus in the period with
+   * the new value and update its `calculationParams.config.adjustment`
+   * snapshot. No separate config table needed.
+   */
+  async applyPeriodAdjustment(
+    year: number,
+    month: number,
+    percentage: number,
+    userId?: string,
+  ): Promise<{
+    success: boolean;
+    data: { adjustment: number; updatedCount: number };
+    message: string;
+  }> {
+    if (!Number.isFinite(percentage) || percentage < -100 || percentage > 100) {
+      throw new BadRequestException('Reajuste deve estar entre -100% e +100%.');
+    }
+
+    const adjustmentFraction = percentage / 100;
+    const calcContext = await this.bonusCalculationContextService.load();
+
+    let updatedCount = 0;
+    await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      const savedBonuses = await tx.bonus.findMany({
+        where: { year, month },
+        select: {
+          id: true,
+          performanceLevel: true,
+          averageTaskPerUser: true,
+          user: { select: { id: true, position: { select: { id: true } } } },
+        },
+      });
+
+      for (const b of savedBonuses) {
+        const userSalary = this.bonusCalculationContextService.resolveSalary(
+          calcContext,
+          b.user as { position: { id: string } | null },
+        );
+        const avg = Number(b.averageTaskPerUser) || 0;
+        const breakdown = this.bonusCalculationService.calculate({
+          salary: userSalary,
+          performanceLevel: b.performanceLevel,
+          averageTasksPerUser: avg,
+          salaryRange: calcContext.salaryRange,
+          config: { adjustment: adjustmentFraction },
+        });
+        const snapshot = this.bonusCalculationService.buildParamsSnapshot({
+          salary: userSalary,
+          salaryRange: calcContext.salaryRange,
+          averageTasksPerUser: avg,
+          config: { adjustment: adjustmentFraction },
+        });
+
+        await tx.bonus.update({
+          where: { id: b.id },
+          data: {
+            baseBonus: breakdown.bonus,
+            salaryUsed: userSalary,
+            calculationVersion: snapshot.version,
+            calculationParams: snapshot as unknown as Prisma.InputJsonValue,
+          },
+        });
+        await this.recalculateNetBonus(b.id, tx);
+        updatedCount++;
+      }
+
+      await logEntityChange({
+        changeLogService: this.changeLogService,
+        entityType: ENTITY_TYPE.BONUS,
+        entityId: `period-${year}-${month}`,
+        action: CHANGE_ACTION.UPDATE,
+        entity: { year, month, adjustment: percentage, updatedCount },
+        reason: `Reajuste do período ${month}/${year} alterado para ${percentage > 0 ? '+' : ''}${percentage}%`,
+        userId: userId || null,
+        triggeredBy: CHANGE_TRIGGERED_BY.USER,
+        transaction: tx,
+      });
+    });
+
+    await this.invalidateLiveBonusesCache(year, month);
+
+    return {
+      success: true,
+      data: { adjustment: percentage, updatedCount },
+      message:
+        updatedCount === 0
+          ? `Nenhum bônus salvo no período ${month}/${year} para aplicar o reajuste. Calcule e salve os bônus primeiro.`
+          : `Reajuste de ${percentage > 0 ? '+' : ''}${percentage}% aplicado ao período ${month}/${year} (${updatedCount} bônus atualizados).`,
+    };
+  }
+
   async deleteDiscount(discountId: string, userId?: string): Promise<any> {
     try {
       const discount = await this.prisma.bonusDiscount.findUnique({
@@ -1855,25 +1992,31 @@ export class BonusService {
         `Period ${month}/${year}: RAW ${totalRawTaskCount} tasks (raw avg: ${rawAverageTasksPerUser.toFixed(2)}) | WEIGHTED ${totalWeightedTasks} tasks (weighted avg: ${averageTasksPerUser.toFixed(2)}) | ${totalSuspendedTasks} suspended tasks | ${totalEligibleUsers} eligible users`,
       );
 
+      // Salary-based logistic algorithm — load context once for the period.
+      const calcContext = await this.bonusCalculationContextService.load();
+
       // Calculate bonus for ALL bonifiable users (including performanceLevel = 0)
       // Users with performanceLevel = 0 will get baseBonus = 0 but still have all other data
       // IMPORTANT: All users share the SAME pool of tasks - individual bonus is based on position/performance only
       const bonuses: LiveBonusData[] = allBonifiableUsers.map(user => {
         const positionName = user.position?.name || 'DEFAULT';
+        const userSalary = this.bonusCalculationContextService.resolveSalary(calcContext, user);
 
         // Calculate BASE bonus using RAW average (suspended = 1.0)
-        const baseBonusValue = this.exactBonusCalculationService.calculateBonus(
-          positionName,
-          user.performanceLevel,
-          rawAverageTasksPerUser,
-        );
+        const baseBonusValue = this.bonusCalculationService.calculateBonus({
+          salary: userSalary,
+          performanceLevel: user.performanceLevel,
+          averageTasksPerUser: rawAverageTasksPerUser,
+          salaryRange: calcContext.salaryRange,
+        });
 
         // Calculate NET bonus using WEIGHTED average (suspended = 0.0)
-        const calculatedNetBonus = this.exactBonusCalculationService.calculateBonus(
-          positionName,
-          user.performanceLevel,
+        const calculatedNetBonus = this.bonusCalculationService.calculateBonus({
+          salary: userSalary,
+          performanceLevel: user.performanceLevel,
           averageTasksPerUser,
-        );
+          salaryRange: calcContext.salaryRange,
+        });
 
         // Net bonus should not exceed base bonus (edge case at very low averages due to polynomial)
         // Users should NOT benefit from suspended tasks
@@ -2550,11 +2693,22 @@ export class BonusService {
 
       // All task IDs for connecting to bonuses (same for all users)
       const allTaskIds = allTasksForPeriod.map(t => t.id);
-      const allBonusUserIds = liveData.bonuses.map(b => b.userId);
+      // Only connect ELIGIBLE users (performanceLevel > 0) — these are the
+      // users counted in the B1 divisor. Including performanceLevel=0 users
+      // in the relation would make the detail page disagree with the list /
+      // simulator on the colaboradores count.
+      const allBonusUserIds = liveData.bonuses
+        .filter(b => b.performanceLevel > 0)
+        .map(b => b.userId);
 
       // Period-level values (same for all users)
       const totalWeightedTasks = liveData.totalWeightedTasks;
       const averageTasksPerUser = liveData.averageTasksPerEmployee;
+
+      // Load salary context once for the whole period — used to snapshot
+      // the per-user salary + algorithm params on each saved Bonus row.
+      // This is what makes finalized bonuses reproducible after the fact.
+      const calcContext = await this.bonusCalculationContextService.load();
 
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Create/update bonus for ALL active users with payroll numbers
@@ -2580,6 +2734,18 @@ export class BonusService {
             const netBonus = isEligible ? (eligibleBonus.netBonus ?? 0) : 0;
             const suspendedTasksDiscount = isEligible ? eligibleBonus.suspendedTasksDiscount : 0;
 
+            // Snapshot salary + algorithm params for audit / reproducibility.
+            // Stored as nullable on the Bonus row, so legacy rows remain valid.
+            const userSalary = this.bonusCalculationContextService.resolveSalary(
+              calcContext,
+              user as { position: { id: string } | null },
+            );
+            const paramsSnapshot = this.bonusCalculationService.buildParamsSnapshot({
+              salary: userSalary,
+              salaryRange: calcContext.salaryRange,
+              averageTasksPerUser,
+            });
+
             // All users share the same period-level data
             const bonusPayload = {
               userId: user.id,
@@ -2590,6 +2756,10 @@ export class BonusService {
               netBonus, // Net bonus after suspended tasks discount
               weightedTasks: totalWeightedTasks,
               averageTaskPerUser: averageTasksPerUser,
+              salaryUsed: userSalary,
+              calculationVersion: paramsSnapshot.version,
+              // Plain JSON-serializable snapshot; cast for Prisma's InputJsonValue.
+              calculationParams: paramsSnapshot as unknown as Prisma.InputJsonValue,
             };
 
             let bonusId: string;
@@ -2766,13 +2936,152 @@ export class BonusService {
   }
 
   /**
-   * Get bonus calculation details for debugging/transparency
+   * Get bonus calculation details for debugging/transparency.
+   * For the salary-based algorithm we need a salary input — caller may pass one;
+   * otherwise we derive a representative one (median of bonifiable positions).
    */
-  getBonusCalculationDetails(performanceLevel: number, weightedTaskCount?: number): any {
-    return this.exactBonusCalculationService.getCalculationDetails(
-      'DEFAULT',
+  async getBonusCalculationDetails(
+    performanceLevel: number,
+    weightedTaskCount?: number,
+    salary?: number,
+  ): Promise<any> {
+    const ctx = await this.bonusCalculationContextService.load();
+    const salaries = Array.from(ctx.salaryByPositionId.values()).sort((a, b) => a - b);
+    const median = salaries.length === 0 ? 0 : salaries[Math.floor(salaries.length / 2)];
+    return this.bonusCalculationService.calculate({
+      salary: salary ?? median,
       performanceLevel,
-      weightedTaskCount || 0,
+      averageTasksPerUser: weightedTaskCount || 0,
+      salaryRange: ctx.salaryRange,
+    });
+  }
+
+  /**
+   * Simulate bonuses for an arbitrary set of users. Used by the web + mobile
+   * bonus simulators — neither does any client-side math; both POST here.
+   *
+   * IMPORTANT: this calculates ONLY the base bonus from the salary-based
+   * logistic algorithm. It deliberately does NOT include assiduidade extras
+   * (Secullum integration) or discounts — those are saved-bonus concepts that
+   * don't apply to a "what-if" simulator.
+   */
+  async simulate(input: {
+    averageTasksPerUser: number;
+    users: Array<{
+      id?: string;
+      name?: string;
+      positionName?: string;
+      positionId?: string;
+      sectorName?: string;
+      salary?: number;
+      performanceLevel: number;
+    }>;
+    config?: Partial<{
+      k: number;
+      x0: number;
+      piso: number;
+      pscale: number;
+      ceil: number;
+      adjustment: number;
+    }>;
+    salaryRange?: { min: number; max: number };
+    b1Sweep?: {
+      salary: number;
+      performanceLevel: number;
+      min: number;
+      max: number;
+      steps: number;
+    };
+  }) {
+    // Always load the calc context — used to (a) fill in missing salaries
+    // when the caller passes positionId only, and (b) derive the salaryRange
+    // when not provided.
+    const ctx = await this.bonusCalculationContextService.load();
+    const salaryRange = input.salaryRange ?? ctx.salaryRange;
+
+    const usersWithSalaries = input.users.map(u => ({
+      ...u,
+      salary:
+        u.salary ??
+        (u.positionId ? ctx.salaryByPositionId.get(u.positionId) : undefined) ??
+        (u.positionName
+          ? ctx.salaryByPositionName.get(u.positionName.toLowerCase().trim())
+          : undefined) ??
+        0,
+      performanceLevel: u.performanceLevel,
+    }));
+
+    const userResults = this.bonusCalculationService.calculateMany(
+      usersWithSalaries,
+      input.averageTasksPerUser,
+      salaryRange,
+      input.config,
     );
+
+    let totalBonus = 0;
+    let eligibleCount = 0;
+    for (const r of userResults) {
+      totalBonus += r.calculation.bonus;
+      if (r.calculation.bonus > 0) eligibleCount++;
+    }
+
+    // Optional B1 curve for the chart-2 view (bonus × B1, salary fixed).
+    // `steps` defines the number of INTERVALS, so we emit `steps + 1` points
+    // spanning [min, max] inclusive — same convention as bonus-simulator.html
+    // (`Array.from({length: STEPS+1}, ...)`, line 449 of the HTML).
+    let b1Curve: Array<{ b1: number; bonus: number }> | undefined;
+    if (input.b1Sweep) {
+      const { salary, performanceLevel, min, max, steps } = input.b1Sweep;
+      b1Curve = [];
+      for (let i = 0; i <= steps; i++) {
+        const b1 = min + ((max - min) * i) / steps;
+        const r = this.bonusCalculationService.calculate({
+          salary,
+          performanceLevel,
+          averageTasksPerUser: b1,
+          salaryRange,
+          config: input.config,
+        });
+        b1Curve.push({ b1, bonus: r.bonus });
+      }
+    }
+
+    // Use the first user's breakdown for shared period-level fields
+    // (anchor and config don't depend on the user).
+    const firstBreakdown = userResults[0]?.calculation;
+
+    return {
+      averageTasksPerUser: input.averageTasksPerUser,
+      salaryRange,
+      config: firstBreakdown?.config ?? this.bonusCalculationService.calculate({
+        salary: salaryRange.min,
+        performanceLevel: 1,
+        averageTasksPerUser: input.averageTasksPerUser,
+        salaryRange,
+        config: input.config,
+      }).config,
+      anchor: firstBreakdown?.anchor ?? 0,
+      users: userResults.map(r => ({
+        id: r.id,
+        name: r.name,
+        positionName: r.positionName,
+        positionId: r.positionId,
+        sectorName: r.sectorName,
+        salary: r.salary,
+        performanceLevel: r.performanceLevel,
+        bonus: r.calculation.bonus,
+        baseBonus: r.calculation.baseBonus,
+        ratio: r.calculation.ratio,
+        x: r.calculation.x,
+        anchor: r.calculation.anchor,
+        performanceMultiplier: r.calculation.performanceMultiplier,
+      })),
+      totals: {
+        totalBonus: Math.round(totalBonus * 100) / 100,
+        userCount: input.users.length,
+        eligibleCount,
+      },
+      b1Curve,
+    };
   }
 }

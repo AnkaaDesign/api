@@ -1,8 +1,10 @@
 // packages/utils/src/bonus.ts
-
-// REMOVED: Incorrect hardcoded bonus matrix
-// The correct bonus calculation is implemented in the API using polynomial-based algorithm
-// from db:seed script and ExactBonusCalculationService
+//
+// Period helpers, live-ID utilities, eligibility checks, and discount math.
+// The bonus calculation algorithm itself lives in
+// modules/human-resources/bonus/bonus-calculation.service.ts (salary-based
+// logistic). This file MUST NOT contain any position-name parsing or
+// hardcoded position-level cascades — that fragility is gone for good.
 
 // =====================
 // Period Detection Utilities (5th day rule)
@@ -90,47 +92,6 @@ export function filterIncludesCurrentPeriod(
   // Year matches and no month filter, so current period is included
   return true;
 }
-
-/**
- * Get position level from position name (1=junior, 2=pleno, 3=senior)
- * @param positionName The name of the position
- * @returns Position level (1, 2, or 3)
- */
-export function getPositionLevel(positionName: string | null | undefined | any): number {
-  if (!positionName || typeof positionName !== 'string') {
-    return 1; // Default to Junior if no position name or not a string
-  }
-  const normalizedName = positionName.toLowerCase();
-
-  if (
-    normalizedName.includes('junior') ||
-    normalizedName.includes('auxiliar') ||
-    normalizedName.includes('estagiário') ||
-    normalizedName.includes('trainee')
-  ) {
-    return 1; // Junior
-  } else if (
-    normalizedName.includes('pleno') ||
-    normalizedName.includes('médio') ||
-    normalizedName.includes('analista') ||
-    normalizedName.includes('especialista')
-  ) {
-    return 2; // Pleno
-  } else if (
-    normalizedName.includes('senior') ||
-    normalizedName.includes('coordenador') ||
-    normalizedName.includes('gerente') ||
-    normalizedName.includes('supervisor')
-  ) {
-    return 3; // Senior
-  } else {
-    // Default to pleno (level 2) for unclear positions
-    return 2;
-  }
-}
-
-// REMOVED: calculateBonusAmount function - used incorrect hardcoded matrix calculation
-// The correct bonus calculation is implemented in the API using polynomial-based algorithm
 
 /**
  * Get the start date of a bonus/payroll period (day 26 of previous month)
@@ -246,38 +207,6 @@ export function isLiveId(id: string): boolean {
 }
 
 /**
- * Determine position category from position name
- * @param positionName The name of the position
- * @returns The position category
- */
-export function getPositionCategory(positionName: string): 'junior' | 'pleno' | 'senior' {
-  const normalizedName = positionName.toLowerCase();
-
-  if (
-    normalizedName.includes('junior') ||
-    normalizedName.includes('auxiliar') ||
-    normalizedName.includes('estagiário')
-  ) {
-    return 'junior';
-  } else if (
-    normalizedName.includes('pleno') ||
-    normalizedName.includes('médio') ||
-    normalizedName.includes('analista')
-  ) {
-    return 'pleno';
-  } else if (
-    normalizedName.includes('senior') ||
-    normalizedName.includes('coordenador') ||
-    normalizedName.includes('gerente')
-  ) {
-    return 'senior';
-  } else {
-    // Default to pleno if unclear
-    return 'pleno';
-  }
-}
-
-/**
  * Check if a position is eligible for bonus based on its bonifiable flag
  * @param position Position object with bonifiable property
  * @returns true if eligible for bonus
@@ -300,185 +229,6 @@ export function isValidPerformanceLevel(performanceLevel: number): boolean {
 }
 
 /**
- * EXACT position factors from Position 9 (as percentages)
- * These are the exact values from the Excel spreadsheet
- */
-const positionFactorsFromPosition9: Record<number, number> = {
-  1: 0.0972, // Position 1: 9.72% of Position 9
-  2: 0.1932, // Position 2: 19.32% of Position 9
-  3: 0.322, // Position 3: 32.20% of Position 9
-  4: 0.4609, // Position 4: 46.09% of Position 9
-  5: 0.5985, // Position 5: 59.85% of Position 9
-  6: 0.721, // Position 6: 72.10% of Position 9
-  7: 0.8283, // Position 7: 82.83% of Position 9
-  8: 0.9205, // Position 8: 92.05% of Position 9
-};
-
-/**
- * EXACT performance level multipliers from Excel
- */
-const performanceMultipliers: Record<number, number> = {
-  1: 1.0, // Base value
-  2: 2.0, // Exactly 2x base
-  3: 3.0, // Exactly 3x base
-  4: 3.5, // Exactly 3.5x base
-  5: 4.0, // Exactly 4x base
-};
-
-/**
- * Get detailed position level (1-12) from position name
- * Junior: I, II, III, IV (positions 1-4)
- * Pleno: I, II, III, IV (positions 5-8)
- * Senior: I, II, III, IV (positions 9-12)
- */
-function getDetailedPositionLevel(positionName: string): number {
-  const normalized = positionName.toLowerCase().replace(/\s+/g, '').trim();
-
-  // Junior levels (1-4) - Check longer strings first to avoid substring matching issues
-  if (normalized.includes('junioriv') || normalized.includes('júnioriv')) return 4;
-  if (normalized.includes('junioriii') || normalized.includes('júnioriii')) return 3;
-  if (normalized.includes('juniorii') || normalized.includes('júniorii')) return 2;
-  if (normalized.includes('juniori') || normalized.includes('júniori')) return 1;
-  if (normalized === 'junior' || normalized === 'júnior') return 1;
-
-  // Pleno levels (5-8) - Check longer strings first to avoid substring matching issues
-  if (normalized.includes('plenoiv')) return 8;
-  if (normalized.includes('plenoiii')) return 7;
-  if (normalized.includes('plenoii')) return 6;
-  if (normalized.includes('plenoi')) return 5;
-  if (normalized === 'pleno') return 5;
-
-  // Senior levels (9-12) - Check longer strings first to avoid substring matching issues
-  if (normalized.includes('senioriv') || normalized.includes('sênioriv')) return 12;
-  if (normalized.includes('senioriii') || normalized.includes('sênioriii')) return 11;
-  if (normalized.includes('seniorii') || normalized.includes('sêniorii')) return 10;
-  if (normalized.includes('seniori') || normalized.includes('sêniori')) return 9;
-  if (normalized === 'senior' || normalized === 'sênior') return 11; // Default senior to III
-
-  // Fallback based on category
-  if (
-    normalized.includes('junior') ||
-    normalized.includes('júnior') ||
-    normalized.includes('auxiliar') ||
-    normalized.includes('estagiário')
-  ) {
-    return 1;
-  }
-  if (normalized.includes('pleno')) {
-    return 5;
-  }
-  if (normalized.includes('senior') || normalized.includes('sênior')) {
-    return 11;
-  }
-
-  // Default to Pleno I
-  return 5;
-}
-
-/**
- * Calculate EXACT position 11 base value using polynomial formula from Excel
- * Formula: (3.31*B1^5 - 61.07*B1^4 + 364.82*B1^3 - 719.54*B1^2 + 465.16*B1 - 3.24) * 40%
- */
-function calculatePosition11Base(averageTasksPerUser: number): number {
-  const b1 = averageTasksPerUser;
-  const polynomial =
-    3.31 * Math.pow(b1, 5) -
-    61.07 * Math.pow(b1, 4) +
-    364.82 * Math.pow(b1, 3) -
-    719.54 * Math.pow(b1, 2) +
-    465.16 * b1 -
-    3.24;
-  return polynomial * 0.4; // 40% as per Excel formula
-}
-
-/**
- * Calculate cascade values for all positions based on EXACT Excel formulas
- */
-function calculateCascadeValues(position11Base: number): Map<number, number> {
-  const values = new Map<number, number>();
-
-  values.set(11, position11Base); // Position 11: Base
-  values.set(12, position11Base * 1.05); // Position 12: +5%
-  values.set(10, position11Base * (1 - 0.0413)); // Position 10: -4.13%
-
-  const position10 = values.get(10)!;
-  const position9 = position10 * (1 - 0.055); // Position 9: Position 10 - 5.5%
-  values.set(9, position9);
-
-  // Positions 1-8 are calculated as EXACT percentages of Position 9
-  for (let excelPos = 1; excelPos <= 8; excelPos++) {
-    values.set(excelPos, position9 * positionFactorsFromPosition9[excelPos]);
-  }
-
-  return values;
-}
-
-/**
- * Calculate bonus for a specific position and performance level
- * Uses the EXACT polynomial-based algorithm from the Excel spreadsheet
- *
- * Task Quantity Calculation:
- * - Tasks quantity = fullCommissionTasks + (partialCommissionTasks * 0.5)
- * - Average per user = Total tasks quantity / Number of eligible users
- *
- * @param positionName The name of the position (e.g., "Junior I", "Pleno III", "Senior II")
- * @param performanceLevel The performance level (1-5)
- * @param averageTasksPerUser The average number of tasks per user (weighted by commission type)
- * @returns The calculated bonus amount
- */
-export function calculateBonusForPosition(
-  positionName: string,
-  performanceLevel: number,
-  averageTasksPerUser: number,
-): number {
-  try {
-    const positionLevel = getDetailedPositionLevel(positionName);
-    const clampedPerformanceLevel = Math.max(1, Math.min(5, performanceLevel));
-    const taskCount = Math.max(0, averageTasksPerUser);
-
-    if (taskCount === 0) {
-      return 0;
-    }
-
-    // Step 1: Calculate position 11 base value using polynomial
-    const position11Base = calculatePosition11Base(taskCount);
-
-    // Step 2: Get cascade values for all positions
-    const cascadeValues = calculateCascadeValues(position11Base);
-
-    // Step 3: Get base value for position (direct mapping)
-    const positionBase = cascadeValues.get(positionLevel) || 0;
-
-    // Step 4: Apply performance multiplier
-    const performanceMultiplier = performanceMultipliers[clampedPerformanceLevel] || 1.0;
-    const finalValue = positionBase * performanceMultiplier;
-
-    return Math.round(finalValue * 100) / 100;
-  } catch (error) {
-    console.error('Error calculating bonus:', error);
-    return 0;
-  }
-}
-
-/**
- * Get the position category name from position level
- * @param positionLevel The position level (1, 2, or 3)
- * @returns Position category name
- */
-export function getPositionCategoryName(positionLevel: number): string {
-  switch (positionLevel) {
-    case 1:
-      return 'Junior';
-    case 2:
-      return 'Pleno';
-    case 3:
-      return 'Senior';
-    default:
-      return 'Unknown';
-  }
-}
-
-/**
  * Count tasks from bonus tasks relation
  * @param tasks Array of tasks from bonus relation
  * @returns Number of tasks
@@ -486,8 +236,6 @@ export function getPositionCategoryName(positionLevel: number): string {
 export function countBonusTasks(tasks?: any[]): number {
   return tasks?.length || 0;
 }
-
-// REMOVED: calculateBonusFromTasks function - depended on incorrect calculateBonusAmount
 
 // =====================
 // Discount Calculation Utilities

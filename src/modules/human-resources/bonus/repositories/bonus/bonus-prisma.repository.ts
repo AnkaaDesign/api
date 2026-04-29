@@ -23,7 +23,8 @@ import {
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { Prisma, Bonus as PrismaBonus } from '@prisma/client';
-import { ExactBonusCalculationService } from '../../exact-bonus-calculation.service';
+import { BonusCalculationService } from '../../bonus-calculation.service';
+import { BonusCalculationContextService } from '../../bonus-calculation-context.service';
 import {
   COMMISSION_STATUS,
   TASK_STATUS,
@@ -70,7 +71,8 @@ export class BonusPrismaRepository
 
   constructor(
     protected readonly prisma: PrismaService,
-    private readonly bonusCalculationService: ExactBonusCalculationService,
+    private readonly bonusCalculationService: BonusCalculationService,
+    private readonly bonusCalculationContextService: BonusCalculationContextService,
   ) {
     super(prisma);
   }
@@ -379,7 +381,11 @@ export class BonusPrismaRepository
   async createWithTransaction(
     transaction: PrismaTransaction,
     data: BonusCreateFormData,
-    options?: CreateOptions<BonusInclude>,
+    options?: CreateOptions<BonusInclude> & {
+      /** When called from a batch, the caller passes a single shared context
+       * here to avoid the N+1 cost of loading position salaries per item. */
+      precomputedContext?: Awaited<ReturnType<typeof this.bonusCalculationContextService.load>>;
+    },
   ): Promise<Bonus> {
     try {
       const { include } = options || {};
@@ -392,7 +398,7 @@ export class BonusPrismaRepository
           id: true,
           name: true,
           performanceLevel: true,
-          position: { select: { name: true } },
+          position: { select: { id: true, name: true } },
         },
       });
 
@@ -420,32 +426,52 @@ export class BonusPrismaRepository
         );
       }
 
-      // Calculate bonus using the calculation service if not provided
+      // ALWAYS capture audit-trail snapshot — even when caller pre-provides
+      // baseBonus. Without this, manual creates with a precomputed amount
+      // would lose the salary/config context, breaking reproducibility.
+      const { averageTasksPerUser } = await this.calculatePeriodMetrics(
+        data.year,
+        data.month,
+        transaction,
+      );
+      const calcContext = options?.precomputedContext ?? (await this.bonusCalculationContextService.load());
+      const userSalary = this.bonusCalculationContextService.resolveSalary(
+        calcContext,
+        user as { position: { id: string } | null },
+      );
+      const snapshot = this.bonusCalculationService.buildParamsSnapshot({
+        salary: userSalary,
+        salaryRange: calcContext.salaryRange,
+        averageTasksPerUser,
+      });
+
       let calculatedData = { ...data };
       if (!data.baseBonus || data.baseBonus === 0) {
-        const { averageTasksPerUser } = await this.calculatePeriodMetrics(
-          data.year,
-          data.month,
-          transaction,
-        );
-
-        const bonusValue = this.bonusCalculationService.calculateBonus(
-          user.position?.name || 'DEFAULT',
-          user.performanceLevel,
+        const breakdown = this.bonusCalculationService.calculate({
+          salary: userSalary,
+          performanceLevel: user.performanceLevel,
           averageTasksPerUser,
-        );
-
+          salaryRange: calcContext.salaryRange,
+        });
         calculatedData = {
           ...data,
-          baseBonus: bonusValue,
+          baseBonus: breakdown.bonus,
         };
       }
+
+      const auditFields = {
+        salaryUsed: userSalary,
+        calculationVersion: snapshot.version,
+        // Cast: nested interfaces lack index signatures Prisma requires for
+        // InputJsonValue, but the snapshot is plain JSON-serializable data.
+        calculationParams: snapshot as unknown as Prisma.InputJsonValue,
+      };
 
       const prismaCreateInput = this.mapCreateFormDataToDatabaseCreateInput(calculatedData);
       const prismaInclude = this.mapIncludeToDatabaseInclude(include);
 
       const createdBonus = await model.create({
-        data: prismaCreateInput,
+        data: { ...prismaCreateInput, ...auditFields } as Prisma.BonusCreateInput,
         include: prismaInclude,
       });
 
@@ -664,10 +690,16 @@ export class BonusPrismaRepository
     const errors: BatchError<BonusCreateFormData>[] = [];
 
     try {
+      // Load salary context ONCE up-front and reuse for every item in the
+      // batch — avoids N Prisma roundtrips for N bonuses.
+      const precomputedContext = await this.bonusCalculationContextService.load();
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         for (let i = 0; i < data.length; i++) {
           try {
-            const bonus = await this.createWithTransaction(tx, data[i], { include });
+            const bonus = await this.createWithTransaction(tx, data[i], {
+              include,
+              precomputedContext,
+            });
             results.push(bonus);
           } catch (error) {
             this.logger.error(`Error creating bonus at index ${i}:`, error);
@@ -788,7 +820,7 @@ export class BonusPrismaRepository
         id: true,
         name: true,
         performanceLevel: true,
-        position: { select: { name: true } },
+        position: { select: { id: true, name: true } },
       },
     });
 
@@ -803,12 +835,18 @@ export class BonusPrismaRepository
     // Calculate metrics for the period
     const { averageTasksPerUser } = await this.calculatePeriodMetrics(year, month, tx);
 
-    // Calculate bonus
-    const bonusValue = this.bonusCalculationService.calculateBonus(
-      user.position?.name || 'DEFAULT',
-      user.performanceLevel,
-      averageTasksPerUser,
+    // Calculate bonus via salary-based logistic algorithm
+    const calcContext = await this.bonusCalculationContextService.load();
+    const userSalary = this.bonusCalculationContextService.resolveSalary(
+      calcContext,
+      user as { position: { id: string } | null },
     );
+    const bonusValue = this.bonusCalculationService.calculateBonus({
+      salary: userSalary,
+      performanceLevel: user.performanceLevel,
+      averageTasksPerUser,
+      salaryRange: calcContext.salaryRange,
+    });
 
     // Get payroll if exists
     const payroll = await model.payroll.findFirst({

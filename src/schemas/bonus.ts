@@ -252,6 +252,70 @@ export const bonusLiveSchema = z.object({
 });
 
 // =====================
+// Simulate Schema (used by web + mobile bonus simulators)
+// =====================
+
+export const bonusConfigOverrideSchema = z.object({
+  k: z.number().min(0.1).max(15).optional(),
+  x0: z.number().min(-0.5).max(1.5).optional(),
+  piso: z.number().min(0).max(0.5).optional(),
+  pscale: z.number().min(0.1).max(1).optional(),
+  ceil: z.number().min(1).max(10).optional(),
+  adjustment: z.number().min(-0.5).max(1).optional(),
+});
+
+export const bonusSimulateUserSchema = z
+  .object({
+    id: z.string().optional(),
+    name: z.string().optional(),
+    positionName: z.string().optional(),
+    positionId: z.string().optional(),
+    sectorName: z.string().optional(),
+    /** Either `salary` OR `positionId` must be provided. If only positionId
+     * is given, the API resolves the salary from that position's current
+     * MonetaryValue. */
+    salary: z.number().positive().optional(),
+    performanceLevel: z.number().int().min(0).max(5),
+  })
+  .refine(
+    u => u.salary !== undefined || u.positionId !== undefined || u.positionName !== undefined,
+    { message: 'Either salary, positionId, or positionName must be provided' },
+  );
+
+export const bonusSimulateSchema = z.object({
+  /** B1 — period weighted average tasks per eligible user. */
+  averageTasksPerUser: z.number().min(0),
+  /** Users to simulate (salary + perf level + display data). */
+  users: z.array(bonusSimulateUserSchema).min(0),
+  /** Optional config overrides. Falls back to default bonus parameters. */
+  config: bonusConfigOverrideSchema.optional(),
+  /**
+   * Salary range for x-axis normalization. If omitted, the API computes it
+   * from all bonifiable positions' "current" remuneration (recommended).
+   */
+  salaryRange: z
+    .object({
+      min: z.number().positive(),
+      max: z.number().positive(),
+    })
+    .optional(),
+  /**
+   * Optional B1-sweep curve generator. Returns the bonus curve for a single
+   * salary across a range of B1 values — used for the chart-2 view in the
+   * simulator. Cheaper than calling /simulate N times.
+   */
+  b1Sweep: z
+    .object({
+      salary: z.number().positive(),
+      performanceLevel: z.number().int().min(0).max(5),
+      min: z.number().min(0).default(0),
+      max: z.number().min(0).default(8),
+      steps: z.number().int().min(2).max(500).default(160),
+    })
+    .optional(),
+});
+
+// =====================
 // Batch Schemas
 // =====================
 
@@ -315,6 +379,9 @@ export type BonusCreateFormData = z.infer<typeof bonusCreateSchema>;
 export type BonusUpdateFormData = z.infer<typeof bonusUpdateSchema>;
 export type BonusCalculateParams = z.infer<typeof bonusCalculateSchema>;
 export type BonusLiveParams = z.infer<typeof bonusLiveSchema>;
+export type BonusConfigOverride = z.infer<typeof bonusConfigOverrideSchema>;
+export type BonusSimulateUser = z.infer<typeof bonusSimulateUserSchema>;
+export type BonusSimulateFormData = z.infer<typeof bonusSimulateSchema>;
 export type BonusBatchCreateFormData = z.infer<typeof bonusBatchCreateSchema>;
 export type BonusBatchUpdateFormData = z.infer<typeof bonusBatchUpdateSchema>;
 export type BonusBatchDeleteFormData = z.infer<typeof bonusBatchDeleteSchema>;

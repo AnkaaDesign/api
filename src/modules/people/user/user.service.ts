@@ -1977,14 +1977,28 @@ export class UserService {
       for (const user of usersEndingExp2) {
         try {
           await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-            const existingUser = user;
+            // Find the next position in the hierarchy (lowest hierarchy value greater than current).
+            // Hierarchy convention: higher number = above (more senior).
+            let nextPosition: { id: string; name: string; hierarchy: number | null } | null = null;
+            if (user.position && user.position.hierarchy !== null && user.position.hierarchy !== undefined) {
+              nextPosition = await tx.position.findFirst({
+                where: {
+                  hierarchy: { gt: user.position.hierarchy },
+                },
+                orderBy: { hierarchy: 'asc' },
+                select: { id: true, name: true, hierarchy: true },
+              });
+            }
 
-            // Update user status to EFFECTED
-            const updatedUser = await tx.user.update({
+            const shouldPromote = nextPosition !== null;
+
+            // Update user status to EFFECTED (and promote position if a higher hierarchy exists)
+            await tx.user.update({
               where: { id: user.id },
               data: {
                 status: USER_STATUS.EFFECTED,
                 effectedAt: today,
+                ...(shouldPromote && { positionId: nextPosition!.id }),
                 updatedAt: new Date(),
               },
             });
@@ -2004,7 +2018,34 @@ export class UserService {
               transaction: tx,
             });
 
-            this.logger.log(`User ${user.name} (${user.id}) transitioned from EXP2 to EFFECTED`);
+            if (shouldPromote) {
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.USER,
+                entityId: user.id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'positionId',
+                oldValue: user.positionId,
+                newValue: nextPosition!.id,
+                reason: `Promoção automática: efetivação após período de experiência (${user.position!.name} → ${nextPosition!.name})`,
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+                triggeredById: user.id,
+                userId: userId,
+                transaction: tx,
+              });
+
+              this.logger.log(
+                `User ${user.name} (${user.id}) transitioned from EXP2 to EFFECTED and promoted from ${user.position!.name} (hierarchy ${user.position!.hierarchy}) to ${nextPosition!.name} (hierarchy ${nextPosition!.hierarchy})`,
+              );
+            } else {
+              const reason = !user.position
+                ? 'usuário sem cargo atribuído'
+                : user.position.hierarchy === null || user.position.hierarchy === undefined
+                  ? 'cargo atual sem hierarquia definida'
+                  : 'nenhum cargo com hierarquia superior encontrado';
+              this.logger.warn(
+                `User ${user.name} (${user.id}) transitioned from EXP2 to EFFECTED but was NOT promoted: ${reason}`,
+              );
+            }
           });
 
           result.exp2ToEffected++;
