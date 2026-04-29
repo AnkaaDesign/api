@@ -33,6 +33,7 @@ import {
   bonusBatchCreateSchema,
   bonusBatchUpdateSchema,
   bonusBatchDeleteSchema,
+  bonusSimulateSchema,
   BonusGetManyFormData,
   BonusGetByIdFormData,
   BonusCreateFormData,
@@ -40,6 +41,7 @@ import {
   BonusBatchCreateFormData,
   BonusBatchUpdateFormData,
   BonusBatchDeleteFormData,
+  BonusSimulateFormData,
 } from '../../../schemas';
 
 // Temporary validation schemas
@@ -48,6 +50,13 @@ import { z } from 'zod';
 const discountCreateSchema = z.object({
   reason: z.string().min(1, 'Motivo é obrigatório'),
   percentage: z.number().min(0).max(100),
+});
+
+const periodAdjustmentSchema = z.object({
+  percentage: z
+    .number()
+    .min(-100, 'Reajuste mínimo é -100%')
+    .max(100, 'Reajuste máximo é +100%'),
 });
 
 @Controller('bonus')
@@ -201,6 +210,54 @@ export class BonusController {
   }
 
   // =====================
+  // Simulation Endpoint (used by web + mobile bonus simulators)
+  // =====================
+
+  /**
+   * Simulate bonus calculations for a hypothetical set of users. Pure
+   * salary-based logistic algorithm — no Secullum, no discounts, no extras.
+   * Both the web and mobile simulators POST here on every input change so the
+   * algorithm lives in exactly one place (this server).
+   */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Post('simulate')
+  @ReadRateLimit()
+  @HttpCode(HttpStatus.OK)
+  @UsePipes(new ZodValidationPipe(bonusSimulateSchema))
+  async simulate(@Body() data: BonusSimulateFormData) {
+    // Zod validation guarantees the required fields exist at runtime,
+    // but its TS inference marks them optional — narrow here.
+    const result = await this.bonusService.simulate({
+      averageTasksPerUser: data.averageTasksPerUser!,
+      users: (data.users ?? []).map(u => ({
+        id: u.id,
+        name: u.name,
+        positionName: u.positionName,
+        positionId: u.positionId,
+        sectorName: u.sectorName,
+        salary: u.salary,
+        performanceLevel: u.performanceLevel!,
+      })),
+      config: data.config,
+      salaryRange: data.salaryRange as { min: number; max: number } | undefined,
+      b1Sweep: data.b1Sweep
+        ? {
+            salary: data.b1Sweep.salary!,
+            performanceLevel: data.b1Sweep.performanceLevel!,
+            min: data.b1Sweep.min ?? 0,
+            max: data.b1Sweep.max ?? 8,
+            steps: data.b1Sweep.steps ?? 160,
+          }
+        : undefined,
+    });
+    return {
+      success: true,
+      data: result,
+      message: 'Simulação calculada com sucesso.',
+    };
+  }
+
+  // =====================
   // Live Calculation Endpoints
   // =====================
 
@@ -313,6 +370,42 @@ export class BonusController {
       data: result,
       message: `Bônus calculados: ${result.totalSuccess} sucessos, ${result.totalFailed} falhas.`,
     };
+  }
+
+  /**
+   * Read the period reajuste percentage (0 if not set).
+   */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Get('period-adjustment/:year/:month')
+  @ReadRateLimit()
+  async getPeriodAdjustment(
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+  ) {
+    if (month < 1 || month > 12) throw new Error('Mês deve estar entre 1 e 12');
+    if (year < 2020 || year > 2030) throw new Error('Ano deve estar entre 2020 e 2030');
+    const data = await this.bonusService.getPeriodAdjustment(year, month);
+    return { success: true, data, message: 'Reajuste do período obtido.' };
+  }
+
+  /**
+   * Set the period reajuste percentage. Recomputes every saved bonus in the
+   * period with the new adjustment baked into the algorithm.
+   */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Post('period-adjustment/:year/:month')
+  @WriteRateLimit()
+  @HttpCode(HttpStatus.OK)
+  @UsePipes(new ZodValidationPipe(periodAdjustmentSchema))
+  async applyPeriodAdjustment(
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+    @Body() body: z.infer<typeof periodAdjustmentSchema>,
+    @UserId() userId: string,
+  ) {
+    if (month < 1 || month > 12) throw new Error('Mês deve estar entre 1 e 12');
+    if (year < 2020 || year > 2030) throw new Error('Ano deve estar entre 2020 e 2030');
+    return this.bonusService.applyPeriodAdjustment(year, month, body.percentage!, userId);
   }
 
   /**
@@ -496,7 +589,7 @@ export class BonusController {
     @Param('performanceLevel', ParseIntPipe) performanceLevel: number,
     @Query('weightedTaskCount') weightedTaskCount?: string,
   ) {
-    const details = this.bonusService.getBonusCalculationDetails(
+    const details = await this.bonusService.getBonusCalculationDetails(
       performanceLevel,
       weightedTaskCount ? parseFloat(weightedTaskCount) : undefined,
     );

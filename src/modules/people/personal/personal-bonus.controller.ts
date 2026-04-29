@@ -2,17 +2,18 @@
 // Controller for user-specific personal bonus endpoints
 // Uses the /bonuses route prefix for personal (non-admin) bonus access
 
-import { Controller, Get, Param, Query, UseGuards, Logger, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, UseGuards, UsePipes, Logger, BadRequestException } from '@nestjs/common';
 import { PersonalService } from './personal.service';
+import { BonusService } from '@modules/human-resources/bonus/bonus.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
-import { ZodQueryValidationPipe } from '@modules/common/pipes/zod-validation.pipe';
+import { ZodQueryValidationPipe, ZodValidationPipe } from '@modules/common/pipes/zod-validation.pipe';
 import { ReadRateLimit } from '@modules/common/throttler/throttler.decorators';
 import type { BonusGetManyResponse } from '../../../types';
-import type { BonusGetManyFormData } from '../../../schemas';
-import { bonusGetManySchema } from '../../../schemas';
+import type { BonusGetManyFormData, BonusSimulateFormData } from '../../../schemas';
+import { bonusGetManySchema, bonusSimulateSchema } from '../../../schemas';
 
 // All roles that can access personal bonus data
 const ALL_ROLES = [
@@ -44,7 +45,10 @@ const ALL_ROLES = [
 export class PersonalBonusController {
   private readonly logger = new Logger(PersonalBonusController.name);
 
-  constructor(private readonly personalService: PersonalService) {}
+  constructor(
+    private readonly personalService: PersonalService,
+    private readonly bonusService: BonusService,
+  ) {}
 
   // =====================
   // MY BONUSES (Meu Bônus)
@@ -140,6 +144,46 @@ export class PersonalBonusController {
     );
 
     return this.personalService.getMyLiveBonus(userId, targetYear, targetMonth);
+  }
+
+  /**
+   * Run the salary-based logistic bonus simulation as the authenticated user.
+   *
+   * The admin-only endpoint POST /bonus/simulate would 403 regular employees,
+   * so the personal/employee mobile simulator hits this route instead. The
+   * algorithm is identical — same BonusService.simulate, same parameters —
+   * we just open it up to ALL_ROLES.
+   */
+  @Post('my-bonus-simulate')
+  @ReadRateLimit()
+  @HttpCode(HttpStatus.OK)
+  @Roles(...ALL_ROLES)
+  @UsePipes(new ZodValidationPipe(bonusSimulateSchema))
+  async simulateMyBonus(@Body() data: BonusSimulateFormData) {
+    const result = await this.bonusService.simulate({
+      averageTasksPerUser: data.averageTasksPerUser!,
+      users: (data.users ?? []).map(u => ({
+        id: u.id,
+        name: u.name,
+        positionName: u.positionName,
+        positionId: u.positionId,
+        sectorName: u.sectorName,
+        salary: u.salary,
+        performanceLevel: u.performanceLevel!,
+      })),
+      config: data.config,
+      salaryRange: data.salaryRange as { min: number; max: number } | undefined,
+      b1Sweep: data.b1Sweep
+        ? {
+            salary: data.b1Sweep.salary!,
+            performanceLevel: data.b1Sweep.performanceLevel!,
+            min: data.b1Sweep.min ?? 0,
+            max: data.b1Sweep.max ?? 8,
+            steps: data.b1Sweep.steps ?? 160,
+          }
+        : undefined,
+    });
+    return { success: true, data: result, message: 'Simulação calculada com sucesso.' };
   }
 
   /**

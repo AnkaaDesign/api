@@ -3,7 +3,8 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { ExactBonusCalculationService } from '../../bonus/exact-bonus-calculation.service';
+import { BonusCalculationService } from '../../bonus/bonus-calculation.service';
+import { BonusCalculationContextService } from '../../bonus/bonus-calculation-context.service';
 import {
   USER_STATUS,
   TASK_STATUS,
@@ -105,7 +106,8 @@ export class PayrollCalculatorService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly exactBonusCalculationService: ExactBonusCalculationService,
+    private readonly bonusCalculationService: BonusCalculationService,
+    private readonly bonusCalculationContextService: BonusCalculationContextService,
   ) {}
 
   /**
@@ -535,6 +537,7 @@ export class PayrollCalculatorService {
           performanceLevel: true,
           position: {
             select: {
+              id: true,
               name: true,
               bonifiable: true,
             },
@@ -546,14 +549,19 @@ export class PayrollCalculatorService {
       const positionName = currentUser?.position?.name || 'Pleno I';
       const isBonifiable = currentUser?.position?.bonifiable || false;
 
-      // Calculate bonus using exact calculation service
+      // Calculate bonus using salary-based logistic algorithm.
       let bonusValue = 0;
-      if (performanceLevel > 0 && isBonifiable && averageTasksPerUser > 0) {
-        bonusValue = this.exactBonusCalculationService.calculateBonus(
-          positionName,
+      if (performanceLevel > 0 && isBonifiable && averageTasksPerUser > 0 && currentUser?.position?.id) {
+        const calcContext = await this.bonusCalculationContextService.load();
+        const userSalary = this.bonusCalculationContextService.resolveSalary(calcContext, {
+          position: { id: currentUser.position.id },
+        });
+        bonusValue = this.bonusCalculationService.calculateBonus({
+          salary: userSalary,
           performanceLevel,
           averageTasksPerUser,
-        );
+          salaryRange: calcContext.salaryRange,
+        });
       }
 
       return {

@@ -3,7 +3,8 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { BonusController } from './bonus.controller';
 import { BonusService } from './bonus.service';
-import { ExactBonusCalculationService } from './exact-bonus-calculation.service';
+import { BonusCalculationService } from './bonus-calculation.service';
+import { BonusCalculationContextService } from './bonus-calculation-context.service';
 import { BonusDiscountService } from './bonus-discount.service';
 import { SecullumBonusIntegrationService } from './secullum-bonus-integration.service';
 import { BonusRepository } from './repositories/bonus/bonus.repository';
@@ -29,7 +30,8 @@ import { SecullumModule } from '@modules/integrations/secullum/secullum.module';
   controllers: [BonusController],
   providers: [
     BonusService,
-    ExactBonusCalculationService,
+    BonusCalculationService,
+    BonusCalculationContextService,
     BonusDiscountService,
     SecullumBonusIntegrationService,
     {
@@ -41,6 +43,12 @@ import { SecullumModule } from '@modules/integrations/secullum/secullum.module';
       useClass: BonusDiscountPrismaRepository,
     },
   ],
-  exports: [BonusService, ExactBonusCalculationService, BonusDiscountService, BonusRepository],
+  exports: [
+    BonusService,
+    BonusCalculationService,
+    BonusCalculationContextService,
+    BonusDiscountService,
+    BonusRepository,
+  ],
 })
 export class BonusModule {}

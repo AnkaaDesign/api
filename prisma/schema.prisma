@@ -118,6 +118,14 @@ model Bonus {
   year               Int
   month              Int
   performanceLevel   Int
+  // Audit trail for the salary-based logistic algorithm.
+  // salaryUsed: the salary value fed into the calculation.
+  // calculationVersion: BONUS_CALCULATION_VERSION at the time of save.
+  // calculationParams: full JSON snapshot {salary, salaryRange, b1, config}
+  // — lets historical bonuses be reproduced even if the formula evolves.
+  salaryUsed         Decimal?        @db.Decimal(10, 2)
+  calculationVersion String?
+  calculationParams  Json?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   payrollId          String?         @unique

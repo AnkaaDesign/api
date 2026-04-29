@@ -33,6 +33,25 @@ export interface Bonus extends BaseEntity {
   weightedTasks: number | { toNumber: () => number }; // Decimal from Prisma - Total weighted tasks in period
   averageTaskPerUser: number | { toNumber: () => number }; // Decimal from Prisma - Average tasks per eligible user
 
+  // Audit-trail fields for the salary-based logistic algorithm.
+  // Populated when the bonus is saved; null on legacy rows from before the rewrite.
+  salaryUsed?: number | { toNumber: () => number } | null;
+  calculationVersion?: string | null;
+  calculationParams?: {
+    version: string;
+    salary: number;
+    salaryRange: { min: number; max: number };
+    averageTasksPerUser: number;
+    config: {
+      k: number;
+      x0: number;
+      piso: number;
+      pscale: number;
+      ceil: number;
+      adjustment: number;
+    };
+  } | null;
+
   // Relations (optional, populated based on query)
   user?: User;
   users?: User[]; // All users receiving bonuses in the same period (many-to-many)
