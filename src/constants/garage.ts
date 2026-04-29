@@ -233,9 +233,7 @@ export function buildSpot(garage: GarageId, lane: LaneId, spotNumber: SpotNumber
  */
 export function getGarageSpots(garage: GarageId): TRUCK_SPOT[] {
   const prefix = `${garage}_`;
-  return Object.values(TRUCK_SPOT).filter(
-    spot => spot.startsWith(prefix),
-  );
+  return Object.values(TRUCK_SPOT).filter(spot => spot.startsWith(prefix));
 }
 
 /**

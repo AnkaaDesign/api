@@ -32,7 +32,13 @@ import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.servi
  * - InvoiceModule: Auto-generate invoices on approval
  */
 @Module({
-  imports: [PrismaModule, ChangeLogModule, NotificationModule, forwardRef(() => InvoiceModule), NfseModule],
+  imports: [
+    PrismaModule,
+    ChangeLogModule,
+    NotificationModule,
+    forwardRef(() => InvoiceModule),
+    NfseModule,
+  ],
   controllers: [TaskQuoteController],
   providers: [
     TaskQuoteService,

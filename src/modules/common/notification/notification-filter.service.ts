@@ -250,7 +250,11 @@ export class NotificationFilterService {
     // STOCK notifications: Orders and Stock - Only ADMIN, WAREHOUSE, LOGISTIC
     [NOTIFICATION_TYPE.STOCK]: {
       notificationType: NOTIFICATION_TYPE.STOCK,
-      requiredSectors: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.LOGISTIC],
+      requiredSectors: [
+        SECTOR_PRIVILEGES.ADMIN,
+        SECTOR_PRIVILEGES.WAREHOUSE,
+        SECTOR_PRIVILEGES.LOGISTIC,
+      ],
     },
 
     // USER notifications: PPE, Vacation, Warning - ADMIN, HUMAN_RESOURCES, WAREHOUSE, or specific user
@@ -374,11 +378,11 @@ export class NotificationFilterService {
         // Check event-specific preference first, then fall back to type-level
         const metadata = notification.metadata as any;
         const eventType = metadata?.configKey || metadata?.eventType || null;
-        const typePreference = preferences.find(
-          p => p.notificationType === notification.type && p.eventType === eventType,
-        ) || preferences.find(
-          p => p.notificationType === notification.type && p.eventType === null,
-        );
+        const typePreference =
+          preferences.find(
+            p => p.notificationType === notification.type && p.eventType === eventType,
+          ) ||
+          preferences.find(p => p.notificationType === notification.type && p.eventType === null);
 
         // If user has disabled this notification type, don't send it
         if (typePreference && !typePreference.enabled) {

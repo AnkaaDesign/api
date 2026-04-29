@@ -474,15 +474,19 @@ export class TaskFieldTrackerService {
       const parts: string[] = [];
 
       if (fileChange.added > 0) {
-        parts.push(fileChange.added === 1
-          ? '1 arquivo adicionado'
-          : `${fileChange.added} arquivos adicionados`);
+        parts.push(
+          fileChange.added === 1
+            ? '1 arquivo adicionado'
+            : `${fileChange.added} arquivos adicionados`,
+        );
       }
 
       if (fileChange.removed > 0) {
-        parts.push(fileChange.removed === 1
-          ? '1 arquivo removido'
-          : `${fileChange.removed} arquivos removidos`);
+        parts.push(
+          fileChange.removed === 1
+            ? '1 arquivo removido'
+            : `${fileChange.removed} arquivos removidos`,
+        );
       }
 
       if (parts.length > 0) {

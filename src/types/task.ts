@@ -86,7 +86,12 @@ export interface Task extends BaseEntity {
 // Task Forecast History
 // =====================
 
-export type TaskForecastHistorySource = 'MANUAL' | 'AUTO_ENTRY_DATE' | 'AUTO_STARTED_AT' | 'COPY' | 'INITIAL';
+export type TaskForecastHistorySource =
+  | 'MANUAL'
+  | 'AUTO_ENTRY_DATE'
+  | 'AUTO_STARTED_AT'
+  | 'COPY'
+  | 'INITIAL';
 
 export interface TaskForecastHistory {
   id: string;
@@ -754,7 +759,15 @@ export interface TaskIncludes {
       };
   quote?:
     | boolean
-    | { include?: { services?: boolean; layoutFile?: boolean; customerSignature?: boolean; customerConfigs?: boolean; responsible?: boolean } }; // Task quote (each task has its own independent quote record)
+    | {
+        include?: {
+          services?: boolean;
+          layoutFile?: boolean;
+          customerSignature?: boolean;
+          customerConfigs?: boolean;
+          responsible?: boolean;
+        };
+      }; // Task quote (each task has its own independent quote record)
   airbrushings?:
     | boolean
     | {

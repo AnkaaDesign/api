@@ -380,7 +380,8 @@ export class NotificationTemplatesDto {
 
   @ApiProperty({
     description: 'Body template with placeholders',
-    example: 'You have been assigned to task {{taskNumber}} by {{assignedBy}}. Priority: {{priority}}',
+    example:
+      'You have been assigned to task {{taskNumber}} by {{assignedBy}}. Priority: {{priority}}',
   })
   @IsString()
   @MaxLength(2000)

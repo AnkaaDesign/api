@@ -151,7 +151,9 @@ export class InvoiceAnalyticsService {
       for (const inst of invoice.installments) {
         if (
           inst.status === INSTALLMENT_STATUS.OVERDUE ||
-          (inst.dueDate < now && inst.status !== INSTALLMENT_STATUS.PAID && inst.status !== INSTALLMENT_STATUS.CANCELLED)
+          (inst.dueDate < now &&
+            inst.status !== INSTALLMENT_STATUS.PAID &&
+            inst.status !== INSTALLMENT_STATUS.CANCELLED)
         ) {
           bucket.overdueAmount += Number(inst.amount) - Number(inst.paidAmount);
         }
@@ -160,7 +162,7 @@ export class InvoiceAnalyticsService {
 
     const sortedKeys = Array.from(byPeriod.keys()).sort();
 
-    const items: CollectionItem[] = sortedKeys.map((key) => {
+    const items: CollectionItem[] = sortedKeys.map(key => {
       const data = byPeriod.get(key)!;
       const collectionRate =
         data.invoicedAmount > 0
@@ -184,13 +186,11 @@ export class InvoiceAnalyticsService {
       totalInvoiced > 0 ? Math.round((totalPaid / totalInvoiced) * 1000) / 10 : 0;
 
     // Avg days to payment: from dueDate to paidAt for paid installments
-    const allInstallments = invoices.flatMap((inv) => inv.installments);
+    const allInstallments = invoices.flatMap(inv => inv.installments);
     const paidInstallments = allInstallments.filter(
-      (inst) => inst.status === INSTALLMENT_STATUS.PAID && inst.paidAt,
+      inst => inst.status === INSTALLMENT_STATUS.PAID && inst.paidAt,
     );
-    const daysToPayment = paidInstallments.map((inst) =>
-      diffDays(inst.dueDate, inst.paidAt!),
-    );
+    const daysToPayment = paidInstallments.map(inst => diffDays(inst.dueDate, inst.paidAt!));
     const avgDaysToPayment =
       daysToPayment.length > 0
         ? Math.round((daysToPayment.reduce((a, b) => a + b, 0) / daysToPayment.length) * 10) / 10
@@ -198,7 +198,7 @@ export class InvoiceAnalyticsService {
 
     // Total overdue
     const overdueInstallments = allInstallments.filter(
-      (inst) =>
+      inst =>
         inst.status === INSTALLMENT_STATUS.OVERDUE ||
         (inst.dueDate < now &&
           inst.status !== INSTALLMENT_STATUS.PAID &&
@@ -213,7 +213,7 @@ export class InvoiceAnalyticsService {
       ) / 100;
 
     const activeInstallments = allInstallments.filter(
-      (inst) => inst.status !== INSTALLMENT_STATUS.CANCELLED,
+      inst => inst.status !== INSTALLMENT_STATUS.CANCELLED,
     );
     const overdueRate =
       activeInstallments.length > 0
@@ -245,24 +245,20 @@ export class InvoiceAnalyticsService {
 
     // ---------- Revenue funnel ----------
     const invoicedTotal =
-      Math.round(
-        invoices.reduce((sum, inv) => sum + Number(inv.totalAmount), 0) * 100,
-      ) / 100;
+      Math.round(invoices.reduce((sum, inv) => sum + Number(inv.totalAmount), 0) * 100) / 100;
 
     const billedTotal =
       Math.round(
         allInstallments
-          .filter((inst) => inst.bankSlip != null)
+          .filter(inst => inst.bankSlip != null)
           .reduce((sum, inst) => sum + Number(inst.amount), 0) * 100,
       ) / 100;
 
     const collectedTotal =
-      Math.round(
-        paidInstallments.reduce((sum, inst) => sum + Number(inst.paidAmount), 0) * 100,
-      ) / 100;
+      Math.round(paidInstallments.reduce((sum, inst) => sum + Number(inst.paidAmount), 0) * 100) /
+      100;
 
-    const outstandingTotal =
-      Math.round((invoicedTotal - collectedTotal) * 100) / 100;
+    const outstandingTotal = Math.round((invoicedTotal - collectedTotal) * 100) / 100;
 
     const revenueFunnel: RevenueFunnel = {
       invoiced: invoicedTotal,
@@ -325,10 +321,7 @@ export class InvoiceAnalyticsService {
     });
 
     // ---------- Items: grouped by period ----------
-    const byPeriod = new Map<
-      string,
-      { totalSlips: number; paidSlips: number; delays: number[] }
-    >();
+    const byPeriod = new Map<string, { totalSlips: number; paidSlips: number; delays: number[] }>();
 
     for (const slip of bankSlips) {
       const key = keyFn(slip.createdAt);
@@ -349,12 +342,10 @@ export class InvoiceAnalyticsService {
 
     const sortedKeys = Array.from(byPeriod.keys()).sort();
 
-    const items: BankSlipPerformanceItem[] = sortedKeys.map((key) => {
+    const items: BankSlipPerformanceItem[] = sortedKeys.map(key => {
       const data = byPeriod.get(key)!;
       const conversionRate =
-        data.totalSlips > 0
-          ? Math.round((data.paidSlips / data.totalSlips) * 1000) / 10
-          : 0;
+        data.totalSlips > 0 ? Math.round((data.paidSlips / data.totalSlips) * 1000) / 10 : 0;
       const avgDelay =
         data.delays.length > 0
           ? Math.round((data.delays.reduce((a, b) => a + b, 0) / data.delays.length) * 10) / 10
@@ -372,14 +363,13 @@ export class InvoiceAnalyticsService {
 
     // ---------- Summary ----------
     const totalSlips = bankSlips.length;
-    const paidSlips = bankSlips.filter((s) => s.status === BANK_SLIP_STATUS.PAID).length;
-    const conversionRate =
-      totalSlips > 0 ? Math.round((paidSlips / totalSlips) * 1000) / 10 : 0;
+    const paidSlips = bankSlips.filter(s => s.status === BANK_SLIP_STATUS.PAID).length;
+    const conversionRate = totalSlips > 0 ? Math.round((paidSlips / totalSlips) * 1000) / 10 : 0;
 
     const allDelays = bankSlips
-      .filter((s) => s.status === BANK_SLIP_STATUS.PAID && s.paidAt)
-      .map((s) => diffDays(s.dueDate, s.paidAt!))
-      .filter((d) => d > 0);
+      .filter(s => s.status === BANK_SLIP_STATUS.PAID && s.paidAt)
+      .map(s => diffDays(s.dueDate, s.paidAt!))
+      .filter(d => d > 0);
 
     const avgDelayDays =
       allDelays.length > 0
@@ -387,13 +377,12 @@ export class InvoiceAnalyticsService {
         : 0;
 
     const errorSlips = bankSlips.filter(
-      (s) => s.status === BANK_SLIP_STATUS.ERROR || s.status === BANK_SLIP_STATUS.REJECTED,
+      s => s.status === BANK_SLIP_STATUS.ERROR || s.status === BANK_SLIP_STATUS.REJECTED,
     ).length;
-    const errorRate =
-      totalSlips > 0 ? Math.round((errorSlips / totalSlips) * 1000) / 10 : 0;
+    const errorRate = totalSlips > 0 ? Math.round((errorSlips / totalSlips) * 1000) / 10 : 0;
 
     const activeSlips = bankSlips.filter(
-      (s) => s.status === BANK_SLIP_STATUS.ACTIVE || s.status === BANK_SLIP_STATUS.OVERDUE,
+      s => s.status === BANK_SLIP_STATUS.ACTIVE || s.status === BANK_SLIP_STATUS.OVERDUE,
     ).length;
 
     // ---------- Status distribution ----------
@@ -415,10 +404,7 @@ export class InvoiceAnalyticsService {
     );
 
     // ---------- Type distribution (PIX vs Boleto) ----------
-    const typeCounts = new Map<
-      string,
-      { count: number; amount: number; paidCount: number }
-    >();
+    const typeCounts = new Map<string, { count: number; amount: number; paidCount: number }>();
 
     for (const slip of bankSlips) {
       const slipType = slip.type || BANK_SLIP_TYPE.NORMAL;
@@ -438,8 +424,7 @@ export class InvoiceAnalyticsService {
         count: data.count,
         amount: Math.round(data.amount * 100) / 100,
         paidCount: data.paidCount,
-        conversionRate:
-          data.count > 0 ? Math.round((data.paidCount / data.count) * 1000) / 10 : 0,
+        conversionRate: data.count > 0 ? Math.round((data.paidCount / data.count) * 1000) / 10 : 0,
       }),
     );
 

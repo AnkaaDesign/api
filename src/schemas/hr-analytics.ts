@@ -14,7 +14,10 @@ export const payrollTrendsFiltersSchema = z.object({
   positionIds: z.array(z.string()).optional(),
   periods: z.array(periodSchema).optional(),
   groupBy: z.enum(['month', 'sector']).optional().default('month'),
-  sortBy: z.enum(['grossSalary', 'netSalary', 'totalDiscounts', 'bonuses', 'headcount']).optional().default('grossSalary'),
+  sortBy: z
+    .enum(['grossSalary', 'netSalary', 'totalDiscounts', 'bonuses', 'headcount'])
+    .optional()
+    .default('grossSalary'),
   sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
   limit: z.number().int().min(1).max(100).optional().default(50),
   offset: z.number().int().min(0).optional().default(0),
@@ -29,7 +32,10 @@ export const teamPerformanceFiltersSchema = z.object({
   positionIds: z.array(z.string()).optional(),
   periods: z.array(periodSchema).optional(),
   groupBy: z.enum(['month', 'sector']).optional().default('month'),
-  sortBy: z.enum(['headcount', 'performance', 'warnings', 'vacations']).optional().default('headcount'),
+  sortBy: z
+    .enum(['headcount', 'performance', 'warnings', 'vacations'])
+    .optional()
+    .default('headcount'),
   sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
   limit: z.number().int().min(1).max(100).optional().default(50),
   offset: z.number().int().min(0).optional().default(0),

@@ -79,36 +79,32 @@ export class PpeListener {
       const quantityLabel = quantity > 1 ? `${quantity} unidades de ` : '';
       const webUrl = `/estoque/epi/entregas/${event.delivery.id}`;
 
-      await this.dispatchService.dispatchByConfiguration(
-        'ppe.requested',
-        event.requestedBy.id,
-        {
-          entityType: 'PPE_DELIVERY',
-          entityId: event.delivery.id,
-          action: 'requested',
-          data: {
-            itemName,
-            requestedByName: event.requestedBy.name,
-            quantity,
-            quantityLabel,
-          },
-          metadata: {
-            deliveryId: event.delivery.id,
-            itemId: event.item.id,
-            itemName,
-            requestedById: event.requestedBy.id,
-            requestedByName: event.requestedBy.name,
-            quantity: event.delivery.quantity,
-          },
-          overrides: {
-            actionUrl: JSON.stringify({ web: webUrl, mobile: '', universalLink: '' }),
-            webUrl,
-            relatedEntityType: 'PPE_DELIVERY',
-            title: 'Nova Solicitacao de EPI',
-            body: `${event.requestedBy.name} solicitou ${quantityLabel}"${itemName}". Aguardando aprovacao.`,
-          },
+      await this.dispatchService.dispatchByConfiguration('ppe.requested', event.requestedBy.id, {
+        entityType: 'PPE_DELIVERY',
+        entityId: event.delivery.id,
+        action: 'requested',
+        data: {
+          itemName,
+          requestedByName: event.requestedBy.name,
+          quantity,
+          quantityLabel,
         },
-      );
+        metadata: {
+          deliveryId: event.delivery.id,
+          itemId: event.item.id,
+          itemName,
+          requestedById: event.requestedBy.id,
+          requestedByName: event.requestedBy.name,
+          quantity: event.delivery.quantity,
+        },
+        overrides: {
+          actionUrl: JSON.stringify({ web: webUrl, mobile: '', universalLink: '' }),
+          webUrl,
+          relatedEntityType: 'PPE_DELIVERY',
+          title: 'Nova Solicitacao de EPI',
+          body: `${event.requestedBy.name} solicitou ${quantityLabel}"${itemName}". Aguardando aprovacao.`,
+        },
+      });
 
       this.logger.log('[PPE EVENT] PPE requested dispatch completed');
     } catch (error) {
@@ -325,9 +321,7 @@ export class PpeListener {
    * Transitions deliveries to WAITING_SIGNATURE status.
    */
   private async initiateSignatureForDeliveries(deliveryIds: string[]): Promise<void> {
-    this.logger.log(
-      `[PPE EVENT] Using in-app signature flow for ${deliveryIds.length} deliveries`,
-    );
+    this.logger.log(`[PPE EVENT] Using in-app signature flow for ${deliveryIds.length} deliveries`);
 
     try {
       await this.prisma.ppeDelivery.updateMany({
@@ -399,9 +393,10 @@ export class PpeListener {
               webUrl,
               relatedEntityType: 'PPE_DELIVERY',
               title: 'Confirme o Recebimento de EPI',
-              body: count > 1
-                ? `${count} EPIs foram entregues a voce por ${deliveredBy.name}. Abra o app e confirme o recebimento.`
-                : `"${itemNames}" foi entregue a voce por ${deliveredBy.name}. Abra o app e confirme o recebimento com sua biometria.`,
+              body:
+                count > 1
+                  ? `${count} EPIs foram entregues a voce por ${deliveredBy.name}. Abra o app e confirme o recebimento.`
+                  : `"${itemNames}" foi entregue a voce por ${deliveredBy.name}. Abra o app e confirme o recebimento com sua biometria.`,
             },
           },
           [userId],

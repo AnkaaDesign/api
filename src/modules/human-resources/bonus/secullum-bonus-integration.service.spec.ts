@@ -56,9 +56,11 @@ describe('SecullumBonusIntegrationService', () => {
 
   describe('hasAtestadoInPriorNinetyDays (private)', () => {
     const callPrivate = (periodStart: Date) =>
-      (service as unknown as {
-        hasAtestadoInPriorNinetyDays: (id: number, s: Date) => Promise<boolean>;
-      }).hasAtestadoInPriorNinetyDays(EMP_ID, periodStart);
+      (
+        service as unknown as {
+          hasAtestadoInPriorNinetyDays: (id: number, s: Date) => Promise<boolean>;
+        }
+      ).hasAtestadoInPriorNinetyDays(EMP_ID, periodStart);
 
     it('returns false when no atestado exists in the 90-day window', async () => {
       secullum.getTimeEntriesBySecullumIdCached.mockResolvedValue([]);

@@ -180,9 +180,7 @@ export class AutoOrderService {
    * - Seasonal de-adjustment
    * - Exponential decay weighting (recent months matter more)
    */
-  private calculateWeightedMonthlyConsumption(
-    activities: any[],
-  ): {
+  private calculateWeightedMonthlyConsumption(activities: any[]): {
     weightedMonthly: number;
     trend: 'increasing' | 'stable' | 'decreasing';
     trendPercentage: number;
@@ -271,15 +269,15 @@ export class AutoOrderService {
 
       // Normalize by working days (handles vacation periods)
       const workingDays = getWorkingDaysInMonth(month0, year);
-      const normalizedQuantity = workingDays < STANDARD_WORKING_DAYS_PER_MONTH
-        ? rawQuantity * (STANDARD_WORKING_DAYS_PER_MONTH / workingDays)
-        : rawQuantity;
+      const normalizedQuantity =
+        workingDays < STANDARD_WORKING_DAYS_PER_MONTH
+          ? rawQuantity * (STANDARD_WORKING_DAYS_PER_MONTH / workingDays)
+          : rawQuantity;
 
       // De-season the data (remove seasonal patterns to get base consumption)
       const seasonalFactor = getSeasonalFactor(month0);
-      const deseasonedQuantity = seasonalFactor > 0
-        ? normalizedQuantity / seasonalFactor
-        : normalizedQuantity;
+      const deseasonedQuantity =
+        seasonalFactor > 0 ? normalizedQuantity / seasonalFactor : normalizedQuantity;
 
       // Exponential decay weighting: weight = 0.5^(monthsDiff / halfLife)
       const monthsDiff = (currentYear - year) * 12 + (currentMonth - month0);
@@ -549,15 +547,14 @@ export class AutoOrderService {
     const leadTimeConsumption = dailyConsumption * estimatedLeadTime;
     const bufferConsumption = forecastedMonthlyConsumption; // 1 month buffer
 
-    let targetQuantity = Math.ceil(
-      leadTimeConsumption + bufferConsumption - currentStock,
-    );
+    let targetQuantity = Math.ceil(leadTimeConsumption + bufferConsumption - currentStock);
 
     // Cap at MAX_STOCK_MONTHS of consumption (automatic max)
     const autoMaxQuantity = Math.ceil(forecastedMonthlyConsumption * MAX_STOCK_MONTHS);
-    const effectiveMax = isManualMaxQuantity && maxQuantity
-      ? maxQuantity
-      : Math.min(maxQuantity || autoMaxQuantity, autoMaxQuantity);
+    const effectiveMax =
+      isManualMaxQuantity && maxQuantity
+        ? maxQuantity
+        : Math.min(maxQuantity || autoMaxQuantity, autoMaxQuantity);
 
     const availableSpace = effectiveMax - currentStock;
     if (targetQuantity > availableSpace) {
@@ -827,7 +824,10 @@ export class AutoOrderService {
         // Cap at maxQuantity or MAX_STOCK_MONTHS of consumption
         const autoMax = Math.ceil(monthlyConsumption * MAX_STOCK_MONTHS);
         const effectiveMax = item.maxQuantity ? Math.min(item.maxQuantity, autoMax) : autoMax;
-        const recommendedQuantity = Math.min(syncQuantity, Math.max(0, effectiveMax - currentStock));
+        const recommendedQuantity = Math.min(
+          syncQuantity,
+          Math.max(0, effectiveMax - currentStock),
+        );
 
         // Skip if final quantity is not meaningful
         if (recommendedQuantity < 1) continue;

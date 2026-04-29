@@ -47,8 +47,7 @@ export class SecullumService {
     private readonly prismaService: PrismaService,
   ) {
     this.baseUrl = process.env.SECULLUM_BASE_URL || 'https://pontoweb.secullum.com.br';
-    this.authUrl =
-      process.env.SECULLUM_AUTH_URL || 'https://autenticador.secullum.com.br/Token';
+    this.authUrl = process.env.SECULLUM_AUTH_URL || 'https://autenticador.secullum.com.br/Token';
     this.email = process.env.SECULLUM_EMAIL!;
     this.password = process.env.SECULLUM_PASSWORD!;
     this.databaseId = process.env.SECULLUM_DATABASE_ID || '4c8681f2e79a4b7ab58cc94503106736';
@@ -196,16 +195,12 @@ export class SecullumService {
           formData.append('client_secret', this.clientSecret);
         }
 
-        const authResponse = await axios.post(
-          this.authUrl,
-          formData.toString(),
-          {
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            timeout: 10000,
+        const authResponse = await axios.post(this.authUrl, formData.toString(), {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
           },
-        );
+          timeout: 10000,
+        });
 
         if (!authResponse.data || !authResponse.data.access_token) {
           throw new Error('Invalid authentication response from Secullum');
@@ -308,16 +303,12 @@ export class SecullumService {
         formData.append('client_secret', this.clientSecret);
       }
 
-      const refreshResponse = await axios.post(
-        this.authUrl,
-        formData.toString(),
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          timeout: 10000,
+      const refreshResponse = await axios.post(this.authUrl, formData.toString(), {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-      );
+        timeout: 10000,
+      });
 
       if (!refreshResponse.data || !refreshResponse.data.access_token) {
         throw new Error('Invalid refresh response from Secullum');
@@ -993,9 +984,7 @@ export class SecullumService {
     }
   }
 
-  async getHorarios(params?: {
-    incluirDesativados?: boolean;
-  }): Promise<SecullumHorariosResponse> {
+  async getHorarios(params?: { incluirDesativados?: boolean }): Promise<SecullumHorariosResponse> {
     try {
       const incluirDesativados = params?.incluirDesativados ?? true;
       this.logger.log(`Fetching Secullum schedules (incluirDesativados: ${incluirDesativados})`);
@@ -1023,7 +1012,7 @@ export class SecullumService {
       this.logger.log(`Fetching detailed info for ${horariosBasicData.length} schedules...`);
 
       const detailedSchedules = await Promise.all(
-        horariosBasicData.map(async (basicSchedule) => {
+        horariosBasicData.map(async basicSchedule => {
           try {
             const detailedData = await this.makeAuthenticatedRequest<any>(
               'GET',
@@ -1041,19 +1030,26 @@ export class SecullumService {
             // The Secullum API returns time entries inside "Dias" array (one per day of week)
             // We'll use Monday (DiaSemana=1) as the default, or first weekday with times
             const dias = detailedData.Dias || [];
-            const mondaySchedule = dias.find((d: any) => d.DiaSemana === 1) || dias.find((d: any) => d.Entrada1) || {};
+            const mondaySchedule =
+              dias.find((d: any) => d.DiaSemana === 1) || dias.find((d: any) => d.Entrada1) || {};
 
             // Calculate total daily workload from Carga (in minutes) or sum from all days
             const weekdayCarga = dias.find((d: any) => d.Carga > 0)?.Carga || 0;
-            const cargaDiaria = weekdayCarga > 0
-              ? `${Math.floor(weekdayCarga / 60).toString().padStart(2, '0')}:${(weekdayCarga % 60).toString().padStart(2, '0')}:00`
-              : null;
+            const cargaDiaria =
+              weekdayCarga > 0
+                ? `${Math.floor(weekdayCarga / 60)
+                    .toString()
+                    .padStart(2, '0')}:${(weekdayCarga % 60).toString().padStart(2, '0')}:00`
+                : null;
 
             // Calculate weekly workload
             const totalWeeklyCarga = dias.reduce((sum: number, d: any) => sum + (d.Carga || 0), 0);
-            const cargaSemanal = totalWeeklyCarga > 0
-              ? `${Math.floor(totalWeeklyCarga / 60).toString().padStart(2, '0')}:${(totalWeeklyCarga % 60).toString().padStart(2, '0')}:00`
-              : null;
+            const cargaSemanal =
+              totalWeeklyCarga > 0
+                ? `${Math.floor(totalWeeklyCarga / 60)
+                    .toString()
+                    .padStart(2, '0')}:${(totalWeeklyCarga % 60).toString().padStart(2, '0')}:00`
+                : null;
 
             // Map schedule type (Tipo) to description
             // 0 = Weekly (Semanal), 1 = Monthly Scale, etc.
@@ -1081,10 +1077,13 @@ export class SecullumService {
               CargaHorariaDiaria: cargaDiaria,
               CargaHorariaSemanal: cargaSemanal,
               TipoHorario: detailedData.Tipo,
-              TipoHorarioDescricao: tipoDescricaoMap[detailedData.Tipo] || `Tipo ${detailedData.Tipo}`,
+              TipoHorarioDescricao:
+                tipoDescricaoMap[detailedData.Tipo] || `Tipo ${detailedData.Tipo}`,
             } as SecullumHorario;
           } catch (error) {
-            this.logger.warn(`Failed to fetch details for schedule ${basicSchedule.Id}, using basic data`);
+            this.logger.warn(
+              `Failed to fetch details for schedule ${basicSchedule.Id}, using basic data`,
+            );
             return basicSchedule;
           }
         }),
@@ -1127,7 +1126,9 @@ export class SecullumService {
         };
       }
 
-      this.logger.log(`Fetched schedule ${id} from Secullum: ${horarioData.Descricao || horarioData.Codigo}`);
+      this.logger.log(
+        `Fetched schedule ${id} from Secullum: ${horarioData.Descricao || horarioData.Codigo}`,
+      );
 
       return {
         success: true,

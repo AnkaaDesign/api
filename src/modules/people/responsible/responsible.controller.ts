@@ -89,10 +89,7 @@ export class ResponsibleController {
 
   @Get('company/:companyId/role/:role')
   @UseGuards(AuthGuard)
-  async findByCompanyIdAndRole(
-    @Param('companyId') companyId: string,
-    @Param('role') role: string,
-  ) {
+  async findByCompanyIdAndRole(@Param('companyId') companyId: string, @Param('role') role: string) {
     return await this.service.findByCompanyIdAndRole(companyId, role);
   }
 

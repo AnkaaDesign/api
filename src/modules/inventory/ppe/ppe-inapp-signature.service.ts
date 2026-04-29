@@ -18,7 +18,13 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PpeDocumentService } from './ppe-document.service';
-import { PPE_DELIVERY_STATUS, PPE_DELIVERY_STATUS_ORDER, ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '@constants';
+import {
+  PPE_DELIVERY_STATUS,
+  PPE_DELIVERY_STATUS_ORDER,
+  ENTITY_TYPE,
+  CHANGE_ACTION,
+  CHANGE_TRIGGERED_BY,
+} from '@constants';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { FileService } from '@modules/common/file/file.service';
 import * as crypto from 'crypto';
@@ -144,9 +150,12 @@ export class PpeInAppSignatureService {
     }
 
     // 6. Round GPS coordinates to 4 decimal places (LGPD minimization)
-    const latitude = evidence.latitude != null ? Math.round(evidence.latitude * 10000) / 10000 : null;
-    const longitude = evidence.longitude != null ? Math.round(evidence.longitude * 10000) / 10000 : null;
-    const locationAccuracy = evidence.locationAccuracy != null ? Math.round(evidence.locationAccuracy * 100) / 100 : null;
+    const latitude =
+      evidence.latitude != null ? Math.round(evidence.latitude * 10000) / 10000 : null;
+    const longitude =
+      evidence.longitude != null ? Math.round(evidence.longitude * 10000) / 10000 : null;
+    const locationAccuracy =
+      evidence.locationAccuracy != null ? Math.round(evidence.locationAccuracy * 100) / 100 : null;
 
     // 7. Build evidence JSON for storage
     const serverTimestamp = new Date();
@@ -193,11 +202,7 @@ export class PpeInAppSignatureService {
       );
 
       // Save PDF to file storage
-      signedDocumentId = await this.savePdfToStorage(
-        pdfBuffer,
-        delivery,
-        'signed',
-      );
+      signedDocumentId = await this.savePdfToStorage(pdfBuffer, delivery, 'signed');
     } catch (error) {
       this.logger.error(`Failed to generate signed PDF for delivery ${deliveryId}:`, error);
       // Continue without PDF — the signature record is still valid
@@ -303,7 +308,9 @@ export class PpeInAppSignatureService {
     const valid = recomputedHmac === signature.hmacSignature;
 
     if (!valid) {
-      this.logger.warn(`HMAC verification failed for delivery ${deliveryId}: stored HMAC does not match recomputed value`);
+      this.logger.warn(
+        `HMAC verification failed for delivery ${deliveryId}: stored HMAC does not match recomputed value`,
+      );
     }
 
     return {
@@ -412,14 +419,7 @@ export class PpeInAppSignatureService {
       const year = String(now.getFullYear()).slice(-2);
       const month = String(now.getMonth() + 1).padStart(2, '0');
 
-      const dirPath = join(
-        this.filesRoot,
-        'Colaboradores',
-        sanitizedName,
-        "EPI's",
-        year,
-        month,
-      );
+      const dirPath = join(this.filesRoot, 'Colaboradores', sanitizedName, "EPI's", year, month);
 
       if (!existsSync(dirPath)) {
         mkdirSync(dirPath, { recursive: true });

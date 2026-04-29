@@ -6,11 +6,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { FileService } from '@modules/common/file/file.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
-import {
-  ENTITY_TYPE,
-  CHANGE_ACTION,
-  CHANGE_TRIGGERED_BY,
-} from '../../../constants/enums';
+import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../constants/enums';
 import type { LayoutCreateFormData, LayoutUpdateFormData } from '../../../schemas';
 import { LayoutPrismaRepository } from './repositories/layout-prisma.repository';
 
@@ -30,7 +26,10 @@ export class LayoutService {
     return this.layoutRepository.findById(id, include);
   }
 
-  async findByTruckId(truckId: string, options?: { includePhoto?: boolean }): Promise<{
+  async findByTruckId(
+    truckId: string,
+    options?: { includePhoto?: boolean },
+  ): Promise<{
     leftSideLayout: Layout | null;
     rightSideLayout: Layout | null;
     backSideLayout: Layout | null;
@@ -259,18 +258,15 @@ export class LayoutService {
   /**
    * Format a layout summary string: "{totalWidth} x {height} {doorDescription}"
    */
-  private formatLayoutSummary(
-    layout: { height: number; layoutSections?: Array<{ width: number; isDoor: boolean }> },
-  ): string {
+  private formatLayoutSummary(layout: {
+    height: number;
+    layoutSections?: Array<{ width: number; isDoor: boolean }>;
+  }): string {
     const sections = layout.layoutSections || [];
     const totalWidth = sections.reduce((sum, s) => sum + s.width, 0);
     const doorCount = sections.filter(s => s.isDoor).length;
     const doorText =
-      doorCount === 0
-        ? 'nenhuma porta'
-        : doorCount === 1
-          ? 'uma porta'
-          : `${doorCount} portas`;
+      doorCount === 0 ? 'nenhuma porta' : doorCount === 1 ? 'uma porta' : `${doorCount} portas`;
     return `${totalWidth} x ${layout.height} ${doorText}`;
   }
 
@@ -279,7 +275,10 @@ export class LayoutService {
    */
   private formatLayoutChangeDescription(
     side: 'left' | 'right' | 'back',
-    oldLayout: { height: number; layoutSections?: Array<{ width: number; isDoor: boolean }> } | null,
+    oldLayout: {
+      height: number;
+      layoutSections?: Array<{ width: number; isDoor: boolean }>;
+    } | null,
     newLayout: { height: number; layoutSections?: Array<{ width: number; isDoor: boolean }> },
   ): string {
     const sideLabels: Record<string, string> = {
@@ -356,7 +355,10 @@ export class LayoutService {
       },
     });
 
-    let oldLayoutSnapshot: { height: number; layoutSections: Array<{ width: number; isDoor: boolean }> } | null = null;
+    let oldLayoutSnapshot: {
+      height: number;
+      layoutSections: Array<{ width: number; isDoor: boolean }>;
+    } | null = null;
 
     const result = await this.prisma.$transaction(async tx => {
       this.logger.log('[BACKEND] Transaction started');
@@ -366,9 +368,15 @@ export class LayoutService {
       const truck = await tx.truck.findUnique({
         where: { id: truckId },
         include: {
-          leftSideLayout: { include: { layoutSections: { orderBy: { position: 'asc' as const } } } },
-          rightSideLayout: { include: { layoutSections: { orderBy: { position: 'asc' as const } } } },
-          backSideLayout: { include: { layoutSections: { orderBy: { position: 'asc' as const } } } },
+          leftSideLayout: {
+            include: { layoutSections: { orderBy: { position: 'asc' as const } } },
+          },
+          rightSideLayout: {
+            include: { layoutSections: { orderBy: { position: 'asc' as const } } },
+          },
+          backSideLayout: {
+            include: { layoutSections: { orderBy: { position: 'asc' as const } } },
+          },
         },
       });
 
@@ -406,7 +414,9 @@ export class LayoutService {
       if (existingLayout && (existingLayout as any).layoutSections) {
         oldLayoutSnapshot = {
           height: existingLayout.height,
-          layoutSections: ((existingLayout as any).layoutSections as Array<{ width: number; isDoor: boolean }>).map(s => ({
+          layoutSections: (
+            (existingLayout as any).layoutSections as Array<{ width: number; isDoor: boolean }>
+          ).map(s => ({
             width: s.width,
             isDoor: s.isDoor,
           })),
@@ -787,8 +797,14 @@ export class LayoutService {
     side: 'left' | 'right' | 'back',
     action: 'update' | 'assign',
     userId?: string,
-    oldLayout?: { height: number; layoutSections: Array<{ width: number; isDoor: boolean }> } | null,
-    newLayout?: { height: number; layoutSections: Array<{ width: number; isDoor: boolean }> } | null,
+    oldLayout?: {
+      height: number;
+      layoutSections: Array<{ width: number; isDoor: boolean }>;
+    } | null,
+    newLayout?: {
+      height: number;
+      layoutSections: Array<{ width: number; isDoor: boolean }>;
+    } | null,
   ): Promise<void> {
     const sideLabels: Record<string, string> = {
       left: 'Lado Motorista',
@@ -851,35 +867,28 @@ export class LayoutService {
     const changedByName = changedByUser?.name || 'Sistema';
 
     try {
-      await this.dispatchService.dispatchByConfiguration(
-        configKey,
-        userId || 'system',
-        {
-          entityType: 'Task',
-          entityId: task.id,
-          action,
-          data: {
-            taskName: task.name,
-            sideLabel,
-            truckId,
-            side,
-            actorId: userId,
-            changedBy: changedByName,
-            layoutChangeDescription,
-            oldLayoutSummary,
-            newLayoutSummary,
-          },
+      await this.dispatchService.dispatchByConfiguration(configKey, userId || 'system', {
+        entityType: 'Task',
+        entityId: task.id,
+        action,
+        data: {
+          taskName: task.name,
+          sideLabel,
+          truckId,
+          side,
+          actorId: userId,
+          changedBy: changedByName,
+          layoutChangeDescription,
+          oldLayoutSummary,
+          newLayoutSummary,
         },
-      );
+      });
 
       this.logger.log(
         `[sendLayoutChangeNotifications] Dispatched ${configKey} for layout ${action} on ${sideLabel}: ${layoutChangeDescription}`,
       );
     } catch (err) {
-      this.logger.error(
-        `[sendLayoutChangeNotifications] Failed to dispatch notification:`,
-        err,
-      );
+      this.logger.error(`[sendLayoutChangeNotifications] Failed to dispatch notification:`, err);
     }
   }
 }

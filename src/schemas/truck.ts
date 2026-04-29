@@ -275,9 +275,7 @@ const truckTransform = (data: any): any => {
   // Filter by garage (B1, B2, B3) - filter spots that start with the garage prefix
   if (data.garageNumber && typeof data.garageNumber === 'string') {
     const prefix = `B${data.garageNumber}_`;
-    const garageSpots = Object.values(TRUCK_SPOT).filter(
-      spot => spot.startsWith(prefix),
-    );
+    const garageSpots = Object.values(TRUCK_SPOT).filter(spot => spot.startsWith(prefix));
     if (garageSpots.length > 0) {
       andConditions.push({ spot: { in: garageSpots } });
     }

@@ -15,6 +15,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Header,
   Req,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -271,6 +272,7 @@ export class TaskQuoteController {
    */
   @Get('public/:id')
   @Public()
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
   async findPublic(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
     // Check if user is authenticated (optional auth)
     let isAuthenticated = false;

@@ -350,7 +350,11 @@ export class BorrowService {
   /**
    * Buscar um empréstimo por ID
    */
-  async findById(id: string, include?: BorrowInclude, select?: any): Promise<BorrowGetUniqueResponse> {
+  async findById(
+    id: string,
+    include?: BorrowInclude,
+    select?: any,
+  ): Promise<BorrowGetUniqueResponse> {
     try {
       const queryOptions = select ? { select } : { include };
       const borrow = await this.borrowRepository.findById(id, queryOptions);

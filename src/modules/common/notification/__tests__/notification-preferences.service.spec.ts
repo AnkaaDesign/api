@@ -140,7 +140,14 @@ describe('NotificationPreferenceService', () => {
       mockPreferenceRepository.getPreference.mockResolvedValue(existingPreference);
       mockPreferenceRepository.updatePreference.mockResolvedValue(existingPreference);
 
-      await service.updatePreference('user-1', 'PRODUCTION', 'status', ['EMAIL'], 'admin-user', true);
+      await service.updatePreference(
+        'user-1',
+        'PRODUCTION',
+        'status',
+        ['EMAIL'],
+        'admin-user',
+        true,
+      );
 
       expect(preferenceRepository.updatePreference).toHaveBeenCalled();
     });

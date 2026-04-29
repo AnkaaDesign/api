@@ -28,7 +28,8 @@ import type { ServiceOrder } from '@types';
  * - ADMIN can update
  *
  * LOGISTIC Service Orders:
- * - LOGISTIC can update ONLY when assigned to them
+ * - LOGISTIC can update any unassigned LOGISTIC order, or ones assigned to them
+ * - LOGISTIC cannot update LOGISTIC orders assigned to another user
  * - PRODUCTION_MANAGER can update
  * - ADMIN can update
  *
@@ -116,9 +117,13 @@ export function checkServiceOrderUpdatePermission(
     };
   }
 
-  // LOGISTIC users can ONLY update service orders that are explicitly assigned to them.
-  // They cannot edit unassigned PRODUCTION or LOGISTIC service orders that don't belong to them.
-  if (userPrivilege === SECTOR_PRIVILEGES.LOGISTIC && !isAssignedUser) {
+  // LOGISTIC users cannot update PRODUCTION orders unless explicitly assigned to them.
+  // For LOGISTIC orders, they can update any unassigned order — blocked earlier if assigned to someone else.
+  if (
+    userPrivilege === SECTOR_PRIVILEGES.LOGISTIC &&
+    !isAssignedUser &&
+    serviceOrder.type !== SERVICE_ORDER_TYPE.LOGISTIC
+  ) {
     return {
       canUpdate: false,
       reason: 'Usuários de logística só podem editar ordens de serviço atribuídas a eles',

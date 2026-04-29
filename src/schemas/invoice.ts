@@ -1,12 +1,6 @@
 import { z } from 'zod';
-import {
-  INVOICE_STATUS,
-  INSTALLMENT_STATUS,
-} from '../constants/enums';
-import {
-  paginationSchema,
-  orderByDirectionSchema,
-} from './common';
+import { INVOICE_STATUS, INSTALLMENT_STATUS } from '../constants/enums';
+import { paginationSchema, orderByDirectionSchema } from './common';
 
 // =====================
 // Enum Schemas
@@ -31,9 +25,7 @@ export const invoiceIncludeSchema = z
                 .union([
                   z.boolean(),
                   z.object({
-                    include: z
-                      .object({ pdfFile: z.boolean().optional() })
-                      .optional(),
+                    include: z.object({ pdfFile: z.boolean().optional() }).optional(),
                   }),
                 ])
                 .optional(),
@@ -72,9 +64,7 @@ export const invoiceWhereSchema = z
   .object({
     taskId: z.string().uuid().optional(),
     customerId: z.string().uuid().optional(),
-    status: z
-      .union([invoiceStatusSchema, z.array(invoiceStatusSchema)])
-      .optional(),
+    status: z.union([invoiceStatusSchema, z.array(invoiceStatusSchema)]).optional(),
     createdById: z.string().uuid().optional(),
   })
   .optional();
@@ -90,9 +80,7 @@ export const invoiceGetManySchema = z.object({
   include: invoiceIncludeSchema,
   taskId: z.string().uuid().optional(),
   customerId: z.string().uuid().optional(),
-  status: z
-    .union([invoiceStatusSchema, z.array(invoiceStatusSchema)])
-    .optional(),
+  status: z.union([invoiceStatusSchema, z.array(invoiceStatusSchema)]).optional(),
 });
 
 export type InvoiceGetManyFormData = z.infer<typeof invoiceGetManySchema>;

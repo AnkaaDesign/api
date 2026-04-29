@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { InvoiceRepository } from './repositories/invoice.repository';
 import type {
@@ -12,12 +7,7 @@ import type {
   InvoiceGetManyFormData,
   InvoiceGetManyResponse,
 } from '@types';
-import {
-  INVOICE_STATUS,
-  INSTALLMENT_STATUS,
-  BANK_SLIP_STATUS,
-  NFSE_STATUS,
-} from '@constants';
+import { INVOICE_STATUS, INSTALLMENT_STATUS, BANK_SLIP_STATUS, NFSE_STATUS } from '@constants';
 
 /**
  * Service for managing Invoice entities.
@@ -84,10 +74,7 @@ export class InvoiceService {
   /**
    * Find all invoices for a given customer.
    */
-  async findByCustomerId(
-    customerId: string,
-    include?: InvoiceInclude,
-  ): Promise<Invoice[]> {
+  async findByCustomerId(customerId: string, include?: InvoiceInclude): Promise<Invoice[]> {
     return this.invoiceRepository.findByCustomerId(customerId, include);
   }
 
@@ -110,13 +97,11 @@ export class InvoiceService {
     }
 
     if (invoice.status === INVOICE_STATUS.PAID) {
-      throw new BadRequestException(
-        'Não é possível cancelar uma fatura totalmente paga.',
-      );
+      throw new BadRequestException('Não é possível cancelar uma fatura totalmente paga.');
     }
 
     // Use a transaction to cancel invoice + all children atomically
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async tx => {
       // Cancel all installments that aren't already paid
       await tx.installment.updateMany({
         where: {
@@ -179,27 +164,18 @@ export class InvoiceService {
     });
 
     if (!invoice) {
-      throw new NotFoundException(
-        `Fatura com ID ${invoiceId} não encontrada.`,
-      );
+      throw new NotFoundException(`Fatura com ID ${invoiceId} não encontrada.`);
     }
 
     // Sum paidAmount across all installments
-    const paidAmount = invoice.installments.reduce(
-      (sum, inst) => sum + Number(inst.paidAmount),
-      0,
-    );
+    const paidAmount = invoice.installments.reduce((sum, inst) => sum + Number(inst.paidAmount), 0);
 
     // Determine new status based on payments
     const allPaid = invoice.installments.every(
-      (inst) => inst.status === 'PAID' || inst.status === 'CANCELLED',
+      inst => inst.status === 'PAID' || inst.status === 'CANCELLED',
     );
-    const hasPaidInstallments = invoice.installments.some(
-      (inst) => inst.status === 'PAID',
-    );
-    const allCancelled = invoice.installments.every(
-      (inst) => inst.status === 'CANCELLED',
-    );
+    const hasPaidInstallments = invoice.installments.some(inst => inst.status === 'PAID');
+    const allCancelled = invoice.installments.every(inst => inst.status === 'CANCELLED');
 
     let newStatus: string;
 

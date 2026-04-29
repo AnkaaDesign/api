@@ -20,7 +20,6 @@ import {
   TRUCK_CATEGORY,
   IMPLEMENT_TYPE,
   TRUCK_SPOT,
-
 } from '@constants';
 import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
@@ -1077,8 +1076,18 @@ const prismaRelationValue: z.ZodSchema = z.lazy(() =>
   z.union([
     z.boolean(),
     z.object({
-      select: z.record(z.string(), z.lazy(() => prismaRelationValue)).optional(),
-      include: z.record(z.string(), z.lazy(() => prismaRelationValue)).optional(),
+      select: z
+        .record(
+          z.string(),
+          z.lazy(() => prismaRelationValue),
+        )
+        .optional(),
+      include: z
+        .record(
+          z.string(),
+          z.lazy(() => prismaRelationValue),
+        )
+        .optional(),
       take: z.number().optional(),
       skip: z.number().optional(),
       orderBy: z.any().optional(),
@@ -1139,17 +1148,16 @@ const taskOrderByFieldsSchema = z.object({
   createdAt: orderByDirectionSchema.optional(),
   updatedAt: orderByDirectionSchema.optional(),
   // Nested relation sorting (for billing/financial views)
-  quote: z.object({
-    statusOrder: orderByDirectionSchema.optional(),
-    total: orderByDirectionSchema.optional(),
-  }).optional(),
+  quote: z
+    .object({
+      statusOrder: orderByDirectionSchema.optional(),
+      total: orderByDirectionSchema.optional(),
+    })
+    .optional(),
 });
 
 export const taskOrderBySchema = z
-  .union([
-    taskOrderByFieldsSchema,
-    z.array(taskOrderByFieldsSchema),
-  ])
+  .union([taskOrderByFieldsSchema, z.array(taskOrderByFieldsSchema)])
   .optional();
 
 // =====================
@@ -1483,24 +1491,24 @@ const taskTransform = (data: any): any => {
     // Build the incomplete service orders check based on role
     const incompleteSOCheck = excludeLogistic
       ? {
-            // Check incomplete SOs excluding LOGISTIC type
-            serviceOrders: {
-              some: {
-                AND: [
-                  { type: { notIn: ['LOGISTIC'] } },
-                  { status: { in: ['PENDING', 'IN_PROGRESS', 'WAITING_APPROVE'] } },
-                ],
-              },
+          // Check incomplete SOs excluding LOGISTIC type
+          serviceOrders: {
+            some: {
+              AND: [
+                { type: { notIn: ['LOGISTIC'] } },
+                { status: { in: ['PENDING', 'IN_PROGRESS', 'WAITING_APPROVE'] } },
+              ],
             },
-          }
+          },
+        }
       : {
-            // Check all incomplete SOs (admin view)
-            serviceOrders: {
-              some: {
-                status: { in: ['PENDING', 'IN_PROGRESS', 'WAITING_APPROVE'] },
-              },
+          // Check all incomplete SOs (admin view)
+          serviceOrders: {
+            some: {
+              status: { in: ['PENDING', 'IN_PROGRESS', 'WAITING_APPROVE'] },
             },
-          };
+          },
+        };
 
     andConditions.push({
       AND: [
@@ -1756,7 +1764,11 @@ const taskTransform = (data: any): any => {
   }
 
   // Filter by truck category
-  if (data.truckCategories && Array.isArray(data.truckCategories) && data.truckCategories.length > 0) {
+  if (
+    data.truckCategories &&
+    Array.isArray(data.truckCategories) &&
+    data.truckCategories.length > 0
+  ) {
     andConditions.push({ truck: { category: { in: data.truckCategories } } });
     delete data.truckCategories;
   }
@@ -2719,11 +2731,15 @@ export const taskUpdateSchema = z
       .optional(),
 
     // SO file upload mapping - maps uploaded files from flat arrays to specific service orders
-    _soFileMapping: z.array(z.object({
-      soId: z.string().uuid(),
-      type: z.enum(['checkin', 'checkout']),
-      count: z.number().int().positive(),
-    })).optional(),
+    _soFileMapping: z
+      .array(
+        z.object({
+          soId: z.string().uuid(),
+          type: z.enum(['checkin', 'checkout']),
+          count: z.number().int().positive(),
+        }),
+      )
+      .optional(),
 
     // Removal operation fields (for batch updates)
     removeGeneralPainting: z.boolean().optional(),

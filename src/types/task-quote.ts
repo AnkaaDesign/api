@@ -19,7 +19,15 @@ import type { File } from './file';
 // TaskQuote Status Enum (mirrored from constants)
 // =====================
 
-export type TASK_QUOTE_STATUS = 'PENDING' | 'BUDGET_APPROVED' | 'COMMERCIAL_APPROVED' | 'BILLING_APPROVED' | 'UPCOMING' | 'DUE' | 'PARTIAL' | 'SETTLED';
+export type TASK_QUOTE_STATUS =
+  | 'PENDING'
+  | 'BUDGET_APPROVED'
+  | 'COMMERCIAL_APPROVED'
+  | 'BILLING_APPROVED'
+  | 'UPCOMING'
+  | 'DUE'
+  | 'PARTIAL'
+  | 'SETTLED';
 export type DISCOUNT_TYPE = 'NONE' | 'PERCENTAGE' | 'FIXED_VALUE';
 
 // =====================
@@ -70,7 +78,9 @@ export interface TaskQuoteIncludes {
           position?: 'asc' | 'desc';
         };
         include?: {
-          invoiceToCustomer?: boolean | { select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean } };
+          invoiceToCustomer?:
+            | boolean
+            | { select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean } };
         };
       };
   layoutFile?: boolean;

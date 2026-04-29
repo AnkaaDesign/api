@@ -90,25 +90,20 @@ export class PaintAnalyticsService {
     });
 
     // Group by period for volume trend
-    const byPeriod = new Map<
-      string,
-      { count: number; volume: number; totalCost: number }
-    >();
+    const byPeriod = new Map<string, { count: number; volume: number; totalCost: number }>();
 
     for (const prod of productions) {
       const key = keyFn(prod.createdAt);
       const existing = byPeriod.get(key) || { count: 0, volume: 0, totalCost: 0 };
       existing.count++;
       existing.volume += prod.volumeLiters;
-      const pricePerLiter = prod.formula?.pricePerLiter
-        ? Number(prod.formula.pricePerLiter)
-        : 0;
+      const pricePerLiter = prod.formula?.pricePerLiter ? Number(prod.formula.pricePerLiter) : 0;
       existing.totalCost += pricePerLiter * prod.volumeLiters;
       byPeriod.set(key, existing);
     }
 
     const sortedKeys = Array.from(byPeriod.keys()).sort();
-    const items = sortedKeys.map((key) => {
+    const items = sortedKeys.map(key => {
       const data = byPeriod.get(key)!;
       return {
         period: key,
@@ -116,9 +111,7 @@ export class PaintAnalyticsService {
         productionCount: data.count,
         totalVolumeLiters: Math.round(data.volume * 100) / 100,
         avgCostPerLiter:
-          data.volume > 0
-            ? Math.round((data.totalCost / data.volume) * 100) / 100
-            : 0,
+          data.volume > 0 ? Math.round((data.totalCost / data.volume) * 100) / 100 : 0,
       };
     });
 
@@ -154,7 +147,7 @@ export class PaintAnalyticsService {
     const popularPaints = Array.from(paintAgg.values())
       .sort((a, b) => b.count - a.count)
       .slice(0, 15)
-      .map((p) => ({
+      .map(p => ({
         paintId: p.paintId,
         paintName: p.paintName,
         hex: p.hex,
@@ -166,24 +159,17 @@ export class PaintAnalyticsService {
     // Summary
     const totalProductions = productions.length;
     const totalVolumeLiters =
-      Math.round(
-        productions.reduce((sum, p) => sum + p.volumeLiters, 0) * 100,
-      ) / 100;
+      Math.round(productions.reduce((sum, p) => sum + p.volumeLiters, 0) * 100) / 100;
 
     const totalCost = productions.reduce((sum, p) => {
-      const price = p.formula?.pricePerLiter
-        ? Number(p.formula.pricePerLiter)
-        : 0;
+      const price = p.formula?.pricePerLiter ? Number(p.formula.pricePerLiter) : 0;
       return sum + price * p.volumeLiters;
     }, 0);
 
     const avgCostPerLiter =
-      totalVolumeLiters > 0
-        ? Math.round((totalCost / totalVolumeLiters) * 100) / 100
-        : 0;
+      totalVolumeLiters > 0 ? Math.round((totalCost / totalVolumeLiters) * 100) / 100 : 0;
 
-    const mostUsedPaint =
-      popularPaints.length > 0 ? popularPaints[0].paintName : '-';
+    const mostUsedPaint = popularPaints.length > 0 ? popularPaints[0].paintName : '-';
 
     return {
       summary: {

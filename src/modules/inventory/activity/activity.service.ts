@@ -1584,7 +1584,11 @@ export class ActivityService {
         const [year, month] = monthKey.split('-').map(Number);
 
         // Normalize by working days (handles vacation periods)
-        const normalizedConsumption = normalizeConsumptionByWorkingDays(rawConsumption, month, year);
+        const normalizedConsumption = normalizeConsumptionByWorkingDays(
+          rawConsumption,
+          month,
+          year,
+        );
 
         const monthsDiff = (currentYear - year) * 12 + (currentMonth - month);
         const weight = Math.pow(0.5, monthsDiff / CONSUMPTION_DECAY_HALF_LIFE_MONTHS);
@@ -2284,8 +2288,7 @@ export class ActivityService {
       for (const oi of recentOrderItems) {
         if (oi.receivedAt && oi.order) {
           const itemLeadTime = Math.ceil(
-            (oi.receivedAt.getTime() - oi.order.createdAt.getTime()) /
-              (1000 * 60 * 60 * 24),
+            (oi.receivedAt.getTime() - oi.order.createdAt.getTime()) / (1000 * 60 * 60 * 24),
           );
           // Sanity check: only include valid lead times (1-365 days)
           if (itemLeadTime > 0 && itemLeadTime < 365) {

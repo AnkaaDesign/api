@@ -95,18 +95,9 @@ export class ElotechOxyAuthService {
       'ELOTECH_OXY_BASE_URL',
       'https://ibipora.oxy.elotech.com.br/iss-api/api',
     );
-    this.username = this.configService.get<string>(
-      'ELOTECH_OXY_USERNAME',
-      '',
-    );
-    this.password = this.configService.get<string>(
-      'ELOTECH_OXY_PASSWORD',
-      '',
-    );
-    this.empresaId = this.configService.get<string>(
-      'ELOTECH_OXY_EMPRESA_ID',
-      '',
-    );
+    this.username = this.configService.get<string>('ELOTECH_OXY_USERNAME', '');
+    this.password = this.configService.get<string>('ELOTECH_OXY_PASSWORD', '');
+    this.empresaId = this.configService.get<string>('ELOTECH_OXY_EMPRESA_ID', '');
 
     this.httpClient = axios.create({
       baseURL: this.baseUrl,
@@ -158,9 +149,7 @@ export class ElotechOxyAuthService {
     this.token = id_token;
 
     try {
-      const payload = JSON.parse(
-        Buffer.from(id_token.split('.')[1], 'base64').toString(),
-      );
+      const payload = JSON.parse(Buffer.from(id_token.split('.')[1], 'base64').toString());
       this.tokenExpiresAt = payload.exp * 1000;
     } catch {
       this.tokenExpiresAt = Date.now() + 23 * 60 * 60 * 1000;
@@ -174,10 +163,9 @@ export class ElotechOxyAuthService {
 
   private async loadContribuinteData(): Promise<void> {
     try {
-      const response = await this.httpClient.get(
-        '/acesso-web-empresas/contribuinte-padrao',
-        { headers: { Authorization: `Bearer ${this.token}` } },
-      );
+      const response = await this.httpClient.get('/acesso-web-empresas/contribuinte-padrao', {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
       this.contribuinteData = response.data;
 
       // Auto-discover empresaId from contribuinte if not set via env
@@ -236,17 +224,14 @@ export class ElotechOxyAuthService {
     return cities;
   }
 
-  async findCity(
-    cityName: string,
-    uf: string,
-  ): Promise<ElotechCity | null> {
+  async findCity(cityName: string, uf: string): Promise<ElotechCity | null> {
     const cities = await this.getCitiesForState(uf);
     const normalized = cityName
       .toUpperCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '');
     return (
-      cities.find((c) => {
+      cities.find(c => {
         const desc = c.descricao
           .toUpperCase()
           .normalize('NFD')

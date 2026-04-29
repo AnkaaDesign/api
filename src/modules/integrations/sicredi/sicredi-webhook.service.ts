@@ -17,9 +17,7 @@ const LIQUIDATION_MOVEMENTS = [
 ];
 
 // Per Sicredi docs — only REDE can be reversed
-const REVERSAL_MOVEMENTS = [
-  'ESTORNO_LIQUIDACAO_REDE',
-];
+const REVERSAL_MOVEMENTS = ['ESTORNO_LIQUIDACAO_REDE'];
 
 /**
  * Parse Sicredi date format.
@@ -82,7 +80,9 @@ export class SicrediWebhookService {
     }
 
     if (existingEvent && existingEvent.status === 'PROCESSING') {
-      this.logger.warn(`Webhook event ${idEventoWebhook} is currently being processed, skipping duplicate`);
+      this.logger.warn(
+        `Webhook event ${idEventoWebhook} is currently being processed, skipping duplicate`,
+      );
       return;
     }
 
@@ -204,7 +204,7 @@ export class SicrediWebhookService {
       : bankSlip.amount;
     const now = new Date();
 
-    await this.prismaService.$transaction(async (tx) => {
+    await this.prismaService.$transaction(async tx => {
       // Update BankSlip to PAID
       await tx.bankSlip.update({
         where: { id: bankSlip.id },
@@ -288,28 +288,24 @@ export class SicrediWebhookService {
         mobile: mobileUrl,
       });
 
-      await this.notificationDispatchService.dispatchByConfiguration(
-        'bank_slip.paid',
-        'system',
-        {
-          entityType: 'Financial',
-          entityId: invoice.id,
-          action: 'paid',
-          data: {
-            customerName,
-            taskName,
-            paidAmount: formattedAmount,
-            dueDate: formattedDueDate,
-            invoiceId: invoice.id,
-            bankSlipId: bankSlip.id,
-            taskId: invoice.taskId,
-          },
-          overrides: {
-            actionUrl,
-            webUrl,
-          },
+      await this.notificationDispatchService.dispatchByConfiguration('bank_slip.paid', 'system', {
+        entityType: 'Financial',
+        entityId: invoice.id,
+        action: 'paid',
+        data: {
+          customerName,
+          taskName,
+          paidAmount: formattedAmount,
+          dueDate: formattedDueDate,
+          invoiceId: invoice.id,
+          bankSlipId: bankSlip.id,
+          taskId: invoice.taskId,
         },
-      );
+        overrides: {
+          actionUrl,
+          webUrl,
+        },
+      });
 
       this.logger.log(
         `Bank slip paid notification dispatched for nossoNumero: ${nossoNumero}, customer: ${customerName}`,
@@ -343,7 +339,7 @@ export class SicrediWebhookService {
       throw new Error(`BankSlip not found for nossoNumero: ${nossoNumero}`);
     }
 
-    await this.prismaService.$transaction(async (tx) => {
+    await this.prismaService.$transaction(async tx => {
       // Reverse BankSlip back to ACTIVE
       await tx.bankSlip.update({
         where: { id: bankSlip.id },
@@ -385,7 +381,10 @@ export class SicrediWebhookService {
     }
 
     if (event.status !== 'FAILED') {
-      return { success: false, error: `Event ${eventId} is not in FAILED status (current: ${event.status})` };
+      return {
+        success: false,
+        error: `Event ${eventId} is not in FAILED status (current: ${event.status})`,
+      };
     }
 
     this.logger.log(
@@ -457,10 +456,7 @@ export class SicrediWebhookService {
     });
 
     // Sum paid amounts
-    const totalPaid = installments.reduce(
-      (sum, inst) => sum.add(inst.paidAmount),
-      new Decimal(0),
-    );
+    const totalPaid = installments.reduce((sum, inst) => sum.add(inst.paidAmount), new Decimal(0));
 
     // Get invoice total
     const invoice = await tx.invoice.findUniqueOrThrow({
@@ -485,8 +481,6 @@ export class SicrediWebhookService {
       },
     });
 
-    this.logger.log(
-      `Invoice ${invoiceId} recalculated: paidAmount=${totalPaid}, status=${status}`,
-    );
+    this.logger.log(`Invoice ${invoiceId} recalculated: paidAmount=${totalPaid}, status=${status}`);
   }
 }

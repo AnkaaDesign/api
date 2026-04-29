@@ -140,23 +140,22 @@ export class TaskAnalyticsService {
     const allKeys = new Set([...completedByPeriod.keys(), ...plannedByPeriod.keys()]);
     const sortedKeys = Array.from(allKeys).sort();
 
-    const items = sortedKeys.map((key) => {
+    const items = sortedKeys.map(key => {
       const completed = completedByPeriod.get(key) || [];
       const planned = plannedByPeriod.get(key) || [];
 
       const completionDays = completed
-        .filter((t) => t.entryDate && t.finishedAt)
-        .map((t) => diffDays(t.entryDate!, t.finishedAt!));
+        .filter(t => t.entryDate && t.finishedAt)
+        .map(t => diffDays(t.entryDate!, t.finishedAt!));
 
       const avgCompletionDays =
         completionDays.length > 0
-          ? Math.round(
-              (completionDays.reduce((a, b) => a + b, 0) / completionDays.length) * 10,
-            ) / 10
+          ? Math.round((completionDays.reduce((a, b) => a + b, 0) / completionDays.length) * 10) /
+            10
           : 0;
 
       const onTime = completed.filter(
-        (t) => t.forecastDate && t.finishedAt && t.finishedAt <= t.forecastDate,
+        t => t.forecastDate && t.finishedAt && t.finishedAt <= t.forecastDate,
       ).length;
 
       const forecastAccuracy =
@@ -174,8 +173,8 @@ export class TaskAnalyticsService {
 
     // Summary
     const allCompletionDays = completedTasks
-      .filter((t) => t.entryDate && t.finishedAt)
-      .map((t) => diffDays(t.entryDate!, t.finishedAt!));
+      .filter(t => t.entryDate && t.finishedAt)
+      .map(t => diffDays(t.entryDate!, t.finishedAt!));
 
     const totalCompleted = completedTasks.length;
     const avgCompletionDays =
@@ -186,7 +185,7 @@ export class TaskAnalyticsService {
         : 0;
 
     const totalOnTime = completedTasks.filter(
-      (t) => t.forecastDate && t.finishedAt && t.finishedAt <= t.forecastDate,
+      t => t.forecastDate && t.finishedAt && t.finishedAt <= t.forecastDate,
     ).length;
     const onTimeDeliveryRate =
       totalCompleted > 0 ? Math.round((totalOnTime / totalCompleted) * 1000) / 10 : 0;
@@ -211,22 +210,23 @@ export class TaskAnalyticsService {
         select: { id: true, name: true },
       });
 
-      const sectorMap = new Map(sectors.map((s) => [s.id, s.name]));
+      const sectorMap = new Map(sectors.map(s => [s.id, s.name]));
 
-      result.comparison = sectorIds.map((sectorId) => {
-        const sectorTasks = completedTasks.filter((t) => t.sectorId === sectorId);
-        const sectorPlanned = plannedTasks.filter((t) => t.sectorId === sectorId);
+      result.comparison = sectorIds.map(sectorId => {
+        const sectorTasks = completedTasks.filter(t => t.sectorId === sectorId);
+        const sectorPlanned = plannedTasks.filter(t => t.sectorId === sectorId);
 
         const days = sectorTasks
-          .filter((t) => t.entryDate && t.finishedAt)
-          .map((t) => diffDays(t.entryDate!, t.finishedAt!));
+          .filter(t => t.entryDate && t.finishedAt)
+          .map(t => diffDays(t.entryDate!, t.finishedAt!));
 
-        const avg = days.length > 0
-          ? Math.round((days.reduce((a, b) => a + b, 0) / days.length) * 10) / 10
-          : 0;
+        const avg =
+          days.length > 0
+            ? Math.round((days.reduce((a, b) => a + b, 0) / days.length) * 10) / 10
+            : 0;
 
         const onTime = sectorTasks.filter(
-          (t) => t.forecastDate && t.finishedAt && t.finishedAt <= t.forecastDate,
+          t => t.forecastDate && t.finishedAt && t.finishedAt <= t.forecastDate,
         ).length;
 
         return {
@@ -236,9 +236,7 @@ export class TaskAnalyticsService {
           totalPlanned: sectorPlanned.length,
           avgCompletionDays: avg,
           onTimeDeliveryRate:
-            sectorTasks.length > 0
-              ? Math.round((onTime / sectorTasks.length) * 1000) / 10
-              : 0,
+            sectorTasks.length > 0 ? Math.round((onTime / sectorTasks.length) * 1000) / 10 : 0,
         };
       });
     }
@@ -246,21 +244,22 @@ export class TaskAnalyticsService {
     // Comparison by period
     if (isComparisonByPeriod) {
       result.periodComparison = await Promise.all(
-        periods.map(async (period) => {
+        periods.map(async period => {
           const periodTasks = completedTasks.filter(
-            (t) => t.finishedAt && t.finishedAt >= period.start && t.finishedAt <= period.end,
+            t => t.finishedAt && t.finishedAt >= period.start && t.finishedAt <= period.end,
           );
 
           const days = periodTasks
-            .filter((t) => t.entryDate && t.finishedAt)
-            .map((t) => diffDays(t.entryDate!, t.finishedAt!));
+            .filter(t => t.entryDate && t.finishedAt)
+            .map(t => diffDays(t.entryDate!, t.finishedAt!));
 
-          const avg = days.length > 0
-            ? Math.round((days.reduce((a, b) => a + b, 0) / days.length) * 10) / 10
-            : 0;
+          const avg =
+            days.length > 0
+              ? Math.round((days.reduce((a, b) => a + b, 0) / days.length) * 10) / 10
+              : 0;
 
           const onTime = periodTasks.filter(
-            (t) => t.forecastDate && t.finishedAt && t.finishedAt <= t.forecastDate,
+            t => t.forecastDate && t.finishedAt && t.finishedAt <= t.forecastDate,
           ).length;
 
           return {
@@ -270,9 +269,7 @@ export class TaskAnalyticsService {
             totalCompleted: periodTasks.length,
             avgCompletionDays: avg,
             onTimeDeliveryRate:
-              periodTasks.length > 0
-                ? Math.round((onTime / periodTasks.length) * 1000) / 10
-                : 0,
+              periodTasks.length > 0 ? Math.round((onTime / periodTasks.length) * 1000) / 10 : 0,
           };
         }),
       );
@@ -292,11 +289,7 @@ export class TaskAnalyticsService {
     const baseWhere: any = {
       cleared: false,
       status: {
-        in: [
-          TASK_STATUS.PREPARATION,
-          TASK_STATUS.WAITING_PRODUCTION,
-          TASK_STATUS.IN_PRODUCTION,
-        ],
+        in: [TASK_STATUS.PREPARATION, TASK_STATUS.WAITING_PRODUCTION, TASK_STATUS.IN_PRODUCTION],
       },
       ...(sectorIds?.length && { sectorId: { in: sectorIds } }),
     };
@@ -317,10 +310,10 @@ export class TaskAnalyticsService {
       TASK_STATUS.PREPARATION,
       TASK_STATUS.WAITING_PRODUCTION,
       TASK_STATUS.IN_PRODUCTION,
-    ].map((status) => {
-      const tasksInStage = activeTasks.filter((t) => t.status === status);
+    ].map(status => {
+      const tasksInStage = activeTasks.filter(t => t.status === status);
 
-      const daysInStage = tasksInStage.map((t) => {
+      const daysInStage = tasksInStage.map(t => {
         switch (status) {
           case TASK_STATUS.IN_PRODUCTION:
             return t.startedAt ? diffDays(t.startedAt, now) : 0;
@@ -335,9 +328,7 @@ export class TaskAnalyticsService {
 
       const avgDays =
         daysInStage.length > 0
-          ? Math.round(
-              (daysInStage.reduce((a, b) => a + b, 0) / daysInStage.length) * 10,
-            ) / 10
+          ? Math.round((daysInStage.reduce((a, b) => a + b, 0) / daysInStage.length) * 10) / 10
           : 0;
 
       const stageLabels: Record<string, string> = {
@@ -385,8 +376,8 @@ export class TaskAnalyticsService {
       YARD: 2,
     };
 
-    const garageUtilization = spotPrefixes.map((prefix) => {
-      const trucksInArea = trucksInGarage.filter((t) => {
+    const garageUtilization = spotPrefixes.map(prefix => {
+      const trucksInArea = trucksInGarage.filter(t => {
         if (!t.spot) return false;
         if (prefix === 'YARD') return t.spot.startsWith('YARD');
         return t.spot.startsWith(`${prefix}_`);
@@ -445,33 +436,25 @@ export class TaskAnalyticsService {
         periodLabel: monthLabel(key),
         totalCuts: data.total,
         recuts: data.recuts,
-        recutRate:
-          data.total > 0 ? Math.round((data.recuts / data.total) * 1000) / 10 : 0,
+        recutRate: data.total > 0 ? Math.round((data.recuts / data.total) * 1000) / 10 : 0,
       }));
 
     // Summary
     const totalOccupied = garageUtilization.reduce((sum, g) => sum + g.occupiedSpots, 0);
     const totalCapacity = garageUtilization.reduce((sum, g) => sum + g.totalSpots, 0);
     const currentUtilization =
-      totalCapacity > 0
-        ? Math.round((totalOccupied / totalCapacity) * 1000) / 10
-        : 0;
+      totalCapacity > 0 ? Math.round((totalOccupied / totalCapacity) * 1000) / 10 : 0;
 
-    const waitingTasks = stageDistribution.find(
-      (s) => s.stage === TASK_STATUS.WAITING_PRODUCTION,
-    );
+    const waitingTasks = stageDistribution.find(s => s.stage === TASK_STATUS.WAITING_PRODUCTION);
     const avgQueueDays = waitingTasks?.avgDays || 0;
 
-    const bottleneckStage = stageDistribution.reduce((max, s) =>
-      s.count > max.count ? s : max,
-    );
+    const bottleneckStage = stageDistribution.reduce((max, s) => (s.count > max.count ? s : max));
 
     const totalCuts = cuts.length;
     const totalRecuts = cuts.filter(
-      (c) => c.parentCutId !== null || c.origin === CUT_ORIGIN.REQUEST,
+      c => c.parentCutId !== null || c.origin === CUT_ORIGIN.REQUEST,
     ).length;
-    const recutRate =
-      totalCuts > 0 ? Math.round((totalRecuts / totalCuts) * 1000) / 10 : 0;
+    const recutRate = totalCuts > 0 ? Math.round((totalRecuts / totalCuts) * 1000) / 10 : 0;
 
     return {
       stageDistribution,
@@ -534,7 +517,7 @@ export class TaskAnalyticsService {
     });
 
     // Filter tasks that have a quote with a total
-    const tasksWithRevenue = completedTasks.filter((t) => t.quote?.total != null);
+    const tasksWithRevenue = completedTasks.filter(t => t.quote?.total != null);
 
     let items: any[];
 
@@ -559,8 +542,7 @@ export class TaskAnalyticsService {
         name: data.name,
         revenue: Math.round(data.revenue * 100) / 100,
         taskCount: data.count,
-        avgValue:
-          data.count > 0 ? Math.round((data.revenue / data.count) * 100) / 100 : 0,
+        avgValue: data.count > 0 ? Math.round((data.revenue / data.count) * 100) / 100 : 0,
       }));
     } else if (groupBy === 'customer') {
       const byCustomer = new Map<string, { name: string; revenue: number; count: number }>();
@@ -584,8 +566,7 @@ export class TaskAnalyticsService {
           name: data.name,
           revenue: Math.round(data.revenue * 100) / 100,
           taskCount: data.count,
-          avgValue:
-            data.count > 0 ? Math.round((data.revenue / data.count) * 100) / 100 : 0,
+          avgValue: data.count > 0 ? Math.round((data.revenue / data.count) * 100) / 100 : 0,
         }))
         .sort((a, b) => b.revenue - a.revenue);
     } else {
@@ -602,24 +583,21 @@ export class TaskAnalyticsService {
 
       const sortedKeys = Array.from(byMonth.keys()).sort();
 
-      items = sortedKeys.map((key) => {
+      items = sortedKeys.map(key => {
         const data = byMonth.get(key)!;
         return {
           id: key,
           name: monthLabel(key),
           revenue: Math.round(data.revenue * 100) / 100,
           taskCount: data.count,
-          avgValue:
-            data.count > 0 ? Math.round((data.revenue / data.count) * 100) / 100 : 0,
+          avgValue: data.count > 0 ? Math.round((data.revenue / data.count) * 100) / 100 : 0,
         };
       });
     }
 
     // Summary
     const totalRevenue =
-      Math.round(
-        tasksWithRevenue.reduce((sum, t) => sum + Number(t.quote!.total), 0) * 100,
-      ) / 100;
+      Math.round(tasksWithRevenue.reduce((sum, t) => sum + Number(t.quote!.total), 0) * 100) / 100;
 
     const avgTaskValue =
       tasksWithRevenue.length > 0
@@ -638,8 +616,7 @@ export class TaskAnalyticsService {
       const lastMonth = revenueByMonth.get(sortedMonths[sortedMonths.length - 1])!;
       const prevMonth = revenueByMonth.get(sortedMonths[sortedMonths.length - 2])!;
       if (prevMonth > 0) {
-        monthOverMonthGrowth =
-          Math.round(((lastMonth - prevMonth) / prevMonth) * 1000) / 10;
+        monthOverMonthGrowth = Math.round(((lastMonth - prevMonth) / prevMonth) * 1000) / 10;
       }
     }
 
@@ -680,14 +657,12 @@ export class TaskAnalyticsService {
         where: { id: { in: sectorIds } },
         select: { id: true, name: true },
       });
-      const sectorMap = new Map(sectors.map((s) => [s.id, s.name]));
+      const sectorMap = new Map(sectors.map(s => [s.id, s.name]));
 
-      result.comparison = sectorIds.map((sectorId) => {
-        const sectorTasks = tasksWithRevenue.filter((t) => t.sectorId === sectorId);
+      result.comparison = sectorIds.map(sectorId => {
+        const sectorTasks = tasksWithRevenue.filter(t => t.sectorId === sectorId);
         const revenue =
-          Math.round(
-            sectorTasks.reduce((sum, t) => sum + Number(t.quote!.total), 0) * 100,
-          ) / 100;
+          Math.round(sectorTasks.reduce((sum, t) => sum + Number(t.quote!.total), 0) * 100) / 100;
 
         return {
           sectorId,
@@ -695,26 +670,19 @@ export class TaskAnalyticsService {
           totalRevenue: revenue,
           taskCount: sectorTasks.length,
           avgTaskValue:
-            sectorTasks.length > 0
-              ? Math.round((revenue / sectorTasks.length) * 100) / 100
-              : 0,
+            sectorTasks.length > 0 ? Math.round((revenue / sectorTasks.length) * 100) / 100 : 0,
         };
       });
     }
 
     // Comparison by period
     if (isComparisonByPeriod) {
-      result.periodComparison = periods.map((period) => {
+      result.periodComparison = periods.map(period => {
         const periodTasks = tasksWithRevenue.filter(
-          (t) =>
-            t.finishedAt &&
-            t.finishedAt >= period.start &&
-            t.finishedAt <= period.end,
+          t => t.finishedAt && t.finishedAt >= period.start && t.finishedAt <= period.end,
         );
         const revenue =
-          Math.round(
-            periodTasks.reduce((sum, t) => sum + Number(t.quote!.total), 0) * 100,
-          ) / 100;
+          Math.round(periodTasks.reduce((sum, t) => sum + Number(t.quote!.total), 0) * 100) / 100;
 
         return {
           start: period.start,
@@ -723,9 +691,7 @@ export class TaskAnalyticsService {
           totalRevenue: revenue,
           taskCount: periodTasks.length,
           avgTaskValue:
-            periodTasks.length > 0
-              ? Math.round((revenue / periodTasks.length) * 100) / 100
-              : 0,
+            periodTasks.length > 0 ? Math.round((revenue / periodTasks.length) * 100) / 100 : 0,
         };
       });
     }
@@ -740,8 +706,8 @@ export class TaskAnalyticsService {
   private resolveDateRange(filters: AnalyticsFilters): { start: Date; end: Date } {
     if (filters.periods && filters.periods.length > 0) {
       // Use the full span across all periods
-      const starts = filters.periods.map((p) => p.start.getTime());
-      const ends = filters.periods.map((p) => p.end.getTime());
+      const starts = filters.periods.map(p => p.start.getTime());
+      const ends = filters.periods.map(p => p.end.getTime());
       return {
         start: new Date(Math.min(...starts)),
         end: new Date(Math.max(...ends)),

@@ -7,9 +7,7 @@ import { NfseCertificateService } from './nfse-certificate.service';
 export class NfseXmlSignerService {
   private readonly logger = new Logger(NfseXmlSignerService.name);
 
-  constructor(
-    private readonly certificateService: NfseCertificateService,
-  ) {}
+  constructor(private readonly certificateService: NfseCertificateService) {}
 
   /**
    * Sign an XML document using RSA-SHA256 with the A1 certificate.
@@ -23,10 +21,8 @@ export class NfseXmlSignerService {
 
     const sig = new SignedXml();
 
-    sig.signatureAlgorithm =
-      'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256';
-    sig.canonicalizationAlgorithm =
-      'http://www.w3.org/2001/10/xml-exc-c14n#';
+    sig.signatureAlgorithm = 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256';
+    sig.canonicalizationAlgorithm = 'http://www.w3.org/2001/10/xml-exc-c14n#';
 
     sig.addReference({
       xpath: `//*[local-name(.)='${referenceTag}']`,
@@ -44,8 +40,7 @@ export class NfseXmlSignerService {
       .replace(/\s+/g, '');
 
     (sig as any).keyInfoProvider = {
-      getKeyInfo: () =>
-        `<X509Data><X509Certificate>${certBase64}</X509Certificate></X509Data>`,
+      getKeyInfo: () => `<X509Data><X509Certificate>${certBase64}</X509Certificate></X509Data>`,
       getKey: () => Buffer.from(privateKey),
     };
 

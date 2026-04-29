@@ -237,8 +237,8 @@ export class NotificationTemplateRendererService {
     });
 
     // String helpers
-    this.handlebars.registerHelper('uppercase', (str: string) => str ? str.toUpperCase() : '');
-    this.handlebars.registerHelper('lowercase', (str: string) => str ? str.toLowerCase() : '');
+    this.handlebars.registerHelper('uppercase', (str: string) => (str ? str.toUpperCase() : ''));
+    this.handlebars.registerHelper('lowercase', (str: string) => (str ? str.toLowerCase() : ''));
     this.handlebars.registerHelper('capitalize', (str: string) => {
       if (!str) return '';
       return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
@@ -422,9 +422,7 @@ export class NotificationTemplateRendererService {
         id: context.task?.id || context.taskId || '',
         name: context.task?.name || context.taskName || '',
         serialNumber: context.task?.serialNumber || context.serialNumber || '',
-        status: context.task?.status
-          ? this.formatValue(context.task.status, 'formatStatus')
-          : '',
+        status: context.task?.status ? this.formatValue(context.task.status, 'formatStatus') : '',
       },
     };
 

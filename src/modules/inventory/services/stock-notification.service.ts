@@ -4,11 +4,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { DeepLinkService, DeepLinkEntity } from '@modules/common/notification/deep-link.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import {
-  NOTIFICATION_IMPORTANCE,
-  STOCK_LEVEL,
-  SECTOR_PRIVILEGES,
-} from '../../../constants/enums';
+import { NOTIFICATION_IMPORTANCE, STOCK_LEVEL, SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { StockCalculationResult } from './atomic-stock-calculator.service';
 import { PrismaTransaction } from '../activity/repositories/activity.repository';
 

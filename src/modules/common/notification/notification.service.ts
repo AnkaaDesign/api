@@ -247,10 +247,14 @@ export class NotificationService {
           const preferences = await this.preferenceService.getUserPreferences(data.userId);
           const eventType = ((data.metadata as any)?.eventType as string) || null;
           const typePreference = preferences.find(
-            p => p.notificationType === data.type && (p.eventType === eventType || p.eventType === null),
+            p =>
+              p.notificationType === data.type &&
+              (p.eventType === eventType || p.eventType === null),
           );
           if (typePreference && !typePreference.enabled) {
-            this.logger.log(`Skipping notification: user ${data.userId} disabled type ${data.type}/${eventType}`);
+            this.logger.log(
+              `Skipping notification: user ${data.userId} disabled type ${data.type}/${eventType}`,
+            );
             return { success: true, data: null, message: 'User preference disabled' } as any;
           }
         } catch (err) {
@@ -488,13 +492,19 @@ export class NotificationService {
 
         if (notification.userId) {
           try {
-            const preferences = await this.preferenceService.getUserPreferences(notification.userId);
+            const preferences = await this.preferenceService.getUserPreferences(
+              notification.userId,
+            );
             const eventType = ((notification.metadata as any)?.eventType as string) || null;
             const typePreference = preferences.find(
-              p => p.notificationType === notification.type && (p.eventType === eventType || p.eventType === null),
+              p =>
+                p.notificationType === notification.type &&
+                (p.eventType === eventType || p.eventType === null),
             );
             if (typePreference && !typePreference.enabled) {
-              this.logger.log(`Batch: skipping notification for user ${notification.userId} (preference disabled)`);
+              this.logger.log(
+                `Batch: skipping notification for user ${notification.userId} (preference disabled)`,
+              );
               continue;
             }
           } catch (err) {

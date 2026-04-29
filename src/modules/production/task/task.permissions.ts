@@ -62,52 +62,76 @@ type FieldDomain = keyof typeof TASK_FIELD_DOMAINS;
  */
 export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldDomain[]>> = {
   [SECTOR_PRIVILEGES.FINANCIAL]: [
-    'quote', 'financialDocs', 'identity', 'serviceOrders',
+    'quote',
+    'financialDocs',
+    'identity',
+    'serviceOrders',
     // Passthrough: form sends these to preserve existing state
-    'artworks', 'baseFiles', 'truck',
+    'artworks',
+    'baseFiles',
+    'truck',
     'meta',
   ],
 
   [SECTOR_PRIVILEGES.COMMERCIAL]: [
-    'identity', 'dates', 'status', 'commission', 'truck', 'responsibles',
-    'artworks', 'paint', 'serviceOrders', 'quote',
-    'baseFiles', 'projectFiles', 'observation',
+    'identity',
+    'dates',
+    'status',
+    'commission',
+    'truck',
+    'responsibles',
+    'artworks',
+    'paint',
+    'serviceOrders',
+    'quote',
+    'baseFiles',
+    'projectFiles',
+    'observation',
     'meta',
   ],
 
-  [SECTOR_PRIVILEGES.PRODUCTION]: [
-    'status', 'observation', 'cuts', 'commission',
-    'meta',
-  ],
+  [SECTOR_PRIVILEGES.PRODUCTION]: ['status', 'observation', 'cuts', 'commission', 'meta'],
 
-  [SECTOR_PRIVILEGES.DESIGNER]: [
-    'artworks', 'paint', 'cuts', 'serviceOrders', 'baseFiles',
-    'meta',
-  ],
+  [SECTOR_PRIVILEGES.DESIGNER]: ['artworks', 'paint', 'cuts', 'serviceOrders', 'baseFiles', 'meta'],
 
   [SECTOR_PRIVILEGES.LOGISTIC]: [
-    'identity', 'dates', 'status', 'truck', 'serviceOrders',
-    'responsibles', 'baseFiles', 'projectFiles',
-    'checkinFiles', 'checkoutFiles', 'serviceOrderFiles', 'observation',
+    'identity',
+    'dates',
+    'status',
+    'truck',
+    'serviceOrders',
+    'responsibles',
+    'baseFiles',
+    'projectFiles',
+    'checkinFiles',
+    'checkoutFiles',
+    'serviceOrderFiles',
+    'observation',
     // Passthrough: form sends these to preserve existing state
     'artworks',
     'meta',
   ],
 
   [SECTOR_PRIVILEGES.PRODUCTION_MANAGER]: [
-    'identity', 'dates', 'status', 'truck', 'serviceOrders',
-    'responsibles', 'baseFiles', 'projectFiles',
-    'checkinFiles', 'checkoutFiles', 'serviceOrderFiles', 'observation',
+    'identity',
+    'dates',
+    'status',
+    'truck',
+    'serviceOrders',
+    'responsibles',
+    'baseFiles',
+    'projectFiles',
+    'checkinFiles',
+    'checkoutFiles',
+    'serviceOrderFiles',
+    'observation',
     'sector',
     // Passthrough: form sends these to preserve existing state
     'artworks',
     'meta',
   ],
 
-  [SECTOR_PRIVILEGES.WAREHOUSE]: [
-    'cuts',
-    'meta',
-  ],
+  [SECTOR_PRIVILEGES.WAREHOUSE]: ['cuts', 'meta'],
 };
 
 /** Portuguese labels for error messages */

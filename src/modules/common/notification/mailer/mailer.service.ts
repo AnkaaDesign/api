@@ -167,8 +167,7 @@ export class MailerService {
 
     this.templatesPath = path.join(baseDir, 'templates', 'email', 'notification');
     this.trackingBaseUrl =
-      this.configService.get<string>('API_URL') ||
-      `http://localhost:${process.env.PORT || '3030'}`;
+      this.configService.get<string>('API_URL') || `http://localhost:${process.env.PORT || '3030'}`;
     this.unsubscribeBaseUrl =
       this.configService.get<string>('WEB_APP_URL') ||
       this.configService.get<string>('CLIENT_HOST') ||

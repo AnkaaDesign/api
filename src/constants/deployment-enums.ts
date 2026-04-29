@@ -3,7 +3,12 @@
 // are defined in enums.ts (the canonical source). This file only defines DEPLOYMENT_TYPE
 // which is unique to this file.
 
-export { DEPLOYMENT_STATUS, DEPLOYMENT_ENVIRONMENT, DEPLOYMENT_TRIGGER, DEPLOYMENT_APPLICATION } from "./enums";
+export {
+  DEPLOYMENT_STATUS,
+  DEPLOYMENT_ENVIRONMENT,
+  DEPLOYMENT_TRIGGER,
+  DEPLOYMENT_APPLICATION,
+} from './enums';
 
 export enum DEPLOYMENT_TYPE {
   FULL = 'FULL',

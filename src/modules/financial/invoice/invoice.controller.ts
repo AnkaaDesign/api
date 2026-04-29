@@ -26,7 +26,13 @@ import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Public } from '@modules/common/auth/decorators/public.decorator';
-import { SECTOR_PRIVILEGES, BANK_SLIP_STATUS, INSTALLMENT_STATUS, TASK_QUOTE_STATUS, TASK_QUOTE_STATUS_ORDER } from '@constants';
+import {
+  SECTOR_PRIVILEGES,
+  BANK_SLIP_STATUS,
+  INSTALLMENT_STATUS,
+  TASK_QUOTE_STATUS,
+  TASK_QUOTE_STATUS_ORDER,
+} from '@constants';
 import type { InvoiceGetManyFormData } from '@types';
 
 /**
@@ -97,11 +103,7 @@ export class InvoiceController {
    * Get all invoices for a specific task.
    */
   @Get('task/:taskId')
-  @Roles(
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.COMMERCIAL,
-  )
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findByTaskId(@Param('taskId', ParseUUIDPipe) taskId: string) {
     return this.invoiceService.findByTaskId(taskId);
   }
@@ -112,9 +114,7 @@ export class InvoiceController {
    */
   @Get('customer/:customerId')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
-  async findByCustomerId(
-    @Param('customerId', ParseUUIDPipe) customerId: string,
-  ) {
+  async findByCustomerId(@Param('customerId', ParseUUIDPipe) customerId: string) {
     return this.invoiceService.findByCustomerId(customerId);
   }
 
@@ -127,10 +127,7 @@ export class InvoiceController {
   @Put(':id/cancel')
   @HttpCode(HttpStatus.OK)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
-  async cancelInvoice(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { reason?: string },
-  ) {
+  async cancelInvoice(@Param('id', ParseUUIDPipe) id: string, @Body() body: { reason?: string }) {
     return this.invoiceService.cancelInvoice(id, body.reason);
   }
 
@@ -153,9 +150,7 @@ export class InvoiceController {
     });
 
     if (!bankSlip) {
-      throw new NotFoundException(
-        `Boleto não encontrado para a parcela ${installmentId}.`,
-      );
+      throw new NotFoundException(`Boleto não encontrado para a parcela ${installmentId}.`);
     }
 
     if (
@@ -217,7 +212,9 @@ export class InvoiceController {
         await this.invoiceGenerationService.registerBankSlipsAtSicredi([invoiceId]);
         this.logger.log(`[BOLETO] Regenerated boleto for installment ${installmentId}`);
       } catch (error) {
-        this.logger.error(`[BOLETO] Failed to regenerate boleto for installment ${installmentId}: ${error}`);
+        this.logger.error(
+          `[BOLETO] Failed to regenerate boleto for installment ${installmentId}: ${error}`,
+        );
         // The bank slip is already in CREATING/ERROR state — scheduler will retry as fallback
       }
     }
@@ -232,23 +229,17 @@ export class InvoiceController {
   @Put(':installmentId/boleto/cancel')
   @HttpCode(HttpStatus.OK)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
-  async cancelBoleto(
-    @Param('installmentId', ParseUUIDPipe) installmentId: string,
-  ) {
+  async cancelBoleto(@Param('installmentId', ParseUUIDPipe) installmentId: string) {
     const bankSlip = await this.prisma.bankSlip.findUnique({
       where: { installmentId },
     });
 
     if (!bankSlip) {
-      throw new NotFoundException(
-        `Boleto não encontrado para a parcela ${installmentId}.`,
-      );
+      throw new NotFoundException(`Boleto não encontrado para a parcela ${installmentId}.`);
     }
 
     if (bankSlip.status === BANK_SLIP_STATUS.PAID) {
-      throw new BadRequestException(
-        'Não é possível cancelar um boleto já pago.',
-      );
+      throw new BadRequestException('Não é possível cancelar um boleto já pago.');
     }
 
     if (bankSlip.status === BANK_SLIP_STATUS.CANCELLED) {
@@ -258,8 +249,7 @@ export class InvoiceController {
     // Cancel boleto at Sicredi first (if it's active at the bank)
     if (
       bankSlip.nossoNumero &&
-      (bankSlip.status === BANK_SLIP_STATUS.ACTIVE ||
-        bankSlip.status === BANK_SLIP_STATUS.OVERDUE)
+      (bankSlip.status === BANK_SLIP_STATUS.ACTIVE || bankSlip.status === BANK_SLIP_STATUS.OVERDUE)
     ) {
       try {
         await this.sicrediService.cancelBoleto(bankSlip.nossoNumero);
@@ -353,7 +343,10 @@ export class InvoiceController {
         where: { invoiceId: installment.invoiceId },
       });
       const allPaid = allInstallments.every(
-        (i) => i.id === installmentId || i.status === INSTALLMENT_STATUS.PAID || i.status === 'CANCELLED',
+        i =>
+          i.id === installmentId ||
+          i.status === INSTALLMENT_STATUS.PAID ||
+          i.status === 'CANCELLED',
       );
       const paidAmount = allInstallments.reduce((sum, i) => {
         if (i.id === installmentId) return sum + Number(installment.amount);
@@ -380,18 +373,26 @@ export class InvoiceController {
           where: { customerConfig: { quoteId }, status: { not: 'CANCELLED' } },
           select: { status: true },
         });
-        const allPaidOrSettled = allQuoteInstallments.every(i => i.status === INSTALLMENT_STATUS.PAID);
+        const allPaidOrSettled = allQuoteInstallments.every(
+          i => i.status === INSTALLMENT_STATUS.PAID,
+        );
         const somePaid = allQuoteInstallments.some(i => i.status === INSTALLMENT_STATUS.PAID);
 
         if (allPaidOrSettled) {
           await this.prisma.taskQuote.update({
             where: { id: quoteId },
-            data: { status: 'SETTLED', statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.SETTLED] },
+            data: {
+              status: 'SETTLED',
+              statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.SETTLED],
+            },
           });
         } else if (somePaid) {
           await this.prisma.taskQuote.update({
             where: { id: quoteId },
-            data: { status: 'PARTIAL', statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.PARTIAL] },
+            data: {
+              status: 'PARTIAL',
+              statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.PARTIAL],
+            },
           });
         }
       }
@@ -508,21 +509,20 @@ export class InvoiceController {
     });
 
     if (!bankSlip) {
-      throw new NotFoundException(
-        `Boleto não encontrado para a parcela ${installmentId}.`,
-      );
+      throw new NotFoundException(`Boleto não encontrado para a parcela ${installmentId}.`);
     }
 
-    if (bankSlip.status !== BANK_SLIP_STATUS.OVERDUE && bankSlip.status !== BANK_SLIP_STATUS.ACTIVE) {
+    if (
+      bankSlip.status !== BANK_SLIP_STATUS.OVERDUE &&
+      bankSlip.status !== BANK_SLIP_STATUS.ACTIVE
+    ) {
       throw new BadRequestException(
         'Somente boletos ativos ou vencidos podem ter a data de vencimento alterada.',
       );
     }
 
     if (!bankSlip.nossoNumero || bankSlip.nossoNumero.startsWith('TMP-')) {
-      throw new BadRequestException(
-        'Boleto ainda não foi registrado no Sicredi.',
-      );
+      throw new BadRequestException('Boleto ainda não foi registrado no Sicredi.');
     }
 
     const formattedDate = formatDateUTC(newDate);
@@ -584,18 +584,13 @@ export class InvoiceController {
     });
 
     if (!bankSlip) {
-      throw new NotFoundException(
-        `Boleto não encontrado para a parcela ${installmentId}.`,
-      );
+      throw new NotFoundException(`Boleto não encontrado para a parcela ${installmentId}.`);
     }
 
     // If we have a local PDF file, serve it
     if (bankSlip.pdfFile) {
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        `inline; filename="boleto-${bankSlip.nossoNumero}.pdf"`,
-      );
+      res.setHeader('Content-Disposition', `inline; filename="boleto-${bankSlip.nossoNumero}.pdf"`);
       return res.sendFile(bankSlip.pdfFile.path);
     }
 
@@ -607,9 +602,7 @@ export class InvoiceController {
     }
 
     if (bankSlip.status === 'CANCELLED') {
-      throw new NotFoundException(
-        'Este boleto foi cancelado. O PDF não está mais disponível.',
-      );
+      throw new NotFoundException('Este boleto foi cancelado. O PDF não está mais disponível.');
     }
 
     // Otherwise, fetch from Sicredi on-the-fly using linhaDigitavel
@@ -620,15 +613,10 @@ export class InvoiceController {
     }
 
     try {
-      const pdfBuffer = await this.sicrediService.downloadBoletoPdf(
-        bankSlip.digitableLine,
-      );
+      const pdfBuffer = await this.sicrediService.downloadBoletoPdf(bankSlip.digitableLine);
 
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        `inline; filename="boleto-${bankSlip.nossoNumero}.pdf"`,
-      );
+      res.setHeader('Content-Disposition', `inline; filename="boleto-${bankSlip.nossoNumero}.pdf"`);
       return res.send(pdfBuffer);
     } catch (error) {
       this.logger.error(
@@ -642,9 +630,7 @@ export class InvoiceController {
         );
       }
 
-      throw new NotFoundException(
-        'Não foi possível obter o PDF do boleto junto ao Sicredi.',
-      );
+      throw new NotFoundException('Não foi possível obter o PDF do boleto junto ao Sicredi.');
     }
   }
 
@@ -667,7 +653,7 @@ export class InvoiceController {
     });
 
     // Trigger emission immediately (fire-and-forget, scheduler is fallback)
-    this.nfseEmissionScheduler.emitPendingNfses().catch((err) => {
+    this.nfseEmissionScheduler.emitPendingNfses().catch(err => {
       this.logger.warn(`[NFSE_EMIT] Immediate emission failed (scheduler will retry): ${err}`);
     });
 
@@ -713,15 +699,11 @@ export class InvoiceController {
     }
 
     if (nfseDoc.status !== 'AUTHORIZED') {
-      throw new BadRequestException(
-        'Somente NFS-e autorizadas podem ser canceladas.',
-      );
+      throw new BadRequestException('Somente NFS-e autorizadas podem ser canceladas.');
     }
 
     if (!body.reason?.trim()) {
-      throw new BadRequestException(
-        'Motivo do cancelamento é obrigatório.',
-      );
+      throw new BadRequestException('Motivo do cancelamento é obrigatório.');
     }
 
     const reasonCode = body.reasonCode ?? 1;
@@ -740,12 +722,8 @@ export class InvoiceController {
       const errMsg =
         (error as any)?.response?.data?.message ||
         (error instanceof Error ? error.message : String(error));
-      this.logger.error(
-        `Failed to cancel NFS-e for invoice ${invoiceId}: ${errMsg}`,
-      );
-      throw new BadRequestException(
-        `Falha ao cancelar NFS-e: ${errMsg}`,
-      );
+      this.logger.error(`Failed to cancel NFS-e for invoice ${invoiceId}: ${errMsg}`);
+      throw new BadRequestException(`Falha ao cancelar NFS-e: ${errMsg}`);
     }
   }
 
@@ -771,28 +749,17 @@ export class InvoiceController {
     }
 
     if (!nfseDoc.elotechNfseId) {
-      throw new NotFoundException(
-        'PDF da NFS-e não disponível (NFS-e ainda não autorizada).',
-      );
+      throw new NotFoundException('PDF da NFS-e não disponível (NFS-e ainda não autorizada).');
     }
 
     try {
-      const pdfBuffer = await this.municipalNfseService.getNfsePdf(
-        nfseDoc.elotechNfseId,
-      );
+      const pdfBuffer = await this.municipalNfseService.getNfsePdf(nfseDoc.elotechNfseId);
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        `inline; filename="nfse-${nfseDoc.elotechNfseId}.pdf"`,
-      );
+      res.setHeader('Content-Disposition', `inline; filename="nfse-${nfseDoc.elotechNfseId}.pdf"`);
       return res.send(pdfBuffer);
     } catch (error) {
-      this.logger.error(
-        `Failed to fetch NFS-e PDF for invoice ${invoiceId}: ${error}`,
-      );
-      throw new NotFoundException(
-        'Não foi possível obter o PDF da NFS-e.',
-      );
+      this.logger.error(`Failed to fetch NFS-e PDF for invoice ${invoiceId}: ${error}`);
+      throw new NotFoundException('Não foi possível obter o PDF da NFS-e.');
     }
   }
 
@@ -866,7 +833,9 @@ export class InvoiceController {
       res.setHeader('Cache-Control', 'public, max-age=3600');
       return res.send(pdfBuffer);
     } catch (error) {
-      this.logger.error(`Failed to fetch public boleto PDF for installment ${installmentId}: ${error}`);
+      this.logger.error(
+        `Failed to fetch public boleto PDF for installment ${installmentId}: ${error}`,
+      );
       throw new NotFoundException('Não foi possível obter o PDF do boleto.');
     }
   }

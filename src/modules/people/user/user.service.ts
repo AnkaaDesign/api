@@ -1447,7 +1447,9 @@ export class UserService {
                   where: { id: ledSector.id },
                   data: { leaderId: null },
                 });
-                this.logger.log(`Batch: User ${item.id} removed as leader of sector ${ledSector.id}`);
+                this.logger.log(
+                  `Batch: User ${item.id} removed as leader of sector ${ledSector.id}`,
+                );
               }
             }
           }
@@ -1980,7 +1982,11 @@ export class UserService {
             // Find the next position in the hierarchy (lowest hierarchy value greater than current).
             // Hierarchy convention: higher number = above (more senior).
             let nextPosition: { id: string; name: string; hierarchy: number | null } | null = null;
-            if (user.position && user.position.hierarchy !== null && user.position.hierarchy !== undefined) {
+            if (
+              user.position &&
+              user.position.hierarchy !== null &&
+              user.position.hierarchy !== undefined
+            ) {
               nextPosition = await tx.position.findFirst({
                 where: {
                   hierarchy: { gt: user.position.hierarchy },

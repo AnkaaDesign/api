@@ -500,13 +500,7 @@ export class CustomerService {
             const customerNameForLogo = data.fantasyName || existingCustomer.fantasyName;
 
             // Process new logo file
-            logoId = await this.processLogoFile(
-              logoFile,
-              id,
-              customerNameForLogo,
-              tx,
-              userId,
-            );
+            logoId = await this.processLogoFile(logoFile, id, customerNameForLogo, tx, userId);
           } catch (fileError: any) {
             this.logger.error(`Logo file processing failed: ${fileError.message}`);
             if (existsSync(logoFile.path)) {

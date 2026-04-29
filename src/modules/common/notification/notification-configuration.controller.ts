@@ -188,16 +188,14 @@ export class NotificationConfigurationController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Create notification configuration (Admin)',
-    description: 'Create a new notification configuration with channel settings and targeting rules',
+    description:
+      'Create a new notification configuration with channel settings and targeting rules',
   })
   @ApiBody({ description: 'Configuration data' })
   @ApiResponse({ status: 201, description: 'Configuration created successfully' })
   @ApiResponse({ status: 400, description: 'Bad request - validation error' })
   @ApiResponse({ status: 409, description: 'Configuration key already exists' })
-  async create(
-    @Body() dto: CreateNotificationConfigurationDto,
-    @UserId() userId: string,
-  ) {
+  async create(@Body() dto: CreateNotificationConfigurationDto, @UserId() userId: string) {
     try {
       this.logger.log(`Creating notification configuration: ${dto.key}`, { userId });
 
@@ -207,13 +205,11 @@ export class NotificationConfigurationController {
       });
 
       if (existingConfig) {
-        throw new BadRequestException(
-          `Configuração com a chave "${dto.key}" já existe.`,
-        );
+        throw new BadRequestException(`Configuração com a chave "${dto.key}" já existe.`);
       }
 
       // Create configuration with related data
-      const configuration = await this.prisma.$transaction(async (tx) => {
+      const configuration = await this.prisma.$transaction(async tx => {
         // Create the main configuration
         const config = await tx.notificationConfiguration.create({
           data: {
@@ -235,7 +231,7 @@ export class NotificationConfigurationController {
         // Create channel configurations if provided
         if (dto.channels && dto.channels.length > 0) {
           await tx.notificationChannelConfig.createMany({
-            data: dto.channels.map((channel) => ({
+            data: dto.channels.map(channel => ({
               configurationId: config.id,
               channel: channel.channel,
               enabled: channel.enabled,
@@ -336,7 +332,8 @@ export class NotificationConfigurationController {
   @ApiQuery({
     name: 'sortBy',
     required: false,
-    description: 'Sort field (key, name, notificationType, eventType, importance, enabled, createdAt, updatedAt)',
+    description:
+      'Sort field (key, name, notificationType, eventType, importance, enabled, createdAt, updatedAt)',
   })
   @ApiQuery({
     name: 'sortOrder',
@@ -367,7 +364,7 @@ export class NotificationConfigurationController {
       }
 
       if (enabled !== undefined) {
-        where.enabled = enabled === true || enabled === 'true' as any;
+        where.enabled = enabled === true || enabled === ('true' as any);
       }
 
       if (importance) {
@@ -395,10 +392,20 @@ export class NotificationConfigurationController {
       const skip = (pageNum - 1) * limitNum;
 
       // Build orderBy from sortBy/sortOrder params
-      const allowedSortFields = ['key', 'name', 'notificationType', 'eventType', 'importance', 'enabled', 'createdAt', 'updatedAt'];
-      const orderBy = sortBy && allowedSortFields.includes(sortBy)
-        ? { [sortBy]: sortOrder || 'asc' }
-        : { createdAt: 'desc' as const };
+      const allowedSortFields = [
+        'key',
+        'name',
+        'notificationType',
+        'eventType',
+        'importance',
+        'enabled',
+        'createdAt',
+        'updatedAt',
+      ];
+      const orderBy =
+        sortBy && allowedSortFields.includes(sortBy)
+          ? { [sortBy]: sortOrder || 'asc' }
+          : { createdAt: 'desc' as const };
       const [configurations, total] = await Promise.all([
         this.prisma.notificationConfiguration.findMany({
           where,
@@ -461,9 +468,7 @@ export class NotificationConfigurationController {
       });
 
       if (!configuration) {
-        throw new NotFoundException(
-          `Configuração com a chave "${key}" não encontrada.`,
-        );
+        throw new NotFoundException(`Configuração com a chave "${key}" não encontrada.`);
       }
 
       return {
@@ -511,9 +516,7 @@ export class NotificationConfigurationController {
       });
 
       if (!existingConfig) {
-        throw new NotFoundException(
-          'Configuração de notificação não encontrada.',
-        );
+        throw new NotFoundException('Configuração de notificação não encontrada.');
       }
 
       // Check for key uniqueness if being changed
@@ -523,9 +526,7 @@ export class NotificationConfigurationController {
         });
 
         if (keyExists) {
-          throw new BadRequestException(
-            `Configuração com a chave "${dto.key}" já existe.`,
-          );
+          throw new BadRequestException(`Configuração com a chave "${dto.key}" já existe.`);
         }
       }
 
@@ -627,10 +628,7 @@ export class NotificationConfigurationController {
   @ApiParam({ name: 'id', description: 'Configuration UUID' })
   @ApiResponse({ status: 200, description: 'Configuration deleted successfully' })
   @ApiResponse({ status: 404, description: 'Configuration not found' })
-  async delete(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UserId() userId: string,
-  ) {
+  async delete(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     try {
       this.logger.log(`Deleting notification configuration: ${id}`, { userId });
 
@@ -640,13 +638,11 @@ export class NotificationConfigurationController {
       });
 
       if (!existingConfig) {
-        throw new NotFoundException(
-          'Configuração de notificação não encontrada.',
-        );
+        throw new NotFoundException('Configuração de notificação não encontrada.');
       }
 
       // Delete configuration (cascades to related records)
-      await this.prisma.$transaction(async (tx) => {
+      await this.prisma.$transaction(async tx => {
         // Delete related channel configs
         await tx.notificationChannelConfig.deleteMany({
           where: { configurationId: id },
@@ -711,10 +707,7 @@ export class NotificationConfigurationController {
   @ApiBody({ description: 'Test parameters including template variables' })
   @ApiResponse({ status: 200, description: 'Test results returned successfully' })
   @ApiResponse({ status: 404, description: 'Configuration not found' })
-  async testConfiguration(
-    @Param('key') key: string,
-    @Body() testDto: TestConfigurationDto,
-  ) {
+  async testConfiguration(@Param('key') key: string, @Body() testDto: TestConfigurationDto) {
     try {
       // Find configuration
       const configuration = await this.prisma.notificationConfiguration.findUnique({
@@ -727,9 +720,7 @@ export class NotificationConfigurationController {
       });
 
       if (!configuration) {
-        throw new NotFoundException(
-          `Configuração com a chave "${key}" não encontrada.`,
-        );
+        throw new NotFoundException(`Configuração com a chave "${key}" não encontrada.`);
       }
 
       // Determine target users
@@ -825,7 +816,7 @@ export class NotificationConfigurationController {
 
       // Build channel information per user
       const recipientDetails = await Promise.all(
-        targetUsers.map(async (user) => {
+        targetUsers.map(async user => {
           // Get user's notification preferences
           const preferences = await this.prisma.userNotificationPreference.findMany({
             where: {
@@ -836,11 +827,9 @@ export class NotificationConfigurationController {
 
           // Determine which channels would be used
           const channels = configuration.channelConfigs
-            .filter((cc) => cc.enabled)
-            .map((cc) => {
-              const userPref = preferences.find((p) =>
-                p.channels.includes(cc.channel),
-              );
+            .filter(cc => cc.enabled)
+            .map(cc => {
+              const userPref = preferences.find(p => p.channels.includes(cc.channel));
               return {
                 channel: cc.channel,
                 mandatory: cc.mandatory,
@@ -935,9 +924,7 @@ export class NotificationConfigurationController {
       });
 
       if (!configuration) {
-        throw new NotFoundException(
-          `Configuração com a chave "${key}" não encontrada.`,
-        );
+        throw new NotFoundException(`Configuração com a chave "${key}" não encontrada.`);
       }
 
       if (!configuration.enabled && !contextDto.forceSend) {
@@ -962,7 +949,7 @@ export class NotificationConfigurationController {
           },
           select: { id: true },
         });
-        targetUserIds = users.map((u) => u.id);
+        targetUserIds = users.map(u => u.id);
       } else if (configuration.targetRule) {
         // Use target rules
         const whereClause: any = { isActive: true };
@@ -978,21 +965,19 @@ export class NotificationConfigurationController {
           where: whereClause,
           select: { id: true },
         });
-        targetUserIds = users.map((u) => u.id);
+        targetUserIds = users.map(u => u.id);
       }
 
       if (targetUserIds.length === 0) {
-        throw new BadRequestException(
-          'Nenhum destinatário encontrado para esta configuração.',
-        );
+        throw new BadRequestException('Nenhum destinatário encontrado para esta configuração.');
       }
 
       // Determine channels to use
       const channels =
         contextDto.channelOverride ||
         configuration.channelConfigs
-          .filter((cc) => cc.enabled)
-          .map((cc) => cc.channel as NOTIFICATION_CHANNEL);
+          .filter(cc => cc.enabled)
+          .map(cc => cc.channel as NOTIFICATION_CHANNEL);
 
       // Render templates
       let title = `[${configuration.notificationType}] ${configuration.eventType}`;
@@ -1036,9 +1021,7 @@ export class NotificationConfigurationController {
         throw error;
       }
       this.logger.error(`Error sending notification by configuration ${key}:`, error);
-      throw new InternalServerErrorException(
-        'Erro ao enviar notificação. Tente novamente.',
-      );
+      throw new InternalServerErrorException('Erro ao enviar notificação. Tente novamente.');
     }
   }
 

@@ -318,9 +318,7 @@ export class MessageService {
 
         // When targets are set, only count views from users in the target list
         const targetUserIds = targets.length > 0 ? new Set(targets.map(t => t.userId)) : null;
-        const views = targetUserIds
-          ? allViews.filter(v => targetUserIds.has(v.userId))
-          : allViews;
+        const views = targetUserIds ? allViews.filter(v => targetUserIds.has(v.userId)) : allViews;
 
         const stats = {
           views: views.length,
@@ -838,7 +836,7 @@ export class MessageService {
           : null;
       const relevantViews = targetUserIds
         ? (message.views || []).filter(v => targetUserIds.has(v.userId))
-        : (message.views || []);
+        : message.views || [];
 
       const totalViews = relevantViews.length;
       const uniqueViewers = new Set(relevantViews.map(v => v.userId)).size;

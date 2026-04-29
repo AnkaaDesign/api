@@ -1169,6 +1169,7 @@ model TaskQuote {
   layoutFileId        String?
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
+  billingApprovedAt   DateTime?
   budgetNumber        Int               @unique
   customForecastDays  Int?
   simultaneousTasks   Int?

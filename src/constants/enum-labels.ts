@@ -1924,7 +1924,6 @@ export const COMMISSION_STATUS_LABELS: Record<COMMISSION_STATUS, string> = {
   [COMMISSION_STATUS.SUSPENDED_COMMISSION]: 'Comissão Suspensa',
 };
 
-
 // =====================
 // Statistics Labels
 // =====================

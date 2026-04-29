@@ -3325,9 +3325,10 @@ export class ItemService {
         entityId: data.targetItemId,
         action: CHANGE_ACTION.UPDATE,
         entity: mergeDetails,
-        reason: sourceItems.length === 1
-          ? 'Mesclagem de 1 item'
-          : `Mesclagem de ${sourceItems.length} itens`,
+        reason:
+          sourceItems.length === 1
+            ? 'Mesclagem de 1 item'
+            : `Mesclagem de ${sourceItems.length} itens`,
         userId: userId || null,
         triggeredBy: CHANGE_TRIGGERED_BY.ITEM_UPDATE,
         transaction: tx,
@@ -3347,9 +3348,10 @@ export class ItemService {
 
       return {
         success: true,
-        message: sourceItems.length === 1
-          ? '1 item mesclado com sucesso'
-          : `${sourceItems.length} itens mesclados com sucesso`,
+        message:
+          sourceItems.length === 1
+            ? '1 item mesclado com sucesso'
+            : `${sourceItems.length} itens mesclados com sucesso`,
         data: updatedItem,
         targetItemId: data.targetItemId,
         mergedCount: sourceItems.length,

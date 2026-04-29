@@ -584,19 +584,23 @@ export class BonusService {
           year,
           month,
           // Pass ONLY the single user instead of all 16
-          [{
-            id: user.id,
-            name: user.name,
-            cpf: (user as any).cpf || undefined,
-            pis: (user as any).pis || undefined,
-            payrollNumber: (user as any).payrollNumber || undefined,
-          }],
+          [
+            {
+              id: user.id,
+              name: user.name,
+              cpf: (user as any).cpf || undefined,
+              pis: (user as any).pis || undefined,
+              payrollNumber: (user as any).payrollNumber || undefined,
+            },
+          ],
         );
         secullumAnalysis = secullumAnalysisMap.get(userId);
 
         if (secullumAnalysis) {
           bonusExtraPercentage = secullumAnalysis.extraPercentage;
-          bonusExtraValue = roundCurrency((roundCurrency(baseBonusValue) * bonusExtraPercentage) / 100);
+          bonusExtraValue = roundCurrency(
+            (roundCurrency(baseBonusValue) * bonusExtraPercentage) / 100,
+          );
         }
       } catch (error) {
         this.logger.error(
@@ -615,16 +619,31 @@ export class BonusService {
       finalNetBonus += bonusExtraValue;
 
       // Apply discounts in order: suspended tasks → atestado → unjustified
-      const discountsToApply: { value: number | null; percentage: number | null; order: number }[] = [];
+      const discountsToApply: { value: number | null; percentage: number | null; order: number }[] =
+        [];
 
       if (suspendedTasksDiscount > 0) {
         discountsToApply.push({ value: suspendedTasksDiscount, percentage: null, order: 1 });
       }
-      if (secullumAnalysis?.atestadoDiscountPercentage && secullumAnalysis.atestadoDiscountPercentage > 0) {
-        discountsToApply.push({ value: null, percentage: secullumAnalysis.atestadoDiscountPercentage, order: 2 });
+      if (
+        secullumAnalysis?.atestadoDiscountPercentage &&
+        secullumAnalysis.atestadoDiscountPercentage > 0
+      ) {
+        discountsToApply.push({
+          value: null,
+          percentage: secullumAnalysis.atestadoDiscountPercentage,
+          order: 2,
+        });
       }
-      if (secullumAnalysis?.unjustifiedDiscountPercentage && secullumAnalysis.unjustifiedDiscountPercentage > 0) {
-        discountsToApply.push({ value: null, percentage: secullumAnalysis.unjustifiedDiscountPercentage, order: 3 });
+      if (
+        secullumAnalysis?.unjustifiedDiscountPercentage &&
+        secullumAnalysis.unjustifiedDiscountPercentage > 0
+      ) {
+        discountsToApply.push({
+          value: null,
+          percentage: secullumAnalysis.unjustifiedDiscountPercentage,
+          order: 3,
+        });
       }
 
       discountsToApply.sort((a, b) => a.order - b.order);
@@ -1777,8 +1796,10 @@ export class BonusService {
       totalWeightedTasks,
       totalSuspendedTasks,
       eligibleUsers,
-      averageTasksPerEmployee: eligibleUsers > 0 ? roundAverage(totalWeightedTasks / eligibleUsers) : 0,
-      rawAverageTasksPerEmployee: eligibleUsers > 0 ? roundAverage(totalRawTaskCount / eligibleUsers) : 0,
+      averageTasksPerEmployee:
+        eligibleUsers > 0 ? roundAverage(totalWeightedTasks / eligibleUsers) : 0,
+      rawAverageTasksPerEmployee:
+        eligibleUsers > 0 ? roundAverage(totalRawTaskCount / eligibleUsers) : 0,
     };
   }
 
@@ -3053,13 +3074,15 @@ export class BonusService {
     return {
       averageTasksPerUser: input.averageTasksPerUser,
       salaryRange,
-      config: firstBreakdown?.config ?? this.bonusCalculationService.calculate({
-        salary: salaryRange.min,
-        performanceLevel: 1,
-        averageTasksPerUser: input.averageTasksPerUser,
-        salaryRange,
-        config: input.config,
-      }).config,
+      config:
+        firstBreakdown?.config ??
+        this.bonusCalculationService.calculate({
+          salary: salaryRange.min,
+          performanceLevel: 1,
+          averageTasksPerUser: input.averageTasksPerUser,
+          salaryRange,
+          config: input.config,
+        }).config,
       anchor: firstBreakdown?.anchor ?? 0,
       users: userResults.map(r => ({
         id: r.id,

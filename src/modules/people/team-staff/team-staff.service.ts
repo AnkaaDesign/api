@@ -290,9 +290,7 @@ export class TeamStaffService {
     // Validate leader and get ledSectorId from database
     const ledSectorId = await this.validateTeamLeader(userId);
 
-    this.logger.log(
-      `Team leader ${userId} accessing calculations for led sector ${ledSectorId}`,
-    );
+    this.logger.log(`Team leader ${userId} accessing calculations for led sector ${ledSectorId}`);
 
     // Get all users in the led sector with CPF/PIS/PayrollNumber for Secullum lookup
     const teamMembers = await this.prisma.user.findMany({
@@ -402,9 +400,7 @@ export class TeamStaffService {
     // Validate leader and get ledSectorId from database
     const ledSectorId = await this.validateTeamLeader(userId);
 
-    this.logger.log(
-      `Team leader ${userId} accessing borrows from led sector ${ledSectorId}`,
-    );
+    this.logger.log(`Team leader ${userId} accessing borrows from led sector ${ledSectorId}`);
 
     // Force filter by led sector through user relation
     const secureQuery: BorrowGetManyFormData = {
@@ -435,9 +431,7 @@ export class TeamStaffService {
     // Validate leader and get ledSectorId from database
     const ledSectorId = await this.validateTeamLeader(userId);
 
-    this.logger.log(
-      `Team leader ${userId} accessing vacations from led sector ${ledSectorId}`,
-    );
+    this.logger.log(`Team leader ${userId} accessing vacations from led sector ${ledSectorId}`);
 
     // Force filter by led sector through user relation
     const secureQuery: VacationGetManyFormData = {
@@ -499,9 +493,7 @@ export class TeamStaffService {
     // Validate leader and get ledSectorId from database
     const ledSectorId = await this.validateTeamLeader(userId);
 
-    this.logger.log(
-      `Team leader ${userId} accessing activities from led sector ${ledSectorId}`,
-    );
+    this.logger.log(`Team leader ${userId} accessing activities from led sector ${ledSectorId}`);
 
     // Force filter by led sector through user relation
     const secureQuery: ActivityGetManyFormData = {
@@ -532,9 +524,7 @@ export class TeamStaffService {
     // Validate leader and get ledSectorId from database
     const ledSectorId = await this.validateTeamLeader(userId);
 
-    this.logger.log(
-      `Team leader ${userId} accessing warnings from led sector ${ledSectorId}`,
-    );
+    this.logger.log(`Team leader ${userId} accessing warnings from led sector ${ledSectorId}`);
 
     // Force filter by led sector through collaborator relation
     const secureQuery: WarningGetManyFormData = {

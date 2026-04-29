@@ -264,7 +264,9 @@ export class NotificationConfigurationService {
         });
 
         // Create channel configurations for default and mandatory channels
-        const allChannels = [...new Set([...dto.defaultChannels, ...(dto.mandatoryChannels || [])])];
+        const allChannels = [
+          ...new Set([...dto.defaultChannels, ...(dto.mandatoryChannels || [])]),
+        ];
         for (const channel of allChannels) {
           await tx.notificationChannelConfig.create({
             data: {
@@ -396,8 +398,10 @@ export class NotificationConfigurationService {
           });
 
           // Create new channel configs
-          const defaultChannels = dto.defaultChannels || this.getDefaultChannelsFromConfigs(existing.channelConfigs);
-          const mandatoryChannels = dto.mandatoryChannels || this.getMandatoryChannelsFromConfigs(existing.channelConfigs);
+          const defaultChannels =
+            dto.defaultChannels || this.getDefaultChannelsFromConfigs(existing.channelConfigs);
+          const mandatoryChannels =
+            dto.mandatoryChannels || this.getMandatoryChannelsFromConfigs(existing.channelConfigs);
           const allChannels = [...new Set([...defaultChannels, ...mandatoryChannels])];
 
           for (const channel of allChannels) {
@@ -742,10 +746,7 @@ export class NotificationConfigurationService {
    * @param user - User to resolve channels for
    * @returns Array of channels to use
    */
-  async resolveChannelsForUser(
-    configKey: string,
-    user: User,
-  ): Promise<NOTIFICATION_CHANNEL[]> {
+  async resolveChannelsForUser(configKey: string, user: User): Promise<NOTIFICATION_CHANNEL[]> {
     this.logger.debug('Resolving channels for user', { configKey, userId: user.id });
 
     try {
@@ -772,7 +773,9 @@ export class NotificationConfigurationService {
         // User has preferences
         if (!userPreference.enabled) {
           // User disabled notifications, but still include mandatory
-          this.logger.debug(`User ${user.id} disabled notifications for ${configKey}, using mandatory only`);
+          this.logger.debug(
+            `User ${user.id} disabled notifications for ${configKey}, using mandatory only`,
+          );
           return Array.from(channels);
         }
 
@@ -810,10 +813,7 @@ export class NotificationConfigurationService {
    * @param context - Notification context
    * @returns Array of user IDs to receive the notification
    */
-  async resolveRecipients(
-    configKey: string,
-    context: NotificationContext,
-  ): Promise<string[]> {
+  async resolveRecipients(configKey: string, context: NotificationContext): Promise<string[]> {
     this.logger.debug('Resolving recipients', { configKey, context });
 
     try {
@@ -1012,7 +1012,9 @@ export class NotificationConfigurationService {
     timestamps = timestamps.filter(ts => ts >= startOfDay);
 
     if (timestamps.length >= maxPerDay) {
-      this.logger.debug(`Frequency limit reached for ${userId} and ${configKey}: ${timestamps.length}/${maxPerDay}`);
+      this.logger.debug(
+        `Frequency limit reached for ${userId} and ${configKey}: ${timestamps.length}/${maxPerDay}`,
+      );
       return {
         allowed: false,
         reason: `Maximum notifications per day (${maxPerDay}) reached`,
@@ -1094,9 +1096,7 @@ export class NotificationConfigurationService {
       rendered.email = {
         subject: this.renderTemplate(templates.email.subject, context),
         body: this.renderTemplate(templates.email.body, context),
-        html: templates.email.html
-          ? this.renderTemplate(templates.email.html, context)
-          : undefined,
+        html: templates.email.html ? this.renderTemplate(templates.email.html, context) : undefined,
       };
     }
 
@@ -1231,9 +1231,7 @@ export class NotificationConfigurationService {
         }
       : null;
 
-    const metadata = targetRule
-      ? { ...baseMetadata, targetRule }
-      : baseMetadata;
+    const metadata = targetRule ? { ...baseMetadata, targetRule } : baseMetadata;
 
     return {
       id: entity.id,

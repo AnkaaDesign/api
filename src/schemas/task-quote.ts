@@ -488,7 +488,9 @@ export const taskQuoteServiceCreateNestedSchema = z.object({
 
 // TaskQuote nested schema for task create/update (matches Prisma TaskQuote model)
 export const taskQuoteCreateNestedSchema = z.object({
-  services: z.array(taskQuoteServiceCreateNestedSchema).min(1, 'Pelo menos um servico e obrigatorio'),
+  services: z
+    .array(taskQuoteServiceCreateNestedSchema)
+    .min(1, 'Pelo menos um servico e obrigatorio'),
   expiresAt: z.coerce.date({
     errorMap: () => ({ message: 'Data de validade invalida' }),
   }),
@@ -508,7 +510,9 @@ export const taskQuoteCreateNestedSchema = z.object({
   layoutFileId: z.string().uuid().optional().nullable(),
 
   simultaneousTasks: simultaneousTasksSchema,
-  customerConfigs: z.array(taskQuoteCustomerConfigCreateNestedSchema).min(1, 'Pelo menos uma configuracao de cliente e obrigatoria'),
+  customerConfigs: z
+    .array(taskQuoteCustomerConfigCreateNestedSchema)
+    .min(1, 'Pelo menos uma configuracao de cliente e obrigatoria'),
 });
 
 // =====================
@@ -537,7 +541,9 @@ export const taskQuoteCreateSchema = z.object({
   layoutFileId: z.string().uuid().optional().nullable(),
 
   simultaneousTasks: simultaneousTasksSchema,
-  customerConfigs: z.array(taskQuoteCustomerConfigCreateNestedSchema).min(1, 'Pelo menos uma configuracao de cliente e obrigatoria'),
+  customerConfigs: z
+    .array(taskQuoteCustomerConfigCreateNestedSchema)
+    .min(1, 'Pelo menos uma configuracao de cliente e obrigatoria'),
 });
 
 export const taskQuoteUpdateSchema = z.object({
@@ -604,6 +610,10 @@ export type TaskQuoteGetManyFormData = z.infer<typeof taskQuoteGetManySchema>;
 export type TaskQuoteInclude = z.infer<typeof taskQuoteIncludeSchema>;
 export type TaskQuoteOrderBy = z.infer<typeof taskQuoteOrderBySchema>;
 export type TaskQuoteWhere = z.infer<typeof taskQuoteWhereSchema>;
-export type TaskQuoteServiceCreateNestedFormData = z.infer<typeof taskQuoteServiceCreateNestedSchema>;
-export type TaskQuoteCustomerConfigCreateNestedFormData = z.infer<typeof taskQuoteCustomerConfigCreateNestedSchema>;
+export type TaskQuoteServiceCreateNestedFormData = z.infer<
+  typeof taskQuoteServiceCreateNestedSchema
+>;
+export type TaskQuoteCustomerConfigCreateNestedFormData = z.infer<
+  typeof taskQuoteCustomerConfigCreateNestedSchema
+>;
 export type TaskQuoteCreateNestedFormData = z.infer<typeof taskQuoteCreateNestedSchema>;

@@ -241,7 +241,10 @@ export class FileService {
       taskProjectFiles: 'Projetos',
     };
 
-    const pathPrefix = join('Clientes', sanitizedName, folderMapping[fileContext]).replace(/\\/g, '/');
+    const pathPrefix = join('Clientes', sanitizedName, folderMapping[fileContext]).replace(
+      /\\/g,
+      '/',
+    );
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -618,18 +621,18 @@ export class FileService {
               }
             } else {
               // Resolve file path before attempting generation
-              const absoluteFilePath = file.path.startsWith('/')
-                ? file.path
-                : resolve(file.path);
+              const absoluteFilePath = file.path.startsWith('/') ? file.path : resolve(file.path);
 
               // Guard: if the source file is gone from disk, skip generation entirely
               // and return 404 at WARN level — no ERROR noise for a known-missing file
               if (!existsSync(absoluteFilePath)) {
                 this.logger.warn(
                   `Source file missing on disk for thumbnail request (file ID: ${file.id}, path: ${absoluteFilePath}). ` +
-                  `The file record exists in the database but the physical file was deleted or moved.`,
+                    `The file record exists in the database but the physical file was deleted or moved.`,
                 );
-                throw new NotFoundException('Arquivo de origem não encontrado. O arquivo pode ter sido movido ou excluído.');
+                throw new NotFoundException(
+                  'Arquivo de origem não encontrado. O arquivo pode ter sido movido ou excluído.',
+                );
               }
 
               // Start new generation with lock
@@ -686,9 +689,7 @@ export class FileService {
                 }
               } catch (genError: any) {
                 if (genError instanceof NotFoundException) throw genError;
-                this.logger.warn(
-                  `Thumbnail generation error for ${file.id}: ${genError.message}`,
-                );
+                this.logger.warn(`Thumbnail generation error for ${file.id}: ${genError.message}`);
                 throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
               }
             }

@@ -2,11 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 import { SicrediAuthService } from '@modules/integrations/sicredi/sicredi-auth.service';
-import {
-  INVOICE_STATUS,
-  INSTALLMENT_STATUS,
-  BANK_SLIP_STATUS,
-} from '@constants';
+import { INVOICE_STATUS, INSTALLMENT_STATUS, BANK_SLIP_STATUS } from '@constants';
 import type { Invoice } from '@types';
 
 /**
@@ -42,6 +38,7 @@ export class InvoiceGenerationService {
   async generateInvoicesForTask(
     taskId: string,
     userId: string,
+    approvalDate?: Date,
   ): Promise<string[]> {
     this.logger.log(`[INVOICE_GEN] ====== Starting invoice generation for task ${taskId} ======`);
 
@@ -78,15 +75,15 @@ export class InvoiceGenerationService {
 
     if (!task.quote) {
       this.logger.error(`[INVOICE_GEN] No quote found for task ${taskId}`);
-      throw new NotFoundException(
-        `Orçamento não encontrado para a tarefa ${taskId}.`,
-      );
+      throw new NotFoundException(`Orçamento não encontrado para a tarefa ${taskId}.`);
     }
 
     const quote = task.quote;
     const customerConfigs = quote.customerConfigs;
 
-    this.logger.log(`[INVOICE_GEN] Quote ${quote.id}: ${customerConfigs?.length ?? 0} customer config(s)`);
+    this.logger.log(
+      `[INVOICE_GEN] Quote ${quote.id}: ${customerConfigs?.length ?? 0} customer config(s)`,
+    );
 
     if (!customerConfigs || customerConfigs.length === 0) {
       this.logger.warn(
@@ -97,7 +94,7 @@ export class InvoiceGenerationService {
 
     const invoiceIds: string[] = [];
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async tx => {
       for (const config of customerConfigs) {
         // Check if an invoice already exists for this customerConfig
         const existingInvoice = await tx.invoice.findUnique({
@@ -113,7 +110,9 @@ export class InvoiceGenerationService {
         }
 
         const totalAmount = Number(config.total);
-        this.logger.log(`[INVOICE_GEN] CustomerConfig ${config.id}: customer=${config.customer?.fantasyName} (${config.customer?.cnpj}), total=${totalAmount}`);
+        this.logger.log(
+          `[INVOICE_GEN] CustomerConfig ${config.id}: customer=${config.customer?.fantasyName} (${config.customer?.cnpj}), total=${totalAmount}`,
+        );
 
         // Generate installments from payment condition and task.finishedAt
         const finishedAt = task.finishedAt;
@@ -126,8 +125,17 @@ export class InvoiceGenerationService {
 
         const paymentConfig = (config as any).paymentConfig ?? null;
         const generatedInstallments = paymentConfig
-          ? this.generateInstallmentsFromPaymentConfig(paymentConfig, finishedAt, totalAmount)
-          : this.generateInstallmentsFromCondition(config.paymentCondition || null, finishedAt, totalAmount);
+          ? this.generateInstallmentsFromPaymentConfig(
+              paymentConfig,
+              finishedAt,
+              totalAmount,
+              approvalDate,
+            )
+          : this.generateInstallmentsFromCondition(
+              config.paymentCondition || null,
+              finishedAt,
+              totalAmount,
+            );
 
         if (generatedInstallments.length === 0) {
           this.logger.warn(
@@ -136,7 +144,9 @@ export class InvoiceGenerationService {
           continue;
         }
 
-        this.logger.log(`[INVOICE_GEN] Generated ${generatedInstallments.length} installment(s) for customerConfig ${config.id}`);
+        this.logger.log(
+          `[INVOICE_GEN] Generated ${generatedInstallments.length} installment(s) for customerConfig ${config.id}`,
+        );
 
         // Create the Invoice
         const invoice = await tx.invoice.create({
@@ -153,12 +163,16 @@ export class InvoiceGenerationService {
 
         invoiceIds.push(invoice.id);
 
-        this.logger.log(`[INVOICE_GEN] Invoice ${invoice.id} created (status=ACTIVE, total=${totalAmount})`);
+        this.logger.log(
+          `[INVOICE_GEN] Invoice ${invoice.id} created (status=ACTIVE, total=${totalAmount})`,
+        );
 
         // Determine if bank slips should be generated:
         // Skip when customPaymentText is set (custom payment method can't be parsed for boleto installments),
         // or when generateInvoice is false (customer pays via direct transfer/PIX — no boleto needed).
-        const hasCustomPaymentText = !!(config.customPaymentText && config.customPaymentText.trim());
+        const hasCustomPaymentText = !!(
+          config.customPaymentText && config.customPaymentText.trim()
+        );
         const shouldCreateBankSlips = !hasCustomPaymentText && config.generateInvoice !== false;
 
         if (hasCustomPaymentText) {
@@ -247,7 +261,9 @@ export class InvoiceGenerationService {
    * The scheduler serves as a fallback for any that fail here.
    */
   async registerBankSlipsAtSicredi(invoiceIds: string[]): Promise<void> {
-    this.logger.log(`[BOLETO_REGISTER] Registering bank slips at Sicredi for ${invoiceIds.length} invoice(s)`);
+    this.logger.log(
+      `[BOLETO_REGISTER] Registering bank slips at Sicredi for ${invoiceIds.length} invoice(s)`,
+    );
 
     const installments = await this.prisma.installment.findMany({
       where: {
@@ -313,7 +329,9 @@ export class InvoiceGenerationService {
       },
     });
 
-    this.logger.log(`[BOLETO_REGISTER] Found ${installments.length} installment(s) with CREATING bank slips`);
+    this.logger.log(
+      `[BOLETO_REGISTER] Found ${installments.length} installment(s) with CREATING bank slips`,
+    );
 
     const { codigoBeneficiario } = this.sicrediAuthService.config;
     let created = 0;
@@ -347,17 +365,25 @@ export class InvoiceGenerationService {
       const customerName = customer.fantasyName || customer.corporateName || '';
 
       if ((customerDocument.length !== 14 && customerDocument.length !== 11) || !customerName) {
-        this.logger.error(`[BOLETO_REGISTER] Skipping installment ${installment.id}: invalid document (${customerDocument}) or name (${customerName})`);
+        this.logger.error(
+          `[BOLETO_REGISTER] Skipping installment ${installment.id}: invalid document (${customerDocument}) or name (${customerName})`,
+        );
         await this.prisma.bankSlip.update({
           where: { id: installment.bankSlip.id },
-          data: { status: 'ERROR', errorMessage: `Dados do cliente inválidos: CNPJ=${cleanCnpj}, CPF=${cleanCpf}, Nome=${customerName}`, errorCount: { increment: 1 } },
+          data: {
+            status: 'ERROR',
+            errorMessage: `Dados do cliente inválidos: CNPJ=${cleanCnpj}, CPF=${cleanCpf}, Nome=${customerName}`,
+            errorCount: { increment: 1 },
+          },
         });
         errors++;
         continue;
       }
 
       try {
-        this.logger.log(`[BOLETO_REGISTER] Creating boleto for installment ${installment.id}: customer=${customerName}, amount=${installment.amount}, dueDate=${installment.dueDate}`);
+        this.logger.log(
+          `[BOLETO_REGISTER] Creating boleto for installment ${installment.id}: customer=${customerName}, amount=${installment.amount}, dueDate=${installment.dueDate}`,
+        );
 
         const boletoResponse = await this.sicrediService.createBoleto({
           codigoBeneficiario,
@@ -376,11 +402,15 @@ export class InvoiceGenerationService {
           especieDocumento: 'DUPLICATA_MERCANTIL_INDICACAO',
           seuNumero: this.buildSeuNumero(installment),
           informativos: this.buildBoletoLines(installment),
-          dataVencimento: (() => { const d = new Date(installment.dueDate); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; })(),
+          dataVencimento: (() => {
+            const d = new Date(installment.dueDate);
+            return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+          })(),
           valor: Number(installment.amount),
         });
 
-        const pixQrCode = (boletoResponse as any).qrCode || (boletoResponse as any).codigoQrCode || null;
+        const pixQrCode =
+          (boletoResponse as any).qrCode || (boletoResponse as any).codigoQrCode || null;
 
         await this.prisma.bankSlip.update({
           where: { id: installment.bankSlip.id },
@@ -397,12 +427,16 @@ export class InvoiceGenerationService {
           },
         });
 
-        this.logger.log(`[BOLETO_REGISTER] Boleto created: nossoNumero=${boletoResponse.nossoNumero}, barcode=${boletoResponse.codigoBarras}`);
+        this.logger.log(
+          `[BOLETO_REGISTER] Boleto created: nossoNumero=${boletoResponse.nossoNumero}, barcode=${boletoResponse.codigoBarras}`,
+        );
         created++;
       } catch (error) {
         errors++;
         const errorMsg = error instanceof Error ? error.message : String(error);
-        this.logger.error(`[BOLETO_REGISTER] Failed for installment ${installment.id}: ${errorMsg}`);
+        this.logger.error(
+          `[BOLETO_REGISTER] Failed for installment ${installment.id}: ${errorMsg}`,
+        );
         await this.prisma.bankSlip.update({
           where: { id: installment.bankSlip.id },
           data: { status: 'ERROR', errorMessage: errorMsg, errorCount: { increment: 1 } },
@@ -422,13 +456,22 @@ export class InvoiceGenerationService {
     const generateInvoice = installment.invoice?.customerConfig?.generateInvoice !== false;
     const authorizedNfse = installment.invoice?.nfseDocuments?.[0];
     const truckPlate = installment.invoice?.task?.truck?.plate;
+    // Installment numbers are 1-7 (single digit) — always 1 char.
+    const num = String(installment.number ?? 1);
 
     if (generateInvoice && authorizedNfse?.nfseNumber) {
-      return `NF${authorizedNfse.nfseNumber}`.substring(0, 10);
+      // Layout: NF(2) + last N digits of NFSe number + installment num(1) = 10 chars max.
+      // Taking the *last* digits of the NFSe number keeps uniqueness across installments
+      // of the same invoice while fitting within Sicredi's 10-char limit.
+      const nfseStr = String(authorizedNfse.nfseNumber).slice(-(10 - 2 - num.length));
+      return `NF${nfseStr}${num}`;
     }
     if (truckPlate) {
-      return truckPlate.replace(/[^A-Za-z0-9]/g, '').substring(0, 10);
+      const plateClean = truckPlate.replace(/[^A-Za-z0-9]/g, '');
+      // Reserve last char(s) for installment number so slips on the same truck are unique.
+      return (plateClean.slice(0, 10 - num.length) + num).slice(0, 10);
     }
+    // UUID fragment is already unique per installment — no suffix needed.
     return installment.id.replace(/-/g, '').substring(0, 10);
   }
 
@@ -560,30 +603,38 @@ export class InvoiceGenerationService {
   }
 
   /**
-   * Convert a structured PaymentConfig object + finishedAt + total into installment records.
-   * Supports specificDate override for both CASH and INSTALLMENTS types.
+   * Convert a structured PaymentConfig object into installment records.
+   * Due dates are anchored to `approvalDate` (billing approval time) so that
+   * "first payment in N days" always means N days from the moment billing was approved.
+   * Falls back to `finishedAt` when `approvalDate` is not provided (backward compat).
    */
   private generateInstallmentsFromPaymentConfig(
-    paymentConfig: { type: string; cashDays?: number; installmentCount?: number; installmentStep?: number; entryDays?: number; specificDate?: string },
+    paymentConfig: {
+      type: string;
+      cashDays?: number;
+      installmentCount?: number;
+      installmentStep?: number;
+      entryDays?: number;
+      specificDate?: string;
+    },
     finishedAt: Date,
     total: number,
+    approvalDate?: Date,
   ): { number: number; dueDate: Date; amount: number }[] {
     if (!Number.isFinite(total) || total <= 0) return [];
 
-    const baseDate = new Date(Date.UTC(
-      finishedAt.getUTCFullYear(),
-      finishedAt.getUTCMonth(),
-      finishedAt.getUTCDate(),
-      12, 0, 0,
-    ));
+    // Use the billing approval date as the anchor so "first payment in N days" means
+    // N days from the moment the financial team approved billing — not from when the
+    // task was finished (which can be months in the past, collapsing all dates to minDueDate).
+    const anchor = approvalDate ?? finishedAt;
+    const baseDate = new Date(
+      Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), anchor.getUTCDate(), 12, 0, 0),
+    );
 
     const now = new Date();
-    const minDueDate = new Date(Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate() + 3,
-      12, 0, 0,
-    ));
+    const minDueDate = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 3, 12, 0, 0),
+    );
 
     const addDays = (base: Date, days: number): Date => {
       const d = new Date(base);
@@ -612,12 +663,22 @@ export class InvoiceGenerationService {
     if (paymentConfig.type === 'INSTALLMENTS') {
       const count = paymentConfig.installmentCount ?? 2;
       const step = paymentConfig.installmentStep ?? 20;
+      const entryDays = paymentConfig.entryDays ?? 5;
       const firstDue = resolveFirstDueDate();
       const totalCents = Math.round(total * 100);
       const baseCents = Math.floor(totalCents / count);
 
       return Array.from({ length: count }, (_, i) => {
-        const dueDate = i === 0 ? firstDue : addDays(firstDue, step * i);
+        // When the caller set a specificDate, cascade all subsequent installments from
+        // that anchor — they chose it intentionally.
+        // Otherwise calculate each installment independently from the approval-date anchor
+        // so future ones keep their natural schedule and only truly past dates get clamped.
+        const dueDate =
+          i === 0
+            ? firstDue
+            : paymentConfig.specificDate
+              ? addDays(firstDue, step * i)
+              : ensureMinDate(addDays(baseDate, entryDays + step * i));
         const isLast = i === count - 1;
         const amount = isLast ? (totalCents - baseCents * (count - 1)) / 100 : baseCents / 100;
         return { number: i + 1, dueDate, amount };
@@ -644,12 +705,16 @@ export class InvoiceGenerationService {
 
     // Use UTC-based date arithmetic to avoid timezone shifts.
     // All due dates are set to noon UTC so no timezone can change the calendar day.
-    const baseDate = new Date(Date.UTC(
-      finishedAt.getUTCFullYear(),
-      finishedAt.getUTCMonth(),
-      finishedAt.getUTCDate(),
-      12, 0, 0,
-    ));
+    const baseDate = new Date(
+      Date.UTC(
+        finishedAt.getUTCFullYear(),
+        finishedAt.getUTCMonth(),
+        finishedAt.getUTCDate(),
+        12,
+        0,
+        0,
+      ),
+    );
 
     const addDays = (base: Date, days: number): Date => {
       const d = new Date(base);
@@ -661,12 +726,9 @@ export class InvoiceGenerationService {
     // When billing is approved long after task completion, calculated dates
     // could be in the past. Ensure the customer always has time to pay.
     const now = new Date();
-    const minDueDate = new Date(Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate() + 3,
-      12, 0, 0,
-    ));
+    const minDueDate = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 3, 12, 0, 0),
+    );
 
     const ensureMinDate = (date: Date): Date => {
       return date < minDueDate ? minDueDate : date;

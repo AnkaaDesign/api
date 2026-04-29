@@ -2,14 +2,30 @@
 // Controller for user-specific personal bonus endpoints
 // Uses the /bonuses route prefix for personal (non-admin) bonus access
 
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, UseGuards, UsePipes, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+  UsePipes,
+  Logger,
+  BadRequestException,
+} from '@nestjs/common';
 import { PersonalService } from './personal.service';
 import { BonusService } from '@modules/human-resources/bonus/bonus.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
-import { ZodQueryValidationPipe, ZodValidationPipe } from '@modules/common/pipes/zod-validation.pipe';
+import {
+  ZodQueryValidationPipe,
+  ZodValidationPipe,
+} from '@modules/common/pipes/zod-validation.pipe';
 import { ReadRateLimit } from '@modules/common/throttler/throttler.decorators';
 import type { BonusGetManyResponse } from '../../../types';
 import type { BonusGetManyFormData, BonusSimulateFormData } from '../../../schemas';
@@ -194,10 +210,7 @@ export class PersonalBonusController {
   @Get('my-period-stats/:year/:month')
   @ReadRateLimit()
   @Roles(...ALL_ROLES)
-  async getMyPeriodTaskStats(
-    @Param('year') yearParam: string,
-    @Param('month') monthParam: string,
-  ) {
+  async getMyPeriodTaskStats(@Param('year') yearParam: string, @Param('month') monthParam: string) {
     const year = parseInt(yearParam, 10);
     const month = parseInt(monthParam, 10);
 

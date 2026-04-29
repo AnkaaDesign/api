@@ -96,9 +96,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
       prismaInclude.customerConfig = true;
     }
 
-    return Object.keys(prismaInclude).length > 0
-      ? prismaInclude
-      : this.getDefaultInclude();
+    return Object.keys(prismaInclude).length > 0 ? prismaInclude : this.getDefaultInclude();
   }
 
   /**
@@ -126,9 +124,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
   /**
    * Build Prisma orderBy from domain InvoiceOrderBy.
    */
-  private buildOrderBy(
-    orderBy?: InvoiceOrderBy,
-  ): Prisma.InvoiceOrderByWithRelationInput {
+  private buildOrderBy(orderBy?: InvoiceOrderBy): Prisma.InvoiceOrderByWithRelationInput {
     if (!orderBy) return { createdAt: 'desc' };
 
     const prismaOrderBy: Prisma.InvoiceOrderByWithRelationInput = {};
@@ -138,9 +134,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
     if (orderBy.status) prismaOrderBy.status = orderBy.status;
     if (orderBy.paidAmount) prismaOrderBy.paidAmount = orderBy.paidAmount;
 
-    return Object.keys(prismaOrderBy).length > 0
-      ? prismaOrderBy
-      : { createdAt: 'desc' };
+    return Object.keys(prismaOrderBy).length > 0 ? prismaOrderBy : { createdAt: 'desc' };
   }
 
   /**
@@ -159,12 +153,8 @@ export class InvoicePrismaRepository implements InvoiceRepository {
         bankSlip: inst.bankSlip
           ? {
               ...inst.bankSlip,
-              amount: inst.bankSlip.amount
-                ? Number(inst.bankSlip.amount)
-                : 0,
-              paidAmount: inst.bankSlip.paidAmount
-                ? Number(inst.bankSlip.paidAmount)
-                : null,
+              amount: inst.bankSlip.amount ? Number(inst.bankSlip.amount) : 0,
+              paidAmount: inst.bankSlip.paidAmount ? Number(inst.bankSlip.paidAmount) : null,
             }
           : null,
       })),
@@ -211,7 +201,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
     const totalPages = Math.ceil(total / limit);
 
     return {
-      data: data.map((entity) => this.mapToEntity(entity)),
+      data: data.map(entity => this.mapToEntity(entity)),
       meta: {
         total,
         page,
@@ -232,30 +222,24 @@ export class InvoicePrismaRepository implements InvoiceRepository {
     return entity ? this.mapToEntity(entity) : null;
   }
 
-  async findByTaskId(
-    taskId: string,
-    include?: InvoiceInclude,
-  ): Promise<Invoice[]> {
+  async findByTaskId(taskId: string, include?: InvoiceInclude): Promise<Invoice[]> {
     const entities = await this.prisma.invoice.findMany({
       where: { taskId },
       include: this.buildInclude(include),
       orderBy: { createdAt: 'desc' },
     });
 
-    return entities.map((entity) => this.mapToEntity(entity));
+    return entities.map(entity => this.mapToEntity(entity));
   }
 
-  async findByCustomerId(
-    customerId: string,
-    include?: InvoiceInclude,
-  ): Promise<Invoice[]> {
+  async findByCustomerId(customerId: string, include?: InvoiceInclude): Promise<Invoice[]> {
     const entities = await this.prisma.invoice.findMany({
       where: { customerId },
       include: this.buildInclude(include),
       orderBy: { createdAt: 'desc' },
     });
 
-    return entities.map((entity) => this.mapToEntity(entity));
+    return entities.map(entity => this.mapToEntity(entity));
   }
 
   async create(data: any): Promise<Invoice> {

@@ -106,10 +106,7 @@ export class TaskListener {
     );
     this.logger.log('[TASK LISTENER] ✅ Registered: task.forecast.approaching');
 
-    this.eventEmitter.on(
-      'task.forecast.overdue',
-      this.handleTaskForecastOverdue.bind(this),
-    );
+    this.eventEmitter.on('task.forecast.overdue', this.handleTaskForecastOverdue.bind(this));
     this.logger.log('[TASK LISTENER] ✅ Registered: task.forecast.overdue');
 
     this.logger.log('[TASK LISTENER] All event handlers registered successfully');
@@ -130,22 +127,18 @@ export class TaskListener {
     this.logger.log('========================================');
 
     try {
-      await this.dispatchService.dispatchByConfiguration(
-        'task.created',
-        event.createdBy.id,
-        {
-          entityType: 'Task',
-          entityId: event.task.id,
-          action: 'created',
-          data: {
-            taskId: event.task.id,
-            taskName: event.task.name,
-            serialNumber: event.task.serialNumber,
-            taskSectorId: event.task.sectorId || null,
-            changedBy: event.createdBy?.name || 'Sistema',
-          },
+      await this.dispatchService.dispatchByConfiguration('task.created', event.createdBy.id, {
+        entityType: 'Task',
+        entityId: event.task.id,
+        action: 'created',
+        data: {
+          taskId: event.task.id,
+          taskName: event.task.name,
+          serialNumber: event.task.serialNumber,
+          taskSectorId: event.task.sectorId || null,
+          changedBy: event.createdBy?.name || 'Sistema',
         },
-      );
+      });
 
       this.logger.log('[TASK EVENT] Task creation notification dispatched via configuration');
     } catch (error) {
@@ -194,15 +187,13 @@ export class TaskListener {
 
       if (statusConfigKey) {
         // Status-specific notification is more descriptive — skip the generic one to avoid duplicates
-        await this.dispatchService.dispatchByConfiguration(
-          statusConfigKey,
-          event.changedBy.id,
-          {
-            ...notificationContext,
-            action: event.newStatus.toLowerCase(),
-          },
+        await this.dispatchService.dispatchByConfiguration(statusConfigKey, event.changedBy.id, {
+          ...notificationContext,
+          action: event.newStatus.toLowerCase(),
+        });
+        this.logger.log(
+          `[TASK EVENT] Status-specific notification dispatched: ${statusConfigKey} (generic task.field.status skipped)`,
         );
-        this.logger.log(`[TASK EVENT] Status-specific notification dispatched: ${statusConfigKey} (generic task.field.status skipped)`);
       } else {
         // No status-specific config — use the generic field-level status change notification
         await this.dispatchService.dispatchByConfiguration(
@@ -210,7 +201,9 @@ export class TaskListener {
           event.changedBy.id,
           notificationContext,
         );
-        this.logger.log('[TASK EVENT] Generic task.field.status notification dispatched (no status-specific config)');
+        this.logger.log(
+          '[TASK EVENT] Generic task.field.status notification dispatched (no status-specific config)',
+        );
       }
 
       // 3. Special case: When status changes TO WAITING_PRODUCTION, also notify PRODUCTION users
@@ -347,23 +340,19 @@ export class TaskListener {
 
       this.logger.log(`[TASK EVENT] Using deadline config key: ${configKey}`);
 
-      await this.dispatchService.dispatchByConfiguration(
-        configKey,
-        'system',
-        {
-          entityType: 'Task',
-          entityId: event.task.id,
-          action: 'deadline_approaching',
-          data: {
-            taskId: event.task.id,
-            taskName: event.task.name,
-            serialNumber: event.task.serialNumber,
-            taskSectorId: event.task.sectorId || null,
-            daysRemaining: event.daysRemaining,
-            hoursRemaining: event.hoursRemaining,
-          },
+      await this.dispatchService.dispatchByConfiguration(configKey, 'system', {
+        entityType: 'Task',
+        entityId: event.task.id,
+        action: 'deadline_approaching',
+        data: {
+          taskId: event.task.id,
+          taskName: event.task.name,
+          serialNumber: event.task.serialNumber,
+          taskSectorId: event.task.sectorId || null,
+          daysRemaining: event.daysRemaining,
+          hoursRemaining: event.hoursRemaining,
         },
-      );
+      });
 
       this.logger.log(`Deadline approaching notification dispatched (${configKey})`);
     } catch (error) {
@@ -379,22 +368,18 @@ export class TaskListener {
     try {
       this.logger.log(`Task overdue: ${event.task.id} - ${event.daysOverdue} days overdue`);
 
-      await this.dispatchService.dispatchByConfiguration(
-        'task.overdue',
-        'system',
-        {
-          entityType: 'Task',
-          entityId: event.task.id,
-          action: 'overdue',
-          data: {
-            taskId: event.task.id,
-            taskName: event.task.name,
-            serialNumber: event.task.serialNumber,
-            taskSectorId: event.task.sectorId || null,
-            daysOverdue: event.daysOverdue,
-          },
+      await this.dispatchService.dispatchByConfiguration('task.overdue', 'system', {
+        entityType: 'Task',
+        entityId: event.task.id,
+        action: 'overdue',
+        data: {
+          taskId: event.task.id,
+          taskName: event.task.name,
+          serialNumber: event.task.serialNumber,
+          taskSectorId: event.task.sectorId || null,
+          daysOverdue: event.daysOverdue,
         },
-      );
+      });
 
       this.logger.log('Overdue task notification dispatched');
     } catch (error) {
@@ -423,24 +408,20 @@ export class TaskListener {
 
       this.logger.log(`[TASK EVENT] Using forecast config key: ${configKey}`);
 
-      await this.dispatchService.dispatchByConfiguration(
-        configKey,
-        'system',
-        {
-          entityType: 'Task',
-          entityId: event.task.id,
-          action: 'forecast_approaching',
-          data: {
-            taskId: event.task.id,
-            taskName: event.task.name,
-            serialNumber: event.task.serialNumber,
-            taskSectorId: event.task.sectorId || null,
-            daysRemaining: event.daysRemaining,
-            hasIncompleteOrders: event.hasIncompleteOrders,
-            incompleteOrderTypes: event.incompleteOrderTypes,
-          },
+      await this.dispatchService.dispatchByConfiguration(configKey, 'system', {
+        entityType: 'Task',
+        entityId: event.task.id,
+        action: 'forecast_approaching',
+        data: {
+          taskId: event.task.id,
+          taskName: event.task.name,
+          serialNumber: event.task.serialNumber,
+          taskSectorId: event.task.sectorId || null,
+          daysRemaining: event.daysRemaining,
+          hasIncompleteOrders: event.hasIncompleteOrders,
+          incompleteOrderTypes: event.incompleteOrderTypes,
         },
-      );
+      });
 
       this.logger.log(`Forecast approaching notification dispatched (${configKey})`);
     } catch (error) {
@@ -458,24 +439,20 @@ export class TaskListener {
         `Task forecast overdue: ${event.task.id} - ${event.daysOverdue} day(s) overdue`,
       );
 
-      await this.dispatchService.dispatchByConfiguration(
-        'task.forecast_overdue',
-        'system',
-        {
-          entityType: 'Task',
-          entityId: event.task.id,
-          action: 'forecast_overdue',
-          data: {
-            taskId: event.task.id,
-            taskName: event.task.name,
-            serialNumber: event.task.serialNumber,
-            taskSectorId: event.task.sectorId || null,
-            daysOverdue: event.daysOverdue,
-            hasIncompleteOrders: event.hasIncompleteOrders,
-            incompleteOrderTypes: event.incompleteOrderTypes,
-          },
+      await this.dispatchService.dispatchByConfiguration('task.forecast_overdue', 'system', {
+        entityType: 'Task',
+        entityId: event.task.id,
+        action: 'forecast_overdue',
+        data: {
+          taskId: event.task.id,
+          taskName: event.task.name,
+          serialNumber: event.task.serialNumber,
+          taskSectorId: event.task.sectorId || null,
+          daysOverdue: event.daysOverdue,
+          hasIncompleteOrders: event.hasIncompleteOrders,
+          incompleteOrderTypes: event.incompleteOrderTypes,
         },
-      );
+      });
 
       this.logger.log('Forecast overdue notification dispatched');
     } catch (error) {

@@ -69,7 +69,14 @@ export interface PpeDelivery extends BaseEntity {
   reviewedByUser?: User;
   ppeSchedule?: PpeDeliverySchedule;
   item?: Item;
-  deliveryDocument?: { id: string; filename: string; originalName: string; mimetype: string; path: string; size: number } | null;
+  deliveryDocument?: {
+    id: string;
+    filename: string;
+    originalName: string;
+    mimetype: string;
+    path: string;
+    size: number;
+  } | null;
   signature?: PpeDeliverySignature | null;
 }
 
@@ -107,7 +114,14 @@ export interface PpeDeliverySignature extends BaseEntity {
 
   // Relations
   signedByUser?: User;
-  signedDocument?: { id: string; filename: string; originalName: string; mimetype: string; path: string; size: number } | null;
+  signedDocument?: {
+    id: string;
+    filename: string;
+    originalName: string;
+    mimetype: string;
+    path: string;
+    size: number;
+  } | null;
 }
 
 // PPE configuration is now stored directly on the Item model

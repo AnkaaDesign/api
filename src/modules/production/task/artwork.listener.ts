@@ -42,7 +42,9 @@ export class ArtworkListener {
     this.logger.log('========================================');
     this.logger.log('[ARTWORK LISTENER] Initializing Artwork Event Listener');
     this.logger.log('[ARTWORK LISTENER] Registering event handlers...');
-    this.logger.log('[ARTWORK LISTENER] Note: artwork.uploaded is handled by task.field.artworks notification');
+    this.logger.log(
+      '[ARTWORK LISTENER] Note: artwork.uploaded is handled by task.field.artworks notification',
+    );
 
     // Register event listeners
     // Note: artwork.uploaded and artwork.revision_uploaded are NOT registered here
@@ -74,7 +76,9 @@ export class ArtworkListener {
     this.logger.log('[ARTWORK EVENT] Artwork approved event received');
     this.logger.log(`[ARTWORK EVENT] Artwork ID: ${event.artwork.id}`);
     this.logger.log(`[ARTWORK EVENT] Task ID: ${event.task?.id || 'N/A'}`);
-    this.logger.log(`[ARTWORK EVENT] Approved By: ${event.approvedBy.name} (${event.approvedBy.id})`);
+    this.logger.log(
+      `[ARTWORK EVENT] Approved By: ${event.approvedBy.name} (${event.approvedBy.id})`,
+    );
     this.logger.log('========================================');
 
     try {
@@ -86,31 +90,27 @@ export class ArtworkListener {
         ? this.deepLinkService.generateTaskLinks(task.id)
         : { web: '/producao/tarefas', mobile: '', universalLink: '' };
 
-      await this.dispatchService.dispatchByConfiguration(
-        'artwork.approved',
-        event.approvedBy.id,
-        {
-          entityType: 'Task',
-          entityId: task?.id || event.artwork.id,
-          action: 'approved',
-          data: {
-            taskName,
-            serialNumber,
-            changedBy: event.approvedBy.name,
-          },
-          metadata: {
-            artworkId: event.artwork.id,
-            taskId: task?.id,
-          },
-          overrides: {
-            actionUrl: JSON.stringify(deepLinks),
-            webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/tarefas',
-            relatedEntityType: task ? 'TASK' : 'ARTWORK',
-            title: `Arte aprovada: "${taskName}" ${serialNumber}`,
-            body: `A arte da tarefa "${taskName}" ${serialNumber} foi aprovada por ${event.approvedBy.name}. Pronta para produção.`,
-          },
+      await this.dispatchService.dispatchByConfiguration('artwork.approved', event.approvedBy.id, {
+        entityType: 'Task',
+        entityId: task?.id || event.artwork.id,
+        action: 'approved',
+        data: {
+          taskName,
+          serialNumber,
+          changedBy: event.approvedBy.name,
         },
-      );
+        metadata: {
+          artworkId: event.artwork.id,
+          taskId: task?.id,
+        },
+        overrides: {
+          actionUrl: JSON.stringify(deepLinks),
+          webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/tarefas',
+          relatedEntityType: task ? 'TASK' : 'ARTWORK',
+          title: `Arte aprovada: "${taskName}" ${serialNumber}`,
+          body: `A arte da tarefa "${taskName}" ${serialNumber} foi aprovada por ${event.approvedBy.name}. Pronta para produção.`,
+        },
+      });
 
       this.logger.log('[ARTWORK EVENT] Artwork approved dispatch completed');
     } catch (error) {
@@ -127,7 +127,9 @@ export class ArtworkListener {
     this.logger.log('[ARTWORK EVENT] Artwork reproved event received');
     this.logger.log(`[ARTWORK EVENT] Artwork ID: ${event.artwork.id}`);
     this.logger.log(`[ARTWORK EVENT] Task ID: ${event.task?.id || 'N/A'}`);
-    this.logger.log(`[ARTWORK EVENT] Reproved By: ${event.reprovedBy.name} (${event.reprovedBy.id})`);
+    this.logger.log(
+      `[ARTWORK EVENT] Reproved By: ${event.reprovedBy.name} (${event.reprovedBy.id})`,
+    );
     this.logger.log(`[ARTWORK EVENT] Reason: ${event.reason || 'N/A'}`);
     this.logger.log('========================================');
 
@@ -141,33 +143,29 @@ export class ArtworkListener {
         ? this.deepLinkService.generateTaskLinks(task.id)
         : { web: '/producao/tarefas', mobile: '', universalLink: '' };
 
-      await this.dispatchService.dispatchByConfiguration(
-        'artwork.reproved',
-        event.reprovedBy.id,
-        {
-          entityType: 'Task',
-          entityId: task?.id || event.artwork.id,
-          action: 'reproved',
-          data: {
-            taskName,
-            serialNumber,
-            changedBy: event.reprovedBy.name,
-            reason: event.reason,
-          },
-          metadata: {
-            artworkId: event.artwork.id,
-            taskId: task?.id,
-            rejectionReason: event.reason,
-          },
-          overrides: {
-            actionUrl: JSON.stringify(deepLinks),
-            webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/tarefas',
-            relatedEntityType: task ? 'TASK' : 'ARTWORK',
-            title: `Arte reprovada: "${taskName}" ${serialNumber}`,
-            body: `A arte da tarefa "${taskName}" ${serialNumber} foi reprovada por ${event.reprovedBy.name}.${reasonText} Uma nova versão é necessária.`,
-          },
+      await this.dispatchService.dispatchByConfiguration('artwork.reproved', event.reprovedBy.id, {
+        entityType: 'Task',
+        entityId: task?.id || event.artwork.id,
+        action: 'reproved',
+        data: {
+          taskName,
+          serialNumber,
+          changedBy: event.reprovedBy.name,
+          reason: event.reason,
         },
-      );
+        metadata: {
+          artworkId: event.artwork.id,
+          taskId: task?.id,
+          rejectionReason: event.reason,
+        },
+        overrides: {
+          actionUrl: JSON.stringify(deepLinks),
+          webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/tarefas',
+          relatedEntityType: task ? 'TASK' : 'ARTWORK',
+          title: `Arte reprovada: "${taskName}" ${serialNumber}`,
+          body: `A arte da tarefa "${taskName}" ${serialNumber} foi reprovada por ${event.reprovedBy.name}.${reasonText} Uma nova versão é necessária.`,
+        },
+      });
 
       this.logger.log('[ARTWORK EVENT] Artwork reproved dispatch completed');
     } catch (error) {

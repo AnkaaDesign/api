@@ -80,7 +80,10 @@ export class TaskQuotePrismaRepository
       total: formData.total || 0,
       expiresAt: formData.expiresAt || new Date(),
       status: (formData.status as any) || TASK_QUOTE_STATUS.PENDING,
-      statusOrder: TASK_QUOTE_STATUS_ORDER[(formData.status || TASK_QUOTE_STATUS.PENDING) as TASK_QUOTE_STATUS] ?? 8,
+      statusOrder:
+        TASK_QUOTE_STATUS_ORDER[
+          (formData.status || TASK_QUOTE_STATUS.PENDING) as TASK_QUOTE_STATUS
+        ] ?? 8,
       // Guarantee Terms
       guaranteeYears: formData.guaranteeYears || null,
       customGuaranteeText: formData.customGuaranteeText || null,
@@ -90,6 +93,7 @@ export class TaskQuotePrismaRepository
       }),
       // New fields
       simultaneousTasks: (formData as any).simultaneousTasks || null,
+      customForecastDays: (formData as any).customForecastDays || null,
       // Task will be connected separately via one-to-one relationship (Task.quoteId FK)
     };
 
@@ -161,6 +165,8 @@ export class TaskQuotePrismaRepository
     // New fields
     if ((formData as any).simultaneousTasks !== undefined)
       updateInput.simultaneousTasks = (formData as any).simultaneousTasks;
+    if ((formData as any).customForecastDays !== undefined)
+      updateInput.customForecastDays = (formData as any).customForecastDays;
 
     return updateInput;
   }
@@ -415,6 +421,7 @@ export class TaskQuotePrismaRepository
     const quote = await this.prisma.taskQuote.findFirst({
       where: { task: { id: taskId } },
       include: {
+        layoutFile: true,
         services: {
           orderBy: { position: 'asc' },
           include: {
@@ -426,10 +433,28 @@ export class TaskQuotePrismaRepository
         customerConfigs: {
           include: {
             customer: {
-              select: { id: true, fantasyName: true, cnpj: true },
+              select: {
+                id: true,
+                fantasyName: true,
+                corporateName: true,
+                cnpj: true,
+                cpf: true,
+                address: true,
+                addressNumber: true,
+                addressComplement: true,
+                neighborhood: true,
+                city: true,
+                state: true,
+                zipCode: true,
+                stateRegistration: true,
+                streetType: true,
+              },
             },
             responsible: {
               select: { id: true, name: true, role: true },
+            },
+            installments: {
+              orderBy: { number: 'asc' },
             },
           },
         },
@@ -481,7 +506,12 @@ export class TaskQuotePrismaRepository
       where: {
         expiresAt: { lt: now },
         status: {
-          in: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.COMMERCIAL_APPROVED, TASK_QUOTE_STATUS.BILLING_APPROVED],
+          in: [
+            TASK_QUOTE_STATUS.PENDING,
+            TASK_QUOTE_STATUS.BUDGET_APPROVED,
+            TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
+            TASK_QUOTE_STATUS.BILLING_APPROVED,
+          ],
         },
       },
       include: {
@@ -517,7 +547,15 @@ export class TaskQuotePrismaRepository
     const quote = await this.prisma.taskQuote.findFirst({
       where: {
         task: { id: taskId },
-        status: { in: [TASK_QUOTE_STATUS.BILLING_APPROVED, TASK_QUOTE_STATUS.UPCOMING, TASK_QUOTE_STATUS.DUE, TASK_QUOTE_STATUS.PARTIAL, TASK_QUOTE_STATUS.SETTLED] },
+        status: {
+          in: [
+            TASK_QUOTE_STATUS.BILLING_APPROVED,
+            TASK_QUOTE_STATUS.UPCOMING,
+            TASK_QUOTE_STATUS.DUE,
+            TASK_QUOTE_STATUS.PARTIAL,
+            TASK_QUOTE_STATUS.SETTLED,
+          ],
+        },
       },
       include: {
         services: {

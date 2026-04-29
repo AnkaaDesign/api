@@ -100,7 +100,10 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
  */
 const FOLDER_TO_CONTEXT_MAP: Array<{ pattern: RegExp; context: keyof FilesFolderMapping }> = [
   // Airbrushing (more specific — must come before generic Aerografias)
-  { pattern: /\/Clientes\/[^/]+\/Aerografias\/Notas Fiscais Reembolso\//, context: 'airbrushingNfeReimbursements' },
+  {
+    pattern: /\/Clientes\/[^/]+\/Aerografias\/Notas Fiscais Reembolso\//,
+    context: 'airbrushingNfeReimbursements',
+  },
   { pattern: /\/Clientes\/[^/]+\/Aerografias\/Notas Fiscais\//, context: 'airbrushingInvoices' },
   { pattern: /\/Clientes\/[^/]+\/Aerografias\/Orcamentos\//, context: 'airbrushingBudgets' },
   { pattern: /\/Clientes\/[^/]+\/Aerografias\/Comprovantes\//, context: 'airbrushingReceipts' },
@@ -125,7 +128,10 @@ const FOLDER_TO_CONTEXT_MAP: Array<{ pattern: RegExp; context: keyof FilesFolder
   { pattern: /\/Clientes\/[^/]+\/Logo\//, context: 'customerLogo' },
 
   // Supplier contexts
-  { pattern: /\/Fornecedores\/[^/]+\/Notas Fiscais Reembolso\//, context: 'orderNfeReimbursements' },
+  {
+    pattern: /\/Fornecedores\/[^/]+\/Notas Fiscais Reembolso\//,
+    context: 'orderNfeReimbursements',
+  },
   { pattern: /\/Fornecedores\/[^/]+\/Notas Fiscais\//, context: 'orderInvoices' },
   { pattern: /\/Fornecedores\/[^/]+\/Orcamentos\//, context: 'orderBudgets' },
   { pattern: /\/Fornecedores\/[^/]+\/Comprovantes\//, context: 'orderReceipts' },
@@ -133,7 +139,10 @@ const FOLDER_TO_CONTEXT_MAP: Array<{ pattern: RegExp; context: keyof FilesFolder
   { pattern: /\/Fornecedores\/[^/]+\/Logo\//, context: 'supplierLogo' },
 
   // External withdrawal (root-level, not entity-based)
-  { pattern: /\/Notas Fiscais Reembolso\/RetiradasExternas\//, context: 'externalWithdrawalNfeReimbursements' },
+  {
+    pattern: /\/Notas Fiscais Reembolso\/RetiradasExternas\//,
+    context: 'externalWithdrawalNfeReimbursements',
+  },
   { pattern: /\/Notas Fiscais\/RetiradasExternas\//, context: 'externalWithdrawalInvoices' },
   { pattern: /\/Comprovantes\/RetiradasExternas\//, context: 'externalWithdrawalReceipts' },
   { pattern: /\/Reembolsos\/RetiradasExternas\//, context: 'externalWithdrawalReimbursements' },

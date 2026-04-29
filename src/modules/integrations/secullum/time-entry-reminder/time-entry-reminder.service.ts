@@ -86,7 +86,7 @@ export class TimeEntryReminderService {
     }
 
     const todayDow = this.nowInSaoPaulo().getDay(); // 0=Sun .. 6=Sat
-    const dayEntry = raw.Dias.find((d) => d.DiaSemana === todayDow);
+    const dayEntry = raw.Dias.find(d => d.DiaSemana === todayDow);
 
     if (!dayEntry) {
       this.scheduleCache.set(horarioId, null);
@@ -149,7 +149,7 @@ export class TimeEntryReminderService {
       if (holidaysResponse.success && holidaysResponse.data) {
         const todayStr = this.todayStrSaoPaulo(); // YYYY-MM-DD
 
-        const isHoliday = holidaysResponse.data.some((holiday) => {
+        const isHoliday = holidaysResponse.data.some(holiday => {
           const holidayDate = holiday.Data.split('T')[0];
           return holidayDate === todayStr;
         });
@@ -204,7 +204,7 @@ export class TimeEntryReminderService {
       },
     });
 
-    return users.map((user) => ({
+    return users.map(user => ({
       id: user.id,
       name: user.name,
       cpf: user.cpf,
@@ -533,13 +533,13 @@ export class TimeEntryReminderService {
       if (response.success && response.data) {
         // Fetch raw data for each to get the Dias array
         const rawSchedules = await Promise.all(
-          response.data.map(async (h) => {
+          response.data.map(async h => {
             const raw = await this.secullumService.getHorarioRawById(h.Id);
             if (!raw) return null;
             return {
               id: raw.Id,
               descricao: raw.Descricao,
-              dias: (raw.Dias || []).map((d) => ({
+              dias: (raw.Dias || []).map(d => ({
                 diaSemana: d.DiaSemana,
                 entrada1: this.normalizeTime(d.Entrada1),
                 saida1: this.normalizeTime(d.Saida1),

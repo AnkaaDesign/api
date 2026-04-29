@@ -344,9 +344,13 @@ export class NotificationExportService {
     // Apply filters (map old enum values to new ones for backwards compatibility)
     if (filters.type) {
       const typeMap: Record<string, string> = {
-        TASK: 'PRODUCTION', SERVICE_ORDER: 'PRODUCTION', CUT: 'PRODUCTION',
+        TASK: 'PRODUCTION',
+        SERVICE_ORDER: 'PRODUCTION',
+        CUT: 'PRODUCTION',
         ORDER: 'STOCK',
-        PPE: 'USER', VACATION: 'USER', WARNING: 'USER',
+        PPE: 'USER',
+        VACATION: 'USER',
+        WARNING: 'USER',
       };
       where.type = typeMap[filters.type] || filters.type;
     }

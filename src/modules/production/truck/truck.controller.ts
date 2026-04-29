@@ -56,7 +56,7 @@ export class TruckController {
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getSectorGarageMapping() {
-    const mapping = (['B1', 'B2', 'B3'] as GarageId[]).map((garageId) => ({
+    const mapping = (['B1', 'B2', 'B3'] as GarageId[]).map(garageId => ({
       garageId,
       sectorName: getSectorNameForGarage(garageId),
     }));
@@ -181,7 +181,14 @@ export class TruckController {
     SECTOR_PRIVILEGES.ADMIN,
   )
   async requestMovement(
-    @Body() body: { taskId: string; truckId: string; taskName: string; fromSpot: string | null; toSpot: string | null },
+    @Body()
+    body: {
+      taskId: string;
+      truckId: string;
+      taskName: string;
+      fromSpot: string | null;
+      toSpot: string | null;
+    },
     @UserId() userId: string,
   ) {
     const result = await this.truckService.requestMovement(body, userId);

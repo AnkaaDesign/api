@@ -149,7 +149,9 @@ export class NotificationDispatchService {
       if (configKey) {
         const config = await this.configurationService.getConfiguration(configKey);
         if (config && !config.isEnabled) {
-          this.logger.log(`Skipping dispatch: config "${configKey}" is now disabled for notification ${notificationId}`);
+          this.logger.log(
+            `Skipping dispatch: config "${configKey}" is now disabled for notification ${notificationId}`,
+          );
           return;
         }
       }
@@ -237,7 +239,9 @@ export class NotificationDispatchService {
       if (successCount > 0) {
         await this.updateNotificationSentAt(notificationId);
       } else {
-        this.logger.warn(`No successful deliveries for notification ${notificationId}, not marking as sent`);
+        this.logger.warn(
+          `No successful deliveries for notification ${notificationId}, not marking as sent`,
+        );
       }
 
       // 7. Emit event for notification dispatched
@@ -1402,7 +1406,9 @@ export class NotificationDispatchService {
       });
 
       if (!businessRulesCheck.allowed) {
-        this.logger.log(`Business rules blocked notification ${configKey}: ${businessRulesCheck.reason}`);
+        this.logger.log(
+          `Business rules blocked notification ${configKey}: ${businessRulesCheck.reason}`,
+        );
         return;
       }
 
@@ -1430,7 +1436,10 @@ export class NotificationDispatchService {
           targetUsers = targetUsers.filter(user => {
             const userPrivilege = user.sector?.privileges;
             // If the user is in a production-type sector, only keep them if their sectorId matches
-            if (userPrivilege && productionPrivileges.includes(userPrivilege as SECTOR_PRIVILEGES)) {
+            if (
+              userPrivilege &&
+              productionPrivileges.includes(userPrivilege as SECTOR_PRIVILEGES)
+            ) {
               return user.sectorId === taskSectorId;
             }
             // Non-production users (ADMIN, COMMERCIAL, etc.) are not filtered by task sector
@@ -1459,12 +1468,13 @@ export class NotificationDispatchService {
       const effectiveEntityId = context.overrides?.relatedEntityId || context.entityId;
 
       // Generate deep links — use overrides if provided, otherwise generate based on entity type
-      let deepLinks = context.overrides?.actionUrl
+      const deepLinks = context.overrides?.actionUrl
         ? null // actionUrl already provided
         : this.generateDeepLinksForEntity(effectiveEntityType, effectiveEntityId);
 
       // If actionUrl override is a JSON string with deep links, parse it to extract universalLink/mobile
-      let parsedOverrideLinks: { universalLink?: string; mobile?: string; web?: string } | null = null;
+      let parsedOverrideLinks: { universalLink?: string; mobile?: string; web?: string } | null =
+        null;
       if (context.overrides?.actionUrl) {
         try {
           const parsed = JSON.parse(context.overrides.actionUrl);
@@ -1477,7 +1487,10 @@ export class NotificationDispatchService {
       }
 
       const actionUrl = context.overrides?.actionUrl || JSON.stringify(deepLinks);
-      const webUrl = context.overrides?.webUrl || deepLinks?.webPath || `/producao/agenda/detalhes/${effectiveEntityId}`;
+      const webUrl =
+        context.overrides?.webUrl ||
+        deepLinks?.webPath ||
+        `/producao/agenda/detalhes/${effectiveEntityId}`;
       const relatedEntityType = effectiveEntityType || 'TASK';
 
       // Render templates from database configuration
@@ -1499,7 +1512,9 @@ export class NotificationDispatchService {
         daysOverdue: this.formatDaysWithPlural(context.data.daysOverdue, 'dia', 'dias'),
         daysRemaining: this.formatDaysWithPlural(context.data.daysRemaining, 'dia', 'dias'),
         count: context.data.count?.toString() || '',
-        fileChangeDescription: context.data.fileChangeDescription || this.formatFileChange(context.data.addedCount, context.data.removedCount),
+        fileChangeDescription:
+          context.data.fileChangeDescription ||
+          this.formatFileChange(context.data.addedCount, context.data.removedCount),
         isAdded,
         isRemoved,
         changeVerb: isAdded ? 'adicionado' : isRemoved ? 'removido' : 'alterado',
@@ -1508,7 +1523,10 @@ export class NotificationDispatchService {
       const renderedTemplates = this.configurationService.renderTemplates(dbConfig, templateVars);
 
       // Build notification content — use overrides if provided, otherwise use templates
-      const title = context.overrides?.title || renderedTemplates.inApp?.title || this.buildNotificationTitleFromConfig(dbConfig, context.data);
+      const title =
+        context.overrides?.title ||
+        renderedTemplates.inApp?.title ||
+        this.buildNotificationTitleFromConfig(dbConfig, context.data);
       const body = context.overrides?.body || renderedTemplates.inApp?.body || '';
 
       // Create notifications for all target users
@@ -1517,7 +1535,10 @@ export class NotificationDispatchService {
 
       for (const user of targetUsers) {
         // Resolve channels for this user based on their preferences and config
-        const channels = await this.configurationService.resolveChannelsForUser(configKey, user as User);
+        const channels = await this.configurationService.resolveChannelsForUser(
+          configKey,
+          user as User,
+        );
 
         if (channels.length === 0) {
           this.logger.debug(`No enabled channels for user ${user.id}, skipping`);
@@ -1605,7 +1626,9 @@ export class NotificationDispatchService {
     context: NotificationContext,
     targetUserIds: string[],
   ): Promise<void> {
-    this.logger.log(`Starting targeted dispatch for key: ${configKey} to ${targetUserIds.length} user(s)`);
+    this.logger.log(
+      `Starting targeted dispatch for key: ${configKey} to ${targetUserIds.length} user(s)`,
+    );
 
     try {
       const dbConfig = await this.configurationService.getConfiguration(configKey);
@@ -1629,7 +1652,9 @@ export class NotificationDispatchService {
       });
 
       if (!businessRulesCheck.allowed) {
-        this.logger.log(`Business rules blocked notification ${configKey}: ${businessRulesCheck.reason}`);
+        this.logger.log(
+          `Business rules blocked notification ${configKey}: ${businessRulesCheck.reason}`,
+        );
         return;
       }
 
@@ -1664,7 +1689,10 @@ export class NotificationDispatchService {
         : this.generateDeepLinksForEntity(effectiveEntityType, effectiveEntityId);
 
       const actionUrl = context.overrides?.actionUrl || JSON.stringify(deepLinks);
-      const webUrl = context.overrides?.webUrl || deepLinks?.webPath || `/producao/agenda/detalhes/${effectiveEntityId}`;
+      const webUrl =
+        context.overrides?.webUrl ||
+        deepLinks?.webPath ||
+        `/producao/agenda/detalhes/${effectiveEntityId}`;
       const relatedEntityType = effectiveEntityType || 'TASK';
 
       // Render templates
@@ -1676,11 +1704,16 @@ export class NotificationDispatchService {
         oldValue: this.formatNotificationValue(context.data.oldValue),
         newValue: this.formatNotificationValue(context.data.newValue),
         changedBy: this.formatUserName(context.data.changedBy),
-        fileChangeDescription: context.data.fileChangeDescription || this.formatFileChange(context.data.addedCount, context.data.removedCount),
+        fileChangeDescription:
+          context.data.fileChangeDescription ||
+          this.formatFileChange(context.data.addedCount, context.data.removedCount),
       };
 
       const renderedTemplates = this.configurationService.renderTemplates(dbConfig, templateVars);
-      const title = context.overrides?.title || renderedTemplates.inApp?.title || this.buildNotificationTitleFromConfig(dbConfig, context.data);
+      const title =
+        context.overrides?.title ||
+        renderedTemplates.inApp?.title ||
+        this.buildNotificationTitleFromConfig(dbConfig, context.data);
       const body = context.overrides?.body || renderedTemplates.inApp?.body || '';
 
       const actionType = this.getActionTypeFromConfigKey(configKey);
@@ -1688,7 +1721,10 @@ export class NotificationDispatchService {
       let notificationsCreated = 0;
 
       for (const user of targetUsers) {
-        const channels = await this.configurationService.resolveChannelsForUser(configKey, user as User);
+        const channels = await this.configurationService.resolveChannelsForUser(
+          configKey,
+          user as User,
+        );
 
         if (channels.length === 0) {
           this.logger.debug(`No enabled channels for user ${user.id}, skipping`);
@@ -1729,17 +1765,16 @@ export class NotificationDispatchService {
         `Targeted dispatch completed for ${configKey}: ${notificationsCreated} created`,
       );
     } catch (error) {
-      this.logger.error(
-        `Error in targeted dispatch ${configKey}: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Error in targeted dispatch ${configKey}: ${error.message}`, error.stack);
     }
   }
 
   /**
    * Extract allowed sectors from database configuration metadata
    */
-  private extractAllowedSectorsFromConfig(config: DBNotificationConfiguration): SECTOR_PRIVILEGES[] {
+  private extractAllowedSectorsFromConfig(
+    config: DBNotificationConfiguration,
+  ): SECTOR_PRIVILEGES[] {
     const metadata = config.metadata as any;
     if (metadata?.targetRule?.allowedSectors) {
       return metadata.targetRule.allowedSectors as SECTOR_PRIVILEGES[];
@@ -1788,9 +1823,7 @@ export class NotificationDispatchService {
       },
     });
 
-    const filteredUsers = excludeUserId
-      ? users.filter(user => user.id !== excludeUserId)
-      : users;
+    const filteredUsers = excludeUserId ? users.filter(user => user.id !== excludeUserId) : users;
 
     return filteredUsers as User[];
   }
@@ -1947,7 +1980,11 @@ export class NotificationDispatchService {
   /**
    * Format days count with proper Portuguese pluralization
    */
-  private formatDaysWithPlural(count: number | undefined, singular: string, plural: string): string {
+  private formatDaysWithPlural(
+    count: number | undefined,
+    singular: string,
+    plural: string,
+  ): string {
     if (count === undefined || count === null) {
       return '';
     }
@@ -1961,7 +1998,10 @@ export class NotificationDispatchService {
   /**
    * Format file change description with proper Portuguese grammar
    */
-  private formatFileChange(addedCount: number | undefined, removedCount: number | undefined): string {
+  private formatFileChange(
+    addedCount: number | undefined,
+    removedCount: number | undefined,
+  ): string {
     const parts: string[] = [];
     const added = addedCount || 0;
     const removed = removedCount || 0;
@@ -1984,5 +2024,4 @@ export class NotificationDispatchService {
 
     return parts.join(' e ') || '';
   }
-
 }

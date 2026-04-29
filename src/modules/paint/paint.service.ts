@@ -564,7 +564,11 @@ export class PaintService {
   /**
    * Buscar uma tinta por ID
    */
-  async findById(id: string, include?: PaintInclude, select?: PaintSelect): Promise<PaintGetUniqueResponse> {
+  async findById(
+    id: string,
+    include?: PaintInclude,
+    select?: PaintSelect,
+  ): Promise<PaintGetUniqueResponse> {
     try {
       const paint = await this.paintRepository.findById(id, { include, select });
 

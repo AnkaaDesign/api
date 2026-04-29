@@ -33,17 +33,17 @@ export interface MunicipalEmitNfseInput {
   truck?: {
     plate?: string;
     chassisNumber?: string;
-    category?: string;      // TruckCategory enum value
+    category?: string; // TruckCategory enum value
     implementType?: string; // ImplementType enum value
   };
-  orderNumber?: string;     // Customer's purchase order number
+  orderNumber?: string; // Customer's purchase order number
   services?: Array<{
     description: string;
     amount: number;
   }>;
   /** Global customer discount — distributed proportionally across services for NFSe line items */
   globalDiscount?: {
-    type: string;   // 'PERCENTAGE' | 'FIXED_VALUE'
+    type: string; // 'PERCENTAGE' | 'FIXED_VALUE'
     value: number;
   };
   description?: string;
@@ -77,13 +77,8 @@ export class ElotechOxyNfseService {
       'ELOTECH_OXY_CNAE_DESCRICAO',
       'Servicos de lanternagem ou funilaria e pintura de veiculos automotores',
     );
-    this.servicoLCId = this.configService.get(
-      'ELOTECH_OXY_SERVICO_LC_ID',
-      '141201',
-    );
-    this.servicoLCAliquota = Number(
-      this.configService.get('ELOTECH_OXY_SERVICO_LC_ALIQUOTA', 2),
-    );
+    this.servicoLCId = this.configService.get('ELOTECH_OXY_SERVICO_LC_ID', '141201');
+    this.servicoLCAliquota = Number(this.configService.get('ELOTECH_OXY_SERVICO_LC_ALIQUOTA', 2));
     this.servicoLCDescricao = this.configService.get(
       'ELOTECH_OXY_SERVICO_LC_DESCRICAO',
       'Funilaria e lanternagem.',
@@ -94,32 +89,19 @@ export class ElotechOxyNfseService {
     this.servicoLCTipoServico = Number(
       this.configService.get('ELOTECH_OXY_SERVICO_LC_TIPO_SERVICO', 1),
     );
-    this.idServico = Number(
-      this.configService.get('ELOTECH_OXY_ID_SERVICO', 2739),
-    );
-    this.emissionCityId = Number(
-      this.configService.get('ELOTECH_OXY_CITY_ID', 4049),
-    );
-    this.emissionCityIBGE = Number(
-      this.configService.get('ELOTECH_OXY_CITY_IBGE', 4109807),
-    );
-    this.emissionCityName = this.configService.get(
-      'ELOTECH_OXY_CITY_NAME',
-      'IBIPORA',
-    );
+    this.idServico = Number(this.configService.get('ELOTECH_OXY_ID_SERVICO', 2739));
+    this.emissionCityId = Number(this.configService.get('ELOTECH_OXY_CITY_ID', 4049));
+    this.emissionCityIBGE = Number(this.configService.get('ELOTECH_OXY_CITY_IBGE', 4109807));
+    this.emissionCityName = this.configService.get('ELOTECH_OXY_CITY_NAME', 'IBIPORA');
   }
 
-  async emitNfse(
-    invoice: MunicipalEmitNfseInput,
-  ): Promise<Record<string, any>> {
+  async emitNfse(invoice: MunicipalEmitNfseInput): Promise<Record<string, any>> {
     this.logger.log(
       `[MUNICIPAL] Emitting NFS-e for invoice ${invoice.id} (task: ${invoice.task.id})`,
     );
 
     if (!this.authService.isConfigured()) {
-      throw new Error(
-        'Elotech OXY credentials not configured. Cannot emit municipal NFS-e.',
-      );
+      throw new Error('Elotech OXY credentials not configured. Cannot emit municipal NFS-e.');
     }
 
     let nfseDoc = await this.prisma.nfseDocument.findFirst({
@@ -127,9 +109,7 @@ export class ElotechOxyNfseService {
     });
 
     if (nfseDoc && nfseDoc.status === NfseStatus.AUTHORIZED) {
-      this.logger.warn(
-        `[MUNICIPAL] NFS-e already authorized for invoice ${invoice.id}, skipping`,
-      );
+      this.logger.warn(`[MUNICIPAL] NFS-e already authorized for invoice ${invoice.id}, skipping`);
       return { skipped: true, reason: 'ALREADY_AUTHORIZED' };
     }
 
@@ -143,9 +123,7 @@ export class ElotechOxyNfseService {
         data: { status: NfseStatus.PROCESSING, errorMessage: null },
       });
       if (claimed.count === 0) {
-        this.logger.warn(
-          `[MUNICIPAL] Could not claim NfseDocument ${nfseDoc.id}, skipping`,
-        );
+        this.logger.warn(`[MUNICIPAL] Could not claim NfseDocument ${nfseDoc.id}, skipping`);
         return { skipped: true, reason: 'CLAIM_FAILED' };
       }
       nfseDoc = await this.prisma.nfseDocument.findUnique({
@@ -168,24 +146,19 @@ export class ElotechOxyNfseService {
 
       const payload = await this.buildPayload(invoice);
 
-      this.logger.debug(
-        `[MUNICIPAL] Payload: ${JSON.stringify(payload).slice(0, 2000)}`,
-      );
+      this.logger.debug(`[MUNICIPAL] Payload: ${JSON.stringify(payload).slice(0, 2000)}`);
 
       const baseUrl = this.authService.baseUrl;
 
       // Step 1: Check ISS retention
       try {
-        const issRetidoRes = await axios.post(
-          `${baseUrl}/emissao-nfse/iss-retido`,
-          payload,
-          { headers, timeout: 15000 },
-        );
+        const issRetidoRes = await axios.post(`${baseUrl}/emissao-nfse/iss-retido`, payload, {
+          headers,
+          timeout: 15000,
+        });
         const issRetido = issRetidoRes.data?.marcado === true;
         payload.formImposto.issRetido = issRetido;
-        this.logger.log(
-          `[MUNICIPAL] ISS retido check: marcado=${issRetido}`,
-        );
+        this.logger.log(`[MUNICIPAL] ISS retido check: marcado=${issRetido}`);
       } catch (err) {
         this.logger.warn(
           `[MUNICIPAL] ISS retido check failed (proceeding with issRetido=false): ${err instanceof Error ? err.message : err}`,
@@ -210,15 +183,25 @@ export class ElotechOxyNfseService {
           }
           // Merge specific computed values from formImposto
           if (enriched.formImposto) {
-            payload.formImposto.valorIss = enriched.formImposto.valorIss ?? payload.formImposto.valorIss;
-            payload.formImposto.valorCofins = enriched.formImposto.valorCofins ?? payload.formImposto.valorCofins;
-            payload.formImposto.valorIr = enriched.formImposto.valorIr ?? payload.formImposto.valorIr;
-            payload.formImposto.valorCpp = enriched.formImposto.valorCpp ?? payload.formImposto.valorCpp;
-            payload.formImposto.valorPis = enriched.formImposto.valorPis ?? payload.formImposto.valorPis;
-            payload.formImposto.valorInss = enriched.formImposto.valorInss ?? payload.formImposto.valorInss;
-            payload.formImposto.valorCsll = enriched.formImposto.valorCsll ?? payload.formImposto.valorCsll;
-            payload.formImposto.valorOutrasRetencoes = enriched.formImposto.valorOutrasRetencoes ?? payload.formImposto.valorOutrasRetencoes;
-            payload.formImposto.valorImpostosFederais = enriched.formImposto.valorImpostosFederais ?? payload.formImposto.valorImpostosFederais;
+            payload.formImposto.valorIss =
+              enriched.formImposto.valorIss ?? payload.formImposto.valorIss;
+            payload.formImposto.valorCofins =
+              enriched.formImposto.valorCofins ?? payload.formImposto.valorCofins;
+            payload.formImposto.valorIr =
+              enriched.formImposto.valorIr ?? payload.formImposto.valorIr;
+            payload.formImposto.valorCpp =
+              enriched.formImposto.valorCpp ?? payload.formImposto.valorCpp;
+            payload.formImposto.valorPis =
+              enriched.formImposto.valorPis ?? payload.formImposto.valorPis;
+            payload.formImposto.valorInss =
+              enriched.formImposto.valorInss ?? payload.formImposto.valorInss;
+            payload.formImposto.valorCsll =
+              enriched.formImposto.valorCsll ?? payload.formImposto.valorCsll;
+            payload.formImposto.valorOutrasRetencoes =
+              enriched.formImposto.valorOutrasRetencoes ?? payload.formImposto.valorOutrasRetencoes;
+            payload.formImposto.valorImpostosFederais =
+              enriched.formImposto.valorImpostosFederais ??
+              payload.formImposto.valorImpostosFederais;
           }
           // Merge enriched servicoLC fields from formDadosNFSe
           if (enriched.formDadosNFSe?.servicoLC) {
@@ -227,9 +210,14 @@ export class ElotechOxyNfseService {
           // Merge specific enriched formDadosNFSe fields
           if (enriched.formDadosNFSe) {
             const dadosKeys = [
-              'exibeAcessoWeb', 'exibeDataDigitacao', 'exibeRps',
-              'processadoPrestador', 'processadoTomador',
-              'tipoDocumentoId', 'tipoMovimento', 'existsCreditoObraUtilizado',
+              'exibeAcessoWeb',
+              'exibeDataDigitacao',
+              'exibeRps',
+              'processadoPrestador',
+              'processadoTomador',
+              'tipoDocumentoId',
+              'tipoMovimento',
+              'existsCreditoObraUtilizado',
             ];
             for (const key of dadosKeys) {
               if (enriched.formDadosNFSe[key] !== undefined) {
@@ -254,17 +242,14 @@ export class ElotechOxyNfseService {
       }
 
       // Step 3: Save/emit the NFSe
-      this.logger.debug(
-        `[MUNICIPAL] Save payload: ${JSON.stringify(payload).slice(0, 3000)}`,
-      );
+      this.logger.debug(`[MUNICIPAL] Save payload: ${JSON.stringify(payload).slice(0, 3000)}`);
 
       let saveRes: any;
       try {
-        saveRes = await axios.post(
-          `${baseUrl}/emissao-nfse/salvar-nota-fiscal`,
-          payload,
-          { headers, timeout: 30000 },
-        );
+        saveRes = await axios.post(`${baseUrl}/emissao-nfse/salvar-nota-fiscal`, payload, {
+          headers,
+          timeout: 30000,
+        });
       } catch (saveErr: any) {
         const saveErrData = saveErr?.response?.data;
         const saveErrStatus = saveErr?.response?.status;
@@ -295,9 +280,7 @@ export class ElotechOxyNfseService {
         },
       });
 
-      this.logger.log(
-        `[MUNICIPAL] NFS-e authorized: id=${nfseId}, numero=${nfseNumber}`,
-      );
+      this.logger.log(`[MUNICIPAL] NFS-e authorized: id=${nfseId}, numero=${nfseNumber}`);
 
       return { nfseId, nfseNumber, status: 'AUTHORIZED' };
     } catch (error) {
@@ -323,9 +306,7 @@ export class ElotechOxyNfseService {
         },
       });
 
-      this.logger.error(
-        `[MUNICIPAL] Failed to emit NFS-e for invoice ${invoice.id}: ${errorMsg}`,
-      );
+      this.logger.error(`[MUNICIPAL] Failed to emit NFS-e for invoice ${invoice.id}: ${errorMsg}`);
       if (errResponse) {
         this.logger.error(
           `[MUNICIPAL] Full error response: ${JSON.stringify(errResponse).slice(0, 2000)}`,
@@ -350,14 +331,10 @@ export class ElotechOxyNfseService {
     reason: string,
     reasonCode: number = 1,
   ): Promise<{ cancelled: boolean; elotechNfseId: number }> {
-    this.logger.log(
-      `[MUNICIPAL] Cancelling NFS-e document ${nfseDocumentId}`,
-    );
+    this.logger.log(`[MUNICIPAL] Cancelling NFS-e document ${nfseDocumentId}`);
 
     if (!this.authService.isConfigured()) {
-      throw new Error(
-        'Elotech OXY credentials not configured. Cannot cancel municipal NFS-e.',
-      );
+      throw new Error('Elotech OXY credentials not configured. Cannot cancel municipal NFS-e.');
     }
 
     const nfseDoc = await this.prisma.nfseDocument.findUnique({
@@ -369,9 +346,7 @@ export class ElotechOxyNfseService {
     }
 
     if (nfseDoc.status === NfseStatus.CANCELLED) {
-      this.logger.warn(
-        `[MUNICIPAL] NFS-e already cancelled: ${nfseDocumentId}`,
-      );
+      this.logger.warn(`[MUNICIPAL] NFS-e already cancelled: ${nfseDocumentId}`);
       return { cancelled: true, elotechNfseId: nfseDoc.elotechNfseId || 0 };
     }
 
@@ -382,9 +357,7 @@ export class ElotechOxyNfseService {
     }
 
     if (!nfseDoc.elotechNfseId) {
-      throw new Error(
-        `NfseDocument ${nfseDoc.id} has no elotechNfseId. Cannot cancel.`,
-      );
+      throw new Error(`NfseDocument ${nfseDoc.id} has no elotechNfseId. Cannot cancel.`);
     }
 
     const elotechNfseId = nfseDoc.elotechNfseId;
@@ -426,9 +399,7 @@ export class ElotechOxyNfseService {
         idCadastroSolicitante: cancelFormData.idCadastroGeralPrestador,
       };
 
-      this.logger.debug(
-        `[MUNICIPAL] Cancel payload: ${JSON.stringify(cancelPayload)}`,
-      );
+      this.logger.debug(`[MUNICIPAL] Cancel payload: ${JSON.stringify(cancelPayload)}`);
 
       const cancelRes = await axios.post(
         `${baseUrl}/solicitacoes-cancelamento/salvar`,
@@ -583,10 +554,11 @@ export class ElotechOxyNfseService {
     };
     const baseUrl = this.authService.baseUrl;
 
-    const res = await axios.get(
-      `${baseUrl}/emissao-nfse/resumo-nota-fiscal`,
-      { headers, params: { idNotaFiscal: elotechNfseId }, timeout: 15000 },
-    );
+    const res = await axios.get(`${baseUrl}/emissao-nfse/resumo-nota-fiscal`, {
+      headers,
+      params: { idNotaFiscal: elotechNfseId },
+      timeout: 15000,
+    });
 
     return res.data;
   }
@@ -603,26 +575,44 @@ export class ElotechOxyNfseService {
     };
     const baseUrl = this.authService.baseUrl;
 
-    const res = await axios.get(
-      `${baseUrl}/emissao-nfse/nota-fiscal-pdf/${elotechNfseId}`,
-      { headers, responseType: 'arraybuffer', timeout: 30000 },
-    );
+    const res = await axios.get(`${baseUrl}/emissao-nfse/nota-fiscal-pdf/${elotechNfseId}`, {
+      headers,
+      responseType: 'arraybuffer',
+      timeout: 30000,
+    });
 
     return Buffer.from(res.data);
   }
 
-  private buildFullCityObject(
-    city: ElotechCity,
-    uf: string,
-  ): Record<string, any> {
+  private buildFullCityObject(city: ElotechCity, uf: string): Record<string, any> {
     const ufDescriptions: Record<string, string> = {
-      AC: 'Acre', AL: 'Alagoas', AM: 'Amazonas', AP: 'Amapa',
-      BA: 'Bahia', CE: 'Ceara', DF: 'Distrito Federal', ES: 'Espirito Santo',
-      GO: 'Goias', MA: 'Maranhao', MG: 'Minas Gerais', MS: 'Mato Grosso do Sul',
-      MT: 'Mato Grosso', PA: 'Para', PB: 'Paraiba', PE: 'Pernambuco',
-      PI: 'Piaui', PR: 'Parana', RJ: 'Rio de Janeiro', RN: 'Rio Grande do Norte',
-      RO: 'Rondonia', RR: 'Roraima', RS: 'Rio Grande do Sul', SC: 'Santa Catarina',
-      SE: 'Sergipe', SP: 'Sao Paulo', TO: 'Tocantins',
+      AC: 'Acre',
+      AL: 'Alagoas',
+      AM: 'Amazonas',
+      AP: 'Amapa',
+      BA: 'Bahia',
+      CE: 'Ceara',
+      DF: 'Distrito Federal',
+      ES: 'Espirito Santo',
+      GO: 'Goias',
+      MA: 'Maranhao',
+      MG: 'Minas Gerais',
+      MS: 'Mato Grosso do Sul',
+      MT: 'Mato Grosso',
+      PA: 'Para',
+      PB: 'Paraiba',
+      PE: 'Pernambuco',
+      PI: 'Piaui',
+      PR: 'Parana',
+      RJ: 'Rio de Janeiro',
+      RN: 'Rio Grande do Norte',
+      RO: 'Rondonia',
+      RR: 'Roraima',
+      RS: 'Rio Grande do Sul',
+      SC: 'Santa Catarina',
+      SE: 'Sergipe',
+      SP: 'Sao Paulo',
+      TO: 'Tocantins',
     };
 
     return {
@@ -667,9 +657,7 @@ export class ElotechOxyNfseService {
     FLATBED: 'Prancha/Plataforma',
   };
 
-  private async buildPayload(
-    invoice: MunicipalEmitNfseInput,
-  ): Promise<Record<string, any>> {
+  private async buildPayload(invoice: MunicipalEmitNfseInput): Promise<Record<string, any>> {
     const contribuinte = this.authService.getContribuinteData();
     const providerCnpj = contribuinte?.cnpjCpf || '';
     const providerName = contribuinte?.razaoSocialNome || '';
@@ -678,8 +666,7 @@ export class ElotechOxyNfseService {
 
     // Build tomador (customer) — must match Elotech OXY portal structure exactly
     const isJuridica = !!invoice.customer.cnpj;
-    const cleanDoc = (invoice.customer.cnpj || invoice.customer.cpf || '')
-      .replace(/\D/g, '');
+    const cleanDoc = (invoice.customer.cnpj || invoice.customer.cpf || '').replace(/\D/g, '');
 
     const formTomador: Record<string, any> = {
       tipoTomador: 'I',
@@ -717,10 +704,7 @@ export class ElotechOxyNfseService {
       formTomador.uf = this.authService.buildUfObject(uf);
 
       if (invoice.customer.address.cityName) {
-        const city = await this.authService.findCity(
-          invoice.customer.address.cityName,
-          uf,
-        );
+        const city = await this.authService.findCity(invoice.customer.address.cityName, uf);
         if (city) {
           formTomador.cidade = this.buildFullCityObject(city, uf);
         }
@@ -734,10 +718,14 @@ export class ElotechOxyNfseService {
     // Format: "Referente aos serviços executados no veículo Caminhão Carga seca de n série: X, placa: Y, chassi: Z."
     const vehicleTypeParts: string[] = [];
     if (invoice.truck?.category) {
-      vehicleTypeParts.push(this.TRUCK_CATEGORY_LABELS[invoice.truck.category] ?? invoice.truck.category);
+      vehicleTypeParts.push(
+        this.TRUCK_CATEGORY_LABELS[invoice.truck.category] ?? invoice.truck.category,
+      );
     }
     if (invoice.truck?.implementType) {
-      vehicleTypeParts.push(this.IMPLEMENT_TYPE_LABELS[invoice.truck.implementType] ?? invoice.truck.implementType);
+      vehicleTypeParts.push(
+        this.IMPLEMENT_TYPE_LABELS[invoice.truck.implementType] ?? invoice.truck.implementType,
+      );
     }
 
     const vehicleIdParts: string[] = [];
@@ -769,9 +757,10 @@ export class ElotechOxyNfseService {
     // For PERCENTAGE: use the value directly
     // For FIXED_VALUE: calculate the equivalent percentage from the PRE-DISCOUNT subtotal
     // (sum of service amounts), NOT from totalAmount (which is post-discount config.total)
-    const servicesSubtotal = services && services.length > 0
-      ? services.reduce((sum, svc) => sum + svc.amount, 0)
-      : totalAmount;
+    const servicesSubtotal =
+      services && services.length > 0
+        ? services.reduce((sum, svc) => sum + svc.amount, 0)
+        : totalAmount;
     let effectiveDiscountPercent = 0;
     if (invoice.globalDiscount) {
       const gd = invoice.globalDiscount;
@@ -782,15 +771,11 @@ export class ElotechOxyNfseService {
       }
     }
 
-    const buildItem = (
-      description: string,
-      amount: number,
-      index: number,
-    ) => {
+    const buildItem = (description: string, amount: number, index: number) => {
       // Distribute global discount proportionally to each service
       let valorDesconto = 0;
       if (effectiveDiscountPercent > 0) {
-        valorDesconto = Math.round((amount * effectiveDiscountPercent / 100) * 100) / 100;
+        valorDesconto = Math.round(((amount * effectiveDiscountPercent) / 100) * 100) / 100;
       }
       const valorLiquido = Math.max(0, Math.round((amount - valorDesconto) * 100) / 100);
       totalDescontosIncondicionados += valorDesconto;
@@ -821,9 +806,7 @@ export class ElotechOxyNfseService {
     const cleanOrderNumber = invoice.orderNumber?.replace(/^PEDIDO\s+NR\s+/i, '').trim() ?? '';
 
     if (services && services.length > 0) {
-      formItensNFSe = services.map((svc, i) =>
-        buildItem(svc.description, svc.amount, i),
-      );
+      formItensNFSe = services.map((svc, i) => buildItem(svc.description, svc.amount, i));
 
       const DISCRIMINACAO_MAX_LINES = 11;
       const headerLines: string[] = [];
@@ -831,12 +814,16 @@ export class ElotechOxyNfseService {
       if (vehicleRef) headerLines.push(vehicleRef);
 
       const availableLines = Math.max(1, DISCRIMINACAO_MAX_LINES - headerLines.length);
-      const packedServices = this.packServiceLines(services.map((s) => s.description), availableLines);
+      const packedServices = this.packServiceLines(
+        services.map(s => s.description),
+        availableLines,
+      );
 
       discriminacaoServico = invoice.description || [...headerLines, ...packedServices].join('\n');
     } else {
-      const fallbackDesc = invoice.description
-        || `${cleanOrderNumber ? `Pedido: ${cleanOrderNumber}\n` : ''}Serviço ref. OS ${serialNumber}`;
+      const fallbackDesc =
+        invoice.description ||
+        `${cleanOrderNumber ? `Pedido: ${cleanOrderNumber}\n` : ''}Serviço ref. OS ${serialNumber}`;
       formItensNFSe = [buildItem(fallbackDesc, totalAmount, 0)];
       discriminacaoServico = fallbackDesc;
     }

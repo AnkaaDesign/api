@@ -55,9 +55,7 @@ export class NfseEmissionScheduler {
         },
       });
       if (unstuck.count > 0) {
-        this.logger.warn(
-          `Recovered ${unstuck.count} NFS-e document(s) stuck in PROCESSING state`,
-        );
+        this.logger.warn(`Recovered ${unstuck.count} NFS-e document(s) stuck in PROCESSING state`);
       }
 
       // Find NfseDocuments that are PENDING, or ERROR with retryAfter passed and < 3 errors
@@ -120,15 +118,15 @@ export class NfseEmissionScheduler {
                   },
                 },
               },
-              customerConfig: { select: { orderNumber: true, discountType: true, discountValue: true } },
+              customerConfig: {
+                select: { orderNumber: true, discountType: true, discountValue: true },
+              },
             },
           },
         },
       });
 
-      this.logger.log(
-        `Found ${pendingDocs.length} NFS-e document(s) to emit`,
-      );
+      this.logger.log(`Found ${pendingDocs.length} NFS-e document(s) to emit`);
 
       let emitted = 0;
       let errors = 0;
@@ -149,17 +147,13 @@ export class NfseEmissionScheduler {
           });
 
           if (claimed.count === 0) {
-            this.logger.warn(
-              `NfseDocument ${doc.id} already claimed by another process, skipping`,
-            );
+            this.logger.warn(`NfseDocument ${doc.id} already claimed by another process, skipping`);
             continue;
           }
 
           const invoice = doc.invoice;
           if (!invoice) {
-            this.logger.warn(
-              `NfseDocument ${doc.id} has no invoice, skipping`,
-            );
+            this.logger.warn(`NfseDocument ${doc.id} has no invoice, skipping`);
             // Revert status since we can't process it
             await this.prisma.nfseDocument.update({
               where: { id: doc.id },
@@ -170,9 +164,7 @@ export class NfseEmissionScheduler {
 
           const customer = invoice.customer;
           if (!customer) {
-            this.logger.warn(
-              `NfseDocument ${doc.id} has no customer, skipping`,
-            );
+            this.logger.warn(`NfseDocument ${doc.id} has no customer, skipping`);
             await this.prisma.nfseDocument.update({
               where: { id: doc.id },
               data: { status: NfseStatus.ERROR, errorMessage: 'No customer linked' },
@@ -182,9 +174,7 @@ export class NfseEmissionScheduler {
 
           const task = invoice.task;
           if (!task) {
-            this.logger.warn(
-              `NfseDocument ${doc.id} has no task, skipping`,
-            );
+            this.logger.warn(`NfseDocument ${doc.id} has no task, skipping`);
             await this.prisma.nfseDocument.update({
               where: { id: doc.id },
               data: { status: NfseStatus.ERROR, errorMessage: 'No task linked' },
@@ -193,22 +183,17 @@ export class NfseEmissionScheduler {
           }
 
           // Build services list from task quote, filtered by customer
-          const allServices =
-            (task as any).quote?.services as
-              | Array<{
-                  description: string;
-                  amount: any;
-                  invoiceToCustomerId: string | null;
-                }>
-              | undefined;
+          const allServices = (task as any).quote?.services as
+            | Array<{
+                description: string;
+                amount: any;
+                invoiceToCustomerId: string | null;
+              }>
+            | undefined;
 
           const services = allServices
-            ?.filter(
-              (s) =>
-                !s.invoiceToCustomerId ||
-                s.invoiceToCustomerId === customer.id,
-            )
-            .map((s) => ({
+            ?.filter(s => !s.invoiceToCustomerId || s.invoiceToCustomerId === customer.id)
+            .map(s => ({
               description: s.description,
               amount: Number(s.amount),
             }));
@@ -216,7 +201,10 @@ export class NfseEmissionScheduler {
           // Get customer config discount (global discount for this customer)
           const customerConfig = (invoice as any).customerConfig;
           const configDiscountType = customerConfig?.discountType || undefined;
-          const configDiscountValue = customerConfig?.discountValue != null ? Number(customerConfig.discountValue) : undefined;
+          const configDiscountValue =
+            customerConfig?.discountValue != null
+              ? Number(customerConfig.discountValue)
+              : undefined;
 
           // Build the input for municipal NFSe emission (Elotech OXY)
           const truck = (task as any).truck;
@@ -257,34 +245,28 @@ export class NfseEmissionScheduler {
               : undefined,
             orderNumber: (invoice as any).customerConfig?.orderNumber || undefined,
             services,
-            globalDiscount: (configDiscountType && configDiscountType !== 'NONE' && configDiscountValue)
-              ? { type: configDiscountType, value: configDiscountValue }
-              : undefined,
+            globalDiscount:
+              configDiscountType && configDiscountType !== 'NONE' && configDiscountValue
+                ? { type: configDiscountType, value: configDiscountValue }
+                : undefined,
           };
 
           await this.municipalNfseService.emitNfse(emitInput);
           emitted++;
 
-          this.logger.log(
-            `NFS-e emitted for invoice ${invoice.id} (task: ${task.name})`,
-          );
+          this.logger.log(`NFS-e emitted for invoice ${invoice.id} (task: ${task.name})`);
         } catch (error) {
           errors++;
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
 
-          this.logger.error(
-            `Failed to emit NFS-e for document ${doc.id}: ${errorMessage}`,
-          );
+          this.logger.error(`Failed to emit NFS-e for document ${doc.id}: ${errorMessage}`);
 
           // NfseService.emitNfse() already handles error status update,
           // so we don't need to update the doc here
         }
       }
 
-      this.logger.log(
-        `NFS-e emission job completed. Emitted: ${emitted}, Errors: ${errors}`,
-      );
+      this.logger.log(`NFS-e emission job completed. Emitted: ${emitted}, Errors: ${errors}`);
     } catch (error) {
       this.logger.error('Error during NFS-e emission job:', error);
     } finally {
@@ -360,15 +342,15 @@ export class NfseEmissionScheduler {
                 },
               },
             },
-            customerConfig: { select: { orderNumber: true, discountType: true, discountValue: true } },
+            customerConfig: {
+              select: { orderNumber: true, discountType: true, discountValue: true },
+            },
           },
         },
       },
     });
 
-    this.logger.log(
-      `[NFSE_TARGETED] Found ${docs.length} NfSe document(s) to emit`,
-    );
+    this.logger.log(`[NFSE_TARGETED] Found ${docs.length} NfSe document(s) to emit`);
 
     let emitted = 0;
     let errors = 0;
@@ -386,15 +368,17 @@ export class NfseEmissionScheduler {
           continue;
         }
 
-        const allServices = (task as any).quote?.services as Array<{
-          description: string;
-          amount: any;
-          invoiceToCustomerId: string | null;
-        }> | undefined;
+        const allServices = (task as any).quote?.services as
+          | Array<{
+              description: string;
+              amount: any;
+              invoiceToCustomerId: string | null;
+            }>
+          | undefined;
 
         const services = allServices
-          ?.filter((s) => !s.invoiceToCustomerId || s.invoiceToCustomerId === customer.id)
-          .map((s) => ({
+          ?.filter(s => !s.invoiceToCustomerId || s.invoiceToCustomerId === customer.id)
+          .map(s => ({
             description: s.description,
             amount: Number(s.amount),
           }));
@@ -402,7 +386,8 @@ export class NfseEmissionScheduler {
         // Get customer config discount (global discount for this customer)
         const customerConfig = (invoice as any).customerConfig;
         const configDiscountType = customerConfig?.discountType || undefined;
-        const configDiscountValue = customerConfig?.discountValue != null ? Number(customerConfig.discountValue) : undefined;
+        const configDiscountValue =
+          customerConfig?.discountValue != null ? Number(customerConfig.discountValue) : undefined;
 
         const truck = (task as any).truck;
 
@@ -443,9 +428,10 @@ export class NfseEmissionScheduler {
             : undefined,
           orderNumber: customerConfig?.orderNumber || undefined,
           services,
-          globalDiscount: (configDiscountType && configDiscountType !== 'NONE' && configDiscountValue)
-            ? { type: configDiscountType, value: configDiscountValue }
-            : undefined,
+          globalDiscount:
+            configDiscountType && configDiscountType !== 'NONE' && configDiscountValue
+              ? { type: configDiscountType, value: configDiscountValue }
+              : undefined,
         });
 
         emitted++;
@@ -461,8 +447,6 @@ export class NfseEmissionScheduler {
       }
     }
 
-    this.logger.log(
-      `[NFSE_TARGETED] Done. Emitted: ${emitted}, Errors: ${errors}`,
-    );
+    this.logger.log(`[NFSE_TARGETED] Done. Emitted: ${emitted}, Errors: ${errors}`);
   }
 }

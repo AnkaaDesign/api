@@ -1,11 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { User, UserNotificationPreference } from '../../../types';
-import {
-  NOTIFICATION_CHANNEL,
-  SECTOR_PRIVILEGES,
-  NOTIFICATION_TYPE,
-} from '../../../constants';
+import { NOTIFICATION_CHANNEL, SECTOR_PRIVILEGES, NOTIFICATION_TYPE } from '../../../constants';
 import {
   NotificationChannel,
   NotificationType,
@@ -99,17 +95,13 @@ export class NotificationChannelResolverService {
     config: NotificationConfiguration,
     user: User,
   ): Promise<ResolvedChannel[]> {
-    this.logger.debug(
-      `Resolving channels for user ${user.id} with config ${config.key}`,
-    );
+    this.logger.debug(`Resolving channels for user ${user.id} with config ${config.key}`);
 
     // 1. Get base channel configs from configuration
     let channelConfigs = config.channelConfigs || [];
 
     if (channelConfigs.length === 0) {
-      this.logger.warn(
-        `No channel configs found for configuration ${config.key}`,
-      );
+      this.logger.warn(`No channel configs found for configuration ${config.key}`);
       return [];
     }
 
@@ -121,14 +113,9 @@ export class NotificationChannelResolverService {
       const sectorOverride = this.getSectorOverride(config, sectorPrivilege);
 
       if (sectorOverride) {
-        channelConfigs = this.applySectorOverride(
-          channelConfigs,
-          sectorOverride,
-        );
+        channelConfigs = this.applySectorOverride(channelConfigs, sectorOverride);
         fromOverride = true;
-        this.logger.debug(
-          `Applied sector override for ${sectorPrivilege} on config ${config.key}`,
-        );
+        this.logger.debug(`Applied sector override for ${sectorPrivilege} on config ${config.key}`);
       }
     }
 
@@ -140,7 +127,12 @@ export class NotificationChannelResolverService {
     const resolvedChannels: ResolvedChannel[] = [];
 
     for (const channelConfig of finalConfigs) {
-      if (this.shouldIncludeChannel(channelConfig, this.getUserPrefForChannel(userPrefs, channelConfig.channel))) {
+      if (
+        this.shouldIncludeChannel(
+          channelConfig,
+          this.getUserPrefForChannel(userPrefs, channelConfig.channel),
+        )
+      ) {
         resolvedChannels.push({
           channel: channelConfig.channel,
           mandatory: channelConfig.mandatory,
@@ -277,10 +269,7 @@ export class NotificationChannelResolverService {
    * @param userPref - User preference for this channel (null if not set)
    * @returns true if channel should be included
    */
-  shouldIncludeChannel(
-    channelConfig: ChannelConfig,
-    userPref: boolean | null,
-  ): boolean {
+  shouldIncludeChannel(channelConfig: ChannelConfig, userPref: boolean | null): boolean {
     // Channel disabled in config -> never include
     if (!channelConfig.enabled) {
       return false;
@@ -379,9 +368,7 @@ export class NotificationChannelResolverService {
    * @param key - The configuration key
    * @returns The notification configuration with channel configs and sector overrides
    */
-  async loadConfigurationByKey(
-    key: string,
-  ): Promise<NotificationConfiguration | null> {
+  async loadConfigurationByKey(key: string): Promise<NotificationConfiguration | null> {
     try {
       // Use type assertion for Prisma model that may be newly added
       const prismaClient = this.prisma as any;
@@ -476,7 +463,12 @@ export class NotificationChannelResolverService {
       // Build resolved channels
       const resolvedChannels: ResolvedChannel[] = [];
       for (const channelConfig of finalConfigs) {
-        if (this.shouldIncludeChannel(channelConfig, this.getUserPrefForChannel(userPrefs, channelConfig.channel))) {
+        if (
+          this.shouldIncludeChannel(
+            channelConfig,
+            this.getUserPrefForChannel(userPrefs, channelConfig.channel),
+          )
+        ) {
           resolvedChannels.push({
             channel: channelConfig.channel,
             mandatory: channelConfig.mandatory,

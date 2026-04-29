@@ -119,7 +119,7 @@ export const LEAD_TIME_UPDATE_DAYS_THRESHOLD = 3;
 export const COLLECTIVE_VACATION_PERIOD = {
   startMonth: 11, // December
   startDay: 20,
-  endMonth: 0,    // January
+  endMonth: 0, // January
   endDay: 10,
 };
 
@@ -193,15 +193,15 @@ export function isInVacationPeriod(date: Date): boolean {
  * Index 0 = January, 11 = December
  */
 export const DEFAULT_SEASONAL_FACTORS: number[] = [
-  0.70, // January   - Vacation recovery, slow ramp-up
+  0.7, // January   - Vacation recovery, slow ramp-up
   0.85, // February  - Carnival, still ramping up
   0.95, // March     - Normal operations begin
-  1.00, // April     - Normal
-  1.00, // May       - Normal
-  1.00, // June      - Normal
-  1.00, // July      - Normal (mid-year)
+  1.0, // April     - Normal
+  1.0, // May       - Normal
+  1.0, // June      - Normal
+  1.0, // July      - Normal (mid-year)
   1.05, // August    - Slight increase
-  1.10, // September - Increasing demand
+  1.1, // September - Increasing demand
   1.15, // October   - High demand period
   1.15, // November  - High demand period (pre-holiday production)
   0.75, // December  - Collective vacation starts, winding down
@@ -211,13 +211,9 @@ export const DEFAULT_SEASONAL_FACTORS: number[] = [
  * Returns the seasonal adjustment factor for a given month.
  * If custom factors are provided (from historical data), uses those instead.
  */
-export function getSeasonalFactor(
-  month: number,
-  customFactors?: number[] | null,
-): number {
-  const factors = customFactors && customFactors.length === 12
-    ? customFactors
-    : DEFAULT_SEASONAL_FACTORS;
+export function getSeasonalFactor(month: number, customFactors?: number[] | null): number {
+  const factors =
+    customFactors && customFactors.length === 12 ? customFactors : DEFAULT_SEASONAL_FACTORS;
   return factors[month] ?? 1.0;
 }
 

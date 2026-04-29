@@ -305,7 +305,10 @@ export abstract class DashboardRepository {
   abstract countApprovedVacationsThisMonth(dateFilter: DateFilter): Promise<number>;
 
   // Financial dashboard queries
-  abstract getFinancialInvoiceStatistics(dateFilter?: DateFilter, customerId?: string): Promise<{
+  abstract getFinancialInvoiceStatistics(
+    dateFilter?: DateFilter,
+    customerId?: string,
+  ): Promise<{
     totalInvoices: number;
     activeInvoices: number;
     paidInvoices: number;
@@ -335,10 +338,19 @@ export abstract class DashboardRepository {
     settledQuotes: number;
     byStatus: DashboardChartData;
   }>;
-  abstract getFinancialTopCustomers(dateFilter?: DateFilter, limit?: number): Promise<DashboardListItem[]>;
-  abstract getFinancialRevenueByCustomer(dateFilter?: DateFilter, limit?: number): Promise<DashboardChartData>;
+  abstract getFinancialTopCustomers(
+    dateFilter?: DateFilter,
+    limit?: number,
+  ): Promise<DashboardListItem[]>;
+  abstract getFinancialRevenueByCustomer(
+    dateFilter?: DateFilter,
+    limit?: number,
+  ): Promise<DashboardChartData>;
   abstract getFinancialMonthlyRevenue(months?: number): Promise<DashboardChartData>;
-  abstract getFinancialRecentActivities(dateFilter?: DateFilter, limit?: number): Promise<
+  abstract getFinancialRecentActivities(
+    dateFilter?: DateFilter,
+    limit?: number,
+  ): Promise<
     Array<{
       id: string;
       title: string;
@@ -349,7 +361,11 @@ export abstract class DashboardRepository {
   >;
 
   // Home dashboard queries
-  abstract getTasksWithCloseDeadline(today: Date, limit?: number, sectorId?: string | null): Promise<HomeDashboardTask[]>;
+  abstract getTasksWithCloseDeadline(
+    today: Date,
+    limit?: number,
+    sectorId?: string | null,
+  ): Promise<HomeDashboardTask[]>;
   abstract getTasksWithCloseForecast(
     forecastCutoff: Date,
     soTypes: string[],
@@ -362,12 +378,17 @@ export abstract class DashboardRepository {
   abstract getLowStockItems(): Promise<HomeDashboardLowStockItem[]>;
   abstract getRecentlyCompletedTasks(since: Date, limit?: number): Promise<HomeDashboardTask[]>;
   abstract getTasksAwaitingPaymentApproval(limit?: number): Promise<HomeDashboardTask[]>;
-  abstract getTasksAwaitingQuoteApproval(sector: string, limit?: number): Promise<HomeDashboardTask[]>;
+  abstract getTasksAwaitingQuoteApproval(
+    sector: string,
+    limit?: number,
+  ): Promise<HomeDashboardTask[]>;
   abstract getTasksAwaitingBudgetApproval(limit?: number): Promise<HomeDashboardTask[]>;
   abstract getRecentMessages(
     userId: string,
     since: Date,
     limit?: number,
   ): Promise<HomeDashboardMessage[]>;
-  abstract getUserSectorInfo(userId: string): Promise<{ privileges: string; sectorId: string } | null>;
+  abstract getUserSectorInfo(
+    userId: string,
+  ): Promise<{ privileges: string; sectorId: string } | null>;
 }

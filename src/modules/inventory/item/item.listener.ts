@@ -98,30 +98,26 @@ export class ItemListener {
       const title = 'Estoque Baixo';
       const body = `O item "${item.name}" esta com estoque baixo.${itemDetails}\n\nEstoque atual: ${event.currentQuantity} unidades\nPonto de recompra: ${event.reorderPoint} unidades\n\nRecomenda-se verificar e realizar pedido de reposicao.`;
 
-      await this.dispatchService.dispatchByConfiguration(
-        'item.low_stock',
-        'system',
-        {
-          entityType: 'Item',
-          entityId: item.id,
-          action: 'low_stock',
-          data: {
-            itemName: item.name,
-            itemCode: item.uniCode,
-            currentQuantity: event.currentQuantity,
-            minimumQuantity: event.reorderPoint,
-            category: item.category?.name || '',
-          },
-          metadata: { itemId: item.id },
-          overrides: {
-            actionUrl: JSON.stringify(deepLinks),
-            webUrl: `/estoque/produtos/detalhes/${item.id}`,
-            relatedEntityType: 'ITEM',
-            title,
-            body,
-          },
+      await this.dispatchService.dispatchByConfiguration('item.low_stock', 'system', {
+        entityType: 'Item',
+        entityId: item.id,
+        action: 'low_stock',
+        data: {
+          itemName: item.name,
+          itemCode: item.uniCode,
+          currentQuantity: event.currentQuantity,
+          minimumQuantity: event.reorderPoint,
+          category: item.category?.name || '',
         },
-      );
+        metadata: { itemId: item.id },
+        overrides: {
+          actionUrl: JSON.stringify(deepLinks),
+          webUrl: `/estoque/produtos/detalhes/${item.id}`,
+          relatedEntityType: 'ITEM',
+          title,
+          body,
+        },
+      });
 
       this.logger.log('Low stock notification dispatched via configuration');
     } catch (error) {
@@ -161,28 +157,24 @@ export class ItemListener {
       const title = 'Estoque Esgotado';
       const body = `O item "${item.name}" esta ESGOTADO.${itemDetails}${supplierInfo}\n\nEstoque atual: 0 unidades\n\nAcao urgente necessaria para repor o item.`;
 
-      await this.dispatchService.dispatchByConfiguration(
-        'item.out_of_stock',
-        'system',
-        {
-          entityType: 'Item',
-          entityId: item.id,
-          action: 'out_of_stock',
-          data: {
-            itemName: item.name,
-            itemCode: item.uniCode,
-            category: item.category?.name || '',
-          },
-          metadata: { itemId: item.id },
-          overrides: {
-            actionUrl: JSON.stringify(deepLinks),
-            webUrl: `/estoque/produtos/detalhes/${item.id}`,
-            relatedEntityType: 'ITEM',
-            title,
-            body,
-          },
+      await this.dispatchService.dispatchByConfiguration('item.out_of_stock', 'system', {
+        entityType: 'Item',
+        entityId: item.id,
+        action: 'out_of_stock',
+        data: {
+          itemName: item.name,
+          itemCode: item.uniCode,
+          category: item.category?.name || '',
         },
-      );
+        metadata: { itemId: item.id },
+        overrides: {
+          actionUrl: JSON.stringify(deepLinks),
+          webUrl: `/estoque/produtos/detalhes/${item.id}`,
+          relatedEntityType: 'ITEM',
+          title,
+          body,
+        },
+      });
 
       this.logger.log('Out of stock notification dispatched via configuration');
     } catch (error) {
@@ -231,32 +223,28 @@ export class ItemListener {
         ? item.supplier.fantasyName || item.supplier.corporateName
         : '';
 
-      await this.dispatchService.dispatchByConfiguration(
-        'item.reorder_required',
-        'system',
-        {
-          entityType: 'Item',
-          entityId: item.id,
-          action: 'reorder_required',
-          data: {
-            itemName: item.name,
-            itemCode: item.uniCode,
-            currentQuantity: event.currentQuantity,
-            reorderPoint: event.currentQuantity,
-            suggestedOrderQuantity: event.reorderQuantity,
-            preferredSupplier,
-            category: item.category?.name || '',
-          },
-          metadata: { itemId: item.id },
-          overrides: {
-            actionUrl: JSON.stringify(deepLinks),
-            webUrl: `/estoque/produtos/detalhes/${item.id}`,
-            relatedEntityType: 'ITEM',
-            title,
-            body,
-          },
+      await this.dispatchService.dispatchByConfiguration('item.reorder_required', 'system', {
+        entityType: 'Item',
+        entityId: item.id,
+        action: 'reorder_required',
+        data: {
+          itemName: item.name,
+          itemCode: item.uniCode,
+          currentQuantity: event.currentQuantity,
+          reorderPoint: event.currentQuantity,
+          suggestedOrderQuantity: event.reorderQuantity,
+          preferredSupplier,
+          category: item.category?.name || '',
         },
-      );
+        metadata: { itemId: item.id },
+        overrides: {
+          actionUrl: JSON.stringify(deepLinks),
+          webUrl: `/estoque/produtos/detalhes/${item.id}`,
+          relatedEntityType: 'ITEM',
+          title,
+          body,
+        },
+      });
 
       this.logger.log('Reorder required notification dispatched via configuration');
     } catch (error) {
@@ -294,31 +282,27 @@ export class ItemListener {
       const title = 'Excesso de Estoque';
       const body = `O item "${item.name}" esta com excesso de estoque.${itemDetails}\n\nEstoque atual: ${event.currentQuantity} unidades\nEstoque maximo: ${event.maxQuantity} unidades\nExcesso: ${excess} unidades\n\nVerifique possiveis desperdicios ou ajuste o estoque maximo.`;
 
-      await this.dispatchService.dispatchByConfiguration(
-        'item.overstock',
-        'system',
-        {
-          entityType: 'Item',
-          entityId: item.id,
-          action: 'overstock',
-          data: {
-            itemName: item.name,
-            itemCode: item.uniCode,
-            currentQuantity: event.currentQuantity,
-            maximumQuantity: event.maxQuantity,
-            excessQuantity: excess,
-            category: item.category?.name || '',
-          },
-          metadata: { itemId: item.id },
-          overrides: {
-            actionUrl: JSON.stringify(deepLinks),
-            webUrl: `/estoque/produtos/detalhes/${item.id}`,
-            relatedEntityType: 'ITEM',
-            title,
-            body,
-          },
+      await this.dispatchService.dispatchByConfiguration('item.overstock', 'system', {
+        entityType: 'Item',
+        entityId: item.id,
+        action: 'overstock',
+        data: {
+          itemName: item.name,
+          itemCode: item.uniCode,
+          currentQuantity: event.currentQuantity,
+          maximumQuantity: event.maxQuantity,
+          excessQuantity: excess,
+          category: item.category?.name || '',
         },
-      );
+        metadata: { itemId: item.id },
+        overrides: {
+          actionUrl: JSON.stringify(deepLinks),
+          webUrl: `/estoque/produtos/detalhes/${item.id}`,
+          relatedEntityType: 'ITEM',
+          title,
+          body,
+        },
+      });
 
       this.logger.log('Overstock notification dispatched via configuration');
     } catch (error) {

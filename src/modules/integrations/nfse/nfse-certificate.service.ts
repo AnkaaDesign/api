@@ -16,9 +16,7 @@ export class NfseCertificateService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     const certPath = this.configService.get<string>('NFSE_CERTIFICATE_PATH');
-    const certPassword = this.configService.get<string>(
-      'NFSE_CERTIFICATE_PASSWORD',
-    );
+    const certPassword = this.configService.get<string>('NFSE_CERTIFICATE_PASSWORD');
 
     if (!certPath || !certPassword) {
       this.logger.warn(
@@ -31,9 +29,7 @@ export class NfseCertificateService implements OnModuleInit {
       this.loadCertificate(certPath, certPassword);
       this.logger.log('NFS-e digital certificate loaded successfully.');
     } catch (error) {
-      this.logger.error(
-        `Failed to load NFS-e certificate from ${certPath}: ${error.message}`,
-      );
+      this.logger.error(`Failed to load NFS-e certificate from ${certPath}: ${error.message}`);
     }
   }
 
@@ -88,9 +84,7 @@ export class NfseCertificateService implements OnModuleInit {
         { encoding: 'utf-8' },
       );
 
-      const match = certPem.match(
-        /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/,
-      );
+      const match = certPem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/);
       if (match) {
         this.logger.log('Certificate PEM extracted from PFX via openssl.');
         return match[0];
@@ -134,9 +128,7 @@ export class NfseCertificateService implements OnModuleInit {
 
   getCertificate(): string {
     if (!this.certificatePem) {
-      throw new Error(
-        'NFS-e certificate PEM not available. Provide a .pem sidecar file.',
-      );
+      throw new Error('NFS-e certificate PEM not available. Provide a .pem sidecar file.');
     }
     return this.certificatePem;
   }

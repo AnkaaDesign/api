@@ -3,9 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
-import {
-  SECTOR_PRIVILEGES,
-} from '../../../constants/enums';
+import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { ItemReorderRequiredEvent } from './item.events';
 
 /**
@@ -256,9 +254,7 @@ export class ItemNotificationScheduler {
       });
 
       this.notificationsSentToday.add(cacheKey);
-      this.logger.log(
-        `Dispatched aggregated low stock notification via config "item.low_stock"`,
-      );
+      this.logger.log(`Dispatched aggregated low stock notification via config "item.low_stock"`);
     } catch (error) {
       this.logger.error('Error sending aggregated low stock notification:', error);
     }

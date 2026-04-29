@@ -146,7 +146,10 @@ export class PushService implements OnModuleInit {
         };
       } else {
         // Check if we should deactivate the token
-        if (expoResult.error?.includes('DeviceNotRegistered') || expoResult.error?.includes('InvalidCredentials')) {
+        if (
+          expoResult.error?.includes('DeviceNotRegistered') ||
+          expoResult.error?.includes('InvalidCredentials')
+        ) {
           await this.deactivateToken(token);
         }
         return {

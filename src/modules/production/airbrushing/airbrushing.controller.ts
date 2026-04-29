@@ -81,11 +81,7 @@ export class AirbrushingController {
   }
 
   @Post()
-  @Roles(
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.COMMERCIAL,
-    SECTOR_PRIVILEGES.FINANCIAL,
-  )
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -113,11 +109,7 @@ export class AirbrushingController {
 
   // Batch Operations (must come before dynamic routes)
   @Post('batch')
-  @Roles(
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.COMMERCIAL,
-    SECTOR_PRIVILEGES.FINANCIAL,
-  )
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(airbrushingBatchCreateSchema)) data: AirbrushingBatchCreateFormData,
@@ -128,11 +120,7 @@ export class AirbrushingController {
   }
 
   @Put('batch')
-  @Roles(
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.COMMERCIAL,
-    SECTOR_PRIVILEGES.FINANCIAL,
-  )
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
   async batchUpdate(
     @Body(new ZodValidationPipe(airbrushingBatchUpdateSchema)) data: AirbrushingBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
@@ -142,11 +130,7 @@ export class AirbrushingController {
   }
 
   @Delete('batch')
-  @Roles(
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.COMMERCIAL,
-    SECTOR_PRIVILEGES.FINANCIAL,
-  )
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(airbrushingBatchDeleteSchema)) data: AirbrushingBatchDeleteFormData,
@@ -179,11 +163,7 @@ export class AirbrushingController {
   }
 
   @Put(':id')
-  @Roles(
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.COMMERCIAL,
-    SECTOR_PRIVILEGES.FINANCIAL,
-  )
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -211,11 +191,7 @@ export class AirbrushingController {
   }
 
   @Delete(':id')
-  @Roles(
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.COMMERCIAL,
-    SECTOR_PRIVILEGES.FINANCIAL,
-  )
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,

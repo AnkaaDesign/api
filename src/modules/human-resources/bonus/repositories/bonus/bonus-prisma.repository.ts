@@ -434,7 +434,8 @@ export class BonusPrismaRepository
         data.month,
         transaction,
       );
-      const calcContext = options?.precomputedContext ?? (await this.bonusCalculationContextService.load());
+      const calcContext =
+        options?.precomputedContext ?? (await this.bonusCalculationContextService.load());
       const userSalary = this.bonusCalculationContextService.resolveSalary(
         calcContext,
         user as { position: { id: string } | null },
@@ -860,7 +861,9 @@ export class BonusPrismaRepository
     const userTasks = await model.task.findMany({
       where: {
         createdById: userId,
-        commission: { in: ['FULL_COMMISSION', 'PARTIAL_COMMISSION', 'SUSPENDED_COMMISSION', 'NO_COMMISSION'] },
+        commission: {
+          in: ['FULL_COMMISSION', 'PARTIAL_COMMISSION', 'SUSPENDED_COMMISSION', 'NO_COMMISSION'],
+        },
         status: 'COMPLETED',
         finishedAt: { gte: startDate, lte: endDate },
       },

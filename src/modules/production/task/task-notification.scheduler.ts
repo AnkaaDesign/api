@@ -201,7 +201,9 @@ export class TaskNotificationScheduler {
           },
         });
 
-        this.logger.log(`Found ${tasks.length} tasks with term deadline in ${daysRemaining} day(s)`);
+        this.logger.log(
+          `Found ${tasks.length} tasks with term deadline in ${daysRemaining} day(s)`,
+        );
 
         for (const task of tasks) {
           try {
@@ -210,10 +212,7 @@ export class TaskNotificationScheduler {
               new TaskDeadlineApproachingEvent(task as any, daysRemaining),
             );
           } catch (error) {
-            this.logger.error(
-              `Error emitting term deadline event for task ${task.id}:`,
-              error,
-            );
+            this.logger.error(`Error emitting term deadline event for task ${task.id}:`, error);
           }
         }
       }
@@ -364,10 +363,7 @@ export class TaskNotificationScheduler {
               ),
             );
           } catch (error) {
-            this.logger.error(
-              `Error emitting forecast deadline event for task ${task.id}:`,
-              error,
-            );
+            this.logger.error(`Error emitting forecast deadline event for task ${task.id}:`, error);
           }
         }
       }
@@ -458,9 +454,10 @@ export class TaskNotificationScheduler {
   /**
    * Check service orders for incomplete commercial or artwork orders
    */
-  private checkServiceOrders(
-    serviceOrders: Array<{ id: string; type: string; status: string }>,
-  ): { hasIncompleteOrders: boolean; incompleteTypes: string[] } {
+  private checkServiceOrders(serviceOrders: Array<{ id: string; type: string; status: string }>): {
+    hasIncompleteOrders: boolean;
+    incompleteTypes: string[];
+  } {
     const incompleteStatuses = [
       SERVICE_ORDER_STATUS.PENDING,
       SERVICE_ORDER_STATUS.IN_PROGRESS,
@@ -470,10 +467,8 @@ export class TaskNotificationScheduler {
     const incompleteTypes: string[] = [];
 
     // Check commercial orders
-    const commercialOrders = serviceOrders.filter(
-      (so) => so.type === SERVICE_ORDER_TYPE.COMMERCIAL,
-    );
-    const hasIncompleteCommercial = commercialOrders.some((so) =>
+    const commercialOrders = serviceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.COMMERCIAL);
+    const hasIncompleteCommercial = commercialOrders.some(so =>
       incompleteStatuses.includes(so.status as SERVICE_ORDER_STATUS),
     );
     const hasMissingCommercial = commercialOrders.length === 0;
@@ -483,10 +478,8 @@ export class TaskNotificationScheduler {
     }
 
     // Check artwork orders
-    const artworkOrders = serviceOrders.filter(
-      (so) => so.type === SERVICE_ORDER_TYPE.ARTWORK,
-    );
-    const hasIncompleteArtwork = artworkOrders.some((so) =>
+    const artworkOrders = serviceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.ARTWORK);
+    const hasIncompleteArtwork = artworkOrders.some(so =>
       incompleteStatuses.includes(so.status as SERVICE_ORDER_STATUS),
     );
     const hasMissingArtwork = artworkOrders.length === 0;
@@ -517,14 +510,23 @@ export class TaskNotificationScheduler {
       const now = new Date();
       const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-      // Find artworks in DRAFT status created more than 24 hours ago
+      // Find artworks in DRAFT status created more than 24 hours ago,
+      // only where there is at least one active (non-CANCELLED) task associated
       const pendingArtworks = await this.prisma.artwork.findMany({
         where: {
           status: 'DRAFT',
           createdAt: { lt: twentyFourHoursAgo },
+          tasks: {
+            some: {
+              status: { not: 'CANCELLED' },
+            },
+          },
         },
         include: {
           tasks: {
+            where: {
+              status: { not: 'CANCELLED' },
+            },
             select: {
               id: true,
               name: true,
@@ -532,7 +534,7 @@ export class TaskNotificationScheduler {
               sectorId: true,
               customerId: true,
             },
-            take: 1, // Get the first associated task
+            take: 1, // Get the first associated active task
           },
           file: {
             select: {
@@ -564,19 +566,19 @@ export class TaskNotificationScheduler {
             (daysPending > 7 && daysPending % 7 === 0);
 
           if (shouldNotify) {
-            // Get the first associated task (if any)
             const task = artwork.tasks && artwork.tasks.length > 0 ? artwork.tasks[0] : null;
+
+            if (!task) {
+              this.logger.log(`Skipping artwork ${artwork.id} - no active task found`);
+              continue;
+            }
 
             this.logger.log(
               `Emitting pending_approval_reminder for artwork ${artwork.id} (${daysPending} days pending)`,
             );
             this.eventEmitter.emit(
               'artwork.pending_approval_reminder',
-              new ArtworkPendingApprovalReminderEvent(
-                artwork as any,
-                task as any,
-                daysPending,
-              ),
+              new ArtworkPendingApprovalReminderEvent(artwork as any, task as any, daysPending),
             );
           }
         } catch (error) {
