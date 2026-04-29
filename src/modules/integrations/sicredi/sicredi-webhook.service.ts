@@ -387,19 +387,31 @@ export class SicrediWebhookService {
       };
     }
 
-    this.logger.log(
-      `[WEBHOOK_RETRY] Retrying event ${event.idEventoWebhook} (attempt ${event.retryCount + 1})`,
-    );
-
-    // Reset status to PROCESSING
-    await this.prismaService.sicrediWebhookEvent.update({
-      where: { id: event.id },
+    // Atomic claim: only one worker may transition FAILED → PROCESSING for this event.
+    // Prevents a concurrent inbound webhook retry from racing with the scheduler on the
+    // same idEventoWebhook (and thus the same nossoNumero in handleLiquidation).
+    const claim = await this.prismaService.sicrediWebhookEvent.updateMany({
+      where: { id: event.id, status: 'FAILED' },
       data: {
         status: 'PROCESSING',
         errorMessage: null,
         updatedAt: new Date(),
       },
     });
+
+    if (claim.count === 0) {
+      this.logger.warn(
+        `[WEBHOOK_RETRY] Event ${event.idEventoWebhook} already claimed by another worker, skipping`,
+      );
+      return {
+        success: false,
+        error: 'Event already claimed by another worker',
+      };
+    }
+
+    this.logger.log(
+      `[WEBHOOK_RETRY] Retrying event ${event.idEventoWebhook} (attempt ${event.retryCount + 1})`,
+    );
 
     try {
       if (LIQUIDATION_MOVEMENTS.includes(event.movimento)) {

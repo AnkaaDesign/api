@@ -6,6 +6,7 @@ import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
 import { InvoiceModule } from '@modules/financial/invoice/invoice.module';
 import { NfseModule } from '@modules/integrations/nfse/nfse.module';
+import { SicrediModule } from '@modules/integrations/sicredi/sicredi.module';
 import { TaskQuoteController } from './task-quote.controller';
 import { TaskQuoteService } from './task-quote.service';
 import { TaskQuoteRepository } from './repositories/task-quote.repository';
@@ -38,6 +39,7 @@ import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.servi
     NotificationModule,
     forwardRef(() => InvoiceModule),
     NfseModule,
+    SicrediModule,
   ],
   controllers: [TaskQuoteController],
   providers: [

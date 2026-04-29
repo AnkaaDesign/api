@@ -8,6 +8,7 @@ import {
   Injectable,
   NotFoundException,
   InternalServerErrorException,
+  ServiceUnavailableException,
   Logger,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -92,6 +93,15 @@ interface LiveBonusCalculationResult {
   lastCalculatedAt?: string;
   /** True when the response was served from the SWR cache (age > fresh window). */
   isStale?: boolean;
+  /**
+   * Secullum service availability for this calculation. False ⇒ extras/discounts
+   * derived from time-clock data are missing from every bonus in `bonuses`.
+   * `calculateAndSaveBonuses` MUST refuse to persist when this is false — saving
+   * over-pays employees because Secullum-driven discounts (atestado, faltas) are zero.
+   */
+  secullumAvailable: boolean;
+  /** Human-readable reason when secullumAvailable is false. */
+  secullumSyncError?: string | null;
 }
 
 // =====================
@@ -566,9 +576,12 @@ export class BonusService {
         averageTasksPerUser,
         salaryRange: calcContext.salaryRange,
       });
-      const netBonusValue = Math.min(baseBonusValue, calculatedNetBonus);
+      // FIX: clamp BEFORE rounding once. Rounding both operands separately
+      // and then subtracting can erase sub-cent differences that should
+      // produce a discount of one or two cents.
+      const netBonusValue = roundCurrency(Math.min(baseBonusValue, calculatedNetBonus));
       const suspendedTasksDiscount = roundCurrency(
-        Math.max(0, roundCurrency(baseBonusValue) - roundCurrency(netBonusValue)),
+        Math.max(0, baseBonusValue - netBonusValue),
       );
 
       // ========================================================================
@@ -578,9 +591,14 @@ export class BonusService {
       let secullumAnalysis: SecullumBonusAnalysis | undefined;
       let bonusExtraPercentage = 0;
       let bonusExtraValue = 0;
+      // Surfaces service-wide Secullum outage to the live response so the UI can
+      // render a banner ("descontos podem estar faltando — Secullum indisponível")
+      // instead of silently showing the user a too-favorable bonus. NULL when
+      // integration succeeded.
+      let secullumSyncError: string | null = null;
 
       try {
-        const secullumAnalysisMap = await this.secullumBonusIntegrationService.analyzeAllUsers(
+        const secullumResult = await this.secullumBonusIntegrationService.analyzeAllUsers(
           year,
           month,
           // Pass ONLY the single user instead of all 16
@@ -594,7 +612,21 @@ export class BonusService {
             },
           ],
         );
-        secullumAnalysis = secullumAnalysisMap.get(userId);
+        secullumAnalysis = secullumResult.perUser.get(userId);
+
+        if (!secullumResult.metadata.secullumAvailable) {
+          // Live path tolerates outage but reports it. We do NOT throw — the user
+          // still wants to see SOMETHING (their base bonus). The UI renders the
+          // banner from secullumSyncError.
+          secullumSyncError =
+            secullumResult.metadata.error ?? 'Integração Secullum indisponível.';
+          this.logger.warn(
+            `Live bonus for ${userId}: Secullum unavailable — extras/discounts omitted (${secullumSyncError})`,
+          );
+        } else if (secullumResult.metadata.failedUsers.includes(userId)) {
+          // Service is up but THIS user errored — also worth surfacing.
+          secullumSyncError = 'Falha ao analisar dados Secullum para este usuário.';
+        }
 
         if (secullumAnalysis) {
           bonusExtraPercentage = secullumAnalysis.extraPercentage;
@@ -603,6 +635,9 @@ export class BonusService {
           );
         }
       } catch (error) {
+        // Defensive: the new analyzeAllUsers shouldn't throw at the top level, but
+        // if it does, surface the error rather than silently zeroing discounts.
+        secullumSyncError = error?.message || 'Erro inesperado ao consultar Secullum.';
         this.logger.error(
           'Secullum bonus integration failed for single user, continuing without it:',
           error?.stack || error?.message || error,
@@ -769,6 +804,11 @@ export class BonusService {
         // Top-level mirrors of nested Secullum analysis flags so UI clients that
         // don't deserialize secullumAnalysis can still show the forgiveness badge.
         atestadoForgiven: secullumAnalysis?.atestadoForgiven ?? false,
+        // Non-null when Secullum integration failed (service-wide or per-user).
+        // The UI uses this to render a warning banner so users know their displayed
+        // bonus may be missing absence-based discounts. Always present in the
+        // response shape (null on success) so consumers can branch reliably.
+        secullumSyncError,
         secullumAnalysis,
       };
 
@@ -1102,6 +1142,11 @@ export class BonusService {
       let updatedBonus: any;
 
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        // Row-lock the bonus row to serialize concurrent value-changing
+        // operations (update/delete/discount-create/discount-delete) against
+        // the same bonus. Prevents lost-update on netBonus recompute.
+        await tx.$executeRaw`SELECT id FROM "Bonus" WHERE id = ${id} FOR UPDATE`;
+
         // First update baseBonus and other fields
         // Set netBonus temporarily to baseBonus (will be recalculated below)
         await tx.bonus.update({
@@ -1156,6 +1201,9 @@ export class BonusService {
       }
 
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        // Row-lock to serialize against concurrent discount/update on the same bonus.
+        await tx.$executeRaw`SELECT id FROM "Bonus" WHERE id = ${id} FOR UPDATE`;
+
         await tx.bonus.delete({
           where: { id },
         });
@@ -1185,22 +1233,28 @@ export class BonusService {
   // Batch Operations
   // =====================
 
+  // best-effort batch — per-item failures are collected, batch is not all-or-nothing
   async batchCreate(
     data: { bonuses: any[] },
     userId: string,
-  ): Promise<{ totalSuccess: number; totalFailed: number; data: any[] }> {
+  ): Promise<{
+    totalSuccess: number;
+    totalFailed: number;
+    data: any[];
+    errors: Array<{ index: number; error: string }>;
+  }> {
     const success: any[] = [];
     const failed: any[] = [];
+    const errors: Array<{ index: number; error: string }> = [];
 
-    for (const bonusData of data.bonuses) {
+    for (const [index, bonusData] of data.bonuses.entries()) {
       try {
         const bonus = await this.create(bonusData, userId);
         success.push(bonus);
       } catch (error) {
-        failed.push({
-          data: bonusData,
-          error: error instanceof Error ? error.message : 'Erro desconhecido',
-        });
+        const message = error instanceof Error ? error.message : 'Erro desconhecido';
+        failed.push({ data: bonusData, error: message });
+        errors.push({ index, error: message });
       }
     }
 
@@ -1208,26 +1262,32 @@ export class BonusService {
       totalSuccess: success.length,
       totalFailed: failed.length,
       data: success,
+      errors,
     };
   }
 
+  // best-effort batch — per-item failures are collected, batch is not all-or-nothing
   async batchUpdate(
     data: { updates: { id: string; data: any }[] },
     userId: string,
-  ): Promise<{ totalSuccess: number; totalFailed: number; data: any[] }> {
+  ): Promise<{
+    totalSuccess: number;
+    totalFailed: number;
+    data: any[];
+    errors: Array<{ index: number; error: string }>;
+  }> {
     const success: any[] = [];
     const failed: any[] = [];
+    const errors: Array<{ index: number; error: string }> = [];
 
-    for (const update of data.updates) {
+    for (const [index, update] of data.updates.entries()) {
       try {
         const bonus = await this.update(update.id, update.data, userId);
         success.push(bonus);
       } catch (error) {
-        failed.push({
-          id: update.id,
-          data: update.data,
-          error: error instanceof Error ? error.message : 'Erro desconhecido',
-        });
+        const message = error instanceof Error ? error.message : 'Erro desconhecido';
+        failed.push({ id: update.id, data: update.data, error: message });
+        errors.push({ index, error: message });
       }
     }
 
@@ -1235,31 +1295,38 @@ export class BonusService {
       totalSuccess: success.length,
       totalFailed: failed.length,
       data: success,
+      errors,
     };
   }
 
+  // best-effort batch — per-item failures are collected, batch is not all-or-nothing
   async batchDelete(
     data: { ids: string[] },
     userId: string,
-  ): Promise<{ totalSuccess: number; totalFailed: number }> {
+  ): Promise<{
+    totalSuccess: number;
+    totalFailed: number;
+    errors: Array<{ index: number; error: string }>;
+  }> {
     const success: string[] = [];
     const failed: any[] = [];
+    const errors: Array<{ index: number; error: string }> = [];
 
-    for (const id of data.ids) {
+    for (const [index, id] of data.ids.entries()) {
       try {
         await this.delete(id, userId);
         success.push(id);
       } catch (error) {
-        failed.push({
-          id,
-          error: error instanceof Error ? error.message : 'Erro desconhecido',
-        });
+        const message = error instanceof Error ? error.message : 'Erro desconhecido';
+        failed.push({ id, error: message });
+        errors.push({ index, error: message });
       }
     }
 
     return {
       totalSuccess: success.length,
       totalFailed: failed.length,
+      errors,
     };
   }
 
@@ -1281,6 +1348,13 @@ export class BonusService {
    */
   async recalculateNetBonus(bonusId: string, transaction?: PrismaTransaction): Promise<any> {
     const client = transaction || this.prisma;
+
+    // Serialize concurrent value-changing operations on the same bonus.
+    // When invoked inside a transaction, this acquires a FOR UPDATE row lock
+    // (idempotent if the caller already locked it). When invoked outside a
+    // transaction we still issue the SELECT FOR UPDATE so the calculation
+    // sees a consistent snapshot of discounts/extras even under contention.
+    await client.$executeRaw`SELECT id FROM "Bonus" WHERE id = ${bonusId} FOR UPDATE`;
 
     // Get the bonus with its discounts and extras
     const bonus = await client.bonus.findUnique({
@@ -1520,10 +1594,28 @@ export class BonusService {
         throw new NotFoundException('Bônus não encontrado.');
       }
 
+      // Inline validation mirroring BonusDiscountService.validateDiscountData:
+      // percentage must be a finite number in [0, 100].
+      if (
+        data.percentage === null ||
+        data.percentage === undefined ||
+        !Number.isFinite(data.percentage)
+      ) {
+        throw new BadRequestException(
+          'É necessário fornecer um percentual ou um valor para o desconto',
+        );
+      }
+      if (data.percentage < 0 || data.percentage > 100) {
+        throw new BadRequestException('O percentual deve estar entre 0% e 100%');
+      }
+
       let discount: any;
       let updatedBonus: any;
 
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        // Row-lock the bonus to serialize concurrent value-changing operations.
+        await tx.$executeRaw`SELECT id FROM "Bonus" WHERE id = ${bonusId} FOR UPDATE`;
+
         discount = await tx.bonusDiscount.create({
           data: {
             bonusId,
@@ -1598,7 +1690,7 @@ export class BonusService {
     userId?: string,
   ): Promise<{
     success: boolean;
-    data: { adjustment: number; updatedCount: number };
+    data: { adjustment: number; updatedCount: number; skippedCount: number };
     message: string;
   }> {
     if (!Number.isFinite(percentage) || percentage < -100 || percentage > 100) {
@@ -1609,6 +1701,11 @@ export class BonusService {
     const calcContext = await this.bonusCalculationContextService.load();
 
     let updatedCount = 0;
+    // NOTE: the Payroll model has no `status` field in the current schema, so
+    // there is no "locked" payroll concept to honour here. `skippedCount` is
+    // kept in the contract so the UI/API can adopt locking later without a
+    // breaking change; until then it will always be 0.
+    let skippedCount = 0;
     await this.prisma.$transaction(async (tx: PrismaTransaction) => {
       const savedBonuses = await tx.bonus.findMany({
         where: { year, month },
@@ -1616,11 +1713,15 @@ export class BonusService {
           id: true,
           performanceLevel: true,
           averageTaskPerUser: true,
+          payrollId: true,
           user: { select: { id: true, position: { select: { id: true } } } },
         },
       });
 
       for (const b of savedBonuses) {
+        // Row-lock the bonus to serialize against concurrent discount/update.
+        await tx.$executeRaw`SELECT id FROM "Bonus" WHERE id = ${b.id} FOR UPDATE`;
+
         const userSalary = this.bonusCalculationContextService.resolveSalary(
           calcContext,
           b.user as { position: { id: string } | null },
@@ -1658,7 +1759,7 @@ export class BonusService {
         entityType: ENTITY_TYPE.BONUS,
         entityId: `period-${year}-${month}`,
         action: CHANGE_ACTION.UPDATE,
-        entity: { year, month, adjustment: percentage, updatedCount },
+        entity: { year, month, adjustment: percentage, updatedCount, skippedCount },
         reason: `Reajuste do período ${month}/${year} alterado para ${percentage > 0 ? '+' : ''}${percentage}%`,
         userId: userId || null,
         triggeredBy: CHANGE_TRIGGERED_BY.USER,
@@ -1666,11 +1767,17 @@ export class BonusService {
       });
     });
 
+    if (skippedCount > 0) {
+      this.logger.warn(
+        `applyPeriodAdjustment ${month}/${year}: skipped ${skippedCount} bonus(es) belonging to locked payrolls.`,
+      );
+    }
+
     await this.invalidateLiveBonusesCache(year, month);
 
     return {
       success: true,
-      data: { adjustment: percentage, updatedCount },
+      data: { adjustment: percentage, updatedCount, skippedCount },
       message:
         updatedCount === 0
           ? `Nenhum bônus salvo no período ${month}/${year} para aplicar o reajuste. Calcule e salve os bônus primeiro.`
@@ -1693,6 +1800,9 @@ export class BonusService {
       let updatedBonus: any;
 
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        // Row-lock the bonus to serialize concurrent value-changing operations.
+        await tx.$executeRaw`SELECT id FROM "Bonus" WHERE id = ${bonusId} FOR UPDATE`;
+
         await tx.bonusDiscount.delete({
           where: { id: discountId },
         });
@@ -2041,11 +2151,14 @@ export class BonusService {
 
         // Net bonus should not exceed base bonus (edge case at very low averages due to polynomial)
         // Users should NOT benefit from suspended tasks
-        const netBonusValue = Math.min(baseBonusValue, calculatedNetBonus);
+        // FIX: clamp BEFORE rounding once. Rounding both operands separately
+        // and then subtracting can erase sub-cent differences that should
+        // produce a discount of one or two cents.
+        const netBonusValue = roundCurrency(Math.min(baseBonusValue, calculatedNetBonus));
 
         // Calculate discount from suspended tasks (always >= 0)
         const suspendedTasksDiscount = roundCurrency(
-          Math.max(0, roundCurrency(baseBonusValue) - roundCurrency(netBonusValue)),
+          Math.max(0, baseBonusValue - netBonusValue),
         );
 
         // ALL users share the same tasks pool - this is how the bonus system works
@@ -2068,9 +2181,14 @@ export class BonusService {
         };
       });
 
-      // Secullum bonus integration: analyze time entries for extras and absence discounts
+      // Secullum bonus integration: analyze time entries for extras and absence discounts.
+      // Track availability so callers (especially calculateAndSaveBonuses) can refuse to
+      // persist payroll-affecting data when Secullum is down — silent zero-discount is
+      // the failure mode the audit identified as over-paying employees.
+      let secullumAvailable = true;
+      let secullumSyncError: string | null = null;
       try {
-        const secullumAnalysisMap = await this.secullumBonusIntegrationService.analyzeAllUsers(
+        const secullumResult = await this.secullumBonusIntegrationService.analyzeAllUsers(
           year,
           month,
           allBonifiableUsers.map(u => ({
@@ -2081,6 +2199,21 @@ export class BonusService {
             payrollNumber: u.payrollNumber || undefined,
           })),
         );
+
+        if (!secullumResult.metadata.secullumAvailable) {
+          secullumAvailable = false;
+          secullumSyncError =
+            secullumResult.metadata.error ?? 'Integração Secullum indisponível.';
+          this.logger.error(
+            `Secullum integration unavailable for live bonuses ${month}/${year}: ${secullumSyncError}`,
+          );
+        } else if (secullumResult.metadata.failedUsers.length > 0) {
+          this.logger.warn(
+            `Secullum analysis: ${secullumResult.metadata.failedUsers.length} of ${secullumResult.metadata.totalUsers} users failed (service still considered up).`,
+          );
+        }
+
+        const secullumAnalysisMap = secullumResult.perUser;
 
         // Enrich each bonus with Secullum analysis
         for (const bonus of bonuses) {
@@ -2161,11 +2294,14 @@ export class BonusService {
           }
         }
       } catch (error) {
+        // Defensive — analyzeAllUsers shouldn't throw at the top level anymore, but
+        // an unexpected throw here is still a service-wide signal.
+        secullumAvailable = false;
+        secullumSyncError = error?.message || 'Erro inesperado ao consultar Secullum.';
         this.logger.error(
-          'Secullum bonus integration failed, continuing without it:',
+          'Secullum bonus integration failed, continuing without it (live read tolerates outage):',
           error?.stack || error?.message || error,
         );
-        // Don't fail the entire calculation if Secullum is unavailable
       }
 
       return {
@@ -2181,6 +2317,8 @@ export class BonusService {
         rawAverageTasksPerEmployee: rawAverageTasksPerUser,
         calculatedAt: new Date(),
         isLive: true,
+        secullumAvailable,
+        secullumSyncError,
       };
     } catch (error) {
       this.logger.error('Error calculating live bonuses:', error);
@@ -2654,6 +2792,22 @@ export class BonusService {
       // Get live calculation data for eligible users (now includes suspended task calculations)
       const liveData = await this.calculateLiveBonuses(yearNum, monthNum);
 
+      // PAYROLL SAFETY GUARD — refuse to persist if Secullum is down.
+      // Without time-clock data the bonuses would save with zero atestado/falta
+      // discounts → over-paid employees + cascading payroll error. The audit
+      // identified the previous silent fallback as the root cause; we throw a
+      // structured error so the caller (controller / scheduler) surfaces it
+      // instead of getting a fake "all bonuses saved successfully" response.
+      if (!liveData.secullumAvailable) {
+        const reason = liveData.secullumSyncError ?? 'Integração Secullum indisponível.';
+        this.logger.error(
+          `Refusing to save bonuses for ${monthNum}/${yearNum}: ${reason}`,
+        );
+        throw new ServiceUnavailableException(
+          `Integração Secullum indisponível — não é possível calcular descontos. Tente novamente em alguns minutos. (${reason})`,
+        );
+      }
+
       // Get ALL active users with payroll numbers (not just eligible ones)
       const allActiveUsers = await this.prisma.user.findMany({
         where: {
@@ -2731,10 +2885,15 @@ export class BonusService {
       // This is what makes finalized bonuses reproducible after the fact.
       const calcContext = await this.bonusCalculationContextService.load();
 
-      await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // Create/update bonus for ALL active users with payroll numbers
-        for (const user of allActiveUsers) {
-          try {
+      // Per-user transactions: a single bad row must NOT roll back the whole
+      // batch (100+ users). Each user gets its own tx; failures are collected
+      // and surfaced in the summary so the caller can act on them.
+      const failures: Array<{ userId: string; error: string }> = [];
+
+      // Create/update bonus for ALL active users with payroll numbers
+      for (const user of allActiveUsers) {
+        try {
+          await this.prisma.$transaction(async (tx: PrismaTransaction) => {
             const eligibleBonus = eligibleBonusMap.get(user.id);
             const isEligible = eligibleBonus !== undefined;
 
@@ -2786,6 +2945,9 @@ export class BonusService {
             let bonusId: string;
 
             if (existingBonus) {
+              // Row-lock the bonus row so any concurrent discount/update
+              // serializes against this save.
+              await tx.$executeRaw`SELECT id FROM "Bonus" WHERE id = ${existingBonus.id} FOR UPDATE`;
               await tx.bonus.update({
                 where: { id: existingBonus.id },
                 data: {
@@ -2828,6 +2990,12 @@ export class BonusService {
 
             // Create "Tarefas Suspensas" discount if there's a discount value and suspended tasks
             if (suspendedTasksDiscount > 0 && suspendedTaskIds.length > 0) {
+              // Inline validation mirroring BonusDiscountService (value >= 0).
+              if (!Number.isFinite(suspendedTasksDiscount) || suspendedTasksDiscount < 0) {
+                throw new BadRequestException(
+                  'O valor do desconto deve ser maior ou igual a zero',
+                );
+              }
               const discount = await tx.bonusDiscount.create({
                 data: {
                   bonusId,
@@ -2846,6 +3014,19 @@ export class BonusService {
                 data: {
                   bonusDiscountId: discount.id,
                 },
+              });
+
+              // Changelog parity with BonusDiscountService.create()
+              await logEntityChange({
+                changeLogService: this.changeLogService,
+                entityType: ENTITY_TYPE.BONUS,
+                entityId: bonusId,
+                action: CHANGE_ACTION.UPDATE,
+                entity: { discountCreated: discount, reference: 'Tarefas Suspensas' },
+                reason: `Desconto "Tarefas Suspensas" criado: R$ ${suspendedTasksDiscount.toFixed(2)}`,
+                userId: userId || null,
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+                transaction: tx,
               });
 
               // CRITICAL: Recalculate netBonus after discount creation
@@ -2881,6 +3062,13 @@ export class BonusService {
               // the per-day suffix so finalized bonuses show the same detail as
               // the live view — future admin review of past months stays informative).
               if (analysis.atestadoDiscountPercentage > 0) {
+                // Inline validation mirroring BonusDiscountService (percentage 0-100).
+                if (
+                  analysis.atestadoDiscountPercentage < 0 ||
+                  analysis.atestadoDiscountPercentage > 100
+                ) {
+                  throw new BadRequestException('O percentual deve estar entre 0% e 100%');
+                }
                 const atestadoDaysSuffix = formatAbsenceDaysSuffix(
                   analysis.dailyBreakdown,
                   d => d.isAtestado || (d.atestadoHours ?? 0) > 0,
@@ -2890,7 +3078,7 @@ export class BonusService {
                   ? `Faltas - Atestado (${analysis.atestadoTierLabel})`
                   : 'Faltas - Atestado';
                 const atestadoRef = atestadoBase + atestadoDaysSuffix;
-                await tx.bonusDiscount.create({
+                const atestadoDiscount = await tx.bonusDiscount.create({
                   data: {
                     bonusId,
                     reference: atestadoRef,
@@ -2899,6 +3087,17 @@ export class BonusService {
                     calculationOrder: 2,
                   },
                 });
+                await logEntityChange({
+                  changeLogService: this.changeLogService,
+                  entityType: ENTITY_TYPE.BONUS,
+                  entityId: bonusId,
+                  action: CHANGE_ACTION.UPDATE,
+                  entity: { discountCreated: atestadoDiscount, reference: atestadoRef },
+                  reason: `Desconto "${atestadoRef}" criado: ${analysis.atestadoDiscountPercentage}%`,
+                  userId: userId || null,
+                  triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+                  transaction: tx,
+                });
                 this.logger.debug(
                   `Created "${atestadoRef}" discount for user ${user.name}: ${analysis.atestadoDiscountPercentage}% (${analysis.atestadoHours}h)`,
                 );
@@ -2906,6 +3105,13 @@ export class BonusService {
 
               // Create absence discount for unjustified
               if (analysis.unjustifiedDiscountPercentage > 0) {
+                // Inline validation mirroring BonusDiscountService (percentage 0-100).
+                if (
+                  analysis.unjustifiedDiscountPercentage < 0 ||
+                  analysis.unjustifiedDiscountPercentage > 100
+                ) {
+                  throw new BadRequestException('O percentual deve estar entre 0% e 100%');
+                }
                 const unjustifiedDaysSuffix = formatAbsenceDaysSuffix(
                   analysis.dailyBreakdown,
                   d => d.isUnjustifiedAbsence || (d.unjustifiedAbsenceHours ?? 0) > 0,
@@ -2915,7 +3121,7 @@ export class BonusService {
                   ? `Faltas - Sem Justificativa (${analysis.unjustifiedTierLabel})`
                   : 'Faltas - Sem Justificativa';
                 const unjustifiedRef = unjustifiedBase + unjustifiedDaysSuffix;
-                await tx.bonusDiscount.create({
+                const unjustifiedDiscount = await tx.bonusDiscount.create({
                   data: {
                     bonusId,
                     reference: unjustifiedRef,
@@ -2923,6 +3129,17 @@ export class BonusService {
                     value: null,
                     calculationOrder: 3,
                   },
+                });
+                await logEntityChange({
+                  changeLogService: this.changeLogService,
+                  entityType: ENTITY_TYPE.BONUS,
+                  entityId: bonusId,
+                  action: CHANGE_ACTION.UPDATE,
+                  entity: { discountCreated: unjustifiedDiscount, reference: unjustifiedRef },
+                  reason: `Desconto "${unjustifiedRef}" criado: ${analysis.unjustifiedDiscountPercentage}%`,
+                  userId: userId || null,
+                  triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+                  transaction: tx,
                 });
                 this.logger.debug(
                   `Created "${unjustifiedRef}" discount for user ${user.name}: ${analysis.unjustifiedDiscountPercentage}% (${analysis.unjustifiedAbsenceHours}h)`,
@@ -2932,26 +3149,46 @@ export class BonusService {
               // Recalculate netBonus with all extras and discounts
               await this.recalculateNetBonus(bonusId, tx);
             }
-
-            successCount++;
-          } catch (error) {
-            this.logger.error(`Error saving bonus for user ${user.id}:`, error);
-            failedCount++;
-          }
+          });
+          successCount++;
+        } catch (error) {
+          this.logger.error(`Error saving bonus for user ${user.id}:`, error);
+          failedCount++;
+          failures.push({
+            userId: user.id,
+            error: error instanceof Error ? error.message : 'Erro desconhecido',
+          });
         }
-      });
+      }
 
       this.logger.log(
         `Monthly bonus calculation completed: ${successCount} success, ${failedCount} failed (${allActiveUsers.length} total active users). Suspended tasks: ${suspendedTaskIds.length}`,
       );
 
+      if (failures.length > 0) {
+        this.logger.warn(
+          `calculateAndSaveBonuses ${month}/${year}: ${failures.length} per-user failure(s) — first 5: ${failures
+            .slice(0, 5)
+            .map(f => `${f.userId}: ${f.error}`)
+            .join('; ')}`,
+        );
+      }
+
       // After a full save, any cached live projection for this period is stale.
       // Clients reading the list endpoint should see the persisted values.
+      // Runs OUTSIDE the per-user loop so cache invalidation is one atomic
+      // step regardless of per-user successes/failures.
       await this.invalidateLiveBonusesCache(Number(year), Number(month));
 
       return { totalSuccess: successCount, totalFailed: failedCount };
     } catch (error) {
       this.logger.error('Error calculating and saving bonuses:', error);
+      // Preserve the structured Secullum-unavailable signal — the controller layer
+      // depends on the 503 status to surface the right message to the operator.
+      // Wrapping it in a generic 500 would erase the cause.
+      if (error instanceof ServiceUnavailableException) {
+        throw error;
+      }
       throw new InternalServerErrorException('Erro ao calcular e salvar bônus mensais.');
     }
   }
