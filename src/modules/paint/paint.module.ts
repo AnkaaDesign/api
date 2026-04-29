@@ -40,7 +40,14 @@ import { PaintBrandRepository } from './repositories/paint-brand/paint-brand.rep
 import { PaintBrandPrismaRepository } from './repositories/paint-brand/paint-brand-prisma.repository';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule, ItemModule, ActivityModule, FilesStorageModule, NotificationModule],
+  imports: [
+    PrismaModule,
+    ChangeLogModule,
+    ItemModule,
+    ActivityModule,
+    FilesStorageModule,
+    NotificationModule,
+  ],
   exports: [
     PaintService,
     PaintTypeService,

@@ -102,32 +102,29 @@ export class TaskQuotePaymentScheduler {
           where: { customerConfigId: config.id },
         });
 
-        const installmentLabel = totalInstallments === 1
-          ? 'Parcela única'
-          : `Parcela ${installment.number}/${totalInstallments}`;
+        const installmentLabel =
+          totalInstallments === 1
+            ? 'Parcela única'
+            : `Parcela ${installment.number}/${totalInstallments}`;
 
         const dueDate = installment.dueDate.toLocaleDateString('pt-BR', {
           timeZone: 'America/Sao_Paulo',
         });
 
-        await this.dispatchService.dispatchByConfiguration(
-          'task_quote.payment_due',
-          'system',
-          {
-            entityType: 'TaskQuote',
-            entityId: quote.id,
-            action: 'payment_due',
-            data: {
-              taskName: task.name,
-              serialNumber: task.serialNumber,
-              customerName: config.customer.fantasyName || 'N/A',
-              installmentLabel,
-              dueDate,
-              totalAmount: quote.total.toString(),
-              budgetNumber: quote.budgetNumber,
-            },
+        await this.dispatchService.dispatchByConfiguration('task_quote.payment_due', 'system', {
+          entityType: 'TaskQuote',
+          entityId: quote.id,
+          action: 'payment_due',
+          data: {
+            taskName: task.name,
+            serialNumber: task.serialNumber,
+            customerName: config.customer.fantasyName || 'N/A',
+            installmentLabel,
+            dueDate,
+            totalAmount: quote.total.toString(),
+            budgetNumber: quote.budgetNumber,
           },
-        );
+        });
 
         notificationsSent++;
       }
@@ -137,9 +134,7 @@ export class TaskQuotePaymentScheduler {
         try {
           await this.cascadeService.cascadeFromQuote(quoteId);
         } catch (cascadeError) {
-          this.logger.error(
-            `Error cascading status for quote ${quoteId}: ${cascadeError}`,
-          );
+          this.logger.error(`Error cascading status for quote ${quoteId}: ${cascadeError}`);
         }
       }
 

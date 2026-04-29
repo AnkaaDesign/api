@@ -2784,7 +2784,8 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
     // totalRevenue = invoiced (what the dashboard primarily shows as "Receita Total")
     const totalRevenue = invoicedRevenue;
-    const averageTaskValue = tasksWithRevenue.length > 0 ? invoicedRevenue / tasksWithRevenue.length : 0;
+    const averageTaskValue =
+      tasksWithRevenue.length > 0 ? invoicedRevenue / tasksWithRevenue.length : 0;
 
     // Revenue by month (using finishedAt as the reference date for completed tasks)
     const monthGroups: Record<string, number> = {};
@@ -3540,7 +3541,11 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
   // Home dashboard queries
 
-  async getTasksWithCloseDeadline(today: Date, limit = 10, sectorId?: string | null): Promise<HomeDashboardTask[]> {
+  async getTasksWithCloseDeadline(
+    today: Date,
+    limit = 10,
+    sectorId?: string | null,
+  ): Promise<HomeDashboardTask[]> {
     const startOfDay = new Date(today);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(today);
@@ -3553,10 +3558,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
     // For sector-specific filtering (e.g., PRODUCTION): show tasks with no sector or matching sector
     if (sectorId) {
-      where.OR = [
-        { sectorId: null },
-        { sectorId },
-      ];
+      where.OR = [{ sectorId: null }, { sectorId }];
     }
 
     const tasks = await this.prisma.task.findMany({
@@ -3576,7 +3578,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       take: limit,
     });
 
-    return tasks.map((t) => ({
+    return tasks.map(t => ({
       id: t.id,
       name: t.name,
       serialNumber: t.serialNumber,
@@ -3620,7 +3622,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       take: limit,
     });
 
-    return tasks.map((t) => ({
+    return tasks.map(t => ({
       id: t.id,
       name: t.name,
       serialNumber: t.serialNumber,
@@ -3655,7 +3657,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       take: limit,
     });
 
-    return orders.map((o) => ({
+    return orders.map(o => ({
       id: o.id,
       description: o.description,
       type: o.type,
@@ -3690,7 +3692,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       ORDER BY "_level" ASC, i.quantity ASC
     `;
 
-    return items.map((i) => ({
+    return items.map(i => ({
       id: i.id,
       name: i.name,
       quantity: Number(i.quantity),
@@ -3722,7 +3724,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       take: limit,
     });
 
-    return tasks.map((t) => ({
+    return tasks.map(t => ({
       id: t.id,
       name: t.name,
       serialNumber: t.serialNumber,
@@ -3772,7 +3774,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       take: limit,
     });
 
-    return tasks.map((t) => ({
+    return tasks.map(t => ({
       id: t.id,
       name: t.name,
       serialNumber: t.serialNumber,
@@ -3808,7 +3810,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       take: limit,
     });
 
-    return tasks.map((t) => ({
+    return tasks.map(t => ({
       id: t.id,
       name: t.name,
       serialNumber: t.serialNumber,
@@ -3834,10 +3836,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         status: 'ACTIVE' as any,
         publishedAt: { not: null },
         createdAt: { gte: since },
-        OR: [
-          { targets: { none: {} } },
-          { targets: { some: { userId } } },
-        ],
+        OR: [{ targets: { none: {} } }, { targets: { some: { userId } } }],
       },
       include: {
         views: { where: { userId }, take: 1 },
@@ -3846,7 +3845,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       take: limit,
     });
 
-    return messages.map((m) => ({
+    return messages.map(m => ({
       id: m.id,
       title: m.title,
       content: m.content,
@@ -3857,7 +3856,10 @@ export class DashboardPrismaRepository implements DashboardRepository {
   }
 
   // Financial dashboard queries
-  async getFinancialInvoiceStatistics(dateFilter?: DateFilter, customerId?: string): Promise<{
+  async getFinancialInvoiceStatistics(
+    dateFilter?: DateFilter,
+    customerId?: string,
+  ): Promise<{
     totalInvoices: number;
     activeInvoices: number;
     paidInvoices: number;
@@ -3923,10 +3925,12 @@ export class DashboardPrismaRepository implements DashboardRepository {
       overdueAmount: Number(overdueBankSlips._sum.amount || 0),
       byStatus: {
         labels: Object.values(statusLabels),
-        datasets: [{
-          label: 'Faturas por Status',
-          data: Object.keys(statusLabels).map(s => statusMap[s] || 0),
-        }],
+        datasets: [
+          {
+            label: 'Faturas por Status',
+            data: Object.keys(statusLabels).map(s => statusMap[s] || 0),
+          },
+        ],
       },
     };
   }
@@ -4034,19 +4038,27 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return {
       totalQuotes: total,
       pendingQuotes: statusMap['PENDING'] || 0,
-      approvedQuotes: (statusMap['BUDGET_APPROVED'] || 0) + (statusMap['COMMERCIAL_APPROVED'] || 0) + (statusMap['BILLING_APPROVED'] || 0),
+      approvedQuotes:
+        (statusMap['BUDGET_APPROVED'] || 0) +
+        (statusMap['COMMERCIAL_APPROVED'] || 0) +
+        (statusMap['BILLING_APPROVED'] || 0),
       settledQuotes: statusMap['SETTLED'] || 0,
       byStatus: {
         labels: Object.values(statusLabels),
-        datasets: [{
-          label: 'Orçamentos por Status',
-          data: Object.keys(statusLabels).map(s => statusMap[s] || 0),
-        }],
+        datasets: [
+          {
+            label: 'Orçamentos por Status',
+            data: Object.keys(statusLabels).map(s => statusMap[s] || 0),
+          },
+        ],
       },
     };
   }
 
-  async getFinancialTopCustomers(dateFilter?: DateFilter, limit: number = 10): Promise<DashboardListItem[]> {
+  async getFinancialTopCustomers(
+    dateFilter?: DateFilter,
+    limit: number = 10,
+  ): Promise<DashboardListItem[]> {
     const where: any = {};
     if (dateFilter?.gte || dateFilter?.lte) {
       where.createdAt = dateFilter;
@@ -4070,26 +4082,35 @@ export class DashboardPrismaRepository implements DashboardRepository {
     });
 
     const customerMap = new Map(customers.map(c => [c.id, c.corporateName || 'Cliente']));
-    const totalRevenue = customerInvoices.reduce((sum, c) => sum + Number(c._sum.totalAmount || 0), 0);
+    const totalRevenue = customerInvoices.reduce(
+      (sum, c) => sum + Number(c._sum.totalAmount || 0),
+      0,
+    );
 
     return customerInvoices.map(c => ({
       id: c.customerId,
       name: customerMap.get(c.customerId) || 'Cliente',
       value: Number(c._sum.totalAmount || 0),
-      percentage: totalRevenue > 0 ? Math.round((Number(c._sum.totalAmount || 0) / totalRevenue) * 100) : 0,
+      percentage:
+        totalRevenue > 0 ? Math.round((Number(c._sum.totalAmount || 0) / totalRevenue) * 100) : 0,
       metadata: { invoiceCount: c._count.id },
     }));
   }
 
-  async getFinancialRevenueByCustomer(dateFilter?: DateFilter, limit: number = 10): Promise<DashboardChartData> {
+  async getFinancialRevenueByCustomer(
+    dateFilter?: DateFilter,
+    limit: number = 10,
+  ): Promise<DashboardChartData> {
     const topCustomers = await this.getFinancialTopCustomers(dateFilter, limit);
 
     return {
       labels: topCustomers.map(c => c.name.substring(0, 20)),
-      datasets: [{
-        label: 'Receita por Cliente',
-        data: topCustomers.map(c => c.value),
-      }],
+      datasets: [
+        {
+          label: 'Receita por Cliente',
+          data: topCustomers.map(c => c.value),
+        },
+      ],
     };
   }
 
@@ -4105,7 +4126,20 @@ export class DashboardPrismaRepository implements DashboardRepository {
       select: { totalAmount: true, paidAmount: true, createdAt: true },
     });
 
-    const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    const monthNames = [
+      'Jan',
+      'Fev',
+      'Mar',
+      'Abr',
+      'Mai',
+      'Jun',
+      'Jul',
+      'Ago',
+      'Set',
+      'Out',
+      'Nov',
+      'Dez',
+    ];
     const labels: string[] = [];
     const invoicedData: number[] = [];
     const paidData: number[] = [];
@@ -4134,7 +4168,10 @@ export class DashboardPrismaRepository implements DashboardRepository {
     };
   }
 
-  async getFinancialRecentActivities(dateFilter?: DateFilter, limit: number = 10): Promise<
+  async getFinancialRecentActivities(
+    dateFilter?: DateFilter,
+    limit: number = 10,
+  ): Promise<
     Array<{
       id: string;
       title: string;
@@ -4150,73 +4187,74 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
     const perType = Math.max(5, Math.ceil(limit / 5));
 
-    const [recentInvoices, recentBankSlips, recentPayments, recentNfse, recentQuotes] = await Promise.all([
-      this.prisma.invoice.findMany({
-        where,
-        orderBy: { updatedAt: 'desc' },
-        take: perType,
-        include: {
-          customer: { select: { corporateName: true, fantasyName: true } },
-        },
-      }),
-      this.prisma.bankSlip.findMany({
-        where: dateFilter?.gte || dateFilter?.lte ? { createdAt: dateFilter } : {},
-        orderBy: { updatedAt: 'desc' },
-        take: perType,
-        include: {
-          installment: {
-            include: {
-              invoice: {
-                include: { customer: { select: { corporateName: true, fantasyName: true } } },
+    const [recentInvoices, recentBankSlips, recentPayments, recentNfse, recentQuotes] =
+      await Promise.all([
+        this.prisma.invoice.findMany({
+          where,
+          orderBy: { updatedAt: 'desc' },
+          take: perType,
+          include: {
+            customer: { select: { corporateName: true, fantasyName: true } },
+          },
+        }),
+        this.prisma.bankSlip.findMany({
+          where: dateFilter?.gte || dateFilter?.lte ? { createdAt: dateFilter } : {},
+          orderBy: { updatedAt: 'desc' },
+          take: perType,
+          include: {
+            installment: {
+              include: {
+                invoice: {
+                  include: { customer: { select: { corporateName: true, fantasyName: true } } },
+                },
               },
             },
           },
-        },
-      }),
-      this.prisma.bankSlip.findMany({
-        where: {
-          status: 'PAID',
-          ...(dateFilter?.gte || dateFilter?.lte ? { paidAt: dateFilter } : {}),
-        },
-        orderBy: { paidAt: 'desc' },
-        take: perType,
-        include: {
-          installment: {
-            include: {
-              invoice: {
-                include: { customer: { select: { corporateName: true, fantasyName: true } } },
+        }),
+        this.prisma.bankSlip.findMany({
+          where: {
+            status: 'PAID',
+            ...(dateFilter?.gte || dateFilter?.lte ? { paidAt: dateFilter } : {}),
+          },
+          orderBy: { paidAt: 'desc' },
+          take: perType,
+          include: {
+            installment: {
+              include: {
+                invoice: {
+                  include: { customer: { select: { corporateName: true, fantasyName: true } } },
+                },
               },
             },
           },
-        },
-      }),
-      this.prisma.nfseDocument.findMany({
-        where: {
-          status: 'AUTHORIZED',
-          ...(dateFilter?.gte || dateFilter?.lte ? { updatedAt: dateFilter } : {}),
-        },
-        orderBy: { updatedAt: 'desc' },
-        take: perType,
-        include: {
-          invoice: {
-            include: { customer: { select: { corporateName: true, fantasyName: true } } },
+        }),
+        this.prisma.nfseDocument.findMany({
+          where: {
+            status: 'AUTHORIZED',
+            ...(dateFilter?.gte || dateFilter?.lte ? { updatedAt: dateFilter } : {}),
           },
-        },
-      }),
-      this.prisma.taskQuote.findMany({
-        where: {
-          status: { not: 'PENDING' },
-          ...(dateFilter?.gte || dateFilter?.lte ? { updatedAt: dateFilter } : {}),
-        },
-        orderBy: { updatedAt: 'desc' },
-        take: perType,
-        include: {
-          task: {
-            include: { customer: { select: { corporateName: true, fantasyName: true } } },
+          orderBy: { updatedAt: 'desc' },
+          take: perType,
+          include: {
+            invoice: {
+              include: { customer: { select: { corporateName: true, fantasyName: true } } },
+            },
           },
-        },
-      }),
-    ]);
+        }),
+        this.prisma.taskQuote.findMany({
+          where: {
+            status: { not: 'PENDING' },
+            ...(dateFilter?.gte || dateFilter?.lte ? { updatedAt: dateFilter } : {}),
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: perType,
+          include: {
+            task: {
+              include: { customer: { select: { corporateName: true, fantasyName: true } } },
+            },
+          },
+        }),
+      ]);
 
     const invoiceStatusLabels: Record<string, string> = {
       DRAFT: 'Rascunho',
@@ -4248,8 +4286,9 @@ export class DashboardPrismaRepository implements DashboardRepository {
       SETTLED: 'Liquidado',
     };
 
-    const customerName = (c?: { corporateName: string | null; fantasyName: string | null } | null) =>
-      c?.fantasyName || c?.corporateName || 'Cliente';
+    const customerName = (
+      c?: { corporateName: string | null; fantasyName: string | null } | null,
+    ) => c?.fantasyName || c?.corporateName || 'Cliente';
 
     const activities = [
       ...recentInvoices.map(inv => ({
@@ -4294,7 +4333,9 @@ export class DashboardPrismaRepository implements DashboardRepository {
       .slice(0, limit * 5);
   }
 
-  async getUserSectorInfo(userId: string): Promise<{ privileges: string; sectorId: string } | null> {
+  async getUserSectorInfo(
+    userId: string,
+  ): Promise<{ privileges: string; sectorId: string } | null> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { sector: { select: { id: true, privileges: true } } },

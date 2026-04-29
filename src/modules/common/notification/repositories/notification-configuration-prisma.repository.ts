@@ -54,9 +54,7 @@ const MINIMAL_INCLUDE: Prisma.NotificationConfigurationInclude = {
 };
 
 @Injectable()
-export class NotificationConfigurationPrismaRepository
-  implements NotificationConfigurationRepository
-{
+export class NotificationConfigurationPrismaRepository implements NotificationConfigurationRepository {
   private readonly logger = new Logger(NotificationConfigurationPrismaRepository.name);
 
   constructor(private readonly prisma: PrismaService) {}
@@ -145,7 +143,10 @@ export class NotificationConfigurationPrismaRepository
 
       return configuration ? this.mapToEntity(configuration) : null;
     } catch (error) {
-      this.logger.error(`Failed to find notification configuration with channel configs: ${id}`, error);
+      this.logger.error(
+        `Failed to find notification configuration with channel configs: ${id}`,
+        error,
+      );
       throw error;
     }
   }
@@ -247,7 +248,7 @@ export class NotificationConfigurationPrismaRepository
         if (data.eventType !== undefined) updateData.eventType = data.eventType || '';
         if (data.title !== undefined) {
           // Note: 'title' field doesn't exist in Prisma schema, storing in metadata
-          updateData.metadata = { ...(updateData.metadata as object || {}), title: data.title };
+          updateData.metadata = { ...((updateData.metadata as object) || {}), title: data.title };
         }
         if (data.description !== undefined) updateData.description = data.description;
         if (data.defaultImportance !== undefined) {
@@ -345,10 +346,7 @@ export class NotificationConfigurationPrismaRepository
         },
       });
     } catch (error) {
-      this.logger.error(
-        `Failed to upsert channel config for configuration: ${configId}`,
-        error,
-      );
+      this.logger.error(`Failed to upsert channel config for configuration: ${configId}`, error);
       throw error;
     }
   }
@@ -375,7 +373,9 @@ export class NotificationConfigurationPrismaRepository
             ? this.mapNotificationImportanceToPrisma(override.importance)
             : null,
           channelOverrides: override.channels
-            ? (override.channels.map(ch => this.mapNotificationChannelToPrisma(ch)) as unknown as Prisma.JsonValue)
+            ? (override.channels.map(ch =>
+                this.mapNotificationChannelToPrisma(ch),
+              ) as unknown as Prisma.JsonValue)
             : null,
         },
         update: {
@@ -383,15 +383,14 @@ export class NotificationConfigurationPrismaRepository
             ? this.mapNotificationImportanceToPrisma(override.importance)
             : null,
           channelOverrides: override.channels
-            ? (override.channels.map(ch => this.mapNotificationChannelToPrisma(ch)) as unknown as Prisma.JsonValue)
+            ? (override.channels.map(ch =>
+                this.mapNotificationChannelToPrisma(ch),
+              ) as unknown as Prisma.JsonValue)
             : null,
         },
       });
     } catch (error) {
-      this.logger.error(
-        `Failed to upsert sector override for configuration: ${configId}`,
-        error,
-      );
+      this.logger.error(`Failed to upsert sector override for configuration: ${configId}`, error);
       throw error;
     }
   }
@@ -435,10 +434,7 @@ export class NotificationConfigurationPrismaRepository
         }
       });
     } catch (error) {
-      this.logger.error(
-        `Failed to update target rule for configuration: ${configId}`,
-        error,
-      );
+      this.logger.error(`Failed to update target rule for configuration: ${configId}`, error);
       throw error;
     }
   }
@@ -476,24 +472,20 @@ export class NotificationConfigurationPrismaRepository
     return where;
   }
 
-  private mapToEntity(
-    prismaEntity: PrismaConfigurationWithRelations,
-  ): NotificationConfiguration {
+  private mapToEntity(prismaEntity: PrismaConfigurationWithRelations): NotificationConfiguration {
     // Map channel configs
-    const channelConfigs: ChannelConfiguration[] = (prismaEntity.channelConfigs || []).map(
-      cc => ({
-        id: cc.id,
-        configurationId: cc.configurationId,
-        channel: cc.channel as NOTIFICATION_CHANNEL,
-        enabled: cc.enabled,
-        mandatory: cc.mandatory,
-        defaultOn: cc.defaultOn,
-        templateId: null,
-        settings: null,
-        createdAt: cc.createdAt,
-        updatedAt: cc.updatedAt,
-      }),
-    );
+    const channelConfigs: ChannelConfiguration[] = (prismaEntity.channelConfigs || []).map(cc => ({
+      id: cc.id,
+      configurationId: cc.configurationId,
+      channel: cc.channel as NOTIFICATION_CHANNEL,
+      enabled: cc.enabled,
+      mandatory: cc.mandatory,
+      defaultOn: cc.defaultOn,
+      templateId: null,
+      settings: null,
+      createdAt: cc.createdAt,
+      updatedAt: cc.updatedAt,
+    }));
 
     // Map sector overrides
     const sectorOverrides: SectorOverride[] = (prismaEntity.sectorOverrides || []).map(so => ({
@@ -527,13 +519,11 @@ export class NotificationConfigurationPrismaRepository
     }
 
     // Extract default channels from channel configs
-    const defaultChannels = channelConfigs
-      .filter(cc => cc.enabled)
-      .map(cc => cc.channel);
+    const defaultChannels = channelConfigs.filter(cc => cc.enabled).map(cc => cc.channel);
 
     // Extract title from metadata if available
     const metadata = prismaEntity.metadata as Record<string, unknown> | null;
-    const title = metadata?.title as string || prismaEntity.key;
+    const title = (metadata?.title as string) || prismaEntity.key;
 
     return {
       id: prismaEntity.id,

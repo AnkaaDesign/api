@@ -101,7 +101,9 @@ export class PaintProductionListener {
         },
       });
 
-      this.logger.log(`[PAINT EVENT] Found ${tasksUsingPaint.length} active tasks using this paint`);
+      this.logger.log(
+        `[PAINT EVENT] Found ${tasksUsingPaint.length} active tasks using this paint`,
+      );
 
       if (tasksUsingPaint.length === 0) {
         this.logger.log('[PAINT EVENT] No active tasks using this paint, skipping notifications');
@@ -109,7 +111,7 @@ export class PaintProductionListener {
       }
 
       // Get unique sector IDs from tasks
-      const sectorIds = [...new Set(tasksUsingPaint.map((t) => t.sectorId).filter(Boolean))];
+      const sectorIds = [...new Set(tasksUsingPaint.map(t => t.sectorId).filter(Boolean))];
 
       // Get active users in those sectors (dispatch service will also exclude the triggering user)
       const usersInSectors = await this.prisma.user.findMany({
@@ -134,13 +136,13 @@ export class PaintProductionListener {
 
       // For each user, build personalized notification based on their sector's tasks
       for (const user of usersInSectors) {
-        const userTasks = tasksUsingPaint.filter((t) => t.sectorId === user.sectorId);
+        const userTasks = tasksUsingPaint.filter(t => t.sectorId === user.sectorId);
 
         if (userTasks.length === 0) {
           continue;
         }
 
-        const taskNames = userTasks.map((t) => t.name || `#${t.serialNumber}`).slice(0, 3);
+        const taskNames = userTasks.map(t => t.name || `#${t.serialNumber}`).slice(0, 3);
         const taskList = taskNames.join(', ');
         const firstTask = userTasks[0];
         const deepLinks = this.deepLinkService.generateTaskLinks(firstTask.id);
@@ -155,14 +157,14 @@ export class PaintProductionListener {
             data: {
               paintName: event.paintName,
               taskName: taskList,
-              taskNames: userTasks.map((t) => t.name || `#${t.serialNumber}`),
+              taskNames: userTasks.map(t => t.name || `#${t.serialNumber}`),
               volumeLiters: event.volumeLiters,
               producedByName: event.producedBy.name,
             },
             metadata: {
               paintId: event.paintId,
               paintProductionId: event.paintProductionId,
-              taskIds: userTasks.map((t) => t.id),
+              taskIds: userTasks.map(t => t.id),
             },
             overrides: {
               actionUrl: JSON.stringify(deepLinks),

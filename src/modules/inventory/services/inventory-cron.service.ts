@@ -194,10 +194,7 @@ export class InventoryCronService {
 
         if (recentActivity) {
           // Item is active, update lastUsedAt if needed
-          if (
-            !item.lastUsedAt ||
-            new Date(recentActivity.createdAt) > new Date(item.lastUsedAt)
-          ) {
+          if (!item.lastUsedAt || new Date(recentActivity.createdAt) > new Date(item.lastUsedAt)) {
             await this.prisma.item.update({
               where: { id: item.id },
               data: { lastUsedAt: recentActivity.createdAt },
@@ -345,7 +342,10 @@ export class InventoryCronService {
       .map(candidate => ({
         id: candidate.id,
         name: candidate.name,
-        similarity: this.calculateNameSimilarity(normalizedName, this.normalizeName(candidate.name)),
+        similarity: this.calculateNameSimilarity(
+          normalizedName,
+          this.normalizeName(candidate.name),
+        ),
       }))
       .filter(c => c.similarity >= ITEM_SIMILARITY_THRESHOLD)
       .sort((a, b) => b.similarity - a.similarity)
@@ -408,11 +408,7 @@ export class InventoryCronService {
       } else {
         // Check for partial matches (e.g., "m8" matches "m-8")
         for (const w2 of words2) {
-          if (
-            word.includes(w2) ||
-            w2.includes(word) ||
-            this.levenshteinDistance(word, w2) <= 1
-          ) {
+          if (word.includes(w2) || w2.includes(word) || this.levenshteinDistance(word, w2) <= 1) {
             intersection += 0.7; // Partial match
             break;
           }

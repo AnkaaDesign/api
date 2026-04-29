@@ -134,7 +134,7 @@ export class BorrowNotificationScheduler {
         try {
           const { user, borrows } = data;
           const borrowCount = borrows.length;
-          const itemList = borrows.map((b) => b.itemName).join(', ');
+          const itemList = borrows.map(b => b.itemName).join(', ');
 
           const title = 'Lembrete: Itens Emprestados';
           const body =
@@ -157,7 +157,7 @@ export class BorrowNotificationScheduler {
               },
               metadata: {
                 borrowCount,
-                items: borrows.map((b) => ({
+                items: borrows.map(b => ({
                   id: b.id,
                   name: b.itemName,
                   quantity: b.quantity,
@@ -202,7 +202,7 @@ export class BorrowNotificationScheduler {
                   employeeId: userId,
                   employeeName: user.name,
                   borrowCount,
-                  items: borrows.map((b) => ({
+                  items: borrows.map(b => ({
                     id: b.id,
                     name: b.itemName,
                     quantity: b.quantity,

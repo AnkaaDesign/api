@@ -53,10 +53,7 @@ const discountCreateSchema = z.object({
 });
 
 const periodAdjustmentSchema = z.object({
-  percentage: z
-    .number()
-    .min(-100, 'Reajuste mínimo é -100%')
-    .max(100, 'Reajuste máximo é +100%'),
+  percentage: z.number().min(-100, 'Reajuste mínimo é -100%').max(100, 'Reajuste máximo é +100%'),
 });
 
 @Controller('bonus')

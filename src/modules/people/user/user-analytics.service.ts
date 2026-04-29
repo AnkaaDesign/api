@@ -105,7 +105,9 @@ export class UserAnalyticsService {
     // Fetch vacations in date range
     const vacations = await this.prisma.vacation.findMany({
       where: {
-        status: { in: [VACATION_STATUS.APPROVED, VACATION_STATUS.IN_PROGRESS, VACATION_STATUS.COMPLETED] },
+        status: {
+          in: [VACATION_STATUS.APPROVED, VACATION_STATUS.IN_PROGRESS, VACATION_STATUS.COMPLETED],
+        },
         startAt: { lte: dateRange.end },
         endAt: { gte: dateRange.start },
         user: userWhere,
@@ -126,7 +128,7 @@ export class UserAnalyticsService {
     // Build monthly items
     const monthKeys = this.generateMonthKeys(dateRange.start, dateRange.end);
 
-    const items: TeamPerformanceItem[] = monthKeys.map((key) => {
+    const items: TeamPerformanceItem[] = monthKeys.map(key => {
       const [yearStr, monthStr] = key.split('-');
       const year = parseInt(yearStr);
       const month = parseInt(monthStr);
@@ -134,21 +136,22 @@ export class UserAnalyticsService {
       const periodEnd = new Date(year, month, 0, 23, 59, 59);
 
       // Headcount: users who were active during this period
-      const activeUsers = allUsers.filter((u) => {
+      const activeUsers = allUsers.filter(u => {
         const joined = u.effectedAt || u.createdAt;
         if (joined > periodEnd) return false;
-        if (u.status === USER_STATUS.DISMISSED && u.dismissedAt && u.dismissedAt < periodStart) return false;
+        if (u.status === USER_STATUS.DISMISSED && u.dismissedAt && u.dismissedAt < periodStart)
+          return false;
         return true;
       });
 
       // New hires this month
-      const newHires = allUsers.filter((u) => {
+      const newHires = allUsers.filter(u => {
         const joined = u.effectedAt || u.createdAt;
         return joined >= periodStart && joined <= periodEnd;
       }).length;
 
       // Dismissals this month
-      const dismissals = allUsers.filter((u) => {
+      const dismissals = allUsers.filter(u => {
         return u.dismissedAt && u.dismissedAt >= periodStart && u.dismissedAt <= periodEnd;
       }).length;
 
@@ -165,7 +168,7 @@ export class UserAnalyticsService {
       }
 
       // Warnings this month
-      const monthWarnings = warnings.filter((w) => {
+      const monthWarnings = warnings.filter(w => {
         return w.createdAt >= periodStart && w.createdAt <= periodEnd;
       });
 
@@ -176,7 +179,7 @@ export class UserAnalyticsService {
       }
 
       // Vacations overlapping this month
-      const vacationCount = vacations.filter((v) => {
+      const vacationCount = vacations.filter(v => {
         return v.startAt <= periodEnd && v.endAt >= periodStart;
       }).length;
 
@@ -195,36 +198,36 @@ export class UserAnalyticsService {
     });
 
     // Summary: current state
-    const activeNow = allUsers.filter((u) => {
+    const activeNow = allUsers.filter(u => {
       return u.status !== USER_STATUS.DISMISSED;
     });
 
     const performanceLevels = activeNow
-      .filter((u) => u.performanceLevel != null)
-      .map((u) => u.performanceLevel!);
+      .filter(u => u.performanceLevel != null)
+      .map(u => u.performanceLevel!);
 
     const avgPerformanceLevel =
       performanceLevels.length > 0
-        ? Math.round((performanceLevels.reduce((a, b) => a + b, 0) / performanceLevels.length) * 10) / 10
+        ? Math.round(
+            (performanceLevels.reduce((a, b) => a + b, 0) / performanceLevels.length) * 10,
+          ) / 10
         : 0;
 
     // Currently on vacation
-    const onVacationCount = vacations.filter((v) => {
+    const onVacationCount = vacations.filter(v => {
       return v.startAt <= now && v.endAt >= now;
     }).length;
 
     const totalWarnings = warnings.length;
 
     // Total turnover for the period
-    const totalDismissals = allUsers.filter((u) => {
+    const totalDismissals = allUsers.filter(u => {
       return u.dismissedAt && u.dismissedAt >= dateRange.start && u.dismissedAt <= dateRange.end;
     }).length;
-    const avgHeadcount = items.length > 0
-      ? items.reduce((sum, i) => sum + i.headcount, 0) / items.length
-      : 0;
-    const turnoverRate = avgHeadcount > 0
-      ? Math.round((totalDismissals / avgHeadcount) * 1000) / 10
-      : 0;
+    const avgHeadcount =
+      items.length > 0 ? items.reduce((sum, i) => sum + i.headcount, 0) / items.length : 0;
+    const turnoverRate =
+      avgHeadcount > 0 ? Math.round((totalDismissals / avgHeadcount) * 1000) / 10 : 0;
 
     const summary: TeamPerformanceSummary = {
       currentHeadcount: activeNow.length,
@@ -242,23 +245,23 @@ export class UserAnalyticsService {
         where: { id: { in: sectorIds } },
         select: { id: true, name: true },
       });
-      const sectorMap = new Map(sectors.map((s) => [s.id, s.name]));
+      const sectorMap = new Map(sectors.map(s => [s.id, s.name]));
 
       result.comparison = sectorIds.map((sectorId): TeamSectorComparison => {
-        const sectorUsers = activeNow.filter((u) => u.sectorId === sectorId);
+        const sectorUsers = activeNow.filter(u => u.sectorId === sectorId);
         const sectorPerf = sectorUsers
-          .filter((u) => u.performanceLevel != null)
-          .map((u) => u.performanceLevel!);
+          .filter(u => u.performanceLevel != null)
+          .map(u => u.performanceLevel!);
 
         const avgPerf =
           sectorPerf.length > 0
             ? Math.round((sectorPerf.reduce((a, b) => a + b, 0) / sectorPerf.length) * 10) / 10
             : 0;
 
-        const sectorWarnings = warnings.filter((w) => w.collaborator?.sectorId === sectorId).length;
+        const sectorWarnings = warnings.filter(w => w.collaborator?.sectorId === sectorId).length;
 
         const sectorVacations = vacations.filter(
-          (v) => v.user?.sectorId === sectorId && v.startAt <= now && v.endAt >= now,
+          v => v.user?.sectorId === sectorId && v.startAt <= now && v.endAt >= now,
         ).length;
 
         return {
@@ -294,8 +297,8 @@ export class UserAnalyticsService {
 
   private resolveDateRange(filters: AnalyticsFilters): { start: Date; end: Date } {
     if (filters.periods && filters.periods.length > 0) {
-      const starts = filters.periods.map((p) => p.start.getTime());
-      const ends = filters.periods.map((p) => p.end.getTime());
+      const starts = filters.periods.map(p => p.start.getTime());
+      const ends = filters.periods.map(p => p.end.getTime());
       return {
         start: new Date(Math.min(...starts)),
         end: new Date(Math.max(...ends)),

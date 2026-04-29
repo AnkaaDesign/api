@@ -391,16 +391,10 @@ export const paintSelectSchema = z
               createdAt: z.boolean().optional(),
               updatedAt: z.boolean().optional(),
               paintType: z
-                .union([
-                  z.boolean(),
-                  z.object({ select: z.record(z.boolean()).optional() }),
-                ])
+                .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
                 .optional(),
               paintBrand: z
-                .union([
-                  z.boolean(),
-                  z.object({ select: z.record(z.boolean()).optional() }),
-                ])
+                .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
                 .optional(),
             })
             .optional(),
@@ -427,16 +421,10 @@ export const paintSelectSchema = z
               createdAt: z.boolean().optional(),
               updatedAt: z.boolean().optional(),
               paintType: z
-                .union([
-                  z.boolean(),
-                  z.object({ select: z.record(z.boolean()).optional() }),
-                ])
+                .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
                 .optional(),
               paintBrand: z
-                .union([
-                  z.boolean(),
-                  z.object({ select: z.record(z.boolean()).optional() }),
-                ])
+                .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
                 .optional(),
             })
             .optional(),
@@ -1756,21 +1744,24 @@ export const paintTypeBatchDeleteSchema = z.object({
 // Preview config schema for paint image generator settings
 const previewConfigSchema = z
   .object({
-    lights: z.array(
-      z.object({
-        id: z.string(),
-        type: z.enum(["BEAM", "LINEAR"]),
-        color: z.string(),
-        positionX: z.number().min(0).max(100),
-        positionY: z.number().min(0).max(100),
-        rotation: z.number().min(0).max(360).optional().default(45),
-        intensity: z.number().min(0).max(100),
-        spread: z.number().min(0).max(100),
-      })
-    ).optional().default([]),
+    lights: z
+      .array(
+        z.object({
+          id: z.string(),
+          type: z.enum(['BEAM', 'LINEAR']),
+          color: z.string(),
+          positionX: z.number().min(0).max(100),
+          positionY: z.number().min(0).max(100),
+          rotation: z.number().min(0).max(360).optional().default(45),
+          intensity: z.number().min(0).max(100),
+          spread: z.number().min(0).max(100),
+        }),
+      )
+      .optional()
+      .default([]),
     effectIntensity: z.number().min(0).max(100).optional().default(60),
-    flakeColor: z.string().optional().default("#c0c0c0"),
-    flipColor: z.string().optional().default("#ffd700"),
+    flakeColor: z.string().optional().default('#c0c0c0'),
+    flipColor: z.string().optional().default('#ffd700'),
   })
   .nullable()
   .optional();

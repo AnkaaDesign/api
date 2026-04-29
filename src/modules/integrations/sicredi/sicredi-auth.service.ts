@@ -19,7 +19,10 @@ export class SicrediAuthService {
     private readonly configService: ConfigService,
     private readonly prismaService: PrismaService,
   ) {
-    this.apiUrl = this.configService.get<string>('SICREDI_API_URL', 'https://api-parceiro.sicredi.com.br');
+    this.apiUrl = this.configService.get<string>(
+      'SICREDI_API_URL',
+      'https://api-parceiro.sicredi.com.br',
+    );
     this.xApiKey = this.configService.get<string>('SICREDI_X_API_KEY', '');
     this.cooperativa = this.configService.get<string>('SICREDI_COOPERATIVA', '');
     this.posto = this.configService.get<string>('SICREDI_POSTO', '');
@@ -97,12 +100,16 @@ export class SicrediAuthService {
 
   async authenticate(): Promise<string> {
     this.logger.log(`[SICREDI_AUTH] Authenticating with Sicredi API using OAuth2 password grant`);
-    this.logger.log(`[SICREDI_AUTH] Config: apiUrl=${this.apiUrl}, cooperativa=${this.cooperativa}, posto=${this.posto}, codigoBeneficiario=${this.codigoBeneficiario}, xApiKey=${this.xApiKey ? this.xApiKey.slice(0, 8) + '...' : 'EMPTY'}, codigoAcesso=${this.codigoAcesso ? 'SET' : 'EMPTY'}`);
+    this.logger.log(
+      `[SICREDI_AUTH] Config: apiUrl=${this.apiUrl}, cooperativa=${this.cooperativa}, posto=${this.posto}, codigoBeneficiario=${this.codigoBeneficiario}, xApiKey=${this.xApiKey ? this.xApiKey.slice(0, 8) + '...' : 'EMPTY'}, codigoAcesso=${this.codigoAcesso ? 'SET' : 'EMPTY'}`,
+    );
 
     // Username = codigoBeneficiario + cooperativa concatenated
     // Password = Código de Acesso (Master Key from Internet Banking)
     const username = `${this.codigoBeneficiario}${this.cooperativa}`;
-    this.logger.log(`[SICREDI_AUTH] username=${username}, password=${this.codigoAcesso ? 'SET (' + this.codigoAcesso.length + ' chars)' : 'EMPTY'}`);
+    this.logger.log(
+      `[SICREDI_AUTH] username=${username}, password=${this.codigoAcesso ? 'SET (' + this.codigoAcesso.length + ' chars)' : 'EMPTY'}`,
+    );
 
     const formData = new URLSearchParams();
     formData.append('grant_type', 'password');
@@ -112,22 +119,18 @@ export class SicrediAuthService {
 
     let response;
     try {
-      response = await axios.post(
-        `${this.apiUrl}/auth/openapi/token`,
-        formData.toString(),
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'x-api-key': this.xApiKey,
-            'context': 'COBRANCA',
-          },
-          timeout: 10000,
+      response = await axios.post(`${this.apiUrl}/auth/openapi/token`, formData.toString(), {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'x-api-key': this.xApiKey,
+          context: 'COBRANCA',
         },
-      );
+        timeout: 10000,
+      });
     } catch (error: any) {
       this.logger.error(
         `[SICREDI_AUTH] Authentication request failed: status=${error.response?.status}, ` +
-        `body=${JSON.stringify(error.response?.data)}, message=${error.message}`,
+          `body=${JSON.stringify(error.response?.data)}, message=${error.message}`,
       );
       throw error;
     }
@@ -169,18 +172,14 @@ export class SicrediAuthService {
     formData.append('refresh_token', refreshTokenValue);
     formData.append('scope', 'cobranca');
 
-    const response = await axios.post(
-      `${this.apiUrl}/auth/openapi/token`,
-      formData.toString(),
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'x-api-key': this.xApiKey,
-          'context': 'COBRANCA',
-        },
-        timeout: 10000,
+    const response = await axios.post(`${this.apiUrl}/auth/openapi/token`, formData.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'x-api-key': this.xApiKey,
+        context: 'COBRANCA',
       },
-    );
+      timeout: 10000,
+    });
 
     if (!response.data || !response.data.access_token) {
       throw new Error('Invalid refresh response from Sicredi');

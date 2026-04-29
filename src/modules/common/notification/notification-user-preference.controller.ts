@@ -537,9 +537,11 @@ export class NotificationUserPreferenceController {
             // Mandatory comes from the configuration's channelConfigs
             const isMandatory = channelConfig?.mandatory ?? false;
             // DefaultOn comes from channelConfig or falls back to checking defaultChannels
-            const isDefaultOn = channelConfig?.defaultOn ?? config.defaultChannels.includes(channel);
+            const isDefaultOn =
+              channelConfig?.defaultOn ?? config.defaultChannels.includes(channel);
             // If channel is mandatory, it's always enabled for the user
-            const userEnabled = isMandatory || (userPref?.channels?.includes(channel) ?? isDefaultOn);
+            const userEnabled =
+              isMandatory || (userPref?.channels?.includes(channel) ?? isDefaultOn);
 
             return {
               channel,

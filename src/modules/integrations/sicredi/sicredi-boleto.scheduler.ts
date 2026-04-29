@@ -7,11 +7,7 @@ import { SicrediAuthService } from './sicredi-auth.service';
 import { SicrediWebhookService } from './sicredi-webhook.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
-import {
-  BANK_SLIP_STATUS,
-  INSTALLMENT_STATUS,
-  INVOICE_STATUS,
-} from '@constants';
+import { BANK_SLIP_STATUS, INSTALLMENT_STATUS, INVOICE_STATUS } from '@constants';
 
 const MAX_WEBHOOK_RETRIES = 3;
 const DEFAULT_WEBHOOK_URL = 'https://api.ankaadesign.com.br/webhooks/sicredi';
@@ -64,14 +60,9 @@ export class SicrediBoletoScheduler implements OnModuleInit {
    * Queries existing contracts and registers/updates as needed.
    */
   private async ensureWebhookContract(): Promise<void> {
-    const expectedUrl = this.configService.get<string>(
-      'SICREDI_WEBHOOK_URL',
-      DEFAULT_WEBHOOK_URL,
-    );
+    const expectedUrl = this.configService.get<string>('SICREDI_WEBHOOK_URL', DEFAULT_WEBHOOK_URL);
 
-    this.logger.log(
-      `[WEBHOOK_CONTRACT] Checking webhook contract (expected URL: ${expectedUrl})`,
-    );
+    this.logger.log(`[WEBHOOK_CONTRACT] Checking webhook contract (expected URL: ${expectedUrl})`);
 
     try {
       const contracts = await this.sicrediService.queryWebhookContracts();
@@ -84,9 +75,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         // Look for a contract with the correct URL and ATIVO status
         const activeMatch = contracts.find(
           (c: any) =>
-            c.url === expectedUrl &&
-            c.contratoStatus === 'ATIVO' &&
-            c.urlStatus === 'ATIVO',
+            c.url === expectedUrl && c.contratoStatus === 'ATIVO' && c.urlStatus === 'ATIVO',
         );
 
         if (activeMatch) {
@@ -99,18 +88,16 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         // Look for any contract we can update (wrong URL, INATIVO, etc.)
         const updatable = contracts.find(
           (c: any) =>
-            c.url !== expectedUrl ||
-            c.contratoStatus !== 'ATIVO' ||
-            c.urlStatus !== 'ATIVO',
+            c.url !== expectedUrl || c.contratoStatus !== 'ATIVO' || c.urlStatus !== 'ATIVO',
         );
 
         if (updatable) {
           const contractId = updatable.idContrato || updatable.id;
           this.logger.log(
             `[WEBHOOK_CONTRACT] Updating contract ${contractId}: ` +
-            `url=${updatable.url} → ${expectedUrl}, ` +
-            `contratoStatus=${updatable.contratoStatus} → ATIVO, ` +
-            `urlStatus=${updatable.urlStatus} → ATIVO`,
+              `url=${updatable.url} → ${expectedUrl}, ` +
+              `contratoStatus=${updatable.contratoStatus} → ATIVO, ` +
+              `urlStatus=${updatable.urlStatus} → ATIVO`,
           );
 
           const result = await this.sicrediService.updateWebhookContract(contractId, {
@@ -138,9 +125,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     } catch (error) {
       // Never crash the app if Sicredi is unreachable
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(
-        `[WEBHOOK_CONTRACT] Failed to ensure webhook contract: ${message}`,
-      );
+      this.logger.error(`[WEBHOOK_CONTRACT] Failed to ensure webhook contract: ${message}`);
       if (error instanceof Error && error.stack) {
         this.logger.error(`[WEBHOOK_CONTRACT] Stack: ${error.stack}`);
       }
@@ -160,7 +145,9 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     }
 
     if (process.env.NODE_ENV !== 'production') {
-      this.logger.log('[BOLETO_CREATE] Skipping scheduled boleto creation in dev mode (only triggered on internal approval)');
+      this.logger.log(
+        '[BOLETO_CREATE] Skipping scheduled boleto creation in dev mode (only triggered on internal approval)',
+      );
       return;
     }
 
@@ -169,23 +156,53 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     try {
       this.logger.log('[BOLETO_CREATE] ====== Starting boleto creation job ======');
 
-      const today = new Date();
-      const fiveDaysFromNow = new Date(today);
-      fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5);
-      this.logger.log(`[BOLETO_CREATE] Looking for installments due by ${fiveDaysFromNow.toISOString().split('T')[0]}`);
+      // ── Recover bank slips stuck in REGISTERING ──────────────────────────────
+      // A bank slip gets stuck when a Sicredi API call succeeds but the subsequent
+      // DB update fails (DB connection drop, timeout, etc.).  The slip stays in
+      // REGISTERING forever and is never retried by the normal flow.  Reset any
+      // slip that has been REGISTERING for more than 10 minutes to ERROR so it
+      // gets retried in this same job run.
+      const stuckThreshold = new Date(Date.now() - 10 * 60 * 1000);
+      const stuckResult = await this.prisma.bankSlip.updateMany({
+        where: {
+          status: BANK_SLIP_STATUS.REGISTERING,
+          updatedAt: { lt: stuckThreshold },
+        },
+        data: {
+          status: BANK_SLIP_STATUS.ERROR,
+          errorMessage: 'Registro travado — redefinido automaticamente para nova tentativa',
+          errorCount: { increment: 1 },
+        },
+      });
+      if (stuckResult.count > 0) {
+        this.logger.warn(
+          `[BOLETO_CREATE] Recovered ${stuckResult.count} stuck REGISTERING bank slip(s) → ERROR for retry`,
+        );
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+
+      const now = new Date();
+      // Normalise to end-of-day UTC so installments stored at noon UTC on the 5th
+      // day are included even though the cron fires at 09:00 UTC (06:00 SP).
+      const fiveDaysFromNow = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 5, 23, 59, 59, 999),
+      );
+      this.logger.log(
+        `[BOLETO_CREATE] Looking for installments due by ${fiveDaysFromNow.toISOString().split('T')[0]}`,
+      );
 
       // Find installments that are PENDING, due within 5 days,
-      // and either have no BankSlip or have a BankSlip with ERROR/CREATING status (< 3 retries)
-      // Exclude installments from customer configs with custom payment text (those don't use boleto)
+      // and either have no BankSlip or have a BankSlip with ERROR/CREATING status (< 3 retries).
+      // Exclude:
+      //   - customer configs with a custom payment text (PIX/transfer — no boleto)
+      //   - customer configs where generateInvoice = false (boleto was intentionally skipped)
       const installments = await this.prisma.installment.findMany({
         where: {
           status: INSTALLMENT_STATUS.PENDING,
           dueDate: { lte: fiveDaysFromNow },
           customerConfig: {
-            OR: [
-              { customPaymentText: null },
-              { customPaymentText: '' },
-            ],
+            generateInvoice: { not: false },
+            OR: [{ customPaymentText: null }, { customPaymentText: '' }],
           },
           OR: [
             { bankSlip: { is: null } },
@@ -257,16 +274,18 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         },
       });
 
-      this.logger.log(`[BOLETO_CREATE] Found ${installments.length} installment(s) needing boleto creation`);
+      this.logger.log(
+        `[BOLETO_CREATE] Found ${installments.length} installment(s) needing boleto creation`,
+      );
 
       if (installments.length > 0) {
         this.logger.log(`[BOLETO_CREATE] Installments detail:`);
         for (const inst of installments) {
           this.logger.log(
             `[BOLETO_CREATE]   - id=${inst.id}, amount=${inst.amount}, dueDate=${inst.dueDate}, ` +
-            `bankSlip=${inst.bankSlip ? `status=${inst.bankSlip.status}, errorCount=${inst.bankSlip.errorCount}` : 'NONE'}, ` +
-            `customer=${inst.invoice?.customer?.fantasyName || 'N/A'} (${inst.invoice?.customer?.cnpj || 'N/A'}), ` +
-            `task=${inst.invoice?.task?.name || 'N/A'} #${inst.invoice?.task?.serialNumber || 'N/A'}`,
+              `bankSlip=${inst.bankSlip ? `status=${inst.bankSlip.status}, errorCount=${inst.bankSlip.errorCount}` : 'NONE'}, ` +
+              `customer=${inst.invoice?.customer?.fantasyName || 'N/A'} (${inst.invoice?.customer?.cnpj || 'N/A'}), ` +
+              `task=${inst.invoice?.task?.name || 'N/A'} #${inst.invoice?.task?.serialNumber || 'N/A'}`,
           );
         }
       }
@@ -275,7 +294,9 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       let errors = 0;
 
       const { codigoBeneficiario } = this.authService.config;
-      this.logger.log(`[BOLETO_CREATE] Sicredi config: codigoBeneficiario=${codigoBeneficiario}, apiUrl=${this.authService.config.apiUrl}`);
+      this.logger.log(
+        `[BOLETO_CREATE] Sicredi config: codigoBeneficiario=${codigoBeneficiario}, apiUrl=${this.authService.config.apiUrl}`,
+      );
 
       for (const installment of installments) {
         try {
@@ -322,7 +343,9 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
           if ((customerDocument.length !== 14 && customerDocument.length !== 11) || !customerName) {
             const validationMsg = `Customer "${customer.fantasyName || customer.id}" has invalid document (CNPJ=${cleanCnpj}, CPF=${cleanCpf}) or missing name`;
-            this.logger.error(`[BOLETO_CREATE] ${validationMsg} — skipping installment ${installment.id}`);
+            this.logger.error(
+              `[BOLETO_CREATE] ${validationMsg} — skipping installment ${installment.id}`,
+            );
 
             if (installment.bankSlip) {
               await this.prisma.bankSlip.update({
@@ -357,7 +380,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
           this.logger.log(
             `[BOLETO_CREATE] Creating boleto for installment ${installment.id}: ` +
-            `customer=${customer.fantasyName}, document=${customerDocument} (${tipoPessoa}), amount=${installment.amount}, dueDate=${formattedDueDate}`,
+              `customer=${customer.fantasyName}, document=${customerDocument} (${tipoPessoa}), amount=${installment.amount}, dueDate=${formattedDueDate}`,
           );
 
           // Create boleto via Sicredi API
@@ -385,9 +408,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           // Download PDF
           let pdfBuffer: Buffer | null = null;
           try {
-            pdfBuffer = await this.sicrediService.downloadBoletoPdf(
-              boletoResponse.linhaDigitavel,
-            );
+            pdfBuffer = await this.sicrediService.downloadBoletoPdf(boletoResponse.linhaDigitavel);
           } catch (pdfError) {
             this.logger.warn(
               `Failed to download PDF for boleto ${boletoResponse.nossoNumero}: ${pdfError}`,
@@ -467,13 +488,12 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           created++;
           this.logger.log(
             `[BOLETO_CREATE] Boleto created for installment ${installment.id}: ` +
-            `nossoNumero=${boletoResponse.nossoNumero}, codigoBarras=${boletoResponse.codigoBarras}, ` +
-            `pixQrCode=${pixQrCode ? 'YES' : 'NO'}, txid=${boletoResponse.txid || 'N/A'}`,
+              `nossoNumero=${boletoResponse.nossoNumero}, codigoBarras=${boletoResponse.codigoBarras}, ` +
+              `pixQrCode=${pixQrCode ? 'YES' : 'NO'}, txid=${boletoResponse.txid || 'N/A'}`,
           );
         } catch (error) {
           errors++;
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
 
           this.logger.error(
             `[BOLETO_CREATE] Failed to create boleto for installment ${installment.id}: ${errorMessage}`,
@@ -483,7 +503,9 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           }
           // Log the full error response if it's an HTTP error
           if ((error as any)?.response?.data) {
-            this.logger.error(`[BOLETO_CREATE] Sicredi response: ${JSON.stringify((error as any).response.data)}`);
+            this.logger.error(
+              `[BOLETO_CREATE] Sicredi response: ${JSON.stringify((error as any).response.data)}`,
+            );
           }
 
           // Update or create BankSlip with ERROR status
@@ -552,7 +574,9 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           }
         }
       } catch (summaryError) {
-        this.logger.error(`[BOLETO_CREATE] Failed to query permanently failed boletos: ${summaryError}`);
+        this.logger.error(
+          `[BOLETO_CREATE] Failed to query permanently failed boletos: ${summaryError}`,
+        );
       }
     } catch (error) {
       this.logger.error(`[BOLETO_CREATE] Fatal error during boleto creation job: ${error}`);
@@ -566,18 +590,26 @@ export class SicrediBoletoScheduler implements OnModuleInit {
    * Build the seuNumero field for a Sicredi boleto.
    * Priority: NfSe number (if enabled + authorized) → truck plate → installment ID fragment.
    * Max 10 alphanumeric chars per API spec.
+   * The installment number is always embedded so each boleto on the same invoice
+   * has a unique seuNumero even when they share the same NFSe or truck plate.
    */
   private buildSeuNumero(installment: any): string {
     const generateInvoice = installment.invoice?.customerConfig?.generateInvoice !== false;
     const authorizedNfse = installment.invoice?.nfseDocuments?.[0];
     const truckPlate = installment.invoice?.task?.truck?.plate;
+    // Installment numbers are 1-7 (single digit) — always 1 char.
+    const num = String(installment.number ?? 1);
 
     if (generateInvoice && authorizedNfse?.nfseNumber) {
-      return `NF${authorizedNfse.nfseNumber}`.substring(0, 10);
+      // Layout: NF(2) + last N digits of NFSe number + installment num(1) = 10 chars max.
+      const nfseStr = String(authorizedNfse.nfseNumber).slice(-(10 - 2 - num.length));
+      return `NF${nfseStr}${num}`;
     }
     if (truckPlate) {
-      return truckPlate.replace(/[^A-Za-z0-9]/g, '').substring(0, 10);
+      const plateClean = truckPlate.replace(/[^A-Za-z0-9]/g, '');
+      return (plateClean.slice(0, 10 - num.length) + num).slice(0, 10);
     }
+    // UUID fragment is already unique per installment — no suffix needed.
     return installment.id.replace(/-/g, '').substring(0, 10);
   }
 
@@ -736,7 +768,12 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       // Check the last 3 days to handle weekends and missed job runs
       const daysToCheck = 3;
       const seenNossoNumeros = new Set<string>();
-      const paidBoletos: Array<{ nossoNumero: string; valorLiquidacao: number; dataLiquidacao: string; [key: string]: any }> = [];
+      const paidBoletos: Array<{
+        nossoNumero: string;
+        valorLiquidacao: number;
+        dataLiquidacao: string;
+        [key: string]: any;
+      }> = [];
 
       for (let daysAgo = 1; daysAgo <= daysToCheck; daysAgo++) {
         const checkDate = new Date();
@@ -745,7 +782,9 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
         try {
           const dailyPaid = await this.sicrediService.queryPaidBoletos(formattedDate);
-          this.logger.log(`[BOLETO_RECONCILE] Found ${dailyPaid.length} paid boleto(s) from ${formattedDate}`);
+          this.logger.log(
+            `[BOLETO_RECONCILE] Found ${dailyPaid.length} paid boleto(s) from ${formattedDate}`,
+          );
 
           for (const boleto of dailyPaid) {
             if (!seenNossoNumeros.has(boleto.nossoNumero)) {
@@ -754,12 +793,16 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             }
           }
         } catch (dayError) {
-          this.logger.error(`[BOLETO_RECONCILE] Failed to query paid boletos for ${formattedDate}: ${dayError}`);
+          this.logger.error(
+            `[BOLETO_RECONCILE] Failed to query paid boletos for ${formattedDate}: ${dayError}`,
+          );
           // Continue to next day — don't let one failure stop the entire reconciliation
         }
       }
 
-      this.logger.log(`[BOLETO_RECONCILE] Total unique paid boletos across last ${daysToCheck} days: ${paidBoletos.length}`);
+      this.logger.log(
+        `[BOLETO_RECONCILE] Total unique paid boletos across last ${daysToCheck} days: ${paidBoletos.length}`,
+      );
 
       let reconciled = 0;
 
@@ -786,16 +829,14 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
           // Skip if already marked as PAID
           if (bankSlip.status === BANK_SLIP_STATUS.PAID) {
-            this.logger.log(
-              `[BOLETO_RECONCILE] BankSlip ${bankSlip.id} already PAID, skipping`,
-            );
+            this.logger.log(`[BOLETO_RECONCILE] BankSlip ${bankSlip.id} already PAID, skipping`);
             continue;
           }
 
           // Update BankSlip + Installment + Invoice atomically in a transaction
           const invoiceId = bankSlip.installment?.invoice?.id;
 
-          await this.prisma.$transaction(async (tx) => {
+          await this.prisma.$transaction(async tx => {
             await tx.bankSlip.update({
               where: { id: bankSlip.id },
               data: {
@@ -925,9 +966,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
           updated++;
         } catch (error) {
-          this.logger.error(
-            `Failed to update overdue bank slip ${bankSlip.id}: ${error}`,
-          );
+          this.logger.error(`Failed to update overdue bank slip ${bankSlip.id}: ${error}`);
         }
       }
 
@@ -989,17 +1028,15 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         retried++;
         this.logger.log(
           `[WEBHOOK_RETRY] Retrying event ${event.idEventoWebhook} ` +
-          `(nossoNumero=${event.nossoNumero}, movimento=${event.movimento}, ` +
-          `retryCount=${event.retryCount}, lastError="${event.errorMessage || 'N/A'}")`,
+            `(nossoNumero=${event.nossoNumero}, movimento=${event.movimento}, ` +
+            `retryCount=${event.retryCount}, lastError="${event.errorMessage || 'N/A'}")`,
         );
 
         const result = await this.webhookService.retryFailedEvent(event.id);
 
         if (result.success) {
           succeeded++;
-          this.logger.log(
-            `[WEBHOOK_RETRY] Event ${event.idEventoWebhook} succeeded on retry`,
-          );
+          this.logger.log(`[WEBHOOK_RETRY] Event ${event.idEventoWebhook} succeeded on retry`);
         } else {
           failed++;
           this.logger.warn(
@@ -1010,7 +1047,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
       this.logger.log(
         `[WEBHOOK_RETRY] ====== Webhook retry job completed. ` +
-        `Retried: ${retried}, Succeeded: ${succeeded}, Failed: ${failed} ======`,
+          `Retried: ${retried}, Succeeded: ${succeeded}, Failed: ${failed} ======`,
       );
 
       // Check for events that have now exhausted all retries
@@ -1028,15 +1065,13 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         for (const event of exhaustedEvents) {
           this.logger.error(
             `[WEBHOOK_RETRY]   - idEventoWebhook=${event.idEventoWebhook}, ` +
-            `nossoNumero=${event.nossoNumero}, movimento=${event.movimento}, ` +
-            `retryCount=${event.retryCount}, lastError="${event.errorMessage || 'N/A'}"`,
+              `nossoNumero=${event.nossoNumero}, movimento=${event.movimento}, ` +
+              `retryCount=${event.retryCount}, lastError="${event.errorMessage || 'N/A'}"`,
           );
         }
       }
     } catch (error) {
-      this.logger.error(
-        `[WEBHOOK_RETRY] Fatal error during webhook retry job: ${error}`,
-      );
+      this.logger.error(`[WEBHOOK_RETRY] Fatal error during webhook retry job: ${error}`);
       if (error instanceof Error) {
         this.logger.error(`[WEBHOOK_RETRY] Stack: ${error.stack}`);
       }
@@ -1153,9 +1188,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
           notified++;
         } catch (error) {
-          this.logger.error(
-            `[BOLETO_DUE] Failed to notify for bank slip ${bankSlip.id}: ${error}`,
-          );
+          this.logger.error(`[BOLETO_DUE] Failed to notify for bank slip ${bankSlip.id}: ${error}`);
         }
       }
 
@@ -1193,20 +1226,16 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     if (!invoice) return;
 
     const activeInstallments = invoice.installments.filter(
-      (inst) => inst.status !== INSTALLMENT_STATUS.CANCELLED,
+      inst => inst.status !== INSTALLMENT_STATUS.CANCELLED,
     );
 
     if (activeInstallments.length === 0) return;
 
-    const allPaid = activeInstallments.every(
-      (inst) => inst.status === INSTALLMENT_STATUS.PAID,
-    );
-    const somePaid = activeInstallments.some(
-      (inst) => inst.status === INSTALLMENT_STATUS.PAID,
-    );
+    const allPaid = activeInstallments.every(inst => inst.status === INSTALLMENT_STATUS.PAID);
+    const somePaid = activeInstallments.some(inst => inst.status === INSTALLMENT_STATUS.PAID);
 
     const totalPaid = activeInstallments
-      .filter((inst) => inst.status === INSTALLMENT_STATUS.PAID)
+      .filter(inst => inst.status === INSTALLMENT_STATUS.PAID)
       .reduce((sum, inst) => sum + Number(inst.paidAmount || 0), 0);
 
     let newStatus: string;
@@ -1227,9 +1256,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         },
       });
 
-      this.logger.log(
-        `Invoice ${invoiceId} status updated to ${newStatus} (paid: ${totalPaid})`,
-      );
+      this.logger.log(`Invoice ${invoiceId} status updated to ${newStatus} (paid: ${totalPaid})`);
     }
   }
 
@@ -1269,28 +1296,24 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       const mobileUrl = `financial/${invoice.taskId}`;
       const actionUrl = JSON.stringify({ web: webUrl, mobile: mobileUrl });
 
-      await this.notificationDispatchService.dispatchByConfiguration(
-        'bank_slip.paid',
-        'system',
-        {
-          entityType: 'Financial',
-          entityId: invoice.id,
-          action: 'paid',
-          data: {
-            customerName,
-            taskName,
-            paidAmount: formattedAmount,
-            dueDate: formattedDueDate,
-            invoiceId: invoice.id,
-            bankSlipId,
-            taskId: invoice.taskId,
-          },
-          overrides: {
-            actionUrl,
-            webUrl,
-          },
+      await this.notificationDispatchService.dispatchByConfiguration('bank_slip.paid', 'system', {
+        entityType: 'Financial',
+        entityId: invoice.id,
+        action: 'paid',
+        data: {
+          customerName,
+          taskName,
+          paidAmount: formattedAmount,
+          dueDate: formattedDueDate,
+          invoiceId: invoice.id,
+          bankSlipId,
+          taskId: invoice.taskId,
         },
-      );
+        overrides: {
+          actionUrl,
+          webUrl,
+        },
+      });
 
       this.logger.log(
         `[BOLETO_RECONCILE] bank_slip.paid notification dispatched for bankSlip: ${bankSlipId}`,

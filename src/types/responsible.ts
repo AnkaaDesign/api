@@ -1,9 +1,4 @@
-import {
-  Responsible as PrismaResponsible,
-  ResponsibleRole,
-  Customer,
-  Task,
-} from '@prisma/client';
+import { Responsible as PrismaResponsible, ResponsibleRole, Customer, Task } from '@prisma/client';
 
 export interface Responsible extends PrismaResponsible {
   company?: Customer;

@@ -685,7 +685,10 @@ export class TaskPrismaRepository
     // Add the new responsible IDs to the existing ones
     if (additionalResponsibleIds.length > 0) {
       const existingResponsibleIds = (dataWithoutNewResponsibles.responsibleIds || []) as string[];
-      dataWithoutNewResponsibles.responsibleIds = [...existingResponsibleIds, ...additionalResponsibleIds];
+      dataWithoutNewResponsibles.responsibleIds = [
+        ...existingResponsibleIds,
+        ...additionalResponsibleIds,
+      ];
     }
 
     // Call the concrete implementation (not super, since it's abstract in base)
@@ -958,7 +961,10 @@ export class TaskPrismaRepository
 
     if (additionalResponsibleIds.length > 0) {
       const existingResponsibleIds = (dataWithoutNewResponsibles.responsibleIds || []) as string[];
-      dataWithoutNewResponsibles.responsibleIds = [...existingResponsibleIds, ...additionalResponsibleIds];
+      dataWithoutNewResponsibles.responsibleIds = [
+        ...existingResponsibleIds,
+        ...additionalResponsibleIds,
+      ];
     }
 
     // Call the concrete implementation (not super, since it's abstract in base)
@@ -1478,8 +1484,7 @@ export class TaskPrismaRepository
         );
         const subtotal =
           quoteData.subtotal !== undefined ? Number(quoteData.subtotal) : calculatedSubtotal;
-        const total =
-          quoteData.total !== undefined ? Number(quoteData.total) : calculatedSubtotal;
+        const total = quoteData.total !== undefined ? Number(quoteData.total) : calculatedSubtotal;
 
         const maxBudgetNumber = await transaction.taskQuote.aggregate({
           _max: { budgetNumber: true },
@@ -1513,7 +1518,8 @@ export class TaskPrismaRepository
                     discountValue: config.discountValue ?? null,
                     discountReference: config.discountReference ?? null,
                     customPaymentText: config.customPaymentText || null,
-                    generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
+                    generateInvoice:
+                      config.generateInvoice !== undefined ? config.generateInvoice : true,
                     responsibleId: config.responsibleId || null,
                     paymentCondition: config.paymentCondition || null,
                     paymentConfig: (config as any).paymentConfig ?? null,
@@ -1677,9 +1683,7 @@ export class TaskPrismaRepository
 
           if (currentTask?.quoteId) {
             const layoutFileUpdate =
-              quoteData.layoutFileId !== undefined
-                ? { layoutFileId: quoteData.layoutFileId }
-                : {};
+              quoteData.layoutFileId !== undefined ? { layoutFileId: quoteData.layoutFileId } : {};
 
             await transaction.taskQuote.update({
               where: { id: currentTask.quoteId },
@@ -1717,7 +1721,8 @@ export class TaskPrismaRepository
                       discountValue: config.discountValue ?? null,
                       discountReference: config.discountReference ?? null,
                       customPaymentText: config.customPaymentText || null,
-                      generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
+                      generateInvoice:
+                        config.generateInvoice !== undefined ? config.generateInvoice : true,
                       responsibleId: config.responsibleId || null,
                       paymentCondition: config.paymentCondition || null,
                       paymentConfig: (config as any).paymentConfig ?? null,
@@ -1755,7 +1760,8 @@ export class TaskPrismaRepository
                       customerConfigId: dbConfig.id,
                       number: inst.number,
                       dueDate: inst.dueDate instanceof Date ? inst.dueDate : new Date(inst.dueDate),
-                      amount: typeof inst.amount === 'number' ? inst.amount : Number(inst.amount) || 0,
+                      amount:
+                        typeof inst.amount === 'number' ? inst.amount : Number(inst.amount) || 0,
                       paidAmount: 0,
                       status: 'PENDING' as const,
                     })),
@@ -1796,7 +1802,8 @@ export class TaskPrismaRepository
                         discountValue: config.discountValue ?? null,
                         discountReference: config.discountReference ?? null,
                         customPaymentText: config.customPaymentText || null,
-                        generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
+                        generateInvoice:
+                          config.generateInvoice !== undefined ? config.generateInvoice : true,
                         responsibleId: config.responsibleId || null,
                         paymentCondition: config.paymentCondition || null,
                         paymentConfig: (config as any).paymentConfig ?? null,

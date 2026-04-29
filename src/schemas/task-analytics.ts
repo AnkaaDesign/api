@@ -14,7 +14,10 @@ export const taskThroughputFiltersSchema = z.object({
   customerIds: z.array(z.string()).optional(),
   status: z.array(z.string()).optional(),
   periods: z.array(periodSchema).optional(),
-  sortBy: z.enum(['completionTime', 'count', 'completedCount', 'forecastAccuracy', 'value', 'name']).optional().default('count'),
+  sortBy: z
+    .enum(['completionTime', 'count', 'completedCount', 'forecastAccuracy', 'value', 'name'])
+    .optional()
+    .default('count'),
   sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
   limit: z.number().int().min(1).max(100).optional().default(50),
   offset: z.number().int().min(0).optional().default(0),

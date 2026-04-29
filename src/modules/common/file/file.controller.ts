@@ -161,10 +161,17 @@ export class FileController {
     }
     return {
       success: true,
-      message: successful.length === 1
-        ? '1 arquivo enviado com sucesso.'
-        : `${successful.length} arquivos enviados com sucesso.`,
-      data: { success: successful, failed, totalProcessed: successful.length + failed.length, totalSuccess: successful.length, totalFailed: failed.length },
+      message:
+        successful.length === 1
+          ? '1 arquivo enviado com sucesso.'
+          : `${successful.length} arquivos enviados com sucesso.`,
+      data: {
+        success: successful,
+        failed,
+        totalProcessed: successful.length + failed.length,
+        totalSuccess: successful.length,
+        totalFailed: failed.length,
+      },
     };
   }
 
@@ -267,7 +274,9 @@ export class FileController {
   ): Promise<{ success: boolean; data: any[] }> {
     const validContexts = ['tasksArtworks', 'taskBaseFiles', 'taskProjectFiles'];
     if (!validContexts.includes(fileContext)) {
-      throw new BadRequestException('fileContext deve ser: tasksArtworks, taskBaseFiles ou taskProjectFiles');
+      throw new BadRequestException(
+        'fileContext deve ser: tasksArtworks, taskBaseFiles ou taskProjectFiles',
+      );
     }
     return this.fileService.getFileSuggestions({
       customerId,
@@ -401,9 +410,7 @@ export class FileController {
   @Post('migration/run')
   @HttpCode(HttpStatus.OK)
   @WriteRateLimit()
-  async runMigration(
-    @Query('dryRun') dryRun?: string,
-  ): Promise<{
+  async runMigration(@Query('dryRun') dryRun?: string): Promise<{
     success: boolean;
     data: any;
     message: string;
@@ -532,5 +539,4 @@ export class FileController {
       data: result.data?.thumbnailUrl ? { thumbnailUrl: result.data.thumbnailUrl } : undefined,
     };
   }
-
 }

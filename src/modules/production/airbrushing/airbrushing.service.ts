@@ -84,9 +84,13 @@ export class AirbrushingService {
       // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all artworks
       // Others can only see APPROVED artworks
       if (userRole) {
-        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'PRODUCTION_MANAGER', 'ADMIN'].includes(
-          userRole,
-        );
+        const canSeeAllArtworks = [
+          'COMMERCIAL',
+          'DESIGNER',
+          'LOGISTIC',
+          'PRODUCTION_MANAGER',
+          'ADMIN',
+        ].includes(userRole);
 
         if (!canSeeAllArtworks) {
           result.data = result.data.map(airbrushing => {
@@ -136,9 +140,13 @@ export class AirbrushingService {
       // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all artworks
       // Others can only see APPROVED artworks
       if (airbrushing.artworks && userRole) {
-        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'PRODUCTION_MANAGER', 'ADMIN'].includes(
-          userRole,
-        );
+        const canSeeAllArtworks = [
+          'COMMERCIAL',
+          'DESIGNER',
+          'LOGISTIC',
+          'PRODUCTION_MANAGER',
+          'ADMIN',
+        ].includes(userRole);
 
         if (!canSeeAllArtworks) {
           airbrushing.artworks = airbrushing.artworks.filter(

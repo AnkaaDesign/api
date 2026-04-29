@@ -234,8 +234,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           break;
         case 'P2034':
           status = HttpStatus.CONFLICT;
-          errorResponse.message =
-            'Conflito de transação. Por favor, tente novamente.';
+          errorResponse.message = 'Conflito de transação. Por favor, tente novamente.';
           errorResponse.error = 'TRANSACTION_CONFLICT';
           break;
         default:

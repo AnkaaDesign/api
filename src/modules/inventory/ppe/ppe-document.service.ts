@@ -654,10 +654,7 @@ export class PpeDocumentService {
    * Create a signed PDF — same as createPdf but with digital signature block
    * instead of blank signature line
    */
-  private createSignedPdf(
-    data: PpeDocumentData,
-    sig: SignatureEvidenceData,
-  ): Promise<Buffer> {
+  private createSignedPdf(data: PpeDocumentData, sig: SignatureEvidenceData): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       try {
         const chunks: Buffer[] = [];
@@ -714,7 +711,10 @@ export class PpeDocumentService {
         y += logoHeight + 12;
 
         const gradientLine = doc.linearGradient(
-          LAYOUT.marginLeft, y, LAYOUT.marginLeft + contentWidth, y,
+          LAYOUT.marginLeft,
+          y,
+          LAYOUT.marginLeft + contentWidth,
+          y,
         );
         gradientLine.stop(0, '#888888').stop(0.3, COLORS.primary);
         doc.rect(LAYOUT.marginLeft, y, contentWidth, 1.5).fill(gradientLine);
@@ -795,11 +795,15 @@ export class PpeDocumentService {
           colX = LAYOUT.marginLeft + 8;
           doc.text(item.name || data.itemName, colX, y + 6, { width: colWidths[0] - 16 });
           colX += colWidths[0];
-          doc.text(String(item.quantity || data.quantity), colX, y + 6, { width: colWidths[1] - 16 });
+          doc.text(String(item.quantity || data.quantity), colX, y + 6, {
+            width: colWidths[1] - 16,
+          });
           colX += colWidths[1];
           doc.text(item.size || data.size || 'N/A', colX, y + 6, { width: colWidths[2] - 16 });
           colX += colWidths[2];
-          doc.text(item.caNumber || data.caNumber || 'N/A', colX, y + 6, { width: colWidths[3] - 16 });
+          doc.text(item.caNumber || data.caNumber || 'N/A', colX, y + 6, {
+            width: colWidths[3] - 16,
+          });
           y += rowHeight;
         });
 
@@ -852,12 +856,9 @@ export class PpeDocumentService {
 
         // Legal statement
         doc.font(FONTS.bold).fontSize(7).fillColor(COLORS.primary);
-        doc.text(
-          'Assinado eletronicamente conforme Art. 4° da Lei 14.063/2020',
-          sigBoxX,
-          sigBoxY,
-          { width: sigContentWidth },
-        );
+        doc.text('Assinado eletronicamente conforme Art. 4° da Lei 14.063/2020', sigBoxX, sigBoxY, {
+          width: sigContentWidth,
+        });
 
         // Signer info
         let sigInfoY = sigBoxY + 14;
@@ -886,12 +887,10 @@ export class PpeDocumentService {
           sigInfoY += 11;
         }
 
-        const clientDate = sig.clientTimestamp instanceof Date
-          ? sig.clientTimestamp
-          : new Date(sig.clientTimestamp);
-        const serverDate = sig.serverTimestamp instanceof Date
-          ? sig.serverTimestamp
-          : new Date(sig.serverTimestamp);
+        const clientDate =
+          sig.clientTimestamp instanceof Date ? sig.clientTimestamp : new Date(sig.clientTimestamp);
+        const serverDate =
+          sig.serverTimestamp instanceof Date ? sig.serverTimestamp : new Date(sig.serverTimestamp);
 
         doc.text(
           `Data/Hora (dispositivo): ${clientDate.toLocaleString('pt-BR')}`,
@@ -901,21 +900,15 @@ export class PpeDocumentService {
         );
         sigInfoY += 11;
 
-        doc.text(
-          `Data/Hora (servidor): ${serverDate.toLocaleString('pt-BR')}`,
-          sigBoxX,
-          sigInfoY,
-          { width: sigContentWidth },
-        );
+        doc.text(`Data/Hora (servidor): ${serverDate.toLocaleString('pt-BR')}`, sigBoxX, sigInfoY, {
+          width: sigContentWidth,
+        });
         sigInfoY += 11;
 
         if (sig.latitude != null && sig.longitude != null) {
-          doc.text(
-            `Localização: ${sig.latitude}, ${sig.longitude}`,
-            sigBoxX,
-            sigInfoY,
-            { width: sigContentWidth },
-          );
+          doc.text(`Localização: ${sig.latitude}, ${sig.longitude}`, sigBoxX, sigInfoY, {
+            width: sigContentWidth,
+          });
           sigInfoY += 11;
         }
 
@@ -934,7 +927,10 @@ export class PpeDocumentService {
         const footerY = LAYOUT.pageHeight - LAYOUT.marginBottom - 30;
 
         const footerGradient = doc.linearGradient(
-          LAYOUT.marginLeft, footerY, LAYOUT.marginLeft + contentWidth, footerY,
+          LAYOUT.marginLeft,
+          footerY,
+          LAYOUT.marginLeft + contentWidth,
+          footerY,
         );
         footerGradient.stop(0, '#888888').stop(0.3, COLORS.primary);
         doc.rect(LAYOUT.marginLeft, footerY, contentWidth, 1).fill(footerGradient);

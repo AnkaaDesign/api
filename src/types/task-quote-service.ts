@@ -39,7 +39,9 @@ export interface TaskQuoteServiceIncludes {
     | {
         include?: TaskQuoteIncludes;
       };
-  invoiceToCustomer?: boolean | { select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean } };
+  invoiceToCustomer?:
+    | boolean
+    | { select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean } };
 }
 
 // =====================

@@ -9,10 +9,7 @@ import {
   CutRequestCreatedEvent,
   CutsAddedToTaskEvent,
 } from './cut.events';
-import {
-  CUT_TYPE,
-  CUT_REQUEST_REASON,
-} from '../../../constants/enums';
+import { CUT_TYPE, CUT_REQUEST_REASON } from '../../../constants/enums';
 
 /**
  * Cut type labels for notifications (user-friendly names)
@@ -94,33 +91,29 @@ export class CutListener {
       const serialNumber = event.task?.serialNumber || '';
       const ctx = this.buildCutContext(event.cut, event.task);
 
-      await this.dispatchService.dispatchByConfiguration(
-        'cut.created',
-        event.createdBy.id,
-        {
-          entityType: ctx.entityType,
-          entityId: ctx.entityId,
-          action: 'created',
-          data: {
-            cutTypeLabel,
-            taskName,
-            serialNumber,
-            changedBy: event.createdBy.name,
-          },
-          metadata: {
-            cutId: event.cut.id,
-            cutType: event.cut.type,
-            taskId: event.task?.id,
-          },
-          overrides: {
-            actionUrl: ctx.actionUrl,
-            webUrl: ctx.webUrl,
-            relatedEntityType: 'CUT',
-            title: `Recorte de ${cutTypeLabel} adicionado para tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} por ${event.createdBy.name}`,
-            body: `Um recorte de ${cutTypeLabel} foi adicionado para a tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} por ${event.createdBy.name}.`,
-          },
+      await this.dispatchService.dispatchByConfiguration('cut.created', event.createdBy.id, {
+        entityType: ctx.entityType,
+        entityId: ctx.entityId,
+        action: 'created',
+        data: {
+          cutTypeLabel,
+          taskName,
+          serialNumber,
+          changedBy: event.createdBy.name,
         },
-      );
+        metadata: {
+          cutId: event.cut.id,
+          cutType: event.cut.type,
+          taskId: event.task?.id,
+        },
+        overrides: {
+          actionUrl: ctx.actionUrl,
+          webUrl: ctx.webUrl,
+          relatedEntityType: 'CUT',
+          title: `Recorte de ${cutTypeLabel} adicionado para tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} por ${event.createdBy.name}`,
+          body: `Um recorte de ${cutTypeLabel} foi adicionado para a tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} por ${event.createdBy.name}.`,
+        },
+      });
     } catch (error) {
       this.logger.error('[CUT EVENT] Error handling cut created event:', error.message);
     }
@@ -138,34 +131,30 @@ export class CutListener {
       const serialNumber = event.task?.serialNumber || '';
       const ctx = this.buildCutContext(event.cut, event.task);
 
-      await this.dispatchService.dispatchByConfiguration(
-        'cut.started',
-        event.startedBy.id,
-        {
-          entityType: ctx.entityType,
-          entityId: ctx.entityId,
-          action: 'started',
-          data: {
-            cutTypeLabel,
-            taskName,
-            serialNumber,
-            changedBy: event.startedBy.name,
-          },
-          metadata: {
-            cutId: event.cut.id,
-            cutType: event.cut.type,
-            taskId: event.task?.id,
-            taskSectorId: event.task?.sectorId,
-          },
-          overrides: {
-            actionUrl: ctx.actionUrl,
-            webUrl: ctx.webUrl,
-            relatedEntityType: 'CUT',
-            title: `Recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} iniciado por ${event.startedBy.name}`,
-            body: `O recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} foi iniciado por ${event.startedBy.name}.`,
-          },
+      await this.dispatchService.dispatchByConfiguration('cut.started', event.startedBy.id, {
+        entityType: ctx.entityType,
+        entityId: ctx.entityId,
+        action: 'started',
+        data: {
+          cutTypeLabel,
+          taskName,
+          serialNumber,
+          changedBy: event.startedBy.name,
         },
-      );
+        metadata: {
+          cutId: event.cut.id,
+          cutType: event.cut.type,
+          taskId: event.task?.id,
+          taskSectorId: event.task?.sectorId,
+        },
+        overrides: {
+          actionUrl: ctx.actionUrl,
+          webUrl: ctx.webUrl,
+          relatedEntityType: 'CUT',
+          title: `Recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} iniciado por ${event.startedBy.name}`,
+          body: `O recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} foi iniciado por ${event.startedBy.name}.`,
+        },
+      });
     } catch (error) {
       this.logger.error('[CUT EVENT] Error handling cut started event:', error.message);
     }
@@ -183,34 +172,30 @@ export class CutListener {
       const serialNumber = event.task?.serialNumber || '';
       const ctx = this.buildCutContext(event.cut, event.task);
 
-      await this.dispatchService.dispatchByConfiguration(
-        'cut.completed',
-        event.completedBy.id,
-        {
-          entityType: ctx.entityType,
-          entityId: ctx.entityId,
-          action: 'completed',
-          data: {
-            cutTypeLabel,
-            taskName,
-            serialNumber,
-            changedBy: event.completedBy.name,
-          },
-          metadata: {
-            cutId: event.cut.id,
-            cutType: event.cut.type,
-            taskId: event.task?.id,
-            taskSectorId: event.task?.sectorId,
-          },
-          overrides: {
-            actionUrl: ctx.actionUrl,
-            webUrl: ctx.webUrl,
-            relatedEntityType: 'CUT',
-            title: `Recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} concluído por ${event.completedBy.name}`,
-            body: `O recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} foi concluído por ${event.completedBy.name}.`,
-          },
+      await this.dispatchService.dispatchByConfiguration('cut.completed', event.completedBy.id, {
+        entityType: ctx.entityType,
+        entityId: ctx.entityId,
+        action: 'completed',
+        data: {
+          cutTypeLabel,
+          taskName,
+          serialNumber,
+          changedBy: event.completedBy.name,
         },
-      );
+        metadata: {
+          cutId: event.cut.id,
+          cutType: event.cut.type,
+          taskId: event.task?.id,
+          taskSectorId: event.task?.sectorId,
+        },
+        overrides: {
+          actionUrl: ctx.actionUrl,
+          webUrl: ctx.webUrl,
+          relatedEntityType: 'CUT',
+          title: `Recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} concluído por ${event.completedBy.name}`,
+          body: `O recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} foi concluído por ${event.completedBy.name}.`,
+        },
+      });
     } catch (error) {
       this.logger.error('[CUT EVENT] Error handling cut completed event:', error.message);
     }
@@ -285,32 +270,28 @@ export class CutListener {
           ? `1 recorte foi adicionado à tarefa "${event.task.name}"${serialNumber ? ` (${serialNumber})` : ''} por ${event.addedBy.name}.`
           : `${cutsCount} recortes foram adicionados à tarefa "${event.task.name}"${serialNumber ? ` (${serialNumber})` : ''} por ${event.addedBy.name}.`;
 
-      await this.dispatchService.dispatchByConfiguration(
-        'cuts.added.to.task',
-        event.addedBy.id,
-        {
-          entityType: 'Task',
-          entityId: event.task.id,
-          action: 'cuts_added',
-          data: {
-            taskName: event.task.name,
-            serialNumber,
-            changedBy: event.addedBy.name,
-            count: cutsCount.toString(),
-          },
-          metadata: {
-            taskId: event.task.id,
-            cutsCount,
-          },
-          overrides: {
-            actionUrl: ctx.actionUrl,
-            webUrl: ctx.webUrl,
-            relatedEntityType: 'TASK',
-            title: detailedTitle,
-            body: detailedBody,
-          },
+      await this.dispatchService.dispatchByConfiguration('cuts.added.to.task', event.addedBy.id, {
+        entityType: 'Task',
+        entityId: event.task.id,
+        action: 'cuts_added',
+        data: {
+          taskName: event.task.name,
+          serialNumber,
+          changedBy: event.addedBy.name,
+          count: cutsCount.toString(),
         },
-      );
+        metadata: {
+          taskId: event.task.id,
+          cutsCount,
+        },
+        overrides: {
+          actionUrl: ctx.actionUrl,
+          webUrl: ctx.webUrl,
+          relatedEntityType: 'TASK',
+          title: detailedTitle,
+          body: detailedBody,
+        },
+      });
     } catch (error) {
       this.logger.error('[CUT EVENT] Error handling cuts added to task event:', error.message);
     }

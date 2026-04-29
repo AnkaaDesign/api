@@ -40,18 +40,14 @@ export class TaskQuoteStatusCascadeService {
       });
 
       if (!invoice?.customerConfig?.quote) {
-        this.logger.warn(
-          `Cannot cascade status: invoice ${invoiceId} has no linked quote`,
-        );
+        this.logger.warn(`Cannot cascade status: invoice ${invoiceId} has no linked quote`);
         return;
       }
 
       const quoteId = invoice.customerConfig.quote.id;
       await this.cascadeFromQuote(quoteId);
     } catch (error) {
-      this.logger.error(
-        `Error cascading status from invoice ${invoiceId}: ${error}`,
-      );
+      this.logger.error(`Error cascading status from invoice ${invoiceId}: ${error}`);
     }
   }
 
@@ -89,7 +85,7 @@ export class TaskQuoteStatusCascadeService {
 
       // Collect all installments across all customer configs
       const allInstallments = quote.customerConfigs.flatMap(
-        (config) => (config as any).installments || [],
+        config => (config as any).installments || [],
       );
 
       if (allInstallments.length === 0) {
@@ -97,20 +93,12 @@ export class TaskQuoteStatusCascadeService {
       }
 
       const now = new Date();
-      const paidCount = allInstallments.filter(
-        (inst) => inst.status === 'PAID',
-      ).length;
-      const cancelledInstallments = allInstallments.filter(
-        (inst) => inst.status === 'CANCELLED',
-      );
-      const activeInstallments = allInstallments.filter(
-        (inst) => inst.status !== 'CANCELLED',
-      );
+      const paidCount = allInstallments.filter(inst => inst.status === 'PAID').length;
+      const cancelledInstallments = allInstallments.filter(inst => inst.status === 'CANCELLED');
+      const activeInstallments = allInstallments.filter(inst => inst.status !== 'CANCELLED');
       const overdueCount = allInstallments.filter(
-        (inst) =>
-          inst.status !== 'PAID' &&
-          inst.status !== 'CANCELLED' &&
-          new Date(inst.dueDate) < now,
+        inst =>
+          inst.status !== 'PAID' && inst.status !== 'CANCELLED' && new Date(inst.dueDate) < now,
       ).length;
 
       let newStatus: TASK_QUOTE_STATUS;
@@ -133,14 +121,10 @@ export class TaskQuoteStatusCascadeService {
           },
         });
 
-        this.logger.log(
-          `Cascaded TaskQuote ${quoteId} status: ${quote.status} → ${newStatus}`,
-        );
+        this.logger.log(`Cascaded TaskQuote ${quoteId} status: ${quote.status} → ${newStatus}`);
       }
     } catch (error) {
-      this.logger.error(
-        `Error cascading quote status for ${quoteId}: ${error}`,
-      );
+      this.logger.error(`Error cascading quote status for ${quoteId}: ${error}`);
     }
   }
 }

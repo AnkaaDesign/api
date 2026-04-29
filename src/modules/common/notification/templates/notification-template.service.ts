@@ -545,7 +545,8 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
 
   'vacation.starting.soon': {
     title: data => `Férias se Aproximando`,
-    body: data => `Suas férias começam em ${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'} (${data.startDate}).`,
+    body: data =>
+      `Suas férias começam em ${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'} (${data.startDate}).`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],

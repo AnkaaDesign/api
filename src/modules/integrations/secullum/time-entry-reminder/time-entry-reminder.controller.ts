@@ -55,7 +55,7 @@ export class TimeEntryReminderController {
     const users = await this.timeEntryReminderService.getActiveUsersForTimeCheck();
     return {
       count: users.length,
-      users: users.map((u) => ({
+      users: users.map(u => ({
         id: u.id,
         name: u.name,
         hasMapping: !!(u.cpf || u.pis || u.payrollNumber),
@@ -125,7 +125,7 @@ export class TimeEntryReminderController {
 
     // Get user details
     const users = await this.timeEntryReminderService.getActiveUsersForTimeCheck();
-    const user = users.find((u) => u.id === targetUserId);
+    const user = users.find(u => u.id === targetUserId);
 
     if (!user) {
       return {

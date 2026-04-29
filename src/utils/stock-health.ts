@@ -405,10 +405,7 @@ export function calculateConsumptionVariability(
       );
     });
 
-    const rawConsumption = monthActivities.reduce(
-      (sum, activity) => sum + activity.quantity,
-      0,
-    );
+    const rawConsumption = monthActivities.reduce((sum, activity) => sum + activity.quantity, 0);
 
     // Normalize by working days to account for vacation periods
     const normalized = normalizeConsumptionByWorkingDays(
@@ -603,9 +600,7 @@ export function calculateMaxQuantity(
   // Determine if update is needed (>10% difference from current)
   const currentMaxQuantity = item.maxQuantity || 0;
   const percentageDifference =
-    currentMaxQuantity > 0
-      ? Math.abs((suggestedMax - currentMaxQuantity) / currentMaxQuantity)
-      : 1; // Always update if current is 0
+    currentMaxQuantity > 0 ? Math.abs((suggestedMax - currentMaxQuantity) / currentMaxQuantity) : 1; // Always update if current is 0
 
   const shouldUpdate = percentageDifference > REORDER_POINT_UPDATE_THRESHOLD;
 

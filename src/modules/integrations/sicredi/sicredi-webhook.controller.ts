@@ -28,7 +28,7 @@ export class SicrediWebhookController {
     );
 
     // Immediately return 200, process asynchronously
-    this.webhookService.processEvent(payload).catch((error) => {
+    this.webhookService.processEvent(payload).catch(error => {
       this.logger.error(
         `Failed to process Sicredi webhook event ${payload.idEventoWebhook}`,
         error,
@@ -66,7 +66,12 @@ export class SicrediWebhookController {
   @Roles(SECTOR_PRIVILEGES.ADMIN)
   async updateContract(
     @Param('id') id: string,
-    @Body() body: { url?: string; urlStatus?: 'ATIVO' | 'INATIVO' | 'BLOQUEADO'; contratoStatus?: 'ATIVO' | 'INATIVO' | 'BLOQUEADO' },
+    @Body()
+    body: {
+      url?: string;
+      urlStatus?: 'ATIVO' | 'INATIVO' | 'BLOQUEADO';
+      contratoStatus?: 'ATIVO' | 'INATIVO' | 'BLOQUEADO';
+    },
   ) {
     return this.sicrediService.updateWebhookContract(id, body);
   }

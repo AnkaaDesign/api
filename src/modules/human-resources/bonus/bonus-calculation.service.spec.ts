@@ -34,18 +34,18 @@ const SALARY_RANGE = { min: 2257.67, max: 4285.73 };
 //   B1 = 4, k = 3.5, x0 = 0.26, piso = 0.075, pscale = 0.40, ceil = 6, adj = 0
 // 12 positions × 5 performance levels.
 const GOLDEN_B1_4: Record<string, Record<number, number>> = {
-  'Junior I':    { 1: 45.64,  2: 91.27,   3: 136.91,  4: 159.73,  5: 182.54 },
-  'Junior II':   { 1: 106.2,  2: 212.41,  3: 318.61,  4: 371.72,  5: 424.82 },
-  'Junior III':  { 1: 172.53, 2: 345.06,  3: 517.59,  4: 603.86,  5: 690.13 },
-  'Junior IV':   { 1: 241.76, 2: 483.53,  3: 725.29,  4: 846.17,  5: 967.06 },
-  'Pleno I':     { 1: 310.51, 2: 621.03,  3: 931.54,  4: 1086.8,  5: 1242.06 },
-  'Pleno II':    { 1: 375.48, 2: 750.96,  3: 1126.44, 4: 1314.18, 5: 1501.92 },
-  'Pleno III':   { 1: 434.06, 2: 868.11,  3: 1302.17, 4: 1519.19, 5: 1736.22 },
-  'Pleno IV':    { 1: 484.67, 2: 969.34,  3: 1454.01, 4: 1696.35, 5: 1938.68 },
-  'Senior I':    { 1: 522.07, 2: 1044.14, 3: 1566.21, 4: 1827.25, 5: 2088.28 },
-  'Senior II':   { 1: 559.01, 2: 1118.02, 3: 1677.04, 4: 1956.54, 5: 2236.05 },
-  'Senior III':  { 1: 587.74, 2: 1175.48, 3: 1763.22, 4: 2057.09, 5: 2350.96 },
-  'Senior IV':   { 1: 608.48, 2: 1216.96, 3: 1825.44, 4: 2129.68, 5: 2433.92 },
+  'Junior I': { 1: 45.64, 2: 91.27, 3: 136.91, 4: 159.73, 5: 182.54 },
+  'Junior II': { 1: 106.2, 2: 212.41, 3: 318.61, 4: 371.72, 5: 424.82 },
+  'Junior III': { 1: 172.53, 2: 345.06, 3: 517.59, 4: 603.86, 5: 690.13 },
+  'Junior IV': { 1: 241.76, 2: 483.53, 3: 725.29, 4: 846.17, 5: 967.06 },
+  'Pleno I': { 1: 310.51, 2: 621.03, 3: 931.54, 4: 1086.8, 5: 1242.06 },
+  'Pleno II': { 1: 375.48, 2: 750.96, 3: 1126.44, 4: 1314.18, 5: 1501.92 },
+  'Pleno III': { 1: 434.06, 2: 868.11, 3: 1302.17, 4: 1519.19, 5: 1736.22 },
+  'Pleno IV': { 1: 484.67, 2: 969.34, 3: 1454.01, 4: 1696.35, 5: 1938.68 },
+  'Senior I': { 1: 522.07, 2: 1044.14, 3: 1566.21, 4: 1827.25, 5: 2088.28 },
+  'Senior II': { 1: 559.01, 2: 1118.02, 3: 1677.04, 4: 1956.54, 5: 2236.05 },
+  'Senior III': { 1: 587.74, 2: 1175.48, 3: 1763.22, 4: 2057.09, 5: 2350.96 },
+  'Senior IV': { 1: 608.48, 2: 1216.96, 3: 1825.44, 4: 2129.68, 5: 2433.92 },
 };
 
 describe('BonusCalculationService', () => {
@@ -344,38 +344,35 @@ describe('BonusCalculationService', () => {
     // piso=0.12, pscale=0.5, ceil=5.8, adj=+5%
     const fixture = [
       { positionName: 'Junior III', performanceLevel: 3, expected: 86.65 },
-      { positionName: 'Junior IV',  performanceLevel: 3, expected: 116.68 },
-      { positionName: 'Junior I',   performanceLevel: 5, expected: 41.89 },
-      { positionName: 'Junior II',  performanceLevel: 3, expected: 57.73 },
-      { positionName: 'Pleno I',    performanceLevel: 3, expected: 146.07 },
-      { positionName: 'Pleno I',    performanceLevel: 3, expected: 146.07 },
-      { positionName: 'Pleno I',    performanceLevel: 3, expected: 146.07 },
+      { positionName: 'Junior IV', performanceLevel: 3, expected: 116.68 },
+      { positionName: 'Junior I', performanceLevel: 5, expected: 41.89 },
+      { positionName: 'Junior II', performanceLevel: 3, expected: 57.73 },
+      { positionName: 'Pleno I', performanceLevel: 3, expected: 146.07 },
+      { positionName: 'Pleno I', performanceLevel: 3, expected: 146.07 },
+      { positionName: 'Pleno I', performanceLevel: 3, expected: 146.07 },
       { positionName: 'Senior III', performanceLevel: 3, expected: 254.79 },
-      { positionName: 'Junior I',   performanceLevel: 5, expected: 41.89 },
-      { positionName: 'Junior IV',  performanceLevel: 3, expected: 116.68 },
-      { positionName: 'Pleno I',    performanceLevel: 3, expected: 146.07 },
-      { positionName: 'Pleno I',    performanceLevel: 3, expected: 146.07 },
-      { positionName: 'Pleno IV',   performanceLevel: 3, expected: 216.92 },
+      { positionName: 'Junior I', performanceLevel: 5, expected: 41.89 },
+      { positionName: 'Junior IV', performanceLevel: 3, expected: 116.68 },
+      { positionName: 'Pleno I', performanceLevel: 3, expected: 146.07 },
+      { positionName: 'Pleno I', performanceLevel: 3, expected: 146.07 },
+      { positionName: 'Pleno IV', performanceLevel: 3, expected: 216.92 },
       { positionName: 'Senior III', performanceLevel: 3, expected: 254.79 },
-      { positionName: 'Junior II',  performanceLevel: 3, expected: 57.73 },
-      { positionName: 'Junior IV',  performanceLevel: 3, expected: 116.68 },
+      { positionName: 'Junior II', performanceLevel: 3, expected: 57.73 },
+      { positionName: 'Junior IV', performanceLevel: 3, expected: 116.68 },
     ];
     const customConfig = { k: 3.8, x0: 0.24, piso: 0.12, pscale: 0.5, ceil: 5.8, adjustment: 0.05 };
 
-    it.each(fixture)(
-      '%s perf=%s → R$ %s',
-      ({ positionName, performanceLevel, expected }) => {
-        const pos = POSITIONS.find(p => p.name === positionName)!;
-        const r = service.calculate({
-          salary: pos.salary,
-          performanceLevel,
-          averageTasksPerUser: 2.19,
-          salaryRange: SALARY_RANGE,
-          config: customConfig,
-        });
-        expect(r.bonus).toBe(expected);
-      },
-    );
+    it.each(fixture)('%s perf=%s → R$ %s', ({ positionName, performanceLevel, expected }) => {
+      const pos = POSITIONS.find(p => p.name === positionName)!;
+      const r = service.calculate({
+        salary: pos.salary,
+        performanceLevel,
+        averageTasksPerUser: 2.19,
+        salaryRange: SALARY_RANGE,
+        config: customConfig,
+      });
+      expect(r.bonus).toBe(expected);
+    });
 
     it('total across 16 employees = R$ 2.092,78', () => {
       const total = fixture.reduce((sum, f) => {

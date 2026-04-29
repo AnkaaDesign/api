@@ -624,9 +624,13 @@ export class ServerService {
               const dirSet = new Set(directoryNames);
               for (const c of customers) {
                 if (c.logo && c.logo.path.startsWith(entityBasePath + '/')) {
-                  const logoUrl = c.logo.thumbnailUrl || `${baseUrl}/${path.relative(filesRoot, c.logo.path).replace(/\\/g, '/')}`;
+                  const logoUrl =
+                    c.logo.thumbnailUrl ||
+                    `${baseUrl}/${path.relative(filesRoot, c.logo.path).replace(/\\/g, '/')}`;
                   // Extract the actual folder name from the logo file path
-                  const folderFromPath = path.relative(entityBasePath, c.logo.path).split(path.sep)[0];
+                  const folderFromPath = path
+                    .relative(entityBasePath, c.logo.path)
+                    .split(path.sep)[0];
                   if (folderFromPath && dirSet.has(folderFromPath)) {
                     entityLogoMap.set(folderFromPath, logoUrl);
                   }
@@ -640,8 +644,12 @@ export class ServerService {
               const dirSet = new Set(directoryNames);
               for (const s of suppliers) {
                 if (s.logo && s.logo.path.startsWith(entityBasePath + '/')) {
-                  const logoUrl = s.logo.thumbnailUrl || `${baseUrl}/${path.relative(filesRoot, s.logo.path).replace(/\\/g, '/')}`;
-                  const folderFromPath = path.relative(entityBasePath, s.logo.path).split(path.sep)[0];
+                  const logoUrl =
+                    s.logo.thumbnailUrl ||
+                    `${baseUrl}/${path.relative(filesRoot, s.logo.path).replace(/\\/g, '/')}`;
+                  const folderFromPath = path
+                    .relative(entityBasePath, s.logo.path)
+                    .split(path.sep)[0];
                   if (folderFromPath && dirSet.has(folderFromPath)) {
                     entityLogoMap.set(folderFromPath, logoUrl);
                   }
@@ -658,7 +666,15 @@ export class ServerService {
       let totalFiles = 0;
 
       for (const [itemPath, fileInfo] of fileInfoMap) {
-        const { name: fileName, permissions, owner, group, sizeBytes, isDirectory, stats } = fileInfo;
+        const {
+          name: fileName,
+          permissions,
+          owner,
+          group,
+          sizeBytes,
+          isDirectory,
+          stats,
+        } = fileInfo;
 
         let size: string;
         let fileCount: number | undefined;

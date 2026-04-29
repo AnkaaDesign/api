@@ -3,7 +3,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RegisterDeviceTokenDto {
   @ApiProperty({
-    description: 'Push notification token (supports both Expo tokens like ExponentPushToken[xxx] and FCM tokens)',
+    description:
+      'Push notification token (supports both Expo tokens like ExponentPushToken[xxx] and FCM tokens)',
     example: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]',
   })
   @IsString()
@@ -32,7 +33,8 @@ export class UnregisterDeviceTokenDto {
 
 export class SendTestNotificationDto {
   @ApiProperty({
-    description: 'Push notification token (supports both Expo tokens like ExponentPushToken[xxx] and FCM tokens)',
+    description:
+      'Push notification token (supports both Expo tokens like ExponentPushToken[xxx] and FCM tokens)',
     example: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]',
   })
   @IsString()

@@ -1549,7 +1549,7 @@ export class PpeDeliveryService {
     return this.prisma.$transaction(async (transaction: PrismaTransaction) => {
       // Fetch deliveries before deleting to check which ones need stock restoration
       const deliveriesToDelete = await Promise.all(
-        data.ppeDeliveryIds.map((id) => this.repository.findById(id)),
+        data.ppeDeliveryIds.map(id => this.repository.findById(id)),
       );
 
       // Restore stock for deliveries that were already delivered

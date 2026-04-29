@@ -85,7 +85,7 @@ export class AdministrationAnalyticsService {
     });
 
     let runningTotal = customersBefore;
-    const customerAcquisition = customerKeys.map((key) => {
+    const customerAcquisition = customerKeys.map(key => {
       const newCustomers = customersByPeriod.get(key) || 0;
       runningTotal += newCustomers;
       return {
@@ -122,20 +122,14 @@ export class AdministrationAnalyticsService {
 
       if (task.finishedAt) {
         const completedKey = keyFn(task.finishedAt);
-        taskCompletedByPeriod.set(
-          completedKey,
-          (taskCompletedByPeriod.get(completedKey) || 0) + 1,
-        );
+        taskCompletedByPeriod.set(completedKey, (taskCompletedByPeriod.get(completedKey) || 0) + 1);
       }
     }
 
-    const allTaskKeys = new Set([
-      ...taskCreatedByPeriod.keys(),
-      ...taskCompletedByPeriod.keys(),
-    ]);
+    const allTaskKeys = new Set([...taskCreatedByPeriod.keys(), ...taskCompletedByPeriod.keys()]);
     const sortedTaskKeys = Array.from(allTaskKeys).sort();
 
-    const taskTrends = sortedTaskKeys.map((key) => ({
+    const taskTrends = sortedTaskKeys.map(key => ({
       period: key,
       periodLabel: groupBy === 'week' ? key : monthLabel(key),
       tasksCreated: taskCreatedByPeriod.get(key) || 0,

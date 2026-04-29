@@ -325,9 +325,7 @@ export class ResponsibleService {
     return { available };
   }
 
-  async batchCreate(
-    responsibles: ResponsibleCreateFormData[],
-  ): Promise<ResponsibleResponse[]> {
+  async batchCreate(responsibles: ResponsibleCreateFormData[]): Promise<ResponsibleResponse[]> {
     const results: ResponsibleResponse[] = [];
 
     for (const data of responsibles) {
@@ -467,10 +465,7 @@ export class ResponsibleService {
     return responsible;
   }
 
-  async verifyEmail(
-    responsibleId: string,
-    verificationCode: string,
-  ): Promise<ResponsibleResponse> {
+  async verifyEmail(responsibleId: string, verificationCode: string): Promise<ResponsibleResponse> {
     const responsible = await this.findById(responsibleId);
 
     if (responsible.verified) {

@@ -224,8 +224,7 @@ export class TruckService {
 
       // Check if truck can fit in V1 or V2 (normal case)
       const canFitInV1V2 =
-        spotsOccupiedInV1V2 < maxSpotsInTaskForm &&
-        totalRequiredSpace <= config.laneLength;
+        spotsOccupiedInV1V2 < maxSpotsInTaskForm && totalRequiredSpace <= config.laneLength;
 
       // Check if truck can fit in V3 (special case: V1+V2 occupied, small trucks)
       const v3IsOccupied = occupiedSpots.includes(3 as SpotNumber);
@@ -278,10 +277,8 @@ export class TruckService {
     // Use transaction to update all trucks atomically and log changes
     await this.prisma.$transaction(async (tx: PrismaTransaction) => {
       // Collect all target spots and truck IDs in this batch
-      const batchTruckIds = new Set(updates.map((u) => u.truckId));
-      const targetSpots = updates
-        .map((u) => u.spot)
-        .filter((s): s is string => s !== null);
+      const batchTruckIds = new Set(updates.map(u => u.truckId));
+      const targetSpots = updates.map(u => u.spot).filter((s): s is string => s !== null);
 
       // Clear conflicting spots: any OTHER truck (not in this batch) that occupies
       // a spot we're about to assign should have its spot cleared.
@@ -433,7 +430,13 @@ export class TruckService {
    * Sends a notification to logistics team for approval
    */
   async requestMovement(
-    data: { taskId: string; truckId: string; taskName: string; fromSpot: string | null; toSpot: string | null },
+    data: {
+      taskId: string;
+      truckId: string;
+      taskName: string;
+      fromSpot: string | null;
+      toSpot: string | null;
+    },
     userId: string,
   ): Promise<{ success: boolean }> {
     // Get the user who made the request

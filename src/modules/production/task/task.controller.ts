@@ -630,7 +630,8 @@ export class TaskController {
   )
   async getForecastHistory(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(taskForecastHistoryQuerySchema)) query: TaskForecastHistoryQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskForecastHistoryQuerySchema))
+    query: TaskForecastHistoryQueryFormData,
   ) {
     return this.tasksService.getForecastHistory(id, query);
   }

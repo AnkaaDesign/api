@@ -781,13 +781,23 @@ export class OrderService {
           const requestedTemporaryItems = requestedItems.filter(item => !item.itemId);
 
           // Create maps for inventory items lookup (by itemId)
-          const requestedInventoryMap = new Map(requestedInventoryItems.map(item => [item.itemId, item]));
-          const existingInventoryMap = new Map(existingInventoryItems.map(item => [item.itemId, item]));
+          const requestedInventoryMap = new Map(
+            requestedInventoryItems.map(item => [item.itemId, item]),
+          );
+          const existingInventoryMap = new Map(
+            existingInventoryItems.map(item => [item.itemId, item]),
+          );
 
           // Determine inventory items to delete, add, update
-          const inventoryItemsToDelete = existingInventoryItems.filter(item => !requestedInventoryMap.has(item.itemId));
-          const inventoryItemsToAdd = requestedInventoryItems.filter(item => !existingInventoryMap.has(item.itemId));
-          const inventoryItemsToUpdate = requestedInventoryItems.filter(item => existingInventoryMap.has(item.itemId));
+          const inventoryItemsToDelete = existingInventoryItems.filter(
+            item => !requestedInventoryMap.has(item.itemId),
+          );
+          const inventoryItemsToAdd = requestedInventoryItems.filter(
+            item => !existingInventoryMap.has(item.itemId),
+          );
+          const inventoryItemsToUpdate = requestedInventoryItems.filter(item =>
+            existingInventoryMap.has(item.itemId),
+          );
 
           // For temporary items: delete all existing and recreate from request
           // This is the safest approach since temporary items don't have a stable identifier
@@ -807,7 +817,9 @@ export class OrderService {
             await tx.orderItem.delete({
               where: { id: item.id },
             });
-            this.logger.log(`Deleted temporary order item ${item.id} (description: ${item.temporaryItemDescription})`);
+            this.logger.log(
+              `Deleted temporary order item ${item.id} (description: ${item.temporaryItemDescription})`,
+            );
           }
 
           // Add new inventory items
@@ -938,7 +950,11 @@ export class OrderService {
 
           // After modifying items, check if order status should be automatically updated
           // This handles the case where items are removed and all remaining items are received
-          const hasItemChanges = inventoryItemsToDelete.length > 0 || temporaryItemsToDelete.length > 0 || itemsToUpdate.length > 0 || temporaryItemsToAdd.length > 0;
+          const hasItemChanges =
+            inventoryItemsToDelete.length > 0 ||
+            temporaryItemsToDelete.length > 0 ||
+            itemsToUpdate.length > 0 ||
+            temporaryItemsToAdd.length > 0;
           if (hasItemChanges) {
             this.logger.log(
               `Checking order received status after item modifications for order ${id}`,
@@ -1059,7 +1075,11 @@ export class OrderService {
         const oldPaymentResponsibleId = existingOrder.paymentResponsibleId;
 
         // Payment was newly assigned or changed
-        if (newPaymentResponsibleId && newPaymentResponsibleId !== oldPaymentResponsibleId && userId) {
+        if (
+          newPaymentResponsibleId &&
+          newPaymentResponsibleId !== oldPaymentResponsibleId &&
+          userId
+        ) {
           this.eventEmitter.emit('order.payment.assigned', {
             order: updatedOrder,
             paymentResponsibleId: newPaymentResponsibleId,

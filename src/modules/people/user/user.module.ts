@@ -11,7 +11,12 @@ import { FileModule } from '@modules/common/file/file.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule, forwardRef(() => FileModule), forwardRef(() => NotificationModule)],
+  imports: [
+    PrismaModule,
+    ChangeLogModule,
+    forwardRef(() => FileModule),
+    forwardRef(() => NotificationModule),
+  ],
   controllers: [UserController],
   providers: [
     UserService,

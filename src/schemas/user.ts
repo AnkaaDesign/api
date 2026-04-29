@@ -1600,7 +1600,9 @@ export const userCreateSchema = z
       .date()
       .refine(
         date => {
-          const [year, month, day] = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' })
+          const [year, month, day] = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Sao_Paulo',
+          })
             .format(new Date())
             .split('-')
             .map(Number);
@@ -1697,7 +1699,9 @@ export const userUpdateSchema = z
       .date()
       .refine(
         date => {
-          const [year, month, day] = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' })
+          const [year, month, day] = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Sao_Paulo',
+          })
             .format(new Date())
             .split('-')
             .map(Number);

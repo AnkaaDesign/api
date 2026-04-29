@@ -99,21 +99,22 @@ export class NfseController {
 
     // Enrich with local invoice/task data
     const elotechIds = result.data.map((n: any) => n.id);
-    const localRefs = elotechIds.length > 0
-      ? await this.prisma.nfseDocument.findMany({
-          where: { elotechNfseId: { in: elotechIds } },
-          include: {
-            invoice: {
-              include: {
-                task: { select: { id: true, name: true, serialNumber: true } },
-                customer: { select: { id: true, fantasyName: true } },
+    const localRefs =
+      elotechIds.length > 0
+        ? await this.prisma.nfseDocument.findMany({
+            where: { elotechNfseId: { in: elotechIds } },
+            include: {
+              invoice: {
+                include: {
+                  task: { select: { id: true, name: true, serialNumber: true } },
+                  customer: { select: { id: true, fantasyName: true } },
+                },
               },
             },
-          },
-        })
-      : [];
+          })
+        : [];
 
-    const refMap = new Map<number, typeof localRefs[0]>();
+    const refMap = new Map<number, (typeof localRefs)[0]>();
     for (const ref of localRefs) {
       if (ref.elotechNfseId) {
         refMap.set(ref.elotechNfseId, ref);
@@ -125,19 +126,15 @@ export class NfseController {
       result.data,
       new Map(
         localRefs
-          .filter((r) => r.elotechNfseId)
-          .map((r) => [r.elotechNfseId!, { id: r.id, status: r.status }]),
+          .filter(r => r.elotechNfseId)
+          .map(r => [r.elotechNfseId!, { id: r.id, status: r.status }]),
       ),
-    ).catch((err) =>
-      this.logger.error('Failed to sync cancelled statuses', err),
-    );
+    ).catch(err => this.logger.error('Failed to sync cancelled statuses', err));
 
     const enrichedData = result.data.map((nfse: any) => {
       const localRef = refMap.get(nfse.id);
       // Use Elotech status as source of truth
-      const effectiveStatus = nfse.cancelada
-        ? 'CANCELLED'
-        : localRef?.status || null;
+      const effectiveStatus = nfse.cancelada ? 'CANCELLED' : localRef?.status || null;
       return {
         ...nfse,
         invoiceId: localRef?.invoice?.id || null,
@@ -218,9 +215,7 @@ export class NfseController {
     if (elotechStatus.cancelada && localRef && localRef.status === 'AUTHORIZED') {
       this.prisma.nfseDocument
         .update({ where: { id: localRef.id }, data: { status: 'CANCELLED' } })
-        .catch((err) =>
-          this.logger.error('Failed to sync cancelled status in detail', err),
-        );
+        .catch(err => this.logger.error('Failed to sync cancelled status in detail', err));
     }
 
     const effectiveStatus = elotechStatus.cancelada
@@ -249,10 +244,7 @@ export class NfseController {
    */
   @Get(':elotechNfseId/pdf')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
-  async pdf(
-    @Param('elotechNfseId', ParseIntPipe) elotechNfseId: number,
-    @Res() res: Response,
-  ) {
+  async pdf(@Param('elotechNfseId', ParseIntPipe) elotechNfseId: number, @Res() res: Response) {
     this.ensureConfigured();
     const pdfBuffer = await this.elotechService.getNfsePdf(elotechNfseId);
 

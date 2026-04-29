@@ -167,11 +167,7 @@ export class DashboardController {
   }
 
   @Get('financial')
-  @Roles(
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.COMMERCIAL,
-  )
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   @UsePipes(new ZodQueryValidationPipe(financialDashboardQuerySchema))
   async getFinancialDashboard(
     @Query() query: FinancialDashboardQueryFormData,

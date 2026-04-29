@@ -274,7 +274,11 @@ export class WhatsAppNotificationService {
       if (type === 'stock.out' || type === 'item.out_of_stock') {
         return this.formatter.formatStockOut(data);
       }
-      if (type === 'stock.reorder' || type === 'item.needing.order' || type === 'item.reorder_required') {
+      if (
+        type === 'stock.reorder' ||
+        type === 'item.needing.order' ||
+        type === 'item.reorder_required'
+      ) {
         return this.formatter.formatItemNeedingOrder(data);
       }
 
@@ -359,8 +363,7 @@ export class WhatsAppNotificationService {
     // Build full URL if it's a relative path
     if (actionUrlToUse) {
       // Use WEB_APP_URL as the canonical base URL
-      const baseUrl =
-        process.env.WEB_APP_URL || process.env.CLIENT_HOST || 'https://ankaa.app';
+      const baseUrl = process.env.WEB_APP_URL || process.env.CLIENT_HOST || 'https://ankaa.app';
 
       // Check if URL is already complete (has protocol)
       if (!actionUrlToUse.startsWith('http://') && !actionUrlToUse.startsWith('https://')) {

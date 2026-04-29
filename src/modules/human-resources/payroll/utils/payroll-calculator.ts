@@ -551,7 +551,12 @@ export class PayrollCalculatorService {
 
       // Calculate bonus using salary-based logistic algorithm.
       let bonusValue = 0;
-      if (performanceLevel > 0 && isBonifiable && averageTasksPerUser > 0 && currentUser?.position?.id) {
+      if (
+        performanceLevel > 0 &&
+        isBonifiable &&
+        averageTasksPerUser > 0 &&
+        currentUser?.position?.id
+      ) {
         const calcContext = await this.bonusCalculationContextService.load();
         const userSalary = this.bonusCalculationContextService.resolveSalary(calcContext, {
           position: { id: currentUser.position.id },

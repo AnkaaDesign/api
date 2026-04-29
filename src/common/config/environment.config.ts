@@ -27,9 +27,7 @@ export const environmentConfig = {
     cors: {
       production: {
         origin: [
-          ...(process.env.CLIENT_HOST
-            ? process.env.CLIENT_HOST.split(',').map(h => h.trim())
-            : []),
+          ...(process.env.CLIENT_HOST ? process.env.CLIENT_HOST.split(',').map(h => h.trim()) : []),
           ...(process.env.CORS_ORIGINS
             ? process.env.CORS_ORIGINS.split(',').map(h => h.trim())
             : []),

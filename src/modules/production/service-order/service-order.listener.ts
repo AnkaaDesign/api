@@ -81,31 +81,29 @@ export class ServiceOrderListener {
       const configKey = getTypedConfigKey('service_order.created', event.serviceOrder.type);
       this.logger.log(`[SERVICE ORDER EVENT] Using config key: ${configKey}`);
 
-      await this.dispatchService.dispatchByConfiguration(
-        configKey,
-        event.userId,
-        {
-          entityType: 'SERVICE_ORDER',
-          entityId: event.serviceOrder.id,
-          action: 'created',
-          data: {
-            serviceOrderId: event.serviceOrder.id,
-            description: event.serviceOrder.description,
-            type: event.serviceOrder.type,
-            taskId: event.serviceOrder.taskId,
-            taskName: task?.name,
-            createdBy: serviceOrderWithCreator?.createdBy?.name || event.user?.name || 'Sistema',
-          },
-          // Override to navigate to the task, not the service order
-          overrides: {
-            webUrl: `/producao/agenda/detalhes/${event.serviceOrder.taskId}`,
-            relatedEntityType: 'Task',
-            relatedEntityId: event.serviceOrder.taskId,
-          },
+      await this.dispatchService.dispatchByConfiguration(configKey, event.userId, {
+        entityType: 'SERVICE_ORDER',
+        entityId: event.serviceOrder.id,
+        action: 'created',
+        data: {
+          serviceOrderId: event.serviceOrder.id,
+          description: event.serviceOrder.description,
+          type: event.serviceOrder.type,
+          taskId: event.serviceOrder.taskId,
+          taskName: task?.name,
+          createdBy: serviceOrderWithCreator?.createdBy?.name || event.user?.name || 'Sistema',
         },
-      );
+        // Override to navigate to the task, not the service order
+        overrides: {
+          webUrl: `/producao/agenda/detalhes/${event.serviceOrder.taskId}`,
+          relatedEntityType: 'Task',
+          relatedEntityId: event.serviceOrder.taskId,
+        },
+      });
 
-      this.logger.log('[SERVICE ORDER EVENT] ✅ Creation notification dispatched via configuration');
+      this.logger.log(
+        '[SERVICE ORDER EVENT] ✅ Creation notification dispatched via configuration',
+      );
       this.logger.log('========================================');
     } catch (error) {
       this.logger.error('[SERVICE ORDER EVENT] ❌ Error dispatching creation notification:', error);
@@ -142,42 +140,47 @@ export class ServiceOrderListener {
       });
 
       // Get user who assigned
-      const assignedByUser = event.user || (event.userId ? await this.prisma.user.findUnique({
-        where: { id: event.userId },
-        select: { name: true },
-      }) : null);
+      const assignedByUser =
+        event.user ||
+        (event.userId
+          ? await this.prisma.user.findUnique({
+              where: { id: event.userId },
+              select: { name: true },
+            })
+          : null);
 
       const configKey = getTypedConfigKey('service_order.assigned', event.serviceOrder.type);
       this.logger.log(`[SERVICE ORDER EVENT] Using config key: ${configKey}`);
 
-      await this.dispatchService.dispatchByConfiguration(
-        configKey,
-        event.userId,
-        {
-          entityType: 'SERVICE_ORDER',
-          entityId: event.serviceOrder.id,
-          action: 'assigned',
-          data: {
-            serviceOrderId: event.serviceOrder.id,
-            description: event.serviceOrder.description,
-            taskId: event.serviceOrder.taskId,
-            assignedTo: assignedUser?.name || event.assignedTo?.name,
-            assignedBy: assignedByUser?.name || event.user?.name,
-            taskName: task?.name || event.task?.name,
-          },
-          // Override to navigate to the task, not the service order
-          overrides: {
-            webUrl: `/producao/agenda/detalhes/${event.serviceOrder.taskId}`,
-            relatedEntityType: 'Task',
-            relatedEntityId: event.serviceOrder.taskId,
-          },
+      await this.dispatchService.dispatchByConfiguration(configKey, event.userId, {
+        entityType: 'SERVICE_ORDER',
+        entityId: event.serviceOrder.id,
+        action: 'assigned',
+        data: {
+          serviceOrderId: event.serviceOrder.id,
+          description: event.serviceOrder.description,
+          taskId: event.serviceOrder.taskId,
+          assignedTo: assignedUser?.name || event.assignedTo?.name,
+          assignedBy: assignedByUser?.name || event.user?.name,
+          taskName: task?.name || event.task?.name,
         },
-      );
+        // Override to navigate to the task, not the service order
+        overrides: {
+          webUrl: `/producao/agenda/detalhes/${event.serviceOrder.taskId}`,
+          relatedEntityType: 'Task',
+          relatedEntityId: event.serviceOrder.taskId,
+        },
+      });
 
-      this.logger.log('[SERVICE ORDER EVENT] ✅ Assignment notification dispatched via configuration');
+      this.logger.log(
+        '[SERVICE ORDER EVENT] ✅ Assignment notification dispatched via configuration',
+      );
       this.logger.log('========================================');
     } catch (error) {
-      this.logger.error('[SERVICE ORDER EVENT] ❌ Error dispatching assignment notification:', error);
+      this.logger.error(
+        '[SERVICE ORDER EVENT] ❌ Error dispatching assignment notification:',
+        error,
+      );
     }
   }
 
@@ -238,37 +241,35 @@ export class ServiceOrderListener {
         });
       }
 
-      await this.dispatchService.dispatchByConfiguration(
-        configKey,
-        userId,
-        {
-          entityType: 'SERVICE_ORDER',
-          entityId: serviceOrder.id,
-          action: newStatus,
-          data: {
-            serviceOrderId: serviceOrder.id,
-            description: serviceOrder.description,
-            type: serviceOrder.type,
-            taskId: serviceOrder.taskId,
-            taskName: task?.name,
-            oldStatus,
-            newStatus,
-            changedBy: changedByUser?.name || 'Sistema',
-            assignedTo: serviceOrderWithUsers?.assignedTo?.name,
-            startedBy: serviceOrderWithUsers?.startedBy?.name,
-            approvedBy: serviceOrderWithUsers?.approvedBy?.name,
-            completedBy: serviceOrderWithUsers?.completedBy?.name,
-          },
-          // Override to navigate to the task, not the service order
-          overrides: {
-            webUrl: `/producao/agenda/detalhes/${serviceOrder.taskId}`,
-            relatedEntityType: 'Task',
-            relatedEntityId: serviceOrder.taskId,
-          },
+      await this.dispatchService.dispatchByConfiguration(configKey, userId, {
+        entityType: 'SERVICE_ORDER',
+        entityId: serviceOrder.id,
+        action: newStatus,
+        data: {
+          serviceOrderId: serviceOrder.id,
+          description: serviceOrder.description,
+          type: serviceOrder.type,
+          taskId: serviceOrder.taskId,
+          taskName: task?.name,
+          oldStatus,
+          newStatus,
+          changedBy: changedByUser?.name || 'Sistema',
+          assignedTo: serviceOrderWithUsers?.assignedTo?.name,
+          startedBy: serviceOrderWithUsers?.startedBy?.name,
+          approvedBy: serviceOrderWithUsers?.approvedBy?.name,
+          completedBy: serviceOrderWithUsers?.completedBy?.name,
         },
-      );
+        // Override to navigate to the task, not the service order
+        overrides: {
+          webUrl: `/producao/agenda/detalhes/${serviceOrder.taskId}`,
+          relatedEntityType: 'Task',
+          relatedEntityId: serviceOrder.taskId,
+        },
+      });
 
-      this.logger.log(`[SERVICE ORDER EVENT] ✅ Status change notification dispatched via configuration (${configKey})`);
+      this.logger.log(
+        `[SERVICE ORDER EVENT] ✅ Status change notification dispatched via configuration (${configKey})`,
+      );
 
       // Also notify the creator of the service order (if they're not the one who changed it)
       const soWithCreator = await this.prisma.serviceOrder.findUnique({
@@ -277,8 +278,13 @@ export class ServiceOrderListener {
       });
 
       if (soWithCreator?.createdById && soWithCreator.createdById !== userId) {
-        const creatorConfigKey = getTypedConfigKey('service_order.status_changed_for_creator', serviceOrder.type);
-        this.logger.log(`[SERVICE ORDER EVENT] Notifying creator ${soWithCreator.createdById} via ${creatorConfigKey}`);
+        const creatorConfigKey = getTypedConfigKey(
+          'service_order.status_changed_for_creator',
+          serviceOrder.type,
+        );
+        this.logger.log(
+          `[SERVICE ORDER EVENT] Notifying creator ${soWithCreator.createdById} via ${creatorConfigKey}`,
+        );
 
         await this.dispatchService.dispatchByConfigurationToUsers(
           creatorConfigKey,
@@ -332,7 +338,9 @@ export class ServiceOrderListener {
       const { serviceOrder, oldObservation, newObservation, userId } = event;
 
       if (!serviceOrder.type) {
-        this.logger.warn('[SERVICE ORDER EVENT] Missing SO type, skipping observation notification');
+        this.logger.warn(
+          '[SERVICE ORDER EVENT] Missing SO type, skipping observation notification',
+        );
         return;
       }
 
@@ -354,33 +362,31 @@ export class ServiceOrderListener {
         });
       }
 
-      await this.dispatchService.dispatchByConfiguration(
-        configKey,
-        userId,
-        {
-          entityType: 'SERVICE_ORDER',
-          entityId: serviceOrder.id,
-          action: 'observation_changed',
-          data: {
-            serviceOrderId: serviceOrder.id,
-            description: serviceOrder.description,
-            type: serviceOrder.type,
-            taskId: serviceOrder.taskId,
-            taskName: task?.name,
-            oldObservation: oldObservation || '(vazio)',
-            newObservation: newObservation || '(vazio)',
-            changedBy: changedByUser?.name || 'Sistema',
-          },
-          // Override to navigate to the task, not the service order
-          overrides: {
-            webUrl: `/producao/agenda/detalhes/${serviceOrder.taskId}`,
-            relatedEntityType: 'Task',
-            relatedEntityId: serviceOrder.taskId,
-          },
+      await this.dispatchService.dispatchByConfiguration(configKey, userId, {
+        entityType: 'SERVICE_ORDER',
+        entityId: serviceOrder.id,
+        action: 'observation_changed',
+        data: {
+          serviceOrderId: serviceOrder.id,
+          description: serviceOrder.description,
+          type: serviceOrder.type,
+          taskId: serviceOrder.taskId,
+          taskName: task?.name,
+          oldObservation: oldObservation || '(vazio)',
+          newObservation: newObservation || '(vazio)',
+          changedBy: changedByUser?.name || 'Sistema',
         },
-      );
+        // Override to navigate to the task, not the service order
+        overrides: {
+          webUrl: `/producao/agenda/detalhes/${serviceOrder.taskId}`,
+          relatedEntityType: 'Task',
+          relatedEntityId: serviceOrder.taskId,
+        },
+      });
 
-      this.logger.log('[SERVICE ORDER EVENT] ✅ Observation change notification dispatched via configuration');
+      this.logger.log(
+        '[SERVICE ORDER EVENT] ✅ Observation change notification dispatched via configuration',
+      );
       this.logger.log('========================================');
     } catch (error) {
       this.logger.error(

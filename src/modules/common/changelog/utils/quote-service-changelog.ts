@@ -87,7 +87,6 @@ export function diffQuoteServices(
         newValue: newObs,
       });
     }
-
   }
 
   // Check for added services
@@ -126,7 +125,8 @@ export async function logQuoteServiceChanges(params: {
   triggeredBy: CHANGE_TRIGGERED_BY;
   transaction?: any;
 }): Promise<void> {
-  const { changeLogService, quoteId, oldServices, newServices, userId, triggeredBy, transaction } = params;
+  const { changeLogService, quoteId, oldServices, newServices, userId, triggeredBy, transaction } =
+    params;
   const entries = diffQuoteServices(oldServices, newServices);
 
   for (const entry of entries) {

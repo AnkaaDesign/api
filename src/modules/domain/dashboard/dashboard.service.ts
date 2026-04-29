@@ -1614,17 +1614,36 @@ export class DashboardService {
         message: 'Dashboard financeiro carregado com sucesso',
         data: {
           revenueMetrics: {
-            totalInvoiced: { label: 'Total Faturado', value: invoiceStats.totalInvoicedAmount, unit: 'currency' },
-            totalPaid: { label: 'Total Recebido', value: invoiceStats.totalPaidAmount, unit: 'currency' },
-            totalPending: { label: 'Total Pendente', value: invoiceStats.totalPendingAmount, unit: 'currency' },
-            overdueAmount: { label: 'Boletos Vencidos', value: invoiceStats.overdueAmount, unit: 'currency' },
+            totalInvoiced: {
+              label: 'Total Faturado',
+              value: invoiceStats.totalInvoicedAmount,
+              unit: 'currency',
+            },
+            totalPaid: {
+              label: 'Total Recebido',
+              value: invoiceStats.totalPaidAmount,
+              unit: 'currency',
+            },
+            totalPending: {
+              label: 'Total Pendente',
+              value: invoiceStats.totalPendingAmount,
+              unit: 'currency',
+            },
+            overdueAmount: {
+              label: 'Boletos Vencidos',
+              value: invoiceStats.overdueAmount,
+              unit: 'currency',
+            },
             authorizedNfse: { label: 'NFS-e Autorizadas', value: nfseStats.authorizedNfse },
           },
           invoiceMetrics: {
             totalInvoices: { label: 'Total de Faturas', value: invoiceStats.totalInvoices },
             activeInvoices: { label: 'Faturas Ativas', value: invoiceStats.activeInvoices },
             paidInvoices: { label: 'Faturas Pagas', value: invoiceStats.paidInvoices },
-            cancelledInvoices: { label: 'Faturas Canceladas', value: invoiceStats.cancelledInvoices },
+            cancelledInvoices: {
+              label: 'Faturas Canceladas',
+              value: invoiceStats.cancelledInvoices,
+            },
           },
           bankSlipMetrics: {
             totalBankSlips: { label: 'Total de Boletos', value: bankSlipStats.totalBankSlips },
@@ -1693,10 +1712,13 @@ export class DashboardService {
 
       if (config.tasksCloseDeadline) {
         // For PRODUCTION: only show tasks with no sector or matching the user's sector
-        const deadlineSectorId = sectorPrivileges === SECTOR_PRIVILEGES.PRODUCTION
-          ? sectorInfo.sectorId
-          : undefined;
-        promises.tasksCloseDeadline = this.dashboardRepository.getTasksWithCloseDeadline(now, undefined, deadlineSectorId);
+        const deadlineSectorId =
+          sectorPrivileges === SECTOR_PRIVILEGES.PRODUCTION ? sectorInfo.sectorId : undefined;
+        promises.tasksCloseDeadline = this.dashboardRepository.getTasksWithCloseDeadline(
+          now,
+          undefined,
+          deadlineSectorId,
+        );
       }
 
       if (config.openSOTypes.length > 0) {
@@ -1721,22 +1743,22 @@ export class DashboardService {
       }
 
       if (config.tasksAwaitingPaymentApproval) {
-        promises.tasksAwaitingPaymentApproval = this.dashboardRepository.getTasksAwaitingPaymentApproval();
+        promises.tasksAwaitingPaymentApproval =
+          this.dashboardRepository.getTasksAwaitingPaymentApproval();
       }
 
       if (config.tasksAwaitingQuoteApproval) {
-        promises.tasksAwaitingQuoteApproval = this.dashboardRepository.getTasksAwaitingQuoteApproval(sectorPrivileges);
+        promises.tasksAwaitingQuoteApproval =
+          this.dashboardRepository.getTasksAwaitingQuoteApproval(sectorPrivileges);
       }
 
       if (config.tasksAwaitingBudgetApproval) {
-        promises.tasksAwaitingBudgetApproval = this.dashboardRepository.getTasksAwaitingBudgetApproval();
+        promises.tasksAwaitingBudgetApproval =
+          this.dashboardRepository.getTasksAwaitingBudgetApproval();
       }
 
       if (config.recentMessages) {
-        promises.recentMessages = this.dashboardRepository.getRecentMessages(
-          userId,
-          sevenDaysAgo,
-        );
+        promises.recentMessages = this.dashboardRepository.getRecentMessages(userId, sevenDaysAgo);
       }
 
       const keys = Object.keys(promises);
@@ -1794,9 +1816,7 @@ export class DashboardService {
       if (resolved.recentMessages) {
         data.recentMessages = resolved.recentMessages;
         data.counts.recentMessages = resolved.recentMessages.length;
-        data.counts.unreadMessages = resolved.recentMessages.filter(
-          (m: any) => !m.viewedAt,
-        ).length;
+        data.counts.unreadMessages = resolved.recentMessages.filter((m: any) => !m.viewedAt).length;
       }
 
       return {

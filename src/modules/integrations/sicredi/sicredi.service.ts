@@ -3,7 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import axios, { AxiosInstance } from 'axios';
 import { SicrediAuthService } from './sicredi-auth.service';
-import { CreateBoletoDto, BoletoResponseDto, BoletoQueryDto, PaidBoletoDto, PaidBoletosResponseDto } from './dto';
+import {
+  CreateBoletoDto,
+  BoletoResponseDto,
+  BoletoQueryDto,
+  PaidBoletoDto,
+  PaidBoletosResponseDto,
+} from './dto';
 
 @Injectable()
 export class SicrediService implements OnModuleInit {
@@ -28,7 +34,7 @@ export class SicrediService implements OnModuleInit {
     });
 
     // Request interceptor to add auth headers
-    this.apiClient.interceptors.request.use(async (config) => {
+    this.apiClient.interceptors.request.use(async config => {
       try {
         const token = await this.authService.getAccessToken();
         config.headers.Authorization = `Bearer ${token}`;
@@ -45,8 +51,8 @@ export class SicrediService implements OnModuleInit {
 
     // Response interceptor for error handling and token retry
     this.apiClient.interceptors.response.use(
-      (response) => response,
-      async (error) => {
+      response => response,
+      async error => {
         const originalRequest = error.config;
 
         // Handle 401 errors by re-authenticating
@@ -69,10 +75,7 @@ export class SicrediService implements OnModuleInit {
           'Erro de comunicação com Sicredi';
         const statusCode = error.response?.status || 500;
 
-        this.logger.error(
-          `Sicredi API error: ${statusCode} ${message}`,
-          error.response?.data,
-        );
+        this.logger.error(`Sicredi API error: ${statusCode} ${message}`, error.response?.data);
 
         throw new HttpException(
           {
@@ -88,7 +91,9 @@ export class SicrediService implements OnModuleInit {
   }
 
   async createBoleto(data: CreateBoletoDto): Promise<BoletoResponseDto> {
-    this.logger.log(`[SICREDI_API] Creating boleto: pagador=${data.pagador.nome}, documento=${data.pagador.documento}, valor=${data.valor}, vencimento=${data.dataVencimento}`);
+    this.logger.log(
+      `[SICREDI_API] Creating boleto: pagador=${data.pagador.nome}, documento=${data.pagador.documento}, valor=${data.valor}, vencimento=${data.dataVencimento}`,
+    );
     this.logger.log(`[SICREDI_API] Request payload: ${JSON.stringify(data, null, 2)}`);
 
     const response = await this.apiClient.post<BoletoResponseDto>(
@@ -115,12 +120,9 @@ export class SicrediService implements OnModuleInit {
     const { codigoBeneficiario } = this.authService.config;
     this.logger.log(`Querying boleto: nossoNumero=${nossoNumero}`);
 
-    const response = await this.apiClient.get<BoletoQueryDto>(
-      '/cobranca/boleto/v1/boletos',
-      {
-        params: { codigoBeneficiario, nossoNumero },
-      },
-    );
+    const response = await this.apiClient.get<BoletoQueryDto>('/cobranca/boleto/v1/boletos', {
+      params: { codigoBeneficiario, nossoNumero },
+    });
 
     return response.data;
   }
@@ -167,10 +169,9 @@ export class SicrediService implements OnModuleInit {
   async changeDueDate(nossoNumero: string, newDueDate: string): Promise<void> {
     this.logger.log(`[SICREDI_API] Changing due date for boleto ${nossoNumero} to ${newDueDate}`);
 
-    await this.apiClient.patch(
-      `/cobranca/boleto/v1/boletos/${nossoNumero}/data-vencimento`,
-      { dataVencimento: newDueDate },
-    );
+    await this.apiClient.patch(`/cobranca/boleto/v1/boletos/${nossoNumero}/data-vencimento`, {
+      dataVencimento: newDueDate,
+    });
 
     this.logger.log(`[SICREDI_API] Due date changed successfully for boleto ${nossoNumero}`);
   }
@@ -182,10 +183,7 @@ export class SicrediService implements OnModuleInit {
     this.logger.log(`Cancelling boleto: nossoNumero=${nossoNumero}`);
 
     // Sicredi requires an empty JSON body ({}) on the baixa PATCH — omitting body returns 400
-    await this.apiClient.patch(
-      `/cobranca/boleto/v1/boletos/${nossoNumero}/baixa`,
-      {},
-    );
+    await this.apiClient.patch(`/cobranca/boleto/v1/boletos/${nossoNumero}/baixa`, {});
 
     this.logger.log(`Boleto cancelled successfully: nossoNumero=${nossoNumero}`);
   }
@@ -202,18 +200,15 @@ export class SicrediService implements OnModuleInit {
       `[WEBHOOK_CONTRACT] Registering webhook contract: url=${callbackUrl}, cooperativa=${cooperativa}, posto=${posto}, beneficiario=${codigoBeneficiario}`,
     );
 
-    const response = await this.apiClient.post(
-      '/cobranca/boleto/v1/webhook/contrato/',
-      {
-        cooperativa,
-        posto,
-        codBeneficiario: codigoBeneficiario,
-        eventos: ['LIQUIDACAO'],
-        url: callbackUrl,
-        urlStatus: 'ATIVO',
-        contratoStatus: 'ATIVO',
-      },
-    );
+    const response = await this.apiClient.post('/cobranca/boleto/v1/webhook/contrato/', {
+      cooperativa,
+      posto,
+      codBeneficiario: codigoBeneficiario,
+      eventos: ['LIQUIDACAO'],
+      url: callbackUrl,
+      urlStatus: 'ATIVO',
+      contratoStatus: 'ATIVO',
+    });
 
     this.logger.log(`[WEBHOOK_CONTRACT] Contract registered: ${JSON.stringify(response.data)}`);
     return response.data;
@@ -225,16 +220,13 @@ export class SicrediService implements OnModuleInit {
   async queryWebhookContracts(): Promise<any> {
     const { cooperativa, posto, codigoBeneficiario } = this.authService.config;
 
-    const response = await this.apiClient.get(
-      '/cobranca/boleto/v1/webhook/contratos/',
-      {
-        params: {
-          cooperativa,
-          posto,
-          beneficiario: codigoBeneficiario,
-        },
+    const response = await this.apiClient.get('/cobranca/boleto/v1/webhook/contratos/', {
+      params: {
+        cooperativa,
+        posto,
+        beneficiario: codigoBeneficiario,
       },
-    );
+    });
 
     return response.data;
   }
@@ -242,11 +234,14 @@ export class SicrediService implements OnModuleInit {
   /**
    * Update an existing webhook contract.
    */
-  async updateWebhookContract(idContrato: string, data: {
-    url?: string;
-    urlStatus?: 'ATIVO' | 'INATIVO' | 'BLOQUEADO';
-    contratoStatus?: 'ATIVO' | 'INATIVO' | 'BLOQUEADO';
-  }): Promise<any> {
+  async updateWebhookContract(
+    idContrato: string,
+    data: {
+      url?: string;
+      urlStatus?: 'ATIVO' | 'INATIVO' | 'BLOQUEADO';
+      contratoStatus?: 'ATIVO' | 'INATIVO' | 'BLOQUEADO';
+    },
+  ): Promise<any> {
     const { cooperativa, posto, codigoBeneficiario } = this.authService.config;
 
     const response = await this.apiClient.put(

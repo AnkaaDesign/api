@@ -94,7 +94,9 @@ export class FileMigrationService {
    * - Task files (budgets, invoices, etc.): File → Task → Customer
    * - Cut files: File → Cut → Task → Customer
    */
-  async findCustomerForFile(fileId: string): Promise<{ id: string; fantasyName: string; source: string } | null> {
+  async findCustomerForFile(
+    fileId: string,
+  ): Promise<{ id: string; fantasyName: string; source: string } | null> {
     // 1. Check if file is an artwork (Layouts folder)
     const artwork = await this.prisma.artwork.findFirst({
       where: { fileId },
@@ -419,11 +421,20 @@ export class FileMigrationService {
 
       // Determine target path based on file type (entity-first layout)
       const ext = file.filename.split('.').pop()?.toLowerCase();
-      const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'eps', 'ai', 'svg'].includes(ext || '');
+      const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'eps', 'ai', 'svg'].includes(
+        ext || '',
+      );
       const subfolder = isImage ? 'Imagens' : 'PDFs';
 
       const customerFolder = this.sanitizeFolderName(file.matchedCustomer);
-      const targetPath = join(this.filesRoot, 'Clientes', customerFolder, 'Layouts', subfolder, file.filename);
+      const targetPath = join(
+        this.filesRoot,
+        'Clientes',
+        customerFolder,
+        'Layouts',
+        subfolder,
+        file.filename,
+      );
       detail.newPath = targetPath;
 
       // Check if source file exists
@@ -608,10 +619,7 @@ export class FileMigrationService {
     // Calculate files in proper customer folders by examining entity-first path structure
     const allFilesWithPath = await this.prisma.file.findMany({
       where: {
-        OR: [
-          { path: { contains: '/Clientes/' } },
-          { path: { contains: '/Fornecedores/' } },
-        ],
+        OR: [{ path: { contains: '/Clientes/' } }, { path: { contains: '/Fornecedores/' } }],
       },
       select: { path: true },
     });

@@ -248,19 +248,22 @@ export class TaskService {
             const taskForEvent = eventContext.task || null;
 
             if (requestedStatus === 'APPROVED') {
-              this.logger.log(`[convertFileIdsToArtworkIds] 🎨 Emitting artwork.approved event for artwork ${artwork.id}`);
+              this.logger.log(
+                `[convertFileIdsToArtworkIds] 🎨 Emitting artwork.approved event for artwork ${artwork.id}`,
+              );
               this.eventEmitter.emit(
                 'artwork.approved',
                 new ArtworkApprovedEvent(artworkForEvent, taskForEvent, eventContext.user),
               );
             } else if (requestedStatus === 'REPROVED') {
-              this.logger.log(`[convertFileIdsToArtworkIds] 🎨 Emitting artwork.reproved event for artwork ${artwork.id}`);
+              this.logger.log(
+                `[convertFileIdsToArtworkIds] 🎨 Emitting artwork.reproved event for artwork ${artwork.id}`,
+              );
               this.eventEmitter.emit(
                 'artwork.reproved',
                 new ArtworkReprovedEvent(artworkForEvent, taskForEvent, eventContext.user),
               );
             }
-
           }
         }
       } else {
@@ -353,15 +356,27 @@ export class TaskService {
       // Capture pre-uploaded file IDs before any processing
       // These come from the web form when files are pre-uploaded (e.g., serial range creation)
       const preUploadedArtworkFileIds = data.artworkIds ? [...(data.artworkIds as string[])] : [];
-      const preUploadedBaseFileIds = (data as any).baseFileIds ? [...((data as any).baseFileIds as string[])] : [];
-      const preUploadedProjectFileIds = (data as any).projectFileIds ? [...((data as any).projectFileIds as string[])] : [];
-      const preUploadedCheckinFileIds = (data as any).checkinFileIds ? [...((data as any).checkinFileIds as string[])] : [];
-      const preUploadedCheckoutFileIds = (data as any).checkoutFileIds ? [...((data as any).checkoutFileIds as string[])] : [];
+      const preUploadedBaseFileIds = (data as any).baseFileIds
+        ? [...((data as any).baseFileIds as string[])]
+        : [];
+      const preUploadedProjectFileIds = (data as any).projectFileIds
+        ? [...((data as any).projectFileIds as string[])]
+        : [];
+      const preUploadedCheckinFileIds = (data as any).checkinFileIds
+        ? [...((data as any).checkinFileIds as string[])]
+        : [];
+      const preUploadedCheckoutFileIds = (data as any).checkoutFileIds
+        ? [...((data as any).checkoutFileIds as string[])]
+        : [];
       const artworkStatusesMap = (data as any).artworkStatuses || null;
 
       this.logger.log(`[Task Create] Incoming data keys: ${Object.keys(data).join(', ')}`);
-      this.logger.log(`[Task Create] preUploadedArtworkFileIds: ${JSON.stringify(preUploadedArtworkFileIds)}`);
-      this.logger.log(`[Task Create] preUploadedBaseFileIds: ${JSON.stringify(preUploadedBaseFileIds)}`);
+      this.logger.log(
+        `[Task Create] preUploadedArtworkFileIds: ${JSON.stringify(preUploadedArtworkFileIds)}`,
+      );
+      this.logger.log(
+        `[Task Create] preUploadedBaseFileIds: ${JSON.stringify(preUploadedBaseFileIds)}`,
+      );
       this.logger.log(`[Task Create] artworkStatusesMap: ${JSON.stringify(artworkStatusesMap)}`);
 
       // Check if this is a bulk create from serial number range
@@ -438,9 +453,15 @@ export class TaskService {
         // ======= EXPLICIT POST-CREATION: Connect pre-uploaded artworks and base files =======
         // This guarantees the connection happens even if mapCreateFormDataToDatabaseCreateInput
         // doesn't handle these fields (e.g., when sent as JSON from serial range creation).
-        this.logger.log(`[Task Create] Post-creation check: artworkFileIds=${preUploadedArtworkFileIds.length}, baseFileIds=${preUploadedBaseFileIds.length}`);
-        const hasPreUploadedFiles = preUploadedArtworkFileIds.length > 0 || preUploadedBaseFileIds.length > 0 ||
-          preUploadedProjectFileIds.length > 0 || preUploadedCheckinFileIds.length > 0 || preUploadedCheckoutFileIds.length > 0;
+        this.logger.log(
+          `[Task Create] Post-creation check: artworkFileIds=${preUploadedArtworkFileIds.length}, baseFileIds=${preUploadedBaseFileIds.length}`,
+        );
+        const hasPreUploadedFiles =
+          preUploadedArtworkFileIds.length > 0 ||
+          preUploadedBaseFileIds.length > 0 ||
+          preUploadedProjectFileIds.length > 0 ||
+          preUploadedCheckinFileIds.length > 0 ||
+          preUploadedCheckoutFileIds.length > 0;
         if (hasPreUploadedFiles) {
           const postCreateUpdates: any = {};
 
@@ -466,17 +487,23 @@ export class TaskService {
 
           // Connect project files
           if (preUploadedProjectFileIds.length > 0) {
-            postCreateUpdates.projectFiles = { connect: preUploadedProjectFileIds.map(id => ({ id })) };
+            postCreateUpdates.projectFiles = {
+              connect: preUploadedProjectFileIds.map(id => ({ id })),
+            };
           }
 
           // Connect checkin files
           if (preUploadedCheckinFileIds.length > 0) {
-            postCreateUpdates.checkinFiles = { connect: preUploadedCheckinFileIds.map(id => ({ id })) };
+            postCreateUpdates.checkinFiles = {
+              connect: preUploadedCheckinFileIds.map(id => ({ id })),
+            };
           }
 
           // Connect checkout files
           if (preUploadedCheckoutFileIds.length > 0) {
-            postCreateUpdates.checkoutFiles = { connect: preUploadedCheckoutFileIds.map(id => ({ id })) };
+            postCreateUpdates.checkoutFiles = {
+              connect: preUploadedCheckoutFileIds.map(id => ({ id })),
+            };
           }
 
           if (Object.keys(postCreateUpdates).length > 0) {
@@ -484,7 +511,6 @@ export class TaskService {
               where: { id: newTask.id },
               data: postCreateUpdates,
             });
-
           }
         }
 
@@ -887,7 +913,11 @@ export class TaskService {
         }
 
         // Re-fetch task if layouts or artworks/baseFiles were created/connected so response includes them
-        if (hasLayouts || preUploadedArtworkFileIds.length > 0 || preUploadedBaseFileIds.length > 0) {
+        if (
+          hasLayouts ||
+          preUploadedArtworkFileIds.length > 0 ||
+          preUploadedBaseFileIds.length > 0
+        ) {
           const refetchedTask = await this.tasksRepository.findByIdWithTransaction(
             tx,
             newTask.id,
@@ -1030,7 +1060,11 @@ export class TaskService {
         const failedTasks: Array<{ index: number; error: string; data: any }> = [];
 
         // Helper to create an individual layout from layout data
-        const createIndividualLayout = async (layoutData: any, sideName: string, taskIndex: number): Promise<string | null> => {
+        const createIndividualLayout = async (
+          layoutData: any,
+          sideName: string,
+          taskIndex: number,
+        ): Promise<string | null> => {
           if (!layoutData || !layoutData.layoutSections) return null;
           const layout = await tx.layout.create({
             data: {
@@ -1046,15 +1080,23 @@ export class TaskService {
               },
             },
           });
-          this.logger.log(`[batchCreate] Individual ${sideName} layout created: ${layout.id} for task index ${taskIndex}`);
+          this.logger.log(
+            `[batchCreate] Individual ${sideName} layout created: ${layout.id} for task index ${taskIndex}`,
+          );
           return layout.id;
         };
 
         // Save layout data from each task before it gets deleted by the repository
-        const taskLayoutDataMap = new Map<number, { leftSideLayout: any; rightSideLayout: any; backSideLayout: any }>();
+        const taskLayoutDataMap = new Map<
+          number,
+          { leftSideLayout: any; rightSideLayout: any; backSideLayout: any }
+        >();
         for (const [index, task] of data.tasks.entries()) {
           const truckData = (task as any).truck;
-          if (truckData && (truckData.leftSideLayout || truckData.rightSideLayout || truckData.backSideLayout)) {
+          if (
+            truckData &&
+            (truckData.leftSideLayout || truckData.rightSideLayout || truckData.backSideLayout)
+          ) {
             taskLayoutDataMap.set(index, {
               leftSideLayout: truckData.leftSideLayout ? { ...truckData.leftSideLayout } : null,
               rightSideLayout: truckData.rightSideLayout ? { ...truckData.rightSideLayout } : null,
@@ -1074,7 +1116,9 @@ export class TaskService {
         if (data.tasks.length > 0 && (data.tasks[0] as any).artworkIds?.length > 0) {
           const fileIds = (data.tasks[0] as any).artworkIds as string[];
           const batchArtworkStatuses = (data.tasks[0] as any).artworkStatuses || undefined;
-          this.logger.log(`[batchCreate] Converting ${fileIds.length} artwork File IDs to Artwork entity IDs`);
+          this.logger.log(
+            `[batchCreate] Converting ${fileIds.length} artwork File IDs to Artwork entity IDs`,
+          );
           const artworkEntityIds = await this.convertFileIdsToArtworkIds(
             fileIds,
             null,
@@ -1083,7 +1127,9 @@ export class TaskService {
             undefined,
             tx,
           );
-          this.logger.log(`[batchCreate] Converted to ${artworkEntityIds.length} Artwork entity IDs`);
+          this.logger.log(
+            `[batchCreate] Converted to ${artworkEntityIds.length} Artwork entity IDs`,
+          );
           // Replace File IDs with Artwork entity IDs in all tasks
           // and remove artworkStatuses (already processed above)
           for (const task of data.tasks) {
@@ -1113,15 +1159,29 @@ export class TaskService {
               const truck = await tx.truck.findUnique({ where: { taskId: createdTask.id } });
               if (truck) {
                 const layoutUpdate: any = {};
-                const leftId = await createIndividualLayout(savedLayoutData.leftSideLayout, 'left', index);
-                const rightId = await createIndividualLayout(savedLayoutData.rightSideLayout, 'right', index);
-                const backId = await createIndividualLayout(savedLayoutData.backSideLayout, 'back', index);
+                const leftId = await createIndividualLayout(
+                  savedLayoutData.leftSideLayout,
+                  'left',
+                  index,
+                );
+                const rightId = await createIndividualLayout(
+                  savedLayoutData.rightSideLayout,
+                  'right',
+                  index,
+                );
+                const backId = await createIndividualLayout(
+                  savedLayoutData.backSideLayout,
+                  'back',
+                  index,
+                );
                 if (leftId) layoutUpdate.leftSideLayoutId = leftId;
                 if (rightId) layoutUpdate.rightSideLayoutId = rightId;
                 if (backId) layoutUpdate.backSideLayoutId = backId;
                 if (Object.keys(layoutUpdate).length > 0) {
                   await tx.truck.update({ where: { id: truck.id }, data: layoutUpdate });
-                  this.logger.log(`[batchCreate] Created individual layouts for truck ${truck.id} on task ${createdTask.id}`);
+                  this.logger.log(
+                    `[batchCreate] Created individual layouts for truck ${truck.id} on task ${createdTask.id}`,
+                  );
                 }
               }
             }
@@ -1309,7 +1369,10 @@ export class TaskService {
 
         // Field-level access control per sector (centralized in task.permissions.ts)
         if (userPrivilege) {
-          validateSectorFieldAccess(userPrivilege as SECTOR_PRIVILEGES, data as Record<string, unknown>);
+          validateSectorFieldAccess(
+            userPrivilege as SECTOR_PRIVILEGES,
+            data as Record<string, unknown>,
+          );
         }
 
         // Validate task data
@@ -1363,13 +1426,25 @@ export class TaskService {
               };
 
               if (truck.leftSideLayoutId) {
-                await safeDeleteLayout(truck.leftSideLayoutId, 'trucksLeftSide', 'leftSideLayoutId');
+                await safeDeleteLayout(
+                  truck.leftSideLayoutId,
+                  'trucksLeftSide',
+                  'leftSideLayoutId',
+                );
               }
               if (truck.rightSideLayoutId) {
-                await safeDeleteLayout(truck.rightSideLayoutId, 'trucksRightSide', 'rightSideLayoutId');
+                await safeDeleteLayout(
+                  truck.rightSideLayoutId,
+                  'trucksRightSide',
+                  'rightSideLayoutId',
+                );
               }
               if (truck.backSideLayoutId) {
-                await safeDeleteLayout(truck.backSideLayoutId, 'trucksBackSide', 'backSideLayoutId');
+                await safeDeleteLayout(
+                  truck.backSideLayoutId,
+                  'trucksBackSide',
+                  'backSideLayoutId',
+                );
               }
 
               // Delete truck and create changelog
@@ -1483,8 +1558,12 @@ export class TaskService {
                   await tx.truck.update({ where: { id: truckId! }, data: { [layoutField]: null } });
 
                   // Check if other trucks still reference this layout
-                  const relationName = layoutField === 'leftSideLayoutId' ? 'trucksLeftSide'
-                    : layoutField === 'rightSideLayoutId' ? 'trucksRightSide' : 'trucksBackSide';
+                  const relationName =
+                    layoutField === 'leftSideLayoutId'
+                      ? 'trucksLeftSide'
+                      : layoutField === 'rightSideLayoutId'
+                        ? 'trucksRightSide'
+                        : 'trucksBackSide';
                   const layoutWithRefs = await tx.layout.findUnique({
                     where: { id: existingLayoutId },
                     include: { layoutSections: true, [relationName]: { select: { id: true } } },
@@ -1743,9 +1822,7 @@ export class TaskService {
             userPrivilege !== SECTOR_PRIVILEGES.PRODUCTION_MANAGER &&
             userPrivilege !== SECTOR_PRIVILEGES.ADMIN
           ) {
-            throw new BadRequestException(
-              'Apenas o gerente de produção pode finalizar tarefas.',
-            );
+            throw new BadRequestException('Apenas o gerente de produção pode finalizar tarefas.');
           }
 
           // Additional validation for PREPARATION → IN_PRODUCTION
@@ -1788,7 +1865,6 @@ export class TaskService {
             }
           }
 
-
           // NOTE: No validation on production SO status before completing task.
           // Only PRODUCTION_MANAGER or ADMIN can manually finish/complete tasks.
 
@@ -1817,7 +1893,6 @@ export class TaskService {
               data.startedAt = new Date();
             }
           }
-
         }
 
         // =====================
@@ -1984,11 +2059,7 @@ export class TaskService {
         }
 
         // Process quote layout file BEFORE task update (to get the file ID for quote)
-        if (
-          files?.quoteLayoutFile &&
-          files.quoteLayoutFile.length > 0 &&
-          (data as any).quote
-        ) {
+        if (files?.quoteLayoutFile && files.quoteLayoutFile.length > 0 && (data as any).quote) {
           console.log('[TaskService] Processing quote layout file');
           const customerName = existingTask.customer?.fantasyName;
 
@@ -2014,13 +2085,16 @@ export class TaskService {
         // This prevents Prisma from doing a silent nested create without events/changelogs
         const serviceOrdersData = (data as any).serviceOrders;
         const createdServiceOrders: any[] = [];
-        const observationChangedSOs: Array<{ serviceOrder: any; oldObservation: string | null }> = [];
+        const observationChangedSOs: Array<{ serviceOrder: any; oldObservation: string | null }> =
+          [];
 
         // Ensure statusOrder and commissionOrder are updated when status/commission changes
         const updateData = {
           ...data,
           ...(data.status && { statusOrder: getTaskStatusOrder(data.status as TASK_STATUS) }),
-          ...((data as any).commission && { commissionOrder: getCommissionStatusOrder((data as any).commission) }),
+          ...((data as any).commission && {
+            commissionOrder: getCommissionStatusOrder((data as any).commission),
+          }),
         };
 
         // CRITICAL: Check for artwork data BEFORE deleting fields
@@ -2111,11 +2185,7 @@ export class TaskService {
                 );
               } else {
                 // No previous customer: move from root-level paths into customer folder
-                await this.migrateTaskFilesToCustomerFolder(
-                  id,
-                  newCustomer.fantasyName,
-                  tx,
-                );
+                await this.migrateTaskFilesToCustomerFolder(id, newCustomer.fantasyName, tx);
               }
             }
           }
@@ -2171,15 +2241,23 @@ export class TaskService {
 
                 // Handle checkin/checkout file connections
                 if (serviceOrderData.checkinFileIds !== undefined) {
-                  updatePayload.checkinFiles = { set: serviceOrderData.checkinFileIds.map((fid: string) => ({ id: fid })) };
+                  updatePayload.checkinFiles = {
+                    set: serviceOrderData.checkinFileIds.map((fid: string) => ({ id: fid })),
+                  };
                 }
                 if (serviceOrderData.checkoutFileIds !== undefined) {
-                  updatePayload.checkoutFiles = { set: serviceOrderData.checkoutFileIds.map((fid: string) => ({ id: fid })) };
+                  updatePayload.checkoutFiles = {
+                    set: serviceOrderData.checkoutFileIds.map((fid: string) => ({ id: fid })),
+                  };
                 }
 
                 // Auto-complete service order when checkin or checkout files are provided
-                const hasNewCheckinFiles = serviceOrderData.checkinFileIds !== undefined && serviceOrderData.checkinFileIds.length > 0;
-                const hasNewCheckoutFiles = serviceOrderData.checkoutFileIds !== undefined && serviceOrderData.checkoutFileIds.length > 0;
+                const hasNewCheckinFiles =
+                  serviceOrderData.checkinFileIds !== undefined &&
+                  serviceOrderData.checkinFileIds.length > 0;
+                const hasNewCheckoutFiles =
+                  serviceOrderData.checkoutFileIds !== undefined &&
+                  serviceOrderData.checkoutFileIds.length > 0;
                 const soNotFinished =
                   oldServiceOrder.status !== SERVICE_ORDER_STATUS.COMPLETED &&
                   oldServiceOrder.status !== SERVICE_ORDER_STATUS.CANCELLED;
@@ -2187,7 +2265,7 @@ export class TaskService {
                 if ((hasNewCheckinFiles || hasNewCheckoutFiles) && soNotFinished) {
                   this.logger.log(
                     `[AUTO-COMPLETE SO] Service order ${serviceOrderData.id} auto-completed: ` +
-                    `checkin files=${hasNewCheckinFiles}, checkout files=${hasNewCheckoutFiles}`,
+                      `checkin files=${hasNewCheckinFiles}, checkout files=${hasNewCheckoutFiles}`,
                   );
                   updatePayload.status = SERVICE_ORDER_STATUS.COMPLETED;
                   if (!oldServiceOrder.completedById) {
@@ -2507,7 +2585,15 @@ export class TaskService {
                     entityId: existingMatch.id,
                     oldEntity: existingMatch,
                     newEntity: updatedServiceOrder,
-                    fieldsToTrack: ['status', 'observation', 'assignedToId', 'startedAt', 'startedById', 'finishedAt', 'completedById'],
+                    fieldsToTrack: [
+                      'status',
+                      'observation',
+                      'assignedToId',
+                      'startedAt',
+                      'startedById',
+                      'finishedAt',
+                      'completedById',
+                    ],
                     userId: userId || '',
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
                     transaction: tx,
@@ -2594,10 +2680,11 @@ export class TaskService {
                 );
 
                 // Auto-complete new SOs added to COMPLETED tasks
-                const isTaskCompleted = (existingTask.status as TASK_STATUS) === TASK_STATUS.COMPLETED;
+                const isTaskCompleted =
+                  (existingTask.status as TASK_STATUS) === TASK_STATUS.COMPLETED;
                 const soStatus = isTaskCompleted
                   ? SERVICE_ORDER_STATUS.COMPLETED
-                  : (serviceOrderData.status || 'PENDING');
+                  : serviceOrderData.status || 'PENDING';
 
                 const createdServiceOrder = await tx.serviceOrder.create({
                   data: {
@@ -2617,10 +2704,18 @@ export class TaskService {
                       completedById: userId || '',
                     }),
                     ...(serviceOrderData.checkinFileIds?.length > 0 && {
-                      checkinFiles: { connect: serviceOrderData.checkinFileIds.map((fid: string) => ({ id: fid })) },
+                      checkinFiles: {
+                        connect: serviceOrderData.checkinFileIds.map((fid: string) => ({
+                          id: fid,
+                        })),
+                      },
                     }),
                     ...(serviceOrderData.checkoutFileIds?.length > 0 && {
-                      checkoutFiles: { connect: serviceOrderData.checkoutFileIds.map((fid: string) => ({ id: fid })) },
+                      checkoutFiles: {
+                        connect: serviceOrderData.checkoutFileIds.map((fid: string) => ({
+                          id: fid,
+                        })),
+                      },
                     }),
                   },
                 });
@@ -2918,7 +3013,10 @@ export class TaskService {
 
           // Refetch the task with updated serviceOrders for changelog tracking
           // Merge service order includes: preserve client's nested includes (e.g. checkinFiles, checkoutFiles)
-          const clientSOInclude = include?.serviceOrders && typeof include.serviceOrders === 'object' ? include.serviceOrders : {};
+          const clientSOInclude =
+            include?.serviceOrders && typeof include.serviceOrders === 'object'
+              ? include.serviceOrders
+              : {};
           updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
             include: {
               ...include,
@@ -2926,9 +3024,10 @@ export class TaskService {
               artworks: true,
               observation: { include: { files: true } },
               truck: true,
-              serviceOrders: typeof clientSOInclude === 'object' && 'include' in clientSOInclude
-                ? clientSOInclude
-                : true,
+              serviceOrders:
+                typeof clientSOInclude === 'object' && 'include' in clientSOInclude
+                  ? clientSOInclude
+                  : true,
             },
           });
 
@@ -3090,10 +3189,7 @@ export class TaskService {
           // Rollback task when ALL production service orders are cancelled
           // NOTE: Task is NOT auto-completed when all production SOs finish.
           // Only PRODUCTION_MANAGER or ADMIN can manually finish/complete tasks.
-          if (
-            updatedTask &&
-            updatedTask.status === TASK_STATUS.IN_PRODUCTION
-          ) {
+          if (updatedTask && updatedTask.status === TASK_STATUS.IN_PRODUCTION) {
             const productionServiceOrders = (updatedTask.serviceOrders || []).filter(
               (so: any) => so.type === SERVICE_ORDER_TYPE.PRODUCTION,
             );
@@ -3340,7 +3436,10 @@ export class TaskService {
           let checkoutOffset = 0;
 
           // Group uploaded file IDs by SO
-          const uploadedIdsBySo: Record<string, { checkinFileIds: string[]; checkoutFileIds: string[] }> = {};
+          const uploadedIdsBySo: Record<
+            string,
+            { checkinFileIds: string[]; checkoutFileIds: string[] }
+          > = {};
 
           const customerName =
             updatedTask.customer?.fantasyName || existingTask.customer?.fantasyName;
@@ -3368,7 +3467,8 @@ export class TaskService {
 
             const sourceArray = type === 'checkin' ? soCheckinFiles : soCheckoutFiles;
             const offset = type === 'checkin' ? checkinOffset : checkoutOffset;
-            const fileContext = type === 'checkin' ? 'serviceOrderCheckinFiles' : 'serviceOrderCheckoutFiles';
+            const fileContext =
+              type === 'checkin' ? 'serviceOrderCheckinFiles' : 'serviceOrderCheckoutFiles';
 
             for (let i = 0; i < count; i++) {
               const file = sourceArray[offset + i];
@@ -3411,10 +3511,14 @@ export class TaskService {
             // Get existing IDs from the legacy serviceOrderFiles field (retained file IDs)
             const existingData = serviceOrderFilesData?.[soId];
             const existingCheckinIds = existingData?.checkinFileIds
-              ? (Array.isArray(existingData.checkinFileIds) ? existingData.checkinFileIds : Object.values(existingData.checkinFileIds))
+              ? Array.isArray(existingData.checkinFileIds)
+                ? existingData.checkinFileIds
+                : Object.values(existingData.checkinFileIds)
               : [];
             const existingCheckoutIds = existingData?.checkoutFileIds
-              ? (Array.isArray(existingData.checkoutFileIds) ? existingData.checkoutFileIds : Object.values(existingData.checkoutFileIds))
+              ? Array.isArray(existingData.checkoutFileIds)
+                ? existingData.checkoutFileIds
+                : Object.values(existingData.checkoutFileIds)
               : [];
 
             const allCheckinIds = [...existingCheckinIds, ...uploaded.checkinFileIds];
@@ -3422,10 +3526,14 @@ export class TaskService {
 
             const soFileUpdates: any = {};
             if (allCheckinIds.length > 0 || existingData?.checkinFileIds !== undefined) {
-              soFileUpdates.checkinFiles = { set: allCheckinIds.map((fid: string) => ({ id: fid })) };
+              soFileUpdates.checkinFiles = {
+                set: allCheckinIds.map((fid: string) => ({ id: fid })),
+              };
             }
             if (allCheckoutIds.length > 0 || existingData?.checkoutFileIds !== undefined) {
-              soFileUpdates.checkoutFiles = { set: allCheckoutIds.map((fid: string) => ({ id: fid })) };
+              soFileUpdates.checkoutFiles = {
+                set: allCheckoutIds.map((fid: string) => ({ id: fid })),
+              };
             }
 
             if (Object.keys(soFileUpdates).length > 0) {
@@ -3448,7 +3556,10 @@ export class TaskService {
         // which would trigger the SO deletion logic above.
         // Skips SOs already processed by the direct upload handler above.
         // =====================================================================
-        if ((data as any).serviceOrderFiles && typeof (data as any).serviceOrderFiles === 'object') {
+        if (
+          (data as any).serviceOrderFiles &&
+          typeof (data as any).serviceOrderFiles === 'object'
+        ) {
           const serviceOrderFiles = (data as any).serviceOrderFiles as Record<
             string,
             { checkinFileIds?: string[]; checkoutFileIds?: string[] }
@@ -3611,8 +3722,9 @@ export class TaskService {
         // Services resubmitted without IDs (e.g. from form re-serialization during reorder)
         // are detected by matching their description against existing services.
         const existingQuoteDescriptions = new Set<string>(
-          (existingTask.quote?.services || [])
-            .map((item: any) => normalizeDescription(item.description)),
+          (existingTask.quote?.services || []).map((item: any) =>
+            normalizeDescription(item.description),
+          ),
         );
         const existingSODescriptions = new Set<string>(
           (existingTask.serviceOrders || [])
@@ -3625,7 +3737,8 @@ export class TaskService {
           Array.isArray(serviceOrdersData) &&
           serviceOrdersData.length > 0 &&
           serviceOrdersData.some(
-            (so: any) => !so.id && !existingQuoteDescriptions.has(normalizeDescription(so.description)),
+            (so: any) =>
+              !so.id && !existingQuoteDescriptions.has(normalizeDescription(so.description)),
           );
 
         const hasNewQuoteItems =
@@ -3633,7 +3746,8 @@ export class TaskService {
           Array.isArray((data as any).quote.services) &&
           (data as any).quote.services.length > 0 &&
           (data as any).quote.services.some(
-            (item: any) => !item.id && !existingSODescriptions.has(normalizeDescription(item.description)),
+            (item: any) =>
+              !item.id && !existingSODescriptions.has(normalizeDescription(item.description)),
           );
 
         if (hasNewServiceOrders || hasNewQuoteItems) {
@@ -3742,19 +3856,27 @@ export class TaskService {
                 let aggregateTotal = 0;
 
                 for (const config of allConfigs) {
-                  const assignedServices = allItems.filter(s =>
-                    s.invoiceToCustomerId === config.customerId || (isSingleConfig && !s.invoiceToCustomerId),
+                  const assignedServices = allItems.filter(
+                    s =>
+                      s.invoiceToCustomerId === config.customerId ||
+                      (isSingleConfig && !s.invoiceToCustomerId),
                   );
-                  const configSubtotal = assignedServices.reduce((sum, s) => sum + Number(s.amount || 0), 0);
+                  const configSubtotal = assignedServices.reduce(
+                    (sum, s) => sum + Number(s.amount || 0),
+                    0,
+                  );
                   const discountType = config.discountType || 'NONE';
                   const discountValue = config.discountValue ? Number(config.discountValue) : 0;
                   let discount = 0;
                   if (discountType === 'PERCENTAGE' && discountValue) {
-                    discount = Math.round((configSubtotal * discountValue / 100) * 100) / 100;
+                    discount = Math.round(((configSubtotal * discountValue) / 100) * 100) / 100;
                   } else if (discountType === 'FIXED_VALUE' && discountValue) {
                     discount = Math.min(discountValue, configSubtotal);
                   }
-                  const configTotal = Math.max(0, Math.round((configSubtotal - discount) * 100) / 100);
+                  const configTotal = Math.max(
+                    0,
+                    Math.round((configSubtotal - discount) * 100) / 100,
+                  );
 
                   await tx.taskQuoteCustomerConfig.update({
                     where: { id: config.id },
@@ -3804,7 +3926,8 @@ export class TaskService {
                   );
 
                   // Auto-complete new SOs added to COMPLETED tasks
-                  const isQuoteSyncTaskCompleted = (existingTask.status as TASK_STATUS) === TASK_STATUS.COMPLETED;
+                  const isQuoteSyncTaskCompleted =
+                    (existingTask.status as TASK_STATUS) === TASK_STATUS.COMPLETED;
                   const quoteSyncSoStatus = isQuoteSyncTaskCompleted
                     ? SERVICE_ORDER_STATUS.COMPLETED
                     : SERVICE_ORDER_STATUS.PENDING;
@@ -3816,7 +3939,9 @@ export class TaskService {
                       observation: soToCreate.observation,
                       type: SERVICE_ORDER_TYPE.PRODUCTION,
                       status: quoteSyncSoStatus,
-                      statusOrder: isQuoteSyncTaskCompleted ? 4 : getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
+                      statusOrder: isQuoteSyncTaskCompleted
+                        ? 4
+                        : getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
                       createdById: userId || '',
                       ...(isQuoteSyncTaskCompleted && {
                         startedAt: new Date(),
@@ -4375,7 +4500,6 @@ export class TaskService {
                 this.logger.log(
                   `[Task Update] Created Artwork entity with ID: ${artworkEntityId} and status: ${newFileStatus}`,
                 );
-
               }
             }
 
@@ -4500,12 +4624,21 @@ export class TaskService {
           }
 
           // Project files
-          if ((files?.projectFiles && files.projectFiles.length > 0) || (data as any).projectFileIds !== undefined) {
-            let projectFileIds: string[] = (data as any).projectFileIds ? [...(data as any).projectFileIds] : [];
+          if (
+            (files?.projectFiles && files.projectFiles.length > 0) ||
+            (data as any).projectFileIds !== undefined
+          ) {
+            let projectFileIds: string[] = (data as any).projectFileIds
+              ? [...(data as any).projectFileIds]
+              : [];
 
             // SAFEGUARD: If new files are being uploaded but projectFileIds was NOT sent,
             // merge with existing project files to prevent accidental removal
-            if ((data as any).projectFileIds === undefined && files?.projectFiles && files.projectFiles.length > 0) {
+            if (
+              (data as any).projectFileIds === undefined &&
+              files?.projectFiles &&
+              files.projectFiles.length > 0
+            ) {
               const currentTask = await tx.task.findUnique({
                 where: { id },
                 include: { projectFiles: { select: { id: true } } },
@@ -4536,18 +4669,25 @@ export class TaskService {
             }
 
             fileUpdates.projectFiles = { set: projectFileIds.map(id => ({ id })) };
-            this.logger.log(
-              `[Task Update] Setting projectFiles to ${projectFileIds.length} files`,
-            );
+            this.logger.log(`[Task Update] Setting projectFiles to ${projectFileIds.length} files`);
           }
 
           // Checkin files
-          if ((files?.checkinFiles && files.checkinFiles.length > 0) || (data as any).checkinFileIds !== undefined) {
-            let checkinFileIds: string[] = (data as any).checkinFileIds ? [...(data as any).checkinFileIds] : [];
+          if (
+            (files?.checkinFiles && files.checkinFiles.length > 0) ||
+            (data as any).checkinFileIds !== undefined
+          ) {
+            let checkinFileIds: string[] = (data as any).checkinFileIds
+              ? [...(data as any).checkinFileIds]
+              : [];
 
             // SAFEGUARD: If new files are being uploaded but checkinFileIds was NOT sent,
             // merge with existing checkin files to prevent accidental removal
-            if ((data as any).checkinFileIds === undefined && files?.checkinFiles && files.checkinFiles.length > 0) {
+            if (
+              (data as any).checkinFileIds === undefined &&
+              files?.checkinFiles &&
+              files.checkinFiles.length > 0
+            ) {
               const currentTask = await tx.task.findUnique({
                 where: { id },
                 include: { checkinFiles: { select: { id: true } } },
@@ -4578,18 +4718,25 @@ export class TaskService {
             }
 
             fileUpdates.checkinFiles = { set: checkinFileIds.map(id => ({ id })) };
-            this.logger.log(
-              `[Task Update] Setting checkinFiles to ${checkinFileIds.length} files`,
-            );
+            this.logger.log(`[Task Update] Setting checkinFiles to ${checkinFileIds.length} files`);
           }
 
           // Checkout files
-          if ((files?.checkoutFiles && files.checkoutFiles.length > 0) || (data as any).checkoutFileIds !== undefined) {
-            let checkoutFileIds: string[] = (data as any).checkoutFileIds ? [...(data as any).checkoutFileIds] : [];
+          if (
+            (files?.checkoutFiles && files.checkoutFiles.length > 0) ||
+            (data as any).checkoutFileIds !== undefined
+          ) {
+            let checkoutFileIds: string[] = (data as any).checkoutFileIds
+              ? [...(data as any).checkoutFileIds]
+              : [];
 
             // SAFEGUARD: If new files are being uploaded but checkoutFileIds was NOT sent,
             // merge with existing checkout files to prevent accidental removal
-            if ((data as any).checkoutFileIds === undefined && files?.checkoutFiles && files.checkoutFiles.length > 0) {
+            if (
+              (data as any).checkoutFileIds === undefined &&
+              files?.checkoutFiles &&
+              files.checkoutFiles.length > 0
+            ) {
               const currentTask = await tx.task.findUnique({
                 where: { id },
                 include: { checkoutFiles: { select: { id: true } } },
@@ -4850,7 +4997,9 @@ export class TaskService {
               where: { id: existingTask.quoteId },
               include: {
                 services: { orderBy: { position: 'asc' } },
-                customerConfigs: { include: { customer: { select: { id: true, fantasyName: true, cnpj: true } } } },
+                customerConfigs: {
+                  include: { customer: { select: { id: true, fantasyName: true, cnpj: true } } },
+                },
               },
             });
             if (oldQuote) {
@@ -4892,7 +5041,9 @@ export class TaskService {
               where: { id: updatedTask.quoteId },
               include: {
                 services: { orderBy: { position: 'asc' } },
-                customerConfigs: { include: { customer: { select: { id: true, fantasyName: true, cnpj: true } } } },
+                customerConfigs: {
+                  include: { customer: { select: { id: true, fantasyName: true, cnpj: true } } },
+                },
               },
             });
             if (newQuote) {
@@ -4945,7 +5096,11 @@ export class TaskService {
 
         // Track quote service and scalar field changes when quote is updated inline (via task edit form)
         // This handles the case where quoteId stays the same but quote content changes
-        if ((data as any).quote && updatedTask.quoteId && !hasValueChanged(existingTask.quoteId, updatedTask.quoteId)) {
+        if (
+          (data as any).quote &&
+          updatedTask.quoteId &&
+          !hasValueChanged(existingTask.quoteId, updatedTask.quoteId)
+        ) {
           const oldQuoteItems = (existingTask as any).quote?.services || [];
           const updatedQuoteState = await tx.taskQuote.findUnique({
             where: { id: updatedTask.quoteId },
@@ -4968,9 +5123,15 @@ export class TaskService {
           const oldQuote = (existingTask as any).quote;
           if (oldQuote && updatedQuoteState) {
             const quoteFieldsToTrack = [
-              'subtotal', 'total', 'expiresAt', 'status',
-              'guaranteeYears', 'customGuaranteeText', 'customForecastDays',
-              'simultaneousTasks', 'budgetNumber',
+              'subtotal',
+              'total',
+              'expiresAt',
+              'status',
+              'guaranteeYears',
+              'customGuaranteeText',
+              'customForecastDays',
+              'simultaneousTasks',
+              'budgetNumber',
             ];
             for (const field of quoteFieldsToTrack) {
               const oldVal = oldQuote[field];
@@ -5068,7 +5229,10 @@ export class TaskService {
               if (statusChanged && fieldChanges.length > 0) {
                 const autoFilledFields = new Set<string>();
 
-                if (newStatus === TASK_STATUS.IN_PRODUCTION || newStatus === TASK_STATUS.COMPLETED) {
+                if (
+                  newStatus === TASK_STATUS.IN_PRODUCTION ||
+                  newStatus === TASK_STATUS.COMPLETED
+                ) {
                   // startedAt is auto-filled when entering IN_PRODUCTION or COMPLETED (if not already set)
                   if (!existingTask.startedAt) {
                     autoFilledFields.add('startedAt');
@@ -5092,7 +5256,9 @@ export class TaskService {
                 }
 
                 if (autoFilledFields.size > 0) {
-                  const removed = fieldChanges.filter(c => autoFilledFields.has(c.field)).map(c => c.field);
+                  const removed = fieldChanges
+                    .filter(c => autoFilledFields.has(c.field))
+                    .map(c => c.field);
                   if (removed.length > 0) {
                     this.logger.log(
                       `[Task Update] Filtering auto-filled date fields from notifications on status → ${newStatus}: ${removed.join(', ')}`,
@@ -5220,14 +5386,18 @@ export class TaskService {
             if (addedArtworks.length > 0 || removedArtworks.length > 0) {
               const changeDescription = [];
               if (addedArtworks.length > 0) {
-                changeDescription.push(addedArtworks.length === 1
-                  ? '1 arte adicionada'
-                  : `${addedArtworks.length} artes adicionadas`);
+                changeDescription.push(
+                  addedArtworks.length === 1
+                    ? '1 arte adicionada'
+                    : `${addedArtworks.length} artes adicionadas`,
+                );
               }
               if (removedArtworks.length > 0) {
-                changeDescription.push(removedArtworks.length === 1
-                  ? '1 arte removida'
-                  : `${removedArtworks.length} artes removidas`);
+                changeDescription.push(
+                  removedArtworks.length === 1
+                    ? '1 arte removida'
+                    : `${removedArtworks.length} artes removidas`,
+                );
               }
 
               await this.changeLogService.logChange({
@@ -5279,14 +5449,18 @@ export class TaskService {
             if (addedBaseFiles.length > 0 || removedBaseFiles.length > 0) {
               const changeDescription = [];
               if (addedBaseFiles.length > 0) {
-                changeDescription.push(addedBaseFiles.length === 1
-                  ? '1 arquivo base adicionado'
-                  : `${addedBaseFiles.length} arquivos base adicionados`);
+                changeDescription.push(
+                  addedBaseFiles.length === 1
+                    ? '1 arquivo base adicionado'
+                    : `${addedBaseFiles.length} arquivos base adicionados`,
+                );
               }
               if (removedBaseFiles.length > 0) {
-                changeDescription.push(removedBaseFiles.length === 1
-                  ? '1 arquivo base removido'
-                  : `${removedBaseFiles.length} arquivos base removidos`);
+                changeDescription.push(
+                  removedBaseFiles.length === 1
+                    ? '1 arquivo base removido'
+                    : `${removedBaseFiles.length} arquivos base removidos`,
+                );
               }
 
               await this.changeLogService.logChange({
@@ -5334,14 +5508,18 @@ export class TaskService {
             if (addedPaintIds.length > 0 || removedPaintIds.length > 0) {
               const changeReasons = [];
               if (addedPaintIds.length > 0) {
-                changeReasons.push(addedPaintIds.length === 1
-                  ? '1 tinta adicionada'
-                  : `${addedPaintIds.length} tintas adicionadas`);
+                changeReasons.push(
+                  addedPaintIds.length === 1
+                    ? '1 tinta adicionada'
+                    : `${addedPaintIds.length} tintas adicionadas`,
+                );
               }
               if (removedPaintIds.length > 0) {
-                changeReasons.push(removedPaintIds.length === 1
-                  ? '1 tinta removida'
-                  : `${removedPaintIds.length} tintas removidas`);
+                changeReasons.push(
+                  removedPaintIds.length === 1
+                    ? '1 tinta removida'
+                    : `${removedPaintIds.length} tintas removidas`,
+                );
               }
 
               await this.changeLogService.logChange({
@@ -5703,7 +5881,9 @@ export class TaskService {
             select: { sector: { select: { privileges: true } } },
           });
           userPrivilege = user?.sector?.privileges || SECTOR_PRIVILEGES.ADMIN;
-          this.logger.log(`[batchUpdate] User ${userId} privilege: ${userPrivilege} (sector: ${user?.sector?.privileges || 'none'})`);
+          this.logger.log(
+            `[batchUpdate] User ${userId} privilege: ${userPrivilege} (sector: ${user?.sector?.privileges || 'none'})`,
+          );
         } else {
           userPrivilege = SECTOR_PRIVILEGES.ADMIN;
         }
@@ -6100,7 +6280,10 @@ export class TaskService {
         // Extract artworkStatuses from each update before processing
         // artworkStatuses is a map of File ID -> status ('DRAFT' | 'APPROVED' | 'REPROVED')
         // IMPORTANT: This must run OUTSIDE the if(files) block so status-only updates work
-        const perUpdateArtworkStatuses = new Map<string, Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>>();
+        const perUpdateArtworkStatuses = new Map<
+          string,
+          Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>
+        >();
         for (const update of updatesWithChangeTracking) {
           const artworkStatuses = (update.data as any).artworkStatuses;
           if (artworkStatuses) {
@@ -6111,9 +6294,7 @@ export class TaskService {
 
         // Convert artworkIds from File IDs to Artwork entity IDs for ALL tasks
         // DEFENSIVE: Handle both File IDs and Artwork entity IDs (in case frontend sends wrong type)
-        this.logger.log(
-          '[batchUpdate] Converting artworkIds from File IDs to Artwork entity IDs',
-        );
+        this.logger.log('[batchUpdate] Converting artworkIds from File IDs to Artwork entity IDs');
         for (const update of updatesWithChangeTracking) {
           const artworkStatuses = perUpdateArtworkStatuses.get(update.id);
 
@@ -6151,7 +6332,14 @@ export class TaskService {
                 this.logger.log(
                   `[batchUpdate] Task ${update.id}: Applying artworkStatuses to ${fileIds.length} existing artworks (File IDs: ${JSON.stringify(fileIds)})`,
                 );
-                await this.convertFileIdsToArtworkIds(fileIds, null, null, artworkStatuses, userPrivilege, tx);
+                await this.convertFileIdsToArtworkIds(
+                  fileIds,
+                  null,
+                  null,
+                  artworkStatuses,
+                  userPrivilege,
+                  tx,
+                );
               }
             } else if (existingArtworks.length > 0) {
               // PARTIAL MATCH - some are Artwork IDs, some might be File IDs
@@ -6241,7 +6429,8 @@ export class TaskService {
           if (artworkStatuses && !update.data.artworkIds) {
             const existingTask = existingTaskStates.get(update.id);
             // mapDatabaseEntityToEntity flattens artworks: a.id=FileID, no a.fileId
-            const currentFileIds = existingTask?.artworks?.map((a: any) => a.fileId || a.id).filter(Boolean) || [];
+            const currentFileIds =
+              existingTask?.artworks?.map((a: any) => a.fileId || a.id).filter(Boolean) || [];
             this.logger.log(
               `[batchUpdate] Task ${update.id}: Status-only update path - artworkStatuses=${JSON.stringify(artworkStatuses)}, currentFileIds=${JSON.stringify(currentFileIds)}, userPrivilege=${userPrivilege}`,
             );
@@ -6390,8 +6579,7 @@ export class TaskService {
 
               if (!hasExplicitBaseFileIds) {
                 // ADD mode: merge uploaded files with current base files
-                const currentBaseFileIds =
-                  currentTask.baseFiles?.map((f: any) => f.id) || [];
+                const currentBaseFileIds = currentTask.baseFiles?.map((f: any) => f.id) || [];
                 const mergedBaseFileIds = [
                   ...new Set([...currentBaseFileIds, ...uploadedFileIds.baseFiles]),
                 ];
@@ -6404,7 +6592,9 @@ export class TaskService {
                 const currentBaseFileIds = Array.isArray(update.data.baseFileIds)
                   ? update.data.baseFileIds
                   : [];
-                const mergedIds = [...new Set([...currentBaseFileIds, ...uploadedFileIds.baseFiles])];
+                const mergedIds = [
+                  ...new Set([...currentBaseFileIds, ...uploadedFileIds.baseFiles]),
+                ];
                 update.data.baseFileIds = mergedIds;
                 this.logger.log(
                   `[batchUpdate] Base file IDs explicitly provided (${currentBaseFileIds.length}), adding ${uploadedFileIds.baseFiles.length} uploaded files (total: ${mergedIds.length})`,
@@ -6502,7 +6692,11 @@ export class TaskService {
             }
 
             // Handle new cuts additively (don't pass to repository which would do deleteMany+create)
-            if (update.data.cuts && Array.isArray(update.data.cuts) && update.data.cuts.length > 0) {
+            if (
+              update.data.cuts &&
+              Array.isArray(update.data.cuts) &&
+              update.data.cuts.length > 0
+            ) {
               const cutsToAdd = update.data.cuts;
               this.logger.log(
                 `[batchUpdate] Adding ${cutsToAdd.length} new cuts to task ${update.id} (additive)`,
@@ -6617,7 +6811,9 @@ export class TaskService {
           ): Promise<string | null> => {
             if (!layoutData) return null;
 
-            this.logger.log(`[batchUpdate] Creating individual ${sideName} layout for task ${taskId}`);
+            this.logger.log(
+              `[batchUpdate] Creating individual ${sideName} layout for task ${taskId}`,
+            );
             const newLayout = await tx.layout.create({
               data: {
                 height: layoutData.height,
@@ -6634,7 +6830,9 @@ export class TaskService {
                 },
               },
             });
-            this.logger.log(`[batchUpdate] Individual ${sideName} layout created: ${newLayout.id} for task ${taskId}`);
+            this.logger.log(
+              `[batchUpdate] Individual ${sideName} layout created: ${newLayout.id} for task ${taskId}`,
+            );
             return newLayout.id;
           };
 
@@ -6727,9 +6925,21 @@ export class TaskService {
             const existingBackId = taskWithTruck?.truck?.backSideLayoutId ?? null;
 
             // Create individual layouts for this task
-            const newLeftId = await createIndividualLayout(truckData.leftSideLayout, 'left', taskId);
-            const newRightId = await createIndividualLayout(truckData.rightSideLayout, 'right', taskId);
-            const newBackId = await createIndividualLayout(truckData.backSideLayout, 'back', taskId);
+            const newLeftId = await createIndividualLayout(
+              truckData.leftSideLayout,
+              'left',
+              taskId,
+            );
+            const newRightId = await createIndividualLayout(
+              truckData.rightSideLayout,
+              'right',
+              taskId,
+            );
+            const newBackId = await createIndividualLayout(
+              truckData.backSideLayout,
+              'back',
+              taskId,
+            );
 
             if (newLeftId && existingLeftId !== newLeftId) {
               await safeDisconnectLayout(truckId, existingLeftId, 'leftSideLayoutId', 'left');
@@ -6768,24 +6978,46 @@ export class TaskService {
               const newValues: Record<string, any> = {};
 
               // Fetch old layouts with sections for meaningful before data
-              const layoutSidePairs: Array<{ field: string; oldId: string | null; newId: string; sideName: string }> = [];
+              const layoutSidePairs: Array<{
+                field: string;
+                oldId: string | null;
+                newId: string;
+                sideName: string;
+              }> = [];
               if (layoutUpdate.leftSideLayoutId) {
-                layoutSidePairs.push({ field: 'leftSideLayoutId', oldId: existingLeftId, newId: layoutUpdate.leftSideLayoutId, sideName: 'Motorista' });
+                layoutSidePairs.push({
+                  field: 'leftSideLayoutId',
+                  oldId: existingLeftId,
+                  newId: layoutUpdate.leftSideLayoutId,
+                  sideName: 'Motorista',
+                });
               }
               if (layoutUpdate.rightSideLayoutId) {
-                layoutSidePairs.push({ field: 'rightSideLayoutId', oldId: existingRightId, newId: layoutUpdate.rightSideLayoutId, sideName: 'Sapo' });
+                layoutSidePairs.push({
+                  field: 'rightSideLayoutId',
+                  oldId: existingRightId,
+                  newId: layoutUpdate.rightSideLayoutId,
+                  sideName: 'Sapo',
+                });
               }
               if (layoutUpdate.backSideLayoutId) {
-                layoutSidePairs.push({ field: 'backSideLayoutId', oldId: existingBackId, newId: layoutUpdate.backSideLayoutId, sideName: 'Traseira' });
+                layoutSidePairs.push({
+                  field: 'backSideLayoutId',
+                  oldId: existingBackId,
+                  newId: layoutUpdate.backSideLayoutId,
+                  sideName: 'Traseira',
+                });
               }
 
               for (const pair of layoutSidePairs) {
                 sides.push(pair.sideName);
                 // Fetch old layout with sections (if exists)
-                const oldLayout = pair.oldId ? await tx.layout.findUnique({
-                  where: { id: pair.oldId },
-                  include: { layoutSections: true },
-                }) : null;
+                const oldLayout = pair.oldId
+                  ? await tx.layout.findUnique({
+                      where: { id: pair.oldId },
+                      include: { layoutSections: true },
+                    })
+                  : null;
                 // Fetch new layout with sections
                 const newLayout = await tx.layout.findUnique({
                   where: { id: pair.newId },
@@ -7593,9 +7825,13 @@ export class TaskService {
       // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all artworks
       // Others can only see APPROVED artworks
       if (task.artworks && userRole) {
-        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'PRODUCTION_MANAGER', 'ADMIN'].includes(
-          userRole,
-        );
+        const canSeeAllArtworks = [
+          'COMMERCIAL',
+          'DESIGNER',
+          'LOGISTIC',
+          'PRODUCTION_MANAGER',
+          'ADMIN',
+        ].includes(userRole);
 
         if (!canSeeAllArtworks) {
           task.artworks = task.artworks.filter(
@@ -7663,9 +7899,13 @@ export class TaskService {
       // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all artworks
       // Others can only see APPROVED artworks
       if (userRole) {
-        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'PRODUCTION_MANAGER', 'ADMIN'].includes(
-          userRole,
-        );
+        const canSeeAllArtworks = [
+          'COMMERCIAL',
+          'DESIGNER',
+          'LOGISTIC',
+          'PRODUCTION_MANAGER',
+          'ADMIN',
+        ].includes(userRole);
 
         if (!canSeeAllArtworks) {
           result.data = result.data.map(task => {
@@ -7712,7 +7952,12 @@ export class TaskService {
 
     // Sanitize customer names for path matching (same logic as FilesStorageService.sanitizeFileName)
     const sanitize = (name: string) =>
-      name.replace(/[<>:"|?*\x00-\x1f]/g, '_').replace(/\.\./g, '_').replace(/\s+/g, ' ').trim().substring(0, 100);
+      name
+        .replace(/[<>:"|?*\x00-\x1f]/g, '_')
+        .replace(/\.\./g, '_')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 100);
     const sanitizeOld = sanitize(oldCustomerName);
     const sanitizeNew = sanitize(newCustomerName);
 
@@ -7806,7 +8051,12 @@ export class TaskService {
     );
 
     const sanitize = (name: string) =>
-      name.replace(/[<>:"|?*\x00-\x1f]/g, '_').replace(/\.\./g, '_').replace(/\s+/g, ' ').trim().substring(0, 100);
+      name
+        .replace(/[<>:"|?*\x00-\x1f]/g, '_')
+        .replace(/\.\./g, '_')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 100);
     const sanitizedCustomer = sanitize(customerName);
     const filesRoot = this.filesStorageService.getFilesRoot();
 
@@ -8034,7 +8284,13 @@ export class TaskService {
       }
 
       // Support TASK, SERVICE_ORDER, and TRUCK entity types
-      const supportedEntityTypes = ['TASK', 'SERVICE_ORDER', 'TRUCK', 'TASK_QUOTE', 'TASK_QUOTE_SERVICE'];
+      const supportedEntityTypes = [
+        'TASK',
+        'SERVICE_ORDER',
+        'TRUCK',
+        'TASK_QUOTE',
+        'TASK_QUOTE_SERVICE',
+      ];
       if (!supportedEntityTypes.includes(changeLog.entityType)) {
         throw new BadRequestException(
           `Rollback não suportado para entidade do tipo '${changeLog.entityType}'`,
@@ -8050,7 +8306,9 @@ export class TaskService {
 
         // statusOrder is derived - skip direct rollback
         if (fieldToRevert === 'statusOrder') {
-          throw new BadRequestException('statusOrder é calculado automaticamente a partir do status');
+          throw new BadRequestException(
+            'statusOrder é calculado automaticamente a partir do status',
+          );
         }
 
         let convertedValue: any = changeLog.oldValue;
@@ -8170,10 +8428,18 @@ export class TaskService {
         if (fieldToRevert === 'items' || fieldToRevert === 'items_snapshot') {
           let parsedOldValue: any = changeLog.oldValue;
           if (typeof parsedOldValue === 'string') {
-            try { parsedOldValue = JSON.parse(parsedOldValue); } catch { /* use as-is */ }
+            try {
+              parsedOldValue = JSON.parse(parsedOldValue);
+            } catch {
+              /* use as-is */
+            }
           }
 
-          if (parsedOldValue && typeof parsedOldValue === 'object' && Array.isArray(parsedOldValue.services)) {
+          if (
+            parsedOldValue &&
+            typeof parsedOldValue === 'object' &&
+            Array.isArray(parsedOldValue.services)
+          ) {
             // Delete all current items
             await tx.taskQuoteService.deleteMany({ where: { quoteId: changeLog.entityId } });
 
@@ -8192,7 +8458,9 @@ export class TaskService {
             }
 
             // Recalculate aggregate totals from customer configs
-            const configs = await tx.taskQuoteCustomerConfig.findMany({ where: { quoteId: changeLog.entityId } });
+            const configs = await tx.taskQuoteCustomerConfig.findMany({
+              where: { quoteId: changeLog.entityId },
+            });
             const newSubtotal = configs.reduce((sum, c) => sum + Number(c.subtotal || 0), 0);
             const newTotal = configs.reduce((sum, c) => sum + Number(c.total || 0), 0);
 
@@ -8206,7 +8474,16 @@ export class TaskService {
           let convertedValue: any = changeLog.oldValue;
           if (convertedValue === null || convertedValue === undefined || convertedValue === '') {
             convertedValue = null;
-          } else if (['subtotal', 'total', 'guaranteeYears', 'customForecastDays', 'simultaneousTasks', 'budgetNumber'].includes(fieldToRevert)) {
+          } else if (
+            [
+              'subtotal',
+              'total',
+              'guaranteeYears',
+              'customForecastDays',
+              'simultaneousTasks',
+              'budgetNumber',
+            ].includes(fieldToRevert)
+          ) {
             convertedValue = Number(convertedValue);
           } else if (['expiresAt'].includes(fieldToRevert)) {
             const parsed = new Date(convertedValue as string);
@@ -8242,13 +8519,18 @@ export class TaskService {
       }
 
       // Handle TASK_QUOTE_SERVICE rollback (also handles legacy TASK_QUOTE_ITEM records)
-      if (changeLog.entityType === 'TASK_QUOTE_SERVICE' || changeLog.entityType === ('TASK_QUOTE_ITEM' as any)) {
+      if (
+        changeLog.entityType === 'TASK_QUOTE_SERVICE' ||
+        changeLog.entityType === ('TASK_QUOTE_ITEM' as any)
+      ) {
         const quoteId = changeLog.entityId; // entityId is the quoteId
         const metadata = changeLog.metadata as any;
         const itemDescription = metadata?.itemDescription;
 
         if (!itemDescription) {
-          throw new BadRequestException('Não é possível reverter: descrição do item não encontrada nos metadados');
+          throw new BadRequestException(
+            'Não é possível reverter: descrição do item não encontrada nos metadados',
+          );
         }
 
         const recalculateTotals = async () => {
@@ -8275,7 +8557,11 @@ export class TaskService {
           // Undo item removal — recreate item from oldValue
           let parsedOldValue = changeLog.oldValue;
           if (typeof parsedOldValue === 'string') {
-            try { parsedOldValue = JSON.parse(parsedOldValue); } catch { /* use as-is */ }
+            try {
+              parsedOldValue = JSON.parse(parsedOldValue);
+            } catch {
+              /* use as-is */
+            }
           }
           if (parsedOldValue && typeof parsedOldValue === 'object') {
             const itemData = parsedOldValue as any;
@@ -8367,9 +8653,15 @@ export class TaskService {
       }
       // Handle date fields
       else if (
-        ['startedAt', 'finishedAt', 'entryDate', 'term', 'createdAt', 'updatedAt', 'forecastDate'].includes(
-          fieldToRevert,
-        )
+        [
+          'startedAt',
+          'finishedAt',
+          'entryDate',
+          'term',
+          'createdAt',
+          'updatedAt',
+          'forecastDate',
+        ].includes(fieldToRevert)
       ) {
         // Dates must be either a valid Date object or null, never empty string
         const parsed = new Date(oldValue as string);
@@ -8520,15 +8812,15 @@ export class TaskService {
       // These are the File[] relations on Task that need Prisma's { set: [...] } syntax
       // Map tracked field names (from changelog) to Prisma relation names
       const trackedToRelationMap: Record<string, string> = {
-        'budgetIds': 'budgets',
-        'invoiceIds': 'invoices',
-        'receiptIds': 'receipts',
-        'bankSlipIds': 'bankSlips',
-        'baseFileIds': 'baseFiles',
-        'paintIds': 'logoPaints',
-        'reimbursementIds': 'reimbursements',
-        'reimbursementInvoiceIds': 'invoiceReimbursements',
-        'artworkIds': 'artworks',
+        budgetIds: 'budgets',
+        invoiceIds: 'invoices',
+        receiptIds: 'receipts',
+        bankSlipIds: 'bankSlips',
+        baseFileIds: 'baseFiles',
+        paintIds: 'logoPaints',
+        reimbursementIds: 'reimbursements',
+        reimbursementInvoiceIds: 'invoiceReimbursements',
+        artworkIds: 'artworks',
       };
       const fileRelationFields = [
         'artworks',
@@ -8671,7 +8963,9 @@ export class TaskService {
                   budgetNumber: quoteData.budgetNumber || 0,
                   subtotal: quoteData.subtotal || quoteData.total || '0',
                   total: quoteData.total || '0',
-                  expiresAt: quoteData.expiresAt ? new Date(quoteData.expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                  expiresAt: quoteData.expiresAt
+                    ? new Date(quoteData.expiresAt)
+                    : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
                   status: quoteData.status || 'PENDING',
                   guaranteeYears: quoteData.guaranteeYears ?? null,
                   customGuaranteeText: quoteData.customGuaranteeText ?? null,
@@ -8824,13 +9118,17 @@ export class TaskService {
 
         let parsedOldValue = oldValue;
         if (typeof oldValue === 'string') {
-          try { parsedOldValue = JSON.parse(oldValue); } catch { parsedOldValue = oldValue; }
+          try {
+            parsedOldValue = JSON.parse(oldValue);
+          } catch {
+            parsedOldValue = oldValue;
+          }
         }
 
         let repIds: string[] = [];
         if (parsedOldValue && Array.isArray(parsedOldValue)) {
           repIds = parsedOldValue
-            .map((item: any) => typeof item === 'string' ? item : item.id)
+            .map((item: any) => (typeof item === 'string' ? item : item.id))
             .filter((id: string) => id);
         }
 
@@ -8841,9 +9139,20 @@ export class TaskService {
           },
         });
 
-        const updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, changeLog.entityId, {
-          include: { customer: true, sector: true, generalPainting: true, truck: true, createdBy: true, responsibles: true },
-        });
+        const updatedTask = await this.tasksRepository.findByIdWithTransaction(
+          tx,
+          changeLog.entityId,
+          {
+            include: {
+              customer: true,
+              sector: true,
+              generalPainting: true,
+              truck: true,
+              createdBy: true,
+              responsibles: true,
+            },
+          },
+        );
 
         const fieldNamePt = translateFieldName(fieldToRevert);
         await this.changeLogService.logChange({
@@ -8860,7 +9169,11 @@ export class TaskService {
           transaction: tx,
         });
 
-        return { success: true, message: `Campo '${fieldNamePt}' revertido com sucesso`, data: updatedTask };
+        return {
+          success: true,
+          message: `Campo '${fieldNamePt}' revertido com sucesso`,
+          data: updatedTask,
+        };
       }
 
       // 5f. Special handling for observation (1-to-1 relation)
@@ -8869,11 +9182,17 @@ export class TaskService {
 
         let parsedOldValue = oldValue;
         if (typeof oldValue === 'string') {
-          try { parsedOldValue = JSON.parse(oldValue); } catch { parsedOldValue = oldValue; }
+          try {
+            parsedOldValue = JSON.parse(oldValue);
+          } catch {
+            parsedOldValue = oldValue;
+          }
         }
 
         // Get the existing observation for this task
-        const existingObs = await tx.observation.findUnique({ where: { taskId: changeLog.entityId } });
+        const existingObs = await tx.observation.findUnique({
+          where: { taskId: changeLog.entityId },
+        });
 
         if (parsedOldValue && typeof parsedOldValue === 'object') {
           const obsData = parsedOldValue as any;
@@ -8891,9 +9210,20 @@ export class TaskService {
           await tx.observation.delete({ where: { taskId: changeLog.entityId } });
         }
 
-        const updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, changeLog.entityId, {
-          include: { customer: true, sector: true, generalPainting: true, truck: true, createdBy: true, observation: true },
-        });
+        const updatedTask = await this.tasksRepository.findByIdWithTransaction(
+          tx,
+          changeLog.entityId,
+          {
+            include: {
+              customer: true,
+              sector: true,
+              generalPainting: true,
+              truck: true,
+              createdBy: true,
+              observation: true,
+            },
+          },
+        );
 
         const fieldNamePt = translateFieldName(fieldToRevert);
         await this.changeLogService.logChange({
@@ -8910,7 +9240,11 @@ export class TaskService {
           transaction: tx,
         });
 
-        return { success: true, message: `Campo '${fieldNamePt}' revertido com sucesso`, data: updatedTask };
+        return {
+          success: true,
+          message: `Campo '${fieldNamePt}' revertido com sucesso`,
+          data: updatedTask,
+        };
       }
 
       // 5g. Special handling for layouts (composite relation on truck)
@@ -8919,7 +9253,11 @@ export class TaskService {
 
         let parsedOldValue = oldValue;
         if (typeof oldValue === 'string') {
-          try { parsedOldValue = JSON.parse(oldValue); } catch { parsedOldValue = null; }
+          try {
+            parsedOldValue = JSON.parse(oldValue);
+          } catch {
+            parsedOldValue = null;
+          }
         }
         if (parsedOldValue === undefined) parsedOldValue = null;
 
@@ -8934,7 +9272,9 @@ export class TaskService {
         });
 
         if (!truck) {
-          throw new BadRequestException('Tarefa não possui caminhão associado para reverter layouts');
+          throw new BadRequestException(
+            'Tarefa não possui caminhão associado para reverter layouts',
+          );
         }
 
         const layoutSides: Array<{
@@ -8943,9 +9283,24 @@ export class TaskService {
           relationName: string;
           sideName: string;
         }> = [
-          { key: 'leftSideLayoutId', field: 'leftSideLayoutId', relationName: 'trucksLeftSide', sideName: 'left' },
-          { key: 'rightSideLayoutId', field: 'rightSideLayoutId', relationName: 'trucksRightSide', sideName: 'right' },
-          { key: 'backSideLayoutId', field: 'backSideLayoutId', relationName: 'trucksBackSide', sideName: 'back' },
+          {
+            key: 'leftSideLayoutId',
+            field: 'leftSideLayoutId',
+            relationName: 'trucksLeftSide',
+            sideName: 'left',
+          },
+          {
+            key: 'rightSideLayoutId',
+            field: 'rightSideLayoutId',
+            relationName: 'trucksRightSide',
+            sideName: 'right',
+          },
+          {
+            key: 'backSideLayoutId',
+            field: 'backSideLayoutId',
+            relationName: 'trucksBackSide',
+            sideName: 'back',
+          },
         ];
 
         for (const { key, field, relationName, sideName } of layoutSides) {
@@ -8972,7 +9327,9 @@ export class TaskService {
               if (remainingTrucks.length === 0) {
                 await tx.layoutSection.deleteMany({ where: { layoutId: currentLayoutId } });
                 await tx.layout.delete({ where: { id: currentLayoutId } });
-                this.logger.log(`[Rollback] Deleted orphaned ${sideName} layout: ${currentLayoutId}`);
+                this.logger.log(
+                  `[Rollback] Deleted orphaned ${sideName} layout: ${currentLayoutId}`,
+                );
               }
             }
           }
@@ -8986,7 +9343,9 @@ export class TaskService {
               const existing = await tx.layout.findUnique({ where: { id: oldSideLayout.id } });
               if (existing) {
                 targetLayoutId = existing.id;
-                this.logger.log(`[Rollback] Reconnecting to existing ${sideName} layout: ${targetLayoutId}`);
+                this.logger.log(
+                  `[Rollback] Reconnecting to existing ${sideName} layout: ${targetLayoutId}`,
+                );
               }
             }
 
@@ -9018,9 +9377,25 @@ export class TaskService {
           }
         }
 
-        const updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, changeLog.entityId, {
-          include: { customer: true, sector: true, generalPainting: true, truck: { include: { leftSideLayout: { include: { layoutSections: true } }, rightSideLayout: { include: { layoutSections: true } }, backSideLayout: { include: { layoutSections: true } } } }, createdBy: true },
-        });
+        const updatedTask = await this.tasksRepository.findByIdWithTransaction(
+          tx,
+          changeLog.entityId,
+          {
+            include: {
+              customer: true,
+              sector: true,
+              generalPainting: true,
+              truck: {
+                include: {
+                  leftSideLayout: { include: { layoutSections: true } },
+                  rightSideLayout: { include: { layoutSections: true } },
+                  backSideLayout: { include: { layoutSections: true } },
+                },
+              },
+              createdBy: true,
+            },
+          },
+        );
 
         const fieldNamePt = translateFieldName(fieldToRevert);
         await this.changeLogService.logChange({
@@ -9037,7 +9412,11 @@ export class TaskService {
           transaction: tx,
         });
 
-        return { success: true, message: `Campo '${fieldNamePt}' revertido com sucesso`, data: updatedTask };
+        return {
+          success: true,
+          message: `Campo '${fieldNamePt}' revertido com sucesso`,
+          data: updatedTask,
+        };
       }
 
       // 6. Create update data with just the field being rolled back
@@ -10136,9 +10515,10 @@ export class TaskService {
             field: relationName,
             oldValue: JSON.stringify(currentFileIds),
             newValue: JSON.stringify(mergedFileIds),
-            reason: files.length === 1
-              ? `1 arquivo de ${fileType} adicionado em lote`
-              : `${files.length} arquivos de ${fileType} adicionados em lote`,
+            reason:
+              files.length === 1
+                ? `1 arquivo de ${fileType} adicionado em lote`
+                : `${files.length} arquivos de ${fileType} adicionados em lote`,
             triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
             triggeredById: task.id,
             userId: userId || '',
@@ -10173,10 +10553,7 @@ export class TaskService {
    * Creates a new independent quote with a new budgetNumber.
    * Does NOT copy customerSignatureId (signature is specific to the original budget).
    */
-  private async duplicateTaskQuote(
-    sourceQuoteId: string,
-    tx: PrismaTransaction,
-  ): Promise<string> {
+  private async duplicateTaskQuote(sourceQuoteId: string, tx: PrismaTransaction): Promise<string> {
     const sourceQuote = await tx.taskQuote.findUnique({
       where: { id: sourceQuoteId },
       include: {
@@ -10207,9 +10584,7 @@ export class TaskService {
     });
 
     if (!sourceQuote) {
-      throw new NotFoundException(
-        `Precificação de origem não encontrada (ID: ${sourceQuoteId})`,
-      );
+      throw new NotFoundException(`Precificação de origem não encontrada (ID: ${sourceQuoteId})`);
     }
 
     // Get next budget number
@@ -10567,10 +10942,14 @@ export class TaskService {
           logoPaintIds: destinationTask.logoPaints?.map(p => p.id) || [],
           cuts: destinationTask.cuts?.length || 0,
           airbrushings: destinationTask.airbrushings?.length || 0,
-          'serviceOrders:PRODUCTION': destinationTask.serviceOrders?.filter(so => so.type === 'PRODUCTION').length || 0,
-          'serviceOrders:COMMERCIAL': destinationTask.serviceOrders?.filter(so => so.type === 'COMMERCIAL').length || 0,
-          'serviceOrders:LOGISTIC': destinationTask.serviceOrders?.filter(so => so.type === 'LOGISTIC').length || 0,
-          'serviceOrders:ARTWORK': destinationTask.serviceOrders?.filter(so => so.type === 'ARTWORK').length || 0,
+          'serviceOrders:PRODUCTION':
+            destinationTask.serviceOrders?.filter(so => so.type === 'PRODUCTION').length || 0,
+          'serviceOrders:COMMERCIAL':
+            destinationTask.serviceOrders?.filter(so => so.type === 'COMMERCIAL').length || 0,
+          'serviceOrders:LOGISTIC':
+            destinationTask.serviceOrders?.filter(so => so.type === 'LOGISTIC').length || 0,
+          'serviceOrders:ARTWORK':
+            destinationTask.serviceOrders?.filter(so => so.type === 'ARTWORK').length || 0,
           implementType: destinationTask.truck?.implementType || null,
           category: destinationTask.truck?.category || null,
           layouts: {
@@ -10925,14 +11304,18 @@ export class TaskService {
                   const cloned = await tx.layout.create({
                     data: {
                       height: sourceLayout.height,
-                      ...(sourceLayout.photoId && { photo: { connect: { id: sourceLayout.photoId } } }),
+                      ...(sourceLayout.photoId && {
+                        photo: { connect: { id: sourceLayout.photoId } },
+                      }),
                       layoutSections: {
-                        create: (sourceLayout.layoutSections || []).map((section: any, idx: number) => ({
-                          width: section.width,
-                          isDoor: section.isDoor,
-                          doorHeight: section.doorHeight,
-                          position: section.position ?? idx,
-                        })),
+                        create: (sourceLayout.layoutSections || []).map(
+                          (section: any, idx: number) => ({
+                            width: section.width,
+                            isDoor: section.isDoor,
+                            doorHeight: section.doorHeight,
+                            position: section.position ?? idx,
+                          }),
+                        ),
                       },
                     },
                   });
@@ -10981,9 +11364,24 @@ export class TaskService {
 
                 if (existingTruck) {
                   // Safely disconnect old layouts before connecting new ones
-                  if (clonedLeftId) await safeDisconnectOldLayout(existingTruck.id, existingTruck.leftSideLayoutId, 'leftSideLayoutId');
-                  if (clonedRightId) await safeDisconnectOldLayout(existingTruck.id, existingTruck.rightSideLayoutId, 'rightSideLayoutId');
-                  if (clonedBackId) await safeDisconnectOldLayout(existingTruck.id, existingTruck.backSideLayoutId, 'backSideLayoutId');
+                  if (clonedLeftId)
+                    await safeDisconnectOldLayout(
+                      existingTruck.id,
+                      existingTruck.leftSideLayoutId,
+                      'leftSideLayoutId',
+                    );
+                  if (clonedRightId)
+                    await safeDisconnectOldLayout(
+                      existingTruck.id,
+                      existingTruck.rightSideLayoutId,
+                      'rightSideLayoutId',
+                    );
+                  if (clonedBackId)
+                    await safeDisconnectOldLayout(
+                      existingTruck.id,
+                      existingTruck.backSideLayoutId,
+                      'backSideLayoutId',
+                    );
 
                   await tx.truck.update({
                     where: { taskId: destinationTaskId },
@@ -11062,7 +11460,8 @@ export class TaskService {
               const soType = field.split(':')[1] as SERVICE_ORDER_TYPE;
 
               // Get source service orders of this type
-              const sourceSOsOfType = sourceTask.serviceOrders?.filter(so => so.type === soType) || [];
+              const sourceSOsOfType =
+                sourceTask.serviceOrders?.filter(so => so.type === soType) || [];
               if (sourceSOsOfType.length === 0) break;
 
               // Fetch full details of source service orders
@@ -11227,9 +11626,10 @@ export class TaskService {
 
         return {
           success: true,
-          message: copiedFields.length === 1
-            ? `1 campo copiado com sucesso da tarefa ${sourceTask.name || sourceTaskId}`
-            : `${copiedFields.length} campos copiados com sucesso da tarefa ${sourceTask.name || sourceTaskId}`,
+          message:
+            copiedFields.length === 1
+              ? `1 campo copiado com sucesso da tarefa ${sourceTask.name || sourceTaskId}`
+              : `${copiedFields.length} campos copiados com sucesso da tarefa ${sourceTask.name || sourceTaskId}`,
           copiedFields,
           details,
           fieldChangesForEvents,
@@ -11301,7 +11701,14 @@ export class TaskService {
         this.logger.warn(
           `[copyFromTask] Transaction failed due to budgetNumber conflict (attempt ${_retryCount + 1}), retrying...`,
         );
-        return this.copyFromTask(destinationTaskId, sourceTaskId, fields, userId, userPrivilege, _retryCount + 1);
+        return this.copyFromTask(
+          destinationTaskId,
+          sourceTaskId,
+          fields,
+          userId,
+          userPrivilege,
+          _retryCount + 1,
+        );
       }
 
       this.logger.error(
@@ -11394,13 +11801,15 @@ export class TaskService {
 
     // Emit field changed event for notifications
     try {
-      await this.fieldTracker.emitFieldChangeEvents(updatedTask as Task, [{
-        field: 'forecastDate',
-        oldValue: previousDate,
-        newValue: data.forecastDate,
-        changedAt: new Date(),
-        changedBy: userId,
-      }]);
+      await this.fieldTracker.emitFieldChangeEvents(updatedTask as Task, [
+        {
+          field: 'forecastDate',
+          oldValue: previousDate,
+          newValue: data.forecastDate,
+          changedAt: new Date(),
+          changedBy: userId,
+        },
+      ]);
     } catch (error) {
       this.logger.error('Error emitting forecast reschedule events:', error);
     }
@@ -11412,10 +11821,7 @@ export class TaskService {
     };
   }
 
-  async getForecastHistory(
-    taskId: string,
-    query: { page?: number; take?: number } = {},
-  ) {
+  async getForecastHistory(taskId: string, query: { page?: number; take?: number } = {}) {
     const page = query.page || 1;
     const take = query.take || 50;
     const skip = (page - 1) * take;

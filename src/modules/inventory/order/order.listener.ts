@@ -115,34 +115,30 @@ export class OrderListener {
 
       const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
 
-      await this.dispatchService.dispatchByConfiguration(
-        'order.created',
-        event.createdBy.id,
-        {
-          entityType: 'Order',
-          entityId: order.id,
-          action: 'created',
-          data: {
-            orderNumber,
-            supplierName,
-            changedBy: event.createdBy.name,
-            description: order.description || 'Sem descrição',
-            itemsSummary,
-          },
-          metadata: {
-            orderId: order.id,
-            orderNumber,
-            supplierName,
-          },
-          overrides: {
-            actionUrl: JSON.stringify(deepLinks),
-            webUrl: `/estoque/pedidos/${order.id}`,
-            relatedEntityType: 'ORDER',
-            title: 'Novo Pedido Criado',
-            body: `Pedido "${order.description || 'Sem descrição'}" criado para ${supplierName}.${itemsSummary}`,
-          },
+      await this.dispatchService.dispatchByConfiguration('order.created', event.createdBy.id, {
+        entityType: 'Order',
+        entityId: order.id,
+        action: 'created',
+        data: {
+          orderNumber,
+          supplierName,
+          changedBy: event.createdBy.name,
+          description: order.description || 'Sem descrição',
+          itemsSummary,
         },
-      );
+        metadata: {
+          orderId: order.id,
+          orderNumber,
+          supplierName,
+        },
+        overrides: {
+          actionUrl: JSON.stringify(deepLinks),
+          webUrl: `/estoque/pedidos/${order.id}`,
+          relatedEntityType: 'ORDER',
+          title: 'Novo Pedido Criado',
+          body: `Pedido "${order.description || 'Sem descrição'}" criado para ${supplierName}.${itemsSummary}`,
+        },
+      });
     } catch (error) {
       this.logger.error('Error handling order created event:', error);
     }
@@ -359,38 +355,34 @@ export class OrderListener {
       // Use receivedBy from event if available, otherwise 'system'
       const triggeringUserId = (event as any).receivedBy?.id || 'system';
 
-      await this.dispatchService.dispatchByConfiguration(
-        'order.item.received',
-        triggeringUserId,
-        {
-          entityType: 'Order',
-          entityId: order.id,
-          action: 'item_received',
-          data: {
-            orderNumber,
-            supplierName,
-            itemName,
-            quantity: event.quantity,
-            changedBy: (event as any).receivedBy?.name || 'Sistema',
-            description: order.description || 'Sem descrição',
-            itemsSummary,
-          },
-          metadata: {
-            orderId: order.id,
-            orderNumber,
-            supplierName,
-            itemName,
-            quantity: event.quantity,
-          },
-          overrides: {
-            actionUrl: JSON.stringify(deepLinks),
-            webUrl: `/estoque/pedidos/${order.id}`,
-            relatedEntityType: 'ORDER',
-            title: 'Item Recebido',
-            body: `Item "${itemName}" recebido do pedido "${order.description || 'Sem descrição'}" (${supplierName}).\n\nQuantidade recebida: ${event.quantity}${itemsSummary}`,
-          },
+      await this.dispatchService.dispatchByConfiguration('order.item.received', triggeringUserId, {
+        entityType: 'Order',
+        entityId: order.id,
+        action: 'item_received',
+        data: {
+          orderNumber,
+          supplierName,
+          itemName,
+          quantity: event.quantity,
+          changedBy: (event as any).receivedBy?.name || 'Sistema',
+          description: order.description || 'Sem descrição',
+          itemsSummary,
         },
-      );
+        metadata: {
+          orderId: order.id,
+          orderNumber,
+          supplierName,
+          itemName,
+          quantity: event.quantity,
+        },
+        overrides: {
+          actionUrl: JSON.stringify(deepLinks),
+          webUrl: `/estoque/pedidos/${order.id}`,
+          relatedEntityType: 'ORDER',
+          title: 'Item Recebido',
+          body: `Item "${itemName}" recebido do pedido "${order.description || 'Sem descrição'}" (${supplierName}).\n\nQuantidade recebida: ${event.quantity}${itemsSummary}`,
+        },
+      });
     } catch (error) {
       this.logger.error('Error handling order item received event:', error);
     }
@@ -428,38 +420,34 @@ export class OrderListener {
 
       const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
 
-      await this.dispatchService.dispatchByConfiguration(
-        'order.cancelled',
-        event.cancelledBy.id,
-        {
-          entityType: 'Order',
-          entityId: order.id,
-          action: 'cancelled',
-          data: {
-            orderNumber,
-            supplierName,
-            cancelledByName,
-            reason: event.reason || 'Não especificado',
-            changedBy: cancelledByName,
-            description: order.description || 'Sem descrição',
-            itemsSummary,
-          },
-          metadata: {
-            orderId: order.id,
-            orderNumber,
-            supplierName,
-            cancelledByName,
-            reason: event.reason,
-          },
-          overrides: {
-            actionUrl: JSON.stringify(deepLinks),
-            webUrl: `/estoque/pedidos/${order.id}`,
-            relatedEntityType: 'ORDER',
-            title: 'Pedido Cancelado',
-            body: `Pedido "${order.description || 'Sem descrição'}" (${supplierName}) foi cancelado.\n\nCancelado por: ${cancelledByName}\nMotivo: ${event.reason || 'Não especificado'}${itemsSummary}`,
-          },
+      await this.dispatchService.dispatchByConfiguration('order.cancelled', event.cancelledBy.id, {
+        entityType: 'Order',
+        entityId: order.id,
+        action: 'cancelled',
+        data: {
+          orderNumber,
+          supplierName,
+          cancelledByName,
+          reason: event.reason || 'Não especificado',
+          changedBy: cancelledByName,
+          description: order.description || 'Sem descrição',
+          itemsSummary,
         },
-      );
+        metadata: {
+          orderId: order.id,
+          orderNumber,
+          supplierName,
+          cancelledByName,
+          reason: event.reason,
+        },
+        overrides: {
+          actionUrl: JSON.stringify(deepLinks),
+          webUrl: `/estoque/pedidos/${order.id}`,
+          relatedEntityType: 'ORDER',
+          title: 'Pedido Cancelado',
+          body: `Pedido "${order.description || 'Sem descrição'}" (${supplierName}) foi cancelado.\n\nCancelado por: ${cancelledByName}\nMotivo: ${event.reason || 'Não especificado'}${itemsSummary}`,
+        },
+      });
     } catch (error) {
       this.logger.error('Error handling order cancelled event:', error);
     }
@@ -568,9 +556,7 @@ export class OrderListener {
     assignedById: string;
   }): Promise<void> {
     try {
-      this.logger.log(
-        `Handling order payment assigned event for order ${event.order.id}`,
-      );
+      this.logger.log(`Handling order payment assigned event for order ${event.order.id}`);
 
       const order = await this.prisma.order.findUnique({
         where: { id: event.order.id },
@@ -628,9 +614,7 @@ export class OrderListener {
     paymentResponsibleId: string;
   }): Promise<void> {
     try {
-      this.logger.log(
-        `Handling order payment fulfilled event for order ${event.order.id}`,
-      );
+      this.logger.log(`Handling order payment fulfilled event for order ${event.order.id}`);
 
       const order = await this.prisma.order.findUnique({
         where: { id: event.order.id },

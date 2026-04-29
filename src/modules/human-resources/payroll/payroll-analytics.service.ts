@@ -73,7 +73,7 @@ export class PayrollAnalyticsService {
         where: userWhere,
         select: { id: true, sectorId: true },
       });
-      userIds = users.map((u) => u.id);
+      userIds = users.map(u => u.id);
     }
 
     // Fetch payroll records
@@ -147,7 +147,7 @@ export class PayrollAnalyticsService {
     const allKeys = new Set([...byPeriod.keys(), ...bonusByPeriod.keys()]);
     const sortedKeys = Array.from(allKeys).sort();
 
-    const items: PayrollTrendItem[] = sortedKeys.map((key) => {
+    const items: PayrollTrendItem[] = sortedKeys.map(key => {
       const periodPayrolls = byPeriod.get(key) || [];
       const periodBonuses = bonusByPeriod.get(key) || [];
 
@@ -184,11 +184,10 @@ export class PayrollAnalyticsService {
     const totalNetSalary = this.round2(this.sumDecimal(payrolls, 'netSalary'));
     const totalDiscounts = this.round2(this.sumDecimal(payrolls, 'totalDiscounts'));
     const totalBonuses = this.round2(this.sumDecimal(bonuses, 'netBonus'));
-    const avgGrossSalary = payrolls.length > 0 ? this.round2(totalGrossSalary / payrolls.length) : 0;
+    const avgGrossSalary =
+      payrolls.length > 0 ? this.round2(totalGrossSalary / payrolls.length) : 0;
     const taxBurdenPercent =
-      totalGrossSalary > 0
-        ? Math.round((totalDiscounts / totalGrossSalary) * 1000) / 10
-        : 0;
+      totalGrossSalary > 0 ? Math.round((totalDiscounts / totalGrossSalary) * 1000) / 10 : 0;
 
     // Month over month growth
     let monthOverMonthGrowth = 0;
@@ -216,11 +215,11 @@ export class PayrollAnalyticsService {
         where: { id: { in: sectorIds } },
         select: { id: true, name: true },
       });
-      const sectorMap = new Map(sectors.map((s) => [s.id, s.name]));
+      const sectorMap = new Map(sectors.map(s => [s.id, s.name]));
 
       result.comparison = sectorIds.map((sectorId): PayrollSectorComparison => {
-        const sectorPayrolls = payrolls.filter((p) => p.user?.sectorId === sectorId);
-        const sectorBonuses = bonuses.filter((b) => b.user?.sectorId === sectorId);
+        const sectorPayrolls = payrolls.filter(p => p.user?.sectorId === sectorId);
+        const sectorBonuses = bonuses.filter(b => b.user?.sectorId === sectorId);
 
         const gross = this.round2(this.sumDecimal(sectorPayrolls, 'grossSalary'));
         const net = this.round2(this.sumDecimal(sectorPayrolls, 'netSalary'));
@@ -235,7 +234,8 @@ export class PayrollAnalyticsService {
           totalDiscounts: disc,
           totalBonuses: bon,
           headcount: sectorPayrolls.length,
-          avgGrossSalary: sectorPayrolls.length > 0 ? this.round2(gross / sectorPayrolls.length) : 0,
+          avgGrossSalary:
+            sectorPayrolls.length > 0 ? this.round2(gross / sectorPayrolls.length) : 0,
         };
       });
     }
@@ -277,8 +277,8 @@ export class PayrollAnalyticsService {
 
   private resolveDateRange(filters: AnalyticsFilters): { start: Date; end: Date } {
     if (filters.periods && filters.periods.length > 0) {
-      const starts = filters.periods.map((p) => p.start.getTime());
-      const ends = filters.periods.map((p) => p.end.getTime());
+      const starts = filters.periods.map(p => p.start.getTime());
+      const ends = filters.periods.map(p => p.end.getTime());
       return {
         start: new Date(Math.min(...starts)),
         end: new Date(Math.max(...ends)),

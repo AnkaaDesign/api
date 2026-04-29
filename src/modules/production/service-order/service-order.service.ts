@@ -249,14 +249,14 @@ export class ServiceOrderService {
             });
 
             if (taskWithQuote?.quote) {
-              const existingQuoteItems: SyncQuoteItem[] = (
-                taskWithQuote.quote.services || []
-              ).map((item: any) => ({
-                id: item.id,
-                description: item.description,
-                observation: item.observation,
-                amount: item.amount,
-              }));
+              const existingQuoteItems: SyncQuoteItem[] = (taskWithQuote.quote.services || []).map(
+                (item: any) => ({
+                  id: item.id,
+                  description: item.description,
+                  observation: item.observation,
+                  amount: item.amount,
+                }),
+              );
 
               // Check if we should create a quote item
               const syncResult = getServiceOrderToQuoteSync(
@@ -1169,7 +1169,11 @@ export class ServiceOrderService {
               }
 
               // If expected status differs from current, update the task (but never auto-complete)
-              if (expectedStatus && expectedStatus !== task.status && task.status !== TASK_STATUS.COMPLETED) {
+              if (
+                expectedStatus &&
+                expectedStatus !== task.status &&
+                task.status !== TASK_STATUS.COMPLETED
+              ) {
                 this.logger.log(
                   `[COMPREHENSIVE SYNC] Task ${task.id} status mismatch: current=${task.status}, expected=${expectedStatus}. Updating...`,
                 );
@@ -1452,7 +1456,7 @@ export class ServiceOrderService {
       };
     } catch (error) {
       this.logger.error('Erro ao atualizar ordem de serviço:', error);
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
         throw error;
       }
       throw new InternalServerErrorException(
@@ -1621,7 +1625,9 @@ export class ServiceOrderService {
       });
 
       const existingTaskIds = new Set(tasks.map(t => t.id));
-      const completedTaskIds = new Set(tasks.filter(t => t.status === TASK_STATUS.COMPLETED).map(t => t.id));
+      const completedTaskIds = new Set(
+        tasks.filter(t => t.status === TASK_STATUS.COMPLETED).map(t => t.id),
+      );
       const invalidItems = data.serviceOrders.filter(item => !existingTaskIds.has(item.taskId));
 
       if (invalidItems.length > 0) {
@@ -1698,6 +1704,113 @@ export class ServiceOrderService {
             reason: 'Ordem de serviço criada em lote',
             transaction: tx,
           });
+        }
+
+        // Sync PRODUCTION service orders to quote items (same logic as single create)
+        const productionSOs = batchResult.success.filter(
+          (so: any) => so.type === SERVICE_ORDER_TYPE.PRODUCTION,
+        );
+
+        if (productionSOs.length > 0) {
+          const taskIdsForSync = Array.from(new Set(productionSOs.map((so: any) => so.taskId as string)));
+
+          const tasksWithQuotes = await tx.task.findMany({
+            where: { id: { in: taskIdsForSync } },
+            include: { quote: { include: { services: true } } },
+          });
+
+          const taskQuoteMap = new Map(tasksWithQuotes.map((t: any) => [t.id, t]));
+
+          // Track in-memory so multiple SOs for the same quote don't create duplicates
+          const quoteItemsMap = new Map<string, SyncQuoteItem[]>();
+          for (const task of tasksWithQuotes) {
+            if ((task as any).quote) {
+              quoteItemsMap.set(
+                (task as any).quote.id,
+                ((task as any).quote.services || []).map((item: any) => ({
+                  id: item.id,
+                  description: item.description,
+                  observation: item.observation,
+                  amount: item.amount,
+                })),
+              );
+            }
+          }
+
+          for (const so of productionSOs) {
+            try {
+              const task = taskQuoteMap.get((so as any).taskId);
+              if (!(task as any)?.quote) {
+                this.logger.log(
+                  `[SO→QUOTE SYNC] Batch: Skipped "${(so as any).description}" — task has no quote`,
+                );
+                continue;
+              }
+
+              const quoteId = (task as any).quote.id;
+              const existingQuoteItems = quoteItemsMap.get(quoteId) || [];
+
+              const syncResult = getServiceOrderToQuoteSync(
+                {
+                  id: (so as any).id,
+                  description: (so as any).description,
+                  observation: (so as any).observation,
+                  type: (so as any).type,
+                },
+                existingQuoteItems,
+              );
+
+              if (syncResult.shouldCreateQuoteItem) {
+                this.logger.log(
+                  `[SO→QUOTE SYNC] Batch: Creating quote item "${syncResult.quoteItemDescription}" for SO "${(so as any).description}"`,
+                );
+
+                const createdItem = await tx.taskQuoteService.create({
+                  data: {
+                    quoteId,
+                    description: syncResult.quoteItemDescription,
+                    observation: syncResult.quoteItemObservation,
+                    amount: syncResult.quoteItemAmount,
+                  },
+                });
+
+                // Track the new item so subsequent SOs for the same quote don't duplicate it
+                existingQuoteItems.push({
+                  id: createdItem.id,
+                  description: createdItem.description,
+                  observation: createdItem.observation,
+                  amount: Number(createdItem.amount),
+                });
+
+                const allItems = await tx.taskQuoteService.findMany({
+                  where: { quoteId },
+                });
+                const newSubtotal = allItems.reduce(
+                  (sum: number, item: any) => sum + Number(item.amount || 0),
+                  0,
+                );
+
+                await tx.taskQuote.update({
+                  where: { id: quoteId },
+                  data: { subtotal: newSubtotal, total: newSubtotal },
+                });
+
+                this.logger.log(
+                  `[SO→QUOTE SYNC] Batch: Quote item created. New subtotal: ${newSubtotal}`,
+                );
+              } else {
+                this.logger.log(
+                  `[SO→QUOTE SYNC] Batch: Skipped "${(so as any).description}" — ${syncResult.reason}`,
+                );
+              }
+            } catch (syncError) {
+              this.logger.error(
+                `[SO→QUOTE SYNC] Batch: Error syncing SO "${(so as any).description}":`,
+                syncError,
+              );
+              // Don't throw — sync errors must not block service order creation
+            }
+          }
         }
 
         return batchResult;
@@ -2570,7 +2683,11 @@ export class ServiceOrderService {
                     }
 
                     // If expected status differs from current, update the task (but never auto-complete)
-                    if (expectedStatus && expectedStatus !== task.status && task.status !== TASK_STATUS.COMPLETED) {
+                    if (
+                      expectedStatus &&
+                      expectedStatus !== task.status &&
+                      task.status !== TASK_STATUS.COMPLETED
+                    ) {
                       this.logger.log(
                         `[COMPREHENSIVE SYNC BATCH] Task ${task.id} status mismatch: current=${task.status}, expected=${expectedStatus}. Updating...`,
                       );

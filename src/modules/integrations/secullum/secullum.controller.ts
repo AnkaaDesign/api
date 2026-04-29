@@ -167,9 +167,7 @@ export class SecullumController {
   @ReadRateLimit()
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
-  async getJustifications(
-    @UserId() userId: string,
-  ): Promise<SecullumJustificationsResponse> {
+  async getJustifications(@UserId() userId: string): Promise<SecullumJustificationsResponse> {
     this.logger.log(`User ${userId} fetching Secullum justifications`);
     return await this.secullumService.getJustifications();
   }
@@ -199,7 +197,12 @@ export class SecullumController {
    */
   @Get('calculations')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
+  @Roles(
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+  )
   @HttpCode(HttpStatus.OK)
   async getCalculations(
     @UserId() userId: string,
@@ -380,7 +383,11 @@ export class SecullumController {
    */
   @Get('horarios')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
+  @Roles(
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+  )
   @HttpCode(HttpStatus.OK)
   async getHorarios(
     @UserId() userId: string,
@@ -399,7 +406,11 @@ export class SecullumController {
    */
   @Get('horarios/:id')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
+  @Roles(
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+  )
   @HttpCode(HttpStatus.OK)
   async getHorarioById(
     @UserId() userId: string,

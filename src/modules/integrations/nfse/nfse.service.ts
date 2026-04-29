@@ -58,18 +58,9 @@ export class NfseService {
     private readonly xmlBuilderService: NfseXmlBuilderService,
     private readonly xmlSignerService: NfseXmlSignerService,
   ) {
-    this.environment = this.configService.get<number>(
-      'NFSE_ENVIRONMENT',
-      2,
-    ) as 1 | 2;
-    this.sefinUrl = this.configService.get<string>(
-      'NFSE_API_URL',
-      SEFIN_URLS[this.environment],
-    );
-    this.adnUrl = this.configService.get<string>(
-      'NFSE_ADN_URL',
-      ADN_URLS[this.environment],
-    );
+    this.environment = this.configService.get<number>('NFSE_ENVIRONMENT', 2) as 1 | 2;
+    this.sefinUrl = this.configService.get<string>('NFSE_API_URL', SEFIN_URLS[this.environment]);
+    this.adnUrl = this.configService.get<string>('NFSE_ADN_URL', ADN_URLS[this.environment]);
 
     this.initHttpClients();
   }
@@ -106,9 +97,7 @@ export class NfseService {
       this.initHttpClients();
     }
     if (!this.httpClient) {
-      throw new Error(
-        'NFS-e HTTP client not available. Check certificate configuration.',
-      );
+      throw new Error('NFS-e HTTP client not available. Check certificate configuration.');
     }
     return this.httpClient;
   }
@@ -118,9 +107,7 @@ export class NfseService {
       this.initHttpClients();
     }
     if (!this.adnHttpClient) {
-      throw new Error(
-        'ADN HTTP client not available. Check certificate configuration.',
-      );
+      throw new Error('ADN HTTP client not available. Check certificate configuration.');
     }
     return this.adnHttpClient;
   }
@@ -149,9 +136,7 @@ export class NfseService {
     this.logger.log(`Querying NFS-e: ${chaveAcesso}`);
 
     const client = this.ensureHttpClient();
-    const response = await client.get(
-      `/nfse/${encodeURIComponent(chaveAcesso)}`,
-    );
+    const response = await client.get(`/nfse/${encodeURIComponent(chaveAcesso)}`);
     return response.data;
   }
 
@@ -160,13 +145,8 @@ export class NfseService {
    *
    * Uses POST /nfse/{chaveAcesso}/eventos with event type e101101 (cancellation by emitter).
    */
-  async cancelNfse(
-    chaveAcesso: string,
-    reason: string,
-  ): Promise<Record<string, any>> {
-    this.logger.log(
-      `Cancelling NFS-e: ${chaveAcesso}. Reason: ${reason}`,
-    );
+  async cancelNfse(chaveAcesso: string, reason: string): Promise<Record<string, any>> {
+    this.logger.log(`Cancelling NFS-e: ${chaveAcesso}. Reason: ${reason}`);
 
     const client = this.ensureHttpClient();
 
@@ -180,15 +160,11 @@ export class NfseService {
     });
 
     // Sign, compress, and encode the event XML
-    const pedRegEventoXmlGZipB64 = this.xmlSignerService.signAndCompress(
-      eventXml,
-      'infPedReg',
-    );
+    const pedRegEventoXmlGZipB64 = this.xmlSignerService.signAndCompress(eventXml, 'infPedReg');
 
-    const response = await client.post(
-      `/nfse/${encodeURIComponent(chaveAcesso)}/eventos`,
-      { pedRegEventoXmlGZipB64 },
-    );
+    const response = await client.post(`/nfse/${encodeURIComponent(chaveAcesso)}/eventos`, {
+      pedRegEventoXmlGZipB64,
+    });
 
     const result = response.data;
 
@@ -202,20 +178,14 @@ export class NfseService {
    * Uses the ADN (Ambiente de Dados Nacional) contributors API.
    */
   async downloadDanfse(chaveAcesso: string): Promise<Buffer> {
-    this.logger.log(
-      `Downloading DANFS-e PDF for NFS-e: ${chaveAcesso}`,
-    );
+    this.logger.log(`Downloading DANFS-e PDF for NFS-e: ${chaveAcesso}`);
 
     const client = this.ensureAdnClient();
-    const response = await client.get(
-      `/contribuintes/danfse/${encodeURIComponent(chaveAcesso)}`,
-      {
-        responseType: 'arraybuffer',
-        headers: { Accept: 'application/pdf' },
-      },
-    );
+    const response = await client.get(`/contribuintes/danfse/${encodeURIComponent(chaveAcesso)}`, {
+      responseType: 'arraybuffer',
+      headers: { Accept: 'application/pdf' },
+    });
 
     return Buffer.from(response.data);
   }
-
 }

@@ -289,11 +289,7 @@ export class SecullumBonusIntegrationService {
     // must not be scored yet. We keep those entries in the breakdown for display
     // but exclude them from totals so e.g. 23/04 doesn't shrink extra% on 22/04.
     const _now = new Date();
-    const todayMidnightMs = new Date(
-      _now.getFullYear(),
-      _now.getMonth(),
-      _now.getDate(),
-    ).getTime();
+    const todayMidnightMs = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate()).getTime();
 
     for (const entry of entries) {
       const dayAnalysis = this.analyzeDay(entry, holidays);
@@ -301,11 +297,8 @@ export class SecullumBonusIntegrationService {
       const entryDate = new Date(dayAnalysis.date);
       const isTodayOrFuture =
         !isNaN(entryDate.getTime()) &&
-        new Date(
-          entryDate.getFullYear(),
-          entryDate.getMonth(),
-          entryDate.getDate(),
-        ).getTime() >= todayMidnightMs;
+        new Date(entryDate.getFullYear(), entryDate.getMonth(), entryDate.getDate()).getTime() >=
+          todayMidnightMs;
 
       // Override the local missing-hours estimate with Secullum's schedule-aware
       // per-day Faltas+Atrasos when available. This catches the "clocked in late
@@ -749,11 +742,7 @@ export class SecullumBonusIntegrationService {
     let isTodayOrFuture = false;
     if (!isNaN(entryDate.getTime())) {
       const now = new Date();
-      const todayMidnight = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate(),
-      ).getTime();
+      const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
       const entryMidnight = new Date(
         entryDate.getFullYear(),
         entryDate.getMonth(),
@@ -763,8 +752,7 @@ export class SecullumBonusIntegrationService {
     }
 
     // Working day = Monday-Friday, not a holiday, not vacation, not a scheduled folga
-    const isWorkingDay =
-      this.isWorkingDay(tipoDoDia, date) && !isFerias && !isHoliday && !isFolga;
+    const isWorkingDay = this.isWorkingDay(tipoDoDia, date) && !isFerias && !isHoliday && !isFolga;
 
     const hasAllFourStamps =
       isValidStamp(entrada1) &&
