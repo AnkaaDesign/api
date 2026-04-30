@@ -272,7 +272,14 @@ export class TaskQuoteController {
    */
   @Get('public/:id')
   @Public()
-  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
+  // Belt-and-suspenders cache busting — public dossier/budget data must always be
+  // 100% fresh because customers see it through long-lived shareable links and
+  // any intermediate proxy/CDN must NEVER cache the body.
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, proxy-revalidate, private')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
+  @Header('Surrogate-Control', 'no-store')
+  @Header('Vary', '*')
   async findPublic(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
     // Check if user is authenticated (optional auth)
     let isAuthenticated = false;
