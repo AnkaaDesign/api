@@ -173,6 +173,50 @@ export class SecullumController {
   }
 
   /**
+   * Fetch the photo of a specific time-entry punch.
+   * GET /integrations/secullum/batidas/foto/:employeeId/:fonteDadosId
+   *
+   * employeeId is the Secullum FuncionarioId (numeric).
+   * fonteDadosId is the per-time-slot ID from FonteDados<Field>.Geolocalizacao.FonteDadosId.
+   */
+  @Get('batidas/foto/:employeeId/:fonteDadosId')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getTimeEntryPhoto(
+    @UserId() userId: string,
+    @Param('employeeId') employeeId: string,
+    @Param('fonteDadosId') fonteDadosId: string,
+  ): Promise<{ success: boolean; message: string; data?: { FotoBatida: string }; error?: string }> {
+    this.logger.log(
+      `User ${userId} fetching time-entry photo employee=${employeeId} fonteDadosId=${fonteDadosId}`,
+    );
+    return await this.secullumService.getTimeEntryPhoto(
+      parseInt(employeeId, 10),
+      parseInt(fonteDadosId, 10),
+    );
+  }
+
+  /**
+   * Fetch the photo attached to an Employee Center Request (e.g. medical
+   * certificate uploaded with a Justify Absence request).
+   * GET /integrations/secullum/solicitacoes/foto/:solicitacaoId
+   */
+  @Get('solicitacoes/foto/:solicitacaoId')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getRequestAttachmentPhoto(
+    @UserId() userId: string,
+    @Param('solicitacaoId') solicitacaoId: string,
+  ): Promise<{ success: boolean; message: string; data?: { Foto: string }; error?: string }> {
+    this.logger.log(
+      `User ${userId} fetching request attachment photo solicitacao=${solicitacaoId}`,
+    );
+    return await this.secullumService.getRequestAttachmentPhoto(parseInt(solicitacaoId, 10));
+  }
+
+  /**
    * Batch update time entries in Secullum
    * POST /integrations/secullum/time-entries/batch-update
    */
