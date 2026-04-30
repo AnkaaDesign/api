@@ -144,6 +144,24 @@ model Bonus {
   @@index([netBonus])
 }
 
+// Per-period bonus calculation config. Currently holds the cumulative
+// `adjustment` (reajuste) — applyPeriodAdjustment ADDS the input delta to
+// this value, so apply(+5%) twice yields +10%. Both live and saved-bonus
+// calculation paths read this row, which is why applies take effect even
+// before any bonus has been saved for the period.
+model BonusPeriodConfig {
+  id         String   @id @default(uuid())
+  year       Int
+  month      Int
+  // Stored as a fraction (0.05 = +5%) to match the runtime config shape.
+  adjustment Float    @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([year, month])
+  @@index([year, month])
+}
+
 model Payroll {
   id                      String            @id @default(uuid())
   baseRemuneration        Decimal           @db.Decimal(10, 2)

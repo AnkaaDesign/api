@@ -560,6 +560,10 @@ export class BonusService {
       // Salary-based logistic algorithm — needs salary range + this user's salary.
       const calcContext = await this.bonusCalculationContextService.load();
       const userSalary = this.bonusCalculationContextService.resolveSalary(calcContext, user);
+      // Inject the period reajuste so single-user live values stay consistent
+      // with the full-period live calc and with HR's applied adjustment.
+      const periodAdjustment = await this.loadPeriodAdjustmentFraction(year, month);
+      const calcConfig = { adjustment: periodAdjustment };
 
       // BASE bonus (suspended = 1.0)
       const baseBonusValue = this.bonusCalculationService.calculateBonus({
@@ -567,6 +571,7 @@ export class BonusService {
         performanceLevel: user.performanceLevel,
         averageTasksPerUser: rawAverageTasksPerUser,
         salaryRange: calcContext.salaryRange,
+        config: calcConfig,
       });
 
       // NET bonus (suspended = 0.0)
@@ -575,6 +580,7 @@ export class BonusService {
         performanceLevel: user.performanceLevel,
         averageTasksPerUser,
         salaryRange: calcContext.salaryRange,
+        config: calcConfig,
       });
       // FIX: clamp BEFORE rounding once. Rounding both operands separately
       // and then subtracting can erase sub-cent differences that should
@@ -1659,29 +1665,63 @@ export class BonusService {
   }
 
   /**
-   * Read the period reajuste % from any saved bonus's calculationParams.
-   * The algorithm's `adjustment` config field already lives on each row;
-   * we just sample the most recent one in the period.
-   * Returns 0 when no saved bonus exists yet for the period.
+   * Internal helper: load the period adjustment as a fraction (0.05 = +5%).
+   * Reads from BonusPeriodConfig (the canonical source). Falls back to the
+   * snapshot stored on the most recent saved Bonus row only when no config
+   * row exists — that lets periods adjusted under the old "store on bonus
+   * row" scheme continue to report a non-zero value until the next apply
+   * upserts a config row.
    */
-  async getPeriodAdjustment(year: number, month: number): Promise<{ adjustment: number }> {
-    const sample = await this.prisma.bonus.findFirst({
+  async loadPeriodAdjustmentFraction(
+    year: number,
+    month: number,
+    tx?: PrismaTransaction,
+  ): Promise<number> {
+    const db = tx ?? this.prisma;
+    const config = await db.bonusPeriodConfig.findUnique({
+      where: { year_month: { year, month } },
+      select: { adjustment: true },
+    });
+    if (config) {
+      const f = Number(config.adjustment);
+      return Number.isFinite(f) ? f : 0;
+    }
+    // Backward-compat fallback for periods written before BonusPeriodConfig existed.
+    const sample = await db.bonus.findFirst({
       where: { year, month },
       orderBy: { updatedAt: 'desc' },
       select: { calculationParams: true },
     });
     const params = (sample?.calculationParams ?? null) as any;
-    const fraction = Number(params?.config?.adjustment);
-    if (!Number.isFinite(fraction)) return { adjustment: 0 };
-    // Stored as fraction (0.05 = +5%); UI wants the percentage form.
+    const f = Number(params?.config?.adjustment);
+    return Number.isFinite(f) ? f : 0;
+  }
+
+  /**
+   * Public read: returns the period reajuste in PERCENTAGE form for the UI
+   * (e.g., 5.0 for +5%). The canonical source is BonusPeriodConfig.
+   */
+  async getPeriodAdjustment(year: number, month: number): Promise<{ adjustment: number }> {
+    const fraction = await this.loadPeriodAdjustmentFraction(year, month);
     return { adjustment: Math.round(fraction * 10000) / 100 };
   }
 
   /**
-   * Set the period-wide reajuste. The algorithm already has an `adjustment`
-   * config field; we simply recompute every saved Bonus in the period with
-   * the new value and update its `calculationParams.config.adjustment`
-   * snapshot. No separate config table needed.
+   * Apply a period reajuste. Semantics (forward-only):
+   *   - The input `percentage` is a DELTA. It is ADDED to the existing
+   *     period adjustment, so apply(+5%) twice from 0 yields +10%. This
+   *     matches HR's mental model of stacking yearly inflation reajustes.
+   *   - The cumulative value lives in `BonusPeriodConfig` (one row per
+   *     {year, month}) and is read by every calculation path — live and
+   *     saved-bonus saves. So an apply takes effect immediately for live
+   *     bonuses even when nothing has been saved yet for the period.
+   *   - **Already-saved bonuses are NOT recomputed.** They are immutable
+   *     point-in-time records — the saved snapshot reflects the state at
+   *     the moment "Calcular e Salvar" was run, and stays that way until
+   *     HR explicitly runs it again. Re-running "Calcular e Salvar" is
+   *     the only thing that bridges new adjustments into saved rows.
+   *   - The new total is clamped on the lower side to `-0.99` (≈ -99%) so
+   *     `1 + adjustment` can't drive bonuses to or below zero.
    */
   async applyPeriodAdjustment(
     year: number,
@@ -1690,98 +1730,70 @@ export class BonusService {
     userId?: string,
   ): Promise<{
     success: boolean;
-    data: { adjustment: number; updatedCount: number; skippedCount: number };
+    data: {
+      adjustment: number;
+      previousAdjustment: number;
+      delta: number;
+    };
     message: string;
   }> {
     if (!Number.isFinite(percentage) || percentage < -100 || percentage > 100) {
       throw new BadRequestException('Reajuste deve estar entre -100% e +100%.');
     }
 
-    const adjustmentFraction = percentage / 100;
-    const calcContext = await this.bonusCalculationContextService.load();
+    const deltaFraction = percentage / 100;
+    let previousFraction = 0;
+    let newFraction = 0;
 
-    let updatedCount = 0;
-    // NOTE: the Payroll model has no `status` field in the current schema, so
-    // there is no "locked" payroll concept to honour here. `skippedCount` is
-    // kept in the contract so the UI/API can adopt locking later without a
-    // breaking change; until then it will always be 0.
-    let skippedCount = 0;
     await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-      const savedBonuses = await tx.bonus.findMany({
-        where: { year, month },
-        select: {
-          id: true,
-          performanceLevel: true,
-          averageTaskPerUser: true,
-          payrollId: true,
-          user: { select: { id: true, position: { select: { id: true } } } },
-        },
+      previousFraction = await this.loadPeriodAdjustmentFraction(year, month, tx);
+      const proposed = previousFraction + deltaFraction;
+      newFraction = Math.max(-0.99, proposed);
+
+      await tx.bonusPeriodConfig.upsert({
+        where: { year_month: { year, month } },
+        create: { year, month, adjustment: newFraction },
+        update: { adjustment: newFraction },
       });
 
-      for (const b of savedBonuses) {
-        // Row-lock the bonus to serialize against concurrent discount/update.
-        await tx.$executeRaw`SELECT id FROM "Bonus" WHERE id = ${b.id} FOR UPDATE`;
-
-        const userSalary = this.bonusCalculationContextService.resolveSalary(
-          calcContext,
-          b.user as { position: { id: string } | null },
-        );
-        const avg = Number(b.averageTaskPerUser) || 0;
-        const breakdown = this.bonusCalculationService.calculate({
-          salary: userSalary,
-          performanceLevel: b.performanceLevel,
-          averageTasksPerUser: avg,
-          salaryRange: calcContext.salaryRange,
-          config: { adjustment: adjustmentFraction },
-        });
-        const snapshot = this.bonusCalculationService.buildParamsSnapshot({
-          salary: userSalary,
-          salaryRange: calcContext.salaryRange,
-          averageTasksPerUser: avg,
-          config: { adjustment: adjustmentFraction },
-        });
-
-        await tx.bonus.update({
-          where: { id: b.id },
-          data: {
-            baseBonus: breakdown.bonus,
-            salaryUsed: userSalary,
-            calculationVersion: snapshot.version,
-            calculationParams: snapshot as unknown as Prisma.InputJsonValue,
-          },
-        });
-        await this.recalculateNetBonus(b.id, tx);
-        updatedCount++;
-      }
-
+      const previousPct = Math.round(previousFraction * 10000) / 100;
+      const newPct = Math.round(newFraction * 10000) / 100;
       await logEntityChange({
         changeLogService: this.changeLogService,
         entityType: ENTITY_TYPE.BONUS,
         entityId: `period-${year}-${month}`,
         action: CHANGE_ACTION.UPDATE,
-        entity: { year, month, adjustment: percentage, updatedCount, skippedCount },
-        reason: `Reajuste do período ${month}/${year} alterado para ${percentage > 0 ? '+' : ''}${percentage}%`,
+        entity: {
+          year,
+          month,
+          previousAdjustment: previousPct,
+          delta: percentage,
+          adjustment: newPct,
+        },
+        reason: `Reajuste do período ${month}/${year}: ${previousPct > 0 ? '+' : ''}${previousPct}% → ${newPct > 0 ? '+' : ''}${newPct}% (Δ ${percentage > 0 ? '+' : ''}${percentage}%)`,
         userId: userId || null,
         triggeredBy: CHANGE_TRIGGERED_BY.USER,
         transaction: tx,
       });
     });
 
-    if (skippedCount > 0) {
-      this.logger.warn(
-        `applyPeriodAdjustment ${month}/${year}: skipped ${skippedCount} bonus(es) belonging to locked payrolls.`,
-      );
-    }
-
+    // Invalidate the live cache so the next read reflects the new adjustment.
     await this.invalidateLiveBonusesCache(year, month);
+
+    const previousPct = Math.round(previousFraction * 10000) / 100;
+    const newPct = Math.round(newFraction * 10000) / 100;
+    const fmt = (p: number) => `${p > 0 ? '+' : ''}${p}%`;
+
+    const message = `Reajuste de ${fmt(percentage)} aplicado ao período ${month}/${year} (${fmt(previousPct)} → ${fmt(newPct)}). Bônus já salvos não foram alterados — execute "Calcular e Salvar" para incorporar o novo reajuste.`;
 
     return {
       success: true,
-      data: { adjustment: percentage, updatedCount, skippedCount },
-      message:
-        updatedCount === 0
-          ? `Nenhum bônus salvo no período ${month}/${year} para aplicar o reajuste. Calcule e salve os bônus primeiro.`
-          : `Reajuste de ${percentage > 0 ? '+' : ''}${percentage}% aplicado ao período ${month}/${year} (${updatedCount} bônus atualizados).`,
+      data: {
+        adjustment: newPct,
+        previousAdjustment: previousPct,
+        delta: percentage,
+      },
+      message,
     };
   }
 
@@ -2126,6 +2138,12 @@ export class BonusService {
       // Salary-based logistic algorithm — load context once for the period.
       const calcContext = await this.bonusCalculationContextService.load();
 
+      // Period-wide reajuste. Read once and inject into both base and net
+      // calculations so live values match what HR has applied — without this
+      // the live calc silently ignored the adjustment, even after apply.
+      const periodAdjustment = await this.loadPeriodAdjustmentFraction(year, month);
+      const calcConfig = { adjustment: periodAdjustment };
+
       // Calculate bonus for ALL bonifiable users (including performanceLevel = 0)
       // Users with performanceLevel = 0 will get baseBonus = 0 but still have all other data
       // IMPORTANT: All users share the SAME pool of tasks - individual bonus is based on position/performance only
@@ -2139,6 +2157,7 @@ export class BonusService {
           performanceLevel: user.performanceLevel,
           averageTasksPerUser: rawAverageTasksPerUser,
           salaryRange: calcContext.salaryRange,
+          config: calcConfig,
         });
 
         // Calculate NET bonus using WEIGHTED average (suspended = 0.0)
@@ -2147,6 +2166,7 @@ export class BonusService {
           performanceLevel: user.performanceLevel,
           averageTasksPerUser,
           salaryRange: calcContext.salaryRange,
+          config: calcConfig,
         });
 
         // Net bonus should not exceed base bonus (edge case at very low averages due to polynomial)
@@ -2884,6 +2904,11 @@ export class BonusService {
       // the per-user salary + algorithm params on each saved Bonus row.
       // This is what makes finalized bonuses reproducible after the fact.
       const calcContext = await this.bonusCalculationContextService.load();
+      // Same period adjustment the live calc just used — must be baked into
+      // the snapshot so calculationParams.config.adjustment matches the
+      // baseBonus we're persisting (otherwise the row says "0% adjustment"
+      // while the value reflects HR's reajuste).
+      const periodAdjustment = await this.loadPeriodAdjustmentFraction(yearNum, monthNum);
 
       // Per-user transactions: a single bad row must NOT roll back the whole
       // batch (100+ users). Each user gets its own tx; failures are collected
@@ -2924,6 +2949,7 @@ export class BonusService {
               salary: userSalary,
               salaryRange: calcContext.salaryRange,
               averageTasksPerUser,
+              config: { adjustment: periodAdjustment },
             });
 
             // All users share the same period-level data
