@@ -1725,6 +1725,20 @@ export const itemWhereSchema: z.ZodSchema = z.lazy(() =>
           none: z.any().optional(),
         })
         .optional(),
+      paintTypes: z
+        .object({
+          some: z.any().optional(),
+          every: z.any().optional(),
+          none: z.any().optional(),
+        })
+        .optional(),
+      paintBrands: z
+        .object({
+          some: z.any().optional(),
+          every: z.any().optional(),
+          none: z.any().optional(),
+        })
+        .optional(),
       ppeSchedules: z
         .object({
           some: z.any().optional(),

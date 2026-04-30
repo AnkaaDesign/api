@@ -162,13 +162,25 @@ export class TaskQuoteService {
    */
   async create(data: TaskQuoteCreateFormData, userId: string): Promise<TaskQuoteCreateResponse> {
     try {
-      // Validate task exists
+      // Validate task exists; load responsibles so we can default the budget responsible
       const task = await this.prisma.task.findUnique({
         where: { id: data.taskId },
+        include: { responsibles: { select: { id: true }, orderBy: { createdAt: 'asc' }, take: 1 } },
       });
 
       if (!task) {
         throw new BadRequestException('Tarefa não encontrada.');
+      }
+
+      // Default each customerConfig's responsibleId to the first task responsible if missing.
+      // This guarantees PDFs/displays always have a contact name and never fall back to corporate name.
+      const defaultResponsibleId = (task as any).responsibles?.[0]?.id || null;
+      if (defaultResponsibleId) {
+        for (const config of data.customerConfigs) {
+          if (!config.responsibleId) {
+            config.responsibleId = defaultResponsibleId;
+          }
+        }
       }
 
       // Validate customerConfigs customer IDs
@@ -498,6 +510,22 @@ export class TaskQuoteService {
           throw new BadRequestException(
             'Um ou mais clientes selecionados para faturamento não foram encontrados.',
           );
+        }
+
+        // Default each customerConfig's responsibleId to the first task responsible if missing.
+        // Mirrors the behaviour in create() so PDFs/displays always show a contact name.
+        // The TaskQuote↔Task relation lives on Task.quoteId — query via that side.
+        const taskWithResp = await this.prisma.task.findFirst({
+          where: { quoteId: id },
+          include: { responsibles: { select: { id: true }, orderBy: { createdAt: 'asc' }, take: 1 } },
+        });
+        const defaultResponsibleId = (taskWithResp as any)?.responsibles?.[0]?.id || null;
+        if (defaultResponsibleId) {
+          for (const config of data.customerConfigs) {
+            if (!config.responsibleId) {
+              config.responsibleId = defaultResponsibleId;
+            }
+          }
         }
       }
 
@@ -1598,6 +1626,9 @@ export class TaskQuoteService {
               orderNumber: true,
               paymentCondition: true,
               paymentConfig: true,
+              responsible: {
+                select: { id: true, name: true, role: true },
+              },
               customer: {
                 select: { id: true, corporateName: true, fantasyName: true, cnpj: true },
               },
@@ -1648,8 +1679,12 @@ export class TaskQuoteService {
               customer: {
                 select: { id: true, corporateName: true, fantasyName: true, cnpj: true },
               },
+              responsibles: {
+                select: { id: true, name: true, role: true },
+                orderBy: { createdAt: 'asc' },
+              },
               truck: {
-                select: { id: true, plate: true, category: true, implementType: true },
+                select: { id: true, plate: true, chassisNumber: true, category: true, implementType: true },
               },
               serviceOrders: {
                 orderBy: { position: 'asc' },
