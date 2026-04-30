@@ -1656,14 +1656,18 @@ export class TaskQuoteService {
                   },
                 },
               },
-              // Invoice: only the public-relevant status fields. NfseDocument numbering and URLs
-              // are intentionally omitted (they are internal to the issuer).
+              // Invoice: public-relevant status fields plus the AUTHORIZED NFSe ids
+              // so the dossier page can render the NFSe PDFs from /nfse/public/:id/pdf.
               invoice: {
                 select: {
                   id: true,
                   status: true,
                   totalAmount: true,
                   paidAmount: true,
+                  nfseDocuments: {
+                    where: { status: 'AUTHORIZED', elotechNfseId: { not: null } },
+                    select: { id: true, status: true, elotechNfseId: true, nfseNumber: true },
+                  },
                 },
               },
             },
