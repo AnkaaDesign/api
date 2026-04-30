@@ -165,16 +165,18 @@ export class TaskQuoteService {
       // Validate task exists; load responsibles so we can default the budget responsible
       const task = await this.prisma.task.findUnique({
         where: { id: data.taskId },
-        include: { responsibles: { select: { id: true }, orderBy: { createdAt: 'asc' }, take: 1 } },
+        include: { responsibles: { select: { id: true, role: true }, orderBy: { createdAt: 'asc' } } },
       });
 
       if (!task) {
         throw new BadRequestException('Tarefa não encontrada.');
       }
 
-      // Default each customerConfig's responsibleId to the first task responsible if missing.
-      // This guarantees PDFs/displays always have a contact name and never fall back to corporate name.
-      const defaultResponsibleId = (task as any).responsibles?.[0]?.id || null;
+      // Default each customerConfig's responsibleId to the best task responsible if missing.
+      // Priority: OWNER > first by createdAt (matches the public budget page display logic).
+      const taskResponsibles = (task as any).responsibles ?? [];
+      const ownerResp = taskResponsibles.find((r: any) => r.role === 'OWNER');
+      const defaultResponsibleId = (ownerResp ?? taskResponsibles[0])?.id || null;
       if (defaultResponsibleId) {
         for (const config of data.customerConfigs) {
           if (!config.responsibleId) {
@@ -512,14 +514,16 @@ export class TaskQuoteService {
           );
         }
 
-        // Default each customerConfig's responsibleId to the first task responsible if missing.
-        // Mirrors the behaviour in create() so PDFs/displays always show a contact name.
+        // Default each customerConfig's responsibleId to the best task responsible if missing.
+        // Priority: OWNER > first by createdAt (mirrors create() and the public budget page).
         // The TaskQuote↔Task relation lives on Task.quoteId — query via that side.
         const taskWithResp = await this.prisma.task.findFirst({
           where: { quoteId: id },
-          include: { responsibles: { select: { id: true }, orderBy: { createdAt: 'asc' }, take: 1 } },
+          include: { responsibles: { select: { id: true, role: true }, orderBy: { createdAt: 'asc' } } },
         });
-        const defaultResponsibleId = (taskWithResp as any)?.responsibles?.[0]?.id || null;
+        const taskWithRespList = (taskWithResp as any)?.responsibles ?? [];
+        const ownerRespForUpdate = taskWithRespList.find((r: any) => r.role === 'OWNER');
+        const defaultResponsibleId = (ownerRespForUpdate ?? taskWithRespList[0])?.id || null;
         if (defaultResponsibleId) {
           for (const config of data.customerConfigs) {
             if (!config.responsibleId) {
