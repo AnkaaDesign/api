@@ -772,6 +772,100 @@ export class SecullumService {
     }
   }
 
+  /**
+   * Fetches the photo associated with a time-entry punch from Secullum.
+   * Upstream: GET /Batidas/FotoBatida/{employeeId}/{fonteDadosId}
+   *
+   * The fonteDadosId is the per-time-slot ID found at
+   * FonteDados<Field>.Geolocalizacao.FonteDadosId on a time entry. The response
+   * is `{ FotoBatida: "data:image/jpeg;base64,..." }`.
+   */
+  async getTimeEntryPhoto(
+    employeeId: number,
+    fonteDadosId: number,
+  ): Promise<{ success: boolean; message: string; data?: { FotoBatida: string }; error?: string }> {
+    try {
+      this.logger.log(`Fetching photo for employee ${employeeId}, fonteDadosId ${fonteDadosId}`);
+      const response = await this.makeAuthenticatedRequest<{ FotoBatida: string }>(
+        'GET',
+        `/Batidas/FotoBatida/${employeeId}/${fonteDadosId}`,
+        undefined,
+        undefined,
+        { secullumbancoselecionado: this.databaseId },
+      );
+
+      if (!response || !response.FotoBatida) {
+        return {
+          success: false,
+          message: 'Foto não disponível para este registro',
+        };
+      }
+
+      return {
+        success: true,
+        message: 'Foto carregada com sucesso',
+        data: response,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error fetching photo for employee ${employeeId}, fonteDadosId ${fonteDadosId}`,
+        error,
+      );
+      return {
+        success: false,
+        message: `Falha ao carregar foto: ${this.getErrorMessage(error)}`,
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Fetches the photo attached to an Employee Center Request (e.g. medical
+   * certificate uploaded with a Justify Absence request).
+   * Upstream: GET /Solicitacoes/FotoAtestado/{solicitacaoId}
+   *
+   * solicitacaoId is the request's `SolicitacaoFotoId` (which equals the
+   * request `Id` when a photo is attached). Response: `{ Foto: "<base64>" }`
+   * — note: raw base64, no `data:image/...;base64,` prefix.
+   */
+  async getRequestAttachmentPhoto(
+    solicitacaoId: number,
+  ): Promise<{ success: boolean; message: string; data?: { Foto: string }; error?: string }> {
+    try {
+      this.logger.log(`Fetching attachment photo for solicitacao ${solicitacaoId}`);
+      const response = await this.makeAuthenticatedRequest<{ Foto: string }>(
+        'GET',
+        `/Solicitacoes/FotoAtestado/${solicitacaoId}`,
+        undefined,
+        undefined,
+        { secullumbancoselecionado: this.databaseId },
+      );
+
+      if (!response || !response.Foto) {
+        return {
+          success: false,
+          message: 'Foto não disponível para esta solicitação',
+        };
+      }
+
+      return {
+        success: true,
+        message: 'Foto carregada com sucesso',
+        data: response,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error fetching attachment photo for solicitacao ${solicitacaoId}`,
+        error,
+      );
+      return {
+        success: false,
+        message: `Falha ao carregar foto: ${this.getErrorMessage(error)}`,
+        error: error.message,
+      };
+    }
+  }
+
   async getCalculations(params?: {
     employeeId?: string;
     period?: string;
