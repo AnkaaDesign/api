@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { SecullumService } from './secullum.service';
 import { SecullumController } from './secullum.controller';
@@ -15,7 +15,15 @@ import { TimeEntryReminderController } from './time-entry-reminder/time-entry-re
 import { HOLIDAY_PROVIDER } from '@modules/common/notification/work-schedule.service';
 
 @Module({
-  imports: [ScheduleModule.forRoot(), CacheModule, UserModule, PrismaModule, NotificationModule],
+  imports: [
+    ScheduleModule.forRoot(),
+    CacheModule,
+    // forwardRef closes the loop: UserModule now imports SecullumModule so
+    // UserService can inject UserSecullumSyncService directly.
+    forwardRef(() => UserModule),
+    PrismaModule,
+    NotificationModule,
+  ],
   providers: [
     SecullumService,
     SecullumCadastrosService,

@@ -2,6 +2,7 @@
 
 import {
   BadRequestException,
+  forwardRef,
   Inject,
   Injectable,
   NotFoundException,
@@ -12,6 +13,8 @@ import { EventEmitter } from 'events';
 import {
   SECULLUM_USER_CREATED_EVENT,
   SECULLUM_USER_UPDATED_EVENT,
+  UserSecullumSyncService,
+  type SecullumSyncResult,
 } from '@modules/integrations/secullum/user-secullum-sync.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { UserRepository, PrismaTransaction } from './repositories/user.repository';
@@ -75,9 +78,17 @@ export class UserService {
     /**
      * Global Node EventEmitter (registered as @Global() in
      * `apps/api/src/modules/common/event-emitter`). Used to fire
-     * Secullum sync events without creating a circular dep on SecullumModule.
+     * Secullum sync events for the UPDATE path and any other listeners.
      */
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
+    /**
+     * Direct reference to the Secullum bridge so the CREATE path can
+     * `await` the sync and return its outcome to the web UI as a toast.
+     * `forwardRef` is required because SecullumModule itself imports
+     * UserModule.
+     */
+    @Inject(forwardRef(() => UserSecullumSyncService))
+    private readonly userSecullumSyncService: UserSecullumSyncService,
   ) {}
 
   /**
@@ -724,8 +735,29 @@ export class UserService {
         .initializeForNewUser(user.id)
         .catch(err => this.logger.error('Failed to init notification preferences:', err));
 
-      // Notify Secullum bridge (non-blocking; the listener checks the
-      // `secullumSyncEnabled` flag and skips if false).
+      // Secullum bridge.
+      //
+      // For users with `secullumSyncEnabled = true` we `await` the bridge so
+      // the result of the Secullum POST is visible to the web UI (toast).
+      // The bridge is guaranteed never to throw — it always returns a
+      // `SecullumSyncResult`. We still emit the event for any other listeners
+      // (and to keep the contract consistent with the UPDATE path).
+      let secullumSync: SecullumSyncResult | undefined;
+      if ((user as { secullumSyncEnabled?: boolean }).secullumSyncEnabled) {
+        try {
+          secullumSync = await this.userSecullumSyncService.onUserCreated({
+            userId: user.id,
+          });
+        } catch (err) {
+          // Defensive — onUserCreated already swallows everything, but if the
+          // contract is ever violated we don't want user creation to fail.
+          this.logger.error('Unexpected secullum sync throw:', err);
+          secullumSync = {
+            status: 'error',
+            reason: (err as Error).message,
+          };
+        }
+      }
       try {
         this.eventEmitter.emit(SECULLUM_USER_CREATED_EVENT, { userId: user.id });
       } catch (err) {
@@ -734,11 +766,16 @@ export class UserService {
 
       // Remove password from response
       const { password, ...userWithoutPassword } = user;
-      return {
+      const response: UserCreateResponse = {
         success: true,
         message: 'Usuário criado com sucesso',
         data: userWithoutPassword as User,
       };
+      if (secullumSync) {
+        (response as UserCreateResponse & { secullumSync?: SecullumSyncResult }).secullumSync =
+          secullumSync;
+      }
+      return response;
     } catch (error: any) {
       this.logger.error('Erro ao criar usuário:', error);
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
