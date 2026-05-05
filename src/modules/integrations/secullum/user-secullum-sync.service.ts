@@ -216,70 +216,100 @@ export class UserSecullumSyncService implements OnModuleInit {
 
   /**
    * After a User is updated, mirror to Secullum if the sync flag is on and we
-   * have a `secullumEmployeeId`. Detects new dismissal (transition null → date)
-   * and sets `Demissao` on the Funcionario in the same upsert.
+   * have a `secullumEmployeeId`. Always re-syncs `Demissao` from
+   * `User.dismissedAt` (idempotent — null clears, a date sets).
+   *
+   * Returns a `SecullumSyncResult` so `UserService.update()` can attach it
+   * to the response and the web UI can toast the outcome. Never throws.
+   *
+   * For dismissal flow specifically, the `reason` on a successful sync is
+   * `'demissão sincronizada'` so the web side can choose a stronger toast.
    */
-  async onUserUpdated(payload: SecullumUserUpdatedPayload): Promise<void> {
+  async onUserUpdated(
+    payload: SecullumUserUpdatedPayload,
+  ): Promise<SecullumSyncResult> {
     const { userId, dismissalJustHappened } = payload;
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { sector: true, position: true },
-    });
-    if (!user || !user.secullumSyncEnabled || !user.secullumEmployeeId) return;
-
     try {
-      const current = await this.cadastros.getFuncionarioFull(
-        user.secullumEmployeeId,
-      );
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { sector: true, position: true },
+      });
+      if (!user) {
+        return { status: 'skipped', reason: 'usuário não encontrado' };
+      }
+      if (!user.secullumSyncEnabled) {
+        return { status: 'skipped', reason: 'sincronização desabilitada' };
+      }
+      if (!user.secullumEmployeeId) {
+        return {
+          status: 'skipped',
+          reason:
+            'usuário ainda não foi sincronizado com Secullum (sem secullumEmployeeId)',
+        };
+      }
 
-      // Always sync Demissao from User.dismissedAt (idempotent — null clears
-      // the dismissal in Secullum, a date sets it). The
-      // `dismissalJustHappened` flag is informational and only affects logging.
-      const dismissedAt = (user as { dismissedAt?: Date | null }).dismissedAt;
-      const demissaoIso = dismissedAt
-        ? (dismissedAt instanceof Date
-            ? dismissedAt.toISOString().slice(0, 10)
-            : String(dismissedAt).slice(0, 10)) + 'T00:00:00'
-        : null;
+      try {
+        const current = await this.cadastros.getFuncionarioFull(
+          user.secullumEmployeeId,
+        );
 
-      const upsert: SecullumFuncionarioUpsert = {
-        ...current,
-        Nome: user.name,
-        Email: user.email ?? current.Email,
-        Telefone: user.phone ?? current.Telefone,
-        Celular: user.phone ?? current.Celular,
-        Endereco: this.composeEndereco(user) ?? current.Endereco,
-        Bairro: user.neighborhood ?? current.Bairro,
-        Cep: user.zipCode ?? current.Cep,
-        Uf: user.state ?? current.Uf,
-        Nascimento: this.toSecullumDate(user.birth) ?? current.Nascimento,
-        Cpf: user.cpf ?? current.Cpf,
-        NumeroPis: user.pis ?? current.NumeroPis,
-        NumeroFolha:
-          user.payrollNumber != null
-            ? String(user.payrollNumber)
-            : current.NumeroFolha,
-        NumeroIdentificador:
-          user.payrollNumber != null
-            ? String(user.payrollNumber)
-            : current.NumeroIdentificador,
-        DepartamentoId:
-          user.sector?.secullumDepartamentoId ?? current.DepartamentoId,
-        FuncaoId: user.position?.secullumFuncaoId ?? current.FuncaoId,
-        Demissao: demissaoIso,
-      };
+        const dismissedAt = (user as { dismissedAt?: Date | null }).dismissedAt;
+        const demissaoIso = dismissedAt
+          ? (dismissedAt instanceof Date
+              ? dismissedAt.toISOString().slice(0, 10)
+              : String(dismissedAt).slice(0, 10)) + 'T00:00:00'
+          : null;
 
-      await this.cadastros.updateFuncionario(user.secullumEmployeeId, upsert);
-      this.logger.log(
-        `[secullum] user ${userId} → Funcionario ${user.secullumEmployeeId} updated` +
-          (dismissalJustHappened ? ' + dismissed' : ''),
-      );
-    } catch (e) {
+        const upsert: SecullumFuncionarioUpsert = {
+          ...current,
+          Nome: user.name,
+          Email: user.email ?? current.Email,
+          Telefone: user.phone ?? current.Telefone,
+          Celular: user.phone ?? current.Celular,
+          Endereco: this.composeEndereco(user) ?? current.Endereco,
+          Bairro: user.neighborhood ?? current.Bairro,
+          Cep: user.zipCode ?? current.Cep,
+          Uf: user.state ?? current.Uf,
+          Nascimento: this.toSecullumDate(user.birth) ?? current.Nascimento,
+          Cpf: user.cpf ?? current.Cpf,
+          NumeroPis: user.pis ?? current.NumeroPis,
+          NumeroFolha:
+            user.payrollNumber != null
+              ? String(user.payrollNumber)
+              : current.NumeroFolha,
+          NumeroIdentificador:
+            user.payrollNumber != null
+              ? String(user.payrollNumber)
+              : current.NumeroIdentificador,
+          DepartamentoId:
+            user.sector?.secullumDepartamentoId ?? current.DepartamentoId,
+          FuncaoId: user.position?.secullumFuncaoId ?? current.FuncaoId,
+          Demissao: demissaoIso,
+        };
+
+        await this.cadastros.updateFuncionario(user.secullumEmployeeId, upsert);
+        this.logger.log(
+          `[secullum] user ${userId} → Funcionario ${user.secullumEmployeeId} updated` +
+            (dismissalJustHappened ? ' + dismissed' : ''),
+        );
+        return {
+          status: 'synced',
+          funcionarioId: user.secullumEmployeeId,
+          reason: dismissalJustHappened ? 'demissão sincronizada' : undefined,
+        };
+      } catch (e) {
+        const message = (e as Error).message;
+        this.logger.error(
+          `[secullum] updateFuncionario failed for user ${userId}: ${message}`,
+        );
+        return { status: 'error', reason: message };
+      }
+    } catch (outer) {
+      const message = (outer as Error).message;
       this.logger.error(
-        `[secullum] updateFuncionario failed for user ${userId}: ${
-          (e as Error).message
-        }`,
+        `[secullum] onUserUpdated unexpected error for ${userId}: ${message}`,
       );
+      return { status: 'error', reason: message };
     }
   }
 

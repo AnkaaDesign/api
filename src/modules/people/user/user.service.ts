@@ -1212,14 +1212,38 @@ export class UserService {
         return updatedUser;
       });
 
-      // Notify Secullum bridge (non-blocking).
+      // Secullum bridge for the UPDATE path.
+      //
+      // Mirrors the CREATE path: when sync is enabled, `await` the bridge so
+      // the Secullum result (synced / skipped / error) is visible to the web
+      // UI as a toast — particularly important on dismissal where the
+      // operator needs to know whether the funcionario's Demissao was set.
+      // The bridge never throws; it always returns a SecullumSyncResult.
+      const dismissalJustHappened = !!(
+        updatedUser as { dismissedAt?: Date | null }
+      ).dismissedAt;
+      let secullumSync: SecullumSyncResult | undefined;
+      if ((updatedUser as { secullumSyncEnabled?: boolean }).secullumSyncEnabled) {
+        try {
+          secullumSync = await this.userSecullumSyncService.onUserUpdated({
+            userId: id,
+            dismissalJustHappened,
+          });
+        } catch (err) {
+          // Defensive — onUserUpdated already swallows everything internally.
+          this.logger.error('Unexpected secullum sync throw:', err);
+          secullumSync = {
+            status: 'error',
+            reason: (err as Error).message,
+          };
+        }
+      }
+      // Always emit the event too — keeps the contract for any other
+      // listeners that might care about user updates.
       try {
         this.eventEmitter.emit(SECULLUM_USER_UPDATED_EVENT, {
           userId: id,
-          // Bridge always re-syncs Demissao from User.dismissedAt, so this
-          // flag is informational only (lets the bridge log differently).
-          dismissalJustHappened: !!(updatedUser as { dismissedAt?: Date | null })
-            .dismissedAt,
+          dismissalJustHappened,
         });
       } catch (err) {
         this.logger.error('Failed to emit secullum.user.updated:', err);
@@ -1227,11 +1251,16 @@ export class UserService {
 
       // Remove password from response
       const { password, ...userWithoutPassword } = updatedUser;
-      return {
+      const response: UserUpdateResponse = {
         success: true,
         message: 'Usuário atualizado com sucesso',
         data: userWithoutPassword as User,
       };
+      if (secullumSync) {
+        (response as UserUpdateResponse & { secullumSync?: SecullumSyncResult }).secullumSync =
+          secullumSync;
+      }
+      return response;
     } catch (error: any) {
       this.logger.error('Erro ao atualizar usuário:', error);
       if (error instanceof BadRequestException || error instanceof NotFoundException) {

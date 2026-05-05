@@ -22,7 +22,7 @@ import { HOLIDAY_PROVIDER } from '@modules/common/notification/work-schedule.ser
     // UserService can inject UserSecullumSyncService directly.
     forwardRef(() => UserModule),
     PrismaModule,
-    NotificationModule,
+    forwardRef(() => NotificationModule),
   ],
   providers: [
     SecullumService,
