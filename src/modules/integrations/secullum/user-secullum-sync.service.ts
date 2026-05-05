@@ -28,6 +28,17 @@ export interface SecullumUserUpdatedPayload {
 }
 
 /**
+ * Result object surfaced back to UserService.create() so the web UI can
+ * toast the outcome. The bridge never throws; errors become
+ * `{ status: 'error', reason: '<message>' }`.
+ */
+export interface SecullumSyncResult {
+  status: 'synced' | 'skipped' | 'error';
+  reason?: string;
+  funcionarioId?: number;
+}
+
+/**
  * Bridge between Ankaa Users and Secullum Funcionarios.
  *
  * Listens to the global Node `EventEmitter` (token `'EventEmitter'`,
@@ -46,15 +57,20 @@ export class UserSecullumSyncService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    this.events.on(SECULLUM_USER_CREATED_EVENT, (p: SecullumUserCreatedPayload) =>
-      this.onUserCreated(p).catch((err) =>
+    this.events.on(SECULLUM_USER_CREATED_EVENT, (p: SecullumUserCreatedPayload) => {
+      // Fire-and-forget: the create-user code path now `await`s onUserCreated
+      // directly so it can surface the result to the web UI. We still listen
+      // here to keep the event API contract for any other producers, but
+      // onUserCreated is idempotent (it short-circuits if the user already has
+      // a `secullumEmployeeId`) so emitting + awaiting is safe.
+      void this.onUserCreated(p).catch((err) =>
         this.logger.error(
           `[secullum] onUserCreated unhandled error for ${p?.userId}: ${
             (err as Error).message
           }`,
         ),
-      ),
-    );
+      );
+    });
     this.events.on(SECULLUM_USER_UPDATED_EVENT, (p: SecullumUserUpdatedPayload) =>
       this.onUserUpdated(p).catch((err) =>
         this.logger.error(
@@ -72,89 +88,129 @@ export class UserSecullumSyncService implements OnModuleInit {
   /**
    * After a User is created, if the sync flag is on, provision a Funcionario
    * in Secullum and persist `user.secullumEmployeeId` back on the row.
+   *
+   * Returns a `SecullumSyncResult` describing the outcome so the calling
+   * UserService.create() can surface it back to the web UI as a toast.
+   * NEVER throws — wraps everything in try/catch and converts failures to
+   * `{ status: 'error', reason }` so user creation cannot be broken by the
+   * Secullum side.
    */
-  async onUserCreated(payload: SecullumUserCreatedPayload): Promise<void> {
+  async onUserCreated(
+    payload: SecullumUserCreatedPayload,
+  ): Promise<SecullumSyncResult> {
     const userId = payload.userId;
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { sector: true, position: true },
-    });
-    if (!user || !user.secullumSyncEnabled) return;
-
-    if (!user.cpf) {
-      this.logger.warn(
-        `[secullum] cannot create funcionário: user ${userId} has no CPF`,
-      );
-      return;
-    }
-
-    const departamentoId = user.sector?.secullumDepartamentoId;
-    const funcaoId = user.position?.secullumFuncaoId;
-    if (!departamentoId || !funcaoId) {
-      this.logger.warn(
-        `[secullum] cannot create funcionário: missing Secullum mapping ` +
-          `(sector.secullumDepartamentoId=${departamentoId}, ` +
-          `position.secullumFuncaoId=${funcaoId}). ` +
-          `Run /integrations/secullum/sync/* first.`,
-      );
-      return;
-    }
-
-    const empresas = await this.cadastros.listEmpresas().catch(() => []);
-    const empresaId = empresas[0]?.Id ?? 1;
-
-    // Horario resolution: per-user override → sector default → fallback 1.
-    // The fallback is deliberately the lowest id so a misconfigured tenant
-    // still gets a valid POST instead of a 400.
-    const horarioId =
-      (user as { secullumHorarioId?: number | null }).secullumHorarioId ??
-      (user.sector as { secullumHorarioId?: number | null } | null)
-        ?.secullumHorarioId ??
-      1;
-
-    const payloadFunc: SecullumFuncionarioCreate = {
-      Nome: user.name,
-      Cpf: user.cpf,
-      NumeroFolha: String(user.payrollNumber ?? ''),
-      NumeroIdentificador: String(user.payrollNumber ?? ''),
-      NumeroPis: user.pis ?? '',
-      Email: user.email ?? undefined,
-      Telefone: user.phone ?? undefined,
-      Celular: user.phone ?? undefined,
-      Endereco: this.composeEndereco(user),
-      Bairro: user.neighborhood ?? undefined,
-      Cep: user.zipCode ?? undefined,
-      Uf: user.state ?? undefined,
-      Nascimento: this.toSecullumDate(user.birth),
-      Admissao:
-        this.toSecullumDate(user.exp1StartAt) ??
-        new Date().toISOString().slice(0, 10) + 'T00:00:00',
-      EmpresaId: empresaId,
-      HorarioId: horarioId,
-      FuncaoId: funcaoId,
-      DepartamentoId: departamentoId,
-    };
-
     try {
-      const created = (await this.cadastros.createFuncionario(payloadFunc)) as
-        | { funcionarioId: number }
-        | { Id: number };
-      const funcionarioId =
-        (created as { funcionarioId: number }).funcionarioId ??
-        (created as { Id: number }).Id;
-      await this.prisma.user.update({
+      const user = await this.prisma.user.findUnique({
         where: { id: userId },
-        data: { secullumEmployeeId: funcionarioId },
+        include: { sector: true, position: true },
       });
-      this.logger.log(
-        `[secullum] user ${userId} ↔ Funcionario ${funcionarioId} linked`,
-      );
-    } catch (e) {
+      if (!user) {
+        return { status: 'skipped', reason: 'usuário não encontrado' };
+      }
+      if (!user.secullumSyncEnabled) {
+        return { status: 'skipped', reason: 'sincronização desativada' };
+      }
+      // Idempotency guard: if the user is already linked (e.g. event fired
+      // again after the synchronous create-path already linked them), just
+      // report synced and skip the POST.
+      if (user.secullumEmployeeId) {
+        return {
+          status: 'synced',
+          funcionarioId: user.secullumEmployeeId,
+          reason: 'já vinculado',
+        };
+      }
+
+      if (!user.cpf) {
+        this.logger.warn(
+          `[secullum] cannot create funcionário: user ${userId} has no CPF`,
+        );
+        return { status: 'skipped', reason: 'CPF não preenchido' };
+      }
+
+      const departamentoId = user.sector?.secullumDepartamentoId;
+      const funcaoId = user.position?.secullumFuncaoId;
+      if (!departamentoId) {
+        this.logger.warn(
+          `[secullum] cannot create funcionário: sector ${user.sector?.id ?? '<none>'} has no secullumDepartamentoId`,
+        );
+        return {
+          status: 'skipped',
+          reason: 'setor sem departamento Secullum',
+        };
+      }
+      if (!funcaoId) {
+        this.logger.warn(
+          `[secullum] cannot create funcionário: position ${user.position?.id ?? '<none>'} has no secullumFuncaoId`,
+        );
+        return { status: 'skipped', reason: 'cargo sem função Secullum' };
+      }
+
+      const empresas = await this.cadastros.listEmpresas().catch(() => []);
+      const empresaId = empresas[0]?.Id ?? 1;
+
+      // Horario resolution: per-user override → sector default → fallback 1.
+      // The fallback is deliberately the lowest id so a misconfigured tenant
+      // still gets a valid POST instead of a 400.
+      const horarioId =
+        (user as { secullumHorarioId?: number | null }).secullumHorarioId ??
+        (user.sector as { secullumHorarioId?: number | null } | null)
+          ?.secullumHorarioId ??
+        1;
+
+      const payloadFunc: SecullumFuncionarioCreate = {
+        Nome: user.name,
+        Cpf: user.cpf,
+        NumeroFolha: String(user.payrollNumber ?? ''),
+        NumeroIdentificador: String(user.payrollNumber ?? ''),
+        NumeroPis: user.pis ?? '',
+        Email: user.email ?? undefined,
+        Telefone: user.phone ?? undefined,
+        Celular: user.phone ?? undefined,
+        Endereco: this.composeEndereco(user),
+        Bairro: user.neighborhood ?? undefined,
+        Cep: user.zipCode ?? undefined,
+        Uf: user.state ?? undefined,
+        Nascimento: this.toSecullumDate(user.birth),
+        Admissao:
+          this.toSecullumDate(user.exp1StartAt) ??
+          new Date().toISOString().slice(0, 10) + 'T00:00:00',
+        EmpresaId: empresaId,
+        HorarioId: horarioId,
+        FuncaoId: funcaoId,
+        DepartamentoId: departamentoId,
+      };
+
+      try {
+        const created = (await this.cadastros.createFuncionario(
+          payloadFunc,
+        )) as { funcionarioId: number } | { Id: number };
+        const funcionarioId =
+          (created as { funcionarioId: number }).funcionarioId ??
+          (created as { Id: number }).Id;
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: { secullumEmployeeId: funcionarioId },
+        });
+        this.logger.log(
+          `[secullum] user ${userId} ↔ Funcionario ${funcionarioId} linked`,
+        );
+        return { status: 'synced', funcionarioId };
+      } catch (e) {
+        const message = (e as Error).message;
+        this.logger.error(
+          `[secullum] createFuncionario failed for user ${userId}: ${message}`,
+        );
+        return { status: 'error', reason: message };
+      }
+    } catch (outer) {
+      // Defensive: anything outside the inner try (e.g. prisma findUnique
+      // blowing up) must still produce a status, never a thrown error.
+      const message = (outer as Error).message;
       this.logger.error(
-        `[secullum] createFuncionario failed for user ${userId}: ${
-          (e as Error).message
-        }`,
+        `[secullum] onUserCreated unexpected error for ${userId}: ${message}`,
       );
+      return { status: 'error', reason: message };
     }
   }
 
