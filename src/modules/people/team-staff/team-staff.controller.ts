@@ -11,7 +11,6 @@ import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { ZodQueryValidationPipe } from '@modules/common/pipes/zod-validation.pipe';
 import { ReadRateLimit } from '@modules/common/throttler/throttler.decorators';
 import type {
-  VacationGetManyResponse,
   BorrowGetManyResponse,
   PpeDeliveryGetManyResponse,
   ActivityGetManyResponse,
@@ -19,7 +18,6 @@ import type {
   UserGetManyResponse,
 } from '../../../types';
 import type {
-  VacationGetManyFormData,
   BorrowGetManyFormData,
   PpeDeliveryGetManyFormData,
   ActivityGetManyFormData,
@@ -27,7 +25,6 @@ import type {
   UserGetManyFormData,
 } from '../../../schemas';
 import {
-  vacationGetManySchema,
   borrowGetManySchema,
   ppeDeliveryGetManySchema,
   activityGetManySchema,
@@ -50,7 +47,6 @@ import {
  * - GET /team-staff/users - Get users from the leader's led sector
  * - GET /team-staff/calculations - Get Secullum calculations for team members
  * - GET /team-staff/borrows - Get borrows for team members
- * - GET /team-staff/vacations - Get vacations for team members
  * - GET /team-staff/epis - Get EPI deliveries for team members
  * - GET /team-staff/activities - Get activities for team members
  * - GET /team-staff/warnings - Get warnings for team members
@@ -144,21 +140,6 @@ export class TeamStaffController {
   // =====================
   // TEAM VACATIONS
   // =====================
-
-  /**
-   * Get vacations for team members
-   * Security: Filters vacations by users in led sector from database (Sector.leaderId)
-   * Returns 403 if user is not a team leader (no sector has this user as leaderId)
-   */
-  @Get('vacations')
-  @ReadRateLimit()
-  async getTeamVacations(
-    @Query(new ZodQueryValidationPipe(vacationGetManySchema)) query: VacationGetManyFormData,
-    @UserId() userId: string,
-  ): Promise<VacationGetManyResponse> {
-    this.logger.log(`[Team Vacations] Request from user: ${userId}`);
-    return this.teamStaffService.getTeamVacations(userId, query);
-  }
 
   // =====================
   // TEAM EPIs (PPE DELIVERIES)

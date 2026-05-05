@@ -4,7 +4,6 @@
 
 import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { VacationService } from '../vacation/vacation.service';
 import { BorrowService } from '@modules/inventory/borrow/borrow.service';
 import { PpeDeliveryService } from '@modules/inventory/ppe/ppe-delivery.service';
 import { ActivityService } from '@modules/inventory/activity/activity.service';
@@ -13,7 +12,6 @@ import { BonusService } from '@modules/human-resources/bonus/bonus.service';
 import { WarningService } from '../warning/warning.service';
 import { PPE_DELIVERY_STATUS } from '../../../constants/enums';
 import type {
-  VacationGetManyResponse,
   BorrowGetManyResponse,
   PpeDeliveryGetManyResponse,
   PpeDeliveryCreateResponse,
@@ -22,7 +20,6 @@ import type {
   WarningGetManyResponse,
 } from '../../../types';
 import type {
-  VacationGetManyFormData,
   BorrowGetManyFormData,
   PpeDeliveryGetManyFormData,
   PpeDeliveryCreateFormData,
@@ -42,7 +39,6 @@ export class PersonalService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly vacationService: VacationService,
     private readonly borrowService: BorrowService,
     private readonly ppeDeliveryService: PpeDeliveryService,
     private readonly activityService: ActivityService,
@@ -50,30 +46,6 @@ export class PersonalService {
     private readonly bonusService: BonusService,
     private readonly warningService: WarningService,
   ) {}
-
-  /**
-   * Get user's vacations (Minhas Férias)
-   * Filters vacations by authenticated userId
-   *
-   * @param userId - Authenticated user ID
-   * @param query - Query parameters for filtering/pagination
-   * @returns User's vacations
-   */
-  async getMyVacations(
-    userId: string,
-    query: VacationGetManyFormData,
-  ): Promise<VacationGetManyResponse> {
-    // Merge user filter with query - user can only see their own vacations
-    const userFilteredQuery: VacationGetManyFormData = {
-      ...query,
-      where: {
-        ...query.where,
-        userId, // Force filter by authenticated user
-      },
-    };
-
-    return this.vacationService.findMany(userFilteredQuery);
-  }
 
   /**
    * Get user's loans/borrows (Meus Empréstimos)
@@ -334,6 +306,137 @@ export class PersonalService {
         endDate: params.endDate,
       },
     };
+  }
+
+  // =====================
+  // MY SECULLUM SOLICITAÇÃO DE AUSÊNCIA (Justificar Ausência)
+  // =====================
+  // Employee self-service flow that posts to Secullum's manager approval queue.
+  // See api/docs/secullum-integration/10_solicitacao_ausencia_plan.md for the
+  // full HAR analysis (tipo=2, Dia Inteiro, single day).
+
+  /**
+   * Resolves the authenticated user → Secullum funcionarioId.
+   * Uses User.secullumEmployeeId when populated (fast path); otherwise falls
+   * back to remote CPF/PIS/PayrollNumber lookup via findSecullumEmployee.
+   */
+  private async resolveMySecullumEmployeeId(userId: string): Promise<number> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        cpf: true,
+        pis: true,
+        payrollNumber: true,
+        secullumEmployeeId: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.secullumEmployeeId) {
+      return user.secullumEmployeeId;
+    }
+
+    const found = await this.secullumService.findSecullumEmployee({
+      cpf: user.cpf || undefined,
+      pis: user.pis || undefined,
+      payrollNumber: user.payrollNumber || undefined,
+    });
+
+    if (!found.success || !found.data) {
+      this.logger.warn(
+        `No Secullum employee found for user ${user.name} (CPF: ${user.cpf}, PIS: ${user.pis}, Folha: ${user.payrollNumber})`,
+      );
+      throw new BadRequestException(
+        'Você não está cadastrado no ponto eletrônico com o mesmo CPF, PIS ou Número da Folha. Entre em contato com o RH para verificar seus dados.',
+      );
+    }
+
+    return Number(found.data.secullumId);
+  }
+
+  /**
+   * List the user's missing days (no batidas + not a holiday + in the past)
+   * within [startDate, endDate]. Drives the Justificar Ausência picker.
+   */
+  async getMyMissingDays(
+    userId: string,
+    params: { startDate: string; endDate: string },
+  ) {
+    if (!params.startDate || !params.endDate) {
+      throw new BadRequestException(
+        'startDate and endDate are required parameters (format: YYYY-MM-DD)',
+      );
+    }
+
+    const secullumEmployeeId = await this.resolveMySecullumEmployeeId(userId);
+    return this.secullumService.getMissingDaysForEmployee(
+      secullumEmployeeId,
+      params.startDate,
+      params.endDate,
+    );
+  }
+
+  /**
+   * Returns the existing solicitação for the given date, or `data: null` if none.
+   * Used to gate the form: the user can only submit when there's no existing record.
+   */
+  async getMyExistingSolicitacao(userId: string, date: string) {
+    if (!date) {
+      throw new BadRequestException('date is required (format: YYYY-MM-DD)');
+    }
+    // Confirm user → secullum mapping exists (throws on failure for consistent errors).
+    await this.resolveMySecullumEmployeeId(userId);
+    return this.secullumService.getSolicitacaoByDate(date);
+  }
+
+  /**
+   * Surfaces the employee-facing /Justificativas list (camelCase shape with
+   * `exigirFotoAtestado`). Different from the admin getJustifications() which
+   * returns the PascalCase admin shape.
+   */
+  async getMyJustificativas(userId: string) {
+    await this.resolveMySecullumEmployeeId(userId);
+    return this.secullumService.getJustificativasForFuncionario();
+  }
+
+  /**
+   * Submit a Justificar Ausência (tipo=2) request to Secullum's approval queue.
+   * Photo is enforced server-side when the chosen justificativa requires it.
+   */
+  async createMyJustifyAbsence(
+    userId: string,
+    dto: { date: string; justificativaId: number; observacoes?: string; photoBase64?: string },
+  ) {
+    if (!dto.date || !dto.justificativaId) {
+      throw new BadRequestException('date and justificativaId are required');
+    }
+
+    const secullumEmployeeId = await this.resolveMySecullumEmployeeId(userId);
+
+    // Pre-validate: if the justificativa requires a photo and none was sent,
+    // fail fast with a friendly error before round-tripping to Secullum.
+    const justRes = await this.secullumService.getJustificativasForFuncionario();
+    const just = justRes.data.find(j => j.id === dto.justificativaId);
+    if (!just) {
+      throw new BadRequestException('Motivo selecionado não está disponível');
+    }
+    if (just.exigirFotoAtestado && !dto.photoBase64) {
+      throw new BadRequestException(
+        `O motivo "${just.nomeCompleto.trim()}" exige um atestado em foto.`,
+      );
+    }
+
+    return this.secullumService.createJustifyAbsence(secullumEmployeeId, {
+      date: dto.date,
+      justificativaId: dto.justificativaId,
+      observacoes: dto.observacoes,
+      photoBase64: dto.photoBase64,
+    });
   }
 
   // =====================

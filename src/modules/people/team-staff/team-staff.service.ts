@@ -10,14 +10,12 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { VacationService } from '../vacation/vacation.service';
 import { BorrowService } from '@modules/inventory/borrow/borrow.service';
 import { PpeDeliveryService } from '@modules/inventory/ppe/ppe-delivery.service';
 import { ActivityService } from '@modules/inventory/activity/activity.service';
 import { WarningService } from '../warning/warning.service';
 import { SecullumService } from '@modules/integrations/secullum/secullum.service';
 import type {
-  VacationGetManyResponse,
   BorrowGetManyResponse,
   PpeDeliveryGetManyResponse,
   ActivityGetManyResponse,
@@ -25,7 +23,6 @@ import type {
   UserGetManyResponse,
 } from '../../../types';
 import type {
-  VacationGetManyFormData,
   BorrowGetManyFormData,
   PpeDeliveryGetManyFormData,
   ActivityGetManyFormData,
@@ -48,7 +45,6 @@ export class TeamStaffService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly vacationService: VacationService,
     private readonly borrowService: BorrowService,
     private readonly ppeDeliveryService: PpeDeliveryService,
     private readonly activityService: ActivityService,
@@ -414,37 +410,6 @@ export class TeamStaffService {
     };
 
     return this.borrowService.findMany(secureQuery);
-  }
-
-  /**
-   * Get vacations for team members
-   * Filters vacations by users in the led sector
-   *
-   * @param userId - Authenticated team leader user ID
-   * @param query - Query parameters for filtering/pagination
-   * @returns Vacations for team members
-   */
-  async getTeamVacations(
-    userId: string,
-    query: VacationGetManyFormData,
-  ): Promise<VacationGetManyResponse> {
-    // Validate leader and get ledSectorId from database
-    const ledSectorId = await this.validateTeamLeader(userId);
-
-    this.logger.log(`Team leader ${userId} accessing vacations from led sector ${ledSectorId}`);
-
-    // Force filter by led sector through user relation
-    const secureQuery: VacationGetManyFormData = {
-      ...query,
-      where: {
-        ...query.where,
-        user: {
-          sectorId: ledSectorId, // Override with database ledSectorId
-        },
-      },
-    };
-
-    return this.vacationService.findMany(secureQuery);
   }
 
   /**

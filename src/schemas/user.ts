@@ -52,6 +52,9 @@ export const userSelectSchema = z
     dismissedAt: z.boolean().optional(),
     performanceLevel: z.boolean().optional(),
     sectorId: z.boolean().optional(),
+    secullumEmployeeId: z.boolean().optional(),
+    secullumSyncEnabled: z.boolean().optional(),
+    secullumHorarioId: z.boolean().optional(),
     createdAt: z.boolean().optional(),
     updatedAt: z.boolean().optional(),
     password: z.boolean().optional(),
@@ -176,7 +179,7 @@ export const userSelectSchema = z
         }),
       ])
       .optional(),
-    vacations: z
+    _vacations_removed: z
       .union([
         z.boolean(),
         z.object({
@@ -445,7 +448,6 @@ export const userSelectForProfile = {
     select: {
       tasks: true,
       activities: true,
-      vacations: true,
       commissions: true,
     },
   },
@@ -616,7 +618,7 @@ export const userIncludeSchema = z
         }),
       ])
       .optional(),
-    vacations: z
+    _vacations_removed_2: z
       .union([
         z.boolean(),
         z.object({
@@ -1221,7 +1223,7 @@ export const userWhereSchema: z.ZodSchema = z.lazy(() =>
         })
         .optional(),
 
-      vacations: z
+      _vacations_removed_3: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -1258,7 +1260,6 @@ const userFilters = {
   hasPpeSize: z.boolean().optional(),
   hasActivities: z.boolean().optional(),
   hasTasks: z.boolean().optional(),
-  hasVacations: z.boolean().optional(),
   showDismissed: z.boolean().optional(),
   performanceLevelRange: z
     .object({
@@ -1409,16 +1410,6 @@ const userTransform = (data: any) => {
       andConditions.push({ createdTasks: { none: {} } });
     }
     delete data.hasTasks;
-  }
-
-  // Handle hasVacations filter
-  if (typeof data.hasVacations === 'boolean') {
-    if (data.hasVacations) {
-      andConditions.push({ vacations: { some: {} } });
-    } else {
-      andConditions.push({ vacations: { none: {} } });
-    }
-    delete data.hasVacations;
   }
 
   // Handle performanceLevelRange filter

@@ -38,6 +38,13 @@ import {
   SecullumRejectRequestPayload,
   SecullumHorariosResponse,
   SecullumJustificationsResponse,
+  SecullumAbsencesResponse,
+  SecullumCreateAbsenceRequest,
+  SecullumCreateAbsenceResponse,
+  SecullumDeleteAbsenceResponse,
+  SecullumAggregatedAbsencesResponse,
+  SecullumCreateAbsenceForUsersRequest,
+  SecullumCreateAbsenceForUsersResponse,
 } from './dto';
 
 @Controller('integrations/secullum')
@@ -419,6 +426,170 @@ export class SecullumController {
     this.logger.log(`User ${userId} deleting holiday ${holidayId} in Secullum`);
 
     return await this.secullumService.deleteHoliday(holidayId);
+  }
+
+  /**
+   * Unjustified absences derived from /Calculos (Cálculos de Ponto) —
+   * scheduled workdays where Faltas > 00:00 with no Abono/Ajuste applied.
+   * Returned in the same shape as /absences so the frontend can merge both
+   * lists.
+   * GET /integrations/secullum/absences/unjustified
+   *
+   * NOTE: this route MUST be declared before `absences/:funcionarioId` —
+   * NestJS matches in declaration order, so the dynamic `:funcionarioId`
+   * route would otherwise swallow the literal "unjustified" segment.
+   */
+  @Get('absences/unjustified')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getUnjustifiedAbsences(
+    @UserId() userId: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Query('sectorId') sectorId?: string,
+  ): Promise<SecullumAggregatedAbsencesResponse> {
+    this.logger.log(
+      `User ${userId} fetching unjustified absences ${startDate}..${endDate} sector=${sectorId ?? 'ALL'}`,
+    );
+    return await this.secullumService.getUnjustifiedAbsences({ startDate, endDate, sectorId });
+  }
+
+  /**
+   * List absences (afastamentos) for a single employee.
+   * GET /integrations/secullum/absences/:funcionarioId
+   */
+  @Get('absences/:funcionarioId')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getAbsencesByEmployee(
+    @UserId() userId: string,
+    @Param('funcionarioId') funcionarioIdParam: string,
+  ): Promise<SecullumAbsencesResponse> {
+    const funcionarioId = parseInt(funcionarioIdParam, 10);
+    this.logger.log(
+      `User ${userId} fetching absences for funcionarioId=${funcionarioId}`,
+    );
+    return await this.secullumService.getAbsencesByEmployee(funcionarioId);
+  }
+
+  /**
+   * Aggregated absences across all linked employees within a date window.
+   * Used by the HR calendar.
+   * GET /integrations/secullum/absences?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&sectorId=
+   */
+  @Get('absences')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getAggregatedAbsences(
+    @UserId() userId: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Query('sectorId') sectorId?: string,
+  ): Promise<SecullumAggregatedAbsencesResponse> {
+    this.logger.log(
+      `User ${userId} aggregating absences ${startDate}..${endDate} sector=${sectorId ?? 'ALL'}`,
+    );
+    return await this.secullumService.getAggregatedAbsences({
+      startDate,
+      endDate,
+      sectorId,
+    });
+  }
+
+  /**
+   * Create an absence in Secullum. Used by single-employee + collective-vacation flows.
+   * POST /integrations/secullum/absences
+   */
+  @Post('absences')
+  @WriteRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  async createAbsence(
+    @UserId() userId: string,
+    @Body() body: SecullumCreateAbsenceRequest,
+  ): Promise<SecullumCreateAbsenceResponse> {
+    this.logger.log(
+      `User ${userId} creating absence funcionarioId=${body.FuncionarioId}`,
+    );
+    return await this.secullumService.createAbsence(body);
+  }
+
+  /**
+   * Create absences for a list of internal userIds (or all active linked users
+   * when applyToAll=true). Server resolves userId → secullumEmployeeId so the
+   * frontend never needs to know the Secullum ID.
+   * POST /integrations/secullum/absences/by-users
+   */
+  @Post('absences/by-users')
+  @WriteRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  async createAbsenceForUsers(
+    @UserId() userId: string,
+    @Body() body: SecullumCreateAbsenceForUsersRequest,
+  ): Promise<SecullumCreateAbsenceForUsersResponse> {
+    this.logger.log(
+      `User ${userId} creating absence for ${body.applyToAll ? 'ALL' : (body.userIds?.length ?? 0)} user(s)`,
+    );
+    return await this.secullumService.createAbsenceForUsers(body);
+  }
+
+  /**
+   * Delete an absence in Secullum.
+   * DELETE /integrations/secullum/absences/:id
+   */
+  @Delete('absences/:id')
+  @WriteRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async deleteAbsence(
+    @UserId() userId: string,
+    @Param('id') absenceId: string,
+  ): Promise<SecullumDeleteAbsenceResponse> {
+    this.logger.log(`User ${userId} deleting absence ${absenceId}`);
+    return await this.secullumService.deleteAbsence(absenceId);
+  }
+
+  /**
+   * Update an absence by deleting + recreating (Secullum has no PUT).
+   * Body must include the original payload for rollback purposes.
+   * PUT /integrations/secullum/absences/:id
+   */
+  @Put('absences/:id')
+  @WriteRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async updateAbsence(
+    @UserId() userId: string,
+    @Param('id') absenceId: string,
+    @Body()
+    body: {
+      original: {
+        Inicio: string;
+        Fim: string;
+        JustificativaId: number;
+        Motivo?: string;
+        FuncionarioId: number;
+      };
+      next: SecullumCreateAbsenceRequest;
+    },
+  ): Promise<SecullumCreateAbsenceResponse> {
+    this.logger.log(`User ${userId} updating absence ${absenceId}`);
+    return await this.secullumService.updateAbsence(
+      absenceId,
+      {
+        Id: parseInt(absenceId, 10),
+        Inicio: body.original.Inicio,
+        Fim: body.original.Fim,
+        JustificativaId: body.original.JustificativaId,
+        Motivo: body.original.Motivo,
+        FuncionarioId: body.original.FuncionarioId,
+      },
+      body.next,
+    );
   }
 
   /**

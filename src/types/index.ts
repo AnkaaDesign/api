@@ -45,6 +45,5 @@ export * from './task-quote-service';
 export * from './task-quote-customer-config';
 export * from './truck';
 export * from './user';
-export * from './vacation';
 export * from './verification';
 export * from './warning';

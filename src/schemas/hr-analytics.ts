@@ -33,7 +33,7 @@ export const teamPerformanceFiltersSchema = z.object({
   periods: z.array(periodSchema).optional(),
   groupBy: z.enum(['month', 'sector']).optional().default('month'),
   sortBy: z
-    .enum(['headcount', 'performance', 'warnings', 'vacations'])
+    .enum(['headcount', 'performance', 'warnings'])
     .optional()
     .default('headcount'),
   sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),

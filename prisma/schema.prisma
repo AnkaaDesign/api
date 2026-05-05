@@ -1635,7 +1635,6 @@ model User {
   position                Position?                    @relation("USER_POSITION", fields: [positionId], references: [id])
   sector                  Sector?                      @relation(fields: [sectorId], references: [id])
   notificationPreferences UserNotificationPreference[] @relation("USER_NOTIFICATION_PREFERENCES")
-  vacations               Vacation[]
   warningsCollaborator    Warning[]                    @relation("COLLABORATOR_WARNING")
   warningsSupervisor      Warning[]                    @relation("SUPERVISOR_WARNING")
   deployments             Deployment[]                 @relation("DEPLOYMENT_USER")
@@ -1663,25 +1662,6 @@ model User {
   @@index([verificationType])
   @@index([sessionToken])
   @@index([verified])
-}
-
-model Vacation {
-  id           String         @id @default(uuid())
-  userId       String?
-  startAt      DateTime
-  endAt        DateTime
-  isCollective Boolean        @default(false)
-  status       VacationStatus @default(PENDING)
-  statusOrder  Int            @default(1)
-  type         VacationType   @default(COLLECTIVE)
-  typeOrder    Int            @default(2)
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  user         User?          @relation(fields: [userId], references: [id])
-
-  @@index([userId])
-  @@index([startAt, endAt])
-  @@index([statusOrder])
 }
 
 model Preferences {
@@ -2494,15 +2474,6 @@ enum AbsenceStatus {
   REJECTED
 }
 
-enum VacationStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  CANCELLED
-  IN_PROGRESS
-  COMPLETED
-}
-
 enum PpeRequestStatus {
   PENDING
   APPROVED
@@ -2532,18 +2503,6 @@ enum ExternalWithdrawalStatus {
   CHARGED
   LIQUIDATED
   DELIVERED
-}
-
-enum VacationType {
-  ANNUAL
-  COLLECTIVE
-  MEDICAL
-  MATERNITY
-  PATERNITY
-  EMERGENCY
-  STUDY
-  UNPAID
-  OTHER
 }
 
 enum PaintFinish {

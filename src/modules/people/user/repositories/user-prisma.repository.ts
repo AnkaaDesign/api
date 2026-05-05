@@ -301,7 +301,6 @@ export class UserPrismaRepository
       _count: {
         select: {
           activities: true,
-          vacations: true,
         },
       },
     };

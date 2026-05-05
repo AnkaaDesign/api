@@ -76,7 +76,6 @@ export const positionIncludeSchema = z
               borrows: z.boolean().optional(),
               notifications: z.boolean().optional(),
               tasks: z.boolean().optional(),
-              vacations: z.boolean().optional(),
               commissions: z.boolean().optional(),
               warningsCollaborator: z.boolean().optional(),
               warningsSupervisor: z.boolean().optional(),

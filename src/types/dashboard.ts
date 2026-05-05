@@ -1,4 +1,4 @@
-import type { VACATION_STATUS, ACTIVITY_REASON, ACTIVITY_OPERATION } from '@constants';
+import type { ACTIVITY_REASON, ACTIVITY_OPERATION } from '@constants';
 
 // Date filter type for dashboard queries
 export interface DateFilter {
@@ -186,19 +186,6 @@ export interface HRDashboardData {
     employeesBySector: DashboardChartData;
     employeesByPosition: DashboardChartData;
     averagePositionLevel: DashboardMetric;
-  };
-  vacationMetrics: {
-    onVacationNow: DashboardMetric; // current date between start and end
-    upcomingVacations: DashboardMetric; // next 30 days
-    approvedVacations: DashboardMetric;
-    vacationSchedule: Array<{
-      id: string;
-      userName: string;
-      startAt: Date;
-      endAt: Date;
-      status: VACATION_STATUS;
-      isCollective: boolean;
-    }>;
   };
   taskMetrics: {
     totalTasksCreated: DashboardMetric; // tasks where createdById = userId
@@ -563,7 +550,6 @@ export interface UnifiedDashboardData {
   };
   hr: {
     overview: Pick<HRDashboardData['overview'], 'totalEmployees' | 'activeEmployees'>;
-    vacationsToday: number;
     tasksInProgress: number;
   };
   administration: {

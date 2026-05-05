@@ -169,13 +169,21 @@ export const routes = {
       list: '/recursos-humanos/controle-ponto',
       root: '/recursos-humanos/controle-ponto',
     },
-    vacations: {
-      batchEdit: '/recursos-humanos/ferias/editar-em-lote',
-      calendar: '/recursos-humanos/ferias/calendario',
-      create: '/recursos-humanos/ferias/cadastrar',
-      details: (id: string) => `/recursos-humanos/ferias/detalhes/${id}`,
-      edit: (id: string) => `/recursos-humanos/ferias/editar/${id}`,
-      root: '/recursos-humanos/ferias',
+    absences: {
+      root: '/recursos-humanos/ausencias',
+      create: '/recursos-humanos/ausencias/cadastrar',
+      collective: '/recursos-humanos/ausencias/coletiva',
+      edit: (id: string) => `/recursos-humanos/ausencias/editar/${id}`,
+      details: (id: string) => `/recursos-humanos/ausencias/detalhes/${id}`,
+    },
+    faltas: {
+      root: '/recursos-humanos/faltas',
+      create: '/recursos-humanos/faltas/cadastrar',
+      edit: (id: string) => `/recursos-humanos/faltas/editar/${id}`,
+      details: (id: string) => `/recursos-humanos/faltas/detalhes/${id}`,
+    },
+    calendar: {
+      root: '/recursos-humanos/calendario',
     },
     warnings: {
       batchEdit: '/recursos-humanos/avisos/editar-em-lote',
@@ -337,10 +345,6 @@ export const routes = {
         `/meu-pessoal/emprestimos/${sectorId}/detalhes/${id}`,
       root: (sectorId: string) => `/meu-pessoal/emprestimos/${sectorId}`,
     },
-    ferias: {
-      details: (sectorId: string, id: string) => `/meu-pessoal/ferias/${sectorId}/detalhes/${id}`,
-      root: (sectorId: string) => `/meu-pessoal/ferias/${sectorId}`,
-    },
     root: '/meu-pessoal',
   },
 
@@ -348,7 +352,6 @@ export const routes = {
   myTeam: {
     loans: '/meu-pessoal/emprestimos',
     root: '/meu-pessoal',
-    vacations: '/meu-pessoal/ferias',
     warnings: '/meu-pessoal/avisos',
   },
 
@@ -426,10 +429,6 @@ export const routes = {
     },
     myProfile: {
       root: '/pessoal/meu-perfil',
-    },
-    myVacations: {
-      details: (id: string) => `/pessoal/minhas-ferias/detalhes/${id}`,
-      root: '/pessoal/minhas-ferias',
     },
     myWarnings: {
       details: (id: string) => `/pessoal/meus-avisos/detalhes/${id}`,

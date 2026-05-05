@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { USER_STATUS, WARNING_CATEGORY, VACATION_STATUS } from '../../../constants/enums';
+import { USER_STATUS, WARNING_CATEGORY } from '../../../constants/enums';
 import type {
   TeamPerformanceItem,
   TeamPerformanceSummary,
@@ -102,28 +102,16 @@ export class UserAnalyticsService {
       },
     });
 
-    // Fetch vacations in date range
-    const vacations = await this.prisma.vacation.findMany({
-      where: {
-        status: {
-          in: [VACATION_STATUS.APPROVED, VACATION_STATUS.IN_PROGRESS, VACATION_STATUS.COMPLETED],
-        },
-        startAt: { lte: dateRange.end },
-        endAt: { gte: dateRange.start },
-        user: userWhere,
-      },
-      select: {
-        id: true,
-        startAt: true,
-        endAt: true,
-        createdAt: true,
-        user: {
-          select: {
-            sectorId: true,
-          },
-        },
-      },
-    });
+    // Vacation analytics deprecated — vacation tracking moved to Secullum (FuncionariosAfastamentos).
+    // For HR analytics this would require aggregating Secullum absences per sector/user;
+    // returning empty list keeps the rest of the analytics functional.
+    const vacations: Array<{
+      id: string;
+      startAt: Date;
+      endAt: Date;
+      createdAt: Date;
+      user?: { sectorId: string | null } | null;
+    }> = [];
 
     // Build monthly items
     const monthKeys = this.generateMonthKeys(dateRange.start, dateRange.end);

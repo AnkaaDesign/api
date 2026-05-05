@@ -1,7 +1,6 @@
 // packages/utils/src/sortOrder.ts
 
 import {
-  VACATION_STATUS_ORDER,
   TASK_STATUS_ORDER,
   COMMISSION_STATUS_ORDER,
   TASK_QUOTE_STATUS_ORDER,
@@ -63,7 +62,6 @@ import {
   PERCENTAGE_ADJUST_TYPE_ORDER,
   EXPORT_FORMAT_ORDER,
   VALIDATION_SEVERITY_ORDER,
-  VACATION_TYPE_ORDER,
   CUT_STATUS_ORDER,
 } from '@constants';
 
@@ -76,10 +74,6 @@ export function getSortOrder(value: string, orderMap: Record<string, number>): n
 }
 
 // Specific helper functions for commonly used sort orders
-
-export function getVacationStatusOrder(status: string): number {
-  return getSortOrder(status, VACATION_STATUS_ORDER);
-}
 
 export function getTaskStatusOrder(status: string): number {
   return getSortOrder(status, TASK_STATUS_ORDER);
@@ -121,10 +115,6 @@ export function getActivityReasonOrder(reason: string): number {
   return getSortOrder(reason, ACTIVITY_REASON_ORDER);
 }
 
-export function getVacationTypeOrder(type: string): number {
-  return getSortOrder(type, VACATION_TYPE_ORDER);
-}
-
 // Paint type order is now managed dynamically in the database
 
 export function getCutStatusOrder(status: string): number {
@@ -133,7 +123,6 @@ export function getCutStatusOrder(status: string): number {
 
 // Export all order maps for direct access if needed
 export {
-  VACATION_STATUS_ORDER,
   TASK_STATUS_ORDER,
   COMMISSION_STATUS_ORDER,
   TASK_QUOTE_STATUS_ORDER,
@@ -195,6 +184,5 @@ export {
   PERCENTAGE_ADJUST_TYPE_ORDER,
   EXPORT_FORMAT_ORDER,
   VALIDATION_SEVERITY_ORDER,
-  VACATION_TYPE_ORDER,
   CUT_STATUS_ORDER,
 };

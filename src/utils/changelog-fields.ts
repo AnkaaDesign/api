@@ -481,24 +481,8 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'item.unicode': 'Código Único do Item',
     'item.uniCode': 'Código Único do Item',
   },
-  [CHANGE_LOG_ENTITY_TYPE.VACATION]: {
-    userId: 'Funcionário',
-    startAt: 'Data de Início',
-    endAt: 'Data de Término',
-    status: 'Status',
-    statusOrder: 'Ordem do Status',
-    type: 'Tipo',
-    typeOrder: 'Ordem do Tipo',
-    isCollective: 'É Coletiva',
-    approvedBy: 'Aprovado por',
-    approvedAt: 'Aprovado em',
-    rejectedBy: 'Rejeitado por',
-    rejectedAt: 'Rejeitado em',
-    cancelledBy: 'Cancelado por',
-    cancelledAt: 'Cancelado em',
-    observation: 'Observação',
-    statusTransition: 'Transição de Status',
-    // Nested relationship fields
+  // VACATION entries removed — vacation tracking moved to Secullum.
+  _VACATION_REMOVED: {
     'user.name': 'Nome do Funcionário',
     'user.cpf': 'CPF do Funcionário',
     'user.position.name': 'Cargo do Funcionário',
@@ -1122,27 +1106,10 @@ export function formatFieldValue(
     return holidayTypeLabels[value] || value;
   }
 
-  // Handle vacation status
-  if (
-    (field === 'status' || field === 'status_transition') &&
-    entityType === CHANGE_LOG_ENTITY_TYPE.VACATION &&
-    typeof value === 'string'
-  ) {
-    const vacationStatusLabels: Record<string, string> = {
-      PENDING: 'Pendente',
-      APPROVED: 'Aprovado',
-      REJECTED: 'Rejeitado',
-      IN_PROGRESS: 'Em Andamento',
-      COMPLETED: 'Concluído',
-      CANCELLED: 'Cancelado',
-    };
-    return vacationStatusLabels[value] || value;
-  }
-
-  // Handle vacation type
+  // Handle vacation type (legacy — kept harmless)
   if (
     field === 'type' &&
-    entityType === CHANGE_LOG_ENTITY_TYPE.VACATION &&
+    false &&
     typeof value === 'string'
   ) {
     const vacationTypeLabels: Record<string, string> = {
@@ -1360,11 +1327,6 @@ export function formatFieldValue(
       PPE_EXPIRATION_WARNING: 'Aviso de Vencimento de EPI',
       MAINTENANCE_SCHEDULED: 'Manutenção Agendada',
       MAINTENANCE_OVERDUE: 'Manutenção Atrasada',
-      VACATION_REQUESTED: 'Férias Solicitadas',
-      VACATION_APPROVED: 'Férias Aprovadas',
-      VACATION_REJECTED: 'Férias Rejeitadas',
-      VACATION_STARTED: 'Férias Iniciadas',
-      VACATION_ENDED: 'Férias Finalizadas',
       EXTERNAL_WITHDRAWAL_CREATED: 'Retirada Externa Criada',
       EXTERNAL_WITHDRAWAL_OVERDUE: 'Retirada Externa Atrasada',
       SYSTEM_UPDATE: 'Atualização do Sistema',

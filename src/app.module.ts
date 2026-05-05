@@ -45,7 +45,6 @@ import { LayoutModule } from './modules/production/layout/layout.module';
 import { TruckModule } from './modules/production/truck/truck.module';
 import { UserModule } from './modules/people/user/user.module';
 import { ProfileModule } from './modules/people/profile/profile.module';
-import { VacationModule } from './modules/people/vacation/vacation.module';
 import { PersonalModule } from './modules/people/personal/personal.module';
 import { TeamStaffModule } from './modules/people/team-staff/team-staff.module';
 import { ThrottlerModule } from './modules/common/throttler/throttler.module';
@@ -123,7 +122,6 @@ import { InvoiceModule } from './modules/financial/invoice/invoice.module';
     TruckModule,
     UserModule,
     ProfileModule,
-    VacationModule,
     PersonalModule,
     TeamStaffModule,
     SchedulerModule,
