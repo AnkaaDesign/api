@@ -1085,7 +1085,8 @@ model Position {
   bonifiable      Boolean         @default(true)
   hierarchy       Int?
   /// Secullum integration: Funcao.Id mapped to this Position. NULL = unmapped.
-  secullumFuncaoId Int?           @unique
+  /// Multiple positions may share the same Secullum função (N:1).
+  secullumFuncaoId Int?
   remunerations   MonetaryValue[]
   payrolls        Payroll[]
   users           User[]          @relation("USER_POSITION")
@@ -1127,7 +1128,8 @@ model Sector {
   createdAt              DateTime         @default(now())
   updatedAt              DateTime         @updatedAt
   /// Secullum integration: Departamento.Id mapped to this Sector. NULL = unmapped.
-  secullumDepartamentoId Int?             @unique
+  /// Multiple sectors may share the same Secullum departamento (N:1).
+  secullumDepartamentoId Int?
   /// Secullum integration: default Horario.Id used when creating funcionários
   /// for users in this sector. Bridge falls back to this when the user has
   /// no per-user override. NULL = no default (bridge uses HorarioId=1).
