@@ -1078,18 +1078,21 @@ model PaintFormulaComponent {
 }
 
 model Position {
-  id            String          @id @default(uuid())
-  name          String          @unique
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  bonifiable    Boolean         @default(true)
-  hierarchy     Int?
-  remunerations MonetaryValue[]
-  payrolls      Payroll[]
-  users         User[]          @relation("USER_POSITION")
+  id              String          @id @default(uuid())
+  name            String          @unique
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  bonifiable      Boolean         @default(true)
+  hierarchy       Int?
+  /// Secullum integration: Funcao.Id mapped to this Position. NULL = unmapped.
+  secullumFuncaoId Int?           @unique
+  remunerations   MonetaryValue[]
+  payrolls        Payroll[]
+  users           User[]          @relation("USER_POSITION")
 
   @@index([name])
   @@index([hierarchy])
+  @@index([secullumFuncaoId])
 }
 
 model Warning {
@@ -1117,17 +1120,24 @@ model Warning {
 }
 
 model Sector {
-  id         String           @id @default(uuid())
-  name       String
-  privileges SectorPrivileges @default(BASIC)
-  leaderId   String?          @unique
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
-  leader     User?            @relation("SECTOR_LEADER", fields: [leaderId], references: [id])
-  tasks      Task[]
-  users      User[]
+  id                     String           @id @default(uuid())
+  name                   String
+  privileges             SectorPrivileges @default(BASIC)
+  leaderId               String?          @unique
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  /// Secullum integration: Departamento.Id mapped to this Sector. NULL = unmapped.
+  secullumDepartamentoId Int?             @unique
+  /// Secullum integration: default Horario.Id used when creating funcionários
+  /// for users in this sector. Bridge falls back to this when the user has
+  /// no per-user override. NULL = no default (bridge uses HorarioId=1).
+  secullumHorarioId      Int?
+  leader                 User?            @relation("SECTOR_LEADER", fields: [leaderId], references: [id])
+  tasks                  Task[]
+  users                  User[]
 
   @@index([leaderId])
+  @@index([secullumDepartamentoId])
 }
 
 model ServiceOrder {
@@ -1495,6 +1505,15 @@ model User {
   preferenceId            String?                      @unique
   pis                     String?                      @unique
   cpf                     String?                      @unique
+  /// Secullum integration: Funcionario.Id mapped to this User. Set automatically
+  /// after a successful create-in-Secullum flow or on first lookup-match.
+  secullumEmployeeId      Int?                         @unique
+  /// Whether this user should sync to Secullum on create/update/dismiss.
+  /// Driven by the "Criar no Secullum" checkbox in the user form.
+  secullumSyncEnabled     Boolean                      @default(false)
+  /// Per-user override for Secullum Horario.Id. When set, bridge uses this
+  /// over Sector.secullumHorarioId. Set from the HorarioSelector in the form.
+  secullumHorarioId       Int?
   address                 String?
   addressNumber           String?
   addressComplement       String?

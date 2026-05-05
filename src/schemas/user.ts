@@ -1646,6 +1646,13 @@ export const userCreateSchema = z
     // Sector leader flag - when true, sets this user as leader of their sector
     // The backend will update Sector.leaderId accordingly
     isSectorLeader: z.boolean().default(false),
+    // Secullum integration: when true, after user is created the backend
+    // emits 'secullum.user.created' so UserSecullumSyncService can provision
+    // a matching Funcionario in Secullum. Default false (opt-in).
+    secullumSyncEnabled: z.boolean().default(false).optional(),
+    // Per-user override for Secullum Horario.Id. When omitted, bridge falls
+    // back to the user's Sector.secullumHorarioId, then to 1.
+    secullumHorarioId: z.number().int().nullable().optional(),
   })
   .refine(data => data.email || data.phone, {
     message: 'Email ou telefone deve ser fornecido',
@@ -1756,6 +1763,11 @@ export const userUpdateSchema = z
     // Sector leader flag - when true, sets this user as leader of their sector
     // The backend will update Sector.leaderId accordingly
     isSectorLeader: z.boolean().optional(),
+    // Secullum integration toggle. When true on update + secullumEmployeeId is
+    // already set, the backend mirrors the change to Secullum after commit.
+    secullumSyncEnabled: z.boolean().optional(),
+    // Per-user override for Secullum Horario.Id (see userCreateSchema).
+    secullumHorarioId: z.number().int().nullable().optional(),
   })
   .refine(
     data => {
