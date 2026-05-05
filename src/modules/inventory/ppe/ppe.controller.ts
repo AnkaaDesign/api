@@ -63,8 +63,9 @@ import {
 
   // PPE In-App Signature
   ppeDeliverySignSchema,
+  ppeDeliveryTrackEventSchema,
 } from '@schemas';
-import type { PpeDeliverySignFormData } from '@schemas';
+import type { PpeDeliverySignFormData, PpeDeliveryTrackEventFormData } from '@schemas';
 import type {
   // PPE Size types
   PpeSizeGetManyFormData,
@@ -147,6 +148,7 @@ import { PpeDeliveryService } from './ppe-delivery.service';
 import { PpeDeliveryScheduleService } from './ppe-delivery-schedule.service';
 import { PpeSizeService } from './ppe-size.service';
 import { PpeInAppSignatureService } from './ppe-inapp-signature.service';
+import { PpeSignatureAuditService } from './ppe-signature-audit.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES, PPE_DELIVERY_STATUS, PPE_TYPE, PPE_SIZE } from '@constants';
@@ -158,6 +160,7 @@ export class PpeController {
     private readonly ppeDeliveryScheduleService: PpeDeliveryScheduleService,
     private readonly ppeDeliveryService: PpeDeliveryService,
     private readonly ppeInAppSignatureService: PpeInAppSignatureService,
+    private readonly ppeSignatureAuditService: PpeSignatureAuditService,
   ) {}
 
   // =====================
@@ -815,6 +818,60 @@ export class PpeController {
       undefined;
     const result = await this.ppeInAppSignatureService.signDelivery(id, evidence, userId, ip);
     return { success: true, ...result };
+  }
+
+  @Post('deliveries/:id/track')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async trackDeliveryEvent(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(ppeDeliveryTrackEventSchema)) body: PpeDeliveryTrackEventFormData,
+    @UserId() userId: string,
+    @Req() req: Request,
+  ): Promise<void> {
+    const ip =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.ip ||
+      req.socket?.remoteAddress ||
+      undefined;
+    const userAgent = (req.headers['user-agent'] as string | undefined) ?? null;
+    await this.ppeSignatureAuditService.recordEvent(id, body.event as any, {
+      actorUserId: userId,
+      ipAddress: ip ?? null,
+      userAgent,
+      metadata: body.metadata ?? null,
+    });
+  }
+
+  @Get('deliveries/:id/audit-trail')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getDeliveryAuditTrail(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ success: boolean; data: any }> {
+    const events = await this.ppeSignatureAuditService.getAuditTrail(id);
+    return { success: true, data: events };
   }
 
   @Get('deliveries/:id/signature')

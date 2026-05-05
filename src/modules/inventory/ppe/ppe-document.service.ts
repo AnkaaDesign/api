@@ -37,6 +37,31 @@ export interface SignatureEvidenceData {
 }
 
 /**
+ * Audit trail event row for the second page of the signed PDF.
+ * Mirrors the shape returned by PpeSignatureAuditService.getAuditTrail().
+ */
+export interface AuditTrailEvent {
+  type: string;
+  occurredAt: Date;
+  actorName: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  metadata: any;
+}
+
+/**
+ * Optional context for the audit trail page.
+ * documentNumber defaults to the delivery id, originalDocHash is the
+ * SHA-256 of the unsealed PDF computed by the caller.
+ */
+export interface AuditTrailContext {
+  events: AuditTrailEvent[];
+  documentNumber?: string;
+  filename?: string;
+  originalDocHash?: string | null;
+}
+
+/**
  * Internal document data structure for PDF generation
  */
 interface PpeDocumentData {
@@ -93,10 +118,10 @@ const FONTS = {
 const LAYOUT = {
   pageWidth: 595.28, // A4 width in points
   pageHeight: 841.89, // A4 height in points
-  marginTop: 40,
-  marginBottom: 50,
-  marginLeft: 35, // Decreased from 50
-  marginRight: 35, // Decreased from 50
+  marginTop: 24,
+  marginBottom: 24,
+  marginLeft: 35,
+  marginRight: 35,
 };
 
 @Injectable()
@@ -525,7 +550,7 @@ export class PpeDocumentService {
         doc.text(warningText, LAYOUT.marginLeft, y, { width: contentWidth, align: 'justify' });
 
         // ========== FOOTER (fixed at bottom of page) ==========
-        const footerY = LAYOUT.pageHeight - LAYOUT.marginBottom - 30;
+        const footerY = LAYOUT.pageHeight - LAYOUT.marginBottom - 60;
 
         // ========== SIGNATURE AREA (positioned above footer) ==========
         // Place signature 100pt above the footer line
@@ -561,15 +586,27 @@ export class PpeDocumentService {
         footerGradient.stop(0, '#888888').stop(0.3, COLORS.primary);
         doc.rect(LAYOUT.marginLeft, footerY, contentWidth, 1).fill(footerGradient);
 
+        // 10pt gap below the gradient before the company name; then each
+        // contact field on its own line.
         doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.primary);
-        doc.text(COMPANY_INFO.name, LAYOUT.marginLeft, footerY + 8);
+        doc.text(COMPANY_INFO.name, LAYOUT.marginLeft, footerY + 12, {
+          width: contentWidth,
+          lineBreak: false,
+        });
 
         doc.font(FONTS.regular).fontSize(7).fillColor(COLORS.gray);
-        doc.text(
-          `${COMPANY_INFO.address} | ${COMPANY_INFO.phone} | ${COMPANY_INFO.website}`,
-          LAYOUT.marginLeft,
-          footerY + 20,
-        );
+        doc.text(COMPANY_INFO.address, LAYOUT.marginLeft, footerY + 25, {
+          width: contentWidth,
+          lineBreak: false,
+        });
+        doc.text(COMPANY_INFO.phone, LAYOUT.marginLeft, footerY + 35, {
+          width: contentWidth,
+          lineBreak: false,
+        });
+        doc.text(COMPANY_INFO.website, LAYOUT.marginLeft, footerY + 45, {
+          width: contentWidth,
+          lineBreak: false,
+        });
 
         // End document
         doc.end();
@@ -611,6 +648,7 @@ export class PpeDocumentService {
   async generateSignedDeliveryDocument(
     deliveryId: string,
     signatureEvidence: SignatureEvidenceData,
+    audit?: AuditTrailContext,
   ): Promise<Buffer> {
     const delivery = await this.prisma.ppeDelivery.findUnique({
       where: { id: deliveryId },
@@ -647,14 +685,18 @@ export class PpeDocumentService {
       companyCnpj: COMPANY_INFO.cnpj,
     };
 
-    return this.createSignedPdf(documentData, signatureEvidence);
+    return this.createSignedPdf(documentData, signatureEvidence, audit);
   }
 
   /**
    * Create a signed PDF — same as createPdf but with digital signature block
    * instead of blank signature line
    */
-  private createSignedPdf(data: PpeDocumentData, sig: SignatureEvidenceData): Promise<Buffer> {
+  private createSignedPdf(
+    data: PpeDocumentData,
+    sig: SignatureEvidenceData,
+    audit?: AuditTrailContext,
+  ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       try {
         const chunks: Buffer[] = [];
@@ -840,92 +882,48 @@ export class PpeDocumentService {
         doc.text(warningText, LAYOUT.marginLeft, y, { width: contentWidth, align: 'justify' });
         y += warningHeight + SPACING.SECTION_GAP;
 
-        // ========== DIGITAL SIGNATURE BLOCK (replaces blank signature line) ==========
-        doc.font(FONTS.bold).fontSize(10).fillColor(COLORS.primary);
-        doc.text('Assinatura Eletrônica', LAYOUT.marginLeft, y);
-        y += SPACING.SUBSECTION_GAP;
+        // ========== SIGNATURE LINE ==========
+        // Positioned between declaration and footer, biased toward the footer
+        // so the page reads paper-form-style. Full evidence is on page 2.
+        const footerY = LAYOUT.pageHeight - LAYOUT.marginBottom - 60;
+        const sigLineWidth = 280;
+        const sigLineX = (LAYOUT.pageWidth - sigLineWidth) / 2;
+        // 110pt above the footer, but never closer than 60pt below the
+        // declaration text (page-1 always has plenty of room).
+        const sigLineY = Math.max(y + 60, footerY - 110);
 
-        // Signature box background
-        const sigBoxHeight = 110;
         doc
-          .rect(LAYOUT.marginLeft, y, contentWidth, sigBoxHeight)
-          .fillAndStroke('#f0fdf4', COLORS.primary);
-        const sigBoxY = y + 8;
-        const sigBoxX = LAYOUT.marginLeft + 10;
-        const sigContentWidth = contentWidth - 20;
+          .moveTo(sigLineX, sigLineY)
+          .lineTo(sigLineX + sigLineWidth, sigLineY)
+          .strokeColor(COLORS.text)
+          .lineWidth(0.5)
+          .stroke();
 
-        // Legal statement
-        doc.font(FONTS.bold).fontSize(7).fillColor(COLORS.primary);
-        doc.text('Assinado eletronicamente conforme Art. 4° da Lei 14.063/2020', sigBoxX, sigBoxY, {
-          width: sigContentWidth,
+        doc.font(FONTS.bold).fontSize(10).fillColor(COLORS.text);
+        doc.text(sig.signerName, sigLineX, sigLineY + 8, {
+          width: sigLineWidth,
+          align: 'center',
         });
 
-        // Signer info
-        let sigInfoY = sigBoxY + 14;
-        doc.font(FONTS.regular).fontSize(7).fillColor(COLORS.text);
+        doc.font(FONTS.regular).fontSize(8).fillColor(COLORS.gray);
+        doc.text('Assinatura do Colaborador', sigLineX, sigLineY + 22, {
+          width: sigLineWidth,
+          align: 'center',
+        });
 
-        doc.text(
-          `Assinante: ${sig.signerName} | CPF: ${this.maskCpfForPdf(sig.signerCpf)}`,
-          sigBoxX,
-          sigInfoY,
-          { width: sigContentWidth },
-        );
-        sigInfoY += 11;
-
-        doc.text(
-          `Autenticação: ${this.getBiometricLabel(sig.biometricMethod)}`,
-          sigBoxX,
-          sigInfoY,
-          { width: sigContentWidth },
-        );
-        sigInfoY += 11;
-
-        if (sig.deviceModel) {
-          doc.text(`Dispositivo: ${sig.deviceModel}`, sigBoxX, sigInfoY, {
-            width: sigContentWidth,
-          });
-          sigInfoY += 11;
-        }
-
-        const clientDate =
-          sig.clientTimestamp instanceof Date ? sig.clientTimestamp : new Date(sig.clientTimestamp);
-        const serverDate =
+        const serverTs =
           sig.serverTimestamp instanceof Date ? sig.serverTimestamp : new Date(sig.serverTimestamp);
-
+        doc.font(FONTS.regular).fontSize(7).fillColor(COLORS.gray);
         doc.text(
-          `Data/Hora (dispositivo): ${clientDate.toLocaleString('pt-BR')}`,
-          sigBoxX,
-          sigInfoY,
-          { width: sigContentWidth },
+          `Assinado eletronicamente em ${serverTs.toLocaleString('pt-BR')} · Detalhes da assinatura na página 2 (Trilha de Auditoria).`,
+          LAYOUT.marginLeft,
+          sigLineY + 42,
+          { width: contentWidth, align: 'center' },
         );
-        sigInfoY += 11;
-
-        doc.text(`Data/Hora (servidor): ${serverDate.toLocaleString('pt-BR')}`, sigBoxX, sigInfoY, {
-          width: sigContentWidth,
-        });
-        sigInfoY += 11;
-
-        if (sig.latitude != null && sig.longitude != null) {
-          doc.text(`Localização: ${sig.latitude}, ${sig.longitude}`, sigBoxX, sigInfoY, {
-            width: sigContentWidth,
-          });
-          sigInfoY += 11;
-        }
-
-        // Verification code
-        doc.font(FONTS.bold).fontSize(7).fillColor(COLORS.primary);
-        doc.text(
-          `Código de verificação: ${sig.hmacSignature.substring(0, 16).toUpperCase()}`,
-          sigBoxX,
-          sigInfoY,
-          { width: sigContentWidth },
-        );
-
-        y += sigBoxHeight + SPACING.SECTION_GAP;
 
         // ========== FOOTER ==========
-        const footerY = LAYOUT.pageHeight - LAYOUT.marginBottom - 30;
-
+        // All text uses width + lineBreak:false to prevent PDFKit from
+        // auto-paginating when content lands close to the bottom margin.
         const footerGradient = doc.linearGradient(
           LAYOUT.marginLeft,
           footerY,
@@ -935,20 +933,483 @@ export class PpeDocumentService {
         footerGradient.stop(0, '#888888').stop(0.3, COLORS.primary);
         doc.rect(LAYOUT.marginLeft, footerY, contentWidth, 1).fill(footerGradient);
 
+        // 10pt gap below the gradient before the company name; then each
+        // contact field on its own line.
         doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.primary);
-        doc.text(COMPANY_INFO.name, LAYOUT.marginLeft, footerY + 8);
+        doc.text(COMPANY_INFO.name, LAYOUT.marginLeft, footerY + 12, {
+          width: contentWidth,
+          lineBreak: false,
+        });
 
         doc.font(FONTS.regular).fontSize(7).fillColor(COLORS.gray);
-        doc.text(
-          `${COMPANY_INFO.address} | ${COMPANY_INFO.phone} | ${COMPANY_INFO.website}`,
-          LAYOUT.marginLeft,
-          footerY + 20,
-        );
+        doc.text(COMPANY_INFO.address, LAYOUT.marginLeft, footerY + 25, {
+          width: contentWidth,
+          lineBreak: false,
+        });
+        doc.text(COMPANY_INFO.phone, LAYOUT.marginLeft, footerY + 35, {
+          width: contentWidth,
+          lineBreak: false,
+        });
+        doc.text(COMPANY_INFO.website, LAYOUT.marginLeft, footerY + 45, {
+          width: contentWidth,
+          lineBreak: false,
+        });
+
+        if (audit) {
+          this.renderAuditTrailPage(doc, data, sig, audit);
+        }
 
         doc.end();
       } catch (error) {
         reject(error);
       }
     });
+  }
+
+  /**
+   * Render a Clicksign-style audit trail page with the full lifecycle log.
+   * Adds a new page to the existing document.
+   */
+  private renderAuditTrailPage(
+    doc: PDFKit.PDFDocument,
+    data: PpeDocumentData,
+    sig: SignatureEvidenceData,
+    audit: AuditTrailContext,
+  ): void {
+    const contentWidth = LAYOUT.pageWidth - LAYOUT.marginLeft - LAYOUT.marginRight;
+    const SPACING = { SECTION_GAP: 24, SUBSECTION_GAP: 16, LINE_HEIGHT: 14, PARAGRAPH_GAP: 10 };
+
+    doc.addPage();
+    let y = LAYOUT.marginTop;
+
+    // ========== TOP HEADER (logo only — address moves to bottom of page) ==========
+    const logoH = 42;
+    if (this.logoBuffer) {
+      doc.image(this.logoBuffer, LAYOUT.marginLeft, y, { height: logoH });
+      const logoW = logoH * (875 / 379);
+      doc.font(FONTS.bold).fontSize(13).fillColor(COLORS.primary);
+      doc.text(COMPANY_INFO.name, LAYOUT.marginLeft + logoW + 14, y + 14);
+    } else {
+      doc.font(FONTS.bold).fontSize(13).fillColor(COLORS.primary);
+      doc.text(COMPANY_INFO.name, LAYOUT.marginLeft, y + 14);
+    }
+
+    y += logoH + 8;
+
+    const stripGradient = doc.linearGradient(
+      LAYOUT.marginLeft,
+      y,
+      LAYOUT.marginLeft + contentWidth,
+      y,
+    );
+    stripGradient.stop(0, '#888888').stop(0.3, COLORS.primary);
+    doc.rect(LAYOUT.marginLeft, y, contentWidth, 1.5).fill(stripGradient);
+    y += SPACING.SECTION_GAP;
+
+    // ========== HEADER (Trilha de Auditoria + timezone meta) ==========
+    const tzMetaY = y;
+    doc.font(FONTS.bold).fontSize(20).fillColor(COLORS.primary);
+    doc.text('Trilha de Auditoria', LAYOUT.marginLeft, y);
+
+    doc.font(FONTS.regular).fontSize(8).fillColor(COLORS.gray);
+    doc.text('Datas e horários em GMT -03:00 Brasília', LAYOUT.marginLeft, tzMetaY + 4, {
+      width: contentWidth,
+      align: 'right',
+    });
+    doc.text(
+      `Log gerado em ${new Date().toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+      })}`,
+      LAYOUT.marginLeft,
+      tzMetaY + 16,
+      { width: contentWidth, align: 'right' },
+    );
+    y += 36;
+
+    // ========== DOCUMENT INFO ==========
+    const filename = audit.filename || `termo_epi_${data.deliveryId.substring(0, 8)}.pdf`;
+    doc.font(FONTS.bold).fontSize(11).fillColor(COLORS.text);
+    doc.text(filename, LAYOUT.marginLeft, y);
+    y += 14;
+
+    doc.font(FONTS.regular).fontSize(8).fillColor(COLORS.gray);
+    doc.text(`Documento número #${audit.documentNumber || data.deliveryId}`, LAYOUT.marginLeft, y);
+    y += 11;
+
+    if (audit.originalDocHash) {
+      doc.font(FONTS.bold).fontSize(8).fillColor(COLORS.gray);
+      doc.text('Hash do documento (SHA256): ', LAYOUT.marginLeft, y, { continued: true });
+      doc.font(FONTS.regular).fillColor(COLORS.text);
+      doc.text(audit.originalDocHash, { width: contentWidth - 160 });
+    }
+    y += 14;
+
+    // separator
+    doc
+      .moveTo(LAYOUT.marginLeft, y)
+      .lineTo(LAYOUT.marginLeft + contentWidth, y)
+      .strokeColor(COLORS.lightGray)
+      .lineWidth(0.5)
+      .stroke();
+    y += SPACING.SECTION_GAP;
+
+    // ========== ASSINATURAS ==========
+    doc.font(FONTS.bold).fontSize(13).fillColor(COLORS.text);
+    doc.text('Assinaturas', LAYOUT.marginLeft, y);
+    y += 22;
+
+    // Green check + signer
+    const checkX = LAYOUT.marginLeft;
+    const checkY = y;
+    doc.circle(checkX + 8, checkY + 8, 8).fillAndStroke(COLORS.primary, COLORS.primary);
+    doc.font(FONTS.bold).fontSize(11).fillColor('#ffffff');
+    doc.text('✓', checkX + 4.5, checkY + 2.5);
+
+    doc.font(FONTS.bold).fontSize(11).fillColor(COLORS.text);
+    doc.text(sig.signerName, checkX + 24, checkY);
+    doc.font(FONTS.regular).fontSize(8).fillColor(COLORS.gray);
+    const signedAtFmt = (sig.serverTimestamp instanceof Date
+      ? sig.serverTimestamp
+      : new Date(sig.serverTimestamp)
+    ).toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    doc.text(`Assinou em ${signedAtFmt}`, checkX + 24, checkY + 14);
+    y += 40;
+
+    // separator
+    doc
+      .moveTo(LAYOUT.marginLeft, y)
+      .lineTo(LAYOUT.marginLeft + contentWidth, y)
+      .strokeColor(COLORS.lightGray)
+      .lineWidth(0.5)
+      .stroke();
+    y += SPACING.SECTION_GAP;
+
+    // ========== LOG ==========
+    doc.font(FONTS.bold).fontSize(13).fillColor(COLORS.text);
+    doc.text('Log', LAYOUT.marginLeft, y);
+    y += 22;
+
+    const tsColumnWidth = 120;
+    const descX = LAYOUT.marginLeft + tsColumnWidth + 12;
+    const descWidth = contentWidth - tsColumnWidth - 12;
+    // Footer block reserves ≈110pt: separator (10) + seal/legal (43) + gap
+    // (16) + gradient (1) + address (28) + bottom pad (14)
+    const FOOTER_RESERVED = 130;
+
+    const events = audit.events.length
+      ? audit.events
+      : [
+          {
+            type: 'SIGNATURE_COMPLETED',
+            occurredAt: sig.serverTimestamp,
+            actorName: sig.signerName,
+            ipAddress: null,
+            userAgent: null,
+            metadata: { verificationCode: sig.hmacSignature.substring(0, 16).toUpperCase() },
+          } as AuditTrailEvent,
+        ];
+
+    for (const event of events) {
+      // Page-break check
+      if (y + 50 > LAYOUT.pageHeight - LAYOUT.marginBottom - FOOTER_RESERVED) {
+        this.renderAuditFooter(doc);
+        doc.addPage();
+        y = LAYOUT.marginTop;
+      }
+
+      const tsFormatted = (event.occurredAt instanceof Date
+        ? event.occurredAt
+        : new Date(event.occurredAt)
+      ).toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+
+      doc.font(FONTS.regular).fontSize(8).fillColor(COLORS.gray);
+      doc.text(tsFormatted, LAYOUT.marginLeft, y, { width: tsColumnWidth });
+
+      const description = this.formatAuditEventDescription(event, sig);
+      doc.font(FONTS.regular).fontSize(8).fillColor(COLORS.text);
+      const descHeight = doc.heightOfString(description, { width: descWidth, align: 'left' });
+      doc.text(description, descX, y, { width: descWidth, align: 'left' });
+
+      y += Math.max(descHeight, 18) + 12;
+    }
+
+    this.renderAuditFooter(doc);
+  }
+
+  /**
+   * Footer for the audit trail page.
+   *
+   * Layout is computed BOTTOM-UP from the page's safe area so PDFKit can
+   * never auto-paginate by considering text "too close" to the bottom margin.
+   *
+   * Stack (top → bottom of the footer block):
+   *   - Separator line
+   *   - ICP-Brasil seal + 4 lines of tightly stacked legal text
+   *   - Empty gap
+   *   - Address-strip gradient line + company name + address line
+   */
+  private renderAuditFooter(doc: PDFKit.PDFDocument): void {
+    const contentWidth = LAYOUT.pageWidth - LAYOUT.marginLeft - LAYOUT.marginRight;
+
+    // ── Bottom-up positioning ──
+    // Address strip = 4 stacked lines (name + address + phone + website)
+    // separated from the gradient line by a clear 10pt gap.
+    const SAFE_BOTTOM = LAYOUT.pageHeight - LAYOUT.marginBottom;
+    const FINAL_PAD = 8;
+    const websiteY = SAFE_BOTTOM - FINAL_PAD - 7;
+    const phoneY = websiteY - 10;
+    const addressTextY = phoneY - 10;
+    const nameY = addressTextY - 11;
+    const gradientGap = 10;
+    const gradientY = nameY - gradientGap;
+    const legalBottomGap = 14;
+    const sealBottomY = gradientY - legalBottomGap;
+
+    // Tight 4-line legal block; seal matches its height.
+    const LEGAL_LINE_GAP = 11;
+    const LEGAL_LINES = 4;
+    const legalBlockH = (LEGAL_LINES - 1) * LEGAL_LINE_GAP + 10; // ≈ 43
+    const sealSize = legalBlockH;
+    const sealY = sealBottomY - sealSize; // 697
+    const separatorY = sealY - 10; // 687
+
+    // ── Separator ──
+    doc
+      .moveTo(LAYOUT.marginLeft, separatorY)
+      .lineTo(LAYOUT.marginLeft + contentWidth, separatorY)
+      .strokeColor(COLORS.lightGray)
+      .lineWidth(0.5)
+      .stroke();
+
+    // ── ICP-Brasil seal ──
+    const sealX = LAYOUT.marginLeft;
+    this.drawIcpBrasilSeal(doc, sealX, sealY, sealSize);
+
+    // ── Legal text block, tight line spacing ──
+    const textX = sealX + sealSize + 12;
+    const textWidth = contentWidth - sealSize - 12;
+    let lineY = sealY;
+
+    doc.font(FONTS.bold).fontSize(8).fillColor(COLORS.text);
+    doc.text('Documento assinado com validade jurídica.', textX, lineY, {
+      width: textWidth,
+      lineBreak: false,
+    });
+    lineY += LEGAL_LINE_GAP;
+
+    doc.font(FONTS.regular).fontSize(7).fillColor(COLORS.gray);
+    doc.text(
+      'As assinaturas digitais e eletrônicas têm validade jurídica prevista na Medida Provisória nº 2.200-2 / 2001 e na Lei nº 14.063/2020.',
+      textX,
+      lineY,
+      { width: textWidth, lineBreak: false },
+    );
+    lineY += LEGAL_LINE_GAP;
+
+    doc.text(
+      `Selo PAdES aplicado pelo certificado ICP-Brasil ${COMPANY_INFO.name} (CNPJ).`,
+      textX,
+      lineY,
+      { width: textWidth, lineBreak: false },
+    );
+    lineY += LEGAL_LINE_GAP;
+
+    // ITI validator link (clickable). Two-call chain with explicit
+    // continued: false on the second call to terminate the chain so PDFKit
+    // doesn't carry state into later draws.
+    const linkUrl = 'https://validar.iti.gov.br/';
+    doc.font(FONTS.regular).fontSize(7).fillColor(COLORS.gray);
+    doc.text(
+      'Para conferir validade do documento, acesse o validador oficial do ITI: ',
+      textX,
+      lineY,
+      { width: textWidth, continued: true, lineBreak: false },
+    );
+    doc.font(FONTS.bold).fontSize(7).fillColor(COLORS.primary);
+    doc.text(linkUrl, {
+      link: linkUrl,
+      underline: true,
+      continued: false,
+      lineBreak: false,
+    });
+    doc.fillColor(COLORS.gray).font(FONTS.regular);
+
+    // ── Address strip ──
+    const addressGradient = doc.linearGradient(
+      LAYOUT.marginLeft,
+      gradientY,
+      LAYOUT.marginLeft + contentWidth,
+      gradientY,
+    );
+    addressGradient.stop(0, '#888888').stop(0.3, COLORS.primary);
+    doc.rect(LAYOUT.marginLeft, gradientY, contentWidth, 1).fill(addressGradient);
+
+    doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.primary);
+    doc.text(COMPANY_INFO.name, LAYOUT.marginLeft, nameY, {
+      width: contentWidth,
+      lineBreak: false,
+    });
+    doc.font(FONTS.regular).fontSize(7).fillColor(COLORS.gray);
+    doc.text(COMPANY_INFO.address, LAYOUT.marginLeft, addressTextY, {
+      width: contentWidth,
+      lineBreak: false,
+    });
+    doc.text(COMPANY_INFO.phone, LAYOUT.marginLeft, phoneY, {
+      width: contentWidth,
+      lineBreak: false,
+    });
+    doc.text(COMPANY_INFO.website, LAYOUT.marginLeft, websiteY, {
+      width: contentWidth,
+      lineBreak: false,
+    });
+  }
+
+  /**
+   * ICP-Brasil seal — rounded square in the brand primary green with white
+   * "ICP / Brasil" wordmark and a stylized key glyph below.
+   *
+   * Layout follows the ICP-Brasil brand manual v3.0/2022 (square shape + ICP
+   * stacked over Brasil + key glyph) recolored to the Ankaa primary so the
+   * mark integrates cleanly with the rest of the document.
+   */
+  private drawIcpBrasilSeal(
+    doc: PDFKit.PDFDocument,
+    x: number,
+    y: number,
+    size: number,
+  ): void {
+    const fg = '#ffffff';
+    const bg = COLORS.primary;
+
+    doc.roundedRect(x, y, size, size, size * 0.12).fill(bg);
+
+    const icpFontSize = size * 0.28;
+    doc.font(FONTS.bold).fontSize(icpFontSize).fillColor(fg);
+    doc.text('ICP', x, y + size * 0.12, {
+      width: size,
+      align: 'center',
+      lineBreak: false,
+    });
+
+    const brasilFontSize = size * 0.2;
+    doc.font(FONTS.bold).fontSize(brasilFontSize).fillColor(fg);
+    doc.text('Brasil', x, y + size * 0.42, {
+      width: size,
+      align: 'center',
+      lineBreak: false,
+    });
+
+    // Stylized key glyph: circular bow + horizontal shaft + two teeth
+    const keyY = y + size * 0.78;
+    const keyShaftLen = size * 0.5;
+    const keyShaftThickness = Math.max(1.5, size * 0.05);
+    const keyShaftX = x + (size - keyShaftLen) / 2;
+    const bowR = size * 0.08;
+
+    // shaft
+    doc
+      .rect(
+        keyShaftX + bowR * 1.5,
+        keyY - keyShaftThickness / 2,
+        keyShaftLen - bowR * 1.5,
+        keyShaftThickness,
+      )
+      .fill(fg);
+    // bow (circle, drawn as stroked ring)
+    doc
+      .circle(keyShaftX + bowR, keyY, bowR)
+      .lineWidth(keyShaftThickness)
+      .strokeColor(fg)
+      .stroke();
+    // teeth
+    const tooth1X = keyShaftX + keyShaftLen - size * 0.12;
+    const tooth2X = keyShaftX + keyShaftLen - size * 0.04;
+    doc.rect(tooth1X, keyY + keyShaftThickness / 2, keyShaftThickness, size * 0.07).fill(fg);
+    doc.rect(tooth2X, keyY + keyShaftThickness / 2, keyShaftThickness, size * 0.05).fill(fg);
+  }
+
+  /**
+   * Human-readable Portuguese description for each audit event type.
+   */
+  private formatAuditEventDescription(event: AuditTrailEvent, sig: SignatureEvidenceData): string {
+    const meta = (event.metadata && typeof event.metadata === 'object' ? event.metadata : {}) as any;
+    const actor = event.actorName || 'Sistema';
+    const ipSuffix = event.ipAddress ? ` IP: ${event.ipAddress}.` : '';
+
+    switch (event.type) {
+      case 'DELIVERY_CREATED':
+        return `Entrega de EPI criada por ${actor}.${
+          meta.itemName ? ` Item: "${meta.itemName}"` : ''
+        }${meta.quantity ? `, quantidade: ${meta.quantity}.` : '.'}`;
+      case 'DELIVERY_APPROVED':
+        return `Entrega aprovada por ${actor}.${
+          meta.itemName ? ` Item: "${meta.itemName}".` : ''
+        }`;
+      case 'DELIVERY_REJECTED':
+        return `Entrega reprovada por ${actor}.${
+          meta.reason ? ` Motivo: ${meta.reason}.` : ''
+        }`;
+      case 'NOTIFICATION_SENT':
+        return `Notificação enviada${
+          meta.recipientName ? ` para ${meta.recipientName}` : ''
+        } via ${meta.channel || 'app'}. Aguardando confirmação do colaborador.`;
+      case 'NOTIFICATION_FAILED':
+        return `Falha ao enviar notificação${
+          meta.recipientName ? ` para ${meta.recipientName}` : ''
+        }. ${meta.error || ''}`;
+      case 'DOCUMENT_VIEWED':
+        return `${actor} abriu o documento de entrega no aplicativo.${ipSuffix}`;
+      case 'BIOMETRIC_PROMPTED':
+        return `${actor} iniciou a autenticação biométrica.${ipSuffix}`;
+      case 'BIOMETRIC_SUCCEEDED':
+        return `Autenticação biométrica validada com sucesso (${
+          meta.method || sig.biometricMethod
+        }).${ipSuffix}`;
+      case 'BIOMETRIC_FAILED':
+        return `Autenticação biométrica falhou. ${meta.reason || ''}${ipSuffix}`;
+      case 'SIGNATURE_SUBMITTED':
+        return `${actor} enviou a assinatura. Pontos de autenticação: biometria (${
+          meta.biometricMethod
+        }), dispositivo${meta.deviceModel ? ` ${meta.deviceModel}` : ''}, app v${
+          meta.appVersion || '?'
+        }.${ipSuffix}`;
+      case 'HMAC_VALIDATED':
+        return `Servidor validou a integridade da evidência (HMAC SHA-256). Hash de evidência: ${
+          (meta.evidenceHash || '').substring(0, 16)
+        }…`;
+      case 'HMAC_REJECTED':
+        return `Servidor rejeitou a assinatura — hash de evidência não confere. Possível adulteração.`;
+      case 'PADES_SEALED':
+        return `Selo PAdES aplicado pelo certificado ICP-Brasil ${
+          meta.certCnpj ? `(CNPJ ${meta.certCnpj})` : ''
+        } emitido por ${meta.certIssuer || 'AC ICP-Brasil'}. Serial: ${meta.certSerial || '—'}.`;
+      case 'PADES_FAILED':
+        return `Tentativa de selo PAdES falhou: ${meta.error || 'erro desconhecido'}.`;
+      case 'SIGNATURE_COMPLETED':
+        return `Assinatura concluída.${
+          meta.verificationCode ? ` Código de verificação: ${meta.verificationCode}.` : ''
+        }${ipSuffix}`;
+      case 'SIGNATURE_FAILED':
+        return `Assinatura falhou: ${meta.error || 'erro desconhecido'}.`;
+      case 'PDF_DOWNLOADED':
+        return `${actor} baixou o termo assinado.${ipSuffix}`;
+      default:
+        return `Evento: ${event.type}.`;
+    }
   }
 }

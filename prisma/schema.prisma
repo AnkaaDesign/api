@@ -434,6 +434,18 @@ model PpeDeliverySignature {
   signedDocumentId  String?
   signedDocument    File?           @relation("PPE_SIGNATURE_DOCUMENT", fields: [signedDocumentId], references: [id])
 
+  // PAdES seal (ICP-Brasil cert applied server-side over the signed PDF)
+  padesSealed       Boolean         @default(false)
+  padesSealedAt     DateTime?
+  certSubject       String?
+  certIssuer        String?
+  certSerialNumber  String?
+  certCnpj          String?
+  certNotAfter      DateTime?
+
+  // SHA-256 of the unsealed signed PDF (before PAdES) — shown on audit trail page
+  documentSha256    String?
+
   // Raw evidence (for re-verification)
   evidenceJson      Json
 
@@ -443,8 +455,49 @@ model PpeDeliverySignature {
 
   createdAt         DateTime        @default(now())
 
+  events            PpeDeliverySignatureEvent[] @relation("PPE_SIGNATURE_EVENTS")
+
   @@index([signedByUserId])
   @@index([deliveryId])
+}
+
+enum PpeSignatureEventType {
+  DELIVERY_CREATED
+  DELIVERY_APPROVED
+  DELIVERY_REJECTED
+  NOTIFICATION_SENT
+  NOTIFICATION_FAILED
+  DOCUMENT_VIEWED
+  BIOMETRIC_PROMPTED
+  BIOMETRIC_SUCCEEDED
+  BIOMETRIC_FAILED
+  SIGNATURE_SUBMITTED
+  HMAC_VALIDATED
+  HMAC_REJECTED
+  PADES_SEALED
+  PADES_FAILED
+  SIGNATURE_COMPLETED
+  SIGNATURE_FAILED
+  PDF_DOWNLOADED
+}
+
+model PpeDeliverySignatureEvent {
+  id            String                @id @default(uuid())
+  deliveryId    String
+  signatureId   String?
+  signature     PpeDeliverySignature? @relation("PPE_SIGNATURE_EVENTS", fields: [signatureId], references: [id], onDelete: Cascade)
+  type          PpeSignatureEventType
+  occurredAt    DateTime              @default(now())
+  actorUserId   String?
+  actorUser     User?                 @relation("PPE_SIGNATURE_EVENT_ACTOR", fields: [actorUserId], references: [id])
+  ipAddress     String?
+  userAgent     String?
+  metadata      Json?
+
+  @@index([deliveryId])
+  @@index([signatureId])
+  @@index([type])
+  @@index([occurredAt])
 }
 
 model PpeDeliverySchedule {
@@ -1565,6 +1618,7 @@ model User {
   ppeDeliveriesReviewed   PpeDelivery[]                @relation("PPE_DELIVERY_REVIEWED_BY")
   ppeDeliveries           PpeDelivery[]                @relation("PPE_DELIVERY_USER")
   ppeSignatures           PpeDeliverySignature[]       @relation("PPE_SIGNATURE_USER")
+  ppeSignatureEvents      PpeDeliverySignatureEvent[]  @relation("PPE_SIGNATURE_EVENT_ACTOR")
   ppeSize                 PpeSize?                     @relation("USER_PPE_SIZE")
   preference              Preferences?                 @relation("USER_PREFERENCES")
   ledSector               Sector?                      @relation("SECTOR_LEADER")

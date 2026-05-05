@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PPE_DELIVERY_STATUS, PPE_DELIVERY_STATUS_ORDER } from '@constants';
+import { PpeSignatureAuditService } from './ppe-signature-audit.service';
 import {
   PpeRequestedEvent,
   PpeApprovedEvent,
@@ -34,6 +35,7 @@ export class PpeListener {
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly dispatchService: NotificationDispatchService,
     private readonly prisma: PrismaService,
+    private readonly auditService: PpeSignatureAuditService,
   ) {
     this.logger.log('========================================');
     this.logger.log('[PPE LISTENER] Initializing PPE Event Listener');
@@ -107,6 +109,15 @@ export class PpeListener {
       });
 
       this.logger.log('[PPE EVENT] PPE requested dispatch completed');
+
+      await this.auditService.recordEvent(event.delivery.id, 'DELIVERY_CREATED' as any, {
+        actorUserId: event.requestedBy.id,
+        metadata: {
+          requestedByName: event.requestedBy.name,
+          itemName: event.item.name,
+          quantity: event.delivery.quantity,
+        },
+      });
     } catch (error) {
       this.logger.error('[PPE EVENT] Error handling PPE requested event:', error.message);
     }
@@ -166,6 +177,23 @@ export class PpeListener {
       );
 
       this.logger.log('[PPE EVENT] PPE approved dispatch completed');
+
+      await this.auditService.recordEvent(event.delivery.id, 'DELIVERY_APPROVED' as any, {
+        actorUserId: event.approvedBy.id,
+        metadata: {
+          approvedByName: event.approvedBy.name,
+          itemName: event.item.name,
+          quantity: event.delivery.quantity,
+        },
+      });
+      await this.auditService.recordEvent(event.delivery.id, 'NOTIFICATION_SENT' as any, {
+        actorUserId: event.approvedBy.id,
+        metadata: {
+          channel: 'ppe.approved',
+          to: event.requestedBy.id,
+          recipientName: event.requestedBy.name,
+        },
+      });
     } catch (error) {
       this.logger.error('[PPE EVENT] Error handling PPE approved event:', error.message);
     }
@@ -219,6 +247,15 @@ export class PpeListener {
       );
 
       this.logger.log('[PPE EVENT] PPE rejected dispatch completed');
+
+      await this.auditService.recordEvent(event.delivery.id, 'DELIVERY_REJECTED' as any, {
+        actorUserId: event.rejectedBy.id,
+        metadata: {
+          rejectedByName: event.rejectedBy.name,
+          itemName: event.item.name,
+          reason: event.reason ?? null,
+        },
+      });
     } catch (error) {
       this.logger.error('[PPE EVENT] Error handling PPE rejected event:', error.message);
     }
@@ -281,6 +318,17 @@ export class PpeListener {
       );
 
       this.logger.log('[PPE EVENT] PPE delivered dispatch completed');
+
+      await this.auditService.recordEvent(event.delivery.id, 'NOTIFICATION_SENT' as any, {
+        actorUserId: event.deliveredBy.id,
+        metadata: {
+          channel: 'ppe.delivered',
+          to: event.deliveredTo.id,
+          recipientName: event.deliveredTo.name,
+          itemName: event.item.name,
+          quantity: event.delivery.quantity,
+        },
+      });
 
       // Initiate signature workflow for single delivery (same as batch handler)
       await this.initiateSignatureForDeliveries([event.delivery.id]);
@@ -401,6 +449,17 @@ export class PpeListener {
           },
           [userId],
         );
+
+        for (const d of userDeliveries) {
+          await this.auditService.recordEvent(d.id, 'NOTIFICATION_SENT' as any, {
+            actorUserId: deliveredBy.id,
+            metadata: {
+              channel: 'ppe.delivered.batch',
+              to: userId,
+              groupSize: count,
+            },
+          });
+        }
       }
 
       this.logger.log(`[PPE EVENT] Sent batch delivered notifications to ${byUser.size} users`);

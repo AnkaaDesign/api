@@ -1848,6 +1848,16 @@ export type PpeDeliveryScheduleWhere = z.infer<typeof ppeDeliveryScheduleWhereSc
 // PPE IN-APP SIGNATURE SCHEMAS
 // =====================
 
+export const ppeDeliveryTrackEventSchema = z.object({
+  event: z.enum(
+    ['DOCUMENT_VIEWED', 'BIOMETRIC_PROMPTED', 'BIOMETRIC_SUCCEEDED', 'BIOMETRIC_FAILED', 'PDF_DOWNLOADED'],
+    { errorMap: () => ({ message: 'Tipo de evento inválido' }) },
+  ),
+  metadata: z.record(z.any()).optional().nullable(),
+});
+
+export type PpeDeliveryTrackEventFormData = z.infer<typeof ppeDeliveryTrackEventSchema>;
+
 export const ppeDeliverySignSchema = z.object({
   biometricMethod: z.enum(['FINGERPRINT', 'FACE_ID', 'IRIS', 'DEVICE_PIN', 'NONE'], {
     errorMap: () => ({ message: 'Método biométrico inválido' }),
