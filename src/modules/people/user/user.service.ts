@@ -1235,29 +1235,35 @@ export class UserService {
 
       // Secullum bridge for the UPDATE path.
       //
-      // Mirrors the CREATE path: when sync is enabled, `await` the bridge so
-      // the Secullum result (synced / skipped / error) is visible to the web
-      // UI as a toast — particularly important on dismissal where the
-      // operator needs to know whether the funcionario's Demissao was set.
-      // The bridge never throws; it always returns a SecullumSyncResult.
+      // Mirrors the CREATE path: always `await` the bridge and attach its
+      // result to the response. The bridge is self-gating (returns a
+      // 'skipped' status when sync isn't enabled or the user has no
+      // secullumEmployeeId yet) and never throws. We don't rely on
+      // updatedUser's scalar fields here because the controller may pass
+      // an `include` shape that omits or restricts what Prisma returns —
+      // letting the bridge re-fetch is the robust path.
       const dismissalJustHappened = !!(
         updatedUser as { dismissedAt?: Date | null }
       ).dismissedAt;
+      this.logger.log(
+        `[secullum-update] invoking bridge for user ${id} (dismissalJustHappened=${dismissalJustHappened})`,
+      );
       let secullumSync: SecullumSyncResult | undefined;
-      if ((updatedUser as { secullumSyncEnabled?: boolean }).secullumSyncEnabled) {
-        try {
-          secullumSync = await this.userSecullumSyncService.onUserUpdated({
-            userId: id,
-            dismissalJustHappened,
-          });
-        } catch (err) {
-          // Defensive — onUserUpdated already swallows everything internally.
-          this.logger.error('Unexpected secullum sync throw:', err);
-          secullumSync = {
-            status: 'error',
-            reason: (err as Error).message,
-          };
-        }
+      try {
+        secullumSync = await this.userSecullumSyncService.onUserUpdated({
+          userId: id,
+          dismissalJustHappened,
+        });
+        this.logger.log(
+          `[secullum-update] bridge result for user ${id}: ${JSON.stringify(secullumSync)}`,
+        );
+      } catch (err) {
+        // Defensive — onUserUpdated already swallows everything internally.
+        this.logger.error('Unexpected secullum sync throw:', err);
+        secullumSync = {
+          status: 'error',
+          reason: (err as Error).message,
+        };
       }
       // Always emit the event too — keeps the contract for any other
       // listeners that might care about user updates.
