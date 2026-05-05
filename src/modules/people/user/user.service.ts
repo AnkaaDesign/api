@@ -650,6 +650,75 @@ export class UserService {
   }
 
   /**
+   * Throws BadRequestException with a structured message listing every
+   * required field / mapping that is missing for Secullum sync.
+   *
+   * Called from create() when `secullumSyncEnabled === true`, and from
+   * update() when the toggle is being flipped on (or is already on and
+   * a relevant field is being changed).
+   *
+   * The list mirrors the bridge's preconditions in
+   * `UserSecullumSyncService.onUserCreated`:
+   *  - cpf
+   *  - payrollNumber          (Secullum requires NumeroFolha)
+   *  - exp1StartAt            (Secullum requires a valid Admissao)
+   *  - sectorId + sector mapped to a departamento
+   *  - positionId + position mapped to a função
+   */
+  private async validateSecullumPrerequisites(
+    effective: {
+      cpf?: string | null;
+      payrollNumber?: number | null;
+      exp1StartAt?: Date | string | null;
+      sectorId?: string | null;
+      positionId?: string | null;
+    },
+    tx: PrismaTransaction,
+  ): Promise<void> {
+    const missing: string[] = [];
+
+    if (!effective.cpf) missing.push('CPF');
+    if (effective.payrollNumber == null) missing.push('Número da folha');
+    if (!effective.exp1StartAt)
+      missing.push('Data de admissão (início do período de experiência)');
+    if (!effective.sectorId) missing.push('Setor');
+    if (!effective.positionId) missing.push('Cargo');
+
+    if (effective.sectorId) {
+      const sector = await tx.sector.findUnique({
+        where: { id: effective.sectorId },
+        select: { name: true, secullumDepartamentoId: true },
+      });
+      if (sector && sector.secullumDepartamentoId == null) {
+        missing.push(
+          `Setor "${sector.name}" sem departamento Secullum vinculado ` +
+            `(configure em Recursos Humanos → Integração Secullum)`,
+        );
+      }
+    }
+
+    if (effective.positionId) {
+      const position = await tx.position.findUnique({
+        where: { id: effective.positionId },
+        select: { name: true, secullumFuncaoId: true },
+      });
+      if (position && position.secullumFuncaoId == null) {
+        missing.push(
+          `Cargo "${position.name}" sem função Secullum vinculada ` +
+            `(configure em Recursos Humanos → Integração Secullum)`,
+        );
+      }
+    }
+
+    if (missing.length > 0) {
+      throw new BadRequestException(
+        'Não é possível habilitar a sincronização com Secullum. ' +
+          `Pendências: ${missing.join('; ')}.`,
+      );
+    }
+  }
+
+  /**
    * Criar novo usuário
    */
   async create(
@@ -662,6 +731,14 @@ export class UserService {
       const user = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Validar usuário completo
         await this.userValidation(data, undefined, tx);
+
+        // If the user is opting in to Secullum sync at create time, every
+        // prerequisite the bridge needs MUST be present and the sector/position
+        // mappings MUST exist. Otherwise we'd commit an Ankaa user that we
+        // can't create on the Secullum side, leaving the operator confused.
+        if ((data as any).secullumSyncEnabled === true) {
+          await this.validateSecullumPrerequisites(data, tx);
+        }
 
         // Set default status to EXPERIENCE_PERIOD_1 if not provided (Brazilian CLT standard)
         if (!data.status) {
@@ -822,6 +899,30 @@ export class UserService {
 
         if (!existingUser) {
           throw new NotFoundException('Usuário não encontrado.');
+        }
+
+        // If the update will leave (or put) the user in secullumSyncEnabled=true,
+        // re-validate Secullum prerequisites against the merged shape (existing
+        // values + this update's overrides). Reject the update if any
+        // mapping/field is missing — same contract as create().
+        const willSyncAfter =
+          (data as any).secullumSyncEnabled === true ||
+          ((data as any).secullumSyncEnabled !== false &&
+            (existingUser as { secullumSyncEnabled?: boolean })
+              .secullumSyncEnabled === true);
+        if (willSyncAfter) {
+          await this.validateSecullumPrerequisites(
+            {
+              cpf: (data as any).cpf ?? existingUser.cpf,
+              payrollNumber:
+                (data as any).payrollNumber ?? existingUser.payrollNumber,
+              exp1StartAt:
+                (data as any).exp1StartAt ?? existingUser.exp1StartAt,
+              sectorId: (data as any).sectorId ?? existingUser.sectorId,
+              positionId: (data as any).positionId ?? existingUser.positionId,
+            },
+            tx,
+          );
         }
 
         // Business logic BEFORE saving: Handle dismissedAt date and status relationship
