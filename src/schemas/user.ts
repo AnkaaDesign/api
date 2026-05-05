@@ -1623,19 +1623,28 @@ export const userCreateSchema = z
 
     // Status timestamp tracking
     effectedAt: nullableDate.optional(),
-    exp1StartAt: nullableDate.optional(),
+    // Admission date — required at create time. Drives CLT period
+    // auto-calculation and Secullum's Admissao field. userUpdateSchema keeps
+    // this nullable.optional so existing rows aren't blocked.
+    exp1StartAt: z.coerce.date({
+      required_error: 'Data de admissão é obrigatória',
+      invalid_type_error: 'Data de admissão inválida',
+    }),
     exp1EndAt: nullableDate.optional(),
     exp2StartAt: nullableDate.optional(),
     exp2EndAt: nullableDate.optional(),
     dismissedAt: nullableDate.optional(),
 
-    // Payroll info
+    // Payroll info — required at create time (Secullum NumeroFolha + payroll
+    // computations). userUpdateSchema keeps it nullable.optional for editing
+    // existing rows that pre-date this constraint.
     payrollNumber: z
-      .number()
+      .number({
+        required_error: 'Número da folha é obrigatório',
+        invalid_type_error: 'Número da folha deve ser numérico',
+      })
       .int()
-      .positive('Número da folha deve ser positivo')
-      .nullable()
-      .optional(),
+      .positive('Número da folha deve ser positivo'),
 
     // Nested PPE size creation for new users
     ppeSize: ppeSizeCreateNestedSchema.optional(),
