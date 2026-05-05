@@ -144,15 +144,6 @@ export enum CUT_REQUEST_REASON {
   WRONG = 'WRONG',
 }
 
-export enum VACATION_STATUS {
-  PENDING = 'PENDING',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED',
-  CANCELLED = 'CANCELLED',
-  IN_PROGRESS = 'IN_PROGRESS',
-  COMPLETED = 'COMPLETED',
-}
-
 export enum PPE_REQUEST_STATUS {
   PENDING = 'PENDING',
   APPROVED = 'APPROVED',
@@ -390,20 +381,6 @@ export enum VALIDATION_SEVERITY {
 }
 
 // =====================
-// Vacation & Leave Types
-// =====================
-
-export enum VACATION_TYPE {
-  ANNUAL = 'ANNUAL',
-  COLLECTIVE = 'COLLECTIVE',
-  MEDICAL = 'MEDICAL',
-  MATERNITY = 'MATERNITY',
-  PATERNITY = 'PATERNITY',
-  EMERGENCY = 'EMERGENCY',
-  STUDY = 'STUDY',
-  UNPAID = 'UNPAID',
-  OTHER = 'OTHER',
-}
 
 // =====================
 // Warning Types

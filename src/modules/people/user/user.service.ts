@@ -1895,7 +1895,6 @@ export class UserService {
           where: { id: data.targetUserId },
           include: {
             createdTasks: true,
-            vacations: true,
           },
         });
 
@@ -1907,7 +1906,6 @@ export class UserService {
           where: { id: { in: data.sourceUserIds } },
           include: {
             createdTasks: true,
-            vacations: true,
           },
         });
 
@@ -1945,15 +1943,7 @@ export class UserService {
           });
         }
 
-        // 5. Merge vacations
-        for (const sourceUser of sourceUsers) {
-          if (sourceUser.vacations.length > 0) {
-            await tx.vacation.updateMany({
-              where: { userId: sourceUser.id },
-              data: { userId: data.targetUserId },
-            });
-          }
-        }
+        // 5. Merge vacations — removed (vacation tracking moved to Secullum, no local table to merge).
 
         // 6. Merge warnings (both as collaborator and supervisor)
         for (const sourceUser of sourceUsers) {

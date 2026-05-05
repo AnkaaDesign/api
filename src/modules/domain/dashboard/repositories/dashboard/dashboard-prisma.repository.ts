@@ -29,7 +29,6 @@ import {
   STOCK_LEVEL,
   TASK_STATUS,
   USER_STATUS,
-  VACATION_STATUS,
   NOTIFICATION_IMPORTANCE,
   NOTIFICATION_TYPE,
   DASHBOARD_TIME_PERIOD,
@@ -787,114 +786,27 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return result._avg?.performanceLevel ?? 0;
   }
 
-  async getVacationStatistics(dateFilter?: DateFilter): Promise<{
+  // Vacation tracking moved to Secullum (FuncionariosAfastamentos). Kept as a
+  // zero-result stub so dashboard callers don't need to be rewritten until the
+  // Secullum aggregation is wired into HR analytics.
+  async getVacationStatistics(_dateFilter?: DateFilter): Promise<{
     onVacationNow: number;
     upcoming: number;
     approved: number;
     schedule: Array<any>;
   }> {
-    const now = new Date();
-    const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-
-    const [onVacationNow, upcoming, approved, schedule] = await Promise.all([
-      this.prisma.vacation.count({
-        where: {
-          startAt: { lte: now },
-          endAt: { gte: now },
-          status: VACATION_STATUS.IN_PROGRESS as any,
-        },
-      }),
-      this.prisma.vacation.count({
-        where: {
-          startAt: {
-            gte: now,
-            lte: thirtyDaysFromNow,
-          },
-          status: { in: [VACATION_STATUS.APPROVED as any, VACATION_STATUS.IN_PROGRESS as any] },
-        },
-      }),
-      this.prisma.vacation.count({
-        where: {
-          status: VACATION_STATUS.APPROVED as any,
-          ...(dateFilter && { createdAt: dateFilter }),
-        },
-      }),
-      this.prisma.vacation.findMany({
-        where: {
-          startAt: { gte: now },
-          status: { in: [VACATION_STATUS.APPROVED as any, VACATION_STATUS.IN_PROGRESS as any] },
-        },
-        orderBy: { startAt: 'asc' },
-        take: 10,
-        include: {
-          user: { select: { name: true } },
-        },
-      }),
-    ]);
-
-    return {
-      onVacationNow,
-      upcoming,
-      approved,
-      schedule: schedule.map(v => ({
-        id: v.id,
-        userName: v.user?.name || 'Desconhecido',
-        startAt: v.startAt,
-        endAt: v.endAt,
-        status: v.status,
-        isCollective: v.isCollective,
-      })),
-    };
+    return { onVacationNow: 0, upcoming: 0, approved: 0, schedule: [] };
   }
 
+  // Stubbed — see comment on getVacationStatistics. Returns 12 zero-count buckets.
   async getVacationsByMonth(
-    dateFilter?: DateFilter,
+    _dateFilter?: DateFilter,
   ): Promise<Array<{ month: string; count: number }>> {
-    // Always show all 12 months of the current year, regardless of dateFilter
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const startDate = new Date(currentYear, 0, 1); // January 1st of current year
-    const endDate = new Date(currentYear, 11, 31); // December 31st of current year
-
-    const vacations = await this.prisma.vacation.findMany({
-      where: {
-        startAt: {
-          gte: startDate,
-          lte: endDate,
-        },
-        status: {
-          in: [
-            VACATION_STATUS.APPROVED as any,
-            VACATION_STATUS.IN_PROGRESS as any,
-            VACATION_STATUS.COMPLETED as any,
-          ],
-        },
-      },
-      select: {
-        startAt: true,
-      },
-    });
-
-    // Group vacations by month
-    const vacationsByMonth = new Map<string, number>();
-
-    for (const vacation of vacations) {
-      const monthKey = `${vacation.startAt.getFullYear()}-${String(vacation.startAt.getMonth() + 1).padStart(2, '0')}`;
-      vacationsByMonth.set(monthKey, (vacationsByMonth.get(monthKey) || 0) + 1);
-    }
-
-    // Generate all 12 months of the current year
-    const result: Array<{ month: string; count: number }> = [];
-
-    for (let month = 0; month < 12; month++) {
-      const monthKey = `${currentYear}-${String(month + 1).padStart(2, '0')}`;
-      result.push({
-        month: monthKey,
-        count: vacationsByMonth.get(monthKey) || 0,
-      });
-    }
-
-    return result;
+    const currentYear = new Date().getFullYear();
+    return Array.from({ length: 12 }, (_, m) => ({
+      month: `${currentYear}-${String(m + 1).padStart(2, '0')}`,
+      count: 0,
+    }));
   }
 
   async getTaskStatistics(
@@ -954,14 +866,9 @@ export class DashboardPrismaRepository implements DashboardRepository {
     };
   }
 
-  async countVacationsOnDate(date: Date): Promise<number> {
-    return this.prisma.vacation.count({
-      where: {
-        startAt: { lte: date },
-        endAt: { gte: date },
-        status: VACATION_STATUS.IN_PROGRESS,
-      },
-    });
+  // Stubbed — vacation tracking moved to Secullum.
+  async countVacationsOnDate(_date: Date): Promise<number> {
+    return 0;
   }
 
   async countTasksInProgress(): Promise<number> {
@@ -3502,41 +3409,21 @@ export class DashboardPrismaRepository implements DashboardRepository {
     });
   }
 
+  // Vacation counters stubbed — vacation tracking moved to Secullum.
   async countTotalVacations(): Promise<number> {
-    return this.prisma.vacation.count();
+    return 0;
   }
 
   async countPendingVacations(): Promise<number> {
-    return this.prisma.vacation.count({
-      where: {
-        status: VACATION_STATUS.PENDING as any,
-      },
-    });
+    return 0;
   }
 
   async countNewVacationsToday(): Promise<number> {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-
-    return this.prisma.vacation.count({
-      where: {
-        createdAt: {
-          gte: todayStart,
-          lte: todayEnd,
-        },
-      },
-    });
+    return 0;
   }
 
-  async countApprovedVacationsThisMonth(dateFilter: DateFilter): Promise<number> {
-    return this.prisma.vacation.count({
-      where: {
-        status: VACATION_STATUS.APPROVED as any,
-        ...(dateFilter && Object.keys(dateFilter).length > 0 && { createdAt: dateFilter }),
-      },
-    });
+  async countApprovedVacationsThisMonth(_dateFilter: DateFilter): Promise<number> {
+    return 0;
   }
 
   // Home dashboard queries

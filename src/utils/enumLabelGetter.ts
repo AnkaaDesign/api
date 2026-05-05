@@ -47,8 +47,6 @@ import {
   ACTIVITY_REASON_LABELS,
   ACTIVITY_LEVEL_LABELS,
   USER_STATUS_LABELS,
-  VACATION_STATUS_LABELS,
-  VACATION_TYPE_LABELS,
   CHANGE_LOG_ENTITY_TYPE_LABELS,
   CHANGE_LOG_ACTION_LABELS,
   NOTIFICATION_ACTION_TYPE_LABELS,
@@ -68,8 +66,6 @@ import {
   ACTIVITY_REASON,
   ACTIVITY_LEVEL,
   USER_STATUS,
-  VACATION_STATUS,
-  VACATION_TYPE,
   CHANGE_LOG_ENTITY_TYPE,
   CHANGE_LOG_ACTION,
   NOTIFICATION_ACTION_TYPE,
@@ -114,24 +110,6 @@ export function getActivityLevelLabel(level: ACTIVITY_LEVEL): string {
  */
 export function getUserStatusLabel(status: USER_STATUS): string {
   return USER_STATUS_LABELS[status] || status;
-}
-
-/**
- * Get the display label for a vacation status
- * @param status - The vacation status enum value
- * @returns The localized label for the status
- */
-export function getVacationStatusLabel(status: VACATION_STATUS): string {
-  return VACATION_STATUS_LABELS[status] || status;
-}
-
-/**
- * Get the display label for a vacation type
- * @param type - The vacation type enum value
- * @returns The localized label for the type
- */
-export function getVacationTypeLabel(type: VACATION_TYPE): string {
-  return VACATION_TYPE_LABELS[type] || type;
 }
 
 /**

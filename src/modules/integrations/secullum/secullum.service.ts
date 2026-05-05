@@ -27,6 +27,22 @@ import {
   SecullumHorarioRaw,
   SecullumJustificationsResponse,
   SecullumJustification,
+  SecullumAbsence,
+  SecullumAbsencesResponse,
+  SecullumCreateAbsenceRequest,
+  SecullumCreateAbsenceResponse,
+  SecullumDeleteAbsenceResponse,
+  SecullumAggregatedAbsence,
+  SecullumAggregatedAbsencesResponse,
+  SecullumCreateAbsenceForUsersRequest,
+  SecullumCreateAbsenceForUsersResponse,
+  SecullumCreateAbsenceForUsersResultItem,
+  SecullumMissingDay,
+  SecullumMissingDaysResponse,
+  SecullumSolicitacaoRecord,
+  SecullumExistingSolicitacaoResponse,
+  SecullumCreateJustifyAbsenceDto,
+  SecullumCreateJustifyAbsenceResponse,
 } from './dto';
 
 @Injectable()
@@ -1087,6 +1103,708 @@ export class SecullumService {
     }
   }
 
+  // === Absences (Afastamentos) ===
+  // Secullum has a single "FuncionariosAfastamentos" resource that stores any
+  // off-work record (vacation, sick leave, maternity, falta, compensation,
+  // dispensa, etc.). Categorization into "Ausência" (planned) vs "Falta"
+  // (unplanned) lives in the web layer via JustificativaId mapping.
+
+  async getAbsencesByEmployee(funcionarioId: number): Promise<SecullumAbsencesResponse> {
+    try {
+      const data = await this.makeAuthenticatedRequest<SecullumAbsence[]>(
+        'GET',
+        `/FuncionariosAfastamentos/${funcionarioId}`,
+      );
+      return {
+        success: true,
+        message: 'Absences retrieved successfully',
+        data: data || [],
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error fetching absences for employee ${funcionarioId}`,
+        error,
+      );
+      return {
+        success: false,
+        message: `Falha ao carregar afastamentos: ${this.getErrorMessage(error)}`,
+        data: [],
+        error: this.getErrorMessage(error),
+      };
+    }
+  }
+
+  async createAbsence(
+    payload: SecullumCreateAbsenceRequest,
+  ): Promise<SecullumCreateAbsenceResponse> {
+    try {
+      this.logger.log(
+        `Creating absence in Secullum: funcionarioId=${payload.FuncionarioId} ${payload.Inicio}..${payload.Fim} justificativaId=${payload.JustificativaId}`,
+      );
+      const data = await this.makeAuthenticatedRequest<SecullumAbsence | undefined>(
+        'POST',
+        '/FuncionariosAfastamentos',
+        payload,
+      );
+      return {
+        success: true,
+        message: 'Absence created successfully',
+        data: data ?? undefined,
+      };
+    } catch (error) {
+      this.logger.error('Error creating absence', error);
+      throw new HttpException(
+        {
+          success: false,
+          message: `Falha ao criar afastamento: ${this.getErrorMessage(error)}`,
+          error: this.getErrorMessage(error),
+        },
+        error?.response?.status || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  // Resolves our internal userIds → secullumEmployeeIds and POSTs one absence
+  // per resolved user. Single-employee submit and collective vacation both go
+  // through here; the frontend never needs to know secullumEmployeeId.
+  async createAbsenceForUsers(
+    payload: SecullumCreateAbsenceForUsersRequest,
+  ): Promise<SecullumCreateAbsenceForUsersResponse> {
+    const where: any = { isActive: true, secullumEmployeeId: { not: null } };
+    if (!payload.applyToAll && payload.userIds && payload.userIds.length > 0) {
+      where.id = { in: payload.userIds };
+    } else if (!payload.applyToAll) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Informe userIds ou applyToAll=true.',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const users = await this.prismaService.user.findMany({
+      where,
+      select: { id: true, name: true, secullumEmployeeId: true },
+    });
+
+    if (users.length === 0) {
+      return {
+        success: false,
+        message: 'Nenhum colaborador ativo vinculado ao Secullum encontrado.',
+        data: { created: 0, failed: 0, results: [] },
+      };
+    }
+
+    const groupId =
+      payload.groupId ?? (users.length > 1 ? this.uuidV4() : undefined);
+    const motivoBase = payload.Motivo ?? '';
+    const motivo = groupId ? `[GRP:${groupId}] ${motivoBase}`.trim() : motivoBase;
+
+    const results: SecullumCreateAbsenceForUsersResultItem[] = [];
+    for (const u of users) {
+      const funcionarioId = u.secullumEmployeeId!;
+      try {
+        await this.createAbsence({
+          Inicio: payload.Inicio,
+          Fim: payload.Fim,
+          JustificativaId: payload.JustificativaId,
+          Motivo: motivo,
+          FuncionarioId: funcionarioId,
+        });
+        results.push({ userId: u.id, userName: u.name, funcionarioId, ok: true });
+      } catch (err: any) {
+        results.push({
+          userId: u.id,
+          userName: u.name,
+          funcionarioId,
+          ok: false,
+          error:
+            err?.response?.data?.message ||
+            err?.message ||
+            this.getErrorMessage(err),
+        });
+      }
+    }
+
+    const created = results.filter((r) => r.ok).length;
+    const failed = results.length - created;
+
+    return {
+      success: failed === 0,
+      message:
+        failed === 0
+          ? `${created} afastamento(s) criado(s) com sucesso`
+          : `${created} criado(s), ${failed} falharam`,
+      data: { created, failed, groupId, results },
+    };
+  }
+
+  private uuidV4(): string {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+
+  async deleteAbsence(absenceId: string | number): Promise<SecullumDeleteAbsenceResponse> {
+    try {
+      this.logger.log(`Deleting absence in Secullum with ID: ${absenceId}`);
+      await this.makeAuthenticatedRequest<void>(
+        'DELETE',
+        `/FuncionariosAfastamentos/${absenceId}`,
+      );
+      return {
+        success: true,
+        message: 'Absence deleted successfully',
+      };
+    } catch (error) {
+      this.logger.error(`Error deleting absence ${absenceId}`, error);
+      throw new HttpException(
+        {
+          success: false,
+          message: `Falha ao excluir afastamento: ${this.getErrorMessage(error)}`,
+          error: this.getErrorMessage(error),
+        },
+        error?.response?.status || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  // Edit = delete + recreate (Secullum has no PUT for absences). On any failure
+  // after the delete succeeds we attempt to restore the original record so the
+  // employee's history isn't silently destroyed.
+  async updateAbsence(
+    absenceId: string | number,
+    original: SecullumAbsence,
+    next: SecullumCreateAbsenceRequest,
+  ): Promise<SecullumCreateAbsenceResponse> {
+    await this.deleteAbsence(absenceId);
+    try {
+      return await this.createAbsence(next);
+    } catch (createErr) {
+      this.logger.warn(
+        `Recreate failed after delete for absence ${absenceId}; restoring original record`,
+      );
+      try {
+        await this.createAbsence({
+          Inicio: this.toIsoDate(original.Inicio),
+          Fim: this.toIsoDate(original.Fim),
+          JustificativaId: original.JustificativaId,
+          Motivo: original.Motivo ?? '',
+          FuncionarioId: original.FuncionarioId,
+        });
+      } catch (restoreErr) {
+        this.logger.error(
+          `Restore-after-failure also failed for absence ${absenceId}`,
+          restoreErr,
+        );
+      }
+      throw createErr;
+    }
+  }
+
+  // Aggregate absences across many employees within a date window. Used by the
+  // shared HR calendar / list pages.
+  //
+  // Strategy: query Secullum's /Funcionarios for the authoritative list of
+  // employees (Secullum is the source of truth for absences), then fan out
+  // /FuncionariosAfastamentos/{Id} per employee. We then JOIN BACK to the
+  // local User table by secullumEmployeeId to populate sector/userId where the
+  // employee is synced; otherwise we fall back to Secullum's own Nome field so
+  // unsynced employees still show up.
+  async getAggregatedAbsences(params: {
+    startDate: string;
+    endDate: string;
+    sectorId?: string;
+  }): Promise<SecullumAggregatedAbsencesResponse> {
+    try {
+      // 1. Pull authoritative employee list from Secullum.
+      const employeesResp = await this.getEmployees();
+      const secullumEmployees: Array<{
+        Id: number;
+        Nome: string;
+        DepartamentoDescricao?: string;
+      }> = (employeesResp?.data ?? []) as any[];
+
+      if (secullumEmployees.length === 0) {
+        return {
+          success: true,
+          message: 'No employees returned by Secullum',
+          data: [],
+        };
+      }
+
+      // 2. Build lookup maps: Ankaa user matched by ANY of secullumEmployeeId,
+      // normalized CPF, normalized PIS, or payrollNumber. This way the
+      // join-back works even when the user-Secullum sync hasn't been run yet
+      // and `secullumEmployeeId` is null on the Ankaa side.
+      const allUsers = await this.prismaService.user.findMany({
+        where: { isActive: true },
+        select: {
+          id: true,
+          name: true,
+          sectorId: true,
+          secullumEmployeeId: true,
+          cpf: true,
+          pis: true,
+          payrollNumber: true,
+          sector: { select: { id: true, name: true } },
+        },
+      });
+      const norm = (s?: string | null) => (s ?? '').replace(/[^0-9]/g, '');
+      type LinkedUser = (typeof allUsers)[number];
+      const userBySecullumId = new Map<number, LinkedUser>();
+      const userByCpf = new Map<string, LinkedUser>();
+      const userByPis = new Map<string, LinkedUser>();
+      const userByPayrollNumber = new Map<number, LinkedUser>();
+      for (const u of allUsers) {
+        if (u.secullumEmployeeId != null) userBySecullumId.set(u.secullumEmployeeId, u);
+        const c = norm(u.cpf);
+        if (c) userByCpf.set(c, u);
+        const p = norm(u.pis);
+        if (p) userByPis.set(p, u);
+        if (u.payrollNumber != null) userByPayrollNumber.set(u.payrollNumber, u);
+      }
+      const resolveAnkaaUser = (e: any): LinkedUser | undefined => {
+        const byId = userBySecullumId.get(e.Id);
+        if (byId) return byId;
+        const c = norm(e.Cpf);
+        if (c) {
+          const byCpf = userByCpf.get(c);
+          if (byCpf) return byCpf;
+        }
+        const p = norm(e.NumeroPis);
+        if (p) {
+          const byPis = userByPis.get(p);
+          if (byPis) return byPis;
+        }
+        const folha = parseInt(String(e.NumeroFolha ?? ''), 10);
+        if (!Number.isNaN(folha)) {
+          const byFolha = userByPayrollNumber.get(folha);
+          if (byFolha) return byFolha;
+        }
+        return undefined;
+      };
+
+      // Optional sectorId filter: keep only employees whose linked Ankaa user
+      // belongs to the requested sector. Unlinkable Secullum employees are
+      // dropped under this filter (they have no Ankaa sector to match).
+      const employees = params.sectorId
+        ? secullumEmployees.filter(
+            (e) => resolveAnkaaUser(e)?.sectorId === params.sectorId,
+          )
+        : secullumEmployees;
+
+      const start = new Date(params.startDate);
+      const end = new Date(params.endDate);
+
+      const aggregated: SecullumAggregatedAbsence[] = [];
+      const failures: string[] = [];
+
+      // 3. Fan out per-employee absence fetches in parallel.
+      const settled = await Promise.allSettled(
+        employees.map(async (e) => {
+          const res = await this.getAbsencesByEmployee(e.Id);
+          if (!res.success || !res.data) return [];
+          const overlapping = res.data.filter((a) => {
+            const ai = new Date(a.Inicio);
+            const af = new Date(a.Fim);
+            return af >= start && ai <= end;
+          });
+          const linked = resolveAnkaaUser(e);
+          return overlapping.map((a) => ({
+            ...a,
+            userId: linked?.id ?? `secullum:${e.Id}`,
+            userName: linked?.name ?? e.Nome,
+            sectorId: linked?.sectorId ?? null,
+            sectorName: linked?.sector?.name ?? e.DepartamentoDescricao ?? null,
+          }));
+        }),
+      );
+
+      settled.forEach((r, i) => {
+        if (r.status === 'fulfilled') aggregated.push(...r.value);
+        else failures.push(employees[i]?.Nome ?? `Id ${employees[i]?.Id}`);
+      });
+
+      if (failures.length > 0) {
+        this.logger.warn(
+          `Aggregated absences: failed for ${failures.length} employee(s): ${failures.slice(0, 5).join(', ')}${failures.length > 5 ? '...' : ''}`,
+        );
+      }
+
+      this.logger.log(
+        `Aggregated ${aggregated.length} absences across ${employees.length - failures.length}/${employees.length} Secullum employees (Ankaa users: ${userBySecullumId.size} via secullumEmployeeId, ${userByCpf.size} via CPF, ${userByPis.size} via PIS, ${userByPayrollNumber.size} via payrollNumber)`,
+      );
+
+      return {
+        success: true,
+        message: `Aggregated ${aggregated.length} absences across ${employees.length - failures.length} employees`,
+        data: aggregated,
+      };
+    } catch (error) {
+      this.logger.error('Error aggregating absences', error);
+      throw new HttpException(
+        {
+          success: false,
+          message: `Falha ao agregar afastamentos: ${this.getErrorMessage(error)}`,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  private toIsoDate(value: string): string {
+    // Secullum returns dates as "YYYY-MM-DDT00:00:00"; POST expects "YYYY-MM-DD"
+    return value.length >= 10 ? value.substring(0, 10) : value;
+  }
+
+  // === Unjustified absences (derived from Cálculos de Ponto) ===
+  // Uses the /Calculos/{employeeId}/{startDate}/{endDate} endpoint (the same
+  // data shown on the Cálculos de Ponto page). A scheduled workday with
+  // Faltas > 00:00 and no Abono applied is treated as an unjustified absence
+  // ("Falta sem Justificativa", JustificativaId 3).
+  //
+  // Why /Calculos and not /Batidas: /Calculos already accounts for each
+  // employee's individual schedule — it omits folgas, holidays, and DSR days
+  // and surfaces shortage time (Faltas) computed by Secullum itself, so we
+  // don't have to re-implement schedule logic with the brittle "skip
+  // Sat/Sun" heuristic that /Batidas required.
+  //
+  // Cost: one /Calculos call per Secullum employee — same fan-out pattern
+  // as getAggregatedAbsences. Use sparingly (opt-in via a flag).
+  async getUnjustifiedAbsences(params: {
+    startDate: string;
+    endDate: string;
+    sectorId?: string;
+  }): Promise<SecullumAggregatedAbsencesResponse> {
+    try {
+      const employeesResp = await this.getEmployees();
+      const secullumEmployees: Array<{
+        Id: number;
+        Nome: string;
+        DepartamentoDescricao?: string;
+      }> = (employeesResp?.data ?? []) as any[];
+
+      // Same multi-key resolver as getAggregatedAbsences so unjustified rows
+      // also get joined to Ankaa users via CPF/PIS/payrollNumber when
+      // secullumEmployeeId isn't pre-populated.
+      const allUsers = await this.prismaService.user.findMany({
+        where: { isActive: true },
+        select: {
+          id: true,
+          name: true,
+          sectorId: true,
+          secullumEmployeeId: true,
+          cpf: true,
+          pis: true,
+          payrollNumber: true,
+          sector: { select: { id: true, name: true } },
+        },
+      });
+      const norm = (s?: string | null) => (s ?? '').replace(/[^0-9]/g, '');
+      type LinkedUser = (typeof allUsers)[number];
+      const userBySecullumId = new Map<number, LinkedUser>();
+      const userByCpf = new Map<string, LinkedUser>();
+      const userByPis = new Map<string, LinkedUser>();
+      const userByPayrollNumber = new Map<number, LinkedUser>();
+      for (const u of allUsers) {
+        if (u.secullumEmployeeId != null) userBySecullumId.set(u.secullumEmployeeId, u);
+        const c = norm(u.cpf);
+        if (c) userByCpf.set(c, u);
+        const p = norm(u.pis);
+        if (p) userByPis.set(p, u);
+        if (u.payrollNumber != null) userByPayrollNumber.set(u.payrollNumber, u);
+      }
+      const resolveAnkaaUser = (e: any): LinkedUser | undefined => {
+        const byId = userBySecullumId.get(e.Id);
+        if (byId) return byId;
+        const c = norm(e.Cpf);
+        if (c) {
+          const byCpf = userByCpf.get(c);
+          if (byCpf) return byCpf;
+        }
+        const p = norm(e.NumeroPis);
+        if (p) {
+          const byPis = userByPis.get(p);
+          if (byPis) return byPis;
+        }
+        const folha = parseInt(String(e.NumeroFolha ?? ''), 10);
+        if (!Number.isNaN(folha)) {
+          const byFolha = userByPayrollNumber.get(folha);
+          if (byFolha) return byFolha;
+        }
+        return undefined;
+      };
+
+      const employees = params.sectorId
+        ? secullumEmployees.filter(
+            (e) => resolveAnkaaUser(e)?.sectorId === params.sectorId,
+          )
+        : secullumEmployees;
+
+      const aggregated: SecullumAggregatedAbsence[] = [];
+
+      // Parse signed "HH:MM" / "-HH:MM" / "HH:MM:SS" durations to total
+      // minutes. Returns null for non-duration strings (sentinel values like
+      // "FALTA I", "Folga", "—", or empty). The sign matters: Secullum's
+      // Ajuste column shows "-08:45" on unjustified-falta days to deduct the
+      // missing hours, and a naive digit check would mis-flag those rows as
+      // already justified.
+      const parseDurationMinutes = (v: unknown): number | null => {
+        if (v == null) return null;
+        const s = String(v).trim();
+        if (!s) return null;
+        const m = s.match(/^(-?)(\d+):(\d{2})(?::\d{2})?$/);
+        if (!m) return null;
+        const sign = m[1] === '-' ? -1 : 1;
+        return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10));
+      };
+      const isPositiveDuration = (v: unknown): boolean => {
+        const min = parseDurationMinutes(v);
+        return min != null && min > 0;
+      };
+
+      // Track diagnostic counters across all employees for one summary log.
+      let diagEmployeesScanned = 0;
+      let diagEmployeesSkipped = 0;
+      let diagRowsScanned = 0;
+      let diagRowsHit = 0;
+      let diagRowsHitByDerived = 0;
+      let diagRowsHitBySentinel = 0;
+
+      const settled = await Promise.allSettled(
+        employees.map(async (e) => {
+          const endpoint = `/Calculos/${e.Id}/${params.startDate}/${params.endDate}`;
+          let raw: any;
+          try {
+            raw = await this.makeAuthenticatedRequest<any>(
+              'GET',
+              endpoint,
+              undefined,
+              undefined,
+              {
+                secullumbancoselecionado:
+                  this.databaseId || '4c8681f2e79a4b7ab58cc94503106736',
+              },
+            );
+          } catch (err) {
+            this.logger.warn(
+              `Unjustified: /Calculos failed for employee ${e.Id} (${e.Nome}): ${this.getErrorMessage(err)}`,
+            );
+            diagEmployeesSkipped++;
+            return [];
+          }
+
+          // /Calculos returns { Colunas: [{Nome, NomeExibicao}], Linhas: any[][], Totais }.
+          // Column names vary by Secullum config (case + whether Nome or only
+          // NomeExibicao is populated), so resolve via a tolerant matcher
+          // that mirrors secullum-bonus-integration / secullum-payroll-integration.
+          const colunas: Array<{ Nome?: string; NomeExibicao?: string }> = Array.isArray(raw?.Colunas)
+            ? raw.Colunas
+            : [];
+          const linhas: any[][] = Array.isArray(raw?.Linhas) ? raw.Linhas : [];
+          if (linhas.length === 0) {
+            diagEmployeesSkipped++;
+            return [];
+          }
+          diagEmployeesScanned++;
+
+          // Case-insensitive partial-match against Nome and NomeExibicao.
+          // Returns the first column index whose normalized name contains any
+          // of the search terms — same approach used by the payroll service.
+          const findColIdx = (...terms: string[]): number => {
+            const lcTerms = terms.map((t) => t.toLowerCase());
+            for (let i = 0; i < colunas.length; i++) {
+              const c = colunas[i] || {};
+              const nome = (c.Nome ?? '').toLowerCase();
+              const nomeEx = (c.NomeExibicao ?? '').toLowerCase();
+              if (lcTerms.some((t) => nome === t || nomeEx === t)) return i;
+            }
+            // Second pass: substring match (catches "Atras." vs "Atrasos").
+            for (let i = 0; i < colunas.length; i++) {
+              const c = colunas[i] || {};
+              const nome = (c.Nome ?? '').toLowerCase();
+              const nomeEx = (c.NomeExibicao ?? '').toLowerCase();
+              if (lcTerms.some((t) => nome.includes(t) || nomeEx.includes(t))) return i;
+            }
+            return -1;
+          };
+
+          const dataIdx = findColIdx('data', 'dia');
+          const faltasIdx = findColIdx('faltas', 'falta');
+          const cargaIdx = findColIdx('carga');
+          const normaisIdx = findColIdx('normais', 'horas normais', 'horas trabalhadas');
+          const entradaIdxs: number[] = [];
+          for (let i = 0; i < colunas.length; i++) {
+            const c = colunas[i] || {};
+            const n = `${c.Nome ?? ''}|${c.NomeExibicao ?? ''}`.toLowerCase();
+            if (/^(?:.*\|)?(entrada|saída|saida)\s*\d+(?:\|.*)?$/.test(n)) {
+              entradaIdxs.push(i);
+            }
+          }
+          // Abono* columns mark applied justifications. Ajuste is a manual
+          // punch correction (often negative on unjustified-falta days) and
+          // must NOT short-circuit detection.
+          const abonoIdxs: number[] = [];
+          for (let i = 0; i < colunas.length; i++) {
+            const c = colunas[i] || {};
+            const nome = (c.Nome ?? '').toLowerCase();
+            const nomeEx = (c.NomeExibicao ?? '').toLowerCase();
+            if (/^abono\s*\d*$/.test(nome) || /^abono\s*\d*$/.test(nomeEx)) {
+              abonoIdxs.push(i);
+            }
+          }
+
+          // Bail out only if BOTH the per-row Faltas column is missing AND we
+          // cannot derive shortfall from Carga/Normais. Otherwise proceed —
+          // either signal alone is enough to find faltas.
+          if (faltasIdx < 0 && (cargaIdx < 0 || normaisIdx < 0)) {
+            this.logger.warn(
+              `Unjustified: missing Faltas/Carga/Normais columns for employee ${e.Id}; columns=[${colunas
+                .map((c) => c?.Nome ?? c?.NomeExibicao ?? '?')
+                .join(', ')}]`,
+            );
+            return [];
+          }
+
+          // "FALTA I" / "FALTA II" / "Falta" sentinel inside an entry column
+          // is Secullum's explicit marker for an unjustified-falta day. Treat
+          // it as a positive signal — independent of the numeric Faltas cell,
+          // which Secullum sometimes leaves empty (the bonus service
+          // documents this same gotcha and falls back to Carga − Normais).
+          const isFaltaSentinel = (v: unknown): boolean => {
+            if (v == null) return false;
+            const s = String(v).trim().toUpperCase();
+            return s.startsWith('FALTA');
+          };
+
+          const unjustified: SecullumAggregatedAbsence[] = [];
+          for (const row of linhas) {
+            diagRowsScanned++;
+            const dateStr = dataIdx >= 0 ? row[dataIdx] : row[0];
+            if (!dateStr) continue;
+            // Secullum's /Calculos returns dates as "DD/MM/YYYY - DiaSemana"
+            // (e.g. "15/04/2026 - Qua"), NOT ISO. Some other endpoints in this
+            // service emit "YYYY-MM-DD"; accept both shapes so this stays
+            // compatible if the response format ever changes.
+            const dateRaw = String(dateStr).trim();
+            let yy: number, mm: number, dd: number;
+            const brMatch = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(dateRaw);
+            const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateRaw);
+            if (brMatch) {
+              dd = parseInt(brMatch[1], 10);
+              mm = parseInt(brMatch[2], 10);
+              yy = parseInt(brMatch[3], 10);
+            } else if (isoMatch) {
+              yy = parseInt(isoMatch[1], 10);
+              mm = parseInt(isoMatch[2], 10);
+              dd = parseInt(isoMatch[3], 10);
+            } else {
+              continue;
+            }
+            if (!yy || !mm || !dd) continue;
+            const datePart = `${yy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+
+            // Determine whether this is a falta day using three signals:
+            //   1) per-row Faltas > 0 (the obvious case)
+            //   2) Carga > 0 with Normais missing/zero (Secullum often leaves
+            //      the per-row Faltas cell empty — the bonus integration
+            //      service documents this)
+            //   3) any entry column literally contains "FALTA*" (sentinel)
+            const faltasMin = faltasIdx >= 0 ? parseDurationMinutes(row[faltasIdx]) : null;
+            const cargaMin = cargaIdx >= 0 ? parseDurationMinutes(row[cargaIdx]) : null;
+            const normaisMin = normaisIdx >= 0 ? parseDurationMinutes(row[normaisIdx]) : null;
+
+            const hasPositiveFaltas = faltasMin != null && faltasMin > 0;
+            const hasDerivedShortfall =
+              cargaMin != null && cargaMin > 0 && (normaisMin == null || normaisMin < cargaMin);
+            const hasFaltaSentinel = entradaIdxs.some((i) => isFaltaSentinel(row[i]));
+
+            if (!hasPositiveFaltas && !hasDerivedShortfall && !hasFaltaSentinel) continue;
+
+            // Skip rows where the employee actually clocked in for at least
+            // part of the day (late arrival / early leave); those are
+            // "Atrasos", not full-day faltas. Sentinel strings ("FALTA I",
+            // "Folga", "—", "") all parse as null and correctly count as
+            // no-stamp.
+            const hasAnyEntry = entradaIdxs.some((i) =>
+              isPositiveDuration(row[i]),
+            );
+            if (hasAnyEntry) continue;
+
+            // Already justified via Abono — skip.
+            const hasAbono = abonoIdxs.some((i) =>
+              isPositiveDuration(row[i]),
+            );
+            if (hasAbono) continue;
+
+            // Non-working days (folga/holiday/DSR) have Carga = 0 and no
+            // Faltas — already filtered by the signal check above. No
+            // weekday heuristic needed: Secullum's per-employee schedule
+            // drives Carga.
+            if (cargaMin != null && cargaMin === 0 && !hasPositiveFaltas && !hasFaltaSentinel) {
+              continue;
+            }
+
+            diagRowsHit++;
+            if (!hasPositiveFaltas && hasDerivedShortfall) diagRowsHitByDerived++;
+            if (!hasPositiveFaltas && !hasDerivedShortfall && hasFaltaSentinel) {
+              diagRowsHitBySentinel++;
+            }
+
+            const linked = resolveAnkaaUser(e);
+            const isoDay = `${datePart}T00:00:00`;
+            unjustified.push({
+              // Synthetic Id with a sentinel prefix; deletion is not supported
+              // (the workflow is to apply a justification via Cálculos de Ponto).
+              Id: -((e.Id * 100000) + (yy * 10000 + mm * 100 + dd)),
+              FuncionarioId: e.Id,
+              Inicio: isoDay,
+              Fim: isoDay,
+              Motivo: '',
+              JustificativaId: 3, // FALTA I — Falta sem Justificativa
+              JustificativaDescricao: 'Falta sem Justificativa',
+              userId: linked?.id ?? `secullum:${e.Id}`,
+              userName: linked?.name ?? e.Nome,
+              sectorId: linked?.sectorId ?? null,
+              sectorName: linked?.sector?.name ?? e.DepartamentoDescricao ?? null,
+            });
+          }
+          return unjustified;
+        }),
+      );
+
+      this.logger.log(
+        `Unjustified scan ${params.startDate}..${params.endDate}: ` +
+          `employees scanned=${diagEmployeesScanned} skipped=${diagEmployeesSkipped}, ` +
+          `rows scanned=${diagRowsScanned} hit=${diagRowsHit} ` +
+          `(byDerived=${diagRowsHitByDerived}, bySentinel=${diagRowsHitBySentinel})`,
+      );
+
+      settled.forEach((r) => {
+        if (r.status === 'fulfilled') aggregated.push(...r.value);
+      });
+
+      return {
+        success: true,
+        message: `Found ${aggregated.length} unjustified absence(s) across ${employees.length} employees`,
+        data: aggregated,
+      };
+    } catch (error) {
+      this.logger.error('Error fetching unjustified absences', error);
+      throw new HttpException(
+        {
+          success: false,
+          message: `Falha ao calcular faltas não justificadas: ${this.getErrorMessage(error)}`,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   async getHorarios(params?: { incluirDesativados?: boolean }): Promise<SecullumHorariosResponse> {
     try {
       const incluirDesativados = params?.incluirDesativados ?? true;
@@ -2077,5 +2795,271 @@ export class SecullumService {
       return error.message;
     }
     return 'Unknown error occurred';
+  }
+
+  // =====================
+  // EMPLOYEE SELF-SERVICE: Solicitação de Ausência (Justificar Ausência)
+  // =====================
+  // These wrap Secullum's mobile-app endpoints. Captured live via Proxyman MitM —
+  // see api/docs/secullum-integration/10_solicitacao_ausencia_plan.md for the HAR analysis.
+
+  // Mobile-style /Justificativas (camelCase, includes exigirFotoAtestado).
+  // Distinct from getJustifications() which passes filtro=1 and returns the
+  // PascalCase admin shape. We need exigirFotoAtestado here to enforce the
+  // "ATESTADO MÉDICO requires photo" rule before sending to Secullum.
+  async getJustificativasForFuncionario(): Promise<{
+    success: boolean;
+    message: string;
+    data: Array<{
+      id: number;
+      nomeCompleto: string;
+      exigirFotoAtestado: boolean;
+      naoPermitirFuncionariosUtilizar: boolean;
+    }>;
+  }> {
+    try {
+      const data = await this.makeAuthenticatedRequest<
+        Array<{
+          id: number;
+          nomeCompleto: string;
+          exigirFotoAtestado: boolean;
+          naoPermitirFuncionariosUtilizar: boolean;
+        }>
+      >('GET', '/Justificativas');
+
+      // Filter out the ones marked "do not allow employees to use"
+      const visible = (Array.isArray(data) ? data : []).filter(
+        j => !j.naoPermitirFuncionariosUtilizar,
+      );
+
+      return {
+        success: true,
+        message: 'Justificativas carregadas com sucesso',
+        data: visible,
+      };
+    } catch (error) {
+      this.logger.error('Error fetching employee-facing justificativas', error);
+      return {
+        success: false,
+        message: `Falha ao carregar motivos: ${this.getErrorMessage(error)}`,
+        data: [],
+      };
+    }
+  }
+
+  // Get the days inside [from, to] where the employee has no batidas registered.
+  // Uses the same /Batidas endpoint as getTimeEntriesBySecullumId.
+  async getMissingDaysForEmployee(
+    secullumEmployeeId: number,
+    from: string, // YYYY-MM-DD
+    to: string, // YYYY-MM-DD
+  ): Promise<SecullumMissingDaysResponse> {
+    try {
+      const endpoint = `/Batidas/${secullumEmployeeId}/${from}/${to}`;
+      const raw = await this.makeAuthenticatedRequest<{
+        lista?: Array<{
+          data: string;
+          batidas?: Array<{ nome: string; valor: string | null; valorOriginal: string | null }>;
+          valores?: Array<{ nome: string; valor: string | null }>;
+          saldo?: string;
+          existePeriodoEncerrado?: boolean;
+        }>;
+      }>('GET', endpoint);
+
+      const lista = raw?.lista ?? [];
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const weekdayLabels = [
+        'Domingo',
+        'Segunda-Feira',
+        'Terça-Feira',
+        'Quarta-Feira',
+        'Quinta-Feira',
+        'Sexta-Feira',
+        'Sábado',
+      ];
+
+      const missing: SecullumMissingDay[] = [];
+      for (const day of lista) {
+        const ymd = String(day.data).slice(0, 10); // strip THH:MM:SS
+        const dayDate = this.parseLocalDay(ymd);
+        if (!dayDate) continue;
+        if (dayDate.getTime() > today.getTime()) continue; // skip future days
+
+        const batidas = day.batidas ?? [];
+        // Skip holidays (server marks valor="Feriado" on every slot).
+        const isHoliday = batidas.some(b => (b.valor ?? '') === 'Feriado');
+        if (isHoliday) continue;
+
+        // Primary signal: any "Faltas" total > 00:00 in valores[].
+        const faltasEntry = (day.valores ?? []).find(v => v.nome === 'Faltas');
+        const faltasValue = (faltasEntry?.valor ?? '').trim();
+        const hasFaltas = faltasValue.length > 0 && faltasValue !== '00:00';
+
+        // Fallback: every batida slot is empty/null AND no time-like value.
+        const allEmpty =
+          batidas.length > 0 &&
+          batidas.every(b => {
+            const v = (b.valor ?? '').trim();
+            return v === '' || v === null;
+          });
+
+        if (!hasFaltas && !allEmpty) continue;
+
+        const saldoEntry = (day.valores ?? []).find(v => v.nome === 'Saldo');
+        missing.push({
+          date: ymd,
+          weekdayPt: weekdayLabels[dayDate.getDay()],
+          saldo: saldoEntry?.valor ?? day.saldo ?? null,
+          totalFaltas: faltasEntry?.valor ?? null,
+          existePeriodoEncerrado: !!day.existePeriodoEncerrado,
+        });
+      }
+
+      // Newest first (matches the Secullum app ordering).
+      missing.sort((a, b) => (a.date < b.date ? 1 : -1));
+
+      return {
+        success: true,
+        message: 'Dias sem batida carregados',
+        data: missing,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error computing missing days for ${secullumEmployeeId} ${from}..${to}`,
+        error,
+      );
+      return {
+        success: false,
+        message: `Falha ao carregar dias sem batida: ${this.getErrorMessage(error)}`,
+        data: [],
+      };
+    }
+  }
+
+  // GET /Solicitacoes/{date} — returns the existing record or a hollow stub
+  // with justificativaId=null (which we normalise to data: null).
+  async getSolicitacaoByDate(
+    date: string, // YYYY-MM-DD
+  ): Promise<SecullumExistingSolicitacaoResponse> {
+    try {
+      const raw = await this.makeAuthenticatedRequest<SecullumSolicitacaoRecord & {
+        justificativaId: number | null;
+      }>(
+        'GET',
+        `/Solicitacoes/${date}`,
+        undefined,
+        { origemRequisicao: 0 },
+      );
+
+      // Hollow stub means "no record yet" — Secullum returns 200 with all-null fields.
+      if (!raw || raw.justificativaId === null) {
+        return {
+          success: true,
+          message: 'Sem solicitação para esta data',
+          data: null,
+        };
+      }
+
+      return {
+        success: true,
+        message: 'Solicitação encontrada',
+        data: raw,
+      };
+    } catch (error) {
+      this.logger.error(`Error fetching solicitação for date ${date}`, error);
+      return {
+        success: false,
+        message: `Falha ao carregar solicitação: ${this.getErrorMessage(error)}`,
+      };
+    }
+  }
+
+  // POST /Solicitacoes with tipo=2 (Justificar Ausência - Dia Inteiro).
+  // The full 24-field payload (including temFoto, registroPendente,
+  // existePeriodoEncerrado, tipoAusencia, dataSolicitacao) was confirmed via HAR.
+  async createJustifyAbsence(
+    secullumEmployeeId: number,
+    payload: {
+      date: string; // YYYY-MM-DD
+      justificativaId: number;
+      observacoes?: string;
+      photoBase64?: string; // base64 JPEG, no data: prefix
+    },
+  ): Promise<SecullumCreateJustifyAbsenceResponse> {
+    try {
+      // Secullum expects local-midnight (no timezone suffix) for `data`. Building
+      // the string manually because new Date(ymd).toISOString() shifts to UTC and
+      // moves the day backwards in BRT.
+      const dataIso = `${payload.date}T00:00:00`;
+
+      // Strip any data:image/jpeg;base64, prefix the mobile app might prepend.
+      const fotoClean = payload.photoBase64
+        ? payload.photoBase64.replace(/^data:[^,]+,/, '')
+        : null;
+
+      const body = {
+        data: dataIso,
+        funcionarioId: secullumEmployeeId,
+        solicitanteId: null,
+        justificativaId: payload.justificativaId,
+        entrada1: null,
+        saida1: null,
+        entrada2: null,
+        saida2: null,
+        entrada3: null,
+        saida3: null,
+        entrada4: null,
+        saida4: null,
+        entrada5: null,
+        saida5: null,
+        filtro1Id: null,
+        filtro2Id: null,
+        periculosidade: null,
+        versao: null,
+        tipo: 2, // Justificar Ausência
+        observacoes: payload.observacoes ?? '',
+        dados: null,
+        foto: fotoClean,
+        temFoto: !!fotoClean,
+        registroPendente: false,
+        existePeriodoEncerrado: false,
+        tipoAusencia: 0, // 0 = single-day absence (1 = afastamento, not used here)
+        dataSolicitacao: null,
+      };
+
+      this.logger.log(
+        `Creating Solicitação Ausência for funcionarioId=${secullumEmployeeId} date=${payload.date} justificativaId=${payload.justificativaId} hasPhoto=${!!fotoClean}`,
+      );
+
+      await this.makeAuthenticatedRequest<void>('POST', '/Solicitacoes', body);
+
+      return {
+        success: true,
+        message: 'Solicitação enviada para aprovação',
+      };
+    } catch (error: any) {
+      // Secullum returns 400 with [{ property, message, data }] on validation failure.
+      const errBody = error?.response?.data;
+      if (Array.isArray(errBody) && errBody.length > 0 && errBody[0]?.message) {
+        const firstMsg = errBody[0].message;
+        return {
+          success: false,
+          message: firstMsg,
+          validationErrors: errBody as Array<{
+            property: string;
+            message: string;
+            data: unknown;
+          }>,
+        };
+      }
+
+      this.logger.error('Error creating Solicitação Ausência', error);
+      return {
+        success: false,
+        message: `Falha ao enviar solicitação: ${this.getErrorMessage(error)}`,
+      };
+    }
   }
 }

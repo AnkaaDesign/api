@@ -405,6 +405,156 @@ export interface SecullumDeleteHolidayResponse {
   message: string;
 }
 
+// Absence (Afastamento) — POST/GET/DELETE /FuncionariosAfastamentos
+// Covers vacation, maternity/paternity leave, sick leave, unjustified absences,
+// compensation, training, dispensa, etc. Categorized in our app via JustificativaId.
+export interface SecullumAbsence {
+  Id: number;
+  FuncionarioId: number;
+  Inicio: string; // ISO date with time component (Secullum returns YYYY-MM-DDT00:00:00 on read)
+  Fim: string;
+  JustificativaId: number;
+  JustificativaDescricao?: string; // Returned by GET, not present on POST payload
+  Motivo?: string;
+}
+
+export interface SecullumAbsencesResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumAbsence[];
+  error?: string;
+}
+
+export interface SecullumCreateAbsenceRequest {
+  Inicio: string; // YYYY-MM-DD
+  Fim: string; // YYYY-MM-DD
+  JustificativaId: number;
+  Motivo: string;
+  FuncionarioId: number;
+}
+
+export interface SecullumCreateAbsenceResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumAbsence;
+  error?: string;
+}
+
+export interface SecullumDeleteAbsenceResponse {
+  success: boolean;
+  message: string;
+  error?: string;
+}
+
+// Aggregated view across many employees for the calendar page.
+// Each AggregatedAbsence augments the raw Secullum record with the resolved
+// internal user info (id, name, sectorId) so the calendar can render names + filter by sector.
+export interface SecullumAggregatedAbsence extends SecullumAbsence {
+  userId: string;
+  userName: string;
+  sectorId: string | null;
+  sectorName: string | null;
+}
+
+export interface SecullumAggregatedAbsencesResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumAggregatedAbsence[];
+}
+
+// Multi-user create request — server resolves userId → secullumEmployeeId.
+// Used by both single-employee submit (one userId) and collective vacation
+// (many userIds, OR applyToAll=true to fan out to every linked active user).
+export interface SecullumCreateAbsenceForUsersRequest {
+  userIds?: string[]; // our internal user IDs (uuid)
+  applyToAll?: boolean; // when true, ignores userIds and fans out to every active linked user
+  Inicio: string; // YYYY-MM-DD
+  Fim: string; // YYYY-MM-DD
+  JustificativaId: number;
+  Motivo?: string;
+  groupId?: string; // optional caller-supplied uuid for [GRP:<uuid>] motivo prefix; otherwise generated when >1 record
+}
+
+export interface SecullumCreateAbsenceForUsersResultItem {
+  userId: string;
+  userName: string;
+  funcionarioId?: number;
+  ok: boolean;
+  error?: string;
+}
+
+export interface SecullumCreateAbsenceForUsersResponse {
+  success: boolean;
+  message: string;
+  data?: {
+    created: number;
+    failed: number;
+    groupId?: string;
+    results: SecullumCreateAbsenceForUsersResultItem[];
+  };
+}
+
+// =====================
+// Solicitação de Ausência (employee self-service)
+// =====================
+// These map to Secullum's POST /Solicitacoes flow with tipo=2 (Justificar Ausência),
+// which puts the request into the manager approval queue. See
+// api/docs/secullum-integration/10_solicitacao_ausencia_plan.md for the full HAR analysis.
+
+// A workday with no batidas — surfaces in the "Justificar Ausência" picker.
+export interface SecullumMissingDay {
+  date: string; // YYYY-MM-DD
+  weekdayPt: string; // e.g. "Terça-Feira"
+  saldo?: string | null; // e.g. "-08:00" — banco-de-horas balance for the day
+  totalFaltas?: string | null; // e.g. "08:00" — falta hours from /Batidas valores[]
+  existePeriodoEncerrado: boolean; // when true, Secullum will reject any solicitação for this day
+}
+
+export interface SecullumMissingDaysResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumMissingDay[];
+}
+
+// Mirror of Secullum's /Solicitacoes/{date} record (subset we care about).
+export interface SecullumSolicitacaoRecord {
+  data: string;
+  funcionarioId: number;
+  justificativaId: number | null;
+  tipo: number; // 0 = empty stub, 2 = Justificar Ausência, 3 = Inclusão de Batida, 15 = Afastamento
+  observacoes: string | null;
+  temFoto: boolean;
+  registroPendente: boolean;
+  existePeriodoEncerrado: boolean;
+  tipoAusencia: number;
+  dataSolicitacao: string | null;
+}
+
+export interface SecullumExistingSolicitacaoResponse {
+  success: boolean;
+  message: string;
+  // null when the date has no solicitação yet (Secullum returns a hollow stub
+  // with justificativaId=null which we normalise to null here).
+  data?: SecullumSolicitacaoRecord | null;
+}
+
+// Employee self-service payload (server resolves userId → funcionarioId).
+export interface SecullumCreateJustifyAbsenceDto {
+  date: string; // YYYY-MM-DD (single day, "Dia Inteiro")
+  justificativaId: number;
+  observacoes?: string;
+  // Base64 JPEG **without** the data: prefix. Required when
+  // justificativa.exigirFotoAtestado === true (server validates).
+  photoBase64?: string;
+}
+
+export interface SecullumCreateJustifyAbsenceResponse {
+  success: boolean;
+  message: string;
+  // Surfaces the [{ property, message, data }] error shape Secullum returns on 400.
+  validationErrors?: Array<{ property: string; message: string; data: unknown }>;
+}
+
 export interface SecullumSyncUserRequest {
   name: string;
   email: string;

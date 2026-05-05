@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { User, Task, ServiceOrder, Order, Sector } from '../../../types';
-import { SectorPrivileges, VacationStatus } from '@prisma/client';
+import { SectorPrivileges } from '@prisma/client';
 
 /**
  * Predefined filter types for recipient resolution
@@ -264,46 +264,13 @@ export class NotificationRecipientResolverService {
   }
 
   /**
-   * Filters out users who are currently on vacation
-   * Checks for approved and in-progress vacations that overlap with today
-   *
-   * @param users - List of users to filter
-   * @returns Users not currently on vacation
+   * Filters out users who are currently on vacation.
+   * Vacation tracking moved to Secullum (FuncionariosAfastamentos); this stub
+   * returns the input list unchanged. To re-enable, query Secullum's
+   * getAggregatedAbsences with today's date and filter on AUSENCIA category.
    */
   async filterUsersOnVacation(users: User[]): Promise<User[]> {
-    if (users.length === 0) {
-      return [];
-    }
-
-    const userIds = users.map(u => u.id);
-    const today = new Date();
-
-    // Find users who are currently on vacation
-    const usersOnVacation = await this.prisma.vacation.findMany({
-      where: {
-        userId: {
-          in: userIds,
-        },
-        status: {
-          in: [VacationStatus.APPROVED, VacationStatus.IN_PROGRESS],
-        },
-        startAt: {
-          lte: today,
-        },
-        endAt: {
-          gte: today,
-        },
-      },
-      select: {
-        userId: true,
-      },
-    });
-
-    const vacationUserIds = new Set(
-      usersOnVacation.map(v => v.userId).filter((id): id is string => id !== null),
-    );
-
-    return users.filter(user => !vacationUserIds.has(user.id));
+    return users;
   }
 
   /**

@@ -4,7 +4,6 @@ import { TeamStaffController } from './team-staff.controller';
 import { TeamStaffService } from './team-staff.service';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { UserModule } from '../user/user.module';
-import { VacationModule } from '../vacation/vacation.module';
 import { WarningModule } from '../warning/warning.module';
 import { BorrowModule } from '@modules/inventory/borrow/borrow.module';
 import { PpeModule } from '@modules/inventory/ppe/ppe.module';
@@ -29,7 +28,6 @@ import { SecullumModule } from '@modules/integrations/secullum/secullum.module';
   imports: [
     PrismaModule,
     UserModule, // Required for AuthGuard (provides UserRepository)
-    VacationModule, // Required for vacation data
     WarningModule, // Required for warning data
     BorrowModule, // Required for borrow data
     PpeModule, // Required for PPE/EPI data

@@ -8,6 +8,7 @@ import {
   Post,
   Body,
   Query,
+  Param,
   HttpCode,
   HttpStatus,
   UseGuards,
@@ -24,7 +25,6 @@ import {
 } from '@modules/common/pipes/zod-validation.pipe';
 import { ReadRateLimit, WriteRateLimit } from '@modules/common/throttler/throttler.decorators';
 import type {
-  VacationGetManyResponse,
   BorrowGetManyResponse,
   PpeDeliveryGetManyResponse,
   PpeDeliveryCreateResponse,
@@ -32,7 +32,6 @@ import type {
   WarningGetManyResponse,
 } from '../../../types';
 import type {
-  VacationGetManyFormData,
   BorrowGetManyFormData,
   PpeDeliveryGetManyFormData,
   PpeDeliveryCreateFormData,
@@ -40,7 +39,6 @@ import type {
   WarningGetManyFormData,
 } from '../../../schemas';
 import {
-  vacationGetManySchema,
   borrowGetManySchema,
   ppeDeliveryGetManySchema,
   ppeDeliveryCreateSchema,
@@ -55,7 +53,6 @@ import {
  * All endpoints automatically filter data by authenticated user
  *
  * Routes:
- * - GET /personal/my-vacations - Get authenticated user's vacations (ferias)
  * - GET /personal/my-loans - Get authenticated user's loans/borrows (emprestimos)
  * - GET /personal/my-epis - Get authenticated user's PPE deliveries
  * - POST /personal/my-epis/request - Request new EPIs
@@ -73,32 +70,6 @@ export class PersonalController {
   // =====================
   // MY VACATIONS (Minhas Férias)
   // =====================
-
-  /**
-   * Get authenticated user's vacations
-   * Filters vacations by userId automatically
-   */
-  @Get('my-vacations')
-  @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-  )
-  async getMyVacations(
-    @Query(new ZodQueryValidationPipe(vacationGetManySchema)) query: VacationGetManyFormData,
-    @UserId() userId: string,
-  ): Promise<VacationGetManyResponse> {
-    return this.personalService.getMyVacations(userId, query);
-  }
 
   // =====================
   // MY LOANS/BORROWS (Meus Empréstimos)
@@ -336,5 +307,116 @@ export class PersonalController {
       page: page ? parseInt(page) : undefined,
       take: take ? parseInt(take) : undefined,
     });
+  }
+
+  // =====================
+  // MY SECULLUM SOLICITAÇÃO DE AUSÊNCIA (Justificar Ausência)
+  // =====================
+  // Routes power the mobile "Justificar Ausência" flow. Submissions land in
+  // Secullum's manager approval queue (already wired via /integrations/secullum/requests).
+
+  /**
+   * List authenticated user's days without batidas in [startDate, endDate].
+   * GET /personal/my-missing-days
+   */
+  @Get('my-missing-days')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getMyMissingDays(
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @UserId() userId: string,
+  ) {
+    return this.personalService.getMyMissingDays(userId, { startDate, endDate });
+  }
+
+  /**
+   * Employee-facing justificativas list (camelCase, includes exigirFotoAtestado).
+   * GET /personal/my-secullum-justificativas
+   */
+  @Get('my-secullum-justificativas')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getMyJustificativas(@UserId() userId: string) {
+    return this.personalService.getMyJustificativas(userId);
+  }
+
+  /**
+   * Existing solicitação for a given date (or `data: null` when none exists).
+   * GET /personal/my-secullum-solicitacoes/:date
+   */
+  @Get('my-secullum-solicitacoes/:date')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getMySolicitacaoByDate(
+    @Param('date') date: string,
+    @UserId() userId: string,
+  ) {
+    return this.personalService.getMyExistingSolicitacao(userId, date);
+  }
+
+  /**
+   * Submit a Justificar Ausência request to Secullum's manager approval queue.
+   * POST /personal/my-secullum-solicitacoes/ausencia
+   */
+  @Post('my-secullum-solicitacoes/ausencia')
+  @WriteRateLimit()
+  @HttpCode(HttpStatus.OK)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async createMyJustifyAbsence(
+    @Body()
+    body: {
+      date: string;
+      justificativaId: number;
+      observacoes?: string;
+      photoBase64?: string;
+    },
+    @UserId() userId: string,
+  ) {
+    return this.personalService.createMyJustifyAbsence(userId, body);
   }
 }

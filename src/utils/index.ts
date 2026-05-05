@@ -82,7 +82,6 @@ export * from './task-quote-service-order-sync';
 export * from './truck';
 export * from './uiStateEnumGetters';
 export * from './user';
-export * from './vacation';
 export * from './verification-code';
 export * from './verification-errors';
 export * from './work';
