@@ -2,11 +2,17 @@
 
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
+import { EventEmitter } from 'events';
+import {
+  SECULLUM_USER_CREATED_EVENT,
+  SECULLUM_USER_UPDATED_EVENT,
+} from '@modules/integrations/secullum/user-secullum-sync.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { UserRepository, PrismaTransaction } from './repositories/user.repository';
 import type {
@@ -66,6 +72,12 @@ export class UserService {
     private readonly fileService: FileService,
     private readonly folderRenameService: FolderRenameService,
     private readonly notificationPreferenceInitService: NotificationPreferenceInitService,
+    /**
+     * Global Node EventEmitter (registered as @Global() in
+     * `apps/api/src/modules/common/event-emitter`). Used to fire
+     * Secullum sync events without creating a circular dep on SecullumModule.
+     */
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
   /**
@@ -712,6 +724,14 @@ export class UserService {
         .initializeForNewUser(user.id)
         .catch(err => this.logger.error('Failed to init notification preferences:', err));
 
+      // Notify Secullum bridge (non-blocking; the listener checks the
+      // `secullumSyncEnabled` flag and skips if false).
+      try {
+        this.eventEmitter.emit(SECULLUM_USER_CREATED_EVENT, { userId: user.id });
+      } catch (err) {
+        this.logger.error('Failed to emit secullum.user.created:', err);
+      }
+
       // Remove password from response
       const { password, ...userWithoutPassword } = user;
       return {
@@ -1053,6 +1073,19 @@ export class UserService {
 
         return updatedUser;
       });
+
+      // Notify Secullum bridge (non-blocking).
+      try {
+        this.eventEmitter.emit(SECULLUM_USER_UPDATED_EVENT, {
+          userId: id,
+          // Bridge always re-syncs Demissao from User.dismissedAt, so this
+          // flag is informational only (lets the bridge log differently).
+          dismissalJustHappened: !!(updatedUser as { dismissedAt?: Date | null })
+            .dismissedAt,
+        });
+      } catch (err) {
+        this.logger.error('Failed to emit secullum.user.updated:', err);
+      }
 
       // Remove password from response
       const { password, ...userWithoutPassword } = updatedUser;

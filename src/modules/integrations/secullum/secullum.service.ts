@@ -125,6 +125,15 @@ export class SecullumService {
     );
   }
 
+  /**
+   * Expose the configured axios client so peer services in this module
+   * (e.g. SecullumCadastrosService) can reuse all the auth/refresh interceptors
+   * without re-implementing them.
+   */
+  getApiClient(): AxiosInstance {
+    return this.apiClient;
+  }
+
   private async getValidToken(): Promise<string | null> {
     try {
       // First check database for stored token
