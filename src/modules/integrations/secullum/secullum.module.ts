@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { SecullumService } from './secullum.service';
 import { SecullumController } from './secullum.controller';
+import { SecullumCadastrosService } from './secullum-cadastros.service';
+import { SecullumCadastrosController } from './secullum-cadastros.controller';
+import { UserSecullumSyncService } from './user-secullum-sync.service';
 import { CacheModule } from '@modules/common/cache/cache.module';
 import { UserModule } from '@modules/people/user/user.module';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
@@ -15,6 +18,8 @@ import { HOLIDAY_PROVIDER } from '@modules/common/notification/work-schedule.ser
   imports: [ScheduleModule.forRoot(), CacheModule, UserModule, PrismaModule, NotificationModule],
   providers: [
     SecullumService,
+    SecullumCadastrosService,
+    UserSecullumSyncService,
     TimeEntryReminderService,
     TimeEntryReminderScheduler,
     {
@@ -22,7 +27,13 @@ import { HOLIDAY_PROVIDER } from '@modules/common/notification/work-schedule.ser
       useExisting: SecullumService,
     },
   ],
-  controllers: [SecullumController, TimeEntryReminderController],
-  exports: [SecullumService, TimeEntryReminderService, TimeEntryReminderScheduler],
+  controllers: [SecullumController, SecullumCadastrosController, TimeEntryReminderController],
+  exports: [
+    SecullumService,
+    SecullumCadastrosService,
+    UserSecullumSyncService,
+    TimeEntryReminderService,
+    TimeEntryReminderScheduler,
+  ],
 })
 export class SecullumModule {}
