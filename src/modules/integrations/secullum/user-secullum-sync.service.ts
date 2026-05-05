@@ -285,6 +285,13 @@ export class UserSecullumSyncService implements OnModuleInit {
             user.sector?.secullumDepartamentoId ?? current.DepartamentoId,
           FuncaoId: user.position?.secullumFuncaoId ?? current.FuncaoId,
           Demissao: demissaoIso,
+          // Secullum uses `Invisivel` to filter active vs dismissed in
+          // GET /Funcionarios (active) vs /FuncionariosDemitidos. Setting
+          // Demissao alone leaves the funcionario in the active list with
+          // a future-looking dismissal date but never marks them dismissed
+          // in the UI. Mirror Demissao here: set when dismissed, clear on
+          // re-hire (idempotent both directions).
+          Invisivel: demissaoIso != null,
         };
 
         await this.cadastros.updateFuncionario(user.secullumEmployeeId, upsert);
