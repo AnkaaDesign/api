@@ -595,10 +595,14 @@ export class UserService {
         USER_STATUS.DISMISSED, // Pode ser demitido
         // Note: CANNOT go back to experience periods per Brazilian law
       ],
-      // Demitido (status final)
+      // Demitido — operators frequently dismiss by mistake and need to
+      // undo it. Allow transition back to any active status. The Secullum
+      // bridge clears Demissao on the funcionario when User.dismissedAt
+      // becomes null again, so the un-dismissal propagates symmetrically.
       [USER_STATUS.DISMISSED]: [
-        // No transitions allowed from dismissed status
-        // Would require a new hiring process (new user record)
+        USER_STATUS.EXPERIENCE_PERIOD_1,
+        USER_STATUS.EXPERIENCE_PERIOD_2,
+        USER_STATUS.EFFECTED,
       ],
     };
 
@@ -944,6 +948,23 @@ export class UserService {
             `Status being set to DISMISSED for user ${id}. Automatically setting dismissedAt to now.`,
           );
           (data as any).dismissedAt = new Date();
+        }
+
+        // Inverse: un-dismissal. If status is being changed AWAY from
+        // DISMISSED and the caller didn't explicitly set dismissedAt,
+        // clear it so we don't leave an active user with a stale
+        // dismissal timestamp. The Secullum bridge will then clear
+        // Demissao on the funcionario as well (idempotent).
+        if (
+          existingUser.status === USER_STATUS.DISMISSED &&
+          data.status &&
+          data.status !== USER_STATUS.DISMISSED &&
+          (data as any).dismissedAt === undefined
+        ) {
+          this.logger.log(
+            `User ${id} un-dismissed (DISMISSED → ${data.status}). Clearing dismissedAt.`,
+          );
+          (data as any).dismissedAt = null;
         }
 
         // Validate status transition
