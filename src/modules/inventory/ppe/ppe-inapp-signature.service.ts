@@ -27,6 +27,8 @@ import {
 } from '@constants';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { FileService } from '@modules/common/file/file.service';
+import { PpePadesSignerService, CertMetadata } from './ppe-pades-signer.service';
+import { PpeSignatureAuditService } from './ppe-signature-audit.service';
 import * as crypto from 'crypto';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -67,6 +69,8 @@ export class PpeInAppSignatureService {
     private readonly ppeDocumentService: PpeDocumentService,
     private readonly changeLogService: ChangeLogService,
     private readonly fileService: FileService,
+    private readonly padesSigner: PpePadesSignerService,
+    private readonly auditService: PpeSignatureAuditService,
   ) {
     this.hmacSecret = this.configService.get<string>('PPE_SIGNATURE_HMAC_SECRET') || '';
     this.filesRoot = this.configService.get<string>('FILES_ROOT') || './files';
@@ -92,6 +96,18 @@ export class PpeInAppSignatureService {
         'Assinatura eletrônica in-app não está configurada. Contate o administrador.',
       );
     }
+
+    await this.auditService.recordEvent(deliveryId, 'SIGNATURE_SUBMITTED' as any, {
+      actorUserId: authenticatedUserId,
+      ipAddress: requestIp ?? null,
+      metadata: {
+        biometricMethod: evidence.biometricMethod,
+        biometricSuccess: evidence.biometricSuccess,
+        deviceModel: evidence.deviceModel ?? null,
+        deviceOs: evidence.deviceOs ?? null,
+        appVersion: evidence.appVersion ?? null,
+      },
+    });
 
     // 1. Fetch delivery with user data
     const delivery = await this.prisma.ppeDelivery.findUnique({
@@ -133,6 +149,25 @@ export class PpeInAppSignatureService {
       throw new BadRequestException('Esta entrega já foi assinada eletronicamente.');
     }
 
+    // 4b. Hard-require a real biometric proof. Without this, an emulator/Expo
+    // Go session that returns success: false (no enrolled biometric) could
+    // still complete the sign flow. Production must always have a verified
+    // biometric — fingerprint, face, iris, or device PIN as fallback.
+    if (!evidence.biometricSuccess || evidence.biometricMethod === 'NONE') {
+      await this.auditService.recordEvent(deliveryId, 'BIOMETRIC_FAILED' as any, {
+        actorUserId: authenticatedUserId,
+        ipAddress: requestIp ?? null,
+        metadata: {
+          biometricMethod: evidence.biometricMethod,
+          biometricSuccess: evidence.biometricSuccess,
+          reason: 'rejected_by_server',
+        },
+      });
+      throw new BadRequestException(
+        'Autenticação biométrica obrigatória. Habilite a biometria do dispositivo e tente novamente.',
+      );
+    }
+
     // 5. Re-compute evidence hash server-side and compare
     const evidenceForHash = this.buildEvidencePayload(evidence);
     const serverHash = crypto
@@ -144,10 +179,21 @@ export class PpeInAppSignatureService {
       this.logger.warn(
         `Evidence hash mismatch for delivery ${deliveryId}: client=${evidence.evidenceHash}, server=${serverHash}`,
       );
+      await this.auditService.recordEvent(deliveryId, 'HMAC_REJECTED' as any, {
+        actorUserId: authenticatedUserId,
+        ipAddress: requestIp ?? null,
+        metadata: { clientHash: evidence.evidenceHash, serverHash },
+      });
       throw new BadRequestException(
         'Hash de evidência não confere. Possível adulteração dos dados.',
       );
     }
+
+    await this.auditService.recordEvent(deliveryId, 'HMAC_VALIDATED' as any, {
+      actorUserId: authenticatedUserId,
+      ipAddress: requestIp ?? null,
+      metadata: { evidenceHash: evidence.evidenceHash },
+    });
 
     // 6. Round GPS coordinates to 4 decimal places (LGPD minimization)
     const latitude =
@@ -183,6 +229,10 @@ export class PpeInAppSignatureService {
 
     // 9. Generate signed PDF
     let signedDocumentId: string | null = null;
+    let padesSealed = false;
+    let padesSealedAt: Date | null = null;
+    let certMeta: CertMetadata | null = null;
+    let documentSha256: string | null = null;
     try {
       const signatureEvidence = {
         signerName: delivery.user?.name || 'Nome não informado',
@@ -196,10 +246,106 @@ export class PpeInAppSignatureService {
         hmacSignature,
       };
 
-      const pdfBuffer = await this.ppeDocumentService.generateSignedDeliveryDocument(
+      // Pull the audit trail recorded so far so the second page can render it.
+      // We render this BEFORE creating the signature row so we can include the
+      // SIGNATURE_SUBMITTED + HMAC_VALIDATED + (about-to-fire) PADES events
+      // alongside any prior DELIVERY_CREATED / NOTIFICATION_SENT events.
+      const trailEvents = await this.auditService.getAuditTrail(deliveryId);
+
+      let pdfBuffer = await this.ppeDocumentService.generateSignedDeliveryDocument(
         deliveryId,
         signatureEvidence,
+        {
+          events: trailEvents.map(e => ({
+            type: e.type,
+            occurredAt: e.occurredAt,
+            actorName: e.actorName,
+            ipAddress: e.ipAddress,
+            userAgent: e.userAgent,
+            metadata: e.metadata,
+          })),
+          documentNumber: deliveryId,
+          filename: `termo_epi_${(delivery.user?.name || 'colaborador')
+            .normalize('NFD')
+            .replace(/[̀-ͯ]/g, '')
+            .replace(/[^a-zA-Z0-9]/g, '_')
+            .substring(0, 30)}_${deliveryId.substring(0, 8)}.pdf`,
+          originalDocHash: null, // computed below
+        },
       );
+
+      // Compute SHA-256 of the unsealed PDF (covers delivery doc + audit page).
+      // This is the hash referenced on the audit trail page itself; for that we
+      // need to re-render with the hash injected.
+      const preSealHash = crypto.createHash('sha256').update(pdfBuffer).digest('hex');
+
+      // Re-render with the hash filled in on the audit page.
+      pdfBuffer = await this.ppeDocumentService.generateSignedDeliveryDocument(
+        deliveryId,
+        signatureEvidence,
+        {
+          events: trailEvents.map(e => ({
+            type: e.type,
+            occurredAt: e.occurredAt,
+            actorName: e.actorName,
+            ipAddress: e.ipAddress,
+            userAgent: e.userAgent,
+            metadata: e.metadata,
+          })),
+          documentNumber: deliveryId,
+          filename: `termo_epi_${(delivery.user?.name || 'colaborador')
+            .normalize('NFD')
+            .replace(/[̀-ͯ]/g, '')
+            .replace(/[^a-zA-Z0-9]/g, '_')
+            .substring(0, 30)}_${deliveryId.substring(0, 8)}.pdf`,
+          originalDocHash: preSealHash,
+        },
+      );
+
+      // Capture the hash for storage (used by external verification tools)
+      documentSha256 = preSealHash;
+
+      // Apply server-side PAdES seal with ICP-Brasil cert
+      if (this.padesSigner.isEnabled()) {
+        try {
+          const sealed = await this.padesSigner.sealPdf(pdfBuffer, {
+            reason: `Termo de entrega de EPI — ${deliveryId}`,
+            location: 'Ibiporã-PR, Brasil',
+            signerName: this.padesSigner.getCertMetadata()?.subjectCommonName || 'Ankaa Design',
+            contactInfo: 'contato@ankaadesign.com.br',
+            signingTime: serverTimestamp,
+          });
+          pdfBuffer = sealed.signedPdf;
+          padesSealed = true;
+          padesSealedAt = sealed.sealedAt;
+          certMeta = sealed.cert;
+          this.logger.log(
+            `PAdES seal applied to delivery ${deliveryId} with cert ${certMeta.subjectCommonName} (serial ${certMeta.serialNumber})`,
+          );
+          await this.auditService.recordEvent(deliveryId, 'PADES_SEALED' as any, {
+            actorUserId: authenticatedUserId,
+            metadata: {
+              certCnpj: certMeta.cnpj,
+              certSerial: certMeta.serialNumber,
+              certIssuer: certMeta.issuer,
+            },
+          });
+        } catch (sealError) {
+          this.logger.error(
+            `PAdES seal failed for delivery ${deliveryId} — saving unsealed PDF: ${
+              sealError instanceof Error ? sealError.message : sealError
+            }`,
+          );
+          await this.auditService.recordEvent(deliveryId, 'PADES_FAILED' as any, {
+            actorUserId: authenticatedUserId,
+            metadata: { error: sealError instanceof Error ? sealError.message : String(sealError) },
+          });
+        }
+      } else {
+        this.logger.warn(
+          `PAdES signer not configured — delivery ${deliveryId} will be saved without ICP-Brasil seal`,
+        );
+      }
 
       // Save PDF to file storage
       signedDocumentId = await this.savePdfToStorage(pdfBuffer, delivery, 'signed');
@@ -234,6 +380,14 @@ export class PpeInAppSignatureService {
           signedDocumentId,
           evidenceJson,
           consentGiven: evidence.consentGiven,
+          padesSealed,
+          padesSealedAt,
+          certSubject: certMeta?.subject ?? null,
+          certIssuer: certMeta?.issuer ?? null,
+          certSerialNumber: certMeta?.serialNumber ?? null,
+          certCnpj: certMeta?.cnpj ?? null,
+          certNotAfter: certMeta?.notAfter ?? null,
+          documentSha256,
         },
       });
 
@@ -269,6 +423,18 @@ export class PpeInAppSignatureService {
     this.logger.log(
       `In-app signature completed for delivery ${deliveryId} by user ${authenticatedUserId}`,
     );
+
+    await this.auditService.attachSignatureId(deliveryId, result.id);
+    await this.auditService.recordEvent(deliveryId, 'SIGNATURE_COMPLETED' as any, {
+      signatureId: result.id,
+      actorUserId: authenticatedUserId,
+      ipAddress: requestIp ?? null,
+      metadata: {
+        verificationCode: hmacSignature.substring(0, 16),
+        padesSealed,
+        signedDocumentId,
+      },
+    });
 
     return {
       signatureId: result.id,
@@ -363,6 +529,17 @@ export class PpeInAppSignatureService {
       consentGiven: signature.consentGiven,
       signedDocumentId: signature.signedDocumentId,
       signedDocument: (signature as any).signedDocument || null,
+      pades: signature.padesSealed
+        ? {
+            sealed: true,
+            sealedAt: signature.padesSealedAt,
+            certSubject: signature.certSubject,
+            certIssuer: signature.certIssuer,
+            certSerialNumber: signature.certSerialNumber,
+            certCnpj: signature.certCnpj,
+            certNotAfter: signature.certNotAfter,
+          }
+        : { sealed: false },
       createdAt: signature.createdAt,
     };
   }
