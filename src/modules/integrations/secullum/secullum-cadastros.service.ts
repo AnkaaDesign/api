@@ -339,7 +339,14 @@ export class SecullumCadastrosService {
     payload: SecullumFuncionarioUpsert,
   ): Promise<SecullumFuncionarioFull> {
     const body = { ...payload, Id: id };
-    const r = await this.http.post<SecullumFuncionarioFull>('/Funcionarios', body);
+    // Match the query parameter used by Secullum's own web UI (captured
+    // via HAR). Without it the POST still returns 200 in our manual
+    // tests, but defensively keeping the parity in case Secullum routes
+    // differ on certain field changes.
+    const r = await this.http.post<SecullumFuncionarioFull>(
+      '/Funcionarios?alterouSenhaApp=false',
+      body,
+    );
     return r.data;
   }
 
