@@ -1,3 +1,119 @@
+// ============================================================================
+// Cadastros (master-data) — confirmed live against /Departamentos /Funcoes /Atividades
+// ============================================================================
+
+export interface SecullumDepartamento {
+  Id: number;
+  Descricao: string;
+  Nfolha?: string | null;
+}
+
+export interface SecullumFuncao {
+  Id: number;
+  Descricao: string;
+}
+
+export interface SecullumAtividade {
+  Id: number;
+  Descricao: string;
+  DescricaoAbreviada?: string;
+  TipoDeAtividade?: number;
+}
+
+export interface SecullumEmpresa {
+  Id: number;
+  Nome: string;
+  Inscricao: string;
+  Documento: string;
+  TipoDocumento: number;
+}
+
+export interface SecullumEstrutura {
+  Id: number;
+  Descricao: string;
+}
+
+export interface SecullumMotivoDemissao {
+  Id: number;
+  Descricao: string;
+}
+
+// Lean shape returned by GET /Funcionarios (list view)
+export interface SecullumFuncionarioListItem {
+  Id: number;
+  Nome: string;
+  NumeroFolha: string;
+  NumeroIdentificador: string;
+  NumeroPis: string;
+  Cpf: string;
+  DepartamentoDescricao: string;
+  EmpresaId: number;
+  DepartamentoId: number;
+  FuncaoId: number;
+  HorarioId: number;
+  EstruturaId: number | null;
+  Filtro1Id: number | null;
+  Filtro2Id: number | null;
+  Invisivel: boolean;
+  SenhaEquipamento: string | null;
+  ListaCentroDeCustos: unknown[];
+  BancoHorasId: number | null;
+  DesabilitarAssinaturaEletronica: boolean;
+}
+
+// Full shape returned by GET /Funcionarios/{id} — observed live for Andressa (Id=1)
+export interface SecullumFuncionarioFull extends SecullumFuncionarioListItem {
+  Carteira?: string;
+  Observacao?: string;
+  Endereco?: string;
+  Bairro?: string;
+  CidadeId?: number | null;
+  Uf?: string;
+  Cep?: string;
+  Telefone?: string;
+  Celular?: string;
+  Email?: string;
+  Rg?: string;
+  ExpedicaoRg?: string | null;
+  Ssp?: string | null;
+  Mae?: string | null;
+  Pai?: string | null;
+  Nascimento?: string | null;
+  NaoVerificarDigital?: boolean;
+  Masculino?: boolean;
+  Master?: boolean;
+  Nacionalidade?: string | null;
+  Naturalidade?: string | null;
+  EscolaridadeId?: number | null;
+  NumeroProvisorio?: string | null;
+  CodigoHolerite?: string;
+  Admissao?: string;
+  Demissao?: string | null;
+  DepartamentoDescricao?: string;
+  FuncaoDescricao?: string;
+  MotivoDemissaoId?: number | null;
+  Foto?: string; // base64 data URL
+}
+
+// Payload for POST /Funcionarios when creating a new record. Mirrors the full
+// shape but Id is omitted by the service layer.
+export type SecullumFuncionarioCreate = Omit<
+  Partial<SecullumFuncionarioFull>,
+  'Id'
+> & {
+  Nome: string;
+  Cpf: string;
+  NumeroFolha: string;
+  EmpresaId: number;
+  HorarioId: number;
+  FuncaoId: number;
+  DepartamentoId: number;
+  Admissao: string; // ISO yyyy-mm-ddT00:00:00
+};
+
+// Payload for POST /Funcionarios with Id (update). Same shape as full record.
+export type SecullumFuncionarioUpsert = Partial<SecullumFuncionarioFull>;
+
 export interface SecullumAuthResponse {
   success: boolean;
   message: string;
