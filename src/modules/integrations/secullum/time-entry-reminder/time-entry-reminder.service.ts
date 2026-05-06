@@ -182,16 +182,6 @@ export class TimeEntryReminderService {
       where: {
         isActive: true,
         dismissedAt: null,
-        // Exclude users on vacation
-        vacations: {
-          none: {
-            AND: [
-              { startAt: { lte: new Date() } },
-              { endAt: { gte: new Date() } },
-              { status: 'APPROVED' },
-            ],
-          },
-        },
         // Must have CPF or PIS for Secullum mapping
         OR: [{ cpf: { not: null } }, { pis: { not: null } }, { payrollNumber: { not: null } }],
       },

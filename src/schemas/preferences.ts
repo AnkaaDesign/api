@@ -178,6 +178,18 @@ export const preferencesGetManySchema = z.object({
 
 const toFormData = <T>(data: T) => data;
 
+// JSON value passthrough for dashboard layouts — shape validated separately by the dashboard module
+const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(jsonValueSchema),
+    z.record(jsonValueSchema),
+  ]),
+);
+
 export const preferencesCreateSchema = z
   .object({
     userId: z.string().uuid('Usuário inválido'),
@@ -194,6 +206,8 @@ export const preferencesCreateSchema = z
       )
       .default([])
       .optional(),
+    dashboardLayoutWeb: jsonValueSchema.nullable().optional(),
+    dashboardLayoutMobile: jsonValueSchema.nullable().optional(),
   })
   .transform(toFormData);
 
@@ -212,6 +226,8 @@ export const preferencesUpdateSchema = z
       )
       .default([])
       .optional(),
+    dashboardLayoutWeb: jsonValueSchema.nullable().optional(),
+    dashboardLayoutMobile: jsonValueSchema.nullable().optional(),
   })
   .transform(toFormData);
 

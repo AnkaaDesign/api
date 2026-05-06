@@ -2614,6 +2614,118 @@ export class SecullumService {
     return merged;
   }
 
+  /**
+   * One row per active employee for a single day. Powers the
+   * "Visualização Dia" mode of Controle de Ponto. Fans out per-user with a
+   * concurrency cap and reuses the day-granular Redis cache populated by
+   * `getTimeEntriesBySecullumIdCached`, so a warm cache returns instantly.
+   *
+   * `users` is supplied by the controller (which owns the UserService
+   * dependency) — this service intentionally does not depend on UserService.
+   */
+  async getTimeEntriesByDay(
+    date: string,
+    users: Array<{
+      id: string;
+      name: string;
+      cpf?: string | null;
+      pis?: string | null;
+      payrollNumber?: number | string | null;
+      position?: { name?: string | null; sector?: { name?: string | null } | null } | null;
+      sector?: { name?: string | null } | null;
+    }>,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: Array<{
+      user: {
+        id: string;
+        name: string;
+        positionName: string | null;
+        sectorName: string | null;
+      };
+      entry: any | null;
+    }>;
+  }> {
+    try {
+      const activeUsers = users || [];
+
+      const secullumEmployeesResp = await this.getEmployees();
+      const secullumEmployees: any[] = Array.isArray((secullumEmployeesResp as any)?.data)
+        ? (secullumEmployeesResp as any).data
+        : [];
+
+      const normalizeCpf = (cpf?: string | null) => (cpf || '').replace(/[.-]/g, '');
+
+      const findEmpId = (user: any): number | null => {
+        const userCpf = normalizeCpf(user.cpf);
+        const userPis = user.pis || '';
+        const userPayroll = user.payrollNumber?.toString() || '';
+        const match = secullumEmployees.find((emp: any) => {
+          const empCpf = normalizeCpf(emp.Cpf);
+          const empPis = emp.NumeroPis || '';
+          const empPayroll = emp.NumeroFolha || '';
+          return (
+            (userCpf && empCpf === userCpf) ||
+            (userPis && empPis === userPis) ||
+            (userPayroll && empPayroll === userPayroll)
+          );
+        });
+        return match ? Number(match.Id) : null;
+      };
+
+      const CONCURRENCY = 10;
+      const results: Array<{
+        user: {
+          id: string;
+          name: string;
+          positionName: string | null;
+          sectorName: string | null;
+        };
+        entry: any | null;
+      }> = [];
+
+      for (let i = 0; i < activeUsers.length; i += CONCURRENCY) {
+        const slice = activeUsers.slice(i, i + CONCURRENCY);
+        const sliceResults = await Promise.all(
+          slice.map(async (user) => {
+            const userInfo = {
+              id: user.id,
+              name: user.name,
+              positionName: user.position?.name ?? null,
+              sectorName: user.sector?.name ?? null,
+            };
+            const empId = findEmpId(user);
+            if (!empId) return { user: userInfo, entry: null };
+            try {
+              const entries = await this.getTimeEntriesBySecullumIdCached(empId, date, date);
+              return { user: userInfo, entry: entries[0] || null };
+            } catch (err: any) {
+              this.logger.warn(
+                `getTimeEntriesByDay user=${user.id} emp=${empId}: ${err?.message || err}`,
+              );
+              return { user: userInfo, entry: null };
+            }
+          }),
+        );
+        results.push(...sliceResults);
+      }
+
+      return {
+        success: true,
+        message: 'Time entries retrieved successfully',
+        data: results,
+      };
+    } catch (error: any) {
+      this.logger.error(`getTimeEntriesByDay failed: ${error?.message || error}`);
+      return {
+        success: false,
+        message: error?.message || 'Failed to fetch time entries by day',
+        data: [],
+      };
+    }
+  }
+
   /** Parse a 'YYYY-MM-DD' string to a Date at local midnight. Returns null if invalid. */
   private parseLocalDay(input: string): Date | null {
     const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(input);

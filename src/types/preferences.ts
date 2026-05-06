@@ -39,6 +39,8 @@ export interface Preferences extends BaseEntity {
   userId: string;
   colorSchema: COLOR_SCHEMA;
   favorites?: string[]; // Array of FAVORITE_PAGES enum values
+  dashboardLayoutWeb?: unknown | null; // DashboardLayout JSON; validated at the dashboard module
+  dashboardLayoutMobile?: unknown | null;
 
   // Relations
   user?: User;
