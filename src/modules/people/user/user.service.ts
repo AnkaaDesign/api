@@ -485,9 +485,6 @@ export class UserService {
       if (filters.hasTasks !== undefined) {
         finalWhere.createdTasks = filters.hasTasks ? { some: {} } : { none: {} };
       }
-      if (filters.hasVacations !== undefined) {
-        finalWhere.vacations = filters.hasVacations ? { some: {} } : { none: {} };
-      }
 
       // Handle range filters
       if (filters.performanceLevelRange) {

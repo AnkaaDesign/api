@@ -783,17 +783,8 @@ export class NotificationConfigurationController {
           whereClause.isActive = true;
         }
 
-        if (configuration.targetRule.excludeOnVacation) {
-          // Exclude users who have an active vacation (approved/in-progress covering current date)
-          const now = new Date();
-          whereClause.vacations = {
-            none: {
-              status: { in: ['APPROVED', 'IN_PROGRESS'] },
-              startAt: { lte: now },
-              endAt: { gte: now },
-            },
-          };
-        }
+        // excludeOnVacation flag is honored once Secullum vacation data is aggregated
+        // locally — vacation tracking moved out of Prisma into Secullum.
 
         targetUsers = await this.prisma.user.findMany({
           where: whereClause,

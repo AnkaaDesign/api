@@ -1665,13 +1665,15 @@ model User {
 }
 
 model Preferences {
-  id          String      @id @default(uuid())
-  userId      String      @unique
-  colorSchema ColorSchema @default(LIGHT)
-  favorites   String[]    @default([])
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  user        User        @relation("USER_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)
+  id                    String      @id @default(uuid())
+  userId                String      @unique
+  colorSchema           ColorSchema @default(LIGHT)
+  favorites             String[]    @default([])
+  dashboardLayoutWeb    Json?
+  dashboardLayoutMobile Json?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  user                  User        @relation("USER_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model NotificationPreference {
@@ -2932,6 +2934,7 @@ enum ChangeLogEntityType {
   PPE_DELIVERY_SCHEDULE
   PPE_REQUEST
   PPE_SIZE
+  PREFERENCES
   PRICE
   PRODUCTION
   PURCHASE

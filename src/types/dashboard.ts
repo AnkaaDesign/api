@@ -195,6 +195,13 @@ export interface HRDashboardData {
     averageTasksPerUser: DashboardMetric;
     taskProductivityTrend: 'up' | 'down' | 'stable';
   };
+  // Stubbed at the repo layer — vacation data lives in Secullum; awaits aggregation wiring.
+  vacationMetrics?: {
+    onVacationNow: DashboardMetric;
+    upcomingVacations: DashboardMetric;
+    approvedVacations: DashboardMetric;
+    vacationSchedule: Array<unknown>;
+  };
   positionMetrics?: {
     totalPositions: number;
     employeesByPosition: DashboardChartData;

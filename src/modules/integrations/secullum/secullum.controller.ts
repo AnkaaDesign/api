@@ -149,6 +149,48 @@ export class SecullumController {
   }
 
   /**
+   * Get time entries for a single day across all active employees.
+   * Used by the "Visualização Dia" mode of Controle de Ponto.
+   * Server-side fan-out reuses the per-employee/per-day Redis cache populated
+   * by /time-entries.
+   * GET /integrations/secullum/time-entries/by-day?date=YYYY-MM-DD
+   */
+  @Get('time-entries/by-day')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+  )
+  @HttpCode(HttpStatus.OK)
+  async getTimeEntriesByDay(
+    @UserId() userId: string,
+    @Query('date') date?: string,
+  ): Promise<{ success: boolean; message: string; data: any[] }> {
+    this.logger.log(`User ${userId} fetching by-day time entries date=${date}`);
+    if (!date) {
+      return { success: false, message: 'date query parameter is required', data: [] };
+    }
+
+    // findMany defaults to a paginated page; the day view needs every active
+    // user. Pass take=1000 (effectively the active workforce ceiling). Sector
+    // is a direct relation on User — Position has no `sector` include in this
+    // schema, so include it at the User level.
+    const usersResponse = await this.userService.findMany({
+      where: {
+        status: { in: ['EXPERIENCE_PERIOD_1', 'EXPERIENCE_PERIOD_2', 'EFFECTED'] },
+      },
+      include: { sector: true },
+      orderBy: { name: 'asc' },
+      take: 1000,
+    } as any);
+    const activeUsers: any[] = ((usersResponse as any)?.data as any[]) || [];
+
+    return this.secullumService.getTimeEntriesByDay(date, activeUsers);
+  }
+
+  /**
    * Update a time entry in Secullum
    * PUT /integrations/secullum/time-entries/:id
    */
