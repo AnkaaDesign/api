@@ -497,6 +497,7 @@ export class BonusService {
         where: {
           status: USER_STATUS.EFFECTED,
           position: { bonifiable: true },
+          secullumEmployeeId: { not: null },
         },
         select: {
           id: true,
@@ -1889,6 +1890,7 @@ export class BonusService {
         status: USER_STATUS.EFFECTED,
         position: { bonifiable: true },
         performanceLevel: { gt: 0 },
+        secullumEmployeeId: { not: null },
       },
     });
 
@@ -2047,6 +2049,7 @@ export class BonusService {
           position: {
             bonifiable: true,
           },
+          secullumEmployeeId: { not: null },
         },
         select: {
           id: true,
@@ -2455,6 +2458,7 @@ export class BonusService {
         where: {
           status: USER_STATUS.EFFECTED,
           position: { bonifiable: true },
+          secullumEmployeeId: { not: null },
         },
         include: {
           position: {
@@ -2833,6 +2837,7 @@ export class BonusService {
         where: {
           status: USER_STATUS.EFFECTED,
           payrollNumber: { not: null },
+          secullumEmployeeId: { not: null },
         },
         select: {
           id: true,

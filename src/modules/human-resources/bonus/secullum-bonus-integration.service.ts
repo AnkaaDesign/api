@@ -130,7 +130,17 @@ export class SecullumBonusIntegrationService {
   async analyzeAllUsers(
     year: number,
     month: number,
-    users: Array<{ id: string; name: string; cpf?: string; pis?: string; payrollNumber?: number }>,
+    users: Array<{
+      id: string;
+      name: string;
+      secullumEmployeeId?: number | null;
+      // Legacy fields — accepted for backwards compatibility with existing callers
+      // but no longer used for Secullum employee resolution. The User.secullumEmployeeId
+      // FK (populated by the backfill) is the only matcher now.
+      cpf?: string;
+      pis?: string;
+      payrollNumber?: number;
+    }>,
   ): Promise<AnalyzeAllUsersResult> {
     const results = new Map<string, SecullumBonusAnalysis>();
     const failedUsers: string[] = [];
@@ -158,16 +168,15 @@ export class SecullumBonusIntegrationService {
       `Analyzing Secullum time entries for ${users.length} users, period ${startDate} to ${endDate}`,
     );
 
-    // Pre-fetch all Secullum employees once (avoid N+1 API calls).
-    // Failure here is a service-wide signal — auth or network is broken.
-    let secullumEmployees: any[] = [];
+    // Probe Secullum availability up front. We don't need the employees list anymore
+    // (resolution now uses User.secullumEmployeeId directly), but we still need a
+    // service-wide signal so callers can refuse to persist payroll data when Secullum
+    // is down. A single cheap call to getEmployees() is the same probe used before
+    // and keeps the breaker semantics intact.
     try {
-      const employeesResponse = await this.secullumService.getEmployees();
-      if (employeesResponse.success && Array.isArray(employeesResponse.data)) {
-        secullumEmployees = employeesResponse.data;
-        this.logger.log(`Loaded ${secullumEmployees.length} Secullum employees for matching`);
-      } else {
-        const error = 'Failed to fetch Secullum employees list (response not successful)';
+      const probe = await this.secullumService.getEmployees();
+      if (!probe.success) {
+        const error = 'Secullum unavailable (employees probe returned non-success)';
         this.logger.error(error);
         this.recordBreakerFailure();
         return {
@@ -176,7 +185,7 @@ export class SecullumBonusIntegrationService {
         };
       }
     } catch (error) {
-      const message = `Failed to fetch Secullum employees: ${error?.message || error}`;
+      const message = `Secullum unavailable (employees probe failed): ${error?.message || error}`;
       this.logger.error(message);
       this.recordBreakerFailure();
       return {
@@ -191,13 +200,7 @@ export class SecullumBonusIntegrationService {
 
     for (const user of users) {
       try {
-        const analysis = await this.analyzeUser(
-          user,
-          startDate,
-          endDate,
-          secullumEmployees,
-          holidays,
-        );
+        const analysis = await this.analyzeUser(user, startDate, endDate, holidays);
         if (analysis) {
           results.set(user.id, analysis);
         }
@@ -266,45 +269,28 @@ export class SecullumBonusIntegrationService {
    * Analyze a single user's time entries.
    */
   private async analyzeUser(
-    user: { id: string; name: string; cpf?: string; pis?: string; payrollNumber?: number },
+    user: {
+      id: string;
+      name: string;
+      secullumEmployeeId?: number | null;
+      cpf?: string;
+      pis?: string;
+      payrollNumber?: number;
+    },
     startDate: string,
     endDate: string,
-    secullumEmployees?: any[],
     holidays: Date[] = [],
   ): Promise<SecullumBonusAnalysis | null> {
-    // Match user to Secullum employee
-    let secullumEmployeeId: number | null = null;
-
-    if (secullumEmployees) {
-      const normalizeCpf = (cpf: string) => (cpf ? cpf.replace(/[.-]/g, '') : '');
-      const userCpf = user.cpf ? normalizeCpf(user.cpf) : '';
-      const userPis = user.pis || '';
-      const userPayroll = user.payrollNumber?.toString() || '';
-
-      const match = secullumEmployees.find((emp: any) => {
-        const empCpf = normalizeCpf(emp.Cpf || '');
-        const empPis = emp.NumeroPis || '';
-        const empPayroll = (emp.NumeroFolha || '').toString();
-        return (
-          (userCpf && empCpf === userCpf) ||
-          (userPis && empPis === userPis) ||
-          (userPayroll && empPayroll === userPayroll)
-        );
-      });
-
-      if (!match) {
-        this.logger.warn(
-          `No Secullum employee match for ${user.name} (cpf=${user.cpf}, pis=${user.pis}, payroll=${user.payrollNumber})`,
-        );
-        return null;
-      }
-      secullumEmployeeId = match.Id;
-      this.logger.debug(`Matched ${user.name} → Secullum employee ${match.Nome} (ID=${match.Id})`);
-    }
-
-    if (!secullumEmployeeId) {
+    // Resolve Secullum employee via the persisted FK populated by the backfill.
+    // Users without a linked Secullum employee are skipped — there's nothing to
+    // analyze for them.
+    if (user.secullumEmployeeId == null) {
+      this.logger.debug(
+        `Skipping ${user.name} (${user.id}) — no secullumEmployeeId on User record`,
+      );
       return null;
     }
+    const secullumEmployeeId: number = user.secullumEmployeeId;
 
     // Fetch time entries (Batidas) for electronic stamp detection.
     // Uses the day-granular Redis cache — past days hit Redis instead of Secullum HTTPS.

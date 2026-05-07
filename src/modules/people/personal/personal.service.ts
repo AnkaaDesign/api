@@ -248,15 +248,13 @@ export class PersonalService {
       );
     }
 
-    // Get user with CPF, PIS, and payrollNumber for Secullum lookup
+    // Get user with persisted Secullum mapping
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
         name: true,
-        cpf: true,
-        pis: true,
-        payrollNumber: true,
+        secullumEmployeeId: true,
       },
     });
 
@@ -264,23 +262,14 @@ export class PersonalService {
       throw new NotFoundException('User not found');
     }
 
-    // Find Secullum employee using CPF/PIS/PayrollNumber lookup
-    const secullumEmployee = await this.secullumService.findSecullumEmployee({
-      cpf: user.cpf || undefined,
-      pis: user.pis || undefined,
-      payrollNumber: user.payrollNumber || undefined,
-    });
-
-    if (!secullumEmployee.success || !secullumEmployee.data) {
-      this.logger.warn(
-        `No Secullum employee found for user ${user.name} (CPF: ${user.cpf}, PIS: ${user.pis}, Folha: ${user.payrollNumber})`,
-      );
+    if (!user.secullumEmployeeId) {
+      this.logger.warn(`User ${user.name} (${user.id}) has no secullumEmployeeId`);
       throw new BadRequestException(
-        `Você não está cadastrado no ponto eletrônico com o mesmo CPF, PIS ou Número da Folha. Entre em contato com o RH para verificar seus dados.`,
+        `Você não está cadastrado no ponto eletrônico. Entre em contato com o RH para verificar seus dados.`,
       );
     }
 
-    const secullumEmployeeId = secullumEmployee.data.secullumId.toString();
+    const secullumEmployeeId = user.secullumEmployeeId.toString();
 
     // Fetch calculations from Secullum
     const calculationsResponse = await this.secullumService.getCalculations({
@@ -317,8 +306,8 @@ export class PersonalService {
 
   /**
    * Resolves the authenticated user → Secullum funcionarioId.
-   * Uses User.secullumEmployeeId when populated (fast path); otherwise falls
-   * back to remote CPF/PIS/PayrollNumber lookup via findSecullumEmployee.
+   * Uses the persisted User.secullumEmployeeId. Runtime CPF/PIS/payrollNumber
+   * matching has been removed; mapping is owned by user-secullum-sync.service.
    */
   private async resolveMySecullumEmployeeId(userId: string): Promise<number> {
     const user = await this.prisma.user.findUnique({
@@ -326,9 +315,6 @@ export class PersonalService {
       select: {
         id: true,
         name: true,
-        cpf: true,
-        pis: true,
-        payrollNumber: true,
         secullumEmployeeId: true,
       },
     });
@@ -337,26 +323,14 @@ export class PersonalService {
       throw new NotFoundException('User not found');
     }
 
-    if (user.secullumEmployeeId) {
-      return user.secullumEmployeeId;
-    }
-
-    const found = await this.secullumService.findSecullumEmployee({
-      cpf: user.cpf || undefined,
-      pis: user.pis || undefined,
-      payrollNumber: user.payrollNumber || undefined,
-    });
-
-    if (!found.success || !found.data) {
-      this.logger.warn(
-        `No Secullum employee found for user ${user.name} (CPF: ${user.cpf}, PIS: ${user.pis}, Folha: ${user.payrollNumber})`,
-      );
+    if (!user.secullumEmployeeId) {
+      this.logger.warn(`User ${user.name} (${user.id}) has no secullumEmployeeId`);
       throw new BadRequestException(
-        'Você não está cadastrado no ponto eletrônico com o mesmo CPF, PIS ou Número da Folha. Entre em contato com o RH para verificar seus dados.',
+        'Você não está cadastrado no ponto eletrônico. Entre em contato com o RH para verificar seus dados.',
       );
     }
 
-    return Number(found.data.secullumId);
+    return user.secullumEmployeeId;
   }
 
   /**

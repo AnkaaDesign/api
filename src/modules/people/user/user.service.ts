@@ -2028,6 +2028,15 @@ export class UserService {
           });
         }
 
+        // Server-only fields that the merge UI must never overwrite, even if
+        // the client puts them in conflictResolutions. `secullumEmployeeId`
+        // is the FK to the Secullum Funcionario row — losing it breaks
+        // historical bonus/ponto/payroll resolution. `secullumSyncEnabled`
+        // is the toggle that drives the bridge — flipping it via merge
+        // would silently disable sync. Both are managed elsewhere.
+        delete updateData.secullumEmployeeId;
+        delete updateData.secullumSyncEnabled;
+
         if (Object.keys(updateData).length > 0) {
           await tx.user.update({
             where: { id: data.targetUserId },

@@ -10578,6 +10578,7 @@ export class TaskService {
             paymentCondition: true,
             paymentConfig: true,
             generateInvoice: true,
+            generateBankSlip: true,
           },
         },
       },
@@ -10630,6 +10631,7 @@ export class TaskService {
                   paymentCondition: c.paymentCondition,
                   paymentConfig: (c as any).paymentConfig ?? null,
                   generateInvoice: c.generateInvoice,
+                  generateBankSlip: c.generateBankSlip,
                 })),
               },
             }

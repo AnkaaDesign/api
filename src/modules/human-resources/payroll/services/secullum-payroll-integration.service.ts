@@ -62,47 +62,48 @@ export class SecullumPayrollIntegrationService {
 
   /**
    * ========================================================================
-   * GET PAYROLL DATA FROM SECULLUM (with automatic mapping)
+   * GET PAYROLL DATA FROM SECULLUM (resolved via User.secullumEmployeeId)
    * ========================================================================
-   * Fetches and parses Secullum calculation data for a specific employee/period
-   * Automatically maps employee using CPF, PIS, or Payroll Number
+   * Fetches and parses Secullum calculation data for a specific employee/period.
+   *
+   * Resolution: uses the persisted `User.secullumEmployeeId` FK (populated by the
+   * backfill). Users without a linked Secullum employee are skipped — the empty
+   * payroll-data shape is returned so callers continue gracefully.
+   *
+   * Legacy `cpf`/`pis`/`payrollNumber` fields on the params object are accepted
+   * for backwards compatibility with existing callers but are no longer used for
+   * matching. They may be removed once all callers pass `secullumEmployeeId`.
    */
   async getPayrollDataFromSecullum(params: {
     employeeId: string; // Our system's user ID
-    cpf?: string; // CPF for mapping
-    pis?: string; // PIS for mapping
-    payrollNumber?: string; // Payroll number for mapping
+    secullumEmployeeId?: number | null; // FK from User.secullumEmployeeId
+    cpf?: string; // Deprecated — not used for resolution
+    pis?: string; // Deprecated — not used for resolution
+    payrollNumber?: string; // Deprecated — not used for resolution
     year: number;
     month: number;
   }): Promise<SecullumPayrollData> {
-    const { employeeId, cpf, pis, payrollNumber, year, month } = params;
+    const { employeeId, secullumEmployeeId, year, month } = params;
 
     this.logger.log(`Fetching Secullum payroll data for employee ${employeeId} - ${year}/${month}`);
-    this.logger.log(
-      `  Mapping criteria - CPF: ${cpf || 'N/A'}, PIS: ${pis || 'N/A'}, Payroll: ${payrollNumber || 'N/A'}`,
-    );
 
     // Calculate payroll period (26th to 25th)
     const { startDate, endDate } = this.getPayrollPeriodDates(year, month);
 
+    // Resolve Secullum employee via the persisted FK. Users without a linked
+    // Secullum employee are skipped (return empty payroll data) — there's nothing
+    // to fetch for them.
+    if (secullumEmployeeId == null) {
+      this.logger.debug(
+        `Skipping ${employeeId} — no secullumEmployeeId on User record`,
+      );
+      return this.getEmptyPayrollData(employeeId, '', year, month);
+    }
+
+    const secullumId = secullumEmployeeId.toString();
+    this.logger.log(`  Resolved to Secullum employee ID: ${secullumId}`);
+
     try {
-      // Find Secullum employee using CPF, PIS, or Payroll Number
-      const secullumEmployee = await this.secullumService.findSecullumEmployee({
-        cpf: cpf || undefined,
-        pis: pis || undefined,
-        payrollNumber: payrollNumber ? parseInt(payrollNumber, 10) : undefined,
-      });
-
-      if (!secullumEmployee.success || !secullumEmployee.data) {
-        this.logger.warn(
-          `Could not find Secullum employee for ${employeeId} (CPF: ${cpf}, PIS: ${pis}, Payroll: ${payrollNumber})`,
-        );
-        return this.getEmptyPayrollData(employeeId, '', year, month);
-      }
-
-      const secullumId = secullumEmployee.data.secullumId.toString();
-      this.logger.log(`  Mapped to Secullum employee ID: ${secullumId}`);
-
       // Get calculations from Secullum
       const calculationsResponse = await this.secullumService.getCalculations({
         employeeId: secullumId,
@@ -135,7 +136,7 @@ export class SecullumPayrollIntegrationService {
       return payrollData;
     } catch (error) {
       this.logger.error(`Error fetching Secullum data for employee ${employeeId}:`, error);
-      return this.getEmptyPayrollData(employeeId, '', year, month);
+      return this.getEmptyPayrollData(employeeId, secullumId, year, month);
     }
   }
 

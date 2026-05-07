@@ -1184,6 +1184,19 @@ export const userWhereSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
+      secullumEmployeeId: z
+        .union([
+          z.number(),
+          z.null(),
+          z.object({
+            equals: z.union([z.number(), z.null()]).optional(),
+            not: z.union([z.number(), z.null()]).optional(),
+            in: z.array(z.number()).optional(),
+            notIn: z.array(z.number()).optional(),
+          }),
+        ])
+        .optional(),
+
       // Relation filters
       position: z
         .object({
