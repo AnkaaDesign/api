@@ -18,6 +18,10 @@ import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { ReadRateLimit, WriteRateLimit } from '@modules/common/throttler/throttler.decorators';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { SecullumService } from './secullum.service';
+import {
+  UserSecullumSyncService,
+  SecullumBackfillResult,
+} from './user-secullum-sync.service';
 import { UserService } from '@modules/people/user/user.service';
 import {
   SecullumTimeEntriesResponse,
@@ -55,6 +59,7 @@ export class SecullumController {
   constructor(
     private readonly secullumService: SecullumService,
     private readonly userService: UserService,
+    private readonly userSecullumSyncService: UserSecullumSyncService,
   ) {}
 
   /**
@@ -177,9 +182,16 @@ export class SecullumController {
     // user. Pass take=1000 (effectively the active workforce ceiling). Sector
     // is a direct relation on User — Position has no `sector` include in this
     // schema, so include it at the User level.
+    //
+    // Filter to users with `secullumEmployeeId` set: dropping unlinked users
+    // here means the per-employee fan-out in `getTimeEntriesByDay` skips
+    // pointless lookups for users that don't exist in Secullum at all.
+    // The companion backfill endpoint (`POST /backfill-employee-ids`) keeps
+    // this set populated.
     const usersResponse = await this.userService.findMany({
       where: {
         status: { in: ['EXPERIENCE_PERIOD_1', 'EXPERIENCE_PERIOD_2', 'EFFECTED'] },
+        secullumEmployeeId: { not: null },
       },
       include: { sector: true },
       orderBy: { name: 'asc' },
@@ -878,6 +890,47 @@ export class SecullumController {
         error: error.message,
       };
     }
+  }
+
+  /**
+   * One-shot backfill: populate `user.secullumEmployeeId` for every Ankaa user
+   * that matches a Secullum employee (by CPF, PIS, or payrollNumber). Mirrors
+   * the runtime match algorithm of `checkUserMapping` but PERSISTS the FK.
+   *
+   * Idempotent — already-linked users are verified, and any disagreement
+   * surfaces as a CONFLICT (logged, not overwritten).
+   *
+   * Includes dismissed users so historical Secullum reports still resolve.
+   *
+   * POST /integrations/secullum/backfill-employee-ids
+   */
+  @Post('backfill-employee-ids')
+  @WriteRateLimit()
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async backfillEmployeeIds(
+    @UserId() userId: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: SecullumBackfillResult;
+  }> {
+    this.logger.log(
+      `User ${userId} triggering Secullum employee-id backfill`,
+    );
+
+    const summary = await this.userSecullumSyncService.backfillSecullumEmployeeIds();
+
+    const message =
+      `Backfill done: ${summary.newlyLinked} newly linked, ` +
+      `${summary.alreadyLinked} already linked, ${summary.conflicts} conflicts, ` +
+      `${summary.unmatched} unmatched (of ${summary.totalAnkaaUsers} Ankaa users vs ${summary.totalSecullumEmployees} Secullum employees).`;
+
+    return {
+      success: true,
+      message,
+      data: summary,
+    };
   }
 
   /**

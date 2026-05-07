@@ -7,6 +7,7 @@ import {
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SecullumCadastrosService } from './secullum-cadastros.service';
+import { SecullumService } from './secullum.service';
 import {
   SecullumFuncionarioCreate,
   SecullumFuncionarioUpsert,
@@ -39,6 +40,40 @@ export interface SecullumSyncResult {
 }
 
 /**
+ * Per-user conflict surfaced by `backfillSecullumEmployeeIds`: the Ankaa user
+ * is already linked to a different Funcionario than the one our match
+ * algorithm landed on. We never overwrite — the operator must reconcile.
+ */
+export interface SecullumBackfillConflict {
+  ankaaUserId: string;
+  ankaaUserName: string;
+  oldId: number;
+  newId: number;
+  matchedBy: 'CPF' | 'PIS' | 'PayrollNumber';
+}
+
+/**
+ * Aggregate result of `backfillSecullumEmployeeIds`.
+ * - newlyLinked: rows that had `secullumEmployeeId = null` and got populated.
+ * - alreadyLinked: rows whose existing `secullumEmployeeId` matched the
+ *   computed Funcionario.Id — no-op.
+ * - conflicts: rows whose existing `secullumEmployeeId` disagreed with the
+ *   computed Funcionario.Id. We log + skip; never overwrite.
+ * - unmatched: rows where no Secullum employee matched on CPF, PIS, or
+ *   payrollNumber.
+ */
+export interface SecullumBackfillResult {
+  totalAnkaaUsers: number;
+  totalSecullumEmployees: number;
+  newlyLinked: number;
+  alreadyLinked: number;
+  conflicts: number;
+  unmatched: number;
+  conflictDetails: SecullumBackfillConflict[];
+  unmatchedUserIds: string[];
+}
+
+/**
  * Bridge between Ankaa Users and Secullum Funcionarios.
  *
  * Listens to the global Node `EventEmitter` (token `'EventEmitter'`,
@@ -53,6 +88,7 @@ export class UserSecullumSyncService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cadastros: SecullumCadastrosService,
+    private readonly secullum: SecullumService,
     @Inject('EventEmitter') private readonly events: EventEmitter,
   ) {}
 
@@ -318,6 +354,168 @@ export class UserSecullumSyncService implements OnModuleInit {
       );
       return { status: 'error', reason: message };
     }
+  }
+
+  /**
+   * One-shot backfill: for every Ankaa user that doesn't already have a
+   * `secullumEmployeeId`, try to match against a Secullum Funcionario by
+   * CPF (preferred), then PIS, then payrollNumber, and persist the FK.
+   *
+   * Idempotent — safe to run multiple times. Already-linked users are
+   * verified against the match (any disagreement surfaces as a CONFLICT
+   * and is NOT overwritten; the operator must reconcile manually).
+   *
+   * Includes dismissed users (no status filter) so historical reports
+   * still resolve their Funcionario.Id.
+   *
+   * Match algorithm mirrors `checkUserMapping` in secullum.controller.ts —
+   * if you change one, change both.
+   */
+  async backfillSecullumEmployeeIds(): Promise<SecullumBackfillResult> {
+    this.logger.log('[secullum/backfill] starting employee-id backfill');
+
+    // Fetch ALL Ankaa users (no status filter — dismissed users still need
+    // their FK populated for historical Secullum reports).
+    const ankaaUsers = await this.prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        cpf: true,
+        pis: true,
+        payrollNumber: true,
+        secullumEmployeeId: true,
+      },
+    });
+
+    // Fetch all Secullum employees. `getEmployees()` hits /Funcionarios which
+    // returns active + dismissed (dismissed are flagged with `Invisivel: true`
+    // / `Demissao: <date>` rather than excluded — see user-secullum-sync
+    // dismissal logic). No separate dismissed endpoint exists in the service.
+    const secullumResp = await this.secullum.getEmployees();
+    if (!secullumResp?.success || !Array.isArray(secullumResp.data)) {
+      const message =
+        secullumResp?.message || 'failed to fetch Secullum employees';
+      this.logger.error(`[secullum/backfill] ${message}`);
+      throw new Error(message);
+    }
+    const secullumEmployees: any[] = secullumResp.data;
+
+    const normalizeCpf = (cpf?: string | null): string =>
+      cpf ? cpf.replace(/[.-]/g, '') : '';
+
+    const result: SecullumBackfillResult = {
+      totalAnkaaUsers: ankaaUsers.length,
+      totalSecullumEmployees: secullumEmployees.length,
+      newlyLinked: 0,
+      alreadyLinked: 0,
+      conflicts: 0,
+      unmatched: 0,
+      conflictDetails: [],
+      unmatchedUserIds: [],
+    };
+
+    for (const user of ankaaUsers) {
+      const userCpf = normalizeCpf(user.cpf);
+      const userPis = user.pis || '';
+      const userPayrollNumber =
+        user.payrollNumber != null ? String(user.payrollNumber) : '';
+
+      // Match on CPF first, then PIS, then payrollNumber. Track which field
+      // hit so we can log + return it for diagnostics.
+      let matchedBy: 'CPF' | 'PIS' | 'PayrollNumber' | null = null;
+      const matched = secullumEmployees.find((emp: any) => {
+        const empCpf = normalizeCpf(emp.Cpf);
+        const empPis = emp.NumeroPis || '';
+        const empPayrollNumber = emp.NumeroFolha || '';
+
+        if (userCpf && empCpf && empCpf === userCpf) {
+          matchedBy = 'CPF';
+          return true;
+        }
+        if (userPis && empPis && empPis === userPis) {
+          matchedBy = 'PIS';
+          return true;
+        }
+        if (
+          userPayrollNumber &&
+          empPayrollNumber &&
+          empPayrollNumber === userPayrollNumber
+        ) {
+          matchedBy = 'PayrollNumber';
+          return true;
+        }
+        return false;
+      });
+
+      if (!matched || matchedBy === null) {
+        result.unmatched++;
+        result.unmatchedUserIds.push(user.id);
+        continue;
+      }
+
+      const matchedId: number = Number(matched.Id);
+      if (!Number.isFinite(matchedId) || matchedId <= 0) {
+        this.logger.warn(
+          `[secullum/backfill] match for ${user.id} has invalid Funcionario.Id=${matched.Id}; skipping`,
+        );
+        result.unmatched++;
+        result.unmatchedUserIds.push(user.id);
+        continue;
+      }
+
+      if (user.secullumEmployeeId == null) {
+        // Newly linked. Wrap in try/catch — the unique constraint on
+        // user.secullumEmployeeId fires if two Ankaa users match the same
+        // Funcionario (data quality issue; log + skip rather than abort).
+        try {
+          await this.prisma.user.update({
+            where: { id: user.id },
+            data: { secullumEmployeeId: matchedId },
+          });
+          result.newlyLinked++;
+          this.logger.log(
+            `[secullum/backfill] linked user ${user.id} (${user.name}) → Funcionario ${matchedId} via ${matchedBy}`,
+          );
+        } catch (e) {
+          const message = (e as Error).message;
+          this.logger.warn(
+            `[secullum/backfill] failed to link user ${user.id} (${user.name}) → Funcionario ${matchedId} via ${matchedBy}: ${message}`,
+          );
+          // Treat as a conflict — likely the unique constraint hit because
+          // another Ankaa user already owns this Funcionario.Id.
+          result.conflicts++;
+          result.conflictDetails.push({
+            ankaaUserId: user.id,
+            ankaaUserName: user.name,
+            oldId: 0,
+            newId: matchedId,
+            matchedBy,
+          });
+        }
+      } else if (user.secullumEmployeeId === matchedId) {
+        result.alreadyLinked++;
+      } else {
+        // Already linked to a DIFFERENT Funcionario than what we'd compute.
+        // Never overwrite — surface the conflict for manual reconciliation.
+        result.conflicts++;
+        result.conflictDetails.push({
+          ankaaUserId: user.id,
+          ankaaUserName: user.name,
+          oldId: user.secullumEmployeeId,
+          newId: matchedId,
+          matchedBy,
+        });
+        this.logger.warn(
+          `[secullum/backfill] CONFLICT user ${user.id} (${user.name}): existing secullumEmployeeId=${user.secullumEmployeeId}, computed=${matchedId} via ${matchedBy} — NOT overwriting`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `[secullum/backfill] done: total=${result.totalAnkaaUsers} secullum=${result.totalSecullumEmployees} newlyLinked=${result.newlyLinked} alreadyLinked=${result.alreadyLinked} conflicts=${result.conflicts} unmatched=${result.unmatched}`,
+    );
+
+    return result;
   }
 
   // --------------------------------------------------------------------------

@@ -1295,6 +1295,7 @@ model TaskQuoteCustomerConfig {
   discountReference   String?
   customPaymentText   String?
   generateInvoice     Boolean          @default(true)
+  generateBankSlip    Boolean          @default(true)
   orderNumber         String?
   responsibleId       String?
   paymentCondition    String?

@@ -195,13 +195,14 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       // and either have no BankSlip or have a BankSlip with ERROR/CREATING status (< 3 retries).
       // Exclude:
       //   - customer configs with a custom payment text (PIX/transfer — no boleto)
-      //   - customer configs where generateInvoice = false (boleto was intentionally skipped)
+      //   - customer configs where generateBankSlip = false (boleto was intentionally skipped;
+      //     independent of generateInvoice/NFSe — a config may emit NFSe without boletos)
       const installments = await this.prisma.installment.findMany({
         where: {
           status: INSTALLMENT_STATUS.PENDING,
           dueDate: { lte: fiveDaysFromNow },
           customerConfig: {
-            generateInvoice: { not: false },
+            generateBankSlip: { not: false },
             OR: [{ customPaymentText: null }, { customPaymentText: '' }],
           },
           OR: [

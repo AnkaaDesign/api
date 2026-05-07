@@ -185,9 +185,7 @@ export class TeamStaffService {
         id: true,
         name: true,
         sectorId: true,
-        cpf: true,
-        pis: true,
-        payrollNumber: true,
+        secullumEmployeeId: true,
       },
     });
 
@@ -202,25 +200,18 @@ export class TeamStaffService {
       );
     }
 
-    // Find Secullum employee using CPF/PIS/PayrollNumber lookup
-    const secullumEmployee = await this.secullumService.findSecullumEmployee({
-      cpf: targetUser.cpf || undefined,
-      pis: targetUser.pis || undefined,
-      payrollNumber: targetUser.payrollNumber || undefined,
-    });
-
-    if (!secullumEmployee.success || !secullumEmployee.data) {
+    if (!targetUser.secullumEmployeeId) {
       this.logger.warn(
-        `No Secullum employee found for user ${targetUser.name} (CPF: ${targetUser.cpf}, PIS: ${targetUser.pis}, Folha: ${targetUser.payrollNumber})`,
+        `User ${targetUser.name} (${targetUser.id}) has no secullumEmployeeId`,
       );
       return {
         success: false,
-        message: `User ${targetUser.name} does not have a Secullum account linked (no match found by CPF/PIS/PayrollNumber)`,
+        message: `User ${targetUser.name} does not have a Secullum account linked`,
         data: null,
       };
     }
 
-    const secullumEmployeeId = secullumEmployee.data.secullumId.toString();
+    const secullumEmployeeId = targetUser.secullumEmployeeId.toString();
 
     // Fetch calculations from Secullum service
     try {
@@ -288,7 +279,7 @@ export class TeamStaffService {
 
     this.logger.log(`Team leader ${userId} accessing calculations for led sector ${ledSectorId}`);
 
-    // Get all users in the led sector with CPF/PIS/PayrollNumber for Secullum lookup
+    // Get all users in the led sector with their persisted Secullum mapping
     const teamMembers = await this.prisma.user.findMany({
       where: {
         sectorId: ledSectorId, // Use database ledSectorId
@@ -296,9 +287,7 @@ export class TeamStaffService {
       select: {
         id: true,
         name: true,
-        cpf: true,
-        pis: true,
-        payrollNumber: true,
+        secullumEmployeeId: true,
       },
     });
 
@@ -315,31 +304,22 @@ export class TeamStaffService {
       };
     }
 
-    // Fetch calculations for all team members from Secullum using CPF/PIS lookup
+    // Fetch calculations for all team members using their persisted secullumEmployeeId
     const calculationsPromises = teamMembers.map(async member => {
+      if (!member.secullumEmployeeId) {
+        this.logger.warn(`User ${member.name} (${member.id}) has no secullumEmployeeId`);
+        return {
+          userId: member.id,
+          userName: member.name,
+          secullumEmployeeId: null,
+          calculations: [],
+          error: 'No Secullum account linked',
+        };
+      }
+
+      const secullumEmployeeId = member.secullumEmployeeId.toString();
+
       try {
-        // Find Secullum employee using CPF/PIS/PayrollNumber lookup
-        const secullumEmployee = await this.secullumService.findSecullumEmployee({
-          cpf: member.cpf || undefined,
-          pis: member.pis || undefined,
-          payrollNumber: member.payrollNumber || undefined,
-        });
-
-        if (!secullumEmployee.success || !secullumEmployee.data) {
-          this.logger.warn(
-            `No Secullum employee found for user ${member.name} (CPF: ${member.cpf}, PIS: ${member.pis}, Folha: ${member.payrollNumber})`,
-          );
-          return {
-            userId: member.id,
-            userName: member.name,
-            secullumEmployeeId: null,
-            calculations: [],
-            error: 'No Secullum account linked',
-          };
-        }
-
-        const secullumEmployeeId = secullumEmployee.data.secullumId.toString();
-
         const response = await this.secullumService.getCalculations({
           employeeId: secullumEmployeeId,
           startDate: params.startDate,
@@ -360,7 +340,7 @@ export class TeamStaffService {
         return {
           userId: member.id,
           userName: member.name,
-          secullumEmployeeId: null,
+          secullumEmployeeId,
           calculations: [],
           error: 'Failed to fetch calculations',
         };

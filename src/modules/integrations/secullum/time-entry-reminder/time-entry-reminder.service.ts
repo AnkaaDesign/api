@@ -167,68 +167,45 @@ export class TimeEntryReminderService {
   }
 
   /**
-   * Get all active users who should be working and have time clock requirements
+   * Get all active users who should be working and have time clock requirements.
+   * Only returns users with a populated `secullumEmployeeId` — runtime CPF/PIS/payrollNumber
+   * matching is no longer performed here; mapping is owned by the user-secullum-sync.service.
    */
   async getActiveUsersForTimeCheck(): Promise<
     Array<{
       id: string;
       name: string;
-      cpf: string | null;
-      pis: string | null;
-      payrollNumber: number | null;
+      secullumEmployeeId: number;
     }>
   > {
     const users = await this.prisma.user.findMany({
       where: {
         isActive: true,
         dismissedAt: null,
-        // Must have CPF or PIS for Secullum mapping
-        OR: [{ cpf: { not: null } }, { pis: { not: null } }, { payrollNumber: { not: null } }],
+        secullumEmployeeId: { not: null },
       },
       select: {
         id: true,
         name: true,
-        cpf: true,
-        pis: true,
-        payrollNumber: true,
+        secullumEmployeeId: true,
       },
     });
 
-    return users.map(user => ({
-      id: user.id,
-      name: user.name,
-      cpf: user.cpf,
-      pis: user.pis,
-      payrollNumber: user.payrollNumber,
-    }));
+    return users
+      .filter((u): u is typeof u & { secullumEmployeeId: number } => u.secullumEmployeeId !== null)
+      .map(user => ({
+        id: user.id,
+        name: user.name,
+        secullumEmployeeId: user.secullumEmployeeId,
+      }));
   }
 
   /**
-   * Match a user to a Secullum employee from a pre-fetched employee list (avoids N+1)
+   * Look up a Secullum employee from a pre-fetched list using the user's
+   * persisted `secullumEmployeeId` (no CPF/PIS/payrollNumber matching).
    */
-  private matchEmployeeInList(
-    user: { cpf: string | null; pis: string | null; payrollNumber: number | null },
-    employees: any[],
-  ): any | null {
-    const normalizeCpf = (cpf: string): string => (cpf ? cpf.replace(/[.-]/g, '') : '');
-
-    const userCpf = user.cpf ? normalizeCpf(user.cpf) : '';
-    const userPis = user.pis || '';
-    const userPayrollNumber = user.payrollNumber?.toString() || '';
-
-    return (
-      employees.find((emp: any) => {
-        const empCpf = normalizeCpf(emp.Cpf || '');
-        const empPis = emp.NumeroPis || '';
-        const empPayrollNumber = emp.NumeroFolha || '';
-
-        const cpfMatch = userCpf && empCpf === userCpf;
-        const pisMatch = userPis && empPis === userPis;
-        const payrollMatch = userPayrollNumber && empPayrollNumber === userPayrollNumber;
-
-        return cpfMatch || pisMatch || payrollMatch;
-      }) || null
-    );
+  private findEmployeeById(secullumEmployeeId: number, employees: any[]): any | null {
+    return employees.find((emp: any) => Number(emp.Id) === secullumEmployeeId) || null;
   }
 
   /**
@@ -238,21 +215,22 @@ export class TimeEntryReminderService {
     user: {
       id: string;
       name: string;
-      cpf: string | null;
-      pis: string | null;
-      payrollNumber: number | null;
+      secullumEmployeeId: number;
     },
     entryType: TimeEntryType,
     preloadedEmployees?: any[],
   ): Promise<TimeEntryCheckResult | null> {
-    // Find Secullum employee (from preloaded list or via API)
+    // Resolve the Secullum employee record (from preloaded list or via single fetch).
+    // We always use User.secullumEmployeeId — never CPF/PIS/payrollNumber.
     let secullumEmployee: any;
     let horarioId: number | undefined;
 
     if (preloadedEmployees) {
-      const match = this.matchEmployeeInList(user, preloadedEmployees);
+      const match = this.findEmployeeById(user.secullumEmployeeId, preloadedEmployees);
       if (!match) {
-        this.logger.debug(`No Secullum mapping for user ${user.name}`);
+        this.logger.debug(
+          `Secullum employee Id ${user.secullumEmployeeId} not found in preloaded list for user ${user.name}`,
+        );
         return null;
       }
       secullumEmployee = {
@@ -263,18 +241,24 @@ export class TimeEntryReminderService {
       horarioId = match.HorarioId;
     } else {
       try {
-        const result = await this.secullumService.findSecullumEmployee({
-          cpf: user.cpf || undefined,
-          pis: user.pis || undefined,
-          payrollNumber: user.payrollNumber || undefined,
-        });
-
-        if (!result.success || !result.data) {
-          this.logger.debug(`No Secullum mapping for user ${user.name}`);
+        const empResponse = await this.secullumService.getEmployees();
+        if (!empResponse.success || !Array.isArray(empResponse.data)) {
+          this.logger.warn(`Failed to fetch Secullum employees for ${user.name}`);
           return null;
         }
-        secullumEmployee = result.data;
-        horarioId = result.data.horarioId;
+        const match = this.findEmployeeById(user.secullumEmployeeId, empResponse.data);
+        if (!match) {
+          this.logger.debug(
+            `Secullum employee Id ${user.secullumEmployeeId} not returned for user ${user.name}`,
+          );
+          return null;
+        }
+        secullumEmployee = {
+          secullumId: match.Id,
+          nome: match.Nome,
+          horarioId: match.HorarioId,
+        };
+        horarioId = match.HorarioId;
       } catch (error) {
         this.logger.warn(`Failed to find Secullum employee for ${user.name}: ${error.message}`);
         return null;

@@ -1520,6 +1520,8 @@ export class TaskPrismaRepository
                     customPaymentText: config.customPaymentText || null,
                     generateInvoice:
                       config.generateInvoice !== undefined ? config.generateInvoice : true,
+                    generateBankSlip:
+                      config.generateBankSlip !== undefined ? config.generateBankSlip : true,
                     responsibleId: config.responsibleId || null,
                     paymentCondition: config.paymentCondition || null,
                     paymentConfig: (config as any).paymentConfig ?? null,
@@ -1723,6 +1725,8 @@ export class TaskPrismaRepository
                       customPaymentText: config.customPaymentText || null,
                       generateInvoice:
                         config.generateInvoice !== undefined ? config.generateInvoice : true,
+                      generateBankSlip:
+                        config.generateBankSlip !== undefined ? config.generateBankSlip : true,
                       responsibleId: config.responsibleId || null,
                       paymentCondition: config.paymentCondition || null,
                       paymentConfig: (config as any).paymentConfig ?? null,
@@ -1804,6 +1808,8 @@ export class TaskPrismaRepository
                         customPaymentText: config.customPaymentText || null,
                         generateInvoice:
                           config.generateInvoice !== undefined ? config.generateInvoice : true,
+                        generateBankSlip:
+                          config.generateBankSlip !== undefined ? config.generateBankSlip : true,
                         responsibleId: config.responsibleId || null,
                         paymentCondition: config.paymentCondition || null,
                         paymentConfig: (config as any).paymentConfig ?? null,

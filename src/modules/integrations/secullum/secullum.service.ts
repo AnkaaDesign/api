@@ -1308,94 +1308,42 @@ export class SecullumService {
   // Aggregate absences across many employees within a date window. Used by the
   // shared HR calendar / list pages.
   //
-  // Strategy: query Secullum's /Funcionarios for the authoritative list of
-  // employees (Secullum is the source of truth for absences), then fan out
-  // /FuncionariosAfastamentos/{Id} per employee. We then JOIN BACK to the
-  // local User table by secullumEmployeeId to populate sector/userId where the
-  // employee is synced; otherwise we fall back to Secullum's own Nome field so
-  // unsynced employees still show up.
+  // Strategy: iterate over Ankaa users that have a `secullumEmployeeId` set
+  // (Secullum-linked, sync already ran), then fan out
+  // /FuncionariosAfastamentos/{secullumEmployeeId} per user. Sector / userId
+  // come straight off the local user row — no runtime CPF/PIS/payrollNumber
+  // matching against Secullum's /Funcionarios is performed.
   async getAggregatedAbsences(params: {
     startDate: string;
     endDate: string;
     sectorId?: string;
   }): Promise<SecullumAggregatedAbsencesResponse> {
     try {
-      // 1. Pull authoritative employee list from Secullum.
-      const employeesResp = await this.getEmployees();
-      const secullumEmployees: Array<{
-        Id: number;
-        Nome: string;
-        DepartamentoDescricao?: string;
-      }> = (employeesResp?.data ?? []) as any[];
+      // 1. Pull Secullum-linked Ankaa users. The unique `secullumEmployeeId`
+      //    column is the canonical FK and is populated by the backfill /
+      //    sync flow — any active user without it is silently skipped here
+      //    and surfaces in the sync diagnostics elsewhere.
+      const where: any = { isActive: true, secullumEmployeeId: { not: null } };
+      if (params.sectorId) where.sectorId = params.sectorId;
 
-      if (secullumEmployees.length === 0) {
-        return {
-          success: true,
-          message: 'No employees returned by Secullum',
-          data: [],
-        };
-      }
-
-      // 2. Build lookup maps: Ankaa user matched by ANY of secullumEmployeeId,
-      // normalized CPF, normalized PIS, or payrollNumber. This way the
-      // join-back works even when the user-Secullum sync hasn't been run yet
-      // and `secullumEmployeeId` is null on the Ankaa side.
-      const allUsers = await this.prismaService.user.findMany({
-        where: { isActive: true },
+      const linkedUsers = await this.prismaService.user.findMany({
+        where,
         select: {
           id: true,
           name: true,
           sectorId: true,
           secullumEmployeeId: true,
-          cpf: true,
-          pis: true,
-          payrollNumber: true,
           sector: { select: { id: true, name: true } },
         },
       });
-      const norm = (s?: string | null) => (s ?? '').replace(/[^0-9]/g, '');
-      type LinkedUser = (typeof allUsers)[number];
-      const userBySecullumId = new Map<number, LinkedUser>();
-      const userByCpf = new Map<string, LinkedUser>();
-      const userByPis = new Map<string, LinkedUser>();
-      const userByPayrollNumber = new Map<number, LinkedUser>();
-      for (const u of allUsers) {
-        if (u.secullumEmployeeId != null) userBySecullumId.set(u.secullumEmployeeId, u);
-        const c = norm(u.cpf);
-        if (c) userByCpf.set(c, u);
-        const p = norm(u.pis);
-        if (p) userByPis.set(p, u);
-        if (u.payrollNumber != null) userByPayrollNumber.set(u.payrollNumber, u);
-      }
-      const resolveAnkaaUser = (e: any): LinkedUser | undefined => {
-        const byId = userBySecullumId.get(e.Id);
-        if (byId) return byId;
-        const c = norm(e.Cpf);
-        if (c) {
-          const byCpf = userByCpf.get(c);
-          if (byCpf) return byCpf;
-        }
-        const p = norm(e.NumeroPis);
-        if (p) {
-          const byPis = userByPis.get(p);
-          if (byPis) return byPis;
-        }
-        const folha = parseInt(String(e.NumeroFolha ?? ''), 10);
-        if (!Number.isNaN(folha)) {
-          const byFolha = userByPayrollNumber.get(folha);
-          if (byFolha) return byFolha;
-        }
-        return undefined;
-      };
 
-      // Optional sectorId filter: keep only employees whose linked Ankaa user
-      // belongs to the requested sector. Unlinkable Secullum employees are
-      // dropped under this filter (they have no Ankaa sector to match).
-      const employees = params.sectorId
-        ? secullumEmployees.filter(
-            (e) => resolveAnkaaUser(e)?.sectorId === params.sectorId,
-          )
-        : secullumEmployees;
+      if (linkedUsers.length === 0) {
+        return {
+          success: true,
+          message: 'No Secullum-linked Ankaa users found',
+          data: [],
+        };
+      }
 
       const start = new Date(params.startDate);
       const end = new Date(params.endDate);
@@ -1403,45 +1351,49 @@ export class SecullumService {
       const aggregated: SecullumAggregatedAbsence[] = [];
       const failures: string[] = [];
 
-      // 3. Fan out per-employee absence fetches in parallel.
+      // 2. Fan out per-user absence fetches in parallel, keyed directly off
+      //    the stored `secullumEmployeeId`.
       const settled = await Promise.allSettled(
-        employees.map(async (e) => {
-          const res = await this.getAbsencesByEmployee(e.Id);
+        linkedUsers.map(async (u) => {
+          const empId = u.secullumEmployeeId!;
+          const res = await this.getAbsencesByEmployee(empId);
           if (!res.success || !res.data) return [];
           const overlapping = res.data.filter((a) => {
             const ai = new Date(a.Inicio);
             const af = new Date(a.Fim);
             return af >= start && ai <= end;
           });
-          const linked = resolveAnkaaUser(e);
           return overlapping.map((a) => ({
             ...a,
-            userId: linked?.id ?? `secullum:${e.Id}`,
-            userName: linked?.name ?? e.Nome,
-            sectorId: linked?.sectorId ?? null,
-            sectorName: linked?.sector?.name ?? e.DepartamentoDescricao ?? null,
+            userId: u.id,
+            userName: u.name,
+            sectorId: u.sectorId ?? null,
+            sectorName: u.sector?.name ?? null,
           }));
         }),
       );
 
       settled.forEach((r, i) => {
         if (r.status === 'fulfilled') aggregated.push(...r.value);
-        else failures.push(employees[i]?.Nome ?? `Id ${employees[i]?.Id}`);
+        else
+          failures.push(
+            linkedUsers[i]?.name ?? `secEmp ${linkedUsers[i]?.secullumEmployeeId}`,
+          );
       });
 
       if (failures.length > 0) {
         this.logger.warn(
-          `Aggregated absences: failed for ${failures.length} employee(s): ${failures.slice(0, 5).join(', ')}${failures.length > 5 ? '...' : ''}`,
+          `Aggregated absences: failed for ${failures.length} user(s): ${failures.slice(0, 5).join(', ')}${failures.length > 5 ? '...' : ''}`,
         );
       }
 
       this.logger.log(
-        `Aggregated ${aggregated.length} absences across ${employees.length - failures.length}/${employees.length} Secullum employees (Ankaa users: ${userBySecullumId.size} via secullumEmployeeId, ${userByCpf.size} via CPF, ${userByPis.size} via PIS, ${userByPayrollNumber.size} via payrollNumber)`,
+        `Aggregated ${aggregated.length} absences across ${linkedUsers.length - failures.length}/${linkedUsers.length} Secullum-linked Ankaa users`,
       );
 
       return {
         success: true,
-        message: `Aggregated ${aggregated.length} absences across ${employees.length - failures.length} employees`,
+        message: `Aggregated ${aggregated.length} absences across ${linkedUsers.length - failures.length} employees`,
         data: aggregated,
       };
     } catch (error) {
@@ -1481,69 +1433,30 @@ export class SecullumService {
     sectorId?: string;
   }): Promise<SecullumAggregatedAbsencesResponse> {
     try {
-      const employeesResp = await this.getEmployees();
-      const secullumEmployees: Array<{
-        Id: number;
-        Nome: string;
-        DepartamentoDescricao?: string;
-      }> = (employeesResp?.data ?? []) as any[];
+      // Iterate over Ankaa users that have a `secullumEmployeeId` set; the
+      // per-row sector / userId values come straight off the local user row
+      // (no runtime CPF/PIS/payrollNumber matching).
+      const where: any = { isActive: true, secullumEmployeeId: { not: null } };
+      if (params.sectorId) where.sectorId = params.sectorId;
 
-      // Same multi-key resolver as getAggregatedAbsences so unjustified rows
-      // also get joined to Ankaa users via CPF/PIS/payrollNumber when
-      // secullumEmployeeId isn't pre-populated.
-      const allUsers = await this.prismaService.user.findMany({
-        where: { isActive: true },
+      const linkedUsers = await this.prismaService.user.findMany({
+        where,
         select: {
           id: true,
           name: true,
           sectorId: true,
           secullumEmployeeId: true,
-          cpf: true,
-          pis: true,
-          payrollNumber: true,
           sector: { select: { id: true, name: true } },
         },
       });
-      const norm = (s?: string | null) => (s ?? '').replace(/[^0-9]/g, '');
-      type LinkedUser = (typeof allUsers)[number];
-      const userBySecullumId = new Map<number, LinkedUser>();
-      const userByCpf = new Map<string, LinkedUser>();
-      const userByPis = new Map<string, LinkedUser>();
-      const userByPayrollNumber = new Map<number, LinkedUser>();
-      for (const u of allUsers) {
-        if (u.secullumEmployeeId != null) userBySecullumId.set(u.secullumEmployeeId, u);
-        const c = norm(u.cpf);
-        if (c) userByCpf.set(c, u);
-        const p = norm(u.pis);
-        if (p) userByPis.set(p, u);
-        if (u.payrollNumber != null) userByPayrollNumber.set(u.payrollNumber, u);
-      }
-      const resolveAnkaaUser = (e: any): LinkedUser | undefined => {
-        const byId = userBySecullumId.get(e.Id);
-        if (byId) return byId;
-        const c = norm(e.Cpf);
-        if (c) {
-          const byCpf = userByCpf.get(c);
-          if (byCpf) return byCpf;
-        }
-        const p = norm(e.NumeroPis);
-        if (p) {
-          const byPis = userByPis.get(p);
-          if (byPis) return byPis;
-        }
-        const folha = parseInt(String(e.NumeroFolha ?? ''), 10);
-        if (!Number.isNaN(folha)) {
-          const byFolha = userByPayrollNumber.get(folha);
-          if (byFolha) return byFolha;
-        }
-        return undefined;
-      };
 
-      const employees = params.sectorId
-        ? secullumEmployees.filter(
-            (e) => resolveAnkaaUser(e)?.sectorId === params.sectorId,
-          )
-        : secullumEmployees;
+      if (linkedUsers.length === 0) {
+        return {
+          success: true,
+          message: 'No Secullum-linked Ankaa users found',
+          data: [],
+        };
+      }
 
       const aggregated: SecullumAggregatedAbsence[] = [];
 
@@ -1576,8 +1489,9 @@ export class SecullumService {
       let diagRowsHitBySentinel = 0;
 
       const settled = await Promise.allSettled(
-        employees.map(async (e) => {
-          const endpoint = `/Calculos/${e.Id}/${params.startDate}/${params.endDate}`;
+        linkedUsers.map(async (u) => {
+          const empId = u.secullumEmployeeId!;
+          const endpoint = `/Calculos/${empId}/${params.startDate}/${params.endDate}`;
           let raw: any;
           try {
             raw = await this.makeAuthenticatedRequest<any>(
@@ -1592,7 +1506,7 @@ export class SecullumService {
             );
           } catch (err) {
             this.logger.warn(
-              `Unjustified: /Calculos failed for employee ${e.Id} (${e.Nome}): ${this.getErrorMessage(err)}`,
+              `Unjustified: /Calculos failed for user ${u.id} (${u.name}, secEmp=${empId}): ${this.getErrorMessage(err)}`,
             );
             diagEmployeesSkipped++;
             return [];
@@ -1663,7 +1577,7 @@ export class SecullumService {
           // either signal alone is enough to find faltas.
           if (faltasIdx < 0 && (cargaIdx < 0 || normaisIdx < 0)) {
             this.logger.warn(
-              `Unjustified: missing Faltas/Carga/Normais columns for employee ${e.Id}; columns=[${colunas
+              `Unjustified: missing Faltas/Carga/Normais columns for user ${u.id} (secEmp=${empId}); columns=[${colunas
                 .map((c) => c?.Nome ?? c?.NomeExibicao ?? '?')
                 .join(', ')}]`,
             );
@@ -1755,22 +1669,21 @@ export class SecullumService {
               diagRowsHitBySentinel++;
             }
 
-            const linked = resolveAnkaaUser(e);
             const isoDay = `${datePart}T00:00:00`;
             unjustified.push({
               // Synthetic Id with a sentinel prefix; deletion is not supported
               // (the workflow is to apply a justification via Cálculos de Ponto).
-              Id: -((e.Id * 100000) + (yy * 10000 + mm * 100 + dd)),
-              FuncionarioId: e.Id,
+              Id: -((empId * 100000) + (yy * 10000 + mm * 100 + dd)),
+              FuncionarioId: empId,
               Inicio: isoDay,
               Fim: isoDay,
               Motivo: '',
               JustificativaId: 3, // FALTA I — Falta sem Justificativa
               JustificativaDescricao: 'Falta sem Justificativa',
-              userId: linked?.id ?? `secullum:${e.Id}`,
-              userName: linked?.name ?? e.Nome,
-              sectorId: linked?.sectorId ?? null,
-              sectorName: linked?.sector?.name ?? e.DepartamentoDescricao ?? null,
+              userId: u.id,
+              userName: u.name,
+              sectorId: u.sectorId ?? null,
+              sectorName: u.sector?.name ?? null,
             });
           }
           return unjustified;
@@ -1790,7 +1703,7 @@ export class SecullumService {
 
       return {
         success: true,
-        message: `Found ${aggregated.length} unjustified absence(s) across ${employees.length} employees`,
+        message: `Found ${aggregated.length} unjustified absence(s) across ${linkedUsers.length} employees`,
         data: aggregated,
       };
     } catch (error) {
@@ -2622,15 +2535,17 @@ export class SecullumService {
    *
    * `users` is supplied by the controller (which owns the UserService
    * dependency) — this service intentionally does not depend on UserService.
+   * Each user MUST carry `secullumEmployeeId` (the canonical FK populated by
+   * the Secullum sync / backfill); users with `secullumEmployeeId == null`
+   * are skipped silently. The controller is expected to pre-filter so the
+   * skip path is rarely hit in practice.
    */
   async getTimeEntriesByDay(
     date: string,
     users: Array<{
       id: string;
       name: string;
-      cpf?: string | null;
-      pis?: string | null;
-      payrollNumber?: number | string | null;
+      secullumEmployeeId: number | null;
       position?: { name?: string | null; sector?: { name?: string | null } | null } | null;
       sector?: { name?: string | null } | null;
     }>,
@@ -2650,30 +2565,6 @@ export class SecullumService {
     try {
       const activeUsers = users || [];
 
-      const secullumEmployeesResp = await this.getEmployees();
-      const secullumEmployees: any[] = Array.isArray((secullumEmployeesResp as any)?.data)
-        ? (secullumEmployeesResp as any).data
-        : [];
-
-      const normalizeCpf = (cpf?: string | null) => (cpf || '').replace(/[.-]/g, '');
-
-      const findEmpId = (user: any): number | null => {
-        const userCpf = normalizeCpf(user.cpf);
-        const userPis = user.pis || '';
-        const userPayroll = user.payrollNumber?.toString() || '';
-        const match = secullumEmployees.find((emp: any) => {
-          const empCpf = normalizeCpf(emp.Cpf);
-          const empPis = emp.NumeroPis || '';
-          const empPayroll = emp.NumeroFolha || '';
-          return (
-            (userCpf && empCpf === userCpf) ||
-            (userPis && empPis === userPis) ||
-            (userPayroll && empPayroll === userPayroll)
-          );
-        });
-        return match ? Number(match.Id) : null;
-      };
-
       const CONCURRENCY = 10;
       const results: Array<{
         user: {
@@ -2685,6 +2576,8 @@ export class SecullumService {
         entry: any | null;
       }> = [];
 
+      let skippedUnlinked = 0;
+
       for (let i = 0; i < activeUsers.length; i += CONCURRENCY) {
         const slice = activeUsers.slice(i, i + CONCURRENCY);
         const sliceResults = await Promise.all(
@@ -2695,8 +2588,14 @@ export class SecullumService {
               positionName: user.position?.name ?? null,
               sectorName: user.sector?.name ?? null,
             };
-            const empId = findEmpId(user);
-            if (!empId) return { user: userInfo, entry: null };
+            const empId = user.secullumEmployeeId;
+            if (empId == null) {
+              skippedUnlinked++;
+              this.logger.debug(
+                `getTimeEntriesByDay: skipping user ${user.id} (${user.name}) — secullumEmployeeId is null`,
+              );
+              return { user: userInfo, entry: null };
+            }
             try {
               const entries = await this.getTimeEntriesBySecullumIdCached(empId, date, date);
               return { user: userInfo, entry: entries[0] || null };
@@ -2709,6 +2608,12 @@ export class SecullumService {
           }),
         );
         results.push(...sliceResults);
+      }
+
+      if (skippedUnlinked > 0) {
+        this.logger.debug(
+          `getTimeEntriesByDay: ${skippedUnlinked}/${activeUsers.length} user(s) had no secullumEmployeeId and were skipped`,
+        );
       }
 
       return {

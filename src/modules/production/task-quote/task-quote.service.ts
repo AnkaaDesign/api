@@ -269,6 +269,8 @@ export class TaskQuoteService {
                 customPaymentText: config.customPaymentText || null,
                 generateInvoice:
                   config.generateInvoice !== undefined ? config.generateInvoice : true,
+                generateBankSlip:
+                  config.generateBankSlip !== undefined ? config.generateBankSlip : true,
                 orderNumber: (config as any).orderNumber || null,
                 ...(config.responsibleId && {
                   responsible: { connect: { id: config.responsibleId } },
@@ -733,6 +735,8 @@ export class TaskQuoteService {
                 customPaymentText: config.customPaymentText || null,
                 generateInvoice:
                   config.generateInvoice !== undefined ? config.generateInvoice : true,
+                generateBankSlip:
+                  config.generateBankSlip !== undefined ? config.generateBankSlip : true,
                 orderNumber: (config as any).orderNumber || null,
                 responsibleId: config.responsibleId || null,
                 paymentCondition: config.paymentCondition || null,
@@ -1627,6 +1631,7 @@ export class TaskQuoteService {
               discountReference: true,
               customPaymentText: true,
               generateInvoice: true,
+              generateBankSlip: true,
               orderNumber: true,
               paymentCondition: true,
               paymentConfig: true,

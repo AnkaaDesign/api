@@ -109,6 +109,7 @@ export class TaskQuotePrismaRepository
           discountReference: config.discountReference ?? null,
           customPaymentText: config.customPaymentText || null,
           generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
+          generateBankSlip: config.generateBankSlip !== undefined ? config.generateBankSlip : true,
           orderNumber: config.orderNumber || null,
           paymentCondition: config.paymentCondition || null,
           paymentConfig: (config as any).paymentConfig ?? null,
