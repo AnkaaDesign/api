@@ -734,7 +734,7 @@ export class NotificationPreferenceService {
       },
 
       // ============================================
-      // USER NOTIFICATIONS (PPE, Vacation, Warning)
+      // USER NOTIFICATIONS (PPE, Warning)
       // ============================================
 
       // PPE Notifications
@@ -795,26 +795,6 @@ export class NotificationPreferenceService {
         eventType: 'ppe_signature_reminder',
         channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
         mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP],
-      },
-
-      // Vacation Notifications
-      {
-        type: NOTIFICATION_TYPE.USER,
-        eventType: 'vacation_approved',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
-        mandatoryChannels: [],
-      },
-      {
-        type: NOTIFICATION_TYPE.USER,
-        eventType: 'vacation_rejected',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
-        mandatoryChannels: [],
-      },
-      {
-        type: NOTIFICATION_TYPE.USER,
-        eventType: 'vacation_expiring',
-        channels: [NOTIFICATION_CHANNEL.IN_APP],
-        mandatoryChannels: [],
       },
 
       // Warning Notifications

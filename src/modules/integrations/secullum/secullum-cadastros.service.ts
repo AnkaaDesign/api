@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import type { AxiosInstance } from 'axios';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SecullumService } from './secullum.service';
 import {
@@ -42,9 +43,8 @@ export class SecullumCadastrosService {
   ) {}
 
   /** Convenience accessor — the legacy service exposes the configured axios client. */
-  private get http() {
-    // SecullumService keeps `apiClient` private; expose a getter on it (see patch).
-    return (this.secullum as any).getApiClient();
+  private get http(): AxiosInstance {
+    return this.secullum.getApiClient();
   }
 
   // ======================================================================
@@ -370,13 +370,6 @@ export class SecullumCadastrosService {
       Demissao: demissaoIso,
       MotivoDemissaoId: motivoDemissaoId ?? current.MotivoDemissaoId ?? null,
     });
-  }
-
-  async getAfastamentos(empId: number): Promise<unknown[]> {
-    const r = await this.http.get<unknown[]>(
-      `/FuncionariosAfastamentos/${empId}`,
-    );
-    return r.data ?? [];
   }
 
   // ======================================================================

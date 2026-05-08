@@ -54,7 +54,7 @@ export class PreferencesPrismaRepository
       ...rest,
       colorSchema: colorSchema as ColorSchema,
       user: { connect: { id: userId } },
-    };
+    } as Prisma.PreferencesCreateInput;
   }
 
   protected mapUpdateFormDataToDatabaseUpdateInput(

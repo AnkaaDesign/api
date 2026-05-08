@@ -122,14 +122,10 @@ export class UserSecullumSyncService implements OnModuleInit {
   }
 
   /**
-   * After a User is created, if the sync flag is on, provision a Funcionario
-   * in Secullum and persist `user.secullumEmployeeId` back on the row.
-   *
-   * Returns a `SecullumSyncResult` describing the outcome so the calling
-   * UserService.create() can surface it back to the web UI as a toast.
-   * NEVER throws — wraps everything in try/catch and converts failures to
-   * `{ status: 'error', reason }` so user creation cannot be broken by the
-   * Secullum side.
+   * After a User is created, provision a Funcionario in Secullum and persist
+   * `user.secullumEmployeeId` back on the row. Idempotent: short-circuits if
+   * the FK is already set. NEVER throws — failures become
+   * `{ status: 'error', reason }` so user creation can't be broken by Secullum.
    */
   async onUserCreated(
     payload: SecullumUserCreatedPayload,
@@ -251,15 +247,11 @@ export class UserSecullumSyncService implements OnModuleInit {
   }
 
   /**
-   * After a User is updated, mirror to Secullum if the sync flag is on and we
-   * have a `secullumEmployeeId`. Always re-syncs `Demissao` from
-   * `User.dismissedAt` (idempotent — null clears, a date sets).
-   *
-   * Returns a `SecullumSyncResult` so `UserService.update()` can attach it
-   * to the response and the web UI can toast the outcome. Never throws.
-   *
-   * For dismissal flow specifically, the `reason` on a successful sync is
-   * `'demissão sincronizada'` so the web side can choose a stronger toast.
+   * After a User is updated, mirror to Secullum if `secullumEmployeeId` is set.
+   * The Funcionario is resolved via the FK only. Always re-syncs `Demissao`
+   * from `User.dismissedAt` (idempotent — null clears, a date sets). Never
+   * throws. On dismissal, the success `reason` is `'demissão sincronizada'`
+   * so the web side can pick a stronger toast.
    */
   async onUserUpdated(
     payload: SecullumUserUpdatedPayload,
@@ -357,19 +349,12 @@ export class UserSecullumSyncService implements OnModuleInit {
   }
 
   /**
-   * One-shot backfill: for every Ankaa user that doesn't already have a
-   * `secullumEmployeeId`, try to match against a Secullum Funcionario by
-   * CPF (preferred), then PIS, then payrollNumber, and persist the FK.
-   *
-   * Idempotent — safe to run multiple times. Already-linked users are
-   * verified against the match (any disagreement surfaces as a CONFLICT
-   * and is NOT overwritten; the operator must reconcile manually).
-   *
-   * Includes dismissed users (no status filter) so historical reports
-   * still resolve their Funcionario.Id.
-   *
-   * Match algorithm mirrors `checkUserMapping` in secullum.controller.ts —
-   * if you change one, change both.
+   * One-shot backfill: for every Ankaa user without a `secullumEmployeeId`,
+   * match against a Secullum Funcionario by CPF (preferred), PIS, or
+   * payrollNumber and persist the FK. Idempotent. Already-linked users are
+   * verified — any disagreement surfaces as a CONFLICT (logged, not
+   * overwritten). Includes dismissed users so historical reports still resolve.
+   * Match algorithm mirrors `checkUserMapping` in secullum.controller.ts.
    */
   async backfillSecullumEmployeeIds(): Promise<SecullumBackfillResult> {
     this.logger.log('[secullum/backfill] starting employee-id backfill');

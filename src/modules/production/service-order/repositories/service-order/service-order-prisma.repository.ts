@@ -66,9 +66,13 @@ export class ServiceOrderPrismaRepository
       startedById: databaseEntity.startedById,
       approvedById: databaseEntity.approvedById,
       completedById: databaseEntity.completedById,
+      pausedById: databaseEntity.pausedById,
       startedAt: databaseEntity.startedAt,
       approvedAt: databaseEntity.approvedAt,
       finishedAt: databaseEntity.finishedAt,
+      pausedAt: databaseEntity.pausedAt,
+      lastStartedAt: databaseEntity.lastStartedAt,
+      totalActiveTimeSeconds: databaseEntity.totalActiveTimeSeconds,
       createdAt: databaseEntity.createdAt,
       updatedAt: databaseEntity.updatedAt,
       // Relations
@@ -78,6 +82,7 @@ export class ServiceOrderPrismaRepository
       startedBy: databaseEntity.startedBy,
       approvedBy: databaseEntity.approvedBy,
       completedBy: databaseEntity.completedBy,
+      pausedBy: databaseEntity.pausedBy,
     };
   }
 

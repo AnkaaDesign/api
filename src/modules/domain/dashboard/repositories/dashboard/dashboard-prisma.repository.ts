@@ -786,29 +786,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return result._avg?.performanceLevel ?? 0;
   }
 
-  // Vacation tracking moved to Secullum (FuncionariosAfastamentos). Kept as a
-  // zero-result stub so dashboard callers don't need to be rewritten until the
-  // Secullum aggregation is wired into HR analytics.
-  async getVacationStatistics(_dateFilter?: DateFilter): Promise<{
-    onVacationNow: number;
-    upcoming: number;
-    approved: number;
-    schedule: Array<any>;
-  }> {
-    return { onVacationNow: 0, upcoming: 0, approved: 0, schedule: [] };
-  }
-
-  // Stubbed — see comment on getVacationStatistics. Returns 12 zero-count buckets.
-  async getVacationsByMonth(
-    _dateFilter?: DateFilter,
-  ): Promise<Array<{ month: string; count: number }>> {
-    const currentYear = new Date().getFullYear();
-    return Array.from({ length: 12 }, (_, m) => ({
-      month: `${currentYear}-${String(m + 1).padStart(2, '0')}`,
-      count: 0,
-    }));
-  }
-
   async getTaskStatistics(
     where?: DashboardUserWhere,
     dateFilter?: DateFilter,
@@ -864,11 +841,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
       completed,
       averagePerUser: userCount > 0 ? created / userCount : 0,
     };
-  }
-
-  // Stubbed — vacation tracking moved to Secullum.
-  async countVacationsOnDate(_date: Date): Promise<number> {
-    return 0;
   }
 
   async countTasksInProgress(): Promise<number> {
@@ -3407,23 +3379,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
       },
       take: limit,
     });
-  }
-
-  // Vacation counters stubbed — vacation tracking moved to Secullum.
-  async countTotalVacations(): Promise<number> {
-    return 0;
-  }
-
-  async countPendingVacations(): Promise<number> {
-    return 0;
-  }
-
-  async countNewVacationsToday(): Promise<number> {
-    return 0;
-  }
-
-  async countApprovedVacationsThisMonth(_dateFilter: DateFilter): Promise<number> {
-    return 0;
   }
 
   // Home dashboard queries

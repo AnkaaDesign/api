@@ -1940,8 +1940,6 @@ export class UserService {
           });
         }
 
-        // 5. Merge vacations — removed (vacation tracking moved to Secullum, no local table to merge).
-
         // 6. Merge warnings (both as collaborator and supervisor)
         for (const sourceUser of sourceUsers) {
           // Update warnings where source user is the collaborator

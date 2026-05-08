@@ -540,17 +540,13 @@ export class PayrollService {
 
           const bonusAmount = savedBonus ? Number(savedBonus.netBonus) : 0;
 
-          // Calculate complete payroll using CompletePayrollCalculatorService
           const calculation = await this.completeCalculator.calculateCompletePayroll({
             employeeId: user.id,
             year,
             month,
             baseSalary,
             bonusAmount,
-            // Use CPF, PIS, and Payroll Number for Secullum mapping (no secullumId needed)
-            cpf: user.cpf || undefined,
-            pis: user.pis || undefined,
-            payrollNumber: user.payrollNumber?.toString() || undefined,
+            secullumEmployeeId: user.secullumEmployeeId ?? null,
             dependentsCount: (user as any).dependentsCount || 0,
             useSimplifiedDeduction: (user as any).hasSimplifiedDeduction ?? true,
             unionMember: (user as any).unionMember || false,
@@ -775,7 +771,6 @@ export class PayrollService {
         };
       }
 
-      // Calculate complete payroll using CompletePayrollCalculatorService
       const userAny = user as any;
       const calculation = await this.completeCalculator.calculateCompletePayroll({
         employeeId: userId,
@@ -783,9 +778,7 @@ export class PayrollService {
         month,
         baseSalary,
         bonusAmount,
-        cpf: userAny.cpf || undefined,
-        pis: userAny.pis || undefined,
-        payrollNumber: userAny.payrollNumber?.toString() || undefined,
+        secullumEmployeeId: userAny.secullumEmployeeId ?? null,
         dependentsCount: userAny.dependentsCount || 0,
         useSimplifiedDeduction: userAny.hasSimplifiedDeduction ?? true,
         unionMember: userAny.unionMember || false,

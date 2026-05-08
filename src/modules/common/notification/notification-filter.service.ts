@@ -62,10 +62,6 @@ interface NotificationMetadata {
     itemId?: string;
     type?: string;
   };
-  vacation?: {
-    id: string;
-    userId: string;
-  };
   warning?: {
     id: string;
     userId: string;
@@ -257,7 +253,7 @@ export class NotificationFilterService {
       ],
     },
 
-    // USER notifications: PPE, Vacation, Warning - ADMIN, HUMAN_RESOURCES, WAREHOUSE, or specific user
+    // USER notifications: PPE, Warning - ADMIN, HUMAN_RESOURCES, WAREHOUSE, or specific user
     [NOTIFICATION_TYPE.USER]: {
       notificationType: NOTIFICATION_TYPE.USER,
       requiredSectors: [
@@ -268,16 +264,10 @@ export class NotificationFilterService {
       customFilter: (user: User, notification: Notification) => {
         const metadata = this.parseMetadata(notification);
         const ppe = metadata?.ppe;
-        const vacation = metadata?.vacation;
         const warning = metadata?.warning;
 
         // PPE notification for a specific user
         if (ppe?.userId === user.id) {
-          return true;
-        }
-
-        // Vacation notification for a specific user
-        if (vacation?.userId === user.id) {
           return true;
         }
 
@@ -881,46 +871,6 @@ export class NotificationFilterService {
   }
 
   /**
-   * Get users who should receive a vacation notification
-   *
-   * Vacation notifications are sent to:
-   * - ADMIN
-   * - HUMAN_RESOURCES sectors
-   * - The specific user if userId is provided
-   *
-   * @param userId - Optional user ID for user-specific vacation notifications
-   * @returns Promise resolving to array of users
-   */
-  async getUsersForVacationNotification(userId?: string): Promise<User[]> {
-    const sectorUsers = await this.getUsersForSectors([
-      SECTOR_PRIVILEGES.ADMIN,
-      SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    ]);
-
-    if (userId) {
-      try {
-        const specificUser = await this.prisma.user.findUnique({
-          where: { id: userId, isActive: true },
-          include: {
-            sector: true,
-            ledSector: true,
-          },
-        });
-
-        if (specificUser && !sectorUsers.find(u => u.id === specificUser.id)) {
-          sectorUsers.push(specificUser as User);
-        }
-      } catch (error) {
-        this.logger.error(
-          `Error fetching specific user for vacation notification: ${error.message}`,
-        );
-      }
-    }
-
-    return sectorUsers;
-  }
-
-  /**
    * Get users who should receive a warning notification
    *
    * Warning notifications are sent to:
@@ -1003,12 +953,9 @@ export class NotificationFilterService {
         return this.getUsersForStockNotification();
 
       case NOTIFICATION_TYPE.USER:
-        // For user notifications, check if it's PPE, vacation, or warning
+        // For user notifications, check if it's PPE or warning
         if (metadata?.ppe?.userId) {
           return this.getUsersForPPENotification(metadata.ppe.userId);
-        }
-        if (metadata?.vacation?.userId) {
-          return this.getUsersForVacationNotification(metadata.vacation.userId);
         }
         if (metadata?.warning?.userId) {
           return this.getUsersForWarningNotification(metadata.warning.userId);

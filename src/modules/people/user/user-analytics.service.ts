@@ -102,17 +102,6 @@ export class UserAnalyticsService {
       },
     });
 
-    // Vacation analytics deprecated — vacation tracking moved to Secullum (FuncionariosAfastamentos).
-    // For HR analytics this would require aggregating Secullum absences per sector/user;
-    // returning empty list keeps the rest of the analytics functional.
-    const vacations: Array<{
-      id: string;
-      startAt: Date;
-      endAt: Date;
-      createdAt: Date;
-      user?: { sectorId: string | null } | null;
-    }> = [];
-
     // Build monthly items
     const monthKeys = this.generateMonthKeys(dateRange.start, dateRange.end);
 
@@ -166,11 +155,6 @@ export class UserAnalyticsService {
         warningsByCategory[cat] = (warningsByCategory[cat] || 0) + 1;
       }
 
-      // Vacations overlapping this month
-      const vacationCount = vacations.filter(v => {
-        return v.startAt <= periodEnd && v.endAt >= periodStart;
-      }).length;
-
       return {
         period: key,
         label: monthLabel(key),
@@ -181,7 +165,6 @@ export class UserAnalyticsService {
         performanceDistribution,
         warningsByCategory,
         totalWarnings: monthWarnings.length,
-        vacationCount,
       };
     });
 
@@ -201,11 +184,6 @@ export class UserAnalyticsService {
           ) / 10
         : 0;
 
-    // Currently on vacation
-    const onVacationCount = vacations.filter(v => {
-      return v.startAt <= now && v.endAt >= now;
-    }).length;
-
     const totalWarnings = warnings.length;
 
     // Total turnover for the period
@@ -221,7 +199,6 @@ export class UserAnalyticsService {
       currentHeadcount: activeNow.length,
       avgPerformanceLevel,
       totalWarnings,
-      onVacationCount,
       turnoverRate,
     };
 
@@ -248,17 +225,12 @@ export class UserAnalyticsService {
 
         const sectorWarnings = warnings.filter(w => w.collaborator?.sectorId === sectorId).length;
 
-        const sectorVacations = vacations.filter(
-          v => v.user?.sectorId === sectorId && v.startAt <= now && v.endAt >= now,
-        ).length;
-
         return {
           sectorId,
           sectorName: sectorMap.get(sectorId) || sectorId,
           headcount: sectorUsers.length,
           avgPerformanceLevel: avgPerf,
           totalWarnings: sectorWarnings,
-          onVacationCount: sectorVacations,
         };
       });
     }

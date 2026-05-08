@@ -20,7 +20,7 @@ import type { File } from './file';
 export interface ServiceOrder extends BaseEntity {
   status: SERVICE_ORDER_STATUS | null;
   type: SERVICE_ORDER_TYPE | null;
-  statusOrder: number; // 1=Pendente, 2=Em Andamento, 3=Aguardando Aprovação, 4=Concluído, 5=Cancelado
+  statusOrder: number; // 1=Pendente, 2=Em Andamento, 3=Aguardando Aprovação, 4=Concluído, 5=Cancelado, 6=Pausado
   description: string;
   observation: string | null;
   position: number; // User-defined order within each type group
@@ -29,9 +29,13 @@ export interface ServiceOrder extends BaseEntity {
   startedById: string | null;
   approvedById: string | null;
   completedById: string | null;
+  pausedById: string | null;
   startedAt: Date | null;
   approvedAt: Date | null;
   finishedAt: Date | null;
+  pausedAt: Date | null;
+  lastStartedAt: Date | null;
+  totalActiveTimeSeconds: number;
 
   // File IDs for create/update
   checkinFileIds?: string[];
@@ -55,6 +59,11 @@ export interface ServiceOrder extends BaseEntity {
     email: string;
   };
   completedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  pausedBy?: {
     id: string;
     name: string;
     email: string;
@@ -86,6 +95,7 @@ export interface ServiceOrderIncludes {
   startedBy?: boolean;
   approvedBy?: boolean;
   completedBy?: boolean;
+  pausedBy?: boolean;
   checkinFiles?: boolean;
   checkoutFiles?: boolean;
 }
@@ -110,6 +120,9 @@ export interface ServiceOrderOrderBy {
   startedAt?: ORDER_BY_DIRECTION;
   approvedAt?: ORDER_BY_DIRECTION;
   finishedAt?: ORDER_BY_DIRECTION;
+  pausedAt?: ORDER_BY_DIRECTION;
+  lastStartedAt?: ORDER_BY_DIRECTION;
+  totalActiveTimeSeconds?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;
   updatedAt?: ORDER_BY_DIRECTION;
   task?: TaskOrderBy;

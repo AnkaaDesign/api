@@ -61,25 +61,13 @@ export class SecullumPayrollIntegrationService {
   constructor(private readonly secullumService: SecullumService) {}
 
   /**
-   * ========================================================================
-   * GET PAYROLL DATA FROM SECULLUM (resolved via User.secullumEmployeeId)
-   * ========================================================================
    * Fetches and parses Secullum calculation data for a specific employee/period.
-   *
-   * Resolution: uses the persisted `User.secullumEmployeeId` FK (populated by the
-   * backfill). Users without a linked Secullum employee are skipped — the empty
-   * payroll-data shape is returned so callers continue gracefully.
-   *
-   * Legacy `cpf`/`pis`/`payrollNumber` fields on the params object are accepted
-   * for backwards compatibility with existing callers but are no longer used for
-   * matching. They may be removed once all callers pass `secullumEmployeeId`.
+   * Resolution: `User.secullumEmployeeId` FK. Users without a linked Secullum
+   * employee return the empty payroll shape so callers continue gracefully.
    */
   async getPayrollDataFromSecullum(params: {
-    employeeId: string; // Our system's user ID
-    secullumEmployeeId?: number | null; // FK from User.secullumEmployeeId
-    cpf?: string; // Deprecated — not used for resolution
-    pis?: string; // Deprecated — not used for resolution
-    payrollNumber?: string; // Deprecated — not used for resolution
+    employeeId: string;
+    secullumEmployeeId: number | null;
     year: number;
     month: number;
   }): Promise<SecullumPayrollData> {
@@ -87,16 +75,10 @@ export class SecullumPayrollIntegrationService {
 
     this.logger.log(`Fetching Secullum payroll data for employee ${employeeId} - ${year}/${month}`);
 
-    // Calculate payroll period (26th to 25th)
     const { startDate, endDate } = this.getPayrollPeriodDates(year, month);
 
-    // Resolve Secullum employee via the persisted FK. Users without a linked
-    // Secullum employee are skipped (return empty payroll data) — there's nothing
-    // to fetch for them.
     if (secullumEmployeeId == null) {
-      this.logger.debug(
-        `Skipping ${employeeId} — no secullumEmployeeId on User record`,
-      );
+      this.logger.debug(`Skipping ${employeeId} — no secullumEmployeeId on User record`);
       return this.getEmptyPayrollData(employeeId, '', year, month);
     }
 
@@ -104,19 +86,16 @@ export class SecullumPayrollIntegrationService {
     this.logger.log(`  Resolved to Secullum employee ID: ${secullumId}`);
 
     try {
-      // Get calculations from Secullum
-      const calculationsResponse = await this.secullumService.getCalculations({
-        employeeId: secullumId,
+      const calcData = await this.secullumService.getCalculationsBySecullumId(
+        secullumEmployeeId,
         startDate,
         endDate,
-      });
+      );
 
-      if (!calculationsResponse.success || !calculationsResponse.data) {
+      if (!calcData) {
         this.logger.warn(`No calculation data from Secullum for employee ${secullumId}`);
         return this.getEmptyPayrollData(employeeId, secullumId, year, month);
       }
-
-      const calcData = calculationsResponse.data;
 
       // Parse Secullum calculation data
       const payrollData = this.parseSecullumCalculationData(

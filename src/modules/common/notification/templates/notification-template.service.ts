@@ -513,63 +513,6 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   },
 
   // =====================
-  // Vacation Templates
-  // =====================
-
-  'vacation.request.created': {
-    title: data => `Nova Solicitação de Férias`,
-    body: data =>
-      `${data.userName} solicitou férias de ${data.startDate} a ${data.endDate} (${data.days} dias).`,
-    importance: NOTIFICATION_IMPORTANCE.NORMAL,
-    actionType: NOTIFICATION_ACTION_TYPE.APPROVE_REQUEST,
-    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
-  },
-
-  'vacation.request.approved': {
-    title: data => `Férias Aprovadas`,
-    body: data =>
-      `Suas férias de ${data.startDate} a ${data.endDate} foram aprovadas${data.approvedBy ? ` por ${data.approvedBy}` : ''}.`,
-    importance: NOTIFICATION_IMPORTANCE.HIGH,
-    actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.EMAIL],
-  },
-
-  'vacation.request.rejected': {
-    title: data => `Férias Rejeitadas`,
-    body: data =>
-      `Sua solicitação de férias foi rejeitada${data.rejectedBy ? ` por ${data.rejectedBy}` : ''}${data.reason ? `. Motivo: ${data.reason}` : ''}.`,
-    importance: NOTIFICATION_IMPORTANCE.HIGH,
-    actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.EMAIL],
-  },
-
-  'vacation.starting.soon': {
-    title: data => `Férias se Aproximando`,
-    body: data =>
-      `Suas férias começam em ${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'} (${data.startDate}).`,
-    importance: NOTIFICATION_IMPORTANCE.NORMAL,
-    actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
-  },
-
-  'vacation.started': {
-    title: data => `Férias Iniciadas`,
-    body: data => `Suas férias começaram hoje! Aproveite seu descanso.`,
-    importance: NOTIFICATION_IMPORTANCE.NORMAL,
-    actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-    channels: [NOTIFICATION_CHANNEL.IN_APP],
-  },
-
-  'vacation.ending.soon': {
-    title: data => `Férias Terminando`,
-    body: data =>
-      `Suas férias terminam em ${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'} (${data.endDate}). Prepare-se para o retorno.`,
-    importance: NOTIFICATION_IMPORTANCE.NORMAL,
-    actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
-  },
-
-  // =====================
   // System Templates
   // =====================
 
@@ -809,19 +752,6 @@ Aguarde instruções para retirada.
 Ver detalhes: ${data.url}
   `.trim(),
 
-  'vacation.request.approved': data =>
-    `
-🏖️ *Férias Aprovadas*
-
-Período: ${data.startDate} a ${data.endDate}
-Dias: ${data.days}
-${data.approvedBy ? `Aprovado por: ${data.approvedBy}` : ''}
-
-Aproveite suas férias!
-
-Ver detalhes: ${data.url}
-  `.trim(),
-
   'system.maintenance.scheduled': data =>
     `
 🔧 *Manutenção Programada*
@@ -991,27 +921,6 @@ Item: ${data.itemName}
 Quantidade atual: ${data.currentQuantity} unidades
 
 AÇÃO URGENTE: Reabastecimento necessário imediatamente.
-
-Acesse o sistema para mais detalhes: ${data.url}
-
-Atenciosamente,
-Sistema de Gestão
-    `.trim(),
-  },
-
-  'vacation.request.approved': {
-    subject: data => `Férias Aprovadas - ${data.startDate} a ${data.endDate}`,
-    body: data =>
-      `
-Olá ${data.userName},
-
-Sua solicitação de férias foi aprovada!
-
-Período: ${data.startDate} a ${data.endDate}
-Dias: ${data.days}
-${data.approvedBy ? `Aprovado por: ${data.approvedBy}` : ''}
-
-Aproveite suas férias!
 
 Acesse o sistema para mais detalhes: ${data.url}
 

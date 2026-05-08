@@ -161,8 +161,6 @@ export interface HRDashboardSummary {
   averageTenureLabel: string;
 
   // Current status
-  vacationsActive: number;
-  vacationsActiveLabel: string;
   upcomingHolidays: number;
   upcomingHolidaysLabel: string;
   recentWarnings: number;
@@ -185,43 +183,6 @@ export interface HRDashboardSummary {
     range: string;
     count: number;
     percentage: number;
-  }>;
-}
-
-export interface VacationDashboardSummary {
-  // Vacation metrics
-  totalVacationDays: number;
-  usedVacationDays: number;
-  remainingVacationDays: number;
-  averageDaysPerEmployee: number;
-
-  // Current status
-  onVacation: number;
-  upcomingVacations: number;
-  pendingApprovals: number;
-
-  // Charts data
-  vacationsByType: Array<{
-    type: string;
-    count: number;
-    days: number;
-  }>;
-
-  vacationCalendar: Array<{
-    month: string;
-    employees: Array<{
-      id: string;
-      name: string;
-      startDate: Date;
-      endDate: Date;
-      type: string;
-    }>;
-  }>;
-
-  vacationTrends: Array<{
-    period: string;
-    count: number;
-    trend: TREND_DIRECTION;
   }>;
 }
 
@@ -494,7 +455,6 @@ export interface OrderSummaryResponse extends BaseSummaryResponse<OrderDashboard
 
 // HUMAN_RESOURCES Module Responses
 export interface HRSummaryResponse extends BaseSummaryResponse<HRDashboardSummary> {}
-export interface VacationSummaryResponse extends BaseSummaryResponse<VacationDashboardSummary> {}
 export interface WarningSummaryResponse extends BaseSummaryResponse<WarningDashboardSummary> {}
 
 // Work Module Responses

@@ -54,33 +54,6 @@ export function getChangeActionLabel(action: CHANGE_ACTION): string {
   return CHANGE_ACTION_LABELS[action] || action;
 }
 
-export const validateEntityType = (entityType: string): boolean => {
-  const validEntityTypes = [
-    'Activity',
-    'Order',
-    'OrderItem',
-    'Item',
-    'User',
-    'Task',
-    'Supplier',
-    'Customer',
-    'Commission',
-    'Vacation',
-    'PpeRequest',
-    'ServiceOrder',
-    'Borrow',
-    'Warning',
-    'ChangeLog',
-    'Holiday',
-    'Position',
-    'Sector',
-    'ItemBrand',
-    'ItemCategory',
-    'Paint',
-  ];
-  return validEntityTypes.includes(entityType);
-};
-
 export const validateAction = (action: string): boolean => {
   const validActions = [
     'CREATE',

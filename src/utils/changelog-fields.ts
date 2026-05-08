@@ -422,7 +422,6 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     sectorId: 'Setor',
     privileges: 'Privilégios',
     commissionEligible: 'Elegível para Comissão',
-    maxAllowedVacationDays: 'Dias Máximos de Férias',
     remuneration: 'Remuneração',
     sector: 'Setor',
     'sector.name': 'Nome do Setor',
@@ -482,14 +481,6 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'item.uniCode': 'Código Único do Item',
   },
   // VACATION entries removed — vacation tracking moved to Secullum.
-  _VACATION_REMOVED: {
-    'user.name': 'Nome do Funcionário',
-    'user.cpf': 'CPF do Funcionário',
-    'user.position.name': 'Cargo do Funcionário',
-    'approvedByUser.name': 'Nome do Aprovador',
-    'rejectedByUser.name': 'Nome do Rejeitador',
-    'cancelledByUser.name': 'Nome do Cancelador',
-  },
   [CHANGE_LOG_ENTITY_TYPE.PRICE]: {
     itemId: 'Item',
     value: 'Valor',
@@ -1104,23 +1095,6 @@ export function formatFieldValue(
       MUNICIPAL: 'Municipal',
     };
     return holidayTypeLabels[value] || value;
-  }
-
-  // Handle vacation type (legacy — kept harmless)
-  if (
-    field === 'type' &&
-    false &&
-    typeof value === 'string'
-  ) {
-    const vacationTypeLabels: Record<string, string> = {
-      ANNUAL: 'Anual',
-      COLLECTIVE: 'Coletiva',
-      SICK_LEAVE: 'Licença Médica',
-      MATERNITY_LEAVE: 'Licença Maternidade',
-      PATERNITY_LEAVE: 'Licença Paternidade',
-      OTHER: 'Outro',
-    };
-    return vacationTypeLabels[value] || value;
   }
 
   // Handle cut status

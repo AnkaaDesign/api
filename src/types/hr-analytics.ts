@@ -49,14 +49,12 @@ export interface TeamPerformanceItem {
   performanceDistribution: Record<number, number>;
   warningsByCategory: Record<string, number>;
   totalWarnings: number;
-  vacationCount: number;
 }
 
 export interface TeamPerformanceSummary {
   currentHeadcount: number;
   avgPerformanceLevel: number;
   totalWarnings: number;
-  onVacationCount: number;
   turnoverRate: number;
 }
 
@@ -72,5 +70,4 @@ export interface TeamSectorComparison {
   headcount: number;
   avgPerformanceLevel: number;
   totalWarnings: number;
-  onVacationCount: number;
 }
