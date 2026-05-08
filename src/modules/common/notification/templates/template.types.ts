@@ -268,32 +268,6 @@ export interface PPEExpirationData {
   url?: string;
 }
 
-// Vacation Template Data Types
-export interface VacationRequestCreatedData {
-  userName: string;
-  startDate: string;
-  endDate: string;
-  days: number;
-  url?: string;
-}
-
-export interface VacationRequestStatusData {
-  startDate: string;
-  endDate: string;
-  days?: number;
-  approvedBy?: string;
-  rejectedBy?: string;
-  reason?: string;
-  url?: string;
-}
-
-export interface VacationReminderData {
-  daysRemaining: number;
-  startDate?: string;
-  endDate?: string;
-  url?: string;
-}
-
 // System Template Data Types
 export interface SystemMaintenanceData {
   startDate: string;
@@ -409,14 +383,6 @@ export type PPETemplateKey =
   | 'ppe.expiring.soon'
   | 'ppe.expired';
 
-export type VacationTemplateKey =
-  | 'vacation.request.created'
-  | 'vacation.request.approved'
-  | 'vacation.request.rejected'
-  | 'vacation.starting.soon'
-  | 'vacation.started'
-  | 'vacation.ending.soon';
-
 export type SystemTemplateKey =
   | 'system.maintenance.scheduled'
   | 'system.maintenance.starting'
@@ -440,7 +406,6 @@ export type TemplateKey =
   | OrderTemplateKey
   | StockTemplateKey
   | PPETemplateKey
-  | VacationTemplateKey
   | SystemTemplateKey
   | UserTemplateKey
   | ReportTemplateKey;
@@ -479,9 +444,6 @@ export type TemplateData =
   | PPERequestStatusData
   | PPEDeliveryData
   | PPEExpirationData
-  | VacationRequestCreatedData
-  | VacationRequestStatusData
-  | VacationReminderData
   | SystemMaintenanceData
   | SystemAlertData
   | SystemAnnouncementData
@@ -522,10 +484,6 @@ export function isStockTemplate(key: string): key is StockTemplateKey {
 
 export function isPPETemplate(key: string): key is PPETemplateKey {
   return key.startsWith('ppe.');
-}
-
-export function isVacationTemplate(key: string): key is VacationTemplateKey {
-  return key.startsWith('vacation.');
 }
 
 export function isSystemTemplate(key: string): key is SystemTemplateKey {

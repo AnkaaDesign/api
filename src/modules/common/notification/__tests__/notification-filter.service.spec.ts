@@ -64,7 +64,7 @@ describe('NotificationFilterService', () => {
           id: 'notif-3',
           type: NOTIFICATION_TYPE.USER,
           userId: 'user-2',
-          metadata: { vacation: { userId: 'user-2' } },
+          metadata: { warning: { userId: 'user-2' } },
         },
       ];
 

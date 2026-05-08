@@ -89,7 +89,6 @@ export interface SecullumFuncionarioFull extends SecullumFuncionarioListItem {
   CodigoHolerite?: string;
   Admissao?: string;
   Demissao?: string | null;
-  DepartamentoDescricao?: string;
   FuncaoDescricao?: string;
   MotivoDemissaoId?: number | null;
   Foto?: string; // base64 data URL

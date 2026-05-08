@@ -435,7 +435,6 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   sectorId: 'setor',
   privileges: 'privilégios',
   commissionEligible: 'elegível para comissão',
-  maxAllowedVacationDays: 'dias máximos de férias',
   remuneration: 'remuneração',
 
   // Sector fields
@@ -602,7 +601,6 @@ export const ENTITY_ESSENTIAL_FIELDS: Partial<Record<ENTITY_TYPE, string[]>> = {
     'sectorId',
     'privileges',
     'commissionEligible',
-    'maxAllowedVacationDays',
     'remuneration',
   ],
   [ENTITY_TYPE.SECTOR]: ['id', 'name', 'privileges'],

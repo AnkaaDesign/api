@@ -68,10 +68,6 @@ export class PersonalController {
   constructor(private readonly personalService: PersonalService) {}
 
   // =====================
-  // MY VACATIONS (Minhas Férias)
-  // =====================
-
-  // =====================
   // MY LOANS/BORROWS (Meus Empréstimos)
   // =====================
 

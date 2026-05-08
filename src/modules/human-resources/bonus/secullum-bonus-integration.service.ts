@@ -133,13 +133,7 @@ export class SecullumBonusIntegrationService {
     users: Array<{
       id: string;
       name: string;
-      secullumEmployeeId?: number | null;
-      // Legacy fields — accepted for backwards compatibility with existing callers
-      // but no longer used for Secullum employee resolution. The User.secullumEmployeeId
-      // FK (populated by the backfill) is the only matcher now.
-      cpf?: string;
-      pis?: string;
-      payrollNumber?: number;
+      secullumEmployeeId: number;
     }>,
   ): Promise<AnalyzeAllUsersResult> {
     const results = new Map<string, SecullumBonusAnalysis>();
@@ -168,11 +162,9 @@ export class SecullumBonusIntegrationService {
       `Analyzing Secullum time entries for ${users.length} users, period ${startDate} to ${endDate}`,
     );
 
-    // Probe Secullum availability up front. We don't need the employees list anymore
-    // (resolution now uses User.secullumEmployeeId directly), but we still need a
-    // service-wide signal so callers can refuse to persist payroll data when Secullum
-    // is down. A single cheap call to getEmployees() is the same probe used before
-    // and keeps the breaker semantics intact.
+    // Probe Secullum availability up front so callers can refuse to persist
+    // payroll-affecting data when Secullum is down. A single cheap getEmployees()
+    // call doubles as the breaker probe.
     try {
       const probe = await this.secullumService.getEmployees();
       if (!probe.success) {
@@ -272,25 +264,13 @@ export class SecullumBonusIntegrationService {
     user: {
       id: string;
       name: string;
-      secullumEmployeeId?: number | null;
-      cpf?: string;
-      pis?: string;
-      payrollNumber?: number;
+      secullumEmployeeId: number;
     },
     startDate: string,
     endDate: string,
     holidays: Date[] = [],
   ): Promise<SecullumBonusAnalysis | null> {
-    // Resolve Secullum employee via the persisted FK populated by the backfill.
-    // Users without a linked Secullum employee are skipped — there's nothing to
-    // analyze for them.
-    if (user.secullumEmployeeId == null) {
-      this.logger.debug(
-        `Skipping ${user.name} (${user.id}) — no secullumEmployeeId on User record`,
-      );
-      return null;
-    }
-    const secullumEmployeeId: number = user.secullumEmployeeId;
+    const secullumEmployeeId = user.secullumEmployeeId;
 
     // Fetch time entries (Batidas) for electronic stamp detection.
     // Uses the day-granular Redis cache — past days hit Redis instead of Secullum HTTPS.
@@ -503,14 +483,25 @@ export class SecullumBonusIntegrationService {
   }
 
   /**
-   * Check whether the user had any atestado in the rolling 90 days ending
-   * the day before periodStart. Used to decide first-offense forgiveness:
-   * if no prior atestado exists in that window, the current period's
-   * atestado-derived penalty is waived.
+   * Check whether the user had any atestado in a window ending the day before
+   * periodStart. Used to decide first-offense forgiveness: if no prior atestado
+   * exists in that window, the current period's atestado-derived penalty is waived.
    *
-   * Window: [today - 90 days, periodStart - 1 day].
+   * Window: [today - 90 days, periodStart - 1 day]. NOTE the lower bound is
+   * anchored on `today`, not on `periodStart`. For the *current* period this
+   * approximates "rolling 90 days ending the day before period start" because
+   * today is within ~30 days of periodStart. For *historical* periods (calling
+   * this retroactively), the window narrows as today drifts forward, and once
+   * `today - 90 >= periodStart - 1`, the window inverts and forgiveness is
+   * denied (return TRUE) — see invalid-window guard below. This matches the
+   * documented behavior in the spec test.
+   *
    * Memoized in Redis for 12h at
    *   `bonus:atestado-90d:{secullumFuncionarioId}:{yyyy-MM-dd of periodStart}`.
+   * The cache key is keyed on periodStart only, so within a 12h window the
+   * `today`-anchored lower bound effectively freezes for that period — fine
+   * for the current-period use case but means a back-dated re-check could see
+   * a stale value for up to 12h.
    *
    * Fail-safe: on fetch error, returns TRUE so transient Secullum failures
    * do not accidentally waive discounts.

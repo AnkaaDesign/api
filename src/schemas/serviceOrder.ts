@@ -45,6 +45,7 @@ export const serviceOrderIncludeSchema = z
     startedBy: z.boolean().optional(),
     approvedBy: z.boolean().optional(),
     completedBy: z.boolean().optional(),
+    pausedBy: z.boolean().optional(),
     checkinFiles: z.boolean().optional(),
     checkoutFiles: z.boolean().optional(),
   })
@@ -577,6 +578,7 @@ export const serviceOrderUpdateSchema = z.object({
   startedById: z.string().uuid('ID do usuário que iniciou inválido').nullable().optional(),
   approvedById: z.string().uuid('ID do usuário que aprovou inválido').nullable().optional(),
   completedById: z.string().uuid('ID do usuário que concluiu inválido').nullable().optional(),
+  pausedById: z.string().uuid('ID do usuário que pausou inválido').nullable().optional(),
   startedAt: nullableDate.optional(),
   approvedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
@@ -672,7 +674,11 @@ export const mapServiceOrderToFormData = createMapToFormDataHelper<
   startedById: serviceOrder.startedById || undefined,
   approvedById: serviceOrder.approvedById || undefined,
   completedById: serviceOrder.completedById || undefined,
+  pausedById: serviceOrder.pausedById || undefined,
   startedAt: serviceOrder.startedAt,
   approvedAt: serviceOrder.approvedAt,
   finishedAt: serviceOrder.finishedAt,
+  pausedAt: serviceOrder.pausedAt,
+  lastStartedAt: serviceOrder.lastStartedAt,
+  totalActiveTimeSeconds: serviceOrder.totalActiveTimeSeconds,
 }));

@@ -179,19 +179,6 @@ export const userSelectSchema = z
         }),
       ])
       .optional(),
-    _vacations_removed: z
-      .union([
-        z.boolean(),
-        z.object({
-          select: z.any().optional(),
-          include: z.any().optional(),
-          where: z.any().optional(),
-          orderBy: z.any().optional(),
-          take: z.number().optional(),
-          skip: z.number().optional(),
-        }),
-      ])
-      .optional(),
     commissions: z
       .union([
         z.boolean(),
@@ -613,18 +600,6 @@ export const userIncludeSchema = z
               serviceOrders: z.boolean().optional(),
               truck: z.boolean().optional(),
               airbrushing: z.boolean().optional(),
-            })
-            .optional(),
-        }),
-      ])
-      .optional(),
-    _vacations_removed_2: z
-      .union([
-        z.boolean(),
-        z.object({
-          include: z
-            .object({
-              user: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -1236,14 +1211,6 @@ export const userWhereSchema: z.ZodSchema = z.lazy(() =>
         })
         .optional(),
 
-      _vacations_removed_3: z
-        .object({
-          some: z.any().optional(),
-          every: z.any().optional(),
-          none: z.any().optional(),
-        })
-        .optional(),
-
       commissions: z
         .object({
           some: z.any().optional(),
@@ -1840,24 +1807,9 @@ export const userUpdateSchema = z
   )
   .refine(
     data => {
-      // DISMISSED status cannot be changed to any other status
-      if (
-        data.currentStatus === USER_STATUS.DISMISSED &&
-        data.status &&
-        data.status !== USER_STATUS.DISMISSED
-      ) {
-        return false;
-      }
-      return true;
-    },
-    {
-      message: 'Colaboradores DEMITIDOS não podem ter o status alterado',
-      path: ['status'],
-    },
-  )
-  .refine(
-    data => {
-      // Validate status transition using helper function
+      // Validate status transition using helper function. DISMISSED → active
+      // is permitted here so operators can undo a mistaken dismissal; the
+      // service layer mirrors this and auto-clears dismissedAt on revert.
       if (data.currentStatus && data.status && data.currentStatus !== data.status) {
         return isValidStatusTransition(data.currentStatus, data.status);
       }
@@ -1951,7 +1903,13 @@ export const USER_STATUS_TRANSITIONS: Record<USER_STATUS, USER_STATUS[]> = {
   [USER_STATUS.EXPERIENCE_PERIOD_1]: [USER_STATUS.EXPERIENCE_PERIOD_2, USER_STATUS.DISMISSED],
   [USER_STATUS.EXPERIENCE_PERIOD_2]: [USER_STATUS.EFFECTED, USER_STATUS.DISMISSED],
   [USER_STATUS.EFFECTED]: [USER_STATUS.DISMISSED],
-  [USER_STATUS.DISMISSED]: [], // No transitions allowed from DISMISSED
+  // DISMISSED → active permitted so operators can undo a mistaken dismissal
+  // (mirrors the relaxed map in UserService.validateUserStatusTransition).
+  [USER_STATUS.DISMISSED]: [
+    USER_STATUS.EXPERIENCE_PERIOD_1,
+    USER_STATUS.EXPERIENCE_PERIOD_2,
+    USER_STATUS.EFFECTED,
+  ],
 };
 
 /**
@@ -1992,10 +1950,6 @@ export function getStatusTransitionError(
     [USER_STATUS.EFFECTED]: 'Efetivado',
     [USER_STATUS.DISMISSED]: 'Demitido',
   };
-
-  if (currentStatus === USER_STATUS.DISMISSED) {
-    return 'Colaboradores demitidos não podem ter o status alterado';
-  }
 
   if (
     currentStatus === USER_STATUS.EFFECTED &&

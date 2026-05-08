@@ -23,6 +23,7 @@ import {
   SecullumBackfillResult,
 } from './user-secullum-sync.service';
 import { UserService } from '@modules/people/user/user.service';
+import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
   SecullumTimeEntriesResponse,
   SecullumUpdateTimeEntryRequest,
@@ -60,7 +61,32 @@ export class SecullumController {
     private readonly secullumService: SecullumService,
     private readonly userService: UserService,
     private readonly userSecullumSyncService: UserSecullumSyncService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * Resolve an Ankaa userId to its persisted `User.secullumEmployeeId`.
+   * Returns the FK as a string (Secullum URLs accept numeric IDs as strings),
+   * `null` if the user exists but isn't linked, or `found:false` if the user
+   * doesn't exist. Linking-flow endpoints (`checkUserMapping` /
+   * `backfillEmployeeIds`) use CPF/PIS/payroll instead.
+   */
+  private async resolveSecullumEmployeeId(
+    targetUserId: string,
+  ): Promise<{ found: boolean; employeeId: string | null; userName?: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, name: true, secullumEmployeeId: true },
+    });
+    if (!user) return { found: false, employeeId: null };
+    return {
+      found: true,
+      employeeId: user.secullumEmployeeId
+        ? user.secullumEmployeeId.toString()
+        : null,
+      userName: user.name,
+    };
+  }
 
   /**
    * Get time entries from Secullum
@@ -80,15 +106,10 @@ export class SecullumController {
   ): Promise<SecullumTimeEntriesResponse> {
     this.logger.log(`User ${userId} fetching time entries from Secullum`);
 
-    // If a specific user is requested, automatically map to Secullum
     if (targetUserId) {
-      this.logger.log(`Starting user mapping process for targetUserId: ${targetUserId}`);
+      const resolved = await this.resolveSecullumEmployeeId(targetUserId);
 
-      const userResponse = await this.userService.findById(targetUserId, {});
-
-      this.logger.log(`Raw user response: ${JSON.stringify(userResponse)}`);
-
-      if (!userResponse?.data) {
+      if (!resolved.found) {
         this.logger.error(`User not found in Ankaa system: ${targetUserId}`);
         return {
           success: false,
@@ -97,41 +118,19 @@ export class SecullumController {
         };
       }
 
-      const user = userResponse.data;
-      this.logger.log(`Found Ankaa user: ${user.name} (ID: ${user.id})`);
-      this.logger.log(
-        `User details - CPF: ${user.cpf}, PIS: ${user.pis}, PayrollNumber: ${user.payrollNumber}`,
-      );
-
-      // Find Secullum employee using CPF/PIS/PayrollNumber lookup
-      this.logger.log(`Attempting to match user by CPF, PIS, and Payroll Number`);
-
-      const secullumEmployee = await this.secullumService.findSecullumEmployee({
-        cpf: user.cpf || undefined,
-        pis: user.pis || undefined,
-        payrollNumber: user.payrollNumber || undefined,
-      });
-
-      if (!secullumEmployee.success || !secullumEmployee.data) {
-        this.logger.error(`Failed to find matching Secullum employee for user: ${user.name}`);
-        this.logger.error(
-          `Search criteria - CPF: ${user.cpf}, PIS: ${user.pis}, PayrollNumber: ${user.payrollNumber}`,
+      if (!resolved.employeeId) {
+        this.logger.warn(
+          `User ${targetUserId} (${resolved.userName}) has no secullumEmployeeId — needs linking via /backfill-employee-ids`,
         );
-        this.logger.error(`Secullum response: ${JSON.stringify(secullumEmployee)}`);
         return {
           success: false,
-          message: `No Secullum employee found matching user: ${user.name} (CPF: ${user.cpf}, PIS: ${user.pis}, Folha: ${user.payrollNumber})`,
+          message: 'usuário ainda não foi vinculado ao Secullum',
           data: [],
         };
       }
 
-      this.logger.log(
-        `Successfully found matching Secullum employee: ${JSON.stringify(secullumEmployee.data)}`,
-      );
-
-      // Fetch the time entries using the matched Secullum ID
       return await this.secullumService.getTimeEntries({
-        employeeId: secullumEmployee.data.secullumId.toString(),
+        employeeId: resolved.employeeId,
         startDate,
         endDate,
       });
@@ -318,15 +317,10 @@ export class SecullumController {
   ): Promise<SecullumCalculationsResponse> {
     this.logger.log(`User ${userId} fetching calculations from Secullum`);
 
-    // If a specific user is requested, automatically map to Secullum
     if (targetUserId) {
-      this.logger.log(`Starting user mapping process for targetUserId: ${targetUserId}`);
+      const resolved = await this.resolveSecullumEmployeeId(targetUserId);
 
-      const userResponse = await this.userService.findById(targetUserId, {});
-
-      this.logger.log(`Raw user response: ${JSON.stringify(userResponse)}`);
-
-      if (!userResponse?.data) {
+      if (!resolved.found) {
         this.logger.error(`User not found in Ankaa system: ${targetUserId}`);
         return {
           success: false,
@@ -334,41 +328,18 @@ export class SecullumController {
         };
       }
 
-      const user = userResponse.data;
-      this.logger.log(`Found Ankaa user: ${user.name} (ID: ${user.id})`);
-      this.logger.log(
-        `User details - CPF: ${user.cpf}, PIS: ${user.pis}, PayrollNumber: ${user.payrollNumber}`,
-      );
-
-      // Find Secullum employee using CPF/PIS/PayrollNumber lookup
-      this.logger.log(`Attempting to match user by CPF, PIS, and Payroll Number`);
-
-      const secullumEmployee = await this.secullumService.findSecullumEmployee({
-        cpf: user.cpf || undefined,
-        pis: user.pis || undefined,
-        payrollNumber: user.payrollNumber || undefined,
-      });
-
-      if (!secullumEmployee.success || !secullumEmployee.data) {
-        this.logger.error(`Failed to find matching Secullum employee for user: ${user.name}`);
-        this.logger.error(
-          `Search criteria - CPF: ${user.cpf}, PIS: ${user.pis}, PayrollNumber: ${user.payrollNumber}`,
+      if (!resolved.employeeId) {
+        this.logger.warn(
+          `User ${targetUserId} (${resolved.userName}) has no secullumEmployeeId — needs linking via /backfill-employee-ids`,
         );
         return {
           success: false,
-          message: `No Secullum employee found matching user: ${user.name} (CPF: ${user.cpf}, PIS: ${user.pis}, Folha: ${user.payrollNumber})`,
+          message: 'usuário ainda não foi vinculado ao Secullum',
         };
       }
 
-      this.logger.log(
-        `Successfully found matching Secullum employee: ${JSON.stringify(secullumEmployee.data)}`,
-      );
-
-      const secullumEmployeeId = secullumEmployee.data.secullumId.toString();
-
-      // Fetch calculations using the Secullum ID
       return await this.secullumService.getCalculations({
-        employeeId: secullumEmployeeId,
+        employeeId: resolved.employeeId,
         period,
         startDate,
         endDate,
@@ -384,8 +355,13 @@ export class SecullumController {
   }
 
   /**
-   * Get pendências (pending issues) from Secullum
+   * Get pendências (pending issues) from Secullum.
    * GET /integrations/secullum/pendencias
+   *
+   * Query params (`userCpf`, `employeeId`, `type`, `status`, `priority`) are
+   * accepted but NOT forwarded — Secullum has no filter support; filtering is
+   * done client-side. A user-scoped variant should resolve via
+   * `resolveSecullumEmployeeId`, not CPF.
    */
   @Get('pendencias')
   @ReadRateLimit()
@@ -790,10 +766,10 @@ export class SecullumController {
   }
 
   /**
-   * Check user mapping between our system and Secullum
-   * GET /integrations/secullum/check-user-mapping
-   * Returns mapping report showing which users can be matched to Secullum employees
-   * No data is saved - this is purely a diagnostic/reporting endpoint
+   * LINKING ENDPOINT — diagnostic dry-run for the Ankaa↔Secullum link.
+   * Matches by CPF / PIS / NumeroFolha to discover what FK *would* be set.
+   * No persistence — `backfillEmployeeIds` is the writing counterpart.
+   * Runtime endpoints use the persisted FK instead.
    */
   @Get('check-user-mapping')
   @ReadRateLimit()
@@ -893,15 +869,9 @@ export class SecullumController {
   }
 
   /**
-   * One-shot backfill: populate `user.secullumEmployeeId` for every Ankaa user
-   * that matches a Secullum employee (by CPF, PIS, or payrollNumber). Mirrors
-   * the runtime match algorithm of `checkUserMapping` but PERSISTS the FK.
-   *
-   * Idempotent — already-linked users are verified, and any disagreement
-   * surfaces as a CONFLICT (logged, not overwritten).
-   *
-   * Includes dismissed users so historical Secullum reports still resolve.
-   *
+   * LINKING ENDPOINT — persists `user.secullumEmployeeId` for every Ankaa user
+   * that matches a Secullum employee by CPF / PIS / payrollNumber. Idempotent;
+   * conflicts are logged not overwritten. Includes dismissed users.
    * POST /integrations/secullum/backfill-employee-ids
    */
   @Post('backfill-employee-ids')

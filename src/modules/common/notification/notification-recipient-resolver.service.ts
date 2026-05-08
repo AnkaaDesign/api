@@ -141,12 +141,8 @@ export class NotificationRecipientResolverService {
       this.logger.debug(`Filtered out ${beforeCount - users.length} inactive users`);
     }
 
-    // Step 5: Apply excludeOnVacation filter if specified
-    if (config.excludeOnVacation) {
-      const beforeCount = users.length;
-      users = await this.filterUsersOnVacation(users);
-      this.logger.debug(`Filtered out ${beforeCount - users.length} users on vacation`);
-    }
+    // Step 5: excludeOnVacation flag is preserved in DTOs but no longer enforced
+    // here — vacation tracking moved to Secullum and aggregation isn't wired in.
 
     // Step 6: Apply custom filter if specified
     if (config.customFilter) {
@@ -261,16 +257,6 @@ export class NotificationRecipientResolverService {
    */
   filterActiveUsers(users: User[]): User[] {
     return users.filter(user => user.isActive === true);
-  }
-
-  /**
-   * Filters out users who are currently on vacation.
-   * Vacation tracking moved to Secullum (FuncionariosAfastamentos); this stub
-   * returns the input list unchanged. To re-enable, query Secullum's
-   * getAggregatedAbsences with today's date and filter on AUSENCIA category.
-   */
-  async filterUsersOnVacation(users: User[]): Promise<User[]> {
-    return users;
   }
 
   /**

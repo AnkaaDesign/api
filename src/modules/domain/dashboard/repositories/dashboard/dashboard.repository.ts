@@ -80,12 +80,6 @@ export abstract class DashboardRepository {
   abstract getEmployeesBySector(where?: DashboardUserWhere): Promise<DashboardChartData>;
   abstract getEmployeesByPosition(where?: DashboardUserWhere): Promise<DashboardChartData>;
   abstract getAveragePerformanceLevel(where?: DashboardUserWhere): Promise<number>;
-  abstract getVacationStatistics(dateFilter?: DateFilter): Promise<{
-    onVacationNow: number;
-    upcoming: number;
-    approved: number;
-    schedule: Array<any>;
-  }>;
   abstract getTaskStatistics(
     where?: DashboardUserWhere,
     dateFilter?: DateFilter,
@@ -95,7 +89,6 @@ export abstract class DashboardRepository {
     completed: number;
     averagePerUser: number;
   }>;
-  abstract countVacationsOnDate(date: Date): Promise<number>;
   abstract countTasksInProgress(): Promise<number>;
 
   // Administration dashboard queries
@@ -299,10 +292,6 @@ export abstract class DashboardRepository {
   abstract countSectors(): Promise<number>;
   abstract getEmployeeCountBySector(): Promise<DashboardListItem[]>;
   abstract getRecentHRActivities(dateFilter: DateFilter, limit: number): Promise<any[]>;
-  abstract countTotalVacations(): Promise<number>;
-  abstract countPendingVacations(): Promise<number>;
-  abstract countNewVacationsToday(): Promise<number>;
-  abstract countApprovedVacationsThisMonth(dateFilter: DateFilter): Promise<number>;
 
   // Financial dashboard queries
   abstract getFinancialInvoiceStatistics(

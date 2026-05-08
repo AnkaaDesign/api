@@ -178,11 +178,13 @@ export class TimeEntryReminderService {
       secullumEmployeeId: number;
     }>
   > {
+    // Fetch all active users (linked AND unlinked) so we can log how many
+    // were skipped due to missing secullumEmployeeId — mirrors the canonical
+    // skip-with-log pattern in secullum.service.ts:getTimeEntriesByDay.
     const users = await this.prisma.user.findMany({
       where: {
         isActive: true,
         dismissedAt: null,
-        secullumEmployeeId: { not: null },
       },
       select: {
         id: true,
@@ -191,13 +193,30 @@ export class TimeEntryReminderService {
       },
     });
 
-    return users
-      .filter((u): u is typeof u & { secullumEmployeeId: number } => u.secullumEmployeeId !== null)
-      .map(user => ({
+    const linked: Array<{ id: string; name: string; secullumEmployeeId: number }> = [];
+    let skippedUnlinked = 0;
+    for (const user of users) {
+      if (user.secullumEmployeeId == null) {
+        skippedUnlinked++;
+        this.logger.debug(
+          `getActiveUsersForTimeCheck: skipping user ${user.id} (${user.name}) — secullumEmployeeId is null`,
+        );
+        continue;
+      }
+      linked.push({
         id: user.id,
         name: user.name,
         secullumEmployeeId: user.secullumEmployeeId,
-      }));
+      });
+    }
+
+    if (skippedUnlinked > 0) {
+      this.logger.debug(
+        `getActiveUsersForTimeCheck: ${skippedUnlinked}/${users.length} user(s) had no secullumEmployeeId and were skipped`,
+      );
+    }
+
+    return linked;
   }
 
   /**
@@ -301,8 +320,9 @@ export class TimeEntryReminderService {
     const today = this.todayStrSaoPaulo();
     let timeEntries;
     try {
+      // Always use the persisted FK (User.secullumEmployeeId) — never CPF/PIS/payroll.
       timeEntries = await this.secullumService.getTimeEntriesBySecullumId(
-        secullumEmployee.secullumId,
+        user.secullumEmployeeId,
         today,
         today,
       );

@@ -503,9 +503,7 @@ export class BonusService {
           id: true,
           name: true,
           performanceLevel: true,
-          cpf: true,
-          pis: true,
-          payrollNumber: true,
+          secullumEmployeeId: true,
           position: { select: { id: true, name: true, bonifiable: true } },
           sector: { select: { id: true, name: true } },
         },
@@ -613,9 +611,7 @@ export class BonusService {
             {
               id: user.id,
               name: user.name,
-              cpf: (user as any).cpf || undefined,
-              pis: (user as any).pis || undefined,
-              payrollNumber: (user as any).payrollNumber || undefined,
+              secullumEmployeeId: (user as any).secullumEmployeeId,
             },
           ],
         );
@@ -2055,9 +2051,7 @@ export class BonusService {
           id: true,
           name: true,
           performanceLevel: true,
-          cpf: true,
-          pis: true,
-          payrollNumber: true,
+          secullumEmployeeId: true,
           position: {
             select: {
               id: true,
@@ -2217,9 +2211,7 @@ export class BonusService {
           allBonifiableUsers.map(u => ({
             id: u.id,
             name: u.name,
-            cpf: u.cpf || undefined,
-            pis: u.pis || undefined,
-            payrollNumber: u.payrollNumber || undefined,
+            secullumEmployeeId: u.secullumEmployeeId!,
           })),
         );
 

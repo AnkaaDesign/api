@@ -216,7 +216,6 @@ export class PositionService {
           'sectorId',
           'privileges',
           'commissionEligible',
-          'maxAllowedVacationDays',
           'hierarchy',
           'bonifiable',
         ];
@@ -558,7 +557,6 @@ export class PositionService {
             'sectorId',
             'privileges',
             'commissionEligible',
-            'maxAllowedVacationDays',
             'hierarchy',
             'bonifiable',
           ];

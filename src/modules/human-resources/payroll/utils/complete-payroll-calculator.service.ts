@@ -128,10 +128,9 @@ export interface CalculatePayrollParams {
   baseSalary: number;
   bonusAmount?: number;
 
-  // Employee data for Secullum mapping (use CPF, PIS, or payrollNumber)
-  cpf?: string;
-  pis?: string;
-  payrollNumber?: string;
+  // Secullum resolution via User.secullumEmployeeId FK. Null skips the Secullum step.
+  secullumEmployeeId: number | null;
+
   dependentsCount?: number;
   useSimplifiedDeduction?: boolean;
   unionMember?: boolean;
@@ -174,9 +173,7 @@ export class CompletePayrollCalculatorService {
       month,
       baseSalary,
       bonusAmount = 0,
-      cpf,
-      pis,
-      payrollNumber,
+      secullumEmployeeId,
       dependentsCount = 0,
       useSimplifiedDeduction = true,
       unionMember = false,
@@ -192,14 +189,11 @@ export class CompletePayrollCalculatorService {
     // ========================================================================
     let secullumData: SecullumPayrollData | undefined;
 
-    // Try to fetch Secullum data if we have CPF, PIS, or Payroll Number
-    if (cpf || pis || payrollNumber) {
+    if (secullumEmployeeId != null) {
       try {
         secullumData = await this.secullumIntegration.getPayrollDataFromSecullum({
           employeeId,
-          cpf,
-          pis,
-          payrollNumber,
+          secullumEmployeeId,
           year,
           month,
         });
@@ -213,7 +207,7 @@ export class CompletePayrollCalculatorService {
       }
     } else {
       this.logger.warn(
-        `No CPF, PIS, or Payroll Number provided for employee ${employeeId} - skipping Secullum integration`,
+        `No secullumEmployeeId on User ${employeeId} — skipping Secullum integration`,
       );
     }
 

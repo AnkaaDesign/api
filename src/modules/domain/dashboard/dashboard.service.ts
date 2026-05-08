@@ -134,7 +134,6 @@ export class DashboardService {
       const [
         employeeStats,
         sectorAnalysis,
-        vacationMetrics,
         taskMetrics,
         positionMetrics,
         holidayMetrics,
@@ -145,7 +144,6 @@ export class DashboardService {
       ] = await Promise.all([
         this.getEmployeeOverview(userWhere, dateFilter),
         this.getSectorAnalysis(userWhere),
-        this.getVacationMetrics(dateFilter),
         this.getTaskMetrics(userWhere, dateFilter),
         this.getPositionMetrics(userWhere),
         this.getHolidayMetrics(),
@@ -161,7 +159,6 @@ export class DashboardService {
         data: {
           overview: employeeStats,
           sectorAnalysis,
-          vacationMetrics,
           taskMetrics,
           positionMetrics,
           holidayMetrics,
@@ -443,26 +440,6 @@ export class DashboardService {
         label: 'Nível Médio',
         value: avgLevel,
       },
-    };
-  }
-
-  private async getVacationMetrics(dateFilter: DateFilter) {
-    const metrics = await this.dashboardRepository.getVacationStatistics(dateFilter);
-
-    return {
-      onVacationNow: {
-        label: 'Em Férias Agora',
-        value: metrics.onVacationNow,
-      },
-      upcomingVacations: {
-        label: 'Próximas Férias',
-        value: metrics.upcoming,
-      },
-      approvedVacations: {
-        label: 'Férias Aprovadas',
-        value: metrics.approved,
-      },
-      vacationSchedule: metrics.schedule,
     };
   }
 
@@ -1026,7 +1003,6 @@ export class DashboardService {
     INSTALLMENT: 'Parcela',
     CUT: 'Corte',
     ARTWORK: 'Arte',
-    VACATION: 'Férias',
     PAYROLL: 'Folha de Pagamento',
     POSITION: 'Cargo',
     FILE: 'Arquivo',
@@ -1104,7 +1080,6 @@ export class DashboardService {
       TASK_QUOTE: 'FileCheck',
       CUT: 'Scissors',
       ARTWORK: 'Palette',
-      VACATION: 'Calendar',
       PAYROLL: 'Banknote',
       MAINTENANCE: 'Tool',
     };
@@ -1127,13 +1102,11 @@ export class DashboardService {
   }
 
   private async getHRHighlights(query: UnifiedDashboardQueryFormData) {
-    const now = new Date();
-    const [employeeStats, vacationsToday, tasksInProgress] = await Promise.all([
+    const [employeeStats, tasksInProgress] = await Promise.all([
       this.dashboardRepository.getEmployeeStatistics(
         { status: { in: [...ACTIVE_USER_STATUSES] } },
         {},
       ),
-      this.dashboardRepository.countVacationsOnDate(now),
       this.dashboardRepository.countTasksInProgress(),
     ]);
 
@@ -1148,7 +1121,6 @@ export class DashboardService {
           value: employeeStats.active,
         },
       },
-      vacationsToday,
       tasksInProgress,
     };
   }
