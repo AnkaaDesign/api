@@ -2225,6 +2225,7 @@ export class UserService {
               data: {
                 status: USER_STATUS.EFFECTED,
                 effectedAt: today,
+                performanceLevel: 3,
                 ...(shouldPromote && { positionId: nextPosition!.id }),
                 updatedAt: new Date(),
               },
@@ -2239,6 +2240,20 @@ export class UserService {
               oldValue: USER_STATUS.EXPERIENCE_PERIOD_2,
               newValue: USER_STATUS.EFFECTED,
               reason: 'Transição automática: Período de Experiência 2 finalizado',
+              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+              triggeredById: user.id,
+              userId: userId,
+              transaction: tx,
+            });
+
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.USER,
+              entityId: user.id,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'performanceLevel',
+              oldValue: user.performanceLevel?.toString() ?? null,
+              newValue: '3',
+              reason: 'Nível de desempenho inicial definido na efetivação automática',
               triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
               triggeredById: user.id,
               userId: userId,
