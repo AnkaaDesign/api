@@ -1164,6 +1164,17 @@ export const taskOrderBySchema = z
 // Where Schema
 // =====================
 
+const dateFilterSchema = z.object({
+  gte: z.coerce.date().optional(),
+  lte: z.coerce.date().optional(),
+  gt: z.coerce.date().optional(),
+  lt: z.coerce.date().optional(),
+  equals: z.coerce.date().optional(),
+  not: z
+    .union([z.coerce.date(), z.null(), z.object({ equals: z.coerce.date().optional() })])
+    .optional(),
+});
+
 export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
   z
     .object({
@@ -1203,28 +1214,14 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
           z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
         ])
         .optional(),
-      entryDate: z
-        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
-        .optional(),
-      term: z
-        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
-        .optional(),
-      startedAt: z
-        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
-        .optional(),
-      forecastDate: z
-        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
-        .optional(),
+      entryDate: dateFilterSchema.nullable().optional(),
+      term: dateFilterSchema.nullable().optional(),
+      startedAt: dateFilterSchema.nullable().optional(),
+      forecastDate: dateFilterSchema.nullable().optional(),
       cleared: z.boolean().optional(),
-      finishedAt: z
-        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
-        .optional(),
-      createdAt: z
-        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
-        .optional(),
-      updatedAt: z
-        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
-        .optional(),
+      finishedAt: dateFilterSchema.nullable().optional(),
+      createdAt: dateFilterSchema.nullable().optional(),
+      updatedAt: dateFilterSchema.nullable().optional(),
       customerId: z
         .union([z.string(), z.object({ in: z.array(z.string()).optional() })])
         .optional(),

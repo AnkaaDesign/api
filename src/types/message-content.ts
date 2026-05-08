@@ -48,7 +48,7 @@ export interface ParagraphBlock {
   content: InlineContent[];
 }
 
-// Image block
+// Image / video block (mediaType discriminates how the URL is rendered)
 export interface ImageBlock {
   type: 'image';
   url: string;
@@ -56,6 +56,8 @@ export interface ImageBlock {
   caption?: string;
   width?: number;
   height?: number;
+  mediaType?: 'image' | 'video';
+  mimeType?: string;
 }
 
 // Button/Link block

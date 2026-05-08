@@ -48,11 +48,13 @@ export const paragraphBlockSchema = z.object({
 
 export const imageBlockSchema = z.object({
   type: z.literal('image'),
-  url: z.string().url('URL da imagem inválida'),
+  url: z.string().url('URL da mídia inválida'),
   alt: z.string().optional(),
   caption: z.string().optional(),
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),
+  mediaType: z.enum(['image', 'video']).optional(),
+  mimeType: z.string().optional(),
 });
 
 export const buttonBlockSchema = z.object({
@@ -147,11 +149,13 @@ export const createParagraphBlockSchema = z.object({
 
 export const createImageBlockSchema = z.object({
   type: z.literal('image'),
-  url: z.string().url('URL da imagem inválida'),
+  url: z.string().url('URL da mídia inválida'),
   alt: z.string().max(200, 'Texto alternativo muito longo').optional(),
   caption: z.string().max(500, 'Legenda muito longa').optional(),
   width: z.number().positive('Largura deve ser positiva').optional(),
   height: z.number().positive('Altura deve ser positiva').optional(),
+  mediaType: z.enum(['image', 'video']).optional(),
+  mimeType: z.string().max(100, 'Tipo MIME muito longo').optional(),
 });
 
 export const createButtonBlockSchema = z.object({
