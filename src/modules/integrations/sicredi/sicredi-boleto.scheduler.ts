@@ -377,7 +377,11 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           // ── End customer data validation ──────────────────────────────
 
           const dueDate = new Date(installment.dueDate);
-          const formattedDueDate = `${dueDate.getUTCFullYear()}-${String(dueDate.getUTCMonth() + 1).padStart(2, '0')}-${String(dueDate.getUTCDate()).padStart(2, '0')}`;
+          // Sicredi rejects past due dates — clamp to today (São Paulo) if needed
+          const nowSP = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+          nowSP.setHours(0, 0, 0, 0);
+          const effectiveDueDate = dueDate < nowSP ? nowSP : dueDate;
+          const formattedDueDate = `${effectiveDueDate.getFullYear()}-${String(effectiveDueDate.getMonth() + 1).padStart(2, '0')}-${String(effectiveDueDate.getDate()).padStart(2, '0')}`;
 
           this.logger.log(
             `[BOLETO_CREATE] Creating boleto for installment ${installment.id}: ` +
@@ -451,11 +455,13 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           }
 
           // Upsert BankSlip record
+          const seuNumero = this.buildSeuNumero(installment);
           if (installment.bankSlip) {
             await this.prisma.bankSlip.update({
               where: { id: installment.bankSlip.id },
               data: {
                 nossoNumero: boletoResponse.nossoNumero,
+                seuNumero,
                 barcode: boletoResponse.codigoBarras,
                 digitableLine: boletoResponse.linhaDigitavel,
                 pixQrCode,
@@ -472,6 +478,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
               data: {
                 installmentId: installment.id,
                 nossoNumero: boletoResponse.nossoNumero,
+                seuNumero,
                 barcode: boletoResponse.codigoBarras,
                 digitableLine: boletoResponse.linhaDigitavel,
                 pixQrCode,
@@ -602,9 +609,11 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     const num = String(installment.number ?? 1);
 
     if (generateInvoice && authorizedNfse?.nfseNumber) {
-      // Layout: NF(2) + last N digits of NFSe number + installment num(1) = 10 chars max.
-      const nfseStr = String(authorizedNfse.nfseNumber).slice(-(10 - 2 - num.length));
-      return `NF${nfseStr}${num}`;
+      // NF + last 8 digits of NFS-e number = 10 chars max. No installment suffix —
+      // matches invoice-generation.service.ts so seuNumero is consistent on initial
+      // registration and scheduler retries.
+      const nfseStr = String(authorizedNfse.nfseNumber).slice(-(10 - 2));
+      return `NF${nfseStr}`;
     }
     if (truckPlate) {
       const plateClean = truckPlate.replace(/[^A-Za-z0-9]/g, '');
@@ -921,8 +930,17 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     try {
       this.logger.log('Starting boleto overdue check...');
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // Compute SP-midnight (UTC-3) expressed as a UTC Date.
+      // Brazil abolished DST in 2019, so SP is a constant UTC-3 year-round.
+      // toLocaleString with en-CA yields "YYYY-MM-DD" in SP wall-clock time.
+      const SP_OFFSET = '-03:00';
+      const spDateParts = new Date().toLocaleString('en-CA', {
+        timeZone: 'America/Sao_Paulo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      const today = new Date(`${spDateParts}T00:00:00${SP_OFFSET}`);
 
       // Find ACTIVE bank slips with dueDate before today
       const overdueBankSlips = await this.prisma.bankSlip.findMany({
@@ -1103,11 +1121,18 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     try {
       this.logger.log('[BOLETO_DUE] Starting bank slip due notification check...');
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // Compute SP-midnight (UTC-3) expressed as a UTC Date (same pattern as checkOverdueBoletos).
+      const SP_OFFSET = '-03:00';
+      const spDateParts = new Date().toLocaleString('en-CA', {
+        timeZone: 'America/Sao_Paulo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      const today = new Date(`${spDateParts}T00:00:00${SP_OFFSET}`);
 
       const threeDaysFromNow = new Date(today);
-      threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
+      threeDaysFromNow.setUTCDate(threeDaysFromNow.getUTCDate() + 3);
 
       // Find ACTIVE bank slips due within the next 3 days (including today)
       const dueBankSlips = await this.prisma.bankSlip.findMany({

@@ -442,12 +442,16 @@ export class TaskQuoteService {
   }
 
   /**
-   * Update existing quote
+   * Update existing quote.
+   * @param _internal When true (called from updateStatus/internalApprove), relaxes the
+   *   status-change guard for locked quotes. External callers must use the dedicated
+   *   status-update endpoints for all post-billing status transitions.
    */
   async update(
     id: string,
     data: TaskQuoteUpdateFormData,
     userId: string,
+    _internal = false,
   ): Promise<TaskQuoteUpdateResponse> {
     try {
       const existing = await this.taskQuoteRepository.findById(id, {
@@ -464,18 +468,6 @@ export class TaskQuoteService {
       // ─────────────────────────────────────────────────────────────────────
       // Guard: lock pricing/customer/payment edits once the quote is locked-in
       // ─────────────────────────────────────────────────────────────────────
-      // After BILLING_APPROVED the quote is committed to invoicing — services have priced
-      // installments, NFSe may already be in flight, bank slips may be live at Sicredi.
-      // Edits to price/customer/payment shape would either silently desync those artifacts
-      // or require a destructive cascade. The audit identified a window between "status reaches
-      // BILLING_APPROVED" and "slip emission completes" where this could happen — close it here.
-      //
-      // SAFE fields (still editable while locked): expiresAt, customGuaranteeText, layoutFileId
-      // (the layout/PDF artifact), and `status` itself — status transitions are routed through
-      // updateStatus()/internalApprove() which validate state machine moves, and the auto
-      // transition BILLING_APPROVED → UPCOMING calls back into this update() with only `status`.
-      // Everything else in the update payload (pricing, customer configs, services, etc.)
-      // is rejected with a clear message.
       const STATUS_LOCKED: TASK_QUOTE_STATUS[] = [
         TASK_QUOTE_STATUS.BILLING_APPROVED,
         TASK_QUOTE_STATUS.UPCOMING,
@@ -483,6 +475,13 @@ export class TaskQuoteService {
         TASK_QUOTE_STATUS.PARTIAL,
         TASK_QUOTE_STATUS.SETTLED,
       ];
+      // BILLING_APPROVED must go through internalApprove() — never a raw update() call.
+      // This applies regardless of current status so it can never be smuggled in.
+      if (data.status === TASK_QUOTE_STATUS.BILLING_APPROVED) {
+        throw new BadRequestException(
+          'A aprovação de faturamento deve ser realizada pelo endpoint dedicado.',
+        );
+      }
       const SAFE_AFTER_BILLING_FIELDS = new Set<string>([
         'expiresAt',
         'customGuaranteeText',
@@ -497,6 +496,12 @@ export class TaskQuoteService {
           if (!SAFE_AFTER_BILLING_FIELDS.has(key)) {
             throw new BadRequestException(
               'Após aprovação para faturamento, este campo não pode ser alterado. Solicite o cancelamento do orçamento para editá-lo.',
+            );
+          }
+          // Status changes on locked quotes must come through updateStatus() — never external PUT.
+          if (key === 'status' && !_internal) {
+            throw new BadRequestException(
+              'Use o endpoint de atualização de status para alterar o status do orçamento.',
             );
           }
         }
@@ -1082,6 +1087,22 @@ export class TaskQuoteService {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
       }
 
+      // Guard: cannot delete a quote that has live financial artifacts (invoices, bank slips,
+      // NFS-e). Deleting would orphan records at Sicredi/Elotech and cascade-delete DB rows
+      // that are referenced by external systems. Cancel all invoices first.
+      const POST_BILLING_STATUSES: TASK_QUOTE_STATUS[] = [
+        TASK_QUOTE_STATUS.BILLING_APPROVED,
+        TASK_QUOTE_STATUS.UPCOMING,
+        TASK_QUOTE_STATUS.DUE,
+        TASK_QUOTE_STATUS.PARTIAL,
+        TASK_QUOTE_STATUS.SETTLED,
+      ];
+      if (POST_BILLING_STATUSES.includes((existing as any).status as TASK_QUOTE_STATUS)) {
+        throw new BadRequestException(
+          'Não é possível deletar um orçamento com faturamento ativo. Cancele todas as faturas antes de deletar.',
+        );
+      }
+
       // Store the full quote data for changelog (enables rollback restoration)
       const quoteSnapshot = {
         id: existing.id,
@@ -1151,7 +1172,7 @@ export class TaskQuoteService {
       };
     } catch (error: unknown) {
       this.logger.error(`Error deleting task quote ${id}:`, error);
-      if (error instanceof NotFoundException) throw error;
+      if (error instanceof NotFoundException || error instanceof BadRequestException) throw error;
       throw new InternalServerErrorException('Erro ao deletar orçamento.');
     }
   }
@@ -1182,8 +1203,8 @@ export class TaskQuoteService {
         await this.validateStatusPrerequisites(id, existing.status as TASK_QUOTE_STATUS, status);
       }
 
-      // Update status
-      const updated = await this.update(id, { status }, userId);
+      // Update status — pass _internal=true to bypass the external-call guard
+      const updated = await this.update(id, { status }, userId, true);
 
       return {
         success: true,
@@ -1231,9 +1252,12 @@ export class TaskQuoteService {
             data: { status: BANK_SLIP_STATUS.CANCELLED },
           });
 
-          // Queue this slip for Sicredi-side cancellation. nossoNumero may be empty if registration
-          // never completed at Sicredi — in that case there is nothing to cancel remotely.
-          if (installment.bankSlip.nossoNumero) {
+          // Queue for Sicredi-side cancellation only if the boleto was actually registered
+          // (nossoNumero is truthy and not a temporary placeholder like "TMP-<installmentId>").
+          if (
+            installment.bankSlip.nossoNumero &&
+            !installment.bankSlip.nossoNumero.startsWith('TMP-')
+          ) {
             slipsToCancelAtSicredi.push({
               id: installment.bankSlip.id,
               nossoNumero: installment.bankSlip.nossoNumero,
@@ -1259,12 +1283,18 @@ export class TaskQuoteService {
           status: { not: INVOICE_STATUS.CANCELLED },
         },
         include: {
-          installments: { select: { amount: true } },
+          installments: { select: { amount: true, paidAmount: true } },
         },
       });
 
       for (const invoice of invoices) {
-        const totalPaid = invoice.installments.reduce((sum, inst) => sum + Number(inst.amount), 0);
+        // Use actual paidAmount when available (webhook payments may differ from face value
+        // due to Sicredi fines/interest). Fall back to face-value amount for installments
+        // being settled now (paidAmount not yet recorded).
+        const totalPaid = invoice.installments.reduce((sum, inst) => {
+          const paid = Number(inst.paidAmount ?? 0);
+          return sum + (paid > 0 ? paid : Number(inst.amount));
+        }, 0);
         await tx.invoice.update({
           where: { id: invoice.id },
           data: {
@@ -1440,33 +1470,63 @@ export class TaskQuoteService {
 
       // Emit NfSe FIRST (awaited) so the NfSe number is available for seuNumero on the bank slip.
       // For invoices with generateInvoice=false no NfseDocument exists, so this is a no-op for them.
-      // Errors are non-fatal: bank slips will fall back to truck plate as seuNumero.
       this.logger.log(
         `[INTERNAL_APPROVE] Emitting NfSe for ${invoiceIds.length} invoice(s) before registering bank slips...`,
       );
       try {
         await this.nfseEmissionScheduler.emitNfseForInvoices(invoiceIds);
       } catch (nfseError) {
+        this.logger.warn(`[INTERNAL_APPROVE] NfSe emission error: ${nfseError}`);
+      }
+
+      // Only register bank slips for invoices that are ready:
+      //   (a) generateInvoice=false — no NFS-e required, seuNumero uses truck plate
+      //   (b) generateInvoice=true  — NFS-e is now AUTHORIZED
+      // Invoices in (b) that failed NFS-e keep their bank slips in CREATING state.
+      // The bank slip scheduler picks them up once the NFS-e scheduler retries and authorizes.
+      const [authorizedNfse, noNfseRequired] = await Promise.all([
+        this.prisma.nfseDocument.findMany({
+          where: { invoiceId: { in: invoiceIds }, status: 'AUTHORIZED' },
+          select: { invoiceId: true },
+        }),
+        this.prisma.invoice.findMany({
+          where: {
+            id: { in: invoiceIds },
+            customerConfig: { generateInvoice: false },
+          },
+          select: { id: true },
+        }),
+      ]);
+      const readyForBoleto = [
+        ...new Set([
+          ...authorizedNfse.map(n => n.invoiceId),
+          ...noNfseRequired.map(i => i.id),
+        ]),
+      ];
+      const blockedCount = invoiceIds.length - readyForBoleto.length;
+      if (blockedCount > 0) {
         this.logger.warn(
-          `[INTERNAL_APPROVE] NfSe emission failed (bank slips will use truck plate as seuNumero, will be retried by scheduler): ${nfseError}`,
+          `[INTERNAL_APPROVE] ${blockedCount} invoice(s) skipped bank slip registration (NFS-e not yet authorized). Bank slip scheduler will retry after NFS-e succeeds.`,
         );
       }
 
-      // Register bank slips AFTER NfSe — buildSeuNumero will now find elotechNfseId for authorized invoices.
-      this.logger.log(
-        `[INTERNAL_APPROVE] Registering bank slips at Sicredi for ${invoiceIds.length} invoice(s)...`,
-      );
-      try {
-        await this.invoiceGenerationService.registerBankSlipsAtSicredi(invoiceIds);
-      } catch (boletoError) {
-        this.logger.warn(
-          `[INTERNAL_APPROVE] Some bank slips failed to register at Sicredi (will be retried by scheduler): ${boletoError}`,
+      // Register bank slips AFTER NfSe — buildSeuNumero will find authorized NfseDocument.
+      if (readyForBoleto.length > 0) {
+        this.logger.log(
+          `[INTERNAL_APPROVE] Registering bank slips at Sicredi for ${readyForBoleto.length} invoice(s)...`,
         );
+        try {
+          await this.invoiceGenerationService.registerBankSlipsAtSicredi(readyForBoleto);
+        } catch (boletoError) {
+          this.logger.warn(
+            `[INTERNAL_APPROVE] Some bank slips failed to register at Sicredi (will be retried by scheduler): ${boletoError}`,
+          );
+        }
       }
 
       // Auto-transition to UPCOMING after successful invoice generation
       this.logger.log(`[INTERNAL_APPROVE] Auto-transitioning quote ${id} to UPCOMING...`);
-      await this.update(id, { status: TASK_QUOTE_STATUS.UPCOMING } as any, userId);
+      await this.update(id, { status: TASK_QUOTE_STATUS.UPCOMING } as any, userId, true);
       this.logger.log(`[INTERNAL_APPROVE] Quote ${id} transitioned to UPCOMING successfully`);
     } catch (error) {
       this.logger.error(
@@ -1511,10 +1571,128 @@ export class TaskQuoteService {
       );
     }
 
+    const refreshed = await this.taskQuoteRepository.findById(id);
     return {
       success: true,
-      data: existing as any,
+      data: refreshed as any,
       message: 'Faturamento do orçamento aprovado com sucesso.',
+    };
+  }
+
+  /**
+   * Revert billing approval — undo internalApprove when all bank slips and NFS-e are cancelled.
+   * Deletes the invoices (cascading installments, bank slips, NFS-e docs) and reverts the
+   * quote status back to COMMERCIAL_APPROVED so the operator can re-approve after corrections.
+   */
+  async revertBillingApproval(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
+    this.logger.log(`[REVERT_BILLING] Starting revert billing for quote ${id} by user ${userId}`);
+
+    const existing = await this.taskQuoteRepository.findById(id);
+    if (!existing) {
+      throw new NotFoundException(`Orçamento ${id} não encontrado.`);
+    }
+
+    const revertableStatuses = [
+      TASK_QUOTE_STATUS.BILLING_APPROVED,
+      TASK_QUOTE_STATUS.UPCOMING,
+      TASK_QUOTE_STATUS.DUE,
+      TASK_QUOTE_STATUS.PARTIAL,
+    ] as string[];
+
+    if (!revertableStatuses.includes(existing.status)) {
+      throw new BadRequestException(
+        `Não é possível reverter o faturamento no status "${existing.status}". ` +
+          `O orçamento precisa estar em Faturamento Aprovado, A Vencer, Vencido ou Pago Parcialmente.`,
+      );
+    }
+
+    const task = await this.prisma.task.findFirst({
+      where: { quoteId: id },
+      select: { id: true },
+    });
+    if (!task) throw new NotFoundException(`Tarefa para o orçamento ${id} não encontrada.`);
+
+    // Verify all bank slips are cancelled
+    const activeSlips = await this.prisma.bankSlip.findMany({
+      where: {
+        installment: { invoice: { taskId: task.id } },
+        status: { not: 'CANCELLED' },
+      },
+      select: { id: true, status: true },
+    });
+    if (activeSlips.length > 0) {
+      throw new BadRequestException(
+        `Existem ${activeSlips.length} boleto(s) não cancelado(s). ` +
+          `Cancele todos os boletos antes de reverter o faturamento.`,
+      );
+    }
+
+    // Verify all NFS-e docs are cancelled or error (not authorized/processing)
+    const activeNfses = await this.prisma.nfseDocument.findMany({
+      where: {
+        invoice: { taskId: task.id },
+        status: { in: ['AUTHORIZED', 'PROCESSING', 'PENDING'] },
+      },
+      select: { id: true, status: true },
+    });
+    if (activeNfses.length > 0) {
+      throw new BadRequestException(
+        `Existem NFS-e(s) não cancelada(s) (${activeNfses.map(n => n.status).join(', ')}). ` +
+          `Cancele todas as NFS-e antes de reverter o faturamento.`,
+      );
+    }
+
+    // Verify no installment has been paid
+    const paidInstallments = await this.prisma.installment.findMany({
+      where: {
+        invoice: { taskId: task.id },
+        status: { in: ['PAID'] },
+      },
+      select: { id: true },
+    });
+    if (paidInstallments.length > 0) {
+      throw new BadRequestException(
+        `Existem ${paidInstallments.length} parcela(s) paga(s). Não é possível reverter um faturamento com pagamentos registrados.`,
+      );
+    }
+
+    await this.prisma.$transaction(async tx => {
+      // Delete installments (cascades bank slips via FK)
+      await tx.installment.deleteMany({ where: { invoice: { taskId: task.id } } });
+      // Delete invoices (cascades NfseDocument via FK)
+      await tx.invoice.deleteMany({ where: { taskId: task.id } });
+      // Revert quote status
+      await tx.taskQuote.update({
+        where: { id },
+        data: {
+          status: TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
+          statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.COMMERCIAL_APPROVED),
+        },
+      });
+    });
+
+    this.logger.log(
+      `[REVERT_BILLING] Quote ${id} reverted to COMMERCIAL_APPROVED. Invoices/installments/bank slips deleted.`,
+    );
+
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.TASK_QUOTE,
+      entityId: id,
+      action: CHANGE_ACTION.ROLLBACK,
+      field: 'status',
+      oldValue: existing.status,
+      newValue: TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
+      reason: 'Faturamento revertido pelo operador',
+      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+      triggeredById: userId,
+      userId,
+    });
+
+    const refreshed = await this.taskQuoteRepository.findById(id);
+    return {
+      success: true,
+      data: refreshed as any,
+      message: 'Faturamento revertido com sucesso. O orçamento retornou para Aprovado pelo Comercial.',
     };
   }
 
@@ -1877,13 +2055,24 @@ export class TaskQuoteService {
       throw new BadRequestException(`O status já é ${currentStatus}`);
     }
 
-    // BILLING_APPROVED can only be reached from COMMERCIAL_APPROVED
-    if (
-      newStatus === TASK_QUOTE_STATUS.BILLING_APPROVED &&
-      currentStatus !== TASK_QUOTE_STATUS.COMMERCIAL_APPROVED
-    ) {
+    // Explicit allowlist — only these forward/backward transitions are valid through
+    // the manual status endpoint or internalApprove. Scheduler-driven cascades
+    // (UPCOMING↔DUE, PARTIAL, etc.) bypass this via direct prisma.taskQuote.update().
+    const ALLOWED: Partial<Record<TASK_QUOTE_STATUS, TASK_QUOTE_STATUS[]>> = {
+      [TASK_QUOTE_STATUS.PENDING]:             [TASK_QUOTE_STATUS.BUDGET_APPROVED],
+      [TASK_QUOTE_STATUS.BUDGET_APPROVED]:     [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.COMMERCIAL_APPROVED],
+      [TASK_QUOTE_STATUS.COMMERCIAL_APPROVED]: [TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.BILLING_APPROVED],
+      [TASK_QUOTE_STATUS.BILLING_APPROVED]:    [TASK_QUOTE_STATUS.UPCOMING],
+      [TASK_QUOTE_STATUS.UPCOMING]:            [TASK_QUOTE_STATUS.SETTLED],
+      [TASK_QUOTE_STATUS.DUE]:                 [TASK_QUOTE_STATUS.SETTLED],
+      [TASK_QUOTE_STATUS.PARTIAL]:             [TASK_QUOTE_STATUS.SETTLED],
+      [TASK_QUOTE_STATUS.SETTLED]:             [],
+    };
+
+    const allowed = ALLOWED[currentStatus] ?? [];
+    if (!allowed.includes(newStatus)) {
       throw new BadRequestException(
-        'O faturamento só pode ser aprovado quando o orçamento estiver no status "Aprovado pelo Comercial".',
+        `Transição de status inválida: ${currentStatus} → ${newStatus}.`,
       );
     }
   }
@@ -2030,6 +2219,28 @@ export class TaskQuoteService {
           if (missing.length > 0) {
             throw new BadRequestException(
               `O cliente "${customerName}" possui dados incompletos para emissão de NFS-e. Campos faltantes: ${missing.join(', ')}.`,
+            );
+          }
+        }
+
+        // Sum-divergence check: warn (but don't block) when sum(config.total) != quote.total.
+        // This can happen legitimately due to discounts or manual adjustments, so we only log.
+        // A hard block would prevent intentional partial-invoicing or courtesy adjustments.
+        {
+          const configTotals = await this.prisma.taskQuoteCustomerConfig.findMany({
+            where: { quoteId },
+            select: { total: true },
+          });
+          const sumConfigTotals = configTotals.reduce((acc, c) => acc + Number(c.total), 0);
+          const quoteRecord = await this.prisma.taskQuote.findUnique({
+            where: { id: quoteId },
+            select: { total: true },
+          });
+          const quoteTotal = Number(quoteRecord?.total ?? 0);
+          const diff = Math.abs(sumConfigTotals - quoteTotal);
+          if (diff > 0.02) {
+            this.logger.warn(
+              `[BILLING_APPROVE] Sum of customerConfig totals (${sumConfigTotals.toFixed(2)}) differs from quote.total (${quoteTotal.toFixed(2)}) by ${diff.toFixed(2)} for quoteId=${quoteId}. This may be intentional (discounts/adjustments) but verify before proceeding.`,
             );
           }
         }

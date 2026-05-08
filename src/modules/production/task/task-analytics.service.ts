@@ -42,6 +42,28 @@ function weekKey(date: Date): string {
   return `${date.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
 }
 
+// Business month period: runs from 26th of previous month to 25th of current month
+function businessMonthKey(date: Date): string {
+  let year = date.getFullYear();
+  let month = date.getMonth(); // 0-indexed
+  if (date.getDate() > 25) {
+    month += 1;
+    if (month > 11) { month = 0; year += 1; }
+  }
+  return `${year}-${String(month + 1).padStart(2, '0')}`;
+}
+
+function businessPeriodStart(year: number, month: number): Date {
+  // month is 1-indexed; period starts on 26th of previous month
+  if (month === 1) return new Date(year - 1, 11, 26, 0, 0, 0, 0);
+  return new Date(year, month - 2, 26, 0, 0, 0, 0);
+}
+
+function businessPeriodEnd(year: number, month: number): Date {
+  // month is 1-indexed; period ends on 25th of current month
+  return new Date(year, month - 1, 25, 23, 59, 59, 999);
+}
+
 interface PeriodRange {
   start: Date;
   end: Date;
@@ -697,6 +719,164 @@ export class TaskAnalyticsService {
     }
 
     return result;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4. Task Production Statistics (tasks per period + avg per active user)
+  // ---------------------------------------------------------------------------
+
+  async getTaskProductionStats(filters: {
+    startDate?: Date;
+    endDate?: Date;
+    sectorIds?: string[];
+    xAxisMode?: 'month' | 'year';
+    yAxisMode?: 'count' | 'avgPerUser' | 'both';
+    compareMode?: 'combined' | 'separated' | 'separatedWithTotal';
+  }) {
+    const { sectorIds, xAxisMode = 'month', yAxisMode = 'count', compareMode = 'combined' } = filters;
+    const isComparisonMode = (compareMode === 'separated' || compareMode === 'separatedWithTotal') && !!sectorIds && sectorIds.length >= 2;
+    const needsUsers = yAxisMode === 'avgPerUser' || yAxisMode === 'both';
+
+    const dateRange = this.resolveDateRange(filters);
+
+    const completedTasks = await this.prisma.task.findMany({
+      where: {
+        status: TASK_STATUS.COMPLETED,
+        cleared: false,
+        finishedAt: { gte: dateRange.start, lte: dateRange.end },
+        ...(sectorIds?.length ? { sectorId: { in: sectorIds } } : {}),
+      },
+      select: { id: true, finishedAt: true, sectorId: true },
+    });
+
+    let sectorMap = new Map<string, string>();
+    if (sectorIds?.length) {
+      const sectors = await this.prisma.sector.findMany({
+        where: { id: { in: sectorIds } },
+        select: { id: true, name: true },
+      });
+      sectorMap = new Map(sectors.map(s => [s.id, s.name]));
+    }
+
+    const keyFn = xAxisMode === 'year'
+      ? (date: Date) => date.getFullYear().toString()
+      : businessMonthKey; // use 26-25 business month periods
+
+    const labelFn = xAxisMode === 'year'
+      ? (key: string) => key
+      : monthLabel;
+
+    const getPeriodBounds = (key: string): { start: Date; end: Date } => {
+      if (xAxisMode === 'year') {
+        const y = parseInt(key);
+        return { start: new Date(y, 0, 1, 0, 0, 0), end: new Date(y, 11, 31, 23, 59, 59, 999) };
+      }
+      // Business month: 26th of previous month to 25th of current month
+      const [yearStr, monthStr] = key.split('-');
+      return {
+        start: businessPeriodStart(parseInt(yearStr), parseInt(monthStr)),
+        end: businessPeriodEnd(parseInt(yearStr), parseInt(monthStr)),
+      };
+    };
+
+    // Enumerate all periods in date range using business month keys
+    const allPeriods: string[] = [];
+    if (xAxisMode === 'year') {
+      for (let y = dateRange.start.getFullYear(); y <= dateRange.end.getFullYear(); y++) {
+        allPeriods.push(y.toString());
+      }
+    } else {
+      // Business month enumeration: from businessMonthKey(start) to businessMonthKey(end)
+      const startKey = businessMonthKey(dateRange.start);
+      const endKey = businessMonthKey(dateRange.end);
+      let [sy, sm] = startKey.split('-').map(Number);
+      const [ey, em] = endKey.split('-').map(Number);
+      while (sy < ey || (sy === ey && sm <= em)) {
+        allPeriods.push(`${sy}-${String(sm).padStart(2, '0')}`);
+        sm++;
+        if (sm > 12) { sm = 1; sy++; }
+      }
+    }
+
+    // Index tasks by period
+    const tasksByPeriod = new Map<string, typeof completedTasks>();
+    for (const period of allPeriods) tasksByPeriod.set(period, []);
+    for (const task of completedTasks) {
+      const key = keyFn(task.finishedAt!);
+      tasksByPeriod.get(key)?.push(task);
+    }
+
+    // Fetch users for avgPerUser (include dismissed users for historical accuracy)
+    let allUsers: Array<{
+      id: string;
+      sectorId: string | null;
+      exp1StartAt: Date | null;
+      createdAt: Date;
+      dismissedAt: Date | null;
+    }> = [];
+
+    if (needsUsers) {
+      allUsers = await this.prisma.user.findMany({
+        where: sectorIds?.length ? { sectorId: { in: sectorIds } } : {},
+        select: { id: true, sectorId: true, exp1StartAt: true, createdAt: true, dismissedAt: true },
+      });
+    }
+
+    // A user is active in period if: hired <= periodEnd AND (not dismissed OR dismissed > periodEnd)
+    const countActiveUsers = (bounds: { start: Date; end: Date }, sectorIdFilter?: string): number =>
+      allUsers.filter(u => {
+        if (sectorIdFilter !== undefined && u.sectorId !== sectorIdFilter) return false;
+        const hireDate = u.exp1StartAt ?? u.createdAt;
+        return hireDate <= bounds.end && (!u.dismissedAt || u.dismissedAt > bounds.end);
+      }).length;
+
+    const items = allPeriods.map(key => {
+      const tasks = tasksByPeriod.get(key) || [];
+      const bounds = getPeriodBounds(key);
+      const totalCount = tasks.length;
+      const activeUsers = needsUsers ? countActiveUsers(bounds) : 0;
+      const avgPerUser = activeUsers > 0 ? Math.round((totalCount / activeUsers) * 100) / 100 : 0;
+
+      const item: any = { period: key, periodLabel: labelFn(key), totalCount, activeUsers, avgPerUser };
+
+      if (isComparisonMode) {
+        item.comparisons = sectorIds!.map(sectorId => {
+          const sectorTasks = tasks.filter(t => t.sectorId === sectorId);
+          const sectorActive = needsUsers ? countActiveUsers(bounds, sectorId) : 0;
+          return {
+            sectorId,
+            sectorName: sectorMap.get(sectorId) || sectorId,
+            count: sectorTasks.length,
+            activeUsers: sectorActive,
+            avgPerUser: sectorActive > 0 ? Math.round((sectorTasks.length / sectorActive) * 100) / 100 : 0,
+          };
+        });
+      }
+
+      return item;
+    });
+
+    const totalCompleted = completedTasks.length;
+    const avgTasksPerPeriod = allPeriods.length > 0
+      ? Math.round((totalCompleted / allPeriods.length) * 10) / 10
+      : 0;
+
+    // Overall active user count: any user that was active at any point in the range
+    const totalActiveUsers = needsUsers
+      ? allUsers.filter(u => {
+          const hireDate = u.exp1StartAt ?? u.createdAt;
+          return hireDate <= dateRange.end && (!u.dismissedAt || u.dismissedAt > dateRange.start);
+        }).length
+      : 0;
+
+    const overallAvgPerUser = totalActiveUsers > 0
+      ? Math.round((totalCompleted / totalActiveUsers) * 100) / 100
+      : 0;
+
+    return {
+      items,
+      summary: { totalCompleted, avgPerUser: overallAvgPerUser, totalActiveUsers, avgTasksPerPeriod },
+    };
   }
 
   // ---------------------------------------------------------------------------

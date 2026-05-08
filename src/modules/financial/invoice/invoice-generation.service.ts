@@ -97,17 +97,35 @@ export class InvoiceGenerationService {
 
     await this.prisma.$transaction(async tx => {
       for (const config of customerConfigs) {
-        // Check if an invoice already exists for this customerConfig
-        const existingInvoice = await tx.invoice.findUnique({
-          where: { customerConfigId: config.id },
+        // Check if an active (non-cancelled) invoice already exists for this customerConfig.
+        // Cancelled invoices are intentionally excluded so re-approval after cancellation
+        // creates fresh documents instead of reusing stale ones.
+        const existingInvoice = await tx.invoice.findFirst({
+          where: { customerConfigId: config.id, status: { not: 'CANCELLED' } },
         });
 
         if (existingInvoice) {
           this.logger.warn(
-            `[INVOICE_GEN] Invoice already exists for customerConfig ${config.id} (invoice ${existingInvoice.id}), skipping.`,
+            `[INVOICE_GEN] Active invoice already exists for customerConfig ${config.id} (invoice ${existingInvoice.id}), skipping.`,
           );
           invoiceIds.push(existingInvoice.id);
           continue;
+        }
+
+        // Clean up any cancelled invoices for this customerConfig before creating new ones.
+        // Cancelled invoices leave behind installments with the same (customerConfigId, number)
+        // which would cause a unique-constraint violation when we create fresh installments below.
+        const cancelledInvoiceIds = await tx.invoice.findMany({
+          where: { customerConfigId: config.id, status: 'CANCELLED' },
+          select: { id: true },
+        });
+        if (cancelledInvoiceIds.length > 0) {
+          const ids = cancelledInvoiceIds.map(i => i.id);
+          await tx.installment.deleteMany({ where: { invoiceId: { in: ids } } });
+          await tx.invoice.deleteMany({ where: { id: { in: ids } } });
+          this.logger.log(
+            `[INVOICE_GEN] Cleaned up ${ids.length} cancelled invoice(s) for customerConfig ${config.id} before re-generation.`,
+          );
         }
 
         const totalAmount = Number(config.total);
@@ -136,6 +154,7 @@ export class InvoiceGenerationService {
               config.paymentCondition || null,
               finishedAt,
               totalAmount,
+              approvalDate,
             );
 
         if (generatedInstallments.length === 0) {
@@ -175,13 +194,13 @@ export class InvoiceGenerationService {
         const hasCustomPaymentText = !!(
           config.customPaymentText && config.customPaymentText.trim()
         );
-        const shouldCreateBankSlips = !hasCustomPaymentText && config.generateBankSlip !== false;
+        const shouldCreateBankSlips = !hasCustomPaymentText && (config as any).generateBankSlip !== false;
 
         if (hasCustomPaymentText) {
           this.logger.log(
             `[INVOICE_GEN] Skipping BankSlip creation for customerConfig ${config.id}: custom payment text is set`,
           );
-        } else if (config.generateBankSlip === false) {
+        } else if ((config as any).generateBankSlip === false) {
           this.logger.log(
             `[INVOICE_GEN] Skipping BankSlip creation for customerConfig ${config.id}: generateBankSlip=false`,
           );
@@ -406,7 +425,11 @@ export class InvoiceGenerationService {
           informativos: this.buildBoletoLines(installment),
           dataVencimento: (() => {
             const d = new Date(installment.dueDate);
-            return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+            // Sicredi rejects past due dates — clamp to today (São Paulo) if needed
+            const nowSP = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+            nowSP.setHours(0, 0, 0, 0);
+            const effective = d < nowSP ? nowSP : d;
+            return `${effective.getFullYear()}-${String(effective.getMonth() + 1).padStart(2, '0')}-${String(effective.getDate()).padStart(2, '0')}`;
           })(),
           valor: Number(installment.amount),
         });
@@ -418,6 +441,7 @@ export class InvoiceGenerationService {
           where: { id: installment.bankSlip.id },
           data: {
             nossoNumero: boletoResponse.nossoNumero,
+            seuNumero: this.buildSeuNumero(installment),
             barcode: boletoResponse.codigoBarras,
             digitableLine: boletoResponse.linhaDigitavel,
             pixQrCode,
@@ -462,11 +486,10 @@ export class InvoiceGenerationService {
     const num = String(installment.number ?? 1);
 
     if (generateInvoice && authorizedNfse?.nfseNumber) {
-      // Layout: NF(2) + last N digits of NFSe number + installment num(1) = 10 chars max.
-      // Taking the *last* digits of the NFSe number keeps uniqueness across installments
-      // of the same invoice while fitting within Sicredi's 10-char limit.
-      const nfseStr = String(authorizedNfse.nfseNumber).slice(-(10 - 2 - num.length));
-      return `NF${nfseStr}${num}`;
+      // seuNumero shows just the NFS-e number — no installment suffix.
+      // nossoNumero (assigned by Sicredi) already uniquely identifies each bank slip.
+      const nfseStr = String(authorizedNfse.nfseNumber).slice(-(10 - 2));
+      return `NF${nfseStr}`;
     }
     if (truckPlate) {
       const plateClean = truckPlate.replace(/[^A-Za-z0-9]/g, '');
@@ -698,31 +721,27 @@ export class InvoiceGenerationService {
   }
 
   /**
-   * Convert paymentCondition + finishedAt + total into installment records.
-   * Due dates are calculated from task.finishedAt:
-   * - CASH_5: 1 payment, 5 days from finishedAt
-   * - CASH_40: 1 payment, 40 days from finishedAt
-   * - INSTALLMENTS_N: first at 5 days from finishedAt, subsequent +20 days each
+   * Convert paymentCondition + total into installment records.
+   * Due dates are anchored to approvalDate (falls back to finishedAt).
+   * - CASH_5: 1 payment, 5 days from anchor
+   * - CASH_40: 1 payment, 40 days from anchor
+   * - INSTALLMENTS_N: first at 5 days, subsequent +20 days each; cascades if any date is pushed forward
    */
   private generateInstallmentsFromCondition(
     paymentCondition: string | null,
     finishedAt: Date,
     total: number,
+    approvalDate?: Date,
   ): { number: number; dueDate: Date; amount: number }[] {
     if (!Number.isFinite(total) || total <= 0) return [];
     if (!paymentCondition || paymentCondition === 'CUSTOM') return [];
 
-    // Use UTC-based date arithmetic to avoid timezone shifts.
-    // All due dates are set to noon UTC so no timezone can change the calendar day.
+    // Use the billing approval date as anchor — same rationale as generateInstallmentsFromPaymentConfig:
+    // "first payment in N days" means N days from billing approval, not from a possibly stale finishedAt
+    // (which can be weeks/months in the past, collapsing all installment dates to the same minimum floor).
+    const anchor = approvalDate ?? finishedAt;
     const baseDate = new Date(
-      Date.UTC(
-        finishedAt.getUTCFullYear(),
-        finishedAt.getUTCMonth(),
-        finishedAt.getUTCDate(),
-        12,
-        0,
-        0,
-      ),
+      Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), anchor.getUTCDate(), 12, 0, 0),
     );
 
     const addDays = (base: Date, days: number): Date => {
@@ -777,9 +796,18 @@ export class InvoiceGenerationService {
     const installmentAmount = baseCents / 100;
 
     const installments: { number: number; dueDate: Date; amount: number }[] = [];
+    let prevDueDate: Date | null = null;
     for (let i = 0; i < totalInstallments; i++) {
-      // Roll Saturday/Sunday/holiday due dates forward to the next business day.
-      const dueDate = nextBrazilianBusinessDay(ensureMinDate(addDays(baseDate, 5 + i * 20)));
+      let rawDate = addDays(baseDate, 5 + i * 20);
+      // Cascade safety: if a prior installment was pushed forward (by ensureMinDate or a holiday),
+      // ensure this one is at least 20 days after it — prevents two installments collapsing to the
+      // same date when multiple natural dates fall before the minimum-due-date floor.
+      if (prevDueDate) {
+        const cascaded = addDays(prevDueDate, 20);
+        if (rawDate < cascaded) rawDate = cascaded;
+      }
+      const dueDate = nextBrazilianBusinessDay(ensureMinDate(rawDate));
+      prevDueDate = dueDate;
 
       const isLast = i === totalInstallments - 1;
       const amount = isLast

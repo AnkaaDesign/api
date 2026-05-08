@@ -50,3 +50,14 @@ export const taskRevenueFiltersSchema = z.object({
 });
 
 export type TaskRevenueFilters = z.infer<typeof taskRevenueFiltersSchema>;
+
+export const taskProductionStatsSchema = z.object({
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional(),
+  sectorIds: z.array(z.string()).optional(),
+  xAxisMode: z.enum(['month', 'year']).optional().default('month'),
+  yAxisMode: z.enum(['count', 'avgPerUser', 'both']).optional().default('count'),
+  compareMode: z.enum(['combined', 'separated', 'separatedWithTotal']).optional().default('combined'),
+});
+
+export type TaskProductionStatsFilters = z.infer<typeof taskProductionStatsSchema>;

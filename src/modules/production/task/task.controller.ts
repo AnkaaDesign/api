@@ -29,6 +29,7 @@ import {
   taskThroughputFiltersSchema,
   taskBottleneckFiltersSchema,
   taskRevenueFiltersSchema,
+  taskProductionStatsSchema,
 } from '../../../schemas/task-analytics';
 import {
   ZodValidationPipe,
@@ -894,5 +895,14 @@ export class TaskController {
   async getRevenueAnalytics(@Body() filters: any) {
     const data = await this.analyticsService.getRevenueAnalytics(filters);
     return { success: true, message: 'Análise de receita carregada', data };
+  }
+
+  @Post('analytics/task-production')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
+  @HttpCode(HttpStatus.OK)
+  @UsePipes(new ZodValidationPipe(taskProductionStatsSchema))
+  async getTaskProductionStats(@Body() filters: any) {
+    const data = await this.analyticsService.getTaskProductionStats(filters);
+    return { success: true, message: 'Estatísticas de produção de tarefas carregadas', data };
   }
 }

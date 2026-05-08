@@ -29,8 +29,12 @@ function parseSicrediDate(value: number[] | string | null | undefined): Date | n
 
   if (Array.isArray(value)) {
     // [YYYY, MM, DD, HH, mm, ss, nanoseconds] — month is 1-based from Sicredi
+    // Sicredi sends Brazilian time (BRT = UTC-3). Construct as UTC with the 3-hour offset
+    // so the stored timestamp is correct in UTC regardless of server locale.
     const [year, month, day, hours = 0, minutes = 0, seconds = 0] = value;
-    return new Date(year, month - 1, day, hours, minutes, seconds);
+    return new Date(
+      `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}-03:00`,
+    );
   }
 
   if (typeof value === 'string') {
@@ -193,9 +197,12 @@ export class SicrediWebhookService {
       throw new Error(`BankSlip not found for nossoNumero: ${nossoNumero}`);
     }
 
-    // Skip if already PAID (idempotent)
-    if (bankSlip.status === 'PAID') {
-      this.logger.log(`BankSlip ${bankSlip.id} already PAID, skipping liquidation`);
+    // Skip if already PAID or locally CANCELLED (idempotent — prevents double-processing
+    // and processing payments for bank slips cancelled after Sicredi was never notified)
+    if (bankSlip.status === 'PAID' || bankSlip.status === 'CANCELLED') {
+      this.logger.log(
+        `BankSlip ${bankSlip.id} is ${bankSlip.status}, skipping liquidation`,
+      );
       return;
     }
 
@@ -462,20 +469,22 @@ export class SicrediWebhookService {
     tx: Parameters<Parameters<PrismaService['$transaction']>[0]>[0],
     invoiceId: string,
   ): Promise<void> {
-    // Fetch all installments for the invoice
-    const installments = await tx.installment.findMany({
-      where: { invoiceId },
-    });
+    const invoice = await tx.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
 
-    // Sum paid amounts
-    const totalPaid = installments.reduce((sum, inst) => sum.add(inst.paidAmount), new Decimal(0));
+    // Never overwrite a CANCELLED invoice — cancelInvoice owns that state
+    if (invoice.status === 'CANCELLED') {
+      this.logger.log(`Invoice ${invoiceId} is CANCELLED, skipping recalculation`);
+      return;
+    }
 
-    // Get invoice total
-    const invoice = await tx.invoice.findUniqueOrThrow({
-      where: { id: invoiceId },
-    });
+    const installments = await tx.installment.findMany({ where: { invoiceId } });
 
-    // Determine status
+    // Null-guard: paidAmount is nullable in the schema (0 on creation, but defensive)
+    const totalPaid = installments.reduce(
+      (sum, inst) => sum.add(inst.paidAmount ?? new Decimal(0)),
+      new Decimal(0),
+    );
+
     let status: 'PAID' | 'PARTIALLY_PAID' | 'ACTIVE';
     if (totalPaid.gte(invoice.totalAmount)) {
       status = 'PAID';
@@ -487,10 +496,7 @@ export class SicrediWebhookService {
 
     await tx.invoice.update({
       where: { id: invoiceId },
-      data: {
-        paidAmount: totalPaid,
-        status,
-      },
+      data: { paidAmount: totalPaid, status },
     });
 
     this.logger.log(`Invoice ${invoiceId} recalculated: paidAmount=${totalPaid}, status=${status}`);
