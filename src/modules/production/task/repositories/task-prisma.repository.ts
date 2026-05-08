@@ -237,7 +237,23 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       customerConfigs: {
         include: {
           customer: {
-            select: { id: true, fantasyName: true, cnpj: true },
+            select: {
+              id: true,
+              fantasyName: true,
+              corporateName: true,
+              cnpj: true,
+              cpf: true,
+              address: true,
+              addressNumber: true,
+              addressComplement: true,
+              neighborhood: true,
+              city: true,
+              state: true,
+              zipCode: true,
+              stateRegistration: true,
+              streetType: true,
+              registrationStatus: true,
+            },
           },
           installments: {
             include: { bankSlip: true },

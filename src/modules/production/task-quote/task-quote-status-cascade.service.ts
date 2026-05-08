@@ -101,6 +101,12 @@ export class TaskQuoteStatusCascadeService {
           inst.status !== 'PAID' && inst.status !== 'CANCELLED' && new Date(inst.dueDate) < now,
       ).length;
 
+      // Guard: if all installments were cancelled (e.g. after invoice cancellation)
+      // there is nothing to evaluate — keep the current status unchanged.
+      if (activeInstallments.length === 0) {
+        return;
+      }
+
       let newStatus: TASK_QUOTE_STATUS;
       if (paidCount === activeInstallments.length) {
         newStatus = TASK_QUOTE_STATUS.SETTLED;

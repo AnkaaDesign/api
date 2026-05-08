@@ -133,7 +133,7 @@ export class TaskQuotePaymentScheduler {
             customerName: config.customer.fantasyName || 'N/A',
             installmentLabel,
             dueDate,
-            totalAmount: quote.total.toString(),
+            amount: quote.total.toString(),
             budgetNumber: quote.budgetNumber,
           },
         });

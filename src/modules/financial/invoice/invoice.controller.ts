@@ -123,12 +123,80 @@ export class InvoiceController {
   /**
    * PUT /invoices/:id/cancel
    * Cancel an invoice and all its children (installments, bank slips, NFS-e).
+   * Also baixa any active/overdue/registering bank slips at Sicredi and cancels
+   * any AUTHORIZED NFS-e at Elotech OXY before/after updating local state.
    */
   @Put(':id/cancel')
   @HttpCode(HttpStatus.OK)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async cancelInvoice(@Param('id', ParseUUIDPipe) id: string, @Body() body: { reason?: string }) {
-    return this.invoiceService.cancelInvoice(id, body.reason);
+    // Collect bank slips that are live at Sicredi BEFORE we touch the DB.
+    const eligibleStatuses = [BANK_SLIP_STATUS.ACTIVE, BANK_SLIP_STATUS.OVERDUE, BANK_SLIP_STATUS.REGISTERING];
+    const installments = await this.prisma.installment.findMany({
+      where: { invoiceId: id },
+      select: { bankSlip: { select: { nossoNumero: true, status: true } } },
+    });
+    const nossoNumerosToCancel = installments
+      .map(i => i.bankSlip)
+      .filter(
+        slip =>
+          slip !== null &&
+          slip.nossoNumero !== null &&
+          !slip.nossoNumero.startsWith('TMP-') &&
+          eligibleStatuses.includes(slip.status as any),
+      )
+      .map(slip => slip!.nossoNumero as string);
+
+    // Collect AUTHORIZED NFS-e docs BEFORE cancelling — service leaves them AUTHORIZED in DB
+    // (excluded from the updateMany) so they can be properly cancelled at Elotech here.
+    const authorizedNfseDocs = await this.prisma.nfseDocument.findMany({
+      where: { invoiceId: id, status: 'AUTHORIZED' },
+      select: { id: true, nfseNumber: true },
+    });
+
+    // Cancel invoice and all children in the DB (source of truth)
+    const result = await this.invoiceService.cancelInvoice(id, body.reason);
+
+    // Best-effort baixa at Sicredi — errors are warned, never thrown
+    if (nossoNumerosToCancel.length > 0) {
+      const outcomes = await Promise.allSettled(
+        nossoNumerosToCancel.map(nn => this.sicrediService.cancelBoleto(nn)),
+      );
+      outcomes.forEach((outcome, idx) => {
+        if (outcome.status === 'rejected') {
+          this.logger.warn(
+            `[CANCEL_INVOICE] Failed to baixar boleto at Sicredi (nossoNumero=${nossoNumerosToCancel[idx]}): ${outcome.reason}`,
+          );
+        } else {
+          this.logger.log(
+            `[CANCEL_INVOICE] Baixado boleto at Sicredi (nossoNumero=${nossoNumerosToCancel[idx]})`,
+          );
+        }
+      });
+    }
+
+    // Best-effort NFS-e cancellation at Elotech OXY — errors are warned, never thrown
+    if (authorizedNfseDocs.length > 0) {
+      const cancelReason = body.reason || 'Nota fiscal cancelada junto com a fatura.';
+      const nfseOutcomes = await Promise.allSettled(
+        authorizedNfseDocs.map(nfse =>
+          this.municipalNfseService.cancelNfse(nfse.id, cancelReason, 1),
+        ),
+      );
+      nfseOutcomes.forEach((outcome, idx) => {
+        if (outcome.status === 'rejected') {
+          this.logger.warn(
+            `[CANCEL_INVOICE] Failed to cancel NFS-e at Elotech (nfseNumber=${authorizedNfseDocs[idx].nfseNumber}): ${outcome.reason}`,
+          );
+        } else {
+          this.logger.log(
+            `[CANCEL_INVOICE] Cancelled NFS-e at Elotech (nfseNumber=${authorizedNfseDocs[idx].nfseNumber})`,
+          );
+        }
+      });
+    }
+
+    return result;
   }
 
   // ─── Boleto (Bank Slip) Endpoints ──────────────────────────────
@@ -144,16 +212,26 @@ export class InvoiceController {
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Body() body: { newDueDate?: string },
   ) {
-    const bankSlip = await this.prisma.bankSlip.findUnique({
-      where: { installmentId },
-      include: { installment: { include: { invoice: true } } },
+    const installmentWithBankSlip = await this.prisma.installment.findUnique({
+      where: { id: installmentId },
+      include: { bankSlip: true, invoice: true },
     });
 
-    if (!bankSlip) {
-      throw new NotFoundException(`Boleto não encontrado para a parcela ${installmentId}.`);
+    if (!installmentWithBankSlip) {
+      throw new NotFoundException(`Parcela ${installmentId} não encontrada.`);
     }
 
     if (
+      installmentWithBankSlip.status === INSTALLMENT_STATUS.PAID ||
+      installmentWithBankSlip.status === INSTALLMENT_STATUS.CANCELLED
+    ) {
+      throw new BadRequestException('Não é possível gerar boleto para parcela paga ou cancelada.');
+    }
+
+    const bankSlip = installmentWithBankSlip.bankSlip;
+
+    if (
+      bankSlip &&
       bankSlip.status !== BANK_SLIP_STATUS.ERROR &&
       bankSlip.status !== BANK_SLIP_STATUS.REJECTED &&
       bankSlip.status !== BANK_SLIP_STATUS.CANCELLED
@@ -163,8 +241,8 @@ export class InvoiceController {
       );
     }
 
-    // If a new due date is provided, update the installment due date
-    let resolvedDueDate = bankSlip.dueDate;
+    // Validate and resolve due date
+    let resolvedDueDate = bankSlip?.dueDate ?? installmentWithBankSlip.dueDate;
     if (body?.newDueDate) {
       const newDate = parseDateNoonUTC(body.newDueDate);
       const today = new Date();
@@ -187,26 +265,39 @@ export class InvoiceController {
       });
     }
 
-    // Reset bank slip to CREATING so registerBankSlipsAtSicredi picks it up.
-    // nossoNumero is a required @unique field — use TMP-{installmentId} placeholder.
-    await this.prisma.bankSlip.update({
-      where: { id: bankSlip.id },
-      data: {
-        status: BANK_SLIP_STATUS.CREATING,
-        nossoNumero: `TMP-${installmentId}`,
-        barcode: null,
-        digitableLine: null,
-        pixQrCode: null,
-        txid: null,
-        pdfFileId: null,
-        errorMessage: null,
-        errorCount: 0,
-        dueDate: resolvedDueDate,
-      },
-    });
+    if (bankSlip) {
+      // Reset existing bank slip to CREATING so registerBankSlipsAtSicredi picks it up.
+      await this.prisma.bankSlip.update({
+        where: { id: bankSlip.id },
+        data: {
+          status: BANK_SLIP_STATUS.CREATING,
+          nossoNumero: `TMP-${installmentId}`,
+          barcode: null,
+          digitableLine: null,
+          pixQrCode: null,
+          txid: null,
+          pdfFileId: null,
+          errorMessage: null,
+          errorCount: 0,
+          dueDate: resolvedDueDate,
+        },
+      });
+    } else {
+      // No bank slip record exists (skipped at invoice generation due to customPaymentText) — create one now.
+      await this.prisma.bankSlip.create({
+        data: {
+          installmentId,
+          nossoNumero: `TMP-${installmentId}`,
+          type: 'NORMAL',
+          amount: Number(installmentWithBankSlip.amount),
+          dueDate: resolvedDueDate,
+          status: BANK_SLIP_STATUS.CREATING,
+        },
+      });
+    }
 
     // Directly register at Sicredi instead of waiting for the scheduler
-    const invoiceId = bankSlip.installment?.invoiceId;
+    const invoiceId = installmentWithBankSlip.invoiceId;
     if (invoiceId) {
       try {
         await this.invoiceGenerationService.registerBankSlipsAtSicredi([invoiceId]);
@@ -292,8 +383,15 @@ export class InvoiceController {
       throw new NotFoundException(`Parcela ${installmentId} não encontrada.`);
     }
 
-    if (installment.status === INSTALLMENT_STATUS.PAID) {
-      throw new BadRequestException('Parcela já está paga.');
+    if (
+      installment.status === INSTALLMENT_STATUS.PAID ||
+      installment.status === INSTALLMENT_STATUS.CANCELLED
+    ) {
+      throw new BadRequestException(
+        'Esta parcela já foi ' +
+          (installment.status === INSTALLMENT_STATUS.PAID ? 'paga' : 'cancelada') +
+          ' e não pode ser marcada como paga.',
+      );
     }
 
     // Cancel the bank slip at Sicredi if active
@@ -362,39 +460,57 @@ export class InvoiceController {
         },
       });
 
-      // Cascade: recalculate task quote status based on all installments
+      // Cascade: recalculate task quote status (SETTLED / PARTIAL / DUE / UPCOMING)
       const invoice = await this.prisma.invoice.findUnique({
         where: { id: installment.invoiceId },
         select: { customerConfig: { select: { quoteId: true } } },
       });
       if (invoice?.customerConfig?.quoteId) {
         const quoteId = invoice.customerConfig.quoteId;
+        const now = new Date();
         const allQuoteInstallments = await this.prisma.installment.findMany({
-          where: { customerConfig: { quoteId }, status: { not: 'CANCELLED' } },
+          where: { customerConfig: { quoteId } },
+          select: { status: true, dueDate: true },
+        });
+        const active = allQuoteInstallments.filter(i => i.status !== 'CANCELLED');
+        const paidCount = active.filter(i => i.status === INSTALLMENT_STATUS.PAID).length;
+        const overdueCount = active.filter(
+          i => i.status !== INSTALLMENT_STATUS.PAID && new Date(i.dueDate) < now,
+        ).length;
+
+        // Only cascade quotes that are in a payment-progress status
+        const cascadeableStatuses: string[] = [
+          TASK_QUOTE_STATUS.UPCOMING,
+          TASK_QUOTE_STATUS.DUE,
+          TASK_QUOTE_STATUS.PARTIAL,
+          TASK_QUOTE_STATUS.SETTLED,
+        ];
+        const currentQuote = await this.prisma.taskQuote.findUnique({
+          where: { id: quoteId },
           select: { status: true },
         });
-        const allPaidOrSettled = allQuoteInstallments.every(
-          i => i.status === INSTALLMENT_STATUS.PAID,
-        );
-        const somePaid = allQuoteInstallments.some(i => i.status === INSTALLMENT_STATUS.PAID);
-
-        if (allPaidOrSettled) {
-          await this.prisma.taskQuote.update({
-            where: { id: quoteId },
-            data: {
-              status: 'SETTLED',
-              statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.SETTLED],
-            },
-          });
-        } else if (somePaid) {
-          await this.prisma.taskQuote.update({
-            where: { id: quoteId },
-            data: {
-              status: 'PARTIAL',
-              statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.PARTIAL],
-            },
-          });
+        if (!currentQuote || !cascadeableStatuses.includes(currentQuote.status as string)) {
+          return { message: `Parcela marcada como paga via ${body.paymentMethod}.` };
         }
+
+        let newStatus: TASK_QUOTE_STATUS;
+        if (active.length > 0 && paidCount === active.length) {
+          newStatus = TASK_QUOTE_STATUS.SETTLED;
+        } else if (overdueCount > 0) {
+          newStatus = TASK_QUOTE_STATUS.DUE;
+        } else if (paidCount > 0) {
+          newStatus = TASK_QUOTE_STATUS.PARTIAL;
+        } else {
+          newStatus = TASK_QUOTE_STATUS.UPCOMING;
+        }
+
+        await this.prisma.taskQuote.update({
+          where: { id: quoteId },
+          data: {
+            status: newStatus as any,
+            statusOrder: TASK_QUOTE_STATUS_ORDER[newStatus],
+          },
+        });
       }
     }
 
@@ -639,12 +755,64 @@ export class InvoiceController {
   /**
    * POST /invoices/:invoiceId/nfse/emit
    * Manually trigger NFS-e emission for an invoice by creating a new NfseDocument entry.
+   * Idempotency guard: prevents duplicate NfseDocument rows per invoice.
    */
   @Post(':invoiceId/nfse/emit')
   @HttpCode(HttpStatus.OK)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async emitNfse(@Param('invoiceId', ParseUUIDPipe) invoiceId: string) {
-    // Create a new NfseDocument entry with PENDING status
+    // Verify the invoice exists and is not cancelled
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { id: true, status: true },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException(`Fatura ${invoiceId} não encontrada.`);
+    }
+
+    if (invoice.status === 'CANCELLED') {
+      throw new BadRequestException('Não é possível emitir NFS-e para uma fatura cancelada.');
+    }
+
+    // Check existing NFS-e state for this invoice
+    const existingNfse = await this.prisma.nfseDocument.findFirst({
+      where: { invoiceId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, status: true, nfseNumber: true },
+    });
+
+    if (existingNfse?.status === 'AUTHORIZED') {
+      throw new BadRequestException(
+        'NFS-e já está autorizada para esta fatura. Use o endpoint de cancelamento para cancelar a existente primeiro.',
+      );
+    }
+
+    if (existingNfse?.status === 'PROCESSING') {
+      throw new BadRequestException(
+        'Emissão de NFS-e já está em andamento para esta fatura.',
+      );
+    }
+
+    // PENDING or ERROR: reset the existing record instead of creating a new one
+    if (existingNfse && (existingNfse.status === 'PENDING' || existingNfse.status === 'ERROR')) {
+      await this.prisma.nfseDocument.update({
+        where: { id: existingNfse.id },
+        data: { status: 'PENDING', errorCount: 0, retryAfter: null },
+      });
+
+      // Use targeted emission (bypasses NFSE_SCHEDULER_ENABLED guard) — fire-and-forget
+      this.nfseEmissionScheduler.emitNfseForInvoices([invoiceId]).catch(err => {
+        this.logger.warn(`[NFSE_EMIT] Immediate emission failed (scheduler will retry): ${err}`);
+      });
+
+      return {
+        message: 'NFS-e será emitida em instantes.',
+        nfseDocumentId: existingNfse.id,
+      };
+    }
+
+    // No existing document: create a new NfseDocument entry with PENDING status
     const nfseDoc = await this.prisma.nfseDocument.create({
       data: {
         invoiceId,
@@ -652,8 +820,8 @@ export class InvoiceController {
       },
     });
 
-    // Trigger emission immediately (fire-and-forget, scheduler is fallback)
-    this.nfseEmissionScheduler.emitPendingNfses().catch(err => {
+    // Use targeted emission (bypasses NFSE_SCHEDULER_ENABLED guard) — fire-and-forget
+    this.nfseEmissionScheduler.emitNfseForInvoices([invoiceId]).catch(err => {
       this.logger.warn(`[NFSE_EMIT] Immediate emission failed (scheduler will retry): ${err}`);
     });
 

@@ -229,6 +229,18 @@ export class TaskQuoteController {
   }
 
   /**
+   * PUT /task-quotes/:id/revert-billing
+   * Revert billing approval back to COMMERCIAL_APPROVED — requires all bank slips and NFS-e cancelled.
+   *
+   * Access: FINANCIAL, ADMIN
+   */
+  @Put(':id/revert-billing')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  async revertBillingApproval(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
+    return this.taskQuoteService.revertBillingApproval(id, userId);
+  }
+
+  /**
    * DELETE /task-quotes/:id
    * Delete quote
    *

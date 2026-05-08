@@ -7,7 +7,14 @@ import type {
   InvoiceGetManyFormData,
   InvoiceGetManyResponse,
 } from '@types';
-import { INVOICE_STATUS, INSTALLMENT_STATUS, BANK_SLIP_STATUS, NFSE_STATUS } from '@constants';
+import {
+  INVOICE_STATUS,
+  INSTALLMENT_STATUS,
+  BANK_SLIP_STATUS,
+  NFSE_STATUS,
+  TASK_QUOTE_STATUS,
+  TASK_QUOTE_STATUS_ORDER,
+} from '@constants';
 
 /**
  * Service for managing Invoice entities.
@@ -146,6 +153,72 @@ export class InvoiceService {
         },
       });
     });
+
+    // Check for AUTHORIZED NFS-e docs that require manual cancellation at Elotech
+    const authorizedNfse = await this.prisma.nfseDocument.findMany({
+      where: { invoiceId: id, status: 'AUTHORIZED' },
+      select: { id: true, nfseNumber: true, elotechNfseId: true },
+    });
+    if (authorizedNfse.length > 0) {
+      for (const nfse of authorizedNfse) {
+        this.logger.warn(
+          `Invoice ${id} cancelled — NFS-e #${nfse.nfseNumber} (Elotech ID: ${nfse.elotechNfseId}) requires manual cancellation at Elotech OXY`,
+        );
+      }
+      // Append a note on the invoice so the record itself carries the warning
+      const nfseWarning = authorizedNfse
+        .map(nfse => `NFS-e #${nfse.nfseNumber} pendente cancelamento no Elotech`)
+        .join('; ');
+      const existing = await this.prisma.invoice.findUnique({
+        where: { id },
+        select: { notes: true },
+      });
+      const updatedNotes = existing?.notes
+        ? `${existing.notes} | ${nfseWarning}`
+        : nfseWarning;
+      await this.prisma.invoice.update({
+        where: { id },
+        data: { notes: updatedNotes },
+      });
+    }
+
+    // After cancelling all invoice artifacts, revert the linked TaskQuote to COMMERCIAL_APPROVED
+    // if every invoice for that quote is now cancelled. This lets the user re-approve billing
+    // (e.g., after correcting customer data) without the quote getting stuck in a post-billing
+    // status with no live financial documents.
+    try {
+      const invoiceWithConfig = await this.prisma.invoice.findUnique({
+        where: { id },
+        select: {
+          customerConfig: {
+            select: { quote: { select: { id: true, status: true } } },
+          },
+        },
+      });
+      const quote = invoiceWithConfig?.customerConfig?.quote;
+      const revertableStatuses = ['BILLING_APPROVED', 'UPCOMING', 'DUE', 'PARTIAL'];
+      if (quote && revertableStatuses.includes(quote.status as string)) {
+        const nonCancelledCount = await this.prisma.invoice.count({
+          where: { customerConfig: { quoteId: quote.id }, status: { not: 'CANCELLED' } },
+        });
+        if (nonCancelledCount === 0) {
+          await this.prisma.taskQuote.update({
+            where: { id: quote.id },
+            data: {
+              status: TASK_QUOTE_STATUS.COMMERCIAL_APPROVED as any,
+              statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.COMMERCIAL_APPROVED],
+            },
+          });
+          this.logger.log(
+            `Reverted TaskQuote ${quote.id} to COMMERCIAL_APPROVED — all invoices cancelled`,
+          );
+        }
+      }
+    } catch (revertError) {
+      this.logger.warn(
+        `Failed to revert TaskQuote status after invoice cancellation: ${revertError}`,
+      );
+    }
 
     // Return the updated invoice
     return this.findById(id);

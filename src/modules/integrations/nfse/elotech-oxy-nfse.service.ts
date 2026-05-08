@@ -140,6 +140,37 @@ export class ElotechOxyNfseService {
       });
     }
 
+    // Pre-flight customer data validation — fail fast before wasting an API call.
+    // These errors will never resolve on their own; set retryAfter: null so the
+    // scheduler does not schedule useless exponential-backoff retries.
+    const missingFields: string[] = [];
+    const hasCnpj = (invoice.customer?.cnpj || '').replace(/\D/g, '').length === 14;
+    const hasCpf = (invoice.customer?.cpf || '').replace(/\D/g, '').length === 11;
+    if (!hasCnpj && !hasCpf) missingFields.push('CNPJ/CPF');
+    if (!invoice.customer?.address?.state?.trim()) missingFields.push('Estado (UF)');
+    if (!invoice.customer?.address?.cityName?.trim()) missingFields.push('Cidade');
+    if (
+      !(invoice.customer?.corporateName?.trim() || invoice.customer?.name?.trim())
+    )
+      missingFields.push('Razão Social');
+
+    if (missingFields.length > 0) {
+      const errorMessage = `Dados do cliente incompletos para emissão de NFS-e. Campos faltantes: ${missingFields.join(', ')}.`;
+      await this.prisma.nfseDocument.update({
+        where: { id: nfseDoc.id },
+        data: {
+          status: NfseStatus.ERROR,
+          errorMessage,
+          errorCount: { increment: 1 },
+          retryAfter: null,
+        },
+      });
+      this.logger.warn(
+        `[MUNICIPAL] NFS-e emission skipped for invoice ${invoice.id}: ${errorMessage}`,
+      );
+      return { status: 'ERROR', errorMessage };
+    }
+
     try {
       await this.authService.getToken();
       const headers = this.authService.getAuthHeaders();
@@ -707,6 +738,14 @@ export class ElotechOxyNfseService {
         const city = await this.authService.findCity(invoice.customer.address.cityName, uf);
         if (city) {
           formTomador.cidade = this.buildFullCityObject(city, uf);
+        } else {
+          // City not found for the given UF — this is almost always a wrong state on the customer
+          // record (e.g. city=Aimores UF=MS when the city is actually in MG). Fail fast with a
+          // human-readable message rather than letting Elotech reject with a generic 500.
+          throw new Error(
+            `Cidade "${invoice.customer.address.cityName}" não encontrada para o estado ${uf}. ` +
+              `Verifique o campo UF no cadastro do cliente.`,
+          );
         }
       }
     }

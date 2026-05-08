@@ -33,6 +33,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
           id: true,
           fantasyName: true,
           cnpj: true,
+          state: true,
         },
       },
       task: {
@@ -76,7 +77,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
 
     if (include.customer) {
       prismaInclude.customer = {
-        select: { id: true, fantasyName: true, cnpj: true },
+        select: { id: true, fantasyName: true, cnpj: true, state: true },
       };
     }
 
