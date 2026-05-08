@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { BonusService } from '../../human-resources/bonus/bonus.service';
 import { PayrollService } from '../../human-resources/payroll/payroll.service';
 import { CacheService } from '../cache/cache.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class BonusCronService {
@@ -14,82 +15,106 @@ export class BonusCronService {
     private readonly bonusService: BonusService,
     private readonly payrollService: PayrollService,
     private readonly cacheService: CacheService,
+    private readonly prisma: PrismaService,
   ) {}
 
-  // REMOVED: Daily draft updates - bonuses are now calculated LIVE during current period
-  // Only the monthly finalization on the 6th saves data to database
-
-  // Run at midnight (00:00) on the 6th of every month to finalize bonuses and create payrolls
-  // This runs AFTER the grace period (26th to 5th) which allows fixing commission status errors
-  // Period being saved: 26th of previous month to 25th of current month
-  // Example: December 6th saves November period (Oct 26 - Nov 25)
-  // The period just closed on the 25th, and now after the 5th grace period we save it
-  @Cron('0 0 6 * *', { timeZone: 'America/Sao_Paulo' })
+  // Runs daily at 01:00 SP time.
+  // Primary attempt: day 5 (payment day). Retry window: days 6–10.
+  // After day 10 the window closes — the next period is already live.
+  // Idempotent: skips each step that already has saved records for the period.
+  @Cron('0 1 * * *', { timeZone: 'America/Sao_Paulo' })
   async handleMonthlyBonusAndPayrollFinalization() {
-    this.logger.log('Starting monthly bonus and payroll finalization...');
+    const now = new Date();
+    const currentDay = now.getDate();
+
+    // Only run within the retry window (5th = primary, 6th–10th = retries)
+    if (currentDay < 5 || currentDay > 10) {
+      this.logger.debug(
+        `[FINALIZATION] Day ${currentDay} — outside save window (5–10). Skipping.`,
+      );
+      return;
+    }
+
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
+
+    // Target: previous calendar month (the period that closed on the 25th)
+    let periodMonth = currentMonth - 1;
+    let periodYear = currentYear;
+    if (periodMonth === 0) {
+      periodMonth = 12;
+      periodYear = currentYear - 1;
+    }
+
+    const year = periodYear.toString();
+    const month = periodMonth.toString().padStart(2, '0');
+    const attempt = currentDay - 4; // attempt 1 = day 5, attempt 6 = day 10
+
+    this.logger.log(
+      `[FINALIZATION] Day ${currentDay} — attempt ${attempt}/6 for period ${year}/${month}`,
+    );
 
     try {
-      const now = new Date();
-      const currentMonth = now.getMonth() + 1; // 1-12
-      const currentYear = now.getFullYear();
+      // Check what is already persisted for this period
+      const [savedBonusCount, savedPayrollCount] = await Promise.all([
+        this.prisma.bonus.count({ where: { year: periodYear, month: periodMonth } }),
+        this.prisma.payroll.count({ where: { year: periodYear, month: periodMonth } }),
+      ]);
 
-      // On the 6th, we save the period that just ended on the 25th of PREVIOUS month
-      // The 5th day rule means: days 1-5 = previous period, days 6+ = current period
-      // So on Dec 6th, current period switches to December
-      // But we need to save November's period (Oct 26 - Nov 25) which just closed
-      let periodMonth = currentMonth - 1;
-      let periodYear = currentYear;
-
-      if (periodMonth === 0) {
-        periodMonth = 12;
-        periodYear = currentYear - 1;
+      if (savedBonusCount > 0 && savedPayrollCount > 0) {
+        this.logger.log(
+          `[FINALIZATION] Period ${year}/${month} already complete` +
+            ` (${savedBonusCount} bonuses, ${savedPayrollCount} payrolls). Nothing to do.`,
+        );
+        return;
       }
 
-      const year = periodYear.toString();
-      const month = periodMonth.toString().padStart(2, '0');
-
-      this.logger.log(`Finalizing bonuses and payrolls for period: ${year}/${month}`);
-
-      // Step 1: Calculate and save bonuses for all users FIRST
-      // This creates bonus records even for non-eligible users (with value 0)
-      // By running on the 6th (after the 5th grace period), all commission status
-      // corrections made between the 25th-5th are included in the saved calculations
-      // IMPORTANT: Bonuses must be saved BEFORE payrolls so payroll can reference netBonus
-      this.logger.log('Step 1: Calculating and saving bonuses...');
-      const bonusResult = await this.bonusService.calculateAndSaveBonuses(year, month, 'system');
-      this.logger.log(
-        `Bonus calculation completed. Success: ${bonusResult.totalSuccess}, Failed: ${bonusResult.totalFailed}`,
-      );
-
-      // Log warning if there were failures
-      if (bonusResult.totalFailed > 0) {
-        this.logger.error(`Failed to calculate bonuses for ${bonusResult.totalFailed} users`);
+      // Step 1 — bonuses (skip if already saved)
+      if (savedBonusCount > 0) {
+        this.logger.log(
+          `[FINALIZATION] Step 1 already done (${savedBonusCount} bonuses). Skipping.`,
+        );
+      } else {
+        this.logger.log(`[FINALIZATION] Step 1: Calculating and saving bonuses for ${year}/${month}...`);
+        const bonusResult = await this.bonusService.calculateAndSaveBonuses(year, month, 'system');
+        this.logger.log(
+          `[FINALIZATION] Bonuses: ${bonusResult.totalSuccess} ok, ${bonusResult.totalFailed} failed`,
+        );
+        if (bonusResult.totalFailed > 0) {
+          this.logger.error(
+            `[FINALIZATION] ${bonusResult.totalFailed} bonus failures — will retry tomorrow if within window`,
+          );
+          return; // do not advance to payroll if bonuses are incomplete
+        }
       }
 
-      // Step 2: Generate payrolls for all active users (uses saved netBonus)
-      this.logger.log('Step 2: Generating payrolls for all active users...');
-      const payrollResult = await this.payrollService.generateForMonth(
-        parseInt(year),
-        parseInt(month),
-        'system',
-      );
-      this.logger.log(
-        `Payroll generation completed. Created: ${payrollResult.created}, Skipped: ${payrollResult.skipped}, Errors: ${payrollResult.errors?.length || 0}`,
-      );
-
-      // Log errors if any
-      if (payrollResult.errors && payrollResult.errors.length > 0) {
-        this.logger.error('Payroll generation errors:', payrollResult.errors);
+      // Step 2 — payrolls (skip if already saved)
+      if (savedPayrollCount > 0) {
+        this.logger.log(
+          `[FINALIZATION] Step 2 already done (${savedPayrollCount} payrolls). Skipping.`,
+        );
+      } else {
+        this.logger.log(`[FINALIZATION] Step 2: Generating payrolls for ${year}/${month}...`);
+        const payrollResult = await this.payrollService.generateForMonth(
+          parseInt(year),
+          parseInt(month),
+          'system',
+        );
+        this.logger.log(
+          `[FINALIZATION] Payrolls: ${payrollResult.created} created,` +
+            ` ${payrollResult.skipped} skipped, ${payrollResult.errors?.length || 0} errors`,
+        );
+        if (payrollResult.errors && payrollResult.errors.length > 0) {
+          this.logger.error('[FINALIZATION] Payroll errors:', payrollResult.errors);
+        }
       }
 
-      // Log success summary
-      this.logger.log(`Monthly finalization completed successfully.`);
-      this.logger.log(
-        `- Payrolls: ${payrollResult.created} created, ${payrollResult.skipped} skipped, ${payrollResult.errors?.length || 0} errors`,
-      );
-      this.logger.log(`- Bonuses: ${bonusResult.totalSuccess} calculated`);
+      this.logger.log(`[FINALIZATION] Period ${year}/${month} finalization complete.`);
     } catch (error) {
-      this.logger.error('Failed to run monthly bonus and payroll finalization', error);
+      this.logger.error(
+        `[FINALIZATION] Failed on attempt ${attempt}/6 — will retry tomorrow if within window`,
+        error,
+      );
     }
   }
 
@@ -138,12 +163,12 @@ export class BonusCronService {
 
     let nextExecution: Date;
 
-    // If we're before the 6th of this month, next execution is this month's 6th at midnight
-    if (currentDay < 6) {
-      nextExecution = new Date(currentYear, currentMonth, 6, 0, 0, 0);
+    // If we're before the 5th of this month, next execution is this month's 5th at 1 AM
+    if (currentDay < 5) {
+      nextExecution = new Date(currentYear, currentMonth, 5, 1, 0, 0);
     } else {
-      // Otherwise, it's the 6th of next month
-      nextExecution = new Date(currentYear, currentMonth + 1, 6, 0, 0, 0);
+      // Otherwise, it's the 5th of next month
+      nextExecution = new Date(currentYear, currentMonth + 1, 5, 1, 0, 0);
     }
 
     return nextExecution;
@@ -152,7 +177,7 @@ export class BonusCronService {
   // Optional: Check if today is bonus/payroll calculation day
   isBonusCalculationDay(): boolean {
     const now = new Date();
-    return now.getDate() === 6;
+    return now.getDate() === 5;
   }
 
   /**

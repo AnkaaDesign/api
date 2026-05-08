@@ -19,8 +19,8 @@
  *
  * This is because:
  * - Bonus/Payroll period runs from 26th to 25th
- * - Payment happens on the 5th
- * - Until payment, we're still in the "previous" period
+ * - Bonuses are saved on the 5th (with a retry window through the 10th)
+ * - Until the 5th, we're still displaying the "previous" period
  *
  * @param referenceDate Optional date to calculate from (defaults to now)
  * @returns Object with year, month for the current period
