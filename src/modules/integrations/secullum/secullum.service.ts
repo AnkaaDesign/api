@@ -43,6 +43,8 @@ import {
   SecullumExistingSolicitacaoResponse,
   SecullumCreateJustifyAbsenceDto,
   SecullumCreateJustifyAbsenceResponse,
+  SecullumCreateAjustePontoDto,
+  SecullumCreateAjustePontoResponse,
 } from './dto';
 
 @Injectable()
@@ -2188,6 +2190,111 @@ export class SecullumService {
     }
   }
 
+  /**
+   * Fetch today's attendance summary (resumoDiario) used by the daily-ponto
+   * dashboard widget on web + mobile.
+   *
+   * Secullum's pontoweb portal exposes a "Painel Inicial" widget that returns
+   * counts of Presentes / Faltas / Atrasos / Em Horário etc. but the exact
+   * REST endpoint + response shape is not documented in this codebase (no HAR
+   * captured). We attempt a best-effort call against the most likely
+   * candidates and gracefully fall back to an empty resumoDiario so the
+   * widget renders an empty state instead of erroring.
+   *
+   * Once the real endpoint is confirmed (capture a HAR from the Secullum
+   * "Início" / dashboard page), replace the fallback with the real call and
+   * keep the same response envelope. The widget reads
+   * `response.data.data.resumoDiario.Dados[]` (axios envelope + service
+   * envelope + payload), so the shape of `data` here must contain
+   * `resumoDiario.Dados[]` and `resumoDiario.Funcionarios[]`.
+   */
+  async getDailySummary(): Promise<{
+    success: boolean;
+    message?: string;
+    data: {
+      resumoDiario: {
+        Funcionarios: Array<{
+          Id: number;
+          Nome: string;
+          NumeroFolha?: string;
+          Celular?: string;
+        }>;
+        Dados: Array<{
+          Titulo: string;
+          FuncionariosIds: number[];
+          Atual: number;
+          Total: number;
+          ExibirProgressBar: boolean;
+          Tipo?: number;
+        }>;
+      };
+    };
+  }> {
+    const emptyPayload = {
+      success: true,
+      data: {
+        resumoDiario: {
+          Funcionarios: [],
+          Dados: [],
+        },
+      },
+    };
+
+    // Best-effort attempt: try a likely Secullum endpoint. If it 404s (or any
+    // other error), log and return the empty payload so the widget shows an
+    // empty state instead of breaking. Endpoint kept here so once the real
+    // path/shape is confirmed it's a one-liner change.
+    try {
+      this.logger.log('[DAILY_SUMMARY] Attempting to fetch resumoDiario from Secullum');
+
+      const raw = await this.makeAuthenticatedRequest<any>(
+        'GET',
+        '/PainelInicial/ResumoDiario',
+        undefined,
+        undefined,
+        undefined,
+      );
+
+      // If the response already matches the expected shape, return it as-is.
+      if (raw && typeof raw === 'object' && raw.resumoDiario) {
+        return { success: true, data: raw };
+      }
+      if (raw && typeof raw === 'object' && Array.isArray(raw?.Dados)) {
+        return {
+          success: true,
+          data: {
+            resumoDiario: {
+              Funcionarios: Array.isArray(raw?.Funcionarios) ? raw.Funcionarios : [],
+              Dados: raw.Dados,
+            },
+          },
+        };
+      }
+
+      this.logger.warn(
+        '[DAILY_SUMMARY] Unexpected response shape from Secullum, returning empty payload',
+      );
+      return emptyPayload;
+    } catch (error: any) {
+      const status = error?.response?.status;
+      const msg = error?.message || 'unknown';
+      // 404 on the guessed endpoint is expected until the real path is
+      // confirmed — log at warn-level (not error) so it doesn't pollute prod
+      // logs. Other failures still return the empty payload so the widget
+      // gracefully renders.
+      if (status === 404) {
+        this.logger.warn(
+          `[DAILY_SUMMARY] Endpoint not found (404) — returning empty payload until Secullum endpoint is confirmed`,
+        );
+      } else {
+        this.logger.warn(
+          `[DAILY_SUMMARY] Failed to fetch (${status ?? 'no-status'}: ${msg}) — returning empty payload`,
+        );
+      }
+      return emptyPayload;
+    }
+  }
+
   // Get all Secullum employees
   async getEmployees(): Promise<any> {
     try {
@@ -2755,14 +2862,29 @@ export class SecullumService {
         const hasFaltas = faltasValue.length > 0 && faltasValue !== '00:00';
 
         // Fallback: every batida slot is empty/null AND no time-like value.
+        // Guard with length > 0 so we don't flag days off (no batidas, no
+        // Faltas — Secullum returns an empty array for weekends in some configs).
         const allEmpty =
           batidas.length > 0 &&
           batidas.every(b => {
             const v = (b.valor ?? '').trim();
-            return v === '' || v === null;
+            return v === '';
           });
 
-        if (!hasFaltas && !allEmpty) continue;
+        // Sentinel fallback: Secullum sometimes writes "FALTA"/"FALTA I"/"FALTA II"
+        // into a batida or valores slot instead of populating the numeric Faltas
+        // total. The unjustified-absences detector handles the same gotcha;
+        // mirroring it here keeps the two views consistent.
+        const isFaltaSentinel = (v: unknown): boolean => {
+          if (v == null) return false;
+          const s = String(v).trim().toUpperCase();
+          return s.startsWith('FALTA');
+        };
+        const hasFaltaSentinel =
+          batidas.some(b => isFaltaSentinel(b.valor) || isFaltaSentinel(b.valorOriginal)) ||
+          (day.valores ?? []).some(v => isFaltaSentinel(v.valor));
+
+        if (!hasFaltas && !allEmpty && !hasFaltaSentinel) continue;
 
         const saldoEntry = (day.valores ?? []).find(v => v.nome === 'Saldo');
         missing.push({
@@ -2916,6 +3038,172 @@ export class SecullumService {
       return {
         success: false,
         message: `Falha ao enviar solicitação: ${this.getErrorMessage(error)}`,
+      };
+    }
+  }
+
+  // POST /Solicitacoes with tipo=3 (Ajuste de Ponto / Inclusão de Batida).
+  // The employee submits the corrected batida values for the day; manager
+  // approval handles the rest. Payload mirrors the tipo=2 shape (same 24-field
+  // envelope) but with entrada/saida slots populated with HH:mm strings
+  // instead of null, and without a justificativaId or photo.
+  //
+  // Note: HAR capture for tipo=3 is still TODO; the exact field set was
+  // inferred from the tipo=2 capture (10_solicitacao_ausencia_plan.md) and
+  // the Secullum admin payload shape in createAbsence(). If Secullum rejects
+  // a field, the [{ property, message }] response surfaces it back to the
+  // form so we can iterate.
+  async createAjustePonto(
+    secullumEmployeeId: number,
+    payload: SecullumCreateAjustePontoDto,
+  ): Promise<SecullumCreateAjustePontoResponse> {
+    try {
+      const dataIso = `${payload.date}T00:00:00`;
+
+      const body = {
+        data: dataIso,
+        funcionarioId: secullumEmployeeId,
+        solicitanteId: null,
+        justificativaId: null,
+        entrada1: payload.entrada1 ?? null,
+        saida1: payload.saida1 ?? null,
+        entrada2: payload.entrada2 ?? null,
+        saida2: payload.saida2 ?? null,
+        entrada3: payload.entrada3 ?? null,
+        saida3: payload.saida3 ?? null,
+        entrada4: payload.entrada4 ?? null,
+        saida4: payload.saida4 ?? null,
+        entrada5: payload.entrada5 ?? null,
+        saida5: payload.saida5 ?? null,
+        filtro1Id: null,
+        filtro2Id: null,
+        periculosidade: null,
+        versao: null,
+        tipo: 3, // Ajuste de Ponto / Inclusão de Batida
+        observacoes: payload.observacoes ?? '',
+        dados: null,
+        foto: null,
+        temFoto: false,
+        registroPendente: false,
+        existePeriodoEncerrado: false,
+        tipoAusencia: 0,
+        dataSolicitacao: null,
+      };
+
+      this.logger.log(
+        `Creating Solicitação Ajuste de Ponto for funcionarioId=${secullumEmployeeId} date=${payload.date}`,
+      );
+
+      await this.makeAuthenticatedRequest<void>('POST', '/Solicitacoes', body);
+
+      return {
+        success: true,
+        message: 'Solicitação enviada para aprovação',
+      };
+    } catch (error: any) {
+      const errBody = error?.response?.data;
+      if (Array.isArray(errBody) && errBody.length > 0 && errBody[0]?.message) {
+        return {
+          success: false,
+          message: errBody[0].message,
+          validationErrors: errBody as Array<{
+            property: string;
+            message: string;
+            data: unknown;
+          }>,
+        };
+      }
+
+      this.logger.error('Error creating Solicitação Ajuste de Ponto', error);
+      return {
+        success: false,
+        message: `Falha ao enviar solicitação: ${this.getErrorMessage(error)}`,
+      };
+    }
+  }
+
+  // Fetch the user's batidas for a single day. Reuses /Batidas/{id}/{from}/{to}
+  // with from=to=date and returns just that day's slot values, used to
+  // pre-fill the Ajuste de Ponto form.
+  async getBatidasForDate(
+    secullumEmployeeId: number,
+    date: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data?: {
+      entrada1: string | null;
+      saida1: string | null;
+      entrada2: string | null;
+      saida2: string | null;
+      entrada3: string | null;
+      saida3: string | null;
+      entrada4: string | null;
+      saida4: string | null;
+      entrada5: string | null;
+      saida5: string | null;
+      existePeriodoEncerrado: boolean;
+    };
+  }> {
+    try {
+      const endpoint = `/Batidas/${secullumEmployeeId}/${date}/${date}`;
+      const raw = await this.makeAuthenticatedRequest<{
+        lista?: Array<{
+          data: string;
+          batidas?: Array<{ nome: string; valor: string | null; valorOriginal: string | null }>;
+          existePeriodoEncerrado?: boolean;
+        }>;
+      }>('GET', endpoint);
+
+      const day = (raw?.lista ?? []).find(d => String(d.data).slice(0, 10) === date);
+      const slots: Record<string, string | null> = {
+        entrada1: null, saida1: null,
+        entrada2: null, saida2: null,
+        entrada3: null, saida3: null,
+        entrada4: null, saida4: null,
+        entrada5: null, saida5: null,
+      };
+
+      for (const b of day?.batidas ?? []) {
+        const m = (b.nome ?? '').match(/^\s*(Entrada|Sa[ií]da)\s*(\d+)\s*$/i);
+        if (!m) continue;
+        const kind = m[1].toLowerCase().startsWith('e') ? 'entrada' : 'saida';
+        const slot = m[2];
+        const key = `${kind}${slot}`;
+        if (key in slots) {
+          const value = (b.valor ?? '').trim();
+          // Skip non-time markers ("Feriado", "FOLGA", "FALTA") — only keep HH:mm.
+          if (/^\d{1,2}:\d{2}$/.test(value)) {
+            slots[key] = value;
+          }
+        }
+      }
+
+      return {
+        success: true,
+        message: 'Batidas carregadas',
+        data: {
+          entrada1: slots.entrada1,
+          saida1: slots.saida1,
+          entrada2: slots.entrada2,
+          saida2: slots.saida2,
+          entrada3: slots.entrada3,
+          saida3: slots.saida3,
+          entrada4: slots.entrada4,
+          saida4: slots.saida4,
+          entrada5: slots.entrada5,
+          saida5: slots.saida5,
+          existePeriodoEncerrado: !!day?.existePeriodoEncerrado,
+        },
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error fetching batidas for ${secullumEmployeeId} ${date}`,
+        error,
+      );
+      return {
+        success: false,
+        message: `Falha ao carregar batidas: ${this.getErrorMessage(error)}`,
       };
     }
   }

@@ -202,6 +202,52 @@ export class SecullumController {
   }
 
   /**
+   * Today's attendance summary (resumoDiario) — powers the "Ponto do Dia"
+   * dashboard widget on web + mobile. Returns counts grouped by category
+   * (Presentes / Atrasos / Faltas / Em Horário, etc.).
+   *
+   * The widget consumes `response.data.resumoDiario.Dados[]`, so the
+   * service-layer payload must always contain `resumoDiario.Dados[]` even
+   * when the upstream Secullum endpoint is unavailable (the service returns
+   * an empty payload in that case rather than 404'ing the widget).
+   *
+   * GET /integrations/secullum/attendance/daily-summary
+   */
+  @Get('attendance/daily-summary')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  @HttpCode(HttpStatus.OK)
+  async getDailySummary(@UserId() userId: string): Promise<{
+    success: boolean;
+    message?: string;
+    data: {
+      resumoDiario: {
+        Funcionarios: Array<{
+          Id: number;
+          Nome: string;
+          NumeroFolha?: string;
+          Celular?: string;
+        }>;
+        Dados: Array<{
+          Titulo: string;
+          FuncionariosIds: number[];
+          Atual: number;
+          Total: number;
+          ExibirProgressBar: boolean;
+          Tipo?: number;
+        }>;
+      };
+    };
+  }> {
+    this.logger.log(`User ${userId} fetching Secullum daily attendance summary`);
+    return await this.secullumService.getDailySummary();
+  }
+
+  /**
    * Update a time entry in Secullum
    * PUT /integrations/secullum/time-entries/:id
    */

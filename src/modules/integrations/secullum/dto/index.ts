@@ -547,6 +547,32 @@ export interface SecullumCreateJustifyAbsenceDto {
   photoBase64?: string;
 }
 
+// Employee self-service payload for "Ajustar Ponto" (Solicitação de Ajuste/
+// Inclusão de Batida — Secullum tipo=3). The employee submits the corrected
+// batida values for the day; manager approval queue handles the rest.
+//
+// Times are 24h "HH:mm" strings. A null/missing value clears that slot.
+export interface SecullumCreateAjustePontoDto {
+  date: string; // YYYY-MM-DD
+  entrada1?: string | null;
+  saida1?: string | null;
+  entrada2?: string | null;
+  saida2?: string | null;
+  entrada3?: string | null;
+  saida3?: string | null;
+  entrada4?: string | null;
+  saida4?: string | null;
+  entrada5?: string | null;
+  saida5?: string | null;
+  observacoes?: string;
+}
+
+export interface SecullumCreateAjustePontoResponse {
+  success: boolean;
+  message: string;
+  validationErrors?: Array<{ property: string; message: string; data: unknown }>;
+}
+
 export interface SecullumCreateJustifyAbsenceResponse {
   success: boolean;
   message: string;
