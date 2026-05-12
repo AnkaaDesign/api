@@ -737,6 +737,10 @@ export interface SecullumApproveRequestPayload {
   // Either alias is accepted; the request's `Tipo` field maps to `TipoSolicitacao` on the wire.
   TipoSolicitacao?: number;
   Tipo?: number;
+  // Optional: used server-side to invalidate the per-day Batidas Redis cache so
+  // the day view reflects the approved change without waiting for TTL expiry.
+  FuncionarioId?: number;
+  Data?: string; // ISO datetime string, e.g. "2026-05-08T00:00:00"
 }
 
 // Payload accepted by POST /integrations/secullum/requests/:id/reject

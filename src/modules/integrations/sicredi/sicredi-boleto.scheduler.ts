@@ -65,13 +65,22 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     this.logger.log(`[WEBHOOK_CONTRACT] Checking webhook contract (expected URL: ${expectedUrl})`);
 
     try {
-      const contracts = await this.sicrediService.queryWebhookContracts();
+      const contractsRaw = await this.sicrediService.queryWebhookContracts();
+
+      // Sicredi may return an array directly OR wrap it in { contratos:[...] } / { items:[...] }
+      const contracts: any[] = Array.isArray(contractsRaw)
+        ? contractsRaw
+        : Array.isArray(contractsRaw?.contratos)
+          ? contractsRaw.contratos
+          : Array.isArray(contractsRaw?.items)
+            ? contractsRaw.items
+            : [];
 
       this.logger.log(
-        `[WEBHOOK_CONTRACT] Found ${Array.isArray(contracts) ? contracts.length : 0} existing contract(s)`,
+        `[WEBHOOK_CONTRACT] Found ${contracts.length} existing contract(s)`,
       );
 
-      if (Array.isArray(contracts) && contracts.length > 0) {
+      if (contracts.length > 0) {
         // Look for a contract with the correct URL and ATIVO status
         const activeMatch = contracts.find(
           (c: any) =>
@@ -193,17 +202,14 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
       // Find installments that are PENDING, due within 5 days,
       // and either have no BankSlip or have a BankSlip with ERROR/CREATING status (< 3 retries).
-      // Exclude:
-      //   - customer configs with a custom payment text (PIX/transfer — no boleto)
-      //   - customer configs where generateBankSlip = false (boleto was intentionally skipped;
-      //     independent of generateInvoice/NFSe — a config may emit NFSe without boletos)
+      // Exclude customer configs where generateBankSlip = false (customer pays via transfer/PIX).
+      // customPaymentText is a display-only label and does NOT affect boleto creation.
       const installments = await this.prisma.installment.findMany({
         where: {
           status: INSTALLMENT_STATUS.PENDING,
           dueDate: { lte: fiveDaysFromNow },
           customerConfig: {
             generateBankSlip: { not: false },
-            OR: [{ customPaymentText: null }, { customPaymentText: '' }],
           },
           OR: [
             { bankSlip: { is: null } },
@@ -760,40 +766,115 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     timeZone: 'America/Sao_Paulo',
   })
   async reconcileBoletos(): Promise<void> {
-    if (this.isProcessingReconciliation) {
-      this.logger.warn('Boleto reconciliation already in progress, skipping');
-      return;
-    }
-
     if (process.env.NODE_ENV !== 'production') {
       this.logger.log('[BOLETO_RECONCILE] Skipping boleto reconciliation in dev mode');
       return;
     }
 
+    // Check the last 14 days — covers API downtime up to 2 weeks and weekend gaps.
+    // Previously 3 days, which was insufficient when the API restarted after extended downtime.
+    const toDate = new Date();
+    toDate.setDate(toDate.getDate() - 1); // Yesterday (payments settle overnight)
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - 14);
+
+    try {
+      const result = await this.runReconciliationForRange(fromDate, toDate, '[BOLETO_RECONCILE]');
+      this.logger.log(
+        `[BOLETO_RECONCILE] Scheduled reconciliation completed. Reconciled: ${result.reconciled}/${result.total} across ${result.datesChecked.length} days`,
+      );
+    } catch (error) {
+      if ((error as Error).message === 'Reconciliation already in progress') {
+        this.logger.warn('[BOLETO_RECONCILE] Skipping: another reconciliation is already running');
+      } else {
+        this.logger.error('[BOLETO_RECONCILE] Error during boleto reconciliation job:', error);
+      }
+    }
+  }
+
+  /**
+   * Manually trigger boleto reconciliation for an explicit date range.
+   * Called from the admin API endpoint — safe to run concurrently with retries
+   * because it shares the same in-progress guard as the scheduled job.
+   *
+   * @param fromDate Start of range (inclusive). Defaults to 14 days ago.
+   * @param toDate   End of range (inclusive). Defaults to yesterday.
+   */
+  async triggerManualReconciliation(
+    fromDate?: Date,
+    toDate?: Date,
+  ): Promise<{ reconciled: number; total: number; datesChecked: string[] }> {
+    const end = toDate ?? (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d; })();
+    const start = fromDate ?? (() => { const d = new Date(); d.setDate(d.getDate() - 14); return d; })();
+
+    this.logger.log(
+      `[RECONCILE_MANUAL] Triggered for range ${start.toISOString().split('T')[0]} → ${end.toISOString().split('T')[0]}`,
+    );
+
+    return this.runReconciliationForRange(start, end, '[RECONCILE_MANUAL]');
+  }
+
+  /**
+   * Core reconciliation logic shared by the scheduled job and manual trigger.
+   * Iterates day-by-day over the given range, queries Sicredi for paid boletos,
+   * and updates local records. Guarded by isProcessingReconciliation to prevent
+   * concurrent runs (scheduled + manual cannot overlap).
+   */
+  /**
+   * Parse Sicredi date strings from the reconciliation API.
+   * Handles both dd/MM/yyyy (returned by /liquidados/dia) and ISO 8601.
+   * Returns null if the value cannot be parsed.
+   */
+  private parseSicrediDate(value: string | null | undefined): Date | null {
+    if (!value) return null;
+    // dd/MM/yyyy — used by some Sicredi endpoints
+    const ddmmyyyy = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (ddmmyyyy) {
+      const [, dd, mm, yyyy] = ddmmyyyy;
+      return new Date(`${yyyy}-${mm}-${dd}T00:00:00-03:00`);
+    }
+    // "yyyy-MM-dd HH:mm:ss" — used by /liquidados/dia (space-separated, no T/Z)
+    const spaceTs = value.match(/^(\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}$/);
+    if (spaceTs) {
+      return new Date(`${spaceTs[1]}T00:00:00-03:00`);
+    }
+    // ISO 8601 or any other parseable format
+    const parsed = new Date(value);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private async runReconciliationForRange(
+    fromDate: Date,
+    toDate: Date,
+    logPrefix: string,
+  ): Promise<{ reconciled: number; total: number; datesChecked: string[] }> {
+    if (this.isProcessingReconciliation) {
+      throw new Error('Reconciliation already in progress');
+    }
+
     this.isProcessingReconciliation = true;
 
     try {
-      this.logger.log('[BOLETO_RECONCILE] Starting boleto reconciliation job...');
+      this.logger.log(`${logPrefix} Starting reconciliation...`);
 
-      // Check the last 3 days to handle weekends and missed job runs
-      const daysToCheck = 3;
       const seenNossoNumeros = new Set<string>();
-      const paidBoletos: Array<{
-        nossoNumero: string;
-        valorLiquidacao: number;
-        dataLiquidacao: string;
-        [key: string]: any;
-      }> = [];
+      const paidBoletos: Array<import('./dto').PaidBoletoDto> = [];
+      const datesChecked: string[] = [];
 
-      for (let daysAgo = 1; daysAgo <= daysToCheck; daysAgo++) {
-        const checkDate = new Date();
-        checkDate.setDate(checkDate.getDate() - daysAgo);
-        const formattedDate = `${String(checkDate.getDate()).padStart(2, '0')}/${String(checkDate.getMonth() + 1).padStart(2, '0')}/${checkDate.getFullYear()}`;
+      // Walk day-by-day from fromDate to toDate (inclusive)
+      const current = new Date(fromDate);
+      current.setHours(0, 0, 0, 0);
+      const end = new Date(toDate);
+      end.setHours(23, 59, 59, 999);
+
+      while (current <= end) {
+        const formattedDate = `${String(current.getDate()).padStart(2, '0')}/${String(current.getMonth() + 1).padStart(2, '0')}/${current.getFullYear()}`;
+        datesChecked.push(formattedDate);
 
         try {
           const dailyPaid = await this.sicrediService.queryPaidBoletos(formattedDate);
           this.logger.log(
-            `[BOLETO_RECONCILE] Found ${dailyPaid.length} paid boleto(s) from ${formattedDate}`,
+            `${logPrefix} Found ${dailyPaid.length} paid boleto(s) from ${formattedDate}`,
           );
 
           for (const boleto of dailyPaid) {
@@ -804,46 +885,61 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           }
         } catch (dayError) {
           this.logger.error(
-            `[BOLETO_RECONCILE] Failed to query paid boletos for ${formattedDate}: ${dayError}`,
+            `${logPrefix} Failed to query paid boletos for ${formattedDate}: ${dayError}`,
           );
-          // Continue to next day — don't let one failure stop the entire reconciliation
+          // Continue to next day — one day's API failure must not abort the entire range
         }
+
+        current.setDate(current.getDate() + 1);
       }
 
       this.logger.log(
-        `[BOLETO_RECONCILE] Total unique paid boletos across last ${daysToCheck} days: ${paidBoletos.length}`,
+        `${logPrefix} Total unique paid boletos across ${datesChecked.length} day(s): ${paidBoletos.length}`,
       );
 
       let reconciled = 0;
 
       for (const paidBoleto of paidBoletos) {
         try {
-          // Find our BankSlip by nossoNumero
           const bankSlip = await this.prisma.bankSlip.findUnique({
             where: { nossoNumero: paidBoleto.nossoNumero },
-            include: {
-              installment: {
-                include: {
-                  invoice: true,
-                },
-              },
-            },
+            include: { installment: { include: { invoice: true } } },
           });
 
           if (!bankSlip) {
             this.logger.warn(
-              `[BOLETO_RECONCILE] No BankSlip found for nossoNumero=${paidBoleto.nossoNumero}, skipping`,
+              `${logPrefix} No BankSlip found for nossoNumero=${paidBoleto.nossoNumero}, skipping`,
             );
             continue;
           }
 
-          // Skip if already marked as PAID
           if (bankSlip.status === BANK_SLIP_STATUS.PAID) {
-            this.logger.log(`[BOLETO_RECONCILE] BankSlip ${bankSlip.id} already PAID, skipping`);
+            this.logger.log(`${logPrefix} BankSlip ${bankSlip.id} already PAID, skipping`);
             continue;
           }
 
-          // Update BankSlip + Installment + Invoice atomically in a transaction
+          // Sicredi /liquidados/dia uses different field names than expected by the DTO:
+          //   Amount: valorLiquidado (actual) | valorLiquidacao | valor
+          //   Date:   dataPagamento (actual) | dataLiquidacao | dataCredito
+          const rawAmount =
+            (paidBoleto as any).valorLiquidado ??
+            paidBoleto.valorLiquidacao ??
+            (paidBoleto as any).valor;
+          const paidAmount = rawAmount != null ? Number(rawAmount) : undefined;
+          const rawDate =
+            (paidBoleto as any).dataPagamento ??
+            paidBoleto.dataLiquidacao ??
+            (paidBoleto as any).dataCredito;
+          const paidAt = this.parseSicrediDate(rawDate);
+
+          if (!paidAt) {
+            this.logger.warn(
+              `${logPrefix} Cannot parse paidAt for nossoNumero=${paidBoleto.nossoNumero} ` +
+              `(dataLiquidacao=${paidBoleto.dataLiquidacao}, raw=${JSON.stringify(paidBoleto)}), skipping`,
+            );
+            continue;
+          }
+
           const invoiceId = bankSlip.installment?.invoice?.id;
 
           await this.prisma.$transaction(async tx => {
@@ -851,8 +947,8 @@ export class SicrediBoletoScheduler implements OnModuleInit {
               where: { id: bankSlip.id },
               data: {
                 status: BANK_SLIP_STATUS.PAID,
-                paidAmount: paidBoleto.valorLiquidacao,
-                paidAt: new Date(paidBoleto.dataLiquidacao),
+                ...(paidAmount != null && { paidAmount }),
+                paidAt,
                 lastSyncAt: new Date(),
               },
             });
@@ -862,8 +958,8 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                 where: { id: bankSlip.installment.id },
                 data: {
                   status: INSTALLMENT_STATUS.PAID,
-                  paidAmount: paidBoleto.valorLiquidacao,
-                  paidAt: new Date(paidBoleto.dataLiquidacao),
+                  ...(paidAmount != null && { paidAmount }),
+                  paidAt,
                   paymentMethod: 'BANK_SLIP',
                 },
               });
@@ -874,35 +970,33 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             }
           });
 
-          // Cascade TaskQuote status (outside transaction — reads fresh data)
           if (invoiceId) {
             await this.cascadeService.cascadeFromInvoice(invoiceId);
           }
 
-          // Dispatch bank_slip.paid notification (same as webhook path)
           await this.dispatchBankSlipPaidNotification(
             bankSlip.id,
             invoiceId,
-            paidBoleto.valorLiquidacao,
+            paidAmount ?? 0,
             bankSlip.dueDate,
           );
 
           reconciled++;
           this.logger.log(
-            `[BOLETO_RECONCILE] Reconciled boleto ${paidBoleto.nossoNumero} - paid ${paidBoleto.valorLiquidacao}`,
+            `${logPrefix} Reconciled boleto ${paidBoleto.nossoNumero} - paid ${paidAmount ?? 'N/A'} on ${paidAt.toISOString()}`,
           );
         } catch (error) {
           this.logger.error(
-            `[BOLETO_RECONCILE] Failed to reconcile boleto ${paidBoleto.nossoNumero}: ${error}`,
+            `${logPrefix} Failed to reconcile boleto ${paidBoleto.nossoNumero}: ${error}`,
           );
         }
       }
 
       this.logger.log(
-        `[BOLETO_RECONCILE] Boleto reconciliation completed. Reconciled: ${reconciled}/${paidBoletos.length}`,
+        `${logPrefix} Reconciliation completed. Reconciled: ${reconciled}/${paidBoletos.length}`,
       );
-    } catch (error) {
-      this.logger.error('[BOLETO_RECONCILE] Error during boleto reconciliation job:', error);
+
+      return { reconciled, total: paidBoletos.length, datesChecked };
     } finally {
       this.isProcessingReconciliation = false;
     }
@@ -1226,6 +1320,22 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     } finally {
       this.isProcessingDueNotifications = false;
     }
+  }
+
+  // ─── Job 6: Webhook Contract Periodic Health Check ──────────────────────────
+
+  // Runs every 6 hours in São Paulo time (00:00, 06:00, 12:00, 18:00).
+  // Ensures the Sicredi webhook contract is always ATIVO so payment events are
+  // delivered even after API restarts, Sicredi-side contract expiry, or network
+  // blips that prevented the startup registration from succeeding.
+  @Cron('0 */6 * * *', {
+    name: 'sicredi-webhook-contract-health',
+    timeZone: 'America/Sao_Paulo',
+  })
+  async periodicWebhookContractHealthCheck(): Promise<void> {
+    if (process.env.NODE_ENV !== 'production') return;
+    this.logger.log('[WEBHOOK_CONTRACT] Periodic health check (every 6h)...');
+    await this.ensureWebhookContract();
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────────────

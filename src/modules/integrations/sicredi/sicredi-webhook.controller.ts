@@ -10,6 +10,7 @@ import {
   Req,
   UnauthorizedException,
   InternalServerErrorException,
+  ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
@@ -18,6 +19,7 @@ import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '@constants';
 import { SicrediWebhookService } from './sicredi-webhook.service';
 import { SicrediService } from './sicredi.service';
+import { SicrediBoletoScheduler } from './sicredi-boleto.scheduler';
 import { WebhookEventDto } from './dto';
 
 @Controller('webhooks/sicredi')
@@ -27,6 +29,7 @@ export class SicrediWebhookController {
   constructor(
     private readonly webhookService: SicrediWebhookService,
     private readonly sicrediService: SicrediService,
+    private readonly boletoScheduler: SicrediBoletoScheduler,
     private readonly configService: ConfigService,
   ) {}
 
@@ -104,6 +107,33 @@ export class SicrediWebhookController {
     ) {
       this.logger.warn('Sicredi webhook signature mismatch');
       throw new UnauthorizedException('Invalid webhook signature');
+    }
+  }
+
+  /**
+   * POST /webhooks/sicredi/reconcile
+   * Manually trigger boleto reconciliation for a date range.
+   * Useful after API downtime to catch payments that were missed by the daily scheduler.
+   * Defaults to the last 14 days when no range is supplied.
+   */
+  @Post('reconcile')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  async triggerReconciliation(
+    @Body() body: { fromDate?: string; toDate?: string },
+  ): Promise<{ reconciled: number; total: number; datesChecked: string[] }> {
+    this.logger.log(
+      `[RECONCILE_API] Manual reconciliation triggered: fromDate=${body.fromDate ?? 'default'}, toDate=${body.toDate ?? 'default'}`,
+    );
+
+    try {
+      const fromDate = body.fromDate ? new Date(body.fromDate) : undefined;
+      const toDate = body.toDate ? new Date(body.toDate) : undefined;
+      return await this.boletoScheduler.triggerManualReconciliation(fromDate, toDate);
+    } catch (error) {
+      if ((error as Error).message === 'Reconciliation already in progress') {
+        throw new ConflictException('Reconciliation is already running. Please wait and try again.');
+      }
+      throw error;
     }
   }
 

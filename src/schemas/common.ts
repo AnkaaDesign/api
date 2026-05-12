@@ -43,7 +43,7 @@ export const dateRangeSchema = z
     },
   );
 
-export const nullableDate = z.coerce.date().nullable();
+export const nullableDate = z.preprocess(val => (val === '' ? null : val), z.coerce.date().nullable());
 export const optionalDate = z.coerce.date().optional();
 export const requiredDate = z.coerce.date({
   required_error: 'Data é obrigatória',

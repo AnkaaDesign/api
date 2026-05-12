@@ -2696,6 +2696,15 @@ export class SecullumService {
 
       this.logger.log(`Successfully approved request ID: ${requestData.SolicitacaoId}`);
 
+      // Invalidate the per-day Batidas cache so the day view immediately
+      // shows the approved punch without waiting for the 24h TTL to expire.
+      if (requestData.FuncionarioId && requestData.Data) {
+        const ymd = String(requestData.Data).slice(0, 10);
+        const cacheKey = `secullum:batidas:${requestData.FuncionarioId}:${ymd}`;
+        await this.cacheService.del(cacheKey).catch(() => {});
+        this.logger.debug(`Invalidated Batidas cache: ${cacheKey}`);
+      }
+
       return {
         success: true,
         message: `Solicitação ${requestData.SolicitacaoId} aprovada com sucesso`,

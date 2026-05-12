@@ -22,14 +22,20 @@ export class BoletoQueryDto {
 
 export class PaidBoletoDto {
   nossoNumero: string;
-  valorLiquidacao: number;
-  dataLiquidacao: string;
-  dataCredito: string;
+  seuNumero?: string;
+  // Sicredi /liquidados/dia actual field names (differ from webhook payload):
+  dataPagamento?: string;   // "yyyy-MM-dd HH:mm:ss" — primary date field
+  valorLiquidado?: number;  // primary amount field
+  valor?: number;           // fallback amount
+  // Legacy / alternate field names kept for compatibility:
+  dataLiquidacao?: string;
+  dataCredito?: string;
+  valorLiquidacao?: number;
   valorDesconto?: number;
   valorJuros?: number;
   valorMulta?: number;
   valorAbatimento?: number;
-  seuNumero?: string;
+  [key: string]: any;
 }
 
 export class PaidBoletosResponseDto {
