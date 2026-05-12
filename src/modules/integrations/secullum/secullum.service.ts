@@ -49,6 +49,8 @@ import {
   SecullumAssinaturaListResponse,
   SecullumAssinaturaDetail,
   SecullumAssinaturaDetailResponse,
+  SecullumAbsenceDayRow,
+  SecullumAbsenceDaysResponse,
 } from './dto';
 
 @Injectable()
@@ -3358,6 +3360,270 @@ export class SecullumService {
         success: false,
         message: `Falha ao carregar batidas: ${this.getErrorMessage(error)}`,
       };
+    }
+  }
+
+  // === Per-day absence rows (derived from /Calculos + /FuncionariosAfastamentos) ===
+  // Returns one row per calendar day per user that has either:
+  //   - Faltas > 0 in the /Calculos response (full OR partial day), or
+  //   - A matching /FuncionariosAfastamentos record (e.g. Férias with Abono = Faltas=0 but still absent)
+  // Cross-references the two sources: if both agree on a day, the afastamento's
+  // JustificativaId wins (it's an explicit justification). Partial days (employee
+  // clocked in but still has Faltas) are included with isPartialDay=true.
+  async getAbsenceDays(params: {
+    startDate: string;
+    endDate: string;
+    sectorId?: string;
+  }): Promise<SecullumAbsenceDaysResponse> {
+    try {
+      const where: any = { isActive: true, secullumEmployeeId: { not: null } };
+      if (params.sectorId) where.sectorId = params.sectorId;
+
+      const linkedUsers = await this.prismaService.user.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          sectorId: true,
+          secullumEmployeeId: true,
+          sector: { select: { id: true, name: true } },
+        },
+      });
+
+      if (linkedUsers.length === 0) {
+        return { success: true, message: 'No Secullum-linked Ankaa users found', data: [] };
+      }
+
+      const parseDurationMinutes = (v: unknown): number | null => {
+        if (v == null) return null;
+        const s = String(v).trim();
+        if (!s) return null;
+        const m = s.match(/^(-?)(\d+):(\d{2})(?::\d{2})?$/);
+        if (!m) return null;
+        const sign = m[1] === '-' ? -1 : 1;
+        return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10));
+      };
+
+      const isPositiveDuration = (v: unknown): boolean => {
+        const min = parseDurationMinutes(v);
+        return min != null && min > 0;
+      };
+
+      const isFaltaSentinel = (v: unknown): boolean => {
+        if (v == null) return false;
+        return String(v).trim().toUpperCase().startsWith('FALTA');
+      };
+
+      const fmtDuration = (v: unknown): string | null => {
+        if (v == null) return null;
+        const s = String(v).trim();
+        return s.includes(':') ? s : null;
+      };
+
+      // Expand an afastamento date range to individual YYYY-MM-DD strings
+      // clipped to the requested period.
+      const expandDateRange = (inicio: string, fim: string): string[] => {
+        const result: string[] = [];
+        const cur = new Date(inicio.substring(0, 10) + 'T12:00:00Z');
+        const end = new Date(fim.substring(0, 10) + 'T12:00:00Z');
+        while (cur <= end) {
+          const d = cur.toISOString().substring(0, 10);
+          if (d >= params.startDate && d <= params.endDate) result.push(d);
+          cur.setUTCDate(cur.getUTCDate() + 1);
+        }
+        return result;
+      };
+
+      const allRows: SecullumAbsenceDayRow[] = [];
+
+      const settled = await Promise.allSettled(
+        linkedUsers.map(async (u) => {
+          const empId = u.secullumEmployeeId!;
+          const rows: SecullumAbsenceDayRow[] = [];
+
+          // 1. Fetch calculations
+          let calcsRaw: any = null;
+          try {
+            calcsRaw = await this.makeAuthenticatedRequest<any>(
+              'GET',
+              `/Calculos/${empId}/${params.startDate}/${params.endDate}`,
+              undefined,
+              undefined,
+              { secullumbancoselecionado: this.databaseId || '4c8681f2e79a4b7ab58cc94503106736' },
+            );
+          } catch (err) {
+            this.logger.warn(
+              `AbsenceDays: /Calculos failed for ${u.name} (${empId}): ${this.getErrorMessage(err)}`,
+            );
+          }
+
+          // 2. Fetch afastamentos for the user, filter to overlapping period
+          const afastamentosMap = new Map<string, SecullumAbsence>();
+          try {
+            const absRes = await this.getAbsencesByEmployee(empId);
+            if (absRes.success && absRes.data) {
+              for (const a of absRes.data) {
+                if (a.Fim.substring(0, 10) >= params.startDate && a.Inicio.substring(0, 10) <= params.endDate) {
+                  for (const d of expandDateRange(a.Inicio, a.Fim)) {
+                    afastamentosMap.set(d, a);
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            this.logger.warn(
+              `AbsenceDays: /FuncionariosAfastamentos failed for ${u.name} (${empId}): ${this.getErrorMessage(err)}`,
+            );
+          }
+
+          // 3. Parse calculation rows for days with Faltas > 0 (including partial days)
+          const calDatesWithFaltas = new Map<
+            string,
+            { faltas: string | null; normais: string | null; carga: string | null; isPartialDay: boolean }
+          >();
+
+          if (calcsRaw) {
+            const colunas: Array<{ Nome?: string; NomeExibicao?: string }> = Array.isArray(calcsRaw?.Colunas) ? calcsRaw.Colunas : [];
+            const linhas: any[][] = Array.isArray(calcsRaw?.Linhas) ? calcsRaw.Linhas : [];
+
+            const findColIdx = (...terms: string[]): number => {
+              const lcTerms = terms.map((t) => t.toLowerCase());
+              for (let i = 0; i < colunas.length; i++) {
+                const c = colunas[i] || {};
+                const nome = (c.Nome ?? '').toLowerCase();
+                const nomeEx = (c.NomeExibicao ?? '').toLowerCase();
+                if (lcTerms.some((t) => nome === t || nomeEx === t)) return i;
+              }
+              for (let i = 0; i < colunas.length; i++) {
+                const c = colunas[i] || {};
+                const nome = (c.Nome ?? '').toLowerCase();
+                const nomeEx = (c.NomeExibicao ?? '').toLowerCase();
+                if (lcTerms.some((t) => nome.includes(t) || nomeEx.includes(t))) return i;
+              }
+              return -1;
+            };
+
+            const dataIdx = findColIdx('data', 'dia');
+            const faltasIdx = findColIdx('faltas', 'falta');
+            const cargaIdx = findColIdx('carga');
+            const normaisIdx = findColIdx('normais', 'horas normais', 'horas trabalhadas');
+            const entradaIdxs: number[] = [];
+            for (let i = 0; i < colunas.length; i++) {
+              const c = colunas[i] || {};
+              const n = `${c.Nome ?? ''}|${c.NomeExibicao ?? ''}`.toLowerCase();
+              if (/^(?:.*\|)?(entrada|saída|saida)\s*\d+(?:\|.*)?$/.test(n)) entradaIdxs.push(i);
+            }
+
+            for (const row of linhas) {
+              const dateStr = dataIdx >= 0 ? row[dataIdx] : row[0];
+              if (!dateStr) continue;
+              const dateRaw = String(dateStr).trim();
+              let yy: number, mm: number, dd: number;
+              const brMatch = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(dateRaw);
+              const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateRaw);
+              if (brMatch) { dd = parseInt(brMatch[1], 10); mm = parseInt(brMatch[2], 10); yy = parseInt(brMatch[3], 10); }
+              else if (isoMatch) { yy = parseInt(isoMatch[1], 10); mm = parseInt(isoMatch[2], 10); dd = parseInt(isoMatch[3], 10); }
+              else continue;
+              if (!yy || !mm || !dd) continue;
+              const datePart = `${yy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+
+              const faltasMin = faltasIdx >= 0 ? parseDurationMinutes(row[faltasIdx]) : null;
+              const cargaMin = cargaIdx >= 0 ? parseDurationMinutes(row[cargaIdx]) : null;
+              const normaisMin = normaisIdx >= 0 ? parseDurationMinutes(row[normaisIdx]) : null;
+
+              const hasPositiveFaltas = faltasMin != null && faltasMin > 0;
+              const hasDerivedShortfall = cargaMin != null && cargaMin > 0 && (normaisMin == null || normaisMin < cargaMin);
+              const hasFaltaSentinel = entradaIdxs.some((i) => isFaltaSentinel(row[i]));
+
+              if (!hasPositiveFaltas && !hasDerivedShortfall && !hasFaltaSentinel) continue;
+              // Non-working days (folga/holiday/DSR) have Carga=0 and no faltas
+              if (cargaMin != null && cargaMin === 0 && !hasPositiveFaltas && !hasFaltaSentinel) continue;
+
+              const hasAnyEntry = entradaIdxs.some((i) => isPositiveDuration(row[i]));
+
+              calDatesWithFaltas.set(datePart, {
+                faltas: faltasIdx >= 0 ? fmtDuration(row[faltasIdx]) : null,
+                normais: normaisIdx >= 0 ? fmtDuration(row[normaisIdx]) : null,
+                carga: cargaIdx >= 0 ? fmtDuration(row[cargaIdx]) : null,
+                // isPartialDay: clocked in but still has faltas (Alex Junior case)
+                isPartialDay: hasAnyEntry && hasPositiveFaltas,
+              });
+            }
+          }
+
+          // 4. Build union: calculations absence days + afastamento-only days
+          const processedDates = new Set<string>();
+
+          for (const [datePart, calData] of calDatesWithFaltas) {
+            processedDates.add(datePart);
+            const afastamento = afastamentosMap.get(datePart);
+            rows.push({
+              date: datePart,
+              userId: u.id,
+              userName: u.name,
+              sectorId: u.sectorId ?? null,
+              sectorName: u.sector?.name ?? null,
+              FuncionarioId: empId,
+              JustificativaId: afastamento?.JustificativaId ?? 3,
+              JustificativaDescricao: afastamento?.JustificativaDescricao ?? 'Falta sem Justificativa',
+              Motivo: afastamento?.Motivo ?? '',
+              faltas: calData.faltas,
+              normais: calData.normais,
+              carga: calData.carga,
+              isPartialDay: calData.isPartialDay,
+              absenceRecordId: afastamento?.Id,
+            });
+          }
+
+          // Days only in afastamentos (e.g. Férias with Abono applied = Faltas=0 in calculations)
+          for (const [datePart, afastamento] of afastamentosMap) {
+            if (processedDates.has(datePart)) continue;
+            processedDates.add(datePart);
+            rows.push({
+              date: datePart,
+              userId: u.id,
+              userName: u.name,
+              sectorId: u.sectorId ?? null,
+              sectorName: u.sector?.name ?? null,
+              FuncionarioId: empId,
+              JustificativaId: afastamento.JustificativaId,
+              JustificativaDescricao: afastamento.JustificativaDescricao ?? '',
+              Motivo: afastamento.Motivo ?? '',
+              faltas: null,
+              normais: null,
+              carga: null,
+              isPartialDay: false,
+              absenceRecordId: afastamento.Id,
+            });
+          }
+
+          return rows;
+        }),
+      );
+
+      settled.forEach((r) => {
+        if (r.status === 'fulfilled') allRows.push(...r.value);
+      });
+
+      allRows.sort((a, b) => {
+        if (a.date !== b.date) return b.date.localeCompare(a.date);
+        return a.userName.localeCompare(b.userName);
+      });
+
+      return {
+        success: true,
+        message: `Found ${allRows.length} absence day(s) across ${linkedUsers.length} employees`,
+        data: allRows,
+      };
+    } catch (error) {
+      this.logger.error('Error fetching absence days', error);
+      throw new HttpException(
+        {
+          success: false,
+          message: `Falha ao calcular dias de ausência: ${this.getErrorMessage(error)}`,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }
