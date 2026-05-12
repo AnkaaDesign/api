@@ -742,7 +742,6 @@ export class TaskAnalyticsService {
     const completedTasks = await this.prisma.task.findMany({
       where: {
         status: TASK_STATUS.COMPLETED,
-        cleared: false,
         finishedAt: { gte: dateRange.start, lte: dateRange.end },
         ...(sectorIds?.length ? { sectorId: { in: sectorIds } } : {}),
       },

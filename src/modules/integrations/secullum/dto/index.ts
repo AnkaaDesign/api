@@ -881,3 +881,30 @@ export interface SecullumAssinaturaDetailResponse {
   message: string;
   data?: SecullumAssinaturaDetail;
 }
+
+// Per-day absence row derived from /Calculos (calculations) cross-referenced
+// with /FuncionariosAfastamentos. Unlike the aggregated-absence endpoint which
+// returns date-range records, this returns one entry per calendar day per user
+// so the Ausências overview table can show precise partial-day faltas.
+export interface SecullumAbsenceDayRow {
+  date: string; // YYYY-MM-DD
+  userId: string;
+  userName: string;
+  sectorId: string | null;
+  sectorName: string | null;
+  FuncionarioId: number;
+  JustificativaId: number;
+  JustificativaDescricao: string;
+  Motivo: string;
+  faltas: string | null; // "HH:MM" from Faltas column, null when day is from afastamento only
+  normais: string | null; // "HH:MM" from Normais column
+  carga: string | null; // "HH:MM" from Carga column
+  isPartialDay: boolean; // true when employee clocked some time but still has Faltas
+  absenceRecordId?: number; // afastamento Id if the day was matched to an afastamento
+}
+
+export interface SecullumAbsenceDaysResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumAbsenceDayRow[];
+}

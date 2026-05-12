@@ -54,6 +54,7 @@ import {
   SecullumCreateAbsenceForUsersResponse,
   SecullumAssinaturaListResponse,
   SecullumAssinaturaDetailResponse,
+  SecullumAbsenceDaysResponse,
 } from './dto';
 
 @Controller('integrations/secullum')
@@ -506,6 +507,32 @@ export class SecullumController {
     this.logger.log(`User ${userId} deleting holiday ${holidayId} in Secullum`);
 
     return await this.secullumService.deleteHoliday(holidayId);
+  }
+
+  /**
+   * Per-day absence rows derived from /Calculos + /FuncionariosAfastamentos.
+   * Returns one row per calendar day per user: days with Faltas > 0 (including
+   * partial days where the employee clocked some time) cross-referenced with
+   * afastamento records for the justificativa. Days covered by an afastamento
+   * but with Faltas=0 (e.g. Férias with Abono) are also included.
+   * GET /integrations/secullum/absence-days?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+   *
+   * NOTE: must be declared before any dynamic-param absence routes.
+   */
+  @Get('absence-days')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getAbsenceDays(
+    @UserId() userId: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Query('sectorId') sectorId?: string,
+  ): Promise<SecullumAbsenceDaysResponse> {
+    this.logger.log(
+      `User ${userId} fetching absence days ${startDate}..${endDate} sector=${sectorId ?? 'ALL'}`,
+    );
+    return await this.secullumService.getAbsenceDays({ startDate, endDate, sectorId });
   }
 
   /**
