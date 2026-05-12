@@ -413,6 +413,66 @@ export class PersonalService {
     });
   }
 
+  /**
+   * Returns the user's batidas for the given date, used to pre-fill the
+   * Ajustar Ponto form so the user sees their existing punches and only
+   * edits the missing/incorrect slots.
+   */
+  async getMyBatidasForDate(userId: string, date: string) {
+    if (!date) {
+      throw new BadRequestException('date is required (format: YYYY-MM-DD)');
+    }
+    const secullumEmployeeId = await this.resolveMySecullumEmployeeId(userId);
+    return this.secullumService.getBatidasForDate(secullumEmployeeId, date);
+  }
+
+  /**
+   * Submit an Ajustar Ponto (tipo=3 — Inclusão/Correção de Batida) request to
+   * Secullum's manager approval queue. The user submits the corrected batida
+   * values; only non-null slots are forwarded.
+   */
+  async createMyAjustePonto(
+    userId: string,
+    dto: {
+      date: string;
+      entrada1?: string | null;
+      saida1?: string | null;
+      entrada2?: string | null;
+      saida2?: string | null;
+      entrada3?: string | null;
+      saida3?: string | null;
+      entrada4?: string | null;
+      saida4?: string | null;
+      entrada5?: string | null;
+      saida5?: string | null;
+      observacoes?: string;
+    },
+  ) {
+    if (!dto.date) {
+      throw new BadRequestException('date is required (format: YYYY-MM-DD)');
+    }
+
+    // At least one batida slot must be provided — an empty submission is
+    // semantically a "Justificar Ausência" (tipo=2), which goes through a
+    // different endpoint.
+    const slots = [
+      dto.entrada1, dto.saida1,
+      dto.entrada2, dto.saida2,
+      dto.entrada3, dto.saida3,
+      dto.entrada4, dto.saida4,
+      dto.entrada5, dto.saida5,
+    ];
+    const hasAnyBatida = slots.some(s => typeof s === 'string' && s.trim() !== '');
+    if (!hasAnyBatida) {
+      throw new BadRequestException(
+        'Informe pelo menos uma batida para ajustar.',
+      );
+    }
+
+    const secullumEmployeeId = await this.resolveMySecullumEmployeeId(userId);
+    return this.secullumService.createAjustePonto(secullumEmployeeId, dto);
+  }
+
   // =====================
   // MY BONUSES (Meu Bônus)
   // =====================

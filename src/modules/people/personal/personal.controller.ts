@@ -415,4 +415,70 @@ export class PersonalController {
   ) {
     return this.personalService.createMyJustifyAbsence(userId, body);
   }
+
+  /**
+   * Authenticated user's existing batidas for a date — used to pre-fill the
+   * Ajustar Ponto form. Returns null slots for days without punches.
+   * GET /personal/my-batidas/:date
+   */
+  @Get('my-batidas/:date')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getMyBatidasForDate(
+    @Param('date') date: string,
+    @UserId() userId: string,
+  ) {
+    return this.personalService.getMyBatidasForDate(userId, date);
+  }
+
+  /**
+   * Submit an Ajustar Ponto (tipo=3, Inclusão/Correção de Batida) request.
+   * POST /personal/my-secullum-solicitacoes/ajuste-ponto
+   */
+  @Post('my-secullum-solicitacoes/ajuste-ponto')
+  @WriteRateLimit()
+  @HttpCode(HttpStatus.OK)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async createMyAjustePonto(
+    @Body()
+    body: {
+      date: string;
+      entrada1?: string | null;
+      saida1?: string | null;
+      entrada2?: string | null;
+      saida2?: string | null;
+      entrada3?: string | null;
+      saida3?: string | null;
+      entrada4?: string | null;
+      saida4?: string | null;
+      entrada5?: string | null;
+      saida5?: string | null;
+      observacoes?: string;
+    },
+    @UserId() userId: string,
+  ) {
+    return this.personalService.createMyAjustePonto(userId, body);
+  }
 }

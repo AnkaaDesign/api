@@ -283,6 +283,7 @@ export class PpeListener {
       const quantity = event.delivery.quantity || 1;
       const quantityLabel = quantity > 1 ? `${quantity} unidades de ` : '';
       const webUrl = `/estoque/epi/entregas/${event.delivery.id}`;
+      const mobileUrl = `ankaadesign://ppe-delivery/${event.delivery.id}`;
 
       await this.dispatchService.dispatchByConfigurationToUsers(
         'ppe.delivered',
@@ -307,7 +308,7 @@ export class PpeListener {
             quantity: event.delivery.quantity,
           },
           overrides: {
-            actionUrl: JSON.stringify({ web: webUrl, mobile: '', universalLink: '' }),
+            actionUrl: JSON.stringify({ web: webUrl, mobile: mobileUrl, universalLink: '' }),
             webUrl,
             relatedEntityType: 'PPE_DELIVERY',
             title: 'Confirme o Recebimento do EPI',
@@ -417,6 +418,7 @@ export class PpeListener {
           .slice(0, 3)
           .join(', ');
         const webUrl = `/estoque/epi/entregas/${userDeliveries[0].id}`;
+        const mobileUrl = `ankaadesign://ppe-delivery/${userDeliveries[0].id}`;
 
         await this.dispatchService.dispatchByConfigurationToUsers(
           'ppe.delivered',
@@ -437,7 +439,7 @@ export class PpeListener {
               count,
             },
             overrides: {
-              actionUrl: JSON.stringify({ web: webUrl, mobile: '', universalLink: '' }),
+              actionUrl: JSON.stringify({ web: webUrl, mobile: mobileUrl, universalLink: '' }),
               webUrl,
               relatedEntityType: 'PPE_DELIVERY',
               title: 'Confirme o Recebimento de EPI',

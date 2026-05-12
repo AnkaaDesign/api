@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
+  Preferences,
   PreferencesGetUniqueResponse,
   PreferencesGetManyResponse,
   PreferencesCreateResponse,
@@ -58,20 +59,23 @@ export class PreferencesService {
   }
 
   /**
-   * Create a new preference
+   * Create a new preference (idempotent on userId — returns existing record if one already exists)
    */
   async create(
     data: PreferencesCreateFormData,
     include?: PreferencesInclude,
   ): Promise<PreferencesCreateResponse> {
     try {
-      const preference = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // Validate unique constraints
-        await this.validateUniqueConstraints(tx, data);
+      const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        if (data.userId) {
+          const existing = await tx.preferences.findFirst({ where: { userId: data.userId } });
+          if (existing) {
+            return { preference: existing as unknown as Preferences, alreadyExisted: true };
+          }
+        }
 
         const newPreference = await this.preferencesRepository.createWithTransaction(tx, data);
 
-        // Registrar no changelog
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.PREFERENCES,
           entityId: newPreference.id,
@@ -86,17 +90,30 @@ export class PreferencesService {
           transaction: tx,
         });
 
-        return newPreference;
+        return { preference: newPreference, alreadyExisted: false };
       });
 
       return {
         success: true,
-        message: 'Preferência criada com sucesso.',
-        data: preference,
+        message: result.alreadyExisted
+          ? 'Preferência já existente recuperada.'
+          : 'Preferência criada com sucesso.',
+        data: result.preference,
       };
     } catch (error) {
-      if (error instanceof ConflictException) {
-        throw error;
+      // Race: a concurrent transaction inserted between our findFirst and create.
+      // Recover by returning the now-existing record instead of bubbling a 409.
+      if (data.userId && (error as { code?: string })?.code === 'P2002') {
+        const existing = await this.prisma.preferences.findFirst({
+          where: { userId: data.userId },
+        });
+        if (existing) {
+          return {
+            success: true,
+            message: 'Preferência já existente recuperada.',
+            data: existing as unknown as Preferences,
+          };
+        }
       }
       this.logger.error('Erro ao criar preferência:', error);
       throw new InternalServerErrorException('Erro ao criar preferência. Tente novamente.');
