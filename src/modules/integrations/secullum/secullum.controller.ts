@@ -11,6 +11,8 @@ import {
   Logger,
   HttpCode,
   HttpStatus,
+  StreamableFile,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -50,6 +52,8 @@ import {
   SecullumAggregatedAbsencesResponse,
   SecullumCreateAbsenceForUsersRequest,
   SecullumCreateAbsenceForUsersResponse,
+  SecullumAssinaturaListResponse,
+  SecullumAssinaturaDetailResponse,
 } from './dto';
 
 @Controller('integrations/secullum')
@@ -1025,5 +1029,68 @@ export class SecullumController {
     };
 
     return await this.secullumService.rejectRequest(rejectionData);
+  }
+
+  /**
+   * Electronic Signature of Time Card — list of apurações (batches).
+   * GET /integrations/secullum/assinatura-digital
+   */
+  @Get('assinatura-digital')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getAssinaturaList(
+    @UserId() userId: string,
+  ): Promise<SecullumAssinaturaListResponse> {
+    this.logger.log(`User ${userId} fetching Secullum AssinaturaDigitalCartaoPonto list`);
+    return this.secullumService.getAssinaturaList();
+  }
+
+  /**
+   * Electronic Signature of Time Card — detail (signed items per employee).
+   * GET /integrations/secullum/assinatura-digital/:id
+   */
+  @Get('assinatura-digital/:id')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getAssinaturaDetail(
+    @UserId() userId: string,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<SecullumAssinaturaDetailResponse> {
+    this.logger.log(
+      `User ${userId} fetching Secullum AssinaturaDigitalCartaoPonto detail id=${id}`,
+    );
+    return this.secullumService.getAssinaturaDetail(id);
+  }
+
+  /**
+   * Electronic Signature of Time Card — per-employee signed PDF.
+   * GET /integrations/secullum/assinatura-digital/:apuracaoId/funcionarios/:funcionarioId/pdf
+   * Returns application/pdf as an attachment.
+   *
+   * NOTE: the URL segment is the Funcionario id (the column on the item row),
+   * not the item row's own Id. Secullum keys the PDF by funcionarioId.
+   */
+  @Get('assinatura-digital/:apuracaoId/funcionarios/:funcionarioId/pdf')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getAssinaturaItemPdf(
+    @UserId() userId: string,
+    @Param('apuracaoId', ParseIntPipe) apuracaoId: number,
+    @Param('funcionarioId', ParseIntPipe) funcionarioId: number,
+  ): Promise<StreamableFile> {
+    this.logger.log(
+      `User ${userId} downloading Secullum assinatura PDF apuracao=${apuracaoId} funcionario=${funcionarioId}`,
+    );
+    const { buffer, filename } = await this.secullumService.getAssinaturaItemPdf(
+      apuracaoId,
+      funcionarioId,
+    );
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="${filename}"`,
+    });
   }
 }

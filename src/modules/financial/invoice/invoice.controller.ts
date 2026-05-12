@@ -368,10 +368,18 @@ export class InvoiceController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async markBoletoAsPaid(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
-    @Body() body: { paymentMethod: string; receiptFileId?: string },
+    @Body()
+    body: {
+      paymentMethod: string;
+      receiptFileIds?: string[];
+      observations?: string | null;
+    },
   ) {
     if (!body.paymentMethod) {
       throw new BadRequestException('Método de pagamento é obrigatório.');
+    }
+    if (body.receiptFileIds && !Array.isArray(body.receiptFileIds)) {
+      throw new BadRequestException('receiptFileIds deve ser uma lista.');
     }
 
     const installment = await this.prisma.installment.findUnique({
@@ -431,7 +439,14 @@ export class InvoiceController {
         paidAmount: installment.amount,
         paidAt: now,
         paymentMethod: body.paymentMethod,
-        receiptFileId: body.receiptFileId || null,
+        observations: body.observations ?? undefined,
+        ...(body.receiptFileIds && body.receiptFileIds.length > 0
+          ? {
+              receiptFiles: {
+                connect: body.receiptFileIds.map(id => ({ id })),
+              },
+            }
+          : {}),
       },
     });
 
@@ -518,18 +533,24 @@ export class InvoiceController {
   }
 
   /**
-   * PUT /invoices/:installmentId/receipt
-   * Attach or update a payment receipt on any paid installment.
+   * PUT /invoices/:installmentId/receipts
+   * Replace the set of payment receipts and/or update the observations text on
+   * a paid installment. Accepts the full desired list of receipt file IDs.
    */
-  @Put(':installmentId/receipt')
+  @Put(':installmentId/receipts')
   @HttpCode(HttpStatus.OK)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
-  async updateInstallmentReceipt(
+  async updateInstallmentReceipts(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
-    @Body() body: { receiptFileId: string },
+    @Body() body: { receiptFileIds?: string[]; observations?: string | null },
   ) {
-    if (!body.receiptFileId) {
-      throw new BadRequestException('ID do comprovante é obrigatório.');
+    if (body.receiptFileIds === undefined && body.observations === undefined) {
+      throw new BadRequestException(
+        'Informe receiptFileIds e/ou observations para atualizar.',
+      );
+    }
+    if (body.receiptFileIds !== undefined && !Array.isArray(body.receiptFileIds)) {
+      throw new BadRequestException('receiptFileIds deve ser uma lista.');
     }
 
     const installment = await this.prisma.installment.findUnique({
@@ -546,37 +567,47 @@ export class InvoiceController {
 
     await this.prisma.installment.update({
       where: { id: installmentId },
-      data: { receiptFileId: body.receiptFileId },
+      data: {
+        ...(body.observations !== undefined ? { observations: body.observations } : {}),
+        ...(body.receiptFileIds !== undefined
+          ? {
+              receiptFiles: {
+                set: body.receiptFileIds.map(id => ({ id })),
+              },
+            }
+          : {}),
+      },
     });
 
-    return { message: 'Comprovante atualizado com sucesso.' };
+    return { message: 'Parcela atualizada com sucesso.' };
   }
 
   /**
-   * GET /invoices/:installmentId/receipt/download
-   * Download the payment receipt file for an installment.
+   * GET /invoices/:installmentId/receipts/:fileId/download
+   * Download a single receipt file attached to an installment.
    */
-  @Get(':installmentId/receipt/download')
+  @Get(':installmentId/receipts/:fileId/download')
   @HttpCode(HttpStatus.OK)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async downloadReceipt(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
+    @Param('fileId', ParseUUIDPipe) fileId: string,
     @Res() res: Response,
   ) {
     const installment = await this.prisma.installment.findUnique({
       where: { id: installmentId },
-      include: { receiptFile: true },
+      include: { receiptFiles: { where: { id: fileId } } },
     });
 
     if (!installment) {
       throw new NotFoundException(`Parcela ${installmentId} não encontrada.`);
     }
 
-    if (!installment.receiptFile) {
-      throw new NotFoundException('Nenhum comprovante anexado a esta parcela.');
+    const file = installment.receiptFiles[0];
+    if (!file) {
+      throw new NotFoundException('Comprovante não encontrado nesta parcela.');
     }
 
-    const file = installment.receiptFile;
     const fs = await import('fs');
     const path = await import('path');
 

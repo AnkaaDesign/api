@@ -45,6 +45,10 @@ import {
   SecullumCreateJustifyAbsenceResponse,
   SecullumCreateAjustePontoDto,
   SecullumCreateAjustePontoResponse,
+  SecullumAssinaturaListItem,
+  SecullumAssinaturaListResponse,
+  SecullumAssinaturaDetail,
+  SecullumAssinaturaDetailResponse,
 } from './dto';
 
 @Injectable()
@@ -2748,6 +2752,146 @@ export class SecullumService {
         message: `Falha ao rejeitar solicitação: ${this.getErrorMessage(error)}`,
         error: error.message,
       };
+    }
+  }
+
+  // =====================
+  // ASSINATURA DIGITAL DE CARTÃO PONTO (Electronic Signature of Time Card)
+  // =====================
+  // Read-only endpoints captured via HAR (assinatura-digital-cartao-ponto.har):
+  //   GET /AssinaturaDigitalCartaoPonto          → list of apurações (batches)
+  //   GET /AssinaturaDigitalCartaoPonto/:id      → { ListaItensAssinatura: [...] }
+  //   GET /AssinaturaDigitalCartaoPonto/:apuracaoId/:itemId → application/pdf
+  //
+  // Status codes on each item:
+  //   1 = Aprovado (Accept)   2 = Rejeitado (Reject)
+  // Resposta is non-null only when employee left a comment (usually on reject).
+
+  async getAssinaturaList(): Promise<SecullumAssinaturaListResponse> {
+    try {
+      this.logger.log('Fetching Secullum AssinaturaDigitalCartaoPonto list');
+      const response = await this.makeAuthenticatedRequest<SecullumAssinaturaListItem[]>(
+        'GET',
+        '/AssinaturaDigitalCartaoPonto',
+      );
+      return {
+        success: true,
+        message: 'Apurações de assinatura digital obtidas com sucesso',
+        data: response || [],
+      };
+    } catch (error) {
+      this.logger.error('Error fetching assinatura list from Secullum', error);
+      return {
+        success: false,
+        message: this.getErrorMessage(error),
+        data: [],
+      };
+    }
+  }
+
+  async getAssinaturaDetail(apuracaoId: number): Promise<SecullumAssinaturaDetailResponse> {
+    try {
+      this.logger.log(`Fetching Secullum AssinaturaDigitalCartaoPonto detail id=${apuracaoId}`);
+      const response = await this.makeAuthenticatedRequest<SecullumAssinaturaDetail>(
+        'GET',
+        `/AssinaturaDigitalCartaoPonto/${apuracaoId}`,
+      );
+      return {
+        success: true,
+        message: 'Detalhes da apuração obtidos com sucesso',
+        data: response || { ListaItensAssinatura: [] },
+      };
+    } catch (error) {
+      this.logger.error(`Error fetching assinatura detail ${apuracaoId} from Secullum`, error);
+      return {
+        success: false,
+        message: this.getErrorMessage(error),
+      };
+    }
+  }
+
+  /**
+   * Fetch a single employee's signed time-card PDF as a binary buffer.
+   * Upstream serves `application/pdf` with `Content-Disposition: inline; filename=CartaoPonto.pdf`.
+   *
+   * URL pattern: `/AssinaturaDigitalCartaoPonto/<apuracaoId>/<funcionarioId>`.
+   * The second segment is the *Funcionario* id (column on the signature item),
+   * NOT the item row's `Id`. Passing `item.Id` makes the upstream return 204
+   * empty (the item exists but there's no PDF keyed by that id).
+   *
+   * The PDF route is iframe-loaded by Secullum's viewer, so it accepts auth
+   * via `axpw` (JWT) + `axpw_dbs` (databaseId) query params; we also send the
+   * Bearer header for parity with the rest of this service.
+   */
+  async getAssinaturaItemPdf(
+    apuracaoId: number,
+    funcionarioId: number,
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    try {
+      this.logger.log(
+        `Fetching Secullum AssinaturaDigitalCartaoPonto PDF apuracao=${apuracaoId} funcionario=${funcionarioId}`,
+      );
+      const token = await this.getValidToken();
+      if (!token) {
+        throw new Error('Failed to obtain valid authentication token');
+      }
+
+      // Use plain axios with explicit headers — bypasses the apiClient's
+      // JSON-oriented defaults that can interfere with binary responses.
+      const response = await axios.get(
+        `${this.baseUrl}/AssinaturaDigitalCartaoPonto/${apuracaoId}/${funcionarioId}`,
+        {
+          responseType: 'arraybuffer',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            secullumbancoselecionado: this.databaseId,
+            Accept: 'application/pdf',
+          },
+          params: {
+            axpw: token,
+            axpw_dbs: this.databaseId,
+          },
+          timeout: 60000,
+          // Accept any 2xx/3xx — surface unexpected bodies for diagnostics
+          // rather than blowing up on the upstream's redirect dance.
+          validateStatus: (status) => status >= 200 && status < 400,
+        },
+      );
+
+      const contentType: string = response.headers['content-type'] || '';
+      const buffer = Buffer.from(response.data);
+      this.logger.log(
+        `Secullum PDF response: status=${response.status} bytes=${buffer.length} content-type=${contentType}`,
+      );
+
+      if (buffer.length === 0) {
+        throw new Error('Resposta vazia do Secullum para o cartão ponto');
+      }
+
+      // Sanity check: a real PDF starts with "%PDF". If not, log a preview so
+      // we can tell whether we got HTML (auth shell) or something else.
+      const head = buffer.slice(0, 4).toString('ascii');
+      if (head !== '%PDF') {
+        const preview = buffer.slice(0, 200).toString('utf8');
+        this.logger.warn(
+          `Secullum did not return a PDF (first bytes: ${JSON.stringify(head)}). Preview: ${preview}`,
+        );
+        throw new Error(
+          `Resposta inválida do Secullum (content-type=${contentType}). O cartão ponto pode não estar disponível.`,
+        );
+      }
+
+      const filename = `CartaoPonto_${apuracaoId}_${funcionarioId}.pdf`;
+      return { buffer, filename };
+    } catch (error) {
+      this.logger.error(
+        `Error fetching assinatura PDF apuracao=${apuracaoId} funcionario=${funcionarioId}`,
+        error,
+      );
+      throw this.createApiError(
+        this.getErrorMessage(error),
+        error.response?.status || 500,
+      );
     }
   }
 

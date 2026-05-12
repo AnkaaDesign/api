@@ -66,15 +66,16 @@ export interface Installment extends BaseEntity {
   paidAt: Date | null;
   status: INSTALLMENT_STATUS;
   paymentMethod: string | null;
-  receiptFileId: string | null;
+  observations: string | null;
   bankSlip?: BankSlip | null;
-  receiptFile?: {
+  receiptFiles?: Array<{
     id: string;
-    path: string;
+    filename: string;
     originalName: string;
     mimetype: string;
+    path: string;
     size: number;
-  } | null;
+  }>;
   invoice?: Invoice;
 }
 

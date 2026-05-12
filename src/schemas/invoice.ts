@@ -29,7 +29,7 @@ export const invoiceIncludeSchema = z
                   }),
                 ])
                 .optional(),
-              receiptFile: z.boolean().optional(),
+              receiptFiles: z.boolean().optional(),
             })
             .optional(),
         }),
