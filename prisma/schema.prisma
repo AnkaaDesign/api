@@ -600,7 +600,7 @@ model File {
   serviceOrderCheckinFiles                ServiceOrder[]       @relation("SERVICE_ORDER_CHECKIN_FILES")
   serviceOrderCheckoutFiles               ServiceOrder[]       @relation("SERVICE_ORDER_CHECKOUT_FILES")
   bankSlipPdfs                            BankSlip[]           @relation("BankSlipPdf")
-  installmentReceipts                     Installment[]        @relation("InstallmentReceipt")
+  installmentReceipts                     Installment[]        @relation("InstallmentReceipts")
 
   @@index([filename])
   @@index([originalName])
@@ -3313,13 +3313,13 @@ model Installment {
   paidAt           DateTime?
   status           InstallmentStatus @default(PENDING)
   paymentMethod    String?
-  receiptFileId    String?
+  observations     String?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   customerConfig   TaskQuoteCustomerConfig @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Cascade)
   invoice          Invoice?          @relation("InvoiceInstallments", fields: [invoiceId], references: [id], onDelete: SetNull)
   bankSlip         BankSlip?         @relation("InstallmentBankSlip")
-  receiptFile      File?             @relation("InstallmentReceipt", fields: [receiptFileId], references: [id])
+  receiptFiles     File[]            @relation("InstallmentReceipts")
 
   @@unique([customerConfigId, number])
   @@index([customerConfigId])

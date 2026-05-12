@@ -826,3 +826,54 @@ export interface SecullumHorarioRaw {
   Tipo?: number;
   Dias: SecullumHorarioDia[];
 }
+
+// ============================================================================
+// Electronic Signature of Time Card (Assinatura Digital de Cartão Ponto)
+// Upstream: GET /AssinaturaDigitalCartaoPonto, GET /AssinaturaDigitalCartaoPonto/:id,
+//           GET /AssinaturaDigitalCartaoPonto/:apuracaoId/:itemId  → PDF
+// ============================================================================
+
+export interface SecullumAssinaturaListItem {
+  Id: number;
+  Descricao: string;
+  DataInicio: string; // ISO date-time
+  DataFim: string;
+  DataInclusao: string;
+  NumeroCartoes: number;
+  Aprovados: number;
+  Rejeitados: number;
+  Compactada: boolean;
+}
+
+export interface SecullumAssinaturaListResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumAssinaturaListItem[];
+}
+
+/**
+ * Status values observed in HAR (`ListaItensAssinatura[].Status`):
+ *  1 = Aprovado / Accept (👍 thumbs-up in the original UI)
+ *  2 = Rejeitado / Reject (👎 thumbs-down)
+ * Other values (0 = Pendente) are inferred but kept loose since the HAR only
+ * captured an approved apuração.
+ */
+export interface SecullumAssinaturaItem {
+  Id: number;
+  FuncionarioId: number;
+  Funcionario: string;
+  Status: number;
+  DataResposta: string | null;
+  Resposta: string | null;
+  RespostasGerentes: unknown[];
+}
+
+export interface SecullumAssinaturaDetail {
+  ListaItensAssinatura: SecullumAssinaturaItem[];
+}
+
+export interface SecullumAssinaturaDetailResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumAssinaturaDetail;
+}
