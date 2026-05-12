@@ -2128,6 +2128,19 @@ export class TaskService {
         delete (updateData as any).newArtworkStatuses;
         delete (updateData as any).fileIds; // Legacy field name for artworkIds
 
+        // Capture the task's current primary responsible before the update changes the relation.
+        // Used below to sync the quote's responsibleId when the primary responsible changes.
+        let oldBestResponsibleId: string | null = null;
+        if (data.responsibleIds !== undefined && existingTask.quote?.id) {
+          const oldResps = await tx.responsible.findMany({
+            where: { tasks: { some: { id } } },
+            select: { id: true, role: true },
+            orderBy: { createdAt: 'asc' },
+          });
+          const oldOwner = oldResps.find((r) => r.role === 'OWNER');
+          oldBestResponsibleId = oldOwner?.id ?? oldResps[0]?.id ?? null;
+        }
+
         // Update the task - always include customer for file organization
         // Also include file relations for changelog tracking
         let updatedTask = await this.tasksRepository.updateWithTransaction(
@@ -2164,6 +2177,33 @@ export class TaskService {
           },
           userId,
         );
+
+        // Sync quote customerConfig responsibleId when the task's primary responsible changes.
+        // Only updates configs that were tracking the old primary (same id) — intentional
+        // overrides on individual configs are preserved.
+        if (data.responsibleIds !== undefined && existingTask.quote?.id) {
+          const newRespIds = data.responsibleIds ?? [];
+          const newResps =
+            newRespIds.length > 0
+              ? await tx.responsible.findMany({
+                  where: { id: { in: newRespIds } },
+                  select: { id: true, role: true },
+                  orderBy: { createdAt: 'asc' },
+                })
+              : [];
+          const newOwner = newResps.find((r) => r.role === 'OWNER');
+          const newBestId = newOwner?.id ?? newResps[0]?.id ?? null;
+
+          if (oldBestResponsibleId !== newBestId) {
+            await tx.taskQuoteCustomerConfig.updateMany({
+              where: {
+                quoteId: existingTask.quote.id,
+                responsibleId: oldBestResponsibleId,
+              },
+              data: { responsibleId: newBestId },
+            });
+          }
+        }
 
         // Handle service orders explicitly if provided
         // Migrate files when customer changes

@@ -187,20 +187,12 @@ export class InvoiceGenerationService {
           `[INVOICE_GEN] Invoice ${invoice.id} created (status=ACTIVE, total=${totalAmount})`,
         );
 
-        // Determine if bank slips should be generated:
-        // Skip when customPaymentText is set (custom payment method can't be parsed for boleto installments),
-        // or when generateBankSlip is false (customer pays via direct transfer/PIX — no boleto needed).
-        // Note: this is independent of generateInvoice (NFSe), allowing NFSe-only or boleto-only configs.
-        const hasCustomPaymentText = !!(
-          config.customPaymentText && config.customPaymentText.trim()
-        );
-        const shouldCreateBankSlips = !hasCustomPaymentText && (config as any).generateBankSlip !== false;
+        // Determine if bank slips should be generated.
+        // generateBankSlip=false means the customer pays via direct transfer/PIX — no boleto needed.
+        // customPaymentText is a display-only label (PDFs, quotes) and does NOT affect boleto creation.
+        const shouldCreateBankSlips = (config as any).generateBankSlip !== false;
 
-        if (hasCustomPaymentText) {
-          this.logger.log(
-            `[INVOICE_GEN] Skipping BankSlip creation for customerConfig ${config.id}: custom payment text is set`,
-          );
-        } else if ((config as any).generateBankSlip === false) {
+        if (!shouldCreateBankSlips) {
           this.logger.log(
             `[INVOICE_GEN] Skipping BankSlip creation for customerConfig ${config.id}: generateBankSlip=false`,
           );

@@ -5,6 +5,16 @@ import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/ta
 import { WebhookEventDto } from './dto';
 import { Decimal } from '@prisma/client/runtime/library';
 
+// Thrown when the webhook references a nossoNumero that does not exist in our DB
+// (pre-migration boletos, manual boletos outside the system). Retrying will never
+// help, so the caller skips the retry increment and sets retryCount to MAX immediately.
+class PermanentWebhookError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PermanentWebhookError';
+  }
+}
+
 // Per Sicredi docs section 15 + webhook contract response — all liquidation event types
 const LIQUIDATION_MOVEMENTS = [
   'LIQUIDACAO_PIX',
@@ -156,12 +166,15 @@ export class SicrediWebhookService {
     } catch (error) {
       this.logger.error(`Failed to process webhook event ${idEventoWebhook}`, error);
 
+      const isPermanent = error instanceof PermanentWebhookError;
       await this.prismaService.sicrediWebhookEvent.update({
         where: { id: event.id },
         data: {
           status: 'FAILED',
           errorMessage: error instanceof Error ? error.message : String(error),
-          retryCount: { increment: 1 },
+          // Permanent failures (e.g. nossoNumero not in DB) will never succeed on retry —
+          // set retryCount past the MAX threshold so the retry scheduler skips them.
+          retryCount: isPermanent ? { set: 10 } : { increment: 1 },
         },
       });
 
@@ -194,7 +207,9 @@ export class SicrediWebhookService {
     });
 
     if (!bankSlip) {
-      throw new Error(`BankSlip not found for nossoNumero: ${nossoNumero}`);
+      // Permanent failure — retrying will never resolve a missing BankSlip.
+      // Caller will skip future retries by setting retryCount to MAX immediately.
+      throw new PermanentWebhookError(`BankSlip not found for nossoNumero: ${nossoNumero}`);
     }
 
     // Skip if already PAID or locally CANCELLED (idempotent — prevents double-processing
@@ -343,7 +358,7 @@ export class SicrediWebhookService {
     });
 
     if (!bankSlip) {
-      throw new Error(`BankSlip not found for nossoNumero: ${nossoNumero}`);
+      throw new PermanentWebhookError(`BankSlip not found for nossoNumero: ${nossoNumero}`);
     }
 
     await this.prismaService.$transaction(async tx => {
@@ -452,12 +467,13 @@ export class SicrediWebhookService {
         `[WEBHOOK_RETRY] Retry failed for event ${event.idEventoWebhook}: ${errorMessage}`,
       );
 
+      const isPermanent = error instanceof PermanentWebhookError;
       await this.prismaService.sicrediWebhookEvent.update({
         where: { id: event.id },
         data: {
           status: 'FAILED',
           errorMessage,
-          retryCount: { increment: 1 },
+          retryCount: isPermanent ? { set: 10 } : { increment: 1 },
         },
       });
 

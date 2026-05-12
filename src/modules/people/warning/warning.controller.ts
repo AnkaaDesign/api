@@ -70,6 +70,7 @@ export class WarningController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.LOGISTIC,
   )
   async findMany(
     @Query(new ZodQueryValidationPipe(warningGetManySchema)) query: WarningGetManyFormData,
@@ -195,6 +196,7 @@ export class WarningController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.LOGISTIC,
   )
   async findById(
     @Param('id', ParseUUIDPipe) id: string,

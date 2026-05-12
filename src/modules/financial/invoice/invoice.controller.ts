@@ -283,7 +283,7 @@ export class InvoiceController {
         },
       });
     } else {
-      // No bank slip record exists (skipped at invoice generation due to customPaymentText) — create one now.
+      // No bank slip record exists yet — create one now.
       await this.prisma.bankSlip.create({
         data: {
           installmentId,
