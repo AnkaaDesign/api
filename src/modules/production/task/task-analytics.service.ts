@@ -1,6 +1,24 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { TASK_STATUS, CUT_ORIGIN } from '../../../constants/enums';
+import { TASK_STATUS, CUT_ORIGIN, SECTOR_PRIVILEGES } from '../../../constants/enums';
+
+// "Effective colaborador" in a period [start, end] is a USER-timeline rule
+// — independent of whether they completed any specific task:
+//   - sector.privileges === PRODUCTION (current sector — sector history isn't
+//     tracked elsewhere, so the latest assignment is used)
+//   - exp2EndAt IS NOT NULL AND exp2EndAt <= end  (became EFFECTED on or
+//     before the period closed)
+//   - dismissedAt IS NULL OR dismissedAt > start  (still active when the
+//     period began — someone dismissed mid-period still counts)
+function wasEffectedDuring(
+  u: { exp2EndAt: Date | null; dismissedAt: Date | null },
+  bounds: { start: Date; end: Date },
+): boolean {
+  if (!u.exp2EndAt) return false;
+  if (u.exp2EndAt > bounds.end) return false;
+  if (u.dismissedAt && u.dismissedAt <= bounds.start) return false;
+  return true;
+}
 
 const MONTH_NAMES_PT = [
   'Janeiro',
@@ -735,10 +753,11 @@ export class TaskAnalyticsService {
   }) {
     const { sectorIds, xAxisMode = 'month', yAxisMode = 'count', compareMode = 'combined' } = filters;
     const isComparisonMode = (compareMode === 'separated' || compareMode === 'separatedWithTotal') && !!sectorIds && sectorIds.length >= 2;
-    const needsUsers = yAxisMode === 'avgPerUser' || yAxisMode === 'both';
 
     const dateRange = this.resolveDateRange(filters);
 
+    // Tasks count is independent of who completed them — just count completed
+    // tasks with finishedAt in the period (optionally narrowed by sector).
     const completedTasks = await this.prisma.task.findMany({
       where: {
         status: TASK_STATUS.COMPLETED,
@@ -746,6 +765,27 @@ export class TaskAnalyticsService {
         ...(sectorIds?.length ? { sectorId: { in: sectorIds } } : {}),
       },
       select: { id: true, finishedAt: true, sectorId: true },
+    });
+
+    // Effective production colaboradores — fetch once for the whole date
+    // range, then filter per-period with wasEffectedDuring(). Filter at the
+    // DB level too so we don't haul in obviously-irrelevant users.
+    const productionUsers = await this.prisma.user.findMany({
+      where: {
+        sector: { privileges: SECTOR_PRIVILEGES.PRODUCTION },
+        exp2EndAt: { not: null, lte: dateRange.end },
+        OR: [
+          { dismissedAt: null },
+          { dismissedAt: { gt: dateRange.start } },
+        ],
+        ...(sectorIds?.length ? { sectorId: { in: sectorIds } } : {}),
+      },
+      select: {
+        id: true,
+        sectorId: true,
+        exp2EndAt: true,
+        dismissedAt: true,
+      },
     });
 
     let sectorMap = new Map<string, string>();
@@ -757,9 +797,16 @@ export class TaskAnalyticsService {
       sectorMap = new Map(sectors.map(s => [s.id, s.name]));
     }
 
+    // Business-year semantics: year Y = the 12 business months Jan..Dec of Y
+    // = the window [Dec 26 Y-1 .. Dec 25 Y]. Both task indexing (keyFn) and
+    // period bounds (getPeriodBounds) follow this — same as the frontend's
+    // computeDateRange and the modal's getBusinessPeriodRange — so the same
+    // task lands in the same bucket everywhere.
+    const businessYearKey = (date: Date) => businessMonthKey(date).split('-')[0];
+
     const keyFn = xAxisMode === 'year'
-      ? (date: Date) => date.getFullYear().toString()
-      : businessMonthKey; // use 26-25 business month periods
+      ? businessYearKey
+      : businessMonthKey;
 
     const labelFn = xAxisMode === 'year'
       ? (key: string) => key
@@ -768,24 +815,27 @@ export class TaskAnalyticsService {
     const getPeriodBounds = (key: string): { start: Date; end: Date } => {
       if (xAxisMode === 'year') {
         const y = parseInt(key);
-        return { start: new Date(y, 0, 1, 0, 0, 0), end: new Date(y, 11, 31, 23, 59, 59, 999) };
+        // Year Y = months Jan..Dec of business year Y
+        return {
+          start: businessPeriodStart(y, 1),  // Dec 26 of Y-1
+          end:   businessPeriodEnd(y, 12),   // Dec 25 of Y
+        };
       }
-      // Business month: 26th of previous month to 25th of current month
       const [yearStr, monthStr] = key.split('-');
       return {
         start: businessPeriodStart(parseInt(yearStr), parseInt(monthStr)),
-        end: businessPeriodEnd(parseInt(yearStr), parseInt(monthStr)),
+        end:   businessPeriodEnd(parseInt(yearStr), parseInt(monthStr)),
       };
     };
 
-    // Enumerate all periods in date range using business month keys
+    // Enumerate periods. For year mode, walk business years derived from the
+    // business-month keys of the date range — NOT calendar getFullYear().
     const allPeriods: string[] = [];
     if (xAxisMode === 'year') {
-      for (let y = dateRange.start.getFullYear(); y <= dateRange.end.getFullYear(); y++) {
-        allPeriods.push(y.toString());
-      }
+      const startY = parseInt(businessYearKey(dateRange.start));
+      const endY   = parseInt(businessYearKey(dateRange.end));
+      for (let y = startY; y <= endY; y++) allPeriods.push(y.toString());
     } else {
-      // Business month enumeration: from businessMonthKey(start) to businessMonthKey(end)
       const startKey = businessMonthKey(dateRange.start);
       const endKey = businessMonthKey(dateRange.end);
       let [sy, sm] = startKey.split('-').map(Number);
@@ -805,35 +855,23 @@ export class TaskAnalyticsService {
       tasksByPeriod.get(key)?.push(task);
     }
 
-    // Fetch users for avgPerUser (include dismissed users for historical accuracy)
-    let allUsers: Array<{
-      id: string;
-      sectorId: string | null;
-      exp1StartAt: Date | null;
-      createdAt: Date;
-      dismissedAt: Date | null;
-    }> = [];
-
-    if (needsUsers) {
-      allUsers = await this.prisma.user.findMany({
-        where: sectorIds?.length ? { sectorId: { in: sectorIds } } : {},
-        select: { id: true, sectorId: true, exp1StartAt: true, createdAt: true, dismissedAt: true },
-      });
-    }
-
-    // A user is active in period if: hired <= periodEnd AND (not dismissed OR dismissed > periodEnd)
-    const countActiveUsers = (bounds: { start: Date; end: Date }, sectorIdFilter?: string): number =>
-      allUsers.filter(u => {
+    // For period P, count production users whose EFFECTED window overlaps P.
+    // Optional sectorIdFilter restricts to one sector (used in per-sector
+    // comparisons). Returns the count of distinct user ids.
+    const countEffectiveInPeriod = (
+      bounds: { start: Date; end: Date },
+      sectorIdFilter?: string,
+    ): number =>
+      productionUsers.filter(u => {
         if (sectorIdFilter !== undefined && u.sectorId !== sectorIdFilter) return false;
-        const hireDate = u.exp1StartAt ?? u.createdAt;
-        return hireDate <= bounds.end && (!u.dismissedAt || u.dismissedAt > bounds.end);
+        return wasEffectedDuring(u, bounds);
       }).length;
 
     const items = allPeriods.map(key => {
       const tasks = tasksByPeriod.get(key) || [];
-      const bounds = getPeriodBounds(key);
       const totalCount = tasks.length;
-      const activeUsers = needsUsers ? countActiveUsers(bounds) : 0;
+      const bounds = getPeriodBounds(key);
+      const activeUsers = countEffectiveInPeriod(bounds);
       const avgPerUser = activeUsers > 0 ? Math.round((totalCount / activeUsers) * 100) / 100 : 0;
 
       const item: any = { period: key, periodLabel: labelFn(key), totalCount, activeUsers, avgPerUser };
@@ -841,7 +879,7 @@ export class TaskAnalyticsService {
       if (isComparisonMode) {
         item.comparisons = sectorIds!.map(sectorId => {
           const sectorTasks = tasks.filter(t => t.sectorId === sectorId);
-          const sectorActive = needsUsers ? countActiveUsers(bounds, sectorId) : 0;
+          const sectorActive = countEffectiveInPeriod(bounds, sectorId);
           return {
             sectorId,
             sectorName: sectorMap.get(sectorId) || sectorId,
@@ -860,13 +898,11 @@ export class TaskAnalyticsService {
       ? Math.round((totalCompleted / allPeriods.length) * 10) / 10
       : 0;
 
-    // Overall active user count: any user that was active at any point in the range
-    const totalActiveUsers = needsUsers
-      ? allUsers.filter(u => {
-          const hireDate = u.exp1StartAt ?? u.createdAt;
-          return hireDate <= dateRange.end && (!u.dismissedAt || u.dismissedAt > dateRange.start);
-        }).length
-      : 0;
+    // Overall: production users whose EFFECTED window overlaps the full
+    // date range (matches the per-period rule with bounds=fullRange).
+    const totalActiveUsers = productionUsers.filter(u =>
+      wasEffectedDuring(u, { start: dateRange.start, end: dateRange.end }),
+    ).length;
 
     const overallAvgPerUser = totalActiveUsers > 0
       ? Math.round((totalCompleted / totalActiveUsers) * 100) / 100
