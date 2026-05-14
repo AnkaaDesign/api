@@ -316,6 +316,18 @@ export const bonusSimulateSchema = z.object({
 });
 
 // =====================
+// Timeline Schema
+// =====================
+
+export const bonusTimelineSchema = z.object({
+  year: z.number().int().min(2020).max(2100),
+  month: z.number().int().min(1).max(12),
+  sectorIds: z.array(z.string().uuid()).optional(),
+});
+
+export type BonusTimelineInput = z.infer<typeof bonusTimelineSchema>;
+
+// =====================
 // Batch Schemas
 // =====================
 

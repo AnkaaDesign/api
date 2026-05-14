@@ -1,24 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TASK_STATUS, CUT_ORIGIN, SECTOR_PRIVILEGES } from '../../../constants/enums';
-
-// "Effective colaborador" in a period [start, end] is a USER-timeline rule
-// — independent of whether they completed any specific task:
-//   - sector.privileges === PRODUCTION (current sector — sector history isn't
-//     tracked elsewhere, so the latest assignment is used)
-//   - exp2EndAt IS NOT NULL AND exp2EndAt <= end  (became EFFECTED on or
-//     before the period closed)
-//   - dismissedAt IS NULL OR dismissedAt > start  (still active when the
-//     period began — someone dismissed mid-period still counts)
-function wasEffectedDuring(
-  u: { exp2EndAt: Date | null; dismissedAt: Date | null },
-  bounds: { start: Date; end: Date },
-): boolean {
-  if (!u.exp2EndAt) return false;
-  if (u.exp2EndAt > bounds.end) return false;
-  if (u.dismissedAt && u.dismissedAt <= bounds.start) return false;
-  return true;
-}
+import {
+  businessMonthKey,
+  businessPeriodEnd,
+  businessPeriodStart,
+  wasEffectedDuring,
+} from '../../../utils/business-period';
 
 const MONTH_NAMES_PT = [
   'Janeiro',
@@ -58,28 +46,6 @@ function weekKey(date: Date): string {
     ((date.getTime() - startOfYear.getTime()) / DAY_MS + startOfYear.getDay() + 1) / 7,
   );
   return `${date.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
-}
-
-// Business month period: runs from 26th of previous month to 25th of current month
-function businessMonthKey(date: Date): string {
-  let year = date.getFullYear();
-  let month = date.getMonth(); // 0-indexed
-  if (date.getDate() > 25) {
-    month += 1;
-    if (month > 11) { month = 0; year += 1; }
-  }
-  return `${year}-${String(month + 1).padStart(2, '0')}`;
-}
-
-function businessPeriodStart(year: number, month: number): Date {
-  // month is 1-indexed; period starts on 26th of previous month
-  if (month === 1) return new Date(year - 1, 11, 26, 0, 0, 0, 0);
-  return new Date(year, month - 2, 26, 0, 0, 0, 0);
-}
-
-function businessPeriodEnd(year: number, month: number): Date {
-  // month is 1-indexed; period ends on 25th of current month
-  return new Date(year, month - 1, 25, 23, 59, 59, 999);
 }
 
 interface PeriodRange {

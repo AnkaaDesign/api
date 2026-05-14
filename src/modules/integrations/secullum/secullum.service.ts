@@ -49,6 +49,11 @@ import {
   SecullumAssinaturaListResponse,
   SecullumAssinaturaDetail,
   SecullumAssinaturaDetailResponse,
+  SecullumCreateAssinaturaRequest,
+  SecullumCreateAssinaturaResponse,
+  SecullumCreateAssinaturaForUsersRequest,
+  SecullumCreateAssinaturaForUsersResponse,
+  SecullumCreateAssinaturaForUsersResultItem,
   SecullumAbsenceDayRow,
   SecullumAbsenceDaysResponse,
 } from './dto';
@@ -2904,6 +2909,126 @@ export class SecullumService {
         error.response?.status || 500,
       );
     }
+  }
+
+  // POST /AssinaturaDigitalCartaoPonto — single-employee "Apurar" call.
+  // Body shape inferred from docs/secullum-integration/06_FINAL_LIVE_FINDINGS.md
+  // (heavy/destructive, never live-captured). Recomputes the period for the
+  // employee and dispatches a signature request to them.
+  async createAssinatura(
+    payload: SecullumCreateAssinaturaRequest,
+  ): Promise<SecullumCreateAssinaturaResponse> {
+    try {
+      this.logger.log(
+        `Creating Secullum AssinaturaDigitalCartaoPonto: empresa=${payload.EmpresaId} funcionario=${payload.FuncionarioId} ${payload.DataInicio}..${payload.DataFim}`,
+      );
+      const data = await this.makeAuthenticatedRequest<SecullumAssinaturaListItem | undefined>(
+        'POST',
+        '/AssinaturaDigitalCartaoPonto',
+        payload,
+      );
+      return {
+        success: true,
+        message: 'Apuração criada com sucesso',
+        data: data ?? undefined,
+      };
+    } catch (error) {
+      this.logger.error('Error creating assinatura batch', error);
+      throw new HttpException(
+        {
+          success: false,
+          message: `Falha ao criar apuração: ${this.getErrorMessage(error)}`,
+          error: this.getErrorMessage(error),
+        },
+        error?.response?.status || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  // Resolves internal userIds → secullumEmployeeIds and POSTs one apuração per
+  // resolved user. Mirrors createAbsenceForUsers — single-employee submit and
+  // bulk send both go through here so the frontend never handles Secullum IDs.
+  async createAssinaturaForUsers(
+    payload: SecullumCreateAssinaturaForUsersRequest,
+  ): Promise<SecullumCreateAssinaturaForUsersResponse> {
+    const where: any = { secullumEmployeeId: { not: null } };
+    if (!payload.applyToAll && payload.userIds && payload.userIds.length > 0) {
+      where.id = { in: payload.userIds };
+    } else if (!payload.applyToAll) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Informe userIds ou applyToAll=true.',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    } else {
+      // applyToAll=true: limit to currently active users
+      where.status = { in: ['EXPERIENCE_PERIOD_1', 'EXPERIENCE_PERIOD_2', 'EFFECTED'] };
+    }
+
+    const users = await this.prismaService.user.findMany({
+      where,
+      select: { id: true, name: true, secullumEmployeeId: true },
+    });
+
+    if (users.length === 0) {
+      return {
+        success: false,
+        message: 'Nenhum colaborador vinculado ao Secullum encontrado.',
+        data: { created: 0, failed: 0, results: [] },
+      };
+    }
+
+    // Normalize dates to Secullum's "YYYY-MM-DDTHH:mm:ss" format if a plain
+    // YYYY-MM-DD was passed.
+    const normDate = (d: string) => (d.includes('T') ? d : `${d}T00:00:00`);
+    const dataInicio = normDate(payload.DataInicio);
+    const dataFim = normDate(payload.DataFim);
+    const empresaId = payload.EmpresaId ?? 1;
+
+    const results: SecullumCreateAssinaturaForUsersResultItem[] = [];
+    for (const u of users) {
+      const funcionarioId = u.secullumEmployeeId!;
+      try {
+        const response = await this.createAssinatura({
+          DataInicio: dataInicio,
+          DataFim: dataFim,
+          EmpresaId: empresaId,
+          FuncionarioId: funcionarioId,
+        });
+        results.push({
+          userId: u.id,
+          userName: u.name,
+          funcionarioId,
+          ok: true,
+          apuracaoId: response.data?.Id,
+        });
+      } catch (err: any) {
+        results.push({
+          userId: u.id,
+          userName: u.name,
+          funcionarioId,
+          ok: false,
+          error:
+            err?.response?.data?.message ||
+            err?.message ||
+            this.getErrorMessage(err),
+        });
+      }
+    }
+
+    const created = results.filter((r) => r.ok).length;
+    const failed = results.length - created;
+
+    return {
+      success: failed === 0,
+      message:
+        failed === 0
+          ? `${created} apuração(ões) criada(s) com sucesso`
+          : `${created} criada(s), ${failed} falharam`,
+      data: { created, failed, results },
+    };
   }
 
   private getErrorMessage(error: any): string {

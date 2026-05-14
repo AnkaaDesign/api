@@ -54,6 +54,8 @@ import {
   SecullumCreateAbsenceForUsersResponse,
   SecullumAssinaturaListResponse,
   SecullumAssinaturaDetailResponse,
+  SecullumCreateAssinaturaForUsersRequest,
+  SecullumCreateAssinaturaForUsersResponse,
   SecullumAbsenceDaysResponse,
 } from './dto';
 
@@ -1056,6 +1058,26 @@ export class SecullumController {
     };
 
     return await this.secullumService.rejectRequest(rejectionData);
+  }
+
+  /**
+   * Electronic Signature of Time Card — create apurações for a list of internal
+   * userIds (or every active linked user when applyToAll=true). Server resolves
+   * userId → secullumEmployeeId then fans out one POST per employee.
+   * POST /integrations/secullum/assinatura-digital
+   */
+  @Post('assinatura-digital')
+  @WriteRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  async createAssinaturaForUsers(
+    @UserId() userId: string,
+    @Body() body: SecullumCreateAssinaturaForUsersRequest,
+  ): Promise<SecullumCreateAssinaturaForUsersResponse> {
+    this.logger.log(
+      `User ${userId} creating Secullum assinatura batch for ${body.applyToAll ? 'ALL' : (body.userIds?.length ?? 0)} user(s) ${body.DataInicio}..${body.DataFim}`,
+    );
+    return this.secullumService.createAssinaturaForUsers(body);
   }
 
   /**
