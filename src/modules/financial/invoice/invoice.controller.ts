@@ -982,6 +982,38 @@ export class InvoiceController {
     return { success: true, message: 'Desempenho de boletos carregado', data };
   }
 
+  @Post('analytics/quote-funnel')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @HttpCode(HttpStatus.OK)
+  async getQuoteFunnelAnalytics(@Body() filters: any) {
+    const data = await this.invoiceAnalyticsService.getQuoteFunnelAnalytics(filters);
+    return { success: true, message: 'Funil de receita carregado', data };
+  }
+
+  @Post('analytics/receivables')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @HttpCode(HttpStatus.OK)
+  async getReceivablesAnalytics(@Body() filters: any) {
+    const data = await this.invoiceAnalyticsService.getReceivablesAnalytics(filters);
+    return { success: true, message: 'Análise de recebíveis carregada', data };
+  }
+
+  @Post('analytics/sicredi-webhooks')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @HttpCode(HttpStatus.OK)
+  async getSicrediWebhookAnalytics(@Body() filters: any) {
+    const data = await this.invoiceAnalyticsService.getSicrediWebhookAnalytics(filters);
+    return { success: true, message: 'Análise de webhooks Sicredi carregada', data };
+  }
+
+  @Post('analytics/nfse')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @HttpCode(HttpStatus.OK)
+  async getNfseAnalytics(@Body() filters: any) {
+    const data = await this.invoiceAnalyticsService.getNfseAnalytics(filters);
+    return { success: true, message: 'Análise de NFS-e carregada', data };
+  }
+
   // =====================
   // PUBLIC ENDPOINTS
   // =====================

@@ -882,6 +882,51 @@ export interface SecullumAssinaturaDetailResponse {
   data?: SecullumAssinaturaDetail;
 }
 
+// Upstream POST /AssinaturaDigitalCartaoPonto — body shape inferred from
+// docs/secullum-integration/06_FINAL_LIVE_FINDINGS.md. Single-employee per
+// call; the multi-user wrapper below fans out N calls.
+export interface SecullumCreateAssinaturaRequest {
+  DataInicio: string; // ISO YYYY-MM-DDTHH:mm:ss
+  DataFim: string;
+  EmpresaId: number;
+  FuncionarioId: number;
+}
+
+export interface SecullumCreateAssinaturaResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumAssinaturaListItem;
+}
+
+// Multi-user wrapper: caller passes our internal userIds (or applyToAll), and
+// the service resolves each to its secullumEmployeeId before fanning out.
+export interface SecullumCreateAssinaturaForUsersRequest {
+  userIds?: string[];
+  applyToAll?: boolean;
+  DataInicio: string; // ISO YYYY-MM-DD or full datetime
+  DataFim: string;
+  EmpresaId?: number; // defaults to 1 when omitted (single-tenant Ankaa)
+}
+
+export interface SecullumCreateAssinaturaForUsersResultItem {
+  userId: string;
+  userName: string;
+  funcionarioId?: number;
+  ok: boolean;
+  apuracaoId?: number;
+  error?: string;
+}
+
+export interface SecullumCreateAssinaturaForUsersResponse {
+  success: boolean;
+  message: string;
+  data?: {
+    created: number;
+    failed: number;
+    results: SecullumCreateAssinaturaForUsersResultItem[];
+  };
+}
+
 // Per-day absence row derived from /Calculos (calculations) cross-referenced
 // with /FuncionariosAfastamentos. Unlike the aggregated-absence endpoint which
 // returns date-range records, this returns one entry per calendar day per user

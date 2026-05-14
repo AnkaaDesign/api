@@ -34,6 +34,7 @@ import {
   bonusBatchUpdateSchema,
   bonusBatchDeleteSchema,
   bonusSimulateSchema,
+  bonusTimelineSchema,
   BonusGetManyFormData,
   BonusGetByIdFormData,
   BonusCreateFormData,
@@ -42,6 +43,7 @@ import {
   BonusBatchUpdateFormData,
   BonusBatchDeleteFormData,
   BonusSimulateFormData,
+  BonusTimelineInput,
 } from '../../../schemas';
 
 // Temporary validation schemas
@@ -251,6 +253,35 @@ export class BonusController {
       success: true,
       data: result,
       message: 'Simulação calculada com sucesso.',
+    };
+  }
+
+  /**
+   * Day-by-day bonus value timeline for a single business period
+   * (26th of previous month → 25th of current month). Days beyond "today" in
+   * the current period are tagged `isForecast` and extrapolated from the
+   * current weighted-task rate. Powers the "Valor do Bônus" stats page.
+   */
+  @Roles(
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+  )
+  @Post('timeline')
+  @ReadRateLimit()
+  @HttpCode(HttpStatus.OK)
+  @UsePipes(new ZodValidationPipe(bonusTimelineSchema))
+  async getBonusTimeline(@Body() data: BonusTimelineInput) {
+    const result = await this.bonusService.getBonusTimeline({
+      year: data.year,
+      month: data.month,
+      sectorIds: data.sectorIds,
+    });
+    return {
+      success: true,
+      data: result,
+      message: 'Linha do tempo do bônus calculada com sucesso.',
     };
   }
 

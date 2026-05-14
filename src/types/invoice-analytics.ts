@@ -83,3 +83,270 @@ export interface TypeDistributionItem {
   paidCount: number;
   conversionRate: number;
 }
+
+// =====================================================================
+// Quote Funnel Analytics
+// =====================================================================
+
+export interface QuoteFunnelAnalyticsFilters {
+  startDate?: Date;
+  endDate?: Date;
+  customerIds?: string[];
+  sectorIds?: string[];
+  status?: string[];
+  groupBy?: 'month' | 'week';
+}
+
+export interface QuoteFunnelStage {
+  stage: string; // raw enum value e.g. PENDING
+  stageLabel: string; // pt-BR label
+  count: number;
+  totalValue: number;
+  conversionFromPrevious: number; // % of previous stage's count
+  conversionFromTop: number; // % of total funnel entries
+  avgDaysFromCreation: number; // avg age of quotes at this stage (vs createdAt)
+}
+
+export interface QuoteFunnelItem {
+  period: string;
+  periodLabel: string;
+  newQuotes: number;
+  approvedQuotes: number; // BUDGET_APPROVED count
+  billedQuotes: number; // BILLING_APPROVED count (materialized)
+  settledQuotes: number; // SETTLED count
+  totalValue: number; // sum of TaskQuote.total for new in this period
+  settledValue: number; // sum of TaskQuote.total for settled in this period
+}
+
+export interface QuoteTopCustomer {
+  customerId: string;
+  customerName: string;
+  quoteCount: number;
+  totalValue: number;
+  settledValue: number;
+  conversionRate: number;
+}
+
+export interface QuoteTopSector {
+  sectorId: string;
+  sectorName: string;
+  quoteCount: number;
+  totalValue: number;
+  settledValue: number;
+}
+
+export interface QuoteFunnelAnalyticsData {
+  summary: {
+    totalQuotes: number;
+    totalQuotedValue: number;
+    totalSettledValue: number;
+    conversionRate: number; // % settled / total
+    avgTicket: number; // total settled value / settled count
+    avgSalesCycleDays: number; // avg (billingApprovedAt - createdAt) for billing-approved quotes
+    activeBacklogValue: number; // sum total for non-cancelled, non-settled quotes
+  };
+  funnel: QuoteFunnelStage[];
+  items: QuoteFunnelItem[];
+  topCustomers: QuoteTopCustomer[];
+  topSectors: QuoteTopSector[];
+}
+
+// =====================================================================
+// Receivables Analytics (per-customer aging, DSO, forecast)
+// =====================================================================
+
+export interface ReceivablesAnalyticsFilters {
+  startDate?: Date; // limits cohort scope, not aging snapshot (aging always uses "now")
+  endDate?: Date;
+  customerIds?: string[];
+  limit?: number; // top-N for delinquents/customer aging
+  forecastDays?: number; // default 90
+}
+
+export interface DelinquentCustomer {
+  customerId: string;
+  customerName: string;
+  overdueAmount: number;
+  overdueCount: number;
+  oldestDueDate: string | null;
+  daysOverdueMax: number;
+  totalReceivable: number;
+}
+
+export interface CustomerAgingRow {
+  customerId: string;
+  customerName: string;
+  current: number; // dueDate in future, not yet overdue, unpaid
+  band30: number; // 1-30 days overdue
+  band60: number; // 31-60 days overdue
+  band90: number; // 61-90 days overdue
+  band90Plus: number; // 90+ days overdue
+  total: number; // sum of overdue + current
+  dso: number; // weighted DSO for this customer
+}
+
+export interface ForecastBucketInstallment {
+  installmentId: string;
+  invoiceId: string | null;
+  customerId: string;
+  customerName: string;
+  taskId: string | null;
+  taskName: string | null;
+  taskSerialNumber: string | null;
+  invoiceTotalAmount: number;
+  installmentNumber: number;
+  totalInstallments: number;
+  dueDate: string; // ISO
+  amount: number;
+  paidAmount: number;
+  remaining: number;
+  status: string;
+  daysFromNow: number; // negative = overdue
+}
+
+export interface ForecastDayBucket {
+  bucket: string; // 'D7' | 'D15' | 'D30' | 'D60' | 'D90' | 'OVERDUE'
+  bucketLabel: string;
+  dueAmount: number;
+  installmentCount: number;
+  installments: ForecastBucketInstallment[]; // capped at 100 per bucket
+  truncated: boolean; // true when more than 100 installments exist
+}
+
+export interface RecoveryCohort {
+  cohortMonth: string; // "2025-01"
+  cohortLabel: string;
+  invoicedAmount: number;
+  recoveredAt30Days: number; // % of invoiced
+  recoveredAt60Days: number;
+  recoveredAt90Days: number;
+  recoveredFinal: number; // % recovered through now
+}
+
+export interface ReceivablesAnalyticsData {
+  summary: {
+    totalReceivable: number; // sum of unpaid (pending + overdue) installment amounts
+    totalOverdue: number;
+    totalCurrent: number; // unpaid but not yet due
+    avgDso: number; // weighted across customers
+    activeCustomers: number; // distinct customers with open installments
+    forecastNext7: number;
+    forecastNext30: number;
+    forecastNext60: number;
+    forecastNext90: number;
+  };
+  topDelinquents: DelinquentCustomer[];
+  customerAging: CustomerAgingRow[];
+  forecastBuckets: ForecastDayBucket[];
+  recoveryCohorts: RecoveryCohort[];
+}
+
+// =====================================================================
+// Sicredi Webhook Analytics
+// =====================================================================
+
+export interface SicrediWebhookAnalyticsFilters {
+  startDate?: Date;
+  endDate?: Date;
+  groupBy?: 'month' | 'week';
+}
+
+export interface SicrediMonthlyItem {
+  period: string;
+  periodLabel: string;
+  eventCount: number;
+  liquidation: number;
+  discount: number;
+  interest: number;
+  penalty: number;
+  abatement: number;
+  failedCount: number;
+}
+
+export interface SicrediMovementRow {
+  movimento: string;
+  count: number;
+  totalLiquidation: number;
+}
+
+export interface SicrediErrorRow {
+  errorMessage: string;
+  count: number;
+  lastOccurred: string | null;
+}
+
+export interface SicrediWebhookAnalyticsData {
+  summary: {
+    totalEvents: number;
+    totalProcessed: number;
+    totalFailed: number;
+    processingSuccessRate: number;
+    totalLiquidation: number;
+    totalDiscountGiven: number;
+    totalInterestEarned: number;
+    totalPenaltyEarned: number;
+    totalAbatement: number;
+    netSettlementImpact: number; // interest + penalty - discount - abatement
+  };
+  items: SicrediMonthlyItem[];
+  movementBreakdown: SicrediMovementRow[];
+  errorBreakdown: SicrediErrorRow[];
+}
+
+// =====================================================================
+// NFSe Analytics
+// =====================================================================
+
+export interface NfseAnalyticsFilters {
+  startDate?: Date;
+  endDate?: Date;
+  status?: string[];
+  groupBy?: 'month' | 'week';
+}
+
+export interface NfseStatusDistribution {
+  status: string;
+  statusLabel: string;
+  count: number;
+}
+
+export interface NfseMonthlyItem {
+  period: string;
+  periodLabel: string;
+  authorized: number;
+  pending: number;
+  processing: number;
+  error: number;
+  cancelled: number;
+  total: number;
+}
+
+export interface NfseErrorRow {
+  errorMessage: string;
+  count: number;
+  lastOccurred: string | null;
+}
+
+export interface NfseAnalyticsData {
+  summary: {
+    totalDocuments: number;
+    totalAuthorized: number;
+    totalPending: number;
+    totalProcessing: number;
+    totalError: number;
+    totalCancelled: number;
+    authorizationRate: number;
+    errorRate: number;
+    avgRetryCount: number;
+    documentsAtRetryLimit: number; // errorCount >= 3
+    // Tax estimate over invoices linked to AUTHORIZED NFS-e
+    issRatePercent: number;          // e.g. 2 for 2%
+    grossServiceRevenue: number;     // Σ invoice.totalAmount for authorized NFS-e
+    estimatedIssAmount: number;      // gross × issRatePercent / 100
+    netServiceRevenue: number;       // gross − ISS
+    pendingGrossRevenue: number;     // Σ invoice.totalAmount for pending/processing NFS-e
+  };
+  statusDistribution: NfseStatusDistribution[];
+  items: NfseMonthlyItem[];
+  errorBreakdown: NfseErrorRow[];
+}

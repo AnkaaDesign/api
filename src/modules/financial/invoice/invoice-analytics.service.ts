@@ -5,7 +5,14 @@ import {
   INSTALLMENT_STATUS,
   BANK_SLIP_STATUS,
   BANK_SLIP_TYPE,
+  TASK_QUOTE_STATUS,
+  NFSE_STATUS,
+  WEBHOOK_EVENT_STATUS,
 } from '../../../constants/enums';
+import {
+  TASK_QUOTE_STATUS_LABELS,
+  NFSE_STATUS_LABELS,
+} from '../../../constants/enum-labels';
 import type {
   CollectionAnalyticsData,
   CollectionItem,
@@ -15,6 +22,28 @@ import type {
   BankSlipPerformanceItem,
   StatusDistributionItem,
   TypeDistributionItem,
+  QuoteFunnelAnalyticsFilters,
+  QuoteFunnelAnalyticsData,
+  QuoteFunnelStage,
+  QuoteFunnelItem,
+  QuoteTopCustomer,
+  QuoteTopSector,
+  ReceivablesAnalyticsFilters,
+  ReceivablesAnalyticsData,
+  DelinquentCustomer,
+  CustomerAgingRow,
+  ForecastDayBucket,
+  RecoveryCohort,
+  SicrediWebhookAnalyticsFilters,
+  SicrediWebhookAnalyticsData,
+  SicrediMonthlyItem,
+  SicrediMovementRow,
+  SicrediErrorRow,
+  NfseAnalyticsFilters,
+  NfseAnalyticsData,
+  NfseStatusDistribution,
+  NfseMonthlyItem,
+  NfseErrorRow,
 } from '../../../types/invoice-analytics';
 
 const MONTH_NAMES_PT = [
@@ -455,5 +484,979 @@ export class InvoiceAnalyticsService {
     const start = new Date();
     start.setMonth(start.getMonth() - 12);
     return { start, end };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 3. Quote Funnel Analytics
+  // ---------------------------------------------------------------------------
+  //
+  // Models the sales pipeline through TaskQuote statuses.
+  // Logical funnel stages (counted at each gate the quote PASSED, regardless
+  // of current status — so SETTLED quotes count toward every prior stage):
+  //
+  //   1. PENDING (quote created)
+  //   2. BUDGET_APPROVED (customer accepted price)
+  //   3. COMMERCIAL_APPROVED (commercial approved)
+  //   4. BILLING_APPROVED+ (billing approved — invoices materialized; covers
+  //      everything past internal approval: UPCOMING/DUE/PARTIAL/SETTLED)
+  //
+  // Quotes never abandoned still progress; cancelled quotes are excluded
+  // upstream. statusOrder is the monotone index used to derive "passed".
+
+  async getQuoteFunnelAnalytics(
+    filters: QuoteFunnelAnalyticsFilters,
+  ): Promise<QuoteFunnelAnalyticsData> {
+    const { customerIds, sectorIds, status, groupBy = 'month' } = filters;
+    const dateRange = this.resolveDateRange(filters);
+    const keyFn = groupBy === 'week' ? weekKey : monthKey;
+
+    // Status order positions (matches TASK_QUOTE_STATUS_ORDER in domain)
+    const STATUS_ORDER: Record<string, number> = {
+      [TASK_QUOTE_STATUS.PENDING]: 1,
+      [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 2,
+      [TASK_QUOTE_STATUS.COMMERCIAL_APPROVED]: 3,
+      [TASK_QUOTE_STATUS.BILLING_APPROVED]: 4,
+      [TASK_QUOTE_STATUS.UPCOMING]: 5,
+      [TASK_QUOTE_STATUS.DUE]: 6,
+      [TASK_QUOTE_STATUS.PARTIAL]: 7,
+      [TASK_QUOTE_STATUS.SETTLED]: 8,
+    };
+
+    // Build where clause for quotes (joining to Task for sector/customer filters)
+    const where: any = {
+      createdAt: { gte: dateRange.start, lte: dateRange.end },
+      ...(status?.length && { status: { in: status } }),
+    };
+
+    if (customerIds?.length || sectorIds?.length) {
+      where.task = {
+        ...(customerIds?.length && { customerId: { in: customerIds } }),
+        ...(sectorIds?.length && { sectorId: { in: sectorIds } }),
+      };
+    }
+
+    const quotes = await this.prisma.taskQuote.findMany({
+      where,
+      select: {
+        id: true,
+        total: true,
+        status: true,
+        statusOrder: true,
+        createdAt: true,
+        billingApprovedAt: true,
+        task: {
+          select: {
+            id: true,
+            customerId: true,
+            sectorId: true,
+            customer: { select: { id: true, fantasyName: true } },
+            sector: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    // ---------- Funnel stages ----------
+    const stageDefs: Array<{ stage: string; orderThreshold: number }> = [
+      { stage: TASK_QUOTE_STATUS.PENDING, orderThreshold: 1 },
+      { stage: TASK_QUOTE_STATUS.BUDGET_APPROVED, orderThreshold: 2 },
+      { stage: TASK_QUOTE_STATUS.COMMERCIAL_APPROVED, orderThreshold: 3 },
+      { stage: TASK_QUOTE_STATUS.BILLING_APPROVED, orderThreshold: 4 },
+    ];
+
+    const totalEntries = quotes.length;
+    const funnel: QuoteFunnelStage[] = stageDefs.map((def, idx) => {
+      const reached = quotes.filter(
+        q => (q.statusOrder ?? STATUS_ORDER[q.status] ?? 1) >= def.orderThreshold,
+      );
+      const count = reached.length;
+      const totalValue = reached.reduce((s, q) => s + Number(q.total), 0);
+      const prevCount = idx === 0 ? totalEntries : 0;
+      // For non-first stages, look up previous stage's reached count
+      const previousReached =
+        idx === 0
+          ? totalEntries
+          : quotes.filter(
+              q =>
+                (q.statusOrder ?? STATUS_ORDER[q.status] ?? 1) >=
+                stageDefs[idx - 1].orderThreshold,
+            ).length;
+
+      const conversionFromPrevious =
+        previousReached > 0 ? Math.round((count / previousReached) * 1000) / 10 : 0;
+      const conversionFromTop =
+        totalEntries > 0 ? Math.round((count / totalEntries) * 1000) / 10 : 0;
+
+      // avg days from creation to reaching this stage (approximate: use createdAt vs now for not-yet-billing, billingApprovedAt for billing-approved)
+      const ages = reached
+        .map(q => {
+          if (def.orderThreshold >= 4 && q.billingApprovedAt) {
+            return diffDays(q.createdAt, q.billingApprovedAt);
+          }
+          // for upstream stages we don't have stage-transition timestamps,
+          // so we use current age as a proxy (only meaningful for current-stage quotes)
+          if ((q.statusOrder ?? STATUS_ORDER[q.status] ?? 1) === def.orderThreshold) {
+            return diffDays(q.createdAt, new Date());
+          }
+          return null;
+        })
+        .filter((d): d is number => d !== null && d >= 0);
+      const avgDaysFromCreation =
+        ages.length > 0 ? Math.round((ages.reduce((a, b) => a + b, 0) / ages.length) * 10) / 10 : 0;
+
+      // Suppress unused-var warning for prevCount (kept for readability)
+      void prevCount;
+
+      return {
+        stage: def.stage,
+        stageLabel: TASK_QUOTE_STATUS_LABELS[def.stage as keyof typeof TASK_QUOTE_STATUS_LABELS],
+        count,
+        totalValue: Math.round(totalValue * 100) / 100,
+        conversionFromPrevious,
+        conversionFromTop,
+        avgDaysFromCreation,
+      };
+    });
+
+    // ---------- Monthly time series ----------
+    const periodMap = new Map<
+      string,
+      {
+        newQuotes: number;
+        approvedQuotes: number;
+        billedQuotes: number;
+        settledQuotes: number;
+        totalValue: number;
+        settledValue: number;
+      }
+    >();
+
+    for (const q of quotes) {
+      const key = keyFn(q.createdAt);
+      if (!periodMap.has(key)) {
+        periodMap.set(key, {
+          newQuotes: 0,
+          approvedQuotes: 0,
+          billedQuotes: 0,
+          settledQuotes: 0,
+          totalValue: 0,
+          settledValue: 0,
+        });
+      }
+      const bucket = periodMap.get(key)!;
+      const sOrder = q.statusOrder ?? STATUS_ORDER[q.status] ?? 1;
+      bucket.newQuotes++;
+      bucket.totalValue += Number(q.total);
+      if (sOrder >= 2) bucket.approvedQuotes++;
+      if (sOrder >= 4) bucket.billedQuotes++;
+      if (q.status === TASK_QUOTE_STATUS.SETTLED) {
+        bucket.settledQuotes++;
+        bucket.settledValue += Number(q.total);
+      }
+    }
+
+    const sortedKeys = Array.from(periodMap.keys()).sort();
+    const items: QuoteFunnelItem[] = sortedKeys.map(key => {
+      const b = periodMap.get(key)!;
+      return {
+        period: key,
+        periodLabel: groupBy === 'week' ? key : monthLabel(key),
+        newQuotes: b.newQuotes,
+        approvedQuotes: b.approvedQuotes,
+        billedQuotes: b.billedQuotes,
+        settledQuotes: b.settledQuotes,
+        totalValue: Math.round(b.totalValue * 100) / 100,
+        settledValue: Math.round(b.settledValue * 100) / 100,
+      };
+    });
+
+    // ---------- Top customers ----------
+    const customerMap = new Map<
+      string,
+      { id: string; name: string; count: number; total: number; settled: number }
+    >();
+    for (const q of quotes) {
+      const c = q.task?.customer;
+      if (!c) continue;
+      if (!customerMap.has(c.id)) {
+        customerMap.set(c.id, { id: c.id, name: c.fantasyName, count: 0, total: 0, settled: 0 });
+      }
+      const entry = customerMap.get(c.id)!;
+      entry.count++;
+      entry.total += Number(q.total);
+      if (q.status === TASK_QUOTE_STATUS.SETTLED) {
+        entry.settled += Number(q.total);
+      }
+    }
+    const topCustomers: QuoteTopCustomer[] = Array.from(customerMap.values())
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 20)
+      .map(c => ({
+        customerId: c.id,
+        customerName: c.name,
+        quoteCount: c.count,
+        totalValue: Math.round(c.total * 100) / 100,
+        settledValue: Math.round(c.settled * 100) / 100,
+        conversionRate: c.total > 0 ? Math.round((c.settled / c.total) * 1000) / 10 : 0,
+      }));
+
+    // ---------- Top sectors ----------
+    const sectorMap = new Map<
+      string,
+      { id: string; name: string; count: number; total: number; settled: number }
+    >();
+    for (const q of quotes) {
+      const s = q.task?.sector;
+      if (!s) continue;
+      if (!sectorMap.has(s.id)) {
+        sectorMap.set(s.id, { id: s.id, name: s.name, count: 0, total: 0, settled: 0 });
+      }
+      const entry = sectorMap.get(s.id)!;
+      entry.count++;
+      entry.total += Number(q.total);
+      if (q.status === TASK_QUOTE_STATUS.SETTLED) {
+        entry.settled += Number(q.total);
+      }
+    }
+    const topSectors: QuoteTopSector[] = Array.from(sectorMap.values())
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10)
+      .map(s => ({
+        sectorId: s.id,
+        sectorName: s.name,
+        quoteCount: s.count,
+        totalValue: Math.round(s.total * 100) / 100,
+        settledValue: Math.round(s.settled * 100) / 100,
+      }));
+
+    // ---------- Summary ----------
+    const totalQuotes = quotes.length;
+    const totalQuotedValue = quotes.reduce((s, q) => s + Number(q.total), 0);
+    const settledQuotes = quotes.filter(q => q.status === TASK_QUOTE_STATUS.SETTLED);
+    const totalSettledValue = settledQuotes.reduce((s, q) => s + Number(q.total), 0);
+    const conversionRate =
+      totalQuotes > 0 ? Math.round((settledQuotes.length / totalQuotes) * 1000) / 10 : 0;
+    const avgTicket =
+      settledQuotes.length > 0
+        ? Math.round((totalSettledValue / settledQuotes.length) * 100) / 100
+        : 0;
+
+    const cycles = quotes
+      .filter(q => q.billingApprovedAt)
+      .map(q => diffDays(q.createdAt, q.billingApprovedAt!))
+      .filter(d => d >= 0);
+    const avgSalesCycleDays =
+      cycles.length > 0
+        ? Math.round((cycles.reduce((a, b) => a + b, 0) / cycles.length) * 10) / 10
+        : 0;
+
+    const activeBacklogValue = quotes
+      .filter(q => q.status !== TASK_QUOTE_STATUS.SETTLED)
+      .reduce((s, q) => s + Number(q.total), 0);
+
+    return {
+      summary: {
+        totalQuotes,
+        totalQuotedValue: Math.round(totalQuotedValue * 100) / 100,
+        totalSettledValue: Math.round(totalSettledValue * 100) / 100,
+        conversionRate,
+        avgTicket,
+        avgSalesCycleDays,
+        activeBacklogValue: Math.round(activeBacklogValue * 100) / 100,
+      },
+      funnel,
+      items,
+      topCustomers,
+      topSectors,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4. Receivables Analytics (per-customer aging, DSO, forecast, cohort)
+  // ---------------------------------------------------------------------------
+
+  async getReceivablesAnalytics(
+    filters: ReceivablesAnalyticsFilters,
+  ): Promise<ReceivablesAnalyticsData> {
+    const { customerIds, limit = 20, forecastDays = 90 } = filters;
+    const now = new Date();
+    const dateRange = this.resolveDateRange(filters);
+
+    // Get all non-cancelled installments via their invoice's customer
+    const installments = await this.prisma.installment.findMany({
+      where: {
+        status: { not: INSTALLMENT_STATUS.CANCELLED },
+        invoice: {
+          status: { not: INVOICE_STATUS.CANCELLED },
+          ...(customerIds?.length && { customerId: { in: customerIds } }),
+        },
+      },
+      select: {
+        id: true,
+        number: true,
+        amount: true,
+        paidAmount: true,
+        paidAt: true,
+        dueDate: true,
+        status: true,
+        invoice: {
+          select: {
+            id: true,
+            customerId: true,
+            createdAt: true,
+            totalAmount: true,
+            paidAmount: true,
+            task: { select: { id: true, name: true, serialNumber: true } },
+            customer: {
+              select: {
+                id: true,
+                fantasyName: true,
+              },
+            },
+            _count: { select: { installments: true } },
+          },
+        },
+      },
+    });
+
+    // ---------- Per-customer aging ----------
+    interface CustAggregate {
+      id: string;
+      name: string;
+      current: number;
+      band30: number;
+      band60: number;
+      band90: number;
+      band90Plus: number;
+      totalDsoNum: number; // sum (amount × daysToPay) for paid installments (DSO numerator)
+      totalDsoDen: number; // sum amount for paid installments
+      overdueAmount: number;
+      overdueCount: number;
+      oldestDueDate: Date | null;
+    }
+    const custMap = new Map<string, CustAggregate>();
+
+    for (const inst of installments) {
+      const cust = inst.invoice?.customer;
+      if (!cust) continue;
+      if (!custMap.has(cust.id)) {
+        custMap.set(cust.id, {
+          id: cust.id,
+          name: cust.fantasyName,
+          current: 0,
+          band30: 0,
+          band60: 0,
+          band90: 0,
+          band90Plus: 0,
+          totalDsoNum: 0,
+          totalDsoDen: 0,
+          overdueAmount: 0,
+          overdueCount: 0,
+          oldestDueDate: null,
+        });
+      }
+      const c = custMap.get(cust.id)!;
+      const remaining = Number(inst.amount) - Number(inst.paidAmount);
+
+      // DSO contribution from paid installments using invoice.createdAt as billing
+      if (inst.status === INSTALLMENT_STATUS.PAID && inst.paidAt && inst.invoice) {
+        const daysToPay = diffDays(inst.invoice.createdAt, inst.paidAt);
+        if (daysToPay >= 0) {
+          c.totalDsoNum += Number(inst.amount) * daysToPay;
+          c.totalDsoDen += Number(inst.amount);
+        }
+      }
+
+      // Aging: only consider unpaid balance
+      if (remaining <= 0) continue;
+
+      if (inst.dueDate >= now) {
+        // current (not yet due)
+        c.current += remaining;
+        continue;
+      }
+      const daysOverdue = diffDays(inst.dueDate, now);
+      let band: keyof CustAggregate;
+      if (daysOverdue <= 30) band = 'band30';
+      else if (daysOverdue <= 60) band = 'band60';
+      else if (daysOverdue <= 90) band = 'band90';
+      else band = 'band90Plus';
+      (c[band] as number) += remaining;
+
+      c.overdueAmount += remaining;
+      c.overdueCount++;
+      if (!c.oldestDueDate || inst.dueDate < c.oldestDueDate) c.oldestDueDate = inst.dueDate;
+    }
+
+    const customerAging: CustomerAgingRow[] = Array.from(custMap.values())
+      .map(c => {
+        const total = c.current + c.band30 + c.band60 + c.band90 + c.band90Plus;
+        const dso = c.totalDsoDen > 0 ? c.totalDsoNum / c.totalDsoDen : 0;
+        return {
+          customerId: c.id,
+          customerName: c.name,
+          current: Math.round(c.current * 100) / 100,
+          band30: Math.round(c.band30 * 100) / 100,
+          band60: Math.round(c.band60 * 100) / 100,
+          band90: Math.round(c.band90 * 100) / 100,
+          band90Plus: Math.round(c.band90Plus * 100) / 100,
+          total: Math.round(total * 100) / 100,
+          dso: Math.round(dso * 10) / 10,
+        };
+      })
+      .filter(row => row.total > 0)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, limit);
+
+    const topDelinquents: DelinquentCustomer[] = Array.from(custMap.values())
+      .filter(c => c.overdueAmount > 0)
+      .sort((a, b) => b.overdueAmount - a.overdueAmount)
+      .slice(0, limit)
+      .map(c => {
+        const daysOverdueMax = c.oldestDueDate ? Math.floor(diffDays(c.oldestDueDate, now)) : 0;
+        const totalReceivable =
+          c.current + c.band30 + c.band60 + c.band90 + c.band90Plus;
+        return {
+          customerId: c.id,
+          customerName: c.name,
+          overdueAmount: Math.round(c.overdueAmount * 100) / 100,
+          overdueCount: c.overdueCount,
+          oldestDueDate: c.oldestDueDate ? c.oldestDueDate.toISOString() : null,
+          daysOverdueMax,
+          totalReceivable: Math.round(totalReceivable * 100) / 100,
+        };
+      });
+
+    // ---------- Forecast buckets ----------
+    const buckets = [
+      { bucket: 'OVERDUE', bucketLabel: 'Vencidas' },
+      { bucket: 'D7', bucketLabel: 'Próximos 7 dias' },
+      { bucket: 'D15', bucketLabel: '8 a 15 dias' },
+      { bucket: 'D30', bucketLabel: '16 a 30 dias' },
+      { bucket: 'D60', bucketLabel: '31 a 60 dias' },
+      { bucket: 'D90', bucketLabel: '61 a 90 dias' },
+    ];
+
+    const BUCKET_CAP = 100;
+    const forecastMap: Record<
+      string,
+      {
+        dueAmount: number;
+        installmentCount: number;
+        instances: Array<typeof installments[number] & { _bucketDays: number }>;
+      }
+    > = {};
+    buckets.forEach(b => {
+      forecastMap[b.bucket] = { dueAmount: 0, installmentCount: 0, instances: [] };
+    });
+
+    for (const inst of installments) {
+      if (inst.status === INSTALLMENT_STATUS.PAID) continue;
+      const remaining = Number(inst.amount) - Number(inst.paidAmount);
+      if (remaining <= 0) continue;
+      const days = diffDays(now, inst.dueDate);
+
+      let bucketKey: string;
+      if (days < 0) bucketKey = 'OVERDUE';
+      else if (days <= 7) bucketKey = 'D7';
+      else if (days <= 15) bucketKey = 'D15';
+      else if (days <= 30) bucketKey = 'D30';
+      else if (days <= 60) bucketKey = 'D60';
+      else if (days <= 90) bucketKey = 'D90';
+      else continue;
+
+      forecastMap[bucketKey].dueAmount += remaining;
+      forecastMap[bucketKey].installmentCount++;
+      forecastMap[bucketKey].instances.push({ ...inst, _bucketDays: days });
+    }
+
+    const forecastBuckets: ForecastDayBucket[] = buckets.map(b => {
+      const m = forecastMap[b.bucket];
+      // Sort: overdue oldest first; future closest first
+      const sorted = [...m.instances].sort((a, c) =>
+        b.bucket === 'OVERDUE' ? a.dueDate.getTime() - c.dueDate.getTime() : a.dueDate.getTime() - c.dueDate.getTime(),
+      );
+      const capped = sorted.slice(0, BUCKET_CAP);
+      return {
+        bucket: b.bucket,
+        bucketLabel: b.bucketLabel,
+        dueAmount: Math.round(m.dueAmount * 100) / 100,
+        installmentCount: m.installmentCount,
+        truncated: m.instances.length > BUCKET_CAP,
+        installments: capped.map(inst => {
+          const remaining = Number(inst.amount) - Number(inst.paidAmount);
+          return {
+            installmentId: inst.id,
+            invoiceId: inst.invoice?.id ?? null,
+            customerId: inst.invoice?.customer?.id ?? '',
+            customerName: inst.invoice?.customer?.fantasyName ?? 'Cliente sem nome',
+            taskId: inst.invoice?.task?.id ?? null,
+            taskName: inst.invoice?.task?.name ?? null,
+            taskSerialNumber: inst.invoice?.task?.serialNumber ?? null,
+            invoiceTotalAmount: Number(inst.invoice?.totalAmount ?? 0),
+            installmentNumber: inst.number,
+            totalInstallments: inst.invoice?._count?.installments ?? 0,
+            dueDate: inst.dueDate.toISOString(),
+            amount: Number(inst.amount),
+            paidAmount: Number(inst.paidAmount),
+            remaining: Math.round(remaining * 100) / 100,
+            status: inst.status,
+            daysFromNow: Math.floor(inst._bucketDays),
+          };
+        }),
+      };
+    });
+
+    // Suppress unused-var warning
+    void forecastDays;
+
+    // ---------- Recovery cohorts ----------
+    // For each invoice creation month within the cohort window, what % of the
+    // invoiced amount was recovered within 30/60/90 days, and total to date.
+    const cohortInvoices = await this.prisma.invoice.findMany({
+      where: {
+        createdAt: { gte: dateRange.start, lte: dateRange.end },
+        status: { not: INVOICE_STATUS.CANCELLED },
+      },
+      select: {
+        createdAt: true,
+        totalAmount: true,
+        installments: {
+          select: {
+            amount: true,
+            paidAmount: true,
+            paidAt: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    interface CohortAgg {
+      invoicedAmount: number;
+      recoveredAt30: number;
+      recoveredAt60: number;
+      recoveredAt90: number;
+      recoveredFinal: number;
+    }
+    const cohortMap = new Map<string, CohortAgg>();
+
+    for (const inv of cohortInvoices) {
+      const key = monthKey(inv.createdAt);
+      if (!cohortMap.has(key)) {
+        cohortMap.set(key, {
+          invoicedAmount: 0,
+          recoveredAt30: 0,
+          recoveredAt60: 0,
+          recoveredAt90: 0,
+          recoveredFinal: 0,
+        });
+      }
+      const agg = cohortMap.get(key)!;
+      agg.invoicedAmount += Number(inv.totalAmount);
+
+      for (const inst of inv.installments) {
+        if (inst.status !== INSTALLMENT_STATUS.PAID || !inst.paidAt) continue;
+        const daysToRecover = diffDays(inv.createdAt, inst.paidAt);
+        const paid = Number(inst.paidAmount);
+        if (daysToRecover <= 30) agg.recoveredAt30 += paid;
+        if (daysToRecover <= 60) agg.recoveredAt60 += paid;
+        if (daysToRecover <= 90) agg.recoveredAt90 += paid;
+        agg.recoveredFinal += paid;
+      }
+    }
+
+    const recoveryCohorts: RecoveryCohort[] = Array.from(cohortMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, agg]) => ({
+        cohortMonth: key,
+        cohortLabel: monthLabel(key),
+        invoicedAmount: Math.round(agg.invoicedAmount * 100) / 100,
+        recoveredAt30Days:
+          agg.invoicedAmount > 0
+            ? Math.round((agg.recoveredAt30 / agg.invoicedAmount) * 1000) / 10
+            : 0,
+        recoveredAt60Days:
+          agg.invoicedAmount > 0
+            ? Math.round((agg.recoveredAt60 / agg.invoicedAmount) * 1000) / 10
+            : 0,
+        recoveredAt90Days:
+          agg.invoicedAmount > 0
+            ? Math.round((agg.recoveredAt90 / agg.invoicedAmount) * 1000) / 10
+            : 0,
+        recoveredFinal:
+          agg.invoicedAmount > 0
+            ? Math.round((agg.recoveredFinal / agg.invoicedAmount) * 1000) / 10
+            : 0,
+      }));
+
+    // ---------- Summary ----------
+    const totalReceivable =
+      Math.round(
+        Array.from(custMap.values()).reduce(
+          (s, c) => s + c.current + c.band30 + c.band60 + c.band90 + c.band90Plus,
+          0,
+        ) * 100,
+      ) / 100;
+    const totalOverdue =
+      Math.round(
+        Array.from(custMap.values()).reduce((s, c) => s + c.overdueAmount, 0) * 100,
+      ) / 100;
+    const totalCurrent =
+      Math.round(Array.from(custMap.values()).reduce((s, c) => s + c.current, 0) * 100) /
+      100;
+    const activeCustomers = Array.from(custMap.values()).filter(
+      c => c.current + c.overdueAmount > 0,
+    ).length;
+
+    // Weighted avg DSO across customers (weight by amount paid)
+    const dsoNumSum = Array.from(custMap.values()).reduce((s, c) => s + c.totalDsoNum, 0);
+    const dsoDenSum = Array.from(custMap.values()).reduce((s, c) => s + c.totalDsoDen, 0);
+    const avgDso = dsoDenSum > 0 ? Math.round((dsoNumSum / dsoDenSum) * 10) / 10 : 0;
+
+    return {
+      summary: {
+        totalReceivable,
+        totalOverdue,
+        totalCurrent,
+        avgDso,
+        activeCustomers,
+        forecastNext7: forecastMap['D7'].dueAmount,
+        forecastNext30:
+          forecastMap['D7'].dueAmount + forecastMap['D15'].dueAmount + forecastMap['D30'].dueAmount,
+        forecastNext60:
+          forecastMap['D7'].dueAmount +
+          forecastMap['D15'].dueAmount +
+          forecastMap['D30'].dueAmount +
+          forecastMap['D60'].dueAmount,
+        forecastNext90:
+          forecastMap['D7'].dueAmount +
+          forecastMap['D15'].dueAmount +
+          forecastMap['D30'].dueAmount +
+          forecastMap['D60'].dueAmount +
+          forecastMap['D90'].dueAmount,
+      },
+      topDelinquents,
+      customerAging,
+      forecastBuckets,
+      recoveryCohorts,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 5. Sicredi Webhook Analytics
+  // ---------------------------------------------------------------------------
+
+  async getSicrediWebhookAnalytics(
+    filters: SicrediWebhookAnalyticsFilters,
+  ): Promise<SicrediWebhookAnalyticsData> {
+    const { groupBy = 'month' } = filters;
+    const dateRange = this.resolveDateRange(filters);
+    const keyFn = groupBy === 'week' ? weekKey : monthKey;
+
+    const events = await this.prisma.sicrediWebhookEvent.findMany({
+      where: {
+        createdAt: { gte: dateRange.start, lte: dateRange.end },
+      },
+      select: {
+        id: true,
+        movimento: true,
+        valorLiquidacao: true,
+        valorDesconto: true,
+        valorJuros: true,
+        valorMulta: true,
+        valorAbatimento: true,
+        dataEvento: true,
+        status: true,
+        errorMessage: true,
+        createdAt: true,
+      },
+    });
+
+    // ---------- Monthly items ----------
+    const periodMap = new Map<
+      string,
+      {
+        eventCount: number;
+        liquidation: number;
+        discount: number;
+        interest: number;
+        penalty: number;
+        abatement: number;
+        failedCount: number;
+      }
+    >();
+
+    for (const ev of events) {
+      const key = keyFn(ev.dataEvento || ev.createdAt);
+      if (!periodMap.has(key)) {
+        periodMap.set(key, {
+          eventCount: 0,
+          liquidation: 0,
+          discount: 0,
+          interest: 0,
+          penalty: 0,
+          abatement: 0,
+          failedCount: 0,
+        });
+      }
+      const bucket = periodMap.get(key)!;
+      bucket.eventCount++;
+      bucket.liquidation += Number(ev.valorLiquidacao || 0);
+      bucket.discount += Number(ev.valorDesconto || 0);
+      bucket.interest += Number(ev.valorJuros || 0);
+      bucket.penalty += Number(ev.valorMulta || 0);
+      bucket.abatement += Number(ev.valorAbatimento || 0);
+      if (ev.status === WEBHOOK_EVENT_STATUS.FAILED) bucket.failedCount++;
+    }
+
+    const sortedKeys = Array.from(periodMap.keys()).sort();
+    const items: SicrediMonthlyItem[] = sortedKeys.map(key => {
+      const b = periodMap.get(key)!;
+      return {
+        period: key,
+        periodLabel: groupBy === 'week' ? key : monthLabel(key),
+        eventCount: b.eventCount,
+        liquidation: Math.round(b.liquidation * 100) / 100,
+        discount: Math.round(b.discount * 100) / 100,
+        interest: Math.round(b.interest * 100) / 100,
+        penalty: Math.round(b.penalty * 100) / 100,
+        abatement: Math.round(b.abatement * 100) / 100,
+        failedCount: b.failedCount,
+      };
+    });
+
+    // ---------- Movement breakdown ----------
+    const movMap = new Map<string, { count: number; totalLiquidation: number }>();
+    for (const ev of events) {
+      if (!movMap.has(ev.movimento)) {
+        movMap.set(ev.movimento, { count: 0, totalLiquidation: 0 });
+      }
+      const m = movMap.get(ev.movimento)!;
+      m.count++;
+      m.totalLiquidation += Number(ev.valorLiquidacao || 0);
+    }
+    const movementBreakdown: SicrediMovementRow[] = Array.from(movMap.entries())
+      .sort((a, b) => b[1].count - a[1].count)
+      .map(([movimento, v]) => ({
+        movimento,
+        count: v.count,
+        totalLiquidation: Math.round(v.totalLiquidation * 100) / 100,
+      }));
+
+    // ---------- Error breakdown ----------
+    const errMap = new Map<string, { count: number; lastOccurred: Date | null }>();
+    for (const ev of events) {
+      if (!ev.errorMessage) continue;
+      if (!errMap.has(ev.errorMessage)) {
+        errMap.set(ev.errorMessage, { count: 0, lastOccurred: null });
+      }
+      const e = errMap.get(ev.errorMessage)!;
+      e.count++;
+      const occurred = ev.dataEvento || ev.createdAt;
+      if (!e.lastOccurred || occurred > e.lastOccurred) e.lastOccurred = occurred;
+    }
+    const errorBreakdown: SicrediErrorRow[] = Array.from(errMap.entries())
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 20)
+      .map(([msg, v]) => ({
+        errorMessage: msg,
+        count: v.count,
+        lastOccurred: v.lastOccurred ? v.lastOccurred.toISOString() : null,
+      }));
+
+    // ---------- Summary ----------
+    const totalEvents = events.length;
+    const totalProcessed = events.filter(
+      e => e.status === WEBHOOK_EVENT_STATUS.PROCESSED,
+    ).length;
+    const totalFailed = events.filter(e => e.status === WEBHOOK_EVENT_STATUS.FAILED).length;
+    const totalLiquidation = events.reduce((s, e) => s + Number(e.valorLiquidacao || 0), 0);
+    const totalDiscountGiven = events.reduce((s, e) => s + Number(e.valorDesconto || 0), 0);
+    const totalInterestEarned = events.reduce((s, e) => s + Number(e.valorJuros || 0), 0);
+    const totalPenaltyEarned = events.reduce((s, e) => s + Number(e.valorMulta || 0), 0);
+    const totalAbatement = events.reduce((s, e) => s + Number(e.valorAbatimento || 0), 0);
+    const processingSuccessRate =
+      totalEvents > 0 ? Math.round((totalProcessed / totalEvents) * 1000) / 10 : 0;
+    const netSettlementImpact =
+      totalInterestEarned + totalPenaltyEarned - totalDiscountGiven - totalAbatement;
+
+    return {
+      summary: {
+        totalEvents,
+        totalProcessed,
+        totalFailed,
+        processingSuccessRate,
+        totalLiquidation: Math.round(totalLiquidation * 100) / 100,
+        totalDiscountGiven: Math.round(totalDiscountGiven * 100) / 100,
+        totalInterestEarned: Math.round(totalInterestEarned * 100) / 100,
+        totalPenaltyEarned: Math.round(totalPenaltyEarned * 100) / 100,
+        totalAbatement: Math.round(totalAbatement * 100) / 100,
+        netSettlementImpact: Math.round(netSettlementImpact * 100) / 100,
+      },
+      items,
+      movementBreakdown,
+      errorBreakdown,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 6. NFSe Analytics
+  // ---------------------------------------------------------------------------
+
+  async getNfseAnalytics(filters: NfseAnalyticsFilters): Promise<NfseAnalyticsData> {
+    const { status, groupBy = 'month' } = filters;
+    const dateRange = this.resolveDateRange(filters);
+    const keyFn = groupBy === 'week' ? weekKey : monthKey;
+
+    const docs = await this.prisma.nfseDocument.findMany({
+      where: {
+        createdAt: { gte: dateRange.start, lte: dateRange.end },
+        ...(status?.length && { status: { in: status as any } }),
+      },
+      select: {
+        id: true,
+        status: true,
+        errorMessage: true,
+        errorCount: true,
+        createdAt: true,
+        updatedAt: true,
+        invoice: { select: { totalAmount: true } },
+      },
+    });
+
+    // ---------- Status distribution ----------
+    const statusCounts = new Map<string, number>();
+    for (const d of docs) {
+      statusCounts.set(d.status, (statusCounts.get(d.status) || 0) + 1);
+    }
+    const statusDistribution: NfseStatusDistribution[] = Array.from(statusCounts.entries()).map(
+      ([s, c]) => ({
+        status: s,
+        statusLabel: NFSE_STATUS_LABELS[s as keyof typeof NFSE_STATUS_LABELS] || s,
+        count: c,
+      }),
+    );
+
+    // ---------- Monthly items ----------
+    const periodMap = new Map<
+      string,
+      {
+        authorized: number;
+        pending: number;
+        processing: number;
+        error: number;
+        cancelled: number;
+        total: number;
+      }
+    >();
+    for (const d of docs) {
+      const key = keyFn(d.createdAt);
+      if (!periodMap.has(key)) {
+        periodMap.set(key, {
+          authorized: 0,
+          pending: 0,
+          processing: 0,
+          error: 0,
+          cancelled: 0,
+          total: 0,
+        });
+      }
+      const b = periodMap.get(key)!;
+      b.total++;
+      if (d.status === NFSE_STATUS.AUTHORIZED) b.authorized++;
+      else if (d.status === NFSE_STATUS.PENDING) b.pending++;
+      else if (d.status === NFSE_STATUS.PROCESSING) b.processing++;
+      else if (d.status === NFSE_STATUS.ERROR) b.error++;
+      else if (d.status === NFSE_STATUS.CANCELLED) b.cancelled++;
+    }
+
+    const sortedKeys = Array.from(periodMap.keys()).sort();
+    const items: NfseMonthlyItem[] = sortedKeys.map(key => {
+      const b = periodMap.get(key)!;
+      return {
+        period: key,
+        periodLabel: groupBy === 'week' ? key : monthLabel(key),
+        authorized: b.authorized,
+        pending: b.pending,
+        processing: b.processing,
+        error: b.error,
+        cancelled: b.cancelled,
+        total: b.total,
+      };
+    });
+
+    // ---------- Error breakdown ----------
+    const errMap = new Map<string, { count: number; lastOccurred: Date | null }>();
+    for (const d of docs) {
+      if (!d.errorMessage) continue;
+      if (!errMap.has(d.errorMessage)) {
+        errMap.set(d.errorMessage, { count: 0, lastOccurred: null });
+      }
+      const e = errMap.get(d.errorMessage)!;
+      e.count++;
+      if (!e.lastOccurred || d.updatedAt > e.lastOccurred) e.lastOccurred = d.updatedAt;
+    }
+    const errorBreakdown: NfseErrorRow[] = Array.from(errMap.entries())
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 20)
+      .map(([msg, v]) => ({
+        errorMessage: msg,
+        count: v.count,
+        lastOccurred: v.lastOccurred ? v.lastOccurred.toISOString() : null,
+      }));
+
+    // ---------- Summary ----------
+    const totalDocuments = docs.length;
+    const totalAuthorized = docs.filter(d => d.status === NFSE_STATUS.AUTHORIZED).length;
+    const totalPending = docs.filter(d => d.status === NFSE_STATUS.PENDING).length;
+    const totalProcessing = docs.filter(d => d.status === NFSE_STATUS.PROCESSING).length;
+    const totalError = docs.filter(d => d.status === NFSE_STATUS.ERROR).length;
+    const totalCancelled = docs.filter(d => d.status === NFSE_STATUS.CANCELLED).length;
+    const authorizationRate =
+      totalDocuments > 0 ? Math.round((totalAuthorized / totalDocuments) * 1000) / 10 : 0;
+    const errorRate =
+      totalDocuments > 0 ? Math.round((totalError / totalDocuments) * 1000) / 10 : 0;
+    const totalRetries = docs.reduce((s, d) => s + d.errorCount, 0);
+    const avgRetryCount =
+      totalDocuments > 0 ? Math.round((totalRetries / totalDocuments) * 100) / 100 : 0;
+    const documentsAtRetryLimit = docs.filter(d => d.errorCount >= 3).length;
+
+    // ---------- Tax summary (ISS estimate) ----------
+    // ISS rate is configured by ELOTECH_OXY_SERVICO_LC_ALIQUOTA (default 2 = 2%).
+    // For each AUTHORIZED NFS-e we sum the invoice's totalAmount (service value)
+    // and derive: gross, ISS owed, net (gross - ISS).
+    const issRatePercent = Number(process.env.ELOTECH_OXY_SERVICO_LC_ALIQUOTA ?? 2);
+    const grossServiceRevenue = docs
+      .filter(d => d.status === NFSE_STATUS.AUTHORIZED)
+      .reduce((s, d) => s + Number(d.invoice?.totalAmount ?? 0), 0);
+    const estimatedIssAmount = Math.round((grossServiceRevenue * issRatePercent) / 100 * 100) / 100;
+    const netServiceRevenue = Math.round((grossServiceRevenue - estimatedIssAmount) * 100) / 100;
+    const pendingGrossRevenue = docs
+      .filter(d => d.status === NFSE_STATUS.PENDING || d.status === NFSE_STATUS.PROCESSING)
+      .reduce((s, d) => s + Number(d.invoice?.totalAmount ?? 0), 0);
+
+    return {
+      summary: {
+        totalDocuments,
+        totalAuthorized,
+        totalPending,
+        totalProcessing,
+        totalError,
+        totalCancelled,
+        authorizationRate,
+        errorRate,
+        avgRetryCount,
+        documentsAtRetryLimit,
+        issRatePercent,
+        grossServiceRevenue: Math.round(grossServiceRevenue * 100) / 100,
+        estimatedIssAmount,
+        netServiceRevenue,
+        pendingGrossRevenue: Math.round(pendingGrossRevenue * 100) / 100,
+      },
+      statusDistribution,
+      items,
+      errorBreakdown,
+    };
   }
 }

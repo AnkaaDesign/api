@@ -3367,4 +3367,274 @@ export class BonusService {
       b1Curve,
     };
   }
+
+  /**
+   * Day-by-day bonus accrual timeline for a single business period (26th of
+   * previous month → 25th of current month). Powers the "Relação Bônus /
+   * Produção" stats page.
+   *
+   * Why proportional accrual instead of per-day snapshot bonus
+   * ---------------------------------------------------------
+   * The bonus formula is calibrated for END-OF-PERIOD averages (B1 in the
+   * roughly 3–6 range; see bonus-calculation.service.ts). Its 5th-degree
+   * polynomial is intentionally non-monotonic below B1≈3 — at B1=0.5 it
+   * outputs ~91, at B1=1.5 it dips to ~22, at B1=3 it climbs to ~624. That
+   * shape is fine for its only intended use (one call at period close), but
+   * if you call it for every daily snapshot mid-period — when B1 is still
+   * small and rising — you get those phantom peaks and dips that look like
+   * the bonus dropped, even though more tasks were completed.
+   *
+   * We instead compute a SINGLE projected end-of-period bonus
+   * (`projectedFinalBonus`) and distribute it across days proportionally to
+   * weighted task contribution. This yields a smooth monotonic curve that
+   * matches the operator's mental model ("bonus accrues as tasks finish") and
+   * is mathematically equivalent to assuming a constant bonus-per-weighted-task
+   * within the period.
+   *
+   * For closed periods, the distribution is over actual realized totals. For
+   * open periods, the distribution uses today's rate × totalDays as the
+   * projected total, so all values are "live" estimates that converge to truth
+   * as more days elapse.
+   */
+  async getBonusTimeline(filters: {
+    year: number;
+    month: number;
+    sectorIds?: string[];
+  }) {
+    const { year, month, sectorIds } = filters;
+
+    const startDate = getPeriodStart(year, month);
+    const endDate = getPeriodEnd(year, month);
+    const now = new Date();
+    const isClosed = endDate < now;
+
+    const sectorFilter =
+      sectorIds && sectorIds.length > 0 ? { sectorId: { in: sectorIds } } : {};
+
+    const allBonifiableUsers = await this.prisma.user.findMany({
+      where: {
+        status: USER_STATUS.EFFECTED,
+        position: { bonifiable: true },
+        secullumEmployeeId: { not: null },
+        ...sectorFilter,
+      },
+      select: {
+        id: true,
+        name: true,
+        performanceLevel: true,
+        secullumEmployeeId: true,
+        position: {
+          select: { id: true, name: true, bonifiable: true },
+        },
+        sector: { select: { id: true, name: true } },
+      },
+    });
+
+    const allTasks = await this.prisma.task.findMany({
+      where: {
+        finishedAt: { gte: startDate, lte: endDate },
+        status: TASK_STATUS.COMPLETED,
+        commission: {
+          in: [
+            COMMISSION_STATUS.FULL_COMMISSION,
+            COMMISSION_STATUS.PARTIAL_COMMISSION,
+            COMMISSION_STATUS.SUSPENDED_COMMISSION,
+            COMMISSION_STATUS.NO_COMMISSION,
+          ],
+        },
+        ...sectorFilter,
+      },
+      select: { id: true, finishedAt: true, commission: true, sectorId: true },
+    });
+
+    const calcContext = await this.bonusCalculationContextService.load();
+    const periodAdjustment = await this.loadPeriodAdjustmentFraction(year, month);
+    const calcConfig = { adjustment: periodAdjustment };
+
+    const resolvedUsers = allBonifiableUsers.map(user => ({
+      salary: this.bonusCalculationContextService.resolveSalary(calcContext, user),
+      performanceLevel: user.performanceLevel,
+    }));
+    const eligibleUserCount = allBonifiableUsers.filter(u => u.performanceLevel > 0).length;
+
+    // Generate the day list by stepping date-by-date — robust against DST and
+    // off-by-one errors that crop up with diff-then-round.
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const dayDates: Date[] = [];
+    {
+      const cursor = new Date(startDate);
+      cursor.setHours(0, 0, 0, 0);
+      const stop = new Date(endDate);
+      stop.setHours(0, 0, 0, 0);
+      while (cursor <= stop) {
+        dayDates.push(new Date(cursor));
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+    const totalDays = dayDates.length;
+
+    // Today's index within the period (1-based). For closed periods, snap to end.
+    let todayIndex: number;
+    if (isClosed) {
+      todayIndex = totalDays;
+    } else if (now < startDate) {
+      todayIndex = 0;
+    } else {
+      const elapsedMs = now.getTime() - startDate.getTime();
+      todayIndex = Math.min(totalDays, Math.max(1, Math.ceil(elapsedMs / DAY_MS)));
+    }
+
+    const computeAggregateBonus = (avg: number): number => {
+      if (eligibleUserCount === 0 || resolvedUsers.length === 0) return 0;
+      let total = 0;
+      for (const u of resolvedUsers) {
+        total += this.bonusCalculationService.calculateBonus({
+          salary: u.salary,
+          performanceLevel: u.performanceLevel,
+          averageTasksPerUser: avg,
+          salaryRange: calcContext.salaryRange,
+          config: calcConfig,
+        });
+      }
+      return total;
+    };
+
+    // Realized weighted / raw / count cumulatives at the end of each day.
+    const realizedWeightedAtDay: number[] = new Array(totalDays + 1).fill(0);
+    const realizedRawAtDay: number[] = new Array(totalDays + 1).fill(0);
+    const realizedTaskCountAtDay: number[] = new Array(totalDays + 1).fill(0);
+    for (let i = 1; i <= totalDays; i++) {
+      const dayEnd = new Date(dayDates[i - 1]);
+      dayEnd.setHours(23, 59, 59, 999);
+      const tasksByDay = allTasks.filter(
+        t => t.finishedAt && t.finishedAt <= dayEnd,
+      );
+      realizedWeightedAtDay[i] = calculatePonderedTaskCount(tasksByDay);
+      realizedRawAtDay[i] = calculateRawTaskCount(tasksByDay);
+      realizedTaskCountAtDay[i] = tasksByDay.length;
+    }
+
+    const currentWeighted = todayIndex > 0 ? realizedWeightedAtDay[todayIndex] : 0;
+    const dailyRate = todayIndex > 0 ? currentWeighted / todayIndex : 0;
+
+    // Forecast slope: least-squares linear regression on past cumulative
+    // weighted (days 1..todayIndex). Captures a "trend" rather than only the
+    // overall average — accommodates acceleration/deceleration in completion
+    // rate. Anchored at today's actual cumulative value (not the regression
+    // intercept) so the forecast line meets the realized line cleanly.
+    // Slope is floored at 0 because cumulative tasks cannot decrease.
+    let trendSlope: number;
+    if (todayIndex >= 2) {
+      let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+      for (let i = 1; i <= todayIndex; i++) {
+        const y = realizedWeightedAtDay[i];
+        sumX += i;
+        sumY += y;
+        sumXY += i * y;
+        sumX2 += i * i;
+      }
+      const n = todayIndex;
+      const denom = n * sumX2 - sumX * sumX;
+      trendSlope = denom !== 0 ? (n * sumXY - sumX * sumY) / denom : dailyRate;
+    } else {
+      trendSlope = dailyRate;
+    }
+    trendSlope = Math.max(0, trendSlope);
+
+    // Projected total weighted tasks at period end. For closed periods this is
+    // exact; for open periods, anchor at today + trendSlope × remaining days.
+    const projectedTotalWeighted: number = isClosed
+      ? realizedWeightedAtDay[totalDays]
+      : todayIndex > 0
+      ? currentWeighted + trendSlope * (totalDays - todayIndex)
+      : 0;
+
+    // ONE call to the bonus formula at the projected end-of-period B1.
+    // Distributed proportionally per day below — this is the key change that
+    // fixes the polynomial-induced wiggles.
+    const projectedFinalB1 =
+      eligibleUserCount > 0 ? projectedTotalWeighted / eligibleUserCount : 0;
+    const projectedFinalBonus = computeAggregateBonus(projectedFinalB1);
+
+    const MONTH_NAMES_PT_SHORT = [
+      'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
+      'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
+    ];
+
+    const days = [] as Array<{
+      dayIndex: number;
+      date: string;
+      dateLabel: string;
+      taskCount: number;
+      weightedTaskCount: number;
+      activeUsers: number;
+      averageTasksPerUser: number;
+      totalBonusValue: number;
+      isForecast: boolean;
+    }>;
+
+    let currentBonusValue = 0;
+
+    for (let i = 1; i <= totalDays; i++) {
+      const dayDate = dayDates[i - 1];
+      const isForecast = !isClosed && i > todayIndex;
+
+      let weighted: number;
+      let taskCount: number;
+      if (isForecast) {
+        // Anchored trend extrapolation: trend slope × distance from today,
+        // added to today's realized cumulative. Ensures forecast(today) === realized(today).
+        weighted = currentWeighted + trendSlope * (i - todayIndex);
+        const rawRateAtToday = todayIndex > 0 ? realizedTaskCountAtDay[todayIndex] / todayIndex : 0;
+        taskCount = Math.round(realizedTaskCountAtDay[todayIndex] + rawRateAtToday * (i - todayIndex));
+      } else {
+        weighted = realizedWeightedAtDay[i];
+        taskCount = realizedTaskCountAtDay[i];
+      }
+
+      // Proportional accrual — the load-bearing change vs the previous version.
+      // bonusAtD increases monotonically with weighted because projectedTotalWeighted
+      // and projectedFinalBonus are both period-level constants.
+      const bonusAtD =
+        projectedTotalWeighted > 0
+          ? roundCurrency(projectedFinalBonus * (weighted / projectedTotalWeighted))
+          : 0;
+
+      const avg = eligibleUserCount > 0 ? weighted / eligibleUserCount : 0;
+
+      days.push({
+        dayIndex: i,
+        date: dayDate.toISOString(),
+        dateLabel: `${String(dayDate.getDate()).padStart(2, '0')} ${MONTH_NAMES_PT_SHORT[dayDate.getMonth()]}`,
+        taskCount,
+        weightedTaskCount: Math.round(weighted * 100) / 100,
+        activeUsers: eligibleUserCount,
+        averageTasksPerUser: Math.round(avg * 100) / 100,
+        totalBonusValue: bonusAtD,
+        isForecast,
+      });
+
+      if (i === todayIndex) currentBonusValue = bonusAtD;
+    }
+
+    const remainingDays = isClosed ? 0 : Math.max(0, totalDays - todayIndex);
+    const currentTaskCount = todayIndex > 0 ? realizedTaskCountAtDay[todayIndex] : 0;
+    const currentWeightedTaskCount =
+      Math.round((todayIndex > 0 ? realizedWeightedAtDay[todayIndex] : 0) * 100) / 100;
+
+    return {
+      period: { year, month, isClosed },
+      days,
+      summary: {
+        currentBonusValue,
+        forecastedFinalBonusValue: roundCurrency(projectedFinalBonus),
+        currentTaskCount,
+        currentWeightedTaskCount,
+        dailyTaskRate: Math.round(dailyRate * 100) / 100,
+        remainingDays,
+        periodStart: startDate.toISOString(),
+        periodEnd: endDate.toISOString(),
+      },
+    };
+  }
 }
