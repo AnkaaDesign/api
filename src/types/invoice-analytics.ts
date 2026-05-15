@@ -160,29 +160,13 @@ export interface ReceivablesAnalyticsFilters {
   endDate?: Date;
   customerIds?: string[];
   limit?: number; // top-N for delinquents/customer aging
-  forecastDays?: number; // default 90
-}
-
-export interface DelinquentCustomer {
-  customerId: string;
-  customerName: string;
-  overdueAmount: number;
-  overdueCount: number;
-  oldestDueDate: string | null;
-  daysOverdueMax: number;
-  totalReceivable: number;
-}
-
-export interface CustomerAgingRow {
-  customerId: string;
-  customerName: string;
-  current: number; // dueDate in future, not yet overdue, unpaid
-  band30: number; // 1-30 days overdue
-  band60: number; // 31-60 days overdue
-  band90: number; // 61-90 days overdue
-  band90Plus: number; // 90+ days overdue
-  total: number; // sum of overdue + current
-  dso: number; // weighted DSO for this customer
+  // Forecast bucketing aligns to the workflow's period unit. The summary
+  // chart uses business months (26→25) or calendar years; the forecast cards
+  // show N consecutive forward periods of that unit, starting from the period
+  // that contains "now". Anything past the horizon is dropped from the
+  // bucket list (same trade-off the old day-bucket implementation made).
+  forecastPeriodType?: 'month' | 'year';
+  forecastPeriodCount?: number; // default 4, max 12
 }
 
 export interface ForecastBucketInstallment {
@@ -197,16 +181,19 @@ export interface ForecastBucketInstallment {
   installmentNumber: number;
   totalInstallments: number;
   dueDate: string; // ISO
+  paidAt: string | null; // ISO; set when the installment has been paid (drives PAID bucket display)
   amount: number;
   paidAmount: number;
   remaining: number;
   status: string;
-  daysFromNow: number; // negative = overdue
+  daysFromNow: number; // negative for past events (overdue, or paid in the past)
 }
 
-export interface ForecastDayBucket {
-  bucket: string; // 'D7' | 'D15' | 'D30' | 'D60' | 'D90' | 'OVERDUE'
-  bucketLabel: string;
+export interface ForecastPeriodBucket {
+  bucket: string; // 'OVERDUE' | 'CURRENT' | 'P1' | 'P2' | ... | 'P{forecastPeriodCount}' | 'BEYOND' | 'PAID'
+  bucketLabel: string; // e.g. 'Vencidas', 'Junho 2026', '2027'
+  periodStart: string | null; // ISO; null for OVERDUE
+  periodEnd: string | null; // ISO; null for OVERDUE
   dueAmount: number;
   installmentCount: number;
   installments: ForecastBucketInstallment[]; // capped at 100 per bucket
@@ -230,14 +217,8 @@ export interface ReceivablesAnalyticsData {
     totalCurrent: number; // unpaid but not yet due
     avgDso: number; // weighted across customers
     activeCustomers: number; // distinct customers with open installments
-    forecastNext7: number;
-    forecastNext30: number;
-    forecastNext60: number;
-    forecastNext90: number;
   };
-  topDelinquents: DelinquentCustomer[];
-  customerAging: CustomerAgingRow[];
-  forecastBuckets: ForecastDayBucket[];
+  forecastBuckets: ForecastPeriodBucket[];
   recoveryCohorts: RecoveryCohort[];
 }
 

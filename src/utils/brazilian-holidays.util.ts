@@ -108,6 +108,41 @@ export function isBrazilianBusinessDay(date: Date): boolean {
 }
 
 /**
+ * Count Brazilian business days (Mon–Fri minus national holidays) inside the
+ * window [start, end], inclusive on both ends — iterating in local time to
+ * match the business-period boundaries used elsewhere in the codebase.
+ *
+ * Used by performance-statistics to normalize task counts by the real number
+ * of available working days in a period (varies month to month).
+ */
+export function countBrazilianBusinessDaysInRange(start: Date, end: Date): number {
+  if (end < start) return 0;
+  const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const stop = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  let count = 0;
+  // 90 iterations covers ~3 months of business-period inputs; cap at 400 for safety.
+  for (let i = 0; i < 400 && cursor <= stop; i++) {
+    if (isBrazilianBusinessDayLocal(cursor)) count++;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
+/**
+ * Same as `isBrazilianBusinessDay` but interprets the date in the server's
+ * local timezone — matches how `businessPeriodStart`/`End` build their dates.
+ */
+export function isBrazilianBusinessDayLocal(date: Date): boolean {
+  const dow = date.getDay();
+  if (dow === 0 || dow === 6) return false;
+  const holidays = getBrazilianHolidays(date.getFullYear());
+  const y = date.getFullYear();
+  const m = date.getMonth();
+  const d = date.getDate();
+  return !holidays.some(h => h.getUTCFullYear() === y && h.getUTCMonth() === m && h.getUTCDate() === d);
+}
+
+/**
  * If `date` is already a business day, return it unchanged. Otherwise advance
  * one day at a time (UTC) until a business day is reached.
  *

@@ -16,6 +16,7 @@ export * from './externalWithdrawal';
 export * from './express.types';
 export * from './file';
 export * from './garage';
+export * from './goal';
 export * from './holiday';
 export * from './invoice';
 export * from './item';

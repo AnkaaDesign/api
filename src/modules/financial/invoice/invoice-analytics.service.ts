@@ -10,6 +10,11 @@ import {
   WEBHOOK_EVENT_STATUS,
 } from '../../../constants/enums';
 import {
+  businessPeriodStart,
+  businessPeriodEnd,
+  getPeriodForDate,
+} from '../../../utils/business-period';
+import {
   TASK_QUOTE_STATUS_LABELS,
   NFSE_STATUS_LABELS,
 } from '../../../constants/enum-labels';
@@ -30,9 +35,7 @@ import type {
   QuoteTopSector,
   ReceivablesAnalyticsFilters,
   ReceivablesAnalyticsData,
-  DelinquentCustomer,
-  CustomerAgingRow,
-  ForecastDayBucket,
+  ForecastPeriodBucket,
   RecoveryCohort,
   SicrediWebhookAnalyticsFilters,
   SicrediWebhookAnalyticsData,
@@ -103,6 +106,11 @@ interface AnalyticsFilters {
   startDate?: Date;
   endDate?: Date;
   groupBy?: string;
+  // Business period (26→25) filtering. When `periods` is provided,
+  // startDate/endDate are ignored and the range is derived from the union of
+  // the given periods. Each period is identified by the month that *closes* it.
+  periods?: Array<{ year: number; month: number }>;
+  periodGroupBy?: 'period' | 'day';
 }
 
 @Injectable()
@@ -116,13 +124,43 @@ export class InvoiceAnalyticsService {
   // ---------------------------------------------------------------------------
 
   async getCollectionAnalytics(filters: AnalyticsFilters): Promise<CollectionAnalyticsData> {
-    const { customerIds, status, groupBy = 'month' } = filters;
+    const { customerIds, status, periods, periodGroupBy = 'period' } = filters;
     const dateRange = this.resolveDateRange(filters);
     const now = new Date();
 
-    const keyFn = groupBy === 'week' ? weekKey : monthKey;
+    // The list of selected business periods. When the caller passes `periods`,
+    // those are the buckets the UI will render. When they don't, we synthesize
+    // one bucket per business period the date range overlaps.
+    const selectedPeriods = this.collectPeriods(periods, dateRange);
+    const selectedKeys = new Set(
+      selectedPeriods.map(p => `${p.year}-${String(p.month).padStart(2, '0')}`),
+    );
 
-    // Build where clause for invoices
+    // Pass A — cash-in: installments whose paidAt falls inside the range.
+    // Build the optional invoice subfilter once so customer + status compose.
+    const invoiceSubfilter: any = {};
+    if (customerIds?.length) invoiceSubfilter.customerId = { in: customerIds };
+    if (status?.length) invoiceSubfilter.status = { in: status };
+    else invoiceSubfilter.status = { not: INVOICE_STATUS.CANCELLED };
+
+    const cashPaidInstallments = await this.prisma.installment.findMany({
+      where: {
+        paidAt: { gte: dateRange.start, lte: dateRange.end },
+        status: INSTALLMENT_STATUS.PAID,
+        invoice: invoiceSubfilter,
+      },
+      select: {
+        id: true,
+        amount: true,
+        paidAmount: true,
+        paidAt: true,
+        dueDate: true,
+        status: true,
+      },
+    });
+
+    // Pass B — invoices created in the range (drives invoicedAmount per period
+    // and the global funnel/aging snapshots).
     const invoiceWhere: any = {
       createdAt: {
         gte: dateRange.start,
@@ -133,7 +171,6 @@ export class InvoiceAnalyticsService {
       ...(status?.length && { status: { in: status } }),
     };
 
-    // Fetch invoices with installments
     const invoices = await this.prisma.invoice.findMany({
       where: invoiceWhere,
       select: {
@@ -162,30 +199,48 @@ export class InvoiceAnalyticsService {
       },
     });
 
-    // ---------- Items: grouped by period ----------
+    // ---------- Items: grouped by business period (26→25) ----------
     const byPeriod = new Map<
       string,
       { invoicedAmount: number; paidAmount: number; overdueAmount: number }
     >();
 
-    for (const invoice of invoices) {
-      const key = keyFn(invoice.createdAt);
+    const ensureBucket = (key: string) => {
       if (!byPeriod.has(key)) {
         byPeriod.set(key, { invoicedAmount: 0, paidAmount: 0, overdueAmount: 0 });
       }
-      const bucket = byPeriod.get(key)!;
-      bucket.invoicedAmount += Number(invoice.totalAmount);
-      bucket.paidAmount += Number(invoice.paidAmount);
+      return byPeriod.get(key)!;
+    };
+
+    // Seed buckets so every selected period appears even if it has zero cash.
+    selectedPeriods.forEach(p => ensureBucket(`${p.year}-${String(p.month).padStart(2, '0')}`));
+
+    // Cash in (paidAt → period).
+    for (const inst of cashPaidInstallments) {
+      if (!inst.paidAt) continue;
+      const { key } = getPeriodForDate(inst.paidAt);
+      if (!selectedKeys.has(key)) continue;
+      ensureBucket(key).paidAmount += Number(inst.paidAmount);
+    }
+
+    // Invoiced (createdAt → period) + per-period overdue (dueDate → period).
+    for (const invoice of invoices) {
+      const { key: createdKey } = getPeriodForDate(invoice.createdAt);
+      if (selectedKeys.has(createdKey)) {
+        ensureBucket(createdKey).invoicedAmount += Number(invoice.totalAmount);
+      }
 
       for (const inst of invoice.installments) {
-        if (
+        const isOverdue =
           inst.status === INSTALLMENT_STATUS.OVERDUE ||
           (inst.dueDate < now &&
             inst.status !== INSTALLMENT_STATUS.PAID &&
-            inst.status !== INSTALLMENT_STATUS.CANCELLED)
-        ) {
-          bucket.overdueAmount += Number(inst.amount) - Number(inst.paidAmount);
-        }
+            inst.status !== INSTALLMENT_STATUS.CANCELLED);
+        if (!isOverdue) continue;
+
+        const { key: dueKey } = getPeriodForDate(inst.dueDate);
+        if (!selectedKeys.has(dueKey)) continue;
+        ensureBucket(dueKey).overdueAmount += Number(inst.amount) - Number(inst.paidAmount);
       }
     }
 
@@ -200,7 +255,7 @@ export class InvoiceAnalyticsService {
 
       return {
         period: key,
-        periodLabel: groupBy === 'week' ? key : monthLabel(key),
+        periodLabel: monthLabel(key),
         invoicedAmount: Math.round(data.invoicedAmount * 100) / 100,
         paidAmount: Math.round(data.paidAmount * 100) / 100,
         collectionRate,
@@ -208,22 +263,37 @@ export class InvoiceAnalyticsService {
       };
     });
 
+    // periodGroupBy hook: filter-shape accepts 'day' so the UI can opt into a
+    // day-by-day expansion later without another endpoint. Silence the unused
+    // var warning until that mode is implemented.
+    void periodGroupBy;
+
     // ---------- Summary ----------
-    const totalInvoiced = invoices.reduce((sum, inv) => sum + Number(inv.totalAmount), 0);
-    const totalPaid = invoices.reduce((sum, inv) => sum + Number(inv.paidAmount), 0);
+    // Cash-basis totals from the per-period buckets so the summary matches the
+    // chart. Items already filter to selected periods.
+    const totalInvoiced = items.reduce((sum, it) => sum + it.invoicedAmount, 0);
+    const totalPaid = items.reduce((sum, it) => sum + it.paidAmount, 0);
     const collectionRate =
       totalInvoiced > 0 ? Math.round((totalPaid / totalInvoiced) * 1000) / 10 : 0;
 
-    // Avg days to payment: from dueDate to paidAt for paid installments
-    const allInstallments = invoices.flatMap(inv => inv.installments);
-    const paidInstallments = allInstallments.filter(
-      inst => inst.status === INSTALLMENT_STATUS.PAID && inst.paidAt,
+    // Avg days to payment: from dueDate to paidAt for installments paid in
+    // the selected periods (cash basis).
+    const periodPaidInstallments = cashPaidInstallments.filter(inst => {
+      if (!inst.paidAt) return false;
+      const { key } = getPeriodForDate(inst.paidAt);
+      return selectedKeys.has(key);
+    });
+    const daysToPayment = periodPaidInstallments.map(inst =>
+      diffDays(inst.dueDate, inst.paidAt!),
     );
-    const daysToPayment = paidInstallments.map(inst => diffDays(inst.dueDate, inst.paidAt!));
     const avgDaysToPayment =
       daysToPayment.length > 0
         ? Math.round((daysToPayment.reduce((a, b) => a + b, 0) / daysToPayment.length) * 10) / 10
         : 0;
+
+    // allInstallments still used by overdue/aging/funnel below — snapshot
+    // semantics, not bucketed by period.
+    const allInstallments = invoices.flatMap(inv => inv.installments);
 
     // Total overdue
     const overdueInstallments = allInstallments.filter(
@@ -283,9 +353,9 @@ export class InvoiceAnalyticsService {
           .reduce((sum, inst) => sum + Number(inst.amount), 0) * 100,
       ) / 100;
 
-    const collectedTotal =
-      Math.round(paidInstallments.reduce((sum, inst) => sum + Number(inst.paidAmount), 0) * 100) /
-      100;
+    // Funnel "collected": cash-basis total for selected periods (matches the
+    // Total Recebido KPI). Use the explicit `totalPaid` already computed above.
+    const collectedTotal = Math.round(totalPaid * 100) / 100;
 
     const outstandingTotal = Math.round((invoicedTotal - collectedTotal) * 100) / 100;
 
@@ -475,6 +545,20 @@ export class InvoiceAnalyticsService {
   // ---------------------------------------------------------------------------
 
   private resolveDateRange(filters: AnalyticsFilters): { start: Date; end: Date } {
+    // Business-period filtering takes precedence over raw start/end.
+    if (filters.periods?.length) {
+      const sorted = [...filters.periods].sort((a, b) => {
+        if (a.year !== b.year) return a.year - b.year;
+        return a.month - b.month;
+      });
+      const first = sorted[0];
+      const last = sorted[sorted.length - 1];
+      return {
+        start: businessPeriodStart(first.year, first.month),
+        end: businessPeriodEnd(last.year, last.month),
+      };
+    }
+
     if (filters.startDate && filters.endDate) {
       return { start: new Date(filters.startDate), end: new Date(filters.endDate) };
     }
@@ -484,6 +568,35 @@ export class InvoiceAnalyticsService {
     const start = new Date();
     start.setMonth(start.getMonth() - 12);
     return { start, end };
+  }
+
+  // Resolves the list of business periods the analytics should bucket into.
+  // When the caller passes `periods`, use them as-is. Otherwise infer the set
+  // of periods that overlap `dateRange` so a no-periods call still buckets by
+  // 26→25 windows instead of falling back to calendar months.
+  private collectPeriods(
+    periods: Array<{ year: number; month: number }> | undefined,
+    dateRange: { start: Date; end: Date },
+  ): Array<{ year: number; month: number }> {
+    if (periods?.length) return periods;
+
+    const result: Array<{ year: number; month: number }> = [];
+    const startPeriod = getPeriodForDate(dateRange.start);
+    const endPeriod = getPeriodForDate(dateRange.end);
+    let y = startPeriod.year;
+    let m = startPeriod.month;
+    // Walk forward one period at a time until we pass endPeriod.
+    // Guard against runaway loops with a hard cap.
+    for (let i = 0; i < 240; i++) {
+      result.push({ year: y, month: m });
+      if (y === endPeriod.year && m === endPeriod.month) break;
+      m += 1;
+      if (m > 12) {
+        m = 1;
+        y += 1;
+      }
+    }
+    return result;
   }
 
   // ---------------------------------------------------------------------------
@@ -776,20 +889,33 @@ export class InvoiceAnalyticsService {
   // ---------------------------------------------------------------------------
 
   async getReceivablesAnalytics(
-    filters: ReceivablesAnalyticsFilters,
+    filters: ReceivablesAnalyticsFilters & { status?: string[] },
   ): Promise<ReceivablesAnalyticsData> {
-    const { customerIds, limit = 20, forecastDays = 90 } = filters;
+    const {
+      customerIds,
+      status,
+      forecastPeriodType = 'month',
+      forecastPeriodCount = 4,
+    } = filters;
+    void filters.limit; // retained in schema for compat; not used now
     const now = new Date();
     const dateRange = this.resolveDateRange(filters);
 
-    // Get all non-cancelled installments via their invoice's customer
+    // Clamp forecast count so the loop terminates and we don't request 1000 buckets
+    const periodCount = Math.max(1, Math.min(12, Math.floor(forecastPeriodCount)));
+
+    // Get all non-cancelled installments via their invoice's customer.
+    // Honor caller-supplied invoice status filter (same shape collection uses)
+    // so receivables and the cash-flow chart stay in sync.
+    const invoiceSubfilter: any = {};
+    if (customerIds?.length) invoiceSubfilter.customerId = { in: customerIds };
+    if (status?.length) invoiceSubfilter.status = { in: status };
+    else invoiceSubfilter.status = { not: INVOICE_STATUS.CANCELLED };
+
     const installments = await this.prisma.installment.findMany({
       where: {
         status: { not: INSTALLMENT_STATUS.CANCELLED },
-        invoice: {
-          status: { not: INVOICE_STATUS.CANCELLED },
-          ...(customerIds?.length && { customerId: { in: customerIds } }),
-        },
+        invoice: invoiceSubfilter,
       },
       select: {
         id: true,
@@ -819,122 +945,107 @@ export class InvoiceAnalyticsService {
       },
     });
 
-    // ---------- Per-customer aging ----------
-    interface CustAggregate {
-      id: string;
-      name: string;
-      current: number;
-      band30: number;
-      band60: number;
-      band90: number;
-      band90Plus: number;
-      totalDsoNum: number; // sum (amount × daysToPay) for paid installments (DSO numerator)
-      totalDsoDen: number; // sum amount for paid installments
-      overdueAmount: number;
-      overdueCount: number;
-      oldestDueDate: Date | null;
-    }
-    const custMap = new Map<string, CustAggregate>();
+    // ---------- Position aggregates (no per-customer breakdown anymore) ----------
+    let totalCurrent = 0;
+    let totalOverdue = 0;
+    let dsoNum = 0; // Σ amount × daysToPay
+    let dsoDen = 0; // Σ amount
+    const activeCustomerIds = new Set<string>();
 
     for (const inst of installments) {
-      const cust = inst.invoice?.customer;
-      if (!cust) continue;
-      if (!custMap.has(cust.id)) {
-        custMap.set(cust.id, {
-          id: cust.id,
-          name: cust.fantasyName,
-          current: 0,
-          band30: 0,
-          band60: 0,
-          band90: 0,
-          band90Plus: 0,
-          totalDsoNum: 0,
-          totalDsoDen: 0,
-          overdueAmount: 0,
-          overdueCount: 0,
-          oldestDueDate: null,
-        });
-      }
-      const c = custMap.get(cust.id)!;
       const remaining = Number(inst.amount) - Number(inst.paidAmount);
 
-      // DSO contribution from paid installments using invoice.createdAt as billing
+      // DSO from paid installments — invoice.createdAt → paidAt
       if (inst.status === INSTALLMENT_STATUS.PAID && inst.paidAt && inst.invoice) {
         const daysToPay = diffDays(inst.invoice.createdAt, inst.paidAt);
         if (daysToPay >= 0) {
-          c.totalDsoNum += Number(inst.amount) * daysToPay;
-          c.totalDsoDen += Number(inst.amount);
+          dsoNum += Number(inst.amount) * daysToPay;
+          dsoDen += Number(inst.amount);
         }
       }
 
-      // Aging: only consider unpaid balance
       if (remaining <= 0) continue;
+      const customerId = inst.invoice?.customer?.id;
+      if (customerId) activeCustomerIds.add(customerId);
 
-      if (inst.dueDate >= now) {
-        // current (not yet due)
-        c.current += remaining;
-        continue;
-      }
-      const daysOverdue = diffDays(inst.dueDate, now);
-      let band: keyof CustAggregate;
-      if (daysOverdue <= 30) band = 'band30';
-      else if (daysOverdue <= 60) band = 'band60';
-      else if (daysOverdue <= 90) band = 'band90';
-      else band = 'band90Plus';
-      (c[band] as number) += remaining;
-
-      c.overdueAmount += remaining;
-      c.overdueCount++;
-      if (!c.oldestDueDate || inst.dueDate < c.oldestDueDate) c.oldestDueDate = inst.dueDate;
+      if (inst.dueDate >= now) totalCurrent += remaining;
+      else totalOverdue += remaining;
     }
 
-    const customerAging: CustomerAgingRow[] = Array.from(custMap.values())
-      .map(c => {
-        const total = c.current + c.band30 + c.band60 + c.band90 + c.band90Plus;
-        const dso = c.totalDsoDen > 0 ? c.totalDsoNum / c.totalDsoDen : 0;
-        return {
-          customerId: c.id,
-          customerName: c.name,
-          current: Math.round(c.current * 100) / 100,
-          band30: Math.round(c.band30 * 100) / 100,
-          band60: Math.round(c.band60 * 100) / 100,
-          band90: Math.round(c.band90 * 100) / 100,
-          band90Plus: Math.round(c.band90Plus * 100) / 100,
-          total: Math.round(total * 100) / 100,
-          dso: Math.round(dso * 10) / 10,
-        };
-      })
-      .filter(row => row.total > 0)
-      .sort((a, b) => b.total - a.total)
-      .slice(0, limit);
-
-    const topDelinquents: DelinquentCustomer[] = Array.from(custMap.values())
-      .filter(c => c.overdueAmount > 0)
-      .sort((a, b) => b.overdueAmount - a.overdueAmount)
-      .slice(0, limit)
-      .map(c => {
-        const daysOverdueMax = c.oldestDueDate ? Math.floor(diffDays(c.oldestDueDate, now)) : 0;
-        const totalReceivable =
-          c.current + c.band30 + c.band60 + c.band90 + c.band90Plus;
-        return {
-          customerId: c.id,
-          customerName: c.name,
-          overdueAmount: Math.round(c.overdueAmount * 100) / 100,
-          overdueCount: c.overdueCount,
-          oldestDueDate: c.oldestDueDate ? c.oldestDueDate.toISOString() : null,
-          daysOverdueMax,
-          totalReceivable: Math.round(totalReceivable * 100) / 100,
-        };
-      });
-
     // ---------- Forecast buckets ----------
-    const buckets = [
-      { bucket: 'OVERDUE', bucketLabel: 'Vencidas' },
-      { bucket: 'D7', bucketLabel: 'Próximos 7 dias' },
-      { bucket: 'D15', bucketLabel: '8 a 15 dias' },
-      { bucket: 'D30', bucketLabel: '16 a 30 dias' },
-      { bucket: 'D60', bucketLabel: '31 a 60 dias' },
-      { bucket: 'D90', bucketLabel: '61 a 90 dias' },
+    // Period-aligned bucketing. Index 0 = the period that CONTAINS now
+    // (the in-progress period — labeled "Atual" client-side); index 1+ are
+    // the following periods. Everything past the last bucket is folded into
+    // BEYOND so the Total a Receber card's count and amount stay self-
+    // consistent (no installment is silently dropped).
+    interface PeriodWindow {
+      key: string;
+      label: string;
+      start: Date;
+      end: Date;
+    }
+
+    // Period windows are STRICTLY in the future — they don't include the
+    // in-progress period (that has its own CURRENT bucket below). This keeps
+    // the forecast cards self-evidently forward-looking.
+    const currentPeriod = forecastPeriodType === 'year'
+      ? {
+          start: businessPeriodStart(now.getFullYear(), 1),
+          end: businessPeriodEnd(now.getFullYear(), 12),
+          label: now.getFullYear().toString(),
+        }
+      : (() => {
+          const { year, month } = getPeriodForDate(now);
+          return {
+            start: businessPeriodStart(year, month),
+            end: businessPeriodEnd(year, month),
+            label: `${MONTH_NAMES_PT[month - 1]} ${year}`,
+          };
+        })();
+
+    const computePeriods = (): PeriodWindow[] => {
+      const wins: PeriodWindow[] = [];
+      if (forecastPeriodType === 'year') {
+        const baseYear = now.getFullYear();
+        for (let i = 1; i <= periodCount; i++) {
+          const y = baseYear + i;
+          wins.push({
+            key: `P${i}`,
+            label: y.toString(),
+            start: businessPeriodStart(y, 1),
+            end: businessPeriodEnd(y, 12),
+          });
+        }
+      } else {
+        let { year: y, month: m } = getPeriodForDate(now);
+        for (let i = 1; i <= periodCount; i++) {
+          m += 1;
+          if (m > 12) { m = 1; y += 1; }
+          wins.push({
+            key: `P${i}`,
+            label: `${MONTH_NAMES_PT[m - 1]} ${y}`,
+            start: businessPeriodStart(y, m),
+            end: businessPeriodEnd(y, m),
+          });
+        }
+      }
+      return wins;
+    };
+
+    const periodWindows = computePeriods();
+    const forecastHorizonEnd = periodWindows[periodWindows.length - 1]?.end ?? currentPeriod.end;
+
+    // Bucket definitions. OVERDUE + CURRENT (in-progress period) + N forward
+    // windows + BEYOND + PAID. CURRENT is what the Total a Receber card
+    // includes implicitly — it's exposed so the synthetic "all open" union
+    // can drill into it, but it isn't rendered as its own card (the Próximo
+    // card and the period-scoped KPIs already cover that visual).
+    const bucketDefs: Array<{ bucket: string; bucketLabel: string; start: Date | null; end: Date | null }> = [
+      { bucket: 'OVERDUE', bucketLabel: 'Vencidas', start: null, end: null },
+      { bucket: 'CURRENT', bucketLabel: `${currentPeriod.label} (em curso)`, start: currentPeriod.start, end: currentPeriod.end },
+      ...periodWindows.map(p => ({ bucket: p.key, bucketLabel: p.label, start: p.start, end: p.end })),
+      { bucket: 'BEYOND', bucketLabel: 'Além do horizonte', start: null, end: null },
+      { bucket: 'PAID', bucketLabel: 'Recebido no período', start: dateRange.start, end: dateRange.end },
     ];
 
     const BUCKET_CAP = 100;
@@ -943,43 +1054,76 @@ export class InvoiceAnalyticsService {
       {
         dueAmount: number;
         installmentCount: number;
-        instances: Array<typeof installments[number] & { _bucketDays: number }>;
+        instances: Array<typeof installments[number] & { _daysFromNow: number; _isPaid: boolean }>;
       }
     > = {};
-    buckets.forEach(b => {
+    bucketDefs.forEach(b => {
       forecastMap[b.bucket] = { dueAmount: 0, installmentCount: 0, instances: [] };
     });
 
     for (const inst of installments) {
-      if (inst.status === INSTALLMENT_STATUS.PAID) continue;
       const remaining = Number(inst.amount) - Number(inst.paidAmount);
+
+      // PAID bucket: installments whose paidAt falls in the filter window.
+      // Independent of remaining (a fully-paid installment is what we want
+      // to surface in "Total Recebido"). Filter is open if dateRange is null.
+      if (
+        inst.status === INSTALLMENT_STATUS.PAID &&
+        inst.paidAt &&
+        inst.paidAt >= dateRange.start &&
+        inst.paidAt <= dateRange.end
+      ) {
+        forecastMap.PAID.dueAmount += Number(inst.paidAmount);
+        forecastMap.PAID.installmentCount++;
+        const days = Math.floor(diffDays(now, inst.paidAt));
+        forecastMap.PAID.instances.push({ ...inst, _daysFromNow: days, _isPaid: true });
+      }
+
+      // Open-position buckets: anything with an unpaid balance > 0. Note we
+      // no longer skip status=PAID here — if a PAID-status installment still
+      // has remaining > 0 (partial-payment data), the summary already counts
+      // it, so the buckets must too. The status field stays on the row.
       if (remaining <= 0) continue;
-      const days = diffDays(now, inst.dueDate);
 
       let bucketKey: string;
-      if (days < 0) bucketKey = 'OVERDUE';
-      else if (days <= 7) bucketKey = 'D7';
-      else if (days <= 15) bucketKey = 'D15';
-      else if (days <= 30) bucketKey = 'D30';
-      else if (days <= 60) bucketKey = 'D60';
-      else if (days <= 90) bucketKey = 'D90';
-      else continue;
+      if (inst.dueDate < now) {
+        bucketKey = 'OVERDUE';
+      } else if (inst.dueDate <= currentPeriod.end) {
+        // Due in the in-progress period, not yet overdue.
+        bucketKey = 'CURRENT';
+      } else if (inst.dueDate > forecastHorizonEnd) {
+        bucketKey = 'BEYOND';
+      } else {
+        const found = periodWindows.find(
+          p => inst.dueDate >= p.start && inst.dueDate <= p.end,
+        );
+        bucketKey = found ? found.key : 'BEYOND';
+      }
 
       forecastMap[bucketKey].dueAmount += remaining;
       forecastMap[bucketKey].installmentCount++;
-      forecastMap[bucketKey].instances.push({ ...inst, _bucketDays: days });
+      const days = Math.floor(diffDays(now, inst.dueDate));
+      forecastMap[bucketKey].instances.push({ ...inst, _daysFromNow: days, _isPaid: false });
     }
 
-    const forecastBuckets: ForecastDayBucket[] = buckets.map(b => {
+    const forecastBuckets: ForecastPeriodBucket[] = bucketDefs.map(b => {
       const m = forecastMap[b.bucket];
-      // Sort: overdue oldest first; future closest first
-      const sorted = [...m.instances].sort((a, c) =>
-        b.bucket === 'OVERDUE' ? a.dueDate.getTime() - c.dueDate.getTime() : a.dueDate.getTime() - c.dueDate.getTime(),
-      );
+      // PAID sorts newest-first (most recent payment on top); everything else
+      // sorts oldest-due-first so OVERDUE shows the most-stale items.
+      const sorted = [...m.instances].sort((a, c) => {
+        if (b.bucket === 'PAID') {
+          const ap = a.paidAt?.getTime() ?? 0;
+          const cp = c.paidAt?.getTime() ?? 0;
+          return cp - ap;
+        }
+        return a.dueDate.getTime() - c.dueDate.getTime();
+      });
       const capped = sorted.slice(0, BUCKET_CAP);
       return {
         bucket: b.bucket,
         bucketLabel: b.bucketLabel,
+        periodStart: b.start ? b.start.toISOString() : null,
+        periodEnd: b.end ? b.end.toISOString() : null,
         dueAmount: Math.round(m.dueAmount * 100) / 100,
         installmentCount: m.installmentCount,
         truncated: m.instances.length > BUCKET_CAP,
@@ -997,18 +1141,16 @@ export class InvoiceAnalyticsService {
             installmentNumber: inst.number,
             totalInstallments: inst.invoice?._count?.installments ?? 0,
             dueDate: inst.dueDate.toISOString(),
+            paidAt: inst.paidAt ? inst.paidAt.toISOString() : null,
             amount: Number(inst.amount),
             paidAmount: Number(inst.paidAmount),
             remaining: Math.round(remaining * 100) / 100,
             status: inst.status,
-            daysFromNow: Math.floor(inst._bucketDays),
+            daysFromNow: inst._daysFromNow,
           };
         }),
       };
     });
-
-    // Suppress unused-var warning
-    void forecastDays;
 
     // ---------- Recovery cohorts ----------
     // For each invoice creation month within the cohort window, what % of the
@@ -1090,54 +1232,17 @@ export class InvoiceAnalyticsService {
             : 0,
       }));
 
-    // ---------- Summary ----------
-    const totalReceivable =
-      Math.round(
-        Array.from(custMap.values()).reduce(
-          (s, c) => s + c.current + c.band30 + c.band60 + c.band90 + c.band90Plus,
-          0,
-        ) * 100,
-      ) / 100;
-    const totalOverdue =
-      Math.round(
-        Array.from(custMap.values()).reduce((s, c) => s + c.overdueAmount, 0) * 100,
-      ) / 100;
-    const totalCurrent =
-      Math.round(Array.from(custMap.values()).reduce((s, c) => s + c.current, 0) * 100) /
-      100;
-    const activeCustomers = Array.from(custMap.values()).filter(
-      c => c.current + c.overdueAmount > 0,
-    ).length;
-
-    // Weighted avg DSO across customers (weight by amount paid)
-    const dsoNumSum = Array.from(custMap.values()).reduce((s, c) => s + c.totalDsoNum, 0);
-    const dsoDenSum = Array.from(custMap.values()).reduce((s, c) => s + c.totalDsoDen, 0);
-    const avgDso = dsoDenSum > 0 ? Math.round((dsoNumSum / dsoDenSum) * 10) / 10 : 0;
+    const totalReceivable = Math.round((totalCurrent + totalOverdue) * 100) / 100;
+    const avgDso = dsoDen > 0 ? Math.round((dsoNum / dsoDen) * 10) / 10 : 0;
 
     return {
       summary: {
         totalReceivable,
-        totalOverdue,
-        totalCurrent,
+        totalOverdue: Math.round(totalOverdue * 100) / 100,
+        totalCurrent: Math.round(totalCurrent * 100) / 100,
         avgDso,
-        activeCustomers,
-        forecastNext7: forecastMap['D7'].dueAmount,
-        forecastNext30:
-          forecastMap['D7'].dueAmount + forecastMap['D15'].dueAmount + forecastMap['D30'].dueAmount,
-        forecastNext60:
-          forecastMap['D7'].dueAmount +
-          forecastMap['D15'].dueAmount +
-          forecastMap['D30'].dueAmount +
-          forecastMap['D60'].dueAmount,
-        forecastNext90:
-          forecastMap['D7'].dueAmount +
-          forecastMap['D15'].dueAmount +
-          forecastMap['D30'].dueAmount +
-          forecastMap['D60'].dueAmount +
-          forecastMap['D90'].dueAmount,
+        activeCustomers: activeCustomerIds.size,
       },
-      topDelinquents,
-      customerAging,
       forecastBuckets,
       recoveryCohorts,
     };

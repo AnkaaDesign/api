@@ -30,6 +30,7 @@ import {
   taskBottleneckFiltersSchema,
   taskRevenueFiltersSchema,
   taskProductionStatsSchema,
+  taskPerformanceStatsSchema,
 } from '../../../schemas/task-analytics';
 import {
   ZodValidationPipe,
@@ -772,15 +773,6 @@ export class TaskController {
     @User() user: UserPayload,
     @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
   ): Promise<TaskUpdateResponse> {
-    console.log('[TaskController] ========================================');
-    console.log('[TaskController] UPDATE REQUEST RECEIVED');
-    console.log('[TaskController] Full data:', JSON.stringify(data, null, 2));
-    console.log('[TaskController] customerId:', data.customerId);
-    console.log('[TaskController] quote:', JSON.stringify((data as any).quote));
-    console.log('[TaskController] data keys:', Object.keys(data));
-    console.log('[TaskController] files keys:', files ? Object.keys(files) : 'no files');
-    console.log('[TaskController] ========================================');
-
     return this.tasksService.update(
       id,
       data,
@@ -904,5 +896,14 @@ export class TaskController {
   async getTaskProductionStats(@Body() filters: any) {
     const data = await this.analyticsService.getTaskProductionStats(filters);
     return { success: true, message: 'Estatísticas de produção de tarefas carregadas', data };
+  }
+
+  @Post('analytics/task-performance')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
+  @HttpCode(HttpStatus.OK)
+  @UsePipes(new ZodValidationPipe(taskPerformanceStatsSchema))
+  async getTaskPerformanceStats(@Body() filters: any) {
+    const data = await this.analyticsService.getTaskPerformanceStats(filters);
+    return { success: true, message: 'Estatísticas de desempenho carregadas', data };
   }
 }
