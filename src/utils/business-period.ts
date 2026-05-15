@@ -26,6 +26,21 @@ export function businessMonthKey(date: Date): string {
   return `${year}-${String(month + 1).padStart(2, '0')}`;
 }
 
+// Returns the business period (Y, M) that contains `date`, plus the matching
+// businessMonthKey. Convention: month is the month that *closes* the period.
+export function getPeriodForDate(date: Date): { year: number; month: number; key: string } {
+  let year = date.getFullYear();
+  let month = date.getMonth() + 1; // 1-indexed
+  if (date.getDate() > 25) {
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+  }
+  return { year, month, key: `${year}-${String(month).padStart(2, '0')}` };
+}
+
 // "Effective colaborador" in a period [start, end] is a USER-timeline rule —
 // independent of whether they completed any specific task:
 //   - exp2EndAt IS NOT NULL AND exp2EndAt <= end  (became EFFECTED on or

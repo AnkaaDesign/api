@@ -13,6 +13,7 @@ export * from './cut';
 export * from './epi';
 export * from './externalWithdrawal';
 export * from './file';
+export * from './goal';
 // export * from "./garage"; // TODO: Create garage schemas if needed
 export * from './holiday';
 export * from './item';

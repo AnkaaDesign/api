@@ -36,6 +36,7 @@ import { ResponsibleModule } from './modules/people/responsible/responsible.modu
 import { PrismaModule } from './modules/common/prisma/prisma.module';
 import { WarningModule } from './modules/people/warning/warning.module';
 import { SectorModule } from './modules/people/sector/sector.module';
+import { GoalModule } from './modules/people/goal/goal.module';
 import { ServiceOrderModule } from './modules/production/service-order/service-order.module';
 import { SupplierModule } from './modules/inventory/supplier/supplier.module';
 import { TaskModule } from './modules/production/task/task.module';
@@ -114,6 +115,7 @@ import { InvoiceModule } from './modules/financial/invoice/invoice.module';
     PrismaModule,
     WarningModule,
     SectorModule,
+    GoalModule,
     ServiceOrderModule,
     SupplierModule,
     TaskModule,

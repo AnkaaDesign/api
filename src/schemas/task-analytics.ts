@@ -55,9 +55,29 @@ export const taskProductionStatsSchema = z.object({
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
   sectorIds: z.array(z.string()).optional(),
-  xAxisMode: z.enum(['month', 'year']).optional().default('month'),
+  xAxisMode: z.enum(['day', 'month', 'year']).optional().default('month'),
   yAxisMode: z.enum(['count', 'avgPerUser', 'both']).optional().default('count'),
   compareMode: z.enum(['combined', 'separated', 'separatedWithTotal']).optional().default('combined'),
 });
 
 export type TaskProductionStatsFilters = z.infer<typeof taskProductionStatsSchema>;
+
+// Performance statistics — productivity, position-adjusted.
+//   - Working days only (Mon–Fri minus national holidays, capped at today).
+//   - Per-user contribution = weight × occupancy where weight = 1 + step ×
+//     rank (positions ranked globally by Position.hierarchy ascending) and
+//     occupancy = user's working days / period's working days.
+//   - avgPerformance = T / Σ contribution — lives on productivity's T/N
+//     scale, compresses the gap between sectors with different position
+//     compositions.
+export const taskPerformanceStatsSchema = z.object({
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional(),
+  sectorIds: z.array(z.string()).optional(),
+  xAxisMode: z.enum(['month', 'year']).optional().default('month'),
+  yAxisMode: z.enum(['count', 'performance', 'both']).optional().default('performance'),
+  compareMode: z.enum(['combined', 'separated', 'separatedWithTotal']).optional().default('combined'),
+  positionStep: z.number().min(0).optional().default(0.6),
+});
+
+export type TaskPerformanceStatsFilters = z.infer<typeof taskPerformanceStatsSchema>;

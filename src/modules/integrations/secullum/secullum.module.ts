@@ -4,6 +4,7 @@ import { SecullumService } from './secullum.service';
 import { SecullumController } from './secullum.controller';
 import { SecullumCadastrosService } from './secullum-cadastros.service';
 import { SecullumCadastrosController } from './secullum-cadastros.controller';
+import { SecullumStatisticsService } from './secullum-statistics.service';
 import { UserSecullumSyncService } from './user-secullum-sync.service';
 import { CacheModule } from '@modules/common/cache/cache.module';
 import { UserModule } from '@modules/people/user/user.module';
@@ -27,6 +28,7 @@ import { HOLIDAY_PROVIDER } from '@modules/common/notification/work-schedule.ser
   providers: [
     SecullumService,
     SecullumCadastrosService,
+    SecullumStatisticsService,
     UserSecullumSyncService,
     TimeEntryReminderService,
     TimeEntryReminderScheduler,
@@ -39,6 +41,7 @@ import { HOLIDAY_PROVIDER } from '@modules/common/notification/work-schedule.ser
   exports: [
     SecullumService,
     SecullumCadastrosService,
+    SecullumStatisticsService,
     UserSecullumSyncService,
     TimeEntryReminderService,
     TimeEntryReminderScheduler,

@@ -162,6 +162,55 @@ model BonusPeriodConfig {
   @@index([year, month])
 }
 
+/// Company-wide target value for a metric on a single bonus period (day 26 of
+/// previous month through day 25 of `month`/`year`). `sectorId` is only set for
+/// per-sector metrics (e.g. COLLABORATORS_PER_SECTOR). Uniqueness on the tuple
+/// (metric, year, month, sectorId) is enforced in the service layer because
+/// PostgreSQL treats NULL as distinct in unique constraints.
+model Goal {
+  id          String     @id @default(uuid())
+  metric      GoalMetric
+  year        Int
+  month       Int
+  targetValue Decimal    @db.Decimal(15, 2)
+  sectorId    String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  sector      Sector?    @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+
+  @@index([metric, year, month])
+  @@index([year, month])
+  @@index([sectorId])
+}
+
+enum GoalMetric {
+  // Production
+  TASKS_COMPLETED
+  TASKS_PER_ACTIVE_USER
+  PRODUCTION_AVG_PERFORMANCE
+  // HR
+  COLLABORATORS_PER_SECTOR
+  HR_HIRES_PER_MONTH
+  HR_DISMISSALS_PER_MONTH
+  HR_TURNOVER_RATE
+  HR_EXPERIENCE_FAILURE_RATE
+  HR_ABSENTEEISM_RATE
+  HR_PAYROLL_GROSS
+  HR_PAYROLL_BONUSES_TOTAL
+  // Finance
+  INVOICES_PAID
+  FINANCE_DSO_DAYS
+  FINANCE_OVERDUE_AMOUNT
+  FINANCE_COLLECTION_RATE
+  FINANCE_QUOTES_PER_PERIOD
+  FINANCE_CONVERSION_RATE
+  // Order / inventory
+  ORDER_COUNT_PER_PERIOD
+  ORDER_TOTAL_VALUE
+  INVENTORY_CONSUMPTION_VALUE
+  INVENTORY_OUTBOUND_VALUE
+}
+
 model Payroll {
   id                      String            @id @default(uuid())
   baseRemuneration        Decimal           @db.Decimal(10, 2)
@@ -1190,6 +1239,7 @@ model Sector {
   leader                 User?            @relation("SECTOR_LEADER", fields: [leaderId], references: [id])
   tasks                  Task[]
   users                  User[]
+  goals                  Goal[]
 
   @@index([leaderId])
   @@index([secullumDepartamentoId])

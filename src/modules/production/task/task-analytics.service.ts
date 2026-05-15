@@ -7,6 +7,7 @@ import {
   businessPeriodStart,
   wasEffectedDuring,
 } from '../../../utils/business-period';
+import { countBrazilianBusinessDaysInRange } from '../../../utils/brazilian-holidays.util';
 
 const MONTH_NAMES_PT = [
   'Janeiro',
@@ -23,11 +24,33 @@ const MONTH_NAMES_PT = [
   'Dezembro',
 ];
 
+const MONTH_NAMES_PT_SHORT = [
+  'Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez',
+];
+
+// Calendar day key/label — day mode uses real calendar dates (not business
+// periods), since "what day did this finish" has no business-month analogue.
+function dayKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function dayLabel(key: string): string {
+  const [year, month, day] = key.split('-');
+  return `${day} ${MONTH_NAMES_PT_SHORT[parseInt(month, 10) - 1]} ${year}`;
+}
+
 const DAY_MS = 1000 * 60 * 60 * 24;
 
 function diffDays(a: Date, b: Date): number {
   return (b.getTime() - a.getTime()) / DAY_MS;
 }
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
 function monthKey(date: Date): string {
   const y = date.getFullYear();
@@ -713,7 +736,7 @@ export class TaskAnalyticsService {
     startDate?: Date;
     endDate?: Date;
     sectorIds?: string[];
-    xAxisMode?: 'month' | 'year';
+    xAxisMode?: 'day' | 'month' | 'year';
     yAxisMode?: 'count' | 'avgPerUser' | 'both';
     compareMode?: 'combined' | 'separated' | 'separatedWithTotal';
   }) {
@@ -770,13 +793,15 @@ export class TaskAnalyticsService {
     // task lands in the same bucket everywhere.
     const businessYearKey = (date: Date) => businessMonthKey(date).split('-')[0];
 
-    const keyFn = xAxisMode === 'year'
-      ? businessYearKey
-      : businessMonthKey;
+    const keyFn =
+      xAxisMode === 'year' ? businessYearKey :
+      xAxisMode === 'day'  ? dayKey :
+      businessMonthKey;
 
-    const labelFn = xAxisMode === 'year'
-      ? (key: string) => key
-      : monthLabel;
+    const labelFn =
+      xAxisMode === 'year' ? (key: string) => key :
+      xAxisMode === 'day'  ? dayLabel :
+      monthLabel;
 
     const getPeriodBounds = (key: string): { start: Date; end: Date } => {
       if (xAxisMode === 'year') {
@@ -785,6 +810,17 @@ export class TaskAnalyticsService {
         return {
           start: businessPeriodStart(y, 1),  // Dec 26 of Y-1
           end:   businessPeriodEnd(y, 12),   // Dec 25 of Y
+        };
+      }
+      if (xAxisMode === 'day') {
+        // Day mode uses calendar days (00:00 → 23:59.999), not business periods.
+        const [yearStr, monthStr, dayStr] = key.split('-');
+        const y = parseInt(yearStr);
+        const m = parseInt(monthStr) - 1;
+        const d = parseInt(dayStr);
+        return {
+          start: new Date(y, m, d, 0, 0, 0, 0),
+          end:   new Date(y, m, d, 23, 59, 59, 999),
         };
       }
       const [yearStr, monthStr] = key.split('-');
@@ -801,6 +837,22 @@ export class TaskAnalyticsService {
       const startY = parseInt(businessYearKey(dateRange.start));
       const endY   = parseInt(businessYearKey(dateRange.end));
       for (let y = startY; y <= endY; y++) allPeriods.push(y.toString());
+    } else if (xAxisMode === 'day') {
+      // Walk calendar days from the start to the end of the range, inclusive.
+      const cursor = new Date(
+        dateRange.start.getFullYear(),
+        dateRange.start.getMonth(),
+        dateRange.start.getDate(),
+      );
+      const last = new Date(
+        dateRange.end.getFullYear(),
+        dateRange.end.getMonth(),
+        dateRange.end.getDate(),
+      );
+      while (cursor.getTime() <= last.getTime()) {
+        allPeriods.push(dayKey(cursor));
+        cursor.setDate(cursor.getDate() + 1);
+      }
     } else {
       const startKey = businessMonthKey(dateRange.start);
       const endKey = businessMonthKey(dateRange.end);
@@ -877,6 +929,327 @@ export class TaskAnalyticsService {
     return {
       items,
       summary: { totalCompleted, avgPerUser: overallAvgPerUser, totalActiveUsers, avgTasksPerPeriod },
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 5. Task Performance Statistics — productivity, position-adjusted.
+  //
+  //   Headline "Média por Colaborador (ajustada)" lives on the SAME SCALE
+  //   as productivity's T/N but compresses the gap between sectors with
+  //   different position compositions. A senior-heavy sector's high T/N
+  //   looks impressive until you note the seniors were EXPECTED to produce
+  //   more — this metric pulls them down toward what was expected; a
+  //   junior-heavy sector's low T/N is normalized upward symmetrically.
+  //
+  //   Per period P, sector S (or all production):
+  //     weight(u)         = 1 + step × rank(u)        (rank = ordinal in
+  //                                                    Position.hierarchy)
+  //     occupancy(u, P)   = workingDays(u, P) / workingDaysInPeriod
+  //     contribution(u,P) = weight(u) × occupancy(u, P)
+  //     avgPerformance    = T / N        (N = active users in P)
+  //
+  //   Per-user attribution (the table) splits T proportionally to each
+  //   user's contribution: tasksAllocated(u) = T × contribution(u) / Σ.
+  //   By construction Σ tasksAllocated = T, so avgPerformance is exactly
+  //   the mean of per-user attributions. Position weighting is already
+  //   baked into each user's attribution — a Senior III gets more, a
+  //   Junior I gets less — so the headline average doesn't need to
+  //   re-weight on top.
+  //
+  //   Working days = Mon–Fri minus Brazilian national holidays, AND capped
+  //   at today — never count days that haven't happened yet. A user
+  //   active since Jan 1 viewed mid-May shows ~93 working days, not 252.
+  // ---------------------------------------------------------------------------
+
+  async getTaskPerformanceStats(filters: {
+    startDate?: Date;
+    endDate?: Date;
+    sectorIds?: string[];
+    xAxisMode?: 'month' | 'year';
+    yAxisMode?: 'count' | 'performance' | 'both';
+    compareMode?: 'combined' | 'separated' | 'separatedWithTotal';
+    positionStep?: number;
+  }) {
+    const {
+      sectorIds,
+      xAxisMode = 'month',
+      compareMode = 'combined',
+      positionStep = 0.6,
+    } = filters;
+    const isComparisonMode =
+      (compareMode === 'separated' || compareMode === 'separatedWithTotal') &&
+      !!sectorIds &&
+      sectorIds.length >= 2;
+
+    const dateRange = this.resolveDateRange(filters);
+    // Cap "now" at the requested endDate too, so picking a past year still
+    // counts every working day of that year (not just up to today).
+    const now = new Date();
+    const cap = dateRange.end < now ? dateRange.end : now;
+
+    const completedTasks = await this.prisma.task.findMany({
+      where: {
+        status: TASK_STATUS.COMPLETED,
+        finishedAt: { gte: dateRange.start, lte: dateRange.end },
+        ...(sectorIds?.length ? { sectorId: { in: sectorIds } } : {}),
+      },
+      select: { id: true, finishedAt: true, sectorId: true },
+    });
+
+    // Only bonifiable positions count: trainees (Letrista Trainee etc.) have
+    // Position.bonifiable = false, so they're naturally excluded from both
+    // ranking and per-user attribution. The lowest bonifiable position
+    // (Junior I) becomes rank 0 = weight 1.0 baseline.
+    const productionUsers = await this.prisma.user.findMany({
+      where: {
+        sector: { privileges: SECTOR_PRIVILEGES.PRODUCTION },
+        exp2EndAt: { not: null, lte: dateRange.end },
+        OR: [{ dismissedAt: null }, { dismissedAt: { gt: dateRange.start } }],
+        position: { bonifiable: true },
+        ...(sectorIds?.length ? { sectorId: { in: sectorIds } } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        sectorId: true,
+        positionId: true,
+        exp2EndAt: true,
+        dismissedAt: true,
+        sector: { select: { id: true, name: true } },
+        position: { select: { id: true, name: true, hierarchy: true } },
+      },
+    });
+
+    // Rank positions globally by hierarchy ascending. Ordinal rank drives
+    // the weight — hierarchy GAPS are ignored (a skipped hierarchy number
+    // doesn't widen the productivity gap; only adjacency matters).
+    const distinctPositions = new Map<string, { id: string; name: string; hierarchy: number }>();
+    for (const u of productionUsers) {
+      if (!u.position) continue;
+      if (!distinctPositions.has(u.position.id)) {
+        distinctPositions.set(u.position.id, {
+          id: u.position.id,
+          name: u.position.name,
+          hierarchy: u.position.hierarchy ?? 0,
+        });
+      }
+    }
+    const rankedPositions = Array.from(distinctPositions.values()).sort(
+      (a, b) => a.hierarchy - b.hierarchy,
+    );
+    const positionWeight = new Map<string, number>();
+    const positionRank = new Map<string, number>();
+    rankedPositions.forEach((p, idx) => {
+      positionWeight.set(p.id, 1 + positionStep * idx);
+      positionRank.set(p.id, idx);
+    });
+    // Users with no position fall to baseline weight (1.0) — same as rank 0.
+    const weightFor = (positionId: string | null): number =>
+      (positionId && positionWeight.get(positionId)) ?? 1;
+    const rankFor = (positionId: string | null): number =>
+      (positionId && positionRank.get(positionId)) ?? 0;
+
+    let sectorMap = new Map<string, string>();
+    if (sectorIds?.length) {
+      const sectors = await this.prisma.sector.findMany({
+        where: { id: { in: sectorIds } },
+        select: { id: true, name: true },
+      });
+      sectorMap = new Map(sectors.map(s => [s.id, s.name]));
+    }
+
+    const businessYearKey = (date: Date) => businessMonthKey(date).split('-')[0];
+    const keyFn = xAxisMode === 'year' ? businessYearKey : businessMonthKey;
+    const labelFn = xAxisMode === 'year' ? (key: string) => key : monthLabel;
+
+    const getPeriodBounds = (key: string): { start: Date; end: Date } => {
+      if (xAxisMode === 'year') {
+        const y = parseInt(key);
+        return { start: businessPeriodStart(y, 1), end: businessPeriodEnd(y, 12) };
+      }
+      const [yearStr, monthStr] = key.split('-');
+      return {
+        start: businessPeriodStart(parseInt(yearStr), parseInt(monthStr)),
+        end: businessPeriodEnd(parseInt(yearStr), parseInt(monthStr)),
+      };
+    };
+
+    const allPeriods: string[] = [];
+    if (xAxisMode === 'year') {
+      const startY = parseInt(businessYearKey(dateRange.start));
+      const endY = parseInt(businessYearKey(dateRange.end));
+      for (let y = startY; y <= endY; y++) allPeriods.push(y.toString());
+    } else {
+      const startKey = businessMonthKey(dateRange.start);
+      const endKey = businessMonthKey(dateRange.end);
+      let [sy, sm] = startKey.split('-').map(Number);
+      const [ey, em] = endKey.split('-').map(Number);
+      while (sy < ey || (sy === ey && sm <= em)) {
+        allPeriods.push(`${sy}-${String(sm).padStart(2, '0')}`);
+        sm++;
+        if (sm > 12) {
+          sm = 1;
+          sy++;
+        }
+      }
+    }
+
+    const tasksByPeriod = new Map<string, typeof completedTasks>();
+    for (const period of allPeriods) tasksByPeriod.set(period, []);
+    for (const task of completedTasks) {
+      const key = keyFn(task.finishedAt!);
+      tasksByPeriod.get(key)?.push(task);
+    }
+
+    // Working days the user was effected within [bounds] AND not in the
+    // future — never charge a user for days that haven't happened yet.
+    const userWorkingDaysIn = (
+      u: { exp2EndAt: Date | null; dismissedAt: Date | null },
+      bounds: { start: Date; end: Date },
+    ): number => {
+      if (!u.exp2EndAt) return 0;
+      const effectiveStart = u.exp2EndAt > bounds.start ? u.exp2EndAt : bounds.start;
+      let effectiveEnd = u.dismissedAt && u.dismissedAt < bounds.end ? u.dismissedAt : bounds.end;
+      if (effectiveEnd > cap) effectiveEnd = cap;
+      if (effectiveEnd < effectiveStart) return 0;
+      return countBrazilianBusinessDaysInRange(effectiveStart, effectiveEnd);
+    };
+
+    // Working days of the period itself, also capped at today so an
+    // in-progress month only counts elapsed working days.
+    const periodWorkingDays = (bounds: { start: Date; end: Date }): number => {
+      const end = bounds.end > cap ? cap : bounds.end;
+      if (end < bounds.start) return 0;
+      return countBrazilianBusinessDaysInRange(bounds.start, end);
+    };
+
+    // Per-period stats. Each item includes its own `users[]` so the modal
+    // drilldown shows the EXACT attribution for that period — different
+    // months have different working-day counts, different active users,
+    // and (importantly) a Pleno's allocated share depends on who else was
+    // working that specific month.
+    const computeForBounds = (
+      bounds: { start: Date; end: Date },
+      periodTasks: typeof completedTasks,
+      sectorIdFilter: string | undefined,
+    ) => {
+      const filteredTasks = sectorIdFilter !== undefined
+        ? periodTasks.filter(t => t.sectorId === sectorIdFilter)
+        : periodTasks;
+      const T = filteredTasks.length;
+
+      const usersInScope = productionUsers.filter(u => {
+        if (sectorIdFilter !== undefined && u.sectorId !== sectorIdFilter) return false;
+        return wasEffectedDuring(u, bounds);
+      });
+
+      const wdInPeriod = periodWorkingDays(bounds);
+
+      // Pass 1: contribution = weight × occupancy (occupancy = userWD / periodWD)
+      const contributions = usersInScope.map(u => {
+        const wd = userWorkingDaysIn(u, bounds);
+        const w = weightFor(u.positionId);
+        const occupancy = wdInPeriod > 0 ? wd / wdInPeriod : 0;
+        return { user: u, workingDays: wd, weight: w, occupancy, contribution: w * occupancy };
+      });
+      const totalContribution = contributions.reduce((s, c) => s + c.contribution, 0);
+      const avgPerformance = contributions.length > 0 ? T / contributions.length : 0;
+
+      // Pass 2: split tasks proportionally to contribution
+      const perUser = contributions.map(c => {
+        const tasksAllocated =
+          totalContribution > 0 ? (T * c.contribution) / totalContribution : 0;
+        return {
+          userId: c.user.id,
+          userName: c.user.name,
+          sectorId: c.user.sectorId,
+          sectorName: c.user.sector?.name ?? null,
+          positionId: c.user.positionId,
+          positionName: c.user.position?.name ?? null,
+          rank: rankFor(c.user.positionId),
+          weight: round2(c.weight),
+          workingDays: c.workingDays,
+          tasksAllocated: round2(tasksAllocated),
+          dailyProductivity:
+            c.workingDays > 0 ? round4(tasksAllocated / c.workingDays) : 0,
+        };
+      }).sort((a, b) => b.tasksAllocated - a.tasksAllocated);
+
+      return {
+        totalCount: T,
+        activeUsers: contributions.length,
+        workingDays: wdInPeriod,
+        totalContribution: round2(totalContribution),
+        avgPerformance: round2(avgPerformance),
+        users: perUser,
+      };
+    };
+
+    const items = allPeriods.map(key => {
+      const tasks = tasksByPeriod.get(key) || [];
+      const bounds = getPeriodBounds(key);
+      const overall = computeForBounds(bounds, tasks, undefined);
+
+      const item: any = {
+        period: key,
+        periodLabel: labelFn(key),
+        totalCount: overall.totalCount,
+        activeUsers: overall.activeUsers,
+        workingDays: overall.workingDays,
+        totalContribution: overall.totalContribution,
+        avgPerformance: overall.avgPerformance,
+        users: overall.users,
+      };
+
+      if (isComparisonMode) {
+        item.comparisons = sectorIds!.map(sectorId => {
+          const stats = computeForBounds(bounds, tasks, sectorId);
+          return {
+            sectorId,
+            sectorName: sectorMap.get(sectorId) || sectorId,
+            totalCount: stats.totalCount,
+            activeUsers: stats.activeUsers,
+            workingDays: stats.workingDays,
+            totalContribution: stats.totalContribution,
+            avgPerformance: stats.avgPerformance,
+          };
+        });
+      }
+
+      return item;
+    });
+
+    const totalCompleted = completedTasks.length;
+    const periodsWithData = items.filter(i => i.totalCount > 0);
+    const avgTasksPerPeriod =
+      periodsWithData.length > 0 ? round1(totalCompleted / periodsWithData.length) : 0;
+
+    // Task-weighted mean across periods (same logic as productivity's summary).
+    let weightedSum = 0;
+    let weightTotal = 0;
+    periodsWithData.forEach(i => {
+      weightedSum += i.avgPerformance * i.totalCount;
+      weightTotal += i.totalCount;
+    });
+    const overallAvgPerformance = weightTotal > 0 ? weightedSum / weightTotal : 0;
+    const totalWorkingDays = periodWorkingDays({ start: dateRange.start, end: dateRange.end });
+
+    // Approximate active-user count for the date range: pick the maximum
+    // active count across periods (a count that was active during the range,
+    // not double-counted by overlap).
+    const totalActiveUsers = items.reduce((m, i) => Math.max(m, i.activeUsers), 0);
+
+    return {
+      items,
+      summary: {
+        totalCompleted,
+        totalActiveUsers,
+        totalWorkingDays,
+        avgPerformance: round2(overallAvgPerformance),
+        avgTasksPerPeriod,
+      },
+      params: { positionStep },
     };
   }
 
