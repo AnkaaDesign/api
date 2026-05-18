@@ -1,0 +1,637 @@
+{
+  "Produtividade": [
+    {
+      "title": "1. Organização do Posto de Trabalho",
+      "description": "Avalia o cuidado do colaborador com a organização, limpeza e disposição adequada do ambiente, materiais e ferramentas de trabalho, contribuindo para segurança, agilidade e produtividade.",
+      "counter_behaviors": "Manter ambiente desorganizado; deixar ferramentas fora do local; acumular materiais desnecessários; dificultar a execução por falta de organização; descuidar da limpeza do posto de trabalho.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Mantém ambiente frequentemente desorganizado, impactando segurança, produtividade ou execução das atividades."
+        },
+        {
+          "score": 1,
+          "name": "Dependente",
+          "description": "Organiza o ambiente apenas quando cobrado ou supervisionado."
+        },
+        {
+          "score": 2,
+          "name": "Irregular",
+          "description": "Mantém organização parcial, porém ainda apresenta falhas frequentes no posto de trabalho."
+        },
+        {
+          "score": 3,
+          "name": "Adequado",
+          "description": "Mantém o posto organizado, limpo e funcional de forma consistente."
+        },
+        {
+          "score": 4,
+          "name": "Consciente",
+          "description": "Demonstra cuidado contínuo com organização e conservação do ambiente de trabalho."
+        },
+        {
+          "score": 5,
+          "name": "Referência",
+          "description": "Atua como exemplo, incentivando organização e boas práticas no setor."
+        }
+      ]
+    },
+    {
+      "title": "2. Execução Conforme Padrão Definido",
+      "description": "Avalia o comprometimento do colaborador em executar atividades conforme procedimentos, orientações técnicas e padrões de qualidade definidos pela empresa.",
+      "counter_behaviors": "Não seguir procedimentos internos; ignorar orientações da liderança; executar atividades “do próprio jeito”; deixar de cumprir padrões estabelecidos; gerar inconsistência na execução.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Descumpre padrões operacionais de forma recorrente, gerando falhas ou retrabalho."
+        },
+        {
+          "score": 1,
+          "name": "Resistente",
+          "description": "Segue procedimentos apenas quando supervisionado ou cobrado."
+        },
+        {
+          "score": 2,
+          "name": "Irregular",
+          "description": "Conhece os padrões, porém ainda apresenta inconsistência na execução."
+        },
+        {
+          "score": 3,
+          "name": "Adequado",
+          "description": "Executa atividades conforme procedimentos e padrões estabelecidos."
+        },
+        {
+          "score": 4,
+          "name": "Consciente",
+          "description": "Demonstra disciplina na execução, mantendo qualidade mesmo sob pressão."
+        },
+        {
+          "score": 5,
+          "name": "Referência",
+          "description": "Atua como exemplo no cumprimento de padrões e auxilia colegas na padronização."
+        }
+      ]
+    },
+    {
+      "title": "3. Produtividade e Gestão do Tempo",
+      "description": "Avalia a capacidade do colaborador em realizar atividades dentro do tempo esperado, mantendo equilíbrio entre produtividade, qualidade e organização.",
+      "counter_behaviors": "Prolongar atividades sem necessidade; apresentar lentidão excessiva; perder tempo com atividades improdutivas; deixar tarefas incompletas; prejudicar fluxo operacional por baixa produtividade.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Apresenta produtividade muito abaixo do esperado, impactando prazos e resultados do setor."
+        },
+        {
+          "score": 1,
+          "name": "Lento",
+          "description": "Necessita acompanhamento frequente para cumprir tempos básicos de execução."
+        },
+        {
+          "score": 2,
+          "name": "Oscilante",
+          "description": "Mantém produtividade inconsistente, alternando bons e baixos desempenhos."
+        },
+        {
+          "score": 3,
+          "name": "Adequado",
+          "description": "Executa atividades dentro do tempo esperado, mantendo padrão adequado de qualidade."
+        },
+        {
+          "score": 4,
+          "name": "Produtivo",
+          "description": "Demonstra boa gestão do tempo, mantendo produtividade consistente e organizada."
+        },
+        {
+          "score": 5,
+          "name": "Alta Performance",
+          "description": "Entrega acima do esperado sem comprometer qualidade, segurança ou organização."
+        }
+      ]
+    },
+    {
+      "title": "4. Uso Eficiente de Materiais e Ferramentas",
+      "description": "Avalia a responsabilidade no uso de materiais, equipamentos e ferramentas, considerando desperdício, conservação e eficiência operacional.",
+      "counter_behaviors": "Desperdiçar materiais; utilizar ferramentas inadequadamente; provocar danos por descuido; não zelar pelos equipamentos; gerar desperdícios recorrentes.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Utiliza materiais ou ferramentas de forma inadequada, gerando desperdícios ou prejuízos."
+        },
+        {
+          "score": 1,
+          "name": "Dependente",
+          "description": "Necessita orientação frequente para utilizar recursos corretamente."
+        },
+        {
+          "score": 2,
+          "name": "Irregular",
+          "description": "Demonstra conhecimento básico, porém ainda apresenta desperdícios ocasionais."
+        },
+        {
+          "score": 3,
+          "name": "Adequado",
+          "description": "Utiliza materiais e ferramentas de forma correta e consciente."
+        },
+        {
+          "score": 4,
+          "name": "Eficiente",
+          "description": "Demonstra cuidado contínuo, reduzindo desperdícios e preservando recursos."
+        },
+        {
+          "score": 5,
+          "name": "Referência",
+          "description": "Atua como exemplo de eficiência, contribuindo para redução de custos e melhor uso dos recursos."
+        }
+      ]
+    },
+    {
+      "title": "5. Redução de Retrabalhos",
+      "description": "Avalia a capacidade do colaborador em executar atividades com qualidade desde a primeira vez, minimizando erros, ajustes e desperdícios.",
+      "counter_behaviors": "Entregar atividades com falhas recorrentes; gerar retrabalhos frequentes; deixar de conferir qualidade; repetir erros já orientados; comprometer fluxo por baixa qualidade.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Gera retrabalho frequente devido a falhas recorrentes ou falta de atenção."
+        },
+        {
+          "score": 1,
+          "name": "Dependente",
+          "description": "Necessita revisões e correções frequentes para garantir qualidade mínima."
+        },
+        {
+          "score": 2,
+          "name": "Irregular",
+          "description": "Mantém qualidade inconsistente, apresentando retrabalhos ocasionais."
+        },
+        {
+          "score": 3,
+          "name": "Adequado",
+          "description": "Realiza atividades com qualidade adequada, reduzindo necessidade de ajustes."
+        },
+        {
+          "score": 4,
+          "name": "Consciente",
+          "description": "Atua preventivamente para evitar erros e reduzir retrabalhos."
+        },
+        {
+          "score": 5,
+          "name": "Referência",
+          "description": "Mantém alto padrão de execução e contribui para melhoria contínua dos processos."
+        }
+      ]
+    }
+  ],
+  "Comportamental ": [
+    {
+      "title": "1. Disciplina e cumprimento de regras",
+      "description": "Segue normas, procedimentos e orientações da empresa, mantendo conduta adequada no ambiente de trabalho e respeitando as diretrizes estabelecidas.",
+      "counter_behaviors": "Não seguir procedimentos internos; ignorar orientações da liderança; descumprir normas de segurança; deixar de usar EPIs; realizar tarefas “do próprio jeito” sem padrão.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Descumpre regras, normas ou orientações de forma recorrente, impactando negativamente o trabalho ou a equipe."
+        },
+        {
+          "score": 1,
+          "name": "Insuficiente",
+          "description": "Tem dificuldade em seguir regras e processos básicos, necessitando acompanhamento constante e correções frequentes."
+        },
+        {
+          "score": 2,
+          "name": "Inconsistente",
+          "description": "Conhece as regras e processos, porém os cumpre de forma inconsistente, apresentando falhas ocasionais ou flexibilizando padrões."
+        },
+        {
+          "score": 3,
+          "name": "Adequado",
+          "description": "Cumpre regras, procedimentos e orientações de forma consistente no dia a dia."
+        },
+        {
+          "score": 4,
+          "name": "Avançado",
+          "description": "Mantém disciplina e aderência aos processos mesmo sob pressão, mudanças ou situações adversas."
+        },
+        {
+          "score": 5,
+          "name": "Referência",
+          "description": "Atua como exemplo de disciplina, incentiva boas práticas e contribui para manter o padrão da equipe."
+        }
+      ]
+    },
+    {
+      "title": "2. Assiduidade e pontualidade",
+      "description": "Comparece ao trabalho com regularidade, cumpre horários e evita atrasos ou ausências sem justificativa, contribuindo para a continuidade das atividades.",
+      "counter_behaviors": "Faltas frequentes sem justificativa; atrasos recorrentes; saídas antecipadas; excesso de pausas; baixa constância na presença e horários.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Apresenta faltas, atrasos ou saídas antecipadas frequentes sem justificativa, impactando a rotina da equipe ou operação."
+        },
+        {
+          "score": 1,
+          "name": "Inicial",
+          "description": "Demonstra dificuldade em manter regularidade de horários, necessitando alinhamentos e cobranças frequentes."
+        },
+        {
+          "score": 2,
+          "name": "Irregular",
+          "description": "Mantém presença e horários na maior parte do tempo, porém ainda apresenta ocorrências ocasionais de faltas ou atrasos."
+        },
+        {
+          "score": 3,
+          "name": "Adequado",
+          "description": "Cumpre horários e mantém boa frequência, com poucas ocorrências pontuais justificadas ou esporádicas."
+        },
+        {
+          "score": 4,
+          "name": "Confiável",
+          "description": "É pontual e assíduo de forma consistente, demonstrando previsibilidade e comprometimento com a rotina de trabalho."
+        },
+        {
+          "score": 5,
+          "name": "Referência",
+          "description": "Serve de exemplo em comprometimento, presença e pontualidade, influenciando positivamente o time."
+        }
+      ]
+    },
+    {
+      "title": "3. Atenção aos Detalhes",
+      "description": "Realiza as atividades com cuidado e precisão, observando detalhes importantes que impactam a qualidade e evitando erros na execução.",
+      "counter_behaviors": "Entregar atividades com erros recorrentes; falta de conferência; retrabalho frequente; esquecer etapas importantes; falhas em registros, separações ou preenchimentos.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Executa atividades com falhas recorrentes, falta de conferência e erros que impactam a qualidade ou geram retrabalho."
+        },
+        {
+          "score": 1,
+          "name": "Inicial",
+          "description": "Demonstra dificuldade em perceber erros, necessitando acompanhamento frequente e correções constantes."
+        },
+        {
+          "score": 2,
+          "name": "Irregular",
+          "description": "Identifica erros mais evidentes, porém ainda deixa passar detalhes importantes em algumas atividades."
+        },
+        {
+          "score": 3,
+          "name": "Adequado",
+          "description": "Realiza conferências e identifica falhas antes da entrega na maioria das situações, mantendo boa qualidade."
+        },
+        {
+          "score": 4,
+          "name": "Avançado",
+          "description": "Atua de forma preventiva, reduzindo erros e retrabalho por meio de atenção consistente aos detalhes."
+        },
+        {
+          "score": 5,
+          "name": "Referência",
+          "description": "Mantém alto padrão de qualidade, identifica inconsistências com antecedência e contribui para melhorar o padrão da equipe."
+        }
+      ]
+    },
+    {
+      "title": "4. Compromisso com as atividades",
+      "description": "Demonstra responsabilidade com suas tarefas, cumprindo o que foi acordado e mantendo dedicação para alcançar os resultados esperados.",
+      "counter_behaviors": "Deixar tarefas incompletas; baixa responsabilidade com prazos; necessidade constante de cobrança; demonstrar desinteresse; pouca dedicação às metas do setor.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Demonstra baixo comprometimento com as atividades, deixando tarefas incompletas ou impactando a rotina da equipe."
+        },
+        {
+          "score": 1,
+          "name": "Inicial",
+          "description": "Necessita de cobranças frequentes para cumprir atividades e prazos básicos."
+        },
+        {
+          "score": 2,
+          "name": "Irregular",
+          "description": "Demonstra comprometimento inconsistente, cumprindo atividades, mas com oscilações em qualidade, prazo ou responsabilidade."
+        },
+        {
+          "score": 3,
+          "name": "Adequado",
+          "description": "Cumpre suas atividades com responsabilidade, mantendo entregas consistentes e dentro do esperado."
+        },
+        {
+          "score": 4,
+          "name": "Avançado",
+          "description": "Demonstra comprometimento acima do esperado, antecipando necessidades e buscando soluções para garantir entregas."
+        },
+        {
+          "score": 5,
+          "name": "Referência",
+          "description": "Atua com alto senso de responsabilidade, influencia positivamente o time e demonstra forte comprometimento com os resultados do setor."
+        }
+      ]
+    },
+    {
+      "title": "5. Trabalho em Equipe",
+      "description": "Colabora com colegas, mantém bom relacionamento e contribui para um ambiente de trabalho respeitoso e produtivo.",
+      "counter_behaviors": "Dificuldade em colaborar; conflitos frequentes; resistência em ajudar colegas; comunicação inadequada; postura individualista que prejudica o grupo.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Apresenta comportamentos que prejudicam a equipe, gerando conflitos, desalinhamentos ou dificultando a cooperação."
+        },
+        {
+          "score": 1,
+          "name": "Individualista",
+          "description": "Demonstra dificuldade em trabalhar de forma colaborativa, priorizando atividades isoladas e com pouca interação com o time."
+        },
+        {
+          "score": 2,
+          "name": "Reativo",
+          "description": "Coopera quando solicitado, porém ainda apresenta baixa iniciativa para apoiar colegas ou contribuir espontaneamente."
+        },
+        {
+          "score": 3,
+          "name": "Integrado",
+          "description": "Trabalha de forma colaborativa, mantendo boa relação com a equipe e contribuindo adequadamente para as atividades do grupo."
+        },
+        {
+          "score": 4,
+          "name": "Colaborativo",
+          "description": "Apoia colegas espontaneamente, compartilha conhecimento e contribui para um ambiente de cooperação."
+        },
+        {
+          "score": 5,
+          "name": "Integrador",
+          "description": "Atua como referência em trabalho em equipe, promove união, incentiva colaboração e contribui para elevar o desempenho do time."
+        }
+      ]
+    },
+    {
+      "title": "6. Iniciativa e proatividade",
+      "description": "Busca agir além do solicitado, antecipando necessidades, sugerindo melhorias e apoiando o time quando necessário.",
+      "counter_behaviors": "Esperar ordens para tudo; não antecipar problemas; pouca participação em melhorias; evitar responsabilidades; postura passiva diante das demandas.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Passivo",
+          "description": "Demonstra baixa iniciativa, aguardando orientações constantes para execução das atividades e solução de problemas."
+        },
+        {
+          "score": 1,
+          "name": "Dependente",
+          "description": "Executa as atividades quando direcionado, porém apresenta pouca iniciativa diante de situações fora da rotina."
+        },
+        {
+          "score": 2,
+          "name": "Limitado",
+          "description": "Resolve situações simples do dia a dia, mas demonstra dificuldade em agir preventivamente ou buscar alternativas."
+        },
+        {
+          "score": 3,
+          "name": "Funcional",
+          "description": "Atua com autonomia nas atividades da rotina e resolve problemas operacionais simples sem necessidade constante de orientação."
+        },
+        {
+          "score": 4,
+          "name": "Evolutivo",
+          "description": "Demonstra iniciativa para melhorar processos, antecipar problemas e propor soluções aplicáveis ao setor."
+        },
+        {
+          "score": 5,
+          "name": "Estruturante",
+          "description": "Contribui ativamente para melhorias relevantes, reduz falhas operacionais e influencia positivamente a eficiência do time."
+        }
+      ]
+    },
+    {
+      "title": "7. Equilíbrio emocional no trabalho",
+      "description": "Mantém postura profissional diante de pressões e desafios, lidando com situações do dia a dia de forma controlada e respeitosa.",
+      "counter_behaviors": "Reagir mal a feedbacks; dificuldade em lidar com pressão; conflitos por impulsividade; mudanças frequentes de humor; perda de controle emocional em situações adversas.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Desestabilizador",
+          "description": "Apresenta reações que prejudicam o ambiente ou a execução do trabalho em situações de pressão, conflito ou mudança."
+        },
+        {
+          "score": 1,
+          "name": "Reativo",
+          "description": "Demonstra dificuldade em lidar com pressão, frustrações ou feedbacks, impactando sua postura profissional com frequência."
+        },
+        {
+          "score": 2,
+          "name": "Oscilante",
+          "description": "Mantém postura adequada em situações normais, porém apresenta oscilações de comportamento ou rendimento em momentos críticos."
+        },
+        {
+          "score": 3,
+          "name": "Estável",
+          "description": "Mantém postura profissional adequada, lidando de forma equilibrada com situações do dia a dia e pressões da rotina."
+        },
+        {
+          "score": 4,
+          "name": "Maduro",
+          "description": "Mantém qualidade, respeito e autocontrole mesmo sob pressão, contribuindo para a estabilidade do ambiente."
+        },
+        {
+          "score": 5,
+          "name": "Estabilizador",
+          "description": "Atua como referência em momentos de pressão, transmite segurança, ajuda a reduzir conflitos e contribui positivamente para o clima da equipe."
+        }
+      ]
+    }
+  ],
+  "Segurança do Trabalho": [
+    {
+      "title": "1. Utilização Correta dos EPIs",
+      "description": "Avalia o uso correto, conservação e responsabilidade do colaborador quanto aos Equipamentos de Proteção Individual (EPIs), conforme exigência da atividade e normas de segurança.",
+      "counter_behaviors": "Não utilizar EPIs obrigatórios; utilizar equipamentos de forma incorreta; retirar EPIs em áreas de risco; utilizar EPI inadequado ou danificado; ignorar orientações de segurança.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Descumpre frequentemente o uso obrigatório de EPIs, expondo a si ou terceiros a riscos."
+        },
+        {
+          "score": 1,
+          "name": "Resistente",
+          "description": "Utiliza EPIs apenas quando cobrado ou supervisionado."
+        },
+        {
+          "score": 2,
+          "name": "Irregular",
+          "description": "Utiliza EPIs na maior parte do tempo, porém ainda apresenta falhas ocasionais."
+        },
+        {
+          "score": 3,
+          "name": "Adequado",
+          "description": "Utiliza corretamente os EPIs exigidos e segue orientações de segurança de forma consistente."
+        },
+        {
+          "score": 4,
+          "name": "Consciente",
+          "description": "Demonstra atenção contínua ao uso correto, conservação e adequação dos EPIs."
+        },
+        {
+          "score": 5,
+          "name": "Referência",
+          "description": "Atua como exemplo, reforçando boas práticas e incentivando a cultura de segurança da equipe."
+        }
+      ]
+    },
+    {
+      "title": "2. Manuseio de Materiais e Ferramentas",
+      "description": "Avalia a forma como o colaborador utiliza, transporta, movimenta e organiza materiais e ferramentas, observando segurança e prevenção de acidentes.",
+      "counter_behaviors": "Movimentar materiais de forma insegura; utilizar ferramentas inadequadamente; improvisar procedimentos sem autorização.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Executa manuseio inadequado que gera risco à segurança, danos materiais ou retrabalho."
+        },
+        {
+          "score": 1,
+          "name": "Dependente",
+          "description": "Necessita de orientações frequentes para realizar manuseio seguro e correto."
+        },
+        {
+          "score": 2,
+          "name": "Irregular",
+          "description": "Conhece os procedimentos, porém ainda apresenta falhas ocasionais na execução segura."
+        },
+        {
+          "score": 3,
+          "name": "Adequado",
+          "description": "Realiza o manuseio de forma segura, organizada e conforme orientações operacionais."
+        },
+        {
+          "score": 4,
+          "name": "Consciente",
+          "description": "Atua preventivamente para evitar riscos, desperdícios e danos aos materiais ou equipamentos."
+        },
+        {
+          "score": 5,
+          "name": "Referência",
+          "description": "Incentiva boas práticas, orienta colegas e contribui para maior segurança operacional."
+        }
+      ]
+    },
+    {
+      "title": "3. Descarte Correto de Resíduos",
+      "description": "Avalia o comprometimento do colaborador com a segregação, descarte e organização correta dos resíduos, respeitando normas ambientais e de segurança.",
+      "counter_behaviors": "Descartar resíduos em local incorreto; misturar resíduos sem segregação adequada; ignorar sinalizações; manter acúmulo inadequado de materiais; descuidar da limpeza e organização do ambiente.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Realiza descarte incorreto, gerando risco ambiental, operacional ou de segurança."
+        },
+        {
+          "score": 1,
+          "name": "Negligente",
+          "description": "Necessita cobranças frequentes para realizar descarte adequado."
+        },
+        {
+          "score": 2,
+          "name": "Irregular",
+          "description": "Realiza descarte corretamente na maior parte do tempo, porém ainda apresenta falhas ocasionais."
+        },
+        {
+          "score": 3,
+          "name": "Adequado",
+          "description": "Segue corretamente os procedimentos de descarte e mantém organização do ambiente."
+        },
+        {
+          "score": 4,
+          "name": "Consciente",
+          "description": "Demonstra atenção contínua à segregação, limpeza e descarte correto dos resíduos."
+        },
+        {
+          "score": 5,
+          "name": "Referência",
+          "description": "Incentiva boas práticas e contribui para um ambiente limpo, organizado e seguro."
+        }
+      ]
+    },
+    {
+      "title": "4. Cumprimento de Normas e Procedimentos de Segurança",
+      "description": "Avalia o comprometimento do colaborador em seguir normas, procedimentos, sinalizações e orientações relacionadas à segurança do trabalho.",
+      "counter_behaviors": "Não seguir procedimentos internos; ignorar orientações da liderança; descumprir normas de segurança; deixar de comunicar situações de risco; realizar tarefas “do próprio jeito” sem padrão.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Descumpre procedimentos de segurança de forma recorrente, expondo a si ou terceiros a riscos."
+        },
+        {
+          "score": 1,
+          "name": "Resistente",
+          "description": "Segue normas apenas quando cobrado ou supervisionado."
+        },
+        {
+          "score": 2,
+          "name": "Irregular",
+          "description": "Conhece os procedimentos, porém ainda apresenta inconsistência no cumprimento."
+        },
+        {
+          "score": 3,
+          "name": "Adequado",
+          "description": "Cumpre normas, orientações e procedimentos de segurança de forma consistente."
+        },
+        {
+          "score": 4,
+          "name": "Consciente",
+          "description": "Mantém disciplina mesmo sob pressão, reforçando a importância dos procedimentos."
+        },
+        {
+          "score": 5,
+          "name": "Referência",
+          "description": "Atua como exemplo, promove cultura de segurança e incentiva o cumprimento das normas pela equipe."
+        }
+      ]
+    },
+    {
+      "title": "5. Percepção de Risco e Prevenção de Acidentes",
+      "description": "Avalia a capacidade do colaborador em identificar situações de risco, agir preventivamente e contribuir para a prevenção de acidentes.",
+      "counter_behaviors": "Ignorar situações de risco; deixar de sinalizar perigos; não comunicar condições inseguras; agir sem avaliar consequências; assumir práticas inseguras por pressa ou conveniência.",
+      "levels": [
+        {
+          "score": 0,
+          "name": "Crítico",
+          "description": "Ignora riscos evidentes e mantém comportamentos inseguros que podem gerar acidentes."
+        },
+        {
+          "score": 1,
+          "name": "Reativo",
+          "description": "Percebe riscos apenas quando alertado ou após ocorrência de problemas."
+        },
+        {
+          "score": 2,
+          "name": "Limitado",
+          "description": "Identifica riscos mais evidentes, porém ainda apresenta pouca iniciativa preventiva."
+        },
+        {
+          "score": 3,
+          "name": "Adequado",
+          "description": "Identifica situações de risco e adota postura preventiva dentro das atividades da rotina."
+        },
+        {
+          "score": 4,
+          "name": "Preventivo",
+          "description": "Atua antecipadamente para reduzir riscos e evitar acidentes no ambiente de trabalho."
+        },
+        {
+          "score": 5,
+          "name": "Guardião",
+          "description": "É referência em prevenção, orienta colegas e fortalece a cultura de segurança do time."
+        }
+      ]
+    }
+  ]
+}
