@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
@@ -73,6 +74,7 @@ export class SicrediWebhookService {
     private readonly prismaService: PrismaService,
     private readonly cascadeService: TaskQuoteStatusCascadeService,
     private readonly notificationDispatchService: NotificationDispatchService,
+    private readonly events: EventEmitter2,
   ) {}
 
   async processEvent(payload: WebhookEventDto): Promise<void> {
@@ -265,6 +267,13 @@ export class SicrediWebhookService {
     this.logger.log(
       `Liquidation handled for nossoNumero: ${nossoNumero}, paidAmount: ${paidAmount}`,
     );
+
+    // Bridge to bank-statement reconciliation (OFX-imported transactions)
+    this.events.emit('banking.bankslip.paid', {
+      bankSlipId: bankSlip.id,
+      paidAt: now,
+      paidAmount: Number(paidAmount),
+    });
 
     // Dispatch push notification for boleto payment
     await this.dispatchBankSlipPaidNotification(bankSlip, paidAmount, nossoNumero);

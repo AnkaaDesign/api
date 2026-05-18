@@ -1,22 +1,80 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import {
+  ABC_CATEGORY,
   ACTIVITY_OPERATION,
-  ENTITY_TYPE,
+  ACTIVITY_REASON,
   CHANGE_ACTION,
   CHANGE_TRIGGERED_BY,
-} from '../../../constants/enums';
+  ENTITY_TYPE,
+  ITEM_CATEGORY_TYPE,
+  ORDER_STATUS,
+  XYZ_CATEGORY,
+} from '@/constants/enums';
 import {
-  CONSUMPTION_ACTIVITY_REASONS,
   DORMANT_ITEM_MONTHS_THRESHOLD,
   ITEM_SIMILARITY_THRESHOLD,
   MAX_SIMILAR_ITEMS_TO_CHECK,
-  getWorkingDaysInMonth,
-  getSeasonalFactor,
-  STANDARD_WORKING_DAYS_PER_MONTH,
-} from '../../../constants/inventory-config';
+  REGULAR_CONSUMPTION_REASONS,
+} from '@/constants/inventory-config';
+import { CORPUS_MONTHLY_INDEX } from '@/constants/seasonality-config';
+import {
+  applyTrendAdjustment,
+  calculateConsumptionTrend,
+  calculateLeadTime,
+  calculateMaxQuantity,
+  calculateMonthlyConsumption,
+  calculateReorderPoint,
+  calculateReorderQuantity,
+  isLegacyBulkReceipt,
+  resolveSafetyTargetCell,
+  type ItemLike,
+  type SeasonalContext,
+} from '@/utils/stock-health';
+import { classifyAbc, classifyXyz, type AbcInput, type XyzInput } from '@/utils/abc-xyz';
+import {
+  computeSeasonalProfile,
+  type SeasonalCurve,
+} from '@/utils/seasonality';
+import {
+  detectSaturdayShifts,
+  workingDaysForMonth,
+} from '@/utils/working-days';
+
+// ---------------------------------------------------------------------------
+// Types used across the nightly recompute pipeline
+// ---------------------------------------------------------------------------
+
+type ItemRecord = Awaited<ReturnType<PrismaService['item']['findMany']>>[number] & {
+  category: { id: string; type: ITEM_CATEGORY_TYPE | null; name?: string } | null;
+};
+
+interface ItemActivities {
+  itemId: string;
+  activities: Array<{
+    operation: ACTIVITY_OPERATION;
+    reason: ACTIVITY_REASON;
+    quantity: number;
+    createdAt: Date;
+  }>;
+}
+
+interface RecomputeOutcome {
+  itemId: string;
+  monthlyConsumption: number;
+  monthlyConsumptionTrendPercent: number | null;
+  reorderPoint: number | null;
+  maxQuantity: number | null;
+  reorderQuantity: number | null;
+  abcCategory: ABC_CATEGORY | null;
+  abcCategoryOrder: number | null;
+  xyzCategory: XYZ_CATEGORY | null;
+  xyzCategoryOrder: number | null;
+  ordersLast12Months: number;
+}
 
 @Injectable()
 export class InventoryCronService {
@@ -33,12 +91,12 @@ export class InventoryCronService {
 
   /**
    * Creates monthly consumption snapshots for all active items.
-   * Runs on the 1st of every month at 2 AM.
+   * Runs on the 1st of every month at 02:00 SP.
    *
-   * Stores normalized consumption data for:
-   * - Year-over-year comparison
-   * - Seasonal pattern detection
-   * - Historical trend analysis
+   * On top of the previous-month consumption row, this also (re)computes the
+   * per-item seasonal factor using the smoothing + shrinkage pipeline from
+   * `computeSeasonalProfile` (spec §6.3) so the next nightly recompute can
+   * resolve seasonal factors against fresh data.
    */
   @Cron('0 2 1 * *', { timeZone: 'America/Sao_Paulo' })
   async createMonthlyConsumptionSnapshots(): Promise<{
@@ -56,49 +114,64 @@ export class InventoryCronService {
     const monthStart = new Date(year, month, 1);
     const monthEnd = new Date(year, month + 1, 0, 23, 59, 59, 999);
 
-    // Get all active items
     const activeItems = await this.prisma.item.findMany({
       where: { isActive: true },
-      select: { id: true },
+      select: { id: true, createdAt: true },
     });
 
     let created = 0;
     let errors = 0;
 
-    // Process in batches of 50
     const batchSize = 50;
     for (let i = 0; i < activeItems.length; i += batchSize) {
       const batch = activeItems.slice(i, i + batchSize);
 
       const promises = batch.map(async item => {
         try {
-          // Count consumption activities for this item in the target month
+          // Pull all qualifying outbound activity for the target month so we
+          // can compute working-day-normalized totals.
           const activities = await this.prisma.activity.findMany({
             where: {
               itemId: item.id,
               operation: ACTIVITY_OPERATION.OUTBOUND,
-              reason: { in: CONSUMPTION_ACTIVITY_REASONS as any[] },
+              reason: { in: REGULAR_CONSUMPTION_REASONS as ACTIVITY_REASON[] },
               createdAt: { gte: monthStart, lte: monthEnd },
             },
-            select: { quantity: true },
+            select: { quantity: true, reason: true, operation: true, createdAt: true },
           });
 
           const totalConsumption = activities.reduce((sum, a) => sum + a.quantity, 0);
           const consumptionCount = activities.length;
-          const workingDays = getWorkingDaysInMonth(month, year);
-          const seasonalFactor = getSeasonalFactor(month);
 
-          // Normalize by working days
-          const normalizedConsumption =
-            workingDays < STANDARD_WORKING_DAYS_PER_MONTH
-              ? totalConsumption * (STANDARD_WORKING_DAYS_PER_MONTH / workingDays)
-              : totalConsumption;
+          // Working-day count: respect Saturday-shift detection over the
+          // month's own activity stream.
+          const saturdayShifts = detectSaturdayShifts(
+            activities.map(a => ({
+              operation: a.operation,
+              reason: a.reason,
+              createdAt: a.createdAt,
+            })),
+            REGULAR_CONSUMPTION_REASONS,
+          );
+          const workingDays = workingDaysForMonth(year, month, saturdayShifts);
 
-          // Upsert the snapshot
+          // Per-item seasonal factor: derived from the rolling history of
+          // monthly snapshots + the current month's totals, falling through
+          // the spec §6.4 chain when eligibility fails.
+          const seasonalFactor = await this.computeItemSeasonalFactor(
+            item.id,
+            year,
+            month,
+            totalConsumption,
+            workingDays,
+          );
+
+          const normalizedConsumption = workingDays > 0
+            ? (totalConsumption / workingDays) * 20
+            : totalConsumption;
+
           await this.prisma.consumptionSnapshot.upsert({
-            where: {
-              itemId_year_month: { itemId: item.id, year, month },
-            },
+            where: { itemId_year_month: { itemId: item.id, year, month } },
             create: {
               itemId: item.id,
               year,
@@ -137,18 +210,351 @@ export class InventoryCronService {
     return { total: activeItems.length, created, errors };
   }
 
+  /**
+   * Builds the per-item seasonal curve from the trailing 12 snapshots
+   * (including the just-computed month) and returns the factor for
+   * `month`. Falls back to the corpus curve when eligibility fails.
+   */
+  private async computeItemSeasonalFactor(
+    itemId: string,
+    year: number,
+    month: number,
+    totalConsumption: number,
+    workingDays: number,
+  ): Promise<number> {
+    // Pull the 12 most recent snapshots; we'll merge in the just-computed
+    // month so it participates in the curve before the upsert finishes.
+    const history = await this.prisma.consumptionSnapshot.findMany({
+      where: { itemId },
+      orderBy: [{ year: 'desc' }, { month: 'desc' }],
+      take: 24,
+      select: { year: true, month: true, normalizedConsumption: true },
+    });
+
+    const normalized = workingDays > 0 ? (totalConsumption / workingDays) * 20 : totalConsumption;
+    const seenKeys = new Set<string>();
+    const merged: Array<{ year: number; month: number; consumption: number }> = [];
+    merged.push({ year, month, consumption: normalized });
+    seenKeys.add(`${year}-${month}`);
+    for (const row of history) {
+      const key = `${row.year}-${row.month}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      merged.push({ year: row.year, month: row.month, consumption: row.normalizedConsumption });
+    }
+    // Chronological order, oldest first (computeSeasonalProfile expects that).
+    merged.sort((a, b) => (a.year - b.year) * 12 + (a.month - b.month));
+
+    const curve = computeSeasonalProfile(merged, CORPUS_MONTHLY_INDEX);
+    if (curve && curve.length === 12) return curve[month] ?? 1;
+    return CORPUS_MONTHLY_INDEX[month] ?? 1;
+  }
+
+  // =====================
+  // Nightly recompute (02:30 SP)
+  // =====================
+
+  /**
+   * Nightly authoritative recompute. For every active item it persists:
+   *   monthlyConsumption, monthlyConsumptionTrendPercent,
+   *   reorderPoint, maxQuantity, reorderQuantity,
+   *   abcCategory, abcCategoryOrder, xyzCategory, xyzCategoryOrder,
+   *   ordersLast12Months.
+   *
+   * Writes are batched in transactions of ~100 items per chunk.
+   */
+  @Cron('30 2 * * *', { timeZone: 'America/Sao_Paulo' })
+  async runNightlyRecompute(): Promise<{
+    total: number;
+    updated: number;
+    errors: number;
+  }> {
+    this.logger.log('Starting nightly inventory recompute...');
+
+    // Refresh `lastUsedAt` for all items first — keeps the daily refresh
+    // semantics that the previous cron entry guaranteed.
+    await this.refreshLastUsedDates();
+
+    const now = new Date();
+    const items = await this.prisma.item.findMany({
+      where: { isActive: true },
+      include: { category: { select: { id: true, type: true, name: true } } },
+    });
+
+    if (items.length === 0) {
+      this.logger.log('Nightly recompute: no active items.');
+      return { total: 0, updated: 0, errors: 0 };
+    }
+
+    // Pre-load shared data: activities, recent order receipts, current orders.
+    const lookbackStart = new Date(now);
+    lookbackStart.setMonth(lookbackStart.getMonth() - 12);
+
+    const itemIds = items.map(i => i.id);
+    const supplierIds = Array.from(
+      new Set(items.map(i => i.supplierId).filter((v): v is string => !!v)),
+    );
+
+    const [activities, orderItems, snapshotsByItem, latestPrices] = await Promise.all([
+      this.prisma.activity.findMany({
+        where: {
+          itemId: { in: itemIds },
+          operation: ACTIVITY_OPERATION.OUTBOUND,
+          reason: { in: REGULAR_CONSUMPTION_REASONS as ACTIVITY_REASON[] },
+          createdAt: { gte: lookbackStart },
+        },
+        select: { itemId: true, operation: true, reason: true, quantity: true, createdAt: true },
+      }),
+      this.prisma.orderItem.findMany({
+        where: {
+          itemId: { in: itemIds },
+          order: { createdAt: { gte: lookbackStart } },
+        },
+        select: {
+          itemId: true,
+          orderId: true,
+          orderedQuantity: true,
+          receivedQuantity: true,
+          receivedAt: true,
+          price: true,
+          createdAt: true,
+          order: {
+            select: { id: true, status: true, supplierId: true, createdAt: true },
+          },
+        },
+      }),
+      this.loadSnapshotsByItem(itemIds),
+      this.loadLatestPrices(itemIds),
+    ]);
+
+    // Group activities by item
+    const activitiesByItem = new Map<string, ItemActivities['activities']>();
+    for (const a of activities) {
+      if (!a.itemId) continue;
+      let bucket = activitiesByItem.get(a.itemId);
+      if (!bucket) {
+        bucket = [];
+        activitiesByItem.set(a.itemId, bucket);
+      }
+      bucket.push({
+        operation: a.operation as ACTIVITY_OPERATION,
+        reason: a.reason as ACTIVITY_REASON,
+        quantity: a.quantity,
+        createdAt: a.createdAt,
+      });
+    }
+
+    // Build supplier-level clean lead-time samples (spec §5).
+    const supplierCleanLeadTimes = this.buildSupplierLeadTimeSamples(orderItems, supplierIds);
+
+    // Compute order-count + active-incoming + per-item clean lead-times.
+    const orderStats = this.summarizeOrders(orderItems);
+
+    // First pass: compute mc + trend per item (needed for ABC/XYZ ranking).
+    const partials: Array<{
+      item: ItemRecord;
+      mc: number;
+      trendPercent: number | null;
+      leadTime: number;
+      unitPrice: number;
+      monthlyHistory: number[];
+      ordersLast12Months: number;
+    }> = [];
+
+    for (const item of items as ItemRecord[]) {
+      try {
+        const itemActivities = activitiesByItem.get(item.id) ?? [];
+        const seasonalCtx = this.buildSeasonalContext(snapshotsByItem.get(item.id));
+
+        const mcResult = calculateMonthlyConsumption({
+          item: this.toItemLike(item),
+          activities: itemActivities,
+          now,
+          seasonalCtx,
+        });
+
+        const monthlyHistory = this.buildMonthlyHistory(snapshotsByItem.get(item.id), now);
+        const trendRaw = calculateConsumptionTrend(
+          monthlyHistory.map(h => ({
+            year: h.year,
+            month: h.month,
+            consumption: h.consumption,
+          })),
+        );
+
+        const stats = orderStats.get(item.id);
+        const itemCleanLeadTimes = stats?.itemCleanLeadTimes ?? [];
+        const supplierLeadTimes = item.supplierId
+          ? supplierCleanLeadTimes.get(item.supplierId) ?? []
+          : [];
+
+        const leadTime = calculateLeadTime({
+          itemCleanLeadTimes,
+          supplierCleanLeadTimes: supplierLeadTimes,
+        });
+
+        partials.push({
+          item,
+          mc: mcResult.monthlyConsumption,
+          trendPercent: monthlyHistory.length >= 6 ? trendRaw : null,
+          leadTime,
+          unitPrice: stats?.latestPrice ?? latestPrices.get(item.id) ?? 0,
+          monthlyHistory: monthlyHistory.map(h => h.consumption),
+          ordersLast12Months: stats?.distinctOrderCount ?? 0,
+        });
+      } catch (error) {
+        this.logger.error(
+          `Error in nightly mc pass for item ${item.id}: ${error instanceof Error ? error.message : 'Unknown'}`,
+        );
+      }
+    }
+
+    // Classification passes (ABC + XYZ are ranking ops over the whole set).
+    const abcInputs: AbcInput[] = partials.map(p => ({
+      itemId: p.item.id,
+      monthlyConsumption: p.mc,
+      unitPrice: p.unitPrice,
+      eligible:
+        p.item.category?.type !== ITEM_CATEGORY_TYPE.TOOL &&
+        p.mc > 0,
+    }));
+    const xyzInputs: XyzInput[] = partials.map(p => ({
+      itemId: p.item.id,
+      trailingMonthlyConsumption: p.monthlyHistory,
+      eligible: p.item.category?.type !== ITEM_CATEGORY_TYPE.TOOL,
+    }));
+
+    const abcAssignments = new Map(
+      classifyAbc(abcInputs).map(a => [a.itemId, a] as const),
+    );
+    const xyzAssignments = new Map(
+      classifyXyz(xyzInputs).map(x => [x.itemId, x] as const),
+    );
+
+    // Second pass: rp/max/reorderQty using the now-known classifications.
+    const outcomes: RecomputeOutcome[] = [];
+    for (const p of partials) {
+      try {
+        const abc = abcAssignments.get(p.item.id);
+        const xyz = xyzAssignments.get(p.item.id);
+        const baseCell = resolveSafetyTargetCell(
+          abc?.category ?? null,
+          xyz?.category ?? null,
+          p.ordersLast12Months,
+        );
+        const safetyFactor = applyTrendAdjustment(baseCell.safetyFactor, p.trendPercent ?? 0);
+
+        const seasonalCtx = this.buildSeasonalContext(snapshotsByItem.get(p.item.id));
+        const itemLike = this.toItemLike(p.item);
+
+        const reorderPoint = calculateReorderPoint({
+          item: itemLike,
+          monthlyConsumption: p.mc,
+          leadTimeDays: p.leadTime,
+          safetyFactor,
+          seasonalCtx,
+          now,
+        });
+
+        const maxQuantity = calculateMaxQuantity({
+          item: itemLike,
+          monthlyConsumption: p.mc,
+          leadTimeDays: p.leadTime,
+          reorderPoint,
+          targetStockDays: baseCell.targetStockDays,
+          seasonalCtx,
+          now,
+        });
+
+        const stats = orderStats.get(p.item.id);
+        const incomingOrderedQuantity = stats?.incomingOrderedQuantity ?? 0;
+
+        const reorderQuantity = calculateReorderQuantity({
+          currentStock: p.item.quantity,
+          maxQuantity,
+          incomingOrderedQuantity,
+          boxQuantity: p.item.boxQuantity ?? null,
+        });
+
+        outcomes.push({
+          itemId: p.item.id,
+          monthlyConsumption: p.mc,
+          monthlyConsumptionTrendPercent:
+            p.trendPercent == null ? null : round2(p.trendPercent),
+          reorderPoint,
+          maxQuantity,
+          reorderQuantity,
+          abcCategory: abc?.category ?? null,
+          abcCategoryOrder: abc?.order ?? null,
+          xyzCategory: xyz?.category ?? null,
+          xyzCategoryOrder: xyz?.order ?? null,
+          ordersLast12Months: p.ordersLast12Months,
+        });
+      } catch (error) {
+        this.logger.error(
+          `Error in nightly rp/max pass for item ${p.item.id}: ${error instanceof Error ? error.message : 'Unknown'}`,
+        );
+      }
+    }
+
+    // Write back in chunks of ~100 items per transaction.
+    let updated = 0;
+    let errors = 0;
+    const chunkSize = 100;
+    for (let i = 0; i < outcomes.length; i += chunkSize) {
+      const chunk = outcomes.slice(i, i + chunkSize);
+      try {
+        await this.prisma.$transaction(
+          chunk.map(o =>
+            this.prisma.item.update({
+              where: { id: o.itemId },
+              // Cast: `ordersLast12Months` was added in Phase 1 of the
+              // stock-management refactor — the generated Prisma client
+              // typings will pick it up after `prisma generate`.
+              data: {
+                monthlyConsumption: new Prisma.Decimal(o.monthlyConsumption),
+                monthlyConsumptionTrendPercent:
+                  o.monthlyConsumptionTrendPercent == null
+                    ? null
+                    : new Prisma.Decimal(o.monthlyConsumptionTrendPercent),
+                reorderPoint: o.reorderPoint,
+                maxQuantity: o.maxQuantity,
+                reorderQuantity: o.reorderQuantity,
+                abcCategory: o.abcCategory,
+                abcCategoryOrder: o.abcCategoryOrder,
+                xyzCategory: o.xyzCategory,
+                xyzCategoryOrder: o.xyzCategoryOrder,
+                ordersLast12Months: o.ordersLast12Months,
+              } as Prisma.ItemUncheckedUpdateInput,
+            }),
+          ),
+        );
+        updated += chunk.length;
+      } catch (error) {
+        errors += chunk.length;
+        this.logger.error(
+          `Error persisting nightly recompute chunk [${i}..${i + chunk.length - 1}]: ${error instanceof Error ? error.message : 'Unknown'}`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `Nightly recompute complete: ${updated} updated, ${errors} errors of ${items.length} items.`,
+    );
+
+    return { total: items.length, updated, errors };
+  }
+
   // =====================
   // Dormant Item Detection & Auto-Disable
   // =====================
 
   /**
-   * Detects dormant items and auto-disables them if a similar active replacement exists.
-   * Runs weekly on Sunday at 3 AM.
+   * Detects dormant REGULAR items and auto-disables them if a similar active
+   * replacement exists. Runs weekly on Sunday at 3 AM.
    *
-   * Criteria for dormant:
-   * 1. No OUTBOUND consumption activity for DORMANT_ITEM_MONTHS_THRESHOLD months
-   * 2. Item is currently active
-   * 3. A similar item (by name) exists that IS being used recently
+   * TOOL and PPE category items are explicitly excluded — they are durable /
+   * lumpy goods and never auto-deactivate (spec §16).
    */
   @Cron('0 3 * * 0', { timeZone: 'America/Sao_Paulo' })
   async detectAndDisableDormantItems(): Promise<{
@@ -162,7 +568,6 @@ export class InventoryCronService {
     const cutoffDate = new Date();
     cutoffDate.setMonth(cutoffDate.getMonth() - DORMANT_ITEM_MONTHS_THRESHOLD);
 
-    // Find all active items
     const activeItems = await this.prisma.item.findMany({
       where: { isActive: true },
       select: {
@@ -173,6 +578,7 @@ export class InventoryCronService {
         supplierId: true,
         quantity: true,
         lastUsedAt: true,
+        category: { select: { type: true } },
       },
     });
 
@@ -182,18 +588,25 @@ export class InventoryCronService {
 
     for (const item of activeItems) {
       try {
-        // Check if item has any consumption activity after cutoff
+        // Skip TOOL / PPE — they never auto-deactivate (spec §16).
+        const categoryType = item.category?.type ?? null;
+        if (
+          categoryType === ITEM_CATEGORY_TYPE.TOOL ||
+          categoryType === ITEM_CATEGORY_TYPE.PPE
+        ) {
+          continue;
+        }
+
         const recentActivity = await this.prisma.activity.findFirst({
           where: {
             itemId: item.id,
             operation: ACTIVITY_OPERATION.OUTBOUND,
-            reason: { in: CONSUMPTION_ACTIVITY_REASONS as any[] },
+            reason: { in: REGULAR_CONSUMPTION_REASONS as ACTIVITY_REASON[] },
             createdAt: { gte: cutoffDate },
           },
         });
 
         if (recentActivity) {
-          // Item is active, update lastUsedAt if needed
           if (!item.lastUsedAt || new Date(recentActivity.createdAt) > new Date(item.lastUsedAt)) {
             await this.prisma.item.update({
               where: { id: item.id },
@@ -206,7 +619,6 @@ export class InventoryCronService {
         // Item is dormant
         dormantFound++;
 
-        // Look for similar active items that ARE being used
         const similarItems = await this.findSimilarActiveItems(
           item.id,
           item.name,
@@ -216,7 +628,6 @@ export class InventoryCronService {
         );
 
         if (similarItems.length > 0) {
-          // Found a potential replacement - auto-disable
           const bestMatch = similarItems[0];
 
           await this.prisma.item.update({
@@ -228,7 +639,6 @@ export class InventoryCronService {
             },
           });
 
-          // Log the change
           await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.ITEM,
             entityId: item.id,
@@ -268,15 +678,14 @@ export class InventoryCronService {
   }
 
   /**
-   * Updates lastUsedAt for all active items based on their most recent consumption activity.
-   * Runs daily at 2:30 AM.
+   * Updates lastUsedAt for all active items based on their most recent
+   * consumption activity. Public-callable; the nightly recompute invokes
+   * this at the top of its run as well.
    */
-  @Cron('30 2 * * *', { timeZone: 'America/Sao_Paulo' })
-  async updateLastUsedDates(): Promise<void> {
-    this.logger.log('Starting lastUsedAt update for all items...');
+  async refreshLastUsedDates(): Promise<void> {
+    this.logger.log('Refreshing lastUsedAt for all items...');
 
     try {
-      // Use raw query for efficiency: update lastUsedAt to the max createdAt of consumption activities
       await this.prisma.$executeRaw`
         UPDATE "Item" i
         SET "lastUsedAt" = sub.max_date
@@ -298,13 +707,270 @@ export class InventoryCronService {
   }
 
   // =====================
+  // Internal — nightly recompute helpers
+  // =====================
+
+  /** Loads up to 13 most-recent snapshots per item, keyed by itemId. */
+  private async loadSnapshotsByItem(
+    itemIds: string[],
+  ): Promise<Map<string, Array<{ year: number; month: number; normalizedConsumption: number; seasonalFactor: number }>>> {
+    if (itemIds.length === 0) return new Map();
+    const snapshots = await this.prisma.consumptionSnapshot.findMany({
+      where: { itemId: { in: itemIds } },
+      orderBy: [{ year: 'desc' }, { month: 'desc' }],
+      select: {
+        itemId: true,
+        year: true,
+        month: true,
+        normalizedConsumption: true,
+        seasonalFactor: true,
+      },
+    });
+
+    const map = new Map<string, Array<{ year: number; month: number; normalizedConsumption: number; seasonalFactor: number }>>();
+    for (const row of snapshots) {
+      let bucket = map.get(row.itemId);
+      if (!bucket) {
+        bucket = [];
+        map.set(row.itemId, bucket);
+      }
+      // Cap at 24 months per item (oldest dropped).
+      if (bucket.length < 24) {
+        bucket.push({
+          year: row.year,
+          month: row.month,
+          normalizedConsumption: row.normalizedConsumption,
+          seasonalFactor: row.seasonalFactor,
+        });
+      }
+    }
+    return map;
+  }
+
+  /** Latest known unit price per item — most recent OrderItem.price. */
+  private async loadLatestPrices(itemIds: string[]): Promise<Map<string, number>> {
+    if (itemIds.length === 0) return new Map();
+    const rows = await this.prisma.orderItem.findMany({
+      where: { itemId: { in: itemIds }, price: { gt: 0 } },
+      orderBy: { createdAt: 'desc' },
+      select: { itemId: true, price: true },
+    });
+    const map = new Map<string, number>();
+    for (const r of rows) {
+      if (!r.itemId) continue;
+      if (!map.has(r.itemId)) map.set(r.itemId, r.price);
+    }
+    return map;
+  }
+
+  /**
+   * Builds the seasonal context for an item from its historical snapshots.
+   * Reuses persisted per-month seasonal factors when present; the corpus
+   * curve from `seasonality-config` is the last-resort fallback handled
+   * inside `resolveSeasonalFactor`.
+   */
+  private buildSeasonalContext(
+    history?: Array<{ year: number; month: number; normalizedConsumption: number; seasonalFactor: number }>,
+  ): SeasonalContext | undefined {
+    if (!history || history.length === 0) return undefined;
+
+    // Aggregate per-calendar-month seasonalFactor as the per-item curve when
+    // we have data; otherwise leave it null and let the corpus fallback fire.
+    const buckets: number[][] = Array.from({ length: 12 }, () => []);
+    for (const row of history) {
+      if (row.seasonalFactor && row.seasonalFactor > 0) {
+        buckets[row.month].push(row.seasonalFactor);
+      }
+    }
+    const monthsWithData = buckets.filter(arr => arr.length > 0).length;
+    if (monthsWithData < 6) return undefined;
+
+    const itemCurve: number[] = buckets.map((arr, idx) => {
+      if (arr.length === 0) return CORPUS_MONTHLY_INDEX[idx] ?? 1;
+      const sum = arr.reduce((s, v) => s + v, 0);
+      return sum / arr.length;
+    });
+    return { itemCurve: itemCurve as SeasonalCurve };
+  }
+
+  /** Returns trailing-12 monthly history from snapshots, oldest-first. */
+  private buildMonthlyHistory(
+    history: Array<{ year: number; month: number; normalizedConsumption: number; seasonalFactor: number }> | undefined,
+    now: Date,
+  ): Array<{ year: number; month: number; consumption: number }> {
+    if (!history || history.length === 0) return [];
+    const sorted = [...history].sort(
+      (a, b) => (a.year - b.year) * 12 + (a.month - b.month),
+    );
+    // Keep at most the trailing 12 calendar months from `now`.
+    const cutoff = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+    return sorted
+      .filter(r => new Date(r.year, r.month, 1) >= cutoff)
+      .map(r => ({ year: r.year, month: r.month, consumption: r.normalizedConsumption }));
+  }
+
+  /**
+   * Bundles per-item order metrics for the trailing 12 months:
+   *   - distinct order count (`ordersLast12Months`)
+   *   - sum of (ordered − received) on non-CANCELLED / non-RECEIVED orders
+   *   - clean lead-time samples (spec §5.2 cleanliness filter)
+   *   - most-recent unit price
+   */
+  private summarizeOrders(
+    orderItems: ReadonlyArray<{
+      itemId: string | null;
+      orderId: string;
+      orderedQuantity: number;
+      receivedQuantity: number;
+      receivedAt: Date | null;
+      price: number;
+      createdAt: Date;
+      order: {
+        id: string;
+        status: ORDER_STATUS | string;
+        supplierId: string | null;
+        createdAt: Date;
+      };
+    }>,
+  ): Map<
+    string,
+    {
+      distinctOrderCount: number;
+      incomingOrderedQuantity: number;
+      itemCleanLeadTimes: number[];
+      latestPrice: number | null;
+    }
+  > {
+    const result = new Map<
+      string,
+      {
+        distinctOrderCount: number;
+        incomingOrderedQuantity: number;
+        itemCleanLeadTimes: number[];
+        latestPrice: number | null;
+        orderIds: Set<string>;
+        latestPriceAt: Date | null;
+      }
+    >();
+
+    for (const oi of orderItems) {
+      if (!oi.itemId) continue;
+      let entry = result.get(oi.itemId);
+      if (!entry) {
+        entry = {
+          distinctOrderCount: 0,
+          incomingOrderedQuantity: 0,
+          itemCleanLeadTimes: [],
+          latestPrice: null,
+          orderIds: new Set<string>(),
+          latestPriceAt: null,
+        };
+        result.set(oi.itemId, entry);
+      }
+
+      entry.orderIds.add(oi.orderId);
+
+      const status = oi.order.status as ORDER_STATUS;
+      const isPending =
+        status !== ORDER_STATUS.CANCELLED && status !== ORDER_STATUS.RECEIVED;
+      if (isPending) {
+        const remaining = oi.orderedQuantity - oi.receivedQuantity;
+        if (remaining > 0) entry.incomingOrderedQuantity += remaining;
+      }
+
+      if (oi.receivedAt) {
+        if (!isLegacyBulkReceipt(oi.order.supplierId, oi.receivedAt)) {
+          const days = Math.max(
+            0,
+            (oi.receivedAt.getTime() - oi.order.createdAt.getTime()) / (1000 * 60 * 60 * 24),
+          );
+          entry.itemCleanLeadTimes.push(days);
+        }
+      }
+
+      if (oi.price > 0) {
+        if (!entry.latestPriceAt || oi.createdAt > entry.latestPriceAt) {
+          entry.latestPrice = oi.price;
+          entry.latestPriceAt = oi.createdAt;
+        }
+      }
+    }
+
+    const out = new Map<
+      string,
+      {
+        distinctOrderCount: number;
+        incomingOrderedQuantity: number;
+        itemCleanLeadTimes: number[];
+        latestPrice: number | null;
+      }
+    >();
+    for (const [itemId, v] of result) {
+      out.set(itemId, {
+        distinctOrderCount: v.orderIds.size,
+        incomingOrderedQuantity: v.incomingOrderedQuantity,
+        itemCleanLeadTimes: v.itemCleanLeadTimes,
+        latestPrice: v.latestPrice,
+      });
+    }
+    return out;
+  }
+
+  /** Supplier-level p90 sample pool for the lead-time tier-2 fallback. */
+  private buildSupplierLeadTimeSamples(
+    orderItems: ReadonlyArray<{
+      itemId: string | null;
+      orderId: string;
+      receivedAt: Date | null;
+      order: { id: string; supplierId: string | null; createdAt: Date };
+    }>,
+    supplierIds: string[],
+  ): Map<string, number[]> {
+    const map = new Map<string, number[]>();
+    for (const sid of supplierIds) map.set(sid, []);
+    for (const oi of orderItems) {
+      const supplierId = oi.order.supplierId;
+      if (!supplierId) continue;
+      if (!oi.receivedAt) continue;
+      if (isLegacyBulkReceipt(supplierId, oi.receivedAt)) continue;
+      const days =
+        (oi.receivedAt.getTime() - oi.order.createdAt.getTime()) / (1000 * 60 * 60 * 24);
+      if (days < 0) continue;
+      const bucket = map.get(supplierId) ?? [];
+      bucket.push(days);
+      map.set(supplierId, bucket);
+    }
+    return map;
+  }
+
+  /** Converts a Prisma `Item` row (with category include) to the engine's
+   *  `ItemLike` shape required by the stock-health utils. */
+  private toItemLike(item: ItemRecord): ItemLike {
+    return {
+      id: item.id,
+      createdAt: item.createdAt,
+      quantity: item.quantity,
+      reorderPoint: item.reorderPoint,
+      maxQuantity: item.maxQuantity,
+      estimatedLeadTime: item.estimatedLeadTime,
+      boxQuantity: item.boxQuantity,
+      monthlyConsumption:
+        item.monthlyConsumption == null ? null : Number(item.monthlyConsumption),
+      category: item.category
+        ? { type: (item.category.type as ITEM_CATEGORY_TYPE | null) ?? null }
+        : null,
+      abcCategory: (item.abcCategory as ABC_CATEGORY | null) ?? null,
+      xyzCategory: (item.xyzCategory as XYZ_CATEGORY | null) ?? null,
+      ppeType: (item.ppeType ?? null) as ItemLike['ppeType'],
+      ppeStandardQuantity: item.ppeStandardQuantity ?? null,
+      ppeDeliveryMode: (item.ppeDeliveryMode ?? null) as ItemLike['ppeDeliveryMode'],
+    };
+  }
+
+  // =====================
   // Similarity Detection
   // =====================
 
-  /**
-   * Finds similar active items by name using trigram-based similarity.
-   * Checks same category/brand first, then broader matches.
-   */
   private async findSimilarActiveItems(
     excludeItemId: string,
     itemName: string,
@@ -312,7 +978,6 @@ export class InventoryCronService {
     brandId: string | null,
     usedAfterDate: Date,
   ): Promise<Array<{ id: string; name: string; similarity: number }>> {
-    // Normalize the item name for comparison
     const normalizedName = this.normalizeName(itemName);
     const nameWords = normalizedName.split(/\s+/).filter(w => w.length > 2);
 
@@ -320,13 +985,11 @@ export class InventoryCronService {
       return [];
     }
 
-    // Find potentially similar items in the same category
-    const candidateWhere: any = {
+    const candidateWhere: Prisma.ItemWhereInput = {
       id: { not: excludeItemId },
       isActive: true,
     };
 
-    // Prefer same category for better matching
     if (categoryId) {
       candidateWhere.categoryId = categoryId;
     }
@@ -334,10 +997,9 @@ export class InventoryCronService {
     const candidates = await this.prisma.item.findMany({
       where: candidateWhere,
       select: { id: true, name: true },
-      take: 100, // Limit candidates to prevent performance issues
+      take: 100,
     });
 
-    // Calculate similarity scores
     const scored = candidates
       .map(candidate => ({
         id: candidate.id,
@@ -351,7 +1013,6 @@ export class InventoryCronService {
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, MAX_SIMILAR_ITEMS_TO_CHECK);
 
-    // Verify that the similar items are actually being used recently
     const verifiedSimilar: Array<{ id: string; name: string; similarity: number }> = [];
 
     for (const candidate of scored) {
@@ -359,7 +1020,7 @@ export class InventoryCronService {
         where: {
           itemId: candidate.id,
           operation: ACTIVITY_OPERATION.OUTBOUND,
-          reason: { in: CONSUMPTION_ACTIVITY_REASONS as any[] },
+          reason: { in: REGULAR_CONSUMPTION_REASONS as ACTIVITY_REASON[] },
           createdAt: { gte: usedAfterDate },
         },
       });
@@ -372,58 +1033,40 @@ export class InventoryCronService {
     return verifiedSimilar;
   }
 
-  /**
-   * Normalizes item name for comparison:
-   * - Lowercase
-   * - Remove special characters
-   * - Normalize spaces
-   * - Remove common prefixes/suffixes
-   */
   private normalizeName(name: string): string {
     return name
       .toLowerCase()
       .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
-      .replace(/[^a-z0-9\s]/g, ' ') // Replace special chars with space
-      .replace(/\s+/g, ' ') // Normalize spaces
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
       .trim();
   }
 
-  /**
-   * Calculates similarity between two normalized names using word overlap (Jaccard similarity).
-   * This is simpler and more reliable than Levenshtein for item names like
-   * "Parafuso M8 Inox" vs "Parafuso M-8 Inox Polido".
-   */
   private calculateNameSimilarity(name1: string, name2: string): number {
     const words1 = new Set(name1.split(/\s+/).filter(w => w.length > 1));
     const words2 = new Set(name2.split(/\s+/).filter(w => w.length > 1));
 
     if (words1.size === 0 || words2.size === 0) return 0;
 
-    // Count intersection
     let intersection = 0;
     for (const word of words1) {
       if (words2.has(word)) {
         intersection++;
       } else {
-        // Check for partial matches (e.g., "m8" matches "m-8")
         for (const w2 of words2) {
           if (word.includes(w2) || w2.includes(word) || this.levenshteinDistance(word, w2) <= 1) {
-            intersection += 0.7; // Partial match
+            intersection += 0.7;
             break;
           }
         }
       }
     }
 
-    // Jaccard-like similarity: intersection / union
     const union = words1.size + words2.size - intersection;
     return union > 0 ? intersection / union : 0;
   }
 
-  /**
-   * Simple Levenshtein distance for short strings (word-level comparison).
-   */
   private levenshteinDistance(a: string, b: string): number {
     if (a.length === 0) return b.length;
     if (b.length === 0) return a.length;
@@ -453,4 +1096,8 @@ export class InventoryCronService {
 
     return matrix[b.length][a.length];
   }
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }

@@ -33,8 +33,12 @@ import {
   ENTITY_TYPE,
   CHANGE_TRIGGERED_BY,
   CHANGE_ACTION,
+  ITEM_CATEGORY_TYPE,
   SCHEDULE_FREQUENCY,
 } from '../../../constants/enums';
+import { DEFAULT_LEAD_TIME_DAYS } from '../../../constants/inventory-config';
+import { calculateReorderQuantity } from '../../../utils/stock-health';
+import { resolveSeasonalFactor } from '../../../utils/seasonality';
 import {
   trackFieldChanges,
   trackAndLogFieldChanges,
@@ -901,16 +905,32 @@ export class OrderScheduleService {
         return [];
       }
 
-      // Get current stock information for all items in the schedule
+      // Cycle window: number of days until the next scheduled run. Default 30
+      // when the schedule lacks a computable next run.
+      const nextRun = this.calculateNextRunDate(schedule as OrderSchedule);
+      const now = new Date();
+      const cycleDays = nextRun
+        ? Math.max(1, Math.ceil((nextRun.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+        : 30;
+
+      // Load schedule items with category type (needed for TOOL skip) and the
+      // active OrderRule for each item against the schedule supplier.
       const items = await transaction.item.findMany({
         where: {
           id: { in: schedule.items },
           isActive: true,
         },
         include: {
-          prices: {
-            orderBy: { createdAt: 'desc' },
-            take: 1,
+          prices: { orderBy: { createdAt: 'desc' }, take: 1 },
+          category: { select: { type: true } },
+          orderRules: {
+            where: { isActive: true },
+            select: {
+              supplierId: true,
+              minOrderQuantity: true,
+              maxOrderQuantity: true,
+              orderMultiple: true,
+            },
           },
         },
       });
@@ -920,126 +940,143 @@ export class OrderScheduleService {
         return [];
       }
 
-      // Check for active orders to avoid duplicate ordering
+      // Pending receipts (CREATED / PARTIALLY_FULFILLED / FULFILLED / PARTIALLY_RECEIVED).
       const activeOrderItems = await transaction.orderItem.findMany({
         where: {
           itemId: { in: items.map(item => item.id) },
           order: {
-            status: {
-              in: ['CREATED', 'PARTIALLY_FULFILLED', 'FULFILLED'],
-            },
+            status: { in: ['CREATED', 'PARTIALLY_FULFILLED', 'FULFILLED', 'PARTIALLY_RECEIVED'] },
           },
         },
-        select: {
-          itemId: true,
-          orderedQuantity: true,
-        },
+        select: { itemId: true, orderedQuantity: true, receivedQuantity: true },
       });
-
-      const itemsWithActiveOrders = new Map<string, number>();
-      activeOrderItems.forEach(orderItem => {
-        const currentQuantity = itemsWithActiveOrders.get(orderItem.itemId) || 0;
-        itemsWithActiveOrders.set(orderItem.itemId, currentQuantity + orderItem.orderedQuantity);
-      });
-
-      const calculatedQuantities: { itemId: string; quantity: number; reason: string }[] = [];
-
-      // Calculate quantities for each item based on business rules
-      for (const item of items) {
-        const currentStock = item.quantity || 0;
-        const reorderPoint = item.reorderPoint || 0;
-        const maxQuantity = item.maxQuantity || null;
-        const reorderQuantity = item.reorderQuantity || null;
-        const pendingQuantity = itemsWithActiveOrders.get(item.id) || 0;
-
-        // Calculate effective available stock (current stock + pending orders)
-        const effectiveStock = currentStock + pendingQuantity;
-
-        let quantityToOrder = 0;
-        let reason = '';
-
-        // Determine if we need to order based on different scenarios
-        if (effectiveStock <= 0) {
-          // Critical stock - order immediately
-          if (reorderQuantity && reorderQuantity > 0) {
-            quantityToOrder = reorderQuantity;
-            reason = `Estoque crítico (${currentStock}). Pedindo quantidade de reposição padrão.`;
-          } else if (maxQuantity && maxQuantity > 0) {
-            quantityToOrder = maxQuantity;
-            reason = `Estoque crítico (${currentStock}). Pedindo quantidade máxima.`;
-          } else {
-            // Default to a reasonable quantity if no limits are set
-            quantityToOrder = Math.max(30, Math.ceil(item.monthlyConsumption?.toNumber() || 10));
-            reason = `Estoque crítico (${currentStock}). Pedindo quantidade baseada no consumo mensal.`;
-          }
-        } else if (reorderPoint > 0 && effectiveStock <= reorderPoint) {
-          // Below reorder point - calculate how much to order
-          if (reorderQuantity && reorderQuantity > 0) {
-            quantityToOrder = reorderQuantity;
-            reason = `Abaixo do ponto de reposição (${effectiveStock}/${reorderPoint}). Pedindo quantidade de reposição padrão.`;
-          } else if (maxQuantity && maxQuantity > 0) {
-            // Order enough to reach max quantity
-            quantityToOrder = Math.max(0, maxQuantity - effectiveStock);
-            reason = `Abaixo do ponto de reposição (${effectiveStock}/${reorderPoint}). Pedindo para atingir estoque máximo.`;
-          } else {
-            // Calculate based on consumption if available
-            const monthlyConsumption = item.monthlyConsumption?.toNumber() || 0;
-            if (monthlyConsumption > 0) {
-              // Order 2 months worth of consumption or minimum 10 units
-              quantityToOrder = Math.max(10, Math.ceil(monthlyConsumption * 2));
-              reason = `Abaixo do ponto de reposição (${effectiveStock}/${reorderPoint}). Pedindo baseado no consumo mensal (2 meses).`;
-            } else {
-              // Default quantity if no consumption data
-              quantityToOrder = Math.max(20, reorderPoint * 2);
-              reason = `Abaixo do ponto de reposição (${effectiveStock}/${reorderPoint}). Pedindo quantidade padrão.`;
-            }
-          }
-        } else if (maxQuantity && maxQuantity > 0 && effectiveStock < maxQuantity * 0.7) {
-          // Stock is below 70% of max capacity - consider ordering
-          const monthlyConsumption = item.monthlyConsumption?.toNumber() || 0;
-          if (monthlyConsumption > 0 && effectiveStock < monthlyConsumption * 1.5) {
-            // Only order if we have less than 1.5 months of stock
-            quantityToOrder = Math.ceil(maxQuantity - effectiveStock);
-            reason = `Estoque baixo (${effectiveStock}/${maxQuantity}). Reabastecimento preventivo.`;
-          }
-        }
-
-        // Apply business rules and constraints
-        if (quantityToOrder > 0) {
-          // Ensure we don't exceed max quantity if set
-          if (maxQuantity && maxQuantity > 0) {
-            const totalAfterOrder = effectiveStock + quantityToOrder;
-            if (totalAfterOrder > maxQuantity) {
-              quantityToOrder = Math.max(0, maxQuantity - effectiveStock);
-              if (quantityToOrder > 0) {
-                reason += ` Ajustado para não exceder estoque máximo.`;
-              } else {
-                reason = `Pedido cancelado: estoque efetivo (${effectiveStock}) já está no limite máximo.`;
-              }
-            }
-          }
-
-          // Apply minimum order constraints
-          const minOrderQuantity = 1; // Could be configurable per item
-          if (quantityToOrder > 0 && quantityToOrder < minOrderQuantity) {
-            quantityToOrder = minOrderQuantity;
-            reason += ` Ajustado para quantidade mínima de pedido.`;
-          }
-
-          // Only add if quantity is still positive after all adjustments
-          if (quantityToOrder > 0) {
-            calculatedQuantities.push({
-              itemId: item.id,
-              quantity: quantityToOrder,
-              reason: reason,
-            });
-
-            this.logger.debug(
-              `Item ${item.name}: ordenando ${quantityToOrder} unidades. ${reason}`,
-            );
-          }
-        }
+      const incomingByItem = new Map<string, number>();
+      for (const oi of activeOrderItems) {
+        const pending = Math.max(0, oi.orderedQuantity - oi.receivedQuantity);
+        incomingByItem.set(oi.itemId, (incomingByItem.get(oi.itemId) ?? 0) + pending);
       }
+
+      // Build candidates per spec §C.2 + skip rules in §C.4.
+      const candidates: Array<{
+        itemId: string;
+        itemName: string;
+        currentStock: number;
+        incoming: number;
+        dailyConsumption: number;
+        maxQuantity: number | null;
+        leadTimeDays: number;
+        boxQuantity: number | null;
+        orderRule: { minOrderQuantity?: number | null; maxOrderQuantity?: number | null; orderMultiple?: number | null } | null;
+        proposedQty: number;
+      }> = [];
+
+      for (const item of items) {
+        // TOOL never goes through scheduled replenishment (spec §1, §4).
+        if (item.category?.type === ITEM_CATEGORY_TYPE.TOOL) continue;
+
+        const monthlyConsumption = Number(item.monthlyConsumption ?? 0);
+        if (monthlyConsumption <= 0) continue;
+
+        const incoming = incomingByItem.get(item.id) ?? 0;
+        const currentStock = item.quantity ?? 0;
+        const maxQuantity = item.maxQuantity ?? null;
+        if (maxQuantity != null && currentStock + incoming >= maxQuantity) continue;
+
+        const leadTimeDays = item.estimatedLeadTime ?? DEFAULT_LEAD_TIME_DAYS;
+        const buffer = Math.max(3, Math.ceil(cycleDays * 0.1));
+        const targetCoverageDays = cycleDays + leadTimeDays + buffer;
+
+        // Seasonal-adjusted daily consumption over the projected window.
+        const projectionStart = new Date(now);
+        projectionStart.setDate(projectionStart.getDate() + leadTimeDays);
+        const seasonal = resolveSeasonalFactor(projectionStart);
+        const dailyConsumption = (monthlyConsumption / 30) * seasonal;
+
+        let qty = dailyConsumption * targetCoverageDays - currentStock - incoming;
+        if (qty <= 0) continue;
+
+        if (maxQuantity != null) {
+          const headroom = maxQuantity - currentStock - incoming;
+          qty = Math.min(qty, headroom);
+          if (qty <= 0) continue;
+        }
+
+        const matchingRule =
+          item.orderRules.find(r => r.supplierId === item.supplierId) ?? item.orderRules[0] ?? null;
+        const proposedQty = calculateReorderQuantity({
+          currentStock,
+          maxQuantity: maxQuantity ?? currentStock + qty + incoming,
+          incomingOrderedQuantity: incoming,
+          boxQuantity: item.boxQuantity,
+          orderRule: matchingRule,
+        });
+        if (proposedQty <= 0) continue;
+
+        candidates.push({
+          itemId: item.id,
+          itemName: item.name,
+          currentStock,
+          incoming,
+          dailyConsumption: monthlyConsumption / 30,
+          maxQuantity,
+          leadTimeDays,
+          boxQuantity: item.boxQuantity,
+          orderRule: matchingRule,
+          proposedQty,
+        });
+      }
+
+      if (candidates.length === 0) {
+        this.logger.log(`Schedule ${scheduleId}: no items require ordering`);
+        return [];
+      }
+
+      // Aligned-depletion balancing (services-spec §C.3): trim long-coverage
+      // items so the basket runs out around the same date — but never below
+      // each item's own lead-time floor.
+      const projected = candidates.map(c => ({
+        ...c,
+        coverageDays:
+          c.dailyConsumption > 0
+            ? (c.currentStock + c.incoming + c.proposedQty) / c.dailyConsumption
+            : Infinity,
+      }));
+      const minCoverage = Math.min(...projected.map(p => p.coverageDays));
+
+      const balanced = projected.map(p => {
+        const targetTotal = minCoverage * p.dailyConsumption;
+        const reducedProposed = Math.max(0, targetTotal - p.currentStock - p.incoming);
+        const ltFloor = p.dailyConsumption * p.leadTimeDays;
+        const safeProposed = Math.max(
+          reducedProposed,
+          Math.max(0, ltFloor - p.currentStock - p.incoming),
+        );
+        const finalQty = Math.min(p.proposedQty, safeProposed);
+        const rounded = calculateReorderQuantity({
+          currentStock: p.currentStock,
+          maxQuantity: p.maxQuantity ?? p.currentStock + finalQty + p.incoming,
+          incomingOrderedQuantity: p.incoming,
+          boxQuantity: p.boxQuantity,
+          orderRule: p.orderRule,
+        });
+        // calculateReorderQuantity uses the headroom-to-max formula; here we
+        // need it to honor the depletion-trimmed target, so synthesize a
+        // pseudo-max if the rounded value overshoots.
+        return {
+          itemId: p.itemId,
+          itemName: p.itemName,
+          quantity: Math.min(rounded, finalQty || rounded),
+          coverageDays: p.coverageDays,
+        };
+      });
+
+      const calculatedQuantities = balanced
+        .filter(b => b.quantity > 0)
+        .map(b => ({
+          itemId: b.itemId,
+          quantity: b.quantity,
+          reason: `Cycle ${cycleDays}d + LT + buffer. Cobertura projetada ≈ ${Math.round(b.coverageDays)}d (alinhado a ${Math.round(minCoverage)}d).`,
+        }));
 
       this.logger.log(
         `Calculated quantities for ${calculatedQuantities.length} items from schedule ${scheduleId}`,

@@ -600,6 +600,15 @@ export const moneySchema = z
     { message: 'Valor deve ter no máximo 2 casas decimais' },
   );
 
+// Unit price validation (non-negative with up to 3 decimal places).
+// Why: suppliers often quote per-cento/dúzia/etc, producing prices like R$ 0,125
+// per unit. The order form needs that precision so totals reconcile with the
+// supplier's invoice.
+export const unitPriceSchema = z
+  .number()
+  .min(0, { message: 'Valor deve ser maior ou igual a 0' })
+  .transform(val => Math.round(val * 1000) / 1000);
+
 // Positive quantity validation
 export const quantitySchema = z.number().positive({ message: 'Quantidade deve ser positiva' });
 

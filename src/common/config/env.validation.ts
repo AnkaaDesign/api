@@ -90,6 +90,27 @@ export const envSchema = z.object({
   // PPE In-App Signature
   PPE_SIGNATURE_HMAC_SECRET: z.string().optional(),
 
+  // Company identity (used by reconciliation + SIEG integration)
+  COMPANY_CNPJ: z
+    .string()
+    .regex(/^\d{14}$/, 'COMPANY_CNPJ must be 14 digits, no formatting')
+    .optional(),
+
+  // SIEG Hub integration (feature-flagged: absent SIEG_API_KEY disables the integration)
+  SIEG_API_KEY: z.string().optional(),
+  SIEG_BASE_URL: z.string().url().default('https://api.sieg.com'),
+
+  // Bank reconciliation
+  RECONCILIATION_LOOKBACK_DAYS: z
+    .string()
+    .regex(/^\d+$/)
+    .transform(Number)
+    .default('90'),
+  RECONCILIATION_AUTO_MATCH_ENABLED: z
+    .string()
+    .transform(val => val !== 'false')
+    .default('true'),
+
   // Email Template
   SUPPORT_PHONE: z.string().default('+554384190989'),
   EMAIL_LOGO_URL: z

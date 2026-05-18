@@ -347,9 +347,9 @@ export class PersonalService {
       );
     }
 
-    const secullumEmployeeId = await this.resolveMySecullumEmployeeId(userId);
-    return this.secullumService.getMissingDaysForEmployee(
-      secullumEmployeeId,
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    return this.secullumService.getMissingDaysAsFuncionario(
+      { usuario: creds.usuario, senha: creds.senha },
       params.startDate,
       params.endDate,
     );
@@ -363,9 +363,12 @@ export class PersonalService {
     if (!date) {
       throw new BadRequestException('date is required (format: YYYY-MM-DD)');
     }
-    // Confirm user → secullum mapping exists (throws on failure for consistent errors).
-    await this.resolveMySecullumEmployeeId(userId);
-    return this.secullumService.getSolicitacaoByDate(date);
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    return this.secullumService.getSolicitacaoByDateAsFuncionario(
+      { usuario: creds.usuario, senha: creds.senha },
+      date,
+      0,
+    );
   }
 
   /**
@@ -374,8 +377,11 @@ export class PersonalService {
    * returns the PascalCase admin shape.
    */
   async getMyJustificativas(userId: string) {
-    await this.resolveMySecullumEmployeeId(userId);
-    return this.secullumService.getJustificativasForFuncionario();
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    return this.secullumService.getJustificativasAsFuncionario({
+      usuario: creds.usuario,
+      senha: creds.senha,
+    });
   }
 
   /**
@@ -384,32 +390,59 @@ export class PersonalService {
    */
   async createMyJustifyAbsence(
     userId: string,
-    dto: { date: string; justificativaId: number; observacoes?: string; photoBase64?: string },
+    dto: {
+      date: string;
+      justificativaId: number;
+      observacoes?: string;
+      photoBase64?: string;
+      tipoAusencia?: 0 | 1 | 2 | 3 | 4;
+      dataInicioAfastamento?: string;
+      dataFimAfastamento?: string;
+    },
   ) {
     if (!dto.date || !dto.justificativaId) {
       throw new BadRequestException('date and justificativaId are required');
     }
 
-    const secullumEmployeeId = await this.resolveMySecullumEmployeeId(userId);
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    const auth = { usuario: creds.usuario, senha: creds.senha };
 
     // Pre-validate: if the justificativa requires a photo and none was sent,
     // fail fast with a friendly error before round-tripping to Secullum.
-    const justRes = await this.secullumService.getJustificativasForFuncionario();
-    const just = justRes.data.find(j => j.id === dto.justificativaId);
+    const justRes = await this.secullumService.getJustificativasAsFuncionario(auth);
+    const just = justRes.data.find((j) => j.id === dto.justificativaId);
     if (!just) {
       throw new BadRequestException('Motivo selecionado não está disponível');
     }
     if (just.exigirFotoAtestado && !dto.photoBase64) {
+      // Generic phrasing — the document may be an atestado, declaração,
+      // laudo, etc. Mirror the chosen justificativa name in the message
+      // so the user knows exactly which doc to photograph.
+      const name = just.nomeCompleto.trim().toLowerCase();
       throw new BadRequestException(
-        `O motivo "${just.nomeCompleto.trim()}" exige um atestado em foto.`,
+        `Foto ${name} é obrigatória para esta justificativa.`,
       );
     }
 
-    return this.secullumService.createJustifyAbsence(secullumEmployeeId, {
-      date: dto.date,
+    // Período de Afastamento: when both range bounds are present, anchor
+    // `data` to the start date and forward dataInicio/Fim. tipoAusencia stays
+    // 0 because a multi-day afastamento is implicitly full-day for each day
+    // in the range. Single-day: forward tipoAusencia verbatim.
+    const isPeriod = !!(dto.dataInicioAfastamento && dto.dataFimAfastamento);
+    return this.secullumService.createSolicitacaoAsFuncionario(auth, {
+      data: `${isPeriod ? dto.dataInicioAfastamento : dto.date}T00:00:00`,
+      funcionarioId: creds.funcionarioId,
       justificativaId: dto.justificativaId,
-      observacoes: dto.observacoes,
-      photoBase64: dto.photoBase64,
+      tipo: 2,
+      observacoes: dto.observacoes ?? '',
+      foto: dto.photoBase64 ?? null,
+      tipoAusencia: isPeriod ? 0 : (dto.tipoAusencia ?? 0),
+      dataInicioAfastamento: dto.dataInicioAfastamento
+        ? `${dto.dataInicioAfastamento}T00:00:00`
+        : null,
+      dataFimAfastamento: dto.dataFimAfastamento
+        ? `${dto.dataFimAfastamento}T00:00:00`
+        : null,
     });
   }
 
@@ -422,12 +455,15 @@ export class PersonalService {
     if (!date) {
       throw new BadRequestException('date is required (format: YYYY-MM-DD)');
     }
-    const secullumEmployeeId = await this.resolveMySecullumEmployeeId(userId);
-    return this.secullumService.getBatidasForDate(secullumEmployeeId, date);
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    return this.secullumService.getBatidasForDateAsFuncionario(
+      { usuario: creds.usuario, senha: creds.senha },
+      date,
+    );
   }
 
   /**
-   * Submit an Ajustar Ponto (tipo=3 — Inclusão/Correção de Batida) request to
+   * Submit an Ajustar Ponto (tipo=0 — Inclusão/Correção de Batida) request to
    * Secullum's manager approval queue. The user submits the corrected batida
    * values; only non-null slots are forwarded.
    */
@@ -469,8 +505,200 @@ export class PersonalService {
       );
     }
 
-    const secullumEmployeeId = await this.resolveMySecullumEmployeeId(userId);
-    return this.secullumService.createAjustePonto(secullumEmployeeId, dto);
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    return this.secullumService.createSolicitacaoAsFuncionario(
+      { usuario: creds.usuario, senha: creds.senha },
+      {
+        data: `${dto.date}T00:00:00`,
+        funcionarioId: creds.funcionarioId,
+        justificativaId: null,
+        entrada1: dto.entrada1 ?? null,
+        saida1: dto.saida1 ?? null,
+        entrada2: dto.entrada2 ?? null,
+        saida2: dto.saida2 ?? null,
+        entrada3: dto.entrada3 ?? null,
+        saida3: dto.saida3 ?? null,
+        entrada4: dto.entrada4 ?? null,
+        saida4: dto.saida4 ?? null,
+        entrada5: dto.entrada5 ?? null,
+        saida5: dto.saida5 ?? null,
+        tipo: 0,
+        observacoes: dto.observacoes ?? '',
+      },
+    );
+  }
+
+  /**
+   * Returns the signed comprovante PDF for an accepted inclusão. The mobile app
+   * opens this in a WebView; the backend proxies it so we don't expose the
+   * funcionário's Basic-auth credentials in a public URL.
+   */
+  async getMyInclusaoPontoComprovante(userId: string, registroPendenciaId: number) {
+    if (!Number.isFinite(registroPendenciaId)) {
+      throw new BadRequestException('registroPendenciaId must be numeric');
+    }
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    return this.secullumService.getComprovantePdfAsFuncionario(
+      { usuario: creds.usuario, senha: creds.senha },
+      registroPendenciaId,
+    );
+  }
+
+  /**
+   * Mints the absolute Secullum URL the mobile app opens in the system in-app
+   * browser to show the rendered comprovante (matches native Secullum mobile
+   * UX). The URL embeds the one-shot `axpw` Basic-auth token so the user
+   * doesn't have to authenticate in the browser session.
+   */
+  async getMyInclusaoPontoComprovanteUrl(
+    userId: string,
+    registroPendenciaId: number,
+  ): Promise<{ success: boolean; message: string; data?: { url: string } }> {
+    if (!Number.isFinite(registroPendenciaId)) {
+      throw new BadRequestException('registroPendenciaId must be numeric');
+    }
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    try {
+      const url = this.secullumService.buildComprovanteUrl(
+        { usuario: creds.usuario, senha: creds.senha },
+        registroPendenciaId,
+      );
+      return { success: true, message: 'OK', data: { url } };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Falha ao gerar URL do comprovante: ${(error as Error)?.message ?? 'erro desconhecido'}`,
+      };
+    }
+  }
+
+  // =====================
+  // MY INCLUSÃO DE PONTO (Incluir Ponto via GPS + Foto)
+  // =====================
+  // Replicated from real Secullum mobile app capture (2026-05-16, flows + flows(1)).
+  // Authenticated as the *funcionário* (employee) themselves, NOT as the admin —
+  // pontowebapp.secullum.com.br only accepts HTTP Basic auth with the
+  // funcionário's own credentials: base64("{numeroIdentificador}:{senha}:0").
+  //   - numeroIdentificador = User.payrollNumber (already in DB via existing sync)
+  //   - senha               = env SECULLUM_FUNCIONARIO_PASSWORD (tenant-wide
+  //                           default; most Secullum tenants set the same default
+  //                           password for all funcionários — "123" in our test
+  //                           tenant per the capture)
+
+  private async resolveMyFuncionarioCredentials(
+    userId: string,
+  ): Promise<{
+    usuario: string;
+    senha: string;
+    funcionarioId: number;
+  }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        payrollNumber: true,
+        secullumEmployeeId: true,
+      },
+    });
+
+    if (!user) throw new NotFoundException('User not found');
+
+    if (!user.secullumEmployeeId) {
+      throw new BadRequestException(
+        'Você não está vinculado ao Secullum. Solicite ao RH para verificar seu cadastro.',
+      );
+    }
+
+    if (user.payrollNumber === null || user.payrollNumber === undefined) {
+      throw new BadRequestException(
+        'Seu cadastro não possui número de folha (numeroIdentificador). Solicite ao RH para preencher.',
+      );
+    }
+
+    // Tenant convention: every funcionário's Secullum password is the literal
+    // "123". Confirmed by the captured Login flow on 2026-05-16.
+    return {
+      usuario: String(user.payrollNumber),
+      senha: '123',
+      funcionarioId: user.secullumEmployeeId,
+    };
+  }
+
+  async getMyInclusaoPontoConfig(userId: string) {
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    return this.secullumService.getInclusaoPontoConfig({
+      usuario: creds.usuario,
+      senha: creds.senha,
+    });
+  }
+
+  async getMyInclusaoPontoPendencias(userId: string) {
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    return this.secullumService.getInclusaoPontoPendencias({
+      usuario: creds.usuario,
+      senha: creds.senha,
+    });
+  }
+
+  async createMyInclusaoPonto(
+    userId: string,
+    dto: {
+      latitude?: number | null;
+      longitude?: number | null;
+      precisao?: number | null;
+      endereco?: string | null;
+      photoBase64?: string | null;
+      justificativa?: string | null;
+      atividadeId?: number | null;
+      foraDoPerimetro?: boolean;
+      identificacaoDispositivo?: string;
+      utilizaLocalizacaoFicticia?: boolean;
+    },
+  ) {
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    const auth = { usuario: creds.usuario, senha: creds.senha };
+
+    // Pre-flight validation: fail fast before the round-trip if the tenant
+    // requires a selfie or the funcionário is on leave.
+    const cfg = await this.secullumService.getInclusaoPontoConfig(auth);
+    if (cfg.success && cfg.data) {
+      if (cfg.data.funcionarioAfastado) {
+        throw new BadRequestException(
+          'Você está em afastamento. Não é possível incluir ponto.',
+        );
+      }
+      if (cfg.data.exigirCapturaFotoPonto && !dto.photoBase64) {
+        throw new BadRequestException(
+          'A captura de foto é obrigatória para incluir ponto.',
+        );
+      }
+    }
+
+    return this.secullumService.createInclusaoPonto(auth, creds.funcionarioId, {
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+      precisao: dto.precisao,
+      endereco: dto.endereco,
+      fotoBase64: dto.photoBase64,
+      justificativa: dto.justificativa,
+      atividadeId: dto.atividadeId,
+      foraDoPerimetro: dto.foraDoPerimetro,
+      identificacaoDispositivo: dto.identificacaoDispositivo,
+      utilizaLocalizacaoFicticia: dto.utilizaLocalizacaoFicticia,
+      marcacaoOffline: false,
+      horaFoiModificada: false,
+      fusoFoiModificado: false,
+    });
+  }
+
+  async reverseGeocode(latitudeRaw: string, longitudeRaw: string) {
+    const latitude = Number(latitudeRaw);
+    const longitude = Number(longitudeRaw);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      throw new BadRequestException('latitude and longitude must be numeric');
+    }
+    return this.secullumService.reverseGeocode(latitude, longitude);
   }
 
   // =====================

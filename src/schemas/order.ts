@@ -6,6 +6,7 @@ import {
   orderByDirectionSchema,
   normalizeOrderBy,
   moneySchema,
+  unitPriceSchema,
 } from './common';
 import type { Order, OrderItem, OrderSchedule } from '@types';
 import {
@@ -1300,6 +1301,12 @@ export const orderCreateSchema = z
     orderRuleId: z.string().uuid({ message: 'Regra de pedido inválida' }).optional(),
     ppeScheduleId: z.string().uuid({ message: 'Agendamento EPI inválido' }).optional(),
     notes: z.string().optional(),
+    freight: z
+      .number()
+      .min(0, 'Frete deve ser maior ou igual a 0')
+      .transform(val => Math.round(val * 1000) / 1000)
+      .default(0)
+      .optional(),
     // Payment fields
     paymentMethod: z
       .enum(Object.values(PAYMENT_METHOD) as [string, ...string[]], {
@@ -1340,7 +1347,7 @@ export const orderCreateSchema = z
               .max(500, 'Descrição muito longa')
               .optional(),
             orderedQuantity: z.number().positive('Quantidade deve ser positiva'),
-            price: moneySchema,
+            price: unitPriceSchema,
             icms: z
               .number()
               .min(0, 'ICMS deve ser maior ou igual a 0')
@@ -1404,6 +1411,11 @@ export const orderUpdateSchema = z
     orderRuleId: z.string().uuid({ message: 'Regra de pedido inválida' }).optional(),
     ppeScheduleId: z.string().uuid({ message: 'Agendamento EPI inválido' }).optional(),
     notes: z.string().optional(),
+    freight: z
+      .number()
+      .min(0, 'Frete deve ser maior ou igual a 0')
+      .transform(val => Math.round(val * 1000) / 1000)
+      .optional(),
     // Payment fields
     paymentMethod: z
       .enum(Object.values(PAYMENT_METHOD) as [string, ...string[]], {
@@ -1445,7 +1457,7 @@ export const orderUpdateSchema = z
               .max(500, 'Descrição muito longa')
               .optional(),
             orderedQuantity: z.number().positive('Quantidade deve ser positiva'),
-            price: moneySchema,
+            price: unitPriceSchema,
             icms: z
               .number()
               .min(0, 'ICMS deve ser maior ou igual a 0')
@@ -1506,7 +1518,7 @@ export const orderItemCreateSchema = z
       .max(500, 'Descrição muito longa')
       .optional(),
     orderedQuantity: z.number().positive('Quantidade deve ser positiva'),
-    price: moneySchema,
+    price: unitPriceSchema,
     icms: z
       .number()
       .min(0, 'ICMS deve ser maior ou igual a 0')
@@ -1549,7 +1561,7 @@ export const orderItemUpdateSchema = z
       .optional(),
     orderedQuantity: z.number().positive('Quantidade deve ser positiva').optional(),
     receivedQuantity: z.number().min(0, 'Quantidade recebida deve ser não negativa').optional(),
-    price: moneySchema.optional(),
+    price: unitPriceSchema.optional(),
     icms: z
       .number()
       .min(0, 'ICMS deve ser maior ou igual a 0')

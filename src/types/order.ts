@@ -143,6 +143,7 @@ export interface Order extends BaseEntity {
   orderRuleId: string | null;
   ppeScheduleId: string | null;
   notes: string | null;
+  freight: number;
   paymentMethod: PAYMENT_METHOD | null;
   paymentPix: string | null;
   paymentDueDays: number | null;

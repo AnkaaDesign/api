@@ -9,6 +9,7 @@ import {
   Body,
   Query,
   Param,
+  Res,
   HttpCode,
   HttpStatus,
   UseGuards,
@@ -410,6 +411,12 @@ export class PersonalController {
       justificativaId: number;
       observacoes?: string;
       photoBase64?: string;
+      /** 0 = Dia inteiro (default), 1/2/3 = Período N, 4 = Período Específico */
+      tipoAusencia?: 0 | 1 | 2 | 3 | 4;
+      /** YYYY-MM-DD; populate together with dataFimAfastamento for Período de Afastamento (multi-day) mode */
+      dataInicioAfastamento?: string;
+      /** YYYY-MM-DD; see dataInicioAfastamento */
+      dataFimAfastamento?: string;
     },
     @UserId() userId: string,
   ) {
@@ -443,7 +450,7 @@ export class PersonalController {
   }
 
   /**
-   * Submit an Ajustar Ponto (tipo=3, Inclusão/Correção de Batida) request.
+   * Submit an Ajustar Ponto (tipo=0, Inclusão/Correção de Batida) request.
    * POST /personal/my-secullum-solicitacoes/ajuste-ponto
    */
   @Post('my-secullum-solicitacoes/ajuste-ponto')
@@ -480,5 +487,195 @@ export class PersonalController {
     @UserId() userId: string,
   ) {
     return this.personalService.createMyAjustePonto(userId, body);
+  }
+
+  // ==========================================================================
+  // MY INCLUSÃO DE PONTO (Incluir Ponto via GPS + Foto)
+  // ==========================================================================
+  // Employee self-service flow that asynchronously enqueues a ponto entry with
+  // GPS coordinates, reverse-geocoded address, and (when required) a selfie.
+  // Replicated from real Secullum mobile app captures (2026-05-16).
+
+  /**
+   * Returns the Inclusão de Ponto UI configuration: server clock, geofence
+   * perimeters, whether a selfie is required, camera constraint, etc.
+   * GET /personal/my-inclusao-ponto/config
+   */
+  @Get('my-inclusao-ponto/config')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getMyInclusaoPontoConfig(@UserId() userId: string) {
+    return this.personalService.getMyInclusaoPontoConfig(userId);
+  }
+
+  /**
+   * Returns the user's last 10 inclusão pendências (Em processamento / Aceita
+   * / Rejeitada). Drives the "Últimos Registros" list and is polled while a
+   * fresh inclusion is still pending.
+   * GET /personal/my-inclusao-ponto/pendencias
+   */
+  @Get('my-inclusao-ponto/pendencias')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getMyInclusaoPontoPendencias(@UserId() userId: string) {
+    return this.personalService.getMyInclusaoPontoPendencias(userId);
+  }
+
+  /**
+   * Submits a new Inclusão de Ponto (GPS + optional selfie). Returns 200 on
+   * enqueue; the mobile client then polls /pendencias to learn the terminal
+   * status (server-side geofence and photo checks run asynchronously).
+   * POST /personal/my-inclusao-ponto
+   */
+  @Post('my-inclusao-ponto')
+  @WriteRateLimit()
+  @HttpCode(HttpStatus.OK)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async createMyInclusaoPonto(
+    @Body()
+    body: {
+      latitude?: number | null;
+      longitude?: number | null;
+      precisao?: number | null;
+      endereco?: string | null;
+      photoBase64?: string | null;
+      justificativa?: string | null;
+      atividadeId?: number | null;
+      foraDoPerimetro?: boolean;
+      identificacaoDispositivo?: string;
+      utilizaLocalizacaoFicticia?: boolean;
+    },
+    @UserId() userId: string,
+  ) {
+    return this.personalService.createMyInclusaoPonto(userId, body);
+  }
+
+  /**
+   * Reverse-geocodes a coordinate pair via Secullum's public geocoding service.
+   * Proxied through the backend so the mobile app does not need to talk to a
+   * third-party host directly. Returns `{ endereco: string }` on success.
+   * GET /personal/my-inclusao-ponto/reverse-geocode?latitude=X&longitude=Y
+   */
+  @Get('my-inclusao-ponto/reverse-geocode')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async reverseGeocode(
+    @Query('latitude') latitude: string,
+    @Query('longitude') longitude: string,
+  ) {
+    return this.personalService.reverseGeocode(latitude, longitude);
+  }
+
+  /**
+   * Streams the signed comprovante PDF for an accepted inclusão. Mobile opens
+   * this URL in a WebView. The backend proxies so we don't leak funcionário
+   * Basic-auth credentials in a public link.
+   * GET /personal/my-inclusao-ponto/comprovante/:registroPendenciaId
+   */
+  @Get('my-inclusao-ponto/comprovante/:registroPendenciaId')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getMyInclusaoPontoComprovante(
+    @Param('registroPendenciaId') registroPendenciaId: string,
+    @UserId() userId: string,
+    @Res({ passthrough: false }) res: any,
+  ) {
+    const pdf = await this.personalService.getMyInclusaoPontoComprovante(
+      userId,
+      Number(registroPendenciaId),
+    );
+    res.setHeader('Content-Type', pdf.contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="comprovante-${registroPendenciaId}.pdf"`,
+    );
+    res.send(pdf.buffer);
+  }
+
+  /**
+   * Returns a short-lived Secullum-hosted comprovante URL (with the embedded
+   * `axpw` Basic-auth token) so the mobile app can open the rendered receipt
+   * in the system in-app browser. Matches the native Secullum mobile flow —
+   * tapping the document icon on an accepted entry opens the Secullum web
+   * receipt in Safari/Custom Tabs.
+   * GET /personal/my-inclusao-ponto/comprovante-url/:registroPendenciaId
+   */
+  @Get('my-inclusao-ponto/comprovante-url/:registroPendenciaId')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getMyInclusaoPontoComprovanteUrl(
+    @Param('registroPendenciaId') registroPendenciaId: string,
+    @UserId() userId: string,
+  ) {
+    return this.personalService.getMyInclusaoPontoComprovanteUrl(
+      userId,
+      Number(registroPendenciaId),
+    );
   }
 }

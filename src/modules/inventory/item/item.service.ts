@@ -48,26 +48,25 @@ import {
   PPE_TYPE,
   PPE_SIZE,
   PPE_DELIVERY_MODE,
+  ITEM_CATEGORY_TYPE,
 } from '../../../constants/enums';
 import {
-  CONSUMPTION_ACTIVITY_REASONS,
+  REGULAR_CONSUMPTION_REASONS,
   CONSUMPTION_LOOKBACK_MONTHS,
-  CONSUMPTION_DECAY_HALF_LIFE_MONTHS,
   BALANCE_DISTRIBUTION_ENABLED,
   BALANCE_DISTRIBUTION_DEFAULT_MONTHS,
-  getSeasonalFactor,
-  getWorkingDaysInMonth,
-  STANDARD_WORKING_DAYS_PER_MONTH,
 } from '../../../constants/inventory-config';
+import { CONSUMPTION_DECAY_HALF_LIFE_MONTHS, getSeasonalFactor } from '../../../constants/seasonality-config';
+import { getWorkingDaysInMonth } from '../../../constants/working-days-config';
 import { PPE_SIZE_ORDER } from '../../../constants/sortOrders';
 import {
-  calculateBatchStockHealth,
-  filterItemsByStockHealth,
-  batchCalculateReorderPoints,
-  batchCalculateMaxQuantities,
-  type ReorderPointUpdateResult,
   determineStockLevel,
-  normalizeConsumptionByWorkingDays,
+  normalizeToWorkdays,
+  calculateMonthlyConsumption,
+  calculateReorderPoint,
+  calculateMaxQuantity,
+  calculateConsumptionTrend,
+  resolveSafetyTargetCell,
 } from '../../../utils';
 import { hasValueChanged } from '@modules/common/changelog/utils/serialize-changelog-value';
 import { logEntityChange } from '@modules/common/changelog/utils/changelog-helpers';
@@ -81,6 +80,27 @@ import {
   ItemReorderRequiredEvent,
   ItemOverstockEvent,
 } from './item.events';
+
+interface ReorderPointUpdateResult {
+  itemId: string;
+  itemName: string;
+  previousReorderPoint: number;
+  newReorderPoint: number;
+  avgDailyConsumption: number;
+  safetyFactor: number;
+  isVariable: boolean;
+  percentageChange: number;
+}
+
+interface MaxQuantityUpdateResult {
+  itemId: string;
+  itemName: string;
+  previousMaxQuantity: number;
+  newMaxQuantity: number;
+  monthlyConsumption: number;
+  consumptionTrend: string;
+  percentageChange: number;
+}
 
 @Injectable()
 export class ItemService {
@@ -824,26 +844,7 @@ export class ItemService {
           ? itemData.quantity - existingItem.quantity
           : 0;
 
-        // Track manual overrides for maxQuantity and reorderPoint
-        // If user manually changes these values, mark them as manual
-        if (
-          itemData.maxQuantity !== undefined &&
-          itemData.maxQuantity !== existingItem.maxQuantity
-        ) {
-          itemData.isManualMaxQuantity = true;
-          this.logger.log(`Item ${id}: maxQuantity manually set to ${itemData.maxQuantity}`);
-        }
-
-        if (
-          itemData.reorderPoint !== undefined &&
-          itemData.reorderPoint !== existingItem.reorderPoint
-        ) {
-          itemData.isManualReorderPoint = true;
-          this.logger.log(`Item ${id}: reorderPoint manually set to ${itemData.reorderPoint}`);
-        }
-
-        // If user explicitly sets these flags to false, allow them to re-enable automatic mode
-        // This is already handled by the itemData object since the flags can be passed in the update
+        // Manual override flags were removed — the nightly engine always recomputes.
 
         // Atualizar o item
         const updatedItem = await this.itemRepository.updateWithTransaction(tx, id, itemData, {
@@ -1206,12 +1207,13 @@ export class ItemService {
       // Apply precise stock level filtering on this batch
       const filtered = batchResult.data.filter(item => {
         const hasActiveOrder = itemsWithActiveOrders.has(item.id);
-        const stockLevel = determineStockLevel(
-          item.quantity,
-          item.reorderPoint,
-          item.maxQuantity,
+        const stockLevel = determineStockLevel({
+          quantity: item.quantity,
+          reorderPoint: item.reorderPoint,
+          maxQuantity: item.maxQuantity,
           hasActiveOrder,
-        );
+          categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+        });
         return stockHealthLevels.includes(stockLevel);
       });
 
@@ -1451,7 +1453,11 @@ export class ItemService {
         // Check stock level and create notification if needed
         const fullItem = await prismaClient.item.findUnique({
           where: { id: currentItem.id },
-          select: { reorderPoint: true, maxQuantity: true },
+          select: {
+            reorderPoint: true,
+            maxQuantity: true,
+            category: { select: { type: true } },
+          },
         });
 
         // Check if item has active orders
@@ -1471,12 +1477,13 @@ export class ItemService {
             },
           })) !== null;
 
-        const stockLevel = determineStockLevel(
-          newQuantity,
-          fullItem?.reorderPoint || null,
-          fullItem?.maxQuantity || null,
+        const stockLevel = determineStockLevel({
+          quantity: newQuantity,
+          reorderPoint: fullItem?.reorderPoint || null,
+          maxQuantity: fullItem?.maxQuantity || null,
           hasActiveOrder,
-        );
+          categoryType: (fullItem?.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+        });
 
         if (stockLevel === STOCK_LEVEL.CRITICAL || stockLevel === STOCK_LEVEL.LOW) {
           await this.createLowStockNotification(
@@ -1534,7 +1541,7 @@ export class ItemService {
         },
         include: {
           brand: { select: { name: true } },
-          category: { select: { name: true } },
+          category: { select: { name: true, type: true } },
           supplier: { select: { fantasyName: true } },
         },
       });
@@ -1570,12 +1577,13 @@ export class ItemService {
       // Filter items that are below minimum stock (LOW or CRITICAL)
       const itemsBelowMinimum = items.filter(item => {
         const hasActiveOrder = itemsWithActiveOrders.has(item.id);
-        const stockLevel = determineStockLevel(
-          item.quantity,
-          item.reorderPoint,
-          item.maxQuantity,
+        const stockLevel = determineStockLevel({
+          quantity: item.quantity,
+          reorderPoint: item.reorderPoint,
+          maxQuantity: item.maxQuantity,
           hasActiveOrder,
-        );
+          categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+        });
 
         return stockLevel === STOCK_LEVEL.CRITICAL || stockLevel === STOCK_LEVEL.LOW;
       });
@@ -1585,18 +1593,20 @@ export class ItemService {
         const hasActiveOrderA = itemsWithActiveOrders.has(a.id);
         const hasActiveOrderB = itemsWithActiveOrders.has(b.id);
 
-        const levelA = determineStockLevel(
-          a.quantity,
-          a.reorderPoint,
-          a.maxQuantity,
-          hasActiveOrderA,
-        );
-        const levelB = determineStockLevel(
-          b.quantity,
-          b.reorderPoint,
-          b.maxQuantity,
-          hasActiveOrderB,
-        );
+        const levelA = determineStockLevel({
+          quantity: a.quantity,
+          reorderPoint: a.reorderPoint,
+          maxQuantity: a.maxQuantity,
+          hasActiveOrder: hasActiveOrderA,
+          categoryType: (a.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+        });
+        const levelB = determineStockLevel({
+          quantity: b.quantity,
+          reorderPoint: b.reorderPoint,
+          maxQuantity: b.maxQuantity,
+          hasActiveOrder: hasActiveOrderB,
+          categoryType: (b.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+        });
 
         // Sort by criticality first
         if (levelA !== levelB) {
@@ -1613,12 +1623,13 @@ export class ItemService {
         brandName: item.brand?.name || null,
         categoryName: item.category?.name || null,
         supplierName: item.supplier?.fantasyName || null,
-        stockLevel: determineStockLevel(
-          item.quantity,
-          item.reorderPoint,
-          item.maxQuantity,
-          itemsWithActiveOrders.has(item.id),
-        ),
+        stockLevel: determineStockLevel({
+          quantity: item.quantity,
+          reorderPoint: item.reorderPoint,
+          maxQuantity: item.maxQuantity,
+          hasActiveOrder: itemsWithActiveOrders.has(item.id),
+          categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+        }),
       }));
 
       return {
@@ -1645,6 +1656,7 @@ export class ItemService {
           quantity: true,
           reorderPoint: true,
           maxQuantity: true,
+          category: { select: { type: true } },
         },
       });
 
@@ -1669,12 +1681,13 @@ export class ItemService {
           },
         })) !== null;
 
-      const stockLevel = determineStockLevel(
-        item.quantity,
-        item.reorderPoint,
-        item.maxQuantity,
+      const stockLevel = determineStockLevel({
+        quantity: item.quantity,
+        reorderPoint: item.reorderPoint,
+        maxQuantity: item.maxQuantity,
         hasActiveOrder,
-      );
+        categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+      });
 
       return { stockLevel, hasActiveOrder };
     } catch (error) {
@@ -2096,7 +2109,7 @@ export class ItemService {
 
       // Separate consumption activities from adjustment activities
       const consumptionActivities = allActivities.filter(a =>
-        CONSUMPTION_ACTIVITY_REASONS.includes(a.reason as any),
+        REGULAR_CONSUMPTION_REASONS.includes(a.reason as any),
       );
 
       // Handle INVENTORY_COUNT activities separately: distribute across months since last balance
@@ -2180,10 +2193,9 @@ export class ItemService {
         const [year, month] = monthKey.split('-').map(Number);
 
         // Normalize by working days (handles Dec 20 - Jan 10 vacation)
-        const normalizedConsumption = normalizeConsumptionByWorkingDays(
+        const normalizedConsumption = normalizeToWorkdays(
           rawConsumption,
-          month,
-          year,
+          getWorkingDaysInMonth(month, year),
         );
 
         // Calculate months difference for decay weighting
@@ -2399,10 +2411,19 @@ export class ItemService {
         select: {
           id: true,
           name: true,
+          createdAt: true,
           reorderPoint: true,
+          maxQuantity: true,
           estimatedLeadTime: true,
+          boxQuantity: true,
           quantity: true,
-          isManualReorderPoint: true,
+          monthlyConsumption: true,
+          abcCategory: true,
+          xyzCategory: true,
+          ppeType: true,
+          ppeDeliveryMode: true,
+          ppeStandardQuantity: true,
+          category: { select: { type: true } },
         },
       });
 
@@ -2418,35 +2439,12 @@ export class ItemService {
         };
       }
 
-      // Separate items with manual reorder points from automatic ones
-      const manualReorderItems = items.filter(item => item.isManualReorderPoint);
-      const autoReorderItems = items.filter(item => !item.isManualReorderPoint);
-
-      if (manualReorderItems.length > 0) {
-        this.logger.log(
-          `Preservando ponto de reposição manual para ${manualReorderItems.length} itens: ${manualReorderItems.map(i => i.name).join(', ')}`,
-        );
-      }
-
-      if (autoReorderItems.length === 0) {
-        return {
-          success: true,
-          message: 'Todos os itens ativos possuem pontos de reposição manuais',
-          data: {
-            totalAnalyzed: items.length,
-            totalUpdated: 0,
-            updates: [],
-          },
-        };
-      }
-
-      // Get activities for items with automatic reorder points in the lookback period
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - lookbackDays);
 
       const activities = (await this.prisma.activity.findMany({
         where: {
-          itemId: { in: autoReorderItems.map(item => item.id) },
+          itemId: { in: items.map(item => item.id) },
           createdAt: { gte: cutoffDate },
         },
         orderBy: { createdAt: 'desc' },
@@ -2460,11 +2458,9 @@ export class ItemService {
         activitiesByItem.set(activity.itemId, itemActivities);
       }
 
-      // Calculate reorder points only for items with automatic reorder points
-      const reorderPointUpdates = batchCalculateReorderPoints(
-        autoReorderItems as any,
-        activitiesByItem,
-        lookbackDays,
+      const now = new Date();
+      const reorderPointUpdates = items.map(item =>
+        this.computeReorderPointUpdate(item as any, activitiesByItem.get(item.id) ?? [], now),
       );
 
       // Apply updates in a transaction
@@ -2523,6 +2519,48 @@ export class ItemService {
     }
   }
 
+  private computeReorderPointUpdate(
+    item: any,
+    activities: any[],
+    now: Date,
+  ): ReorderPointUpdateResult {
+    const { monthlyConsumption } = calculateMonthlyConsumption({
+      item,
+      activities,
+      now,
+    });
+    const cell = resolveSafetyTargetCell(
+      item.abcCategory ?? null,
+      item.xyzCategory ?? null,
+      (item as any).ordersLast12Months ?? null,
+    );
+    const leadTimeDays = item.estimatedLeadTime ?? 25;
+    const newReorderPoint = calculateReorderPoint({
+      item,
+      monthlyConsumption,
+      leadTimeDays,
+      safetyFactor: cell.safetyFactor,
+      now,
+    });
+    const previousReorderPoint = item.reorderPoint ?? 0;
+    const percentageChange =
+      previousReorderPoint > 0
+        ? ((newReorderPoint - previousReorderPoint) / previousReorderPoint) * 100
+        : newReorderPoint > 0
+          ? 100
+          : 0;
+    return {
+      itemId: item.id,
+      itemName: item.name,
+      previousReorderPoint,
+      newReorderPoint,
+      avgDailyConsumption: monthlyConsumption / 30,
+      safetyFactor: cell.safetyFactor,
+      isVariable: (item.xyzCategory ?? null) === 'Z',
+      percentageChange,
+    };
+  }
+
   /**
    * Get reorder point analysis for specific items
    * Returns analysis without updating the database
@@ -2545,10 +2583,19 @@ export class ItemService {
         select: {
           id: true,
           name: true,
+          createdAt: true,
           reorderPoint: true,
+          maxQuantity: true,
           estimatedLeadTime: true,
+          boxQuantity: true,
           quantity: true,
-          isManualReorderPoint: true,
+          monthlyConsumption: true,
+          abcCategory: true,
+          xyzCategory: true,
+          ppeType: true,
+          ppeDeliveryMode: true,
+          ppeStandardQuantity: true,
+          category: { select: { type: true } },
         },
       });
 
@@ -2580,11 +2627,9 @@ export class ItemService {
         activitiesByItem.set(activity.itemId, itemActivities);
       }
 
-      // Calculate reorder points for specified items
-      const reorderPointAnalysis = batchCalculateReorderPoints(
-        items as any,
-        activitiesByItem,
-        lookbackDays,
+      const now = new Date();
+      const reorderPointAnalysis = items.map(item =>
+        this.computeReorderPointUpdate(item as any, activitiesByItem.get(item.id) ?? [], now),
       );
 
       return {
@@ -2611,7 +2656,7 @@ export class ItemService {
     data: {
       totalAnalyzed: number;
       totalUpdated: number;
-      updates: import('@utils/stock-health').MaxQuantityUpdateResult[];
+      updates: MaxQuantityUpdateResult[];
     };
   }> {
     try {
@@ -2623,10 +2668,19 @@ export class ItemService {
         select: {
           id: true,
           name: true,
+          createdAt: true,
           maxQuantity: true,
+          reorderPoint: true,
           estimatedLeadTime: true,
+          boxQuantity: true,
           quantity: true,
-          isManualMaxQuantity: true,
+          monthlyConsumption: true,
+          abcCategory: true,
+          xyzCategory: true,
+          ppeType: true,
+          ppeDeliveryMode: true,
+          ppeStandardQuantity: true,
+          category: { select: { type: true } },
         },
       });
 
@@ -2642,35 +2696,12 @@ export class ItemService {
         };
       }
 
-      // Separate items with manual maxQuantity from automatic ones
-      const manualMaxItems = items.filter(item => item.isManualMaxQuantity);
-      const autoMaxItems = items.filter(item => !item.isManualMaxQuantity);
-
-      if (manualMaxItems.length > 0) {
-        this.logger.log(
-          `Preservando quantidade máxima manual para ${manualMaxItems.length} itens: ${manualMaxItems.map(i => i.name).join(', ')}`,
-        );
-      }
-
-      if (autoMaxItems.length === 0) {
-        return {
-          success: true,
-          message: 'Todos os itens ativos possuem quantidades máximas manuais',
-          data: {
-            totalAnalyzed: items.length,
-            totalUpdated: 0,
-            updates: [],
-          },
-        };
-      }
-
-      // Get activities for items with automatic maxQuantity in the lookback period
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - lookbackDays);
 
       const activities = (await this.prisma.activity.findMany({
         where: {
-          itemId: { in: autoMaxItems.map(item => item.id) },
+          itemId: { in: items.map(item => item.id) },
           createdAt: { gte: cutoffDate },
         },
         orderBy: { createdAt: 'desc' },
@@ -2684,16 +2715,14 @@ export class ItemService {
         activitiesByItem.set(activity.itemId, itemActivities);
       }
 
-      // Calculate maxQuantity only for items with automatic maxQuantity
-      const maxQuantityUpdates = batchCalculateMaxQuantities(
-        autoMaxItems as any,
-        activitiesByItem,
-        lookbackDays,
+      const now = new Date();
+      const maxQuantityUpdates = items.map(item =>
+        this.computeMaxQuantityUpdate(item as any, activitiesByItem.get(item.id) ?? [], now),
       );
 
       // Apply updates in a transaction
       const updatedItems = await this.prisma.$transaction(async tx => {
-        const successfulUpdates: import('@utils/stock-health').MaxQuantityUpdateResult[] = [];
+        const successfulUpdates: MaxQuantityUpdateResult[] = [];
 
         for (const update of maxQuantityUpdates) {
           try {
@@ -2747,6 +2776,57 @@ export class ItemService {
     }
   }
 
+  private computeMaxQuantityUpdate(
+    item: any,
+    activities: any[],
+    now: Date,
+  ): MaxQuantityUpdateResult {
+    const { monthlyConsumption } = calculateMonthlyConsumption({
+      item,
+      activities,
+      now,
+    });
+    const cell = resolveSafetyTargetCell(
+      item.abcCategory ?? null,
+      item.xyzCategory ?? null,
+      (item as any).ordersLast12Months ?? null,
+    );
+    const leadTimeDays = item.estimatedLeadTime ?? 25;
+    const reorderPoint = calculateReorderPoint({
+      item,
+      monthlyConsumption,
+      leadTimeDays,
+      safetyFactor: cell.safetyFactor,
+      now,
+    });
+    const newMaxQuantity = calculateMaxQuantity({
+      item,
+      monthlyConsumption,
+      leadTimeDays,
+      reorderPoint,
+      targetStockDays: cell.targetStockDays,
+      now,
+    });
+    const previousMaxQuantity = item.maxQuantity ?? 0;
+    const percentageChange =
+      previousMaxQuantity > 0
+        ? ((newMaxQuantity - previousMaxQuantity) / previousMaxQuantity) * 100
+        : newMaxQuantity > 0
+          ? 100
+          : 0;
+    const trendPercent = calculateConsumptionTrend([]);
+    const trendLabel = trendPercent > 20 ? 'alta' : trendPercent < -20 ? 'queda' : 'estável';
+    return {
+      itemId: item.id,
+      itemName: item.name,
+      previousMaxQuantity,
+      newMaxQuantity,
+      monthlyConsumption,
+      consumptionTrend: trendLabel,
+      percentageChange,
+    };
+  }
+
   /**
    * Get maxQuantity analysis for specific items
    * Returns analysis without updating the database
@@ -2757,7 +2837,7 @@ export class ItemService {
   ): Promise<{
     success: boolean;
     message: string;
-    data: import('@utils/stock-health').MaxQuantityUpdateResult[];
+    data: MaxQuantityUpdateResult[];
   }> {
     try {
       // Get specified items
@@ -2769,10 +2849,19 @@ export class ItemService {
         select: {
           id: true,
           name: true,
+          createdAt: true,
           maxQuantity: true,
+          reorderPoint: true,
           estimatedLeadTime: true,
+          boxQuantity: true,
           quantity: true,
-          isManualMaxQuantity: true,
+          monthlyConsumption: true,
+          abcCategory: true,
+          xyzCategory: true,
+          ppeType: true,
+          ppeDeliveryMode: true,
+          ppeStandardQuantity: true,
+          category: { select: { type: true } },
         },
       });
 
@@ -2804,11 +2893,9 @@ export class ItemService {
         activitiesByItem.set(activity.itemId, itemActivities);
       }
 
-      // Calculate maxQuantity for specified items
-      const maxQuantityAnalysis = batchCalculateMaxQuantities(
-        items as any,
-        activitiesByItem,
-        lookbackDays,
+      const now = new Date();
+      const maxQuantityAnalysis = items.map(item =>
+        this.computeMaxQuantityUpdate(item as any, activitiesByItem.get(item.id) ?? [], now),
       );
 
       return {
