@@ -1636,11 +1636,17 @@ export class TaskPrismaRepository
     const useProvidedSelect = select && Object.keys(select).length > 0;
     const queryPattern = useProvidedSelect ? { select } : this.getOptimalQueryPattern(options);
 
+    const baseOrderBy = this.mapOrderByToDatabaseOrderBy(orderBy) || { statusOrder: 'asc' };
+    // Always append id as tiebreaker to guarantee stable pagination when sort values are equal
+    const stableOrderBy: any = Array.isArray(baseOrderBy)
+      ? [...baseOrderBy, { id: 'asc' }]
+      : [baseOrderBy, { id: 'asc' }];
+
     const [total, tasks] = await Promise.all([
       transaction.task.count(countOptions),
       transaction.task.findMany({
         where: mappedWhere,
-        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { statusOrder: 'asc' },
+        orderBy: stableOrderBy,
         skip,
         take,
         ...queryPattern,

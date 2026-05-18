@@ -611,6 +611,161 @@ export class PositionService {
   }
 
   /**
+   * Aplicar reajuste percentual de remuneração em lote
+   */
+  async adjustPositionSalaries(
+    positionIds: string[],
+    percentage: number,
+    userId: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: {
+      totalSuccess: number;
+      totalFailed: number;
+      results: any[];
+    };
+  }> {
+    if (percentage < -100 || percentage > 1000) {
+      throw new BadRequestException('Percentual deve estar entre -100% e 1000%');
+    }
+
+    if (!positionIds || positionIds.length === 0) {
+      return {
+        success: false,
+        message: 'Nenhum cargo foi selecionado',
+        data: { totalSuccess: 0, totalFailed: 0, results: [] },
+      };
+    }
+
+    const positions = await this.prisma.position.findMany({
+      where: { id: { in: positionIds } },
+      include: {
+        remunerations: {
+          where: { current: true },
+          orderBy: { createdAt: 'desc' as const },
+          take: 1,
+        },
+      },
+    });
+
+    if (positions.length === 0) {
+      return {
+        success: false,
+        message: 'Nenhum cargo encontrado para ajuste',
+        data: { totalSuccess: 0, totalFailed: 0, results: [] },
+      };
+    }
+
+    const processedResults = await this.prisma.$transaction(async tx => {
+      const batchResults: any[] = [];
+
+      for (const position of positions) {
+        try {
+          const currentSalary = position.remunerations?.[0]?.value ?? 0;
+
+          if (currentSalary === 0) {
+            batchResults.push({
+              positionId: position.id,
+              positionName: position.name,
+              success: false,
+              error: 'Cargo não possui remuneração definida',
+            });
+            continue;
+          }
+
+          const adjustment = currentSalary * (percentage / 100);
+          const newSalary = currentSalary + adjustment;
+
+          if (newSalary < 0) {
+            batchResults.push({
+              positionId: position.id,
+              positionName: position.name,
+              success: false,
+              error: 'Remuneração não pode ser negativa',
+            });
+            continue;
+          }
+
+          await tx.monetaryValue.updateMany({
+            where: { positionId: position.id, current: true },
+            data: { current: false },
+          });
+
+          await tx.monetaryValue.create({
+            data: {
+              positionId: position.id,
+              value: newSalary,
+              current: true,
+            },
+          });
+
+          try {
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.POSITION,
+              entityId: position.id,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'remuneration',
+              oldValue: currentSalary.toFixed(2),
+              newValue: newSalary.toFixed(2),
+              reason: `Reajuste de ${percentage}%`,
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              triggeredById: null,
+              userId: userId || null,
+              transaction: tx,
+            });
+          } catch (logError) {
+            this.logger.error(`Erro ao logar reajuste para cargo ${position.id}:`, logError);
+          }
+
+          batchResults.push({
+            positionId: position.id,
+            positionName: position.name,
+            success: true,
+            oldSalary: currentSalary,
+            newSalary,
+            adjustment,
+            percentageApplied: percentage,
+          });
+        } catch (error: any) {
+          this.logger.error(`Erro ao reajustar cargo ${position.id}:`, error);
+          batchResults.push({
+            positionId: position.id,
+            positionName: position.name,
+            success: false,
+            error: error.message || 'Erro ao reajustar remuneração',
+          });
+        }
+      }
+
+      return batchResults;
+    });
+
+    let successCount = 0;
+    let failCount = 0;
+    processedResults.forEach(r => {
+      if (r.success) successCount++;
+      else failCount++;
+    });
+
+    const successMessage =
+      successCount === 1
+        ? '1 cargo reajustado com sucesso'
+        : `${successCount} cargos reajustados com sucesso`;
+    const failureMessage = failCount > 0 ? `, ${failCount} falharam` : '';
+
+    return {
+      success: successCount > 0,
+      message: `${successMessage}${failureMessage}.`,
+      data: {
+        totalSuccess: successCount,
+        totalFailed: failCount,
+        results: processedResults,
+      },
+    };
+  }
+
+  /**
    * Deletar cargos em lote
    */
   async batchDelete(

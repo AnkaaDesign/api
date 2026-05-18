@@ -583,6 +583,21 @@ export class InvoiceController {
   }
 
   /**
+   * PUT /invoices/:installmentId/receipt  (legacy alias — singular form from pre-May-2026 clients)
+   * Accepts the old single-file body { receiptFileId } and delegates to the plural handler.
+   */
+  @Put(':installmentId/receipt')
+  @HttpCode(HttpStatus.OK)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  async updateInstallmentReceiptLegacy(
+    @Param('installmentId', ParseUUIDPipe) installmentId: string,
+    @Body() body: { receiptFileId?: string; receiptFileIds?: string[]; observations?: string | null },
+  ) {
+    const ids = body.receiptFileIds ?? (body.receiptFileId ? [body.receiptFileId] : undefined);
+    return this.updateInstallmentReceipts(installmentId, { receiptFileIds: ids, observations: body.observations });
+  }
+
+  /**
    * GET /invoices/:installmentId/receipts/:fileId/download
    * Download a single receipt file attached to an installment.
    */

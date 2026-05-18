@@ -98,6 +98,24 @@ export class PositionController {
     return this.positionService.batchDelete(data, userId);
   }
 
+  @Post('batch-adjust-salaries')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async adjustPositionSalaries(
+    @Body() data: { positionIds: string[]; percentage: number },
+    @UserId() userId: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: {
+      totalSuccess: number;
+      totalFailed: number;
+      results: any[];
+    };
+  }> {
+    return this.positionService.adjustPositionSalaries(data.positionIds, data.percentage, userId);
+  }
+
   @Get(':id')
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   async findById(
