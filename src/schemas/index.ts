@@ -140,3 +140,4 @@ export {
 } from './discount';
 // export * from "./statistics"; // TODO: Re-enable when statistics module is implemented
 export * from './deployment';
+export * from './skill';

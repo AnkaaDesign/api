@@ -1240,6 +1240,7 @@ model Sector {
   tasks                  Task[]
   users                  User[]
   goals                  Goal[]
+  assessmentSectors      AssessmentSector[]
 
   @@index([leaderId])
   @@index([secullumDepartamentoId])
@@ -1696,8 +1697,11 @@ model User {
   invoicesCreated          Invoice[]                    @relation("InvoicesCreated")
   taskForecastHistories    TaskForecastHistory[]        @relation("TASK_FORECAST_HISTORY_USER")
   bankStatementsUploaded   BankStatement[]              @relation("BankStatementUploader")
-  reconciliationMatches    ReconciliationMatch[]        @relation("MatchedBy")
-  reconciliationRuns       ReconciliationRun[]          @relation("ReconciliationRunTriggers")
+  reconciliationMatches         ReconciliationMatch[]        @relation("MatchedBy")
+  reconciliationRuns            ReconciliationRun[]          @relation("ReconciliationRunTriggers")
+  assessmentEntriesAsEvaluatee  AssessmentEntry[]            @relation("ASSESSMENT_ENTRY_EVALUATEE")
+  assessmentEntriesAsEvaluator  AssessmentEntry[]            @relation("ASSESSMENT_ENTRY_EVALUATOR")
+  assessmentsCreated            Assessment[]                 @relation("ASSESSMENT_CREATED_BY")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -3787,4 +3791,188 @@ model ConsumptionSnapshot {
   @@unique([itemId, year, month])
   @@index([itemId])
   @@index([year, month])
+}
+
+// =====================
+// Skill Assessment Models
+// =====================
+// Domain: a Skill (e.g. Comportamental / Segurança do Trabalho / Produtividade)
+// contains one or more Topics (the assessable items, e.g. "Disciplina e
+// cumprimento de regras"). Each Topic has exactly six TopicLevels (score 0..5)
+// with bespoke level NAMES per topic (e.g. score 5 = "Referência" for one
+// topic, "Estabilizador" for another, "Guardião" for another). An Assessment
+// is a campaign with start/end dates targeting selected Sectors and Topics;
+// when opened, AssessmentEntry rows are generated for each evaluatee × their
+// sector leader (evaluator), each carrying AssessmentResponse rows (one per
+// selected Topic).
+
+enum AssessmentStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+enum AssessmentEntryStatus {
+  PENDING
+  IN_PROGRESS
+  SUBMITTED
+}
+
+model Skill {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  description String?
+  order       Int
+  isActive    Boolean   @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  topics           Topic[]
+  assessmentSkills AssessmentSkill[]
+
+  @@index([order])
+  @@index([isActive])
+  @@index([deletedAt])
+}
+
+model Topic {
+  id               String    @id @default(uuid())
+  skillId          String
+  order            Int
+  title            String
+  description      String
+  counterBehaviors String
+  isActive         Boolean   @default(true)
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  skill            Skill                @relation(fields: [skillId], references: [id])
+  levels           TopicLevel[]
+  assessmentTopics AssessmentTopic[]
+  responses        AssessmentResponse[]
+
+  @@unique([skillId, order])
+  @@index([skillId])
+  @@index([deletedAt])
+}
+
+model TopicLevel {
+  id          String   @id @default(uuid())
+  topicId     String
+  score       Int
+  name        String
+  description String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([topicId, score])
+  @@index([topicId])
+}
+
+model Assessment {
+  id          String           @id @default(uuid())
+  name        String
+  description String?
+  periodStart DateTime
+  periodEnd   DateTime
+  status      AssessmentStatus @default(DRAFT)
+  createdById String
+  deletedAt   DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  createdBy User                @relation("ASSESSMENT_CREATED_BY", fields: [createdById], references: [id])
+  sectors   AssessmentSector[]
+  skills    AssessmentSkill[]
+  topics    AssessmentTopic[]
+  entries   AssessmentEntry[]
+
+  @@index([status])
+  @@index([periodStart, periodEnd])
+  @@index([createdById])
+  @@index([deletedAt])
+}
+
+model AssessmentSector {
+  assessmentId String
+  sectorId     String
+
+  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  sector     Sector     @relation(fields: [sectorId], references: [id])
+
+  @@id([assessmentId, sectorId])
+  @@index([assessmentId])
+  @@index([sectorId])
+}
+
+model AssessmentSkill {
+  assessmentId String
+  skillId      String
+
+  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  skill      Skill      @relation(fields: [skillId], references: [id])
+
+  @@id([assessmentId, skillId])
+  @@index([assessmentId])
+  @@index([skillId])
+}
+
+model AssessmentTopic {
+  assessmentId String
+  topicId      String
+
+  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  topic      Topic      @relation(fields: [topicId], references: [id])
+
+  @@id([assessmentId, topicId])
+  @@index([assessmentId])
+  @@index([topicId])
+}
+
+model AssessmentEntry {
+  id           String                @id @default(uuid())
+  assessmentId String
+  evaluateeId  String
+  evaluatorId  String
+  status       AssessmentEntryStatus @default(PENDING)
+  startedAt    DateTime?
+  submittedAt  DateTime?
+  notes        String?
+  deletedAt    DateTime?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  assessment Assessment           @relation(fields: [assessmentId], references: [id])
+  evaluatee  User                 @relation("ASSESSMENT_ENTRY_EVALUATEE", fields: [evaluateeId], references: [id])
+  evaluator  User                 @relation("ASSESSMENT_ENTRY_EVALUATOR", fields: [evaluatorId], references: [id])
+  responses  AssessmentResponse[]
+
+  @@unique([assessmentId, evaluateeId])
+  @@index([assessmentId])
+  @@index([evaluateeId])
+  @@index([evaluatorId])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model AssessmentResponse {
+  id            String   @id @default(uuid())
+  entryId       String
+  topicId       String
+  score         Int
+  justification String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  entry AssessmentEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  topic Topic           @relation(fields: [topicId], references: [id])
+
+  @@unique([entryId, topicId])
+  @@index([entryId])
+  @@index([topicId])
 }

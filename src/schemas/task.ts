@@ -24,6 +24,7 @@ import {
 import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
 import { taskQuoteCreateNestedSchema } from './task-quote';
+import { businessPeriodStart, businessPeriodEnd } from '../utils/business-period';
 
 // Helper to filter out empty strings from UUID arrays before validation
 // This handles cases where FormData sends [''] for empty arrays
@@ -1854,7 +1855,37 @@ const taskTransform = (data: any): any => {
     delete data.startedDateRange;
   }
 
-  if (data.finishedDateRange && typeof data.finishedDateRange === 'object') {
+  // Canonical bonus-period inputs take precedence over finishedDateRange.
+  // When both are sent, the year/months win — the frontend may keep sending
+  // finishedDateRange for backward compatibility, but we recompute the window
+  // server-side using businessPeriodStart/End (same helpers bonus uses) so
+  // task-history's count matches the bonus pages exactly.
+  if (
+    typeof data.bonusPeriodYear === 'number' &&
+    Array.isArray(data.bonusPeriodMonths) &&
+    data.bonusPeriodMonths.length > 0
+  ) {
+    const months = [...data.bonusPeriodMonths].sort((a: number, b: number) => a - b);
+    andConditions.push({
+      finishedAt: {
+        gte: businessPeriodStart(data.bonusPeriodYear, months[0]),
+        lte: businessPeriodEnd(data.bonusPeriodYear, months[months.length - 1]),
+      },
+    });
+    delete data.finishedDateRange;
+    delete data.bonusPeriodYear;
+    delete data.bonusPeriodMonths;
+  } else if (typeof data.bonusPeriodYear === 'number') {
+    andConditions.push({
+      finishedAt: {
+        gte: businessPeriodStart(data.bonusPeriodYear, 1),
+        lte: businessPeriodEnd(data.bonusPeriodYear, 12),
+      },
+    });
+    delete data.finishedDateRange;
+    delete data.bonusPeriodYear;
+    delete data.bonusPeriodMonths;
+  } else if (data.finishedDateRange && typeof data.finishedDateRange === 'object') {
     const condition: any = {};
     // Handle both Date objects and ISO strings (from HTTP query params)
     if (data.finishedDateRange.from) {
@@ -2139,6 +2170,17 @@ export const taskGetManySchema = z
           path: ['to'],
         },
       )
+      .optional(),
+    // Canonical bonus-period inputs. When set, the transform below converts
+    // these into finishedDateRange using businessPeriodStart/End — the same
+    // helpers `bonus.service.ts` uses — so task-history's window matches the
+    // bonus pages exactly. Eliminates browser-TZ vs server-TZ drift.
+    bonusPeriodYear: z.coerce.number().int().optional(),
+    bonusPeriodMonths: z
+      .union([
+        z.array(z.coerce.number().int().min(1).max(12)),
+        z.coerce.number().int().min(1).max(12).transform(n => [n]),
+      ])
       .optional(),
     forecastDateRange: z
       .object({

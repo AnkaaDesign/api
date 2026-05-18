@@ -33,6 +33,10 @@ import {
 import { logEntityChange } from '@modules/common/changelog/utils/changelog-helpers';
 import { roundAverage, roundCurrency } from '../../../utils/currency-precision.util';
 import {
+  businessPeriodStart as canonicalBusinessPeriodStart,
+  businessPeriodEnd as canonicalBusinessPeriodEnd,
+} from '../../../utils/business-period';
+import {
   getCurrentPeriod,
   isCurrentPeriod,
   filterIncludesCurrentPeriod,
@@ -156,20 +160,21 @@ function countSuspendedTasks(tasks: any[]): number {
 }
 
 /**
- * Get period start date (26th of previous month)
+ * Get period start date (26th of previous month at 00:00 server-local).
+ * Delegates to the canonical helper in `utils/business-period.ts` so all
+ * bonus-period queries — productivity, performance, task-history, faltas,
+ * payroll, team-performance, and bonus itself — share one source of truth.
  */
 function getPeriodStart(year: number, month: number): Date {
-  if (month === 1) {
-    return new Date(year - 1, 11, 26, 0, 0, 0, 0);
-  }
-  return new Date(year, month - 2, 26, 0, 0, 0, 0);
+  return canonicalBusinessPeriodStart(year, month);
 }
 
 /**
- * Get period end date (25th of current month)
+ * Get period end date (25th of current month at 23:59:59.999 server-local).
+ * Delegates to the canonical helper — see getPeriodStart above.
  */
 function getPeriodEnd(year: number, month: number): Date {
-  return new Date(year, month - 1, 25, 23, 59, 59, 999);
+  return canonicalBusinessPeriodEnd(year, month);
 }
 
 /**
@@ -2883,8 +2888,40 @@ export class BonusService {
         .filter(t => t.commission === COMMISSION_STATUS.SUSPENDED_COMMISSION)
         .map(t => t.id);
 
-      // All task IDs for connecting to bonuses (same for all users)
-      const allTaskIds = allTasksForPeriod.map(t => t.id);
+      // All task IDs for connecting to bonuses (same for all users).
+      //
+      // DEFENSIVE GUARD: re-validate every task is actually within the period
+      // window before we hand it to Prisma's `set`. The query above already
+      // filters by finishedAt range, but past data corruption (see
+      // cleanup-bonus-tasks.js script) showed bonuses with tasks linked
+      // outside their period — likely from older buggy code paths.
+      // This double-check eliminates that vector entirely going forward.
+      const tasksInPeriod = await this.prisma.task.findMany({
+        where: {
+          id: { in: allTasksForPeriod.map(t => t.id) },
+          status: TASK_STATUS.COMPLETED,
+          finishedAt: { gte: periodStart, lte: periodEnd },
+          commission: {
+            in: [
+              COMMISSION_STATUS.FULL_COMMISSION,
+              COMMISSION_STATUS.PARTIAL_COMMISSION,
+              COMMISSION_STATUS.SUSPENDED_COMMISSION,
+              COMMISSION_STATUS.NO_COMMISSION,
+            ],
+          },
+        },
+        select: { id: true },
+      });
+      const validatedTaskIds = new Set(tasksInPeriod.map(t => t.id));
+      const allTaskIds = allTasksForPeriod
+        .map(t => t.id)
+        .filter(id => validatedTaskIds.has(id));
+      if (allTaskIds.length !== allTasksForPeriod.length) {
+        this.logger.warn(
+          `Bonus save for ${monthNum}/${yearNum}: dropped ` +
+            `${allTasksForPeriod.length - allTaskIds.length} task(s) failing period validation.`,
+        );
+      }
       // Only connect ELIGIBLE users (performanceLevel > 0) — these are the
       // users counted in the B1 divisor. Including performanceLevel=0 users
       // in the relation would make the detail page disagree with the list /
@@ -3416,7 +3453,11 @@ export class BonusService {
         status: USER_STATUS.EFFECTED,
         position: { bonifiable: true },
         secullumEmployeeId: { not: null },
-        ...sectorFilter,
+        // Eligible user count is always company-wide — it's the denominator of
+        // B1 (avg tasks/user) which drives the bonus polynomial. Applying a
+        // sector filter here would change B1 non-linearly and produce a pool
+        // amount inconsistent with calculateLiveBonuses (HR bonus page), which
+        // also uses all eligible users regardless of display sector.
       },
       select: {
         id: true,
@@ -3549,12 +3590,49 @@ export class BonusService {
       ? currentWeighted + trendSlope * (totalDays - todayIndex)
       : 0;
 
-    // ONE call to the bonus formula at the projected end-of-period B1.
-    // Distributed proportionally per day below — this is the key change that
-    // fixes the polynomial-induced wiggles.
-    const projectedFinalB1 =
-      eligibleUserCount > 0 ? projectedTotalWeighted / eligibleUserCount : 0;
-    const projectedFinalBonus = computeAggregateBonus(projectedFinalB1);
+    // Anchor every chart value to HR's live bonus calculation so the stats
+    // page never disagrees with the HR Bônus page. `calculateLiveBonuses`
+    // is exactly what HR sums for its `Total Bônus` card (R$ 894 in the
+    // user's example) — it includes the polynomial gross AND all Secullum
+    // adjustments (atestado, falta, suspended-task discount, assiduidade).
+    //
+    // Each completed task in the period contributes the same per-task share
+    // of that current total. Chart day value = perTaskRate × cumulativeWeighted
+    // — strictly non-decreasing as tasks pile up, and equal to HR's number
+    // exactly at today.
+    let liveCurrentNet: number;
+    try {
+      const liveData = await this.calculateLiveBonuses(year, month);
+      const sectorSet = sectorIds && sectorIds.length > 0 ? new Set(sectorIds) : null;
+      liveCurrentNet = liveData.bonuses
+        .filter(b => b.performanceLevel > 0)
+        .filter(b => {
+          if (!sectorSet) return true;
+          // Match the modal's sector-filter behavior: keep users with at
+          // least one task in the filtered sectors during this period.
+          return Array.isArray(b.tasks) && b.tasks.some((t: any) => t.sectorId && sectorSet.has(t.sectorId));
+        })
+        .reduce((sum, b) => sum + (b.netBonus ?? b.baseBonus ?? 0), 0);
+    } catch {
+      // If the live calculation fails (e.g. Secullum down), fall back to the
+      // polynomial-only projection so the chart still renders. Card will then
+      // diverge from HR until Secullum is back — better than a blank chart.
+      liveCurrentNet = computeAggregateBonus(
+        eligibleUserCount > 0 ? currentWeighted / eligibleUserCount : 0,
+      );
+    }
+
+    // Per-task contribution to today's net bonus. With this anchor, the
+    // chart at todayIndex equals liveCurrentNet exactly (= HR's Total Bônus).
+    const perTaskRate = currentWeighted > 0
+      ? liveCurrentNet / currentWeighted
+      : 0;
+
+    // Projected final bonus assumes the current per-task rate continues
+    // through the remaining days. At period end, the value is whatever
+    // HR will pay summed across users — by construction, since the rate
+    // is anchored to HR's current calculation.
+    const projectedFinalBonus = perTaskRate * projectedTotalWeighted;
 
     const MONTH_NAMES_PT_SHORT = [
       'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
@@ -3592,13 +3670,23 @@ export class BonusService {
         taskCount = realizedTaskCountAtDay[i];
       }
 
-      // Proportional accrual — the load-bearing change vs the previous version.
-      // bonusAtD increases monotonically with weighted because projectedTotalWeighted
-      // and projectedFinalBonus are both period-level constants.
-      const bonusAtD =
-        projectedTotalWeighted > 0
-          ? roundCurrency(projectedFinalBonus * (weighted / projectedTotalWeighted))
-          : 0;
+      // MONOTONE ACCRUAL — never decreases as tasks accumulate.
+      //
+      // We can't use polynomial(B1[day]) directly: that polynomial dips in
+      // B1≈[0.5, 2.0] (calibrated for end-of-period B1=3–6), so the per-day
+      // payment value can go DOWN even though tasks went up. Both running-max
+      // and raw-polynomial flavors produced unintuitive charts.
+      //
+      // Instead: distribute the projected final bonus proportionally to the
+      // cumulative weighted tasks at this day. Since tasks only ever
+      // accumulate (no task is ever un-finished), this curve is strictly
+      // non-decreasing day over day. At period end (cumulative == projected
+      // total) the curve lands exactly on projectedFinalBonus, which is
+      // computed with the same `computeAggregateBonus` HR uses — so the
+      // stats values converge to HR's final payment at period close.
+      const bonusAtD = projectedTotalWeighted > 0
+        ? Math.max(0, roundCurrency(projectedFinalBonus * (weighted / projectedTotalWeighted)))
+        : 0;
 
       const avg = eligibleUserCount > 0 ? weighted / eligibleUserCount : 0;
 
@@ -3622,11 +3710,22 @@ export class BonusService {
     const currentWeightedTaskCount =
       Math.round((todayIndex > 0 ? realizedWeightedAtDay[todayIndex] : 0) * 100) / 100;
 
+    // "Bônus atual" — the SAME value the chart shows at todayIndex, so card
+    // and chart always agree. With monotone-accrual day values, this is:
+    //     projectedFinalBonus × (currentWeighted / projectedTotalWeighted)
+    // = bonus accrued so far, proportional to the share of projected tasks
+    // already completed. Never decreases as tasks pile up.
+    //
+    // At period close, this equals projectedFinalBonus =
+    // computeAggregateBonus(finalB1) = HR's final payment.
+    const actualCurrentBonusValue = currentBonusValue;
+
     return {
       period: { year, month, isClosed },
       days,
       summary: {
         currentBonusValue,
+        actualCurrentBonusValue,
         forecastedFinalBonusValue: roundCurrency(projectedFinalBonus),
         currentTaskCount,
         currentWeightedTaskCount,
