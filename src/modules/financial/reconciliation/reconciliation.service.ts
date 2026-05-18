@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  BankTransactionType,
   Prisma,
   ReconciliationAliasSource,
   ReconciliationMatchStatus,
@@ -55,13 +56,21 @@ export class ReconciliationService {
     // matchedCount on BankStatement is a denormalized counter set during import
     // and can drift after manual match/unmatch/ignore. Always recompute it from
     // actual transaction statuses so the UI shows the truth.
+    // Both counts are debit-only: reconciliation tracks outbound money, not inflows.
     const ids = data.map(s => s.id);
-    const matchedByStatement = ids.length
-      ? await this.computeMatchedCountsByStatement(ids)
-      : new Map<string, number>();
+    const [matchedByStatement, debitCountByStatement] = ids.length
+      ? await Promise.all([
+          this.computeMatchedCountsByStatement(ids),
+          this.computeDebitCountsByStatement(ids),
+        ])
+      : [new Map<string, number>(), new Map<string, number>()];
 
     return {
-      data: data.map(s => ({ ...s, matchedCount: matchedByStatement.get(s.id) ?? 0 })),
+      data: data.map(s => ({
+        ...s,
+        matchedCount: matchedByStatement.get(s.id) ?? 0,
+        debitTransactionCount: debitCountByStatement.get(s.id) ?? 0,
+      })),
       meta: {
         page: filters.page,
         pageSize: filters.pageSize,
@@ -80,25 +89,33 @@ export class ReconciliationService {
       },
     });
     if (!statement) throw new NotFoundException('Extrato não encontrado');
-    const counts = await this.prisma.bankTransaction.groupBy({
-      by: ['matchStatus'],
-      where: { statementId: id },
-      _count: { _all: true },
-    });
-    const matchedCount = counts
+    const [allStatusCounts, debitStatusCounts] = await Promise.all([
+      this.prisma.bankTransaction.groupBy({
+        by: ['matchStatus'],
+        where: { statementId: id },
+        _count: { _all: true },
+      }),
+      this.prisma.bankTransaction.groupBy({
+        by: ['matchStatus'],
+        where: { statementId: id, type: BankTransactionType.DEBIT },
+        _count: { _all: true },
+      }),
+    ]);
+    const matchedCount = debitStatusCounts
       .filter(
         c =>
           c.matchStatus === ReconciliationMatchStatus.AUTO_MATCHED ||
           c.matchStatus === ReconciliationMatchStatus.MANUAL_MATCHED,
       )
       .reduce((sum, c) => sum + c._count._all, 0);
-    return { ...statement, matchedCount, statusCounts: counts };
+    const debitTransactionCount = debitStatusCounts.reduce((sum, c) => sum + c._count._all, 0);
+    return { ...statement, matchedCount, debitTransactionCount, statusCounts: allStatusCounts };
   }
 
   /**
-   * Recompute `matchedCount` from authoritative transaction states for the
-   * given statements. AUTO_MATCHED + MANUAL_MATCHED count as matched. IGNORED
-   * and PARTIAL do not — they're either resolved-but-not-matched or in-progress.
+   * Recompute debit-only matchedCount for the given statements.
+   * Only DEBIT transactions that are AUTO_MATCHED or MANUAL_MATCHED count —
+   * credits (inflows) are not reconciled against fiscal documents.
    */
   private async computeMatchedCountsByStatement(
     statementIds: string[],
@@ -107,12 +124,31 @@ export class ReconciliationService {
       by: ['statementId'],
       where: {
         statementId: { in: statementIds },
+        type: BankTransactionType.DEBIT,
         matchStatus: {
           in: [
             ReconciliationMatchStatus.AUTO_MATCHED,
             ReconciliationMatchStatus.MANUAL_MATCHED,
           ],
         },
+      },
+      _count: { _all: true },
+    });
+    const map = new Map<string, number>();
+    for (const id of statementIds) map.set(id, 0);
+    for (const r of rows) map.set(r.statementId, r._count._all);
+    return map;
+  }
+
+  /** Total DEBIT transaction count per statement (denominator for reconciliation %). */
+  private async computeDebitCountsByStatement(
+    statementIds: string[],
+  ): Promise<Map<string, number>> {
+    const rows = await this.prisma.bankTransaction.groupBy({
+      by: ['statementId'],
+      where: {
+        statementId: { in: statementIds },
+        type: BankTransactionType.DEBIT,
       },
       _count: { _all: true },
     });

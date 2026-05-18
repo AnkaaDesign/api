@@ -604,6 +604,7 @@ export class ZodValidationPipe implements PipeTransform {
       'rate',
       // Payment fields
       'paymentDueDays',
+      'freight',
     ];
     return numericFields.includes(fieldName);
   }
