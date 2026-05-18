@@ -74,8 +74,6 @@ export interface Item extends BaseEntity {
   maxQuantity: number | null;
   reorderPoint: number | null;
   reorderQuantity: number | null;
-  isManualMaxQuantity: boolean;
-  isManualReorderPoint: boolean;
   lastAutoOrderDate: Date | null;
   boxQuantity: number | null;
   icms: number;
@@ -183,8 +181,6 @@ export type ItemInventory = Pick<
   | 'maxQuantity'
   | 'reorderPoint'
   | 'reorderQuantity'
-  | 'isManualMaxQuantity'
-  | 'isManualReorderPoint'
   | 'lastAutoOrderDate'
   | 'monthlyConsumption'
   | 'monthlyConsumptionTrendPercent'
@@ -255,8 +251,6 @@ export interface ItemSelect {
   maxQuantity?: boolean;
   reorderPoint?: boolean;
   reorderQuantity?: boolean;
-  isManualMaxQuantity?: boolean;
-  isManualReorderPoint?: boolean;
   lastAutoOrderDate?: boolean;
   boxQuantity?: boolean;
   icms?: boolean;
@@ -402,8 +396,6 @@ export const ItemSelectPresets = {
     maxQuantity: true,
     reorderPoint: true,
     reorderQuantity: true,
-    isManualMaxQuantity: true,
-    isManualReorderPoint: true,
     lastAutoOrderDate: true,
     monthlyConsumption: true,
     monthlyConsumptionTrendPercent: true,

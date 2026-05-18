@@ -147,6 +147,7 @@ export class OrderPrismaRepository
       statusOrder: getOrderStatusOrder(status),
       forecast: orderData.forecast || null,
       notes: orderData.notes || null,
+      freight: orderData.freight ?? 0,
       orderRuleId: orderData.orderRuleId || null,
       paymentMethod: (orderData.paymentMethod as any) || null,
       paymentPix: orderData.paymentPix || null,
@@ -233,6 +234,7 @@ export class OrderPrismaRepository
     }
     if (formData.forecast !== undefined) updateData.forecast = formData.forecast;
     if (formData.notes !== undefined) updateData.notes = formData.notes;
+    if ((formData as any).freight !== undefined) updateData.freight = (formData as any).freight;
     if (formData.orderRuleId !== undefined) updateData.orderRuleId = formData.orderRuleId;
     if (formData.paymentMethod !== undefined)
       updateData.paymentMethod = formData.paymentMethod as any;
@@ -526,6 +528,7 @@ export class OrderPrismaRepository
       orderRuleId: databaseOrder.orderRuleId,
       ppeScheduleId: databaseOrder.ppeScheduleId,
       notes: databaseOrder.notes,
+      freight: (databaseOrder as any).freight ?? 0,
       paymentMethod: databaseOrder.paymentMethod as any,
       paymentPix: databaseOrder.paymentPix as any,
       paymentDueDays: databaseOrder.paymentDueDays as any,

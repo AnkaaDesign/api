@@ -56,6 +56,13 @@ import {
   SecullumCreateAssinaturaForUsersResultItem,
   SecullumAbsenceDayRow,
   SecullumAbsenceDaysResponse,
+  SecullumInclusaoPontoConfig,
+  SecullumInclusaoPontoConfigResponse,
+  SecullumInclusaoPontoPendencia,
+  SecullumInclusaoPontoPendenciasResponse,
+  SecullumCreateInclusaoPontoDto,
+  SecullumCreateInclusaoPontoResponse,
+  SecullumReverseGeocodeResponse,
 } from './dto';
 
 @Injectable()
@@ -69,6 +76,12 @@ export class SecullumService {
   private readonly databaseId: string;
   private readonly clientId: string;
   private readonly clientSecret: string;
+  // pontowebapp.secullum.com.br is the mobile-app backend. It hosts endpoints
+  // not exposed on pontoweb.secullum.com.br (notably /IncluirPonto). Customer
+  // selection there is path-based (`/{customerId}/...`) rather than via the
+  // `secullumbancoselecionado` header.
+  private readonly pontowebappBaseUrl: string;
+  private readonly customerId: string;
   private readonly tokenCacheKey = 'secullum_auth_token';
 
   constructor(
@@ -80,6 +93,9 @@ export class SecullumService {
     this.email = process.env.SECULLUM_EMAIL!;
     this.password = process.env.SECULLUM_PASSWORD!;
     this.databaseId = process.env.SECULLUM_DATABASE_ID || '4c8681f2e79a4b7ab58cc94503106736';
+    this.pontowebappBaseUrl =
+      process.env.SECULLUM_PONTOWEBAPP_URL || 'https://pontowebapp.secullum.com.br';
+    this.customerId = process.env.SECULLUM_CUSTOMER_ID || '118769';
     this.clientId = process.env.SECULLUM_CLIENT_ID || '3';
     this.clientSecret = process.env.SECULLUM_CLIENT_SECRET || '';
 
@@ -3322,17 +3338,11 @@ export class SecullumService {
     }
   }
 
-  // POST /Solicitacoes with tipo=3 (Ajuste de Ponto / Inclusão de Batida).
-  // The employee submits the corrected batida values for the day; manager
-  // approval handles the rest. Payload mirrors the tipo=2 shape (same 24-field
-  // envelope) but with entrada/saida slots populated with HH:mm strings
-  // instead of null, and without a justificativaId or photo.
-  //
-  // Note: HAR capture for tipo=3 is still TODO; the exact field set was
-  // inferred from the tipo=2 capture (10_solicitacao_ausencia_plan.md) and
-  // the Secullum admin payload shape in createAbsence(). If Secullum rejects
-  // a field, the [{ property, message }] response surfaces it back to the
-  // form so we can iterate.
+  // POST /Solicitacoes with tipo=0 (Ajuste de Ponto / Inclusão de Batida).
+  // Verified against captured POST from the real Secullum mobile app
+  // (2026-05-16): tipo=0 with entrada/saida slots populated; observacoes is
+  // server-side required (returns 400 with property:"observacoes",
+  // message:"O campo Observação é obrigatório." when empty/null).
   async createAjustePonto(
     secullumEmployeeId: number,
     payload: SecullumCreateAjustePontoDto,
@@ -3359,7 +3369,7 @@ export class SecullumService {
         filtro2Id: null,
         periculosidade: null,
         versao: null,
-        tipo: 3, // Ajuste de Ponto / Inclusão de Batida
+        tipo: 0, // Ajuste de Ponto / Inclusão de Batida (verified via capture 2026-05-16)
         observacoes: payload.observacoes ?? '',
         dados: null,
         foto: null,
@@ -3398,6 +3408,646 @@ export class SecullumService {
       return {
         success: false,
         message: `Falha ao enviar solicitação: ${this.getErrorMessage(error)}`,
+      };
+    }
+  }
+
+  // ==========================================================================
+  // Inclusão de Ponto — replicated from real Secullum mobile app capture
+  // (2026-05-16, flows + flows(1)). Endpoints live at pontowebapp.secullum.com.br
+  // (mobile backend), NOT at pontoweb.secullum.com.br (which returns 404).
+  // Customer selection is path-based: /{customerId}/IncluirPonto.
+  //
+  // AUTH: pontowebapp ONLY accepts HTTP Basic auth with the schema
+  //   Authorization: Basic base64("{numeroIdentificador}:{senha}:0")
+  //
+  // - {numeroIdentificador} is the funcionário's login name (= User.payrollNumber
+  //   under the existing user-secullum-sync mapping; the capture's user "150"
+  //   was payrollNumber=150).
+  // - {senha} is the funcionário's Secullum password — hardcoded to "123" for
+  //   this tenant (every funcionário uses the same password by convention).
+  // - The trailing ":0" is `UsuarioAutenticacao` type. Always 0 for funcionários.
+  //
+  // The mobile app POSTs /Login first to bootstrap client-side user state, but
+  // /Login does NOT return a token — Basic auth itself is sufficient.
+  // ==========================================================================
+
+  /** Build the Authorization header value the pontowebapp host expects. */
+  private buildFuncionarioBasicAuth(usuario: string, senha: string): string {
+    const raw = `${usuario}:${senha}:0`;
+    const b64 = Buffer.from(raw, 'utf-8').toString('base64');
+    return `Basic ${b64}`;
+  }
+
+  /**
+   * HTTP wrapper for pontowebapp.secullum.com.br calls. Uses funcionário-level
+   * Basic auth (NOT the admin OAuth token), and prefixes the path with the
+   * customer ID.
+   */
+  private async makePontowebappRequest<T>(
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    endpoint: string,
+    auth: { usuario: string; senha: string },
+    data?: any,
+    params?: any,
+    options?: { responseType?: 'json' | 'arraybuffer' },
+  ): Promise<T> {
+    const url = `${this.pontowebappBaseUrl}/${this.customerId}${endpoint}`;
+    const headers: Record<string, string> = {
+      Authorization: this.buildFuncionarioBasicAuth(auth.usuario, auth.senha),
+      // Match the mobile app's headers — Secullum's WAF/CDN profiles requests
+      // and unusual UA/Accept combinations have been observed to 403.
+      'User-Agent': 'PontoWeb/94 CFNetwork/3826.500.131 Darwin/24.5.0',
+      'Accept-Language': 'pt',
+      Accept: '*/*',
+    };
+    if (data !== undefined && data !== null) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    this.logger.log(`SECULLUM (pontowebapp) ${method} ${url} usuario=${auth.usuario}`);
+
+    const response = await axios({
+      method: method.toLowerCase(),
+      url,
+      headers,
+      params,
+      data,
+      timeout: 30000,
+      responseType: options?.responseType ?? 'json',
+    } as any);
+    return response.data as T;
+  }
+
+  // ==========================================================================
+  // Employee self-service (pontowebapp + Basic auth) — used by personal endpoints
+  // that act on behalf of the employee, not as an admin. Mirrors the capture
+  // exactly so Secullum's mobile-only routes (which 404 at pontoweb.secullum.com.br)
+  // work for the user's own data.
+  // ==========================================================================
+
+  /** GET /Justificativas — the list of justificativa types the funcionário can pick. */
+  async getJustificativasAsFuncionario(
+    auth: { usuario: string; senha: string },
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: Array<{
+      id: number;
+      nomeCompleto: string;
+      exigirFotoAtestado: boolean;
+      naoPermitirFuncionariosUtilizar: boolean;
+    }>;
+  }> {
+    try {
+      const data = await this.makePontowebappRequest<
+        Array<{
+          id: number;
+          nomeCompleto: string;
+          exigirFotoAtestado: boolean;
+          naoPermitirFuncionariosUtilizar: boolean;
+        }>
+      >('GET', '/Justificativas', auth);
+      const visible = (Array.isArray(data) ? data : []).filter(
+        (j) => !j.naoPermitirFuncionariosUtilizar,
+      );
+      return { success: true, message: 'OK', data: visible };
+    } catch (error) {
+      this.logger.error('Error fetching Justificativas (funcionário)', error);
+      return {
+        success: false,
+        message: `Falha ao carregar motivos: ${this.getErrorMessage(error)}`,
+        data: [],
+      };
+    }
+  }
+
+  /**
+   * GET /Batidas/{from}/{to} — raw batidas-and-totals for the funcionário's own
+   * range. Different signature from the admin /Batidas/{empId}/{from}/{to};
+   * the funcionário is identified by Basic auth.
+   */
+  async getBatidasRangeAsFuncionario(
+    auth: { usuario: string; senha: string },
+    from: string, // YYYY-MM-DD
+    to: string, // YYYY-MM-DD
+  ): Promise<{
+    lista: Array<{
+      id?: number;
+      data: string;
+      batidas?: Array<{ nome: string; valor: string | null; valorOriginal: string | null }>;
+      valores?: Array<{ nome: string; valor: string | null }>;
+      saldo?: string;
+      existePeriodoEncerrado?: boolean;
+    }>;
+  }> {
+    const raw = await this.makePontowebappRequest<{
+      lista?: Array<{
+        id?: number;
+        data: string;
+        batidas?: Array<{ nome: string; valor: string | null; valorOriginal: string | null }>;
+        valores?: Array<{ nome: string; valor: string | null }>;
+        saldo?: string;
+        existePeriodoEncerrado?: boolean;
+      }>;
+    }>('GET', `/Batidas/${from}/${to}`, auth);
+    return { lista: Array.isArray(raw?.lista) ? raw.lista : [] };
+  }
+
+  /**
+   * Computes the "missing days" list (faltas without justificação) inside [from, to]
+   * from the funcionário-scoped Batidas response.
+   *
+   * Mirrors the logic of getMissingDaysForEmployee but consumes the funcionário-auth
+   * response shape (same fields).
+   */
+  async getMissingDaysAsFuncionario(
+    auth: { usuario: string; senha: string },
+    from: string,
+    to: string,
+  ): Promise<SecullumMissingDaysResponse> {
+    try {
+      const { lista } = await this.getBatidasRangeAsFuncionario(auth, from, to);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const weekdayLabels = [
+        'Domingo',
+        'Segunda-Feira',
+        'Terça-Feira',
+        'Quarta-Feira',
+        'Quinta-Feira',
+        'Sexta-Feira',
+        'Sábado',
+      ];
+
+      const missing: SecullumMissingDay[] = [];
+      for (const day of lista) {
+        const ymd = String(day.data).slice(0, 10);
+        const dayDate = this.parseLocalDay(ymd);
+        if (!dayDate) continue;
+        if (dayDate.getTime() > today.getTime()) continue;
+
+        const batidas = day.batidas ?? [];
+        const isHoliday = batidas.some((b) => (b.valor ?? '') === 'Feriado');
+        if (isHoliday) continue;
+
+        const faltasEntry = (day.valores ?? []).find((v) => v.nome === 'Faltas');
+        const faltasValue = (faltasEntry?.valor ?? '').trim();
+        const hasFaltas = faltasValue.length > 0 && faltasValue !== '00:00';
+
+        const allEmpty =
+          batidas.length > 0 &&
+          batidas.every((b) => {
+            const v = (b.valor ?? '').trim();
+            return v === '';
+          });
+
+        const isFaltaSentinel = (v: unknown): boolean => {
+          if (v == null) return false;
+          const s = String(v).trim().toUpperCase();
+          return s.startsWith('FALTA');
+        };
+        const hasFaltaSentinel =
+          batidas.some(
+            (b) => isFaltaSentinel(b.valor) || isFaltaSentinel(b.valorOriginal),
+          ) || (day.valores ?? []).some((v) => isFaltaSentinel(v.valor));
+
+        if (!hasFaltas && !allEmpty && !hasFaltaSentinel) continue;
+
+        const saldoEntry = (day.valores ?? []).find((v) => v.nome === 'Saldo');
+        missing.push({
+          date: ymd,
+          weekdayPt: weekdayLabels[dayDate.getDay()],
+          saldo: saldoEntry?.valor ?? day.saldo ?? null,
+          totalFaltas: faltasEntry?.valor ?? null,
+          existePeriodoEncerrado: !!day.existePeriodoEncerrado,
+        });
+      }
+
+      return { success: true, message: 'OK', data: missing };
+    } catch (error) {
+      this.logger.error('Error fetching missing days (funcionário)', error);
+      return {
+        success: false,
+        message: `Falha ao carregar dias com falta: ${this.getErrorMessage(error)}`,
+      };
+    }
+  }
+
+  /**
+   * GET /Batidas range narrowed to a single date — used to pre-fill the
+   * "Ajustar Ponto" form with the user's existing punches for that day.
+   */
+  async getBatidasForDateAsFuncionario(
+    auth: { usuario: string; senha: string },
+    date: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data?: {
+      entrada1: string | null;
+      saida1: string | null;
+      entrada2: string | null;
+      saida2: string | null;
+      entrada3: string | null;
+      saida3: string | null;
+      entrada4: string | null;
+      saida4: string | null;
+      entrada5: string | null;
+      saida5: string | null;
+      existePeriodoEncerrado: boolean;
+    };
+  }> {
+    try {
+      const { lista } = await this.getBatidasRangeAsFuncionario(auth, date, date);
+      const row = lista.find((d) => String(d.data).slice(0, 10) === date);
+
+      const slot = (label: string): string | null => {
+        const found = (row?.batidas ?? []).find((b) => b.nome === label);
+        const v = (found?.valor ?? '').trim();
+        return v === '' || v.toUpperCase().startsWith('FALTA') ? null : v;
+      };
+
+      return {
+        success: true,
+        message: 'OK',
+        data: {
+          entrada1: slot('Entrada 1'),
+          saida1: slot('Saída 1'),
+          entrada2: slot('Entrada 2'),
+          saida2: slot('Saída 2'),
+          entrada3: slot('Entrada 3'),
+          saida3: slot('Saída 3'),
+          entrada4: slot('Entrada 4'),
+          saida4: slot('Saída 4'),
+          entrada5: slot('Entrada 5'),
+          saida5: slot('Saída 5'),
+          existePeriodoEncerrado: !!row?.existePeriodoEncerrado,
+        },
+      };
+    } catch (error) {
+      this.logger.error('Error fetching batidas for date (funcionário)', error);
+      return {
+        success: false,
+        message: `Falha ao carregar batidas: ${this.getErrorMessage(error)}`,
+      };
+    }
+  }
+
+  /**
+   * GET /Solicitacoes/{date}?origemRequisicao=N — returns the existing record for
+   * the funcionário on that date (hollow stub when none exists).
+   */
+  async getSolicitacaoByDateAsFuncionario(
+    auth: { usuario: string; senha: string },
+    date: string,
+    origemRequisicao: 0 | 1 = 0,
+  ): Promise<SecullumExistingSolicitacaoResponse> {
+    try {
+      const raw = await this.makePontowebappRequest<
+        SecullumSolicitacaoRecord & {
+          justificativaId: number | null;
+          entrada1: string | null;
+          saida1: string | null;
+        }
+      >(
+        'GET',
+        `/Solicitacoes/${date}`,
+        auth,
+        undefined,
+        { origemRequisicao },
+      );
+
+      // Hollow stub: justificativaId is null AND no batida slots filled.
+      if (
+        !raw ||
+        (raw.justificativaId === null && !raw.entrada1 && !raw.saida1)
+      ) {
+        return { success: true, message: 'Sem solicitação para esta data', data: null };
+      }
+      return { success: true, message: 'OK', data: raw };
+    } catch (error) {
+      this.logger.error(`Error fetching solicitação ${date} (funcionário)`, error);
+      return {
+        success: false,
+        message: `Falha ao carregar solicitação: ${this.getErrorMessage(error)}`,
+      };
+    }
+  }
+
+  /**
+   * POST /Solicitacoes — generic create. Caller passes the full body shape per
+   * tipo (0 = Ajuste de Ponto / Inclusão de Batida, 2 = Justificar Ausência with
+   * optional foto, 3 = some justificativa variants). Validates against the
+   * captured payload shapes.
+   */
+  async createSolicitacaoAsFuncionario(
+    auth: { usuario: string; senha: string },
+    body: {
+      data: string; // ISO local, e.g. "2026-05-14T00:00:00"
+      funcionarioId: number;
+      justificativaId: number | null;
+      entrada1?: string | null;
+      saida1?: string | null;
+      entrada2?: string | null;
+      saida2?: string | null;
+      entrada3?: string | null;
+      saida3?: string | null;
+      entrada4?: string | null;
+      saida4?: string | null;
+      entrada5?: string | null;
+      saida5?: string | null;
+      tipo: 0 | 2 | 3;
+      observacoes: string;
+      foto?: string | null;
+      temFoto?: boolean;
+      /** 0 = Dia inteiro, 1/2/3 = Período N, 4 = Período Específico. Only meaningful for tipo=2 (Justificar Ausência). */
+      tipoAusencia?: 0 | 1 | 2 | 3 | 4;
+      /** ISO local "YYYY-MM-DDT00:00:00"; populate together with dataFimAfastamento for Período de Afastamento (multi-day) Justificar Ausência. */
+      dataInicioAfastamento?: string | null;
+      /** ISO local "YYYY-MM-DDT00:00:00"; see dataInicioAfastamento. */
+      dataFimAfastamento?: string | null;
+    },
+  ): Promise<{
+    success: boolean;
+    message: string;
+    validationErrors?: Array<{ property: string; message: string; data: unknown }>;
+  }> {
+    try {
+      // Strip data: URI prefix if present.
+      const fotoClean = body.foto ? body.foto.replace(/^data:[^,]+,/, '') : null;
+      const fullBody = {
+        data: body.data,
+        funcionarioId: body.funcionarioId,
+        solicitanteId: null,
+        justificativaId: body.justificativaId ?? null,
+        entrada1: body.entrada1 ?? null,
+        saida1: body.saida1 ?? null,
+        entrada2: body.entrada2 ?? null,
+        saida2: body.saida2 ?? null,
+        entrada3: body.entrada3 ?? null,
+        saida3: body.saida3 ?? null,
+        entrada4: body.entrada4 ?? null,
+        saida4: body.saida4 ?? null,
+        entrada5: body.entrada5 ?? null,
+        saida5: body.saida5 ?? null,
+        filtro1Id: null,
+        filtro2Id: null,
+        periculosidade: null,
+        versao: null,
+        tipo: body.tipo,
+        observacoes: body.observacoes ?? '',
+        dados: null,
+        foto: fotoClean,
+        temFoto: body.temFoto ?? !!fotoClean,
+        registroPendente: false,
+        existePeriodoEncerrado: false,
+        tipoAusencia: body.tipoAusencia ?? 0,
+        // Multi-day Período de Afastamento bounds. Schema confirmed via GET
+        // /Solicitacoes/{date} responses — Secullum always echoes these two
+        // fields (nullable), so on POST we either send the range or null.
+        dataInicioAfastamento: body.dataInicioAfastamento ?? null,
+        dataFimAfastamento: body.dataFimAfastamento ?? null,
+        dataSolicitacao: null,
+      };
+
+      this.logger.log(
+        `Creating Solicitação (funcionário) tipo=${body.tipo} data=${body.data} funcionarioId=${body.funcionarioId}`,
+      );
+
+      await this.makePontowebappRequest<void>('POST', '/Solicitacoes', auth, fullBody);
+
+      return { success: true, message: 'Solicitação enviada para aprovação' };
+    } catch (error: any) {
+      const errBody = error?.response?.data;
+      if (Array.isArray(errBody) && errBody.length > 0 && errBody[0]?.message) {
+        return {
+          success: false,
+          message: errBody[0].message,
+          validationErrors: errBody as Array<{
+            property: string;
+            message: string;
+            data: unknown;
+          }>,
+        };
+      }
+      this.logger.error('Error creating Solicitação (funcionário)', error);
+      return {
+        success: false,
+        message: `Falha ao enviar solicitação: ${this.getErrorMessage(error)}`,
+      };
+    }
+  }
+
+  /**
+   * GET /Batidas/Comprovante?axpw=<basic-auth-b64>&registroPendenciaId=<id>
+   *
+   * Returns the signed PDF receipt for an accepted inclusão. The `axpw` query
+   * parameter is the funcionário's Basic-auth credentials (same value used in
+   * the Authorization header), letting the PDF link be opened by a non-auth
+   * browser context (e.g. iOS Safari) without needing custom headers.
+   *
+   * We return the raw PDF buffer so the API can stream it back to the client.
+   */
+  async getComprovantePdfAsFuncionario(
+    auth: { usuario: string; senha: string },
+    registroPendenciaId: number,
+  ): Promise<{ buffer: Buffer; contentType: string }> {
+    const raw = `${auth.usuario}:${auth.senha}:0`;
+    const axpw = Buffer.from(raw, 'utf-8').toString('base64');
+    const data = await this.makePontowebappRequest<ArrayBuffer>(
+      'GET',
+      '/Batidas/Comprovante',
+      auth,
+      undefined,
+      { axpw, registroPendenciaId },
+      { responseType: 'arraybuffer' },
+    );
+    return {
+      buffer: Buffer.from(data),
+      contentType: 'application/pdf',
+    };
+  }
+
+  /**
+   * Builds the absolute Secullum comprovante URL (the same one native Secullum
+   * mobile opens in Safari) for opening in the system in-app browser. The
+   * `axpw` query string carries the funcionário's Basic-auth credentials so
+   * the receipt loads without a separate login step.
+   */
+  buildComprovanteUrl(
+    auth: { usuario: string; senha: string },
+    registroPendenciaId: number,
+  ): string {
+    const raw = `${auth.usuario}:${auth.senha}:0`;
+    const axpw = Buffer.from(raw, 'utf-8').toString('base64');
+    const base = this.pontowebappBaseUrl.replace(/\/$/, '');
+    const params = new URLSearchParams({
+      axpw,
+      registroPendenciaId: String(registroPendenciaId),
+    });
+    return `${base}/${this.customerId}/Batidas/Comprovante?${params.toString()}`;
+  }
+
+  /**
+   * GET /IncluirPonto — returns config the UI needs before letting the user
+   * include a ponto: server clock, photo-required flag, camera constraint,
+   * geofences, and the configured "atividades" (optional activity tags).
+   *
+   * Authenticated as the requesting *funcionário* (not admin). The server
+   * scopes the response to whoever owns the Basic-auth credentials.
+   */
+  async getInclusaoPontoConfig(
+    auth: { usuario: string; senha: string },
+  ): Promise<SecullumInclusaoPontoConfigResponse> {
+    try {
+      const data = await this.makePontowebappRequest<SecullumInclusaoPontoConfig>(
+        'GET',
+        '/IncluirPonto',
+        auth,
+      );
+      return { success: true, message: 'OK', data };
+    } catch (error) {
+      this.logger.error('Error fetching Inclusão Ponto config', error);
+      return {
+        success: false,
+        message: `Falha ao carregar configurações: ${this.getErrorMessage(error)}`,
+      };
+    }
+  }
+
+  /**
+   * GET /IncluirPonto/ListarUltimasPendenciasFuncionario/{funcionarioId}
+   * Returns up to the 10 most recent inclusão pendências for the employee.
+   * The mobile capture used "/0" (self sentinel); under admin OAuth we pass
+   * the actual funcionarioId.
+   *
+   * Status mapping (verified in capture): 0=Em processamento, 1=Aceita,
+   * 2=Rejeitada. fonteDadosId is populated only when status=1 and is the
+   * registroPendenciaId needed to fetch the PDF receipt (/Batidas/Comprovante).
+   */
+  async getInclusaoPontoPendencias(
+    auth: { usuario: string; senha: string },
+  ): Promise<SecullumInclusaoPontoPendenciasResponse> {
+    try {
+      // The mobile capture uses "/0" as a "self" sentinel — the Basic-auth
+      // credentials identify the funcionário, and "0" tells the server "fetch
+      // for the current user". Verified to return the requesting funcionário's
+      // last 10 pendências.
+      const data = await this.makePontowebappRequest<SecullumInclusaoPontoPendencia[]>(
+        'GET',
+        '/IncluirPonto/ListarUltimasPendenciasFuncionario/0',
+        auth,
+      );
+      return { success: true, message: 'OK', data: Array.isArray(data) ? data : [] };
+    } catch (error) {
+      this.logger.error('Error fetching Inclusão Ponto pendências', error);
+      return {
+        success: false,
+        message: `Falha ao carregar últimos registros: ${this.getErrorMessage(error)}`,
+      };
+    }
+  }
+
+  /**
+   * POST /IncluirPonto?funcionarioId=X — enqueues a ponto inclusion. The
+   * server uses its own clock (marcacaoOffline=false), enforces geofence and
+   * photo rules from the config endpoint, and returns 200 on enqueue. The
+   * client polls /ListarUltimasPendenciasFuncionario to learn the terminal
+   * status (Aceita / Rejeitada + motivoRejeicao).
+   */
+  async createInclusaoPonto(
+    auth: { usuario: string; senha: string },
+    secullumEmployeeId: number,
+    payload: SecullumCreateInclusaoPontoDto,
+  ): Promise<SecullumCreateInclusaoPontoResponse> {
+    try {
+      const fotoClean = payload.fotoBase64
+        ? payload.fotoBase64.replace(/^data:[^,]+,/, '')
+        : null;
+
+      const body = {
+        justificativa: payload.justificativa ?? null,
+        latitude: payload.latitude ?? null,
+        longitude: payload.longitude ?? null,
+        precisao: payload.precisao ?? null,
+        endereco: payload.endereco ?? null,
+        foto: fotoClean,
+        marcacaoOffline: payload.marcacaoOffline ?? false,
+        viaCentralWeb: false,
+        identificacaoDispositivo: payload.identificacaoDispositivo ?? '',
+        foraDoPerimetro: payload.foraDoPerimetro ?? false,
+        utilizaLocalizacaoFicticia: payload.utilizaLocalizacaoFicticia ?? false,
+        horaFoiModificada: payload.horaFoiModificada ?? false,
+        fusoFoiModificado: payload.fusoFoiModificado ?? false,
+        atividadeId: payload.atividadeId ?? null,
+      };
+
+      this.logger.log(
+        `Creating Inclusão Ponto funcionarioId=${secullumEmployeeId} foraDoPerimetro=${body.foraDoPerimetro} hasPhoto=${!!fotoClean} precisao=${body.precisao}`,
+      );
+
+      const data = await this.makePontowebappRequest<{ id?: number } | string | void>(
+        'POST',
+        '/IncluirPonto',
+        auth,
+        body,
+        { funcionarioId: secullumEmployeeId },
+      );
+
+      return {
+        success: true,
+        message: 'Inclusão de ponto efetuada com êxito',
+        data: typeof data === 'object' && data ? data : undefined,
+      };
+    } catch (error: any) {
+      const errBody = error?.response?.data;
+      if (Array.isArray(errBody) && errBody.length > 0 && errBody[0]?.message) {
+        return {
+          success: false,
+          message: errBody[0].message,
+          validationErrors: errBody as Array<{
+            property: string;
+            message: string;
+            data: unknown;
+          }>,
+        };
+      }
+      this.logger.error('Error creating Inclusão Ponto', error);
+      return {
+        success: false,
+        message: `Falha ao incluir ponto: ${this.getErrorMessage(error)}`,
+      };
+    }
+  }
+
+  /**
+   * Auth-free reverse geocoding via geolocalizacao.secullum.com.br/Reverse.
+   * Different host from the main API; no token or bank header required.
+   * Returns a human-readable address like "Rua do Jaboru, Londrina, Paraná, Brasil".
+   */
+  async reverseGeocode(
+    latitude: number,
+    longitude: number,
+  ): Promise<SecullumReverseGeocodeResponse> {
+    try {
+      const resp = await axios.get<{ endereco: string }>(
+        'https://geolocalizacao.secullum.com.br/Reverse',
+        {
+          params: { latitude, longitude },
+          timeout: 15000,
+          headers: { 'Accept-Language': 'pt-BR,pt;q=0.9' },
+        },
+      );
+      return { success: true, message: 'OK', data: resp.data };
+    } catch (error) {
+      this.logger.warn(
+        `Reverse geocode failed for ${latitude},${longitude}: ${this.getErrorMessage(error)}`,
+      );
+      return {
+        success: false,
+        message: 'Não foi possível obter o endereço',
       };
     }
   }

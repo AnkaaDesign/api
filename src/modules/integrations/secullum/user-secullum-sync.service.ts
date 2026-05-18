@@ -1,7 +1,10 @@
 import {
+  BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
+  NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
 import { EventEmitter } from 'events';
@@ -501,6 +504,79 @@ export class UserSecullumSyncService implements OnModuleInit {
     );
 
     return result;
+  }
+
+  /**
+   * Targeted link/unlink for a single Ankaa user ↔ Secullum Funcionario.Id.
+   * Used by the HR mapping page when an operator confirms a fuzzy match.
+   * Pass `funcionarioId = null` to unlink. Honors the unique constraint on
+   * `User.secullumEmployeeId` — surfaces a 409 if another user already owns
+   * the Funcionario.
+   */
+  async linkUserToFuncionario(
+    userId: string,
+    funcionarioId: number | null,
+  ): Promise<{
+    status: 'linked' | 'unlinked' | 'unchanged';
+    previousId: number | null;
+    funcionarioId: number | null;
+  }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, secullumEmployeeId: true },
+    });
+    if (!user) {
+      throw new NotFoundException(`Usuário ${userId} não encontrado`);
+    }
+
+    const previousId = user.secullumEmployeeId;
+
+    if (funcionarioId == null) {
+      if (previousId == null) {
+        return { status: 'unchanged', previousId: null, funcionarioId: null };
+      }
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { secullumEmployeeId: null },
+      });
+      this.logger.log(
+        `[secullum] user ${userId} (${user.name}) unlinked from Funcionario ${previousId}`,
+      );
+      return { status: 'unlinked', previousId, funcionarioId: null };
+    }
+
+    if (!Number.isFinite(funcionarioId) || funcionarioId <= 0) {
+      throw new BadRequestException(
+        `funcionarioId inválido: ${funcionarioId}`,
+      );
+    }
+
+    if (previousId === funcionarioId) {
+      return { status: 'unchanged', previousId, funcionarioId };
+    }
+
+    // Check the unique constraint up-front so we can return a descriptive
+    // error (which user already owns this Funcionario) instead of the raw
+    // Prisma P2002 surface.
+    const owner = await this.prisma.user.findUnique({
+      where: { secullumEmployeeId: funcionarioId },
+      select: { id: true, name: true },
+    });
+    if (owner && owner.id !== userId) {
+      throw new ConflictException(
+        `Funcionario ${funcionarioId} já está vinculado a ${owner.name}`,
+      );
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { secullumEmployeeId: funcionarioId },
+    });
+    this.logger.log(
+      `[secullum] user ${userId} (${user.name}) linked to Funcionario ${funcionarioId}` +
+        (previousId != null ? ` (was ${previousId})` : ''),
+    );
+    return { status: 'linked', previousId, funcionarioId };
   }
 
   // --------------------------------------------------------------------------

@@ -1,83 +1,48 @@
-import {
-  STOCK_LEVEL,
-  STOCK_CRITICAL_THRESHOLD,
-  STOCK_LOW_THRESHOLD,
-  STOCK_ACTIVE_ORDER_ADJUSTMENT,
-} from '@constants';
+// Single source of truth for the stock-level band classifier (spec §15).
+// TOOL items short-circuit to OPTIMAL/OUT_OF_STOCK. Active pending orders
+// surface as a UI overlay, not a threshold shift.
 
-/**
- * Determines the stock level based on quantity, reorder point, and active order status
- *
- * Updated thresholds:
- * - CRITICAL: quantity <= 50% of reorder point (half of safety stock consumed)
- * - LOW: quantity <= 100% of reorder point (at or below reorder trigger)
- * - OPTIMAL: above reorder point and below max quantity
- * - OVERSTOCKED: quantity > max quantity
- *
- * When hasActiveOrder is true, thresholds are adjusted by 1.5x to reduce urgency
- *
- * @param quantity Current stock quantity
- * @param reorderPoint Minimum stock level that triggers reorder (null if not configured)
- * @param maxQuantity Maximum stock level (null if not configured)
- * @param hasActiveOrder Whether there's an active order (status != CREATED)
- * @returns The appropriate stock level
- */
-export function determineStockLevel(
-  quantity: number,
-  reorderPoint: number | null,
-  maxQuantity: number | null,
-  hasActiveOrder: boolean,
-): STOCK_LEVEL {
-  // Validate input
-  if (!Number.isFinite(quantity)) {
-    // For invalid quantities, default to OPTIMAL to avoid false alerts
-    return STOCK_LEVEL.OPTIMAL;
+import { ITEM_CATEGORY_TYPE, STOCK_LEVEL } from '@/constants/enums';
+import { STOCK_LEVEL_LOW_MULTIPLIER } from '@/constants/inventory-config';
+
+export interface DetermineStockLevelInput {
+  quantity: number;
+  reorderPoint: number | null;
+  maxQuantity: number | null;
+  hasActiveOrder: boolean;
+  categoryType: ITEM_CATEGORY_TYPE | null;
+}
+
+/** Classifies an item's stock state per spec §15. Active orders do NOT shift
+ *  thresholds — the caller surfaces a "pedido em aberto" badge separately. */
+export function determineStockLevel(input: DetermineStockLevelInput): STOCK_LEVEL {
+  const { quantity, reorderPoint, maxQuantity, categoryType } = input;
+
+  if (!Number.isFinite(quantity)) return STOCK_LEVEL.OPTIMAL;
+
+  // TOOL short-circuit (spec §15.2).
+  if (categoryType === ITEM_CATEGORY_TYPE.TOOL) {
+    return quantity > 0 ? STOCK_LEVEL.OPTIMAL : STOCK_LEVEL.OUT_OF_STOCK;
   }
 
-  // Handle negative stock
-  if (quantity < 0) {
-    return STOCK_LEVEL.NEGATIVE_STOCK;
-  }
+  // Negative-stock / out-of-stock checks apply uniformly.
+  if (quantity < 0) return STOCK_LEVEL.NEGATIVE_STOCK;
+  if (quantity === 0) return STOCK_LEVEL.OUT_OF_STOCK;
 
-  // Handle zero stock
-  if (quantity === 0) {
-    return STOCK_LEVEL.OUT_OF_STOCK;
-  }
-
-  // If no reorder point is configured, we can't calculate thresholds
+  // Without a reorder point we can't classify anything below maxQuantity.
   if (reorderPoint === null) {
+    if (maxQuantity !== null && quantity > maxQuantity) return STOCK_LEVEL.OVERSTOCKED;
     return STOCK_LEVEL.OPTIMAL;
   }
 
-  // Adjust thresholds if there's an active order (less urgency)
-  const adjustmentFactor = hasActiveOrder ? STOCK_ACTIVE_ORDER_ADJUSTMENT : 1;
-  const adjustedCriticalThreshold = reorderPoint * STOCK_CRITICAL_THRESHOLD * adjustmentFactor;
-  const adjustedLowThreshold = reorderPoint * STOCK_LOW_THRESHOLD * adjustmentFactor;
-
-  // Check critical level: quantity at or below 50% of reorder point
-  if (quantity <= adjustedCriticalThreshold) {
-    return STOCK_LEVEL.CRITICAL;
-  }
-
-  // Check low level: quantity at or below reorder point
-  if (quantity <= adjustedLowThreshold) {
-    return STOCK_LEVEL.LOW;
-  }
-
-  // Check overstocked
-  if (maxQuantity !== null && quantity > maxQuantity) {
-    return STOCK_LEVEL.OVERSTOCKED;
-  }
-
-  // Otherwise, stock is optimal
+  if (quantity <= reorderPoint) return STOCK_LEVEL.CRITICAL;
+  if (quantity <= reorderPoint * STOCK_LEVEL_LOW_MULTIPLIER) return STOCK_LEVEL.LOW;
+  if (maxQuantity !== null && quantity > maxQuantity) return STOCK_LEVEL.OVERSTOCKED;
   return STOCK_LEVEL.OPTIMAL;
 }
 
-/**
- * Returns the Tailwind CSS color class for a given stock level
- * @param level The stock level
- * @returns Tailwind color class
- */
+// ===== Render-only helpers (kept on the API for parity / dashboard usage) =====
+
 export function getStockLevelColor(level: STOCK_LEVEL): string {
   switch (level) {
     case STOCK_LEVEL.NEGATIVE_STOCK:
@@ -97,11 +62,6 @@ export function getStockLevelColor(level: STOCK_LEVEL): string {
   }
 }
 
-/**
- * Returns only the text color class for a given stock level (without background)
- * @param level The stock level
- * @returns Tailwind text color class
- */
 export function getStockLevelTextColor(level: STOCK_LEVEL): string {
   switch (level) {
     case STOCK_LEVEL.NEGATIVE_STOCK:
@@ -121,44 +81,29 @@ export function getStockLevelTextColor(level: STOCK_LEVEL): string {
   }
 }
 
-/**
- * Returns icon information for a given stock level
- * @param level The stock level
- * @returns Object with icon name and rotation
- */
 export function getStockLevelIcon(level: STOCK_LEVEL): { name: string; rotation?: number } {
   switch (level) {
     case STOCK_LEVEL.NEGATIVE_STOCK:
-      return { name: 'exclamation-triangle', rotation: 0 };
+      return { name: 'exclamation-triangle' };
     case STOCK_LEVEL.OUT_OF_STOCK:
-      return { name: 'package-off', rotation: 0 };
+      return { name: 'package-off' };
     case STOCK_LEVEL.CRITICAL:
-      return { name: 'alert-circle', rotation: 0 };
+      return { name: 'alert-circle' };
     case STOCK_LEVEL.LOW:
-      return { name: 'trending-down', rotation: 0 };
+      return { name: 'trending-down' };
     case STOCK_LEVEL.OPTIMAL:
-      return { name: 'check-circle', rotation: 0 };
+      return { name: 'check-circle' };
     case STOCK_LEVEL.OVERSTOCKED:
-      return { name: 'trending-up', rotation: 0 };
+      return { name: 'trending-up' };
     default:
-      return { name: 'help-circle', rotation: 0 };
+      return { name: 'help-circle' };
   }
 }
 
-/**
- * Checks if the stock level is in a healthy state
- * @param level The stock level
- * @returns true if stock is healthy (OPTIMAL or OVERSTOCKED)
- */
 export function isStockHealthy(level: STOCK_LEVEL): boolean {
   return level === STOCK_LEVEL.OPTIMAL || level === STOCK_LEVEL.OVERSTOCKED;
 }
 
-/**
- * Gets the priority level based on stock level (for sorting or alerts)
- * @param level The stock level
- * @returns Priority number (lower is more urgent)
- */
 export function getStockLevelPriority(level: STOCK_LEVEL): number {
   switch (level) {
     case STOCK_LEVEL.NEGATIVE_STOCK:
@@ -178,13 +123,6 @@ export function getStockLevelPriority(level: STOCK_LEVEL): number {
   }
 }
 
-/**
- * Gets a descriptive message for the stock level
- * @param level The stock level
- * @param quantity The current quantity
- * @param reorderPoint The reorder point (if configured)
- * @returns A descriptive message in Portuguese
- */
 export function getStockLevelMessage(
   level: STOCK_LEVEL,
   quantity: number,
@@ -197,17 +135,17 @@ export function getStockLevelMessage(
       return 'Item sem estoque. Necessário reposição urgente.';
     case STOCK_LEVEL.CRITICAL:
       return reorderPoint !== null
-        ? `Estoque crítico. Quantidade (${quantity}) está em ou abaixo de 50% do ponto de pedido (${reorderPoint}).`
+        ? `Estoque crítico. Quantidade (${quantity}) está em ou abaixo do ponto de pedido (${reorderPoint}).`
         : `Estoque crítico com ${quantity} unidades.`;
     case STOCK_LEVEL.LOW:
       return reorderPoint !== null
-        ? `Estoque baixo. Quantidade (${quantity}) está em ou abaixo do ponto de pedido (${reorderPoint}).`
+        ? `Estoque baixo. Quantidade (${quantity}) está logo acima do ponto de pedido (${reorderPoint}).`
         : `Estoque baixo com ${quantity} unidades.`;
     case STOCK_LEVEL.OPTIMAL:
       return `Estoque em nível adequado com ${quantity} unidades.`;
     case STOCK_LEVEL.OVERSTOCKED:
       return `Excesso de estoque com ${quantity} unidades. Considere revisar os níveis máximos.`;
     default:
-      return `Nível de estoque desconhecido.`;
+      return 'Nível de estoque desconhecido.';
   }
 }

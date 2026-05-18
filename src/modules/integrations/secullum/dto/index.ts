@@ -953,3 +953,104 @@ export interface SecullumAbsenceDaysResponse {
   message: string;
   data?: SecullumAbsenceDayRow[];
 }
+
+// ============================================================================
+// Inclusão de Ponto — replicated from real Secullum mobile app capture
+// (2026-05-16, pontowebapp.secullum.com.br). Three upstream endpoints:
+//   GET  /IncluirPonto                                          → config
+//   GET  /IncluirPonto/ListarUltimasPendenciasFuncionario/{id}  → last 10
+//   POST /IncluirPonto?funcionarioId={id}                       → submit
+// Plus auth-free reverse geocoding at geolocalizacao.secullum.com.br/Reverse.
+// ============================================================================
+
+export interface SecullumInclusaoPontoPerimetro {
+  // Real shape unknown — empty list in our capture. Best-guess fields below
+  // mirror the typical "circular geofence" shape Secullum uses elsewhere. The
+  // mobile client only needs latitude/longitude/raio for the proximity check.
+  id?: number;
+  nome?: string;
+  latitude?: number;
+  longitude?: number;
+  raio?: number; // metres
+  [k: string]: unknown;
+}
+
+export interface SecullumInclusaoPontoAtividade {
+  id: number;
+  descricao: string;
+  descricaoAbreviada: string;
+}
+
+export interface SecullumInclusaoPontoConfig {
+  horaServidor: string; // ISO 8601 with TZ, e.g. "2026-05-16T11:40:19.9056094-03:00"
+  origemHorario: string; // "0" = server clock (only documented value)
+  justificativaAutomatica: boolean;
+  funcionarioAfastado: boolean;
+  exigirCapturaFotoPonto: boolean;
+  reconhecerFace: boolean;
+  tipoCameraCapturaFotoPonto: 0 | 1 | 2; // 0=any, 1=front-only, 2=rear-only
+  somentePerimetrosAutorizados: boolean;
+  perimetrosAutorizados: SecullumInclusaoPontoPerimetro[];
+  qualidadeVidaTrabalho?: {
+    id: number;
+    habilitado: boolean;
+    pergunta: string;
+    [k: string]: unknown;
+  };
+  atividades: SecullumInclusaoPontoAtividade[];
+}
+
+export interface SecullumInclusaoPontoConfigResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumInclusaoPontoConfig;
+}
+
+export interface SecullumInclusaoPontoPendencia {
+  id: number;
+  dataHora: string; // ISO 8601 local, no TZ (e.g. "2026-05-16T11:04:28.2536971")
+  latitude: number;
+  longitude: number;
+  precisao: number; // metres
+  endereco: string;
+  status: 0 | 1 | 2; // 0=Em processamento, 1=Aceita, 2=Rejeitada
+  motivoRejeicao: string | null;
+  foraDoPerimetro: boolean;
+  atividadeId: number | null;
+  fonteDadosId: number | null; // populated when accepted (status=1) — drives the comprovante link
+}
+
+export interface SecullumInclusaoPontoPendenciasResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumInclusaoPontoPendencia[];
+}
+
+export interface SecullumCreateInclusaoPontoDto {
+  justificativa?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  precisao?: number | null;
+  endereco?: string | null;
+  fotoBase64?: string | null; // raw base64 JPEG, no data: prefix
+  marcacaoOffline?: boolean;
+  identificacaoDispositivo?: string;
+  foraDoPerimetro?: boolean;
+  utilizaLocalizacaoFicticia?: boolean;
+  horaFoiModificada?: boolean;
+  fusoFoiModificado?: boolean;
+  atividadeId?: number | null;
+}
+
+export interface SecullumCreateInclusaoPontoResponse {
+  success: boolean;
+  message: string;
+  validationErrors?: Array<{ property: string; message: string; data: unknown }>;
+  data?: { id?: number };
+}
+
+export interface SecullumReverseGeocodeResponse {
+  success: boolean;
+  message: string;
+  data?: { endereco: string };
+}

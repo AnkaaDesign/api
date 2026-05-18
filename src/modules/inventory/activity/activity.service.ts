@@ -48,20 +48,25 @@ import {
   ACTIVE_USER_STATUSES,
 } from '../../../constants/enums';
 import {
-  CONSUMPTION_ACTIVITY_REASONS,
+  REGULAR_CONSUMPTION_REASONS,
   CONSUMPTION_LOOKBACK_MONTHS,
-  CONSUMPTION_DECAY_HALF_LIFE_MONTHS,
   BALANCE_DISTRIBUTION_ENABLED,
   BALANCE_DISTRIBUTION_DEFAULT_MONTHS,
-  MAX_STOCK_MONTHS,
-  getSeasonalFactor,
+  DEFAULT_LEAD_TIME_DAYS,
 } from '../../../constants/inventory-config';
+import {
+  CONSUMPTION_DECAY_HALF_LIFE_MONTHS,
+  getSeasonalFactor,
+} from '../../../constants/seasonality-config';
+import { getWorkingDaysInMonth } from '../../../constants/working-days-config';
 import { getStatusOrder } from '../../../utils/order';
 import {
   calculateMonthlyConsumption,
   calculateConsumptionTrend,
-  calculateSuggestedQuantities,
-  normalizeConsumptionByWorkingDays,
+  calculateReorderPoint,
+  calculateMaxQuantity,
+  resolveSafetyTargetCell,
+  normalizeToWorkdays,
 } from '../../../utils';
 import { EXTERNAL_WITHDRAWAL_STATUS_ORDER } from '../../../constants/sortOrders';
 import { OrderItemEnteredInventoryEvent } from '../order/order.events';
@@ -1513,7 +1518,7 @@ export class ActivityService {
 
       // Separate consumption vs adjustment activities
       const consumptionActivities = allActivities.filter(a =>
-        CONSUMPTION_ACTIVITY_REASONS.includes(a.reason as any),
+        REGULAR_CONSUMPTION_REASONS.includes(a.reason as any),
       );
       const inventoryCountActivities = allActivities.filter(
         a => a.reason === ACTIVITY_REASON.INVENTORY_COUNT,
@@ -1584,11 +1589,8 @@ export class ActivityService {
         const [year, month] = monthKey.split('-').map(Number);
 
         // Normalize by working days (handles vacation periods)
-        const normalizedConsumption = normalizeConsumptionByWorkingDays(
-          rawConsumption,
-          month,
-          year,
-        );
+        const actualWorkdays = getWorkingDaysInMonth(month, year);
+        const normalizedConsumption = normalizeToWorkdays(rawConsumption, actualWorkdays);
 
         const monthsDiff = (currentYear - year) * 12 + (currentMonth - month);
         const weight = Math.pow(0.5, monthsDiff / CONSUMPTION_DECAY_HALF_LIFE_MONTHS);
@@ -1692,7 +1694,7 @@ export class ActivityService {
     if (
       operation === ACTIVITY_OPERATION.OUTBOUND &&
       data?.reason &&
-      CONSUMPTION_ACTIVITY_REASONS.includes(data.reason as any)
+      REGULAR_CONSUMPTION_REASONS.includes(data.reason as any)
     ) {
       updateData.lastUsedAt = new Date();
     }
@@ -2146,43 +2148,75 @@ export class ActivityService {
         },
       })) as any as import('@types').Activity[];
 
-      // Calculate monthly consumption
-      const monthlyConsumption = calculateMonthlyConsumption(activities, lookbackDays);
-
-      // Skip update if there's no meaningful consumption data
-      if (monthlyConsumption === 0 || activities.length < 5) {
-        return;
-      }
-
-      // Get the item's current data
+      // Get the item's current data (include category for new engine routing)
       const item = await tx.item.findUnique({
         where: { id: itemId },
+        include: { category: true },
       });
 
       if (!item) {
         return;
       }
 
-      // Calculate consumption trend
-      const consumptionTrend = calculateConsumptionTrend(activities, lookbackDays);
+      // Calculate monthly consumption
+      const now = new Date();
+      const { monthlyConsumption } = calculateMonthlyConsumption({
+        item: item as any,
+        activities: activities as any,
+        now,
+      });
 
-      // Calculate suggested quantities (max capped at 6 months of consumption)
-      const leadTime = item.estimatedLeadTime || 30;
-      const safetyStockDays = 7;
-      const suggested = calculateSuggestedQuantities(
-        monthlyConsumption,
-        leadTime,
-        safetyStockDays,
-        consumptionTrend,
-      );
-
-      // Only update maxQuantity if not manually set and differs significantly
-      if (item.isManualMaxQuantity) {
+      // Skip update if there's no meaningful consumption data
+      if (monthlyConsumption === 0 || activities.length < 5) {
         return;
       }
 
+      // Build per-month consumption history for trend
+      const byMonth = new Map<string, { year: number; month: number; consumption: number }>();
+      for (const a of activities) {
+        if (a.operation !== ACTIVITY_OPERATION.OUTBOUND) continue;
+        if (!REGULAR_CONSUMPTION_REASONS.includes(a.reason as any)) continue;
+        const d = new Date(a.createdAt);
+        const y = d.getFullYear();
+        const m = d.getMonth();
+        const key = `${y}-${m}`;
+        const entry = byMonth.get(key) ?? { year: y, month: m, consumption: 0 };
+        entry.consumption += a.quantity;
+        byMonth.set(key, entry);
+      }
+      const monthlyHistory = Array.from(byMonth.values()).sort(
+        (a, b) => a.year - b.year || a.month - b.month,
+      );
+
+      // Calculate consumption trend (currently unused downstream, kept for parity)
+      void calculateConsumptionTrend(monthlyHistory);
+
+      // Compute reorder point and max quantity via the new engine
+      const leadTime = item.estimatedLeadTime || DEFAULT_LEAD_TIME_DAYS;
+      const itemForCell = item as any;
+      const cell = resolveSafetyTargetCell(
+        itemForCell.abcCategory,
+        itemForCell.xyzCategory,
+        itemForCell.ordersLast12Months,
+      );
+      const reorderPoint = calculateReorderPoint({
+        item: item as any,
+        monthlyConsumption,
+        leadTimeDays: leadTime,
+        safetyFactor: cell.safetyFactor,
+        now,
+      });
+      const newMaxQuantity = calculateMaxQuantity({
+        item: item as any,
+        monthlyConsumption,
+        leadTimeDays: leadTime,
+        reorderPoint,
+        targetStockDays: cell.targetStockDays,
+        now,
+      });
+
       const maxDifference = Math.abs(
-        (suggested.max - (item.maxQuantity || 0)) / (item.maxQuantity || 1),
+        (newMaxQuantity - (item.maxQuantity || 0)) / (item.maxQuantity || 1),
       );
 
       // Update if difference is more than 10%
@@ -2192,19 +2226,19 @@ export class ActivityService {
         await tx.item.update({
           where: { id: itemId },
           data: {
-            maxQuantity: suggested.max,
+            maxQuantity: newMaxQuantity,
           },
         });
 
-        if (oldMaxQuantity !== suggested.max) {
+        if (oldMaxQuantity !== newMaxQuantity) {
           await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.ITEM,
             entityId: itemId,
             action: CHANGE_ACTION.UPDATE,
             field: 'maxQuantity',
             oldValue: oldMaxQuantity,
-            newValue: suggested.max,
-            reason: `Quantidade máxima atualizada automaticamente (máx ${MAX_STOCK_MONTHS} meses de consumo: ${monthlyConsumption.toFixed(2)} un/mês)`,
+            newValue: newMaxQuantity,
+            reason: `Quantidade máxima atualizada automaticamente (${cell.targetStockDays} dias de estoque-alvo: ${monthlyConsumption.toFixed(2)} un/mês)`,
             triggeredBy: CHANGE_TRIGGERED_BY.AUTOMATIC_MIN_MAX_UPDATE,
             triggeredById: itemId,
             userId: userId || null,

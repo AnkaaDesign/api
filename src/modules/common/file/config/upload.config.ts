@@ -86,6 +86,12 @@ export const UPLOAD_CONFIG = {
     'application/eps',
     'image/eps',
     'image/x-eps',
+
+    // Bank reconciliation: OFX bank statements and NF-e XMLs
+    'application/x-ofx',
+    'application/vnd.intu.qfx',
+    'application/xml',
+    'text/xml',
   ],
 
   // File extensions to MIME type mapping for validation
@@ -143,6 +149,11 @@ export const UPLOAD_CONFIG = {
     // CAD and cut files
     '.dxf': 'application/dxf',
     '.cdr': 'application/vnd.corel-draw',
+
+    // Bank reconciliation
+    '.ofx': 'application/x-ofx',
+    '.qfx': 'application/vnd.intu.qfx',
+    '.xml': 'application/xml',
   },
 };
 

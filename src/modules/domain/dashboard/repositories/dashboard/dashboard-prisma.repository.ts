@@ -25,6 +25,7 @@ import {
 import {
   ACTIVITY_OPERATION,
   ACTIVITY_REASON,
+  ITEM_CATEGORY_TYPE,
   ORDER_STATUS,
   STOCK_LEVEL,
   TASK_STATUS,
@@ -47,6 +48,7 @@ import {
   PAINT_BRAND_LABELS,
   TRUCK_MANUFACTURER_LABELS,
 } from '../../../../../constants/enum-labels';
+import { determineStockLevel } from '../../../../../utils/stock-level';
 
 @Injectable()
 export class DashboardPrismaRepository implements DashboardRepository {
@@ -96,68 +98,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return this.prisma.item.count({ where });
   }
 
-  /**
-   * Determines the stock level based on quantity, reorder point, and active order status
-   * This logic matches the frontend determineStockLevel function in web/src/utils/stock-level.ts
-   *
-   * Thresholds:
-   * - CRITICAL: quantity <= 90% of reorder point
-   * - LOW: 90% < quantity <= 110% of reorder point
-   * - OPTIMAL: 110% < quantity <= max quantity (or no max)
-   * - OVERSTOCKED: quantity > max quantity
-   *
-   * When hasActiveOrder is true, thresholds are adjusted by 1.5x to reduce urgency
-   */
-  private determineStockLevel(
-    quantity: number,
-    reorderPoint: number | null,
-    maxQuantity: number | null,
-    hasActiveOrder: boolean,
-  ): STOCK_LEVEL {
-    // Validate input
-    if (!Number.isFinite(quantity)) {
-      return STOCK_LEVEL.OPTIMAL;
-    }
-
-    // Handle negative stock
-    if (quantity < 0) {
-      return STOCK_LEVEL.NEGATIVE_STOCK;
-    }
-
-    // Handle zero stock
-    if (quantity === 0) {
-      return STOCK_LEVEL.OUT_OF_STOCK;
-    }
-
-    // If no reorder point is configured, we can't calculate thresholds
-    if (reorderPoint === null) {
-      return STOCK_LEVEL.OPTIMAL;
-    }
-
-    // Adjust thresholds if there's an active order (less urgency)
-    const adjustmentFactor = hasActiveOrder ? 1.5 : 1;
-    const adjustedCriticalThreshold = reorderPoint * 0.9 * adjustmentFactor;
-    const adjustedLowThreshold = reorderPoint * 1.1 * adjustmentFactor;
-
-    // Check critical level (inclusive boundary)
-    if (quantity <= adjustedCriticalThreshold) {
-      return STOCK_LEVEL.CRITICAL;
-    }
-
-    // Check low level (inclusive boundary)
-    if (quantity <= adjustedLowThreshold) {
-      return STOCK_LEVEL.LOW;
-    }
-
-    // Check overstocked
-    if (maxQuantity !== null && quantity > maxQuantity) {
-      return STOCK_LEVEL.OVERSTOCKED;
-    }
-
-    // Otherwise, stock is optimal
-    return STOCK_LEVEL.OPTIMAL;
-  }
-
   async getItemStatistics(where?: any): Promise<{
     totalValue: number;
     negativeStockItems: number;
@@ -174,6 +114,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         quantity: true,
         maxQuantity: true,
         reorderPoint: true,
+        category: { select: { type: true } },
         prices: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -219,12 +160,13 @@ export class DashboardPrismaRepository implements DashboardRepository {
         ) || false;
 
       // Determine stock level using the unified algorithm
-      const stockLevel = this.determineStockLevel(
-        item.quantity,
-        item.reorderPoint,
-        item.maxQuantity,
+      const stockLevel = determineStockLevel({
+        quantity: item.quantity,
+        reorderPoint: item.reorderPoint,
+        maxQuantity: item.maxQuantity,
         hasActiveOrder,
-      );
+        categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+      });
 
       // Count items by stock level
       switch (stockLevel) {

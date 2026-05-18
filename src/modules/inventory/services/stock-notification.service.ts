@@ -1,66 +1,46 @@
-// apps/api/src/modules/inventory/services/stock-notification.service.ts
+// Stock-event notifications (algorithm-spec §9 + services-spec §A).
+// Aggregates threshold crossings per supplier into a single dispatch, with a
+// DB-backed 24h cooldown (NotificationCooldown table) so a single supplier
+// receives at most one notification per event-type per day. TOOL items are
+// excluded except for OUT_OF_STOCK transitions. OVERSTOCKED is IN_APP only.
 
 import { Injectable, Logger } from '@nestjs/common';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { DeepLinkService, DeepLinkEntity } from '@modules/common/notification/deep-link.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { NOTIFICATION_IMPORTANCE, STOCK_LEVEL, SECTOR_PRIVILEGES } from '../../../constants/enums';
+import {
+  ITEM_CATEGORY_TYPE,
+  NOTIFICATION_IMPORTANCE,
+  SECTOR_PRIVILEGES,
+  STOCK_LEVEL,
+} from '../../../constants/enums';
 import { StockCalculationResult } from './atomic-stock-calculator.service';
 import { PrismaTransaction } from '../activity/repositories/activity.repository';
 
-/**
- * Stock event types for notifications
- */
 export enum STOCK_EVENT_TYPE {
   LOW = 'low',
   CRITICAL = 'critical',
   OUT_OF_STOCK = 'out',
+  OVERSTOCKED = 'overstocked',
   REPLENISHED = 'restock',
 }
 
-/**
- * Interface for stock notification metadata
- */
-export interface StockNotificationMetadata {
+const COOLDOWN_TTL_MS = 24 * 60 * 60 * 1000;
+
+interface StockEventItem {
   itemId: string;
   itemName: string;
   itemCode: string | null;
-  currentQuantity: number;
+  quantity: number;
   previousQuantity: number;
   reorderPoint: number | null;
-  criticalThreshold: number | null;
-  lowThreshold: number | null;
-  stockLevel: STOCK_LEVEL;
-  warehouse: string | null;
-  category: string | null;
-  brand: string | null;
   eventType: STOCK_EVENT_TYPE;
-  triggeredAt: Date;
+  categoryType: ITEM_CATEGORY_TYPE | null;
 }
 
-/**
- * Service responsible for creating and managing stock-related notifications
- *
- * This service integrates with the NotificationService to send alerts to users
- * with ADMIN and WAREHOUSE privileges when stock events occur.
- *
- * Features:
- * - Threshold-based notifications (low, critical, out of stock, replenished)
- * - Smart deduplication to avoid notification spam
- * - Rich metadata including product details and deep links
- * - Role-based targeting (ADMIN, WAREHOUSE)
- * - User preference support (OPTIONAL notifications)
- */
 @Injectable()
 export class StockNotificationService {
   private readonly logger = new Logger(StockNotificationService.name);
-
-  // Cache to track recent notifications and prevent spam
-  // Key: itemId-eventType, Value: timestamp
-  private notificationCache = new Map<string, number>();
-
-  // Cooldown period in milliseconds (5 minutes)
-  private readonly NOTIFICATION_COOLDOWN = 5 * 60 * 1000;
 
   constructor(
     private readonly dispatchService: NotificationDispatchService,
@@ -68,456 +48,267 @@ export class StockNotificationService {
     private readonly prisma: PrismaService,
   ) {}
 
-  /**
-   * Process stock calculations and trigger notifications for threshold events
-   * This is the main entry point called from AtomicStockUpdateService
-   *
-   * @param calculations - Array of stock calculation results
-   * @param tx - Prisma transaction
-   * @returns Number of notifications created
-   */
+  /** Main entry from AtomicStockUpdateService. Groups events per supplier and
+   *  fires at most one aggregated dispatch per (supplier, event-type) per 24h. */
   async processStockNotifications(
     calculations: StockCalculationResult[],
     tx: PrismaTransaction,
   ): Promise<number> {
-    let notificationsCreated = 0;
+    // Hydrate calculations with supplier + category so we can group.
+    const eligible = await this.hydrateAndFilter(calculations, tx);
+    if (eligible.length === 0) return 0;
 
-    for (const calculation of calculations) {
-      try {
-        const created = await this.checkAndNotify(calculation, tx);
-        if (created) {
-          notificationsCreated++;
-        }
-      } catch (error) {
-        this.logger.error(
-          `Error processing notification for item ${calculation.itemId}: ${error.message}`,
-          error,
-        );
-        // Continue processing other items even if one fails
+    // Group by (supplierId, eventType). null supplier collapses to "unassigned".
+    const buckets = new Map<string, { supplierId: string | null; eventType: STOCK_EVENT_TYPE; items: StockEventItem[] }>();
+    for (const ev of eligible) {
+      const key = `${ev.supplierId ?? 'unassigned'}|${ev.eventType}`;
+      const entry = buckets.get(key) ?? { supplierId: ev.supplierId, eventType: ev.eventType, items: [] };
+      entry.items.push(ev);
+      buckets.set(key, entry);
+    }
+
+    let dispatched = 0;
+    for (const bucket of buckets.values()) {
+      const cooldownKey = `supplier:${bucket.supplierId ?? 'unassigned'}:event:${bucket.eventType}`;
+      if (await this.isOnCooldown(cooldownKey, tx)) {
+        this.logger.debug(`Skipping ${cooldownKey} (24h cooldown active)`);
+        continue;
       }
+      await this.dispatchBucket(bucket, tx);
+      await this.markCooldown(cooldownKey, tx);
+      dispatched++;
     }
 
-    this.logger.log(`Created ${notificationsCreated} stock notifications`);
-    return notificationsCreated;
+    this.logger.log(`Dispatched ${dispatched} stock notification bucket(s)`);
+    return dispatched;
   }
 
-  /**
-   * Check stock level and create notification if threshold is crossed
-   * Implements smart deduplication to prevent notification spam
-   *
-   * @param calculation - Stock calculation result
-   * @param tx - Prisma transaction
-   * @returns true if notification was created
-   */
-  private async checkAndNotify(
-    calculation: StockCalculationResult,
+  // ===== Hydration + filtering =====
+
+  private async hydrateAndFilter(
+    calculations: StockCalculationResult[],
     tx: PrismaTransaction,
-  ): Promise<boolean> {
-    // Determine if we need to notify based on stock level
-    const eventType = this.determineEventType(calculation);
+  ): Promise<Array<StockEventItem & { supplierId: string | null }>> {
+    const candidates = calculations
+      .map(c => ({ calc: c, eventType: this.determineEventType(c) }))
+      .filter((x): x is { calc: StockCalculationResult; eventType: STOCK_EVENT_TYPE } => x.eventType !== null);
+    if (candidates.length === 0) return [];
 
-    if (!eventType) {
-      // Stock level is healthy, no notification needed
-      return false;
+    const items = await tx.item.findMany({
+      where: { id: { in: candidates.map(c => c.calc.itemId) } },
+      select: {
+        id: true,
+        name: true,
+        uniCode: true,
+        supplierId: true,
+        category: { select: { type: true } },
+      },
+    });
+    const itemMap = new Map(items.map(i => [i.id, i]));
+
+    const out: Array<StockEventItem & { supplierId: string | null }> = [];
+    for (const { calc, eventType } of candidates) {
+      const item = itemMap.get(calc.itemId);
+      if (!item) continue;
+      const categoryType = (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null;
+
+      // TOOL carve-out (spec §9): only OUT_OF_STOCK is allowed through.
+      if (categoryType === ITEM_CATEGORY_TYPE.TOOL && eventType !== STOCK_EVENT_TYPE.OUT_OF_STOCK) {
+        continue;
+      }
+
+      out.push({
+        itemId: calc.itemId,
+        itemName: calc.itemName,
+        itemCode: item.uniCode ?? null,
+        quantity: calc.finalQuantity,
+        previousQuantity: calc.currentQuantity,
+        reorderPoint: calc.reorderPoint,
+        eventType,
+        categoryType,
+        supplierId: item.supplierId ?? null,
+      });
     }
-
-    // Check if we recently sent this notification (deduplication)
-    if (this.isRecentlyNotified(calculation.itemId, eventType)) {
-      this.logger.debug(
-        `Skipping notification for item ${calculation.itemId} - ${eventType}: recently notified`,
-      );
-      return false;
-    }
-
-    // Get full item details for rich notification
-    const item = await this.getItemDetails(calculation.itemId, tx);
-
-    if (!item) {
-      this.logger.warn(`Item ${calculation.itemId} not found for notification`);
-      return false;
-    }
-
-    // Build notification metadata
-    const metadata = this.buildMetadata(calculation, item, eventType);
-
-    // Create notification for users with ADMIN or WAREHOUSE roles
-    await this.createStockNotification(metadata, tx);
-
-    // Update cache to prevent spam
-    this.updateNotificationCache(calculation.itemId, eventType);
-
-    return true;
+    return out;
   }
 
-  /**
-   * Determine the event type based on stock level change
-   * Returns null if no notification is needed
-   *
-   * Logic:
-   * - OUT_OF_STOCK: quantity is 0
-   * - CRITICAL: stock level is CRITICAL
-   * - LOW: stock level is LOW
-   * - REPLENISHED: stock was low/critical and is now optimal
-   *
-   * @param calculation - Stock calculation result
-   * @returns Event type or null
-   */
-  private determineEventType(calculation: StockCalculationResult): STOCK_EVENT_TYPE | null {
-    const { stockLevel, finalQuantity, currentQuantity } = calculation;
+  private determineEventType(calc: StockCalculationResult): STOCK_EVENT_TYPE | null {
+    const { stockLevel, finalQuantity, currentQuantity, reorderPoint } = calc;
 
-    // Out of stock
-    if (finalQuantity === 0 && currentQuantity > 0) {
-      return STOCK_EVENT_TYPE.OUT_OF_STOCK;
-    }
-
-    // Critical level
-    if (stockLevel === STOCK_LEVEL.CRITICAL) {
-      return STOCK_EVENT_TYPE.CRITICAL;
-    }
-
-    // Low level
-    if (stockLevel === STOCK_LEVEL.LOW) {
-      return STOCK_EVENT_TYPE.LOW;
-    }
-
-    // Replenished: was low/critical, now optimal
+    if (finalQuantity === 0 && currentQuantity > 0) return STOCK_EVENT_TYPE.OUT_OF_STOCK;
+    if (stockLevel === STOCK_LEVEL.CRITICAL) return STOCK_EVENT_TYPE.CRITICAL;
+    if (stockLevel === STOCK_LEVEL.LOW) return STOCK_EVENT_TYPE.LOW;
+    if (stockLevel === STOCK_LEVEL.OVERSTOCKED) return STOCK_EVENT_TYPE.OVERSTOCKED;
     if (
-      finalQuantity > currentQuantity &&
       stockLevel === STOCK_LEVEL.OPTIMAL &&
-      calculation.reorderPoint &&
-      currentQuantity < calculation.reorderPoint
+      finalQuantity > currentQuantity &&
+      reorderPoint != null &&
+      currentQuantity < reorderPoint
     ) {
       return STOCK_EVENT_TYPE.REPLENISHED;
     }
-
     return null;
   }
 
-  /**
-   * Check if we recently sent a notification for this item and event type
-   * Prevents notification spam by enforcing a cooldown period
-   *
-   * @param itemId - Item ID
-   * @param eventType - Event type
-   * @returns true if recently notified
-   */
-  private isRecentlyNotified(itemId: string, eventType: STOCK_EVENT_TYPE): boolean {
-    const cacheKey = `${itemId}-${eventType}`;
-    const lastNotified = this.notificationCache.get(cacheKey);
+  // ===== Cooldown (DB-backed, 24h TTL) =====
 
-    if (!lastNotified) {
-      return false;
-    }
-
-    const timeSinceLastNotification = Date.now() - lastNotified;
-    return timeSinceLastNotification < this.NOTIFICATION_COOLDOWN;
+  private async isOnCooldown(cooldownKey: string, tx: PrismaTransaction): Promise<boolean> {
+    const row = await tx.notificationCooldown.findUnique({ where: { cooldownKey } });
+    if (!row) return false;
+    const elapsed = Date.now() - row.lastSentAt.getTime();
+    return elapsed < COOLDOWN_TTL_MS;
   }
 
-  /**
-   * Update notification cache with current timestamp
-   *
-   * @param itemId - Item ID
-   * @param eventType - Event type
-   */
-  private updateNotificationCache(itemId: string, eventType: STOCK_EVENT_TYPE): void {
-    const cacheKey = `${itemId}-${eventType}`;
-    this.notificationCache.set(cacheKey, Date.now());
-
-    // Clean up old cache entries (older than 1 hour)
-    this.cleanupCache();
-  }
-
-  /**
-   * Clean up old cache entries to prevent memory leaks
-   */
-  private cleanupCache(): void {
-    const now = Date.now();
-    const maxAge = 60 * 60 * 1000; // 1 hour
-
-    for (const [key, timestamp] of this.notificationCache.entries()) {
-      if (now - timestamp > maxAge) {
-        this.notificationCache.delete(key);
-      }
-    }
-  }
-
-  /**
-   * Get full item details including relations
-   *
-   * @param itemId - Item ID
-   * @param tx - Prisma transaction
-   * @returns Item with relations or null
-   */
-  private async getItemDetails(itemId: string, tx: PrismaTransaction) {
-    return tx.item.findUnique({
-      where: { id: itemId },
-      include: {
-        brand: { select: { name: true } },
-        category: { select: { name: true } },
-      },
+  private async markCooldown(cooldownKey: string, tx: PrismaTransaction): Promise<void> {
+    const now = new Date();
+    await tx.notificationCooldown.upsert({
+      where: { cooldownKey },
+      create: { cooldownKey, lastSentAt: now },
+      update: { lastSentAt: now },
     });
   }
 
-  /**
-   * Build notification metadata with all relevant information
-   *
-   * @param calculation - Stock calculation result
-   * @param item - Full item details
-   * @param eventType - Event type
-   * @returns Notification metadata
-   */
-  private buildMetadata(
-    calculation: StockCalculationResult,
-    item: any,
-    eventType: STOCK_EVENT_TYPE,
-  ): StockNotificationMetadata {
-    // Calculate thresholds
-    const criticalThreshold = calculation.reorderPoint ? calculation.reorderPoint * 0.9 : null;
-    const lowThreshold = calculation.reorderPoint ? calculation.reorderPoint * 1.1 : null;
+  // ===== Dispatch =====
 
-    return {
-      itemId: calculation.itemId,
-      itemName: calculation.itemName,
-      itemCode: item.code || null,
-      currentQuantity: calculation.finalQuantity,
-      previousQuantity: calculation.currentQuantity,
-      reorderPoint: calculation.reorderPoint,
-      criticalThreshold,
-      lowThreshold,
-      stockLevel: calculation.stockLevel,
-      warehouse: item.warehouse?.name || null,
-      category: item.category?.name || null,
-      brand: item.brand?.name || null,
-      eventType,
-      triggeredAt: new Date(),
-    };
-  }
-
-  /**
-   * Create stock notification and send to users with appropriate privileges
-   *
-   * Creates notifications for users with:
-   * - ADMIN role
-   * - WAREHOUSE role
-   *
-   * These are OPTIONAL notifications (users can disable them in preferences)
-   *
-   * @param metadata - Notification metadata
-   * @param tx - Prisma transaction
-   */
-  private async createStockNotification(
-    metadata: StockNotificationMetadata,
+  private async dispatchBucket(
+    bucket: { supplierId: string | null; eventType: STOCK_EVENT_TYPE; items: StockEventItem[] },
     tx: PrismaTransaction,
   ): Promise<void> {
-    // Get all users with ADMIN or WAREHOUSE privileges
-    const targetUsers = await this.getTargetUsers(tx);
-
-    if (targetUsers.length === 0) {
-      this.logger.warn('No ADMIN or WAREHOUSE users found for stock notification');
-      return;
-    }
-
-    this.logger.log(
-      `Creating stock notification for ${targetUsers.length} users (event: ${metadata.eventType})`,
-    );
-
-    // Use configuration-based dispatch instead of direct notification creation
-    const configKeyMap: Record<string, string> = {
-      [STOCK_EVENT_TYPE.LOW]: 'item.low_stock',
-      [STOCK_EVENT_TYPE.CRITICAL]: 'item.low_stock',
-      [STOCK_EVENT_TYPE.OUT_OF_STOCK]: 'item.out_of_stock',
-      [STOCK_EVENT_TYPE.REPLENISHED]: 'item.reorder_required',
-    };
-    const configKey = configKeyMap[metadata.eventType] || 'item.low_stock';
+    const supplierName = await this.resolveSupplierName(bucket.supplierId, tx);
+    const configKey = this.resolveConfigKey(bucket.eventType);
+    const { title, body } = this.buildContent(bucket.eventType, supplierName, bucket.items);
+    const importance = this.resolveImportance(bucket.eventType);
 
     try {
       await this.dispatchService.dispatchByConfiguration(configKey, 'system', {
-        entityType: 'Item',
-        entityId: metadata.itemId,
-        action: metadata.eventType,
-        data: metadata as any,
+        entityType: 'Supplier',
+        entityId: bucket.supplierId ?? 'unassigned',
+        action: bucket.eventType,
+        data: {
+          supplierId: bucket.supplierId,
+          supplierName,
+          eventType: bucket.eventType,
+          importance,
+          title,
+          body,
+          items: bucket.items.map(i => ({
+            itemId: i.itemId,
+            itemName: i.itemName,
+            itemCode: i.itemCode,
+            quantity: i.quantity,
+            previousQuantity: i.previousQuantity,
+            reorderPoint: i.reorderPoint,
+            categoryType: i.categoryType,
+            deepLink: this.deepLinkService.generateNotificationActionUrl(
+              DeepLinkEntity.Item,
+              i.itemId,
+            ),
+          })),
+          // OVERSTOCKED is IN_APP only (spec §9): the dispatcher reads this
+          // flag and skips push channels.
+          channels: bucket.eventType === STOCK_EVENT_TYPE.OVERSTOCKED ? ['IN_APP'] : null,
+          triggeredAt: new Date().toISOString(),
+        } as any,
       });
-
-      this.logger.log(
-        `Dispatched stock notification via config "${configKey}" for item ${metadata.itemName}`,
-      );
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(
-        `Failed to dispatch stock notification via config "${configKey}": ${error.message}`,
+        `Failed to dispatch ${configKey} for supplier ${bucket.supplierId}: ${error.message}`,
         error,
       );
     }
   }
 
-  /**
-   * Get users with ADMIN or WAREHOUSE privileges
-   * Only returns active users
-   *
-   * @param tx - Prisma transaction
-   * @returns Array of users
-   */
-  private async getTargetUsers(tx: PrismaTransaction) {
-    return tx.user.findMany({
-      where: {
-        isActive: true,
-        status: { not: 'DISMISSED' },
-        OR: [
-          {
-            sector: {
-              privileges: {
-                in: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.WAREHOUSE],
-              },
-            },
-          },
-        ],
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-      },
+  private async resolveSupplierName(
+    supplierId: string | null,
+    tx: PrismaTransaction,
+  ): Promise<string> {
+    if (!supplierId) return 'Sem fornecedor';
+    const supplier = await tx.supplier.findUnique({
+      where: { id: supplierId },
+      select: { fantasyName: true },
     });
+    return supplier?.fantasyName ?? 'Fornecedor';
   }
 
-  /**
-   * Build notification title and body based on event type and metadata
-   *
-   * @param metadata - Notification metadata
-   * @returns Title and body text
-   */
-  private buildNotificationContent(metadata: StockNotificationMetadata): {
-    title: string;
-    body: string;
-  } {
-    const itemInfo = metadata.itemCode
-      ? `${metadata.itemName} (${metadata.itemCode})`
-      : metadata.itemName;
-
-    const warehouseInfo = metadata.warehouse ? ` em ${metadata.warehouse}` : '';
-    const reorderInfo = metadata.reorderPoint
-      ? ` (Ponto de reposição: ${metadata.reorderPoint})`
-      : '';
-
-    switch (metadata.eventType) {
+  private resolveConfigKey(eventType: STOCK_EVENT_TYPE): string {
+    switch (eventType) {
       case STOCK_EVENT_TYPE.OUT_OF_STOCK:
-        return {
-          title: 'Estoque Esgotado',
-          body: `${itemInfo}${warehouseInfo} está sem estoque. Quantidade: ${metadata.currentQuantity} unidades${reorderInfo}. Reposição urgente necessária.`,
-        };
-
-      case STOCK_EVENT_TYPE.CRITICAL:
-        return {
-          title: 'Estoque Crítico',
-          body: `${itemInfo}${warehouseInfo} atingiu nível crítico. Quantidade: ${metadata.currentQuantity} unidades${reorderInfo}. Reposição recomendada.`,
-        };
-
-      case STOCK_EVENT_TYPE.LOW:
-        return {
-          title: 'Estoque Baixo',
-          body: `${itemInfo}${warehouseInfo} está com estoque baixo. Quantidade: ${metadata.currentQuantity} unidades${reorderInfo}. Considere reposição.`,
-        };
-
+        return 'item.out_of_stock';
       case STOCK_EVENT_TYPE.REPLENISHED:
-        return {
-          title: 'Estoque Reabastecido',
-          body: `${itemInfo}${warehouseInfo} foi reabastecido. Quantidade atual: ${metadata.currentQuantity} unidades${reorderInfo}.`,
-        };
-
+        return 'item.reorder_required';
+      case STOCK_EVENT_TYPE.OVERSTOCKED:
+        return 'item.overstocked';
       default:
-        return {
-          title: 'Alerta de Estoque',
-          body: `${itemInfo}${warehouseInfo} teve alteração no estoque. Quantidade: ${metadata.currentQuantity} unidades.`,
-        };
+        return 'item.low_stock';
     }
   }
 
-  /**
-   * Determine notification importance based on event type
-   *
-   * @param eventType - Event type
-   * @returns Notification importance
-   */
-  private getImportance(eventType: STOCK_EVENT_TYPE): NOTIFICATION_IMPORTANCE {
+  private resolveImportance(eventType: STOCK_EVENT_TYPE): NOTIFICATION_IMPORTANCE {
     switch (eventType) {
       case STOCK_EVENT_TYPE.OUT_OF_STOCK:
       case STOCK_EVENT_TYPE.CRITICAL:
         return NOTIFICATION_IMPORTANCE.HIGH;
-
       case STOCK_EVENT_TYPE.LOW:
+      case STOCK_EVENT_TYPE.OVERSTOCKED:
         return NOTIFICATION_IMPORTANCE.NORMAL;
-
       case STOCK_EVENT_TYPE.REPLENISHED:
         return NOTIFICATION_IMPORTANCE.LOW;
-
       default:
         return NOTIFICATION_IMPORTANCE.NORMAL;
     }
   }
 
-  /**
-   * @deprecated This method is no longer used. Deep links are now generated inline
-   * using deepLinkService.generateItemLinks() for better separation of web/mobile URLs.
-   *
-   * Build deep link to item/stock page
-   * Uses DeepLinkService to generate proper URLs for both web and mobile
-   *
-   * @param itemId - Item ID
-   * @returns JSON string containing web and mobile URLs
-   */
-  private buildDeepLink(itemId: string): string {
-    return this.deepLinkService.generateNotificationActionUrl(DeepLinkEntity.Item, itemId);
-  }
+  private buildContent(
+    eventType: STOCK_EVENT_TYPE,
+    supplierName: string,
+    items: StockEventItem[],
+  ): { title: string; body: string } {
+    const summary =
+      items.length === 1
+        ? `${items[0].itemName} (${items[0].quantity} un)`
+        : `${items.length} itens`;
 
-  /**
-   * Clear notification cache for a specific item
-   * Useful when you want to force a notification even if one was sent recently
-   *
-   * @param itemId - Item ID
-   */
-  clearCacheForItem(itemId: string): void {
-    const keysToDelete: string[] = [];
-
-    for (const key of this.notificationCache.keys()) {
-      if (key.startsWith(`${itemId}-`)) {
-        keysToDelete.push(key);
-      }
+    switch (eventType) {
+      case STOCK_EVENT_TYPE.OUT_OF_STOCK:
+        return {
+          title: 'Estoque esgotado',
+          body: `${supplierName}: ${summary} sem estoque. Reposição urgente necessária.`,
+        };
+      case STOCK_EVENT_TYPE.CRITICAL:
+        return {
+          title: 'Estoque crítico',
+          body: `${supplierName}: ${summary} atingiu nível crítico.`,
+        };
+      case STOCK_EVENT_TYPE.LOW:
+        return {
+          title: 'Estoque baixo',
+          body: `${supplierName}: ${summary} com estoque baixo.`,
+        };
+      case STOCK_EVENT_TYPE.OVERSTOCKED:
+        return {
+          title: 'Excesso de estoque',
+          body: `${supplierName}: ${summary} acima do estoque máximo.`,
+        };
+      case STOCK_EVENT_TYPE.REPLENISHED:
+        return {
+          title: 'Estoque reabastecido',
+          body: `${supplierName}: ${summary} foi reabastecido.`,
+        };
     }
-
-    keysToDelete.forEach(key => this.notificationCache.delete(key));
-
-    this.logger.debug(`Cleared notification cache for item ${itemId}`);
   }
 
-  /**
-   * Clear entire notification cache
-   * Useful for testing or manual intervention
-   */
-  clearCache(): void {
-    this.notificationCache.clear();
-    this.logger.log('Cleared entire notification cache');
-  }
+  // ===== Target-user lookup (unchanged contract — kept for dispatch fallback) =====
 
-  /**
-   * Get cache statistics for monitoring
-   *
-   * @returns Cache stats
-   */
-  getCacheStats(): {
-    size: number;
-    entries: Array<{ itemId: string; eventType: string; lastNotified: Date }>;
-  } {
-    const entries = Array.from(this.notificationCache.entries()).map(([key, timestamp]) => {
-      const [itemId, eventType] = key.split('-');
-      return {
-        itemId,
-        eventType,
-        lastNotified: new Date(timestamp),
-      };
+  async getTargetUsers(tx: PrismaTransaction) {
+    return tx.user.findMany({
+      where: {
+        isActive: true,
+        status: { not: 'DISMISSED' },
+        sector: {
+          privileges: { in: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.WAREHOUSE] },
+        },
+      },
+      select: { id: true, name: true, email: true },
     });
-
-    return {
-      size: this.notificationCache.size,
-      entries,
-    };
   }
 }

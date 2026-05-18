@@ -21,6 +21,7 @@ import {
 } from '@modules/common/throttler/throttler.decorators';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { SecullumCadastrosService } from './secullum-cadastros.service';
+import { UserSecullumSyncService } from './user-secullum-sync.service';
 import {
   SecullumDepartamento,
   SecullumFuncao,
@@ -37,7 +38,10 @@ import {
 export class SecullumCadastrosController {
   private readonly logger = new Logger(SecullumCadastrosController.name);
 
-  constructor(private readonly cadastros: SecullumCadastrosService) {}
+  constructor(
+    private readonly cadastros: SecullumCadastrosService,
+    private readonly userSync: UserSecullumSyncService,
+  ) {}
 
   // -------------------- Departamentos --------------------
 
@@ -377,5 +381,20 @@ export class SecullumCadastrosController {
       `User ${userId} linking position ${positionId} → função ${body.funcaoId}`,
     );
     return this.cadastros.linkPositionToFuncao(positionId, body.funcaoId);
+  }
+
+  /** Link an Ankaa user to a Secullum Funcionario.Id (or pass null to unlink). */
+  @Post('mapping/user/:userId/funcionario')
+  @WriteRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  linkUserFuncionario(
+    @Param('userId') targetUserId: string,
+    @Body() body: { funcionarioId: number | null },
+    @UserId() actorId: string,
+  ) {
+    this.logger.log(
+      `User ${actorId} linking user ${targetUserId} → Funcionario ${body.funcionarioId}`,
+    );
+    return this.userSync.linkUserToFuncionario(targetUserId, body.funcionarioId);
   }
 }

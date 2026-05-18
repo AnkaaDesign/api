@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SicrediService } from './sicredi.service';
 import { SicrediAuthService } from './sicredi-auth.service';
@@ -41,6 +42,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     private readonly cascadeService: TaskQuoteStatusCascadeService,
     private readonly configService: ConfigService,
     private readonly notificationDispatchService: NotificationDispatchService,
+    private readonly events: EventEmitter2,
   ) {}
 
   // ─── Webhook Contract Auto-Registration ─────────────────────────────────────
@@ -980,6 +982,13 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             paidAmount ?? 0,
             bankSlip.dueDate,
           );
+
+          // Bridge to bank-statement reconciliation (OFX-imported transactions)
+          this.events.emit('banking.bankslip.paid', {
+            bankSlipId: bankSlip.id,
+            paidAt,
+            paidAmount: paidAmount ?? 0,
+          });
 
           reconciled++;
           this.logger.log(

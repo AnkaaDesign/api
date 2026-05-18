@@ -65,7 +65,9 @@ import { MessageModule } from './modules/system/message/message.module';
 import { DeepLinkModule } from './modules/common/deep-link/deep-link.module';
 import { SicrediModule } from './modules/integrations/sicredi/sicredi.module';
 import { NfseModule } from './modules/integrations/nfse/nfse.module';
+import { SiegModule } from './modules/integrations/sieg/sieg.module';
 import { InvoiceModule } from './modules/financial/invoice/invoice.module';
+import { ReconciliationModule } from './modules/financial/reconciliation/reconciliation.module';
 
 @Module({
   imports: [
@@ -141,7 +143,9 @@ import { InvoiceModule } from './modules/financial/invoice/invoice.module';
     DeepLinkModule,
     SicrediModule,
     NfseModule,
+    SiegModule,
     InvoiceModule,
+    ReconciliationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

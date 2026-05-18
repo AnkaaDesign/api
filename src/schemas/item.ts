@@ -79,8 +79,6 @@ export const itemSelectSchema = z
     reorderPoint: z.boolean().optional(),
     reorderQuantity: z.boolean().optional(),
     boxQuantity: z.boolean().optional(),
-    isManualMaxQuantity: z.boolean().optional(),
-    isManualReorderPoint: z.boolean().optional(),
     lastAutoOrderDate: z.boolean().optional(),
     icms: z.boolean().optional(),
     ipi: z.boolean().optional(),
@@ -282,8 +280,6 @@ export const itemFormSelectSchema = z.object({
       reorderPoint: z.literal(true),
       reorderQuantity: z.literal(true),
       boxQuantity: z.literal(true),
-      isManualMaxQuantity: z.literal(true),
-      isManualReorderPoint: z.literal(true),
       lastAutoOrderDate: z.literal(true),
       icms: z.literal(true),
       ipi: z.literal(true),
@@ -397,8 +393,6 @@ export const itemDetailSelectSchema = z.object({
       reorderPoint: z.literal(true),
       reorderQuantity: z.literal(true),
       boxQuantity: z.literal(true),
-      isManualMaxQuantity: z.literal(true),
-      isManualReorderPoint: z.literal(true),
       lastAutoOrderDate: z.literal(true),
       icms: z.literal(true),
       ipi: z.literal(true),
@@ -1152,8 +1146,6 @@ export const itemOrderBySchema = z
         reorderPoint: orderByDirectionSchema.optional(),
         reorderQuantity: orderByDirectionSchema.optional(),
         boxQuantity: orderByDirectionSchema.optional(),
-        isManualMaxQuantity: orderByDirectionSchema.optional(),
-        isManualReorderPoint: orderByDirectionSchema.optional(),
         lastAutoOrderDate: orderByDirectionSchema.optional(),
         icms: orderByDirectionSchema.optional(),
         ipi: orderByDirectionSchema.optional(),
@@ -1213,8 +1205,6 @@ export const itemOrderBySchema = z
           reorderPoint: orderByDirectionSchema.optional(),
           reorderQuantity: orderByDirectionSchema.optional(),
           boxQuantity: orderByDirectionSchema.optional(),
-          isManualMaxQuantity: orderByDirectionSchema.optional(),
-          isManualReorderPoint: orderByDirectionSchema.optional(),
           lastAutoOrderDate: orderByDirectionSchema.optional(),
           icms: orderByDirectionSchema.optional(),
           ipi: orderByDirectionSchema.optional(),
@@ -1407,26 +1397,6 @@ export const itemWhereSchema: z.ZodSchema = z.lazy(() =>
             gte: z.number().optional(),
             lt: z.number().optional(),
             lte: z.number().optional(),
-          }),
-        ])
-        .optional(),
-
-      isManualMaxQuantity: z
-        .union([
-          z.boolean(),
-          z.object({
-            equals: z.boolean().optional(),
-            not: z.boolean().optional(),
-          }),
-        ])
-        .optional(),
-
-      isManualReorderPoint: z
-        .union([
-          z.boolean(),
-          z.object({
-            equals: z.boolean().optional(),
-            not: z.boolean().optional(),
           }),
         ])
         .optional(),
@@ -2487,8 +2457,6 @@ export const itemCreateSchemaBase = z.object({
     'Quantidade de reposição deve ser positiva',
   ),
   boxQuantity: z.number().int().nullable().optional(),
-  isManualMaxQuantity: z.boolean().default(false).optional(),
-  isManualReorderPoint: z.boolean().default(false).optional(),
   lastAutoOrderDate: z.coerce.date().nullable().optional(),
   icms: z
     .number()
@@ -2596,8 +2564,6 @@ export const itemUpdateSchemaBase = z.object({
     'Quantidade de reposição deve ser positiva',
   ),
   boxQuantity: z.number().int().nullable().optional(),
-  isManualMaxQuantity: z.boolean().optional(),
-  isManualReorderPoint: z.boolean().optional(),
   lastAutoOrderDate: z.coerce.date().nullable().optional(),
   icms: z.number().min(0).max(100).optional(),
   ipi: z.number().min(0).max(100).optional(),
@@ -2916,8 +2882,6 @@ export const mapItemToFormData = createMapToFormDataHelper<Item, ItemUpdateFormD
   reorderPoint: item.reorderPoint || undefined,
   reorderQuantity: item.reorderQuantity || undefined,
   boxQuantity: item.boxQuantity || undefined,
-  isManualMaxQuantity: item.isManualMaxQuantity,
-  isManualReorderPoint: item.isManualReorderPoint,
   lastAutoOrderDate: item.lastAutoOrderDate || undefined,
   icms: item.icms,
   ipi: item.ipi,

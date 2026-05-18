@@ -219,7 +219,7 @@ export class AtomicStockCalculatorService {
       where: { id: { in: itemIds } },
       include: {
         brand: { select: { name: true } },
-        category: { select: { name: true } },
+        category: { select: { name: true, type: true } },
         prices: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -567,12 +567,13 @@ export class AtomicStockCalculatorService {
     result.hasActiveOrders = !!hasActiveOrder;
 
     // Determine stock level using the utility function
-    result.stockLevel = determineStockLevel(
-      result.finalQuantity,
-      currentItem.reorderPoint,
-      currentItem.maxQuantity,
-      result.hasActiveOrders,
-    );
+    result.stockLevel = determineStockLevel({
+      quantity: result.finalQuantity,
+      reorderPoint: currentItem.reorderPoint,
+      maxQuantity: currentItem.maxQuantity,
+      hasActiveOrder: result.hasActiveOrders,
+      categoryType: currentItem.category?.type ?? null,
+    });
 
     // Add warnings based on stock level
     if (result.stockLevel === STOCK_LEVEL.CRITICAL && result.isValid) {
