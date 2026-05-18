@@ -48,3 +48,4 @@ export * from './truck';
 export * from './user';
 export * from './verification';
 export * from './warning';
+export * from './skill';

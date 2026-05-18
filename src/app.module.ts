@@ -68,6 +68,7 @@ import { NfseModule } from './modules/integrations/nfse/nfse.module';
 import { SiegModule } from './modules/integrations/sieg/sieg.module';
 import { InvoiceModule } from './modules/financial/invoice/invoice.module';
 import { ReconciliationModule } from './modules/financial/reconciliation/reconciliation.module';
+import { SkillModule } from './modules/skill/skill.module';
 
 @Module({
   imports: [
@@ -146,6 +147,7 @@ import { ReconciliationModule } from './modules/financial/reconciliation/reconci
     SiegModule,
     InvoiceModule,
     ReconciliationModule,
+    SkillModule,
   ],
   controllers: [AppController],
   providers: [AppService],

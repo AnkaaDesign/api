@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { TASK_STATUS, CUT_ORIGIN, SECTOR_PRIVILEGES } from '../../../constants/enums';
+import { TASK_STATUS, CUT_ORIGIN, SECTOR_PRIVILEGES, COMMISSION_STATUS } from '../../../constants/enums';
 import {
   businessMonthKey,
   businessPeriodEnd,
@@ -82,6 +82,12 @@ interface AnalyticsFilters {
   periods?: PeriodRange[];
   startDate?: Date;
   endDate?: Date;
+  // Canonical bonus-period inputs. When provided, the backend computes the
+  // date range using businessPeriodStart/End — the SAME helpers the bonus
+  // module uses — so productivity / performance / task-history all share an
+  // identical UTC window regardless of browser or server TZ.
+  bonusPeriodYear?: number;
+  bonusPeriodMonths?: number[];
   groupBy?: string;
 }
 
@@ -739,19 +745,38 @@ export class TaskAnalyticsService {
     xAxisMode?: 'day' | 'month' | 'year';
     yAxisMode?: 'count' | 'avgPerUser' | 'both';
     compareMode?: 'combined' | 'separated' | 'separatedWithTotal';
+    commissionStatuses?: string[];
+    userIds?: string[];
   }) {
-    const { sectorIds, xAxisMode = 'month', yAxisMode = 'count', compareMode = 'combined' } = filters;
+    const { sectorIds, xAxisMode = 'month', yAxisMode = 'count', compareMode = 'combined', commissionStatuses, userIds } = filters;
     const isComparisonMode = (compareMode === 'separated' || compareMode === 'separatedWithTotal') && !!sectorIds && sectorIds.length >= 2;
 
     const dateRange = this.resolveDateRange(filters);
 
     // Tasks count is independent of who completed them — just count completed
-    // tasks with finishedAt in the period (optionally narrowed by sector).
+    // tasks with finishedAt in the period (optionally narrowed by sector,
+    // commission status, or creating user).
+    //
+    // Default commission whitelist matches `bonus.service.ts:getBonusTimeline`
+    // exactly: explicit IN [FULL, PARTIAL, SUSPENDED, NO_COMMISSION] excludes
+    // legacy commission=NULL tasks. This guarantees productivity returns the
+    // same task count as the bonus pages for the same conceptual period.
+    const commissionWhitelist = (commissionStatuses?.length
+      ? commissionStatuses
+      : [
+          COMMISSION_STATUS.FULL_COMMISSION,
+          COMMISSION_STATUS.PARTIAL_COMMISSION,
+          COMMISSION_STATUS.SUSPENDED_COMMISSION,
+          COMMISSION_STATUS.NO_COMMISSION,
+        ]) as any[];
+
     const completedTasks = await this.prisma.task.findMany({
       where: {
         status: TASK_STATUS.COMPLETED,
         finishedAt: { gte: dateRange.start, lte: dateRange.end },
+        commission: { in: commissionWhitelist },
         ...(sectorIds?.length ? { sectorId: { in: sectorIds } } : {}),
+        ...(userIds?.length ? { createdById: { in: userIds } } : {}),
       },
       select: { id: true, finishedAt: true, sectorId: true },
     });
@@ -912,8 +937,9 @@ export class TaskAnalyticsService {
     });
 
     const totalCompleted = completedTasks.length;
-    const avgTasksPerPeriod = allPeriods.length > 0
-      ? Math.round((totalCompleted / allPeriods.length) * 10) / 10
+    const periodsWithData = items.filter(i => i.totalCount > 0);
+    const avgTasksPerPeriod = periodsWithData.length > 0
+      ? Math.round((totalCompleted / periodsWithData.length) * 10) / 10
       : 0;
 
     // Overall: production users whose EFFECTED window overlaps the full
@@ -992,6 +1018,17 @@ export class TaskAnalyticsService {
       where: {
         status: TASK_STATUS.COMPLETED,
         finishedAt: { gte: dateRange.start, lte: dateRange.end },
+        // Match bonus's task query: explicit commission whitelist (excludes
+        // legacy NULL-commission tasks). Keeps performance counts aligned
+        // with bonus and productivity for the same period.
+        commission: {
+          in: [
+            COMMISSION_STATUS.FULL_COMMISSION,
+            COMMISSION_STATUS.PARTIAL_COMMISSION,
+            COMMISSION_STATUS.SUSPENDED_COMMISSION,
+            COMMISSION_STATUS.NO_COMMISSION,
+          ],
+        },
         ...(sectorIds?.length ? { sectorId: { in: sectorIds } } : {}),
       },
       select: { id: true, finishedAt: true, sectorId: true },
@@ -1258,6 +1295,26 @@ export class TaskAnalyticsService {
   // ---------------------------------------------------------------------------
 
   private resolveDateRange(filters: AnalyticsFilters): { start: Date; end: Date } {
+    // PREFERRED: bonusPeriodYear + bonusPeriodMonths. Computed server-side
+    // via businessPeriodStart/End — identical to the helpers `bonus.service.ts`
+    // uses, so productivity and bonus see the exact same UTC window for the
+    // same conceptual period (no browser-TZ ↔ server-TZ drift).
+    if (filters.bonusPeriodYear !== undefined && filters.bonusPeriodMonths?.length) {
+      const months = [...filters.bonusPeriodMonths].sort((a, b) => a - b);
+      return {
+        start: businessPeriodStart(filters.bonusPeriodYear, months[0]),
+        end: businessPeriodEnd(filters.bonusPeriodYear, months[months.length - 1]),
+      };
+    }
+
+    // Year only (no months): full business year.
+    if (filters.bonusPeriodYear !== undefined) {
+      return {
+        start: businessPeriodStart(filters.bonusPeriodYear, 1),
+        end: businessPeriodEnd(filters.bonusPeriodYear, 12),
+      };
+    }
+
     if (filters.periods && filters.periods.length > 0) {
       // Use the full span across all periods
       const starts = filters.periods.map(p => p.start.getTime());
@@ -1272,10 +1329,17 @@ export class TaskAnalyticsService {
       return { start: filters.startDate, end: filters.endDate };
     }
 
-    // Default: last 12 months
-    const end = new Date();
-    const start = new Date();
-    start.setMonth(start.getMonth() - 12);
-    return { start, end };
+    // Default: current business period.
+    const today = new Date();
+    const currentMonth = today.getDate() > 25
+      ? (today.getMonth() === 11 ? 1 : today.getMonth() + 2)
+      : today.getMonth() + 1;
+    const currentYear = today.getDate() > 25 && today.getMonth() === 11
+      ? today.getFullYear() + 1
+      : today.getFullYear();
+    return {
+      start: businessPeriodStart(currentYear, currentMonth),
+      end: businessPeriodEnd(currentYear, currentMonth),
+    };
   }
 }

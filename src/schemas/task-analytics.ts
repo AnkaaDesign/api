@@ -52,9 +52,18 @@ export const taskRevenueFiltersSchema = z.object({
 export type TaskRevenueFilters = z.infer<typeof taskRevenueFiltersSchema>;
 
 export const taskProductionStatsSchema = z.object({
+  // Legacy: explicit ISO dates from the frontend. Browser-local-TZ means a UTC
+  // server reads BRT midnight as 03:00 UTC, shifting the window 3h vs bonus.
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
+  // Preferred: pass year + months and let the backend compute the date range
+  // via businessPeriodStart/End — same helpers the bonus uses. Guarantees
+  // identical UTC moments to bonus regardless of browser or server TZ.
+  bonusPeriodYear: z.number().int().optional(),
+  bonusPeriodMonths: z.array(z.number().int().min(1).max(12)).optional(),
   sectorIds: z.array(z.string()).optional(),
+  commissionStatuses: z.array(z.string()).optional(),
+  userIds: z.array(z.string()).optional(),
   xAxisMode: z.enum(['day', 'month', 'year']).optional().default('month'),
   yAxisMode: z.enum(['count', 'avgPerUser', 'both']).optional().default('count'),
   compareMode: z.enum(['combined', 'separated', 'separatedWithTotal']).optional().default('combined'),
@@ -73,6 +82,8 @@ export type TaskProductionStatsFilters = z.infer<typeof taskProductionStatsSchem
 export const taskPerformanceStatsSchema = z.object({
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
+  bonusPeriodYear: z.number().int().optional(),
+  bonusPeriodMonths: z.array(z.number().int().min(1).max(12)).optional(),
   sectorIds: z.array(z.string()).optional(),
   xAxisMode: z.enum(['month', 'year']).optional().default('month'),
   yAxisMode: z.enum(['count', 'performance', 'both']).optional().default('performance'),

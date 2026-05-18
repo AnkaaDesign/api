@@ -887,19 +887,23 @@ export class BonusPrismaRepository
   }
 
   /**
-   * Get start date for bonus calculation period (26th of previous month)
+   * Get start date for bonus calculation period (26th of previous month).
+   * Inline duplicate of utils/business-period.ts — kept here to avoid a
+   * cross-module import in this repository file. If you change this, also
+   * update `utils/business-period.ts` and `bonus.service.ts:getPeriodStart`.
    */
   private getPeriodStartDate(year: number, month: number): Date {
     if (month === 1) {
-      return new Date(year - 1, 11, 26); // December 26 of previous year
+      return new Date(year - 1, 11, 26, 0, 0, 0, 0);
     }
-    return new Date(year, month - 2, 26); // 26th of previous month (month-2 because JS months are 0-indexed)
+    return new Date(year, month - 2, 26, 0, 0, 0, 0);
   }
 
   /**
-   * Get end date for bonus calculation period (25th of current month)
+   * Get end date for bonus calculation period (25th of current month).
+   * See getPeriodStartDate above for the canonical-helper note.
    */
   private getPeriodEndDate(year: number, month: number): Date {
-    return new Date(year, month - 1, 25, 23, 59, 59, 999); // 25th of current month
+    return new Date(year, month - 1, 25, 23, 59, 59, 999);
   }
 }
