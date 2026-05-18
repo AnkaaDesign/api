@@ -952,6 +952,7 @@ export class OrderService {
           // This handles the case where items are removed and all remaining items are received
           const hasItemChanges =
             inventoryItemsToDelete.length > 0 ||
+            inventoryItemsToAdd.length > 0 ||
             temporaryItemsToDelete.length > 0 ||
             itemsToUpdate.length > 0 ||
             temporaryItemsToAdd.length > 0;
