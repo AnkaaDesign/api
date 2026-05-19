@@ -487,6 +487,9 @@ export class TaskQuoteService {
         'customGuaranteeText',
         'layoutFileId',
         'status',
+        'guaranteeYears',
+        'customForecastDays',
+        'simultaneousTasks',
       ]);
       const currentStatus = (existing as any).status as TASK_QUOTE_STATUS;
       if (STATUS_LOCKED.includes(currentStatus)) {
