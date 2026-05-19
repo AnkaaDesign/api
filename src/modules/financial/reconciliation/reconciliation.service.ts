@@ -5,7 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  BankTransactionType,
   Prisma,
   ReconciliationAliasSource,
   ReconciliationMatchStatus,
@@ -14,7 +13,6 @@ import {
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TransactionsFilterDto } from './dto/transactions-filter.dto';
 import { FiscalDocumentsFilterDto } from './dto/fiscal-documents-filter.dto';
-import { StatementsFilterDto } from './dto/statements-filter.dto';
 import { ManualMatchDto } from './dto/manual-match.dto';
 import { IgnoreTransactionDto } from './dto/ignore-transaction.dto';
 import { ReconciliationMatcherService } from './reconciliation-matcher.service';
@@ -33,144 +31,8 @@ export class ReconciliationService {
     private readonly aliasService: ReconciliationAliasService,
   ) {}
 
-  async listStatements(filters: StatementsFilterDto) {
-    const where: Prisma.BankStatementWhereInput = {};
-    if (filters.status) where.status = filters.status;
-    if (filters.source) where.source = filters.source;
-    if (filters.dateFrom || filters.dateTo) {
-      where.periodStart = {};
-      if (filters.dateFrom) (where.periodStart as Prisma.DateTimeFilter).gte = new Date(filters.dateFrom);
-      if (filters.dateTo) (where.periodStart as Prisma.DateTimeFilter).lte = new Date(filters.dateTo);
-    }
-    const [data, total] = await Promise.all([
-      this.prisma.bankStatement.findMany({
-        where,
-        orderBy: { [filters.sortBy]: filters.sortDir },
-        skip: (filters.page - 1) * filters.pageSize,
-        take: filters.pageSize,
-        include: { uploadedBy: { select: { id: true, name: true } } },
-      }),
-      this.prisma.bankStatement.count({ where }),
-    ]);
-
-    // matchedCount on BankStatement is a denormalized counter set during import
-    // and can drift after manual match/unmatch/ignore. Always recompute it from
-    // actual transaction statuses so the UI shows the truth.
-    // Both counts are debit-only: reconciliation tracks outbound money, not inflows.
-    const ids = data.map(s => s.id);
-    const [matchedByStatement, debitCountByStatement] = ids.length
-      ? await Promise.all([
-          this.computeMatchedCountsByStatement(ids),
-          this.computeDebitCountsByStatement(ids),
-        ])
-      : [new Map<string, number>(), new Map<string, number>()];
-
-    return {
-      data: data.map(s => ({
-        ...s,
-        matchedCount: matchedByStatement.get(s.id) ?? 0,
-        debitTransactionCount: debitCountByStatement.get(s.id) ?? 0,
-      })),
-      meta: {
-        page: filters.page,
-        pageSize: filters.pageSize,
-        total,
-        totalPages: Math.ceil(total / filters.pageSize),
-      },
-    };
-  }
-
-  async getStatement(id: string) {
-    const statement = await this.prisma.bankStatement.findUnique({
-      where: { id },
-      include: {
-        uploadedBy: { select: { id: true, name: true } },
-        rawFile: true,
-      },
-    });
-    if (!statement) throw new NotFoundException('Extrato não encontrado');
-    const [allStatusCounts, debitStatusCounts] = await Promise.all([
-      this.prisma.bankTransaction.groupBy({
-        by: ['matchStatus'],
-        where: { statementId: id },
-        _count: { _all: true },
-      }),
-      this.prisma.bankTransaction.groupBy({
-        by: ['matchStatus'],
-        where: { statementId: id, type: BankTransactionType.DEBIT },
-        _count: { _all: true },
-      }),
-    ]);
-    const matchedCount = debitStatusCounts
-      .filter(
-        c =>
-          c.matchStatus === ReconciliationMatchStatus.AUTO_MATCHED ||
-          c.matchStatus === ReconciliationMatchStatus.MANUAL_MATCHED,
-      )
-      .reduce((sum, c) => sum + c._count._all, 0);
-    const debitTransactionCount = debitStatusCounts.reduce((sum, c) => sum + c._count._all, 0);
-    return { ...statement, matchedCount, debitTransactionCount, statusCounts: allStatusCounts };
-  }
-
-  /**
-   * Recompute debit-only matchedCount for the given statements.
-   * Only DEBIT transactions that are AUTO_MATCHED or MANUAL_MATCHED count —
-   * credits (inflows) are not reconciled against fiscal documents.
-   */
-  private async computeMatchedCountsByStatement(
-    statementIds: string[],
-  ): Promise<Map<string, number>> {
-    const rows = await this.prisma.bankTransaction.groupBy({
-      by: ['statementId'],
-      where: {
-        statementId: { in: statementIds },
-        type: BankTransactionType.DEBIT,
-        matchStatus: {
-          in: [
-            ReconciliationMatchStatus.AUTO_MATCHED,
-            ReconciliationMatchStatus.MANUAL_MATCHED,
-          ],
-        },
-      },
-      _count: { _all: true },
-    });
-    const map = new Map<string, number>();
-    for (const id of statementIds) map.set(id, 0);
-    for (const r of rows) map.set(r.statementId, r._count._all);
-    return map;
-  }
-
-  /** Total DEBIT transaction count per statement (denominator for reconciliation %). */
-  private async computeDebitCountsByStatement(
-    statementIds: string[],
-  ): Promise<Map<string, number>> {
-    const rows = await this.prisma.bankTransaction.groupBy({
-      by: ['statementId'],
-      where: {
-        statementId: { in: statementIds },
-        type: BankTransactionType.DEBIT,
-      },
-      _count: { _all: true },
-    });
-    const map = new Map<string, number>();
-    for (const id of statementIds) map.set(id, 0);
-    for (const r of rows) map.set(r.statementId, r._count._all);
-    return map;
-  }
-
-  private async refreshStatementMatchedCount(statementId: string | null | undefined) {
-    if (!statementId) return;
-    const map = await this.computeMatchedCountsByStatement([statementId]);
-    const matched = map.get(statementId) ?? 0;
-    await this.prisma.bankStatement.update({
-      where: { id: statementId },
-      data: { matchedCount: matched },
-    });
-  }
-
   async listTransactions(filters: TransactionsFilterDto) {
     const where: Prisma.BankTransactionWhereInput = {};
-    if (filters.statementId) where.statementId = filters.statementId;
     if (filters.matchStatus) where.matchStatus = filters.matchStatus;
     if (filters.matchType) {
       // Filters to transactions whose latest non-reversed match has this type.
@@ -209,7 +71,6 @@ export class ReconciliationService {
         skip: (filters.page - 1) * filters.pageSize,
         take: filters.pageSize,
         include: {
-          statement: { select: { id: true, periodStart: true, periodEnd: true } },
           matches: {
             include: {
               fiscalDocument: {
@@ -247,17 +108,14 @@ export class ReconciliationService {
 
   /**
    * Single-transaction fetch with everything the detail modal needs in one
-   * roundtrip: matched fiscal documents + linked bank slips + the source
-   * statement. Required so deep links (?txId=…) can hydrate even when the
-   * referenced row isn't on the current list page.
+   * roundtrip: matched fiscal documents + linked bank slips. Required so deep
+   * links (?txId=…) can hydrate even when the referenced row isn't on the
+   * current list page.
    */
   async getTransaction(transactionId: string) {
     const tx = await this.prisma.bankTransaction.findUnique({
       where: { id: transactionId },
       include: {
-        statement: {
-          select: { id: true, periodStart: true, periodEnd: true, bankName: true, ownerCnpj: true },
-        },
         matches: {
           include: {
             fiscalDocument: {
@@ -290,8 +148,8 @@ export class ReconciliationService {
 
   /**
    * Single-fiscal-document fetch used by the NF detail modal. Includes the
-   * matched transactions (and their statements) so the modal can show
-   * date, amount, confidence and rationale per linked transaction.
+   * matched transactions so the modal can show date, amount, confidence and
+   * rationale per linked transaction.
    */
   async getFiscalDocument(fiscalDocumentId: string) {
     const doc = await this.prisma.fiscalDocument.findUnique({
@@ -308,7 +166,9 @@ export class ReconciliationService {
                 memo: true,
                 counterpartyName: true,
                 counterpartyCnpjCpf: true,
-                statementId: true,
+                bankCode: true,
+                bankName: true,
+                accountNumber: true,
               },
             },
           },
@@ -338,18 +198,17 @@ export class ReconciliationService {
     payload: ManualMatchDto,
     userId: string | undefined,
   ) {
-    // Pull memo/type + statement.ownerCnpj up front: we need them both for the
-    // allocation math and for the alias learning step below.
+    // Pull memo/type/ownerCnpj up front: we need them for the allocation math
+    // and for the alias learning step below.
     const tx = await this.prisma.bankTransaction.findUnique({
       where: { id: transactionId },
       select: {
         id: true,
         amount: true,
-        statementId: true,
         memo: true,
         type: true,
         counterpartyCnpjCpf: true,
-        statement: { select: { ownerCnpj: true } },
+        ownerCnpj: true,
       },
     });
     if (!tx) throw new NotFoundException('Transação não encontrada');
@@ -405,7 +264,6 @@ export class ReconciliationService {
       });
     });
 
-    await this.refreshStatementMatchedCount(tx.statementId);
     await this.captureAliasesForMatch(tx, [...allocByDoc.keys()]);
     return updated;
   }
@@ -420,7 +278,7 @@ export class ReconciliationService {
       memo: string | null;
       type: import('@prisma/client').BankTransactionType;
       counterpartyCnpjCpf: string | null;
-      statement?: { ownerCnpj: string } | null;
+      ownerCnpj: string | null;
     },
     fiscalDocumentIds: string[],
   ): Promise<void> {
@@ -430,10 +288,9 @@ export class ReconciliationService {
         where: { id: { in: fiscalDocumentIds } },
         select: { emitCnpj: true, destCnpj: true, destCpf: true },
       });
-      const ownerCnpj = tx.statement?.ownerCnpj ?? null;
       for (const doc of docs) {
         const counterparty =
-          tx.counterpartyCnpjCpf || inferCounterpartyCnpj(doc, ownerCnpj);
+          tx.counterpartyCnpjCpf || inferCounterpartyCnpj(doc, tx.ownerCnpj);
         if (!counterparty) continue;
         await this.aliasService.recordMatchSuccess({
           memo: tx.memo,
@@ -458,7 +315,6 @@ export class ReconciliationService {
             },
           },
         },
-        statement: { select: { ownerCnpj: true } },
       },
     });
     if (!tx) throw new NotFoundException('Transação não encontrada');
@@ -474,7 +330,7 @@ export class ReconciliationService {
         if (!m.fiscalDocument) continue;
         const cp =
           tx.counterpartyCnpjCpf ||
-          inferCounterpartyCnpj(m.fiscalDocument, tx.statement?.ownerCnpj ?? null);
+          inferCounterpartyCnpj(m.fiscalDocument, tx.ownerCnpj);
         if (cp) reversedCounterparties.push(cp);
       }
     }
@@ -494,7 +350,6 @@ export class ReconciliationService {
         include: { matches: true },
       });
     });
-    await this.refreshStatementMatchedCount(tx.statementId);
 
     for (const counterparty of reversedCounterparties) {
       try {
@@ -514,18 +369,16 @@ export class ReconciliationService {
   async ignore(transactionId: string, payload: IgnoreTransactionDto) {
     const tx = await this.prisma.bankTransaction.findUnique({
       where: { id: transactionId },
-      select: { id: true, statementId: true },
+      select: { id: true },
     });
     if (!tx) throw new NotFoundException('Transação não encontrada');
-    const updated = await this.prisma.bankTransaction.update({
+    return this.prisma.bankTransaction.update({
       where: { id: transactionId },
       data: {
         matchStatus: ReconciliationMatchStatus.IGNORED,
         ignoredReason: payload.reason,
       },
     });
-    await this.refreshStatementMatchedCount(tx.statementId);
-    return updated;
   }
 
   async listFiscalDocuments(filters: FiscalDocumentsFilterDto) {

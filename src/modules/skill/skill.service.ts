@@ -33,6 +33,21 @@ import type {
   AssessmentEntryResponsesUpsertFormData,
   AssessmentEntryUpdateFormData,
 } from '../../types/skill';
+import type {
+  SkillStatsOverviewFilters,
+  SkillStatsComparisonFilters,
+  SkillStatsEvolutionFilters,
+  SkillStatsOverviewResponse,
+  SkillStatsComparisonResponse,
+  SkillStatsEvolutionResponse,
+  SkillStatsRadarPoint,
+  SkillStatsTopicRadarPoint,
+  SkillStatsTopicDistribution,
+  SkillStatsBySector,
+  SkillStatsByUser,
+  SkillStatsComparisonEntity,
+  SkillStatsEvolutionPoint,
+} from '../../schemas/skill-analytics';
 
 const SECULLUM_FILTER = { secullumEmployeeId: { not: null } } as const;
 
@@ -1053,6 +1068,689 @@ export class SkillService {
   }
 
   // ===================================================================
+  // CROSS-CAMPAIGN STATISTICS
+  // ===================================================================
+  //
+  // Three endpoints power the /estatisticas/recursos-humanos/competencias
+  // dashboard. They all share the same loading strategy: pull the matching
+  // entries (with evaluatee → sector + responses → topic → skill) once, then
+  // run several reducers over that same in-memory dataset. This keeps the
+  // service single-query per request even when the page shows 4–5 widgets.
+
+  /**
+   * Loads AssessmentEntry rows matching the supplied analytics filters, with
+   * the relations needed by all three statistics endpoints. Returns the rows
+   * plus a topicId → metadata index built from every distinct topic seen in
+   * the responses.
+   *
+   * Filters honoured:
+   *   - assessmentStatuses (defaults to OPEN+CLOSED — DRAFT/CANCELLED excluded)
+   *   - includeInProgress (PENDING is always excluded since no responses exist)
+   *   - assessmentIds, sectorIds (via evaluatee.sectorId), userIds (evaluateeId)
+   *   - periodStart/End (matched against the parent assessment's window)
+   *   - skillIds/topicIds (filter at the response level — only matching topics
+   *     contribute to aggregates)
+   */
+  private async loadStatsEntries(filters: {
+    assessmentIds?: string[];
+    sectorIds?: string[];
+    skillIds?: string[];
+    topicIds?: string[];
+    userIds?: string[];
+    periodStart?: Date;
+    periodEnd?: Date;
+    includeInProgress?: boolean;
+    assessmentStatuses?: ('DRAFT' | 'OPEN' | 'CLOSED' | 'CANCELLED')[];
+  }) {
+    const statuses = filters.assessmentStatuses?.length
+      ? filters.assessmentStatuses
+      : (['OPEN', 'CLOSED'] as const);
+
+    const entryStatuses = filters.includeInProgress
+      ? (['SUBMITTED', 'IN_PROGRESS'] as const)
+      : (['SUBMITTED'] as const);
+
+    const assessmentWhere: Prisma.AssessmentWhereInput = {
+      deletedAt: null,
+      status: { in: statuses as any },
+      ...(filters.assessmentIds?.length ? { id: { in: filters.assessmentIds } } : {}),
+      ...(filters.periodStart || filters.periodEnd
+        ? {
+            AND: [
+              ...(filters.periodEnd ? [{ periodStart: { lte: filters.periodEnd } }] : []),
+              ...(filters.periodStart ? [{ periodEnd: { gte: filters.periodStart } }] : []),
+            ],
+          }
+        : {}),
+    };
+
+    const evaluateeWhere: Prisma.UserWhereInput = {
+      ...(filters.sectorIds?.length ? { sectorId: { in: filters.sectorIds } } : {}),
+    };
+
+    const responseWhere: Prisma.AssessmentResponseWhereInput = {};
+    const responseTopicFilters: Prisma.TopicWhereInput[] = [];
+    if (filters.topicIds?.length) {
+      responseTopicFilters.push({ id: { in: filters.topicIds } });
+    }
+    if (filters.skillIds?.length) {
+      responseTopicFilters.push({ skillId: { in: filters.skillIds } });
+    }
+    if (responseTopicFilters.length) {
+      responseWhere.topic = responseTopicFilters.length === 1
+        ? responseTopicFilters[0]
+        : { AND: responseTopicFilters };
+    }
+
+    const entries = await this.prisma.assessmentEntry.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: entryStatuses as any },
+        assessment: assessmentWhere,
+        ...(filters.userIds?.length ? { evaluateeId: { in: filters.userIds } } : {}),
+        ...(Object.keys(evaluateeWhere).length ? { evaluatee: evaluateeWhere } : {}),
+      },
+      include: {
+        assessment: {
+          select: {
+            id: true,
+            name: true,
+            periodStart: true,
+            periodEnd: true,
+            status: true,
+          },
+        },
+        evaluatee: {
+          select: {
+            id: true,
+            name: true,
+            sector: { select: { id: true, name: true } },
+            position: { select: { id: true, name: true } },
+          },
+        },
+        responses: {
+          where: responseWhere,
+          include: {
+            topic: {
+              select: {
+                id: true,
+                title: true,
+                skill: { select: { id: true, name: true, order: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Build a global topic index (one entry per distinct topic we actually saw)
+    const topicIndex = new Map<
+      string,
+      { title: string; skillId: string; skillName: string; skillOrder: number }
+    >();
+    for (const e of entries) {
+      for (const r of e.responses) {
+        if (r.topic?.skill && !topicIndex.has(r.topicId)) {
+          topicIndex.set(r.topicId, {
+            title: r.topic.title,
+            skillId: r.topic.skill.id,
+            skillName: r.topic.skill.name,
+            skillOrder: r.topic.skill.order,
+          });
+        }
+      }
+    }
+    return { entries, topicIndex };
+  }
+
+  /**
+   * Cross-campaign overview: KPIs, per-skill averages, topic distribution,
+   * sector ranking, user ranking. Powers the Overview tab of the new HR stats
+   * page (`/estatisticas/recursos-humanos/competencias`).
+   */
+  async getStatsOverview(
+    filters: SkillStatsOverviewFilters,
+  ): Promise<{ success: boolean; message: string; data: SkillStatsOverviewResponse }> {
+    const { entries, topicIndex } = await this.loadStatsEntries(filters);
+
+    // Build a stable skill axis from every skill that appeared in any response.
+    const skillMeta = new Map<string, { name: string; order: number }>();
+    for (const meta of topicIndex.values()) {
+      if (!skillMeta.has(meta.skillId)) {
+        skillMeta.set(meta.skillId, { name: meta.skillName, order: meta.skillOrder });
+      }
+    }
+
+    const stableSkillAxis = Array.from(skillMeta.entries())
+      .sort((a, b) => a[1].order - b[1].order)
+      .map(([skillId, meta]) => ({ skillId, name: meta.name, order: meta.order }));
+
+    // Single-pass accumulator
+    const aggBySkill = new Map<string, number[]>();
+    const aggByTopic = new Map<string, number[]>();
+    const aggBySector = new Map<
+      string,
+      { sectorName: string; users: Set<string>; bySkill: Map<string, number[]> }
+    >();
+    const aggByUser = new Map<
+      string,
+      {
+        userName: string;
+        sectorId: string | null;
+        sectorName: string | null;
+        positionName: string | null;
+        bySkill: Map<string, number[]>;
+        submittedAt: Date | null;
+      }
+    >();
+    const topicCounts = new Map<string, [number, number, number, number, number, number]>();
+    const assessmentIds = new Set<string>();
+    const allUserIds = new Set<string>();
+    const submittedEntryIds = new Set<string>();
+    let totalEntries = 0;
+    let submittedEntries = 0;
+    let inProgressEntries = 0;
+    let pendingEntries = 0; // always 0 with default filter, kept for API parity
+
+    for (const entry of entries) {
+      totalEntries++;
+      if (entry.status === 'SUBMITTED') submittedEntries++;
+      else if (entry.status === 'IN_PROGRESS') inProgressEntries++;
+      else pendingEntries++;
+
+      assessmentIds.add(entry.assessmentId);
+      if (entry.evaluateeId) allUserIds.add(entry.evaluateeId);
+
+      const evaluateeName = entry.evaluatee?.name ?? 'Desconhecido';
+      const sectorId = entry.evaluatee?.sector?.id ?? null;
+      const sectorName = entry.evaluatee?.sector?.name ?? null;
+      const positionName = entry.evaluatee?.position?.name ?? null;
+
+      let userBucket = aggByUser.get(entry.evaluateeId);
+      if (!userBucket) {
+        userBucket = {
+          userName: evaluateeName,
+          sectorId,
+          sectorName,
+          positionName,
+          bySkill: new Map(),
+          submittedAt: entry.submittedAt,
+        };
+        aggByUser.set(entry.evaluateeId, userBucket);
+      } else if (entry.submittedAt && (!userBucket.submittedAt || entry.submittedAt > userBucket.submittedAt)) {
+        userBucket.submittedAt = entry.submittedAt;
+      }
+
+      let sectorBucket = sectorId ? aggBySector.get(sectorId) : undefined;
+      if (sectorId && !sectorBucket) {
+        sectorBucket = { sectorName: sectorName ?? '—', users: new Set(), bySkill: new Map() };
+        aggBySector.set(sectorId, sectorBucket);
+      }
+      if (sectorBucket) sectorBucket.users.add(entry.evaluateeId);
+
+      for (const r of entry.responses) {
+        const meta = topicIndex.get(r.topicId);
+        if (!meta) continue;
+
+        // per-skill aggregate
+        (aggBySkill.get(meta.skillId) ?? aggBySkill.set(meta.skillId, []).get(meta.skillId)!).push(r.score);
+
+        // per-topic aggregate
+        (aggByTopic.get(r.topicId) ?? aggByTopic.set(r.topicId, []).get(r.topicId)!).push(r.score);
+
+        // per-user × skill
+        const userSkillBucket = userBucket.bySkill.get(meta.skillId);
+        if (userSkillBucket) userSkillBucket.push(r.score);
+        else userBucket.bySkill.set(meta.skillId, [r.score]);
+
+        // per-sector × skill
+        if (sectorBucket) {
+          const ssb = sectorBucket.bySkill.get(meta.skillId);
+          if (ssb) ssb.push(r.score);
+          else sectorBucket.bySkill.set(meta.skillId, [r.score]);
+        }
+
+        // topic distribution counts
+        let counts = topicCounts.get(r.topicId);
+        if (!counts) {
+          counts = [0, 0, 0, 0, 0, 0];
+          topicCounts.set(r.topicId, counts);
+        }
+        const idx = Math.min(Math.max(r.score, 0), 5);
+        counts[idx] += 1;
+      }
+
+      submittedEntryIds.add(entry.id);
+    }
+
+    // Build per-skill aggregate aligned to stableSkillAxis
+    const bySkill: SkillStatsRadarPoint[] = stableSkillAxis.map(s => ({
+      skillId: s.skillId,
+      skillName: s.name,
+      skillOrder: s.order,
+      average: avg(aggBySkill.get(s.skillId) ?? []),
+    }));
+
+    // Per-topic aggregate
+    const byTopic: SkillStatsTopicRadarPoint[] = [];
+    const topicDistribution: SkillStatsTopicDistribution[] = [];
+    for (const [topicId, scores] of aggByTopic.entries()) {
+      const meta = topicIndex.get(topicId);
+      if (!meta) continue;
+      byTopic.push({
+        topicId,
+        topicTitle: meta.title,
+        skillId: meta.skillId,
+        skillName: meta.skillName,
+        average: avg(scores),
+      });
+      topicDistribution.push({
+        topicId,
+        topicTitle: meta.title,
+        skillId: meta.skillId,
+        skillName: meta.skillName,
+        counts: topicCounts.get(topicId) ?? [0, 0, 0, 0, 0, 0],
+        average: avg(scores),
+        totalResponses: scores.length,
+      });
+    }
+    byTopic.sort((a, b) => {
+      const sa = stableSkillAxis.findIndex(s => s.skillId === a.skillId);
+      const sb = stableSkillAxis.findIndex(s => s.skillId === b.skillId);
+      if (sa !== sb) return sa - sb;
+      return a.topicTitle.localeCompare(b.topicTitle, 'pt-BR');
+    });
+    topicDistribution.sort((a, b) => {
+      const sa = stableSkillAxis.findIndex(s => s.skillId === a.skillId);
+      const sb = stableSkillAxis.findIndex(s => s.skillId === b.skillId);
+      if (sa !== sb) return sa - sb;
+      return a.topicTitle.localeCompare(b.topicTitle, 'pt-BR');
+    });
+
+    // Per-sector breakdown
+    const bySector: SkillStatsBySector[] = Array.from(aggBySector.entries()).map(
+      ([sectorId, bucket]) => {
+        const allScores: number[] = [];
+        for (const arr of bucket.bySkill.values()) allScores.push(...arr);
+        return {
+          sectorId,
+          sectorName: bucket.sectorName,
+          evaluatedCount: bucket.users.size,
+          overallAverage: avg(allScores),
+          perSkillAverage: stableSkillAxis.map(s => ({
+            skillId: s.skillId,
+            skillName: s.name,
+            skillOrder: s.order,
+            average: avg(bucket.bySkill.get(s.skillId) ?? []),
+          })),
+        };
+      },
+    );
+    bySector.sort((a, b) => (b.overallAverage ?? -1) - (a.overallAverage ?? -1));
+
+    // Per-user breakdown
+    const byUser: SkillStatsByUser[] = Array.from(aggByUser.entries()).map(([userId, bucket]) => {
+      const allScores: number[] = [];
+      for (const arr of bucket.bySkill.values()) allScores.push(...arr);
+      return {
+        userId,
+        userName: bucket.userName,
+        sectorId: bucket.sectorId,
+        sectorName: bucket.sectorName,
+        positionName: bucket.positionName,
+        submittedAt: bucket.submittedAt,
+        overallAverage: avg(allScores),
+        perSkillAverage: stableSkillAxis.map(s => ({
+          skillId: s.skillId,
+          skillName: s.name,
+          skillOrder: s.order,
+          average: avg(bucket.bySkill.get(s.skillId) ?? []),
+        })),
+      };
+    });
+    byUser.sort((a, b) => (b.overallAverage ?? -1) - (a.overallAverage ?? -1));
+
+    // Summary
+    const allScoresFlat: number[] = [];
+    for (const arr of aggBySkill.values()) allScoresFlat.push(...arr);
+    const overallAverage = avg(allScoresFlat);
+
+    const bestSectorEntry = bySector.find(s => s.overallAverage != null);
+    const bestUserEntry = byUser.find(u => u.overallAverage != null);
+    const rankedSkills = [...bySkill]
+      .filter(s => s.average != null)
+      .sort((a, b) => (b.average ?? 0) - (a.average ?? 0));
+    const strongestSkill = rankedSkills[0];
+    const weakestSkill = rankedSkills[rankedSkills.length - 1];
+
+    return {
+      success: true,
+      message: 'Visão geral de competências calculada',
+      data: {
+        summary: {
+          totalEvaluated: allUserIds.size,
+          totalEntries,
+          submittedEntries,
+          inProgressEntries,
+          pendingEntries,
+          submissionRate: totalEntries > 0 ? submittedEntries / totalEntries : 0,
+          overallAverage,
+          assessmentsCount: assessmentIds.size,
+          bestSector: bestSectorEntry && bestSectorEntry.overallAverage != null
+            ? {
+                sectorId: bestSectorEntry.sectorId,
+                sectorName: bestSectorEntry.sectorName,
+                average: bestSectorEntry.overallAverage,
+              }
+            : null,
+          bestUser: bestUserEntry && bestUserEntry.overallAverage != null
+            ? {
+                userId: bestUserEntry.userId,
+                userName: bestUserEntry.userName,
+                average: bestUserEntry.overallAverage,
+              }
+            : null,
+          strongestSkill: strongestSkill && strongestSkill.average != null
+            ? {
+                skillId: strongestSkill.skillId,
+                skillName: strongestSkill.skillName,
+                average: strongestSkill.average,
+              }
+            : null,
+          weakestSkill: weakestSkill && weakestSkill.average != null && weakestSkill !== strongestSkill
+            ? {
+                skillId: weakestSkill.skillId,
+                skillName: weakestSkill.skillName,
+                average: weakestSkill.average,
+              }
+            : null,
+        },
+        bySkill,
+        byTopic,
+        topicDistribution,
+        bySector,
+        byUser,
+      },
+    };
+  }
+
+  /**
+   * Radar-comparison payload: returns N entities (users or sectors) each with
+   * their per-skill and per-topic averages, plus an optional company-wide
+   * benchmark line.
+   *
+   * The `axis` array is the stable skill ordering that every entity's
+   * `perSkillAverage` is aligned to — so the consumer can pass it straight
+   * into ECharts radar indicators without joining anything.
+   */
+  async getStatsComparison(
+    filters: SkillStatsComparisonFilters,
+  ): Promise<{ success: boolean; message: string; data: SkillStatsComparisonResponse }> {
+    // For the company average we need the full scope (unscoped by entityIds).
+    // For per-entity averages we scope additionally.
+    const baseFilters = { ...filters, entityIds: undefined as any };
+
+    // Load the full scope once. For `user` mode we filter at user level via
+    // userIds; for `sector` mode we filter via sectorIds. We restrict at load
+    // time so we don't pull entries we won't aggregate.
+    const scopedFilters = {
+      ...baseFilters,
+      userIds: filters.mode === 'user' ? filters.entityIds : filters.userIds,
+      sectorIds: filters.mode === 'sector' ? filters.entityIds : filters.sectorIds,
+    };
+    const { entries, topicIndex } = await this.loadStatsEntries(scopedFilters);
+
+    // Stable axes from observed responses
+    const skillMeta = new Map<string, { name: string; order: number }>();
+    const topicMeta = new Map<string, { title: string; skillId: string; skillName: string; skillOrder: number }>();
+    for (const meta of topicIndex.values()) {
+      if (!skillMeta.has(meta.skillId)) {
+        skillMeta.set(meta.skillId, { name: meta.skillName, order: meta.skillOrder });
+      }
+    }
+    for (const [topicId, meta] of topicIndex.entries()) {
+      topicMeta.set(topicId, meta);
+    }
+
+    const axis = Array.from(skillMeta.entries())
+      .sort((a, b) => a[1].order - b[1].order)
+      .map(([skillId, meta]) => ({ skillId, skillName: meta.name, skillOrder: meta.order }));
+
+    const topicAxis = Array.from(topicMeta.entries())
+      .sort((a, b) => {
+        if (a[1].skillOrder !== b[1].skillOrder) return a[1].skillOrder - b[1].skillOrder;
+        return a[1].title.localeCompare(b[1].title, 'pt-BR');
+      })
+      .map(([topicId, meta]) => ({
+        topicId,
+        topicTitle: meta.title,
+        skillId: meta.skillId,
+        skillName: meta.skillName,
+      }));
+
+    // Group entries by entity (user id or sector id)
+    type Bucket = {
+      entityId: string;
+      entityName: string;
+      sectorName: string | null;
+      users: Set<string>;
+      bySkill: Map<string, number[]>;
+      byTopic: Map<string, number[]>;
+    };
+    const buckets = new Map<string, Bucket>();
+
+    for (const entry of entries) {
+      const sectorId = entry.evaluatee?.sector?.id ?? null;
+      const sectorName = entry.evaluatee?.sector?.name ?? null;
+
+      const entityId = filters.mode === 'user' ? entry.evaluateeId : sectorId;
+      if (!entityId) continue;
+      const entityName = filters.mode === 'user'
+        ? entry.evaluatee?.name ?? 'Desconhecido'
+        : sectorName ?? '—';
+
+      let bucket = buckets.get(entityId);
+      if (!bucket) {
+        bucket = {
+          entityId,
+          entityName,
+          sectorName: filters.mode === 'user' ? sectorName : null,
+          users: new Set(),
+          bySkill: new Map(),
+          byTopic: new Map(),
+        };
+        buckets.set(entityId, bucket);
+      }
+      bucket.users.add(entry.evaluateeId);
+      for (const r of entry.responses) {
+        const meta = topicIndex.get(r.topicId);
+        if (!meta) continue;
+        const skillArr = bucket.bySkill.get(meta.skillId);
+        if (skillArr) skillArr.push(r.score);
+        else bucket.bySkill.set(meta.skillId, [r.score]);
+        const topicArr = bucket.byTopic.get(r.topicId);
+        if (topicArr) topicArr.push(r.score);
+        else bucket.byTopic.set(r.topicId, [r.score]);
+      }
+    }
+
+    const entitiesOut: SkillStatsComparisonEntity[] = filters.entityIds.map(id => {
+      const bucket = buckets.get(id);
+      if (!bucket) {
+        return {
+          entityId: id,
+          entityName: '—',
+          sectorName: null,
+          evaluatedCount: 0,
+          overallAverage: null,
+          perSkillAverage: axis.map(s => ({ ...s, average: null })),
+          perTopicAverage: topicAxis.map(t => ({ ...t, average: null })),
+        };
+      }
+      const allScores: number[] = [];
+      for (const arr of bucket.bySkill.values()) allScores.push(...arr);
+      return {
+        entityId: bucket.entityId,
+        entityName: bucket.entityName,
+        sectorName: bucket.sectorName,
+        evaluatedCount: bucket.users.size,
+        overallAverage: avg(allScores),
+        perSkillAverage: axis.map(s => ({
+          ...s,
+          average: avg(bucket.bySkill.get(s.skillId) ?? []),
+        })),
+        perTopicAverage: topicAxis.map(t => ({
+          ...t,
+          average: avg(bucket.byTopic.get(t.topicId) ?? []),
+        })),
+      };
+    });
+
+    // Optional company-average benchmark (unscoped by entityIds)
+    let companyAverage: SkillStatsComparisonResponse['companyAverage'] = null;
+    if (filters.includeCompanyAverage) {
+      const { entries: companyEntries } = await this.loadStatsEntries(baseFilters);
+      const compBySkill = new Map<string, number[]>();
+      const compByTopic = new Map<string, number[]>();
+      for (const e of companyEntries) {
+        for (const r of e.responses) {
+          const meta = topicIndex.get(r.topicId);
+          if (!meta) continue;
+          (compBySkill.get(meta.skillId) ?? compBySkill.set(meta.skillId, []).get(meta.skillId)!).push(r.score);
+          (compByTopic.get(r.topicId) ?? compByTopic.set(r.topicId, []).get(r.topicId)!).push(r.score);
+        }
+      }
+      const compAllScores: number[] = [];
+      for (const arr of compBySkill.values()) compAllScores.push(...arr);
+      companyAverage = {
+        perSkillAverage: axis.map(s => ({ ...s, average: avg(compBySkill.get(s.skillId) ?? []) })),
+        perTopicAverage: topicAxis.map(t => ({ ...t, average: avg(compByTopic.get(t.topicId) ?? []) })),
+        overallAverage: avg(compAllScores),
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Comparativo de competências calculado',
+      data: {
+        mode: filters.mode,
+        axis,
+        topicAxis,
+        entities: entitiesOut,
+        companyAverage,
+      },
+    };
+  }
+
+  /**
+   * Evolution: per-assessment averages over time. One line per series
+   * (sector or user; or a single 'company' line). Assessments are ordered
+   * by periodEnd ascending so the chart reads left-to-right chronologically.
+   */
+  async getStatsEvolution(
+    filters: SkillStatsEvolutionFilters,
+  ): Promise<{ success: boolean; message: string; data: SkillStatsEvolutionResponse }> {
+    const scopedFilters = {
+      ...filters,
+      userIds: filters.mode === 'user' ? (filters.entityIds ?? filters.userIds) : filters.userIds,
+      sectorIds: filters.mode === 'sector' ? (filters.entityIds ?? filters.sectorIds) : filters.sectorIds,
+    };
+    const { entries } = await this.loadStatsEntries(scopedFilters);
+
+    // Group entries by assessment
+    const byAssessment = new Map<
+      string,
+      {
+        name: string;
+        periodStart: Date;
+        periodEnd: Date;
+        // seriesId -> scores
+        scores: Map<string, number[]>;
+        // company-wide accumulator
+        companyScores: number[];
+      }
+    >();
+
+    const seriesNames = new Map<string, string>();
+
+    for (const entry of entries) {
+      const a = entry.assessment;
+      if (!a) continue;
+      let bucket = byAssessment.get(a.id);
+      if (!bucket) {
+        bucket = {
+          name: a.name,
+          periodStart: a.periodStart,
+          periodEnd: a.periodEnd,
+          scores: new Map(),
+          companyScores: [],
+        };
+        byAssessment.set(a.id, bucket);
+      }
+
+      const entryScores = entry.responses.map(r => r.score);
+      if (!entryScores.length) continue;
+
+      bucket.companyScores.push(...entryScores);
+
+      if (filters.mode === 'company') {
+        // handled via companyScores
+      } else if (filters.mode === 'user') {
+        const userId = entry.evaluateeId;
+        const userName = entry.evaluatee?.name ?? 'Desconhecido';
+        if (!seriesNames.has(userId)) seriesNames.set(userId, userName);
+        const arr = bucket.scores.get(userId);
+        if (arr) arr.push(...entryScores);
+        else bucket.scores.set(userId, [...entryScores]);
+      } else if (filters.mode === 'sector') {
+        const sectorId = entry.evaluatee?.sector?.id;
+        const sectorName = entry.evaluatee?.sector?.name ?? '—';
+        if (!sectorId) continue;
+        if (!seriesNames.has(sectorId)) seriesNames.set(sectorId, sectorName);
+        const arr = bucket.scores.get(sectorId);
+        if (arr) arr.push(...entryScores);
+        else bucket.scores.set(sectorId, [...entryScores]);
+      }
+    }
+
+    const orderedAssessments = Array.from(byAssessment.entries()).sort(
+      ([, a], [, b]) => a.periodEnd.getTime() - b.periodEnd.getTime(),
+    );
+
+    const series = filters.mode === 'company'
+      ? [{ id: 'company', name: 'Empresa' }]
+      : Array.from(seriesNames.entries()).map(([id, name]) => ({ id, name }));
+
+    const points: SkillStatsEvolutionPoint[] = orderedAssessments.map(([assessmentId, bucket]) => {
+      const values: Record<string, number | null> = {};
+      if (filters.mode === 'company') {
+        values['company'] = avg(bucket.companyScores);
+      } else {
+        for (const { id } of series) {
+          values[id] = avg(bucket.scores.get(id) ?? []);
+        }
+      }
+      return {
+        assessmentId,
+        assessmentName: bucket.name,
+        periodStart: bucket.periodStart,
+        periodEnd: bucket.periodEnd,
+        values,
+      };
+    });
+
+    return {
+      success: true,
+      message: 'Evolução de competências calculada',
+      data: {
+        mode: filters.mode,
+        series,
+        points,
+      },
+    };
+  }
+
+  // ===================================================================
   // INTERNAL HELPERS
   // ===================================================================
 
@@ -1131,9 +1829,9 @@ export class SkillService {
       message: 'OK',
       data,
       meta: {
+        totalRecords: total,
         page,
-        limit,
-        total,
+        take: limit,
         totalPages: Math.ceil(total / limit),
         hasNextPage: page * limit < total,
         hasPreviousPage: page > 1,

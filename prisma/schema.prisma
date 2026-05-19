@@ -650,7 +650,7 @@ model File {
   serviceOrderCheckoutFiles               ServiceOrder[]            @relation("SERVICE_ORDER_CHECKOUT_FILES")
   bankSlipPdfs                            BankSlip[]                @relation("BankSlipPdf")
   installmentReceipts                     Installment[]             @relation("InstallmentReceipts")
-  bankStatementImports                    BankStatement[]           @relation("BankStatementFile")
+  bankTransactionImports                  BankTransaction[]         @relation("BankTransactionFile")
   fiscalDocumentXmls                      FiscalDocument[]          @relation("FiscalDocXml")
 
   @@index([filename])
@@ -1696,7 +1696,7 @@ model User {
   paymentAssignedByOrders  Order[]                      @relation("ORDER_PAYMENT_ASSIGNED_BY")
   invoicesCreated          Invoice[]                    @relation("InvoicesCreated")
   taskForecastHistories    TaskForecastHistory[]        @relation("TASK_FORECAST_HISTORY_USER")
-  bankStatementsUploaded   BankStatement[]              @relation("BankStatementUploader")
+  bankTransactionImports        BankTransaction[]            @relation("BankTransactionUploader")
   reconciliationMatches         ReconciliationMatch[]        @relation("MatchedBy")
   reconciliationRuns            ReconciliationRun[]          @relation("ReconciliationRunTriggers")
   assessmentEntriesAsEvaluatee  AssessmentEntry[]            @relation("ASSESSMENT_ENTRY_EVALUATEE")
@@ -3551,19 +3551,6 @@ enum FiscalDocumentStatus {
   PENDING
 }
 
-enum BankStatementImportStatus {
-  PENDING
-  PARSING
-  MATCHING
-  COMPLETED
-  FAILED
-}
-
-enum BankStatementSource {
-  OFX_SICREDI
-  MANUAL
-}
-
 enum FiscalDocumentSource {
   SIEG_API
   MANUAL_UPLOAD
@@ -3589,40 +3576,16 @@ enum ReconciliationAliasSource {
   ADMIN_SEEDED
 }
 
-model BankStatement {
-  id               String                    @id @default(uuid())
-  source           BankStatementSource       @default(OFX_SICREDI)
-  bankCode         String
-  bankName         String
-  agency           String
-  accountNumber    String
-  ownerCnpj        String
-  rawFileId        String?
-  periodStart      DateTime
-  periodEnd        DateTime
-  openingBalance   Decimal?                  @db.Decimal(14, 2)
-  closingBalance   Decimal?                  @db.Decimal(14, 2)
-  transactionCount Int                       @default(0)
-  totalCredits     Decimal                   @default(0) @db.Decimal(14, 2)
-  totalDebits      Decimal                   @default(0) @db.Decimal(14, 2)
-  matchedCount     Int                       @default(0)
-  status           BankStatementImportStatus @default(PENDING)
-  errorMessage     String?
-  uploadedById     String?
-  importedAt       DateTime                  @default(now())
-  createdAt        DateTime                  @default(now())
-  updatedAt        DateTime                  @updatedAt
-  rawFile          File?                     @relation("BankStatementFile", fields: [rawFileId], references: [id])
-  uploadedBy       User?                     @relation("BankStatementUploader", fields: [uploadedById], references: [id])
-  transactions     BankTransaction[]         @relation("StatementTransactions")
-
-  @@index([periodStart, periodEnd])
-  @@index([status])
-}
-
 model BankTransaction {
   id                  String                    @id @default(uuid())
-  statementId         String
+  // Denormalized bank-account identifier columns. Together with fitId they form
+  // the natural OFX dedup key — re-importing the same OFX (or overlapping ones)
+  // never creates duplicate rows.
+  bankCode            String
+  bankName            String
+  agency              String
+  accountNumber       String
+  ownerCnpj           String?
   fitId               String
   postedAt            DateTime
   amount              Decimal                   @db.Decimal(14, 2)
@@ -3636,17 +3599,23 @@ model BankTransaction {
   matchStatus         ReconciliationMatchStatus @default(UNMATCHED)
   ignoredReason       String?
   bankSlipId          String?
+  // Audit trail of the OFX import that created this row.
+  rawFileId           String?
+  uploadedById        String?
+  importedAt          DateTime                  @default(now())
   createdAt           DateTime                  @default(now())
   updatedAt           DateTime                  @updatedAt
-  statement           BankStatement             @relation("StatementTransactions", fields: [statementId], references: [id], onDelete: Cascade)
+  rawFile             File?                     @relation("BankTransactionFile", fields: [rawFileId], references: [id])
+  uploadedBy          User?                     @relation("BankTransactionUploader", fields: [uploadedById], references: [id])
   bankSlip            BankSlip?                 @relation("BankSlipTransaction", fields: [bankSlipId], references: [id])
   matches             ReconciliationMatch[]     @relation("TransactionMatches")
 
-  @@unique([statementId, fitId])
+  @@unique([bankCode, agency, accountNumber, fitId])
   @@index([postedAt])
   @@index([matchStatus])
   @@index([counterpartyCnpjCpf])
   @@index([amount])
+  @@index([bankCode, accountNumber, postedAt])
 }
 
 model FiscalDocument {
@@ -3732,7 +3701,6 @@ model ReconciliationRun {
   id            String                   @id @default(uuid())
   trigger       ReconciliationRunTrigger
   status        ReconciliationRunStatus  @default(RUNNING)
-  statementId   String?
   dateStart     DateTime?
   dateEnd       DateTime?
   triggeredById String?

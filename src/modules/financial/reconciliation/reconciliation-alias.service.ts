@@ -249,7 +249,7 @@ export class ReconciliationAliasService {
             memo: true,
             type: true,
             counterpartyCnpjCpf: true,
-            statement: { select: { ownerCnpj: true } },
+            ownerCnpj: true,
           },
         },
         fiscalDocument: {
@@ -275,7 +275,7 @@ export class ReconciliationAliasService {
         m.transaction.counterpartyCnpjCpf ||
         inferCounterpartyCnpj(
           m.fiscalDocument,
-          m.transaction.statement?.ownerCnpj ?? null,
+          m.transaction.ownerCnpj,
         );
       if (!counterparty) {
         skipped += 1;
