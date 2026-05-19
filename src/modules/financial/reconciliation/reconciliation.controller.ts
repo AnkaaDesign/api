@@ -8,12 +8,11 @@ import {
   Query,
   Req,
   Res,
-  UploadedFile,
   UploadedFiles,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common';
-import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { Response, Request } from 'express';
 import { promises as fs } from 'node:fs';
 import { multerConfig } from '@modules/common/file/config/upload.config';
@@ -34,7 +33,6 @@ import {
   fiscalDocumentsFilterSchema,
   FiscalDocumentsFilterDto,
 } from './dto/fiscal-documents-filter.dto';
-import { statementsFilterSchema, StatementsFilterDto } from './dto/statements-filter.dto';
 import { statisticsFilterSchema, StatisticsFilterDto } from './dto/statistics-filter.dto';
 import { manualMatchSchema, ManualMatchDto } from './dto/manual-match.dto';
 import {
@@ -59,13 +57,24 @@ export class ReconciliationController {
   ) {}
 
   @Post('import')
-  @UseInterceptors(FileInterceptor('file', multerConfig))
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: 'files', maxCount: 30 }], {
+      ...multerConfig,
+      limits: {
+        ...multerConfig.limits,
+        fileSize: 100 * 1024 * 1024, // 100 MB per file (ZIPs of bulk OFX exports)
+      },
+    }),
+  )
   async importOfx(
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFiles() body: { files?: Express.Multer.File[] },
     @Req() req: Request & { user?: { id?: string } },
   ) {
-    if (!file) throw new BadRequestException('Arquivo OFX obrigatório');
-    return this.importService.importOfx(file, req.user?.id);
+    const files = body?.files ?? [];
+    if (files.length === 0) {
+      throw new BadRequestException('Envie ao menos um arquivo OFX ou ZIP');
+    }
+    return this.importService.importOfx(files, req.user?.id);
   }
 
   @Post('fiscal-documents/import')
@@ -86,17 +95,6 @@ export class ReconciliationController {
       throw new BadRequestException('Envie ao menos um arquivo XML ou ZIP');
     }
     return this.xmlImport.importFiles(files);
-  }
-
-  @Get('statements')
-  @UsePipes(new ZodValidationPipe(statementsFilterSchema))
-  listStatements(@Query() query: StatementsFilterDto) {
-    return this.service.listStatements(query);
-  }
-
-  @Get('statements/:id')
-  getStatement(@Param('id') id: string) {
-    return this.service.getStatement(id);
   }
 
   @Get('transactions')
@@ -144,10 +142,6 @@ export class ReconciliationController {
   @Post('run')
   @UsePipes(new ZodValidationPipe(rerunMatchingSchema))
   async run(@Body() body: RerunMatchingDto) {
-    if (body.statementId) {
-      const matched = await this.matcher.matchStatement(body.statementId);
-      return { matched };
-    }
     if (body.dateStart && body.dateEnd) {
       const matched = await this.matcher.matchDateRange(
         new Date(body.dateStart),

@@ -23,11 +23,28 @@ export interface ParsedOfxStatement {
   bankName: string;
   agency: string;
   accountNumber: string;
+  ownerCnpj: string | null;
   periodStart: Date;
   periodEnd: Date;
-  openingBalance: number | null;
-  closingBalance: number | null;
   transactions: ParsedOfxTransaction[];
+}
+
+export interface OfxImportFileResult {
+  /** Original filename from multer (or zip entry path). */
+  fileName: string;
+  /** Per-statement breakdown (a single OFX may contain multiple statements). */
+  statements: Array<{
+    bankCode: string;
+    bankName: string;
+    agency: string;
+    accountNumber: string;
+    periodStart: Date;
+    periodEnd: Date;
+    parsed: number;
+    inserted: number;
+    duplicates: number;
+  }>;
+  error?: string;
 }
 
 export interface MatchCandidate {
@@ -46,13 +63,23 @@ export interface MatchCandidate {
 }
 
 export interface ImportSummary {
-  statementId: string;
-  transactionCount: number;
-  matchedCount: number;
+  /** Total .ofx/.qfx files processed (zip entries counted individually). */
+  filesProcessed: number;
+  /** Transactions read across all OFX files. */
+  transactionsParsed: number;
+  /** Transactions actually inserted (excludes duplicates). */
+  transactionsInserted: number;
+  /** Transactions skipped because (bankCode, agency, accountNumber, fitId) already exists. */
+  duplicatesSkipped: number;
+  /** Newly-inserted transactions that auto-matched. */
   autoMatchedCount: number;
-  unmatchedCount: number;
+  /** Sums for the inserted transactions. */
   totalCredits: number;
   totalDebits: number;
+  /** Per-file outcome, for the UI to surface failures and per-file dedup info. */
+  files: OfxImportFileResult[];
+  /** Filenames whose import failed (parse error, unreadable, etc.). */
+  failedFiles: string[];
 }
 
 export interface ReconciliationStatistics {

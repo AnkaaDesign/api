@@ -49,7 +49,7 @@ export class GoalController {
   constructor(private readonly goalService: GoalService) {}
 
   @Get()
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async findMany(
     @Query(new ZodQueryValidationPipe(goalGetManySchema)) query: GoalGetManyFormData,
   ): Promise<GoalGetManyResponse> {

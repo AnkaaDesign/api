@@ -50,6 +50,14 @@ import {
   assessmentEntryResponsesUpsertSchema,
   assessmentEntryUpdateSchema,
 } from '../../schemas/skill';
+import {
+  skillStatsOverviewFiltersSchema,
+  skillStatsComparisonFiltersSchema,
+  skillStatsEvolutionFiltersSchema,
+  type SkillStatsOverviewFilters,
+  type SkillStatsComparisonFilters,
+  type SkillStatsEvolutionFilters,
+} from '../../schemas/skill-analytics';
 
 @Controller()
 export class SkillController {
@@ -83,7 +91,7 @@ export class SkillController {
   }
 
   @Post('skill')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @HttpCode(HttpStatus.CREATED)
   async createSkill(
     @Body(new ZodValidationPipe(skillCreateSchema)) data: any,
@@ -93,7 +101,7 @@ export class SkillController {
   }
 
   @Patch('skill/:id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async updateSkill(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(skillUpdateSchema)) data: any,
@@ -103,13 +111,13 @@ export class SkillController {
   }
 
   @Delete('skill/:id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async deleteSkill(@Param('id', ParseUUIDPipe) id: string) {
     return this.skillService.deleteSkill(id);
   }
 
   @Post('skill/batch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @HttpCode(HttpStatus.CREATED)
   async batchCreateSkills(
     @Body(new ZodValidationPipe(skillBatchCreateSchema)) data: any,
@@ -119,7 +127,7 @@ export class SkillController {
   }
 
   @Patch('skill/batch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async batchUpdateSkills(
     @Body(new ZodValidationPipe(skillBatchUpdateSchema)) data: any,
     @Query(new ZodQueryValidationPipe(skillQuerySchema)) query: any,
@@ -128,7 +136,7 @@ export class SkillController {
   }
 
   @Delete('skill/batch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async batchDeleteSkills(@Body(new ZodValidationPipe(skillBatchDeleteSchema)) data: any) {
     return this.skillService.batchDeleteSkills(data);
   }
@@ -161,7 +169,7 @@ export class SkillController {
   }
 
   @Post('topic')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @HttpCode(HttpStatus.CREATED)
   async createTopic(
     @Body(new ZodValidationPipe(topicCreateSchema)) data: any,
@@ -171,7 +179,7 @@ export class SkillController {
   }
 
   @Patch('topic/:id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async updateTopic(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(topicUpdateSchema)) data: any,
@@ -181,7 +189,7 @@ export class SkillController {
   }
 
   @Delete('topic/:id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async deleteTopic(@Param('id', ParseUUIDPipe) id: string) {
     return this.skillService.deleteTopic(id);
   }
@@ -191,7 +199,7 @@ export class SkillController {
    * Used by the Phase-4 Topic edit page.
    */
   @Put('topic/:id/levels')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async upsertTopicLevels(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(topicLevelsUpsertSchema)) data: any,
@@ -200,7 +208,7 @@ export class SkillController {
   }
 
   @Post('topic/batch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @HttpCode(HttpStatus.CREATED)
   async batchCreateTopics(
     @Body(new ZodValidationPipe(topicBatchCreateSchema)) data: any,
@@ -210,7 +218,7 @@ export class SkillController {
   }
 
   @Patch('topic/batch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async batchUpdateTopics(
     @Body(new ZodValidationPipe(topicBatchUpdateSchema)) data: any,
     @Query(new ZodQueryValidationPipe(topicQuerySchema)) query: any,
@@ -219,7 +227,7 @@ export class SkillController {
   }
 
   @Delete('topic/batch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async batchDeleteTopics(@Body(new ZodValidationPipe(topicBatchDeleteSchema)) data: any) {
     return this.skillService.batchDeleteTopics(data);
   }
@@ -315,6 +323,43 @@ export class SkillController {
   )
   async getAssessmentAnalytics(@Param('id', ParseUUIDPipe) id: string) {
     return this.skillService.getAssessmentAnalytics(id);
+  }
+
+  // =====================================================================
+  // CROSS-CAMPAIGN STATISTICS — /skill/analytics/*
+  // =====================================================================
+  // POST bodies (mirrors hr-analytics): keeps complex array filters out of
+  // the query string and lets us evolve the request shape without breaking
+  // URL caches.
+
+  @Post('skill/analytics/overview')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
+  @HttpCode(HttpStatus.OK)
+  async getSkillStatsOverview(
+    @Body(new ZodValidationPipe(skillStatsOverviewFiltersSchema))
+    filters: SkillStatsOverviewFilters,
+  ) {
+    return this.skillService.getStatsOverview(filters);
+  }
+
+  @Post('skill/analytics/comparison')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
+  @HttpCode(HttpStatus.OK)
+  async getSkillStatsComparison(
+    @Body(new ZodValidationPipe(skillStatsComparisonFiltersSchema))
+    filters: SkillStatsComparisonFilters,
+  ) {
+    return this.skillService.getStatsComparison(filters);
+  }
+
+  @Post('skill/analytics/evolution')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
+  @HttpCode(HttpStatus.OK)
+  async getSkillStatsEvolution(
+    @Body(new ZodValidationPipe(skillStatsEvolutionFiltersSchema))
+    filters: SkillStatsEvolutionFilters,
+  ) {
+    return this.skillService.getStatsEvolution(filters);
   }
 
   // =====================================================================

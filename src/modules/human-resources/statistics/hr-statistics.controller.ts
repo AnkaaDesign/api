@@ -21,7 +21,7 @@ export class HrStatisticsController {
   ) {}
 
   @Post('headcount')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @HttpCode(HttpStatus.OK)
   async headcount(
     @Body(new ZodValidationPipe(headcountFiltersSchema)) filters: HeadcountFilters,
@@ -31,7 +31,7 @@ export class HrStatisticsController {
   }
 
   @Post('turnover')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @HttpCode(HttpStatus.OK)
   async turnover(
     @Body(new ZodValidationPipe(turnoverFiltersSchema)) filters: TurnoverFilters,

@@ -46,9 +46,8 @@ export class ReconciliationStatisticsService {
       this.prisma.fiscalDocument.count({
         where: { issueDate: { gte: from, lte: to } },
       }),
-      this.prisma.bankStatement.findFirst({
-        orderBy: { importedAt: 'desc' },
-        select: { importedAt: true },
+      this.prisma.bankTransaction.aggregate({
+        _max: { importedAt: true },
       }),
       this.aggregateMatchedOverTime(from, to),
       this.aggregateTopUnmatched(from, to),
@@ -60,7 +59,7 @@ export class ReconciliationStatisticsService {
       totalConciliadoMes: Number(monthMatched._sum.allocatedAmount ?? 0),
       pendenteConciliacao: Number(monthPending._sum.amount ?? 0),
       notasRecebidas: totalDocs,
-      ultimaImportacao: lastImport?.importedAt ?? null,
+      ultimaImportacao: lastImport._max.importedAt ?? null,
       matchedOverTime,
       topUnmatchedByCounterparty: topUnmatched,
       matchTypeDistribution: typeDistribution,

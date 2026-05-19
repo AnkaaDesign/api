@@ -215,33 +215,6 @@ export class ReconciliationMatcherService {
   ) {}
 
   /**
-   * Runs Pass 0 (boleto bridge) + Pass 1 (exact) for every UNMATCHED transaction
-   * in the given statement. Returns the count of newly auto-matched transactions.
-   */
-  async matchStatement(statementId: string): Promise<number> {
-    const txs = await this.prisma.bankTransaction.findMany({
-      where: { statementId, matchStatus: ReconciliationMatchStatus.UNMATCHED },
-      select: {
-        id: true,
-        postedAt: true,
-        amount: true,
-        type: true,
-        counterpartyCnpjCpf: true,
-        counterpartyName: true,
-        memo: true,
-        bankSlipId: true,
-        matchStatus: true,
-      },
-    });
-    let matched = 0;
-    for (const tx of txs) {
-      const result = await this.matchTransaction(tx as RawTransaction);
-      if (result) matched += 1;
-    }
-    return matched;
-  }
-
-  /**
    * Re-runs auto-matching for UNMATCHED transactions in a date range.
    */
   async matchDateRange(start: Date, end: Date): Promise<number> {

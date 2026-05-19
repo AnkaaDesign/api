@@ -43,8 +43,6 @@ export class OfxParserService {
 
     const bankAcct = stmtRs.BANKACCTFROM || stmtRs.bankacctfrom || {};
     const tranList = stmtRs.BANKTRANLIST || stmtRs.banktranlist || {};
-    const ledgerBal = stmtRs.LEDGERBAL || stmtRs.ledgerbal || {};
-    const availBal = stmtRs.AVAILBAL || stmtRs.availbal || {};
 
     const stmttrn = tranList.STMTTRN || tranList.stmttrn || [];
     const stmttrnArray = Array.isArray(stmttrn) ? stmttrn : [stmttrn];
@@ -69,10 +67,9 @@ export class OfxParserService {
       bankName: bankCode === '748' ? 'Sicredi' : `Banco ${bankCode}`,
       agency,
       accountNumber,
+      ownerCnpj: null,
       periodStart: this.parseOfxDate(tranList.DTSTART || tranList.dtstart),
       periodEnd: this.parseOfxDate(tranList.DTEND || tranList.dtend),
-      openingBalance: this.numOrNull(availBal.BALAMT || availBal.balamt),
-      closingBalance: this.numOrNull(ledgerBal.BALAMT || ledgerBal.balamt),
       transactions,
     };
   }
@@ -137,12 +134,6 @@ export class OfxParserService {
     }
     const [, y, mo, d, h = '00', mi = '00', se = '00'] = m;
     return new Date(`${y}-${mo}-${d}T${h}:${mi}:${se}Z`);
-  }
-
-  private numOrNull(value: unknown): number | null {
-    if (value === undefined || value === null || value === '') return null;
-    const n = parseFloat(String(value).replace(',', '.'));
-    return Number.isFinite(n) ? n : null;
   }
 
   private inferSubtype(trnType: string, memo: string | null): BankTransactionSubtype {
