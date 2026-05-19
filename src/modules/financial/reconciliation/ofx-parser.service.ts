@@ -132,7 +132,11 @@ export class OfxParserService {
       const parsed = new Date(s);
       return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
     }
-    const [, y, mo, d, h = '00', mi = '00', se = '00'] = m;
+    const [, y, mo, d, h, mi, se] = m;
+    // Date-only values (no time in OFX): use noon UTC so the calendar date is
+    // unambiguous in any timezone (including Brazil UTC-3). Midnight UTC becomes
+    // the previous day when viewed in PT-BR locale.
+    if (!h) return new Date(`${y}-${mo}-${d}T12:00:00Z`);
     return new Date(`${y}-${mo}-${d}T${h}:${mi}:${se}Z`);
   }
 

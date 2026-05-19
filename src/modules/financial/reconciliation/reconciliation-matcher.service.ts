@@ -18,6 +18,9 @@ const EXACT_DATE_WINDOW_DAYS = 5;
 const VALUE_DATE_WINDOW_DAYS = 3;
 const FUZZY_DATE_WINDOW_DAYS = 10;
 const BOLETO_BRIDGE_WINDOW_DAYS = 2;
+// When CNPJ is known, widen the candidates window significantly — Brazilian B2B
+// payment terms routinely run 30-60 days after the NF is issued.
+const CNPJ_CANDIDATE_DATE_WINDOW_DAYS = 60;
 const FUZZY_AMOUNT_TOLERANCE = 0.02; // 2% widening for fee/rounding noise (PIX fees, IOF)
 const AUTO_MATCH_SCORE_THRESHOLD = 90;
 const AUTO_MATCH_RUNNER_UP_GAP = 8;
@@ -215,6 +218,33 @@ export class ReconciliationMatcherService {
   ) {}
 
   /**
+   * Re-runs auto-matching for ALL currently UNMATCHED transactions regardless of date.
+   * Used by the "Re-executar" global action on the transactions list page.
+   */
+  async matchAll(): Promise<number> {
+    const txs = await this.prisma.bankTransaction.findMany({
+      where: { matchStatus: ReconciliationMatchStatus.UNMATCHED },
+      select: {
+        id: true,
+        postedAt: true,
+        amount: true,
+        type: true,
+        counterpartyCnpjCpf: true,
+        counterpartyName: true,
+        memo: true,
+        bankSlipId: true,
+        matchStatus: true,
+      },
+    });
+    let matched = 0;
+    for (const tx of txs) {
+      const result = await this.matchTransaction(tx as RawTransaction);
+      if (result) matched += 1;
+    }
+    return matched;
+  }
+
+  /**
    * Re-runs auto-matching for UNMATCHED transactions in a date range.
    */
   async matchDateRange(start: Date, end: Date): Promise<number> {
@@ -355,12 +385,19 @@ export class ReconciliationMatcherService {
       operationType: true,
     } satisfies Prisma.FiscalDocumentSelect;
 
-    // First pass: CNPJ-scoped candidates (full or root, same parent company)
+    // First pass: CNPJ-scoped candidates with a wide date window.
+    // Brazilian B2B payment terms routinely run 30-60 days after the NF is issued,
+    // so matching requires CNPJ as the primary signal — value+date alone is insufficient.
+    // We skip the value filter here and let the scorer rank by value proximity.
     let docs: any[] = [];
     if (counterparty) {
+      const wideLower = new Date(tx.postedAt.getTime() - CNPJ_CANDIDATE_DATE_WINDOW_DAYS * 86_400_000);
+      const wideUpper = new Date(tx.postedAt.getTime() + CNPJ_CANDIDATE_DATE_WINDOW_DAYS * 86_400_000);
       docs = await this.prisma.fiscalDocument.findMany({
         where: {
-          ...baseWhere,
+          status: 'AUTHORIZED',
+          matches: { none: {} },
+          issueDate: { gte: wideLower, lte: wideUpper },
           OR: [
             { emitCnpj: counterparty },
             { destCnpj: counterparty },
@@ -379,7 +416,8 @@ export class ReconciliationMatcherService {
       });
     }
 
-    // Fallback: open the search to value+date proximity when CNPJ yielded nothing
+    // Fallback: value+date proximity when CNPJ yielded nothing (no CNPJ on transaction
+    // or no matching docs found by CNPJ in the wider window).
     if (docs.length === 0) {
       docs = await this.prisma.fiscalDocument.findMany({
         where: baseWhere,

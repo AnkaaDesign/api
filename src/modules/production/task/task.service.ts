@@ -45,7 +45,9 @@ import {
   SERVICE_ORDER_TYPE,
   CUT_STATUS,
   AIRBRUSHING_STATUS,
+  TASK_QUOTE_STATUS,
 } from '../../../constants/enums';
+import { TASK_QUOTE_STATUS_ORDER } from '@constants';
 import { validateSectorFieldAccess } from './task.permissions';
 import { TaskRepository, PrismaTransaction } from './repositories/task.repository';
 import {
@@ -8530,9 +8532,13 @@ export class TaskService {
             convertedValue = isNaN(parsed.getTime()) ? null : parsed;
           }
 
+          const rollbackData: any = { [fieldToRevert]: convertedValue };
+          if (fieldToRevert === 'status' && convertedValue && typeof convertedValue === 'string') {
+            rollbackData.statusOrder = TASK_QUOTE_STATUS_ORDER[convertedValue as TASK_QUOTE_STATUS] ?? undefined;
+          }
           await tx.taskQuote.update({
             where: { id: changeLog.entityId },
-            data: { [fieldToRevert]: convertedValue },
+            data: rollbackData,
           });
         }
 

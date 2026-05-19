@@ -173,7 +173,9 @@ export class ReconciliationController {
       }
       return { matched };
     }
-    throw new BadRequestException('Escopo de re-execução inválido');
+    // Default: run for all UNMATCHED transactions (global re-run from transactions list)
+    const matched = await this.matcher.matchAll();
+    return { matched };
   }
 
   @Get('statistics')
