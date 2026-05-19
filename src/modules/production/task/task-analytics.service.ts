@@ -996,12 +996,14 @@ export class TaskAnalyticsService {
     yAxisMode?: 'count' | 'performance' | 'both';
     compareMode?: 'combined' | 'separated' | 'separatedWithTotal';
     positionStep?: number;
+    positionBase?: number;
   }) {
     const {
       sectorIds,
       xAxisMode = 'month',
       compareMode = 'combined',
       positionStep = 0.6,
+      positionBase = 1.0,
     } = filters;
     const isComparisonMode =
       (compareMode === 'separated' || compareMode === 'separatedWithTotal') &&
@@ -1058,32 +1060,25 @@ export class TaskAnalyticsService {
       },
     });
 
-    // Rank positions globally by hierarchy ascending. Ordinal rank drives
-    // the weight — hierarchy GAPS are ignored (a skipped hierarchy number
-    // doesn't widen the productivity gap; only adjacency matters).
-    const distinctPositions = new Map<string, { id: string; name: string; hierarchy: number }>();
-    for (const u of productionUsers) {
-      if (!u.position) continue;
-      if (!distinctPositions.has(u.position.id)) {
-        distinctPositions.set(u.position.id, {
-          id: u.position.id,
-          name: u.position.name,
-          hierarchy: u.position.hierarchy ?? 0,
-        });
-      }
-    }
-    const rankedPositions = Array.from(distinctPositions.values()).sort(
-      (a, b) => a.hierarchy - b.hierarchy,
-    );
+    // Rank ALL bonifiable positions globally by hierarchy ascending — not
+    // just the ones with active users in this filter. Otherwise gaps in the
+    // active set (e.g. no one in Pleno II/III) collapse and Pleno IV ends
+    // up just one step above Pleno I, hiding the real hierarchy distance.
+    // Ranking the full cargo ladder makes each step reflect one real cargo.
+    const allBonifiablePositions = await this.prisma.position.findMany({
+      where: { bonifiable: true, hierarchy: { not: null } },
+      select: { id: true, hierarchy: true },
+      orderBy: { hierarchy: 'asc' },
+    });
     const positionWeight = new Map<string, number>();
     const positionRank = new Map<string, number>();
-    rankedPositions.forEach((p, idx) => {
-      positionWeight.set(p.id, 1 + positionStep * idx);
+    allBonifiablePositions.forEach((p, idx) => {
+      positionWeight.set(p.id, positionBase + positionStep * idx);
       positionRank.set(p.id, idx);
     });
-    // Users with no position fall to baseline weight (1.0) — same as rank 0.
+    // Users with no position fall to baseline weight (positionBase) — same as rank 0.
     const weightFor = (positionId: string | null): number =>
-      (positionId && positionWeight.get(positionId)) ?? 1;
+      (positionId && positionWeight.get(positionId)) ?? positionBase;
     const rankFor = (positionId: string | null): number =>
       (positionId && positionRank.get(positionId)) ?? 0;
 
@@ -1286,7 +1281,7 @@ export class TaskAnalyticsService {
         avgPerformance: round2(overallAvgPerformance),
         avgTasksPerPeriod,
       },
-      params: { positionStep },
+      params: { positionStep, positionBase },
     };
   }
 
