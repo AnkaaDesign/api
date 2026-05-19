@@ -73,7 +73,7 @@ export type TaskProductionStatsFilters = z.infer<typeof taskProductionStatsSchem
 
 // Performance statistics — productivity, position-adjusted.
 //   - Working days only (Mon–Fri minus national holidays, capped at today).
-//   - Per-user contribution = weight × occupancy where weight = 1 + step ×
+//   - Per-user contribution = weight × occupancy where weight = base + step ×
 //     rank (positions ranked globally by Position.hierarchy ascending) and
 //     occupancy = user's working days / period's working days.
 //   - avgPerformance = T / Σ contribution — lives on productivity's T/N
@@ -89,6 +89,7 @@ export const taskPerformanceStatsSchema = z.object({
   yAxisMode: z.enum(['count', 'performance', 'both']).optional().default('performance'),
   compareMode: z.enum(['combined', 'separated', 'separatedWithTotal']).optional().default('combined'),
   positionStep: z.number().min(0).optional().default(0.6),
+  positionBase: z.number().min(0).optional().default(1.0),
 });
 
 export type TaskPerformanceStatsFilters = z.infer<typeof taskPerformanceStatsSchema>;
