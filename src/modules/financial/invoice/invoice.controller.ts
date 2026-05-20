@@ -16,6 +16,7 @@ import {
   UsePipes,
 } from '@nestjs/common';
 import { Response } from 'express';
+import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 import { InvoiceService } from './invoice.service';
 import { InvoiceGenerationService } from './invoice-generation.service';
 import { InvoiceAnalyticsService } from './invoice-analytics.service';
@@ -526,6 +527,16 @@ export class InvoiceController {
             statusOrder: TASK_QUOTE_STATUS_ORDER[newStatus],
           },
         });
+
+        // Reconcile Em Negociação. The cascade stays within ≥ BUDGET_APPROVED
+        // so this is usually a no-op, but kept for symmetry with other paths.
+        const task = await this.prisma.task.findFirst({
+          where: { quoteId },
+          select: { id: true },
+        });
+        if (task) {
+          await syncEmNegociacaoForTask(this.prisma, task.id);
+        }
       }
     }
 

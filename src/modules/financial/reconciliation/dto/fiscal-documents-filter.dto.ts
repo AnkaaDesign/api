@@ -7,12 +7,19 @@ import {
 
 export const fiscalDocumentsFilterSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).default(50),
+  pageSize: z.coerce.number().int().min(1).max(1000).default(50),
   docType: z.nativeEnum(FiscalDocumentType).optional(),
   operationType: z.nativeEnum(FiscalDocumentOperation).optional(),
   status: z.nativeEnum(FiscalDocumentStatus).optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  // ZodValidationPipe auto-converts ISO/`YYYY-MM-DD` strings to `Date` objects
+  // before this schema runs, so we accept either form and normalize back to a
+  // string for `new Date()` in the service.
+  dateFrom: z
+    .preprocess(v => (v instanceof Date ? v.toISOString() : v), z.string())
+    .optional(),
+  dateTo: z
+    .preprocess(v => (v instanceof Date ? v.toISOString() : v), z.string())
+    .optional(),
   emitCnpj: z.string().optional(),
   destCnpj: z.string().optional(),
   search: z.string().optional(),

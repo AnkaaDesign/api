@@ -49,27 +49,11 @@ import {
 } from '../../../constants/enums';
 import {
   REGULAR_CONSUMPTION_REASONS,
-  CONSUMPTION_LOOKBACK_MONTHS,
-  BALANCE_DISTRIBUTION_ENABLED,
-  BALANCE_DISTRIBUTION_DEFAULT_MONTHS,
-  DEFAULT_LEAD_TIME_DAYS,
 } from '../../../constants/inventory-config';
-import {
-  CONSUMPTION_DECAY_HALF_LIFE_MONTHS,
-  getSeasonalFactor,
-} from '../../../constants/seasonality-config';
-import { getWorkingDaysInMonth } from '../../../constants/working-days-config';
 import { getStatusOrder } from '../../../utils/order';
-import {
-  calculateMonthlyConsumption,
-  calculateConsumptionTrend,
-  calculateReorderPoint,
-  calculateMaxQuantity,
-  resolveSafetyTargetCell,
-  normalizeToWorkdays,
-} from '../../../utils';
 import { EXTERNAL_WITHDRAWAL_STATUS_ORDER } from '../../../constants/sortOrders';
 import { OrderItemEnteredInventoryEvent } from '../order/order.events';
+import { ItemRecomputeService } from '../services/item-recompute.service';
 
 @Injectable()
 export class ActivityService {
@@ -80,6 +64,7 @@ export class ActivityService {
     private readonly prisma: PrismaService,
     private readonly activityRepository: ActivityRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly itemRecomputeService: ItemRecomputeService,
   ) {}
 
   /**
@@ -1477,169 +1462,6 @@ export class ActivityService {
   }
 
   /**
-   * Calculate weighted average monthly consumption for an item based on recent activities.
-   *
-   * Improvements:
-   * 1. Filters out non-consumption reasons (INVENTORY_COUNT, DAMAGE, LOSS, etc.)
-   * 2. Distributes INVENTORY_COUNT outbounds across months since last balance
-   * 3. Normalizes by working days (accounts for vacation periods)
-   * 4. Applies seasonal adjustment factors
-   *
-   * Uses exponential decay: weight = 0.5^((currentMonth - activityMonth) / halfLife)
-   */
-  private async calculateAndUpdateItemMonthlyConsumption(
-    tx: PrismaTransaction,
-    itemId: string,
-    userId?: string,
-  ): Promise<void> {
-    try {
-      const lookbackDate = new Date();
-      lookbackDate.setMonth(lookbackDate.getMonth() - CONSUMPTION_LOOKBACK_MONTHS);
-
-      const item = await tx.item.findUnique({
-        where: { id: itemId },
-      });
-
-      if (!item) {
-        return;
-      }
-
-      const oldMonthlyConsumption = parseFloat(item.monthlyConsumption.toString());
-
-      // Get all OUTBOUND activities from the lookback period
-      const allActivities = await tx.activity.findMany({
-        where: {
-          itemId,
-          operation: ACTIVITY_OPERATION.OUTBOUND,
-          createdAt: { gte: lookbackDate },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      // Separate consumption vs adjustment activities
-      const consumptionActivities = allActivities.filter(a =>
-        REGULAR_CONSUMPTION_REASONS.includes(a.reason as any),
-      );
-      const inventoryCountActivities = allActivities.filter(
-        a => a.reason === ACTIVITY_REASON.INVENTORY_COUNT,
-      );
-
-      if (consumptionActivities.length === 0 && inventoryCountActivities.length === 0) {
-        return;
-      }
-
-      // Group consumption activities by month
-      const currentDate = new Date();
-      const currentYear = currentDate.getFullYear();
-      const currentMonth = currentDate.getMonth();
-      const monthlyConsumption = new Map<string, number>();
-
-      consumptionActivities.forEach(activity => {
-        const activityDate = new Date(activity.createdAt);
-        const monthKey = `${activityDate.getFullYear()}-${activityDate.getMonth()}`;
-        const current = monthlyConsumption.get(monthKey) || 0;
-        monthlyConsumption.set(monthKey, current + activity.quantity);
-      });
-
-      // Distribute INVENTORY_COUNT adjustments across months since last balance
-      if (BALANCE_DISTRIBUTION_ENABLED && inventoryCountActivities.length > 0) {
-        for (const activity of inventoryCountActivities) {
-          const activityDate = new Date(activity.createdAt);
-
-          const previousCount = await tx.activity.findFirst({
-            where: {
-              itemId,
-              reason: ACTIVITY_REASON.INVENTORY_COUNT,
-              createdAt: { lt: activityDate },
-            },
-            orderBy: { createdAt: 'desc' },
-          });
-
-          let monthsSinceLastBalance: number;
-          if (previousCount) {
-            const prevDate = new Date(previousCount.createdAt);
-            monthsSinceLastBalance = Math.max(
-              1,
-              (activityDate.getFullYear() - prevDate.getFullYear()) * 12 +
-                (activityDate.getMonth() - prevDate.getMonth()),
-            );
-          } else {
-            monthsSinceLastBalance = BALANCE_DISTRIBUTION_DEFAULT_MONTHS;
-          }
-
-          const monthlyPortion = activity.quantity / monthsSinceLastBalance;
-
-          for (let i = 0; i < monthsSinceLastBalance; i++) {
-            const targetDate = new Date(activityDate);
-            targetDate.setMonth(targetDate.getMonth() - i);
-            if (targetDate < lookbackDate) break;
-
-            const monthKey = `${targetDate.getFullYear()}-${targetDate.getMonth()}`;
-            const current = monthlyConsumption.get(monthKey) || 0;
-            monthlyConsumption.set(monthKey, current + monthlyPortion);
-          }
-        }
-      }
-
-      // Calculate weighted average with normalization and seasonal adjustment
-      let weightedSum = 0;
-      let totalWeight = 0;
-
-      monthlyConsumption.forEach((rawConsumption, monthKey) => {
-        const [year, month] = monthKey.split('-').map(Number);
-
-        // Normalize by working days (handles vacation periods)
-        const actualWorkdays = getWorkingDaysInMonth(month, year);
-        const normalizedConsumption = normalizeToWorkdays(rawConsumption, actualWorkdays);
-
-        const monthsDiff = (currentYear - year) * 12 + (currentMonth - month);
-        const weight = Math.pow(0.5, monthsDiff / CONSUMPTION_DECAY_HALF_LIFE_MONTHS);
-
-        // De-season the data
-        const seasonalFactor = getSeasonalFactor(month);
-        const adjustedConsumption =
-          seasonalFactor > 0 ? normalizedConsumption / seasonalFactor : normalizedConsumption;
-
-        weightedSum += adjustedConsumption * weight;
-        totalWeight += weight;
-      });
-
-      const newMonthlyConsumption = totalWeight > 0 ? weightedSum / totalWeight : 0;
-
-      // Only update if changed significantly (>1%)
-      const percentChange = Math.abs(
-        (newMonthlyConsumption - oldMonthlyConsumption) / (oldMonthlyConsumption || 1),
-      );
-      if (percentChange > 0.01) {
-        await tx.item.update({
-          where: { id: itemId },
-          data: { monthlyConsumption: newMonthlyConsumption },
-        });
-
-        if (userId) {
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.ITEM,
-            entityId: itemId,
-            action: CHANGE_ACTION.UPDATE,
-            field: 'monthlyConsumption',
-            oldValue: oldMonthlyConsumption,
-            newValue: newMonthlyConsumption,
-            reason: `Consumo médio mensal atualizado (filtrado por consumo real, normalizado por dias úteis, ajustado sazonalmente)`,
-            triggeredBy: CHANGE_TRIGGERED_BY.ITEM_MONTHLY_CONSUMPTION_UPDATE,
-            triggeredById: itemId,
-            userId: userId || null,
-            transaction: tx,
-          });
-        }
-      }
-    } catch (error) {
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.error(`Erro ao calcular e atualizar consumo mensal do item ${itemId}:`, error);
-      }
-    }
-  }
-
-  /**
    * Atualizar quantidade do item baseado na operação da atividade
    */
   private async updateItemQuantity(
@@ -1704,20 +1526,21 @@ export class ActivityService {
       data: updateData,
     });
 
-    // Automatic min/max update for OUTBOUND operations
-    if (operation === ACTIVITY_OPERATION.OUTBOUND) {
-      await this.updateItemMinMaxQuantities(tx, itemId, userId);
-      // Update item monthly consumption based on weighted average of recent activities
-      await this.calculateAndUpdateItemMonthlyConsumption(tx, itemId, userId);
-    }
-
-    // Automatic lead time update for INBOUND operations with ORDER_RECEIVED reason
+    // Activity-write-time recompute (mc / rp / max / reorderQty / leadTime).
+    // The canonical math lives in stock-health utilities; nightly cron is the
+    // authoritative recompute for ABC/XYZ ranking.
     if (
-      operation === ACTIVITY_OPERATION.INBOUND &&
-      data?.reason === ACTIVITY_REASON.ORDER_RECEIVED &&
-      orderId
+      operation === ACTIVITY_OPERATION.OUTBOUND ||
+      (operation === ACTIVITY_OPERATION.INBOUND &&
+        data?.reason === ACTIVITY_REASON.ORDER_RECEIVED)
     ) {
-      await this.updateItemLeadTime(tx, itemId, orderId, userId);
+      try {
+        await this.itemRecomputeService.recomputeItemMetrics(itemId, tx);
+      } catch (error) {
+        if (process.env.NODE_ENV !== 'production') {
+          this.logger.error(`Error recomputing metrics for item ${itemId}:`, error);
+        }
+      }
     }
 
     // Registrar a mudança de quantidade no changelog
@@ -2122,266 +1945,4 @@ export class ActivityService {
     }
   }
 
-  /**
-   * Automatically update item min/max quantities based on consumption patterns
-   */
-  private async updateItemMinMaxQuantities(
-    tx: PrismaTransaction,
-    itemId: string,
-    userId?: string,
-  ): Promise<void> {
-    try {
-      // Get the last 90 days of activities for this item
-      const lookbackDays = 90;
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - lookbackDays);
-
-      const activities = (await tx.activity.findMany({
-        where: {
-          itemId,
-          createdAt: {
-            gte: cutoffDate,
-          },
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-      })) as any as import('@types').Activity[];
-
-      // Get the item's current data (include category for new engine routing)
-      const item = await tx.item.findUnique({
-        where: { id: itemId },
-        include: { category: true },
-      });
-
-      if (!item) {
-        return;
-      }
-
-      // Calculate monthly consumption
-      const now = new Date();
-      const { monthlyConsumption } = calculateMonthlyConsumption({
-        item: item as any,
-        activities: activities as any,
-        now,
-      });
-
-      // Skip update if there's no meaningful consumption data
-      if (monthlyConsumption === 0 || activities.length < 5) {
-        return;
-      }
-
-      // Build per-month consumption history for trend
-      const byMonth = new Map<string, { year: number; month: number; consumption: number }>();
-      for (const a of activities) {
-        if (a.operation !== ACTIVITY_OPERATION.OUTBOUND) continue;
-        if (!REGULAR_CONSUMPTION_REASONS.includes(a.reason as any)) continue;
-        const d = new Date(a.createdAt);
-        const y = d.getFullYear();
-        const m = d.getMonth();
-        const key = `${y}-${m}`;
-        const entry = byMonth.get(key) ?? { year: y, month: m, consumption: 0 };
-        entry.consumption += a.quantity;
-        byMonth.set(key, entry);
-      }
-      const monthlyHistory = Array.from(byMonth.values()).sort(
-        (a, b) => a.year - b.year || a.month - b.month,
-      );
-
-      // Calculate consumption trend (currently unused downstream, kept for parity)
-      void calculateConsumptionTrend(monthlyHistory);
-
-      // Compute reorder point and max quantity via the new engine
-      const leadTime = item.estimatedLeadTime || DEFAULT_LEAD_TIME_DAYS;
-      const itemForCell = item as any;
-      const cell = resolveSafetyTargetCell(
-        itemForCell.abcCategory,
-        itemForCell.xyzCategory,
-        itemForCell.ordersLast12Months,
-      );
-      const reorderPoint = calculateReorderPoint({
-        item: item as any,
-        monthlyConsumption,
-        leadTimeDays: leadTime,
-        safetyFactor: cell.safetyFactor,
-        now,
-      });
-      const newMaxQuantity = calculateMaxQuantity({
-        item: item as any,
-        monthlyConsumption,
-        leadTimeDays: leadTime,
-        reorderPoint,
-        targetStockDays: cell.targetStockDays,
-        now,
-      });
-
-      const maxDifference = Math.abs(
-        (newMaxQuantity - (item.maxQuantity || 0)) / (item.maxQuantity || 1),
-      );
-
-      // Update if difference is more than 10%
-      if (maxDifference > 0.1) {
-        const oldMaxQuantity = item.maxQuantity;
-
-        await tx.item.update({
-          where: { id: itemId },
-          data: {
-            maxQuantity: newMaxQuantity,
-          },
-        });
-
-        if (oldMaxQuantity !== newMaxQuantity) {
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.ITEM,
-            entityId: itemId,
-            action: CHANGE_ACTION.UPDATE,
-            field: 'maxQuantity',
-            oldValue: oldMaxQuantity,
-            newValue: newMaxQuantity,
-            reason: `Quantidade máxima atualizada automaticamente (${cell.targetStockDays} dias de estoque-alvo: ${monthlyConsumption.toFixed(2)} un/mês)`,
-            triggeredBy: CHANGE_TRIGGERED_BY.AUTOMATIC_MIN_MAX_UPDATE,
-            triggeredById: itemId,
-            userId: userId || null,
-            transaction: tx,
-          });
-        }
-      }
-    } catch (error) {
-      // Log error but don't fail the main operation
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.error(`Error updating min/max quantities for item ${itemId}:`, error);
-      }
-    }
-  }
-
-  /**
-   * Automatically update item lead time based on order fulfillment history.
-   *
-   * Improvements:
-   * 1. Uses OrderItem.receivedAt per individual item (not Activity.createdAt)
-   * 2. Calculates from Order.createdAt to the individual item's first receipt
-   * 3. Excludes vacation period from lead time calculation
-   * 4. Uses configurable lookback and thresholds
-   */
-  private async updateItemLeadTime(
-    tx: PrismaTransaction,
-    itemId: string,
-    orderId: string,
-    userId?: string,
-  ): Promise<void> {
-    try {
-      // Get the order with its items for this specific item
-      const order = await tx.order.findUnique({
-        where: { id: orderId },
-        select: {
-          createdAt: true,
-          items: {
-            where: { itemId },
-            select: { receivedAt: true, fulfilledAt: true },
-          },
-        },
-      });
-
-      if (!order) {
-        return;
-      }
-
-      // Use OrderItem.receivedAt for accurate per-item lead time
-      // Fall back to current date if receivedAt not set yet
-      const orderItem = order.items[0];
-      const receivedAt = orderItem?.receivedAt || new Date();
-
-      // Calculate lead time in days for this receipt
-      const leadTimeDays = Math.ceil(
-        (receivedAt.getTime() - order.createdAt.getTime()) / (1000 * 60 * 60 * 24),
-      );
-
-      // Get historical lead times from recent order items (last 6 months)
-      const sixMonthsAgo = new Date();
-      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-
-      // Query OrderItems directly for this item that have been received
-      const recentOrderItems = await tx.orderItem.findMany({
-        where: {
-          itemId,
-          receivedAt: { not: null },
-          order: {
-            createdAt: { gte: sixMonthsAgo },
-            id: { not: orderId }, // Exclude current order
-          },
-        },
-        include: {
-          order: { select: { createdAt: true } },
-        },
-        orderBy: { receivedAt: 'desc' },
-      });
-
-      // Build array of lead times (includes current one first = highest weight)
-      const leadTimes: number[] = [leadTimeDays];
-
-      for (const oi of recentOrderItems) {
-        if (oi.receivedAt && oi.order) {
-          const itemLeadTime = Math.ceil(
-            (oi.receivedAt.getTime() - oi.order.createdAt.getTime()) / (1000 * 60 * 60 * 24),
-          );
-          // Sanity check: only include valid lead times (1-365 days)
-          if (itemLeadTime > 0 && itemLeadTime < 365) {
-            leadTimes.push(itemLeadTime);
-          }
-        }
-      }
-
-      // Calculate weighted average (more recent orders have more weight)
-      let weightedSum = 0;
-      let totalWeight = 0;
-
-      leadTimes.forEach((lt, index) => {
-        const weight = leadTimes.length - index; // Most recent has highest weight
-        weightedSum += lt * weight;
-        totalWeight += weight;
-      });
-
-      const averageLeadTime = Math.round(weightedSum / totalWeight);
-
-      // Get current item data
-      const item = await tx.item.findUnique({
-        where: { id: itemId },
-        select: { estimatedLeadTime: true },
-      });
-
-      if (!item) {
-        return;
-      }
-
-      // Only update if the new lead time differs significantly (>10% or >3 days)
-      const currentLeadTime = item.estimatedLeadTime || 30;
-      const difference = Math.abs(averageLeadTime - currentLeadTime);
-      const percentDifference = difference / currentLeadTime;
-
-      if (percentDifference > 0.1 || difference > 3) {
-        await tx.item.update({
-          where: { id: itemId },
-          data: { estimatedLeadTime: averageLeadTime },
-        });
-
-        await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.ITEM,
-          entityId: itemId,
-          action: CHANGE_ACTION.UPDATE,
-          field: 'estimatedLeadTime',
-          oldValue: currentLeadTime,
-          newValue: averageLeadTime,
-          reason: `Lead time atualizado automaticamente baseado em ${leadTimes.length} recebimentos recentes (por item, não por pedido)`,
-          triggeredBy: CHANGE_TRIGGERED_BY.AUTOMATIC_MIN_MAX_UPDATE,
-          triggeredById: itemId,
-          userId: userId || null,
-          transaction: tx,
-        });
-      }
-    } catch (error) {
-      if (process.env.NODE_ENV !== 'production') {
-        this.logger.error(`Error updating lead time for item ${itemId}:`, error);
-      }
-    }
-  }
 }

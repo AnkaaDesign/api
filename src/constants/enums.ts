@@ -133,6 +133,12 @@ export const SECTOR_SCOPED_GOAL_METRICS = [
 export enum SERVICE_ORDER_STATUS {
   PENDING = 'PENDING',
   IN_PROGRESS = 'IN_PROGRESS',
+  /**
+   * COMMERCIAL-only. Set automatically when a quote is commercial-approved
+   * but the task has no APPROVED artwork yet. Resolves to COMPLETED when an
+   * artwork is approved, or back to IN_PROGRESS if the quote is reverted.
+   */
+  WAITING_ARTWORK = 'WAITING_ARTWORK',
   PAUSED = 'PAUSED',
   WAITING_APPROVE = 'WAITING_APPROVE',
   COMPLETED = 'COMPLETED',

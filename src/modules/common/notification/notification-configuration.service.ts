@@ -962,7 +962,7 @@ export class NotificationConfigurationService {
   }
 
   /**
-   * Check if current time is within work hours (7:30 - 18:00)
+   * Check if current time is within work hours (8:00 - 18:00)
    *
    * @returns true if within work hours
    */
@@ -974,9 +974,9 @@ export class NotificationConfigurationService {
     const hours = saoPauloTime.getHours();
     const minutes = saoPauloTime.getMinutes();
 
-    // Work hours: 7:30 (7.5) to 18:00 (18.0)
+    // Work hours: 8:00 (8.0) to 18:00 (18.0) — spec §10
     const currentTimeInHours = hours + minutes / 60;
-    const workStartHour = 7.5; // 7:30
+    const workStartHour = 8.0; // 8:00
     const workEndHour = 18.0; // 18:00
 
     const isWithinHours = currentTimeInHours >= workStartHour && currentTimeInHours < workEndHour;
@@ -1308,7 +1308,7 @@ export class NotificationConfigurationService {
   }
 
   /**
-   * Calculate the next work hour start time (7:30 AM)
+   * Calculate the next work hour start time (8:00 AM)
    */
   private getNextWorkHourStart(): Date {
     const now = new Date();
@@ -1318,16 +1318,16 @@ export class NotificationConfigurationService {
     const hours = saoPauloTime.getHours();
     const minutes = saoPauloTime.getMinutes();
 
-    // Create next 7:30 AM
-    const next730 = new Date(saoPauloTime);
-    next730.setHours(7, 30, 0, 0);
+    // Create next 8:00 AM
+    const next8 = new Date(saoPauloTime);
+    next8.setHours(8, 0, 0, 0);
 
-    // If we're past 7:30 today, schedule for tomorrow
+    // If we're past 8:00 today, schedule for tomorrow
     const currentTimeInHours = hours + minutes / 60;
-    if (currentTimeInHours >= 7.5) {
-      next730.setDate(next730.getDate() + 1);
+    if (currentTimeInHours >= 8.0) {
+      next8.setDate(next8.getDate() + 1);
     }
 
-    return next730;
+    return next8;
   }
 }

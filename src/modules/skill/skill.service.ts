@@ -49,8 +49,6 @@ import type {
   SkillStatsEvolutionPoint,
 } from '../../schemas/skill-analytics';
 
-const SECULLUM_FILTER = { secullumEmployeeId: { not: null } } as const;
-
 @Injectable()
 export class SkillService {
   private readonly logger = new Logger(SkillService.name);
@@ -423,36 +421,93 @@ export class SkillService {
     }
     const skillIds = await this.collectSkillIdsFromTopics(topicIds);
 
-    // verify sectors exist
+    const sectorIds = data.sectors.map(s => s.sectorId);
+    if (new Set(sectorIds).size !== sectorIds.length) {
+      throw new BadRequestException('Setores duplicados na configuração da campanha.');
+    }
     const sectorCount = await this.prisma.sector.count({
-      where: { id: { in: data.sectorIds } },
+      where: { id: { in: sectorIds } },
     });
-    if (sectorCount !== data.sectorIds.length) {
+    if (sectorCount !== sectorIds.length) {
       throw new BadRequestException('Um ou mais setores informados não existem.');
     }
+    await this.validateSectorConfigUsers(data.sectors);
 
-    const assessment = await this.prisma.assessment.create({
-      data: {
-        name: data.name,
-        description: data.description ?? null,
-        periodStart: data.periodStart,
-        periodEnd: data.periodEnd,
-        status: 'DRAFT',
-        createdById: userId,
-        sectors: {
-          create: data.sectorIds.map(sectorId => ({ sectorId })),
+    const assessmentId = await this.prisma.$transaction(async tx => {
+      const created = await tx.assessment.create({
+        data: {
+          name: data.name,
+          description: data.description ?? null,
+          periodStart: data.periodStart,
+          periodEnd: data.periodEnd,
+          status: 'DRAFT',
+          createdById: userId,
+          topics: { create: topicIds.map(topicId => ({ topicId })) },
+          skills: { create: skillIds.map(skillId => ({ skillId })) },
         },
-        topics: {
-          create: topicIds.map(topicId => ({ topicId })),
-        },
-        skills: {
-          create: skillIds.map(skillId => ({ skillId })),
-        },
-      },
-      include: include ?? undefined,
+        select: { id: true },
+      });
+      await this.persistSectorConfigs(tx, created.id, data.sectors);
+      return created.id;
     });
 
+    const assessment = await this.prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      include: include ?? undefined,
+    });
     return { success: true, message: 'Avaliação criada', data: assessment };
+  }
+
+  /**
+   * Validate that every userId referenced (appraisers + evaluatees) exists.
+   * Cheap fail-fast — surfaces typos and stale IDs before write.
+   */
+  private async validateSectorConfigUsers(
+    sectors: AssessmentCreateFormData['sectors'],
+  ): Promise<void> {
+    const userIds = new Set<string>();
+    for (const cfg of sectors) {
+      if (cfg.appraiserId) userIds.add(cfg.appraiserId);
+      for (const id of cfg.evaluateeIds) userIds.add(id);
+    }
+    if (userIds.size === 0) return;
+    const found = await this.prisma.user.count({
+      where: { id: { in: Array.from(userIds) } },
+    });
+    if (found !== userIds.size) {
+      throw new BadRequestException('Um ou mais usuários informados não existem.');
+    }
+  }
+
+  /**
+   * Write AssessmentSector + AssessmentSectorEvaluatee rows for the given config.
+   * Assumes any pre-existing rows for this assessmentId were already cleared by
+   * the caller when applicable (e.g., updateAssessment).
+   */
+  private async persistSectorConfigs(
+    tx: Prisma.TransactionClient,
+    assessmentId: string,
+    sectors: AssessmentCreateFormData['sectors'],
+  ): Promise<void> {
+    for (const cfg of sectors) {
+      await tx.assessmentSector.create({
+        data: {
+          assessmentId,
+          sectorId: cfg.sectorId,
+          appraiserId: cfg.appraiserId ?? null,
+        },
+      });
+      if (cfg.evaluateeIds.length) {
+        await tx.assessmentSectorEvaluatee.createMany({
+          data: cfg.evaluateeIds.map(userId => ({
+            assessmentId,
+            sectorId: cfg.sectorId,
+            userId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    }
   }
 
   /**
@@ -474,15 +529,25 @@ export class SkillService {
       ...(data.periodEnd !== undefined && { periodEnd: data.periodEnd }),
     };
 
+    if (data.sectors) {
+      const ids = data.sectors.map(s => s.sectorId);
+      if (new Set(ids).size !== ids.length) {
+        throw new BadRequestException('Setores duplicados na configuração da campanha.');
+      }
+      const count = await this.prisma.sector.count({ where: { id: { in: ids } } });
+      if (count !== ids.length) {
+        throw new BadRequestException('Um ou mais setores informados não existem.');
+      }
+      await this.validateSectorConfigUsers(data.sectors);
+    }
+
     await this.prisma.$transaction(async tx => {
       await tx.assessment.update({ where: { id }, data: baseUpdate });
 
-      if (data.sectorIds) {
+      if (data.sectors) {
+        // Cascade on AssessmentSector deletes the AssessmentSectorEvaluatee rows.
         await tx.assessmentSector.deleteMany({ where: { assessmentId: id } });
-        await tx.assessmentSector.createMany({
-          data: data.sectorIds.map(sectorId => ({ assessmentId: id, sectorId })),
-          skipDuplicates: true,
-        });
+        await this.persistSectorConfigs(tx, id, data.sectors);
       }
 
       if (data.topicIds || data.skillIds) {
@@ -515,9 +580,9 @@ export class SkillService {
 
   async deleteAssessment(id: string) {
     const existing = await this.findAssessmentById(id);
-    if (existing.data.status !== 'DRAFT' && existing.data.status !== 'CANCELLED') {
+    if (existing.data.status !== 'CANCELLED') {
       throw new BadRequestException(
-        'Somente avaliações em rascunho ou canceladas podem ser excluídas.',
+        'Somente avaliações canceladas podem ser excluídas. Cancele a campanha antes.',
       );
     }
     await this.prisma.assessment.update({
@@ -529,54 +594,82 @@ export class SkillService {
 
   /**
    * Transition DRAFT → OPEN.
-   * Generates AssessmentEntry rows for every eligible evaluatee × their
-   * sector's leader. Idempotent against the assessmentId+evaluateeId unique.
+   *
+   * For each AssessmentSector row:
+   *   - Effective appraiser = AssessmentSector.appraiserId ?? Sector.leaderId.
+   *     If both are null, the open call fails and reports the missing sectors.
+   *   - Evaluatees are taken directly from AssessmentSectorEvaluatee. Empty
+   *     evaluatee lists fail the open. The frontend is responsible for seeding
+   *     this list at create-time; no fallback to "all sector members" remains.
+   *
+   * `@@unique([assessmentId, evaluateeId])` on AssessmentEntry guards against
+   * the (unlikely) case of the same user being listed under two sectors.
    */
   async openAssessment(id: string) {
-    const existing = await this.findAssessmentById(id, {
-      sectors: true,
-      topics: true,
-    });
+    const existing = await this.findAssessmentById(id, { topics: true });
     if (existing.data.status !== 'DRAFT') {
       throw new BadRequestException('Apenas avaliações em rascunho podem ser abertas.');
-    }
-    const sectorIds = (existing.data.sectors ?? []).map((s: any) => s.sectorId);
-    if (!sectorIds.length) {
-      throw new BadRequestException('Avaliação sem setores. Adicione setores antes de abrir.');
     }
     const topicIdsSelected = (existing.data.topics ?? []).map((t: any) => t.topicId);
     if (!topicIdsSelected.length) {
       throw new BadRequestException('Avaliação sem tópicos. Adicione tópicos antes de abrir.');
     }
 
-    const sectors = await this.prisma.sector.findMany({
-      where: { id: { in: sectorIds } },
-      select: { id: true, leaderId: true },
+    const sectorConfigs = await this.prisma.assessmentSector.findMany({
+      where: { assessmentId: id },
+      include: {
+        evaluatees: { select: { userId: true } },
+        sector: { select: { leaderId: true, name: true } },
+      },
     });
-
-    const sectorsWithoutLeader = sectors.filter(s => !s.leaderId).map(s => s.id);
-    if (sectorsWithoutLeader.length) {
-      throw new BadRequestException(
-        `Os seguintes setores não possuem líder definido: ${sectorsWithoutLeader.join(', ')}.`,
-      );
+    if (!sectorConfigs.length) {
+      throw new BadRequestException('Avaliação sem setores. Adicione setores antes de abrir.');
     }
 
-    // For each sector, fetch evaluatees (active, secullum-bound, NOT the leader).
+    const sectorsMissingAppraiser: string[] = [];
+    const sectorsWithoutEvaluatees: string[] = [];
+    const selfAssessmentSectors: string[] = [];
     const entriesToCreate: Array<{ evaluateeId: string; evaluatorId: string }> = [];
-    for (const sector of sectors) {
-      const leaderId = sector.leaderId as string;
-      const evaluatees = await this.prisma.user.findMany({
-        where: {
-          sectorId: sector.id,
-          isActive: true,
-          id: { not: leaderId },
-          ...SECULLUM_FILTER,
-        },
-        select: { id: true },
-      });
-      for (const e of evaluatees) {
-        entriesToCreate.push({ evaluateeId: e.id, evaluatorId: leaderId });
+
+    for (const cfg of sectorConfigs) {
+      const effectiveAppraiserId = cfg.appraiserId ?? cfg.sector.leaderId;
+      if (!effectiveAppraiserId) {
+        sectorsMissingAppraiser.push(cfg.sector.name);
+        continue;
       }
+      if (!cfg.evaluatees.length) {
+        sectorsWithoutEvaluatees.push(cfg.sector.name);
+        continue;
+      }
+      if (cfg.evaluatees.some(e => e.userId === effectiveAppraiserId)) {
+        // Defensive: the create-time refine already blocks this, but the
+        // sector leader may have changed after the campaign was drafted.
+        selfAssessmentSectors.push(cfg.sector.name);
+        continue;
+      }
+      for (const e of cfg.evaluatees) {
+        entriesToCreate.push({ evaluateeId: e.userId, evaluatorId: effectiveAppraiserId });
+      }
+    }
+
+    const errors: string[] = [];
+    if (sectorsMissingAppraiser.length) {
+      errors.push(
+        `Setores sem avaliador definido: ${sectorsMissingAppraiser.join(', ')}. Atribua um líder ao setor ou escolha um avaliador na campanha.`,
+      );
+    }
+    if (sectorsWithoutEvaluatees.length) {
+      errors.push(
+        `Setores sem avaliados selecionados: ${sectorsWithoutEvaluatees.join(', ')}.`,
+      );
+    }
+    if (selfAssessmentSectors.length) {
+      errors.push(
+        `O avaliador foi incluído como avaliado nos setores: ${selfAssessmentSectors.join(', ')}. Remova-o da lista ou troque o avaliador.`,
+      );
+    }
+    if (errors.length) {
+      throw new BadRequestException(errors.join(' '));
     }
 
     await this.prisma.$transaction(async tx => {
@@ -585,7 +678,6 @@ export class SkillService {
         data: { status: 'OPEN' },
       });
       if (entriesToCreate.length) {
-        // Use createMany with skipDuplicates to honor @@unique([assessmentId, evaluateeId])
         await tx.assessmentEntry.createMany({
           data: entriesToCreate.map(e => ({
             assessmentId: id,

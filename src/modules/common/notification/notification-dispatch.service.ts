@@ -172,7 +172,7 @@ export class NotificationDispatchService {
         return;
       }
 
-      // 3.5. Check working day + work hours restriction (7:30-18:00, weekdays only, no holidays)
+      // 3.5. Check working day + work hours restriction (8:00-18:00, weekdays only, no holidays)
       // All notifications respect this — no exceptions
       const canSend = await this.workScheduleService.canSendNow();
       if (!canSend) {
@@ -1301,7 +1301,7 @@ export class NotificationDispatchService {
   }
 
   /**
-   * Check if current time is within work hours (7:30 - 18:00)
+   * Check if current time is within work hours (8:00 - 18:00)
    * Uses America/Sao_Paulo timezone
    *
    * @returns true if within work hours, false otherwise
@@ -1314,9 +1314,9 @@ export class NotificationDispatchService {
     const hours = saoPauloTime.getHours();
     const minutes = saoPauloTime.getMinutes();
 
-    // Work hours: 7:30 (7.5) to 18:00 (18.0)
+    // Work hours: 8:00 (8.0) to 18:00 (18.0) — spec §10
     const currentTimeInHours = hours + minutes / 60;
-    const workStartHour = 7.5; // 7:30
+    const workStartHour = 8.0; // 8:00
     const workEndHour = 18.0; // 18:00
 
     const isWithinHours = currentTimeInHours >= workStartHour && currentTimeInHours < workEndHour;
@@ -1330,11 +1330,11 @@ export class NotificationDispatchService {
   }
 
   /**
-   * Calculate the next work hour start time (7:30 AM)
-   * If current time is before 7:30, returns today at 7:30
-   * If current time is after 7:30, returns tomorrow at 7:30
+   * Calculate the next work hour start time (8:00 AM)
+   * If current time is before 8:00, returns today at 8:00
+   * If current time is after 8:00, returns tomorrow at 8:00
    *
-   * @returns Date object for next 7:30 AM in Sao Paulo timezone
+   * @returns Date object for next 8:00 AM in Sao Paulo timezone
    */
   private getNextWorkHourStart(): Date {
     const now = new Date();
@@ -1344,20 +1344,20 @@ export class NotificationDispatchService {
     const hours = saoPauloTime.getHours();
     const minutes = saoPauloTime.getMinutes();
 
-    // Create next 7:30 AM
-    const next730 = new Date(saoPauloTime);
-    next730.setHours(7, 30, 0, 0);
+    // Create next 8:00 AM
+    const next8 = new Date(saoPauloTime);
+    next8.setHours(8, 0, 0, 0);
 
-    // If we're past 7:30 today (or exactly at/after 18:00), schedule for tomorrow
+    // If we're past 8:00 today (or exactly at/after 18:00), schedule for tomorrow
     const currentTimeInHours = hours + minutes / 60;
-    if (currentTimeInHours >= 7.5) {
+    if (currentTimeInHours >= 8.0) {
       // Add one day
-      next730.setDate(next730.getDate() + 1);
+      next8.setDate(next8.getDate() + 1);
     }
 
-    this.logger.debug(`Next work hour start calculated as: ${next730.toISOString()}`);
+    this.logger.debug(`Next work hour start calculated as: ${next8.toISOString()}`);
 
-    return next730;
+    return next8;
   }
 
   // =====================================================

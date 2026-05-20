@@ -54,6 +54,7 @@ import {
   getServiceOrderToQuoteSync,
   type SyncQuoteItem,
 } from '../../../utils/task-quote-service-order-sync';
+import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 import {
   getServiceDescriptionsByType,
   SERVICE_DESCRIPTIONS_BY_TYPE,
@@ -1447,6 +1448,24 @@ export class ServiceOrderService {
             `[SO→TASK ROLLBACK] Emitted task.status.changed event for task ${taskRolledBack.taskId} (${taskRolledBack.oldStatus} → ${taskRolledBack.newStatus})`,
           );
         }
+      }
+
+      // If a manual SO status change on the Em Negociação SO took it OUT of a
+      // RESPECT_MANUAL state (PAUSED/CANCELLED), the workflow target may now
+      // differ from what the user picked (e.g. unpausing while the quote is
+      // budget-approved and no artwork exists → target is WAITING_ARTWORK, not
+      // IN_PROGRESS). Re-run the sync so the SO settles into the correct state.
+      const isEmNegociacao =
+        (serviceOrder as any)?.type === SERVICE_ORDER_TYPE.COMMERCIAL &&
+        ((serviceOrder as any)?.description ?? '').toLowerCase().trim() === 'em negociação';
+      const statusChanged =
+        data.status !== undefined && data.status !== serviceOrderExists.status;
+      if (isEmNegociacao && statusChanged && (serviceOrder as any)?.taskId) {
+        await syncEmNegociacaoForTask(
+          this.prisma,
+          (serviceOrder as any).taskId,
+          userId,
+        );
       }
 
       return {

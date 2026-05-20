@@ -72,10 +72,13 @@ export interface XyzAssignment {
 }
 
 /** Workshop-tuned thresholds X < 1.0 / Y 1.0–1.7 / Z > 1.7 (spec §8.2).
- *  Items with fewer than 6 non-zero monthly observations classify as null. */
+ *  Uses the MAX available window: ≥2 months gives a usable CV; below that
+ *  there's not enough signal and we return null. */
+export const XYZ_MIN_MONTHS = 2;
+
 export function classifyXyz(items: ReadonlyArray<XyzInput>): XyzAssignment[] {
   const enriched = items.map(i => {
-    if (!i.eligible || i.trailingMonthlyConsumption.length < 6) {
+    if (!i.eligible || i.trailingMonthlyConsumption.length < XYZ_MIN_MONTHS) {
       return { itemId: i.itemId, cv: null as number | null };
     }
     const xs = i.trailingMonthlyConsumption;

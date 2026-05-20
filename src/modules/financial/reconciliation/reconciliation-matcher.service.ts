@@ -21,10 +21,21 @@ const BOLETO_BRIDGE_WINDOW_DAYS = 2;
 // When CNPJ is known, widen the candidates window significantly — Brazilian B2B
 // payment terms routinely run 30-60 days after the NF is issued.
 const CNPJ_CANDIDATE_DATE_WINDOW_DAYS = 60;
+// Perfect CNPJ + perfect value matches don't need a date constraint — they can
+// land months apart from issue date. We still cap at a year to keep the query
+// bounded and avoid pulling in fiscal years' worth of unrelated invoices.
+const PERFECT_MATCH_DATE_WINDOW_DAYS = 365;
 const FUZZY_AMOUNT_TOLERANCE = 0.02; // 2% widening for fee/rounding noise (PIX fees, IOF)
 const AUTO_MATCH_SCORE_THRESHOLD = 90;
 const AUTO_MATCH_RUNNER_UP_GAP = 8;
-const VALUE_EQUIVALENCE_CENTAVOS = 0.05;
+// Single tolerance for "perfect" value matches. Covers PIX fees, fiscal
+// rounding and small adjustments under one threshold instead of separate
+// "cents" and "R$ 1" tiers.
+const PERFECT_VALUE_TOLERANCE = 0.5;
+// Auto-match candidate query allows up to R$ 1,00 drift so the threshold path
+// (score ≥ 90) can still consider candidates slightly outside the perfect
+// window when other signals (date, name) compensate.
+const AUTO_MATCH_VALUE_TOLERANCE = 1.0;
 // Minimum alias confidence required to use a learned (memo → CNPJ) mapping as
 // the synthetic counterparty in the auto-match Pass 1. Below this we still
 // surface it as a candidate in the manual UI, but we don't auto-confirm.
@@ -39,8 +50,7 @@ function cnpjRoot(value: string | null | undefined): string | null {
 function valueScore(txAmount: number, docTotal: number): number {
   const diff = Math.abs(txAmount - docTotal);
   const ratio = diff / Math.max(txAmount, docTotal, 0.01);
-  if (diff <= VALUE_EQUIVALENCE_CENTAVOS) return 35;
-  if (diff <= 1) return 30;
+  if (diff <= PERFECT_VALUE_TOLERANCE) return 35;
   if (ratio <= 0.005) return 25;
   if (ratio <= 0.01) return 18;
   if (ratio <= 0.02) return 10;
@@ -145,7 +155,7 @@ function scoreCandidate(
 
   const reasons: string[] = [];
   const diff = Math.abs(absAmount - total);
-  if (v === 35) reasons.push('Valor idêntico');
+  if (v === 35) reasons.push(diff <= 0.05 ? 'Valor idêntico' : `Valor equivalente (Δ R$ ${diff.toFixed(2)})`);
   else if (v >= 25) reasons.push(`Valor compatível (Δ R$ ${diff.toFixed(2)})`);
   else if (v > 0) reasons.push(`Valor aproximado (Δ R$ ${diff.toFixed(2)})`);
 
@@ -549,8 +559,12 @@ export class ReconciliationMatcherService {
     if (!effectiveCnpj) return false;
 
     const absAmount = Math.abs(Number(tx.amount));
-    const lower = new Date(tx.postedAt.getTime() - EXACT_DATE_WINDOW_DAYS * 86_400_000);
-    const upper = new Date(tx.postedAt.getTime() + EXACT_DATE_WINDOW_DAYS * 86_400_000);
+    // Wide date window: CNPJ + value perfect matches need to land regardless of
+    // payment lag. The threshold path further down still relies on date proximity
+    // to score, so widening here is safe — it just enables the perfect-match
+    // shortcut to find late-arriving candidates.
+    const lower = new Date(tx.postedAt.getTime() - PERFECT_MATCH_DATE_WINDOW_DAYS * 86_400_000);
+    const upper = new Date(tx.postedAt.getTime() + PERFECT_MATCH_DATE_WINDOW_DAYS * 86_400_000);
     const root = cnpjRoot(effectiveCnpj);
 
     // Accept centavos drift (PIX fees, rounding) and CNPJ-root match (same parent
@@ -574,14 +588,14 @@ export class ReconciliationMatcherService {
       where: {
         status: 'AUTHORIZED',
         totalValue: {
-          gte: absAmount - VALUE_EQUIVALENCE_CENTAVOS,
-          lte: absAmount + VALUE_EQUIVALENCE_CENTAVOS,
+          gte: absAmount - AUTO_MATCH_VALUE_TOLERANCE,
+          lte: absAmount + AUTO_MATCH_VALUE_TOLERANCE,
         },
         issueDate: { gte: lower, lte: upper },
         ...cnpjFilter,
         matches: { none: {} },
       },
-      take: 10,
+      take: 30,
       select: {
         id: true,
         totalValue: true,
@@ -598,16 +612,75 @@ export class ReconciliationMatcherService {
 
     const scored = candidates
       .map(doc => ({ doc, score: scoreCandidate(tx, doc, aliasContext) }))
-      .sort((a, b) => b.score.total - a.score.total);
+      .sort((a, b) => {
+        if (b.score.total !== a.score.total) return b.score.total - a.score.total;
+        // Tiebreaker: closer issue date wins when total scores are equal.
+        const aDays = Math.abs(tx.postedAt.getTime() - a.doc.issueDate.getTime());
+        const bDays = Math.abs(tx.postedAt.getTime() - b.doc.issueDate.getTime());
+        return aDays - bDays;
+      });
 
     const best = scored[0];
     const runnerUp = scored[1];
 
-    if (best.score.total < AUTO_MATCH_SCORE_THRESHOLD) return false;
-    // Reject if the gap to the runner-up is too small — ambiguous match is no match.
-    if (runnerUp && best.score.total - runnerUp.score.total < AUTO_MATCH_RUNNER_UP_GAP) {
-      return false;
+    // Path A — Perfect CNPJ + perfect value (Δ ≤ R$ 0,50).
+    // Single unified tolerance: covers PIX fees, fiscal rounding and small
+    // adjustments without splitting into "cents" vs "R$ 1" tiers.
+    // Date is irrelevant when both signals align: B2B payments routinely
+    // settle weeks or months after the NF is issued. The CNPJ may come from
+    // the OFX memo directly OR from a learned alias (gated by
+    // AUTO_MATCH_MIN_ALIAS_CONFIDENCE above).
+    const isBestPerfect =
+      best.score.cnpj.exact &&
+      best.score.parts.value === 35;
+    const isRunnerUpPerfect =
+      !!runnerUp &&
+      runnerUp.score.cnpj.exact &&
+      runnerUp.score.parts.value === 35;
+
+    let acceptPerfect = isBestPerfect && !isRunnerUpPerfect;
+
+    // Multiple equally-perfect candidates (recurring monthly invoices for the
+    // same amount): disambiguate by date proximity. 30 days ≈ one billing
+    // cycle, so requiring that much separation keeps us from picking the
+    // wrong month when two unpaid invoices are close together.
+    let perfectChoiceReason: string | null = null;
+    if (isBestPerfect && isRunnerUpPerfect) {
+      const bestDays =
+        Math.abs(tx.postedAt.getTime() - best.doc.issueDate.getTime()) / 86_400_000;
+      const runnerDays =
+        Math.abs(tx.postedAt.getTime() - runnerUp!.doc.issueDate.getTime()) /
+        86_400_000;
+      if (runnerDays - bestDays >= 30) {
+        acceptPerfect = true;
+        perfectChoiceReason = `Nota mais próxima da data do pagamento (${Math.round(
+          bestDays,
+        )} dias contra ${Math.round(runnerDays)} da segunda candidata)`;
+      }
     }
+
+    // Path B — Generic threshold: total score ≥ 90 with a clear runner-up gap.
+    // Covers candidates outside the perfect window where name+date+cnpj
+    // collectively reach a high score.
+    const acceptThreshold =
+      best.score.total >= AUTO_MATCH_SCORE_THRESHOLD &&
+      (!runnerUp || best.score.total - runnerUp.score.total >= AUTO_MATCH_RUNNER_UP_GAP);
+
+    if (!acceptPerfect && !acceptThreshold) return false;
+
+    // Surface which path accepted the match so audit can tell them apart.
+    const perfectPrefix: string[] = [];
+    if (acceptPerfect && !acceptThreshold) {
+      perfectPrefix.push(
+        aliasContext
+          ? 'CNPJ aprendido (alias) + valor equivalente (data irrelevante)'
+          : 'CNPJ e valor equivalentes (data irrelevante)',
+      );
+    }
+    if (perfectChoiceReason) {
+      perfectPrefix.push(perfectChoiceReason);
+    }
+    const noteReasons = [...perfectPrefix, ...best.score.reasons];
 
     await this.prisma.$transaction(async tx2 => {
       await tx2.bankTransaction.update({
@@ -621,7 +694,7 @@ export class ReconciliationMatcherService {
           allocatedAmount: absAmount,
           matchType: best.score.matchType,
           confidenceScore: best.score.total,
-          notes: `Pareamento automático: ${best.score.reasons.join(' • ')}`,
+          notes: `Pareamento automático: ${noteReasons.join(' • ')}`,
         },
       });
 

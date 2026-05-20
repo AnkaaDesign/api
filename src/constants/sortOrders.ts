@@ -170,6 +170,11 @@ export const ASSIGNMENT_TYPE_ORDER: Record<string, number> = {
 export const SERVICE_ORDER_STATUS_ORDER: Record<string, number> = {
   [SERVICE_ORDER_STATUS.PENDING]: 1,
   [SERVICE_ORDER_STATUS.IN_PROGRESS]: 2,
+  // WAITING_ARTWORK and WAITING_APPROVE share order 3: both represent
+  // "in progress, blocked waiting on an external dependency". They never
+  // co-occur on the same SO (ARTWORK-type vs COMMERCIAL-type), so sort
+  // collisions don't happen in practice.
+  [SERVICE_ORDER_STATUS.WAITING_ARTWORK]: 3,
   [SERVICE_ORDER_STATUS.WAITING_APPROVE]: 3,
   [SERVICE_ORDER_STATUS.COMPLETED]: 4,
   [SERVICE_ORDER_STATUS.CANCELLED]: 5,

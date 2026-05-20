@@ -2,7 +2,8 @@
 // Aggregates threshold crossings per supplier into a single dispatch, with a
 // DB-backed 24h cooldown (NotificationCooldown table) so a single supplier
 // receives at most one notification per event-type per day. TOOL items are
-// excluded except for OUT_OF_STOCK transitions. OVERSTOCKED is IN_APP only.
+// excluded ENTIRELY (no LOW/CRITICAL/OUT_OF_STOCK/OVERSTOCKED — spec §11).
+// OVERSTOCKED is IN_APP only.
 
 import { Injectable, Logger } from '@nestjs/common';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
@@ -112,10 +113,9 @@ export class StockNotificationService {
       if (!item) continue;
       const categoryType = (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null;
 
-      // TOOL carve-out (spec §9): only OUT_OF_STOCK is allowed through.
-      if (categoryType === ITEM_CATEGORY_TYPE.TOOL && eventType !== STOCK_EVENT_TYPE.OUT_OF_STOCK) {
-        continue;
-      }
+      // TOOL carve-out (spec §11): TOOL items are excluded ENTIRELY from
+      // stock notifications — no LOW, CRITICAL, OUT_OF_STOCK, or OVERSTOCKED.
+      if (categoryType === ITEM_CATEGORY_TYPE.TOOL) continue;
 
       out.push({
         itemId: calc.itemId,

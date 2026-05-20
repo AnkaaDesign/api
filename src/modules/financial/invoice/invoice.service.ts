@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { InvoiceRepository } from './repositories/invoice.repository';
+import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 import type {
   Invoice,
   InvoiceInclude,
@@ -212,6 +213,16 @@ export class InvoiceService {
           this.logger.log(
             `Reverted TaskQuote ${quote.id} to COMMERCIAL_APPROVED — all invoices cancelled`,
           );
+
+          // Reconcile Em Negociação. Status stays ≥ BUDGET_APPROVED so this is
+          // usually a no-op, but kept for symmetry with other status paths.
+          const task = await this.prisma.task.findFirst({
+            where: { quoteId: quote.id },
+            select: { id: true },
+          });
+          if (task) {
+            await syncEmNegociacaoForTask(this.prisma, task.id);
+          }
         }
       }
     } catch (revertError) {

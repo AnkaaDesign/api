@@ -29,15 +29,19 @@ export function determineStockLevel(input: DetermineStockLevelInput): STOCK_LEVE
   if (quantity < 0) return STOCK_LEVEL.NEGATIVE_STOCK;
   if (quantity === 0) return STOCK_LEVEL.OUT_OF_STOCK;
 
-  // Without a reorder point we can't classify anything below maxQuantity.
-  if (reorderPoint === null) {
-    if (maxQuantity !== null && quantity > maxQuantity) return STOCK_LEVEL.OVERSTOCKED;
-    return STOCK_LEVEL.OPTIMAL;
-  }
+  // No signal yet (no consumption history → mc=0 → rp=0 and max=0): we cannot
+  // classify CRITICAL/LOW/OVERSTOCKED, so default to OPTIMAL until data exists.
+  const hasReorderSignal = reorderPoint !== null && reorderPoint > 0;
+  const hasMaxSignal = maxQuantity !== null && maxQuantity > 0;
+  if (!hasReorderSignal && !hasMaxSignal) return STOCK_LEVEL.OPTIMAL;
 
-  if (quantity <= reorderPoint) return STOCK_LEVEL.CRITICAL;
-  if (quantity <= reorderPoint * STOCK_LEVEL_LOW_MULTIPLIER) return STOCK_LEVEL.LOW;
-  if (maxQuantity !== null && quantity > maxQuantity) return STOCK_LEVEL.OVERSTOCKED;
+  if (hasReorderSignal && quantity <= (reorderPoint as number)) return STOCK_LEVEL.CRITICAL;
+  if (
+    hasReorderSignal &&
+    quantity <= (reorderPoint as number) * STOCK_LEVEL_LOW_MULTIPLIER
+  )
+    return STOCK_LEVEL.LOW;
+  if (hasMaxSignal && quantity > (maxQuantity as number)) return STOCK_LEVEL.OVERSTOCKED;
   return STOCK_LEVEL.OPTIMAL;
 }
 

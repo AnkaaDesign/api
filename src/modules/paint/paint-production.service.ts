@@ -4,8 +4,6 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
-  Inject,
-  forwardRef,
 } from '@nestjs/common';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
@@ -54,7 +52,7 @@ import {
   PaintProductionBatchDeleteResponse,
 } from '../../types';
 import { PaintProductionRepository } from './repositories/paint-production/paint-production.repository';
-import { ActivityService } from '@modules/inventory/activity/activity.service';
+import { ItemRecomputeService } from '@modules/inventory/services/item-recompute.service';
 
 @Injectable()
 export class PaintProductionService {
@@ -64,8 +62,7 @@ export class PaintProductionService {
     private paintProductionRepository: PaintProductionRepository,
     private changeLogService: ChangeLogService,
     private prisma: PrismaService,
-    @Inject(forwardRef(() => ActivityService))
-    private activityService: ActivityService,
+    private itemRecomputeService: ItemRecomputeService,
   ) {}
 
   /**
@@ -673,17 +670,12 @@ export class PaintProductionService {
           },
         });
 
-        // Manually trigger monthly consumption recalculation
+        // Manually trigger per-item stock-health recompute
         try {
-          // Call the activity service method directly on the transaction
-          await this.activityService['calculateAndUpdateItemMonthlyConsumption'](
-            transaction,
-            component.itemId,
-            userId,
-          );
+          await this.itemRecomputeService.recomputeItemMetrics(component.itemId, transaction);
         } catch (error) {
           this.logger.warn(
-            `Failed to update monthly consumption for item ${component.itemId}:`,
+            `Failed to recompute metrics for item ${component.itemId}:`,
             error,
           );
         }
@@ -1238,16 +1230,12 @@ export class PaintProductionService {
             },
           });
 
-          // Manually trigger monthly consumption recalculation
+          // Manually trigger per-item stock-health recompute
           try {
-            await this.activityService['calculateAndUpdateItemMonthlyConsumption'](
-              transaction,
-              component.itemId,
-              userId,
-            );
+            await this.itemRecomputeService.recomputeItemMetrics(component.itemId, transaction);
           } catch (error) {
             this.logger.warn(
-              `Failed to update monthly consumption for item ${component.itemId}:`,
+              `Failed to recompute metrics for item ${component.itemId}:`,
               error,
             );
           }

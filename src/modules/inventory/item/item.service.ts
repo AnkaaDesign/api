@@ -52,22 +52,17 @@ import {
 } from '../../../constants/enums';
 import {
   REGULAR_CONSUMPTION_REASONS,
-  CONSUMPTION_LOOKBACK_MONTHS,
-  BALANCE_DISTRIBUTION_ENABLED,
-  BALANCE_DISTRIBUTION_DEFAULT_MONTHS,
 } from '../../../constants/inventory-config';
-import { CONSUMPTION_DECAY_HALF_LIFE_MONTHS, getSeasonalFactor } from '../../../constants/seasonality-config';
-import { getWorkingDaysInMonth } from '../../../constants/working-days-config';
 import { PPE_SIZE_ORDER } from '../../../constants/sortOrders';
 import {
   determineStockLevel,
-  normalizeToWorkdays,
   calculateMonthlyConsumption,
   calculateReorderPoint,
   calculateMaxQuantity,
   calculateConsumptionTrend,
   resolveSafetyTargetCell,
 } from '../../../utils';
+import { ItemRecomputeService } from '../services/item-recompute.service';
 import { hasValueChanged } from '@modules/common/changelog/utils/serialize-changelog-value';
 import { logEntityChange } from '@modules/common/changelog/utils/changelog-helpers';
 import {
@@ -111,6 +106,7 @@ export class ItemService {
     private readonly itemRepository: ItemRepository,
     private readonly changeLogService: ChangeLogService,
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
+    private readonly itemRecomputeService: ItemRecomputeService,
   ) {}
 
   /**
@@ -2071,262 +2067,22 @@ export class ItemService {
   }
 
   /**
-   * Calculate weighted average monthly consumption for an item based on recent activities.
-   *
-   * Key improvements:
-   * 1. Filters out non-consumption reasons (INVENTORY_COUNT, DAMAGE, LOSS, etc.)
-   * 2. Distributes INVENTORY_COUNT outbounds across months since last balance
-   * 3. Normalizes by working days (accounts for Dec 20 - Jan 10 vacation)
-   * 4. Applies seasonal adjustment factors for month-of-year patterns
-   *
-   * Uses exponential decay: weight = 0.5^((currentMonth - activityMonth) / halfLife)
-   */
-  async calculateItemMonthlyConsumption(itemId: string, tx?: PrismaTransaction): Promise<number> {
-    const prismaClient = tx || this.prisma;
-
-    try {
-      const lookbackDate = new Date();
-      lookbackDate.setMonth(lookbackDate.getMonth() - CONSUMPTION_LOOKBACK_MONTHS);
-
-      // Verify item exists
-      const item = await prismaClient.item.findUnique({
-        where: { id: itemId },
-      });
-
-      if (!item) {
-        throw new NotFoundException('Item não encontrado');
-      }
-
-      // Get all OUTBOUND activities from the lookback period
-      const allActivities = await prismaClient.activity.findMany({
-        where: {
-          itemId,
-          operation: ACTIVITY_OPERATION.OUTBOUND,
-          createdAt: { gte: lookbackDate },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      // Separate consumption activities from adjustment activities
-      const consumptionActivities = allActivities.filter(a =>
-        REGULAR_CONSUMPTION_REASONS.includes(a.reason as any),
-      );
-
-      // Handle INVENTORY_COUNT activities separately: distribute across months since last balance
-      const inventoryCountActivities = allActivities.filter(
-        a => a.reason === ACTIVITY_REASON.INVENTORY_COUNT,
-      );
-
-      if (consumptionActivities.length === 0 && inventoryCountActivities.length === 0) {
-        return 0;
-      }
-
-      // Group consumption activities by month
-      const currentDate = new Date();
-      const currentYear = currentDate.getFullYear();
-      const currentMonth = currentDate.getMonth();
-      const monthlyConsumption = new Map<string, number>();
-
-      consumptionActivities.forEach(activity => {
-        const activityDate = new Date(activity.createdAt);
-        const year = activityDate.getFullYear();
-        const month = activityDate.getMonth();
-        const monthKey = `${year}-${month}`;
-
-        const current = monthlyConsumption.get(monthKey) || 0;
-        monthlyConsumption.set(monthKey, current + activity.quantity);
-      });
-
-      // Distribute inventory count adjustments across months since last balance
-      if (BALANCE_DISTRIBUTION_ENABLED && inventoryCountActivities.length > 0) {
-        for (const activity of inventoryCountActivities) {
-          const activityDate = new Date(activity.createdAt);
-
-          // Find the previous inventory count for this item
-          const previousCount = await prismaClient.activity.findFirst({
-            where: {
-              itemId,
-              reason: ACTIVITY_REASON.INVENTORY_COUNT,
-              createdAt: { lt: activityDate },
-            },
-            orderBy: { createdAt: 'desc' },
-          });
-
-          // Calculate months since last balance
-          let monthsSinceLastBalance: number;
-          if (previousCount) {
-            const prevDate = new Date(previousCount.createdAt);
-            monthsSinceLastBalance = Math.max(
-              1,
-              (activityDate.getFullYear() - prevDate.getFullYear()) * 12 +
-                (activityDate.getMonth() - prevDate.getMonth()),
-            );
-          } else {
-            monthsSinceLastBalance = BALANCE_DISTRIBUTION_DEFAULT_MONTHS;
-          }
-
-          // Distribute the adjustment quantity evenly across those months
-          const monthlyPortion = activity.quantity / monthsSinceLastBalance;
-
-          for (let i = 0; i < monthsSinceLastBalance; i++) {
-            const targetDate = new Date(activityDate);
-            targetDate.setMonth(targetDate.getMonth() - i);
-
-            // Only distribute within our lookback window
-            if (targetDate < lookbackDate) break;
-
-            const year = targetDate.getFullYear();
-            const month = targetDate.getMonth();
-            const monthKey = `${year}-${month}`;
-
-            const current = monthlyConsumption.get(monthKey) || 0;
-            monthlyConsumption.set(monthKey, current + monthlyPortion);
-          }
-        }
-      }
-
-      // Calculate weighted average with vacation normalization and seasonal adjustment
-      let weightedSum = 0;
-      let totalWeight = 0;
-
-      monthlyConsumption.forEach((rawConsumption, monthKey) => {
-        const [year, month] = monthKey.split('-').map(Number);
-
-        // Normalize by working days (handles Dec 20 - Jan 10 vacation)
-        const normalizedConsumption = normalizeToWorkdays(
-          rawConsumption,
-          getWorkingDaysInMonth(month, year),
-        );
-
-        // Calculate months difference for decay weighting
-        const monthsDiff = (currentYear - year) * 12 + (currentMonth - month);
-
-        // Exponential decay weight: 0.5^(monthsDiff / halfLife)
-        const weight = Math.pow(0.5, monthsDiff / CONSUMPTION_DECAY_HALF_LIFE_MONTHS);
-
-        // Apply seasonal adjustment: de-season the data to get base consumption rate
-        const seasonalFactor = getSeasonalFactor(month);
-        const adjustedConsumption =
-          seasonalFactor > 0 ? normalizedConsumption / seasonalFactor : normalizedConsumption;
-
-        weightedSum += adjustedConsumption * weight;
-        totalWeight += weight;
-      });
-
-      return totalWeight > 0 ? weightedSum / totalWeight : 0;
-    } catch (error) {
-      this.logger.error(`Erro ao calcular consumo mensal do item ${itemId}:`, error);
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('Erro ao calcular consumo mensal do item');
-    }
-  }
-
-  /**
-   * Update monthlyConsumption field for a specific item
-   * Called after new OUTBOUND activities are created
+   * Recompute monthlyConsumption (and rp/max/reorderQty/leadTime) for a single
+   * item via the canonical stock-health engine. Thin wrapper kept for backward
+   * compatibility with controllers; new code should call
+   * `ItemRecomputeService.recomputeItemMetrics` directly.
    */
   async updateItemMonthlyConsumption(
     itemId: string,
-    userId?: string,
+    _userId?: string,
     tx?: PrismaTransaction,
   ): Promise<void> {
-    const prismaClient = tx || this.prisma;
-
     try {
-      // Calculate new monthly consumption value
-      const newMonthlyConsumption = await this.calculateItemMonthlyConsumption(
-        itemId,
-        prismaClient,
-      );
-
-      // Get current item data
-      const item = await prismaClient.item.findUnique({
-        where: { id: itemId },
-        select: {
-          monthlyConsumption: true,
-          monthlyConsumptionTrendPercent: true,
-        },
-      });
-
-      if (!item) {
-        throw new NotFoundException('Item não encontrado');
-      }
-
-      const oldMonthlyConsumption = parseFloat(item.monthlyConsumption.toString());
-
-      // Calculate trend percentage change compared to previous value
-      let trendPercent: number | null = null;
-      if (oldMonthlyConsumption > 0) {
-        trendPercent =
-          Math.round(
-            ((newMonthlyConsumption - oldMonthlyConsumption) / oldMonthlyConsumption) * 100 * 100,
-          ) / 100; // Round to 2 decimal places
-      }
-
-      // Only update if the value changed significantly (more than 1%)
-      const percentChange = Math.abs(
-        (newMonthlyConsumption - oldMonthlyConsumption) / (oldMonthlyConsumption || 1),
-      );
-      if (percentChange > 0.01) {
-        // Update the item with both consumption and trend
-        await prismaClient.item.update({
-          where: { id: itemId },
-          data: {
-            monthlyConsumption: newMonthlyConsumption,
-            monthlyConsumptionTrendPercent: trendPercent,
-          },
-        });
-
-        // Log the changes
-        if (userId) {
-          // Log monthly consumption change
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.ITEM,
-            entityId: itemId,
-            action: CHANGE_ACTION.UPDATE,
-            field: 'monthlyConsumption',
-            oldValue: oldMonthlyConsumption,
-            newValue: newMonthlyConsumption,
-            reason: `Consumo médio mensal atualizado baseado em consumo ponderado dos últimos 12 meses`,
-            triggeredBy: CHANGE_TRIGGERED_BY.ITEM_MONTHLY_CONSUMPTION_UPDATE,
-            triggeredById: itemId,
-            userId,
-            transaction: prismaClient as PrismaTransaction,
-          });
-
-          // Log trend percentage change if it exists
-          if (trendPercent !== null) {
-            await this.changeLogService.logChange({
-              entityType: ENTITY_TYPE.ITEM,
-              entityId: itemId,
-              action: CHANGE_ACTION.UPDATE,
-              field: 'monthlyConsumptionTrendPercent',
-              oldValue: item.monthlyConsumptionTrendPercent
-                ? parseFloat(item.monthlyConsumptionTrendPercent.toString())
-                : null,
-              newValue: trendPercent,
-              reason: `Tendência de consumo calculada: ${trendPercent > 0 ? '+' : ''}${trendPercent.toFixed(2)}%`,
-              triggeredBy: CHANGE_TRIGGERED_BY.ITEM_MONTHLY_CONSUMPTION_UPDATE,
-              triggeredById: itemId,
-              userId: userId || null,
-              transaction: prismaClient as PrismaTransaction,
-            });
-          }
-        }
-
-        const trendText =
-          trendPercent !== null
-            ? ` (tendência: ${trendPercent > 0 ? '+' : ''}${trendPercent.toFixed(2)}%)`
-            : '';
-        this.logger.log(
-          `Updated monthly consumption for item ${itemId}: ${oldMonthlyConsumption.toFixed(2)} -> ${newMonthlyConsumption.toFixed(2)}${trendText}`,
-        );
-      }
+      await this.itemRecomputeService.recomputeItemMetrics(itemId, tx);
     } catch (error) {
       this.logger.error(`Erro ao atualizar consumo mensal do item ${itemId}:`, error);
-      // Don't throw error to not affect the main operation
+      // Don't throw — keep parity with the legacy non-throwing behavior so the
+      // caller's primary operation isn't disrupted by a recompute failure.
     }
   }
 

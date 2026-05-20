@@ -20,6 +20,7 @@ const STATUS_CONFIG_MAP: Record<string, string> = {
   // ASSIGNED status is handled by the 'service_order.assigned' event directly
   [SERVICE_ORDER_STATUS.IN_PROGRESS]: 'service_order.started',
   [SERVICE_ORDER_STATUS.WAITING_APPROVE]: 'service_order.waiting_approval',
+  [SERVICE_ORDER_STATUS.WAITING_ARTWORK]: 'service_order.waiting_artwork',
   [SERVICE_ORDER_STATUS.COMPLETED]: 'service_order.completed',
   [SERVICE_ORDER_STATUS.CANCELLED]: 'service_order.cancelled',
 };

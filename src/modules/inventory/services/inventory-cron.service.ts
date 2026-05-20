@@ -34,6 +34,7 @@ import {
   type ItemLike,
   type SeasonalContext,
 } from '@/utils/stock-health';
+import { calculateSafetyStock } from '@/utils/safety-stock';
 import { classifyAbc, classifyXyz, type AbcInput, type XyzInput } from '@/utils/abc-xyz';
 import {
   computeSeasonalProfile,
@@ -66,6 +67,7 @@ interface RecomputeOutcome {
   itemId: string;
   monthlyConsumption: number;
   monthlyConsumptionTrendPercent: number | null;
+  estimatedLeadTime: number;
   reorderPoint: number | null;
   maxQuantity: number | null;
   reorderQuantity: number | null;
@@ -316,6 +318,7 @@ export class InventoryCronService {
           orderedQuantity: true,
           receivedQuantity: true,
           receivedAt: true,
+          fulfilledAt: true,
           price: true,
           createdAt: true,
           order: {
@@ -442,16 +445,29 @@ export class InventoryCronService {
           xyz?.category ?? null,
           p.ordersLast12Months,
         );
+        // Kept for back-compat call surface but ignored when safetyStock is passed.
         const safetyFactor = applyTrendAdjustment(baseCell.safetyFactor, p.trendPercent ?? 0);
 
         const seasonalCtx = this.buildSeasonalContext(snapshotsByItem.get(p.item.id));
         const itemLike = this.toItemLike(p.item);
+
+        // Layered safety stock (z×σ×√LT for ≥6mo; bumped matrix at 3–5mo;
+        // UNCLASSIFIED otherwise).
+        const safetyResult = calculateSafetyStock({
+          monthlyConsumption: p.mc,
+          leadTimeDays: p.leadTime,
+          abcCategory: abc?.category ?? null,
+          xyzCategory: xyz?.category ?? null,
+          monthlyHistory: p.monthlyHistory,
+          trendPercent: p.trendPercent ?? 0,
+        });
 
         const reorderPoint = calculateReorderPoint({
           item: itemLike,
           monthlyConsumption: p.mc,
           leadTimeDays: p.leadTime,
           safetyFactor,
+          safetyStock: safetyResult.safetyStock,
           seasonalCtx,
           now,
         });
@@ -481,6 +497,7 @@ export class InventoryCronService {
           monthlyConsumption: p.mc,
           monthlyConsumptionTrendPercent:
             p.trendPercent == null ? null : round2(p.trendPercent),
+          estimatedLeadTime: p.leadTime,
           reorderPoint,
           maxQuantity,
           reorderQuantity,
@@ -517,6 +534,7 @@ export class InventoryCronService {
                   o.monthlyConsumptionTrendPercent == null
                     ? null
                     : new Prisma.Decimal(o.monthlyConsumptionTrendPercent),
+                estimatedLeadTime: o.estimatedLeadTime,
                 reorderPoint: o.reorderPoint,
                 maxQuantity: o.maxQuantity,
                 reorderQuantity: o.reorderQuantity,
@@ -551,16 +569,19 @@ export class InventoryCronService {
 
   /**
    * Detects dormant REGULAR items and auto-disables them if a similar active
-   * replacement exists. Runs weekly on Sunday at 3 AM.
+   * replacement exists. Also reactivates previously-deactivated REGULAR items
+   * that show fresh consumption activity (bidirectional lifecycle, spec §12).
+   * Runs weekly on Sunday at 3 AM.
    *
    * TOOL and PPE category items are explicitly excluded — they are durable /
-   * lumpy goods and never auto-deactivate (spec §16).
+   * lumpy goods and never auto-deactivate or reactivate (spec §16).
    */
   @Cron('0 3 * * 0', { timeZone: 'America/Sao_Paulo' })
   async detectAndDisableDormantItems(): Promise<{
     scanned: number;
     dormantFound: number;
     autoDisabled: number;
+    reactivated: number;
     errors: number;
   }> {
     this.logger.log('Starting dormant item detection...');
@@ -665,14 +686,103 @@ export class InventoryCronService {
       }
     }
 
+    // ---------------------------------------------------------------------
+    // Reactivation pass — bidirectional lifecycle (spec §12).
+    // Finds REGULAR items that are currently isActive=false but have shown
+    // genuine consumption inside the dormancy window. Excludes TOOL/PPE
+    // (never auto-managed) and items deactivated within the last 7 days
+    // (anti-bounce buffer — avoids flapping when a stale activity backfill
+    // races with the deactivation it triggered).
+    // ---------------------------------------------------------------------
+    const REACTIVATION_BUFFER_DAYS = 7;
+    const reactivationBufferDate = new Date();
+    reactivationBufferDate.setDate(
+      reactivationBufferDate.getDate() - REACTIVATION_BUFFER_DAYS,
+    );
+
+    // Tight "real consumption" reasons — excludes INVENTORY_COUNT and
+    // MANUAL_ADJUSTMENT so bookkeeping corrections never trigger reactivation.
+    const REACTIVATION_REASONS: ACTIVITY_REASON[] = [
+      ACTIVITY_REASON.PRODUCTION_USAGE,
+      ACTIVITY_REASON.PPE_DELIVERY,
+      ACTIVITY_REASON.MAINTENANCE,
+      ACTIVITY_REASON.EXTERNAL_WITHDRAWAL,
+      ACTIVITY_REASON.DAMAGE,
+      ACTIVITY_REASON.LOSS,
+    ];
+
+    const inactiveCandidates = await this.prisma.item.findMany({
+      where: {
+        isActive: false,
+        category: { type: ITEM_CATEGORY_TYPE.REGULAR },
+        deactivatedAt: { lt: reactivationBufferDate },
+      },
+      select: {
+        id: true,
+        name: true,
+        deactivatedAt: true,
+      },
+    });
+
+    let reactivated = 0;
+    for (const item of inactiveCandidates) {
+      try {
+        const recentConsumption = await this.prisma.activity.findFirst({
+          where: {
+            itemId: item.id,
+            operation: ACTIVITY_OPERATION.OUTBOUND,
+            reason: { in: REACTIVATION_REASONS },
+            createdAt: { gte: cutoffDate },
+          },
+          select: { id: true, createdAt: true },
+        });
+
+        if (!recentConsumption) continue;
+
+        await this.prisma.item.update({
+          where: { id: item.id },
+          data: {
+            isActive: true,
+            deactivatedAt: null,
+            deactivationReason: null,
+            lastUsedAt: recentConsumption.createdAt,
+          },
+        });
+
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.ITEM,
+          entityId: item.id,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'isActive',
+          oldValue: false,
+          newValue: true,
+          reason: `Reativado automaticamente: consumo recente detectado (${recentConsumption.createdAt.toISOString().slice(0, 10)}) dentro da janela de ${DORMANT_ITEM_MONTHS_THRESHOLD} meses.`,
+          triggeredBy: CHANGE_TRIGGERED_BY.AUTOMATIC_MIN_MAX_UPDATE,
+          triggeredById: item.id,
+          userId: null,
+        });
+
+        reactivated++;
+        this.logger.log(
+          `Reactivated item "${item.name}" (${item.id}) — recent consumption at ${recentConsumption.createdAt.toISOString()}`,
+        );
+      } catch (error) {
+        errors++;
+        this.logger.error(
+          `Error processing reactivation for item ${item.id}: ${error instanceof Error ? error.message : 'Unknown'}`,
+        );
+      }
+    }
+
     this.logger.log(
-      `Dormant item detection complete: ${activeItems.length} scanned, ${dormantFound} dormant found, ${autoDisabled} auto-disabled, ${errors} errors`,
+      `Dormant item detection complete: ${activeItems.length} scanned, ${dormantFound} dormant found, ${autoDisabled} auto-disabled, ${reactivated} reactivated, ${errors} errors`,
     );
 
     return {
       scanned: activeItems.length,
       dormantFound,
       autoDisabled,
+      reactivated,
       errors,
     };
   }
@@ -823,6 +933,7 @@ export class InventoryCronService {
       orderedQuantity: number;
       receivedQuantity: number;
       receivedAt: Date | null;
+      fulfilledAt: Date | null;
       price: number;
       createdAt: Date;
       order: {
@@ -880,9 +991,13 @@ export class InventoryCronService {
 
       if (oi.receivedAt) {
         if (!isLegacyBulkReceipt(oi.order.supplierId, oi.receivedAt)) {
+          const startDate =
+            oi.fulfilledAt && oi.fulfilledAt <= oi.receivedAt
+              ? oi.fulfilledAt
+              : oi.order.createdAt;
           const days = Math.max(
             0,
-            (oi.receivedAt.getTime() - oi.order.createdAt.getTime()) / (1000 * 60 * 60 * 24),
+            (oi.receivedAt.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24),
           );
           entry.itemCleanLeadTimes.push(days);
         }
@@ -922,6 +1037,7 @@ export class InventoryCronService {
       itemId: string | null;
       orderId: string;
       receivedAt: Date | null;
+      fulfilledAt: Date | null;
       order: { id: string; supplierId: string | null; createdAt: Date };
     }>,
     supplierIds: string[],
@@ -933,8 +1049,12 @@ export class InventoryCronService {
       if (!supplierId) continue;
       if (!oi.receivedAt) continue;
       if (isLegacyBulkReceipt(supplierId, oi.receivedAt)) continue;
+      const startDate =
+        oi.fulfilledAt && oi.fulfilledAt <= oi.receivedAt
+          ? oi.fulfilledAt
+          : oi.order.createdAt;
       const days =
-        (oi.receivedAt.getTime() - oi.order.createdAt.getTime()) / (1000 * 60 * 60 * 24);
+        (oi.receivedAt.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
       if (days < 0) continue;
       const bucket = map.get(supplierId) ?? [];
       bucket.push(days);

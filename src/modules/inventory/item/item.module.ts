@@ -14,8 +14,8 @@ import { ItemCategoryService } from './item-category.service';
 
 // Event Listeners and Schedulers
 import { ItemListener } from './item.listener';
-import { ItemNotificationScheduler } from './item-notification.scheduler';
 import { StockNotificationService } from '../services/stock-notification.service';
+import { ItemRecomputeService } from '../services/item-recompute.service';
 
 // Repositories
 import { ItemRepository } from './repositories/item/item.repository';
@@ -34,9 +34,9 @@ import { ItemCategoryPrismaRepository } from './repositories/item-category/item-
     ItemBrandService,
     ItemCategoryService,
     StockNotificationService,
+    ItemRecomputeService,
     // Event Listeners and Schedulers
     ItemListener,
-    ItemNotificationScheduler,
     // Repositories
     {
       provide: ItemRepository,
@@ -57,6 +57,7 @@ import { ItemCategoryPrismaRepository } from './repositories/item-category/item-
     ItemCategoryService,
     ItemRepository,
     StockNotificationService,
+    ItemRecomputeService,
   ],
 })
 export class ItemModule {}
