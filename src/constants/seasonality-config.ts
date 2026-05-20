@@ -39,11 +39,3 @@ export const CORPUS_MONTHLY_INDEX: readonly number[] = [
   0.75, // December  — collective vacation
 ];
 
-/** Resolves the seasonal factor for a calendar month. If `customFactors` is
- *  a full 12-element curve (per-item or per-category), it wins; otherwise we
- *  fall back to the corpus curve, finally 1.0 if neither shape matches. */
-export function getSeasonalFactor(month: number, customFactors?: number[] | null): number {
-  const curve =
-    customFactors && customFactors.length === 12 ? customFactors : CORPUS_MONTHLY_INDEX;
-  return curve[month] ?? 1.0;
-}

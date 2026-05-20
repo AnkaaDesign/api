@@ -5,7 +5,7 @@
 //   - seasonality-config.ts  (decay, curve, corpus)
 //   - ppe-config.ts          (PPE intervals, headcount, blend)
 
-import { ACTIVITY_REASON } from './enums';
+import { ABC_CATEGORY, ACTIVITY_REASON } from './enums';
 
 // =====================
 // Activity reason classification (spec §2.1, §3.5)
@@ -125,17 +125,57 @@ export const ABC_XYZ_MATRIX: Record<AbcXyzKey, SafetyTargetCell> = {
   UNCLASSIFIED: { safetyFactor: 0.2, targetStockDays: 180 },
 };
 
+/** LOW-DATA variant of the matrix — used by safety-stock Layer 2 (items with
+ *  3–5 months of history, before statistical safety stock can be trusted).
+ *  Values are systematically bumped above ABC_XYZ_MATRIX to compensate for
+ *  the unmeasured variability. Once an item has ≥STATISTICAL_LAYER_MIN_MONTHS
+ *  of history, the statistical formula (z × σ × √LT) takes over and these
+ *  values are no longer consulted. */
+export const ABC_XYZ_MATRIX_LOWDATA: Record<AbcXyzKey, SafetyTargetCell> = {
+  AX: { safetyFactor: 0.30, targetStockDays: 30 },
+  AY: { safetyFactor: 0.40, targetStockDays: 45 },
+  AZ: { safetyFactor: 0.55, targetStockDays: 60 },
+  BX: { safetyFactor: 0.22, targetStockDays: 45 },
+  BY: { safetyFactor: 0.32, targetStockDays: 60 },
+  BZ: { safetyFactor: 0.45, targetStockDays: 90 },
+  CX: { safetyFactor: 0.18, targetStockDays: 60 },
+  CY: { safetyFactor: 0.25, targetStockDays: 90 },
+  CZ: { safetyFactor: 0.38, targetStockDays: 120 },
+  UNCLASSIFIED: { safetyFactor: 0.30, targetStockDays: 180 },
+};
+
+/** Layer-3 (UNCLASSIFIED) fallback when the item has no ABC or XYZ at all. */
+export const UNCLASSIFIED_LOWDATA: SafetyTargetCell =
+  ABC_XYZ_MATRIX_LOWDATA.UNCLASSIFIED;
+
+/** Service-level z-scores by ABC class for the statistical safety-stock
+ *  formula (Layer 1). Higher z = higher service level = more safety. */
+export const Z_BY_ABC: Record<ABC_CATEGORY | 'DEFAULT', number> = {
+  A: 1.96, // 97.5% service level — A items are high-value, stockout is costly
+  B: 1.645, // 95%
+  C: 1.28, // 90%
+  DEFAULT: 1.645,
+};
+
+/** Minimum non-zero months of history required before the statistical layer
+ *  (z × σ × √LT) is trusted. Below this, the low-data matrix is used. */
+export const STATISTICAL_LAYER_MIN_MONTHS = 6;
+
 /** Order-frequency bucket → minimum targetStockDays. Combined with the
  *  ABC/XYZ matrix by taking the HIGHER of the two days values. A bucket of
- *  `days: null` (0 orders/12mo) excludes the item from auto-order entirely. */
+ *  `days: null` (0 orders/12mo) excludes the item from auto-order entirely.
+ *  Slower-moving items need LONGER cover (fewer orders means each order
+ *  must last longer) — see spec §6: ≥12/yr=45d, ~6/yr=60d, 3-4/yr=90-120d,
+ *  1-2/yr=180d. The ABC/XYZ adjustment further boosts/trims this. */
 export const TARGET_STOCK_DAYS_BY_ORDER_FREQUENCY: ReadonlyArray<{
   readonly minOrders: number;
   readonly days: number | null;
 }> = [
-  { minOrders: 12, days: 15 },
-  { minOrders: 4,  days: 30 },
-  { minOrders: 2,  days: 60 },
-  { minOrders: 1,  days: 120 },
+  { minOrders: 12, days: 45 },
+  { minOrders: 6,  days: 60 },
+  { minOrders: 4,  days: 90 },
+  { minOrders: 2,  days: 120 },
+  { minOrders: 1,  days: 180 },
   { minOrders: 0,  days: null },
 ];
 
@@ -159,9 +199,10 @@ export const STOCK_LEVEL_LOW_MULTIPLIER = 1.2;
 // Trend adjustment (spec §13.2)
 // =====================
 
-/** Bounds on safetyFactor after trend adjustment. */
+/** Bounds on safetyFactor after trend adjustment. Raised MAX so the bumped
+ *  LOW_DATA matrix can shift up via trend without clipping. */
 export const SAFETY_FACTOR_MIN = 0.1;
-export const SAFETY_FACTOR_MAX = 0.4;
+export const SAFETY_FACTOR_MAX = 0.6;
 
 /** ±20% trend triggers a ±0.05 step on safetyFactor. */
 export const TREND_ADJUSTMENT_THRESHOLD_PERCENT = 20;
@@ -178,17 +219,3 @@ export const DORMANT_ITEM_MONTHS_THRESHOLD = 4;
 export const ITEM_SIMILARITY_THRESHOLD = 0.65;
 export const MAX_SIMILAR_ITEMS_TO_CHECK = 5;
 
-// =====================
-// Bulk-adjustment distribution config (spec §2.2)
-// =====================
-
-/** Distribution is mandatory — 28% of all outbound volume is INVENTORY_COUNT;
- *  without distribution mc is dominated by count-day spikes. */
-export const BALANCE_DISTRIBUTION_ENABLED = true;
-
-/** Default distribution window when no prior INVENTORY_COUNT/MANUAL_ADJUSTMENT
- *  bracket exists for the item. */
-export const BALANCE_DISTRIBUTION_DEFAULT_MONTHS = 6;
-
-/** Outer bound when searching for the previous count event. */
-export const BALANCE_PREVIOUS_COUNT_LOOKBACK_MONTHS = 24;

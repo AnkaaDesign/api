@@ -2,6 +2,8 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { DeepLinkService } from '@modules/common/notification/deep-link.service';
+import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 import {
   ArtworkApprovedEvent,
   ArtworkReprovedEvent,
@@ -38,6 +40,7 @@ export class ArtworkListener {
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly dispatchService: NotificationDispatchService,
     private readonly deepLinkService: DeepLinkService,
+    private readonly prisma: PrismaService,
   ) {
     this.logger.log('========================================');
     this.logger.log('[ARTWORK LISTENER] Initializing Artwork Event Listener');
@@ -113,6 +116,16 @@ export class ArtworkListener {
       });
 
       this.logger.log('[ARTWORK EVENT] Artwork approved dispatch completed');
+
+      // Reconcile the commercial workflow: a task that was waiting for
+      // artwork now has an APPROVED artwork — close the "Em Negociação" SO.
+      if (event.task?.id) {
+        await syncEmNegociacaoForTask(
+          this.prisma,
+          event.task.id,
+          event.approvedBy.id,
+        );
+      }
     } catch (error) {
       this.logger.error('[ARTWORK EVENT] Error handling artwork approved event:', error.message);
     }
@@ -168,6 +181,18 @@ export class ArtworkListener {
       });
 
       this.logger.log('[ARTWORK EVENT] Artwork reproved dispatch completed');
+
+      // Reconcile: an artwork was reproved. If the task had previously
+      // closed the commercial SO (auto-COMPLETED on a now-REPROVED artwork),
+      // re-open it to WAITING_ARTWORK so the commercial flow knows artwork
+      // is still pending.
+      if (event.task?.id) {
+        await syncEmNegociacaoForTask(
+          this.prisma,
+          event.task.id,
+          event.reprovedBy.id,
+        );
+      }
     } catch (error) {
       this.logger.error('[ARTWORK EVENT] Error handling artwork reproved event:', error.message);
     }

@@ -127,17 +127,19 @@ export class OfxParserService {
     if (!value) return new Date();
     const s = String(value).replace(/\[.*\]$/, '');
     // YYYYMMDD or YYYYMMDDHHMMSS or YYYYMMDDHHMMSS.fff
-    const m = s.match(/^(\d{4})(\d{2})(\d{2})(?:(\d{2})(\d{2})(\d{2}))?/);
+    const m = s.match(/^(\d{4})(\d{2})(\d{2})/);
     if (!m) {
       const parsed = new Date(s);
       return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
     }
-    const [, y, mo, d, h, mi, se] = m;
-    // Date-only values (no time in OFX): use noon UTC so the calendar date is
-    // unambiguous in any timezone (including Brazil UTC-3). Midnight UTC becomes
-    // the previous day when viewed in PT-BR locale.
-    if (!h) return new Date(`${y}-${mo}-${d}T12:00:00Z`);
-    return new Date(`${y}-${mo}-${d}T${h}:${mi}:${se}Z`);
+    // Bank reconciliation only cares about the calendar day, not the sub-day
+    // timing. Brazilian banks (Sicredi etc) emit DTPOSTED in local São Paulo
+    // time without a timezone suffix — if we parsed the time as UTC, a 00:00
+    // posting would shift back to 21:00 of the previous day in PT-BR locale,
+    // making Monday transactions look like Sunday ones in the UI. Force noon
+    // UTC always so the calendar day is unambiguous in every timezone.
+    const [, y, mo, d] = m;
+    return new Date(`${y}-${mo}-${d}T12:00:00Z`);
   }
 
   private inferSubtype(trnType: string, memo: string | null): BankTransactionSubtype {

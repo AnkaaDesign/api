@@ -1,14 +1,17 @@
-import { Controller, Get, Post, Body, Query, HttpCode, HttpStatus, Logger } from '@nestjs/common';
+import { Controller, Get, Query, HttpCode, HttpStatus, Logger } from '@nestjs/common';
 import { AutoOrderService } from './auto-order.service';
 import { UserId } from '../../common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
-import { ZodValidationPipe, ZodQueryValidationPipe } from '../../common/pipes/zod-validation.pipe';
+import { ZodQueryValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { z } from 'zod';
 
 // =====================
 // Zod Schemas for Auto-Order API
 // =====================
+// Note: this endpoint is RECOMMENDATIONS-ONLY (spec §10). There is no
+// create-from-auto-order route — order persistence is a user-initiated
+// action that goes through the standard OrderController.
 
 export const autoOrderAnalysisQuerySchema = z.object({
   lookbackMonths: z.coerce.number().int().min(1).max(24).default(12).optional(),
@@ -35,21 +38,7 @@ export const autoOrderAnalysisQuerySchema = z.object({
     .optional(),
 });
 
-export const autoOrderCreateSchema = z.object({
-  recommendations: z
-    .array(
-      z.object({
-        itemId: z.string().uuid(),
-        quantity: z.number().positive(),
-        reason: z.string().optional(),
-      }),
-    )
-    .min(1, 'Pelo menos uma recomendação deve ser fornecida'),
-  groupBySupplie: z.boolean().default(true).optional(),
-});
-
 export type AutoOrderAnalysisQueryFormData = z.infer<typeof autoOrderAnalysisQuerySchema>;
-export type AutoOrderCreateFormData = z.infer<typeof autoOrderCreateSchema>;
 
 @Controller('orders/auto')
 @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
@@ -144,61 +133,6 @@ export class AutoOrderController {
           emergencyOverrides: allItems.filter(item => item.isEmergencyOverride).length,
           scheduledItems: allItems.filter(item => item.isInSchedule).length,
         },
-      },
-    };
-  }
-
-  /**
-   * POST /api/orders/auto/create
-   * Create orders from auto-order recommendations
-   */
-  @Post('create')
-  @HttpCode(HttpStatus.CREATED)
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  async createAutoOrders(
-    @Body(new ZodValidationPipe(autoOrderCreateSchema)) body: AutoOrderCreateFormData,
-    @UserId() userId: string,
-  ) {
-    this.logger.log(`User ${userId} creating auto-orders for ${body.recommendations.length} items`);
-
-    // Group recommendations by supplier
-    const bySupplier = new Map<string, typeof body.recommendations>();
-
-    for (const rec of body.recommendations) {
-      // We need to fetch item details to get supplierId
-      // For now, group all together - the service will handle grouping
-      const key = 'auto-order';
-      if (!bySupplier.has(key)) {
-        bySupplier.set(key, []);
-      }
-      bySupplier.get(key)!.push(rec);
-    }
-
-    const createdOrders: any[] = [];
-
-    // For each group, create an order
-    // This is simplified - in production, you'd want to properly group by supplier
-    // and create separate orders for each supplier
-    for (const [key, items] of bySupplier.entries()) {
-      this.logger.log(`Creating auto-order with ${items.length} items`);
-
-      // TODO: Integrate with OrderService to create actual orders
-      // For now, return the recommendations as confirmation
-      createdOrders.push({
-        id: `auto-order-${Date.now()}`,
-        itemCount: items.length,
-        items: items,
-        createdAt: new Date(),
-        createdBy: userId,
-      });
-    }
-
-    return {
-      success: true,
-      message: `${createdOrders.length} pedido(s) de compra criado(s) a partir de recomendações automáticas`,
-      data: {
-        orders: createdOrders,
-        totalItems: body.recommendations.length,
       },
     };
   }

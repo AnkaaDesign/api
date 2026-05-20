@@ -1,13 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { ChangeLogService } from '@modules/common/changelog/changelog.service';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
-  ENTITY_TYPE,
-  CHANGE_TRIGGERED_BY,
   ORDER_STATUS,
   ACTIVITY_OPERATION,
   ITEM_CATEGORY_TYPE,
+  STOCK_LEVEL,
 } from '@/constants/enums';
 import {
   CONSUMPTION_LOOKBACK_MONTHS,
@@ -28,6 +25,8 @@ import {
   type OrderItemLike,
   type OrderLike,
 } from '@/utils/stock-health';
+import { determineStockLevel } from '@/utils/stock-level';
+import { balanceDepletionAcrossItems } from '@/utils/order-coverage';
 import { subMonths, differenceInDays, addMonths } from 'date-fns';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 
@@ -80,20 +79,33 @@ interface ComputedItemMetrics {
 
 const MAX_DAYS_DISPLAY = 999;
 const MIN_SUPPLIER_ORDERS_FOR_AUTO_ORDER = 3;
-const FARBEN_CONSOLIDATION_WINDOW_DAYS = 2;
-const DEFAULT_CONSOLIDATION_WINDOW_DAYS = 7;
 const PERSIST_BATCH_SIZE = 100;
 const DUPLICATE_ORDER_GUARD_DAYS = 30;
+
+/** Cadence-driven consolidation window bands (spec §10.2). Picks the window
+ *  by observed orders/year for the supplier — not by name. */
+const CONSOLIDATION_WINDOW_BANDS: ReadonlyArray<{
+  readonly minOrdersPerYear: number;
+  readonly windowDays: number;
+}> = [
+  { minOrdersPerYear: 12, windowDays: 7 },
+  { minOrdersPerYear: 6, windowDays: 14 },
+  { minOrdersPerYear: 4, windowDays: 30 },
+  { minOrdersPerYear: 0, windowDays: 60 },
+];
+
+function consolidationWindowForOrdersPerYear(ordersPerYear: number): number {
+  for (const band of CONSOLIDATION_WINDOW_BANDS) {
+    if (ordersPerYear >= band.minOrdersPerYear) return band.windowDays;
+  }
+  return CONSOLIDATION_WINDOW_BANDS[CONSOLIDATION_WINDOW_BANDS.length - 1].windowDays;
+}
 
 @Injectable()
 export class AutoOrderService {
   private readonly logger = new Logger(AutoOrderService.name);
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly changeLogService: ChangeLogService,
-    private readonly eventEmitter: EventEmitter2,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
    * Analyze all items and generate smart auto-order recommendations.
@@ -101,7 +113,8 @@ export class AutoOrderService {
    * Wired into the post-Phase-3 utility layer:
    *   - mc, rp, max, reorderQty all flow through `stock-health.ts`.
    *   - Supplier suppliers with <3 orders/12mo are filtered out of recs.
-   *   - Farben → 2-day consolidation window; others → 7-day.
+   *   - Consolidation window is derived from supplier cadence
+   *     (orders/12mo) — see `CONSOLIDATION_WINDOW_BANDS`.
    *   - PPE: pulled in only when next default-interval delivery window
    *     falls inside `leadTime + safetyDays`.
    *   - TOOL: only when `quantity === 0`; no rp/max compute.
@@ -132,7 +145,12 @@ export class AutoOrderService {
     this.logger.log(`Found ${scheduledItems.size} items in active schedules`);
 
     // Suppliers with <3 orders/12mo are excluded from auto-order entirely.
-    const eligibleSupplierIds = await this.resolveEligibleSupplierIds(now);
+    // The same query also feeds the cadence-driven consolidation window.
+    const supplierOrdersPerYear = await this.loadSupplierOrdersPerYear(now);
+    const eligibleSupplierIds = new Set<string>();
+    for (const [supplierId, count] of supplierOrdersPerYear.entries()) {
+      if (count >= MIN_SUPPLIER_ORDERS_FOR_AUTO_ORDER) eligibleSupplierIds.add(supplierId);
+    }
     this.logger.log(`Eligible suppliers for auto-order: ${eligibleSupplierIds.size}`);
 
     // Pull every active item. The reorderPoint filter is intentionally
@@ -193,12 +211,13 @@ export class AutoOrderService {
     const groupedBySupplier = this.groupBySupplier(analyses);
 
     // Pull in consolidation candidates: same-supplier items that fall inside
-    // the supplier's consolidation window.
+    // the supplier's cadence-driven consolidation window.
     const enhancedRecommendations = await this.applySupplierConsolidation(
       groupedBySupplier,
       items,
       scheduledItems,
       supplierLeadTimes,
+      supplierOrdersPerYear,
       now,
     );
 
@@ -350,7 +369,8 @@ export class AutoOrderService {
     const daysUntilStockout = Math.min(rawDaysUntilStockout, MAX_DAYS_DISPLAY);
 
     // Active pending order check (uses util — treats receipt-pending OrderItems
-    // as still active).
+    // as still active). Surfaced for UI only — does NOT shift order thresholds
+    // (spec §8: pending orders are a UI overlay, not a decision input).
     const orderRows: OrderLike[] = item.orderItems
       .map((oi: any) => oi.order)
       .filter((o: any) => o)
@@ -363,15 +383,25 @@ export class AutoOrderService {
     }));
     const hasActivePendingOrder = utilHasActiveOrder(item.id, orderRows, orderItemRows);
 
-    // If a pending order already exists and stock is not critical, skip.
-    if (hasActivePendingOrder && currentStock > reorderPoint * 0.5) {
-      return { analysis: null, metrics };
-    }
+    // Canonical stock-level classification (spec §15). Drives both the
+    // skip/duplicate-guard gates and the eventual urgency mapping.
+    const stockLevel = determineStockLevel({
+      quantity: currentStock,
+      reorderPoint,
+      maxQuantity,
+      hasActiveOrder: hasActivePendingOrder,
+      categoryType,
+    });
+    const isCritical =
+      stockLevel === STOCK_LEVEL.NEGATIVE_STOCK ||
+      stockLevel === STOCK_LEVEL.OUT_OF_STOCK ||
+      stockLevel === STOCK_LEVEL.CRITICAL;
 
-    // Duplicate-order guard: don't reorder within 30 days unless critical.
+    // Duplicate-order guard: don't reorder within 30 days unless the item
+    // is in a critical band. (Pending-order existence is intentionally NOT
+    // a gate here — a late shipment must not block a fresh recommendation.)
     const lastOrderDate = item.orderItems[0]?.order?.createdAt ?? null;
     const daysSinceLastOrder = lastOrderDate ? differenceInDays(now, lastOrderDate) : null;
-    const isCritical = currentStock <= reorderPoint * 0.5;
     if (
       daysSinceLastOrder !== null &&
       daysSinceLastOrder < DUPLICATE_ORDER_GUARD_DAYS &&
@@ -391,20 +421,22 @@ export class AutoOrderService {
       }
     }
 
-    // Schedule coordination.
+    // Schedule coordination. If a scheduled order is going to cover this
+    // item before its projected stockout, defer to the schedule. Otherwise
+    // surface an emergency override.
     let isEmergencyOverride = false;
     if (scheduleInfo?.nextRun) {
       const daysUntilScheduledOrder = differenceInDays(scheduleInfo.nextRun, now);
       const daysUntilScheduledDelivery = daysUntilScheduledOrder + leadTimeDays;
       const willStockoutBeforeSchedule = daysUntilStockout < daysUntilScheduledDelivery;
 
-      if (!willStockoutBeforeSchedule && daysUntilScheduledOrder <= leadTimeDays * 1.5) {
+      if (!willStockoutBeforeSchedule) {
         this.logger.debug(
           `Skipping ${item.name}: covered by schedule (next order in ${daysUntilScheduledOrder} days)`,
         );
         return { analysis: null, metrics };
       }
-      if (willStockoutBeforeSchedule && currentStock > 0) {
+      if (currentStock > 0) {
         isEmergencyOverride = true;
         this.logger.warn(
           `EMERGENCY: ${item.name} will stockout in ${daysUntilStockout} days, scheduled order not until ${daysUntilScheduledOrder} days.`,
@@ -412,14 +444,15 @@ export class AutoOrderService {
       }
     }
 
-    // Order-need decision — uses computed rp/max.
+    // Order-need decision — driven by the canonical stock-level band plus
+    // a stockout-vs-lead-time projection. Pending-order existence is NOT
+    // a threshold input (spec §8).
     const needsOrdering = this.determineOrderNeed(
+      stockLevel,
       currentStock,
       reorderPoint,
-      maxQuantity,
       daysUntilStockout,
       leadTimeDays,
-      hasActivePendingOrder,
     );
     if (!needsOrdering.shouldOrder) return { analysis: null, metrics };
 
@@ -434,7 +467,7 @@ export class AutoOrderService {
     }
     if (recommendedOrderQuantity <= 0) return { analysis: null, metrics };
 
-    const urgency = this.determineUrgency(currentStock, reorderPoint, daysUntilStockout, leadTimeDays);
+    const urgency = this.urgencyFromStockLevel(stockLevel, daysUntilStockout, leadTimeDays);
     let finalReason = needsOrdering.reason;
     if (isEmergencyOverride && scheduleInfo?.nextRun) {
       const daysUntilScheduled = differenceInDays(scheduleInfo.nextRun, now);
@@ -532,8 +565,12 @@ export class AutoOrderService {
       const order = oi.order;
       if (!order) continue;
       if (isLegacyBulkReceipt(order.supplierId ?? null, receivedAt)) continue;
-      const orderedAt = new Date(order.createdAt);
-      const diff = differenceInDays(receivedAt, orderedAt);
+      const fulfilledAt: Date | null = oi.fulfilledAt ? new Date(oi.fulfilledAt) : null;
+      const startDate =
+        fulfilledAt && fulfilledAt <= receivedAt
+          ? fulfilledAt
+          : new Date(order.createdAt);
+      const diff = differenceInDays(receivedAt, startDate);
       if (diff > 0) samples.push(diff);
     }
     return samples;
@@ -564,7 +601,11 @@ export class AutoOrderService {
       if (isLegacyBulkReceipt(oi.order.supplierId, oi.receivedAt)) continue;
       const supplierId = oi.order.supplierId;
       if (!supplierId) continue;
-      const diff = differenceInDays(oi.receivedAt, oi.order.createdAt);
+      const startDate =
+        oi.fulfilledAt && oi.fulfilledAt <= oi.receivedAt
+          ? oi.fulfilledAt
+          : oi.order.createdAt;
+      const diff = differenceInDays(oi.receivedAt, startDate);
       if (diff <= 0) continue;
       const arr = map.get(supplierId) ?? [];
       arr.push(diff);
@@ -577,8 +618,9 @@ export class AutoOrderService {
   // Supplier eligibility + consolidation
   // ============================================================================
 
-  /** Suppliers with <3 orders in the trailing 12 months are excluded. */
-  private async resolveEligibleSupplierIds(now: Date): Promise<Set<string>> {
+  /** Per-supplier order count in the trailing 12 months. Drives both
+   *  eligibility (count ≥ 3) and the cadence-based consolidation window. */
+  private async loadSupplierOrdersPerYear(now: Date): Promise<Map<string, number>> {
     const twelveMonthsAgo = subMonths(now, 12);
     const grouped = await this.prisma.order.groupBy({
       by: ['supplierId'],
@@ -589,31 +631,23 @@ export class AutoOrderService {
       _count: { _all: true },
     });
 
-    const set = new Set<string>();
+    const map = new Map<string, number>();
     for (const row of grouped) {
-      if (row.supplierId && row._count._all >= MIN_SUPPLIER_ORDERS_FOR_AUTO_ORDER) {
-        set.add(row.supplierId);
-      }
+      if (row.supplierId) map.set(row.supplierId, row._count._all);
     }
-    return set;
-  }
-
-  /** Returns the consolidation window (days) for a supplier name.
-   *  Farben = 2 days; everyone else = 7 days. */
-  private consolidationWindowDaysFor(supplierName: string | null): number {
-    if (supplierName && supplierName.toLowerCase().includes('farben')) {
-      return FARBEN_CONSOLIDATION_WINDOW_DAYS;
-    }
-    return DEFAULT_CONSOLIDATION_WINDOW_DAYS;
+    return map;
   }
 
   /** For each per-supplier recommendation, pull in any same-supplier item
-   *  that will reach its reorder point within the consolidation window. */
+   *  that will reach its reorder point within the consolidation window,
+   *  then rebalance quantities so all basket items deplete on a similar
+   *  date (spec §10.2 aligned-depletion balancing). */
   private async applySupplierConsolidation(
     recommendations: AutoOrderRecommendation[],
     allAnalyzedItems: any[],
     scheduledItems: Map<string, { nextRun: Date | null; scheduleId: string }>,
     supplierLeadTimes: Map<string, number[]>,
+    supplierOrdersPerYear: Map<string, number>,
     now: Date,
   ): Promise<AutoOrderRecommendation[]> {
     const enhanced: AutoOrderRecommendation[] = [];
@@ -633,10 +667,23 @@ export class AutoOrderService {
         continue;
       }
 
-      const window = this.consolidationWindowDaysFor(rec.supplierName);
+      const ordersPerYear = supplierOrdersPerYear.get(rec.supplierId) ?? 0;
+      const window = consolidationWindowForOrdersPerYear(ordersPerYear);
       const existingIds = new Set(rec.items.map(i => i.itemId));
       const candidates = bySupplier.get(rec.supplierId) ?? [];
       const pullIns: DemandAnalysis[] = [];
+      // Tracks per-itemId daily-consumption + lead-time + maxQuantity used by
+      // the post-pull-in aligned-depletion balancer.
+      const balanceMeta = new Map<
+        string,
+        {
+          dailyConsumption: number;
+          maxQuantity: number | null;
+          reorderPoint: number;
+          leadTimeDays: number;
+          incomingQty: number;
+        }
+      >();
 
       for (const item of candidates) {
         if (existingIds.has(item.id)) continue;
@@ -751,13 +798,79 @@ export class AutoOrderService {
           scheduleNextRun: null,
           isEmergencyOverride: false,
         });
+        balanceMeta.set(item.id, {
+          dailyConsumption,
+          maxQuantity: max,
+          reorderPoint: rp,
+          leadTimeDays,
+          incomingQty: incoming,
+        });
+      }
+
+      // Capture balance metadata for the items that arrived in the original
+      // per-supplier rec (so the rebalancer sees the whole basket).
+      for (const it of rec.items) {
+        if (balanceMeta.has(it.itemId)) continue;
+        const sourceItem = (bySupplier.get(rec.supplierId) ?? []).find(c => c.id === it.itemId);
+        const incoming = sourceItem ? this.sumIncomingOrderedQuantity(sourceItem.orderItems) : 0;
+        const dailyConsumption = it.monthlyConsumption > 0 ? it.monthlyConsumption / 30 : 0;
+        balanceMeta.set(it.itemId, {
+          dailyConsumption,
+          maxQuantity: it.maxQuantity,
+          reorderPoint: it.reorderPoint ?? 0,
+          leadTimeDays: it.estimatedLeadTime,
+          incomingQty: incoming,
+        });
       }
 
       this.logger.debug(
-        `Supplier ${rec.supplierName}: pulled in ${pullIns.length} consolidation items (window=${window}d)`,
+        `Supplier ${rec.supplierName}: pulled in ${pullIns.length} consolidation items (window=${window}d, ordersPerYear=${ordersPerYear})`,
       );
 
-      const allItems = [...rec.items, ...pullIns];
+      const combinedItems = [...rec.items, ...pullIns];
+
+      // Aligned-depletion balancing (spec §10.2): trim long-coverage items
+      // so the basket runs out around the same date. Critical/high-urgency
+      // items are pinned (never trimmed) since they're the reason we're
+      // ordering in the first place.
+      const urgentIds = new Set(
+        combinedItems
+          .filter(it => it.urgency === 'critical' || it.urgency === 'high')
+          .map(it => it.itemId),
+      );
+      const balanceable = combinedItems
+        .filter(it => !urgentIds.has(it.itemId))
+        .map(it => {
+          const meta = balanceMeta.get(it.itemId);
+          return {
+            itemId: it.itemId,
+            currentQty: it.currentStock,
+            proposedQty: it.recommendedOrderQuantity,
+            dailyConsumption: meta?.dailyConsumption ?? 0,
+            maxQuantity: meta?.maxQuantity ?? it.maxQuantity ?? null,
+            reorderPoint: meta?.reorderPoint ?? it.reorderPoint ?? 0,
+            leadTimeDays: meta?.leadTimeDays ?? it.estimatedLeadTime,
+            incomingQty: meta?.incomingQty ?? 0,
+          };
+        });
+      const balancedResults = balanceDepletionAcrossItems(balanceable);
+      const balancedByItem = new Map(
+        balancedResults.map((r, i) => [balanceable[i].itemId, r.balancedQty]),
+      );
+
+      const allItems = combinedItems.map(it => {
+        if (urgentIds.has(it.itemId)) return it;
+        const newQty = balancedByItem.get(it.itemId);
+        if (newQty == null || newQty === it.recommendedOrderQuantity) return it;
+        const unitPrice =
+          it.recommendedOrderQuantity > 0 ? it.estimatedCost / it.recommendedOrderQuantity : 0;
+        return {
+          ...it,
+          recommendedOrderQuantity: newQty,
+          estimatedCost: unitPrice * newQty,
+        };
+      });
+
       const totalValue = allItems.reduce((sum, it) => sum + (it.estimatedCost ?? 0), 0);
       const urgency = allItems.reduce(
         (max, it) => {
@@ -812,45 +925,68 @@ export class AutoOrderService {
   // Order need + urgency (matrix-driven thresholds removed; bands are simple)
   // ============================================================================
 
+  /** Recommendation gate keyed off the canonical stock-level band
+   *  (spec §15). NEGATIVE_STOCK / OUT_OF_STOCK / CRITICAL always recommend.
+   *  LOW recommends. OPTIMAL / OVERSTOCKED skip unless the projected
+   *  stockout falls inside the lead time. */
   private determineOrderNeed(
+    stockLevel: STOCK_LEVEL,
     currentStock: number,
     reorderPoint: number,
-    maxQuantity: number | null,
     daysUntilStockout: number,
     estimatedLeadTime: number,
-    hasActivePendingOrder: boolean,
   ): { shouldOrder: boolean; reason: string } {
-    if (currentStock === 0) {
-      return { shouldOrder: true, reason: 'Item fora de estoque' };
+    switch (stockLevel) {
+      case STOCK_LEVEL.NEGATIVE_STOCK:
+        return { shouldOrder: true, reason: 'Estoque negativo — reposição urgente' };
+      case STOCK_LEVEL.OUT_OF_STOCK:
+        return { shouldOrder: true, reason: 'Item fora de estoque' };
+      case STOCK_LEVEL.CRITICAL:
+        return {
+          shouldOrder: true,
+          reason: `Estoque abaixo do ponto de reposição (${currentStock} ≤ ${reorderPoint})`,
+        };
+      case STOCK_LEVEL.LOW:
+        return {
+          shouldOrder: true,
+          reason: 'Reposição preventiva — estoque na faixa baixa',
+        };
+      case STOCK_LEVEL.OPTIMAL:
+      case STOCK_LEVEL.OVERSTOCKED:
+        if (daysUntilStockout < estimatedLeadTime) {
+          return {
+            shouldOrder: true,
+            reason: `Estoque esgotará em ${daysUntilStockout} dias (prazo de entrega: ${estimatedLeadTime} dias)`,
+          };
+        }
+        return { shouldOrder: false, reason: '' };
+      default:
+        return { shouldOrder: false, reason: '' };
     }
-    if (daysUntilStockout < estimatedLeadTime) {
-      return {
-        shouldOrder: true,
-        reason: `Estoque esgotará em ${daysUntilStockout} dias (prazo de entrega: ${estimatedLeadTime} dias)`,
-      };
-    }
-    if (currentStock <= reorderPoint) {
-      return {
-        shouldOrder: true,
-        reason: `Estoque abaixo do ponto de reposição (${currentStock} ≤ ${reorderPoint})`,
-      };
-    }
-    if (currentStock <= reorderPoint * 1.2 && daysUntilStockout < estimatedLeadTime * 1.5) {
-      return { shouldOrder: true, reason: 'Reposição preventiva — aproximando do ponto de reposição' };
-    }
-    return { shouldOrder: false, reason: '' };
   }
 
-  private determineUrgency(
-    currentStock: number,
-    reorderPoint: number,
+  /** Maps the canonical stock-level band onto the auto-order urgency
+   *  ladder. Stockout-vs-lead-time projection escalates OPTIMAL to medium
+   *  when relevant. */
+  private urgencyFromStockLevel(
+    stockLevel: STOCK_LEVEL,
     daysUntilStockout: number,
     estimatedLeadTime: number,
   ): 'critical' | 'high' | 'medium' | 'low' {
-    if (currentStock === 0 || daysUntilStockout < estimatedLeadTime / 2) return 'critical';
-    if (currentStock <= reorderPoint * 0.5 || daysUntilStockout < estimatedLeadTime) return 'high';
-    if (currentStock <= reorderPoint * 0.8) return 'medium';
-    return 'low';
+    switch (stockLevel) {
+      case STOCK_LEVEL.NEGATIVE_STOCK:
+      case STOCK_LEVEL.OUT_OF_STOCK:
+        return 'critical';
+      case STOCK_LEVEL.CRITICAL:
+        return 'high';
+      case STOCK_LEVEL.LOW:
+        return 'medium';
+      case STOCK_LEVEL.OPTIMAL:
+      case STOCK_LEVEL.OVERSTOCKED:
+        return daysUntilStockout < estimatedLeadTime ? 'medium' : 'low';
+      default:
+        return 'low';
+    }
   }
 
   // ============================================================================
@@ -965,68 +1101,9 @@ export class AutoOrderService {
   }
 
   // ============================================================================
-  // Public — order creation + schedule reporting (UNCHANGED API surface)
+  // Public — schedule reporting only. Order creation is OUT (spec §10:
+  // recommendations only; persistence is a user-initiated action elsewhere).
   // ============================================================================
-
-  /**
-   * Create auto-orders from recommendations
-   */
-  async createAutoOrders(
-    recommendations: AutoOrderRecommendation[],
-    userId: string,
-  ): Promise<any[]> {
-    const createdOrders: any[] = [];
-
-    for (const recommendation of recommendations) {
-      try {
-        const order = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-          const newOrder = await tx.order.create({
-            data: {
-              description: `Pedido automático - ${recommendation.supplierName}`,
-              supplierId: recommendation.supplierId,
-              status: ORDER_STATUS.CREATED,
-              notes: `Gerado automaticamente:\n${recommendation.consolidatedReasons.join('\n')}`,
-              items: {
-                create: recommendation.items.map(item => ({
-                  itemId: item.itemId,
-                  orderedQuantity: item.recommendedOrderQuantity,
-                  price: 0,
-                  icms: 0,
-                  ipi: 0,
-                })),
-              },
-            },
-            include: { items: true },
-          });
-
-          await tx.item.updateMany({
-            where: { id: { in: recommendation.items.map(i => i.itemId) } },
-            data: { lastAutoOrderDate: new Date() },
-          });
-
-          await this.changeLogService.logChange(
-            ENTITY_TYPE.ORDER,
-            'CREATE' as any,
-            newOrder.id,
-            null,
-            newOrder,
-            userId,
-            CHANGE_TRIGGERED_BY.SYSTEM,
-            tx,
-          );
-
-          return newOrder;
-        });
-
-        createdOrders.push(order);
-        this.logger.log(`Created auto-order ${order.id} for ${recommendation.supplierName}`);
-      } catch (error) {
-        this.logger.error(`Failed to create auto-order for ${recommendation.supplierName}:`, error);
-      }
-    }
-
-    return createdOrders;
-  }
 
   /**
    * Get list of items currently in active schedules

@@ -85,6 +85,10 @@ export function computeSeasonalProfile(
   return applySmoothing(shrunk);
 }
 
+// Local context type — kept un-exported so it doesn't collide with the
+// shape of the same name in `stock-health.ts` when re-exported via
+// `utils/index.ts`. Callers don't need to spell the type out; they just
+// pass the result of `buildSeasonalContextFromSnapshots`.
 interface SeasonalContext {
   /** Per-item curve, when eligible (spec §6.4 tier 1). */
   itemCurve?: SeasonalCurve | null;
@@ -92,6 +96,36 @@ interface SeasonalContext {
   categoryCurve?: SeasonalCurve | null;
   /** Per-corpus fallback curve (spec §6.4 tier 3); defaults to CORPUS_MONTHLY_INDEX. */
   corpusCurve?: SeasonalCurve;
+}
+
+/**
+ * Builds a per-item `SeasonalContext` from persisted `ConsumptionSnapshot` rows
+ * (year, month, seasonalFactor). Returns `undefined` when fewer than 6 calendar
+ * months have data — callers should then fall back to the corpus curve, which
+ * `resolveSeasonalFactor` / `blendedFactorAcrossDays` already do by default.
+ *
+ * Mirrors `InventoryCronService.buildSeasonalContext` so the order-schedule
+ * projection sees the same per-item curve as the nightly recompute.
+ */
+export function buildSeasonalContextFromSnapshots(
+  history?: Array<{ year: number; month: number; seasonalFactor: number | null | undefined }>,
+): SeasonalContext | undefined {
+  if (!history || history.length === 0) return undefined;
+
+  const buckets: number[][] = Array.from({ length: 12 }, () => []);
+  for (const row of history) {
+    const f = Number(row.seasonalFactor ?? 0);
+    if (f > 0) buckets[row.month].push(f);
+  }
+  const monthsWithData = buckets.filter(arr => arr.length > 0).length;
+  if (monthsWithData < 6) return undefined;
+
+  const itemCurve: number[] = buckets.map((arr, idx) => {
+    if (arr.length === 0) return CORPUS_MONTHLY_INDEX[idx] ?? 1;
+    const sum = arr.reduce((s, v) => s + v, 0);
+    return sum / arr.length;
+  });
+  return { itemCurve: itemCurve as SeasonalCurve };
 }
 
 /** Resolves the seasonal factor for a calendar month using the fallback chain

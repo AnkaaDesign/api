@@ -18,11 +18,17 @@ import { ParsedFiscalDocument, ParsedFiscalDocumentItem } from './types/sieg.typ
 @Injectable()
 export class SiegXmlParserService {
   private readonly logger = new Logger(SiegXmlParserService.name);
+  // S. Rodrigues & G. Rodrigues LTDA (Ankaa) — fixed for this deployment.
+  // The env var is still honored for testing, but never required at runtime.
+  private static readonly DEFAULT_COMPANY_CNPJ = '13636938000144';
+
   private readonly parser: XMLParser;
-  private readonly companyCnpj: string | undefined;
+  private readonly companyCnpj: string;
 
   constructor(private readonly config: ConfigService) {
-    this.companyCnpj = this.config.get<string>('COMPANY_CNPJ') || undefined;
+    this.companyCnpj =
+      this.config.get<string>('COMPANY_CNPJ') ||
+      SiegXmlParserService.DEFAULT_COMPANY_CNPJ;
     this.parser = new XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: '@_',
@@ -87,19 +93,17 @@ export class SiegXmlParserService {
     // Derive operation from the COMPANY's perspective:
     //   - company is emitter   → SAIDA (we sold / issued)
     //   - company is recipient → ENTRADA (we received)
-    // Fallback to `tpNF` only when COMPANY_CNPJ isn't configured.
+    // Never trust `tpNF` as a fallback: that field is written from the
+    // emitter's perspective (tpNF=1 = the emitter is selling), which inverts
+    // the meaning when we're the destinatário.
     const emitCnpj = String(emit.CNPJ || '');
-    const destCnpj = String(dest.CNPJ || dest.CPF || '');
-    let operationType: FiscalDocumentOperation;
-    if (this.companyCnpj && emitCnpj === this.companyCnpj) {
-      operationType = FiscalDocumentOperation.SAIDA;
-    } else if (this.companyCnpj && destCnpj === this.companyCnpj) {
-      operationType = FiscalDocumentOperation.ENTRADA;
-    } else {
-      const tpNF = String(ide.tpNF || '0');
-      operationType =
-        tpNF === '1' ? FiscalDocumentOperation.SAIDA : FiscalDocumentOperation.ENTRADA;
-    }
+    const operationType: FiscalDocumentOperation =
+      emitCnpj === this.companyCnpj
+        ? FiscalDocumentOperation.SAIDA
+        // Either destCnpj matches (typical case) or neither side matches
+        // (third-party NFe imported by mistake) — both default to ENTRADA so
+        // they don't masquerade as outbound sales.
+        : FiscalDocumentOperation.ENTRADA;
 
     const cancelled = !!(doc.protNFe?.infProt?.cStat === '101' || doc.cancNFe);
 
@@ -198,14 +202,87 @@ export class SiegXmlParserService {
   }
 
   private parseNFSe(doc: any, rawXml: string): ParsedFiscalDocument | null {
-    // Multiple NFSe layouts exist; cover SEFIN Nacional (DPS) + ABRASF.
+    // SPED Nacional NFSe — <NFSe><infNFSe> with embedded <DPS><infDPS>. Detect
+    // by the lowercase `infNFSe` (Elotech ABRASF v2.03 uses capital `InfNfse`).
+    if (doc.NFSe?.infNFSe) return this.parseSefinNFSe(doc.NFSe.infNFSe, rawXml);
+
+    // Standalone DPS (no NFSe envelope) — issued before the NFSe authorization step.
     const dps = doc.DPS?.infDPS || doc.dpsProc?.DPS?.infDPS;
     if (dps) return this.parseDPS(dps, rawXml);
 
-    const compNfse = doc.CompNfse?.Nfse?.InfNfse || doc.NFSe?.InfNFSe || doc.NFSe?.infNFSe;
-    if (compNfse) return this.parseABRASF(compNfse, rawXml);
+    // ABRASF (Elotech v2.03 and other municipal variants).
+    const abrasfInfo = doc.CompNfse?.Nfse?.InfNfse || doc.NFSe?.InfNFSe;
+    if (abrasfInfo) return this.parseABRASF(abrasfInfo, rawXml);
 
     return null;
+  }
+
+  /**
+   * SPED Nacional NFSe (Sistema Nacional). Schema rooted at
+   * `<NFSe><infNFSe>`, with the prestador in `emit`, tomador in
+   * `DPS.infDPS.toma`, and the liquid value in `valores.vLiq`.
+   */
+  private parseSefinNFSe(infNFSe: any, rawXml: string): ParsedFiscalDocument {
+    const emit = infNFSe.emit || {};
+    const valoresNFSe = infNFSe.valores || {};
+    const infDPS = infNFSe.DPS?.infDPS || {};
+    const toma = infDPS.toma || {};
+    const serv = infDPS.serv || {};
+    const cServ = serv.cServ || {};
+    const valoresDPS = infDPS.valores?.vServPrest || infDPS.valores || {};
+
+    const emitCnpj = String(emit.CNPJ || emit.CPF || '');
+    const tomaCnpj = String(toma.CNPJ || '');
+    const tomaCpf = String(toma.CPF || '');
+    const dhEmi = infDPS.dhEmi || infNFSe.dhProc;
+    const issueDate = this.parseDate(dhEmi);
+    const nfNumber = String(infNFSe.nNFSe || infDPS.nDPS || '');
+
+    // Prefer vLiq (valor líquido após retenções) — that's what hits the bank.
+    // Fall back to vServ (gross service value) when vLiq is missing.
+    const totalValue = parseFloat(
+      valoresNFSe.vLiq || valoresDPS.vServ || valoresNFSe.vServPrest?.vServ || '0',
+    );
+
+    // cStat 100/107/135 = autorizada; 101 = cancelada.
+    const cStat = String(infNFSe.cStat || '100');
+    const cancelled = cStat === '101';
+
+    const operationType =
+      emitCnpj === (this.companyCnpj || '')
+        ? FiscalDocumentOperation.SAIDA
+        : FiscalDocumentOperation.ENTRADA;
+
+    const items: ParsedFiscalDocumentItem[] = [
+      {
+        code: cServ.cTribNac ? String(cServ.cTribNac) : null,
+        description: String(
+          cServ.xDescServ || cServ.descServ || infNFSe.xTribNac || '',
+        ),
+        quantity: null,
+        unit: null,
+        unitValue: null,
+        totalValue,
+      },
+    ];
+
+    return {
+      accessKey: this.synthNfseKey(emitCnpj, issueDate, nfNumber),
+      docType: FiscalDocumentType.NFSE,
+      operationType,
+      status: cancelled ? FiscalDocumentStatus.CANCELLED : FiscalDocumentStatus.AUTHORIZED,
+      issueDate,
+      totalValue,
+      emitCnpj,
+      emitName: emit.xNome ? String(emit.xNome) : null,
+      destCnpj: tomaCnpj || null,
+      destCpf: tomaCpf || null,
+      destName: toma.xNome ? String(toma.xNome) : null,
+      nfNumber: nfNumber || null,
+      paymentMethods: null,
+      rawXml,
+      items,
+    };
   }
 
   private parseDPS(infDPS: any, rawXml: string): ParsedFiscalDocument {
@@ -259,13 +336,35 @@ export class SiegXmlParserService {
   }
 
   private parseABRASF(info: any, rawXml: string): ParsedFiscalDocument {
-    const prest = info.PrestadorServico || info.IdentificacaoPrestador || info.Prestador || {};
-    const tomad = info.TomadorServico || info.IdentificacaoTomador || info.Tomador || {};
-    const servico = info.Servico || {};
-    const valores = servico.Valores || {};
+    // Elotech v2.03 (and most municipal ABRASF variants) nest Tomador/Servico
+    // inside InfNfse → DeclaracaoPrestacaoServico → InfDeclaracaoPrestacaoServico.
+    // Older/simpler variants put them at the InfNfse root. Resolve once.
+    const decl = info.DeclaracaoPrestacaoServico?.InfDeclaracaoPrestacaoServico || {};
+
+    const prest =
+      info.PrestadorServico ||
+      info.IdentificacaoPrestador ||
+      info.Prestador ||
+      decl.Prestador ||
+      {};
+    const tomad =
+      decl.Tomador ||
+      decl.TomadorServico ||
+      info.TomadorServico ||
+      info.IdentificacaoTomador ||
+      info.Tomador ||
+      {};
+    const servico = decl.Servico || info.Servico || {};
+    const valoresNfse = info.ValoresNfse || {};
+    const valoresServico = servico.Valores || {};
+
     const dataEmissao = info.DataEmissao || info.dataEmissao;
+
+    // Elotech path: prest.IdentificacaoPrestador.CpfCnpj.Cnpj
+    // Other variants flatten one level: prest.CpfCnpj.Cnpj or prest.Cnpj
     const prestCnpj = String(
-      prest.IdentificacaoPrestador?.Cnpj ||
+      prest.IdentificacaoPrestador?.CpfCnpj?.Cnpj ||
+        prest.IdentificacaoPrestador?.Cnpj ||
         prest.CpfCnpj?.Cnpj ||
         prest.Cnpj ||
         prest.cnpj ||
@@ -288,7 +387,18 @@ export class SiegXmlParserService {
         ? FiscalDocumentOperation.SAIDA
         : FiscalDocumentOperation.ENTRADA;
 
-    const totalValue = parseFloat(valores.ValorServicos || valores.valorServicos || '0');
+    // Total: ValoresNfse.ValorLiquidoNfse is the canonical "what arrived at the
+    // bank" amount in Elotech. Fall back to Servico.Valores.ValorServicos for
+    // variants that don't carry the NFSe-level totals.
+    const totalValue = parseFloat(
+      valoresNfse.ValorLiquidoNfse ||
+        valoresNfse.valorLiquidoNfse ||
+        valoresServico.ValorServicos ||
+        valoresServico.valorServicos ||
+        valoresNfse.BaseCalculo ||
+        '0',
+    );
+
     const items: ParsedFiscalDocumentItem[] = [
       {
         code: servico.ItemListaServico

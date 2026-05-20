@@ -54,6 +54,7 @@ import {
   type SyncServiceOrder,
 } from '../../../utils/task-quote-service-order-sync';
 import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
+import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 
 /**
  * Compute the discount amount for a customer config based on its discount type, value, and subtotal.
@@ -441,6 +442,148 @@ export class TaskQuoteService {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Material-change detection
+  //
+  // The budget detail form on web/mobile always re-submits the full quote
+  // (customerConfigs + services + scalar fields), even when the user only
+  // changed a Task field like truck.plate. Without filtering, every save
+  // would trip STATUS_LOCKED at BILLING_APPROVED+, run the destructive
+  // customerConfigs delete+recreate, and auto-revert status on no-op
+  // resubmissions. We canonicalize both sides and pass through only fields
+  // the caller actually changed.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  private canonicalizeCustomerConfig(config: any): string {
+    return JSON.stringify({
+      customerId: config.customerId ?? null,
+      subtotal: Number(config.subtotal ?? 0).toFixed(2),
+      total: Number(config.total ?? 0).toFixed(2),
+      discountType: config.discountType ?? 'NONE',
+      discountValue:
+        config.discountValue != null ? Number(config.discountValue).toFixed(2) : null,
+      discountReference: config.discountReference ?? null,
+      paymentCondition: config.paymentCondition ?? null,
+      customPaymentText: config.customPaymentText ?? null,
+      generateInvoice: config.generateInvoice !== false,
+      generateBankSlip: config.generateBankSlip !== false,
+      orderNumber: config.orderNumber ?? null,
+      responsibleId: config.responsibleId ?? null,
+      paymentConfig: config.paymentConfig ?? null,
+    });
+  }
+
+  private customerConfigsMateriallyChanged(existing: any[], incoming: any[]): boolean {
+    if (!Array.isArray(incoming)) return false;
+    if ((existing?.length ?? 0) !== incoming.length) return true;
+    const a = (existing || []).map(c => this.canonicalizeCustomerConfig(c)).sort();
+    const b = incoming.map(c => this.canonicalizeCustomerConfig(c)).sort();
+    return a.some((v, i) => v !== b[i]);
+  }
+
+  private canonicalizeService(service: any): string {
+    return JSON.stringify({
+      description: (service.description ?? '').trim(),
+      amount: Number(service.amount ?? 0).toFixed(2),
+      observation: service.observation ?? null,
+      invoiceToCustomerId: service.invoiceToCustomerId ?? null,
+    });
+  }
+
+  private servicesMateriallyChanged(existing: any[], incoming: any[]): boolean {
+    if (!Array.isArray(incoming)) return false;
+    if ((existing?.length ?? 0) !== incoming.length) return true;
+    const a = (existing || []).map(s => this.canonicalizeService(s)).sort();
+    const b = incoming.map(s => this.canonicalizeService(s)).sort();
+    return a.some((v, i) => v !== b[i]);
+  }
+
+  private isScalarChanged(existing: any, incoming: any): boolean {
+    if (incoming === undefined) return false;
+    if (existing === incoming) return false;
+    if (existing == null && incoming == null) return false;
+    // Prisma Decimal compared against number
+    if (existing && typeof existing === 'object' && 'toNumber' in existing) {
+      return Number(existing) !== Number(incoming);
+    }
+    if (existing instanceof Date || incoming instanceof Date) {
+      const a = existing ? new Date(existing as any).getTime() : null;
+      const b = incoming ? new Date(incoming as any).getTime() : null;
+      return a !== b;
+    }
+    return existing !== incoming;
+  }
+
+  /**
+   * Return a copy of `data` with no-op fields stripped (where the incoming
+   * value is structurally equal to the existing one). Internal callers may
+   * pass `_internal = true` on update() to bypass this filter.
+   */
+  private filterToMaterialChanges(
+    existing: any,
+    data: TaskQuoteUpdateFormData,
+  ): TaskQuoteUpdateFormData {
+    const filtered: any = {};
+    for (const key of Object.keys(data)) {
+      const value = (data as any)[key];
+      if (value === undefined) continue;
+      if (key === 'customerConfigs') {
+        if (this.customerConfigsMateriallyChanged(existing.customerConfigs || [], value)) {
+          filtered[key] = value;
+        }
+      } else if (key === 'services') {
+        if (this.servicesMateriallyChanged(existing.services || [], value)) {
+          filtered[key] = value;
+        }
+      } else {
+        if (this.isScalarChanged((existing as any)[key], value)) {
+          filtered[key] = value;
+        }
+      }
+    }
+    return filtered as TaskQuoteUpdateFormData;
+  }
+
+  /**
+   * Detect whether the (already-filtered) update touches money-affecting
+   * fields. Used to drive auto-revert-to-PENDING when value changes happen
+   * after BUDGET_APPROVED.
+   */
+  private hasValueAffectingChange(
+    existing: any,
+    data: TaskQuoteUpdateFormData,
+  ): boolean {
+    if (data.services !== undefined) return true;
+    if (Array.isArray(data.customerConfigs)) {
+      const existingByCustomer = new Map(
+        (existing.customerConfigs || []).map((c: any) => [c.customerId, c]),
+      );
+      for (const incoming of data.customerConfigs as any[]) {
+        const prev: any = existingByCustomer.get(incoming.customerId);
+        if (!prev) return true; // new customer added → value change
+        if (this.isScalarChanged(prev.subtotal, incoming.subtotal)) return true;
+        if (this.isScalarChanged(prev.total, incoming.total)) return true;
+        if (this.isScalarChanged(prev.discountType, incoming.discountType ?? 'NONE'))
+          return true;
+        if (
+          this.isScalarChanged(
+            prev.discountValue,
+            incoming.discountValue ?? null,
+          )
+        )
+          return true;
+      }
+      // Customer was removed?
+      const incomingIds = new Set(
+        (data.customerConfigs as any[]).map(c => c.customerId),
+      );
+      for (const prev of existing.customerConfigs || []) {
+        if (!incomingIds.has(prev.customerId)) return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * Update existing quote.
    * @param _internal When true (called from updateStatus/internalApprove), relaxes the
@@ -463,6 +606,58 @@ export class TaskQuoteService {
 
       if (!existing) {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
+      }
+
+      const currentStatus = (existing as any).status as TASK_QUOTE_STATUS;
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Strip no-op fields before any validation or write.
+      //
+      // The budget detail form re-submits the full quote snapshot on every
+      // save (including when the user only edited a Task field like
+      // truck.plate). Without this filter, those no-op resubmissions would
+      // trip STATUS_LOCKED, run the destructive customerConfigs
+      // delete+recreate, and emit spurious changelogs. Internal callers
+      // (updateStatus, internalApprove, revertBilling, …) pass _internal
+      // to skip this — they assert their writes deliberately.
+      // ─────────────────────────────────────────────────────────────────────
+      if (!_internal) {
+        data = this.filterToMaterialChanges(existing, data);
+        if (Object.keys(data).length === 0) {
+          return {
+            success: true,
+            data: existing as any,
+            message: 'Nenhuma alteração detectada.',
+          };
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Auto-revert quote status when value-affecting fields change.
+      //
+      // Editing the deal value (services list, customerConfig money fields)
+      // invalidates the customer/commercial approval. Per workflow, the
+      // quote returns to PENDING so the deal is re-confirmed downstream.
+      // The edit itself is NEVER blocked — only the status is flipped.
+      //
+      // BILLING_APPROVED+ is excluded: STATUS_LOCKED below throws on money
+      // fields, forcing the user through revertBilling() first.
+      // The caller can override by setting data.status explicitly.
+      // ─────────────────────────────────────────────────────────────────────
+      const VALUE_REVERTABLE_STATUSES: TASK_QUOTE_STATUS[] = [
+        TASK_QUOTE_STATUS.BUDGET_APPROVED,
+        TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
+      ];
+      if (
+        !_internal &&
+        data.status === undefined &&
+        VALUE_REVERTABLE_STATUSES.includes(currentStatus) &&
+        this.hasValueAffectingChange(existing, data)
+      ) {
+        this.logger.log(
+          `[Quote Update] Auto-reverting quote ${id} from ${currentStatus} → PENDING due to value-affecting edits`,
+        );
+        (data as any).status = TASK_QUOTE_STATUS.PENDING;
       }
 
       // ─────────────────────────────────────────────────────────────────────
@@ -491,7 +686,6 @@ export class TaskQuoteService {
         'customForecastDays',
         'simultaneousTasks',
       ]);
-      const currentStatus = (existing as any).status as TASK_QUOTE_STATUS;
       if (STATUS_LOCKED.includes(currentStatus)) {
         for (const key of Object.keys(data)) {
           // Ignore explicit undefined entries — only reject if the caller actually intends a change.
@@ -1058,6 +1252,20 @@ export class TaskQuoteService {
         });
       });
 
+      // Reconcile the "Em Negociação" SO whenever this update changed the
+      // quote status (explicit caller status, or the auto-revert-to-PENDING
+      // branch above triggered by value-affecting edits) OR the layoutFile —
+      // uploading/clearing a layout flips the "has artwork" check.
+      if (data.status !== undefined || (data as any).layoutFileId !== undefined) {
+        const task = await this.prisma.task.findFirst({
+          where: { quoteId: id },
+          select: { id: true },
+        });
+        if (task) {
+          await syncEmNegociacaoForTask(this.prisma, task.id, userId);
+        }
+      }
+
       return {
         success: true,
         data: updated as any,
@@ -1208,6 +1416,16 @@ export class TaskQuoteService {
 
       // Update status — pass _internal=true to bypass the external-call guard
       const updated = await this.update(id, { status }, userId, true);
+
+      // Reconcile the "Em Negociação" COMMERCIAL ServiceOrder. Best-effort:
+      // never throws into the caller's flow.
+      const task = await this.prisma.task.findFirst({
+        where: { quoteId: id },
+        select: { id: true },
+      });
+      if (task) {
+        await syncEmNegociacaoForTask(this.prisma, task.id, userId);
+      }
 
       return {
         success: true,
@@ -1386,6 +1604,27 @@ export class TaskQuoteService {
    */
   async commercialApprove(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
     return this.updateStatus(id, TASK_QUOTE_STATUS.COMMERCIAL_APPROVED, userId);
+  }
+
+  /**
+   * Manually reconcile the "Em Negociação" SO for the task tied to this quote.
+   * Recovery path: a task can land in a stuck state if a status change happened
+   * before the sync logic existed (or before a bug fix). This endpoint replays
+   * the reconciliation without requiring a status transition.
+   */
+  async syncEmNegociacao(
+    id: string,
+    userId: string,
+  ): Promise<{ success: true; message: string }> {
+    const task = await this.prisma.task.findFirst({
+      where: { quoteId: id },
+      select: { id: true },
+    });
+    if (!task) {
+      throw new NotFoundException(`Tarefa para o orçamento ${id} não encontrada.`);
+    }
+    await syncEmNegociacaoForTask(this.prisma, task.id, userId);
+    return { success: true, message: 'Em Negociação reconciliada.' };
   }
 
   /**
@@ -1677,6 +1916,11 @@ export class TaskQuoteService {
     this.logger.log(
       `[REVERT_BILLING] Quote ${id} reverted to COMMERCIAL_APPROVED. Invoices/installments/bank slips deleted.`,
     );
+
+    // Direct prisma write above bypasses updateStatus — reconcile explicitly.
+    // Status moves stay within ≥ BUDGET_APPROVED so this is usually a no-op
+    // for Em Negociação, but kept for symmetry with other status-change paths.
+    await syncEmNegociacaoForTask(this.prisma, task.id, userId);
 
     await this.changeLogService.logChange({
       entityType: ENTITY_TYPE.TASK_QUOTE,

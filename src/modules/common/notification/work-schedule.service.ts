@@ -40,7 +40,9 @@ export class WorkScheduleService {
   private readonly logger = new Logger(WorkScheduleService.name);
 
   // Work hours in São Paulo timezone
-  private readonly WORK_START_HOUR = 7.5; // 7:30 AM
+  // Spec §10: business hours are 8:00–18:00. End remains 18.5 internally so
+  // 18:15 time-entry reminders still get processed (they have their own gating).
+  private readonly WORK_START_HOUR = 8.0; // 8:00 AM
   private readonly WORK_END_HOUR = 18.5; // 6:30 PM (allows time entry reminders at 18:15 to be processed)
 
   // Holiday cache — stores holiday date strings (YYYY-MM-DD) for the current year
@@ -60,7 +62,7 @@ export class WorkScheduleService {
    * Returns false if:
    * - It's a weekend (Saturday/Sunday)
    * - It's a holiday (from Secullum)
-   * - It's outside work hours (before 7:30 or after 18:00 São Paulo time)
+   * - It's outside work hours (before 8:00 or after 18:00 São Paulo time)
    */
   async canSendNow(): Promise<boolean> {
     const now = new Date();
@@ -97,22 +99,22 @@ export class WorkScheduleService {
 
   /**
    * Calculate the next time notifications can be sent.
-   * Skips weekends and holidays, returns next working day at 7:30 AM São Paulo time.
+   * Skips weekends and holidays, returns next working day at 8:00 AM São Paulo time.
    */
   async getNextSendableTime(): Promise<Date> {
     const now = new Date();
     const saoPauloTime = this.toSaoPauloTime(now);
     const currentHours = saoPauloTime.getHours() + saoPauloTime.getMinutes() / 60;
 
-    // Start candidate: today at 7:30 if before 7:30, otherwise tomorrow at 7:30
+    // Start candidate: today at 8:00 if before 8:00, otherwise tomorrow at 8:00
     const candidate = new Date(saoPauloTime);
     if (currentHours < this.WORK_START_HOUR) {
       // Today might still be valid — check if it's a working day
-      candidate.setHours(7, 30, 0, 0);
+      candidate.setHours(8, 0, 0, 0);
     } else {
       // Already past work start, move to tomorrow
       candidate.setDate(candidate.getDate() + 1);
-      candidate.setHours(7, 30, 0, 0);
+      candidate.setHours(8, 0, 0, 0);
     }
 
     // Skip weekends and holidays (max 10 days to prevent infinite loop)
@@ -125,7 +127,7 @@ export class WorkScheduleService {
         }
       }
       candidate.setDate(candidate.getDate() + 1);
-      candidate.setHours(7, 30, 0, 0);
+      candidate.setHours(8, 0, 0, 0);
     }
 
     this.logger.debug(`Next sendable time: ${candidate.toISOString()}`);

@@ -38,7 +38,9 @@
     "test:payload": "tsx tests/payload/payload-size-measurement.ts",
     "test:scenarios": "tsx tests/scenarios/context-specific.test.ts",
     "test:optimization": "tsx tests/run-all-optimization-tests.ts",
-    "test:optimization:report": "tsx tests/run-all-optimization-tests.ts && open tests/reports/latest-report.html"
+    "test:optimization:report": "tsx tests/run-all-optimization-tests.ts && open tests/reports/latest-report.html",
+    "stock:correct": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/correct-stock-metrics.ts",
+    "stock:migrate": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/inventory-deep-migration.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

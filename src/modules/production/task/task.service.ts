@@ -49,6 +49,7 @@ import {
 } from '../../../constants/enums';
 import { TASK_QUOTE_STATUS_ORDER } from '@constants';
 import { validateSectorFieldAccess } from './task.permissions';
+import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 import { TaskRepository, PrismaTransaction } from './repositories/task.repository';
 import {
   TaskCreateFormData,
@@ -140,6 +141,101 @@ export class TaskService {
   private canApproveArtworks(userRole?: string): boolean {
     const allowedRoles = [SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN];
     return userRole ? allowedRoles.includes(userRole as any) : false;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Inline-quote no-op filter
+  //
+  // task.update({ quote: { ... } }) is the mobile/inline path. The form
+  // re-submits the full quote snapshot on every save, even when the user
+  // only changed a Task field. We canonicalize each field and pass through
+  // only the ones that materially differ from the persisted quote.
+  // Returns `null` when nothing changed — caller should drop the whole
+  // quote block in that case.
+  // ───────────────────────────────────────────────────────────────────────
+  private canonicalizeQuoteService(s: any): string {
+    return JSON.stringify({
+      description: (s.description ?? '').trim(),
+      amount: Number(s.amount ?? 0).toFixed(2),
+      observation: s.observation ?? null,
+      invoiceToCustomerId: s.invoiceToCustomerId ?? null,
+    });
+  }
+
+  private canonicalizeQuoteCustomerConfig(c: any): string {
+    return JSON.stringify({
+      customerId: c.customerId ?? null,
+      subtotal: Number(c.subtotal ?? 0).toFixed(2),
+      total: Number(c.total ?? 0).toFixed(2),
+      discountType: c.discountType ?? 'NONE',
+      discountValue: c.discountValue != null ? Number(c.discountValue).toFixed(2) : null,
+      discountReference: c.discountReference ?? null,
+      paymentCondition: c.paymentCondition ?? null,
+      customPaymentText: c.customPaymentText ?? null,
+      generateInvoice: c.generateInvoice !== false,
+      generateBankSlip: c.generateBankSlip !== false,
+      orderNumber: c.orderNumber ?? null,
+      responsibleId: c.responsibleId ?? null,
+      paymentConfig: c.paymentConfig ?? null,
+    });
+  }
+
+  private quoteArrayChanged(
+    existing: any[] | undefined | null,
+    incoming: any[],
+    canon: (v: any) => string,
+  ): boolean {
+    if ((existing?.length ?? 0) !== incoming.length) return true;
+    const a = (existing || []).map(canon).sort();
+    const b = incoming.map(canon).sort();
+    return a.some((v, i) => v !== b[i]);
+  }
+
+  private quoteScalarChanged(existing: any, incoming: any): boolean {
+    if (incoming === undefined) return false;
+    if (existing === incoming) return false;
+    if (existing == null && incoming == null) return false;
+    if (existing && typeof existing === 'object' && 'toNumber' in existing) {
+      return Number(existing) !== Number(incoming);
+    }
+    if (existing instanceof Date || incoming instanceof Date) {
+      const a = existing ? new Date(existing as any).getTime() : null;
+      const b = incoming ? new Date(incoming as any).getTime() : null;
+      return a !== b;
+    }
+    return existing !== incoming;
+  }
+
+  private filterNoOpQuoteFields(existing: any, incoming: any): any | null {
+    const filtered: any = {};
+    for (const key of Object.keys(incoming)) {
+      const value = incoming[key];
+      if (value === undefined) continue;
+      if (key === 'customerConfigs') {
+        if (
+          Array.isArray(value) &&
+          this.quoteArrayChanged(existing.customerConfigs, value, v =>
+            this.canonicalizeQuoteCustomerConfig(v),
+          )
+        ) {
+          filtered[key] = value;
+        }
+      } else if (key === 'services') {
+        if (
+          Array.isArray(value) &&
+          this.quoteArrayChanged(existing.services, value, v =>
+            this.canonicalizeQuoteService(v),
+          )
+        ) {
+          filtered[key] = value;
+        }
+      } else {
+        if (this.quoteScalarChanged(existing[key], value)) {
+          filtered[key] = value;
+        }
+      }
+    }
+    return Object.keys(filtered).length === 0 ? null : filtered;
   }
 
   /**
@@ -380,6 +476,25 @@ export class TaskService {
         `[Task Create] preUploadedBaseFileIds: ${JSON.stringify(preUploadedBaseFileIds)}`,
       );
       this.logger.log(`[Task Create] artworkStatusesMap: ${JSON.stringify(artworkStatusesMap)}`);
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Harden the default "Em Negociação" COMMERCIAL SO to start IN_PROGRESS.
+      // Web/Mobile forms already do this, but a non-form caller (batch import,
+      // copy-task, integration) would otherwise create it as PENDING and
+      // break the commercial workflow handoff for that task.
+      // ─────────────────────────────────────────────────────────────────────
+      if (Array.isArray((data as any).serviceOrders)) {
+        for (const so of (data as any).serviceOrders as any[]) {
+          const isEmNegociacao =
+            so?.type === SERVICE_ORDER_TYPE.COMMERCIAL &&
+            (so?.description ?? '').toLowerCase().trim() === 'em negociação';
+          if (isEmNegociacao && (!so.status || so.status === SERVICE_ORDER_STATUS.PENDING)) {
+            so.status = SERVICE_ORDER_STATUS.IN_PROGRESS;
+            so.statusOrder = 2;
+            if (!so.startedAt) so.startedAt = new Date();
+          }
+        }
+      }
 
       // Check if this is a bulk create from serial number range
       const serialNumberFrom = (data as any).serialNumberFrom;
@@ -1367,6 +1482,30 @@ export class TaskService {
 
         if (!existingTask) {
           throw new NotFoundException('Tarefa não encontrada. Verifique se o ID está correto.');
+        }
+
+        // ───────────────────────────────────────────────────────────────────
+        // Strip a no-op nested `quote` block before any side-effect runs.
+        //
+        // Mobile (and any client using task.update({ quote: ... })) re-submits
+        // the entire quote snapshot on every save, even when only a Task field
+        // changed. Without this filter the repo would delete+recreate
+        // services/customerConfigs on every no-op save, emit spurious
+        // changelogs, and (when this update runs at BILLING_APPROVED+)
+        // overwrite locked quote fields. Direct callers of the dedicated
+        // task-quote endpoint go through TaskQuoteService.update which has
+        // the same protection.
+        // ───────────────────────────────────────────────────────────────────
+        if ((data as any).quote && existingTask.quote) {
+          const filteredQuote = this.filterNoOpQuoteFields(
+            existingTask.quote,
+            (data as any).quote,
+          );
+          if (filteredQuote === null) {
+            delete (data as any).quote;
+          } else {
+            (data as any).quote = filteredQuote;
+          }
         }
 
         // Field-level access control per sector (centralized in task.permissions.ts)
@@ -5832,6 +5971,17 @@ export class TaskService {
         // caused DUPLICATE notifications for production users.
       }
 
+      // Reconcile the "Em Negociação" SO when artwork data changed — adding the
+      // first artwork on a budget-approved task closes the commercial handoff.
+      // Idempotent; uses post-commit prisma so it sees the final task.artworks set.
+      const artworkDataTouched =
+        (data as any).artworkIds !== undefined ||
+        (data as any).fileIds !== undefined ||
+        (data as any).artworkStatuses !== undefined;
+      if (artworkDataTouched) {
+        await syncEmNegociacaoForTask(this.prisma, id, userId);
+      }
+
       return {
         success: true,
         message: 'Tarefa atualizada com sucesso.',
@@ -9997,6 +10147,13 @@ export class TaskService {
           );
         }
       }
+    }
+
+    // Reconcile "Em Negociação" for every task that got an artwork added.
+    // Tasks with a budget-approved quote and a previously-empty artwork list
+    // need to flip from WAITING_ARTWORK to COMPLETED.
+    for (const change of fieldChangesForEvents) {
+      await syncEmNegociacaoForTask(this.prisma, change.taskId, userId);
     }
 
     return {

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TASK_QUOTE_STATUS, TASK_QUOTE_STATUS_ORDER } from '@constants';
 import { Decimal } from '@prisma/client/runtime/library';
+import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 
 /**
  * Service for cascading invoice/installment payment status changes
@@ -128,6 +129,16 @@ export class TaskQuoteStatusCascadeService {
         });
 
         this.logger.log(`Cascaded TaskQuote ${quoteId} status: ${quote.status} → ${newStatus}`);
+
+        // Reconcile Em Negociação. Cascades stay within ≥ BUDGET_APPROVED so this
+        // is normally a no-op, but kept for symmetry with other status paths.
+        const task = await this.prisma.task.findFirst({
+          where: { quoteId },
+          select: { id: true },
+        });
+        if (task) {
+          await syncEmNegociacaoForTask(this.prisma, task.id);
+        }
       }
     } catch (error) {
       this.logger.error(`Error cascading quote status for ${quoteId}: ${error}`);

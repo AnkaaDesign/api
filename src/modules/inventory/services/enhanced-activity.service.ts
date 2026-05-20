@@ -38,6 +38,7 @@ import type {
   ActivityDeleteResponse,
 } from '../../../types';
 import { ActivityService } from '../activity/activity.service';
+import { ItemRecomputeService } from './item-recompute.service';
 import {
   ActivityReason as PrismaActivityReason,
   ActivityOperation as PrismaActivityOperation,
@@ -98,6 +99,7 @@ export class EnhancedActivityService {
     private readonly changeLogService: ChangeLogService,
     @Inject(forwardRef(() => ActivityService))
     private readonly activityService: ActivityService,
+    private readonly itemRecomputeService: ItemRecomputeService,
   ) {}
 
   /**
@@ -169,17 +171,13 @@ export class EnhancedActivityService {
           include: include as any,
         });
 
-        // Step 7: Trigger monthly consumption recalculation for OUTBOUND activities
+        // Step 7: Trigger per-item stock-health recompute for OUTBOUND activities
         if (data.operation === ACTIVITY_OPERATION.OUTBOUND) {
           try {
-            await this.activityService['calculateAndUpdateItemMonthlyConsumption'](
-              tx,
-              data.itemId,
-              userId,
-            );
+            await this.itemRecomputeService.recomputeItemMetrics(data.itemId, tx);
           } catch (error) {
             this.logger.warn(
-              `Failed to update monthly consumption for item ${data.itemId}:`,
+              `Failed to recompute metrics for item ${data.itemId}:`,
               error,
             );
           }

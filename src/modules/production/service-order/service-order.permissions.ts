@@ -108,6 +108,19 @@ export function checkServiceOrderUpdatePermission(
     };
   }
 
+  // WAITING_ARTWORK is ONLY valid for COMMERCIAL service orders (commercial-approval
+  // → artwork-pending workflow). It is set/cleared automatically by the
+  // task-quote flow; manual transitions are allowed but constrained by type.
+  if (
+    newStatus === SERVICE_ORDER_STATUS.WAITING_ARTWORK &&
+    serviceOrder.type !== SERVICE_ORDER_TYPE.COMMERCIAL
+  ) {
+    return {
+      canUpdate: false,
+      reason: 'O status "Aguardando Arte" é exclusivo para ordens de serviço comerciais',
+    };
+  }
+
   // If service order is assigned, only assigned user (or ADMIN) can update
   if (serviceOrder.assignedToId && !isAssignedUser) {
     return {

@@ -35,10 +35,16 @@ import {
   CHANGE_ACTION,
   ITEM_CATEGORY_TYPE,
   SCHEDULE_FREQUENCY,
+  ABC_CATEGORY,
+  XYZ_CATEGORY,
 } from '../../../constants/enums';
 import { DEFAULT_LEAD_TIME_DAYS } from '../../../constants/inventory-config';
-import { calculateReorderQuantity } from '../../../utils/stock-health';
-import { resolveSeasonalFactor } from '../../../utils/seasonality';
+import { calculateReorderQuantity, resolveSafetyTargetCell } from '../../../utils/stock-health';
+import {
+  blendedFactorAcrossDays,
+  buildSeasonalContextFromSnapshots,
+} from '../../../utils/seasonality';
+import { balanceDepletionAcrossItems } from '../../../utils/order-coverage';
 import {
   trackFieldChanges,
   trackAndLogFieldChanges,
@@ -915,6 +921,8 @@ export class OrderScheduleService {
 
       // Load schedule items with category type (needed for TOOL skip) and the
       // active OrderRule for each item against the schedule supplier.
+      // ABC/XYZ + reorderPoint + ordersLast12Months are needed for the
+      // safety-buffer matrix lookup (spec §9) and the lt-floor fix.
       const items = await transaction.item.findMany({
         where: {
           id: { in: schedule.items },
@@ -938,6 +946,20 @@ export class OrderScheduleService {
       if (items.length === 0) {
         this.logger.warn(`No active items found for schedule ${scheduleId}`);
         return [];
+      }
+
+      // Load ConsumptionSnapshot history for all items so we can build a
+      // per-item SeasonalContext (spec §6.4 tier 1). Falls back to corpus
+      // when an item lacks enough history (handled inside the helper).
+      const snapshotRows = await transaction.consumptionSnapshot.findMany({
+        where: { itemId: { in: items.map(i => i.id) } },
+        select: { itemId: true, year: true, month: true, seasonalFactor: true },
+      });
+      const snapshotsByItem = new Map<string, Array<{ year: number; month: number; seasonalFactor: number }>>();
+      for (const r of snapshotRows) {
+        const arr = snapshotsByItem.get(r.itemId) ?? [];
+        arr.push({ year: r.year, month: r.month, seasonalFactor: r.seasonalFactor });
+        snapshotsByItem.set(r.itemId, arr);
       }
 
       // Pending receipts (CREATED / PARTIALLY_FULFILLED / FULFILLED / PARTIALLY_RECEIVED).
@@ -965,6 +987,7 @@ export class OrderScheduleService {
         dailyConsumption: number;
         maxQuantity: number | null;
         leadTimeDays: number;
+        reorderPoint: number;
         boxQuantity: number | null;
         orderRule: { minOrderQuantity?: number | null; maxOrderQuantity?: number | null; orderMultiple?: number | null } | null;
         proposedQty: number;
@@ -983,13 +1006,23 @@ export class OrderScheduleService {
         if (maxQuantity != null && currentStock + incoming >= maxQuantity) continue;
 
         const leadTimeDays = item.estimatedLeadTime ?? DEFAULT_LEAD_TIME_DAYS;
-        const buffer = Math.max(3, Math.ceil(cycleDays * 0.1));
+        // Safety buffer is now ABC/XYZ-aware (spec §9 matrix). The previous
+        // flat 10% rule under-protected A-Z items and over-protected C-X items.
+        const { safetyFactor } = resolveSafetyTargetCell(
+          (item.abcCategory as ABC_CATEGORY | null) ?? null,
+          (item.xyzCategory as XYZ_CATEGORY | null) ?? null,
+          item.ordersLast12Months ?? null,
+        );
+        const buffer = Math.ceil(cycleDays * safetyFactor);
         const targetCoverageDays = cycleDays + leadTimeDays + buffer;
 
-        // Seasonal-adjusted daily consumption over the projected window.
+        // Seasonal-adjusted daily consumption over the projected window — use
+        // a per-item SeasonalContext blended across the coverage window so
+        // multi-month projections see the correct curve (spec §6.4 + §10.2).
         const projectionStart = new Date(now);
         projectionStart.setDate(projectionStart.getDate() + leadTimeDays);
-        const seasonal = resolveSeasonalFactor(projectionStart);
+        const seasonalCtx = buildSeasonalContextFromSnapshots(snapshotsByItem.get(item.id));
+        const seasonal = blendedFactorAcrossDays(projectionStart, targetCoverageDays, seasonalCtx);
         const dailyConsumption = (monthlyConsumption / 30) * seasonal;
 
         let qty = dailyConsumption * targetCoverageDays - currentStock - incoming;
@@ -1020,6 +1053,7 @@ export class OrderScheduleService {
           dailyConsumption: monthlyConsumption / 30,
           maxQuantity,
           leadTimeDays,
+          reorderPoint: item.reorderPoint ?? 0,
           boxQuantity: item.boxQuantity,
           orderRule: matchingRule,
           proposedQty,
@@ -1031,46 +1065,52 @@ export class OrderScheduleService {
         return [];
       }
 
-      // Aligned-depletion balancing (services-spec §C.3): trim long-coverage
-      // items so the basket runs out around the same date — but never below
-      // each item's own lead-time floor.
-      const projected = candidates.map(c => ({
-        ...c,
-        coverageDays:
-          c.dailyConsumption > 0
-            ? (c.currentStock + c.incoming + c.proposedQty) / c.dailyConsumption
-            : Infinity,
-      }));
-      const minCoverage = Math.min(...projected.map(p => p.coverageDays));
+      // Aligned-depletion balancing (services-spec §C.3): delegated to the
+      // shared `balanceDepletionAcrossItems` helper so auto-order uses the
+      // same trim logic. Passing the item's actual `reorderPoint` (instead
+      // of 0) lets the helper's lt-floor protect coverage down to the
+      // reorder point — the balancer can never trim below that anymore.
+      const balanceResults = balanceDepletionAcrossItems(
+        candidates.map(c => ({
+          currentQty: c.currentStock,
+          proposedQty: c.proposedQty,
+          dailyConsumption: c.dailyConsumption,
+          maxQuantity: c.maxQuantity,
+          reorderPoint: c.reorderPoint,
+          leadTimeDays: c.leadTimeDays,
+          incomingQty: c.incoming,
+        })),
+      );
+      const minCoverage =
+        balanceResults.length > 0
+          ? Math.min(
+              ...balanceResults.map(r =>
+                Number.isFinite(r.coverageDays) ? r.coverageDays : Number.POSITIVE_INFINITY,
+              ),
+            )
+          : 0;
 
-      const balanced = projected.map(p => {
-        const targetTotal = minCoverage * p.dailyConsumption;
-        const reducedProposed = Math.max(0, targetTotal - p.currentStock - p.incoming);
-        const ltFloor = p.dailyConsumption * p.leadTimeDays;
-        const safeProposed = Math.max(
-          reducedProposed,
-          Math.max(0, ltFloor - p.currentStock - p.incoming),
-        );
-        const finalQty = Math.min(p.proposedQty, safeProposed);
-        const rounded = calculateReorderQuantity({
-          currentStock: p.currentStock,
-          maxQuantity: p.maxQuantity ?? p.currentStock + finalQty + p.incoming,
-          incomingOrderedQuantity: p.incoming,
-          boxQuantity: p.boxQuantity,
-          orderRule: p.orderRule,
-        });
-        // calculateReorderQuantity uses the headroom-to-max formula; here we
-        // need it to honor the depletion-trimmed target, so synthesize a
-        // pseudo-max if the rounded value overshoots.
-        return {
-          itemId: p.itemId,
-          itemName: p.itemName,
-          quantity: Math.min(rounded, finalQty || rounded),
-          coverageDays: p.coverageDays,
-        };
-      });
-
-      const calculatedQuantities = balanced
+      const calculatedQuantities = candidates
+        .map((c, i) => {
+          const balanced = balanceResults[i];
+          // Round through `calculateReorderQuantity` to honor box-multiple
+          // and orderRule constraints, but cap at the balanced quantity so
+          // depletion alignment isn't lost.
+          const rounded = calculateReorderQuantity({
+            currentStock: c.currentStock,
+            maxQuantity: c.maxQuantity ?? c.currentStock + balanced.balancedQty + c.incoming,
+            incomingOrderedQuantity: c.incoming,
+            boxQuantity: c.boxQuantity,
+            orderRule: c.orderRule,
+          });
+          const finalQty = Math.min(rounded, balanced.balancedQty || rounded);
+          return {
+            itemId: c.itemId,
+            itemName: c.itemName,
+            quantity: finalQty,
+            coverageDays: balanced.coverageDays,
+          };
+        })
         .filter(b => b.quantity > 0)
         .map(b => ({
           itemId: b.itemId,

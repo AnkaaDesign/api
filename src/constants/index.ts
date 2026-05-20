@@ -3,7 +3,6 @@ export * from './enum-labels';
 export * from './routes';
 export * from './sortOrders';
 export * from './brazil';
-export * from './stock-thresholds';
 export * from './inventory-config';
 export * from './working-days-config';
 export * from './seasonality-config';

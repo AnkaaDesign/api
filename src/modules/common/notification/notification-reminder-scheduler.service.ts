@@ -931,7 +931,7 @@ export class NotificationReminderSchedulerService {
   }
 
   /**
-   * Adjust reminder time to respect working schedule (weekdays, non-holidays, 7:30-18:00)
+   * Adjust reminder time to respect working schedule (weekdays, non-holidays, 8:00-18:00)
    * Uses WorkScheduleService for consistent logic across all notification paths
    */
   private async adjustReminderForWorkSchedule(reminderTime: Date): Promise<Date> {
@@ -946,7 +946,7 @@ export class NotificationReminderSchedulerService {
 
     // If it's a weekday and within work hours, it's likely fine
     // (holiday check will happen at dispatch time as a second gate)
-    if (day !== 0 && day !== 6 && currentTimeInHours >= 7.5 && currentTimeInHours < 18.0) {
+    if (day !== 0 && day !== 6 && currentTimeInHours >= 8.0 && currentTimeInHours < 18.0) {
       return reminderTime;
     }
 

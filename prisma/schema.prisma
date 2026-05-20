@@ -1702,6 +1702,8 @@ model User {
   assessmentEntriesAsEvaluatee  AssessmentEntry[]            @relation("ASSESSMENT_ENTRY_EVALUATEE")
   assessmentEntriesAsEvaluator  AssessmentEntry[]            @relation("ASSESSMENT_ENTRY_EVALUATOR")
   assessmentsCreated            Assessment[]                 @relation("ASSESSMENT_CREATED_BY")
+  assessmentSectorAppraiserships AssessmentSector[]          @relation("ASSESSMENT_SECTOR_APPRAISER")
+  assessmentSectorEvaluations    AssessmentSectorEvaluatee[] @relation("ASSESSMENT_SECTOR_EVALUATEE")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -2503,6 +2505,7 @@ enum ServiceOrderType {
 enum ServiceOrderStatus {
   PENDING
   IN_PROGRESS
+  WAITING_ARTWORK
   PAUSED
   WAITING_APPROVE
   COMPLETED
@@ -3869,13 +3872,37 @@ model Assessment {
 model AssessmentSector {
   assessmentId String
   sectorId     String
+  /// Optional per-sector appraiser override. When null, openAssessment falls
+  /// back to Sector.leaderId. Allows campaigns to cover sectors without a
+  /// designated leader, or to substitute the leader on a per-campaign basis.
+  appraiserId  String?
 
-  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  sector     Sector     @relation(fields: [sectorId], references: [id])
+  assessment Assessment                  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  sector     Sector                      @relation(fields: [sectorId], references: [id])
+  appraiser  User?                       @relation("ASSESSMENT_SECTOR_APPRAISER", fields: [appraiserId], references: [id])
+  evaluatees AssessmentSectorEvaluatee[]
 
   @@id([assessmentId, sectorId])
   @@index([assessmentId])
   @@index([sectorId])
+  @@index([appraiserId])
+}
+
+/// Explicit per-sector evaluatee list for a campaign.
+/// When openAssessment runs, only users listed here become AssessmentEntry rows
+/// (one entry per evaluatee, evaluator = effective appraiser of the sector).
+model AssessmentSectorEvaluatee {
+  assessmentId String
+  sectorId     String
+  userId       String
+
+  assessmentSector AssessmentSector @relation(fields: [assessmentId, sectorId], references: [assessmentId, sectorId], onDelete: Cascade)
+  user             User             @relation("ASSESSMENT_SECTOR_EVALUATEE", fields: [userId], references: [id])
+
+  @@id([assessmentId, sectorId, userId])
+  @@index([assessmentId])
+  @@index([sectorId])
+  @@index([userId])
 }
 
 model AssessmentSkill {

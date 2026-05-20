@@ -1,5 +1,4 @@
 import { Module, forwardRef } from '@nestjs/common';
-import { SchedulerService } from './scheduler.service';
 import { BonusCronService } from './bonus-cron.service';
 import { CronService } from '../../cron/cron.service';
 import { InventoryCronService } from '../../inventory/services/inventory-cron.service';
@@ -25,7 +24,7 @@ import { ChangeLogModule } from '../changelog/changelog.module';
     PrismaModule,
     ChangeLogModule,
   ],
-  providers: [SchedulerService, BonusCronService, CronService, InventoryCronService],
-  exports: [SchedulerService, BonusCronService, CronService, InventoryCronService],
+  providers: [BonusCronService, CronService, InventoryCronService],
+  exports: [BonusCronService, CronService, InventoryCronService],
 })
 export class SchedulerModule {}

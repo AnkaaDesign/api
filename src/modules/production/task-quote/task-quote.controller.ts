@@ -241,6 +241,20 @@ export class TaskQuoteController {
   }
 
   /**
+   * POST /task-quotes/:id/sync-em-negociacao
+   * Force a reconciliation of the "Em Negociação" SO against current quote/artwork
+   * state. Idempotent — safe to call any time to recover from a stuck state.
+   *
+   * Access: ADMIN, FINANCIAL, COMMERCIAL
+   */
+  @Post(':id/sync-em-negociacao')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @HttpCode(HttpStatus.OK)
+  async syncEmNegociacao(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
+    return this.taskQuoteService.syncEmNegociacao(id, userId);
+  }
+
+  /**
    * DELETE /task-quotes/:id
    * Delete quote
    *

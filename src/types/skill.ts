@@ -342,12 +342,21 @@ export interface TopicLevelsUpsertFormData {
   levels: TopicLevelFormData[]; // upsert (replace by score) — usually 6 entries
 }
 
+export interface AssessmentSectorConfig {
+  sectorId: string;
+  // null/undefined = use sector.leaderId at open-time
+  appraiserId?: string | null;
+  // explicit list of users to assess in this sector; an empty list is allowed
+  // in DRAFT but blocks the OPEN transition.
+  evaluateeIds: string[];
+}
+
 export interface AssessmentCreateFormData {
   name: string;
   description?: string | null;
   periodStart: Date;
   periodEnd: Date;
-  sectorIds: string[];
+  sectors: AssessmentSectorConfig[];
   // either pass topicIds directly OR pass skillIds (which expand to all their topics)
   topicIds?: string[];
   skillIds?: string[];
@@ -358,7 +367,7 @@ export interface AssessmentUpdateFormData {
   description?: string | null;
   periodStart?: Date;
   periodEnd?: Date;
-  sectorIds?: string[];
+  sectors?: AssessmentSectorConfig[];
   topicIds?: string[];
   skillIds?: string[];
 }

@@ -214,8 +214,11 @@ function calculateMonthlyConsumptionRegular(
 // ============================================================================
 
 export interface LeadTimeInput {
-  /** Days between Order.createdAt and OrderItem.receivedAt for this item's
-   *  receipts that pass the cleanliness filter (spec §5.2). */
+  /** Days between OrderItem.fulfilledAt (when the order was sent to the
+   *  supplier) and OrderItem.receivedAt for this item's receipts that pass
+   *  the cleanliness filter (spec §5.2). When fulfilledAt is NULL or after
+   *  receivedAt, falls back to Order.createdAt — the responsibility of the
+   *  caller. */
   itemCleanLeadTimes: ReadonlyArray<number>;
   /** Same metric across the item's primary supplier, all items. */
   supplierCleanLeadTimes?: ReadonlyArray<number>;
@@ -249,7 +252,14 @@ export interface ReorderPointInput {
   item: ItemLike;
   monthlyConsumption: number;
   leadTimeDays: number;
+  /** Legacy fraction-of-cycle-stock multiplier. Used only when `safetyStock`
+   *  is NOT provided (back-compat). Prefer `safetyStock` (units) from
+   *  `calculateSafetyStock`. */
   safetyFactor: number;
+  /** Pre-computed safety stock in UNITS (output of `calculateSafetyStock`).
+   *  When provided, the formula is `cycleStock × seasonal + safetyStock`
+   *  instead of the legacy `cycleStock × (1 + safetyFactor) × seasonal`. */
+  safetyStock?: number;
   seasonalCtx?: SeasonalContext;
   now?: Date;
   /** PPE-only — see ppe-formula.ts. */
@@ -276,7 +286,14 @@ export function calculateReorderPoint(input: ReorderPointInput): number {
   projectionStart.setDate(projectionStart.getDate() + input.leadTimeDays);
   const upcomingSeasonal = resolveSeasonalFactor(projectionStart, input.seasonalCtx);
 
-  const raw = avgDaily * input.leadTimeDays * (1 + input.safetyFactor) * upcomingSeasonal;
+  const cycleStock = avgDaily * input.leadTimeDays * upcomingSeasonal;
+  // Prefer the unit-based safety stock when callers provide it (new layered
+  // safety-stock formula). Fall back to the legacy fraction for compatibility.
+  const safety =
+    input.safetyStock != null
+      ? input.safetyStock
+      : avgDaily * input.leadTimeDays * input.safetyFactor;
+  const raw = cycleStock + safety;
   const rp = Math.ceil(raw);
   if (rp > 0 && rp < 1) return 1;
   return rp;

@@ -756,7 +756,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     discountReference: 'Referência do Desconto',
     // Nested relationship fields
     'services.length': 'Quantidade de Serviços',
-    services_snapshot: 'Serviços',
+    services_snapshot: 'Serviços do Orçamento',
   },
   // Add more entity-specific mappings as needed
 };
