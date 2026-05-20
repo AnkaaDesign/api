@@ -648,9 +648,11 @@ export class SkillService {
 
     // Build final where:
     //   - exclude deleted assessments and entries
-    //   - if role is LEADER (or anything below ADMIN/HR), force evaluatorId = currentUserId
+    //   - if role is LEADER (or anything below ADMIN/HR/PRODUCTION_MANAGER), force evaluatorId = currentUserId
     const isAdminLike =
-      currentUserRole === 'ADMIN' || currentUserRole === 'HUMAN_RESOURCES';
+      currentUserRole === 'ADMIN' ||
+      currentUserRole === 'HUMAN_RESOURCES' ||
+      currentUserRole === 'PRODUCTION_MANAGER';
     const enforcedEvaluator = isAdminLike
       ? evaluatorId === 'me'
         ? currentUserId
@@ -1796,8 +1798,8 @@ export class SkillService {
   }
 
   /**
-   * Enforce evaluator ownership: only ADMIN/HR can act on any entry; other
-   * roles (including LEADER / PRODUCTION_MANAGER / etc.) must own the entry.
+   * Enforce evaluator ownership: only ADMIN/HR/PRODUCTION_MANAGER can act on any entry;
+   * other roles (including LEADER) must own the entry.
    */
   private assertEntryAccess(
     entry: { evaluatorId: string },
@@ -1805,7 +1807,9 @@ export class SkillService {
     currentUserRole: string,
   ) {
     const isAdminLike =
-      currentUserRole === 'ADMIN' || currentUserRole === 'HUMAN_RESOURCES';
+      currentUserRole === 'ADMIN' ||
+      currentUserRole === 'HUMAN_RESOURCES' ||
+      currentUserRole === 'PRODUCTION_MANAGER';
     if (isAdminLike) return;
     if (entry.evaluatorId !== currentUserId) {
       throw new ForbiddenException(

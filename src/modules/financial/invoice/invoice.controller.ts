@@ -710,6 +710,67 @@ export class InvoiceController {
         },
       });
 
+      // Cascade TaskQuote status — due-date change can turn a DUE quote into UPCOMING
+      const invoiceLink = await this.prisma.installment.findUnique({
+        where: { id: installmentId },
+        select: { invoiceId: true },
+      });
+      if (invoiceLink?.invoiceId) {
+        const invoiceForCascade = await this.prisma.invoice.findUnique({
+          where: { id: invoiceLink.invoiceId },
+          select: { customerConfig: { select: { quoteId: true } } },
+        });
+        const quoteId = invoiceForCascade?.customerConfig?.quoteId;
+        if (quoteId) {
+          const cascadeableStatuses: string[] = [
+            TASK_QUOTE_STATUS.UPCOMING,
+            TASK_QUOTE_STATUS.DUE,
+            TASK_QUOTE_STATUS.PARTIAL,
+            TASK_QUOTE_STATUS.SETTLED,
+          ];
+          const currentQuote = await this.prisma.taskQuote.findUnique({
+            where: { id: quoteId },
+            select: { status: true },
+          });
+          if (currentQuote && cascadeableStatuses.includes(currentQuote.status as string)) {
+            const now = new Date();
+            const allInstallments = await this.prisma.installment.findMany({
+              where: { customerConfig: { quoteId } },
+              select: { status: true, dueDate: true },
+            });
+            const active = allInstallments.filter(i => i.status !== 'CANCELLED');
+            const paidCount = active.filter(i => i.status === INSTALLMENT_STATUS.PAID).length;
+            const overdueCount = active.filter(
+              i => i.status !== INSTALLMENT_STATUS.PAID && new Date(i.dueDate) < now,
+            ).length;
+
+            let newQuoteStatus: TASK_QUOTE_STATUS;
+            if (active.length > 0 && paidCount === active.length) {
+              newQuoteStatus = TASK_QUOTE_STATUS.SETTLED;
+            } else if (overdueCount > 0) {
+              newQuoteStatus = TASK_QUOTE_STATUS.DUE;
+            } else if (paidCount > 0) {
+              newQuoteStatus = TASK_QUOTE_STATUS.PARTIAL;
+            } else {
+              newQuoteStatus = TASK_QUOTE_STATUS.UPCOMING;
+            }
+
+            if (newQuoteStatus !== currentQuote.status) {
+              await this.prisma.taskQuote.update({
+                where: { id: quoteId },
+                data: {
+                  status: newQuoteStatus as any,
+                  statusOrder: TASK_QUOTE_STATUS_ORDER[newQuoteStatus],
+                },
+              });
+              this.logger.log(
+                `[BOLETO] Cascaded TaskQuote ${quoteId} status: ${currentQuote.status} → ${newQuoteStatus}`,
+              );
+            }
+          }
+        }
+      }
+
       this.logger.log(
         `[BOLETO] Due date changed for installment ${installmentId}: nossoNumero=${bankSlip.nossoNumero}, newDate=${formattedDate}`,
       );

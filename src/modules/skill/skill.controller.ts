@@ -268,7 +268,7 @@ export class SkillController {
   }
 
   @Post('assessment')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @HttpCode(HttpStatus.CREATED)
   async createAssessment(
     @Body(new ZodValidationPipe(assessmentCreateSchema)) data: any,
@@ -279,7 +279,7 @@ export class SkillController {
   }
 
   @Patch('assessment/:id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async updateAssessment(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(assessmentUpdateSchema)) data: any,
@@ -289,27 +289,27 @@ export class SkillController {
   }
 
   @Delete('assessment/:id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async deleteAssessment(@Param('id', ParseUUIDPipe) id: string) {
     return this.skillService.deleteAssessment(id);
   }
 
   @Post('assessment/:id/open')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @HttpCode(HttpStatus.OK)
   async openAssessment(@Param('id', ParseUUIDPipe) id: string) {
     return this.skillService.openAssessment(id);
   }
 
   @Post('assessment/:id/close')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @HttpCode(HttpStatus.OK)
   async closeAssessment(@Param('id', ParseUUIDPipe) id: string) {
     return this.skillService.closeAssessment(id);
   }
 
   @Post('assessment/:id/cancel')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @HttpCode(HttpStatus.OK)
   async cancelAssessment(@Param('id', ParseUUIDPipe) id: string) {
     return this.skillService.cancelAssessment(id);
@@ -444,7 +444,7 @@ export class SkillController {
   }
 
   @Post('assessment-entry/:id/reopen')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @HttpCode(HttpStatus.OK)
   async reopenEntry(@Param('id', ParseUUIDPipe) id: string) {
     return this.skillService.reopenEntry(id);
