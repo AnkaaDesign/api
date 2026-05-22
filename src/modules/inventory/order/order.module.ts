@@ -6,6 +6,7 @@ import { OrderAnalyticsService } from './order-analytics.service';
 import { AutoOrderService } from './auto-order.service';
 import { OrderListener } from './order.listener';
 import { OrderNotificationScheduler } from './order-notification.scheduler';
+import { OrderScheduleScheduler } from './order-schedule.scheduler';
 import { OrderController, OrderItemController, OrderScheduleController } from './order.controller';
 import { AutoOrderController } from './auto-order.controller';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
@@ -41,6 +42,7 @@ import { EventEmitterModule } from '@modules/common/event-emitter/event-emitter.
     AutoOrderService,
     OrderListener,
     OrderNotificationScheduler,
+    OrderScheduleScheduler,
     {
       provide: OrderRepository,
       useClass: OrderPrismaRepository,

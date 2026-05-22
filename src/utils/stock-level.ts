@@ -1,6 +1,8 @@
 // Single source of truth for the stock-level band classifier (spec §15).
-// TOOL items short-circuit to OPTIMAL/OUT_OF_STOCK. Active pending orders
-// surface as a UI overlay, not a threshold shift.
+// TOOL items short-circuit to OPTIMAL/OUT_OF_STOCK. Open orders projected to
+// arrive within the lead-time window count toward the effective quantity used
+// for classification — an item with rp=10, qty=2, and a 1-day-lead order in
+// flight is OPTIMAL/LOW, not CRITICAL.
 
 import { ITEM_CATEGORY_TYPE, STOCK_LEVEL } from '@/constants/enums';
 import { STOCK_LEVEL_LOW_MULTIPLIER } from '@/constants/inventory-config';
@@ -11,21 +13,31 @@ export interface DetermineStockLevelInput {
   maxQuantity: number | null;
   hasActiveOrder: boolean;
   categoryType: ITEM_CATEGORY_TYPE | null;
+  /** Units already ordered and projected to arrive within the lead-time
+   *  window. When provided, classification uses `quantity + incomingOrderedQuantity`
+   *  as the effective stock. Pre-filtered by the caller (typically: open
+   *  OrderItems on orders not yet RECEIVED/CANCELLED, with forecast/expected
+   *  arrival on or before `now + leadTime + buffer`). */
+  incomingOrderedQuantity?: number;
 }
 
-/** Classifies an item's stock state per spec §15. Active orders do NOT shift
- *  thresholds — the caller surfaces a "pedido em aberto" badge separately. */
+/** Classifies an item's stock state per spec §15. Open orders arriving within
+ *  the lead-time window count toward the effective quantity used for the
+ *  CRITICAL/LOW/OPTIMAL bands. Hard-floor checks (negative-stock, out-of-stock)
+ *  use the physical `quantity` only — an empty shelf is empty regardless of
+ *  what's in the pipeline. */
 export function determineStockLevel(input: DetermineStockLevelInput): STOCK_LEVEL {
   const { quantity, reorderPoint, maxQuantity, categoryType } = input;
+  const incoming = Math.max(0, input.incomingOrderedQuantity ?? 0);
 
   if (!Number.isFinite(quantity)) return STOCK_LEVEL.OPTIMAL;
 
-  // TOOL short-circuit (spec §15.2).
+  // TOOL short-circuit (spec §15.2). TOOL items have no rp/max and ignore incoming.
   if (categoryType === ITEM_CATEGORY_TYPE.TOOL) {
     return quantity > 0 ? STOCK_LEVEL.OPTIMAL : STOCK_LEVEL.OUT_OF_STOCK;
   }
 
-  // Negative-stock / out-of-stock checks apply uniformly.
+  // Negative / out-of-stock are PHYSICAL — incoming doesn't fill an empty shelf.
   if (quantity < 0) return STOCK_LEVEL.NEGATIVE_STOCK;
   if (quantity === 0) return STOCK_LEVEL.OUT_OF_STOCK;
 
@@ -35,12 +47,17 @@ export function determineStockLevel(input: DetermineStockLevelInput): STOCK_LEVE
   const hasMaxSignal = maxQuantity !== null && maxQuantity > 0;
   if (!hasReorderSignal && !hasMaxSignal) return STOCK_LEVEL.OPTIMAL;
 
-  if (hasReorderSignal && quantity <= (reorderPoint as number)) return STOCK_LEVEL.CRITICAL;
+  // Effective stock = physical + arriving-soon. Used for rp/max band checks.
+  const effective = quantity + incoming;
+
+  if (hasReorderSignal && effective <= (reorderPoint as number)) return STOCK_LEVEL.CRITICAL;
   if (
     hasReorderSignal &&
-    quantity <= (reorderPoint as number) * STOCK_LEVEL_LOW_MULTIPLIER
+    effective <= (reorderPoint as number) * STOCK_LEVEL_LOW_MULTIPLIER
   )
     return STOCK_LEVEL.LOW;
+  // OVERSTOCKED uses PHYSICAL quantity — an order arriving later shouldn't flip
+  // an already-overstocked item further into overstock noise.
   if (hasMaxSignal && quantity > (maxQuantity as number)) return STOCK_LEVEL.OVERSTOCKED;
   return STOCK_LEVEL.OPTIMAL;
 }

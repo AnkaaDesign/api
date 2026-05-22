@@ -43,6 +43,14 @@ import {
   rerunMatchingSchema,
   RerunMatchingDto,
 } from './dto/rerun-matching.dto';
+import {
+  changeCategorySchema,
+  ChangeCategoryDto,
+} from './dto/change-category.dto';
+import {
+  classifyBatchSchema,
+  ClassifyBatchDto,
+} from './dto/classify-batch.dto';
 
 @Controller('financial/reconciliation')
 @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
@@ -139,15 +147,28 @@ export class ReconciliationController {
     return this.service.ignore(id, payload);
   }
 
+  /**
+   * Single "Reconciliar" pipeline: classify first (auto-reconciles
+   * self-justifying categories like TARIFA/FOLHA/TRIBUTO/...), then run the NF
+   * scoring matcher on whatever is still PENDING + category=NF.
+   *
+   * Returns both stages so the UI can summarize "X classificadas · Y conciliadas".
+   */
   @Post('run')
   @UsePipes(new ZodValidationPipe(rerunMatchingSchema))
   async run(@Body() body: RerunMatchingDto) {
+    const classified = await this.service.classifyBatch({
+      transactionIds: body.transactionIds,
+      dateFrom: body.dateStart,
+      dateTo: body.dateEnd,
+    });
+
     if (body.dateStart && body.dateEnd) {
       const matched = await this.matcher.matchDateRange(
         new Date(body.dateStart),
         new Date(body.dateEnd),
       );
-      return { matched };
+      return { classified, matched };
     }
     if (body.transactionIds && body.transactionIds.length > 0) {
       let matched = 0;
@@ -163,7 +184,8 @@ export class ReconciliationController {
             counterpartyName: true,
             memo: true,
             bankSlipId: true,
-            matchStatus: true,
+            reconciliationStatus: true,
+            category: true,
           },
         });
         if (tx) {
@@ -171,11 +193,27 @@ export class ReconciliationController {
           if (ok) matched += 1;
         }
       }
-      return { matched };
+      return { classified, matched };
     }
-    // Default: run for all UNMATCHED transactions (global re-run from transactions list)
+    // Default: run for all PENDING NF transactions (global re-run from transactions list)
     const matched = await this.matcher.matchAll();
-    return { matched };
+    return { classified, matched };
+  }
+
+  @Post('transactions/:id/category')
+  @UsePipes(new ZodValidationPipe(changeCategorySchema))
+  changeCategory(
+    @Param('id') id: string,
+    @Body() payload: ChangeCategoryDto,
+    @Req() req: Request & { user?: { id?: string } },
+  ) {
+    return this.service.changeCategory(id, payload, req.user?.id);
+  }
+
+  @Post('classify')
+  @UsePipes(new ZodValidationPipe(classifyBatchSchema))
+  classify(@Body() payload: ClassifyBatchDto) {
+    return this.service.classifyBatch(payload);
   }
 
   @Get('statistics')

@@ -1,15 +1,26 @@
 import { z } from 'zod';
 import {
   BankTransactionType,
-  ReconciliationMatchStatus,
-  ReconciliationMatchType,
   BankTransactionSubtype,
+  ReconciliationCategory,
+  ReconciliationMatchType,
+  ReconciliationSource,
+  ReconciliationStatus,
 } from '@prisma/client';
 
 export const transactionsFilterSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(1000).default(50),
-  matchStatus: z.nativeEnum(ReconciliationMatchStatus).optional(),
+  // Lifecycle: PENDING / RECONCILED / PARTIAL / IGNORED / DISPUTED. Multi-select
+  // via comma-separated values; the service splits on commas.
+  reconciliationStatus: z
+    .union([z.nativeEnum(ReconciliationStatus), z.array(z.nativeEnum(ReconciliationStatus))])
+    .optional(),
+  // Category (NF / TRIBUTO / FOLHA / ...). Same multi-select semantics.
+  category: z
+    .union([z.nativeEnum(ReconciliationCategory), z.array(z.nativeEnum(ReconciliationCategory))])
+    .optional(),
+  reconciliationSource: z.nativeEnum(ReconciliationSource).optional(),
   matchType: z.nativeEnum(ReconciliationMatchType).optional(),
   type: z.nativeEnum(BankTransactionType).optional(),
   subtype: z.nativeEnum(BankTransactionSubtype).optional(),

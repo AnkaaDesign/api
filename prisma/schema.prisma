@@ -1040,6 +1040,7 @@ model OrderSchedule {
   id                 String                 @id @default(uuid())
   name               String?
   description        String?
+  supplierId         String?
   frequency          ScheduleFrequency
   frequencyCount     Int                    @default(1)
   isActive           Boolean                @default(true)
@@ -1054,12 +1055,14 @@ model OrderSchedule {
   yearlyConfigId     String?                @unique
   nextRun            DateTime?
   lastRun            DateTime?
+  lastFiredAt        DateTime?
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
   finishedAt         DateTime?
   lastRunId          String?
   originalScheduleId String?
   order              Order?                 @relation("ORDER_TO_SCHEDULE")
+  supplier           Supplier?              @relation("SCHEDULE_SUPPLIER", fields: [supplierId], references: [id])
   monthlyConfig      MonthlyScheduleConfig? @relation(fields: [monthlyConfigId], references: [id])
   weeklyConfig       WeeklyScheduleConfig?  @relation(fields: [weeklyConfigId], references: [id])
   yearlyConfig       YearlyScheduleConfig?  @relation(fields: [yearlyConfigId], references: [id])
@@ -1067,6 +1070,7 @@ model OrderSchedule {
   @@index([nextRun])
   @@index([lastRunId])
   @@index([originalScheduleId])
+  @@index([supplierId])
 }
 
 model PaintProduction {
@@ -1223,12 +1227,12 @@ model Warning {
 }
 
 model Sector {
-  id                     String           @id @default(uuid())
+  id                     String             @id @default(uuid())
   name                   String
-  privileges             SectorPrivileges @default(BASIC)
-  leaderId               String?          @unique
-  createdAt              DateTime         @default(now())
-  updatedAt              DateTime         @updatedAt
+  privileges             SectorPrivileges   @default(BASIC)
+  leaderId               String?            @unique
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
   /// Secullum integration: Departamento.Id mapped to this Sector. NULL = unmapped.
   /// Multiple sectors may share the same Secullum departamento (N:1).
   secullumDepartamentoId Int?
@@ -1236,7 +1240,7 @@ model Sector {
   /// for users in this sector. Bridge falls back to this when the user has
   /// no per-user override. NULL = no default (bridge uses HorarioId=1).
   secullumHorarioId      Int?
-  leader                 User?            @relation("SECTOR_LEADER", fields: [leaderId], references: [id])
+  leader                 User?              @relation("SECTOR_LEADER", fields: [leaderId], references: [id])
   tasks                  Task[]
   users                  User[]
   goals                  Goal[]
@@ -1391,6 +1395,7 @@ model Supplier {
   tags              String[]    @default([])
   items             Item[]      @relation("ITEM_SUPPLIER")
   orders            Order[]     @relation("ORDER_SUPPLIER")
+  orderSchedules    OrderSchedule[] @relation("SCHEDULE_SUPPLIER")
   orderRules        OrderRule[]
   logo              File?       @relation("SUPPLIER_LOGO", fields: [logoId], references: [id])
 
@@ -1600,110 +1605,110 @@ model SecullumToken {
 }
 
 model User {
-  id                       String                       @id @default(uuid())
-  email                    String?                      @unique
-  payrollNumber            Int?
-  name                     String
-  status                   UserStatus                   @default(EXPERIENCE_PERIOD_1)
-  statusOrder              Int                          @default(1)
-  phone                    String?                      @unique
-  password                 String?
-  positionId               String?
-  preferenceId             String?                      @unique
-  pis                      String?                      @unique
-  cpf                      String?                      @unique
+  id                             String                       @id @default(uuid())
+  email                          String?                      @unique
+  payrollNumber                  Int?
+  name                           String
+  status                         UserStatus                   @default(EXPERIENCE_PERIOD_1)
+  statusOrder                    Int                          @default(1)
+  phone                          String?                      @unique
+  password                       String?
+  positionId                     String?
+  preferenceId                   String?                      @unique
+  pis                            String?                      @unique
+  cpf                            String?                      @unique
   /// Secullum integration: Funcionario.Id mapped to this User. Set automatically
   /// after a successful create-in-Secullum flow or on first lookup-match.
-  secullumEmployeeId       Int?                         @unique
+  secullumEmployeeId             Int?                         @unique
   /// Whether this user should sync to Secullum on create/update/dismiss.
   /// Driven by the "Criar no Secullum" checkbox in the user form.
-  secullumSyncEnabled      Boolean                      @default(false)
+  secullumSyncEnabled            Boolean                      @default(false)
   /// Per-user override for Secullum Horario.Id. When set, bridge uses this
   /// over Sector.secullumHorarioId. Set from the HorarioSelector in the form.
-  secullumHorarioId        Int?
-  address                  String?
-  addressNumber            String?
-  addressComplement        String?
-  neighborhood             String?
-  city                     String?
-  state                    String?
-  zipCode                  String?
-  site                     String?
-  birth                    DateTime?
-  verified                 Boolean                      @default(false)
-  sectorId                 String?
-  requirePasswordChange    Boolean                      @default(false)
-  lastLoginAt              DateTime?
-  verificationCode         String?
-  verificationExpiresAt    DateTime?
-  verificationType         VerificationType?
-  sessionToken             String?                      @unique
-  createdAt                DateTime                     @default(now())
-  updatedAt                DateTime                     @updatedAt
-  performanceLevel         Int                          @default(0)
-  effectedAt               DateTime?
-  exp1StartAt              DateTime?
-  exp1EndAt                DateTime?
-  exp2StartAt              DateTime?
-  exp2EndAt                DateTime?
-  dismissedAt              DateTime?
-  avatarId                 String?
-  isActive                 Boolean                      @default(true)
-  unionMember              Boolean                      @default(false)
-  unionAuthorizationDate   DateTime?
-  dependentsCount          Int                          @default(0)
-  hasSimplifiedDeduction   Boolean                      @default(true)
-  activities               Activity[]                   @relation("ACTIVITY_USER")
-  backupsCreated           Backup[]                     @relation("BACKUP_CREATOR")
-  backupsDeleted           Backup[]                     @relation("BACKUP_DELETER")
-  backupSchedulesCreated   BackupSchedule[]             @relation("BACKUP_SCHEDULE_CREATOR")
-  backupSchedulesDeleted   BackupSchedule[]             @relation("BACKUP_SCHEDULE_DELETER")
-  bonuses                  Bonus[]                      @relation("UserBonus")
-  borrows                  Borrow[]                     @relation("USER_BORROW")
-  changeLogs               ChangeLog[]                  @relation("CHANGELOG_USER")
-  deviceTokens             DeviceToken[]                @relation("USER_DEVICE_TOKENS")
-  createdMessages          Message[]                    @relation("MESSAGE_CREATED_BY")
-  messageTargets           MessageTarget[]              @relation("MESSAGE_TARGET_USER")
-  messageViews             MessageView[]                @relation("MESSAGE_VIEW_USER")
-  notifications            Notification[]               @relation("NOTIFICATION_CREATED_BY")
-  payrolls                 Payroll[]
-  ppeDeliveriesReviewed    PpeDelivery[]                @relation("PPE_DELIVERY_REVIEWED_BY")
-  ppeDeliveries            PpeDelivery[]                @relation("PPE_DELIVERY_USER")
-  ppeSignatures            PpeDeliverySignature[]       @relation("PPE_SIGNATURE_USER")
-  ppeSignatureEvents       PpeDeliverySignatureEvent[]  @relation("PPE_SIGNATURE_EVENT_ACTOR")
-  ppeSize                  PpeSize?                     @relation("USER_PPE_SIZE")
-  preference               Preferences?                 @relation("USER_PREFERENCES")
-  ledSector                Sector?                      @relation("SECTOR_LEADER")
-  seenNotification         SeenNotification[]
-  approvedServiceOrders    ServiceOrder[]               @relation("SERVICE_ORDER_APPROVED_BY")
-  assignedServiceOrders    ServiceOrder[]               @relation("SERVICE_ORDER_ASSIGNED_TO")
-  completedServiceOrders   ServiceOrder[]               @relation("SERVICE_ORDER_COMPLETED_BY")
-  createdServiceOrders     ServiceOrder[]               @relation("SERVICE_ORDER_CREATED_BY")
-  startedServiceOrders     ServiceOrder[]               @relation("SERVICE_ORDER_STARTED_BY")
-  pausedServiceOrders      ServiceOrder[]               @relation("SERVICE_ORDER_PAUSED_BY")
-  createdTasks             Task[]                       @relation("TASK_CREATED_BY")
-  taskFieldChangeLogs      TaskFieldChangeLog[]         @relation("TASK_FIELD_CHANGE_USER")
-  avatar                   File?                        @relation("USER_AVATAR", fields: [avatarId], references: [id])
-  position                 Position?                    @relation("USER_POSITION", fields: [positionId], references: [id])
-  sector                   Sector?                      @relation(fields: [sectorId], references: [id])
-  notificationPreferences  UserNotificationPreference[] @relation("USER_NOTIFICATION_PREFERENCES")
-  warningsCollaborator     Warning[]                    @relation("COLLABORATOR_WARNING")
-  warningsSupervisor       Warning[]                    @relation("SUPERVISOR_WARNING")
-  deployments              Deployment[]                 @relation("DEPLOYMENT_USER")
-  bonusesInPeriod          Bonus[]                      @relation("BonusPeriodUsers")
-  warningsWitness          Warning[]                    @relation("WITNESS_WARNING")
-  paymentResponsibleOrders Order[]                      @relation("ORDER_PAYMENT_RESPONSIBLE")
-  paymentAssignedByOrders  Order[]                      @relation("ORDER_PAYMENT_ASSIGNED_BY")
-  invoicesCreated          Invoice[]                    @relation("InvoicesCreated")
-  taskForecastHistories    TaskForecastHistory[]        @relation("TASK_FORECAST_HISTORY_USER")
-  bankTransactionImports        BankTransaction[]            @relation("BankTransactionUploader")
-  reconciliationMatches         ReconciliationMatch[]        @relation("MatchedBy")
-  reconciliationRuns            ReconciliationRun[]          @relation("ReconciliationRunTriggers")
-  assessmentEntriesAsEvaluatee  AssessmentEntry[]            @relation("ASSESSMENT_ENTRY_EVALUATEE")
-  assessmentEntriesAsEvaluator  AssessmentEntry[]            @relation("ASSESSMENT_ENTRY_EVALUATOR")
-  assessmentsCreated            Assessment[]                 @relation("ASSESSMENT_CREATED_BY")
-  assessmentSectorAppraiserships AssessmentSector[]          @relation("ASSESSMENT_SECTOR_APPRAISER")
-  assessmentSectorEvaluations    AssessmentSectorEvaluatee[] @relation("ASSESSMENT_SECTOR_EVALUATEE")
+  secullumHorarioId              Int?
+  address                        String?
+  addressNumber                  String?
+  addressComplement              String?
+  neighborhood                   String?
+  city                           String?
+  state                          String?
+  zipCode                        String?
+  site                           String?
+  birth                          DateTime?
+  verified                       Boolean                      @default(false)
+  sectorId                       String?
+  requirePasswordChange          Boolean                      @default(false)
+  lastLoginAt                    DateTime?
+  verificationCode               String?
+  verificationExpiresAt          DateTime?
+  verificationType               VerificationType?
+  sessionToken                   String?                      @unique
+  createdAt                      DateTime                     @default(now())
+  updatedAt                      DateTime                     @updatedAt
+  performanceLevel               Int                          @default(0)
+  effectedAt                     DateTime?
+  exp1StartAt                    DateTime?
+  exp1EndAt                      DateTime?
+  exp2StartAt                    DateTime?
+  exp2EndAt                      DateTime?
+  dismissedAt                    DateTime?
+  avatarId                       String?
+  isActive                       Boolean                      @default(true)
+  unionMember                    Boolean                      @default(false)
+  unionAuthorizationDate         DateTime?
+  dependentsCount                Int                          @default(0)
+  hasSimplifiedDeduction         Boolean                      @default(true)
+  activities                     Activity[]                   @relation("ACTIVITY_USER")
+  backupsCreated                 Backup[]                     @relation("BACKUP_CREATOR")
+  backupsDeleted                 Backup[]                     @relation("BACKUP_DELETER")
+  backupSchedulesCreated         BackupSchedule[]             @relation("BACKUP_SCHEDULE_CREATOR")
+  backupSchedulesDeleted         BackupSchedule[]             @relation("BACKUP_SCHEDULE_DELETER")
+  bonuses                        Bonus[]                      @relation("UserBonus")
+  borrows                        Borrow[]                     @relation("USER_BORROW")
+  changeLogs                     ChangeLog[]                  @relation("CHANGELOG_USER")
+  deviceTokens                   DeviceToken[]                @relation("USER_DEVICE_TOKENS")
+  createdMessages                Message[]                    @relation("MESSAGE_CREATED_BY")
+  messageTargets                 MessageTarget[]              @relation("MESSAGE_TARGET_USER")
+  messageViews                   MessageView[]                @relation("MESSAGE_VIEW_USER")
+  notifications                  Notification[]               @relation("NOTIFICATION_CREATED_BY")
+  payrolls                       Payroll[]
+  ppeDeliveriesReviewed          PpeDelivery[]                @relation("PPE_DELIVERY_REVIEWED_BY")
+  ppeDeliveries                  PpeDelivery[]                @relation("PPE_DELIVERY_USER")
+  ppeSignatures                  PpeDeliverySignature[]       @relation("PPE_SIGNATURE_USER")
+  ppeSignatureEvents             PpeDeliverySignatureEvent[]  @relation("PPE_SIGNATURE_EVENT_ACTOR")
+  ppeSize                        PpeSize?                     @relation("USER_PPE_SIZE")
+  preference                     Preferences?                 @relation("USER_PREFERENCES")
+  ledSector                      Sector?                      @relation("SECTOR_LEADER")
+  seenNotification               SeenNotification[]
+  approvedServiceOrders          ServiceOrder[]               @relation("SERVICE_ORDER_APPROVED_BY")
+  assignedServiceOrders          ServiceOrder[]               @relation("SERVICE_ORDER_ASSIGNED_TO")
+  completedServiceOrders         ServiceOrder[]               @relation("SERVICE_ORDER_COMPLETED_BY")
+  createdServiceOrders           ServiceOrder[]               @relation("SERVICE_ORDER_CREATED_BY")
+  startedServiceOrders           ServiceOrder[]               @relation("SERVICE_ORDER_STARTED_BY")
+  pausedServiceOrders            ServiceOrder[]               @relation("SERVICE_ORDER_PAUSED_BY")
+  createdTasks                   Task[]                       @relation("TASK_CREATED_BY")
+  taskFieldChangeLogs            TaskFieldChangeLog[]         @relation("TASK_FIELD_CHANGE_USER")
+  avatar                         File?                        @relation("USER_AVATAR", fields: [avatarId], references: [id])
+  position                       Position?                    @relation("USER_POSITION", fields: [positionId], references: [id])
+  sector                         Sector?                      @relation(fields: [sectorId], references: [id])
+  notificationPreferences        UserNotificationPreference[] @relation("USER_NOTIFICATION_PREFERENCES")
+  warningsCollaborator           Warning[]                    @relation("COLLABORATOR_WARNING")
+  warningsSupervisor             Warning[]                    @relation("SUPERVISOR_WARNING")
+  deployments                    Deployment[]                 @relation("DEPLOYMENT_USER")
+  bonusesInPeriod                Bonus[]                      @relation("BonusPeriodUsers")
+  warningsWitness                Warning[]                    @relation("WITNESS_WARNING")
+  paymentResponsibleOrders       Order[]                      @relation("ORDER_PAYMENT_RESPONSIBLE")
+  paymentAssignedByOrders        Order[]                      @relation("ORDER_PAYMENT_ASSIGNED_BY")
+  invoicesCreated                Invoice[]                    @relation("InvoicesCreated")
+  taskForecastHistories          TaskForecastHistory[]        @relation("TASK_FORECAST_HISTORY_USER")
+  bankTransactionImports         BankTransaction[]            @relation("BankTransactionUploader")
+  reconciliationMatches          ReconciliationMatch[]        @relation("MatchedBy")
+  reconciliationRuns             ReconciliationRun[]          @relation("ReconciliationRunTriggers")
+  assessmentEntriesAsEvaluatee   AssessmentEntry[]            @relation("ASSESSMENT_ENTRY_EVALUATEE")
+  assessmentEntriesAsEvaluator   AssessmentEntry[]            @relation("ASSESSMENT_ENTRY_EVALUATOR")
+  assessmentsCreated             Assessment[]                 @relation("ASSESSMENT_CREATED_BY")
+  assessmentSectorAppraiserships AssessmentSector[]           @relation("ASSESSMENT_SECTOR_APPRAISER")
+  assessmentSectorEvaluations    AssessmentSectorEvaluatee[]  @relation("ASSESSMENT_SECTOR_EVALUATEE")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -3517,13 +3522,37 @@ enum BankTransactionSubtype {
   OUTROS
 }
 
-enum ReconciliationMatchStatus {
-  UNMATCHED
-  AUTO_MATCHED
-  MANUAL_MATCHED
-  PARTIAL
-  IGNORED
-  DISPUTED
+// Lifecycle state of a bank transaction in the reconciliation flow.
+// Independent from how it got there (see ReconciliationSource) and what kind
+// of payment it is (see ReconciliationCategory).
+enum ReconciliationStatus {
+  PENDING // not yet reconciled
+  RECONCILED // fully explained (NF match or self-justifying category)
+  PARTIAL // partial NF allocation (sum of matches < amount)
+  IGNORED // user explicitly excluded
+  DISPUTED // flagged for review
+}
+
+// Who/what drove the current state — orthogonal to status and category.
+enum ReconciliationSource {
+  AUTO
+  MANUAL
+}
+
+// What kind of payment the transaction represents. Drives which matching
+// strategy applies and whether a NotaFiscal is even expected.
+enum ReconciliationCategory {
+  NF // invoiceable payment — runs the scoring matcher against FiscalDocument
+  TRIBUTO // DARF / imposto — self-justifying
+  FOLHA // payroll debit — self-justifying
+  TRANSFERENCIA // investment, captacao, fund redemption — self-justifying
+  TARIFA_BANCARIA // bank fee / títulos maintenance — self-justifying
+  CONVENIO // recurring utility/convênio (SAMAE, COPEL, etc.) — self-justifying
+  PRO_LABORE // owner draws (matched by counterparty alias) — self-justifying
+  ALUGUEL // rent payment — self-justifying
+  ESTORNO // refund / chargeback (incoming credit reversing an earlier debit)
+  OUTROS // user-tagged catch-all — self-justifying
+  UNCLASSIFIED // default before classifier runs
 }
 
 enum ReconciliationMatchType {
@@ -3580,42 +3609,50 @@ enum ReconciliationAliasSource {
 }
 
 model BankTransaction {
-  id                  String                    @id @default(uuid())
+  id                   String                 @id @default(uuid())
   // Denormalized bank-account identifier columns. Together with fitId they form
   // the natural OFX dedup key — re-importing the same OFX (or overlapping ones)
   // never creates duplicate rows.
-  bankCode            String
-  bankName            String
-  agency              String
-  accountNumber       String
-  ownerCnpj           String?
-  fitId               String
-  postedAt            DateTime
-  amount              Decimal                   @db.Decimal(14, 2)
-  type                BankTransactionType
-  subtype             BankTransactionSubtype    @default(OUTROS)
-  rawTrnType          String?
-  memo                String?
-  counterpartyCnpjCpf String?
-  counterpartyName    String?
-  runningBalance      Decimal?                  @db.Decimal(14, 2)
-  matchStatus         ReconciliationMatchStatus @default(UNMATCHED)
-  ignoredReason       String?
-  bankSlipId          String?
+  bankCode             String
+  bankName             String
+  agency               String
+  accountNumber        String
+  ownerCnpj            String?
+  fitId                String
+  postedAt             DateTime
+  amount               Decimal                @db.Decimal(14, 2)
+  type                 BankTransactionType
+  subtype              BankTransactionSubtype @default(OUTROS)
+  rawTrnType           String?
+  memo                 String?
+  counterpartyCnpjCpf  String?
+  counterpartyName     String?
+  runningBalance       Decimal?               @db.Decimal(14, 2)
+  // Three orthogonal axes (was a single matchStatus enum).
+  reconciliationStatus ReconciliationStatus   @default(PENDING)
+  // null until the classifier has run or the user has acted.
+  reconciliationSource ReconciliationSource?
+  category             ReconciliationCategory @default(UNCLASSIFIED)
+  // AUTO when the classifier or alias set the category; MANUAL when a user did.
+  categorySource       ReconciliationSource?
+  classifiedAt         DateTime?
+  ignoredReason        String?
+  bankSlipId           String?
   // Audit trail of the OFX import that created this row.
-  rawFileId           String?
-  uploadedById        String?
-  importedAt          DateTime                  @default(now())
-  createdAt           DateTime                  @default(now())
-  updatedAt           DateTime                  @updatedAt
-  rawFile             File?                     @relation("BankTransactionFile", fields: [rawFileId], references: [id])
-  uploadedBy          User?                     @relation("BankTransactionUploader", fields: [uploadedById], references: [id])
-  bankSlip            BankSlip?                 @relation("BankSlipTransaction", fields: [bankSlipId], references: [id])
-  matches             ReconciliationMatch[]     @relation("TransactionMatches")
+  rawFileId            String?
+  uploadedById         String?
+  importedAt           DateTime               @default(now())
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  rawFile              File?                  @relation("BankTransactionFile", fields: [rawFileId], references: [id])
+  uploadedBy           User?                  @relation("BankTransactionUploader", fields: [uploadedById], references: [id])
+  bankSlip             BankSlip?              @relation("BankSlipTransaction", fields: [bankSlipId], references: [id])
+  matches              ReconciliationMatch[]  @relation("TransactionMatches")
 
   @@unique([bankCode, agency, accountNumber, fitId])
   @@index([postedAt])
-  @@index([matchStatus])
+  @@index([reconciliationStatus])
+  @@index([category])
   @@index([counterpartyCnpjCpf])
   @@index([amount])
   @@index([bankCode, accountNumber, postedAt])
@@ -3663,7 +3700,7 @@ model FiscalDocument {
 model FiscalDocumentItem {
   id               String         @id @default(uuid())
   fiscalDocumentId String
-  code             String?        // NFe: cProd; NFSe: ItemListaServico / cServ
+  code             String? // NFe: cProd; NFSe: ItemListaServico / cServ
   description      String         @db.Text
   quantity         Decimal?       @db.Decimal(15, 4)
   unit             String?
@@ -3728,6 +3765,10 @@ model ReconciliationAlias {
   counterpartyCnpjCpf String
   txType              BankTransactionType
   source              ReconciliationAliasSource
+  // Optional category to remember. When set, the classifier applies this
+  // category to future transactions matching the same alias key (e.g.
+  // Sergio's CPF → PRO_LABORE). Null aliases only feed the NF scoring path.
+  category            ReconciliationCategory?
   confirmedCount      Int                       @default(1)
   rejectedCount       Int                       @default(0)
   firstObservedAt     DateTime                  @default(now())
@@ -3857,7 +3898,7 @@ model Assessment {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  createdBy User                @relation("ASSESSMENT_CREATED_BY", fields: [createdById], references: [id])
+  createdBy User               @relation("ASSESSMENT_CREATED_BY", fields: [createdById], references: [id])
   sectors   AssessmentSector[]
   skills    AssessmentSkill[]
   topics    AssessmentTopic[]

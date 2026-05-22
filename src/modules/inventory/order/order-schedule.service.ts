@@ -45,6 +45,9 @@ import {
   buildSeasonalContextFromSnapshots,
 } from '../../../utils/seasonality';
 import { balanceDepletionAcrossItems } from '../../../utils/order-coverage';
+import { calculateNextRunDate as utilCalculateNextRunDate } from '../../../utils/order';
+import { nextBrazilianBusinessDay } from '../../../utils/brazilian-holidays.util';
+import { isInVacationPeriod } from '../../../constants/working-days-config';
 import {
   trackFieldChanges,
   trackAndLogFieldChanges,
@@ -64,68 +67,28 @@ export class OrderScheduleService {
   ) {}
 
   /**
-   * Calculate the next run date based on schedule frequency and interval
+   * Calculate the next run date for a schedule. Delegates to the canonical
+   * util `calculateNextRunDate` in `@/utils/order` (which honors
+   * `monthlyConfig.occurrence + dayOfWeek` for "first Thursday" / "second
+   * Thursday" patterns), then shifts to the next Brazilian business day
+   * (skipping weekends, national holidays, and company vacation).
+   *
+   * The schedule MUST be loaded with `weeklyConfig`/`monthlyConfig`/
+   * `yearlyConfig` included; without them, occurrence-based monthly schedules
+   * fall back to a flat month advance.
    */
-  private calculateNextRunDate(schedule: OrderSchedule, fromDate?: Date): Date | null {
-    const baseDate = fromDate || new Date();
-    const nextRun = new Date(baseDate);
-    const interval = schedule.frequencyCount || 1;
-
-    switch (schedule.frequency) {
-      case SCHEDULE_FREQUENCY.ONCE:
-        // For one-time schedules, don't auto-create
-        return null;
-
-      case SCHEDULE_FREQUENCY.DAILY:
-        // Daily with interval (every X days)
-        nextRun.setDate(nextRun.getDate() + interval);
-        break;
-
-      case SCHEDULE_FREQUENCY.WEEKLY:
-        // Weekly with interval (every X weeks)
-        nextRun.setDate(nextRun.getDate() + 7 * interval);
-        if (schedule.dayOfWeek) {
-          // Adjust to specific day of week
-          const targetDay = this.getDayOfWeekNumber(schedule.dayOfWeek);
-          const currentDay = nextRun.getDay();
-          const daysToAdd = (targetDay - currentDay + 7) % 7;
-          nextRun.setDate(nextRun.getDate() + daysToAdd);
-        }
-        break;
-
-      case SCHEDULE_FREQUENCY.MONTHLY:
-        // Monthly with interval (every X months)
-        nextRun.setMonth(nextRun.getMonth() + interval);
-        if (schedule.dayOfMonth) {
-          nextRun.setDate(Math.min(schedule.dayOfMonth, this.getDaysInMonth(nextRun)));
-        }
-        break;
-
-      case SCHEDULE_FREQUENCY.ANNUAL:
-        // Annual with interval (every X years)
-        nextRun.setFullYear(nextRun.getFullYear() + interval);
-        if (schedule.month && schedule.dayOfMonth) {
-          const targetMonth = this.getMonthNumber(schedule.month) - 1; // JS months are 0-based
-          nextRun.setMonth(
-            targetMonth,
-            Math.min(
-              schedule.dayOfMonth,
-              this.getDaysInMonth(new Date(nextRun.getFullYear(), targetMonth)),
-            ),
-          );
-        }
-        break;
-
-      case SCHEDULE_FREQUENCY.CUSTOM:
-        // Custom frequency requires manual calculation
-        return null;
-
-      default:
-        this.logger.warn(`Unknown schedule frequency: ${schedule.frequency}`);
-        nextRun.setMonth(nextRun.getMonth() + 1); // Default to monthly
-    }
-
-    return nextRun;
+  public calculateNextRunDate(
+    schedule: OrderSchedule & {
+      weeklyConfig?: any;
+      monthlyConfig?: any;
+      yearlyConfig?: any;
+    },
+    fromDate?: Date,
+  ): Date | null {
+    const base = fromDate || new Date();
+    const raw = utilCalculateNextRunDate(schedule as any, base);
+    if (!raw) return null;
+    return shiftToBusinessDay(raw);
   }
 
   /**
@@ -1206,9 +1169,11 @@ export class OrderScheduleService {
       const itemCount = orderItems.length;
       const description = `Pedido automático - ${itemCount} ${itemCount === 1 ? 'item' : 'itens'}`;
 
-      // Prepare order data
+      // Prepare order data. supplierId is propagated from the schedule when
+      // present (added 2026-05-21 — see migration memo). Falls back to NULL
+      // for legacy schedules that haven't been re-saved with a supplier yet.
       const orderData = {
-        // Auto-order doesn't set a specific supplier
+        supplierId: schedule.supplierId ?? null,
         description,
         forecast: nextRunDate || new Date(),
         status: 'CREATED',
@@ -1216,7 +1181,9 @@ export class OrderScheduleService {
         items: orderItems,
       };
 
-      this.logger.log(`Creating order from schedule ${scheduleId} with ${orderItems.length} items`);
+      this.logger.log(
+        `Creating order from schedule ${scheduleId} with ${orderItems.length} items (supplier=${schedule.supplierId ?? 'none'})`,
+      );
       return orderData;
     } catch (error) {
       this.logger.error(`Error creating order from schedule ${scheduleId}:`, error);
@@ -1419,4 +1386,26 @@ export class OrderScheduleService {
       );
     }
   }
+}
+
+/** Shifts a computed `nextRun` forward to the next valid Brazilian business
+ *  day, skipping weekends, national holidays (Carnaval/Páscoa/Natal/etc.),
+ *  and company vacation periods. Hard cap of 60 forward steps. */
+function shiftToBusinessDay(d: Date): Date {
+  let candidate = new Date(d);
+  for (let i = 0; i < 60; i++) {
+    // First skip vacation (per-day check); then skip to next Brazilian
+    // business day; loop if either advanced. Stops when both pass.
+    const beforeVac = candidate.getTime();
+    while (isInVacationPeriod(candidate) && i < 60) {
+      candidate.setDate(candidate.getDate() + 1);
+      i++;
+    }
+    const advanced = nextBrazilianBusinessDay(candidate);
+    if (advanced.getTime() === candidate.getTime() && candidate.getTime() === beforeVac) {
+      return candidate;
+    }
+    candidate = advanced;
+  }
+  return candidate;
 }

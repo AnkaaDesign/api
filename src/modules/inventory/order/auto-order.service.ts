@@ -132,13 +132,23 @@ export class AutoOrderService {
       select: { id: true, items: true, nextRun: true, frequency: true },
     });
 
+    // Keep the EARLIEST nextRun across all schedules each item appears in
+    // (an item may legitimately belong to multiple schedules). Defaulting to
+    // the last-iterated overwrite would silently use the wrong cadence.
     const scheduledItems = new Map<string, { nextRun: Date | null; scheduleId: string }>();
     activeSchedules.forEach(schedule => {
       schedule.items.forEach(itemId => {
-        scheduledItems.set(itemId, {
-          nextRun: schedule.nextRun,
-          scheduleId: schedule.id,
-        });
+        const existing = scheduledItems.get(itemId);
+        if (
+          !existing ||
+          (schedule.nextRun &&
+            (!existing.nextRun || schedule.nextRun.getTime() < existing.nextRun.getTime()))
+        ) {
+          scheduledItems.set(itemId, {
+            nextRun: schedule.nextRun,
+            scheduleId: schedule.id,
+          });
+        }
       });
     });
 
@@ -383,19 +393,41 @@ export class AutoOrderService {
     }));
     const hasActivePendingOrder = utilHasActiveOrder(item.id, orderRows, orderItemRows);
 
-    // Canonical stock-level classification (spec §15). Drives both the
-    // skip/duplicate-guard gates and the eventual urgency mapping.
+    // Data-quality guard: reject impossible state where rp > max. These items
+    // can produce nonsensical reorderQuantity (negative or zero shortfall);
+    // skip with a debug log so they surface for manual review.
+    if (reorderPoint > 0 && maxQuantity > 0 && reorderPoint > maxQuantity) {
+      this.logger.debug(
+        `Skipping ${item.name} (${item.id}): reorderPoint(${reorderPoint}) > maxQuantity(${maxQuantity}). Data-quality issue — investigate.`,
+      );
+      return { analysis: null, metrics };
+    }
+
+    // Canonical stock-level classification (spec §15). Open orders projected
+    // to arrive feed the effective stock — so an in-flight order naturally
+    // moves the band above CRITICAL and the recommendation is suppressed.
     const stockLevel = determineStockLevel({
       quantity: currentStock,
       reorderPoint,
       maxQuantity,
       hasActiveOrder: hasActivePendingOrder,
+      incomingOrderedQuantity,
       categoryType,
     });
     const isCritical =
       stockLevel === STOCK_LEVEL.NEGATIVE_STOCK ||
       stockLevel === STOCK_LEVEL.OUT_OF_STOCK ||
       stockLevel === STOCK_LEVEL.CRITICAL;
+
+    // Overstock guard: if the effective stock (current + arriving) already
+    // covers reorderPoint, do not recommend a new order unless critical.
+    // Prevents double-ordering when a fulfilled order is in transit.
+    if (!isCritical && currentStock + incomingOrderedQuantity >= reorderPoint) {
+      this.logger.debug(
+        `Skipping ${item.name}: incoming(${incomingOrderedQuantity}) + stock(${currentStock}) covers rp(${reorderPoint}).`,
+      );
+      return { analysis: null, metrics };
+    }
 
     // Duplicate-order guard: don't reorder within 30 days unless the item
     // is in a critical band. (Pending-order existence is intentionally NOT

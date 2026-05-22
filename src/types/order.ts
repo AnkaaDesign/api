@@ -44,6 +44,8 @@ export interface OrderSchedule extends BaseEntity {
   name: string | null;
   description: string | null;
 
+  supplierId: string | null;
+
   frequency: SCHEDULE_FREQUENCY;
   frequencyCount: number;
   isActive: boolean;
@@ -69,6 +71,7 @@ export interface OrderSchedule extends BaseEntity {
 
   nextRun: Date | null;
   lastRun: Date | null;
+  lastFiredAt: Date | null;
   finishedAt: Date | null;
   lastRunId: string | null;
   originalScheduleId: string | null;

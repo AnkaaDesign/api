@@ -26,7 +26,10 @@ import { ABC_CATEGORY, XYZ_CATEGORY } from '@/constants/enums';
 import {
   ABC_XYZ_MATRIX_LOWDATA,
   AbcXyzKey,
+  LEAD_TIME_BUFFER_CYCLE_CAP,
+  LEAD_TIME_BUFFER_DAYS_BY_ABC,
   SafetyTargetCell,
+  SERVICE_LEVEL_MULTIPLIER_BY_ABC,
   STATISTICAL_LAYER_MIN_MONTHS,
   UNCLASSIFIED_LOWDATA,
   Z_BY_ABC,
@@ -67,6 +70,14 @@ export interface SafetyStockResult {
     dailyStddev?: number;
     sigmaMonthly?: number;
     safetyFactor?: number;
+    /** Service-level multiplier applied in Layer 2 (matrixSS × slMult). */
+    serviceLevelMultiplier?: number;
+    /** Demand-variability portion (Layer 1: z×σ×√LT; Layer 2/3: matrix × cycle). */
+    demandSS?: number;
+    /** Lead-time buffer portion (avgDaily × ltBufferDays, capped). */
+    ltBufferSS?: number;
+    /** Days of LT buffer applied (per ABC). */
+    ltBufferDays?: number;
     monthsAvailable: number;
   };
 }
@@ -79,47 +90,83 @@ function stddev(xs: ReadonlyArray<number>): number {
   return Math.sqrt(variance);
 }
 
+/** Lead-time uncertainty buffer in units. Constant `LEAD_TIME_BUFFER_DAYS_BY_ABC`
+ *  days of average daily demand, capped at `LEAD_TIME_BUFFER_CYCLE_CAP` of
+ *  cycleStock so it can't dominate on short-LT items. Applied to all layers. */
+function leadTimeBuffer(
+  avgDaily: number,
+  cycleStock: number,
+  abcCategory: ABC_CATEGORY | null,
+): { ltBufferSS: number; ltBufferDays: number } {
+  const ltBufferDays =
+    LEAD_TIME_BUFFER_DAYS_BY_ABC[abcCategory ?? 'DEFAULT'] ??
+    LEAD_TIME_BUFFER_DAYS_BY_ABC.DEFAULT;
+  const raw = avgDaily * ltBufferDays;
+  const cap = cycleStock * LEAD_TIME_BUFFER_CYCLE_CAP;
+  return { ltBufferSS: Math.max(0, Math.min(raw, cap)), ltBufferDays };
+}
+
 export function calculateSafetyStock(input: SafetyStockInput): SafetyStockResult {
   const avgDaily = input.monthlyConsumption / 30;
   const cycleStock = avgDaily * input.leadTimeDays;
   const monthsAvailable = input.monthlyHistory.filter(v => v > 0).length;
   const minMonths = input.minMonthsForStatistical ?? STATISTICAL_LAYER_MIN_MONTHS;
+  const { ltBufferSS, ltBufferDays } = leadTimeBuffer(avgDaily, cycleStock, input.abcCategory);
 
-  // Layer 1 — statistical (z × σ × √LT)
+  // Layer 1 — statistical (z × σ × √LT) + LT buffer
   if (monthsAvailable >= minMonths && input.abcCategory !== null) {
     const z = Z_BY_ABC[input.abcCategory] ?? Z_BY_ABC.DEFAULT;
     const sigmaMonthly = stddev(input.monthlyHistory);
     const dailyStddev = sigmaMonthly / 30;
-    const ss = z * dailyStddev * Math.sqrt(input.leadTimeDays);
+    const demandSS = z * dailyStddev * Math.sqrt(input.leadTimeDays);
+    const ss = demandSS + ltBufferSS;
     return {
       safetyStock: Math.max(0, ss),
       layer: 'STATISTICAL',
       effectiveSafetyFactor: cycleStock > 0 ? ss / cycleStock : 0,
-      components: { z, dailyStddev, sigmaMonthly, monthsAvailable },
+      components: { z, dailyStddev, sigmaMonthly, demandSS, ltBufferSS, ltBufferDays, monthsAvailable },
     };
   }
 
-  // Layer 2 — low-data matrix (3–5 months)
+  // Layer 2 — low-data matrix (3–5 months) × service-level multiplier + LT buffer
   if (monthsAvailable >= 3 && input.abcCategory && input.xyzCategory) {
     const key = `${input.abcCategory}${input.xyzCategory}` as AbcXyzKey;
     const cell: SafetyTargetCell =
       ABC_XYZ_MATRIX_LOWDATA[key] ?? UNCLASSIFIED_LOWDATA;
     const adjustedSF = applyTrendAdjustment(cell.safetyFactor, input.trendPercent ?? 0);
-    const ss = cycleStock * adjustedSF;
+    const slMult =
+      SERVICE_LEVEL_MULTIPLIER_BY_ABC[input.abcCategory] ??
+      SERVICE_LEVEL_MULTIPLIER_BY_ABC.DEFAULT;
+    const demandSS = cycleStock * adjustedSF * slMult;
+    const ss = demandSS + ltBufferSS;
     return {
       safetyStock: Math.max(0, ss),
       layer: 'LOW_DATA_MATRIX',
-      effectiveSafetyFactor: adjustedSF,
-      components: { safetyFactor: adjustedSF, monthsAvailable },
+      effectiveSafetyFactor: cycleStock > 0 ? ss / cycleStock : adjustedSF,
+      components: {
+        safetyFactor: adjustedSF,
+        serviceLevelMultiplier: slMult,
+        demandSS,
+        ltBufferSS,
+        ltBufferDays,
+        monthsAvailable,
+      },
     };
   }
 
-  // Layer 3 — unclassified / very-new items
-  const ss = cycleStock * UNCLASSIFIED_LOWDATA.safetyFactor;
+  // Layer 3 — unclassified / very-new items + LT buffer (DEFAULT bucket)
+  const demandSS = cycleStock * UNCLASSIFIED_LOWDATA.safetyFactor;
+  const ss = demandSS + ltBufferSS;
   return {
     safetyStock: Math.max(0, ss),
     layer: 'UNCLASSIFIED',
-    effectiveSafetyFactor: UNCLASSIFIED_LOWDATA.safetyFactor,
-    components: { safetyFactor: UNCLASSIFIED_LOWDATA.safetyFactor, monthsAvailable },
+    effectiveSafetyFactor: cycleStock > 0 ? ss / cycleStock : UNCLASSIFIED_LOWDATA.safetyFactor,
+    components: {
+      safetyFactor: UNCLASSIFIED_LOWDATA.safetyFactor,
+      demandSS,
+      ltBufferSS,
+      ltBufferDays,
+      monthsAvailable,
+    },
   };
 }

@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import {
   Prisma,
-  ReconciliationMatchStatus,
+  ReconciliationCategory,
   ReconciliationMatchType,
+  ReconciliationStatus,
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ReconciliationStatistics } from './types/reconciliation.types';
@@ -30,6 +31,7 @@ export class ReconciliationStatisticsService {
       topUnmatched,
       typeDistribution,
       statusDistribution,
+      categoryDistribution,
     ] = await Promise.all([
       this.prisma.reconciliationMatch.aggregate({
         _sum: { allocatedAmount: true },
@@ -38,7 +40,9 @@ export class ReconciliationStatisticsService {
       this.prisma.bankTransaction.aggregate({
         _sum: { amount: true },
         where: {
-          matchStatus: { in: [ReconciliationMatchStatus.UNMATCHED, ReconciliationMatchStatus.PARTIAL] },
+          reconciliationStatus: {
+            in: [ReconciliationStatus.PENDING, ReconciliationStatus.PARTIAL],
+          },
           postedAt: { gte: from, lte: to },
           type: 'CREDIT',
         },
@@ -52,7 +56,8 @@ export class ReconciliationStatisticsService {
       this.aggregateMatchedOverTime(from, to),
       this.aggregateTopUnmatched(from, to),
       this.aggregateMatchTypeDistribution(from, to),
-      this.aggregateMatchStatusDistribution(from, to),
+      this.aggregateStatusDistribution(from, to),
+      this.aggregateCategoryDistribution(from, to),
     ]);
 
     return {
@@ -63,7 +68,8 @@ export class ReconciliationStatisticsService {
       matchedOverTime,
       topUnmatchedByCounterparty: topUnmatched,
       matchTypeDistribution: typeDistribution,
-      matchStatusDistribution: statusDistribution,
+      statusDistribution,
+      categoryDistribution,
     };
   }
 
@@ -73,8 +79,8 @@ export class ReconciliationStatisticsService {
     >(Prisma.sql`
       SELECT
         TO_CHAR(t."postedAt", 'YYYY-MM') AS period,
-        SUM(CASE WHEN t."matchStatus" IN ('AUTO_MATCHED','MANUAL_MATCHED','PARTIAL') THEN ABS(t.amount) ELSE 0 END)::float AS matched,
-        SUM(CASE WHEN t."matchStatus" = 'UNMATCHED' THEN ABS(t.amount) ELSE 0 END)::float AS unmatched
+        SUM(CASE WHEN t."reconciliationStatus" IN ('RECONCILED','PARTIAL') THEN ABS(t.amount) ELSE 0 END)::float AS matched,
+        SUM(CASE WHEN t."reconciliationStatus" = 'PENDING' THEN ABS(t.amount) ELSE 0 END)::float AS unmatched
       FROM "BankTransaction" t
       WHERE t."postedAt" >= ${from} AND t."postedAt" <= ${to}
       GROUP BY 1
@@ -92,7 +98,7 @@ export class ReconciliationStatisticsService {
         SUM(ABS(t.amount))::float AS amount,
         COUNT(*) AS count
       FROM "BankTransaction" t
-      WHERE t."matchStatus" = 'UNMATCHED'
+      WHERE t."reconciliationStatus" = 'PENDING'
         AND t."postedAt" >= ${from} AND t."postedAt" <= ${to}
       GROUP BY 1
       ORDER BY amount DESC
@@ -122,20 +128,37 @@ export class ReconciliationStatisticsService {
     return acc;
   }
 
-  private async aggregateMatchStatusDistribution(
+  private async aggregateStatusDistribution(
     from: Date,
     to: Date,
-  ): Promise<Record<ReconciliationMatchStatus, number>> {
+  ): Promise<Record<ReconciliationStatus, number>> {
     const rows = await this.prisma.bankTransaction.groupBy({
-      by: ['matchStatus'],
+      by: ['reconciliationStatus'],
       _count: { _all: true },
       where: { postedAt: { gte: from, lte: to } },
     });
-    const acc = Object.values(ReconciliationMatchStatus).reduce(
+    const acc = Object.values(ReconciliationStatus).reduce(
       (a, k) => ({ ...a, [k]: 0 }),
-      {} as Record<ReconciliationMatchStatus, number>,
+      {} as Record<ReconciliationStatus, number>,
     );
-    for (const r of rows) acc[r.matchStatus] = r._count._all;
+    for (const r of rows) acc[r.reconciliationStatus] = r._count._all;
+    return acc;
+  }
+
+  private async aggregateCategoryDistribution(
+    from: Date,
+    to: Date,
+  ): Promise<Record<ReconciliationCategory, number>> {
+    const rows = await this.prisma.bankTransaction.groupBy({
+      by: ['category'],
+      _count: { _all: true },
+      where: { postedAt: { gte: from, lte: to } },
+    });
+    const acc = Object.values(ReconciliationCategory).reduce(
+      (a, k) => ({ ...a, [k]: 0 }),
+      {} as Record<ReconciliationCategory, number>,
+    );
+    for (const r of rows) acc[r.category] = r._count._all;
     return acc;
   }
 }

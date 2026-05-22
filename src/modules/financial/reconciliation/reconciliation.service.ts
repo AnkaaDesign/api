@@ -7,15 +7,23 @@ import {
 import {
   Prisma,
   ReconciliationAliasSource,
-  ReconciliationMatchStatus,
+  ReconciliationCategory,
   ReconciliationMatchType,
+  ReconciliationSource,
+  ReconciliationStatus,
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TransactionsFilterDto } from './dto/transactions-filter.dto';
 import { FiscalDocumentsFilterDto } from './dto/fiscal-documents-filter.dto';
 import { ManualMatchDto } from './dto/manual-match.dto';
 import { IgnoreTransactionDto } from './dto/ignore-transaction.dto';
+import { ChangeCategoryDto } from './dto/change-category.dto';
+import { ClassifyBatchDto } from './dto/classify-batch.dto';
 import { ReconciliationMatcherService } from './reconciliation-matcher.service';
+import {
+  ReconciliationClassifierService,
+  SELF_JUSTIFYING_CATEGORIES,
+} from './reconciliation-classifier.service';
 import {
   ReconciliationAliasService,
   inferCounterpartyCnpj,
@@ -29,11 +37,22 @@ export class ReconciliationService {
     private readonly prisma: PrismaService,
     private readonly matcher: ReconciliationMatcherService,
     private readonly aliasService: ReconciliationAliasService,
+    private readonly classifier: ReconciliationClassifierService,
   ) {}
 
   async listTransactions(filters: TransactionsFilterDto) {
     const where: Prisma.BankTransactionWhereInput = {};
-    if (filters.matchStatus) where.matchStatus = filters.matchStatus;
+    if (filters.reconciliationStatus) {
+      where.reconciliationStatus = Array.isArray(filters.reconciliationStatus)
+        ? { in: filters.reconciliationStatus }
+        : filters.reconciliationStatus;
+    }
+    if (filters.category) {
+      where.category = Array.isArray(filters.category)
+        ? { in: filters.category }
+        : filters.category;
+    }
+    if (filters.reconciliationSource) where.reconciliationSource = filters.reconciliationSource;
     if (filters.matchType) {
       // Filters to transactions whose latest non-reversed match has this type.
       // Useful for stats drill-down (e.g. "show me all FUZZY matches I should audit").
@@ -255,10 +274,13 @@ export class ReconciliationService {
       return tx2.bankTransaction.update({
         where: { id: transactionId },
         data: {
-          matchStatus:
+          reconciliationStatus:
             payload.fiscalDocumentIds.length > 1
-              ? ReconciliationMatchStatus.PARTIAL
-              : ReconciliationMatchStatus.MANUAL_MATCHED,
+              ? ReconciliationStatus.PARTIAL
+              : ReconciliationStatus.RECONCILED,
+          reconciliationSource: ReconciliationSource.MANUAL,
+          category: ReconciliationCategory.NF,
+          categorySource: ReconciliationSource.MANUAL,
         },
         include: { matches: true },
       });
@@ -344,7 +366,12 @@ export class ReconciliationService {
       return tx2.bankTransaction.update({
         where: { id: transactionId },
         data: {
-          matchStatus: ReconciliationMatchStatus.UNMATCHED,
+          reconciliationStatus: ReconciliationStatus.PENDING,
+          reconciliationSource: null,
+          // Reset category so the classifier re-evaluates on next run; the user
+          // un-matched intentionally, so we drop NF and let regex/alias decide.
+          category: ReconciliationCategory.UNCLASSIFIED,
+          categorySource: null,
           bankSlipId: null,
         },
         include: { matches: true },
@@ -375,10 +402,101 @@ export class ReconciliationService {
     return this.prisma.bankTransaction.update({
       where: { id: transactionId },
       data: {
-        matchStatus: ReconciliationMatchStatus.IGNORED,
+        reconciliationStatus: ReconciliationStatus.IGNORED,
+        reconciliationSource: ReconciliationSource.MANUAL,
         ignoredReason: payload.reason,
       },
     });
+  }
+
+  /**
+   * Sets a category manually. For self-justifying categories the status flips
+   * to RECONCILED (with source=MANUAL). For NF, status returns to PENDING so
+   * the matcher can pick it up. Optionally records an alias for future imports.
+   */
+  async changeCategory(
+    transactionId: string,
+    payload: ChangeCategoryDto,
+    userId: string | undefined,
+  ) {
+    const tx = await this.prisma.bankTransaction.findUnique({
+      where: { id: transactionId },
+      select: {
+        id: true,
+        memo: true,
+        type: true,
+        counterpartyCnpjCpf: true,
+        reconciliationStatus: true,
+        matches: { select: { id: true } },
+      },
+    });
+    if (!tx) throw new NotFoundException('Transação não encontrada');
+
+    const isSelfJustifying = SELF_JUSTIFYING_CATEGORIES.has(payload.category);
+    const becomesNF = payload.category === ReconciliationCategory.NF;
+
+    // If the transaction has live NF matches and the new category isn't NF,
+    // refuse — the user should unmatch first to avoid an inconsistent record.
+    if (!becomesNF && tx.matches.length > 0) {
+      throw new BadRequestException(
+        'Desfaça os vínculos com NF antes de alterar a categoria desta transação',
+      );
+    }
+
+    const updated = await this.prisma.bankTransaction.update({
+      where: { id: transactionId },
+      data: {
+        category: payload.category,
+        categorySource: ReconciliationSource.MANUAL,
+        classifiedAt: new Date(),
+        ...(isSelfJustifying
+          ? {
+              reconciliationStatus: ReconciliationStatus.RECONCILED,
+              reconciliationSource: ReconciliationSource.MANUAL,
+            }
+          : becomesNF
+            ? {
+                // Reset to PENDING so the matcher can pick it up.
+                reconciliationStatus: ReconciliationStatus.PENDING,
+                reconciliationSource: null,
+              }
+            : {}),
+        ...(payload.notes ? { ignoredReason: payload.notes } : {}),
+      },
+    });
+
+    if (payload.saveAlias && tx.memo && tx.counterpartyCnpjCpf) {
+      await this.aliasService
+        .recordMatchSuccess({
+          memo: tx.memo,
+          txType: tx.type,
+          counterpartyCnpjCpf: tx.counterpartyCnpjCpf,
+          source: ReconciliationAliasSource.MANUAL_MATCH,
+          category: payload.category,
+        })
+        .catch(err => this.logger.warn(`Failed to save category alias: ${err}`));
+    }
+
+    return updated;
+  }
+
+  /**
+   * Batch-classify transactions matching an optional filter. Used by the
+   * "Reclassificar" admin action on the transactions list.
+   */
+  async classifyBatch(payload: ClassifyBatchDto) {
+    const where: Prisma.BankTransactionWhereInput = {};
+    if (payload.transactionIds && payload.transactionIds.length > 0) {
+      where.id = { in: payload.transactionIds };
+    }
+    if (payload.reconciliationStatus) where.reconciliationStatus = payload.reconciliationStatus;
+    if (payload.category) where.category = payload.category;
+    if (payload.dateFrom || payload.dateTo) {
+      where.postedAt = {};
+      if (payload.dateFrom) (where.postedAt as Prisma.DateTimeFilter).gte = new Date(payload.dateFrom);
+      if (payload.dateTo) (where.postedAt as Prisma.DateTimeFilter).lte = new Date(payload.dateTo);
+    }
+    return this.classifier.classifyBatch(Object.keys(where).length ? where : undefined);
   }
 
   async listFiscalDocuments(filters: FiscalDocumentsFilterDto) {

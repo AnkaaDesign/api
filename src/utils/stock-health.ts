@@ -23,7 +23,9 @@ import {
 import {
   ABC_XYZ_MATRIX,
   AbcXyzKey,
+  CONSERVATIVE_RP_UPLIFT,
   CONSUMPTION_LOOKBACK_MONTHS,
+  LEAD_TIME_LEGACY_BULK_RECEIVED_AT,
   CONSUMPTION_MIN_DISTINCT_MONTHS,
   DEFAULT_LEAD_TIME_DAYS,
   LEAD_TIME_MAX_DAYS,
@@ -239,9 +241,12 @@ export function calculateLeadTime(input: LeadTimeInput): number {
 
 /** True iff the receipt should be EXCLUDED from lead-time stats. Mirrors
  *  spec §5.2. Callers should fold this into their initial filter. */
-export function isLegacyBulkReceipt(orderSupplierId: string | null, receivedAt: Date): boolean {
-  if (orderSupplierId) return false;
-  return receivedAt.toISOString().slice(0, 10) === '2026-01-16';
+export function isLegacyBulkReceipt(_orderSupplierId: string | null, receivedAt: Date): boolean {
+  // The 2026-01-16 cutover was a bulk-receipt event where many historical
+  // orders were marked received on that single day. Any OrderItem with that
+  // exact receivedAt is bulk-legacy regardless of whether supplierId was
+  // populated retroactively (see migration Phase G).
+  return receivedAt.toISOString().slice(0, 10) === LEAD_TIME_LEGACY_BULK_RECEIVED_AT;
 }
 
 // ============================================================================
@@ -293,7 +298,9 @@ export function calculateReorderPoint(input: ReorderPointInput): number {
     input.safetyStock != null
       ? input.safetyStock
       : avgDaily * input.leadTimeDays * input.safetyFactor;
-  const raw = cycleStock + safety;
+  // Conservative uplift while historical data contamination is being cleaned.
+  // Single line to flip when data quality is verified — set CONSERVATIVE_RP_UPLIFT = 1.0.
+  const raw = (cycleStock + safety) * CONSERVATIVE_RP_UPLIFT;
   const rp = Math.ceil(raw);
   if (rp > 0 && rp < 1) return 1;
   return rp;
