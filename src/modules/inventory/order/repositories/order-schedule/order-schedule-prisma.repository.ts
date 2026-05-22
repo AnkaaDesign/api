@@ -66,6 +66,7 @@ export class OrderSchedulePrismaRepository
       yearlySchedule,
       dayOfWeek,
       month,
+      supplierId,
       ...rest
     } = formData;
 
@@ -76,6 +77,13 @@ export class OrderSchedulePrismaRepository
       dayOfWeek: dayOfWeek ? (dayOfWeek as DayOfWeek) : undefined,
       month: month ? (month as Month) : undefined,
     };
+
+    // Supplier is a defined Prisma @relation, so the strict CreateInput requires
+    // the nested `supplier: { connect: { id } }` shape rather than a raw
+    // supplierId column. Skip when nullish to preserve "no supplier" schedules.
+    if (supplierId) {
+      createInput.supplier = { connect: { id: supplierId } };
+    }
 
     // Handle nested schedule configs based on frequency (for backwards compatibility)
     if (weeklySchedule) {
@@ -118,12 +126,21 @@ export class OrderSchedulePrismaRepository
       yearlySchedule,
       dayOfWeek,
       month,
+      supplierId,
       ...rest
     } = formData;
 
     const updateInput: Prisma.OrderScheduleUpdateInput = {
       ...rest,
     };
+
+    // Supplier as nested connect/disconnect to satisfy strict UpdateInput.
+    // - `supplierId === undefined` → key not in payload, no change
+    // - `supplierId === null`      → explicit clear (disconnect)
+    // - `supplierId === '<uuid>'`  → connect to that supplier
+    if (supplierId !== undefined) {
+      updateInput.supplier = supplierId ? { connect: { id: supplierId } } : { disconnect: true };
+    }
 
     if (frequency !== undefined) {
       updateInput.frequency = frequency as ScheduleFrequency;

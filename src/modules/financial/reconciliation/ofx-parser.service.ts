@@ -145,7 +145,14 @@ export class OfxParserService {
   private inferSubtype(trnType: string, memo: string | null): BankTransactionSubtype {
     const haystack = `${trnType} ${memo || ''}`.toUpperCase();
     // Order matters: more specific patterns first.
-    if (/DARF|ARRECADAC|TRIBUTO|IMPOSTO/.test(haystack)) return BankTransactionSubtype.TARIFA;
+    //
+    // Tribute memos (DARF / GPS / arrecadação) deliberately route to OUTROS so
+    // the classifier's memo-regex layer downstream tags them as category
+    // TRIBUTO. This needs to win OVER the generic TARIFA pattern below,
+    // otherwise a memo like "TARIFA REF DARF" (rare but possible) would get
+    // subtype TARIFA and the classifier's subtype fast path would tag it as
+    // category TARIFA_BANCARIA instead of TRIBUTO.
+    if (/DARF|ARRECADAC|TRIBUTO|IMPOSTO/.test(haystack)) return BankTransactionSubtype.OUTROS;
     if (/\bIOF\b/.test(haystack)) return BankTransactionSubtype.IOF;
     if (/TARIFA|TAR\.BANC|TAR BANC/.test(haystack)) return BankTransactionSubtype.TARIFA;
     if (/\bPIX\b/.test(haystack)) return BankTransactionSubtype.PIX;

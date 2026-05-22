@@ -1,0 +1,2 @@
+-- Postgres init script (runs once on first container start).
+-- Add extensions or roles here if needed.

@@ -117,7 +117,10 @@ export function calculateSafetyStock(input: SafetyStockInput): SafetyStockResult
   if (monthsAvailable >= minMonths && input.abcCategory !== null) {
     const z = Z_BY_ABC[input.abcCategory] ?? Z_BY_ABC.DEFAULT;
     const sigmaMonthly = stddev(input.monthlyHistory);
-    const dailyStddev = sigmaMonthly / 30;
+    // monthly demand = Σ of ~30 daily i.i.d. demands → σ_monthly = √30 × σ_daily,
+    // so σ_daily = σ_monthly / √30. Dividing by 30 (the prior bug) under-sized
+    // safety stock by √30 ≈ 5.5× for every Layer-1 (A-class, ≥6mo) item.
+    const dailyStddev = sigmaMonthly / Math.sqrt(30);
     const demandSS = z * dailyStddev * Math.sqrt(input.leadTimeDays);
     const ss = demandSS + ltBufferSS;
     return {

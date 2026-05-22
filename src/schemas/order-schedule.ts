@@ -9,7 +9,23 @@ import {
   uuidArraySchema,
 } from './common';
 import type { OrderSchedule } from '@types';
-import { SCHEDULE_FREQUENCY } from '@constants';
+import { SCHEDULE_FREQUENCY, MONTH_OCCURRENCE, WEEK_DAY } from '@constants';
+
+// Inline nested-create payload for MonthlyScheduleConfig. Mirrors
+// web/src/schemas/order-schedule.ts; wire name `monthlySchedule` matches the
+// repo's destructure in mapCreateFormDataToDatabaseCreateInput at order-
+// schedule-prisma.repository.ts. Used when the user picks a positional
+// weekday (e.g. "1st Thursday") instead of a fixed dayOfMonth.
+const monthlyScheduleInlineSchema = z
+  .object({
+    occurrence: z.nativeEnum(MONTH_OCCURRENCE, {
+      errorMap: () => ({ message: 'Ocorrência inválida' }),
+    }),
+    dayOfWeek: z.nativeEnum(WEEK_DAY, {
+      errorMap: () => ({ message: 'Dia da semana inválido' }),
+    }),
+  })
+  .strict();
 
 // =====================
 // OrderSchedule Include Schemas
@@ -78,6 +94,8 @@ export const orderScheduleOrderBySchema = z.union([
       rescheduleCount: orderByDirectionSchema.optional(),
       originalDate: orderByDirectionSchema.optional(),
       lastRescheduleDate: orderByDirectionSchema.optional(),
+      nextRun: orderByDirectionSchema.optional(),
+      lastRun: orderByDirectionSchema.optional(),
       finishedAt: orderByDirectionSchema.optional(),
       createdAt: orderByDirectionSchema.optional(),
       updatedAt: orderByDirectionSchema.optional(),
@@ -91,6 +109,8 @@ export const orderScheduleOrderBySchema = z.union([
         frequencyCount: orderByDirectionSchema.optional(),
         isActive: orderByDirectionSchema.optional(),
         specificDate: orderByDirectionSchema.optional(),
+        nextRun: orderByDirectionSchema.optional(),
+        lastRun: orderByDirectionSchema.optional(),
         finishedAt: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
@@ -358,6 +378,8 @@ const orderScheduleFilters = {
   itemIds: z.array(z.string().uuid('Item inválido')).optional(),
   isActive: z.boolean().optional(),
   hasReschedules: z.boolean().optional(),
+  nextRunRange: dateRangeSchema.optional(),
+  lastRunRange: dateRangeSchema.optional(),
   specificDateRange: dateRangeSchema.optional(),
   finishedAtRange: dateRangeSchema.optional(),
   createdAtRange: dateRangeSchema.optional(),
@@ -418,6 +440,56 @@ const orderScheduleTransform = (data: any) => {
   if (data.hasReschedules === true) {
     andConditions.push({ rescheduleCount: { gt: 0 } });
     delete data.hasReschedules;
+  }
+
+  // Handle nextRunRange filter
+  if (data.nextRunRange && typeof data.nextRunRange === 'object') {
+    const dateCondition: any = {};
+    if (data.nextRunRange.gte) {
+      const fromDate =
+        data.nextRunRange.gte instanceof Date
+          ? data.nextRunRange.gte
+          : new Date(data.nextRunRange.gte);
+      fromDate.setHours(0, 0, 0, 0);
+      dateCondition.gte = fromDate;
+    }
+    if (data.nextRunRange.lte) {
+      const toDate =
+        data.nextRunRange.lte instanceof Date
+          ? data.nextRunRange.lte
+          : new Date(data.nextRunRange.lte);
+      toDate.setHours(23, 59, 59, 999);
+      dateCondition.lte = toDate;
+    }
+    if (Object.keys(dateCondition).length > 0) {
+      andConditions.push({ nextRun: dateCondition });
+    }
+    delete data.nextRunRange;
+  }
+
+  // Handle lastRunRange filter
+  if (data.lastRunRange && typeof data.lastRunRange === 'object') {
+    const dateCondition: any = {};
+    if (data.lastRunRange.gte) {
+      const fromDate =
+        data.lastRunRange.gte instanceof Date
+          ? data.lastRunRange.gte
+          : new Date(data.lastRunRange.gte);
+      fromDate.setHours(0, 0, 0, 0);
+      dateCondition.gte = fromDate;
+    }
+    if (data.lastRunRange.lte) {
+      const toDate =
+        data.lastRunRange.lte instanceof Date
+          ? data.lastRunRange.lte
+          : new Date(data.lastRunRange.lte);
+      toDate.setHours(23, 59, 59, 999);
+      dateCondition.lte = toDate;
+    }
+    if (Object.keys(dateCondition).length > 0) {
+      andConditions.push({ lastRun: dateCondition });
+    }
+    delete data.lastRunRange;
   }
 
   // Handle specificDateRange filter
@@ -579,6 +651,11 @@ export const orderScheduleCreateSchema = z
     isActive: z.boolean().default(true),
     items: uuidArraySchema('item'),
 
+    // Target supplier for generated orders. Nullable to preserve compatibility
+    // with legacy schedules created before this field existed; the service
+    // logs `supplier=${schedule.supplierId ?? 'none'}` when firing.
+    supplierId: z.string().uuid('Fornecedor inválido').nullable().optional(),
+
     // Specific scheduling fields - conditionally required based on frequency
     specificDate: z.coerce.date().optional(),
     nextRun: z.coerce.date().optional(),
@@ -596,19 +673,39 @@ export const orderScheduleCreateSchema = z
     weeklyConfigId: z.string().uuid('Configuração semanal inválida').optional(),
     monthlyConfigId: z.string().uuid('Configuração mensal inválida').optional(),
     yearlyConfigId: z.string().uuid('Configuração anual inválida').optional(),
+
+    // Inline positional config (sibling to monthlyConfigId). Repo destructures
+    // this exact key and emits a Prisma nested-create for MonthlyScheduleConfig.
+    monthlySchedule: monthlyScheduleInlineSchema.optional(),
   })
   .refine(
     data => {
-      // Validate frequency-specific requirements
+      // Validate frequency-specific requirements. Long-cycle frequencies
+      // (BIMONTHLY/QUARTERLY/TRIANNUAL/QUADRIMESTRAL/SEMI_ANNUAL) reuse the
+      // monthly config path; BIWEEKLY reuses weekly. Mirrors web/src/schemas/
+      // order-schedule.ts so any payload accepted on the client is accepted
+      // here too.
       switch (data.frequency) {
         case SCHEDULE_FREQUENCY.ONCE:
           return !!data.specificDate;
+        case SCHEDULE_FREQUENCY.DAILY:
+          return true;
         case SCHEDULE_FREQUENCY.WEEKLY:
+        case SCHEDULE_FREQUENCY.BIWEEKLY:
           return !!data.dayOfWeek || !!data.weeklyConfigId;
         case SCHEDULE_FREQUENCY.MONTHLY:
-          return !!data.dayOfMonth || !!data.monthlyConfigId;
+        case SCHEDULE_FREQUENCY.BIMONTHLY:
+        case SCHEDULE_FREQUENCY.QUARTERLY:
+        case SCHEDULE_FREQUENCY.TRIANNUAL:
+        case SCHEDULE_FREQUENCY.QUADRIMESTRAL:
+        case SCHEDULE_FREQUENCY.SEMI_ANNUAL:
+          return !!data.dayOfMonth || !!data.monthlyConfigId || !!data.monthlySchedule;
         case SCHEDULE_FREQUENCY.ANNUAL:
-          return (!!data.dayOfMonth && !!data.month) || !!data.yearlyConfigId;
+          return (
+            (!!data.dayOfMonth && !!data.month) ||
+            !!data.yearlyConfigId ||
+            !!data.monthlySchedule
+          );
         case SCHEDULE_FREQUENCY.CUSTOM:
           return !!data.customMonths && data.customMonths.length > 0;
         default:
@@ -655,10 +752,17 @@ export const orderScheduleUpdateSchema = z
     lastRescheduleDate: z.coerce.date().nullable().optional(),
     rescheduleReason: z.string().optional(), // RescheduleReason enum
 
+    // Target supplier — nullable so existing schedules can be edited without
+    // forcing assignment; web supplier selector is also optional.
+    supplierId: z.string().uuid('Fornecedor inválido').nullable().optional(),
+
     // Schedule configuration IDs
     weeklyConfigId: z.string().uuid().nullable().optional(),
     monthlyConfigId: z.string().uuid().nullable().optional(),
     yearlyConfigId: z.string().uuid().nullable().optional(),
+
+    // Inline positional config — repo `upsert`s the linked MonthlyScheduleConfig.
+    monthlySchedule: monthlyScheduleInlineSchema.optional(),
 
     // New auto-creation fields
     finishedAt: z.coerce.date().nullable().optional(),
@@ -755,6 +859,7 @@ export const mapOrderScheduleToFormData = createMapToFormDataHelper<
   originalDate: orderSchedule.originalDate || null,
   lastRescheduleDate: orderSchedule.lastRescheduleDate || null,
   rescheduleReason: orderSchedule.rescheduleReason ?? undefined,
+  supplierId: orderSchedule.supplierId ?? null,
   weeklyConfigId: orderSchedule.weeklyConfigId || null,
   monthlyConfigId: orderSchedule.monthlyConfigId || null,
   yearlyConfigId: orderSchedule.yearlyConfigId || null,
