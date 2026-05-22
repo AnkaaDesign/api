@@ -2302,18 +2302,38 @@ export class TaskQuoteService {
       throw new BadRequestException(`O status já é ${currentStatus}`);
     }
 
-    // Explicit allowlist — only these forward/backward transitions are valid through
-    // the manual status endpoint or internalApprove. Scheduler-driven cascades
-    // (UPCOMING↔DUE, PARTIAL, etc.) bypass this via direct prisma.taskQuote.update().
-    const ALLOWED: Partial<Record<TASK_QUOTE_STATUS, TASK_QUOTE_STATUS[]>> = {
+    // Explicit allowlist for manual status changes via the /status endpoint.
+    //
+    // Scheduler-driven cascades (UPCOMING↔DUE↔PARTIAL on installment events)
+    // bypass this via direct prisma.taskQuote.update — the scheduler is the
+    // authoritative source for those transitions. This allowlist covers
+    // operator-initiated overrides (admin corrections, chargebacks, manual
+    // re-cycles when the scheduler hasn't caught up or made a wrong call).
+    //
+    // Mirrors web/src/utils/permissions/quote-permissions.ts VALID_TRANSITIONS
+    // exactly — drift here breaks the UI (advertised transitions returning 400).
+    // Additional: COMMERCIAL_APPROVED → PENDING is allowed so the cancel/reject
+    // button works for the most common cancellation point (customer cancels
+    // before billing); from BILLING_APPROVED onward, operators must use
+    // /revert-billing first (which gates on bank-slip + NFS-e cleanup).
+    const ALLOWED: Record<TASK_QUOTE_STATUS, TASK_QUOTE_STATUS[]> = {
       [TASK_QUOTE_STATUS.PENDING]:             [TASK_QUOTE_STATUS.BUDGET_APPROVED],
       [TASK_QUOTE_STATUS.BUDGET_APPROVED]:     [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.COMMERCIAL_APPROVED],
-      [TASK_QUOTE_STATUS.COMMERCIAL_APPROVED]: [TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.BILLING_APPROVED],
-      [TASK_QUOTE_STATUS.BILLING_APPROVED]:    [TASK_QUOTE_STATUS.UPCOMING],
-      [TASK_QUOTE_STATUS.UPCOMING]:            [TASK_QUOTE_STATUS.SETTLED],
-      [TASK_QUOTE_STATUS.DUE]:                 [TASK_QUOTE_STATUS.SETTLED],
-      [TASK_QUOTE_STATUS.PARTIAL]:             [TASK_QUOTE_STATUS.SETTLED],
-      [TASK_QUOTE_STATUS.SETTLED]:             [],
+      [TASK_QUOTE_STATUS.COMMERCIAL_APPROVED]: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.BILLING_APPROVED],
+      // BILLING_APPROVED → SETTLED covers prepayment edge cases (customer pays
+      // before installments are tracked) and lets operators settle quotes that
+      // got stuck at BILLING_APPROVED when internalApprove's auto-transition to
+      // UPCOMING failed mid-flow. settleManually marks any existing installments
+      // PAID and cancels open boletos, so the cleanup is safe regardless of
+      // entry status.
+      [TASK_QUOTE_STATUS.BILLING_APPROVED]:    [TASK_QUOTE_STATUS.UPCOMING, TASK_QUOTE_STATUS.SETTLED],
+      [TASK_QUOTE_STATUS.UPCOMING]:            [TASK_QUOTE_STATUS.PARTIAL, TASK_QUOTE_STATUS.DUE, TASK_QUOTE_STATUS.BILLING_APPROVED, TASK_QUOTE_STATUS.SETTLED],
+      [TASK_QUOTE_STATUS.DUE]:                 [TASK_QUOTE_STATUS.PARTIAL, TASK_QUOTE_STATUS.SETTLED, TASK_QUOTE_STATUS.UPCOMING],
+      [TASK_QUOTE_STATUS.PARTIAL]:             [TASK_QUOTE_STATUS.SETTLED, TASK_QUOTE_STATUS.DUE, TASK_QUOTE_STATUS.UPCOMING],
+      // SETTLED → PARTIAL handles chargeback/estorno (payment reversed after a
+      // previously settled invoice). Mirrors the web comment at
+      // quote-permissions.ts:73-76.
+      [TASK_QUOTE_STATUS.SETTLED]:             [TASK_QUOTE_STATUS.PARTIAL],
     };
 
     const allowed = ALLOWED[currentStatus] ?? [];

@@ -413,26 +413,98 @@ export function calculateNextRunDate(
 
   const baseDate = startOfDay(fromDate);
 
+  // Step multipliers for the "long-cycle" frequencies. BIWEEKLY is week-based;
+  // the rest reduce to MONTHLY with a fixed month step. Labels (per web/src/
+  // constants/enum-labels.ts): BIWEEKLY=Quinzenal (2 weeks), BIMONTHLY=
+  // Bimestral (2 months), QUARTERLY=Trimestral (3 months), TRIANNUAL/
+  // QUADRIMESTRAL=Quadrimestral (4 months — both enum values mean the same
+  // thing; both labels resolve to "Quadrimestral"), SEMI_ANNUAL=Semestral
+  // (6 months). frequencyCount further scales this (e.g. BIMONTHLY × 2 = every
+  // 4 months) but is typically left at 1 for these derived frequencies.
+  const count = schedule.frequencyCount ?? 1;
+
   switch (schedule.frequency) {
     case SCHEDULE_FREQUENCY.ONCE:
       // One-time schedules don't have a next run after execution
       return schedule.lastRun ? null : baseDate;
 
     case SCHEDULE_FREQUENCY.DAILY:
-      return calculateNextDailyRun(baseDate, schedule.frequencyCount);
+      return calculateNextDailyRun(baseDate, count);
 
     case SCHEDULE_FREQUENCY.WEEKLY:
-      return calculateNextWeeklyRun(baseDate, schedule.weeklyConfig, schedule.frequencyCount);
+      return calculateNextWeeklyRun(baseDate, schedule.weeklyConfig, count);
+
+    case SCHEDULE_FREQUENCY.BIWEEKLY:
+      return calculateNextWeeklyRun(baseDate, schedule.weeklyConfig, 2 * count);
 
     case SCHEDULE_FREQUENCY.MONTHLY:
-      return calculateNextMonthlyRun(baseDate, schedule.monthlyConfig, schedule.frequencyCount);
+      return calculateNextMonthlyRun(baseDate, schedule.monthlyConfig, count);
+
+    case SCHEDULE_FREQUENCY.BIMONTHLY:
+      return calculateNextMonthlyRun(baseDate, schedule.monthlyConfig, 2 * count);
+
+    case SCHEDULE_FREQUENCY.QUARTERLY:
+      return calculateNextMonthlyRun(baseDate, schedule.monthlyConfig, 3 * count);
+
+    case SCHEDULE_FREQUENCY.TRIANNUAL:
+    case SCHEDULE_FREQUENCY.QUADRIMESTRAL:
+      return calculateNextMonthlyRun(baseDate, schedule.monthlyConfig, 4 * count);
+
+    case SCHEDULE_FREQUENCY.SEMI_ANNUAL:
+      return calculateNextMonthlyRun(baseDate, schedule.monthlyConfig, 6 * count);
 
     case SCHEDULE_FREQUENCY.ANNUAL:
-      return calculateNextYearlyRun(baseDate, schedule.yearlyConfig, schedule.frequencyCount);
+      return calculateNextYearlyRun(baseDate, schedule.yearlyConfig, count);
+
+    case SCHEDULE_FREQUENCY.CUSTOM:
+      return calculateNextCustomRun(baseDate, schedule.customMonths, schedule.dayOfMonth);
 
     default:
       return null;
   }
+}
+
+/**
+ * Custom-frequency next run: fires on `dayOfMonth` of the next month in
+ * `customMonths` (a list of Month enum values). When `dayOfMonth` is missing
+ * we default to the 1st. Day is clamped to the target month's last day so
+ * day-31-in-February becomes the 28th/29th. Returns null if no months are
+ * configured.
+ */
+function calculateNextCustomRun(
+  fromDate: Date,
+  customMonths: string[] | null | undefined,
+  dayOfMonth: number | null | undefined,
+): Date | null {
+  if (!customMonths || customMonths.length === 0) return null;
+
+  const targetDay = dayOfMonth ?? 1;
+  const monthNumbers = customMonths
+    .map(m => getMonthNumber(m))
+    .filter((n): n is number => Number.isInteger(n))
+    .sort((a, b) => a - b);
+  if (monthNumbers.length === 0) return null;
+
+  const currentMonth = fromDate.getMonth();
+  const currentDay = fromDate.getDate();
+  const currentYear = fromDate.getFullYear();
+
+  // Clamp day-of-month to the month's actual last day (avoids the
+  // setDate-overflow loop bug in calculateNextMonthlyRun).
+  const candidate = (year: number, month: number): Date => {
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    return startOfDay(new Date(year, month, Math.min(targetDay, lastDay)));
+  };
+
+  // Next configured month that hasn't fired yet in the current year.
+  for (const m of monthNumbers) {
+    if (m > currentMonth || (m === currentMonth && currentDay < targetDay)) {
+      return candidate(currentYear, m);
+    }
+  }
+
+  // Wrap to first configured month next year.
+  return candidate(currentYear + 1, monthNumbers[0]);
 }
 
 /**
