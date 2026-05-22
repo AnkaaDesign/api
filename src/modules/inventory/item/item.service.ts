@@ -1166,7 +1166,7 @@ export class ItemService {
     const batchSize = 200;
     let currentPage = 1;
     let allFilteredItems: any[] = [];
-    const itemsWithActiveOrders = new Set<string>();
+    const incomingByItem = new Map<string, number>();
     const maxPages = 50; // Safety limit
 
     while (currentPage <= maxPages) {
@@ -1184,30 +1184,31 @@ export class ItemService {
         break;
       }
 
-      // Get active orders for this batch
+      // Get incoming-order quantities for this batch (open orders not yet received).
       const batchItemIds = batchResult.data.map(item => item.id);
       const batchOrderItems = await this.prisma.orderItem.findMany({
         where: {
           itemId: { in: batchItemIds },
-          order: {
-            status: { in: activeOrderStatuses },
-          },
+          receivedAt: null,
+          order: { status: { in: activeOrderStatuses } },
         },
-        select: {
-          itemId: true,
-        },
+        select: { itemId: true, orderedQuantity: true, receivedQuantity: true },
       });
 
-      batchOrderItems.forEach(oi => itemsWithActiveOrders.add(oi.itemId));
+      for (const oi of batchOrderItems) {
+        const pending = Math.max(0, (oi.orderedQuantity ?? 0) - (oi.receivedQuantity ?? 0));
+        incomingByItem.set(oi.itemId, (incomingByItem.get(oi.itemId) ?? 0) + pending);
+      }
 
       // Apply precise stock level filtering on this batch
       const filtered = batchResult.data.filter(item => {
-        const hasActiveOrder = itemsWithActiveOrders.has(item.id);
+        const incoming = incomingByItem.get(item.id) ?? 0;
         const stockLevel = determineStockLevel({
           quantity: item.quantity,
           reorderPoint: item.reorderPoint,
           maxQuantity: item.maxQuantity,
-          hasActiveOrder,
+          hasActiveOrder: incoming > 0,
+          incomingOrderedQuantity: incoming,
           categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
         });
         return stockHealthLevels.includes(stockLevel);
@@ -1456,28 +1457,33 @@ export class ItemService {
           },
         });
 
-        // Check if item has active orders
+        // Check incoming-order quantity (open OrderItems not yet received).
         const activeOrderStatuses = [
           ORDER_STATUS.PARTIALLY_FULFILLED,
           ORDER_STATUS.FULFILLED,
           ORDER_STATUS.PARTIALLY_RECEIVED,
         ];
 
-        const hasActiveOrder =
-          (await prismaClient.orderItem.findFirst({
-            where: {
-              itemId: currentItem.id,
-              order: {
-                status: { in: activeOrderStatuses },
-              },
-            },
-          })) !== null;
+        const openOrderItems = await prismaClient.orderItem.findMany({
+          where: {
+            itemId: currentItem.id,
+            receivedAt: null,
+            order: { status: { in: activeOrderStatuses } },
+          },
+          select: { orderedQuantity: true, receivedQuantity: true },
+        });
+        const incomingOrderedQuantity = openOrderItems.reduce(
+          (sum, oi) => sum + Math.max(0, (oi.orderedQuantity ?? 0) - (oi.receivedQuantity ?? 0)),
+          0,
+        );
+        const hasActiveOrder = incomingOrderedQuantity > 0;
 
         const stockLevel = determineStockLevel({
           quantity: newQuantity,
           reorderPoint: fullItem?.reorderPoint || null,
           maxQuantity: fullItem?.maxQuantity || null,
           hasActiveOrder,
+          incomingOrderedQuantity,
           categoryType: (fullItem?.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
         });
 
@@ -1564,45 +1570,43 @@ export class ItemService {
         },
       });
 
-      // Group order items by item ID
-      const itemsWithActiveOrders = new Set<string>();
+      // Aggregate incoming-order quantity per item.
+      const incomingByItem = new Map<string, number>();
       for (const orderItem of orderItems) {
-        itemsWithActiveOrders.add(orderItem.itemId);
+        if (orderItem.receivedAt != null) continue;
+        const pending = Math.max(
+          0,
+          ((orderItem as any).orderedQuantity ?? 0) -
+            ((orderItem as any).receivedQuantity ?? 0),
+        );
+        incomingByItem.set(
+          orderItem.itemId,
+          (incomingByItem.get(orderItem.itemId) ?? 0) + pending,
+        );
       }
 
-      // Filter items that are below minimum stock (LOW or CRITICAL)
-      const itemsBelowMinimum = items.filter(item => {
-        const hasActiveOrder = itemsWithActiveOrders.has(item.id);
-        const stockLevel = determineStockLevel({
+      const classify = (item: any) => {
+        const incoming = incomingByItem.get(item.id) ?? 0;
+        return determineStockLevel({
           quantity: item.quantity,
           reorderPoint: item.reorderPoint,
           maxQuantity: item.maxQuantity,
-          hasActiveOrder,
+          hasActiveOrder: incoming > 0,
+          incomingOrderedQuantity: incoming,
           categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
         });
+      };
 
+      // Filter items that are below minimum stock (LOW or CRITICAL)
+      const itemsBelowMinimum = items.filter(item => {
+        const stockLevel = classify(item);
         return stockLevel === STOCK_LEVEL.CRITICAL || stockLevel === STOCK_LEVEL.LOW;
       });
 
       // Sort by stock level priority (CRITICAL first) then by quantity
       itemsBelowMinimum.sort((a, b) => {
-        const hasActiveOrderA = itemsWithActiveOrders.has(a.id);
-        const hasActiveOrderB = itemsWithActiveOrders.has(b.id);
-
-        const levelA = determineStockLevel({
-          quantity: a.quantity,
-          reorderPoint: a.reorderPoint,
-          maxQuantity: a.maxQuantity,
-          hasActiveOrder: hasActiveOrderA,
-          categoryType: (a.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
-        });
-        const levelB = determineStockLevel({
-          quantity: b.quantity,
-          reorderPoint: b.reorderPoint,
-          maxQuantity: b.maxQuantity,
-          hasActiveOrder: hasActiveOrderB,
-          categoryType: (b.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
-        });
+        const levelA = classify(a);
+        const levelB = classify(b);
 
         // Sort by criticality first
         if (levelA !== levelB) {
@@ -1619,13 +1623,7 @@ export class ItemService {
         brandName: item.brand?.name || null,
         categoryName: item.category?.name || null,
         supplierName: item.supplier?.fantasyName || null,
-        stockLevel: determineStockLevel({
-          quantity: item.quantity,
-          reorderPoint: item.reorderPoint,
-          maxQuantity: item.maxQuantity,
-          hasActiveOrder: itemsWithActiveOrders.has(item.id),
-          categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
-        }),
+        stockLevel: classify(item),
       }));
 
       return {
@@ -1660,28 +1658,33 @@ export class ItemService {
         throw new NotFoundException('Item não encontrado');
       }
 
-      // Check if item has active orders
+      // Aggregate incoming-order quantity (open OrderItems not yet received).
       const activeOrderStatuses = [
         ORDER_STATUS.PARTIALLY_FULFILLED,
         ORDER_STATUS.FULFILLED,
         ORDER_STATUS.PARTIALLY_RECEIVED,
       ];
 
-      const hasActiveOrder =
-        (await this.prisma.orderItem.findFirst({
-          where: {
-            itemId: itemId,
-            order: {
-              status: { in: activeOrderStatuses },
-            },
-          },
-        })) !== null;
+      const openOrderItems = await this.prisma.orderItem.findMany({
+        where: {
+          itemId: itemId,
+          receivedAt: null,
+          order: { status: { in: activeOrderStatuses } },
+        },
+        select: { orderedQuantity: true, receivedQuantity: true },
+      });
+      const incomingOrderedQuantity = openOrderItems.reduce(
+        (sum, oi) => sum + Math.max(0, (oi.orderedQuantity ?? 0) - (oi.receivedQuantity ?? 0)),
+        0,
+      );
+      const hasActiveOrder = incomingOrderedQuantity > 0;
 
       const stockLevel = determineStockLevel({
         quantity: item.quantity,
         reorderPoint: item.reorderPoint,
         maxQuantity: item.maxQuantity,
         hasActiveOrder,
+        incomingOrderedQuantity,
         categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
       });
 

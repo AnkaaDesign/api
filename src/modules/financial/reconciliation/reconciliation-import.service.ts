@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import unzipper from 'unzipper';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { OfxParserService } from './ofx-parser.service';
+import { ReconciliationClassifierService } from './reconciliation-classifier.service';
 import { ReconciliationMatcherService } from './reconciliation-matcher.service';
 import {
   ImportSummary,
@@ -34,6 +35,7 @@ export class ReconciliationImportService {
     private readonly prisma: PrismaService,
     private readonly ofxParser: OfxParserService,
     private readonly matcher: ReconciliationMatcherService,
+    private readonly classifier: ReconciliationClassifierService,
   ) {}
 
   /**
@@ -126,9 +128,14 @@ export class ReconciliationImportService {
         }
       }
 
-      // Auto-match newly inserted transactions.
+      // Classify first (auto-reconciles self-justifying categories like TARIFA,
+      // FOLHA, TRIBUTO, TRANSFERENCIA, CONVENIO), then run the NF matcher on
+      // anything still PENDING + category=NF.
       let autoMatched = 0;
       for (const id of newlyInsertedIds) {
+        await this.classifier.classifyAndPersist(id).catch(err =>
+          this.logger.warn(`Classifier failed for ${id}: ${err}`),
+        );
         const tx = await this.prisma.bankTransaction.findUnique({
           where: { id },
           select: {
@@ -140,7 +147,8 @@ export class ReconciliationImportService {
             counterpartyName: true,
             memo: true,
             bankSlipId: true,
-            matchStatus: true,
+            reconciliationStatus: true,
+            category: true,
           },
         });
         if (!tx) continue;

@@ -80,6 +80,7 @@ import {
   workingDaysForMonth,
   detectSaturdayShifts,
 } from '../utils/working-days';
+import { distributeBulkAdjustments } from '../utils/bulk-adjustment-distributor';
 import {
   classifyAbc,
   classifyXyz,
@@ -652,22 +653,38 @@ async function phaseC_backfillSnapshots(
     let skippedVacation = 0;
     let zeroMonths = 0;
 
-    // Load all the item's qualifying activities for the trailing window.
-    const earliest = new Date(months[0].year, months[0].month, 1);
+    // Load ALL qualifying activities (full history) so the bulk distributor
+    // can spread INVENTORY_COUNT / MANUAL_ADJUSTMENT spikes across their
+    // proper windows — including pre-cutover spikes whose window extends
+    // before the trailing-12mo lookback. Without this, a single big
+    // INVENTORY_COUNT registered in (say) March 2026 concentrates 100% of
+    // its volume in that month's snapshot, inflating mc/rp by 10-150×.
     const lookEnd = new Date(now.getFullYear(), now.getMonth(), 1);
-    const activities = await tx.activity.findMany({
+    const allActivities = await tx.activity.findMany({
       where: {
         itemId: item.id,
         operation: ACTIVITY_OPERATION.OUTBOUND,
         reason: { in: REGULAR_CONSUMPTION_REASONS as ACTIVITY_REASON[] },
-        createdAt: { gte: earliest, lt: lookEnd },
+        createdAt: { lt: lookEnd },
       },
       select: { operation: true, reason: true, quantity: true, createdAt: true },
     });
 
-    // Saturday-shift months (passed into workingDaysForMonth).
+    // Spread bulk-event quantities; non-bulk activities pass through.
+    const distributed = distributeBulkAdjustments(
+      allActivities.map(a => ({
+        operation: a.operation,
+        reason: a.reason,
+        quantity: a.quantity,
+        createdAt: a.createdAt,
+      })),
+      new Date(item.createdAt),
+    );
+
+    // Saturday-shift months — derived from the RAW non-distributed activities
+    // (synthetic per-day rows would otherwise fake saturday work).
     const saturdayShifts = detectSaturdayShifts(
-      activities as any,
+      allActivities as any,
       REGULAR_CONSUMPTION_REASONS as any,
     );
 
@@ -693,13 +710,13 @@ async function phaseC_backfillSnapshots(
         continue;
       }
 
-      // Sum qualifying activities for this month.
+      // Sum DISTRIBUTED activities for this month.
       let totalConsumption = 0;
       let consumptionCount = 0;
-      for (const a of activities) {
+      for (const a of distributed) {
         if (a.createdAt < monthStart || a.createdAt > monthEnd) continue;
         totalConsumption += a.quantity;
-        consumptionCount++;
+        if (!a.synthetic) consumptionCount++;
       }
 
       const workingDays = workingDaysForMonth(year, month, saturdayShifts);
@@ -786,6 +803,564 @@ async function phaseD_phantomCleanup(
 
   logger.log(`Phase D done: ${candidates.length} phantom_mc items reset`);
   return candidates.length;
+}
+
+// ---------------------------------------------------------------------------
+// Phase A2 — Assign Adere supplier to mascara 321/328
+// ---------------------------------------------------------------------------
+//   The two transfer-mask items (uniCode 321 and 328) historically had no
+//   supplier on Item. User confirmed they're supplied by Adere (Alex). This
+//   sets it so Phase I's "Adere — Máscaras" schedule resolves them.
+//   Idempotent: only acts if Item.supplierId is NULL or different from Adere.
+
+async function phaseA2_assignAdereToMasks(
+  tx: Prisma.TransactionClient,
+  logger: Logger,
+  notesByItem: Map<string, string[]>,
+): Promise<{ updated: number }> {
+  const adere = await tx.supplier.findFirst({
+    where: { fantasyName: 'Adere (Alex)' },
+    select: { id: true },
+  });
+  if (!adere) {
+    logger.warn('Phase A2: Adere supplier not found — skipping mask assignment');
+    return { updated: 0 };
+  }
+  const MASK_IDS = [
+    '33ed541a-343c-4232-bf6d-921dfdf198a6', // Mascara 321
+    '5334cf95-0e83-404e-a8c0-cd84c888b6c7', // Mascara 328
+  ];
+  const masks = await tx.item.findMany({
+    where: { id: { in: MASK_IDS } },
+    select: { id: true, name: true, supplierId: true },
+  });
+  let updated = 0;
+  for (const m of masks) {
+    if (m.supplierId === adere.id) continue;
+    await tx.item.update({ where: { id: m.id }, data: { supplierId: adere.id } });
+    updated++;
+    const arr = notesByItem.get(m.id) ?? [];
+    arr.push(`Supplier assigned: Adere (Alex)`);
+    notesByItem.set(m.id, arr);
+  }
+  logger.log(`Phase A2 done: ${updated} mask(s) assigned to Adere`);
+  return { updated };
+}
+
+// ---------------------------------------------------------------------------
+// Phase G — Backfill NULL supplierId on legacy orders
+// ---------------------------------------------------------------------------
+//   When all OrderItems on a NULL-supplier order point to items that share
+//   the same Item.supplierId, we can safely infer the order's supplier.
+//   Orders where items disagree on supplier (or items have no supplier) are
+//   left NULL and reported for manual review.
+//   Idempotent: only acts on orders still NULL.
+
+async function phaseG_backfillNullSupplierIds(
+  tx: Prisma.TransactionClient,
+  logger: Logger,
+): Promise<{ backfilled: number; ambiguous: number; noHint: number }> {
+  type Row = { order_id: string; distinct_suppliers: number; inferred_supplier: string | null };
+  const rows = await tx.$queryRaw<Row[]>`
+    SELECT
+      o.id AS order_id,
+      COUNT(DISTINCT i."supplierId")::int AS distinct_suppliers,
+      MAX(i."supplierId") AS inferred_supplier
+    FROM "Order" o
+    LEFT JOIN "OrderItem" oi ON oi."orderId" = o.id
+    LEFT JOIN "Item" i ON i.id = oi."itemId"
+    WHERE o."supplierId" IS NULL
+    GROUP BY o.id
+  `;
+
+  let backfilled = 0;
+  let ambiguous = 0;
+  let noHint = 0;
+  for (const r of rows) {
+    if (r.distinct_suppliers === 1 && r.inferred_supplier) {
+      await tx.order.update({
+        where: { id: r.order_id },
+        data: { supplierId: r.inferred_supplier },
+      });
+      backfilled++;
+    } else if (r.distinct_suppliers > 1) {
+      ambiguous++;
+    } else {
+      noHint++;
+    }
+  }
+
+  logger.log(
+    `Phase G done: ${backfilled} orders backfilled, ${ambiguous} ambiguous (multi-supplier), ${noHint} with no supplier hint`,
+  );
+  return { backfilled, ambiguous, noHint };
+}
+
+// ---------------------------------------------------------------------------
+// Phase H — Doubling-pattern candidate report (no auto-action — conservative)
+// ---------------------------------------------------------------------------
+//   The mascara-halving migration (Phase B) was specific to items 321/328
+//   that had a documented OUTBOUND-doubling workflow. Other items in the DB
+//   show similar IN/OUT ratio anomalies (e.g. Engate Rápido Macho SM-40 at
+//   ~19×, Rebite de Repuxo 640 at ~6×, Lixa Folha 150 at ~3×). These could
+//   be doubling artifacts OR legitimate slow-moving stock with one large
+//   inventory count — we cannot tell from data alone. This phase only logs
+//   the candidates for human review; it does not halve anything.
+
+async function phaseH_doublingCandidatesReport(
+  tx: Prisma.TransactionClient,
+  logger: Logger,
+  notesByItem: Map<string, string[]>,
+): Promise<{ candidates: number }> {
+  const KNOWN_MIGRATED_ITEM_IDS = [
+    '33ed541a-343c-4232-bf6d-921dfdf198a6', // Mascara 321
+    '5334cf95-0e83-404e-a8c0-cd84c888b6c7', // Mascara 328
+  ];
+
+  type Row = {
+    id: string;
+    name: string;
+    in_out_ratio: number | null;
+    total_in: number;
+    total_out: number;
+    current_qty: number;
+    first_fractional_outbound: Date | null;
+  };
+
+  const rows = await tx.$queryRaw<Row[]>`
+    SELECT
+      i.id,
+      i.name,
+      i.quantity::float AS current_qty,
+      COALESCE(SUM(CASE WHEN a.operation = 'INBOUND' THEN a.quantity ELSE 0 END), 0)::float AS total_in,
+      COALESCE(SUM(CASE WHEN a.operation = 'OUTBOUND' THEN a.quantity ELSE 0 END), 0)::float AS total_out,
+      CASE WHEN SUM(CASE WHEN a.operation = 'OUTBOUND' THEN a.quantity ELSE 0 END) > 0
+           THEN (SUM(CASE WHEN a.operation = 'INBOUND' THEN a.quantity ELSE 0 END)::float
+                 / SUM(CASE WHEN a.operation = 'OUTBOUND' THEN a.quantity ELSE 0 END)::float)
+           ELSE NULL
+      END AS in_out_ratio,
+      (
+        SELECT MIN(af."createdAt")
+        FROM "Activity" af
+        WHERE af."itemId" = i.id
+          AND af.operation = 'OUTBOUND'
+          AND af.quantity != FLOOR(af.quantity)
+      ) AS first_fractional_outbound
+    FROM "Item" i
+    LEFT JOIN "Activity" a ON a."itemId" = i.id
+    WHERE i.id NOT IN (${Prisma.join(KNOWN_MIGRATED_ITEM_IDS)})
+    GROUP BY i.id, i.name, i.quantity
+    HAVING
+      SUM(CASE WHEN a.operation = 'INBOUND' THEN a.quantity ELSE 0 END) > 10
+      AND SUM(CASE WHEN a.operation = 'OUTBOUND' THEN a.quantity ELSE 0 END) > 0
+      AND (SUM(CASE WHEN a.operation = 'INBOUND' THEN a.quantity ELSE 0 END)::float
+           / NULLIF(SUM(CASE WHEN a.operation = 'OUTBOUND' THEN a.quantity ELSE 0 END), 0)::float) >= 3.0
+    ORDER BY in_out_ratio DESC NULLS LAST
+    LIMIT 30
+  `;
+
+  for (const r of rows) {
+    const note = `DOUBLING_CANDIDATE: ratio_in/out=${r.in_out_ratio?.toFixed(2)} in=${r.total_in} out=${r.total_out} qty=${r.current_qty}${r.first_fractional_outbound ? ` (fractional since ${r.first_fractional_outbound.toISOString().slice(0, 10)})` : ''}`;
+    const arr = notesByItem.get(r.id) ?? [];
+    arr.push(note);
+    notesByItem.set(r.id, arr);
+  }
+
+  logger.log(
+    `Phase H done: ${rows.length} doubling-pattern candidates flagged (no auto-action — see CSV "notes" column for review).`,
+  );
+  return { candidates: rows.length };
+}
+
+// ---------------------------------------------------------------------------
+// Phase J — Cent↔unit anomaly detection (log-only)
+// ---------------------------------------------------------------------------
+//   Flags items where the median activity quantity is low (≥ 0.5 to skip
+//   paint/liquid items) but a rare outlier is ≥50× the median — suggests
+//   a possible data-entry error (typed 200 instead of 2, or unit/cent
+//   confusion). INVENTORY_COUNT and MANUAL_ADJUSTMENT are excluded — those
+//   are expected large adjustments. Conservative: log to notes only.
+
+async function phaseJ_centUnitAnomalyReport(
+  tx: Prisma.TransactionClient,
+  logger: Logger,
+  notesByItem: Map<string, string[]>,
+): Promise<{ candidates: number }> {
+  type Row = {
+    id: string;
+    name: string;
+    median_qty: number;
+    max_qty: number;
+    ratio: number;
+    outlier_count: number;
+    max_outlier_date: Date | null;
+  };
+  const rows = await tx.$queryRaw<Row[]>`
+    WITH stats AS (
+      SELECT
+        a."itemId" AS id,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY a.quantity) AS median_qty,
+        MAX(a.quantity)::float AS max_qty,
+        COUNT(*)::int AS total_acts
+      FROM "Activity" a
+      WHERE a.operation = 'OUTBOUND'
+        AND a.reason NOT IN ('INVENTORY_COUNT', 'MANUAL_ADJUSTMENT')
+        AND a.quantity > 0
+      GROUP BY a."itemId"
+      HAVING COUNT(*) >= 10
+    ),
+    outliers AS (
+      SELECT
+        s.id,
+        s.median_qty::float AS median_qty,
+        s.max_qty,
+        (s.max_qty / NULLIF(s.median_qty, 0))::float AS ratio,
+        (
+          SELECT COUNT(*) FROM "Activity" a
+          WHERE a."itemId" = s.id AND a.operation = 'OUTBOUND'
+            AND a.reason NOT IN ('INVENTORY_COUNT', 'MANUAL_ADJUSTMENT')
+            AND a.quantity > s.median_qty * 10
+        )::int AS outlier_count,
+        (
+          SELECT MAX(a."createdAt") FROM "Activity" a
+          WHERE a."itemId" = s.id AND a.quantity = s.max_qty
+        ) AS max_outlier_date
+      FROM stats s
+      WHERE s.median_qty >= 0.5
+        AND s.max_qty >= 50
+        AND (s.max_qty / NULLIF(s.median_qty, 0)) >= 50
+    )
+    SELECT o.*, i.name
+    FROM outliers o
+    JOIN "Item" i ON i.id = o.id
+    WHERE o.outlier_count BETWEEN 1 AND 3
+    ORDER BY o.ratio DESC
+    LIMIT 30
+  `;
+
+  for (const r of rows) {
+    const note = `CENT_UNIT_ANOMALY: median=${r.median_qty.toFixed(2)} max=${r.max_qty} ratio=${r.ratio.toFixed(0)}× outliers=${r.outlier_count}${r.max_outlier_date ? ` (max on ${r.max_outlier_date.toISOString().slice(0, 10)})` : ''}`;
+    const arr = notesByItem.get(r.id) ?? [];
+    arr.push(note);
+    notesByItem.set(r.id, arr);
+  }
+
+  logger.log(
+    `Phase J done: ${rows.length} cent/unit anomaly candidates flagged (no auto-action — see CSV "notes" column for review).`,
+  );
+  return { candidates: rows.length };
+}
+
+// ---------------------------------------------------------------------------
+// Phase I — Seed OrderSchedule rows for top suppliers
+// ---------------------------------------------------------------------------
+//   Calendar layout (user's 2026-05-21 preferences):
+//     Farben — 5 monthly schedules
+//       - 3 on the FIRST Thursday: Bases, Diluentes, Pigmentos
+//       - 2 on the SECOND Thursday: Endurecedores+Vernizes, Outros
+//     Adere — 2 quarterly schedules with a 1.5-month offset between them
+//       - Fitas: month 0
+//       - Mascaras (321/328): month +1.5
+//     Casa dos Parafusos — every 2 months, all items
+//     Bolinha Embalagens — every 2 months, all items (can stack same day)
+//     Estopa (Brasil Sul Estopas) — every 2 months
+//     Scotch Brite — every 3 months (single item, supplier=Dislon)
+//
+//   The "first/second Thursday" pattern uses MonthlyScheduleConfig with
+//   `occurrence + dayOfWeek` (schema supports this natively, line 781-791).
+//   The OrderScheduleService.calculateNextRunDate now honors that and
+//   shifts the result to the next Brazilian business day if it lands on a
+//   holiday or vacation period.
+//
+//   Wipe-and-reseed is used (instead of skip-if-exists) so re-running this
+//   phase always reflects the latest seed definitions. Existing Order rows
+//   that reference these schedules via `orderScheduleId` get unlinked
+//   automatically (FK ON DELETE SET NULL).
+
+interface ScheduleSeed {
+  name: string;
+  description: string;
+  supplierId: string;
+  /** Item resolver — returns the item IDs to include. */
+  resolveItems: (tx: Prisma.TransactionClient) => Promise<string[]>;
+  /** Schedule frequency. Always MONTHLY for the 2026-05-21 layout. */
+  frequencyCount: number;
+  /** Optional monthly occurrence (FIRST/SECOND/LAST + dayOfWeek). When
+   *  provided, the schedule fires "Nth weekday of every Nth month". */
+  monthlyOccurrence?: { occurrence: 'FIRST' | 'SECOND' | 'THIRD' | 'FOURTH' | 'LAST'; dayOfWeek: 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' };
+  /** Fallback day-of-month when occurrence is not used. */
+  dayOfMonth?: number;
+  /** Days offset from `now` for the first firing (sets nextRun). */
+  initialOffsetDays: number;
+}
+
+async function phaseI_seedSchedules(
+  tx: Prisma.TransactionClient,
+  logger: Logger,
+  now: Date,
+): Promise<{ created: number; wiped: number; emptyMembership: number }> {
+  // Wipe previously seeded schedules so a re-run reflects the latest layout.
+  // Existing Order rows lose their orderScheduleId link (FK is SET NULL).
+  const wipeNames = await tx.orderSchedule.findMany({
+    where: {
+      name: {
+        in: [
+          'Farben — Bases',
+          'Farben — Pigmentos',
+          'Farben — Endurecedores + Vernizes',
+          'Farben — Diluentes',
+          'Farben — Outros',
+          'Adere — Fitas',
+          'Adere — Máscaras',
+          'Casa dos Parafusos — Geral',
+          'Bolinha Embalagens — Geral',
+          'Estopa — Brasil Sul',
+          'Scotch Brite',
+        ],
+      },
+    },
+    select: { id: true, monthlyConfigId: true },
+  });
+  if (wipeNames.length > 0) {
+    await tx.orderSchedule.deleteMany({ where: { id: { in: wipeNames.map(s => s.id) } } });
+    const monthlyConfigIds = wipeNames.map(s => s.monthlyConfigId).filter((x): x is string => !!x);
+    if (monthlyConfigIds.length > 0) {
+      await tx.monthlyScheduleConfig.deleteMany({ where: { id: { in: monthlyConfigIds } } });
+    }
+    logger.log(`Phase I: wiped ${wipeNames.length} pre-existing seeded schedule(s)`);
+  }
+
+  // Look up supplier IDs by fantasyName.
+  const allSuppliers = await tx.supplier.findMany({
+    where: {
+      fantasyName: {
+        in: [
+          'Farben (Ronaldo)',
+          'Adere (Alex)',
+          'Casa dos Parafusos (Maicon)',
+          'Bolinha Embalagens (Ibiporã)',
+          'Brasil Sul Estopas',
+          'Dislon',
+        ],
+      },
+    },
+    select: { id: true, fantasyName: true },
+  });
+  const supplierByName = new Map(allSuppliers.map(s => [s.fantasyName, s.id]));
+  const farben = supplierByName.get('Farben (Ronaldo)');
+  const adere = supplierByName.get('Adere (Alex)');
+  const casaDosParafusos = supplierByName.get('Casa dos Parafusos (Maicon)');
+  const bolinha = supplierByName.get('Bolinha Embalagens (Ibiporã)');
+  const brasilSulEstopas = supplierByName.get('Brasil Sul Estopas');
+  const dislon = supplierByName.get('Dislon');
+
+  // Helper: pick the next "Nth weekday" of the calendar from `now`. Used to
+  // initialize nextRun so the FIRST firing also lands on the right calendar
+  // slot (otherwise it would only align after the first calculateNextRunDate).
+  function nthWeekdayOfMonth(year: number, monthZeroBased: number, weekday: number, occurrence: number): Date {
+    const d = new Date(year, monthZeroBased, 1);
+    while (d.getDay() !== weekday) d.setDate(d.getDate() + 1);
+    d.setDate(d.getDate() + (occurrence - 1) * 7);
+    return d;
+  }
+  function nextOccurrenceFromNow(weekday: number, occurrenceNum: number): Date {
+    const candidate = nthWeekdayOfMonth(now.getFullYear(), now.getMonth(), weekday, occurrenceNum);
+    if (candidate > now) return candidate;
+    return nthWeekdayOfMonth(now.getFullYear(), now.getMonth() + 1, weekday, occurrenceNum);
+  }
+  const seeds: ScheduleSeed[] = [];
+
+  if (farben) {
+    // 3 schedules on the FIRST Thursday of every month.
+    const firstThu = nextOccurrenceFromNow(4 /* Thursday */, 1);
+    seeds.push(
+      {
+        name: 'Farben — Bases',
+        description: 'Bases Farben (paint bases). Mensal — primeira quinta do mês.',
+        supplierId: farben,
+        resolveItems: tx => tx.item.findMany({ where: { supplierId: farben, isActive: true, category: { name: 'Base' } }, select: { id: true } }).then(rs => rs.map(r => r.id)),
+        frequencyCount: 1,
+        monthlyOccurrence: { occurrence: 'FIRST', dayOfWeek: 'THURSDAY' },
+        initialOffsetDays: Math.max(1, Math.round((firstThu.getTime() - now.getTime()) / 86_400_000)),
+      },
+      {
+        name: 'Farben — Diluentes',
+        description: 'Diluentes e desengraxantes Farben. Mensal — primeira quinta do mês.',
+        supplierId: farben,
+        resolveItems: tx => tx.item.findMany({ where: { supplierId: farben, isActive: true, category: { name: 'Diluente' } }, select: { id: true } }).then(rs => rs.map(r => r.id)),
+        frequencyCount: 1,
+        monthlyOccurrence: { occurrence: 'FIRST', dayOfWeek: 'THURSDAY' },
+        initialOffsetDays: Math.max(1, Math.round((firstThu.getTime() - now.getTime()) / 86_400_000)),
+      },
+      {
+        name: 'Farben — Pigmentos',
+        description: 'Pigmentos / cores Farben. Mensal — primeira quinta do mês.',
+        supplierId: farben,
+        resolveItems: tx => tx.item.findMany({ where: { supplierId: farben, isActive: true, category: { name: 'Pigmento' } }, select: { id: true } }).then(rs => rs.map(r => r.id)),
+        frequencyCount: 1,
+        monthlyOccurrence: { occurrence: 'FIRST', dayOfWeek: 'THURSDAY' },
+        initialOffsetDays: Math.max(1, Math.round((firstThu.getTime() - now.getTime()) / 86_400_000)),
+      },
+    );
+    // 2 schedules on the SECOND Thursday of every month.
+    const secondThu = nextOccurrenceFromNow(4, 2);
+    seeds.push(
+      {
+        name: 'Farben — Endurecedores + Vernizes',
+        description: 'Endurecedores e vernizes Farben (co-ocorrem nos pedidos). Mensal — segunda quinta do mês.',
+        supplierId: farben,
+        resolveItems: tx => tx.item.findMany({ where: { supplierId: farben, isActive: true, category: { name: { in: ['Endurecedor', 'Verniz'] } } }, select: { id: true } }).then(rs => rs.map(r => r.id)),
+        frequencyCount: 1,
+        monthlyOccurrence: { occurrence: 'SECOND', dayOfWeek: 'THURSDAY' },
+        initialOffsetDays: Math.max(1, Math.round((secondThu.getTime() - now.getTime()) / 86_400_000)),
+      },
+      {
+        name: 'Farben — Outros',
+        description: 'Tintas avulsas, primers, massa poliester e itens Farben fora dos demais grupos. Mensal — segunda quinta do mês.',
+        supplierId: farben,
+        resolveItems: tx => tx.item.findMany({ where: { supplierId: farben, isActive: true, category: { name: { in: ['Tinta'] } } }, select: { id: true } }).then(rs => rs.map(r => r.id)),
+        frequencyCount: 1,
+        monthlyOccurrence: { occurrence: 'SECOND', dayOfWeek: 'THURSDAY' },
+        initialOffsetDays: Math.max(1, Math.round((secondThu.getTime() - now.getTime()) / 86_400_000)),
+      },
+    );
+  } else {
+    logger.warn('Phase I: Farben supplier not found — skipping Farben seeds');
+  }
+
+  if (adere) {
+    // Adere — 2 quarterly schedules with a 1.5-month offset.
+    seeds.push(
+      {
+        name: 'Adere — Fitas',
+        description: 'Fitas crepe (Automotiva / Uso Geral). Trimestral.',
+        supplierId: adere,
+        resolveItems: tx => tx.item.findMany({ where: { supplierId: adere, isActive: true, OR: [{ name: { contains: 'Fita', mode: 'insensitive' } }, { name: { contains: 'Adesiv', mode: 'insensitive' } }] }, select: { id: true } }).then(rs => rs.map(r => r.id)),
+        frequencyCount: 3, // every 3 months
+        dayOfMonth: 15,
+        initialOffsetDays: 14,
+      },
+      {
+        name: 'Adere — Máscaras',
+        description: 'Máscaras de mascaramento (uniCode 321/328). Trimestral — defasada 45d em relação às Fitas.',
+        supplierId: adere,
+        resolveItems: tx => tx.item.findMany({ where: { supplierId: adere, isActive: true, OR: [{ name: { contains: 'Máscara', mode: 'insensitive' } }, { name: { contains: 'Mascara', mode: 'insensitive' } }] }, select: { id: true } }).then(rs => rs.map(r => r.id)),
+        frequencyCount: 3,
+        dayOfMonth: 15,
+        initialOffsetDays: 14 + 45, // ~1.5 months after Fitas
+      },
+    );
+  } else {
+    logger.warn('Phase I: Adere supplier not found — skipping Adere seeds');
+  }
+
+  if (casaDosParafusos) {
+    seeds.push({
+      name: 'Casa dos Parafusos — Geral',
+      description: 'Todos os itens da Casa dos Parafusos (Maicon). Bimestral.',
+      supplierId: casaDosParafusos,
+      resolveItems: tx => tx.item.findMany({ where: { supplierId: casaDosParafusos, isActive: true }, select: { id: true } }).then(rs => rs.map(r => r.id)),
+      frequencyCount: 2,
+      dayOfMonth: 10,
+      initialOffsetDays: 10,
+    });
+  } else {
+    logger.warn('Phase I: Casa dos Parafusos supplier not found — skipping');
+  }
+
+  if (bolinha) {
+    seeds.push({
+      name: 'Bolinha Embalagens — Geral',
+      description: 'Todos os itens da Bolinha Embalagens. Bimestral.',
+      supplierId: bolinha,
+      resolveItems: tx => tx.item.findMany({ where: { supplierId: bolinha, isActive: true }, select: { id: true } }).then(rs => rs.map(r => r.id)),
+      frequencyCount: 2,
+      dayOfMonth: 10, // same day as Casa dos Parafusos (user OK with stacking)
+      initialOffsetDays: 10,
+    });
+  } else {
+    logger.warn('Phase I: Bolinha supplier not found — skipping');
+  }
+
+  if (brasilSulEstopas) {
+    seeds.push({
+      name: 'Estopa — Brasil Sul',
+      description: 'Estopa de Pano e Pacote Estopa (Brasil Sul Estopas). Bimestral.',
+      supplierId: brasilSulEstopas,
+      resolveItems: tx => tx.item.findMany({ where: { supplierId: brasilSulEstopas, isActive: true, name: { contains: 'Estopa', mode: 'insensitive' } }, select: { id: true } }).then(rs => rs.map(r => r.id)),
+      frequencyCount: 2,
+      dayOfMonth: 20,
+      initialOffsetDays: 20,
+    });
+  } else {
+    logger.warn('Phase I: Brasil Sul Estopas supplier not found — skipping');
+  }
+
+  if (dislon) {
+    seeds.push({
+      name: 'Scotch Brite',
+      description: 'Scotch Brite (Dislon). Trimestral.',
+      supplierId: dislon,
+      resolveItems: tx => tx.item.findMany({ where: { supplierId: dislon, isActive: true, name: { contains: 'Scotch', mode: 'insensitive' } }, select: { id: true } }).then(rs => rs.map(r => r.id)),
+      frequencyCount: 3,
+      dayOfMonth: 20,
+      initialOffsetDays: 20,
+    });
+  } else {
+    logger.warn('Phase I: Dislon supplier not found — skipping Scotch Brite');
+  }
+
+  let created = 0;
+  let emptyMembership = 0;
+  for (const seed of seeds) {
+    const itemIds = await seed.resolveItems(tx);
+    if (itemIds.length === 0) {
+      logger.warn(`Phase I: "${seed.name}" has 0 matching items — creating EMPTY schedule (add items manually)`);
+      emptyMembership++;
+    }
+    const nextRun = new Date(now);
+    nextRun.setDate(nextRun.getDate() + seed.initialOffsetDays);
+
+    let monthlyConfigId: string | null = null;
+    if (seed.monthlyOccurrence) {
+      const mc = await tx.monthlyScheduleConfig.create({
+        data: {
+          occurrence: seed.monthlyOccurrence.occurrence as any,
+          dayOfWeek: seed.monthlyOccurrence.dayOfWeek as any,
+        },
+      });
+      monthlyConfigId = mc.id;
+    } else if (seed.dayOfMonth !== undefined) {
+      const mc = await tx.monthlyScheduleConfig.create({
+        data: { dayOfMonth: seed.dayOfMonth },
+      });
+      monthlyConfigId = mc.id;
+    }
+
+    await tx.orderSchedule.create({
+      data: {
+        name: seed.name,
+        description: seed.description,
+        supplierId: seed.supplierId,
+        frequency: 'MONTHLY' as any,
+        frequencyCount: seed.frequencyCount,
+        isActive: true,
+        items: itemIds,
+        nextRun,
+        monthlyConfigId,
+      },
+    });
+    created++;
+    const pattern = seed.monthlyOccurrence
+      ? `${seed.monthlyOccurrence.occurrence} ${seed.monthlyOccurrence.dayOfWeek} every ${seed.frequencyCount}mo`
+      : `day ${seed.dayOfMonth ?? '?'} every ${seed.frequencyCount}mo`;
+    logger.log(`Phase I: created "${seed.name}" with ${itemIds.length} items — ${pattern}, nextRun=${nextRun.toISOString().slice(0, 10)}`);
+  }
+
+  logger.log(
+    `Phase I done: ${created} schedules created, ${wipeNames.length} wiped pre-run, ${emptyMembership} have empty membership`,
+  );
+  return { created, wiped: wipeNames.length, emptyMembership };
 }
 
 // ---------------------------------------------------------------------------
@@ -1119,6 +1694,7 @@ async function main(): Promise<number> {
           const now = new Date();
 
           phaseResults.A = await phaseA_categorize(tx, logger, notesByItem);
+          phaseResults.A2 = await phaseA2_assignAdereToMasks(tx, logger, notesByItem);
 
           if (!flags.skipMask) {
             maskChanges = await phaseB_mascaraMigration(tx, logger, notesByItem);
@@ -1130,7 +1706,13 @@ async function main(): Promise<number> {
 
           phaseResults.D = await phaseD_phantomCleanup(tx, logger, notesByItem);
 
+          phaseResults.G = await phaseG_backfillNullSupplierIds(tx, logger);
+          phaseResults.H = await phaseH_doublingCandidatesReport(tx, logger, notesByItem);
+          phaseResults.J = await phaseJ_centUnitAnomalyReport(tx, logger, notesByItem);
+
           phaseResults.E = await phaseE_recomputeAll(tx, recomputeService, logger);
+          // Phase I runs AFTER initial recompute so item categories/suppliers
+          // are stable before we materialize schedule membership.
           if (phaseResults.E.errors > 0) {
             throw new Error(
               `Phase E had ${phaseResults.E.errors} errors — aborting`,
@@ -1145,6 +1727,10 @@ async function main(): Promise<number> {
           // This second pass corrects rp/max with the real classification.
           logger.log('Phase E-prime: re-running recompute with fresh ABC/XYZ');
           phaseResults.E2 = await phaseE_recomputeAll(tx, recomputeService, logger);
+
+          // Phase I: seed OrderSchedule rows for top suppliers (after Phase A
+          // has assigned categories and Phase G has backfilled suppliers).
+          phaseResults.I = await phaseI_seedSchedules(tx, logger, now);
           if (phaseResults.E2.errors > 0) {
             throw new Error(
               `Phase E-prime had ${phaseResults.E2.errors} errors — aborting`,
@@ -1244,9 +1830,14 @@ async function main(): Promise<number> {
     console.log(`  B mask migration:  ${maskChanges.length} activities halved`);
     console.log(`  C snapshots:       ${snapshotStats.reduce((s, x) => s + x.monthsCreated, 0)} rows on ${snapshotStats.length} items, ${snapshotStats.reduce((s, x) => s + x.monthsSkippedVacation, 0)} vacation-months skipped`);
     console.log(`  D phantom cleanup: ${phaseResults.D ?? 0} items reset`);
+    console.log(`  A2 mask supplier:  ${phaseResults.A2?.updated ?? 0} mask(s) assigned to Adere`);
+    console.log(`  G supplier backfill: ${phaseResults.G?.backfilled ?? 0} orders backfilled, ${phaseResults.G?.ambiguous ?? 0} ambiguous, ${phaseResults.G?.noHint ?? 0} no-hint`);
+    console.log(`  H doubling flags:  ${phaseResults.H?.candidates ?? 0} candidates (see notes column — no auto-action)`);
+    console.log(`  J cent/unit flags: ${phaseResults.J?.candidates ?? 0} candidates (see notes column — no auto-action)`);
     console.log(`  E recompute:       ${phaseResults.E?.processed ?? 0} items (${phaseResults.E?.errors ?? 0} errors)`);
     console.log(`  F abc/xyz:         ${phaseResults.F?.classified ?? 0} classified, ${phaseResults.F?.xyzPopulated ?? 0} got XYZ`);
     console.log(`  E' recompute:      ${phaseResults.E2?.processed ?? 0} items (${phaseResults.E2?.errors ?? 0} errors) — rp/max with real ABC/XYZ`);
+    console.log(`  I schedule seeds:  ${phaseResults.I?.created ?? 0} created, ${phaseResults.I?.wiped ?? 0} wiped pre-run, ${phaseResults.I?.emptyMembership ?? 0} empty`);
     console.log(`\nBy category (after):`);
     for (const [cat, c] of [...byCat.entries()].sort((a, b) => b[1].total - a[1].total)) {
       console.log(`  ${cat.padEnd(20)} total=${String(c.total).padStart(4)}  changed=${String(c.changed).padStart(4)}`);

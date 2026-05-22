@@ -6,8 +6,10 @@ import {
   Prisma,
   ReconciliationAlias,
   ReconciliationAliasSource,
-  ReconciliationMatchStatus,
+  ReconciliationCategory,
   ReconciliationMatchType,
+  ReconciliationSource,
+  ReconciliationStatus,
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { MatchCandidate } from './types/reconciliation.types';
@@ -60,12 +62,20 @@ function valueScore(txAmount: number, docTotal: number): number {
 
 function dateScore(postedAt: Date, issueDate: Date): number {
   const diff = Math.abs(postedAt.getTime() - issueDate.getTime()) / 86_400_000;
+  // Curve tuned for Brazilian B2B payment lag: same-day PIX (≤1d) is rare,
+  // 7-15 day boleto windows are routine, 30-60 day duplicatas are common.
+  // The pre-tuned curve treated the 10-day window as weak signal (10/20),
+  // which made perfect-value + same-root-CNPJ + identical-name cases score
+  // 84 and fall short of the 90 auto-match threshold even though they were
+  // deterministic in practice.
   if (diff <= 1) return 20;
-  if (diff <= 3) return 17;
-  if (diff <= 5) return 14;
-  if (diff <= 10) return 10;
-  if (diff <= 20) return 5;
-  if (diff <= 30) return 2;
+  if (diff <= 3) return 18;
+  if (diff <= 5) return 16;
+  if (diff <= 10) return 14;
+  if (diff <= 15) return 11;
+  if (diff <= 20) return 7;
+  if (diff <= 30) return 4;
+  if (diff <= 45) return 2;
   return 0;
 }
 
@@ -86,10 +96,15 @@ function cnpjScore(
   if (counterparty === doc.destCpf) return { score: 30, exact: true, rootOnly: false, side: 'dest' };
   const root = cnpjRoot(counterparty);
   if (root) {
+    // Same parent CNPJ + different filial is a *strong* signal in Brazilian
+    // B2B — a holding routinely settles invoices from any of its filiais
+    // (e.g. CNPJ 07706588000142 paying for an NF emitted by 07706588000223).
+    // Score it 26/30 (was 24) so the perfect-value + identical-name combo
+    // can clear the 90 auto-match threshold without slipping false positives.
     if (doc.emitCnpj && cnpjRoot(doc.emitCnpj) === root)
-      return { score: 24, exact: false, rootOnly: true, side: 'emit' };
+      return { score: 26, exact: false, rootOnly: true, side: 'emit' };
     if (doc.destCnpj && cnpjRoot(doc.destCnpj) === root)
-      return { score: 24, exact: false, rootOnly: true, side: 'dest' };
+      return { score: 26, exact: false, rootOnly: true, side: 'dest' };
   }
   return { score: 0, exact: false, rootOnly: false, side: null };
 }
@@ -174,6 +189,25 @@ function scoreCandidate(
   else if (n >= 8) reasons.push('Razão social compatível');
   else if (n > 0) reasons.push('Razão social parcial');
 
+  // Deterministic-trio floor: when value is cents-exact AND the names align
+  // strongly AND the CNPJ is at least a root match, the date essentially
+  // doesn't matter — a coincident perfect amount + same name + same corporate
+  // group at a different filial happens by accident essentially never. Floor
+  // the total at 95 so the auto-match gate fires regardless of payment lag
+  // (boleto windows of 30-60 days are routine in BR B2B).
+  //
+  // SAFETY: the gate also enforces an 8-point runner-up gap. If two NFs from
+  // the same supplier tie the trio, both clamp to 95, gap collapses to 0, and
+  // no auto-confirm happens — the user is asked to disambiguate.
+  const trioCertainty = v === 35 && n === 15 && (c.exact || c.rootOnly);
+  const rawTotal = v + d + c.score + n;
+  const finalTotal = trioCertainty
+    ? Math.max(95, Math.min(100, rawTotal))
+    : Math.min(100, rawTotal);
+  if (trioCertainty) {
+    reasons.push('Combinação determinística (valor + nome + grupo)');
+  }
+
   const matchType: ReconciliationMatchType = c.exact && !aliasAssisted
     ? ReconciliationMatchType.EXACT
     : c.rootOnly
@@ -183,7 +217,7 @@ function scoreCandidate(
         : ReconciliationMatchType.FUZZY;
 
   return {
-    total: Math.min(100, v + d + c.score + n),
+    total: finalTotal,
     reasons,
     matchType,
     parts: { value: v, date: d, cnpj: c.score, name: n },
@@ -201,7 +235,8 @@ interface RawTransaction {
   counterpartyName?: string | null;
   memo?: string | null;
   bankSlipId: string | null;
-  matchStatus: ReconciliationMatchStatus;
+  reconciliationStatus: ReconciliationStatus;
+  category: ReconciliationCategory;
 }
 
 interface RawDocument {
@@ -228,12 +263,17 @@ export class ReconciliationMatcherService {
   ) {}
 
   /**
-   * Re-runs auto-matching for ALL currently UNMATCHED transactions regardless of date.
+   * Re-runs auto-matching for ALL PENDING NF transactions regardless of date.
    * Used by the "Re-executar" global action on the transactions list page.
+   * Self-justifying categories (TARIFA, FOLHA, etc.) are never re-matched —
+   * they have no FiscalDocument to look up against.
    */
   async matchAll(): Promise<number> {
     const txs = await this.prisma.bankTransaction.findMany({
-      where: { matchStatus: ReconciliationMatchStatus.UNMATCHED },
+      where: {
+        reconciliationStatus: ReconciliationStatus.PENDING,
+        category: ReconciliationCategory.NF,
+      },
       select: {
         id: true,
         postedAt: true,
@@ -243,7 +283,8 @@ export class ReconciliationMatcherService {
         counterpartyName: true,
         memo: true,
         bankSlipId: true,
-        matchStatus: true,
+        reconciliationStatus: true,
+        category: true,
       },
     });
     let matched = 0;
@@ -255,12 +296,13 @@ export class ReconciliationMatcherService {
   }
 
   /**
-   * Re-runs auto-matching for UNMATCHED transactions in a date range.
+   * Re-runs auto-matching for PENDING NF transactions in a date range.
    */
   async matchDateRange(start: Date, end: Date): Promise<number> {
     const txs = await this.prisma.bankTransaction.findMany({
       where: {
-        matchStatus: ReconciliationMatchStatus.UNMATCHED,
+        reconciliationStatus: ReconciliationStatus.PENDING,
+        category: ReconciliationCategory.NF,
         postedAt: { gte: start, lte: end },
       },
       select: {
@@ -272,7 +314,8 @@ export class ReconciliationMatcherService {
         counterpartyName: true,
         memo: true,
         bankSlipId: true,
-        matchStatus: true,
+        reconciliationStatus: true,
+        category: true,
       },
     });
     let matched = 0;
@@ -288,9 +331,13 @@ export class ReconciliationMatcherService {
    * created. CONSERVATIVE: only Pass 0 (boleto bridge) and Pass 1 (exact value +
    * CNPJ + date window) auto-confirm. Passes 2/3 are exposed as candidates
    * through `getCandidatesForTransaction()` for the manual-match UI.
+   *
+   * Only NF-category transactions are matched against FiscalDocument; everything
+   * else is already self-justifying (reconciled by the classifier).
    */
   async matchTransaction(tx: RawTransaction): Promise<boolean> {
     if (tx.bankSlipId) return false;
+    if (tx.category !== ReconciliationCategory.NF) return false;
 
     // Pass 0 — Boleto bridge (CREDITs only)
     if (tx.type === BankTransactionType.CREDIT) {
@@ -488,7 +535,9 @@ export class ReconciliationMatcherService {
         where: { id: tx.id },
         data: {
           bankSlipId: slip.id,
-          matchStatus: ReconciliationMatchStatus.AUTO_MATCHED,
+          reconciliationStatus: ReconciliationStatus.RECONCILED,
+          reconciliationSource: ReconciliationSource.AUTO,
+          category: ReconciliationCategory.NF,
         },
       });
       await tx2.reconciliationMatch.create({
@@ -623,27 +672,41 @@ export class ReconciliationMatcherService {
     const best = scored[0];
     const runnerUp = scored[1];
 
-    // Path A — Perfect CNPJ + perfect value (Δ ≤ R$ 0,50).
-    // Single unified tolerance: covers PIX fees, fiscal rounding and small
-    // adjustments without splitting into "cents" vs "R$ 1" tiers.
-    // Date is irrelevant when both signals align: B2B payments routinely
-    // settle weeks or months after the NF is issued. The CNPJ may come from
-    // the OFX memo directly OR from a learned alias (gated by
-    // AUTO_MATCH_MIN_ALIAS_CONFIDENCE above).
-    const isBestPerfect =
-      best.score.cnpj.exact &&
-      best.score.parts.value === 35;
+    // Path A — Strong-signal auto-match. Two flavors:
+    //   (i)  Value perfect (Δ ≤ R$ 0,50) + CNPJ exact — date is irrelevant
+    //        when both align; B2B payments routinely lag weeks behind NF
+    //        issue. CNPJ may come from the OFX memo OR from a high-confidence
+    //        learned alias (gated by AUTO_MATCH_MIN_ALIAS_CONFIDENCE above).
+    //   (ii) Value perfect + CNPJ root match + name ≥ 0.8 ("trio") — same
+    //        corporate group at a different filial paying for a same-name
+    //        supplier with the exact amount is also deterministic.
+    //
+    // Past-dated guard: best.issueDate must be on/before payment (5d buffer
+    // for OFX timestamp jitter). Future-dated NFs almost never represent the
+    // NF this debit is paying for — keep them visible as candidates but never
+    // auto-confirm them.
+    const isStrongMatch = (s: CandidateScore): boolean =>
+      s.parts.value === 35 &&
+      (s.cnpj.exact || (s.cnpj.rootOnly && s.parts.name === 15));
+
+    const PAST_DATED_BUFFER_MS = 5 * 86_400_000;
+    const isPastDated = (issueDate: Date): boolean =>
+      issueDate.getTime() <= tx.postedAt.getTime() + PAST_DATED_BUFFER_MS;
+
+    const isBestPerfect = isStrongMatch(best.score) && isPastDated(best.doc.issueDate);
     const isRunnerUpPerfect =
       !!runnerUp &&
-      runnerUp.score.cnpj.exact &&
-      runnerUp.score.parts.value === 35;
+      isStrongMatch(runnerUp.score) &&
+      isPastDated(runnerUp.doc.issueDate);
 
     let acceptPerfect = isBestPerfect && !isRunnerUpPerfect;
 
-    // Multiple equally-perfect candidates (recurring monthly invoices for the
-    // same amount): disambiguate by date proximity. 30 days ≈ one billing
-    // cycle, so requiring that much separation keeps us from picking the
-    // wrong month when two unpaid invoices are close together.
+    // Multiple equally-strong candidates (recurring weekly/monthly invoices
+    // for the same amount): disambiguate by date proximity. Require best to
+    // be at least 3 days closer to the payment than the runner-up — enough
+    // to differentiate weekly billers (Kurica, COPEL) without picking the
+    // wrong NF when two are issued within 48h of each other.
+    const PROXIMITY_GAP_DAYS = 3;
     let perfectChoiceReason: string | null = null;
     if (isBestPerfect && isRunnerUpPerfect) {
       const bestDays =
@@ -651,11 +714,11 @@ export class ReconciliationMatcherService {
       const runnerDays =
         Math.abs(tx.postedAt.getTime() - runnerUp!.doc.issueDate.getTime()) /
         86_400_000;
-      if (runnerDays - bestDays >= 30) {
+      if (runnerDays - bestDays >= PROXIMITY_GAP_DAYS) {
         acceptPerfect = true;
         perfectChoiceReason = `Nota mais próxima da data do pagamento (${Math.round(
           bestDays,
-        )} dias contra ${Math.round(runnerDays)} da segunda candidata)`;
+        )}d contra ${Math.round(runnerDays)}d da segunda candidata)`;
       }
     }
 
@@ -685,7 +748,10 @@ export class ReconciliationMatcherService {
     await this.prisma.$transaction(async tx2 => {
       await tx2.bankTransaction.update({
         where: { id: tx.id },
-        data: { matchStatus: ReconciliationMatchStatus.AUTO_MATCHED },
+        data: {
+          reconciliationStatus: ReconciliationStatus.RECONCILED,
+          reconciliationSource: ReconciliationSource.AUTO,
+        },
       });
       await tx2.reconciliationMatch.create({
         data: {
@@ -739,7 +805,7 @@ export class ReconciliationMatcherService {
       const candidates = await this.prisma.bankTransaction.findMany({
         where: {
           bankSlipId: null,
-          matchStatus: ReconciliationMatchStatus.UNMATCHED,
+          reconciliationStatus: ReconciliationStatus.PENDING,
           type: BankTransactionType.CREDIT,
           postedAt: { gte: lower, lte: upper },
           amount: { gte: payload.paidAmount - 0.05, lte: payload.paidAmount + 0.05 },
@@ -753,7 +819,9 @@ export class ReconciliationMatcherService {
           where: { id: tx.id },
           data: {
             bankSlipId: payload.bankSlipId,
-            matchStatus: ReconciliationMatchStatus.AUTO_MATCHED,
+            reconciliationStatus: ReconciliationStatus.RECONCILED,
+            reconciliationSource: ReconciliationSource.AUTO,
+            category: ReconciliationCategory.NF,
           },
         });
         await tx2.reconciliationMatch.create({

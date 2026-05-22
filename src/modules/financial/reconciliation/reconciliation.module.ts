@@ -11,6 +11,7 @@ import { ReconciliationScheduler } from './reconciliation.scheduler';
 import { OfxParserService } from './ofx-parser.service';
 import { ManualXmlImportService } from './manual-xml-import.service';
 import { ReconciliationAliasService } from './reconciliation-alias.service';
+import { ReconciliationClassifierService } from './reconciliation-classifier.service';
 
 @Module({
   imports: [ConfigModule, PrismaModule, forwardRef(() => SiegModule)],
@@ -24,7 +25,13 @@ import { ReconciliationAliasService } from './reconciliation-alias.service';
     OfxParserService,
     ManualXmlImportService,
     ReconciliationAliasService,
+    ReconciliationClassifierService,
   ],
-  exports: [ReconciliationService, ReconciliationMatcherService, ReconciliationAliasService],
+  exports: [
+    ReconciliationService,
+    ReconciliationMatcherService,
+    ReconciliationAliasService,
+    ReconciliationClassifierService,
+  ],
 })
 export class ReconciliationModule {}

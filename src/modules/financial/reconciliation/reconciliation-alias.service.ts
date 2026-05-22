@@ -4,6 +4,7 @@ import {
   Prisma,
   ReconciliationAlias,
   ReconciliationAliasSource,
+  ReconciliationCategory,
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { memoFingerprint } from './text-normalization';
@@ -128,6 +129,10 @@ export class ReconciliationAliasService {
     txType: BankTransactionType;
     counterpartyCnpjCpf: string;
     source: ReconciliationAliasSource;
+    // Optional. When set, the alias remembers a category to apply on future
+    // imports — used for PRO_LABORE/ALUGUEL and other manually-tagged buckets.
+    // A null/undefined value never overwrites an existing category.
+    category?: ReconciliationCategory | null;
     prismaTx?: Prisma.TransactionClient;
   }): Promise<ReconciliationAlias | null> {
     const fp = memoFingerprint(opts.memo);
@@ -151,6 +156,7 @@ export class ReconciliationAliasService {
         counterpartyCnpjCpf: counterparty,
         txType: opts.txType,
         source: opts.source,
+        category: opts.category ?? null,
         confirmedCount: 1,
         rejectedCount: 0,
         firstObservedAt: now,
@@ -159,6 +165,9 @@ export class ReconciliationAliasService {
       update: {
         confirmedCount: { increment: 1 },
         lastConfirmedAt: now,
+        // Category is only written when the caller passed one — null doesn't
+        // overwrite a previously learned category.
+        ...(opts.category ? { category: opts.category } : {}),
         // Manual confirmations upgrade provenance and clear soft-disable.
         // Auto confirmations never downgrade an existing manual record.
         ...(opts.source === ReconciliationAliasSource.MANUAL_MATCH

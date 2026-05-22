@@ -157,9 +157,45 @@ export const Z_BY_ABC: Record<ABC_CATEGORY | 'DEFAULT', number> = {
   DEFAULT: 1.645,
 };
 
+/** Service-level multiplier applied to the LOW-DATA matrix safety factor
+ *  (Layer 2 only). Mirrors the role of Z_BY_ABC for the statistical layer:
+ *  A-class items get more safety, C-class less. Without this, A and C in
+ *  the same XYZ bucket get the same matrix factor, which under-protects A. */
+export const SERVICE_LEVEL_MULTIPLIER_BY_ABC: Record<ABC_CATEGORY | 'DEFAULT', number> = {
+  A: 1.30,
+  B: 1.10,
+  C: 0.95,
+  DEFAULT: 1.0,
+};
+
+/** Lead-time uncertainty buffer expressed in days of average daily demand.
+ *  Added on top of every layer's safety stock. Closes the gap left by σ_LT
+ *  being unmeasurable until `fulfilledAt` data is cleaned (see deep-migration
+ *  notes). Per ABC: A-class items shoulder more delay-risk cost than C. */
+export const LEAD_TIME_BUFFER_DAYS_BY_ABC: Record<ABC_CATEGORY | 'DEFAULT', number> = {
+  A: 5,
+  B: 3,
+  C: 1,
+  DEFAULT: 2,
+};
+
+/** Cap on the LT-buffer portion of safety stock, as a fraction of cycleStock.
+ *  Prevents pathological inflation on items with very short lead times where
+ *  `LEAD_TIME_BUFFER_DAYS` could otherwise dwarf the actual cycle. */
+export const LEAD_TIME_BUFFER_CYCLE_CAP = 0.4;
+
 /** Minimum non-zero months of history required before the statistical layer
  *  (z × σ × √LT) is trusted. Below this, the low-data matrix is used. */
 export const STATISTICAL_LAYER_MIN_MONTHS = 6;
+
+/** Global conservative uplift applied to every computed reorderPoint. Set
+ *  while the inventory data still contains historical contamination (un-
+ *  distributed INVENTORY_COUNT spikes, item-doubling workarounds, NULL
+ *  supplierId orders, etc.). Multiply applied at the *end* of
+ *  `calculateReorderPoint` so all three authoritative write paths
+ *  (item-recompute, inventory-cron, auto-order) inherit it. Set to 1.0 to
+ *  remove the uplift entirely once data quality is verified clean. */
+export const CONSERVATIVE_RP_UPLIFT = 1.10;
 
 /** Order-frequency bucket → minimum targetStockDays. Combined with the
  *  ABC/XYZ matrix by taking the HIGHER of the two days values. A bucket of
