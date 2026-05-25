@@ -1726,6 +1726,8 @@ export const orderScheduleCreateSchema = z
       })
       .optional(),
 
+    supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).nullable().optional(),
+
     // Legacy nested schedule objects (for backwards compatibility)
     weeklySchedule: weeklyScheduleSchema.optional(),
     monthlySchedule: monthlyScheduleSchema.optional(),
@@ -1796,6 +1798,8 @@ export const orderScheduleUpdateSchema = z
       })
       .nullable()
       .optional(),
+
+    supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).nullable().optional(),
 
     // Legacy nested schedule objects (for backwards compatibility)
     weeklySchedule: weeklyScheduleSchema.optional(),
