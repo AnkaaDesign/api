@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import {
   BankTransactionType,
@@ -15,6 +16,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { MatchCandidate } from './types/reconciliation.types';
 import { nameSimilarity } from './text-normalization';
 import { ReconciliationAliasService } from './reconciliation-alias.service';
+import { isMarketplaceMemo } from './marketplace';
 
 const EXACT_DATE_WINDOW_DAYS = 5;
 const VALUE_DATE_WINDOW_DAYS = 3;
@@ -42,6 +44,18 @@ const AUTO_MATCH_VALUE_TOLERANCE = 1.0;
 // the synthetic counterparty in the auto-match Pass 1. Below this we still
 // surface it as a candidate in the manual UI, but we don't auto-confirm.
 const AUTO_MATCH_MIN_ALIAS_CONFIDENCE = 0.9;
+// Marketplace payments (Mercado Livre/Pago) carry the intermediary's CNPJ, not
+// the seller's, so they can only be matched by value. Symmetric window around
+// the payment: the seller's NF is usually issued at purchase/shipping time, a
+// few days either side of the debit. A NF that lands further out stays PENDING
+// and surfaces in the manual UI — never silently mismatched.
+const MARKETPLACE_DATE_WINDOW_DAYS = 15;
+// Value-only matches carry less corroborating signal than CNPJ+value, so they
+// land below the 90 auto-match threshold to read as "auto, but verify" in audit.
+const MARKETPLACE_MATCH_CONFIDENCE = 80;
+// Company CNPJ fallback, mirrored from SiegXmlParserService so marketplace
+// matching scopes to our own purchases even when COMPANY_CNPJ is unset in dev.
+const DEFAULT_COMPANY_CNPJ = '13636938000144';
 
 function cnpjRoot(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -256,11 +270,16 @@ interface RawDocument {
 @Injectable()
 export class ReconciliationMatcherService {
   private readonly logger = new Logger(ReconciliationMatcherService.name);
+  private readonly companyCnpj: string;
 
   constructor(
     @Inject(forwardRef(() => PrismaService)) private readonly prisma: PrismaService,
     private readonly aliasService: ReconciliationAliasService,
-  ) {}
+    private readonly config: ConfigService,
+  ) {
+    this.companyCnpj =
+      this.config.get<string>('COMPANY_CNPJ') || DEFAULT_COMPANY_CNPJ;
+  }
 
   /**
    * Re-runs auto-matching for ALL PENDING NF transactions regardless of date.
@@ -345,6 +364,16 @@ export class ReconciliationMatcherService {
       if (bridge) return true;
     }
 
+    // Marketplace payments (Mercado Livre/Pago, etc.) settle through an
+    // intermediary, so the memo's CNPJ is never the NF emitter — the CNPJ-based
+    // exact pass below can't ever match them. Match on value alone instead,
+    // gated by uniqueness. This is a terminal pass: if it can't find a single
+    // unambiguous purchase, running tryExactMatch with the intermediary CNPJ
+    // would only waste a query (and risk an accidental hit), so we stop here.
+    if (tx.type === BankTransactionType.DEBIT && isMarketplaceMemo(tx.memo)) {
+      return this.tryMarketplaceValueMatch(tx);
+    }
+
     // Pass 1 — Exact (value + counterparty CNPJ + date ±5d)
     const exact = await this.tryExactMatch(tx);
     if (exact) return true;
@@ -398,12 +427,18 @@ export class ReconciliationMatcherService {
     const dateLower = new Date(tx.postedAt.getTime() - dateWindow * 86_400_000);
     const dateUpper = new Date(tx.postedAt.getTime() + dateWindow * 86_400_000);
 
+    // Marketplace memos carry the payment intermediary's CNPJ, which never
+    // matches the NF emitter — so ignore CNPJ entirely (both the OFX one and any
+    // learned alias) and let candidate lookup fall through to value+date
+    // proximity, mirroring the value-only auto pass.
+    const marketplace = isMarketplaceMemo(tx.memo);
+
     // Manual UI: consult the alias even at lower confidence — the user is in
     // the loop and we want to surface plausible candidates aggressively. The
     // confidence factor still reduces the score so a weakly-attested alias
     // doesn't pretend to be a confirmed CNPJ match.
     let aliasContext: AliasContext | null = null;
-    if (!tx.counterpartyCnpjCpf) {
+    if (!tx.counterpartyCnpjCpf && !marketplace) {
       const alias = await this.aliasService.resolve(tx.memo ?? null, tx.type);
       if (alias) {
         const confidence = this.aliasService.aliasConfidence(alias);
@@ -417,8 +452,9 @@ export class ReconciliationMatcherService {
       }
     }
 
-    const counterparty =
-      tx.counterpartyCnpjCpf || aliasContext?.effectiveCnpj || null;
+    const counterparty = marketplace
+      ? null
+      : tx.counterpartyCnpjCpf || aliasContext?.effectiveCnpj || null;
     const root = cnpjRoot(counterparty);
 
     const baseWhere: Prisma.FiscalDocumentWhereInput = {
@@ -781,6 +817,96 @@ export class ReconciliationMatcherService {
             this.logger.warn(`Alias capture failed in tryExactMatch: ${err}`),
           );
       }
+    });
+
+    return true;
+  }
+
+  /**
+   * Value-only auto-match for marketplace payments (Mercado Livre/Pago, etc.).
+   *
+   * These settle to a payment intermediary, so the memo CNPJ never matches the
+   * NF emitter — the only link is the amount. We compensate for the missing
+   * CNPJ/name signals with three hard constraints:
+   *   1. Scope to our own purchases: AUTHORIZED, ENTRADA, destCnpj = COMPANY_CNPJ.
+   *      This makes it impossible to ever match one of our outgoing sales (SAIDA)
+   *      that happens to share the value.
+   *   2. Value within PERFECT_VALUE_TOLERANCE (absorbs centavo rounding).
+   *   3. Exactly one unmatched candidate in the date window. Two+ equal-value
+   *      purchases are ambiguous on value alone, so we defer to manual review
+   *      rather than guess.
+   *
+   * Returns true only when a single unambiguous purchase is found and linked.
+   */
+  private async tryMarketplaceValueMatch(tx: RawTransaction): Promise<boolean> {
+    const absAmount = Math.abs(Number(tx.amount));
+    const lower = new Date(tx.postedAt.getTime() - MARKETPLACE_DATE_WINDOW_DAYS * 86_400_000);
+    const upper = new Date(tx.postedAt.getTime() + MARKETPLACE_DATE_WINDOW_DAYS * 86_400_000);
+
+    const candidates = await this.prisma.fiscalDocument.findMany({
+      where: {
+        status: 'AUTHORIZED',
+        operationType: FiscalDocumentOperation.ENTRADA,
+        destCnpj: this.companyCnpj,
+        totalValue: {
+          gte: absAmount - PERFECT_VALUE_TOLERANCE,
+          lte: absAmount + PERFECT_VALUE_TOLERANCE,
+        },
+        issueDate: { gte: lower, lte: upper },
+        matches: { none: {} },
+      },
+      // Pull a couple extra so we can detect (and refuse) ambiguity.
+      take: 5,
+      select: {
+        id: true,
+        totalValue: true,
+        issueDate: true,
+        emitCnpj: true,
+        emitName: true,
+      },
+    });
+
+    if (candidates.length === 0) return false;
+
+    // Ambiguity guard: value is the only signal here, so more than one
+    // equal-value purchase in the window can't be disambiguated safely. Leave
+    // it PENDING — getCandidatesForTransaction() surfaces all of them for the
+    // user to pick from in the manual UI.
+    if (candidates.length > 1) {
+      this.logger.debug(
+        `Marketplace tx ${tx.id}: ${candidates.length} equal-value purchases in window — deferring to manual match`,
+      );
+      return false;
+    }
+
+    const doc = candidates[0];
+    const diff = Math.abs(absAmount - Number(doc.totalValue));
+    const days = Math.round(
+      Math.abs(tx.postedAt.getTime() - doc.issueDate.getTime()) / 86_400_000,
+    );
+
+    await this.prisma.$transaction(async tx2 => {
+      await tx2.bankTransaction.update({
+        where: { id: tx.id },
+        data: {
+          reconciliationStatus: ReconciliationStatus.RECONCILED,
+          reconciliationSource: ReconciliationSource.AUTO,
+        },
+      });
+      await tx2.reconciliationMatch.create({
+        data: {
+          transactionId: tx.id,
+          fiscalDocumentId: doc.id,
+          allocatedAmount: absAmount,
+          matchType: ReconciliationMatchType.VALUE_DATE,
+          confidenceScore: MARKETPLACE_MATCH_CONFIDENCE,
+          notes: `Pareamento marketplace por valor${
+            diff <= 0.05 ? ' idêntico' : ` equivalente (Δ R$ ${diff.toFixed(2)})`
+          } • compra única no período (${days} ${days === 1 ? 'dia' : 'dias'}) • ${
+            doc.emitName ?? doc.emitCnpj
+          }`,
+        },
+      });
     });
 
     return true;

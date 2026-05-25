@@ -3303,6 +3303,16 @@ export class BonusService {
       adjustment: number;
     }>;
     salaryRange?: { min: number; max: number };
+    /**
+     * Period the simulation targets. When provided and the caller did NOT
+     * pass an explicit `config.adjustment`, the saved period reajuste
+     * (BonusPeriodConfig) is injected so the simulation matches the real,
+     * saved bonus to the cent. This is the single place that guarantees
+     * every simulator (web + mobile) applies the same adjustment — no client
+     * can forget it.
+     */
+    year?: number;
+    month?: number;
     b1Sweep?: {
       salary: number;
       performanceLevel: number;
@@ -3316,6 +3326,15 @@ export class BonusService {
     // when not provided.
     const ctx = await this.bonusCalculationContextService.load();
     const salaryRange = input.salaryRange ?? ctx.salaryRange;
+
+    // Resolve the effective config. If the caller didn't explicitly set an
+    // adjustment but told us the period, default it to the saved period
+    // reajuste — the same value the real bonus calc bakes in everywhere else.
+    let effectiveConfig = input.config;
+    if (input.config?.adjustment === undefined && input.year && input.month) {
+      const periodAdjustment = await this.loadPeriodAdjustmentFraction(input.year, input.month);
+      effectiveConfig = { ...input.config, adjustment: periodAdjustment };
+    }
 
     const usersWithSalaries = input.users.map(u => ({
       ...u,
@@ -3333,7 +3352,7 @@ export class BonusService {
       usersWithSalaries,
       input.averageTasksPerUser,
       salaryRange,
-      input.config,
+      effectiveConfig,
     );
 
     let totalBonus = 0;
@@ -3358,7 +3377,7 @@ export class BonusService {
           performanceLevel,
           averageTasksPerUser: b1,
           salaryRange,
-          config: input.config,
+          config: effectiveConfig,
         });
         b1Curve.push({ b1, bonus: r.bonus });
       }
@@ -3378,7 +3397,7 @@ export class BonusService {
           performanceLevel: 1,
           averageTasksPerUser: input.averageTasksPerUser,
           salaryRange,
-          config: input.config,
+          config: effectiveConfig,
         }).config,
       anchor: firstBreakdown?.anchor ?? 0,
       users: userResults.map(r => ({

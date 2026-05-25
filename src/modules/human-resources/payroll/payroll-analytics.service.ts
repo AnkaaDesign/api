@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { roundCurrency } from '../utils/currency-precision.util';
 import type {
   PayrollTrendItem,
   PayrollTrendsSummary,
@@ -272,7 +273,9 @@ export class PayrollAnalyticsService {
   }
 
   private round2(value: number): number {
-    return Math.round(value * 100) / 100;
+    // Delegate to the canonical currency rounding util so analytics stays in
+    // lock-step with the rest of the system (single source of truth).
+    return roundCurrency(value);
   }
 
   private resolveDateRange(filters: AnalyticsFilters): { start: Date; end: Date } {

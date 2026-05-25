@@ -9,6 +9,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ReconciliationAliasService } from './reconciliation-alias.service';
+import { isMarketplaceMemo } from './marketplace';
 
 // Transactions that aren't NF are *self-justifying* — the category itself is
 // the reconciliation. Only NF requires a FiscalDocument match to count as
@@ -37,6 +38,12 @@ const COUNTERPARTY_CATEGORY_RULES: Readonly<Record<string, ReconciliationCategor
   // Owners — pró-labore draws.
   '06856214995': ReconciliationCategory.PRO_LABORE, // Sergio Rodrigues
   '07332960923': ReconciliationCategory.PRO_LABORE, // Genivaldo Rodrigues
+
+  // Landlords — monthly rent PIX. These are paid to individuals (CPF), so there's
+  // no NF-e to match against; without this rule they fall through to NF and sit
+  // PENDING forever waiting on a fiscal document that never arrives.
+  '33034206968': ReconciliationCategory.ALUGUEL, // Marcos Antonio Pelisson
+  '70564949949': ReconciliationCategory.ALUGUEL, // Sandro Furlan Bochi
 };
 
 // Ordered: longest/most-specific patterns first so e.g. "MANUTENCAO DE TITULOS"
@@ -173,6 +180,22 @@ export class ReconciliationClassifierService {
           reason: `Regra de memo: ${rule.pattern.source.slice(0, 40)}`,
         };
       }
+    }
+
+    // 3b. Marketplace payments (Mercado Livre / Mercado Pago, etc.). The memo's
+    // CNPJ — when present — is the payment intermediary, never the store that
+    // emitted the NF, so these can't be linked by CNPJ. Tag NF (DEBIT only) so
+    // the matcher's value-only marketplace pass picks them up. Without this the
+    // no-CNPJ variant falls through to UNCLASSIFIED and the matcher never sees
+    // it. Runs after the memo rules so refunds (DEVOLUCAO PIX, CREDIT) keep
+    // their ESTORNO classification.
+    if (tx.type === BankTransactionType.DEBIT && isMarketplaceMemo(tx.memo)) {
+      return {
+        category: ReconciliationCategory.NF,
+        source: ReconciliationSource.AUTO,
+        shouldReconcile: false,
+        reason: 'Pagamento marketplace (conciliação por valor)',
+      };
     }
 
     // 4. Fallthrough: NF if we have a counterparty (matcher will try to link

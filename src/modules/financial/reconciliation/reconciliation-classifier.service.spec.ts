@@ -132,6 +132,22 @@ const PROD_SAMPLES: Array<{
     note: 'Regular supplier PIX — falls through to NF',
   },
   {
+    memo: 'PAGAMENTO PIX-PIX_DEB 10573521000191 PIX Marketplace',
+    subtype: BankTransactionSubtype.PIX,
+    type: BankTransactionType.DEBIT,
+    counterpartyCnpjCpf: '10573521000191',
+    expected: ReconciliationCategory.NF,
+    note: 'Marketplace payment (intermediary CNPJ) — NF for the value-only matcher',
+  },
+  {
+    memo: 'PAGAMENTO PIX-PIX_DEB PIX Marketplace',
+    subtype: BankTransactionSubtype.PIX,
+    type: BankTransactionType.DEBIT,
+    counterpartyCnpjCpf: null,
+    expected: ReconciliationCategory.NF,
+    note: 'Marketplace payment (no CNPJ) — NF instead of UNCLASSIFIED',
+  },
+  {
     memo: 'LIQUIDACAO BOLETO-          75222224000147 UNIMED DE LONDRINA',
     subtype: BankTransactionSubtype.BOLETO,
     type: BankTransactionType.DEBIT,
@@ -231,6 +247,35 @@ describe('ReconciliationClassifierService', () => {
     });
     expect(result.category).toBe(ReconciliationCategory.PRO_LABORE);
     expect(result.shouldReconcile).toBe(true);
+  });
+
+  it('landlord CPF auto-classifies as ALUGUEL and reconciles', async () => {
+    const result = await service.classify({
+      id: 'x',
+      memo: 'PAGAMENTO PIX-PIX_DEB   33034206968 MARCOS ANTONIO PELISSON',
+      subtype: BankTransactionSubtype.PIX,
+      type: BankTransactionType.DEBIT,
+      counterpartyCnpjCpf: '33034206968', // Marcos Antonio Pelisson
+      reconciliationStatus: ReconciliationStatus.PENDING,
+      category: ReconciliationCategory.UNCLASSIFIED,
+    });
+    expect(result.category).toBe(ReconciliationCategory.ALUGUEL);
+    expect(result.shouldReconcile).toBe(true);
+  });
+
+  it('landlord paid to a CPF never falls through to NF', async () => {
+    // Without the counterparty rule, a PIX with a parseable CPF would default to
+    // NF and wait on a fiscal document that never exists for rent.
+    const result = await service.classify({
+      id: 'x',
+      memo: 'PAGAMENTO PIX-PIX_DEB   70564949949 SANDRO FURLAN BOCHI',
+      subtype: BankTransactionSubtype.PIX,
+      type: BankTransactionType.DEBIT,
+      counterpartyCnpjCpf: '70564949949', // Sandro Furlan Bochi
+      reconciliationStatus: ReconciliationStatus.PENDING,
+      category: ReconciliationCategory.UNCLASSIFIED,
+    });
+    expect(result.category).toBe(ReconciliationCategory.ALUGUEL);
   });
 
   it('owner CPF takes precedence over memo regex', async () => {

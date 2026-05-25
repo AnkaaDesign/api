@@ -261,7 +261,10 @@ export const bonusConfigOverrideSchema = z.object({
   piso: z.number().min(0).max(0.5).optional(),
   pscale: z.number().min(0.1).max(1).optional(),
   ceil: z.number().min(1).max(10).optional(),
-  adjustment: z.number().min(-0.5).max(1).optional(),
+  // Fraction (0.05 = +5%). Range mirrors the period reajuste bounds
+  // (applyPeriodAdjustment allows roughly -100%..+100%) so an explicit
+  // override can express the same values the saved period adjustment can.
+  adjustment: z.number().min(-1).max(1).optional(),
 });
 
 export const bonusSimulateUserSchema = z
@@ -289,6 +292,15 @@ export const bonusSimulateSchema = z.object({
   users: z.array(bonusSimulateUserSchema).min(0),
   /** Optional config overrides. Falls back to default bonus parameters. */
   config: bonusConfigOverrideSchema.optional(),
+  /**
+   * Period the simulation targets. When provided and no explicit
+   * `config.adjustment` is given, the API injects the saved period reajuste
+   * so the simulation matches the real bonus. Lets clients (esp. the employee
+   * mobile simulator, which can't read the HR-only period-adjustment endpoint)
+   * get the correct adjustment without fetching it themselves.
+   */
+  year: z.number().int().min(2020).max(2030).optional(),
+  month: z.number().int().min(1).max(12).optional(),
   /**
    * Salary range for x-axis normalization. If omitted, the API computes it
    * from all bonifiable positions' "current" remuneration (recommended).
