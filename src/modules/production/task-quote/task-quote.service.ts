@@ -33,6 +33,7 @@ import type {
 } from '@types';
 import {
   TASK_QUOTE_STATUS,
+  TASK_QUOTE_STATUS_LABELS,
   CHANGE_LOG_ENTITY_TYPE,
   CHANGE_LOG_ACTION,
   ENTITY_TYPE,
@@ -610,6 +611,15 @@ export class TaskQuoteService {
 
       const currentStatus = (existing as any).status as TASK_QUOTE_STATUS;
 
+      // Whether the CLIENT explicitly sent a status in THIS request. Captured
+      // BEFORE filterToMaterialChanges, which strips a status equal to the
+      // current one. Pinning a status — even the current value — is the caller
+      // signalling "keep this status", and MUST suppress the value-edit
+      // auto-revert below. Otherwise editing a price on an approved quote while
+      // pinning its own status is still reverted to PENDING (the no-op status is
+      // stripped, the revert then sees `data.status === undefined`).
+      const clientProvidedStatus = data.status !== undefined;
+
       // ─────────────────────────────────────────────────────────────────────
       // Strip no-op fields before any validation or write.
       //
@@ -650,7 +660,7 @@ export class TaskQuoteService {
       ];
       if (
         !_internal &&
-        data.status === undefined &&
+        !clientProvidedStatus &&
         VALUE_REVERTABLE_STATUSES.includes(currentStatus) &&
         this.hasValueAffectingChange(existing, data)
       ) {
@@ -2298,8 +2308,11 @@ export class TaskQuoteService {
     currentStatus: TASK_QUOTE_STATUS,
     newStatus: TASK_QUOTE_STATUS,
   ): void {
+    // Human-readable PT-BR labels for user-facing messages (never leak raw enums).
+    const label = (s: TASK_QUOTE_STATUS) => TASK_QUOTE_STATUS_LABELS[s] ?? s;
+
     if (currentStatus === newStatus) {
-      throw new BadRequestException(`O status já é ${currentStatus}`);
+      throw new BadRequestException(`O status já é "${label(currentStatus)}".`);
     }
 
     // Explicit allowlist for manual status changes via the /status endpoint.
@@ -2339,7 +2352,7 @@ export class TaskQuoteService {
     const allowed = ALLOWED[currentStatus] ?? [];
     if (!allowed.includes(newStatus)) {
       throw new BadRequestException(
-        `Transição de status inválida: ${currentStatus} → ${newStatus}.`,
+        `Não é possível alterar o status de "${label(currentStatus)}" para "${label(newStatus)}".`,
       );
     }
   }
