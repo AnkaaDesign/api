@@ -147,6 +147,7 @@ export interface Order extends BaseEntity {
   ppeScheduleId: string | null;
   notes: string | null;
   freight: number;
+  discount: number;
   paymentMethod: PAYMENT_METHOD | null;
   paymentPix: string | null;
   paymentDueDays: number | null;

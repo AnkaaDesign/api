@@ -985,6 +985,7 @@ model Order {
   ppeScheduleId         String?
   notes                 String?
   freight               Float                @default(0)
+  discount              Float                @default(0)
   paymentMethod         PaymentMethod?
   paymentPix            String?
   paymentDueDays        Int?
