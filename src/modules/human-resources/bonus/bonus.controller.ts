@@ -239,6 +239,8 @@ export class BonusController {
       })),
       config: data.config,
       salaryRange: data.salaryRange as { min: number; max: number } | undefined,
+      year: data.year,
+      month: data.month,
       b1Sweep: data.b1Sweep
         ? {
             salary: data.b1Sweep.salary!,

@@ -40,7 +40,8 @@
     "test:optimization": "tsx tests/run-all-optimization-tests.ts",
     "test:optimization:report": "tsx tests/run-all-optimization-tests.ts && open tests/reports/latest-report.html",
     "stock:correct": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/correct-stock-metrics.ts",
-    "stock:migrate": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/inventory-deep-migration.ts"
+    "stock:migrate": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/inventory-deep-migration.ts",
+    "reconcile:marketplace": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/backfill-marketplace-reconciliation.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

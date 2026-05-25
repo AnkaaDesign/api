@@ -294,7 +294,10 @@ export class BonusDiscountPrismaRepository
       const results = await this.prisma.bonusDiscount.findMany({
         where: { bonusId },
         include: includeInput,
-        orderBy: { createdAt: 'desc' },
+        // Cascade order — discounts must be applied in calculationOrder (the
+        // same order recalculateNetBonus uses), not insertion order, so any
+        // consumer that doesn't re-sort still gets the correct net bonus.
+        orderBy: { calculationOrder: 'asc' },
       });
 
       return results.map(result => this.mapDatabaseEntityToEntity(result));
@@ -316,7 +319,8 @@ export class BonusDiscountPrismaRepository
       const results = await transaction.bonusDiscount.findMany({
         where: { bonusId },
         include: includeInput,
-        orderBy: { createdAt: 'desc' },
+        // Cascade order — see findByBonusId. Apply in calculationOrder.
+        orderBy: { calculationOrder: 'asc' },
       });
 
       return results.map(result => this.mapDatabaseEntityToEntity(result));

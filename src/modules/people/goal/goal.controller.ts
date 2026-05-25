@@ -48,8 +48,10 @@ import {
 export class GoalController {
   constructor(private readonly goalService: GoalService) {}
 
+  // Read access is open to any authenticated user: dashboard widgets read goal
+  // targets to draw their goal line (e.g. the productivity widget, available to
+  // PRODUCTION/FINANCIAL sectors). Mutations below stay restricted to ADMIN/HR.
   @Get()
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   async findMany(
     @Query(new ZodQueryValidationPipe(goalGetManySchema)) query: GoalGetManyFormData,
   ): Promise<GoalGetManyResponse> {
@@ -86,8 +88,8 @@ export class GoalController {
     return this.goalService.deleteRow(data);
   }
 
+  // Read access open to any authenticated user (see findMany above).
   @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(goalQuerySchema)) query: GoalQueryFormData,

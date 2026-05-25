@@ -890,7 +890,18 @@ export class TaskController {
   }
 
   @Post('analytics/task-production')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
+  // Production-sector users (workers + leaders) and HR may read task-production
+  // stats — this matches the dashboard "Produtividade" widget's allowedSectors
+  // so the widget never offers itself to a sector the API would 403. (HR is
+  // included because the widget lists it; PRODUCTION was added so regular
+  // production users can use the widget on mobile/web.)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+  )
   @HttpCode(HttpStatus.OK)
   @UsePipes(new ZodValidationPipe(taskProductionStatsSchema))
   async getTaskProductionStats(@Body() filters: any) {
