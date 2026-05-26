@@ -2,6 +2,9 @@ import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { CacheService } from '@modules/common/cache/cache.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
+import archiver from 'archiver';
+import WebSocket from 'ws';
+import { randomUUID } from 'crypto';
 import { SecullumToken } from '@prisma/client';
 import {
   SecullumAuthResponse,
@@ -54,6 +57,7 @@ import {
   SecullumCreateAssinaturaForUsersRequest,
   SecullumCreateAssinaturaForUsersResponse,
   SecullumCreateAssinaturaForUsersResultItem,
+  SecullumDeleteAssinaturaResponse,
   SecullumAbsenceDayRow,
   SecullumAbsenceDaysResponse,
   SecullumInclusaoPontoConfig,
@@ -82,7 +86,33 @@ export class SecullumService {
   // `secullumbancoselecionado` header.
   private readonly pontowebappBaseUrl: string;
   private readonly customerId: string;
+  // pontowebrelatorios.secullum.com.br is Secullum's report-generation service,
+  // driven over a WebSocket (custom hub protocol). The electronic-signature
+  // apuração is created here via the RelatorioCartaoPonto.Gerar hub call when a
+  // time-card is "printed" with formatoImpressao=5 (Assinatura Eletrônica de
+  // Cartão Ponto) — NOT via a REST POST. Captured in eletronic_signature.har.
+  private readonly reportWsUrl: string;
+  private readonly webClientId: string;
+  // Interactive (authorization_code) token for the report service, cached in
+  // memory separately from the password-grant API token (which REST uses).
+  private reportToken: { accessToken: string; expiresAt: number } | null = null;
   private readonly tokenCacheKey = 'secullum_auth_token';
+  // In-memory progress tracking for signature-generation jobs. The create flow
+  // holds a (potentially slow) WebSocket per employee, so the frontend starts a
+  // job, then polls its progress (atual/total forwarded from Secullum's
+  // "Progresso" events) to render an "X de N" bar like Secullum's own modal.
+  private readonly assinaturaJobs = new Map<
+    string,
+    {
+      status: 'running' | 'done' | 'error';
+      phase: string;
+      atual: number;
+      total: number;
+      result?: SecullumCreateAssinaturaForUsersResponse;
+      error?: string;
+      updatedAt: number;
+    }
+  >();
 
   constructor(
     private readonly cacheService: CacheService,
@@ -98,6 +128,12 @@ export class SecullumService {
     this.customerId = process.env.SECULLUM_CUSTOMER_ID || '118769';
     this.clientId = process.env.SECULLUM_CLIENT_ID || '3';
     this.clientSecret = process.env.SECULLUM_CLIENT_SECRET || '';
+    this.reportWsUrl =
+      process.env.SECULLUM_REPORT_WS_URL || 'wss://pontowebrelatorios.secullum.com.br/';
+    // The PontoWeb *web* OAuth client. Report/apuração writes require a token
+    // minted via this client's interactive authorization_code login (not our
+    // password-grant API token), so we replicate that flow for the report WS.
+    this.webClientId = process.env.SECULLUM_WEB_CLIENT_ID || '3001';
 
     if (!this.email || !this.password) {
       throw new Error('SECULLUM_EMAIL and SECULLUM_PASSWORD must be set in environment variables');
@@ -337,6 +373,167 @@ export class SecullumService {
         HttpStatus.UNAUTHORIZED,
       );
     }
+  }
+
+  // ===========================================================================
+  // INTERACTIVE (authorization_code) LOGIN — for the report/apuração service.
+  // The password-grant API token (authenticate()) is accepted for reads and
+  // even passes the report WS auth, but the apuração WRITE is rejected
+  // (DbUpdateException). The browser uses the PontoWeb web client (3001) via an
+  // interactive login + SalvarLogin; we replicate that to mint a token the
+  // report service accepts for writes. Captured in proxyman_wss.har.
+  // ===========================================================================
+
+  private async getReportToken(): Promise<string> {
+    // 60s safety margin before expiry.
+    if (this.reportToken && this.reportToken.expiresAt - Date.now() > 60_000) {
+      return this.reportToken.accessToken;
+    }
+    const { accessToken, expiresIn } = await this.authenticateInteractive();
+    this.reportToken = {
+      accessToken,
+      expiresAt: Date.now() + (expiresIn || 3600) * 1000,
+    };
+    return accessToken;
+  }
+
+  // Merge a response's Set-Cookie array into a name→value cookie jar.
+  private mergeCookies(jar: Map<string, string>, setCookie?: string[]): void {
+    for (const c of setCookie ?? []) {
+      const first = c.split(';')[0];
+      const eq = first.indexOf('=');
+      if (eq > 0) jar.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());
+    }
+  }
+
+  private cookieHeader(jar: Map<string, string>): string {
+    return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+  }
+
+  private async authenticateInteractive(): Promise<{
+    accessToken: string;
+    expiresIn: number;
+  }> {
+    if (!this.email || !this.password) {
+      throw new Error('Secullum credentials not configured');
+    }
+    const authBase = this.authUrl.replace(/\/Token$/i, ''); // https://autenticador.secullum.com.br
+    const redirectUri = `${this.baseUrl}/Auth`;
+    const authorizeUrl =
+      `${authBase}/Authorization?response_type=code&client_id=${this.webClientId}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    const jar = new Map<string, string>();
+    const UA =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36';
+
+    this.logger.log(`Interactive login: GET ${authorizeUrl}`);
+    // 1) GET the login page → antiforgery cookie + hidden __RequestVerificationToken.
+    const pageRes = await axios.get(authorizeUrl, {
+      headers: { 'User-Agent': UA },
+      timeout: 15000,
+      maxRedirects: 5,
+      validateStatus: (s) => s >= 200 && s < 400,
+    });
+    this.mergeCookies(jar, pageRes.headers['set-cookie'] as string[] | undefined);
+    const html: string = typeof pageRes.data === 'string' ? pageRes.data : '';
+    const tokenMatch =
+      html.match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/i) ||
+      html.match(/value="([^"]+)"[^>]*name="__RequestVerificationToken"/i);
+    const verification = tokenMatch?.[1] ?? '';
+    if (!verification) {
+      this.logger.warn(
+        'Interactive login: __RequestVerificationToken not found in login page HTML — POST may be rejected',
+      );
+    }
+
+    // 2) POST credentials → 302 to redirect_uri with ?code=...
+    const form = new URLSearchParams();
+    form.append('Email', this.email);
+    form.append('Senha', this.password);
+    form.append('ContinuarConectado', 'false');
+    form.append('action:Login', 'Login');
+    form.append('ClienteId', this.webClientId);
+    form.append('RedirectUri', redirectUri);
+    if (verification) form.append('__RequestVerificationToken', verification);
+
+    const postRes = await axios.post(authorizeUrl, form.toString(), {
+      headers: {
+        'User-Agent': UA,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: this.cookieHeader(jar),
+      },
+      timeout: 15000,
+      maxRedirects: 0,
+      validateStatus: (s) => s >= 200 && s < 400,
+    });
+    this.mergeCookies(jar, postRes.headers['set-cookie'] as string[] | undefined);
+    const location: string = postRes.headers['location'] || '';
+    const code = location.match(/[?&]code=([^&]+)/)?.[1];
+    if (!code) {
+      throw new Error(
+        `Interactive login failed: no authorization code in redirect (status ${postRes.status}, location "${location.slice(0, 80)}"). Check credentials / antiforgery token.`,
+      );
+    }
+    this.logger.log('Interactive login: received authorization code');
+
+    // 3) Hit the redirect_uri so PontoWeb registers the session cookie (axpw_cod).
+    try {
+      const authRes = await axios.get(
+        `${redirectUri}?code=${code}`,
+        {
+          headers: { 'User-Agent': UA, Cookie: this.cookieHeader(jar) },
+          timeout: 15000,
+          maxRedirects: 0,
+          validateStatus: (s) => s >= 200 && s < 400,
+        },
+      );
+      this.mergeCookies(jar, authRes.headers['set-cookie'] as string[] | undefined);
+    } catch (err) {
+      this.logger.warn(`Interactive login: /Auth?code step failed (continuing): ${this.getErrorMessage(err)}`);
+    }
+
+    // 4) Exchange the code for an access token (authorization_code grant).
+    const tokenForm = new URLSearchParams();
+    tokenForm.append('client_id', this.webClientId);
+    tokenForm.append('redirect_uri', redirectUri);
+    tokenForm.append('grant_type', 'authorization_code');
+    tokenForm.append('code', code);
+    const tokenRes = await axios.post(this.authUrl, tokenForm.toString(), {
+      headers: {
+        'User-Agent': UA,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: this.cookieHeader(jar),
+      },
+      timeout: 15000,
+    });
+    const accessToken: string = tokenRes.data?.access_token;
+    const expiresIn: number = tokenRes.data?.expires_in ?? 3600;
+    if (!accessToken) {
+      throw new Error('Interactive login: token endpoint returned no access_token');
+    }
+    this.logger.log('Interactive login: access_token obtained (web client)');
+
+    // 5) Mark the login session (with the interactive cookies).
+    try {
+      await axios.post(
+        `${this.baseUrl}/Usuarios/SalvarLogin`,
+        {},
+        {
+          headers: {
+            'User-Agent': UA,
+            Authorization: `Bearer ${accessToken}`,
+            secullumbancoselecionado: this.databaseId,
+            Cookie: this.cookieHeader(jar),
+          },
+          timeout: 15000,
+        },
+      );
+      this.logger.log('Interactive login: SalvarLogin session marked');
+    } catch (err) {
+      this.logger.warn(`Interactive login: SalvarLogin failed (continuing): ${this.getErrorMessage(err)}`);
+    }
+
+    return { accessToken, expiresIn };
   }
 
   private async refreshTokenWithStoredToken(storedToken: SecullumToken): Promise<string> {
@@ -2927,64 +3124,221 @@ export class SecullumService {
     }
   }
 
-  // POST /AssinaturaDigitalCartaoPonto — single-employee "Apurar" call.
-  // Body shape inferred from docs/secullum-integration/06_FINAL_LIVE_FINDINGS.md
-  // (heavy/destructive, never live-captured). Recomputes the period for the
-  // employee and dispatches a signature request to them.
+  // POST /AssinaturaDigitalCartaoPonto — "Apurar" (close calculation) call.
+  // Body shape inferred (the create POST was never live-captured); Secullum
+  // returns 400 when required fields are missing, so we send the full apuração
+  // model: Descricao (auto-generated), Compactada, the period, and the scope
+  // (FuncionarioId for single OR TodosFuncionarios for the all-employees batch).
+  // On failure we log Secullum's response body — it carries the exact
+  // validation message and is the only reliable way to confirm the real shape.
   async createAssinatura(
     payload: SecullumCreateAssinaturaRequest,
   ): Promise<SecullumCreateAssinaturaResponse> {
+    // Build a clean body: only include scope fields that apply, plus the
+    // fields every apuração entity carries (Descricao/Compactada).
+    const body: Record<string, unknown> = {
+      Descricao: payload.Descricao ?? '',
+      DataInicio: payload.DataInicio,
+      DataFim: payload.DataFim,
+      EmpresaId: payload.EmpresaId,
+      Compactada: false,
+    };
+    if (payload.TodosFuncionarios) {
+      body.TodosFuncionarios = true;
+    } else if (payload.FuncionarioId != null) {
+      body.FuncionarioId = payload.FuncionarioId;
+    }
+
     try {
       this.logger.log(
-        `Creating Secullum AssinaturaDigitalCartaoPonto: empresa=${payload.EmpresaId} funcionario=${payload.FuncionarioId} ${payload.DataInicio}..${payload.DataFim}`,
+        `Creating Secullum AssinaturaDigitalCartaoPonto: todos=${!!payload.TodosFuncionarios} funcionario=${payload.FuncionarioId ?? '-'} ${payload.DataInicio}..${payload.DataFim} desc="${payload.Descricao ?? ''}"`,
       );
       const data = await this.makeAuthenticatedRequest<SecullumAssinaturaListItem | undefined>(
         'POST',
         '/AssinaturaDigitalCartaoPonto',
-        payload,
+        body,
       );
       return {
         success: true,
         message: 'Apuração criada com sucesso',
         data: data ?? undefined,
       };
-    } catch (error) {
-      this.logger.error('Error creating assinatura batch', error);
+    } catch (error: any) {
+      // Surface Secullum's validation payload — this is what tells us which
+      // field is wrong on a 400. Without it we are guessing the body shape.
+      const status = error?.response?.status;
+      const respBody = error?.response?.data;
+      this.logger.error(
+        `Error creating assinatura (status=${status}). Secullum response: ${
+          typeof respBody === 'string' ? respBody : JSON.stringify(respBody)
+        }. Sent body: ${JSON.stringify(body)}`,
+      );
       throw new HttpException(
         {
           success: false,
           message: `Falha ao criar apuração: ${this.getErrorMessage(error)}`,
           error: this.getErrorMessage(error),
+          secullumResponse: respBody,
         },
-        error?.response?.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        status || HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
-  // Resolves internal userIds → secullumEmployeeIds and POSTs one apuração per
-  // resolved user. Mirrors createAbsenceForUsers — single-employee submit and
-  // bulk send both go through here so the frontend never handles Secullum IDs.
+  // Auto-description Secullum pre-fills before an "Apurar" (close calculation),
+  // captured in close_calculation_all.har:
+  //   GET /AssinaturaDigitalCartaoPonto/Descricao/{dataFim}/{todos}/{nome}
+  //     - todos=true  → generic "Apuração Maio/2026" (the name is ignored
+  //                     upstream; we still send a non-empty segment)
+  //     - todos=false → "Apuração NOME Maio/2026"
+  // {dataFim} is a plain YYYY-MM-DD; the response body is a JSON string.
+  // Falls back to a locally-computed description if the call fails.
+  async getAssinaturaDescricao(
+    dataFim: string,
+    todos: boolean,
+    nome: string,
+  ): Promise<string> {
+    const dateOnly = dataFim.includes('T') ? dataFim.split('T')[0] : dataFim;
+    try {
+      const nameSeg = encodeURIComponent((nome || 'Todos').trim());
+      const descricao = await this.makeAuthenticatedRequest<string>(
+        'GET',
+        `/AssinaturaDigitalCartaoPonto/Descricao/${dateOnly}/${todos}/${nameSeg}`,
+      );
+      if (typeof descricao === 'string' && descricao.trim().length > 0) {
+        return descricao.trim();
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Descricao endpoint failed, using computed fallback: ${this.getErrorMessage(error)}`,
+      );
+    }
+    return this.buildFallbackDescricao(dateOnly, todos, nome);
+  }
+
+  private buildFallbackDescricao(
+    dateOnly: string,
+    todos: boolean,
+    nome: string,
+  ): string {
+    const [year, month] = dateOnly.split('-');
+    const meses = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+    ];
+    const idx = Math.max(0, Math.min(11, (parseInt(month, 10) || 1) - 1));
+    const periodo = `${meses[idx]}/${year}`;
+    return todos || !nome ? `Apuração ${periodo}` : `Apuração ${nome} ${periodo}`;
+  }
+
+  // Start of the cartão-ponto cycle for a given DataFim: the 26th of the
+  // preceding month (the account's cutoff day, confirmed by every apuração in
+  // the live list). Handles January → December of the prior year.
+  private cartaoPontoStart(dataFim: string): string {
+    const [y, m] = dataFim.split('T')[0].split('-').map(Number);
+    let py = y;
+    let pm = m - 1;
+    if (pm < 1) {
+      pm = 12;
+      py = y - 1;
+    }
+    return `${py}-${String(pm).padStart(2, '0')}-26T00:00:00`;
+  }
+
+  // Resolves internal userIds → secullumEmployeeIds and creates signature
+  // apurações via Secullum's report WebSocket (RelatorioCartaoPonto.Gerar with
+  // formatoImpressao=5). Two paths mirror Secullum's "Print" dialog:
+  //   - applyToAll=true → ONE call with imprimirTodos=true (every employee).
+  //     Matches the "Print all employees" radio / Secullum's "Todos".
+  //   - userIds=[...]   → fan out one imprimirTodos=false call per selected
+  //     user (Secullum has no subset mode, so we compose it client-side).
+  // The frontend never handles Secullum IDs.
   async createAssinaturaForUsers(
     payload: SecullumCreateAssinaturaForUsersRequest,
+    onProgress?: (p: { phase: string; atual: number; total: number }) => void,
   ): Promise<SecullumCreateAssinaturaForUsersResponse> {
-    const where: any = { secullumEmployeeId: { not: null } };
-    if (!payload.applyToAll && payload.userIds && payload.userIds.length > 0) {
-      where.id = { in: payload.userIds };
-    } else if (!payload.applyToAll) {
-      throw new HttpException(
-        {
-          success: false,
-          message: 'Informe userIds ou applyToAll=true.',
+    // The report uses plain YYYY-MM-DD dates. The apuração must span the
+    // cartão-ponto cycle — it starts on the 26th of the month preceding
+    // DataFim for this account (every live apuração + the HAR's
+    // /Calculos/.../2026-04-26/2026-05-26 use this boundary). We derive the
+    // start from DataFim and ignore any client-supplied DataInicio.
+    const dataFinal = payload.DataFim.split('T')[0];
+    const dataInicial = this.cartaoPontoStart(dataFinal).split('T')[0];
+    this.logger.log(
+      `Assinatura period normalized to cartão-ponto cycle: ${dataInicial}..${dataFinal} (client sent DataInicio=${payload.DataInicio})`,
+    );
+
+    // The interactive report token (getReportToken, used by the WS) performs
+    // the login + SalvarLogin with the proper web-client session, so no
+    // separate session bootstrap is needed here.
+
+    // ----- ALL: one report call covering every active employee -----
+    if (payload.applyToAll) {
+      const activeUsers = await this.prismaService.user.findMany({
+        where: {
+          secullumEmployeeId: { not: null },
+          status: { in: ['EXPERIENCE_PERIOD_1', 'EXPERIENCE_PERIOD_2', 'EFFECTED'] },
         },
+        select: { id: true, name: true },
+      });
+
+      const descricao = await this.getAssinaturaDescricao(
+        dataFinal,
+        true,
+        activeUsers[0]?.name ?? 'Todos',
+      );
+
+      const totalAll = activeUsers.length || 1;
+      const allPhase = 'Gerando apuração para todos os colaboradores';
+      onProgress?.({ phase: allPhase, atual: 0, total: totalAll });
+
+      try {
+        await this.generateAssinaturaReport({
+          funcionarioId: 0,
+          imprimirTodos: true,
+          dataInicial,
+          dataFinal,
+          descricao,
+          onProgress: (atual, total) =>
+            onProgress?.({ phase: allPhase, atual, total: total || totalAll }),
+        });
+        onProgress?.({ phase: 'Concluído', atual: totalAll, total: totalAll });
+        return {
+          success: true,
+          message: 'Apuração para todos os colaboradores criada com sucesso',
+          data: {
+            created: 1,
+            failed: 0,
+            results: [
+              { userId: 'ALL', userName: `Todos (${activeUsers.length})`, ok: true },
+            ],
+          },
+        };
+      } catch (err: any) {
+        return {
+          success: false,
+          message: `Falha ao criar apuração para todos: ${this.getErrorMessage(err)}`,
+          data: {
+            created: 0,
+            failed: 1,
+            results: [
+              { userId: 'ALL', userName: 'Todos', ok: false, error: this.getErrorMessage(err) },
+            ],
+          },
+        };
+      }
+    }
+
+    // ----- SUBSET: fan out one single-employee report per selected user -----
+    if (!payload.userIds || payload.userIds.length === 0) {
+      throw new HttpException(
+        { success: false, message: 'Informe userIds ou applyToAll=true.' },
         HttpStatus.BAD_REQUEST,
       );
-    } else {
-      // applyToAll=true: limit to currently active users
-      where.status = { in: ['EXPERIENCE_PERIOD_1', 'EXPERIENCE_PERIOD_2', 'EFFECTED'] };
     }
 
     const users = await this.prismaService.user.findMany({
-      where,
+      where: { secullumEmployeeId: { not: null }, id: { in: payload.userIds } },
       select: { id: true, name: true, secullumEmployeeId: true },
     });
 
@@ -2996,62 +3350,588 @@ export class SecullumService {
       };
     }
 
-    // Normalize dates to Secullum's "YYYY-MM-DDTHH:mm:ss" format if a plain
-    // YYYY-MM-DD was passed.
-    const normDate = (d: string) => (d.includes('T') ? d : `${d}T00:00:00`);
-    const dataInicio = normDate(payload.DataInicio);
-    const dataFim = normDate(payload.DataFim);
-    const empresaId = payload.EmpresaId ?? 1;
-
-    const results: SecullumCreateAssinaturaForUsersResultItem[] = [];
-    for (const u of users) {
+    // SINGLE selected user → one single-employee apuração.
+    if (users.length === 1) {
+      const u = users[0];
       const funcionarioId = u.secullumEmployeeId!;
+      const phase = `Processando ${u.name}`;
+      onProgress?.({ phase, atual: 0, total: 1 });
       try {
-        const response = await this.createAssinatura({
-          DataInicio: dataInicio,
-          DataFim: dataFim,
-          EmpresaId: empresaId,
-          FuncionarioId: funcionarioId,
-        });
-        results.push({
-          userId: u.id,
-          userName: u.name,
+        await this.preloadCalculo(funcionarioId, dataInicial, dataFinal);
+        const descricao = await this.getAssinaturaDescricao(dataFinal, false, u.name);
+        await this.generateAssinaturaWithRetry({
           funcionarioId,
-          ok: true,
-          apuracaoId: response.data?.Id,
+          imprimirTodos: false,
+          dataInicial,
+          dataFinal,
+          descricao,
+          onProgress: (atual, t) => onProgress?.({ phase, atual, total: t || 1 }),
         });
+        onProgress?.({ phase: 'Concluído', atual: 1, total: 1 });
+        return {
+          success: true,
+          message: '1 apuração criada com sucesso',
+          data: {
+            created: 1,
+            failed: 0,
+            results: [{ userId: u.id, userName: u.name, funcionarioId, ok: true }],
+          },
+        };
       } catch (err: any) {
-        results.push({
-          userId: u.id,
-          userName: u.name,
-          funcionarioId,
-          ok: false,
-          error:
-            err?.response?.data?.message ||
-            err?.message ||
-            this.getErrorMessage(err),
-        });
+        return {
+          success: false,
+          message: `Falha ao criar apuração: ${this.getErrorMessage(err)}`,
+          data: {
+            created: 0,
+            failed: 1,
+            results: [
+              { userId: u.id, userName: u.name, funcionarioId, ok: false, error: this.getErrorMessage(err) },
+            ],
+          },
+        };
       }
     }
 
-    const created = results.filter((r) => r.ok).length;
-    const failed = results.length - created;
+    // MULTIPLE selected users → ONE grouped apuração (ListaFuncionarios), NOT a
+    // fan-out. Secullum's "Print" UI has no multi-select, but the Gerar payload
+    // carries a ListaFuncionarios array; populating it puts every selected
+    // employee's card in a single apuração (NumeroCartoes = N) instead of N
+    // separate ones.
+    const listaFuncionarios = users
+      .map((u) => u.secullumEmployeeId!)
+      .filter((n): n is number => n != null);
+    const genericDesc = await this.getAssinaturaDescricao(
+      dataFinal,
+      true,
+      users[0]?.name ?? '',
+    );
+    const descricao = `${genericDesc} - ${users.length} colaboradores`;
+    const groupPhase = `Gerando apuração para ${users.length} colaboradores selecionados`;
+    const groupResults = (ok: boolean, error?: string) =>
+      users.map((u) => ({
+        userId: u.id,
+        userName: u.name,
+        funcionarioId: u.secullumEmployeeId!,
+        ok,
+        error: ok ? undefined : error,
+      }));
 
+    onProgress?.({ phase: 'Carregando cálculos...', atual: 0, total: users.length });
+    for (const id of listaFuncionarios) {
+      await this.preloadCalculo(id, dataInicial, dataFinal);
+    }
+
+    onProgress?.({ phase: groupPhase, atual: 0, total: users.length });
+    try {
+      await this.generateAssinaturaWithRetry({
+        funcionarioId: 0,
+        imprimirTodos: false,
+        listaFuncionarios,
+        dataInicial,
+        dataFinal,
+        descricao,
+        onProgress: (atual, t) =>
+          onProgress?.({ phase: groupPhase, atual, total: t || users.length }),
+      });
+      onProgress?.({ phase: 'Concluído', atual: users.length, total: users.length });
+      return {
+        success: true,
+        message: `Apuração criada com ${users.length} colaboradores`,
+        data: { created: 1, failed: 0, results: groupResults(true) },
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Falha ao criar apuração agrupada: ${this.getErrorMessage(err)}`,
+        data: { created: 0, failed: 1, results: groupResults(false, this.getErrorMessage(err)) },
+      };
+    }
+  }
+
+  // Starts a signature-generation job in the background and returns its id
+  // immediately. The frontend polls getAssinaturaJob(jobId) for progress so it
+  // can render an "X de N" bar while the (slow) WebSocket work runs.
+  startAssinaturaForUsers(payload: SecullumCreateAssinaturaForUsersRequest): {
+    jobId: string;
+  } {
+    const jobId = randomUUID();
+    this.assinaturaJobs.set(jobId, {
+      status: 'running',
+      phase: 'Iniciando...',
+      atual: 0,
+      total: 0,
+      updatedAt: Date.now(),
+    });
+    // Fire-and-forget; errors are captured into the job, never thrown here.
+    void this.runAssinaturaJob(jobId, payload);
+    return { jobId };
+  }
+
+  private async runAssinaturaJob(
+    jobId: string,
+    payload: SecullumCreateAssinaturaForUsersRequest,
+  ): Promise<void> {
+    try {
+      const result = await this.createAssinaturaForUsers(payload, (p) => {
+        const job = this.assinaturaJobs.get(jobId);
+        if (job) {
+          job.phase = p.phase;
+          job.atual = p.atual;
+          job.total = p.total;
+          job.updatedAt = Date.now();
+        }
+      });
+      const job = this.assinaturaJobs.get(jobId);
+      if (job) {
+        job.status = 'done';
+        job.result = result;
+        job.phase = result.message;
+        job.atual = job.total || job.atual;
+        job.updatedAt = Date.now();
+      }
+    } catch (err: any) {
+      const job = this.assinaturaJobs.get(jobId);
+      if (job) {
+        job.status = 'error';
+        job.error = this.getErrorMessage(err);
+        job.phase = 'Falha';
+        job.updatedAt = Date.now();
+      }
+    } finally {
+      // Prune the finished job after 5 minutes so the map doesn't grow.
+      const t = setTimeout(() => this.assinaturaJobs.delete(jobId), 5 * 60 * 1000);
+      t.unref?.();
+    }
+  }
+
+  getAssinaturaJob(jobId: string): {
+    status: 'running' | 'done' | 'error';
+    phase: string;
+    atual: number;
+    total: number;
+    result?: SecullumCreateAssinaturaForUsersResponse;
+    error?: string;
+  } | null {
+    const job = this.assinaturaJobs.get(jobId);
+    if (!job) return null;
     return {
-      success: failed === 0,
-      message:
-        failed === 0
-          ? `${created} apuração(ões) criada(s) com sucesso`
-          : `${created} criada(s), ${failed} falharam`,
-      data: { created, failed, results },
+      status: job.status,
+      phase: job.phase,
+      atual: job.atual,
+      total: job.total,
+      result: job.result,
+      error: job.error,
     };
   }
 
-  private getErrorMessage(error: any): string {
-    if (error.response?.data?.message) {
-      return error.response.data.message;
+  // Loads (and server-side caches/computes) an employee's calculation for the
+  // period. The browser always GETs /Calculos/{id}/{inicio}/{fim} right before
+  // generating that employee's signature apuração — without it the report's
+  // SaveChanges can fail (DbUpdateException). Best-effort, never throws.
+  private async preloadCalculo(
+    funcId: number,
+    dataInicial: string,
+    dataFinal: string,
+  ): Promise<void> {
+    try {
+      await this.makeAuthenticatedRequest(
+        'GET',
+        `/Calculos/${funcId}/${dataInicial}/${dataFinal}`,
+      );
+      this.logger.log(`Calculos preloaded for funcionario ${funcId}`);
+    } catch (err) {
+      this.logger.warn(
+        `Calculos preload failed for funcionario ${funcId} (continuing): ${this.getErrorMessage(err)}`,
+      );
     }
-    if (error.message) {
+  }
+
+  // Wraps generateAssinaturaReport with duplicate-description retry. Secullum
+  // rejects an apuração whose description already exists with a generic
+  // "DbUpdateException ... updating the entries" (arriving as a WS Erro). The
+  // web UI avoids this because /Descricao auto-appends "- Attempt N"; we mirror
+  // that by retrying with an incrementing " - Tentativa N" suffix.
+  private async generateAssinaturaWithRetry(params: {
+    funcionarioId: number;
+    imprimirTodos: boolean;
+    dataInicial: string;
+    dataFinal: string;
+    descricao: string;
+    listaFuncionarios?: number[];
+    onProgress?: (atual: number, total: number) => void;
+  }): Promise<void> {
+    // Only one retry (base + one suffixed). The DbUpdateException is generic;
+    // if the real cause isn't a duplicate, more attempts just hammer Secullum.
+    const maxAttempts = 2;
+    let lastErr: any;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const descricao =
+        attempt === 1 ? params.descricao : `${params.descricao} - Tentativa ${attempt}`;
+      try {
+        await this.generateAssinaturaReport({ ...params, descricao });
+        return;
+      } catch (err: any) {
+        lastErr = err;
+        const msg = (err?.message || '').toLowerCase();
+        const looksDuplicate =
+          msg.includes('updating the entries') ||
+          msg.includes('dbupdate') ||
+          msg.includes('inesperado');
+        if (!looksDuplicate || attempt === maxAttempts) throw err;
+        this.logger.warn(
+          `Assinatura attempt ${attempt} failed (likely duplicate description); retrying with suffix. ${err.message}`,
+        );
+      }
+    }
+    throw lastErr;
+  }
+
+  // Drives Secullum's report WebSocket to create a signature apuração — the
+  // exact mechanism the web UI uses when "printing" a time card with format
+  // "Assinatura Eletrônica de Cartão Ponto" (formatoImpressao=5). Captured in
+  // eletronic_signature.har:
+  //   1. connect to wss://pontowebrelatorios.secullum.com.br/
+  //   2. send { accessToken, group:'browser', protocolVersion:5, headers:{...} }
+  //   3. on { responseAuth:'ok' } → send RelatorioCartaoPonto.Gerar
+  //   4. resolve on the "Sucesso" event (reject on "Erro" / close / timeout)
+  //   5. answer the server's --PING-- keepalive with --PONG--
+  private async generateAssinaturaReport(params: {
+    funcionarioId: number;
+    imprimirTodos: boolean;
+    dataInicial: string; // YYYY-MM-DD
+    dataFinal: string; // YYYY-MM-DD
+    descricao: string;
+    listaFuncionarios?: number[];
+    onProgress?: (atual: number, total: number) => void;
+  }): Promise<void> {
+    // Use the interactive (authorization_code, web-client) token — the report
+    // service rejects writes made with the password-grant API token.
+    const token = await this.getReportToken();
+    if (!token) {
+      throw new Error('Failed to obtain valid authentication token');
+    }
+
+    this.logger.log(
+      `Generating Secullum signature report via WS: todos=${params.imprimirTodos} funcionario=${params.funcionarioId} ${params.dataInicial}..${params.dataFinal} desc="${params.descricao}"`,
+    );
+
+    await new Promise<void>((resolve, reject) => {
+      // Mirror the browser handshake. Secullum's report service is multi-tenant
+      // ASP.NET; the browser sends Origin: https://pontoweb.secullum.com.br and
+      // a real User-Agent. Without Origin the server can fail to resolve the
+      // tenant DB context, surfacing as a DbUpdateException on save — so we set
+      // it explicitly here.
+      const ws = new WebSocket(this.reportWsUrl, {
+        origin: this.baseUrl,
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+        },
+      });
+      let settled = false;
+      const finish = (err?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try {
+          ws.close();
+        } catch {
+          /* noop */
+        }
+        if (err) reject(err);
+        else resolve();
+      };
+      const timer = setTimeout(
+        () => finish(new Error('Tempo esgotado aguardando a geração da assinatura no Secullum')),
+        120000,
+      );
+
+      ws.on('open', () => {
+        this.logger.log('Secullum report WS open; sending auth frame');
+        ws.send(
+          JSON.stringify({
+            accessToken: token,
+            group: 'browser',
+            protocolVersion: 5,
+            headers: { secullumbancoselecionado: this.databaseId },
+          }),
+        );
+      });
+
+      ws.on('message', (raw: WebSocket.RawData) => {
+        let msg: any;
+        try {
+          msg = JSON.parse(raw.toString());
+        } catch {
+          return;
+        }
+
+        // Auth acknowledgement → fire the report generation.
+        if (msg.responseAuth !== undefined) {
+          this.logger.log(`Secullum report WS auth: ${msg.responseAuth}`);
+          if (msg.responseAuth !== 'ok') {
+            finish(new Error(`Falha de autenticação no serviço de relatórios: ${msg.responseAuth}`));
+            return;
+          }
+          ws.send(
+            JSON.stringify({
+              hubName: 'RelatorioCartaoPonto',
+              methodName: 'Gerar',
+              arguments: [this.buildGerarArgs(params)],
+            }),
+          );
+          return;
+        }
+
+        // Keepalive — the server pings, we must pong (and vice-versa).
+        if (msg.hubName === '--PING--') {
+          ws.send(JSON.stringify({ hubName: '--PONG--', arguments: [] }));
+          return;
+        }
+        if (msg.hubName === '--PONG--') return;
+
+        if (msg.hubName === 'RelatorioCartaoPonto') {
+          if (msg.eventName === 'Sucesso') {
+            this.logger.log('Secullum report WS: Sucesso (apuração criada)');
+            finish();
+            return;
+          }
+          if (msg.eventName === 'Erro' || msg.eventName === 'Falha') {
+            this.logger.error(
+              `Secullum report WS Erro: ${JSON.stringify(msg.arguments)}`,
+            );
+            finish(
+              new Error(
+                `Secullum retornou erro ao gerar a assinatura: ${JSON.stringify(msg.arguments)}`,
+              ),
+            );
+            return;
+          }
+          if (msg.eventName === 'Progresso') {
+            const p = msg.arguments?.[0];
+            if (p && typeof p.total === 'number' && params.onProgress) {
+              params.onProgress(Number(p.atual) || 0, Number(p.total) || 0);
+            }
+            return;
+          }
+          // "Token" → in-progress, keep waiting.
+        }
+      });
+
+      ws.on('error', (err: Error) => {
+        this.logger.error(`Secullum report WS error: ${err.message}`);
+        finish(err);
+      });
+      ws.on('close', (code: number, reason: Buffer) =>
+        finish(
+          new Error(
+            `Conexão WebSocket encerrada antes da conclusão (code ${code}${
+              reason?.length ? `, ${reason.toString()}` : ''
+            })`,
+          ),
+        ),
+      );
+    });
+  }
+
+  // The RelatorioCartaoPonto.Gerar argument, mirroring the captured frame.
+  // formatoImpressao=5 selects "Assinatura Eletrônica de Cartão Ponto".
+  // Scope is one of three (mutually exclusive):
+  //   - imprimirTodos=true            → every employee (one batch)
+  //   - listaFuncionarios=[a,b,c]     → those specific employees (one batch)
+  //   - funcionarioId=N               → a single employee
+  private buildGerarArgs(params: {
+    funcionarioId: number;
+    imprimirTodos: boolean;
+    dataInicial: string;
+    dataFinal: string;
+    descricao: string;
+    listaFuncionarios?: number[];
+  }): Record<string, unknown> {
+    const lista = params.listaFuncionarios ?? [];
+    const hasLista = lista.length > 0;
+    return {
+      FuncionarioId: params.imprimirTodos || hasLista ? 0 : params.funcionarioId,
+      EmpresaId: 0,
+      FuncaoId: 0,
+      DepartamentoId: 0,
+      EstruturaId: 0,
+      Filtro1Id: 0,
+      Filtro2Id: 0,
+      DataInicial: params.dataInicial,
+      DataFinal: params.dataFinal,
+      Opcoes: {
+        ExibirTermosMTB: false,
+        ExibirTotaisNoRodape: true,
+        ExibirMiniaturaDoHorario: true,
+        ExibirEventos: false,
+        ModoPaisagem: false,
+        Excel: false,
+        AgruparDepartamento: false,
+        ExibirJustificativas: false,
+        ExibirJustificativasInclusaoPonto: false,
+        JustificativasPreenchidasUsuario: false,
+        ExibirLegendasJustificativas: false,
+        ExibirAtividades: false,
+        Tipo: 0,
+        Ordenacao: 0,
+        ColunasSelecionadasImpressao: [
+          'Entrada 1', 'Saída 1', 'Entrada 2', 'Saída 2', 'Entrada 3', 'Saída 3',
+          'Normais', 'Faltas', 'Ex50%', 'Ex100%', 'Ex150%', 'DSR',
+        ],
+        ColunasSelecionadasImpressaoExtratoTotais: ['Normais', 'Faltas', 'Extras', 'DSR', 'Carga'],
+        ColunasSelecionadasImpressaoEvolucaoHoras: [],
+        imprimirTodos: params.imprimirTodos,
+        formatoImpressao: '5',
+      },
+      DescricaoAssinaturaDigitalCartaoPonto: params.descricao,
+      ListaFuncionarios: lista,
+      BancoDeHoras: 0,
+      SituacaoFuncionarios: 1,
+    };
+  }
+
+  // DELETE /AssinaturaDigitalCartaoPonto/{id} — removes an apuração entirely.
+  // Captured in delete_eletronic_signature.har.
+  async deleteAssinatura(
+    apuracaoId: number,
+  ): Promise<SecullumDeleteAssinaturaResponse> {
+    try {
+      this.logger.log(
+        `Deleting Secullum AssinaturaDigitalCartaoPonto apuracao=${apuracaoId}`,
+      );
+      await this.apiClient.delete(`/AssinaturaDigitalCartaoPonto/${apuracaoId}`);
+      return { success: true, message: 'Apuração removida com sucesso' };
+    } catch (error: any) {
+      this.logger.error(`Error deleting assinatura ${apuracaoId}`, error);
+      throw new HttpException(
+        {
+          success: false,
+          message: `Falha ao remover apuração: ${this.getErrorMessage(error)}`,
+          error: this.getErrorMessage(error),
+        },
+        error?.response?.status || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  // Bundles APPROVED employees' signed time-card PDFs, across one or many
+  // apurações, into a single flat ZIP (all PDFs at the root — no per-apuração
+  // subfolders). Only items with Status === 1 (Aprovado) are included;
+  // rejected (2) and pending (0) are skipped. PDFs that can't be fetched are
+  // skipped so a partial set still downloads.
+  async downloadAssinaturasZip(
+    apuracaoIds: number[],
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    if (!apuracaoIds || apuracaoIds.length === 0) {
+      throw this.createApiError('Nenhuma apuração informada', HttpStatus.BAD_REQUEST);
+    }
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    const chunks: Buffer[] = [];
+    archive.on('data', (c: Buffer) => chunks.push(c));
+    const done = new Promise<void>((resolve, reject) => {
+      archive.on('end', () => resolve());
+      archive.on('error', (err) => reject(err));
+    });
+
+    const usedNames = new Set<string>();
+    let added = 0;
+    let skippedNotApproved = 0;
+
+    for (const apuracaoId of apuracaoIds) {
+      const detail = await this.getAssinaturaDetail(apuracaoId);
+      const itens = detail.data?.ListaItensAssinatura ?? [];
+
+      for (const item of itens) {
+        // Approved only (Status 1). Skip rejected (2) and pending (0).
+        if (item.Status !== 1) {
+          skippedNotApproved++;
+          continue;
+        }
+        try {
+          const { buffer } = await this.getAssinaturaItemPdf(
+            apuracaoId,
+            item.FuncionarioId,
+          );
+          const base = this.sanitizeForZip(
+            item.Funcionario || `funcionario_${item.FuncionarioId}`,
+          );
+          // Flat layout: <Nome>.pdf at the zip root, deduped if a name repeats
+          // across the selected apurações.
+          let entry = `${base}.pdf`;
+          let n = 2;
+          while (usedNames.has(entry)) {
+            entry = `${base}_${n++}.pdf`;
+          }
+          usedNames.add(entry);
+          archive.append(buffer, { name: entry });
+          added++;
+        } catch (err) {
+          this.logger.warn(
+            `Zip: skipping apuracao=${apuracaoId} funcionario=${item.FuncionarioId}: ${this.getErrorMessage(err)}`,
+          );
+        }
+      }
+    }
+
+    if (added === 0) {
+      throw this.createApiError(
+        skippedNotApproved > 0
+          ? 'Nenhum cartão ponto aprovado disponível para download'
+          : 'Nenhum cartão ponto disponível para download',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    await archive.finalize();
+    await done;
+
+    const buffer = Buffer.concat(chunks);
+    const filename =
+      apuracaoIds.length === 1
+        ? `CartoesPonto_Apuracao_${apuracaoIds[0]}.zip`
+        : `CartoesPonto_${apuracaoIds.length}_apuracoes.zip`;
+    return { buffer, filename };
+  }
+
+  private sanitizeForZip(name: string): string {
+    return (
+      (name || '')
+        // Transliterate accents to their base ASCII letter (JOÃO → JOAO,
+        // JOSÉ ANTÔNIO → JOSE_ANTONIO, CLÁUDIO LOURENÇO → CLAUDIO_LOURENCO)
+        // instead of dropping the accented char, which mangled the names.
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .trim()
+        .replace(/\s+/g, '_')
+        .replace(/[^A-Za-z0-9_.-]/g, '')
+        .slice(0, 120) || 'arquivo'
+    );
+  }
+
+  private getErrorMessage(error: any): string {
+    const data = error?.response?.data;
+    // Secullum runs ASP.NET — 400s come back as a raw string, { Message },
+    // { message }, or a ModelState dictionary of field → string[].
+    if (typeof data === 'string' && data.trim()) {
+      return data.trim();
+    }
+    if (data?.message) {
+      return data.message;
+    }
+    if (data?.Message) {
+      return data.Message;
+    }
+    if (data?.ModelState && typeof data.ModelState === 'object') {
+      const msgs = Object.values(data.ModelState as Record<string, string[]>)
+        .flat()
+        .filter(Boolean);
+      if (msgs.length) {
+        return msgs.join('; ');
+      }
+    }
+    if (error?.message) {
       return error.message;
     }
     return 'Unknown error occurred';

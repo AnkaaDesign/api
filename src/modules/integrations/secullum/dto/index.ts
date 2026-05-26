@@ -883,13 +883,22 @@ export interface SecullumAssinaturaDetailResponse {
 }
 
 // Upstream POST /AssinaturaDigitalCartaoPonto — body shape inferred from
-// docs/secullum-integration/06_FINAL_LIVE_FINDINGS.md. Single-employee per
-// call; the multi-user wrapper below fans out N calls.
+// docs/secullum-integration/06_FINAL_LIVE_FINDINGS.md (the create POST itself
+// was never live-captured). Two native modes, mirroring Secullum's "Apurar"
+// screen, which has no multi-select — it's either ONE employee or ALL:
+//   - single  → set FuncionarioId
+//   - all     → omit FuncionarioId, set TodosFuncionarios=true (one batch
+//               covering every employee, e.g. apuração id 51 / NumeroCartoes 25
+//               in delete_eletronic_signature.har)
+// `Descricao` is the auto-text Secullum pre-fills via the GET /Descricao
+// endpoint (generic for all, name-tagged for single).
 export interface SecullumCreateAssinaturaRequest {
   DataInicio: string; // ISO YYYY-MM-DDTHH:mm:ss
   DataFim: string;
   EmpresaId: number;
-  FuncionarioId: number;
+  FuncionarioId?: number; // single-employee mode
+  TodosFuncionarios?: boolean; // all-employees batch mode
+  Descricao?: string; // auto-description (see getAssinaturaDescricao)
 }
 
 export interface SecullumCreateAssinaturaResponse {
@@ -925,6 +934,13 @@ export interface SecullumCreateAssinaturaForUsersResponse {
     failed: number;
     results: SecullumCreateAssinaturaForUsersResultItem[];
   };
+}
+
+// DELETE /AssinaturaDigitalCartaoPonto/{id} — removes an apuração (batch)
+// entirely. Captured in delete_eletronic_signature.har (204/200, empty body).
+export interface SecullumDeleteAssinaturaResponse {
+  success: boolean;
+  message: string;
 }
 
 // Per-day absence row derived from /Calculos (calculations) cross-referenced

@@ -511,13 +511,26 @@ export class SkillService {
   }
 
   /**
-   * Update an assessment. Only DRAFT assessments may be updated.
-   * If sectorIds/topicIds/skillIds are provided, the M:N joins are replaced.
+   * Update an assessment.
+   * - DRAFT: every field is editable; provided sectors/topicIds/skillIds replace
+   *   the M:N joins.
+   * - OPEN: only name / description / período may change. Structural fields are
+   *   ignored to avoid orphaning AssessmentEntry rows already spawned at open.
+   * - CLOSED / CANCELLED: not editable.
    */
   async updateAssessment(id: string, data: AssessmentUpdateFormData, include?: any) {
     const existing = await this.findAssessmentById(id);
-    if (existing.data.status !== 'DRAFT') {
-      throw new BadRequestException('Apenas avaliações em rascunho podem ser editadas.');
+    const status = existing.data.status;
+    const isDraft = status === 'DRAFT';
+    const isOpen = status === 'OPEN';
+    // DRAFT: full edit. OPEN: only name / description / período — structural
+    // changes (sectors / topics / skills) would orphan the AssessmentEntry rows
+    // already spawned at open-time, so they stay DRAFT-only and are ignored here.
+    // CLOSED / CANCELLED: frozen.
+    if (!isDraft && !isOpen) {
+      throw new BadRequestException(
+        'Apenas avaliações em rascunho ou abertas podem ser editadas.',
+      );
     }
 
     const ops: Prisma.PrismaPromise<any>[] = [];
@@ -529,7 +542,7 @@ export class SkillService {
       ...(data.periodEnd !== undefined && { periodEnd: data.periodEnd }),
     };
 
-    if (data.sectors) {
+    if (isDraft && data.sectors) {
       const ids = data.sectors.map(s => s.sectorId);
       if (new Set(ids).size !== ids.length) {
         throw new BadRequestException('Setores duplicados na configuração da campanha.');
@@ -544,13 +557,13 @@ export class SkillService {
     await this.prisma.$transaction(async tx => {
       await tx.assessment.update({ where: { id }, data: baseUpdate });
 
-      if (data.sectors) {
+      if (isDraft && data.sectors) {
         // Cascade on AssessmentSector deletes the AssessmentSectorEvaluatee rows.
         await tx.assessmentSector.deleteMany({ where: { assessmentId: id } });
         await this.persistSectorConfigs(tx, id, data.sectors);
       }
 
-      if (data.topicIds || data.skillIds) {
+      if (isDraft && (data.topicIds || data.skillIds)) {
         const topicIds = await this.resolveTopicIds(data.topicIds, data.skillIds, tx);
         const skillIds = await this.collectSkillIdsFromTopics(topicIds, tx);
         await tx.assessmentTopic.deleteMany({ where: { assessmentId: id } });

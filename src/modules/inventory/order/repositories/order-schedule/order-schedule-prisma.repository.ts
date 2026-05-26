@@ -56,6 +56,79 @@ export class OrderSchedulePrismaRepository
     return databaseEntity as OrderSchedule;
   }
 
+  // The recurrence config relations (weeklyConfig/monthlyConfig/yearlyConfig)
+  // are the SINGLE SOURCE OF TRUTH for scheduling: `calculateNextRunDate`
+  // (utils/order.ts) and the scheduler read ONLY these relations, never the
+  // flat top-level dayOfMonth/dayOfWeek/month columns. The web/mobile forms,
+  // however, send positional configs nested (`monthlySchedule`) but fixed
+  // values flat (top-level `dayOfMonth`/`dayOfWeek`/`month`). These helpers
+  // normalize BOTH inputs into the config relations so every frequency gets a
+  // usable config (otherwise fixed-day schedules get nextRun=null and never
+  // fire). Building the config from the opposite branch's nulled columns also
+  // clears stale data on a mode switch (positional↔fixed).
+
+  private static readonly MONTHLY_FREQUENCIES: ReadonlyArray<string> = [
+    SCHEDULE_FREQUENCY.MONTHLY,
+    SCHEDULE_FREQUENCY.BIMONTHLY,
+    SCHEDULE_FREQUENCY.QUARTERLY,
+    SCHEDULE_FREQUENCY.TRIANNUAL,
+    SCHEDULE_FREQUENCY.QUADRIMESTRAL,
+    SCHEDULE_FREQUENCY.SEMI_ANNUAL,
+  ];
+
+  private static readonly WEEKLY_FREQUENCIES: ReadonlyArray<string> = [
+    SCHEDULE_FREQUENCY.WEEKLY,
+    SCHEDULE_FREQUENCY.BIWEEKLY,
+  ];
+
+  private isMonthlyFrequency(frequency?: string): boolean {
+    return !!frequency && OrderSchedulePrismaRepository.MONTHLY_FREQUENCIES.includes(frequency);
+  }
+
+  private isWeeklyFrequency(frequency?: string): boolean {
+    return !!frequency && OrderSchedulePrismaRepository.WEEKLY_FREQUENCIES.includes(frequency);
+  }
+
+  /** Expand a single flat dayOfWeek into the 7 booleans WeeklyScheduleConfig expects. */
+  private weeklyConfigFromDayOfWeek(dayOfWeek: string): Prisma.WeeklyScheduleConfigCreateWithoutOrderScheduleInput {
+    return {
+      monday: dayOfWeek === DayOfWeek.MONDAY,
+      tuesday: dayOfWeek === DayOfWeek.TUESDAY,
+      wednesday: dayOfWeek === DayOfWeek.WEDNESDAY,
+      thursday: dayOfWeek === DayOfWeek.THURSDAY,
+      friday: dayOfWeek === DayOfWeek.FRIDAY,
+      saturday: dayOfWeek === DayOfWeek.SATURDAY,
+      sunday: dayOfWeek === DayOfWeek.SUNDAY,
+    };
+  }
+
+  /** Always set all three monthly columns so the unused branch is explicitly nulled. */
+  private normalizeMonthlyConfig(monthly: {
+    dayOfMonth?: number | null;
+    occurrence?: string | null;
+    dayOfWeek?: string | null;
+  }): { dayOfMonth: number | null; occurrence: MonthOccurrence | null; dayOfWeek: DayOfWeek | null } {
+    return {
+      dayOfMonth: monthly.dayOfMonth ?? null,
+      occurrence: (monthly.occurrence ?? null) as MonthOccurrence | null,
+      dayOfWeek: (monthly.dayOfWeek ?? null) as DayOfWeek | null,
+    };
+  }
+
+  private normalizeYearlyConfig(yearly: {
+    month: string;
+    dayOfMonth?: number | null;
+    occurrence?: string | null;
+    dayOfWeek?: string | null;
+  }): { month: Month; dayOfMonth: number | null; occurrence: MonthOccurrence | null; dayOfWeek: DayOfWeek | null } {
+    return {
+      month: yearly.month as Month,
+      dayOfMonth: yearly.dayOfMonth ?? null,
+      occurrence: (yearly.occurrence ?? null) as MonthOccurrence | null,
+      dayOfWeek: (yearly.dayOfWeek ?? null) as DayOfWeek | null,
+    };
+  }
+
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: OrderScheduleCreateFormData,
   ): Prisma.OrderScheduleCreateInput {
@@ -66,6 +139,7 @@ export class OrderSchedulePrismaRepository
       yearlySchedule,
       dayOfWeek,
       month,
+      dayOfMonth,
       supplierId,
       ...rest
     } = formData;
@@ -73,7 +147,8 @@ export class OrderSchedulePrismaRepository
     const createInput: Prisma.OrderScheduleCreateInput = {
       ...rest,
       frequency: frequency as ScheduleFrequency,
-      // Cast flat enum fields to proper Prisma types
+      // Keep the flat columns for display/back-compat; the configs below drive scheduling.
+      dayOfMonth: dayOfMonth ?? undefined,
       dayOfWeek: dayOfWeek ? (dayOfWeek as DayOfWeek) : undefined,
       month: month ? (month as Month) : undefined,
     };
@@ -85,31 +160,28 @@ export class OrderSchedulePrismaRepository
       createInput.supplier = { connect: { id: supplierId } };
     }
 
-    // Handle nested schedule configs based on frequency (for backwards compatibility)
+    // WEEKLY config — nested object if present, else build from the flat single dayOfWeek.
     if (weeklySchedule) {
-      createInput.weeklyConfig = {
-        create: weeklySchedule,
-      };
+      createInput.weeklyConfig = { create: weeklySchedule };
+    } else if (this.isWeeklyFrequency(frequency) && dayOfWeek) {
+      createInput.weeklyConfig = { create: this.weeklyConfigFromDayOfWeek(dayOfWeek) };
     }
 
+    // MONTHLY config — nested (positional or fixed) if present, else build from flat dayOfMonth.
     if (monthlySchedule) {
+      createInput.monthlyConfig = { create: this.normalizeMonthlyConfig(monthlySchedule) };
+    } else if (this.isMonthlyFrequency(frequency) && dayOfMonth != null) {
       createInput.monthlyConfig = {
-        create: {
-          ...monthlySchedule,
-          occurrence: monthlySchedule.occurrence as MonthOccurrence | null | undefined,
-          dayOfWeek: monthlySchedule.dayOfWeek as DayOfWeek | null | undefined,
-        },
+        create: { dayOfMonth, occurrence: null, dayOfWeek: null },
       };
     }
 
+    // YEARLY config — nested if present, else build from flat month + dayOfMonth.
     if (yearlySchedule) {
+      createInput.yearlyConfig = { create: this.normalizeYearlyConfig(yearlySchedule) };
+    } else if (frequency === SCHEDULE_FREQUENCY.ANNUAL && month && dayOfMonth != null) {
       createInput.yearlyConfig = {
-        create: {
-          ...yearlySchedule,
-          month: yearlySchedule.month as Month,
-          occurrence: yearlySchedule.occurrence as MonthOccurrence | null | undefined,
-          dayOfWeek: yearlySchedule.dayOfWeek as DayOfWeek | null | undefined,
-        },
+        create: { month: month as Month, dayOfMonth, occurrence: null, dayOfWeek: null },
       };
     }
 
@@ -126,6 +198,7 @@ export class OrderSchedulePrismaRepository
       yearlySchedule,
       dayOfWeek,
       month,
+      dayOfMonth,
       supplierId,
       ...rest
     } = formData;
@@ -146,7 +219,7 @@ export class OrderSchedulePrismaRepository
       updateInput.frequency = frequency as ScheduleFrequency;
     }
 
-    // Handle flat enum fields
+    // Handle flat enum fields (kept for display/back-compat; configs drive scheduling)
     if (dayOfWeek !== undefined) {
       updateInput.dayOfWeek = dayOfWeek ? (dayOfWeek as DayOfWeek) : null;
     }
@@ -155,50 +228,41 @@ export class OrderSchedulePrismaRepository
       updateInput.month = month ? (month as Month) : null;
     }
 
-    // Handle nested schedule config updates (for backwards compatibility)
+    if (dayOfMonth !== undefined) {
+      updateInput.dayOfMonth = dayOfMonth ?? null;
+    }
+
+    // Normalize recurrence into the config relations (see mapCreate comment).
+    // Each upsert sets ALL columns so switching modes (positional↔fixed) clears
+    // the stale branch instead of leaving e.g. a lingering occurrence/dayOfWeek
+    // that would silently win in calculateNextRunDate.
+
+    // WEEKLY — nested object if present, else build from the flat single dayOfWeek.
     if (weeklySchedule !== undefined) {
       updateInput.weeklyConfig = {
-        upsert: {
-          create: weeklySchedule,
-          update: weeklySchedule,
-        },
+        upsert: { create: weeklySchedule, update: weeklySchedule },
       };
+    } else if (this.isWeeklyFrequency(frequency) && dayOfWeek) {
+      const cfg = this.weeklyConfigFromDayOfWeek(dayOfWeek);
+      updateInput.weeklyConfig = { upsert: { create: cfg, update: cfg } };
     }
 
+    // MONTHLY — nested (positional/fixed) if present, else build from flat dayOfMonth.
     if (monthlySchedule !== undefined) {
-      updateInput.monthlyConfig = {
-        upsert: {
-          create: {
-            ...monthlySchedule,
-            occurrence: monthlySchedule.occurrence as MonthOccurrence | null | undefined,
-            dayOfWeek: monthlySchedule.dayOfWeek as DayOfWeek | null | undefined,
-          },
-          update: {
-            ...monthlySchedule,
-            occurrence: monthlySchedule.occurrence as MonthOccurrence | null | undefined,
-            dayOfWeek: monthlySchedule.dayOfWeek as DayOfWeek | null | undefined,
-          },
-        },
-      };
+      const cfg = this.normalizeMonthlyConfig(monthlySchedule);
+      updateInput.monthlyConfig = { upsert: { create: cfg, update: cfg } };
+    } else if (this.isMonthlyFrequency(frequency) && dayOfMonth != null) {
+      const cfg = { dayOfMonth, occurrence: null, dayOfWeek: null };
+      updateInput.monthlyConfig = { upsert: { create: cfg, update: cfg } };
     }
 
+    // YEARLY — nested if present, else build from flat month + dayOfMonth.
     if (yearlySchedule !== undefined) {
-      updateInput.yearlyConfig = {
-        upsert: {
-          create: {
-            ...yearlySchedule,
-            month: yearlySchedule.month as Month,
-            occurrence: yearlySchedule.occurrence as MonthOccurrence | null | undefined,
-            dayOfWeek: yearlySchedule.dayOfWeek as DayOfWeek | null | undefined,
-          },
-          update: {
-            ...yearlySchedule,
-            month: yearlySchedule.month as Month,
-            occurrence: yearlySchedule.occurrence as MonthOccurrence | null | undefined,
-            dayOfWeek: yearlySchedule.dayOfWeek as DayOfWeek | null | undefined,
-          },
-        },
-      };
+      const cfg = this.normalizeYearlyConfig(yearlySchedule);
+      updateInput.yearlyConfig = { upsert: { create: cfg, update: cfg } };
+    } else if (frequency === SCHEDULE_FREQUENCY.ANNUAL && month && dayOfMonth != null) {
+      const cfg = { month: month as Month, dayOfMonth, occurrence: null, dayOfWeek: null };
+      updateInput.yearlyConfig = { upsert: { create: cfg, update: cfg } };
     }
 
     return updateInput;
