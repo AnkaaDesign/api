@@ -211,11 +211,11 @@ export class TaskQuoteService {
       // Compute per-customer totals from global customer discount
       const isSingleConfig = data.customerConfigs.length === 1;
       for (const config of data.customerConfigs) {
-        const assignedServices = (data.services || []).filter(
-          s =>
-            s.invoiceToCustomerId === config.customerId ||
-            (isSingleConfig && !s.invoiceToCustomerId),
-        );
+        // In single-config, all services belong to the one customer regardless of invoiceToCustomerId.
+        // This handles customer replacements where services may still carry the old customer's ID.
+        const assignedServices = isSingleConfig
+          ? (data.services || [])
+          : (data.services || []).filter(s => s.invoiceToCustomerId === config.customerId);
         const subtotal = assignedServices.reduce((sum, s) => sum + (s.amount || 0), 0);
         const discount = computeConfigDiscount(
           subtotal,
@@ -748,14 +748,17 @@ export class TaskQuoteService {
       }
 
       // Compute per-customer totals from global customer discount
-      if (data.customerConfigs && data.customerConfigs.length > 0 && data.services) {
+      if (data.customerConfigs && data.customerConfigs.length > 0) {
+        // When services weren't edited (stripped by filterToMaterialChanges), fall back to the
+        // existing DB services so totals are recomputed against the new customer/discount.
+        const servicesToUse = data.services ?? (existing as any).services ?? [];
         const isSingleConfig = data.customerConfigs.length === 1;
         for (const config of data.customerConfigs) {
-          const assignedServices = data.services.filter(
-            s =>
-              s.invoiceToCustomerId === config.customerId ||
-              (isSingleConfig && !s.invoiceToCustomerId),
-          );
+          // In single-config, all services belong to the one customer regardless of invoiceToCustomerId.
+          // This handles customer replacements where services may still carry the old customer's ID.
+          const assignedServices = isSingleConfig
+            ? servicesToUse
+            : servicesToUse.filter((s: any) => s.invoiceToCustomerId === config.customerId);
           const subtotal = assignedServices.reduce((sum, s) => sum + (s.amount || 0), 0);
           const discount = computeConfigDiscount(
             subtotal,
@@ -1951,6 +1954,32 @@ export class TaskQuoteService {
       data: refreshed as any,
       message: 'Faturamento revertido com sucesso. O orçamento retornou para Aprovado pelo Comercial.',
     };
+  }
+
+  /**
+   * Update only the orderNumber field on a CustomerConfig.
+   * Bypasses the financial obligation guard — orderNumber is metadata only
+   * and does not affect invoices, installments, or bank slips.
+   */
+  async updateCustomerConfigOrderNumber(
+    quoteId: string,
+    customerId: string,
+    orderNumber: string | null,
+  ): Promise<{ message: string }> {
+    const config = await this.prisma.taskQuoteCustomerConfig.findUnique({
+      where: { quoteId_customerId: { quoteId, customerId } },
+    });
+
+    if (!config) {
+      throw new NotFoundException('Configuração de cliente não encontrada para este orçamento.');
+    }
+
+    await this.prisma.taskQuoteCustomerConfig.update({
+      where: { id: config.id },
+      data: { orderNumber: orderNumber || null },
+    });
+
+    return { message: 'Número do pedido atualizado com sucesso.' };
   }
 
   /**
