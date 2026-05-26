@@ -14,12 +14,11 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { existsSync, readFileSync } from 'fs';
 import { resolve as resolvePath } from 'path';
-import { PDFDocument } from 'pdf-lib';
-import { pdflibAddPlaceholder } from '@signpdf/placeholder-pdf-lib';
+import { plainAddPlaceholder } from '@signpdf/placeholder-plain';
 import { SUBFILTER_ETSI_CADES_DETACHED } from '@signpdf/utils';
 import signpdf from '@signpdf/signpdf';
-import { P12Signer } from '@signpdf/signer-p12';
 import * as forge from 'node-forge';
+import { CadesP12Signer } from './ppe-cades-signer';
 
 export interface CertMetadata {
   subject: string;
@@ -124,23 +123,21 @@ export class PpePadesSignerService implements OnModuleInit {
 
     const sealedAt = options.signingTime ?? new Date();
 
-    const pdfDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: false });
-
-    pdflibAddPlaceholder({
-      pdfDoc,
+    // plainAddPlaceholder appends the signature field as a proper PDF incremental
+    // update (new XRef + trailer), preserving the original document revision.
+    // This produces the 2-revision structure that strict PAdES validators require.
+    const pdfWithPlaceholder = plainAddPlaceholder({
+      pdfBuffer,
       reason: options.reason,
       contactInfo: options.contactInfo,
       name: options.signerName,
       location: options.location,
       signingTime: sealedAt,
       subFilter: SUBFILTER_ETSI_CADES_DETACHED,
-      signatureLength: 16384,
-      appName: 'Ankaa Design — PPE Delivery Signing',
+      signatureLength: 32768,
     });
 
-    const pdfWithPlaceholder = Buffer.from(await pdfDoc.save({ useObjectStreams: false }));
-
-    const signer = new P12Signer(this.p12Buffer, { passphrase: this.password });
+    const signer = new CadesP12Signer(this.p12Buffer, this.password);
     const signedPdf = await signpdf.sign(pdfWithPlaceholder, signer, sealedAt);
 
     return {
