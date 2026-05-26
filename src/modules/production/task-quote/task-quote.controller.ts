@@ -5,6 +5,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -252,6 +253,27 @@ export class TaskQuoteController {
   @HttpCode(HttpStatus.OK)
   async syncEmNegociacao(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     return this.taskQuoteService.syncEmNegociacao(id, userId);
+  }
+
+  /**
+   * PATCH /task-quotes/:id/customer-config-order-number
+   * Update only the orderNumber field on a CustomerConfig.
+   * Safe to call on locked quotes (BILLING_APPROVED+) — skips the financial obligation guard
+   * because orderNumber is metadata used in NFS-e discriminacao, not a financial value.
+   *
+   * Access: FINANCIAL, COMMERCIAL, ADMIN
+   */
+  @Patch(':id/customer-config-order-number')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @HttpCode(HttpStatus.OK)
+  async updateCustomerConfigOrderNumber(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { customerId: string; orderNumber: string | null },
+  ) {
+    if (!body.customerId) {
+      throw new BadRequestException('customerId é obrigatório.');
+    }
+    return this.taskQuoteService.updateCustomerConfigOrderNumber(id, body.customerId, body.orderNumber ?? null);
   }
 
   /**
