@@ -845,8 +845,15 @@ export class OrderScheduleService {
     }
   }
 
+  // Milliseconds in a day — used for coverage/gap day math.
+  private static readonly DAY_MS = 1000 * 60 * 60 * 24;
+
   /**
-   * Calculate order quantities from schedule template based on current stock levels and business rules
+   * Calculate order quantities from schedule template based on current stock
+   * levels and business rules. Thin wrapper over `computeScheduleOrderPlan`
+   * that preserves the legacy cron behavior: coverage window = days until the
+   * next computed run (default 30), anchored at "now", with NO forward stock
+   * projection. Returns only the items that require ordering.
    */
   async calculateOrderQuantitiesFromSchedule(
     scheduleId: string,
@@ -854,241 +861,583 @@ export class OrderScheduleService {
   ): Promise<{ itemId: string; quantity: number; reason: string }[]> {
     const transaction = tx || this.prisma;
 
-    try {
-      // Get the schedule with its items configuration
-      const schedule = await transaction.orderSchedule.findUnique({
-        where: { id: scheduleId },
-        include: {
-          weeklyConfig: true,
-          monthlyConfig: true,
-          yearlyConfig: true,
-        },
-      });
+    const schedule = await transaction.orderSchedule.findUnique({
+      where: { id: scheduleId },
+      include: { weeklyConfig: true, monthlyConfig: true, yearlyConfig: true },
+    });
+    if (!schedule) {
+      throw new NotFoundException(`Agendamento de pedido ${scheduleId} não encontrado`);
+    }
 
-      if (!schedule) {
-        throw new NotFoundException(`Agendamento de pedido ${scheduleId} não encontrado`);
-      }
+    const nextRun = this.calculateNextRunDate(schedule as OrderSchedule);
+    const now = new Date();
+    const coverageDays = nextRun
+      ? Math.max(1, Math.ceil((nextRun.getTime() - now.getTime()) / OrderScheduleService.DAY_MS))
+      : 30;
 
-      if (!schedule.items || schedule.items.length === 0) {
-        this.logger.warn(`Schedule ${scheduleId} has no items configured`);
-        return [];
-      }
+    const plan = await this.computeScheduleOrderPlan({
+      scheduleId,
+      asOfDate: now,
+      coverageDays,
+      stockProjectionDays: 0,
+      tx: transaction,
+    });
 
-      // Cycle window: number of days until the next scheduled run. Default 30
-      // when the schedule lacks a computable next run.
-      const nextRun = this.calculateNextRunDate(schedule as OrderSchedule);
-      const now = new Date();
-      const cycleDays = nextRun
-        ? Math.max(1, Math.ceil((nextRun.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
-        : 30;
+    return plan.items
+      .filter(i => !i.skipped && i.quantity > 0)
+      .map(i => ({ itemId: i.itemId, quantity: i.quantity, reason: i.reason }));
+  }
 
-      // Load schedule items with category type (needed for TOOL skip) and the
-      // active OrderRule for each item against the schedule supplier.
-      // ABC/XYZ + reorderPoint + ordersLast12Months are needed for the
-      // safety-buffer matrix lookup (spec §9) and the lt-floor fix.
-      const items = await transaction.item.findMany({
-        where: {
-          id: { in: schedule.items },
-          isActive: true,
-        },
-        include: {
-          prices: { orderBy: { createdAt: 'desc' }, take: 1 },
-          category: { select: { type: true } },
-          orderRules: {
-            where: { isActive: true },
-            select: {
-              supplierId: true,
-              minOrderQuantity: true,
-              maxOrderQuantity: true,
-              orderMultiple: true,
-            },
+  /**
+   * Generalized order-quantity planner — the single engine behind the cron, the
+   * dual-projection details columns, and the trigger-now cascade modes. For
+   * every active item on a schedule it computes the quantity to order so stock
+   * covers `coverageDays` starting from `asOfDate`. Two knobs generalize the
+   * legacy calc:
+   *   - `coverageDays`         — the cycle length to cover (replaces the implicit
+   *     "days until next run"); the trigger-now modes pass gap-only or gap+cycle.
+   *   - `stockProjectionDays`  — days of consumption to subtract from CURRENT
+   *     stock BEFORE evaluating need, simulating the item's state on a future
+   *     date (the "scheduled" column). Depletion uses the raw daily rate
+   *     (monthlyConsumption / 30); incoming receipts stay treated as available,
+   *     consistent with the legacy calc.
+   *
+   * Returns EVERY evaluated schedule item (zero-quantity / skipped ones carry a
+   * human-readable `reason` + `skipped` flag) so the projection endpoint can
+   * render a complete table; order-creating callers filter `!skipped && qty>0`.
+   */
+  private async computeScheduleOrderPlan(params: {
+    scheduleId: string;
+    asOfDate: Date;
+    coverageDays: number;
+    stockProjectionDays?: number;
+    tx?: PrismaTransaction;
+  }): Promise<{
+    items: Array<{
+      itemId: string;
+      itemName: string;
+      quantity: number;
+      unitPrice: number;
+      totalPrice: number;
+      icms: number;
+      ipi: number;
+      reason: string;
+      skipped: boolean;
+      startStock: number;
+      coverageDays: number;
+    }>;
+    meta: { coverageDays: number; asOfDate: Date; stockProjectionDays: number };
+  }> {
+    const { scheduleId, asOfDate, tx } = params;
+    const coverageDays = Math.max(1, Math.round(params.coverageDays));
+    const stockProjectionDays = Math.max(0, Math.round(params.stockProjectionDays ?? 0));
+    const transaction = tx || this.prisma;
+    const meta = { coverageDays, asOfDate, stockProjectionDays };
+
+    const schedule = await transaction.orderSchedule.findUnique({
+      where: { id: scheduleId },
+      include: { weeklyConfig: true, monthlyConfig: true, yearlyConfig: true },
+    });
+    if (!schedule) {
+      throw new NotFoundException(`Agendamento de pedido ${scheduleId} não encontrado`);
+    }
+    if (!schedule.items || schedule.items.length === 0) {
+      return { items: [], meta };
+    }
+
+    // Load items with category type (TOOL skip), latest price, and active
+    // OrderRules. ABC/XYZ + reorderPoint + ordersLast12Months drive the
+    // safety-buffer matrix lookup and the lt-floor in the balancer.
+    const items = await transaction.item.findMany({
+      where: { id: { in: schedule.items }, isActive: true },
+      include: {
+        prices: { orderBy: { createdAt: 'desc' }, take: 1 },
+        category: { select: { type: true } },
+        orderRules: {
+          where: { isActive: true },
+          select: {
+            supplierId: true,
+            minOrderQuantity: true,
+            maxOrderQuantity: true,
+            orderMultiple: true,
           },
         },
-      });
+      },
+    });
+    if (items.length === 0) {
+      return { items: [], meta };
+    }
 
-      if (items.length === 0) {
-        this.logger.warn(`No active items found for schedule ${scheduleId}`);
-        return [];
-      }
+    // Keep the schedule's configured item order for stable table rendering.
+    const itemOrder = new Map(schedule.items.map((id, idx) => [id, idx]));
+    items.sort((a, b) => (itemOrder.get(a.id) ?? 0) - (itemOrder.get(b.id) ?? 0));
 
-      // Load ConsumptionSnapshot history for all items so we can build a
-      // per-item SeasonalContext (spec §6.4 tier 1). Falls back to corpus
-      // when an item lacks enough history (handled inside the helper).
-      const snapshotRows = await transaction.consumptionSnapshot.findMany({
-        where: { itemId: { in: items.map(i => i.id) } },
-        select: { itemId: true, year: true, month: true, seasonalFactor: true },
-      });
-      const snapshotsByItem = new Map<string, Array<{ year: number; month: number; seasonalFactor: number }>>();
-      for (const r of snapshotRows) {
-        const arr = snapshotsByItem.get(r.itemId) ?? [];
-        arr.push({ year: r.year, month: r.month, seasonalFactor: r.seasonalFactor });
-        snapshotsByItem.set(r.itemId, arr);
-      }
+    // Per-item SeasonalContext from ConsumptionSnapshot history (corpus
+    // fallback handled inside the helper).
+    const snapshotRows = await transaction.consumptionSnapshot.findMany({
+      where: { itemId: { in: items.map(i => i.id) } },
+      select: { itemId: true, year: true, month: true, seasonalFactor: true },
+    });
+    const snapshotsByItem = new Map<string, Array<{ year: number; month: number; seasonalFactor: number }>>();
+    for (const r of snapshotRows) {
+      const arr = snapshotsByItem.get(r.itemId) ?? [];
+      arr.push({ year: r.year, month: r.month, seasonalFactor: r.seasonalFactor });
+      snapshotsByItem.set(r.itemId, arr);
+    }
 
-      // Pending receipts (CREATED / PARTIALLY_FULFILLED / FULFILLED / PARTIALLY_RECEIVED).
-      const activeOrderItems = await transaction.orderItem.findMany({
-        where: {
-          itemId: { in: items.map(item => item.id) },
-          order: {
-            status: { in: ['CREATED', 'PARTIALLY_FULFILLED', 'FULFILLED', 'PARTIALLY_RECEIVED'] },
-          },
+    // Pending receipts (still-open orders) offset the need.
+    const activeOrderItems = await transaction.orderItem.findMany({
+      where: {
+        itemId: { in: items.map(item => item.id) },
+        order: {
+          status: { in: ['CREATED', 'PARTIALLY_FULFILLED', 'FULFILLED', 'PARTIALLY_RECEIVED'] },
         },
-        select: { itemId: true, orderedQuantity: true, receivedQuantity: true },
-      });
-      const incomingByItem = new Map<string, number>();
-      for (const oi of activeOrderItems) {
-        const pending = Math.max(0, oi.orderedQuantity - oi.receivedQuantity);
-        incomingByItem.set(oi.itemId, (incomingByItem.get(oi.itemId) ?? 0) + pending);
-      }
+      },
+      select: { itemId: true, orderedQuantity: true, receivedQuantity: true },
+    });
+    const incomingByItem = new Map<string, number>();
+    for (const oi of activeOrderItems) {
+      const pending = Math.max(0, oi.orderedQuantity - oi.receivedQuantity);
+      incomingByItem.set(oi.itemId, (incomingByItem.get(oi.itemId) ?? 0) + pending);
+    }
 
-      // Build candidates per spec §C.2 + skip rules in §C.4.
-      const candidates: Array<{
-        itemId: string;
-        itemName: string;
-        currentStock: number;
-        incoming: number;
-        dailyConsumption: number;
-        maxQuantity: number | null;
-        leadTimeDays: number;
-        reorderPoint: number;
-        boxQuantity: number | null;
-        orderRule: { minOrderQuantity?: number | null; maxOrderQuantity?: number | null; orderMultiple?: number | null } | null;
-        proposedQty: number;
-      }> = [];
+    type Candidate = {
+      itemId: string;
+      itemName: string;
+      currentStock: number; // effective (forward-projected) stock
+      incoming: number;
+      dailyConsumption: number; // raw daily (mc/30) for the balancer
+      maxQuantity: number | null;
+      leadTimeDays: number;
+      reorderPoint: number;
+      boxQuantity: number | null;
+      orderRule: { minOrderQuantity?: number | null; maxOrderQuantity?: number | null; orderMultiple?: number | null } | null;
+      proposedQty: number;
+      unitPrice: number;
+      icms: number;
+      ipi: number;
+    };
 
-      for (const item of items) {
-        // TOOL never goes through scheduled replenishment (spec §1, §4).
-        if (item.category?.type === ITEM_CATEGORY_TYPE.TOOL) continue;
+    const candidates: Candidate[] = [];
+    const passiveResults = new Map<
+      string,
+      { itemId: string; itemName: string; unitPrice: number; icms: number; ipi: number; reason: string; skipped: boolean; startStock: number }
+    >();
 
-        const monthlyConsumption = Number(item.monthlyConsumption ?? 0);
-        if (monthlyConsumption <= 0) continue;
+    for (const item of items) {
+      const unitPrice = item.prices?.[0]?.value ?? 0;
+      const icms = item.icms ?? 0;
+      const ipi = item.ipi ?? 0;
+      const monthlyConsumption = Number(item.monthlyConsumption ?? 0);
+      const dailyBase = monthlyConsumption / 30;
+      const currentStock = item.quantity ?? 0;
+      // Forward-simulate stock to `asOfDate`: deplete by raw daily rate over the
+      // projection window. Clamped at 0 (can't have negative stock).
+      const effectiveStock =
+        stockProjectionDays > 0
+          ? Math.max(0, currentStock - dailyBase * stockProjectionDays)
+          : currentStock;
 
-        const incoming = incomingByItem.get(item.id) ?? 0;
-        const currentStock = item.quantity ?? 0;
-        const maxQuantity = item.maxQuantity ?? null;
-        if (maxQuantity != null && currentStock + incoming >= maxQuantity) continue;
-
-        const leadTimeDays = item.estimatedLeadTime ?? DEFAULT_LEAD_TIME_DAYS;
-        // Safety buffer is now ABC/XYZ-aware (spec §9 matrix). The previous
-        // flat 10% rule under-protected A-Z items and over-protected C-X items.
-        const { safetyFactor } = resolveSafetyTargetCell(
-          (item.abcCategory as ABC_CATEGORY | null) ?? null,
-          (item.xyzCategory as XYZ_CATEGORY | null) ?? null,
-          item.ordersLast12Months ?? null,
-        );
-        const buffer = Math.ceil(cycleDays * safetyFactor);
-        const targetCoverageDays = cycleDays + leadTimeDays + buffer;
-
-        // Seasonal-adjusted daily consumption over the projected window — use
-        // a per-item SeasonalContext blended across the coverage window so
-        // multi-month projections see the correct curve (spec §6.4 + §10.2).
-        const projectionStart = new Date(now);
-        projectionStart.setDate(projectionStart.getDate() + leadTimeDays);
-        const seasonalCtx = buildSeasonalContextFromSnapshots(snapshotsByItem.get(item.id));
-        const seasonal = blendedFactorAcrossDays(projectionStart, targetCoverageDays, seasonalCtx);
-        const dailyConsumption = (monthlyConsumption / 30) * seasonal;
-
-        let qty = dailyConsumption * targetCoverageDays - currentStock - incoming;
-        if (qty <= 0) continue;
-
-        if (maxQuantity != null) {
-          const headroom = maxQuantity - currentStock - incoming;
-          qty = Math.min(qty, headroom);
-          if (qty <= 0) continue;
-        }
-
-        const matchingRule =
-          item.orderRules.find(r => r.supplierId === item.supplierId) ?? item.orderRules[0] ?? null;
-        const proposedQty = calculateReorderQuantity({
-          currentStock,
-          maxQuantity: maxQuantity ?? currentStock + qty + incoming,
-          incomingOrderedQuantity: incoming,
-          boxQuantity: item.boxQuantity,
-          orderRule: matchingRule,
-        });
-        if (proposedQty <= 0) continue;
-
-        candidates.push({
+      const pushPassive = (reason: string, skipped: boolean) =>
+        passiveResults.set(item.id, {
           itemId: item.id,
           itemName: item.name,
-          currentStock,
-          incoming,
-          dailyConsumption: monthlyConsumption / 30,
-          maxQuantity,
-          leadTimeDays,
-          reorderPoint: item.reorderPoint ?? 0,
-          boxQuantity: item.boxQuantity,
-          orderRule: matchingRule,
-          proposedQty,
+          unitPrice,
+          icms,
+          ipi,
+          reason,
+          skipped,
+          startStock: effectiveStock,
         });
+
+      // TOOL never goes through scheduled replenishment.
+      if (item.category?.type === ITEM_CATEGORY_TYPE.TOOL) {
+        pushPassive('Ferramenta — não entra em reabastecimento automático', true);
+        continue;
+      }
+      if (monthlyConsumption <= 0) {
+        pushPassive('Sem histórico de consumo registrado', true);
+        continue;
       }
 
-      if (candidates.length === 0) {
-        this.logger.log(`Schedule ${scheduleId}: no items require ordering`);
-        return [];
+      const incoming = incomingByItem.get(item.id) ?? 0;
+      const maxQuantity = item.maxQuantity ?? null;
+      if (maxQuantity != null && effectiveStock + incoming >= maxQuantity) {
+        pushPassive('Estoque projetado já cobre o máximo', true);
+        continue;
       }
 
-      // Aligned-depletion balancing (services-spec §C.3): delegated to the
-      // shared `balanceDepletionAcrossItems` helper so auto-order uses the
-      // same trim logic. Passing the item's actual `reorderPoint` (instead
-      // of 0) lets the helper's lt-floor protect coverage down to the
-      // reorder point — the balancer can never trim below that anymore.
-      const balanceResults = balanceDepletionAcrossItems(
-        candidates.map(c => ({
-          currentQty: c.currentStock,
-          proposedQty: c.proposedQty,
-          dailyConsumption: c.dailyConsumption,
-          maxQuantity: c.maxQuantity,
-          reorderPoint: c.reorderPoint,
-          leadTimeDays: c.leadTimeDays,
-          incomingQty: c.incoming,
-        })),
+      const leadTimeDays = item.estimatedLeadTime ?? DEFAULT_LEAD_TIME_DAYS;
+      const { safetyFactor } = resolveSafetyTargetCell(
+        (item.abcCategory as ABC_CATEGORY | null) ?? null,
+        (item.xyzCategory as XYZ_CATEGORY | null) ?? null,
+        item.ordersLast12Months ?? null,
       );
-      const minCoverage =
-        balanceResults.length > 0
-          ? Math.min(
-              ...balanceResults.map(r =>
-                Number.isFinite(r.coverageDays) ? r.coverageDays : Number.POSITIVE_INFINITY,
-              ),
-            )
-          : 0;
+      const buffer = Math.ceil(coverageDays * safetyFactor);
+      const targetCoverageDays = coverageDays + leadTimeDays + buffer;
 
-      const calculatedQuantities = candidates
-        .map((c, i) => {
-          const balanced = balanceResults[i];
-          // Round through `calculateReorderQuantity` to honor box-multiple
-          // and orderRule constraints, but cap at the balanced quantity so
-          // depletion alignment isn't lost.
-          const rounded = calculateReorderQuantity({
-            currentStock: c.currentStock,
-            maxQuantity: c.maxQuantity ?? c.currentStock + balanced.balancedQty + c.incoming,
-            incomingOrderedQuantity: c.incoming,
-            boxQuantity: c.boxQuantity,
-            orderRule: c.orderRule,
-          });
-          const finalQty = Math.min(rounded, balanced.balancedQty || rounded);
-          return {
-            itemId: c.itemId,
-            itemName: c.itemName,
-            quantity: finalQty,
-            coverageDays: balanced.coverageDays,
-          };
-        })
-        .filter(b => b.quantity > 0)
-        .map(b => ({
-          itemId: b.itemId,
-          quantity: b.quantity,
-          reason: `Cycle ${cycleDays}d + LT + buffer. Cobertura projetada ≈ ${Math.round(b.coverageDays)}d (alinhado a ${Math.round(minCoverage)}d).`,
-        }));
+      // Seasonal-adjusted daily consumption blended across the projected window,
+      // anchored at `asOfDate + leadTime` so multi-month projections see the
+      // correct seasonal curve.
+      const projectionStart = new Date(asOfDate);
+      projectionStart.setDate(projectionStart.getDate() + leadTimeDays);
+      const seasonalCtx = buildSeasonalContextFromSnapshots(snapshotsByItem.get(item.id));
+      const seasonal = blendedFactorAcrossDays(projectionStart, targetCoverageDays, seasonalCtx);
+      const dailyConsumption = dailyBase * seasonal;
 
-      this.logger.log(
-        `Calculated quantities for ${calculatedQuantities.length} items from schedule ${scheduleId}`,
-      );
-      return calculatedQuantities;
-    } catch (error) {
-      this.logger.error(`Error calculating order quantities from schedule ${scheduleId}:`, error);
-      throw error;
+      let qty = dailyConsumption * targetCoverageDays - effectiveStock - incoming;
+      if (qty <= 0) {
+        pushPassive('Estoque suficiente para o período projetado', false);
+        continue;
+      }
+
+      if (maxQuantity != null) {
+        const headroom = maxQuantity - effectiveStock - incoming;
+        qty = Math.min(qty, headroom);
+        if (qty <= 0) {
+          pushPassive('Estoque suficiente para o período projetado', false);
+          continue;
+        }
+      }
+
+      const matchingRule =
+        item.orderRules.find(r => r.supplierId === item.supplierId) ?? item.orderRules[0] ?? null;
+      // Order the COVERAGE-BASED need (`qty`), box/orderRule-rounded — NOT a
+      // blind top-up to maxQuantity. We pass a target of stock+incoming+qty
+      // (capped at maxQuantity) so `calculateReorderQuantity`'s shortfall equals
+      // `qty`. Passing the raw maxQuantity here would fill all the way to max
+      // (e.g. 7 months of stock for a monthly schedule) — the bug that produced
+      // the absurd "na data" quantities.
+      const coverageTarget =
+        maxQuantity != null
+          ? Math.min(maxQuantity, effectiveStock + incoming + qty)
+          : effectiveStock + incoming + qty;
+      const proposedQty = calculateReorderQuantity({
+        currentStock: effectiveStock,
+        maxQuantity: coverageTarget,
+        incomingOrderedQuantity: incoming,
+        boxQuantity: item.boxQuantity,
+        orderRule: matchingRule,
+      });
+      if (proposedQty <= 0) {
+        pushPassive('Estoque suficiente para o período projetado', false);
+        continue;
+      }
+
+      candidates.push({
+        itemId: item.id,
+        itemName: item.name,
+        currentStock: effectiveStock,
+        incoming,
+        dailyConsumption: dailyBase,
+        maxQuantity,
+        leadTimeDays,
+        reorderPoint: item.reorderPoint ?? 0,
+        boxQuantity: item.boxQuantity,
+        orderRule: matchingRule,
+        proposedQty,
+        unitPrice,
+        icms,
+        ipi,
+      });
     }
+
+    // Aligned-depletion balancing across the same-supplier basket.
+    const balanceResults =
+      candidates.length > 0
+        ? balanceDepletionAcrossItems(
+            candidates.map(c => ({
+              currentQty: c.currentStock,
+              proposedQty: c.proposedQty,
+              dailyConsumption: c.dailyConsumption,
+              maxQuantity: c.maxQuantity,
+              reorderPoint: c.reorderPoint,
+              leadTimeDays: c.leadTimeDays,
+              incomingQty: c.incoming,
+            })),
+          )
+        : [];
+    const minCoverage =
+      balanceResults.length > 0
+        ? Math.min(
+            ...balanceResults.map(r =>
+              Number.isFinite(r.coverageDays) ? r.coverageDays : Number.POSITIVE_INFINITY,
+            ),
+          )
+        : 0;
+
+    type ResultItem = {
+      itemId: string;
+      itemName: string;
+      quantity: number;
+      unitPrice: number;
+      totalPrice: number;
+      icms: number;
+      ipi: number;
+      reason: string;
+      skipped: boolean;
+      startStock: number;
+      coverageDays: number;
+    };
+    const activeResults = new Map<string, ResultItem>();
+    candidates.forEach((c, i) => {
+      const balanced = balanceResults[i];
+      // Round the BALANCED (depletion-aligned) need up to box/orderRule
+      // multiples. Target = stock+incoming+balancedQty so the rounded shortfall
+      // equals balancedQty. (The old `min(rounded, balancedQty)` leaked the raw
+      // fractional balancedQty into the result — e.g. "1.266,571".)
+      const finalQty = calculateReorderQuantity({
+        currentStock: c.currentStock,
+        maxQuantity: c.currentStock + c.incoming + balanced.balancedQty,
+        incomingOrderedQuantity: c.incoming,
+        boxQuantity: c.boxQuantity,
+        orderRule: c.orderRule,
+      });
+      if (finalQty <= 0) {
+        activeResults.set(c.itemId, {
+          itemId: c.itemId,
+          itemName: c.itemName,
+          quantity: 0,
+          unitPrice: c.unitPrice,
+          totalPrice: 0,
+          icms: c.icms,
+          ipi: c.ipi,
+          reason: 'Estoque suficiente para o período projetado',
+          skipped: false,
+          startStock: c.currentStock,
+          coverageDays: balanced.coverageDays,
+        });
+        return;
+      }
+      activeResults.set(c.itemId, {
+        itemId: c.itemId,
+        itemName: c.itemName,
+        quantity: finalQty,
+        unitPrice: c.unitPrice,
+        totalPrice: finalQty * c.unitPrice,
+        icms: c.icms,
+        ipi: c.ipi,
+        reason: `Cobre ${coverageDays}d + lead time + buffer. Cobertura projetada ≈ ${Math.round(
+          balanced.coverageDays,
+        )}d (alinhado a ${Math.round(minCoverage)}d).`,
+        skipped: false,
+        startStock: c.currentStock,
+        coverageDays: balanced.coverageDays,
+      });
+    });
+
+    // Emit in the schedule's configured item order, merging active + passive.
+    const resultItems: ResultItem[] = items.map(item => {
+      const active = activeResults.get(item.id);
+      if (active) return active;
+      const passive = passiveResults.get(item.id);
+      return {
+        itemId: item.id,
+        itemName: item.name,
+        quantity: 0,
+        unitPrice: passive?.unitPrice ?? item.prices?.[0]?.value ?? 0,
+        totalPrice: 0,
+        icms: passive?.icms ?? item.icms ?? 0,
+        ipi: passive?.ipi ?? item.ipi ?? 0,
+        reason: passive?.reason ?? 'Item indisponível',
+        skipped: passive?.skipped ?? true,
+        startStock: passive?.startStock ?? item.quantity ?? 0,
+        coverageDays: 0,
+      };
+    });
+
+    this.logger.log(
+      `Plan for schedule ${scheduleId}: coverage=${coverageDays}d projection=${stockProjectionDays}d → ${
+        resultItems.filter(i => i.quantity > 0).length
+      } item(s) to order`,
+    );
+    return { items: resultItems, meta };
+  }
+
+  /**
+   * Compute schedule timing: the next scheduled run, the recurrence interval in
+   * days (one full cycle), and the gap in days from now until the next run.
+   * `intervalDays` is derived from two RAW (non business-day-shifted) next-run
+   * computations so month-length variation is captured exactly; null for ONCE.
+   * Timing is computed as-if-active so projections still work for paused schedules.
+   */
+  public getScheduleTiming(
+    schedule: OrderSchedule & { weeklyConfig?: any; monthlyConfig?: any; yearlyConfig?: any },
+  ): { nextRun: Date | null; intervalDays: number | null; gapDays: number } {
+    const now = new Date();
+    const activeLike = { ...schedule, isActive: true, lastRun: null } as any;
+    const nextRun = schedule.nextRun ?? this.calculateNextRunDate(activeLike);
+
+    let intervalDays: number | null = null;
+    if (schedule.frequency !== SCHEDULE_FREQUENCY.ONCE) {
+      const rawNext1 = utilCalculateNextRunDate(activeLike, now);
+      const rawNext2 = rawNext1 ? utilCalculateNextRunDate(activeLike, rawNext1) : null;
+      if (rawNext1 && rawNext2 && rawNext2.getTime() > rawNext1.getTime()) {
+        intervalDays = Math.max(
+          1,
+          Math.round((rawNext2.getTime() - rawNext1.getTime()) / OrderScheduleService.DAY_MS),
+        );
+      }
+    }
+
+    const gapDays = nextRun
+      ? Math.max(0, Math.ceil((nextRun.getTime() - now.getTime()) / OrderScheduleService.DAY_MS))
+      : 0;
+
+    return { nextRun, intervalDays, gapDays };
+  }
+
+  /**
+   * Dual-projection table for the details page: for every schedule item, the
+   * quantity + cost if ordered TODAY versus the quantity + cost the order will
+   * need on its SCHEDULED trigger date (stock rolled forward over the gap at the
+   * current consumption rate). Both columns price at the CURRENT unit price, so
+   * the cost difference reflects the larger quantity needed after depletion.
+   */
+  async getScheduleProjection(scheduleId: string): Promise<{
+    success: boolean;
+    message: string;
+    data: {
+      items: Array<{
+        itemId: string;
+        itemName: string;
+        unitPrice: number;
+        quantityToday: number;
+        quantityScheduled: number;
+        totalToday: number;
+        totalScheduled: number;
+        reasonToday: string;
+        reasonScheduled: string;
+        skipped: boolean;
+      }>;
+      meta: {
+        nextRun: Date | null;
+        scheduledDate: Date | null;
+        gapDays: number;
+        intervalDays: number | null;
+        coverageDays: number;
+        totalToday: number;
+        totalScheduled: number;
+      };
+    };
+  }> {
+    const schedule = await this.prisma.orderSchedule.findUnique({
+      where: { id: scheduleId },
+      include: { weeklyConfig: true, monthlyConfig: true, yearlyConfig: true },
+    });
+    if (!schedule) {
+      throw new NotFoundException(`Agendamento de pedido ${scheduleId} não encontrado`);
+    }
+
+    const { nextRun, intervalDays, gapDays } = this.getScheduleTiming(schedule as OrderSchedule);
+    const coverageDays = intervalDays ?? 30;
+    const now = new Date();
+
+    const planToday = await this.computeScheduleOrderPlan({
+      scheduleId,
+      asOfDate: now,
+      coverageDays,
+      stockProjectionDays: 0,
+    });
+    // When the schedule is due now / overdue (no gap), the scheduled projection
+    // collapses to today's.
+    const planScheduled =
+      nextRun && gapDays > 0
+        ? await this.computeScheduleOrderPlan({
+            scheduleId,
+            asOfDate: nextRun,
+            coverageDays,
+            stockProjectionDays: gapDays,
+          })
+        : planToday;
+
+    const scheduledById = new Map(planScheduled.items.map(i => [i.itemId, i]));
+
+    let totalToday = 0;
+    let totalScheduled = 0;
+    const itemsOut = planToday.items.map(today => {
+      const scheduled = scheduledById.get(today.itemId);
+      const quantityScheduled = scheduled?.quantity ?? 0;
+      const totalTodayItem = today.totalPrice;
+      const totalScheduledItem = scheduled?.totalPrice ?? quantityScheduled * today.unitPrice;
+      totalToday += totalTodayItem;
+      totalScheduled += totalScheduledItem;
+      return {
+        itemId: today.itemId,
+        itemName: today.itemName,
+        unitPrice: today.unitPrice,
+        quantityToday: today.quantity,
+        quantityScheduled,
+        totalToday: totalTodayItem,
+        totalScheduled: totalScheduledItem,
+        reasonToday: today.reason,
+        reasonScheduled: scheduled?.reason ?? today.reason,
+        skipped: today.skipped && (scheduled?.skipped ?? true),
+      };
+    });
+
+    return {
+      success: true,
+      message: `Projeção calculada para o agendamento ${scheduleId}.`,
+      data: {
+        items: itemsOut,
+        meta: { nextRun, scheduledDate: nextRun, gapDays, intervalDays, coverageDays, totalToday, totalScheduled },
+      },
+    };
+  }
+
+  /**
+   * Build (but do not persist) the order payload for a schedule covering an
+   * explicit window. Used by the trigger-now flow in the scheduler. Returns null
+   * when no item needs ordering.
+   */
+  async buildOrderDataForCoverage(
+    scheduleId: string,
+    opts: { asOfDate: Date; coverageDays: number; stockProjectionDays?: number },
+    tx?: PrismaTransaction,
+  ): Promise<any | null> {
+    const transaction = tx || this.prisma;
+    const schedule = await transaction.orderSchedule.findUnique({
+      where: { id: scheduleId },
+      include: { weeklyConfig: true, monthlyConfig: true, yearlyConfig: true },
+    });
+    if (!schedule) {
+      throw new NotFoundException(`Agendamento de pedido ${scheduleId} não encontrado`);
+    }
+
+    const plan = await this.computeScheduleOrderPlan({
+      scheduleId,
+      asOfDate: opts.asOfDate,
+      coverageDays: opts.coverageDays,
+      stockProjectionDays: opts.stockProjectionDays ?? 0,
+      tx: transaction,
+    });
+
+    const orderItems = plan.items
+      .filter(i => !i.skipped && i.quantity > 0)
+      .map(i => ({
+        itemId: i.itemId,
+        orderedQuantity: i.quantity,
+        price: i.unitPrice,
+        icms: i.icms,
+        ipi: i.ipi,
+      }));
+    if (orderItems.length === 0) {
+      return null;
+    }
+
+    const nextRunDate = this.calculateNextRunDate(schedule as OrderSchedule);
+    const itemCount = orderItems.length;
+    const description = `Pedido manual (disparo) - ${itemCount} ${itemCount === 1 ? 'item' : 'itens'}`;
+
+    return {
+      supplierId: schedule.supplierId ?? null,
+      description,
+      forecast: nextRunDate || new Date(),
+      status: 'CREATED',
+      orderScheduleId: scheduleId,
+      items: orderItems,
+    };
   }
 
   /**

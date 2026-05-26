@@ -912,6 +912,10 @@ export interface SecullumCreateAssinaturaResponse {
 export interface SecullumCreateAssinaturaForUsersRequest {
   userIds?: string[];
   applyToAll?: boolean;
+  // Re-send only to the employees still "em aberto" (not approved — rejected or
+  // pending) in the most recent apuração of the period. Resolves the target set
+  // server-side; userIds/applyToAll are ignored when set.
+  onlyOpen?: boolean;
   DataInicio: string; // ISO YYYY-MM-DD or full datetime
   DataFim: string;
   EmpresaId?: number; // defaults to 1 when omitted (single-tenant Ankaa)
