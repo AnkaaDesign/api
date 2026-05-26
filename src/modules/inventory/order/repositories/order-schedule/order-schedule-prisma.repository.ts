@@ -116,7 +116,7 @@ export class OrderSchedulePrismaRepository
   }
 
   private normalizeYearlyConfig(yearly: {
-    month: string;
+    month?: string;
     dayOfMonth?: number | null;
     occurrence?: string | null;
     dayOfWeek?: string | null;
