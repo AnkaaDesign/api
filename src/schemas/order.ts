@@ -55,9 +55,9 @@ export const orderIncludeSchema = z
             .object({
               supplier: z.boolean().optional(),
               category: z.boolean().optional(),
-              weeklySchedule: z.boolean().optional(),
-              monthlySchedule: z.boolean().optional(),
-              yearlySchedule: z.boolean().optional(),
+              weeklyConfig: z.boolean().optional(),
+              monthlyConfig: z.boolean().optional(),
+              yearlyConfig: z.boolean().optional(),
               order: z.boolean().optional(),
             })
             .optional(),
@@ -224,9 +224,14 @@ export const orderScheduleIncludeSchema = z
         }),
       ])
       .optional(),
-    weeklySchedule: z.boolean().optional(),
-    monthlySchedule: z.boolean().optional(),
-    yearlySchedule: z.boolean().optional(),
+    // These MUST match the Prisma relation names on OrderSchedule
+    // (weeklyConfig/monthlyConfig/yearlyConfig). They were previously misnamed
+    // weeklySchedule/monthlySchedule/yearlySchedule (the write-payload keys), so
+    // Zod silently stripped the real include keys → the GET returned a schedule
+    // with no config relations → the edit/detail UI showed an empty config.
+    weeklyConfig: z.boolean().optional(),
+    monthlyConfig: z.boolean().optional(),
+    yearlyConfig: z.boolean().optional(),
     order: z.boolean().optional(),
     _count: z
       .union([

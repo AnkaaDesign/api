@@ -11,6 +11,7 @@ import {
   Logger,
   HttpCode,
   HttpStatus,
+  HttpException,
   StreamableFile,
   ParseIntPipe,
 } from '@nestjs/common';
@@ -56,6 +57,7 @@ import {
   SecullumAssinaturaDetailResponse,
   SecullumCreateAssinaturaForUsersRequest,
   SecullumCreateAssinaturaForUsersResponse,
+  SecullumDeleteAssinaturaResponse,
   SecullumAbsenceDaysResponse,
 } from './dto';
 
@@ -1061,23 +1063,50 @@ export class SecullumController {
   }
 
   /**
-   * Electronic Signature of Time Card — create apurações for a list of internal
-   * userIds (or every active linked user when applyToAll=true). Server resolves
-   * userId → secullumEmployeeId then fans out one POST per employee.
+   * Electronic Signature of Time Card — start generating apurações for a list
+   * of internal userIds (or every active linked user when applyToAll=true).
+   * Generation drives Secullum's report WebSocket and can be slow, so this
+   * returns a jobId immediately; poll progress via GET .../progress/:jobId.
    * POST /integrations/secullum/assinatura-digital
    */
   @Post('assinatura-digital')
   @WriteRateLimit()
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.CREATED)
+  @HttpCode(HttpStatus.ACCEPTED)
   async createAssinaturaForUsers(
     @UserId() userId: string,
     @Body() body: SecullumCreateAssinaturaForUsersRequest,
-  ): Promise<SecullumCreateAssinaturaForUsersResponse> {
+  ): Promise<{ success: boolean; jobId: string }> {
+    if (!body.applyToAll && (!body.userIds || body.userIds.length === 0)) {
+      throw new HttpException(
+        { success: false, message: 'Informe userIds ou applyToAll=true.' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
     this.logger.log(
-      `User ${userId} creating Secullum assinatura batch for ${body.applyToAll ? 'ALL' : (body.userIds?.length ?? 0)} user(s) ${body.DataInicio}..${body.DataFim}`,
+      `User ${userId} starting Secullum assinatura job for ${body.applyToAll ? 'ALL' : (body.userIds?.length ?? 0)} user(s) ${body.DataInicio}..${body.DataFim}`,
     );
-    return this.secullumService.createAssinaturaForUsers(body);
+    const { jobId } = this.secullumService.startAssinaturaForUsers(body);
+    return { success: true, jobId };
+  }
+
+  /**
+   * Electronic Signature of Time Card — progress of a generation job.
+   * GET /integrations/secullum/assinatura-digital/progress/:jobId
+   */
+  @Get('assinatura-digital/progress/:jobId')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getAssinaturaProgress(@Param('jobId') jobId: string) {
+    const job = this.secullumService.getAssinaturaJob(jobId);
+    if (!job) {
+      throw new HttpException(
+        { success: false, message: 'Job não encontrado ou expirado.' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    return { success: true, data: job };
   }
 
   /**
@@ -1141,5 +1170,48 @@ export class SecullumController {
       type: 'application/pdf',
       disposition: `attachment; filename="${filename}"`,
     });
+  }
+
+  /**
+   * Electronic Signature of Time Card — bundle every employee's signed PDF,
+   * across one or many apurações, into a single ZIP.
+   * POST /integrations/secullum/assinatura-digital/download-zip
+   * Body: { apuracaoIds: number[] }
+   */
+  @Post('assinatura-digital/download-zip')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async downloadAssinaturasZip(
+    @UserId() userId: string,
+    @Body() body: { apuracaoIds: number[] },
+  ): Promise<StreamableFile> {
+    const ids = Array.isArray(body?.apuracaoIds)
+      ? body.apuracaoIds.map((n) => Number(n)).filter((n) => Number.isFinite(n))
+      : [];
+    this.logger.log(
+      `User ${userId} downloading Secullum assinatura ZIP for apuracoes=[${ids.join(',')}]`,
+    );
+    const { buffer, filename } = await this.secullumService.downloadAssinaturasZip(ids);
+    return new StreamableFile(buffer, {
+      type: 'application/zip',
+      disposition: `attachment; filename="${filename}"`,
+    });
+  }
+
+  /**
+   * Electronic Signature of Time Card — delete an apuração (batch) entirely.
+   * DELETE /integrations/secullum/assinatura-digital/:id
+   */
+  @Delete('assinatura-digital/:id')
+  @WriteRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async deleteAssinatura(
+    @UserId() userId: string,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<SecullumDeleteAssinaturaResponse> {
+    this.logger.log(`User ${userId} deleting Secullum assinatura apuracao=${id}`);
+    return this.secullumService.deleteAssinatura(id);
   }
 }
