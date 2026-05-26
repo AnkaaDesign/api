@@ -1,9 +1,22 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { OrderScheduleService } from './order-schedule.service';
 import { OrderService } from './order.service';
-import { ORDER_STATUS } from '../../../constants/enums';
+import { ORDER_STATUS, SCHEDULE_FREQUENCY } from '../../../constants/enums';
+
+/** Cascade behavior when a schedule is triggered manually before its next run.
+ *  - GAP_ONLY: order covers only the days until the next scheduled run; the
+ *    schedule still fires on its date (a "bridge"/top-up order).
+ *  - GAP_PLUS_CYCLE: order covers the gap PLUS the next full cycle; the
+ *    schedule's nextRun is advanced one interval (the absorbed cycle is skipped). */
+export type OrderScheduleCascadeMode = 'GAP_ONLY' | 'GAP_PLUS_CYCLE';
 
 /** Fires OrderSchedule rows whose `nextRun` has passed. Updates `lastRun` /
  *  `lastFiredAt` / `nextRun` in the SAME transaction as the order creation
@@ -135,6 +148,114 @@ export class OrderScheduleScheduler {
         nextRun: nextRunDate,
       },
     });
+  }
+
+  /** Manually fire a schedule NOW, actually creating the order (unlike the
+   *  preview-only `create-order` endpoint). The cascade mode controls both the
+   *  coverage window and how `nextRun` moves:
+   *   - GAP_ONLY:       coverage = days until next run; nextRun unchanged.
+   *   - GAP_PLUS_CYCLE: coverage = gap + one full interval; nextRun advanced one
+   *                     interval (the absorbed cycle is skipped).
+   *  ONCE schedules are finished after firing regardless of mode. Reuses the
+   *  cron's same-day duplicate guard and sets lastFiredAt/lastRun so the hourly
+   *  cron won't double-fire. */
+  async triggerNow(
+    scheduleId: string,
+    cascadeMode: OrderScheduleCascadeMode,
+    userId?: string,
+  ): Promise<{ success: boolean; message: string; data: any }> {
+    const schedule = await this.prisma.orderSchedule.findUnique({
+      where: { id: scheduleId },
+      include: { weeklyConfig: true, monthlyConfig: true, yearlyConfig: true },
+    });
+    if (!schedule) {
+      throw new NotFoundException(`Agendamento de pedido ${scheduleId} não encontrado`);
+    }
+    if (schedule.finishedAt) {
+      throw new BadRequestException('Este agendamento já foi finalizado.');
+    }
+
+    const now = new Date();
+
+    // Same-day duplicate guard (mirrors the cron) — also blocks a second manual
+    // trigger on the same calendar day.
+    const todayStart = startOfDaySaoPaulo(now);
+    const dupe = await this.prisma.order.findFirst({
+      where: {
+        orderScheduleId: scheduleId,
+        createdAt: { gte: todayStart },
+        status: { not: ORDER_STATUS.CANCELLED },
+      },
+      select: { id: true },
+    });
+    if (dupe) {
+      throw new BadRequestException(
+        'Este agendamento já gerou um pedido hoje. Aguarde o próximo ciclo ou cancele o pedido existente.',
+      );
+    }
+
+    const { nextRun, intervalDays, gapDays } = this.orderScheduleService.getScheduleTiming(
+      schedule as any,
+    );
+    const interval = intervalDays ?? 30;
+    const coverageDays =
+      cascadeMode === 'GAP_PLUS_CYCLE'
+        ? Math.max(1, gapDays) + interval
+        : gapDays > 0
+          ? gapDays
+          : interval; // GAP_ONLY with no gap (overdue/once) falls back to one interval
+
+    const orderData = await this.orderScheduleService.buildOrderDataForCoverage(scheduleId, {
+      asOfDate: now,
+      coverageDays,
+    });
+
+    if (!orderData) {
+      return {
+        success: true,
+        message: 'Nenhum item precisa ser pedido no momento. Os níveis de estoque estão adequados.',
+        data: null,
+      };
+    }
+
+    const orderResp = await this.orderService.create(orderData as any, undefined, userId);
+    if (!orderResp?.success) {
+      this.logger.error(
+        `Manual trigger for schedule ${scheduleId}: order creation returned non-success: ${JSON.stringify(orderResp)}`,
+      );
+      throw new InternalServerErrorException('Falha ao criar o pedido a partir do agendamento.');
+    }
+
+    // Advance the schedule per cascade mode.
+    const update: Record<string, unknown> = { lastFiredAt: now, lastRun: now };
+    if (schedule.frequency === SCHEDULE_FREQUENCY.ONCE) {
+      update.finishedAt = now;
+      update.isActive = false;
+    } else if (cascadeMode === 'GAP_PLUS_CYCLE') {
+      // Skip the cycle we just absorbed: advance one interval past the current
+      // nextRun (business-day-shifted by the service helper).
+      const base = nextRun ?? now;
+      update.nextRun = this.orderScheduleService.calculateNextRunDate(schedule as any, base);
+    }
+    // GAP_ONLY leaves nextRun untouched so the schedule still fires on its date.
+    await this.prisma.orderSchedule.update({ where: { id: scheduleId }, data: update });
+
+    this.logger.log(
+      `Manual trigger for schedule ${scheduleId} (${cascadeMode}): order created covering ${coverageDays}d (gap=${gapDays}d, interval=${interval}d)`,
+    );
+
+    return {
+      success: true,
+      message: `Pedido criado cobrindo ${coverageDays} dias.`,
+      data: {
+        order: orderResp.data,
+        cascadeMode,
+        coverageDays,
+        gapDays,
+        intervalDays,
+        nextRun: update.nextRun ?? nextRun,
+      },
+    };
   }
 }
 

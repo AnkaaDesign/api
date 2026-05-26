@@ -21,6 +21,7 @@ import { FileService } from '@modules/common/file/file.service';
 import { OrderService } from './order.service';
 import { OrderItemService } from './order-item.service';
 import { OrderScheduleService } from './order-schedule.service';
+import { OrderScheduleScheduler } from './order-schedule.scheduler';
 import { OrderAnalyticsService } from './order-analytics.service';
 import { UserId } from '../../common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -47,6 +48,7 @@ import {
   orderScheduleBatchUpdateSchema,
   orderScheduleBatchDeleteSchema,
   orderScheduleQuerySchema,
+  orderScheduleTriggerSchema,
   orderItemQuerySchema,
   orderScheduleGetByIdSchema,
   orderItemBatchCreateSchema,
@@ -76,6 +78,7 @@ import type {
   OrderScheduleBatchUpdateFormData,
   OrderScheduleBatchDeleteFormData,
   OrderScheduleQueryFormData,
+  OrderScheduleTriggerFormData,
   OrderItemQueryFormData,
   OrderItemBatchCreateFormData,
   OrderItemBatchUpdateFormData,
@@ -518,7 +521,10 @@ export class OrderItemController {
 
 @Controller('order-schedules')
 export class OrderScheduleController {
-  constructor(private readonly orderScheduleService: OrderScheduleService) {}
+  constructor(
+    private readonly orderScheduleService: OrderScheduleService,
+    private readonly orderScheduleScheduler: OrderScheduleScheduler,
+  ) {}
 
   // =====================
   // OrderSchedule Query Operations
@@ -718,6 +724,47 @@ export class OrderScheduleController {
     } catch (error) {
       throw error;
     }
+  }
+
+  /**
+   * Dual quantity/price projection for the details page: per item, what an
+   * order needs TODAY vs on the SCHEDULED trigger date (stock rolled forward).
+   */
+  @Get(':id/projection')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getProjection(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+  ): Promise<ReturnType<OrderScheduleService['getScheduleProjection']>> {
+    return this.orderScheduleService.getScheduleProjection(id);
+  }
+
+  /**
+   * Trigger a schedule NOW — actually creates the order (unlike the preview-only
+   * `create-order` endpoint). `cascadeMode` controls coverage + nextRun:
+   * GAP_ONLY (bridge) or GAP_PLUS_CYCLE (pull-forward).
+   */
+  @Post(':id/trigger')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  async triggerNow(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(orderScheduleTriggerSchema)) data: OrderScheduleTriggerFormData,
+    @UserId() userId: string,
+  ): Promise<{ success: boolean; message: string; data: any }> {
+    return this.orderScheduleScheduler.triggerNow(id, data.cascadeMode, userId);
   }
 
   /**

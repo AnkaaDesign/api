@@ -3,8 +3,8 @@ import { CacheService } from '@modules/common/cache/cache.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import archiver from 'archiver';
-import WebSocket from 'ws';
 import { randomUUID } from 'crypto';
+import { SecullumBrowserSignerService } from './secullum-browser-signer.service';
 import { SecullumToken } from '@prisma/client';
 import {
   SecullumAuthResponse,
@@ -117,6 +117,7 @@ export class SecullumService {
   constructor(
     private readonly cacheService: CacheService,
     private readonly prismaService: PrismaService,
+    private readonly browserSigner: SecullumBrowserSignerService,
   ) {
     this.baseUrl = process.env.SECULLUM_BASE_URL || 'https://pontoweb.secullum.com.br';
     this.authUrl = process.env.SECULLUM_AUTH_URL || 'https://autenticador.secullum.com.br/Token';
@@ -3039,6 +3040,90 @@ export class SecullumService {
     }
   }
 
+  // Funcionário ids DISMISSED in Secullum (from /FuncionariosDemitidos). Our DB
+  // may not have the dismissal synced, so this is the source of truth for hiding
+  // terminated employees from the signature picker. Cached 5 min.
+  private readonly dismissedFuncCacheKey = 'secullum:funcionarios-demitidos-ids';
+  private async getDismissedFuncionarioIds(): Promise<number[]> {
+    try {
+      const cached = await this.cacheService.getObject<number[]>(this.dismissedFuncCacheKey);
+      if (Array.isArray(cached)) return cached;
+    } catch {
+      /* cache unavailable */
+    }
+    let ids: number[] = [];
+    try {
+      const demitidos = await this.makeAuthenticatedRequest<Array<{ Id: number }>>(
+        'GET',
+        '/FuncionariosDemitidos',
+      );
+      ids = (Array.isArray(demitidos) ? demitidos : [])
+        .map((f) => Number(f.Id))
+        .filter((n) => Number.isFinite(n));
+    } catch (err) {
+      this.logger.warn(
+        `Could not load dismissed funcionarios (continuing without exclusion): ${this.getErrorMessage(err)}`,
+      );
+    }
+    try {
+      await this.cacheService.setObject(this.dismissedFuncCacheKey, ids, 300);
+    } catch {
+      /* ignore cache write errors */
+    }
+    return ids;
+  }
+
+  // Linked users eligible for signature: secullumEmployeeId set AND NOT dismissed
+  // in Secullum. Powers the "Nova Apuração" collaborator picker so terminated
+  // employees (e.g. dismissed only in Secullum) never show. Search + pagination.
+  async getAssinaturaEligibleUsers(params: {
+    search?: string;
+    page?: number;
+    take?: number;
+  }): Promise<{
+    success: boolean;
+    data: Array<{
+      id: string;
+      name: string;
+      secullumEmployeeId: number | null;
+      position: { id: string; name: string } | null;
+      sector: { id: string; name: string } | null;
+    }>;
+    meta: { page: number; take: number; totalRecords: number; hasNextPage: boolean };
+  }> {
+    const page = Math.max(1, Number(params.page) || 1);
+    const take = Math.min(200, Math.max(1, Number(params.take) || 50));
+    const dismissedIds = await this.getDismissedFuncionarioIds();
+
+    const where: any = { secullumEmployeeId: { not: null } };
+    if (dismissedIds.length) where.secullumEmployeeId.notIn = dismissedIds;
+    const search = params.search?.trim();
+    if (search) where.name = { contains: search, mode: 'insensitive' };
+
+    const [data, totalRecords] = await Promise.all([
+      this.prismaService.user.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          secullumEmployeeId: true,
+          position: { select: { id: true, name: true } },
+          sector: { select: { id: true, name: true } },
+        },
+        orderBy: { name: 'asc' },
+        skip: (page - 1) * take,
+        take,
+      }),
+      this.prismaService.user.count({ where }),
+    ]);
+
+    return {
+      success: true,
+      data,
+      meta: { page, take, totalRecords, hasNextPage: page * take < totalRecords },
+    };
+  }
+
   /**
    * Fetch a single employee's signed time-card PDF as a binary buffer.
    * Upstream serves `application/pdf` with `Content-Disposition: inline; filename=CartaoPonto.pdf`.
@@ -3271,6 +3356,92 @@ export class SecullumService {
     // The interactive report token (getReportToken, used by the WS) performs
     // the login + SalvarLogin with the proper web-client session, so no
     // separate session bootstrap is needed here.
+
+    // ----- EM ABERTO: re-send only to employees not approved (rejected or
+    // pending) in the most recent apuração of this period. -----
+    if (payload.onlyOpen) {
+      const list = await this.getAssinaturaList();
+      const samePeriod = (Array.isArray(list.data) ? list.data : []).filter(
+        (a) =>
+          (a.DataInicio || '').slice(0, 10) === dataInicial &&
+          (a.DataFim || '').slice(0, 10) === dataFinal,
+      );
+      if (samePeriod.length === 0) {
+        return {
+          success: false,
+          message: 'Nenhuma apuração encontrada para este período. Crie uma apuração primeiro.',
+          data: { created: 0, failed: 0, results: [] },
+        };
+      }
+      // Most recent apuração for the period (highest Id).
+      const latest = samePeriod.reduce((a, b) => (b.Id > a.Id ? b : a));
+      const detail = await this.getAssinaturaDetail(latest.Id);
+      const itens = detail.data?.ListaItensAssinatura ?? [];
+      // "Em aberto" = not approved (Status !== 1): rejeitado (2) + pendente (0).
+      const emAberto = itens.filter((it) => it.Status !== 1);
+      const listaFuncionarios = [...new Set(emAberto.map((it) => it.FuncionarioId))];
+
+      if (listaFuncionarios.length === 0) {
+        return {
+          success: true,
+          message: `Nenhum colaborador em aberto na apuração #${latest.Id} — todos já assinaram.`,
+          data: { created: 0, failed: 0, results: [] },
+        };
+      }
+
+      const linkedUsers = await this.prismaService.user.findMany({
+        where: { secullumEmployeeId: { in: listaFuncionarios } },
+        select: { id: true, name: true, secullumEmployeeId: true },
+      });
+      const results = listaFuncionarios.map((fid) => {
+        const u = linkedUsers.find((x) => x.secullumEmployeeId === fid);
+        return {
+          userId: u?.id ?? `func-${fid}`,
+          userName:
+            u?.name ?? emAberto.find((it) => it.FuncionarioId === fid)?.Funcionario ?? `Funcionário ${fid}`,
+          funcionarioId: fid,
+          ok: true,
+        };
+      });
+
+      const genericDesc = await this.getAssinaturaDescricao(dataFinal, true, '');
+      const descricao = `${genericDesc} - reenvio em aberto (${listaFuncionarios.length})`;
+      const phase = `Reenviando para ${listaFuncionarios.length} colaboradores em aberto`;
+
+      onProgress?.({ phase: 'Carregando cálculos...', atual: 0, total: listaFuncionarios.length });
+      for (const fid of listaFuncionarios) {
+        await this.preloadCalculo(fid, dataInicial, dataFinal);
+      }
+      onProgress?.({ phase, atual: 0, total: listaFuncionarios.length });
+      try {
+        await this.generateAssinaturaWithRetry({
+          funcionarioId: 0,
+          imprimirTodos: false,
+          listaFuncionarios,
+          dataInicial,
+          dataFinal,
+          descricao,
+          onProgress: (atual, t) =>
+            onProgress?.({ phase, atual, total: t || listaFuncionarios.length }),
+        });
+        onProgress?.({ phase: 'Concluído', atual: listaFuncionarios.length, total: listaFuncionarios.length });
+        return {
+          success: true,
+          message: `Reenvio criado para ${listaFuncionarios.length} colaborador(es) em aberto`,
+          data: { created: 1, failed: 0, results },
+        };
+      } catch (err: any) {
+        return {
+          success: false,
+          message: `Falha ao reenviar para em aberto: ${this.getErrorMessage(err)}`,
+          data: {
+            created: 0,
+            failed: 1,
+            results: results.map((r) => ({ ...r, ok: false, error: this.getErrorMessage(err) })),
+          },
+        };
+      }
+    }
 
     // ----- ALL: one report call covering every active employee -----
     if (payload.applyToAll) {
@@ -3586,15 +3757,18 @@ export class SecullumService {
     throw lastErr;
   }
 
-  // Drives Secullum's report WebSocket to create a signature apuração — the
-  // exact mechanism the web UI uses when "printing" a time card with format
-  // "Assinatura Eletrônica de Cartão Ponto" (formatoImpressao=5). Captured in
-  // eletronic_signature.har:
-  //   1. connect to wss://pontowebrelatorios.secullum.com.br/
-  //   2. send { accessToken, group:'browser', protocolVersion:5, headers:{...} }
-  //   3. on { responseAuth:'ok' } → send RelatorioCartaoPonto.Gerar
-  //   4. resolve on the "Sucesso" event (reject on "Erro" / close / timeout)
-  //   5. answer the server's --PING-- keepalive with --PONG--
+  // Creates a signature apuração by driving Secullum's report generation through a
+  // REAL Chrome (new-headless) via SecullumBrowserSignerService. Secullum's report
+  // service rejects RelatorioCartaoPonto.Gerar made from a server-side WS client or
+  // a legacy headless browser with a generic DbUpdateException ("An error occurred
+  // while updating the entries") — but the byte-identical request from a real
+  // new-headless Chrome succeeds (proven; see scripts/secullum/playwright-poc.ts).
+  // formatoImpressao=5 selects "Assinatura Eletrônica de Cartão Ponto".
+  // Scope is one of three (built by buildGerarArgs):
+  //   - imprimirTodos=true        → every active employee (one batch entry)
+  //   - listaFuncionarios=[a,b,c] → those specific employees (one batch entry)
+  //   - funcionarioId=X           → a single employee (one entry)
+  // Progresso events are forwarded through params.onProgress ("X de N").
   private async generateAssinaturaReport(params: {
     funcionarioId: number;
     imprimirTodos: boolean;
@@ -3604,133 +3778,25 @@ export class SecullumService {
     listaFuncionarios?: number[];
     onProgress?: (atual: number, total: number) => void;
   }): Promise<void> {
-    // Use the interactive (authorization_code, web-client) token — the report
-    // service rejects writes made with the password-grant API token.
-    const token = await this.getReportToken();
-    if (!token) {
-      throw new Error('Failed to obtain valid authentication token');
-    }
+    const gerarArgs = this.buildGerarArgs(params);
+    // Employees to warm-cache (/Calculos) in the browser session before generating.
+    // imprimirTodos lets the server enumerate everyone, so no priming is needed.
+    const primeFuncIds = params.imprimirTodos
+      ? []
+      : params.listaFuncionarios && params.listaFuncionarios.length > 0
+        ? params.listaFuncionarios
+        : [params.funcionarioId];
 
     this.logger.log(
-      `Generating Secullum signature report via WS: todos=${params.imprimirTodos} funcionario=${params.funcionarioId} ${params.dataInicial}..${params.dataFinal} desc="${params.descricao}"`,
+      `Generating Secullum signature via headless Chrome: todos=${params.imprimirTodos} funcionario=${params.funcionarioId} lista=[${(params.listaFuncionarios ?? []).join(',')}] ${params.dataInicial}..${params.dataFinal} desc="${params.descricao}"`,
     );
 
-    await new Promise<void>((resolve, reject) => {
-      // Mirror the browser handshake. Secullum's report service is multi-tenant
-      // ASP.NET; the browser sends Origin: https://pontoweb.secullum.com.br and
-      // a real User-Agent. Without Origin the server can fail to resolve the
-      // tenant DB context, surfacing as a DbUpdateException on save — so we set
-      // it explicitly here.
-      const ws = new WebSocket(this.reportWsUrl, {
-        origin: this.baseUrl,
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
-        },
-      });
-      let settled = false;
-      const finish = (err?: Error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        try {
-          ws.close();
-        } catch {
-          /* noop */
-        }
-        if (err) reject(err);
-        else resolve();
-      };
-      const timer = setTimeout(
-        () => finish(new Error('Tempo esgotado aguardando a geração da assinatura no Secullum')),
-        120000,
-      );
-
-      ws.on('open', () => {
-        this.logger.log('Secullum report WS open; sending auth frame');
-        ws.send(
-          JSON.stringify({
-            accessToken: token,
-            group: 'browser',
-            protocolVersion: 5,
-            headers: { secullumbancoselecionado: this.databaseId },
-          }),
-        );
-      });
-
-      ws.on('message', (raw: WebSocket.RawData) => {
-        let msg: any;
-        try {
-          msg = JSON.parse(raw.toString());
-        } catch {
-          return;
-        }
-
-        // Auth acknowledgement → fire the report generation.
-        if (msg.responseAuth !== undefined) {
-          this.logger.log(`Secullum report WS auth: ${msg.responseAuth}`);
-          if (msg.responseAuth !== 'ok') {
-            finish(new Error(`Falha de autenticação no serviço de relatórios: ${msg.responseAuth}`));
-            return;
-          }
-          ws.send(
-            JSON.stringify({
-              hubName: 'RelatorioCartaoPonto',
-              methodName: 'Gerar',
-              arguments: [this.buildGerarArgs(params)],
-            }),
-          );
-          return;
-        }
-
-        // Keepalive — the server pings, we must pong (and vice-versa).
-        if (msg.hubName === '--PING--') {
-          ws.send(JSON.stringify({ hubName: '--PONG--', arguments: [] }));
-          return;
-        }
-        if (msg.hubName === '--PONG--') return;
-
-        if (msg.hubName === 'RelatorioCartaoPonto') {
-          if (msg.eventName === 'Sucesso') {
-            this.logger.log('Secullum report WS: Sucesso (apuração criada)');
-            finish();
-            return;
-          }
-          if (msg.eventName === 'Erro' || msg.eventName === 'Falha') {
-            this.logger.error(
-              `Secullum report WS Erro: ${JSON.stringify(msg.arguments)}`,
-            );
-            finish(
-              new Error(
-                `Secullum retornou erro ao gerar a assinatura: ${JSON.stringify(msg.arguments)}`,
-              ),
-            );
-            return;
-          }
-          if (msg.eventName === 'Progresso') {
-            const p = msg.arguments?.[0];
-            if (p && typeof p.total === 'number' && params.onProgress) {
-              params.onProgress(Number(p.atual) || 0, Number(p.total) || 0);
-            }
-            return;
-          }
-          // "Token" → in-progress, keep waiting.
-        }
-      });
-
-      ws.on('error', (err: Error) => {
-        this.logger.error(`Secullum report WS error: ${err.message}`);
-        finish(err);
-      });
-      ws.on('close', (code: number, reason: Buffer) =>
-        finish(
-          new Error(
-            `Conexão WebSocket encerrada antes da conclusão (code ${code}${
-              reason?.length ? `, ${reason.toString()}` : ''
-            })`,
-          ),
-        ),
-      );
+    await this.browserSigner.generate({
+      gerarArgs,
+      primeFuncIds,
+      dataInicial: params.dataInicial,
+      dataFinal: params.dataFinal,
+      onProgress: params.onProgress,
     });
   }
 
@@ -3822,6 +3888,7 @@ export class SecullumService {
   // skipped so a partial set still downloads.
   async downloadAssinaturasZip(
     apuracaoIds: number[],
+    statusFilter: 'approved' | 'rejected' | 'both' = 'approved',
   ): Promise<{ buffer: Buffer; filename: string }> {
     if (!apuracaoIds || apuracaoIds.length === 0) {
       throw this.createApiError('Nenhuma apuração informada', HttpStatus.BAD_REQUEST);
@@ -3836,17 +3903,23 @@ export class SecullumService {
     });
 
     const usedNames = new Set<string>();
+    // Item status: 1 = aprovado, 2 = rejeitado, 0 = pendente.
+    const statusMatches = (status: number) =>
+      statusFilter === 'both'
+        ? status === 1 || status === 2
+        : statusFilter === 'rejected'
+          ? status === 2
+          : status === 1;
     let added = 0;
-    let skippedNotApproved = 0;
+    let skipped = 0;
 
     for (const apuracaoId of apuracaoIds) {
       const detail = await this.getAssinaturaDetail(apuracaoId);
       const itens = detail.data?.ListaItensAssinatura ?? [];
 
       for (const item of itens) {
-        // Approved only (Status 1). Skip rejected (2) and pending (0).
-        if (item.Status !== 1) {
-          skippedNotApproved++;
+        if (!statusMatches(item.Status)) {
+          skipped++;
           continue;
         }
         try {
@@ -3857,12 +3930,14 @@ export class SecullumService {
           const base = this.sanitizeForZip(
             item.Funcionario || `funcionario_${item.FuncionarioId}`,
           );
-          // Flat layout: <Nome>.pdf at the zip root, deduped if a name repeats
-          // across the selected apurações.
-          let entry = `${base}.pdf`;
+          // Separate into status folders inside the zip: Aceitos/ and Rejeitados/.
+          // (Status 1 = aprovado/aceito, 2 = rejeitado.) Deduped per folder if a
+          // name repeats across the selected apurações.
+          const folder = item.Status === 2 ? 'Rejeitados' : 'Aceitos';
+          let entry = `${folder}/${base}.pdf`;
           let n = 2;
           while (usedNames.has(entry)) {
-            entry = `${base}_${n++}.pdf`;
+            entry = `${folder}/${base}_${n++}.pdf`;
           }
           usedNames.add(entry);
           archive.append(buffer, { name: entry });
@@ -3876,9 +3951,15 @@ export class SecullumService {
     }
 
     if (added === 0) {
+      const label =
+        statusFilter === 'rejected'
+          ? 'rejeitado'
+          : statusFilter === 'both'
+            ? 'aprovado ou rejeitado'
+            : 'aprovado';
       throw this.createApiError(
-        skippedNotApproved > 0
-          ? 'Nenhum cartão ponto aprovado disponível para download'
+        skipped > 0
+          ? `Nenhum cartão ponto ${label} disponível para download`
           : 'Nenhum cartão ponto disponível para download',
         HttpStatus.NOT_FOUND,
       );
@@ -3888,10 +3969,12 @@ export class SecullumService {
     await done;
 
     const buffer = Buffer.concat(chunks);
+    const suffix =
+      statusFilter === 'rejected' ? '_rejeitados' : statusFilter === 'both' ? '_todos' : '_aprovados';
     const filename =
       apuracaoIds.length === 1
-        ? `CartoesPonto_Apuracao_${apuracaoIds[0]}.zip`
-        : `CartoesPonto_${apuracaoIds.length}_apuracoes.zip`;
+        ? `CartoesPonto_Apuracao_${apuracaoIds[0]}${suffix}.zip`
+        : `CartoesPonto_${apuracaoIds.length}_apuracoes${suffix}.zip`;
     return { buffer, filename };
   }
 

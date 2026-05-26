@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { SecullumService } from './secullum.service';
+import { SecullumBrowserSignerService } from './secullum-browser-signer.service';
 import { SecullumController } from './secullum.controller';
 import { SecullumCadastrosService } from './secullum-cadastros.service';
 import { SecullumCadastrosController } from './secullum-cadastros.controller';
@@ -27,6 +28,7 @@ import { HOLIDAY_PROVIDER } from '@modules/common/notification/work-schedule.ser
   ],
   providers: [
     SecullumService,
+    SecullumBrowserSignerService,
     SecullumCadastrosService,
     SecullumStatisticsService,
     UserSecullumSyncService,

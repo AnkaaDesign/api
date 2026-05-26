@@ -1993,6 +1993,30 @@ export type OrderScheduleInclude = z.infer<typeof orderScheduleIncludeSchema>;
 export type OrderScheduleOrderBy = z.infer<typeof orderScheduleOrderBySchema>;
 export type OrderScheduleWhere = z.infer<typeof orderScheduleWhereSchema>;
 
+// =====================
+// OrderSchedule Trigger ("disparar agora") Schema
+// =====================
+
+/** Cascade behavior when manually triggering a schedule before its next run. */
+export const ORDER_SCHEDULE_CASCADE_MODE = {
+  /** Cover only the days until the next scheduled run; nextRun unchanged. */
+  GAP_ONLY: 'GAP_ONLY',
+  /** Cover the gap + the next full cycle; nextRun advanced one interval. */
+  GAP_PLUS_CYCLE: 'GAP_PLUS_CYCLE',
+} as const;
+
+export const orderScheduleTriggerSchema = z.object({
+  cascadeMode: z
+    .enum([ORDER_SCHEDULE_CASCADE_MODE.GAP_ONLY, ORDER_SCHEDULE_CASCADE_MODE.GAP_PLUS_CYCLE], {
+      errorMap: () => ({ message: 'Modo de disparo inválido' }),
+    })
+    .default(ORDER_SCHEDULE_CASCADE_MODE.GAP_ONLY),
+});
+
+export type OrderScheduleCascadeMode =
+  (typeof ORDER_SCHEDULE_CASCADE_MODE)[keyof typeof ORDER_SCHEDULE_CASCADE_MODE];
+export type OrderScheduleTriggerFormData = z.infer<typeof orderScheduleTriggerSchema>;
+
 // Weekly/Monthly/Yearly Schedule types
 export type WeeklyScheduleFormData = z.infer<typeof weeklyScheduleSchema>;
 export type MonthlyScheduleFormData = z.infer<typeof monthlyScheduleSchema>;

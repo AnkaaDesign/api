@@ -1077,14 +1077,14 @@ export class SecullumController {
     @UserId() userId: string,
     @Body() body: SecullumCreateAssinaturaForUsersRequest,
   ): Promise<{ success: boolean; jobId: string }> {
-    if (!body.applyToAll && (!body.userIds || body.userIds.length === 0)) {
+    if (!body.applyToAll && !body.onlyOpen && (!body.userIds || body.userIds.length === 0)) {
       throw new HttpException(
-        { success: false, message: 'Informe userIds ou applyToAll=true.' },
+        { success: false, message: 'Informe userIds, applyToAll=true ou onlyOpen=true.' },
         HttpStatus.BAD_REQUEST,
       );
     }
     this.logger.log(
-      `User ${userId} starting Secullum assinatura job for ${body.applyToAll ? 'ALL' : (body.userIds?.length ?? 0)} user(s) ${body.DataInicio}..${body.DataFim}`,
+      `User ${userId} starting Secullum assinatura job for ${body.onlyOpen ? 'EM-ABERTO' : body.applyToAll ? 'ALL' : (body.userIds?.length ?? 0)} user(s) ${body.DataInicio}..${body.DataFim}`,
     );
     const { jobId } = this.secullumService.startAssinaturaForUsers(body);
     return { success: true, jobId };
@@ -1122,6 +1122,29 @@ export class SecullumController {
   ): Promise<SecullumAssinaturaListResponse> {
     this.logger.log(`User ${userId} fetching Secullum AssinaturaDigitalCartaoPonto list`);
     return this.secullumService.getAssinaturaList();
+  }
+
+  /**
+   * Linked users eligible for signature: secullumEmployeeId set AND not dismissed
+   * in Secullum (excludes /FuncionariosDemitidos — our DB may not have the
+   * dismissal synced). Powers the "Nova Apuração" collaborator picker.
+   * NOTE: declared BEFORE `assinatura-digital/:id` so it isn't captured by :id.
+   * GET /integrations/secullum/assinatura-digital/eligible-users
+   */
+  @Get('assinatura-digital/eligible-users')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getAssinaturaEligibleUsers(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('take') take?: string,
+  ) {
+    return this.secullumService.getAssinaturaEligibleUsers({
+      search,
+      page: page ? Number(page) : undefined,
+      take: take ? Number(take) : undefined,
+    });
   }
 
   /**
@@ -1184,15 +1207,17 @@ export class SecullumController {
   @HttpCode(HttpStatus.OK)
   async downloadAssinaturasZip(
     @UserId() userId: string,
-    @Body() body: { apuracaoIds: number[] },
+    @Body() body: { apuracaoIds: number[]; status?: 'approved' | 'rejected' | 'both' },
   ): Promise<StreamableFile> {
     const ids = Array.isArray(body?.apuracaoIds)
       ? body.apuracaoIds.map((n) => Number(n)).filter((n) => Number.isFinite(n))
       : [];
+    const status: 'approved' | 'rejected' | 'both' =
+      body?.status === 'rejected' || body?.status === 'both' ? body.status : 'approved';
     this.logger.log(
-      `User ${userId} downloading Secullum assinatura ZIP for apuracoes=[${ids.join(',')}]`,
+      `User ${userId} downloading Secullum assinatura ZIP (${status}) for apuracoes=[${ids.join(',')}]`,
     );
-    const { buffer, filename } = await this.secullumService.downloadAssinaturasZip(ids);
+    const { buffer, filename } = await this.secullumService.downloadAssinaturasZip(ids, status);
     return new StreamableFile(buffer, {
       type: 'application/zip',
       disposition: `attachment; filename="${filename}"`,
