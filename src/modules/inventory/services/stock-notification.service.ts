@@ -17,6 +17,7 @@ import {
 } from '../../../constants/enums';
 import { StockCalculationResult } from './atomic-stock-calculator.service';
 import { PrismaTransaction } from '../activity/repositories/activity.repository';
+import { isToolType } from '../../../constants/inventory-config';
 
 export enum STOCK_EVENT_TYPE {
   LOW = 'low',
@@ -113,9 +114,10 @@ export class StockNotificationService {
       if (!item) continue;
       const categoryType = (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null;
 
-      // TOOL carve-out (spec §11): TOOL items are excluded ENTIRELY from
-      // stock notifications — no LOW, CRITICAL, OUT_OF_STOCK, or OVERSTOCKED.
-      if (categoryType === ITEM_CATEGORY_TYPE.TOOL) continue;
+      // Tool carve-out (spec §11): tools (regular + electronic) are excluded
+      // ENTIRELY from stock notifications — no LOW, CRITICAL, OUT_OF_STOCK, or
+      // OVERSTOCKED. Tool replenishment surfaces only through the auto-order page.
+      if (isToolType(categoryType)) continue;
 
       out.push({
         itemId: calc.itemId,

@@ -53,7 +53,16 @@ export class OrderSchedulePrismaRepository
 
   // Abstract method implementations from BaseStringPrismaRepository
   protected mapDatabaseEntityToEntity(databaseEntity: PrismaOrderSchedule): OrderSchedule {
-    return databaseEntity as OrderSchedule;
+    const entity = databaseEntity as unknown as OrderSchedule;
+    // A recurring schedule now owns MANY orders (relation `orders`). For
+    // backward compatibility with clients that read the legacy singular
+    // `order`, expose the most recent one. The default include orders them
+    // `createdAt desc`, so index 0 is the latest.
+    const orders = (databaseEntity as unknown as { orders?: unknown[] }).orders;
+    if (Array.isArray(orders) && orders.length > 0 && !entity.order) {
+      entity.order = orders[0] as OrderSchedule['order'];
+    }
+    return entity;
   }
 
   // The recurrence config relations (weeklyConfig/monthlyConfig/yearlyConfig)
@@ -291,12 +300,19 @@ export class OrderSchedulePrismaRepository
       weeklyConfig: true,
       monthlyConfig: true,
       yearlyConfig: true,
-      order: {
+      // A recurring schedule produces many orders over time. Load the most
+      // recent ones (newest first); the mapper derives the back-compat
+      // singular `order` from index 0.
+      orders: {
         select: {
           id: true,
           description: true,
           status: true,
+          createdAt: true,
+          forecast: true,
         },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
       },
     };
   }

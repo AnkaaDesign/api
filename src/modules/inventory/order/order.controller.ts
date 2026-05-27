@@ -727,8 +727,9 @@ export class OrderScheduleController {
   }
 
   /**
-   * Dual quantity/price projection for the details page: per item, what an
-   * order needs TODAY vs on the SCHEDULED trigger date (stock rolled forward).
+   * Trigger-preview projection for the details page: per item, the quantity +
+   * cost each "Executar agora" cascade mode (GAP_ONLY vs GAP_PLUS_CYCLE) will
+   * create. Column totals reconcile exactly with the trigger dialog buttons.
    */
   @Get(':id/projection')
   @Roles(
@@ -749,6 +750,35 @@ export class OrderScheduleController {
     @UserId() userId: string,
   ): Promise<ReturnType<OrderScheduleService['getScheduleProjection']>> {
     return this.orderScheduleService.getScheduleProjection(id);
+  }
+
+  /**
+   * Batch expected-order-total per schedule (the projected cost when each fires
+   * on its scheduled date). Powers the "expected price" column in the schedule
+   * list without N per-row projection calls.
+   */
+  @Post('expected-totals')
+  @HttpCode(HttpStatus.OK)
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getExpectedTotals(
+    @Body() body: { scheduleIds?: string[] },
+  ): Promise<{
+    success: boolean;
+    data: Array<{ id: string; expectedTotal: number; nextRun: Date | null; gapDays: number }>;
+  }> {
+    const data = await this.orderScheduleService.getExpectedTotals(body?.scheduleIds ?? []);
+    return { success: true, data };
   }
 
   /**

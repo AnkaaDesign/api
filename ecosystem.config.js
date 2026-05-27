@@ -28,6 +28,13 @@ module.exports = {
       // Environment File - Load production environment
       env_file: '.env.production',
 
+      // Pin the process timezone so scheduled-order date math, the same-day
+      // dedupe boundary, and Brazilian-holiday business-day shifts all agree
+      // (the order-schedule cron also declares America/Sao_Paulo).
+      env: {
+        TZ: 'America/Sao_Paulo',
+      },
+
       // Logging Configuration
       error_file: './logs/production-error.log',
       out_file: './logs/production-out.log',
@@ -84,6 +91,11 @@ module.exports = {
 
       // Environment File - Load staging environment
       env_file: '.env.staging',
+
+      // Pin the process timezone (see production block).
+      env: {
+        TZ: 'America/Sao_Paulo',
+      },
 
       // Logging Configuration (separate logs)
       error_file: './logs/staging-error.log',

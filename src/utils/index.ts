@@ -68,7 +68,6 @@ export * from './position';
 export * from './privilege';
 export * from './warning';
 export * from './routes';
-export * from './schedule';
 export * from './sector';
 export * from './serviceOrder';
 export * from './sortOrder';

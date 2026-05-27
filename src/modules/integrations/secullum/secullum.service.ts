@@ -3357,14 +3357,19 @@ export class SecullumService {
     // the login + SalvarLogin with the proper web-client session, so no
     // separate session bootstrap is needed here.
 
-    // ----- EM ABERTO: re-send only to employees not approved (rejected or
-    // pending) in the most recent apuração of this period. -----
-    if (payload.onlyOpen) {
+    // ----- REJEITADOS: re-send only to employees who REJECTED their cartão-ponto
+    // (Status 2) in the most recent apuração of this period. Pending/unsigned
+    // employees (Status 0) keep their original open apuração and are NOT re-sent. -----
+    if (payload.onlyRejected) {
       const list = await this.getAssinaturaList();
+      // Match on DataInicio only: it's the stable cycle key. cartaoPontoStart
+      // always yields the 26th of the preceding month, which is exactly what
+      // Secullum persists as DataInicio. DataFim can't be matched exactly —
+      // the report API consumes the 26th boundary (= next-cycle start, what the
+      // frontend sends as "today"), but Secullum stores the cycle's last day as
+      // the 25th, so an exact DataFim equality always fails by one day.
       const samePeriod = (Array.isArray(list.data) ? list.data : []).filter(
-        (a) =>
-          (a.DataInicio || '').slice(0, 10) === dataInicial &&
-          (a.DataFim || '').slice(0, 10) === dataFinal,
+        (a) => (a.DataInicio || '').slice(0, 10) === dataInicial,
       );
       if (samePeriod.length === 0) {
         return {
@@ -3377,14 +3382,15 @@ export class SecullumService {
       const latest = samePeriod.reduce((a, b) => (b.Id > a.Id ? b : a));
       const detail = await this.getAssinaturaDetail(latest.Id);
       const itens = detail.data?.ListaItensAssinatura ?? [];
-      // "Em aberto" = not approved (Status !== 1): rejeitado (2) + pendente (0).
-      const emAberto = itens.filter((it) => it.Status !== 1);
-      const listaFuncionarios = [...new Set(emAberto.map((it) => it.FuncionarioId))];
+      // Only REJECTED items (Status 2). Approved (1) are done; pending (0) still
+      // have their original apuração open and must not be re-sent.
+      const rejeitados = itens.filter((it) => it.Status === 2);
+      const listaFuncionarios = [...new Set(rejeitados.map((it) => it.FuncionarioId))];
 
       if (listaFuncionarios.length === 0) {
         return {
           success: true,
-          message: `Nenhum colaborador em aberto na apuração #${latest.Id} — todos já assinaram.`,
+          message: `Nenhum colaborador rejeitou a apuração #${latest.Id} — nada a reenviar.`,
           data: { created: 0, failed: 0, results: [] },
         };
       }
@@ -3398,15 +3404,15 @@ export class SecullumService {
         return {
           userId: u?.id ?? `func-${fid}`,
           userName:
-            u?.name ?? emAberto.find((it) => it.FuncionarioId === fid)?.Funcionario ?? `Funcionário ${fid}`,
+            u?.name ?? rejeitados.find((it) => it.FuncionarioId === fid)?.Funcionario ?? `Funcionário ${fid}`,
           funcionarioId: fid,
           ok: true,
         };
       });
 
       const genericDesc = await this.getAssinaturaDescricao(dataFinal, true, '');
-      const descricao = `${genericDesc} - reenvio em aberto (${listaFuncionarios.length})`;
-      const phase = `Reenviando para ${listaFuncionarios.length} colaboradores em aberto`;
+      const descricao = `${genericDesc} - reenvio rejeitados (${listaFuncionarios.length})`;
+      const phase = `Reenviando para ${listaFuncionarios.length} colaborador(es) rejeitado(s)`;
 
       onProgress?.({ phase: 'Carregando cálculos...', atual: 0, total: listaFuncionarios.length });
       for (const fid of listaFuncionarios) {
@@ -3427,13 +3433,13 @@ export class SecullumService {
         onProgress?.({ phase: 'Concluído', atual: listaFuncionarios.length, total: listaFuncionarios.length });
         return {
           success: true,
-          message: `Reenvio criado para ${listaFuncionarios.length} colaborador(es) em aberto`,
+          message: `Reenvio criado para ${listaFuncionarios.length} colaborador(es) rejeitado(s)`,
           data: { created: 1, failed: 0, results },
         };
       } catch (err: any) {
         return {
           success: false,
-          message: `Falha ao reenviar para em aberto: ${this.getErrorMessage(err)}`,
+          message: `Falha ao reenviar para rejeitados: ${this.getErrorMessage(err)}`,
           data: {
             created: 0,
             failed: 1,

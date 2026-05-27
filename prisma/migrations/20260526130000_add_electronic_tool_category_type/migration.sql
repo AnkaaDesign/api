@@ -1,0 +1,13 @@
+-- Add ELECTRONIC_TOOL to the ItemCategoryType enum.
+--
+-- Electronic tools follow a different auto-order replenishment rule than
+-- regular tools: a regular TOOL is kept at a minimum of 2 on the shelf
+-- (reorder when qty < 2), while an ELECTRONIC_TOOL is kept at a minimum of 1
+-- (reorder when qty < 1). The reorder targets live in code
+-- (constants/inventory-config.ts -> TOOL_TARGET_MIN); this migration only adds
+-- the enum value used to route items into the electronic-tool branch.
+--
+-- PostgreSQL 12+ permits ALTER TYPE ... ADD VALUE inside a transaction as long
+-- as the new value is not referenced in the same transaction. The value is
+-- only consumed by application reads/writes after the migration commits.
+ALTER TYPE "ItemCategoryType" ADD VALUE IF NOT EXISTS 'ELECTRONIC_TOOL';

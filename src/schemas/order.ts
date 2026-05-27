@@ -1994,7 +1994,7 @@ export type OrderScheduleOrderBy = z.infer<typeof orderScheduleOrderBySchema>;
 export type OrderScheduleWhere = z.infer<typeof orderScheduleWhereSchema>;
 
 // =====================
-// OrderSchedule Trigger ("disparar agora") Schema
+// OrderSchedule Trigger ("executar agora") Schema
 // =====================
 
 /** Cascade behavior when manually triggering a schedule before its next run. */
@@ -2008,7 +2008,7 @@ export const ORDER_SCHEDULE_CASCADE_MODE = {
 export const orderScheduleTriggerSchema = z.object({
   cascadeMode: z
     .enum([ORDER_SCHEDULE_CASCADE_MODE.GAP_ONLY, ORDER_SCHEDULE_CASCADE_MODE.GAP_PLUS_CYCLE], {
-      errorMap: () => ({ message: 'Modo de disparo inválido' }),
+      errorMap: () => ({ message: 'Modo de execução inválido' }),
     })
     .default(ORDER_SCHEDULE_CASCADE_MODE.GAP_ONLY),
 });
