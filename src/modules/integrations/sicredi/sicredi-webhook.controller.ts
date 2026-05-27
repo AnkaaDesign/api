@@ -67,12 +67,8 @@ export class SicrediWebhookController {
     const isProduction = process.env.NODE_ENV === 'production';
 
     if (!secret) {
-      if (isProduction) {
-        this.logger.error('SICREDI_WEBHOOK_SECRET is not configured in production');
-        throw new InternalServerErrorException('Webhook secret not configured');
-      }
       this.logger.warn(
-        'SICREDI_WEBHOOK_SECRET not set — bypassing signature verification (non-production only)',
+        'SICREDI_WEBHOOK_SECRET not set — bypassing signature verification',
       );
       return;
     }
