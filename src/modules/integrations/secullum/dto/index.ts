@@ -912,10 +912,12 @@ export interface SecullumCreateAssinaturaResponse {
 export interface SecullumCreateAssinaturaForUsersRequest {
   userIds?: string[];
   applyToAll?: boolean;
-  // Re-send only to the employees still "em aberto" (not approved — rejected or
-  // pending) in the most recent apuração of the period. Resolves the target set
-  // server-side; userIds/applyToAll are ignored when set.
-  onlyOpen?: boolean;
+  // Re-send only to the employees who REJECTED (Status 2) their cartão-ponto in
+  // the most recent apuração of the period — they had an issue that was fixed and
+  // need a fresh apuração. Employees who simply haven't signed yet (pending,
+  // Status 0) are NOT re-sent: their original apuração is still open in their
+  // queue. Resolves the target set server-side; userIds/applyToAll are ignored.
+  onlyRejected?: boolean;
   DataInicio: string; // ISO YYYY-MM-DD or full datetime
   DataFim: string;
   EmpresaId?: number; // defaults to 1 when omitted (single-tenant Ankaa)

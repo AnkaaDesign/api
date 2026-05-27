@@ -24,6 +24,8 @@ import {
 import {
   CONSUMPTION_LOOKBACK_MONTHS,
   REGULAR_CONSUMPTION_REASONS,
+  getToolTarget,
+  isToolType,
 } from '@/constants/inventory-config';
 import { CORPUS_MONTHLY_INDEX } from '@/constants/seasonality-config';
 import {
@@ -88,23 +90,28 @@ export class ItemRecomputeService {
 
     const categoryType = (item.category?.type as ITEM_CATEGORY_TYPE | null) ?? null;
 
-    // TOOL short-circuit (spec §4/§12) — mirror stock-health.ts behavior.
-    if (categoryType === ITEM_CATEGORY_TYPE.TOOL) {
+    // Tool short-circuit (spec §4/§12) — mirror stock-health.ts. Tools hold a
+    // fixed target on-hand quantity (regular=2, electronic=1); reorderPoint and
+    // maxQuantity = target, reorderQuantity = box-rounded shortfall to restore it.
+    if (isToolType(categoryType)) {
       const existingLeadTime = item.estimatedLeadTime ?? 0;
+      const target = getToolTarget(categoryType);
+      const box = Math.max(1, item.boxQuantity ?? 1);
+      const reorderQty = Math.max(0, Math.ceil((target - item.quantity) / box) * box);
       await client.item.update({
         where: { id: itemId },
         data: {
           monthlyConsumption: new Prisma.Decimal(0),
-          reorderPoint: 0,
-          maxQuantity: Math.max(item.quantity, 0),
-          reorderQuantity: 0,
+          reorderPoint: target,
+          maxQuantity: target,
+          reorderQuantity: reorderQty,
         },
       });
       return {
         mc: 0,
-        rp: 0,
-        max: Math.max(item.quantity, 0),
-        reorderQty: 0,
+        rp: target,
+        max: target,
+        reorderQty,
         leadTime: existingLeadTime,
         abc: (item.abcCategory as ABC_CATEGORY | null) ?? null,
         xyz: (item.xyzCategory as XYZ_CATEGORY | null) ?? null,

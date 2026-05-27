@@ -1077,14 +1077,14 @@ export class SecullumController {
     @UserId() userId: string,
     @Body() body: SecullumCreateAssinaturaForUsersRequest,
   ): Promise<{ success: boolean; jobId: string }> {
-    if (!body.applyToAll && !body.onlyOpen && (!body.userIds || body.userIds.length === 0)) {
+    if (!body.applyToAll && !body.onlyRejected && (!body.userIds || body.userIds.length === 0)) {
       throw new HttpException(
-        { success: false, message: 'Informe userIds, applyToAll=true ou onlyOpen=true.' },
+        { success: false, message: 'Informe userIds, applyToAll=true ou onlyRejected=true.' },
         HttpStatus.BAD_REQUEST,
       );
     }
     this.logger.log(
-      `User ${userId} starting Secullum assinatura job for ${body.onlyOpen ? 'EM-ABERTO' : body.applyToAll ? 'ALL' : (body.userIds?.length ?? 0)} user(s) ${body.DataInicio}..${body.DataFim}`,
+      `User ${userId} starting Secullum assinatura job for ${body.onlyRejected ? 'REJEITADOS' : body.applyToAll ? 'ALL' : (body.userIds?.length ?? 0)} user(s) ${body.DataInicio}..${body.DataFim}`,
     );
     const { jobId } = this.secullumService.startAssinaturaForUsers(body);
     return { success: true, jobId };

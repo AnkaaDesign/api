@@ -5,7 +5,7 @@
 //   - seasonality-config.ts  (decay, curve, corpus)
 //   - ppe-config.ts          (PPE intervals, headcount, blend)
 
-import { ABC_CATEGORY, ACTIVITY_REASON } from './enums';
+import { ABC_CATEGORY, ACTIVITY_REASON, ITEM_CATEGORY_TYPE } from './enums';
 
 // =====================
 // Activity reason classification (spec §2.1, §3.5)
@@ -230,6 +230,35 @@ export function targetStockDaysForOrderFrequency(ordersLast12Months: number): nu
 /** LOW band upper bound = reorderPoint × this multiplier. Above this and
  *  ≤ maxQuantity, the item is OPTIMAL. */
 export const STOCK_LEVEL_LOW_MULTIPLIER = 1.2;
+
+// =====================
+// Tool replenishment (target-based, not consumption-based)
+// =====================
+
+/** Target on-hand quantity for tool-type items. Tools don't use the
+ *  consumption-driven rp/max model — they hold a fixed minimum on the shelf.
+ *  A tool is recommended for reorder when its quantity drops BELOW the target,
+ *  and the recommended quantity restores it back up to the target:
+ *    REGULAR tool (TOOL)            → keep 2 (reorder when qty < 2, i.e. ≤ 1)
+ *    ELECTRONIC tool (ELECTRONIC_TOOL) → keep 1 (reorder when qty < 1, i.e. ≤ 0)
+ *  PPE is intentionally absent here — PPE is excluded from the auto-order
+ *  workflow for now. */
+export const TOOL_TARGET_MIN: Readonly<Record<string, number>> = {
+  [ITEM_CATEGORY_TYPE.TOOL]: 2,
+  [ITEM_CATEGORY_TYPE.ELECTRONIC_TOOL]: 1,
+};
+
+/** True for any tool-type category (regular or electronic). Use this instead
+ *  of `=== TOOL` so electronic tools route through the same tool logic. */
+export function isToolType(type: ITEM_CATEGORY_TYPE | string | null | undefined): boolean {
+  return type === ITEM_CATEGORY_TYPE.TOOL || type === ITEM_CATEGORY_TYPE.ELECTRONIC_TOOL;
+}
+
+/** Target on-hand quantity for a tool-type item; 0 for non-tool categories. */
+export function getToolTarget(type: ITEM_CATEGORY_TYPE | string | null | undefined): number {
+  if (type == null) return 0;
+  return TOOL_TARGET_MIN[type as string] ?? 0;
+}
 
 // =====================
 // Trend adjustment (spec §13.2)

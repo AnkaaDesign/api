@@ -38,6 +38,8 @@ import {
   TARGET_STOCK_DAYS_BY_ORDER_FREQUENCY,
   TREND_ADJUSTMENT_DELTA,
   TREND_ADJUSTMENT_THRESHOLD_PERCENT,
+  getToolTarget,
+  isToolType,
   targetStockDaysForOrderFrequency,
 } from '@/constants/inventory-config';
 import {
@@ -121,7 +123,9 @@ export function calculateMonthlyConsumption(
   const type = input.item.category?.type ?? null;
   const flags: DataQualityFlag[] = type === null ? ['UNCATEGORIZED'] : [];
 
-  if (type === ITEM_CATEGORY_TYPE.TOOL) {
+  // Tools (regular + electronic) are replenished by a fixed-minimum rule, not
+  // by consumption — monthly consumption is always 0.
+  if (isToolType(type)) {
     return { monthlyConsumption: 0, lowData: false, flags };
   }
   if (type === ITEM_CATEGORY_TYPE.PPE) {
@@ -273,7 +277,10 @@ export interface ReorderPointInput {
 
 export function calculateReorderPoint(input: ReorderPointInput): number {
   const type = input.item.category?.type ?? null;
-  if (type === ITEM_CATEGORY_TYPE.TOOL) return 0;
+  // Tools maintain a fixed target on-hand quantity. We persist the target as
+  // both reorderPoint and maxQuantity so the shortfall-based reorderQuantity
+  // (max − stock − incoming) naturally restores the target.
+  if (isToolType(type)) return getToolTarget(type);
   if (type === ITEM_CATEGORY_TYPE.PPE) {
     return calculatePpeReorderPoint({
       item: input.item,
@@ -318,9 +325,8 @@ export interface MaxQuantityInput {
 
 export function calculateMaxQuantity(input: MaxQuantityInput): number {
   const type = input.item.category?.type ?? null;
-  if (type === ITEM_CATEGORY_TYPE.TOOL) {
-    return Math.max(input.item.quantity, 0);
-  }
+  // Tools top up to their fixed target (no consumption-based buffer).
+  if (isToolType(type)) return getToolTarget(type);
   if (input.monthlyConsumption === 0) return 0;
 
   const avgDaily = input.monthlyConsumption / 30;

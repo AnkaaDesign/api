@@ -980,7 +980,7 @@ model Order {
   status                OrderStatus          @default(CREATED)
   statusOrder           Int                  @default(1)
   supplierId            String?
-  orderScheduleId       String?              @unique
+  orderScheduleId       String?
   orderRuleId           String?
   ppeScheduleId         String?
   notes                 String?
@@ -1010,6 +1010,7 @@ model Order {
   @@index([statusOrder])
   @@index([supplierId])
   @@index([createdAt])
+  @@index([orderScheduleId])
   @@index([ppeScheduleId])
   @@index([paymentResponsibleId])
   @@index([paymentAssignedById])
@@ -1057,12 +1058,14 @@ model OrderSchedule {
   nextRun            DateTime?
   lastRun            DateTime?
   lastFiredAt        DateTime?
+  lastRunStatus      ScheduleRunStatus?
+  lastRunError       String?
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
   finishedAt         DateTime?
   lastRunId          String?
   originalScheduleId String?
-  order              Order?                 @relation("ORDER_TO_SCHEDULE")
+  orders             Order[]                @relation("ORDER_TO_SCHEDULE")
   supplier           Supplier?              @relation("SCHEDULE_SUPPLIER", fields: [supplierId], references: [id])
   monthlyConfig      MonthlyScheduleConfig? @relation(fields: [monthlyConfigId], references: [id])
   weeklyConfig       WeeklyScheduleConfig?  @relation(fields: [weeklyConfigId], references: [id])
@@ -2757,6 +2760,12 @@ enum ScheduleFrequency {
   CUSTOM
 }
 
+enum ScheduleRunStatus {
+  SUCCESS
+  SKIPPED_NO_ITEMS
+  FAILED
+}
+
 enum AssignmentType {
   ALL
   ALL_EXCEPT
@@ -3088,6 +3097,7 @@ enum XyzCategory {
 enum ItemCategoryType {
   REGULAR
   TOOL
+  ELECTRONIC_TOOL
   PPE
 }
 

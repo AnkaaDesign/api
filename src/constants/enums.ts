@@ -502,6 +502,13 @@ export enum SCHEDULE_FREQUENCY {
   CUSTOM = 'CUSTOM',
 }
 
+/** Outcome of the most recent schedule run (cron tick or manual execution). */
+export enum SCHEDULE_RUN_STATUS {
+  SUCCESS = 'SUCCESS',
+  SKIPPED_NO_ITEMS = 'SKIPPED_NO_ITEMS',
+  FAILED = 'FAILED',
+}
+
 // =====================
 // Size Types
 // =====================
@@ -1907,6 +1914,7 @@ export enum LINK_TYPE {
 export enum ITEM_CATEGORY_TYPE {
   REGULAR = 'REGULAR',
   TOOL = 'TOOL',
+  ELECTRONIC_TOOL = 'ELECTRONIC_TOOL',
   PPE = 'PPE',
 }
 

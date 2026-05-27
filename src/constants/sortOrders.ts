@@ -799,6 +799,7 @@ export const ITEM_CATEGORY_TYPE_ORDER: Record<string, number> = {
   [ITEM_CATEGORY_TYPE.REGULAR]: 1,
   [ITEM_CATEGORY_TYPE.PPE]: 2,
   [ITEM_CATEGORY_TYPE.TOOL]: 3,
+  [ITEM_CATEGORY_TYPE.ELECTRONIC_TOOL]: 4,
 };
 
 // =====================

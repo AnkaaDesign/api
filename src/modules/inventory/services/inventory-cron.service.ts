@@ -19,6 +19,7 @@ import {
   ITEM_SIMILARITY_THRESHOLD,
   MAX_SIMILAR_ITEMS_TO_CHECK,
   REGULAR_CONSUMPTION_REASONS,
+  isToolType,
 } from '@/constants/inventory-config';
 import { CORPUS_MONTHLY_INDEX } from '@/constants/seasonality-config';
 import {
@@ -417,14 +418,12 @@ export class InventoryCronService {
       itemId: p.item.id,
       monthlyConsumption: p.mc,
       unitPrice: p.unitPrice,
-      eligible:
-        p.item.category?.type !== ITEM_CATEGORY_TYPE.TOOL &&
-        p.mc > 0,
+      eligible: !isToolType(p.item.category?.type) && p.mc > 0,
     }));
     const xyzInputs: XyzInput[] = partials.map(p => ({
       itemId: p.item.id,
       trailingMonthlyConsumption: p.monthlyHistory,
-      eligible: p.item.category?.type !== ITEM_CATEGORY_TYPE.TOOL,
+      eligible: !isToolType(p.item.category?.type),
     }));
 
     const abcAssignments = new Map(
@@ -609,12 +608,9 @@ export class InventoryCronService {
 
     for (const item of activeItems) {
       try {
-        // Skip TOOL / PPE — they never auto-deactivate (spec §16).
+        // Skip tools (regular + electronic) / PPE — they never auto-deactivate (spec §16).
         const categoryType = item.category?.type ?? null;
-        if (
-          categoryType === ITEM_CATEGORY_TYPE.TOOL ||
-          categoryType === ITEM_CATEGORY_TYPE.PPE
-        ) {
+        if (isToolType(categoryType) || categoryType === ITEM_CATEGORY_TYPE.PPE) {
           continue;
         }
 

@@ -5,7 +5,7 @@ import { ORDER_STATUS_LABELS, SCHEDULE_FREQUENCY_LABELS } from '@constants';
 import { ORDER_STATUS_ORDER } from '@constants';
 import { addDays, addMonths, addWeeks, addYears, dateUtils } from './date';
 import { numberUtils } from './number';
-import { startOfDay, getDay, setDate, setMonth } from 'date-fns';
+import { startOfDay, getDay, setDate, setMonth, getDaysInMonth } from 'date-fns';
 import type { OrderStatus } from '@prisma/client';
 
 /**
@@ -421,7 +421,9 @@ export function calculateNextRunDate(
   // thing; both labels resolve to "Quadrimestral"), SEMI_ANNUAL=Semestral
   // (6 months). frequencyCount further scales this (e.g. BIMONTHLY × 2 = every
   // 4 months) but is typically left at 1 for these derived frequencies.
-  const count = schedule.frequencyCount ?? 1;
+  // Clamp to >= 1: a 0 or negative count would make the "next" run equal to
+  // (or before) the base date, causing the schedule to fire every tick forever.
+  const count = Math.max(1, Math.floor(schedule.frequencyCount ?? 1));
 
   switch (schedule.frequency) {
     case SCHEDULE_FREQUENCY.ONCE:
@@ -610,18 +612,29 @@ function calculateNextYearlyRun(
   let nextDate = new Date(fromDate);
   const targetMonth = getMonthNumber(yearlyConfig.month);
 
-  // Set to target month
+  if (yearlyConfig.dayOfMonth !== null && yearlyConfig.dayOfMonth !== undefined) {
+    // Fixed day of month — build per-year and clamp to the month length so a
+    // dayOfMonth=29 in February doesn't overflow into March on non-leap years.
+    const dayOfMonth = yearlyConfig.dayOfMonth;
+    const buildForYear = (year: number): Date => {
+      const lastDay = getDaysInMonth(new Date(year, targetMonth, 1));
+      return startOfDay(new Date(year, targetMonth, Math.min(dayOfMonth, lastDay)));
+    };
+
+    let candidate = buildForYear(fromDate.getFullYear());
+    let guard = 0;
+    // Advance whole cycles until strictly after fromDate (re-clamping each year).
+    while (candidate <= fromDate && guard < 50) {
+      candidate = buildForYear(candidate.getFullYear() + frequencyCount);
+      guard++;
+    }
+    return candidate;
+  }
+
+  // Set to target month for the occurrence-pattern branch
   nextDate = setMonth(nextDate, targetMonth);
 
-  if (yearlyConfig.dayOfMonth !== null && yearlyConfig.dayOfMonth !== undefined) {
-    // Fixed day of month
-    nextDate = setDate(nextDate, yearlyConfig.dayOfMonth);
-
-    // If date has passed this year, move to next year cycle
-    if (nextDate <= fromDate) {
-      nextDate = addYears(nextDate, frequencyCount);
-    }
-  } else if (yearlyConfig.occurrence && yearlyConfig.dayOfWeek) {
+  if (yearlyConfig.occurrence && yearlyConfig.dayOfWeek) {
     // Occurrence pattern
     nextDate = calculateOccurrenceDate(
       nextDate,
@@ -753,5 +766,3 @@ export function shouldRunToday(schedule: OrderSchedule): boolean {
 
   return nextRun <= today;
 }
-
-// formatScheduleDescription moved to schedule.ts to avoid duplicate exports

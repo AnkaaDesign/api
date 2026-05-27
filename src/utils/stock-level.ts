@@ -5,7 +5,11 @@
 // flight is OPTIMAL/LOW, not CRITICAL.
 
 import { ITEM_CATEGORY_TYPE, STOCK_LEVEL } from '@/constants/enums';
-import { STOCK_LEVEL_LOW_MULTIPLIER } from '@/constants/inventory-config';
+import {
+  STOCK_LEVEL_LOW_MULTIPLIER,
+  getToolTarget,
+  isToolType,
+} from '@/constants/inventory-config';
 
 export interface DetermineStockLevelInput {
   quantity: number;
@@ -32,9 +36,15 @@ export function determineStockLevel(input: DetermineStockLevelInput): STOCK_LEVE
 
   if (!Number.isFinite(quantity)) return STOCK_LEVEL.OPTIMAL;
 
-  // TOOL short-circuit (spec §15.2). TOOL items have no rp/max and ignore incoming.
-  if (categoryType === ITEM_CATEGORY_TYPE.TOOL) {
-    return quantity > 0 ? STOCK_LEVEL.OPTIMAL : STOCK_LEVEL.OUT_OF_STOCK;
+  // Tool short-circuit (spec §15.2). Tools don't use the consumption-driven
+  // rp/max model — they hold a fixed target minimum on the shelf and ignore
+  // incoming. A tool below its target is CRITICAL (needs reorder); empty is
+  // OUT_OF_STOCK.
+  //   REGULAR tool (target 2)    → qty>=2 OPTIMAL, qty==1 CRITICAL, qty<=0 OUT
+  //   ELECTRONIC tool (target 1) → qty>=1 OPTIMAL,               qty<=0 OUT
+  if (isToolType(categoryType)) {
+    if (quantity <= 0) return STOCK_LEVEL.OUT_OF_STOCK;
+    return quantity < getToolTarget(categoryType) ? STOCK_LEVEL.CRITICAL : STOCK_LEVEL.OPTIMAL;
   }
 
   // Negative / out-of-stock are PHYSICAL — incoming doesn't fill an empty shelf.

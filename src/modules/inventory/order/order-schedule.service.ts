@@ -33,13 +33,13 @@ import {
   ENTITY_TYPE,
   CHANGE_TRIGGERED_BY,
   CHANGE_ACTION,
-  ITEM_CATEGORY_TYPE,
   SCHEDULE_FREQUENCY,
   ABC_CATEGORY,
   XYZ_CATEGORY,
 } from '../../../constants/enums';
-import { DEFAULT_LEAD_TIME_DAYS } from '../../../constants/inventory-config';
-import { calculateReorderQuantity, resolveSafetyTargetCell } from '../../../utils/stock-health';
+import { DEFAULT_LEAD_TIME_DAYS, isToolType } from '../../../constants/inventory-config';
+import { calculateReorderQuantity } from '../../../utils/stock-health';
+import { calculateSafetyStock } from '../../../utils/safety-stock';
 import {
   blendedFactorAcrossDays,
   buildSeasonalContextFromSnapshots,
@@ -976,13 +976,26 @@ export class OrderScheduleService {
     // fallback handled inside the helper).
     const snapshotRows = await transaction.consumptionSnapshot.findMany({
       where: { itemId: { in: items.map(i => i.id) } },
-      select: { itemId: true, year: true, month: true, seasonalFactor: true },
+      select: {
+        itemId: true,
+        year: true,
+        month: true,
+        seasonalFactor: true,
+        normalizedConsumption: true,
+      },
+      orderBy: [{ year: 'asc' }, { month: 'asc' }],
     });
     const snapshotsByItem = new Map<string, Array<{ year: number; month: number; seasonalFactor: number }>>();
+    // Trailing monthly consumption (oldest-first) → σ for the statistical
+    // safety-stock layer.
+    const historyByItem = new Map<string, number[]>();
     for (const r of snapshotRows) {
       const arr = snapshotsByItem.get(r.itemId) ?? [];
       arr.push({ year: r.year, month: r.month, seasonalFactor: r.seasonalFactor });
       snapshotsByItem.set(r.itemId, arr);
+      const h = historyByItem.get(r.itemId) ?? [];
+      h.push(r.normalizedConsumption);
+      historyByItem.set(r.itemId, h);
     }
 
     // Pending receipts (still-open orders) offset the need.
@@ -1050,8 +1063,8 @@ export class OrderScheduleService {
           startStock: effectiveStock,
         });
 
-      // TOOL never goes through scheduled replenishment.
-      if (item.category?.type === ITEM_CATEGORY_TYPE.TOOL) {
+      // Tools (regular + electronic) never go through scheduled replenishment.
+      if (isToolType(item.category?.type)) {
         pushPassive('Ferramenta — não entra em reabastecimento automático', true);
         continue;
       }
@@ -1061,60 +1074,57 @@ export class OrderScheduleService {
       }
 
       const incoming = incomingByItem.get(item.id) ?? 0;
-      const maxQuantity = item.maxQuantity ?? null;
-      if (maxQuantity != null && effectiveStock + incoming >= maxQuantity) {
-        pushPassive('Estoque projetado já cobre o máximo', true);
-        continue;
-      }
-
       const leadTimeDays = item.estimatedLeadTime ?? DEFAULT_LEAD_TIME_DAYS;
-      const { safetyFactor } = resolveSafetyTargetCell(
-        (item.abcCategory as ABC_CATEGORY | null) ?? null,
-        (item.xyzCategory as XYZ_CATEGORY | null) ?? null,
-        item.ordersLast12Months ?? null,
-      );
-      const buffer = Math.ceil(coverageDays * safetyFactor);
-      const targetCoverageDays = coverageDays + leadTimeDays + buffer;
 
-      // Seasonal-adjusted daily consumption blended across the projected window,
-      // anchored at `asOfDate + leadTime` so multi-month projections see the
-      // correct seasonal curve.
+      // Periodic-review (order-up-to) model. A schedule only reviews stock every
+      // `coverageDays`, so it is exposed to demand variability over the whole
+      // PROTECTION INTERVAL = coverageDays + leadTime (not just the lead time).
+      // The safety stock is the statistical z×σ×√(protection) from the shared
+      // layered helper (we pass the protection interval as its "lead time"), so
+      // it scales with each item's MEASURED variability: volatile / high-usage
+      // items automatically carry more buffer, while steady items stay lean.
+      const protectionDays = coverageDays + leadTimeDays;
+
+      // Seasonal-adjusted daily consumption blended across the protection window,
+      // anchored at `asOfDate + leadTime`.
       const projectionStart = new Date(asOfDate);
       projectionStart.setDate(projectionStart.getDate() + leadTimeDays);
       const seasonalCtx = buildSeasonalContextFromSnapshots(snapshotsByItem.get(item.id));
-      const seasonal = blendedFactorAcrossDays(projectionStart, targetCoverageDays, seasonalCtx);
+      const seasonal = blendedFactorAcrossDays(projectionStart, protectionDays, seasonalCtx);
       const dailyConsumption = dailyBase * seasonal;
 
-      let qty = dailyConsumption * targetCoverageDays - effectiveStock - incoming;
-      if (qty <= 0) {
-        pushPassive('Estoque suficiente para o período projetado', false);
-        continue;
-      }
+      const demandOverProtection = dailyConsumption * protectionDays;
+      const ssRaw = calculateSafetyStock({
+        monthlyConsumption,
+        leadTimeDays: protectionDays,
+        abcCategory: (item.abcCategory as ABC_CATEGORY | null) ?? null,
+        xyzCategory: (item.xyzCategory as XYZ_CATEGORY | null) ?? null,
+        monthlyHistory: historyByItem.get(item.id) ?? [],
+        trendPercent:
+          item.monthlyConsumptionTrendPercent != null
+            ? Number(item.monthlyConsumptionTrendPercent)
+            : 0,
+      }).safetyStock;
+      // Sanity bound: safety never exceeds one protection-interval of demand, so a
+      // bad-data σ can't balloon stock (worst case ≈ 2× the cycle) while volatile
+      // items still get a generous buffer.
+      const safetyStock = Math.min(ssRaw, demandOverProtection);
+      const orderUpTo = demandOverProtection + safetyStock;
 
-      if (maxQuantity != null) {
-        const headroom = maxQuantity - effectiveStock - incoming;
-        qty = Math.min(qty, headroom);
-        if (qty <= 0) {
-          pushPassive('Estoque suficiente para o período projetado', false);
-          continue;
-        }
+      if (effectiveStock + incoming >= orderUpTo) {
+        pushPassive('Estoque projetado já cobre a cobertura + segurança', false);
+        continue;
       }
 
       const matchingRule =
         item.orderRules.find(r => r.supplierId === item.supplierId) ?? item.orderRules[0] ?? null;
-      // Order the COVERAGE-BASED need (`qty`), box/orderRule-rounded — NOT a
-      // blind top-up to maxQuantity. We pass a target of stock+incoming+qty
-      // (capped at maxQuantity) so `calculateReorderQuantity`'s shortfall equals
-      // `qty`. Passing the raw maxQuantity here would fill all the way to max
-      // (e.g. 7 months of stock for a monthly schedule) — the bug that produced
-      // the absurd "na data" quantities.
-      const coverageTarget =
-        maxQuantity != null
-          ? Math.min(maxQuantity, effectiveStock + incoming + qty)
-          : effectiveStock + incoming + qty;
+      // Order up to the computed order-up-to level (demand over the protection
+      // interval + statistical safety stock), box/orderRule-rounded. This level
+      // — not the stored maxQuantity (which used a weaker safety model) — is the
+      // variability-aware ceiling for the scheduled path.
       const proposedQty = calculateReorderQuantity({
         currentStock: effectiveStock,
-        maxQuantity: coverageTarget,
+        maxQuantity: orderUpTo,
         incomingOrderedQuantity: incoming,
         boxQuantity: item.boxQuantity,
         orderRule: matchingRule,
@@ -1130,7 +1140,7 @@ export class OrderScheduleService {
         currentStock: effectiveStock,
         incoming,
         dailyConsumption: dailyBase,
-        maxQuantity,
+        maxQuantity: Math.ceil(orderUpTo),
         leadTimeDays,
         reorderPoint: item.reorderPoint ?? 0,
         boxQuantity: item.boxQuantity,
@@ -1288,11 +1298,18 @@ export class OrderScheduleService {
   }
 
   /**
-   * Dual-projection table for the details page: for every schedule item, the
-   * quantity + cost if ordered TODAY versus the quantity + cost the order will
-   * need on its SCHEDULED trigger date (stock rolled forward over the gap at the
-   * current consumption rate). Both columns price at the CURRENT unit price, so
-   * the cost difference reflects the larger quantity needed after depletion.
+   * Trigger-preview table for the details page. Every column corresponds to a
+   * REAL order the user can create, so the per-item rows always reconcile with
+   * the totals shown elsewhere:
+   *   - GAP_ONLY        — "Executar agora": order now, cover only until the next
+   *                       scheduled run. Per-item rows sum to `gapOnlyTotal`.
+   *   - GAP_PLUS_CYCLE  — "Executar agora + ciclo": cover the gap PLUS one full
+   *                       cycle. Per-item rows sum to `gapPlusCycleTotal`.
+   * Both use the EXACT coverage windows of OrderScheduleScheduler.triggerNow, so
+   * each column total equals the order that mode actually creates. `meta` also
+   * carries `scheduledTotal` — the forecast of the next AUTOMATIC order when the
+   * cron fires on its date (stock rolled forward over the gap); it matches the
+   * list's "Preço esperado" and is informational only (NOT a trigger total).
    */
   async getScheduleProjection(scheduleId: string): Promise<{
     success: boolean;
@@ -1302,22 +1319,37 @@ export class OrderScheduleService {
         itemId: string;
         itemName: string;
         unitPrice: number;
-        quantityToday: number;
-        quantityScheduled: number;
-        totalToday: number;
-        totalScheduled: number;
-        reasonToday: string;
-        reasonScheduled: string;
-        skipped: boolean;
+        // GAP_ONLY ("Executar agora" — cover only until the next run).
+        quantityGapOnly: number;
+        totalGapOnly: number;
+        reasonGapOnly: string;
+        skippedGapOnly: boolean;
+        // GAP_PLUS_CYCLE ("Executar agora + ciclo" — gap + one full cycle).
+        quantityGapPlusCycle: number;
+        totalGapPlusCycle: number;
+        reasonGapPlusCycle: string;
+        skippedGapPlusCycle: boolean;
       }>;
       meta: {
         nextRun: Date | null;
         scheduledDate: Date | null;
         gapDays: number;
         intervalDays: number | null;
-        coverageDays: number;
-        totalToday: number;
-        totalScheduled: number;
+        /** False when the schedule is due now / overdue — the GAP_ONLY option
+         *  then falls back to one interval and clients hide its column/button. */
+        hasGap: boolean;
+        /** Total the GAP_ONLY trigger creates (coverage = gap to next run).
+         *  Equals the sum of the per-item `totalGapOnly` column. */
+        gapOnlyTotal: number;
+        gapOnlyCoverageDays: number;
+        /** Total the GAP_PLUS_CYCLE trigger creates (coverage = gap + one full
+         *  cycle). Equals the sum of the per-item `totalGapPlusCycle` column. */
+        gapPlusCycleTotal: number;
+        gapPlusCycleCoverageDays: number;
+        /** Forecast of the next AUTOMATIC order (cron fires on nextRun, stock
+         *  rolled forward over the gap). Informational; matches "Preço esperado". */
+        scheduledTotal: number;
+        scheduledCoverageDays: number;
       };
     };
   }> {
@@ -1330,49 +1362,56 @@ export class OrderScheduleService {
     }
 
     const { nextRun, intervalDays, gapDays } = this.getScheduleTiming(schedule as OrderSchedule);
-    const coverageDays = intervalDays ?? 30;
     const now = new Date();
+    const interval = intervalDays ?? 30;
+    const hasGap = gapDays > 0;
 
-    const planToday = await this.computeScheduleOrderPlan({
-      scheduleId,
-      asOfDate: now,
-      coverageDays,
-      stockProjectionDays: 0,
-    });
-    // When the schedule is due now / overdue (no gap), the scheduled projection
-    // collapses to today's.
-    const planScheduled =
-      nextRun && gapDays > 0
-        ? await this.computeScheduleOrderPlan({
-            scheduleId,
-            asOfDate: nextRun,
-            coverageDays,
-            stockProjectionDays: gapDays,
-          })
-        : planToday;
+    // Coverage windows mirror OrderScheduleScheduler.triggerNow EXACTLY, so the
+    // previewed per-item rows + column totals equal the orders that get created.
+    const gapOnlyCoverageDays = hasGap ? gapDays : interval; // overdue → one cycle
+    const gapPlusCycleCoverageDays = Math.max(1, gapDays) + interval;
+    const scheduledCoverageDays = interval;
 
+    const [planGapOnly, planGapPlusCycle, planScheduled] = await Promise.all([
+      this.computeScheduleOrderPlan({ scheduleId, asOfDate: now, coverageDays: gapOnlyCoverageDays, stockProjectionDays: 0 }),
+      this.computeScheduleOrderPlan({ scheduleId, asOfDate: now, coverageDays: gapPlusCycleCoverageDays, stockProjectionDays: 0 }),
+      // Scheduled forecast: the order the cron will create when it fires on
+      // nextRun (stock depleted over the gap, then one cycle of coverage). When
+      // due now / overdue it collapses to "cover one cycle from now".
+      hasGap && nextRun
+        ? this.computeScheduleOrderPlan({ scheduleId, asOfDate: nextRun, coverageDays: scheduledCoverageDays, stockProjectionDays: gapDays })
+        : this.computeScheduleOrderPlan({ scheduleId, asOfDate: now, coverageDays: scheduledCoverageDays, stockProjectionDays: 0 }),
+    ]);
+
+    // Skipped / zero-quantity rows carry totalPrice 0, so summing every row's
+    // totalPrice equals the order created by buildOrderDataForCoverage (which
+    // filters `!skipped && quantity > 0`).
+    const gapOnlyById = new Map(planGapOnly.items.map(i => [i.itemId, i]));
     const scheduledById = new Map(planScheduled.items.map(i => [i.itemId, i]));
 
-    let totalToday = 0;
-    let totalScheduled = 0;
-    const itemsOut = planToday.items.map(today => {
-      const scheduled = scheduledById.get(today.itemId);
-      const quantityScheduled = scheduled?.quantity ?? 0;
-      const totalTodayItem = today.totalPrice;
-      const totalScheduledItem = scheduled?.totalPrice ?? quantityScheduled * today.unitPrice;
-      totalToday += totalTodayItem;
-      totalScheduled += totalScheduledItem;
+    let gapOnlyTotal = 0;
+    let gapPlusCycleTotal = 0;
+    let scheduledTotal = 0;
+    // Iterate planGapPlusCycle — it evaluates every schedule item in configured
+    // order — and zip in the GAP_ONLY + scheduled counterparts by id.
+    const itemsOut = planGapPlusCycle.items.map(gpc => {
+      const go = gapOnlyById.get(gpc.itemId);
+      const sched = scheduledById.get(gpc.itemId);
+      gapOnlyTotal += go?.totalPrice ?? 0;
+      gapPlusCycleTotal += gpc.totalPrice;
+      scheduledTotal += sched?.totalPrice ?? 0;
       return {
-        itemId: today.itemId,
-        itemName: today.itemName,
-        unitPrice: today.unitPrice,
-        quantityToday: today.quantity,
-        quantityScheduled,
-        totalToday: totalTodayItem,
-        totalScheduled: totalScheduledItem,
-        reasonToday: today.reason,
-        reasonScheduled: scheduled?.reason ?? today.reason,
-        skipped: today.skipped && (scheduled?.skipped ?? true),
+        itemId: gpc.itemId,
+        itemName: gpc.itemName,
+        unitPrice: gpc.unitPrice,
+        quantityGapOnly: go?.quantity ?? 0,
+        totalGapOnly: go?.totalPrice ?? 0,
+        reasonGapOnly: go?.reason ?? gpc.reason,
+        skippedGapOnly: go?.skipped ?? true,
+        quantityGapPlusCycle: gpc.quantity,
+        totalGapPlusCycle: gpc.totalPrice,
+        reasonGapPlusCycle: gpc.reason,
+        skippedGapPlusCycle: gpc.skipped,
       };
     });
 
@@ -1381,9 +1420,92 @@ export class OrderScheduleService {
       message: `Projeção calculada para o agendamento ${scheduleId}.`,
       data: {
         items: itemsOut,
-        meta: { nextRun, scheduledDate: nextRun, gapDays, intervalDays, coverageDays, totalToday, totalScheduled },
+        meta: {
+          nextRun,
+          scheduledDate: nextRun,
+          gapDays,
+          intervalDays,
+          hasGap,
+          gapOnlyTotal,
+          gapOnlyCoverageDays,
+          gapPlusCycleTotal,
+          gapPlusCycleCoverageDays,
+          scheduledTotal,
+          scheduledCoverageDays,
+        },
       },
     };
+  }
+
+  /**
+   * Lightweight batch projection for list views: the EXPECTED order total for
+   * each schedule when it fires on its scheduled date (stock rolled forward to
+   * `nextRun`). Computes only the scheduled plan (not today's), with bounded
+   * concurrency, so a list can show a single "expected price" column without N
+   * round-trips. Failures per schedule degrade to a 0 total rather than erroring
+   * the whole request.
+   */
+  async getExpectedTotals(
+    scheduleIds: string[],
+  ): Promise<
+    Array<{ id: string; expectedTotal: number; nextRun: Date | null; gapDays: number }>
+  > {
+    const ids = [...new Set((scheduleIds ?? []).filter(id => typeof id === 'string'))].slice(0, 200);
+    if (ids.length === 0) return [];
+
+    const now = new Date();
+    const results: Array<{
+      id: string;
+      expectedTotal: number;
+      nextRun: Date | null;
+      gapDays: number;
+    }> = [];
+    const CONCURRENCY = 5;
+
+    for (let i = 0; i < ids.length; i += CONCURRENCY) {
+      const chunk = ids.slice(i, i + CONCURRENCY);
+      const chunkResults = await Promise.all(
+        chunk.map(async id => {
+          try {
+            const schedule = await this.prisma.orderSchedule.findUnique({
+              where: { id },
+              include: { weeklyConfig: true, monthlyConfig: true, yearlyConfig: true },
+            });
+            if (!schedule) return { id, expectedTotal: 0, nextRun: null, gapDays: 0 };
+
+            const { nextRun, intervalDays, gapDays } = this.getScheduleTiming(
+              schedule as OrderSchedule,
+            );
+            const coverageDays = intervalDays ?? 30;
+            const plan =
+              nextRun && gapDays > 0
+                ? await this.computeScheduleOrderPlan({
+                    scheduleId: id,
+                    asOfDate: nextRun,
+                    coverageDays,
+                    stockProjectionDays: gapDays,
+                  })
+                : await this.computeScheduleOrderPlan({
+                    scheduleId: id,
+                    asOfDate: now,
+                    coverageDays,
+                    stockProjectionDays: 0,
+                  });
+
+            const expectedTotal = plan.items.reduce((sum, it) => sum + (it.totalPrice ?? 0), 0);
+            return { id, expectedTotal, nextRun, gapDays };
+          } catch (err) {
+            this.logger.warn(
+              `Failed to compute expected total for schedule ${id}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+            return { id, expectedTotal: 0, nextRun: null, gapDays: 0 };
+          }
+        }),
+      );
+      results.push(...chunkResults);
+    }
+
+    return results;
   }
 
   /**
@@ -1428,7 +1550,7 @@ export class OrderScheduleService {
 
     const nextRunDate = this.calculateNextRunDate(schedule as OrderSchedule);
     const itemCount = orderItems.length;
-    const description = `Pedido manual (disparo) - ${itemCount} ${itemCount === 1 ? 'item' : 'itens'}`;
+    const description = `Pedido manual (execução) - ${itemCount} ${itemCount === 1 ? 'item' : 'itens'}`;
 
     return {
       supplierId: schedule.supplierId ?? null,
@@ -1541,102 +1663,6 @@ export class OrderScheduleService {
   }
 
   /**
-   * Handle auto-creation when a schedule is finished
-   */
-  private async handleScheduleFinishAutoCreation(
-    finishedSchedule: any,
-    userId?: string,
-    tx?: PrismaTransaction,
-  ): Promise<void> {
-    try {
-      this.logger.log(`Processing schedule finish auto-creation for ${finishedSchedule.id}`);
-
-      // Check if this schedule is active and can generate next instances
-      if (!finishedSchedule.isActive) {
-        this.logger.log(`Schedule ${finishedSchedule.id} is inactive, skipping auto-creation`);
-        return;
-      }
-
-      // Calculate the next run date
-      const nextRunDate = this.calculateNextRunDate(finishedSchedule, finishedSchedule.finishedAt);
-
-      if (!nextRunDate) {
-        this.logger.log(
-          `No next run date calculated for schedule ${finishedSchedule.id} - skipping auto-creation`,
-        );
-        return;
-      }
-
-      // Create the next schedule instance
-      const newScheduleData: any = {
-        frequency: finishedSchedule.frequency,
-        frequencyCount: finishedSchedule.frequencyCount,
-        isActive: finishedSchedule.isActive,
-        items: finishedSchedule.items,
-
-        // Schedule configuration
-        specificDate: finishedSchedule.specificDate,
-        dayOfMonth: finishedSchedule.dayOfMonth,
-        dayOfWeek: finishedSchedule.dayOfWeek,
-        month: finishedSchedule.month,
-        customMonths: finishedSchedule.customMonths,
-
-        // Reschedule fields (reset for new instance)
-        rescheduleCount: 0,
-        originalDate: null,
-        lastRescheduleDate: null,
-        rescheduleReason: null,
-
-        // Schedule configuration relations
-        weeklyConfigId: finishedSchedule.weeklyConfigId,
-        monthlyConfigId: finishedSchedule.monthlyConfigId,
-        yearlyConfigId: finishedSchedule.yearlyConfigId,
-
-        // Auto-creation tracking
-        lastRunId: finishedSchedule.id,
-        originalScheduleId: finishedSchedule.originalScheduleId || finishedSchedule.id,
-
-        // Schedule dates
-        nextRun: nextRunDate,
-        lastRun: null,
-        finishedAt: null,
-      };
-
-      // Create the new schedule instance
-      if (!tx) {
-        throw new Error('Transaction is required for creating order schedule');
-      }
-      const newSchedule = await this.orderScheduleRepository.createWithTransaction(
-        tx,
-        newScheduleData,
-      );
-
-      // Log the auto-creation
-      await logEntityChange({
-        changeLogService: this.changeLogService,
-        entityType: ENTITY_TYPE.ORDER_SCHEDULE,
-        entityId: newSchedule.id,
-        action: CHANGE_ACTION.CREATE,
-        entity: extractEssentialFields(
-          newSchedule,
-          getEssentialFields(ENTITY_TYPE.ORDER_SCHEDULE) as (keyof OrderSchedule)[],
-        ),
-        reason: `Agendamento criado automaticamente após finalização do agendamento ${finishedSchedule.id}`,
-        userId: userId || null,
-        triggeredBy: CHANGE_TRIGGERED_BY.SCHEDULE,
-        transaction: tx,
-      });
-
-      this.logger.log(
-        `Successfully created new schedule ${newSchedule.id} for next run on ${nextRunDate.toISOString()}`,
-      );
-    } catch (error) {
-      this.logger.error(`Failed to auto-create next schedule for ${finishedSchedule.id}:`, error);
-      // Don't throw error to not prevent schedule finish
-    }
-  }
-
-  /**
    * Public method to calculate quantities for a schedule (for preview/testing)
    */
   async getCalculatedQuantities(
@@ -1714,8 +1740,11 @@ export class OrderScheduleService {
           transaction: tx,
         });
 
-        // Handle auto-creation of next schedule instance
-        await this.handleScheduleFinishAutoCreation(updatedSchedule, userId, tx);
+        // Recurrence is now handled IN PLACE by the cron (a schedule produces
+        // many orders over its lifetime). Finishing therefore simply stops the
+        // schedule — no clone/rotation. (Historically a child schedule was
+        // cloned here to work around the old Order.orderScheduleId @unique
+        // constraint, which no longer exists.)
 
         return updatedSchedule;
       });

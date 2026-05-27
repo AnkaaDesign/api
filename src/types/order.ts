@@ -14,6 +14,7 @@ import {
   ORDER_STATUS,
   PAYMENT_METHOD,
   SCHEDULE_FREQUENCY,
+  SCHEDULE_RUN_STATUS,
   WEEK_DAY,
   MONTH,
   ORDER_TRIGGER_TYPE,
@@ -72,6 +73,8 @@ export interface OrderSchedule extends BaseEntity {
   nextRun: Date | null;
   lastRun: Date | null;
   lastFiredAt: Date | null;
+  lastRunStatus: SCHEDULE_RUN_STATUS | null;
+  lastRunError: string | null;
   finishedAt: Date | null;
   lastRunId: string | null;
   originalScheduleId: string | null;
@@ -80,6 +83,9 @@ export interface OrderSchedule extends BaseEntity {
   weeklyConfig?: WeeklyScheduleConfig;
   monthlyConfig?: MonthlyScheduleConfig;
   yearlyConfig?: YearlyScheduleConfig;
+  // A recurring schedule produces many orders over its lifetime.
+  orders?: Order[];
+  // Back-compat convenience: the most recent order produced by this schedule.
   order?: Order;
 }
 
@@ -281,6 +287,13 @@ export interface OrderScheduleIncludes {
     | boolean
     | {
         include?: YearlyScheduleConfigIncludes;
+      };
+  orders?:
+    | boolean
+    | {
+        include?: OrderIncludes;
+        where?: OrderWhere;
+        orderBy?: OrderOrderBy;
       };
   order?:
     | boolean

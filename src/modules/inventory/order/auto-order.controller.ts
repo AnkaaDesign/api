@@ -1,17 +1,27 @@
-import { Controller, Get, Query, HttpCode, HttpStatus, Logger } from '@nestjs/common';
-import { AutoOrderService } from './auto-order.service';
+import { Body, Controller, Get, HttpCode, HttpStatus, Logger, Post, Query } from '@nestjs/common';
+import {
+  AutoOrderService,
+  autoOrderCreateSchema,
+  type AutoOrderCreateFormData,
+} from './auto-order.service';
 import { UserId } from '../../common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
-import { ZodQueryValidationPipe } from '../../common/pipes/zod-validation.pipe';
+import {
+  ZodQueryValidationPipe,
+  ZodValidationPipe,
+} from '../../common/pipes/zod-validation.pipe';
 import { z } from 'zod';
 
 // =====================
 // Zod Schemas for Auto-Order API
 // =====================
-// Note: this endpoint is RECOMMENDATIONS-ONLY (spec §10). There is no
-// create-from-auto-order route — order persistence is a user-initiated
-// action that goes through the standard OrderController.
+// GET  /orders/auto/analyze  → recommendations, grouped by supplier.
+// POST /orders/auto/create   → turn selected recommendations into real orders.
+//   The client resolves the grouping (combined / per-supplier / per-item /
+//   per-category for the no-supplier bucket); the service derives unit price +
+//   ICMS/IPI from each item and persists every group via
+//   OrderService.batchCreate.
 
 export const autoOrderAnalysisQuerySchema = z.object({
   lookbackMonths: z.coerce.number().int().min(1).max(24).default(12).optional(),
@@ -135,6 +145,24 @@ export class AutoOrderController {
         },
       },
     };
+  }
+
+  /**
+   * POST /orders/auto/create
+   * Create real orders from selected auto-order recommendations. The request
+   * body carries pre-grouped orders (one per supplier, combined, per-item, or
+   * per-category); the service derives price/taxes and persists each group.
+   */
+  @Post('create')
+  @HttpCode(HttpStatus.CREATED)
+  async createOrders(
+    @Body(new ZodValidationPipe(autoOrderCreateSchema)) body: AutoOrderCreateFormData,
+    @UserId() userId: string,
+  ) {
+    this.logger.log(
+      `User ${userId} creating ${body.orders.length} order(s) from auto-order recommendations`,
+    );
+    return this.autoOrderService.createOrdersFromRecommendations(body, userId);
   }
 
   /**

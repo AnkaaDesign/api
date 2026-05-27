@@ -1,5 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { OrderService } from './order.service';
+import type { OrderCreateFormData } from '@/schemas/order';
+import { z } from 'zod';
 import {
   ORDER_STATUS,
   ACTIVITY_OPERATION,
@@ -8,6 +11,8 @@ import {
 } from '@/constants/enums';
 import {
   CONSUMPTION_LOOKBACK_MONTHS,
+  getToolTarget,
+  isToolType,
 } from '@/constants/inventory-config';
 import { PPE_DEFAULT_INTERVAL_MONTHS } from '@/constants/ppe-config';
 import {
@@ -30,6 +35,31 @@ import { balanceDepletionAcrossItems } from '@/utils/order-coverage';
 import { subMonths, differenceInDays, addMonths } from 'date-fns';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 
+// Request schema for POST /orders/auto/create. Defined here (next to the
+// service) so the controller and service share one source of truth. The client
+// resolves the grouping strategy and sends already-grouped orders; a null /
+// omitted supplierId is the "no supplier" bucket.
+export const autoOrderCreateSchema = z.object({
+  orders: z
+    .array(
+      z.object({
+        supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).nullable().optional(),
+        items: z
+          .array(
+            z.object({
+              itemId: z.string().uuid({ message: 'Item inválido' }),
+              quantity: z.number().positive('Quantidade deve ser positiva'),
+            }),
+          )
+          .min(1, 'Cada pedido deve conter pelo menos um item'),
+      }),
+    )
+    .min(1, 'Pelo menos um pedido deve ser fornecido')
+    .max(100, 'Limite máximo de 100 pedidos por vez'),
+});
+
+export type AutoOrderCreateFormData = z.infer<typeof autoOrderCreateSchema>;
+
 interface DemandAnalysis {
   itemId: string;
   itemName: string;
@@ -45,6 +75,9 @@ interface DemandAnalysis {
   supplierName: string | null;
   categoryId: string | null;
   categoryName: string | null;
+  /** Category type so clients can branch on tool / electronic-tool / regular
+   *  without re-fetching the item. PPE never appears here (excluded). */
+  categoryType: ITEM_CATEGORY_TYPE | null;
   lastOrderDate: Date | null;
   daysSinceLastOrder: number | null;
   hasActivePendingOrder: boolean;
@@ -105,7 +138,10 @@ function consolidationWindowForOrdersPerYear(ordersPerYear: number): number {
 export class AutoOrderService {
   private readonly logger = new Logger(AutoOrderService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly orderService: OrderService,
+  ) {}
 
   /**
    * Analyze all items and generate smart auto-order recommendations.
@@ -182,6 +218,10 @@ export class AutoOrderService {
           include: { order: true },
           orderBy: { createdAt: 'desc' },
         },
+        // Per-item supplier constraints (min/max/multiple). Applied to the
+        // recommended quantity so supplier-imposed limits are honored here too,
+        // matching the scheduled-order path.
+        orderRules: { where: { isActive: true } },
       },
     });
 
@@ -252,7 +292,7 @@ export class AutoOrderService {
     now: Date,
   ): { analysis: DemandAnalysis | null; metrics: ComputedItemMetrics | null } | null {
     const categoryType = (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null;
-    const isTool = categoryType === ITEM_CATEGORY_TYPE.TOOL;
+    const isTool = isToolType(categoryType);
     const isPpe = categoryType === ITEM_CATEGORY_TYPE.PPE;
 
     const itemLike: ItemLike = {
@@ -324,11 +364,18 @@ export class AutoOrderService {
 
     // Incoming pending order quantity feeds reorder-qty shortfall.
     const incomingOrderedQuantity = this.sumIncomingOrderedQuantity(item.orderItems);
+    // Honor supplier-level constraints (prefer the rule for this item's
+    // supplier, else the first active rule).
+    const orderRule =
+      (item as any).orderRules?.find((r: any) => r.supplierId === item.supplierId) ??
+      (item as any).orderRules?.[0] ??
+      null;
     const reorderQuantity = calculateReorderQuantity({
       currentStock: item.quantity,
       maxQuantity,
       incomingOrderedQuantity,
       boxQuantity: item.boxQuantity ?? 1,
+      orderRule,
     });
 
     const metrics: ComputedItemMetrics = {
@@ -342,28 +389,46 @@ export class AutoOrderService {
 
     // ---- Recommendation gates ----
 
-    // Supplier eligibility filter (no supplier always allowed).
-    if (item.supplierId && !eligibleSupplierIds.has(item.supplierId)) {
+    // PPE is temporarily EXCLUDED from the auto-order workflow (product
+    // decision — to be re-enabled once PPE replenishment is reorganized). We
+    // still recompute/persist its metrics above, but never surface a PPE
+    // recommendation. The PPE delivery-window gate further below is
+    // consequently dead code, left in place for when PPE re-enters the flow.
+    if (isPpe) return { analysis: null, metrics };
+
+    // Supplier eligibility filter (no supplier always allowed). Tools bypass
+    // the supplier-cadence requirement entirely — they're replenished by a
+    // fixed-minimum rule, not by how often the supplier is ordered from.
+    if (item.supplierId && !isTool && !eligibleSupplierIds.has(item.supplierId)) {
       return { analysis: null, metrics };
     }
 
-    // TOOL carve-out — only recommend when truly out of stock.
+    // TOOL / ELECTRONIC_TOOL — replenish up to a fixed target minimum (not
+    // consumption-driven). The util layer already set reorderPoint and
+    // maxQuantity to the target and reorderQuantity to the box-rounded
+    // shortfall (target − stock − incoming), so we recommend whenever a
+    // shortfall remains:
+    //   regular tool    → target 2 (reorder once qty drops to 1 or below)
+    //   electronic tool → target 1 (reorder once qty drops to 0)
     if (isTool) {
-      if (item.quantity !== 0) return { analysis: null, metrics };
-      const recOrderQty = item.boxQuantity ?? 1; // minimum unit
+      if (reorderQuantity <= 0) return { analysis: null, metrics };
+      const target = getToolTarget(categoryType);
+      const isEmpty = item.quantity <= 0;
       const analysis = this.buildAnalysis(item, {
-        currentStock: 0,
+        currentStock: item.quantity,
         monthlyConsumption: 0,
         trend,
         trendPercentage: 0,
-        daysUntilStockout: 0,
-        recommendedOrderQuantity: recOrderQty,
-        urgency: 'critical',
-        reason: 'Ferramenta esgotada — reposição imediata',
+        daysUntilStockout: isEmpty ? 0 : MAX_DAYS_DISPLAY,
+        recommendedOrderQuantity: reorderQuantity,
+        urgency: isEmpty ? 'critical' : 'high',
+        reason: isEmpty
+          ? 'Ferramenta esgotada — reposição imediata'
+          : `Ferramenta abaixo do mínimo (${item.quantity}/${target})`,
         scheduleInfo,
         estimatedLeadTime: leadTimeDays,
-        reorderPoint: 0,
-        maxQuantity: Math.max(item.quantity, 0),
+        reorderPoint,
+        maxQuantity,
         isEmergencyOverride: false,
       });
       return { analysis, metrics };
@@ -493,8 +558,13 @@ export class AutoOrderService {
     // order (stockout-imminent), fall back to a minimum-reach-rp qty.
     let recommendedOrderQuantity = reorderQuantity;
     if (recommendedOrderQuantity <= 0) {
+      // Subtract in-transit quantity here too (mirroring the main shortfall
+      // calc) so we never re-order stock that is already on its way.
       const box = Math.max(1, item.boxQuantity ?? 1);
-      const fallback = Math.max(0, Math.ceil((reorderPoint - currentStock) / box) * box);
+      const fallback = Math.max(
+        0,
+        Math.ceil((reorderPoint - currentStock - incomingOrderedQuantity) / box) * box,
+      );
       recommendedOrderQuantity = fallback;
     }
     if (recommendedOrderQuantity <= 0) return { analysis: null, metrics };
@@ -570,6 +640,7 @@ export class AutoOrderService {
       supplierName: item.supplier?.fantasyName ?? null,
       categoryId: item.categoryId,
       categoryName: item.category?.name ?? null,
+      categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
       lastOrderDate: overrides.lastOrderDate ?? null,
       daysSinceLastOrder: overrides.daysSinceLastOrder ?? null,
       hasActivePendingOrder: overrides.hasActivePendingOrder ?? false,
@@ -720,7 +791,7 @@ export class AutoOrderService {
       for (const item of candidates) {
         if (existingIds.has(item.id)) continue;
         if (scheduledItems.has(item.id)) continue;
-        if (item.category?.type === ITEM_CATEGORY_TYPE.TOOL) continue;
+        if (isToolType(item.category?.type)) continue;
         // PPE consolidation handled in per-item gate already; skip here to
         // avoid double-pulling PPE items outside their window.
         if (item.category?.type === ITEM_CATEGORY_TYPE.PPE) continue;
@@ -819,6 +890,7 @@ export class AutoOrderService {
           supplierName: item.supplier?.fantasyName ?? null,
           categoryId: item.categoryId,
           categoryName: item.category?.name ?? null,
+          categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
           lastOrderDate: null,
           daysSinceLastOrder: null,
           hasActivePendingOrder: false,
@@ -1133,9 +1205,80 @@ export class AutoOrderService {
   }
 
   // ============================================================================
-  // Public — schedule reporting only. Order creation is OUT (spec §10:
-  // recommendations only; persistence is a user-initiated action elsewhere).
+  // Public — order creation from recommendations + schedule reporting
   // ============================================================================
+
+  /**
+   * Create real orders from auto-order recommendations.
+   *
+   * The client resolves the grouping strategy (one combined order, one per
+   * supplier, one per item, or one per category for the no-supplier bucket) and
+   * sends the already-grouped `orders`. This method is the price/persistence
+   * authority: it derives each line's unit price (latest MonetaryValue) and
+   * ICMS/IPI from the item, builds an Order DTO per group, and persists them all
+   * through OrderService.batchCreate (single transaction, per-order
+   * success/failure reporting). lastAutoOrderDate is stamped on the ordered
+   * items afterward so the 30-day duplicate-order guard and PPE-window logic
+   * have a real anchor — mirroring the schedule-origin path in
+   * OrderService.create.
+   */
+  async createOrdersFromRecommendations(data: AutoOrderCreateFormData, userId: string) {
+    if (!data.orders || data.orders.length === 0) {
+      throw new BadRequestException('Nenhum pedido para criar.');
+    }
+    if (data.orders.some(o => !o.items || o.items.length === 0)) {
+      throw new BadRequestException('Cada pedido deve conter pelo menos um item.');
+    }
+
+    // Load every referenced item once for price/tax derivation + existence check.
+    const allItemIds = Array.from(
+      new Set(data.orders.flatMap(o => o.items.map(i => i.itemId))),
+    );
+    const items = await this.prisma.item.findMany({
+      where: { id: { in: allItemIds } },
+      include: { prices: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    });
+    const itemMap = new Map(items.map(i => [i.id, i]));
+    for (const id of allItemIds) {
+      if (!itemMap.has(id)) throw new NotFoundException(`Item ${id} não encontrado.`);
+    }
+
+    // Build one Order DTO per requested group. Price = latest MonetaryValue;
+    // ICMS/IPI inherited from the item (same convention as the schedule path).
+    const orders: OrderCreateFormData[] = data.orders.map(group => {
+      const orderItems = group.items.map(line => {
+        const item = itemMap.get(line.itemId)!;
+        return {
+          itemId: line.itemId,
+          orderedQuantity: line.quantity,
+          price: item.prices?.[0]?.value ?? 0,
+          icms: item.icms ?? 0,
+          ipi: item.ipi ?? 0,
+        };
+      });
+      const itemCount = orderItems.length;
+      return {
+        description: `Pedido automático (reposição) - ${itemCount} ${itemCount === 1 ? 'item' : 'itens'}`,
+        status: ORDER_STATUS.CREATED,
+        supplierId: group.supplierId ?? undefined,
+        items: orderItems,
+      };
+    });
+
+    const result = await this.orderService.batchCreate({ orders }, undefined, userId);
+
+    // Stamp lastAutoOrderDate (best-effort) on everything we just ordered.
+    try {
+      await this.prisma.item.updateMany({
+        where: { id: { in: allItemIds } },
+        data: { lastAutoOrderDate: new Date() },
+      });
+    } catch (error) {
+      this.logger.error('Failed to stamp lastAutoOrderDate after auto-order creation:', error);
+    }
+
+    return result;
+  }
 
   /**
    * Get list of items currently in active schedules
