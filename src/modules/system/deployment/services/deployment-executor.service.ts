@@ -283,15 +283,15 @@ export class DeploymentExecutorService {
   }
 
   /**
-   * Restart PM2 services for environment
+   * Restart systemd services for environment
    */
   async restartServices(context: DeploymentExecutionContext): Promise<void> {
     try {
-      const appName = this.getAppName(context.application, context.environment);
+      const serviceName = this.getServiceName(context.application, context.environment);
 
-      this.logger.log(`Restarting PM2 service: ${appName}`);
+      this.logger.log(`Restarting systemd service: ${serviceName}`);
 
-      const { stdout, stderr } = await execAsync(`pm2 restart ${appName}`);
+      const { stdout, stderr } = await execAsync(`systemctl restart ${serviceName}`);
 
       if (stdout) this.addLog(context.deploymentId, stdout);
       if (stderr) this.addLog(context.deploymentId, stderr);
@@ -354,7 +354,7 @@ export class DeploymentExecutorService {
   /**
    * Get PM2 app name for application and environment
    */
-  private getAppName(
+  private getServiceName(
     application: DEPLOYMENT_APPLICATION,
     environment: DEPLOYMENT_ENVIRONMENT,
   ): string {
@@ -362,13 +362,13 @@ export class DeploymentExecutorService {
 
     switch (application) {
       case DEPLOYMENT_APPLICATION.API:
-        return `ankaa-api${envSuffix}`;
+        return `ankaa-api${envSuffix}.service`;
       case DEPLOYMENT_APPLICATION.WEB:
-        return `ankaa-web${envSuffix}`;
+        return `ankaa-web${envSuffix}.service`;
       case DEPLOYMENT_APPLICATION.MOBILE:
-        return `ankaa-mobile${envSuffix}`;
+        return `ankaa-mobile${envSuffix}.service`;
       default:
-        return `ankaa-api${envSuffix}`;
+        return `ankaa-api${envSuffix}.service`;
     }
   }
 

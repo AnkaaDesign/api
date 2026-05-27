@@ -99,8 +99,11 @@ FROM node:18-alpine AS production
 
 # Install dumb-init and runtime dependencies
 # cairo, jpeg: Required for sharp image processing at runtime
-# pango, giflib: Removed (not used by application)
-RUN apk add --no-cache dumb-init cairo jpeg
+# chromium + libs: Required for Playwright (SecullumBrowserSignerService)
+RUN apk add --no-cache \
+    dumb-init cairo jpeg \
+    chromium nss freetype harfbuzz ca-certificates ttf-freefont \
+    && ln -sf /usr/bin/chromium-browser /usr/bin/chromium
 
 # Create app user
 RUN addgroup -g 1001 -S nodejs && adduser -S nodeuser -u 1001

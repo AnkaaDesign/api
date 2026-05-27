@@ -253,22 +253,18 @@ export class DeploymentController {
   @NoRateLimit()
   @HttpCode(HttpStatus.OK)
   async handleWebhook(@Req() req: RawBodyRequest<Request>) {
-    const signature = req.headers['x-hub-signature-256'] as string;
-    const webhookSecret = process.env.WEBHOOK_SECRET || 'your-webhook-secret';
+    const webhookSecret = process.env.WEBHOOK_SECRET;
 
-    if (!signature) {
-      throw new UnauthorizedException('Missing signature');
-    }
-
-    const rawBody = req.rawBody?.toString() || JSON.stringify(req.body);
-    const isValid = this.deploymentService.verifyWebhookSignature(
-      rawBody,
-      signature,
-      webhookSecret,
-    );
-
-    if (!isValid) {
-      throw new UnauthorizedException('Invalid signature');
+    if (webhookSecret) {
+      const signature = req.headers['x-hub-signature-256'] as string;
+      if (!signature) {
+        throw new UnauthorizedException('Missing signature');
+      }
+      const rawBody = req.rawBody?.toString() || JSON.stringify(req.body);
+      const isValid = this.deploymentService.verifyWebhookSignature(rawBody, signature, webhookSecret);
+      if (!isValid) {
+        throw new UnauthorizedException('Invalid signature');
+      }
     }
 
     return this.deploymentService.handleWebhook(req.body);

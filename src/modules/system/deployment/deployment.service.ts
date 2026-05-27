@@ -67,7 +67,7 @@ interface DeploymentConfig {
   repoPath: string;
   deployScript: string;
   port: number;
-  pm2Name: string;
+  serviceName: string;
 }
 
 @Injectable()

@@ -151,20 +151,22 @@ async function bootstrap() {
         (req.url === '/deployments/webhook' || req.url === '/webhooks/sicredi');
 
       if (isWebhookRoute) {
-        let data = '';
-        req.setEncoding('utf8');
-        req.on('data', (chunk: string) => {
-          data += chunk;
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk: Buffer) => {
+          chunks.push(chunk);
         });
         req.on('end', () => {
-          req.rawBody = Buffer.from(data, 'utf8');
+          const rawBody = Buffer.concat(chunks);
+          req.rawBody = rawBody;
           try {
-            req.body = JSON.parse(data);
+            req.body = JSON.parse(rawBody.toString('utf8'));
           } catch {
             req.body = {};
           }
+          req._body = true;
           next();
         });
+        req.on('error', (err: Error) => next(err));
       } else {
         next();
       }
