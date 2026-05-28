@@ -1,9 +1,10 @@
 // Stock-health calculation engine — single source of truth for every
 // monthlyConsumption / leadTime / reorderPoint / maxQuantity / reorderQuantity
-// formula in the system. Routes per Item.category.type:
-//   REGULAR / NULL → §2, §5, §10, §13
-//   PPE            → §3, §11
-//   TOOL           → §4, §12
+// formula in the system. Routes per Item.category.type AND ppeDeliveryMode:
+//   REGULAR / NULL             → §2, §5, §10, §13
+//   PPE (SCHEDULED / BOTH)     → §3, §11  (headcount formula)
+//   PPE (ON_DEMAND)            → §2, §5   (same as REGULAR — consumption-driven)
+//   TOOL                       → §4, §12
 //
 // Helpers are split into smaller pure modules:
 //   working-days.ts                  — workday math
@@ -18,6 +19,7 @@ import {
   ABC_CATEGORY,
   ITEM_CATEGORY_TYPE,
   ORDER_STATUS,
+  PPE_DELIVERY_MODE,
   XYZ_CATEGORY,
 } from '@/constants/enums';
 import {
@@ -129,13 +131,20 @@ export function calculateMonthlyConsumption(
     return { monthlyConsumption: 0, lowData: false, flags };
   }
   if (type === ITEM_CATEGORY_TYPE.PPE) {
-    const { monthlyConsumption } = predictPpeMonthlyConsumption({
-      item: input.item,
-      matchingSizeUserCount: input.ppe?.matchingSizeUserCount,
-      totalSizedUserCount: input.ppe?.totalSizedUserCount,
-      histTrailing12mo: input.ppe?.histTrailing12mo,
-    });
-    return { monthlyConsumption, lowData: false, flags };
+    // ON_DEMAND PPE items are reactive consumables: stock health is driven
+    // entirely by observed activity history — same pipeline as REGULAR items.
+    // SCHEDULED and BOTH retain the headcount-based prediction formula because
+    // their replenishment cadence is known in advance.
+    if (input.item.ppeDeliveryMode !== PPE_DELIVERY_MODE.ON_DEMAND) {
+      const { monthlyConsumption } = predictPpeMonthlyConsumption({
+        item: input.item,
+        matchingSizeUserCount: input.ppe?.matchingSizeUserCount,
+        totalSizedUserCount: input.ppe?.totalSizedUserCount,
+        histTrailing12mo: input.ppe?.histTrailing12mo,
+      });
+      return { monthlyConsumption, lowData: false, flags };
+    }
+    // ON_DEMAND falls through to the regular activity-based pipeline below.
   }
 
   return calculateMonthlyConsumptionRegular(input, flags);
@@ -281,7 +290,10 @@ export function calculateReorderPoint(input: ReorderPointInput): number {
   // both reorderPoint and maxQuantity so the shortfall-based reorderQuantity
   // (max − stock − incoming) naturally restores the target.
   if (isToolType(type)) return getToolTarget(type);
-  if (type === ITEM_CATEGORY_TYPE.PPE) {
+  if (type === ITEM_CATEGORY_TYPE.PPE &&
+      input.item.ppeDeliveryMode !== PPE_DELIVERY_MODE.ON_DEMAND) {
+    // SCHEDULED / BOTH / null — use delivery-mode-aware PPE reorder point.
+    // ON_DEMAND falls through to the regular cycle-stock + safety-stock formula.
     return calculatePpeReorderPoint({
       item: input.item,
       monthlyConsumption: input.monthlyConsumption,

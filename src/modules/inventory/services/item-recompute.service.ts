@@ -23,6 +23,7 @@ import {
 } from '@/constants/enums';
 import {
   CONSUMPTION_LOOKBACK_MONTHS,
+  PPE_CONSUMPTION_REASONS,
   REGULAR_CONSUMPTION_REASONS,
   getToolTarget,
   isToolType,
@@ -119,8 +120,11 @@ export class ItemRecomputeService {
     }
 
     const now = new Date();
+    // PPE histTrailing12mo needs a full 12-month window; regular items only
+    // need CONSUMPTION_LOOKBACK_MONTHS (6) but loading 12 is harmless since
+    // calculateMonthlyConsumptionRegular clips internally.
     const lookbackStart = new Date(now);
-    lookbackStart.setMonth(lookbackStart.getMonth() - CONSUMPTION_LOOKBACK_MONTHS);
+    lookbackStart.setMonth(lookbackStart.getMonth() - 12);
 
     const orderHistoryStart = new Date(now);
     orderHistoryStart.setMonth(orderHistoryStart.getMonth() - 12);
@@ -193,6 +197,16 @@ export class ItemRecomputeService {
 
     // monthlyConsumption — routes by category inside the engine (PPE/REGULAR).
     const itemLike = this.toItemLike(item);
+    const isPpeItem = categoryType === ITEM_CATEGORY_TYPE.PPE;
+    const histTrailing12mo = isPpeItem
+      ? activities
+          .filter(
+            a =>
+              a.operation === ACTIVITY_OPERATION.OUTBOUND &&
+              (PPE_CONSUMPTION_REASONS as string[]).includes(a.reason),
+          )
+          .reduce((sum, a) => sum + a.quantity, 0)
+      : undefined;
     const mcResult = calculateMonthlyConsumption({
       item: itemLike,
       activities: activities.map(a => ({
@@ -203,6 +217,7 @@ export class ItemRecomputeService {
       })),
       now,
       seasonalCtx,
+      ...(isPpeItem && { ppe: { histTrailing12mo } }),
     });
 
     // Lead time — P90 of clean per-item receipts, falling back to supplier
