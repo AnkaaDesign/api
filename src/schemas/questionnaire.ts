@@ -114,7 +114,6 @@ export const questionnaireQuestionIncludeSchema = z
 export const questionnaireIncludeSchema = z
   .object({
     createdBy: recordBool,
-    sectors: recordBool,
     questions: recordBool,
     entries: recordBool,
     _count: recordBool,
@@ -321,12 +320,11 @@ export const questionnaireGetManySchema = z
     include: questionnaireIncludeSchema,
     searchingFor: z.string().optional(),
     status: z.union([questionnaireStatusSchema, z.array(questionnaireStatusSchema)]).optional(),
-    sectorId: z.string().uuid().optional(),
     createdById: z.string().uuid().optional(),
   })
   .transform(data => {
     data = baseTransform(data);
-    const { searchingFor, status, sectorId, createdById } = data;
+    const { searchingFor, status, createdById } = data;
     const and: any[] = [];
     if (searchingFor) {
       and.push({
@@ -337,7 +335,6 @@ export const questionnaireGetManySchema = z
       });
     }
     if (status) and.push({ status: Array.isArray(status) ? { in: status } : status });
-    if (sectorId) and.push({ sectors: { some: { sectorId } } });
     if (createdById) and.push({ createdById });
     return mergeAnd(data, and);
   });
@@ -437,7 +434,6 @@ export const questionnaireCreateSchema = z
     periodEnd: z.coerce.date(),
     targetAllUsers: z.boolean().default(false).optional(),
     isAnonymous: z.boolean().default(false).optional(),
-    sectorIds: z.array(z.string().uuid()).optional(),
     userIds: z.array(z.string().uuid()).optional(),
     questionIds: z.array(z.string().uuid()).optional(),
     groupIds: z.array(z.string().uuid()).optional(),
@@ -463,7 +459,6 @@ export const questionnaireUpdateSchema = z
     periodEnd: z.coerce.date().optional(),
     targetAllUsers: z.boolean().optional(),
     isAnonymous: z.boolean().optional(),
-    sectorIds: z.array(z.string().uuid()).optional(),
     userIds: z.array(z.string().uuid()).optional(),
     questionIds: z.array(z.string().uuid()).optional(),
     groupIds: z.array(z.string().uuid()).optional(),
