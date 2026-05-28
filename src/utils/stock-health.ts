@@ -40,6 +40,7 @@ import {
   TARGET_STOCK_DAYS_BY_ORDER_FREQUENCY,
   TREND_ADJUSTMENT_DELTA,
   TREND_ADJUSTMENT_THRESHOLD_PERCENT,
+  TREND_PERCENT_CAP,
   getToolTarget,
   isToolType,
   targetStockDaysForOrderFrequency,
@@ -399,7 +400,8 @@ export function calculateReorderQuantity(input: ReorderQuantityInput): number {
 
 /** Returns the signed percent change of last-3-months vs prior-3-months
  *  consumption averages. `monthlyHistory` is in chronological order with the
- *  most recent month last. Returns 0 when prior window has zero base. */
+ *  most recent month last. Returns 0 when prior window has zero base, and is
+ *  clamped to ±TREND_PERCENT_CAP so a tiny baseline can't report ±13000%. */
 export function calculateConsumptionTrend(
   monthlyHistory: ReadonlyArray<{ year: number; month: number; consumption: number }>,
 ): number {
@@ -408,7 +410,8 @@ export function calculateConsumptionTrend(
   const prior = tail.slice(0, 3).reduce((s, m) => s + m.consumption, 0) / 3;
   const recent = tail.slice(3).reduce((s, m) => s + m.consumption, 0) / 3;
   if (prior === 0) return 0;
-  return ((recent - prior) / prior) * 100;
+  const pct = ((recent - prior) / prior) * 100;
+  return Math.max(-TREND_PERCENT_CAP, Math.min(TREND_PERCENT_CAP, pct));
 }
 
 /** ±5pp safety-factor step when |trend| > 20%, clamped to [0.10, 0.40]. */

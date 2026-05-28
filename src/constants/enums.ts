@@ -1914,7 +1914,6 @@ export enum LINK_TYPE {
 export enum ITEM_CATEGORY_TYPE {
   REGULAR = 'REGULAR',
   TOOL = 'TOOL',
-  ELECTRONIC_TOOL = 'ELECTRONIC_TOOL',
   PPE = 'PPE',
 }
 

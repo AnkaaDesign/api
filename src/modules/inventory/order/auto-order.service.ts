@@ -82,6 +82,10 @@ interface DemandAnalysis {
   daysSinceLastOrder: number | null;
   hasActivePendingOrder: boolean;
   estimatedLeadTime: number;
+  /** Current unit price (latest Item price). Invariant: estimatedCost =
+   *  unitPrice × recommendedOrderQuantity. Exposed so clients can recompute
+   *  the expected price live when the user edits the order quantity. */
+  unitPrice: number;
   estimatedCost: number;
   reorderPoint: number | null;
   maxQuantity: number | null;
@@ -403,13 +407,10 @@ export class AutoOrderService {
       return { analysis: null, metrics };
     }
 
-    // TOOL / ELECTRONIC_TOOL — replenish up to a fixed target minimum (not
-    // consumption-driven). The util layer already set reorderPoint and
-    // maxQuantity to the target and reorderQuantity to the box-rounded
-    // shortfall (target − stock − incoming), so we recommend whenever a
-    // shortfall remains:
-    //   regular tool    → target 2 (reorder once qty drops to 1 or below)
-    //   electronic tool → target 1 (reorder once qty drops to 0)
+    // TOOL — replenish up to a fixed target minimum (not consumption-driven).
+    // The util layer already set reorderPoint and maxQuantity to the target (1)
+    // and reorderQuantity to the box-rounded shortfall (target − stock −
+    // incoming), so we recommend only once the tool runs out (qty drops to 0).
     if (isTool) {
       if (reorderQuantity <= 0) return { analysis: null, metrics };
       const target = getToolTarget(categoryType);
@@ -645,6 +646,7 @@ export class AutoOrderService {
       daysSinceLastOrder: overrides.daysSinceLastOrder ?? null,
       hasActivePendingOrder: overrides.hasActivePendingOrder ?? false,
       estimatedLeadTime: overrides.estimatedLeadTime,
+      unitPrice: currentPrice,
       estimatedCost: overrides.estimatedCost ?? currentPrice * overrides.recommendedOrderQuantity,
       reorderPoint: overrides.reorderPoint,
       maxQuantity: overrides.maxQuantity,
@@ -895,6 +897,7 @@ export class AutoOrderService {
           daysSinceLastOrder: null,
           hasActivePendingOrder: false,
           estimatedLeadTime: leadTimeDays,
+          unitPrice: currentPrice,
           estimatedCost: currentPrice * qty,
           reorderPoint: rp,
           maxQuantity: max,
@@ -966,12 +969,10 @@ export class AutoOrderService {
         if (urgentIds.has(it.itemId)) return it;
         const newQty = balancedByItem.get(it.itemId);
         if (newQty == null || newQty === it.recommendedOrderQuantity) return it;
-        const unitPrice =
-          it.recommendedOrderQuantity > 0 ? it.estimatedCost / it.recommendedOrderQuantity : 0;
         return {
           ...it,
           recommendedOrderQuantity: newQty,
-          estimatedCost: unitPrice * newQty,
+          estimatedCost: it.unitPrice * newQty,
         };
       });
 

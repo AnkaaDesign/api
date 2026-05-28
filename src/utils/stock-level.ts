@@ -38,10 +38,8 @@ export function determineStockLevel(input: DetermineStockLevelInput): STOCK_LEVE
 
   // Tool short-circuit (spec §15.2). Tools don't use the consumption-driven
   // rp/max model — they hold a fixed target minimum on the shelf and ignore
-  // incoming. A tool below its target is CRITICAL (needs reorder); empty is
-  // OUT_OF_STOCK.
-  //   REGULAR tool (target 2)    → qty>=2 OPTIMAL, qty==1 CRITICAL, qty<=0 OUT
-  //   ELECTRONIC tool (target 1) → qty>=1 OPTIMAL,               qty<=0 OUT
+  // incoming. A tool reorders only once it runs out (target 1):
+  //   qty>=1 OPTIMAL, qty<=0 OUT_OF_STOCK.
   if (isToolType(categoryType)) {
     if (quantity <= 0) return STOCK_LEVEL.OUT_OF_STOCK;
     return quantity < getToolTarget(categoryType) ? STOCK_LEVEL.CRITICAL : STOCK_LEVEL.OPTIMAL;

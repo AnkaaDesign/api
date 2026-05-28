@@ -3100,7 +3100,6 @@ enum XyzCategory {
 enum ItemCategoryType {
   REGULAR
   TOOL
-  ELECTRONIC_TOOL
   PPE
 }
 
