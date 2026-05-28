@@ -8,7 +8,6 @@ import {
   nullableString,
   createNameSchema,
   optionalNonNegativeNumber,
-  optionalPositiveNumber,
 } from './common';
 import type { Item, ItemBrand, ItemCategory } from '@types';
 import {
@@ -2452,9 +2451,9 @@ export const itemCreateSchemaBase = z.object({
     val => val === null || val === undefined || val >= 0,
     'Ponto de reposição deve ser não-negativo',
   ),
-  reorderQuantity: optionalPositiveNumber.refine(
-    val => val === null || val === undefined || val > 0,
-    'Quantidade de reposição deve ser positiva',
+  reorderQuantity: optionalNonNegativeNumber.refine(
+    val => val === null || val === undefined || val >= 0,
+    'Quantidade de reposição deve ser não-negativa',
   ),
   boxQuantity: z.number().int().nullable().optional(),
   lastAutoOrderDate: z.coerce.date().nullable().optional(),
@@ -2559,9 +2558,9 @@ export const itemUpdateSchemaBase = z.object({
     val => val === null || val === undefined || val >= 0,
     'Ponto de reposição deve ser não-negativo',
   ),
-  reorderQuantity: optionalPositiveNumber.refine(
-    val => val === null || val === undefined || val > 0,
-    'Quantidade de reposição deve ser positiva',
+  reorderQuantity: optionalNonNegativeNumber.refine(
+    val => val === null || val === undefined || val >= 0,
+    'Quantidade de reposição deve ser não-negativa',
   ),
   boxQuantity: z.number().int().nullable().optional(),
   lastAutoOrderDate: z.coerce.date().nullable().optional(),

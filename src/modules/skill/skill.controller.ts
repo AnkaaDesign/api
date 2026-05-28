@@ -449,4 +449,20 @@ export class SkillController {
   async reopenEntry(@Param('id', ParseUUIDPipe) id: string) {
     return this.skillService.reopenEntry(id);
   }
+
+  /** Previous-assessment comparison for the same evaluatee (Δ vs last). */
+  @Get('assessment-entry/:id/comparison')
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.PRODUCTION,
+  )
+  async getEntryComparison(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+    @User() userPayload: UserPayload,
+  ) {
+    return this.skillService.getEntryComparison(id, userId, userPayload.role);
+  }
 }

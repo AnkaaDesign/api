@@ -45,16 +45,22 @@ export const dateRangeSchema = z
 
 export const nullableDate = z.preprocess(val => (val === '' ? null : val), z.coerce.date().nullable());
 export const optionalDate = z.coerce.date().optional();
-export const requiredDate = z.coerce.date({
-  required_error: 'Data é obrigatória',
-  invalid_type_error: 'Data inválida',
-});
+// A required date that rejects null/undefined/'' BEFORE coercion.
+// z.coerce.date() alone is unsafe for "required": new Date(null) coerces to the
+// 1970 epoch and passes validation, so an empty field silently slips through
+// (and 1970-01-01 gets persisted). We reject empties first, then coerce.
+const buildRequiredDate = (requiredMessage: string, invalidMessage: string) =>
+  z
+    .any()
+    .refine(value => value !== null && value !== undefined && value !== '', {
+      message: requiredMessage,
+    })
+    .pipe(z.coerce.date({ invalid_type_error: invalidMessage }));
+
+export const requiredDate = buildRequiredDate('Data é obrigatória', 'Data inválida');
 
 export const createDateSchema = (label = 'data') =>
-  z.coerce.date({
-    required_error: `${label} é obrigatória`,
-    invalid_type_error: `${label} inválida`,
-  });
+  buildRequiredDate(`${label} é obrigatória`, `${label} inválida`);
 export const nullableNumber = z.number().nullable();
 export const nullableString = z
   .string()
