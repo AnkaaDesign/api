@@ -1365,7 +1365,6 @@ export const ITEM_ISSUE_TYPE_LABELS: Record<ITEM_ISSUE_TYPE, string> = {
 export const ITEM_CATEGORY_TYPE_LABELS: Record<ITEM_CATEGORY_TYPE, string> = {
   [ITEM_CATEGORY_TYPE.REGULAR]: 'Regular',
   [ITEM_CATEGORY_TYPE.TOOL]: 'Ferramenta',
-  [ITEM_CATEGORY_TYPE.ELECTRONIC_TOOL]: 'Ferramenta Eletrônica',
   [ITEM_CATEGORY_TYPE.PPE]: 'EPI',
 };
 

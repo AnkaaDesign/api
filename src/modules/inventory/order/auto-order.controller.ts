@@ -137,9 +137,11 @@ export class AutoOrderController {
         summary: {
           totalItems: allItems.length,
           totalEstimatedCost: allItems.reduce((sum, item) => sum + item.estimatedCost, 0),
-          criticalItems: allItems.filter(
-            item => item.currentStock === 0 || item.daysUntilStockout <= 7,
-          ).length,
+          // Count by the same signal the row badge uses (item.urgency), so the
+          // card matches the number of CRÍTICO rows. Emergency overrides force
+          // urgency='critical' even when daysUntilStockout > 7, which a raw
+          // stock-runway proxy would miss.
+          criticalItems: allItems.filter(item => item.urgency === 'critical').length,
           emergencyOverrides: allItems.filter(item => item.isEmergencyOverride).length,
           scheduledItems: allItems.filter(item => item.isInSchedule).length,
         },

@@ -89,7 +89,7 @@ export class ItemCategoryService {
   }
 
   private isToolCategory(type: string): boolean {
-    return type === ITEM_CATEGORY_TYPE.TOOL || type === ITEM_CATEGORY_TYPE.ELECTRONIC_TOOL;
+    return type === ITEM_CATEGORY_TYPE.TOOL;
   }
 
   private isRegularCategory(type: string): boolean {

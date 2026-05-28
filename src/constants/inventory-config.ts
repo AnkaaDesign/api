@@ -237,21 +237,17 @@ export const STOCK_LEVEL_LOW_MULTIPLIER = 1.2;
 
 /** Target on-hand quantity for tool-type items. Tools don't use the
  *  consumption-driven rp/max model — they hold a fixed minimum on the shelf.
- *  A tool is recommended for reorder when its quantity drops BELOW the target,
- *  and the recommended quantity restores it back up to the target:
- *    REGULAR tool (TOOL)            → keep 2 (reorder when qty < 2, i.e. ≤ 1)
- *    ELECTRONIC tool (ELECTRONIC_TOOL) → keep 1 (reorder when qty < 1, i.e. ≤ 0)
+ *  A tool is recommended for reorder only once it runs out (qty drops to 0),
+ *  and the recommended quantity restores it back up to the target of 1.
  *  PPE is intentionally absent here — PPE is excluded from the auto-order
  *  workflow for now. */
 export const TOOL_TARGET_MIN: Readonly<Record<string, number>> = {
-  [ITEM_CATEGORY_TYPE.TOOL]: 2,
-  [ITEM_CATEGORY_TYPE.ELECTRONIC_TOOL]: 1,
+  [ITEM_CATEGORY_TYPE.TOOL]: 1,
 };
 
-/** True for any tool-type category (regular or electronic). Use this instead
- *  of `=== TOOL` so electronic tools route through the same tool logic. */
+/** True for any tool-type category. */
 export function isToolType(type: ITEM_CATEGORY_TYPE | string | null | undefined): boolean {
-  return type === ITEM_CATEGORY_TYPE.TOOL || type === ITEM_CATEGORY_TYPE.ELECTRONIC_TOOL;
+  return type === ITEM_CATEGORY_TYPE.TOOL;
 }
 
 /** Target on-hand quantity for a tool-type item; 0 for non-tool categories. */
@@ -272,6 +268,12 @@ export const SAFETY_FACTOR_MAX = 0.6;
 /** ±20% trend triggers a ±0.05 step on safetyFactor. */
 export const TREND_ADJUSTMENT_THRESHOLD_PERCENT = 20;
 export const TREND_ADJUSTMENT_DELTA = 0.05;
+
+/** Percent-change is unbounded when the prior 3-month window has a tiny
+ *  baseline (e.g. a single unit consumed once), producing absurd readings
+ *  like +13810%. Clamp the reported trend to ±this so both the display and
+ *  the safety-factor step stay sane. */
+export const TREND_PERCENT_CAP = 999;
 
 // =====================
 // Dormancy (spec §16)
