@@ -1249,7 +1249,6 @@ model Sector {
   users                  User[]
   goals                  Goal[]
   assessmentSectors      AssessmentSector[]
-  questionnaireSectors   QuestionnaireSector[]
 
   @@index([leaderId])
   @@index([secullumDepartamentoId])
@@ -4038,7 +4037,7 @@ model AssessmentResponse {
 // each with one or more QuestionnaireOptions (the possible answers, carrying a
 // numeric `value` — by convention 0..5 so the shared ScoreBadge palette
 // applies). A Questionnaire is a campaign with start/end dates targeting
-// selected Sectors (or ALL users) and Questions; when opened, one
+// selected collaborators (or ALL users) and Questions; when opened, one
 // QuestionnaireEntry is generated PER targeted user. Unlike an assessment the
 // respondent fills it FOR THEMSELVES — there is no separate evaluator.
 
@@ -4118,8 +4117,8 @@ model Questionnaire {
   periodEnd      DateTime
   status         QuestionnaireStatus @default(DRAFT)
   createdById    String
-  /// When true, opening generates an entry for every active user (sector list
-  /// is ignored). When false, only users in the targeted sectors get an entry.
+  /// When true, opening generates an entry for every active user. When false,
+  /// only the explicitly targeted collaborators (targetUsers) get an entry.
   targetAllUsers Boolean             @default(false)
   /// Incognito mode. When true, responses are NEVER attributable to a respondent
   /// via the API: per-respondent admin review is blocked, respondent identity is
@@ -4132,7 +4131,6 @@ model Questionnaire {
   updatedAt      DateTime            @updatedAt
 
   createdBy   User                        @relation("QUESTIONNAIRE_CREATED_BY", fields: [createdById], references: [id])
-  sectors     QuestionnaireSector[]
   targetUsers QuestionnaireUser[]
   questions   QuestionnaireQuestionLink[]
   entries     QuestionnaireEntry[]
@@ -4141,18 +4139,6 @@ model Questionnaire {
   @@index([periodStart, periodEnd])
   @@index([createdById])
   @@index([deletedAt])
-}
-
-model QuestionnaireSector {
-  questionnaireId String
-  sectorId        String
-
-  questionnaire Questionnaire @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
-  sector        Sector        @relation(fields: [sectorId], references: [id])
-
-  @@id([questionnaireId, sectorId])
-  @@index([questionnaireId])
-  @@index([sectorId])
 }
 
 /// Explicit per-campaign target collaborators. When openQuestionnaire runs and

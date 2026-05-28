@@ -6,7 +6,7 @@
 //     QuestionnaireQuestions (the assessable items, with a description).
 //   - A QuestionnaireQuestion has one or more QuestionnaireOptions (the possible
 //     answers, each carrying a numeric `value` — by convention 0..5).
-//   - A Questionnaire is a campaign (period + targeted sectors / all users +
+//   - A Questionnaire is a campaign (period + targeted users / all users +
 //     questions) that, when opened, spawns one QuestionnaireEntry PER targeted
 //     user. The respondent fills it FOR THEMSELVES (no separate evaluator).
 //   - Each QuestionnaireEntry collects QuestionnaireAnswer rows (one per question).
@@ -21,7 +21,6 @@ import type {
 } from './common';
 import type { ORDER_BY_DIRECTION } from '@constants';
 import type { User } from './user';
-import type { Sector } from './sector';
 
 // =====================
 // Enum literals (mirror Prisma enums)
@@ -66,13 +65,6 @@ export interface QuestionnaireGroup extends BaseEntity {
   deletedAt?: Date | null;
   questions?: QuestionnaireQuestion[];
   _count?: { questions?: number };
-}
-
-export interface QuestionnaireSector {
-  questionnaireId: string;
-  sectorId: string;
-  questionnaire?: Questionnaire;
-  sector?: Sector;
 }
 
 export interface QuestionnaireUser {
@@ -123,11 +115,10 @@ export interface Questionnaire extends BaseEntity {
   isAnonymous: boolean;
   deletedAt?: Date | null;
   createdBy?: User;
-  sectors?: QuestionnaireSector[];
   targetUsers?: QuestionnaireUser[];
   questions?: QuestionnaireQuestionLink[];
   entries?: QuestionnaireEntry[];
-  _count?: { sectors?: number; targetUsers?: number; questions?: number; entries?: number };
+  _count?: { targetUsers?: number; questions?: number; entries?: number };
 }
 
 // =====================
@@ -231,7 +222,6 @@ export interface QuestionnaireCreateFormData {
   periodEnd: Date;
   targetAllUsers?: boolean;
   isAnonymous?: boolean;
-  sectorIds?: string[];
   userIds?: string[];
   questionIds?: string[];
   groupIds?: string[];
@@ -243,7 +233,6 @@ export interface QuestionnaireUpdateFormData {
   periodEnd?: Date;
   targetAllUsers?: boolean;
   isAnonymous?: boolean;
-  sectorIds?: string[];
   userIds?: string[];
   questionIds?: string[];
   groupIds?: string[];
@@ -293,7 +282,6 @@ export interface QuestionnaireGetManyFormData {
   include?: QuestionnaireIncludes;
   searchingFor?: string;
   status?: QuestionnaireStatus | QuestionnaireStatus[];
-  sectorId?: string;
   createdById?: string;
 }
 export interface QuestionnaireEntryGetManyFormData {
