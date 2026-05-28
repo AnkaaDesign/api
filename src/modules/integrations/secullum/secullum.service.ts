@@ -3887,17 +3887,35 @@ export class SecullumService {
     }
   }
 
-  // Bundles APPROVED employees' signed time-card PDFs, across one or many
-  // apurações, into a single flat ZIP (all PDFs at the root — no per-apuração
-  // subfolders). Only items with Status === 1 (Aprovado) are included;
-  // rejected (2) and pending (0) are skipped. PDFs that can't be fetched are
-  // skipped so a partial set still downloads.
+  // Bundles employees' signed time-card PDFs, across one or many apurações,
+  // into a single ZIP. Each PDF is filed under a folder named after its period
+  // ("Cartões Ponto - <Mês de Ano>"), not after the accept/reject status — so a
+  // download of only the accepted cards reads as the period it covers. When the
+  // selection mixes accepted + rejected (statusFilter 'both'), the period folder
+  // keeps an Aceitos/ vs Rejeitados/ split; a rejected-only download appends a
+  // "- Rejeitados" marker. PDFs that can't be fetched are skipped so a partial
+  // set still downloads.
   async downloadAssinaturasZip(
     apuracaoIds: number[],
     statusFilter: 'approved' | 'rejected' | 'both' = 'approved',
   ): Promise<{ buffer: Buffer; filename: string }> {
     if (!apuracaoIds || apuracaoIds.length === 0) {
       throw this.createApiError('Nenhuma apuração informada', HttpStatus.BAD_REQUEST);
+    }
+
+    // The per-apuração detail endpoint only returns the items list — the period
+    // (DataFim) lives on the apuração list entry. Fetch the list once and map
+    // each id to its period label so folders/filename can be named by month.
+    const periodById = new Map<number, string>();
+    try {
+      const list = await this.getAssinaturaList();
+      for (const a of list.data ?? []) {
+        periodById.set(a.Id, this.cartaoPontoPeriodoLabel(a.DataFim));
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Zip: could not resolve apuração periods, falling back to generic folder: ${this.getErrorMessage(err)}`,
+      );
     }
 
     const archive = archiver('zip', { zlib: { level: 9 } });
@@ -3909,6 +3927,7 @@ export class SecullumService {
     });
 
     const usedNames = new Set<string>();
+    const periodLabels = new Set<string>();
     // Item status: 1 = aprovado, 2 = rejeitado, 0 = pendente.
     const statusMatches = (status: number) =>
       statusFilter === 'both'
@@ -3922,6 +3941,7 @@ export class SecullumService {
     for (const apuracaoId of apuracaoIds) {
       const detail = await this.getAssinaturaDetail(apuracaoId);
       const itens = detail.data?.ListaItensAssinatura ?? [];
+      const periodoLabel = periodById.get(apuracaoId) ?? '';
 
       for (const item of itens) {
         if (!statusMatches(item.Status)) {
@@ -3936,16 +3956,17 @@ export class SecullumService {
           const base = this.sanitizeForZip(
             item.Funcionario || `funcionario_${item.FuncionarioId}`,
           );
-          // Separate into status folders inside the zip: Aceitos/ and Rejeitados/.
-          // (Status 1 = aprovado/aceito, 2 = rejeitado.) Deduped per folder if a
-          // name repeats across the selected apurações.
-          const folder = item.Status === 2 ? 'Rejeitados' : 'Aceitos';
+          // File under the period folder ("Cartões Ponto - Maio de 2026"); only a
+          // mixed (both) download keeps the Aceitos/Rejeitados split inside it.
+          // Deduped per folder if a name repeats across the selected apurações.
+          const folder = this.zipFolderName(item.Status, statusFilter, periodoLabel);
           let entry = `${folder}/${base}.pdf`;
           let n = 2;
           while (usedNames.has(entry)) {
             entry = `${folder}/${base}_${n++}.pdf`;
           }
           usedNames.add(entry);
+          if (periodoLabel) periodLabels.add(periodoLabel);
           archive.append(buffer, { name: entry });
           added++;
         } catch (err) {
@@ -3975,13 +3996,57 @@ export class SecullumService {
     await done;
 
     const buffer = Buffer.concat(chunks);
-    const suffix =
-      statusFilter === 'rejected' ? '_rejeitados' : statusFilter === 'both' ? '_todos' : '_aprovados';
-    const filename =
-      apuracaoIds.length === 1
-        ? `CartoesPonto_Apuracao_${apuracaoIds[0]}${suffix}.zip`
-        : `CartoesPonto_${apuracaoIds.length}_apuracoes${suffix}.zip`;
+    // Outer zip name mirrors the period folder, but ASCII-only: it travels in a
+    // Content-Disposition header, where accents are unreliable. Single period →
+    // name it ("Cartoes Ponto - Maio de 2026"); spanning months → count.
+    const labels = [...periodLabels];
+    const periodPart =
+      labels.length === 1
+        ? this.toAscii(labels[0])
+        : labels.length > 1
+          ? `${labels.length} periodos`
+          : `${apuracaoIds.length} ${apuracaoIds.length === 1 ? 'apuracao' : 'apuracoes'}`;
+    const filename = `Cartoes Ponto - ${periodPart}${statusFilter === 'rejected' ? ' - Rejeitados' : ''}.zip`;
     return { buffer, filename };
+  }
+
+  // Month/year label for a cartão-ponto period, derived from its DataFim — the
+  // cycle's closing date, the same month Secullum uses in the apuração
+  // description (e.g. DataFim 2026-05-25 → "Maio de 2026").
+  private cartaoPontoPeriodoLabel(dataFim?: string): string {
+    if (!dataFim) return '';
+    const dateOnly = dataFim.includes('T') ? dataFim.split('T')[0] : dataFim;
+    const [year, month] = dateOnly.split('-');
+    if (!year || !month) return '';
+    const meses = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+    ];
+    const idx = Math.max(0, Math.min(11, (parseInt(month, 10) || 1) - 1));
+    return `${meses[idx]} de ${year}`;
+  }
+
+  // Folder a signed PDF is filed under inside the zip. Named by period, never by
+  // raw status: an accepted-only export reads as "Cartões Ponto - <period>".
+  private zipFolderName(
+    status: number,
+    statusFilter: 'approved' | 'rejected' | 'both',
+    periodoLabel: string,
+  ): string {
+    const base = periodoLabel ? `Cartões Ponto - ${periodoLabel}` : 'Cartões Ponto';
+    if (statusFilter === 'both') {
+      // Mixed export: keep the accepted/rejected split inside the period folder.
+      return status === 2 ? `${base}/Rejeitados` : `${base}/Aceitos`;
+    }
+    // Single-status export: a flat period folder. Mark rejected-only so it's
+    // distinguishable from the (default) accepted export.
+    return statusFilter === 'rejected' ? `${base} - Rejeitados` : base;
+  }
+
+  // Strips accents to their base ASCII letter (Maio de 2026 stays; Março → Marco)
+  // for use in HTTP headers / filenames where non-ASCII bytes are unreliable.
+  private toAscii(s: string): string {
+    return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
   }
 
   private sanitizeForZip(name: string): string {
