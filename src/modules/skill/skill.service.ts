@@ -988,6 +988,54 @@ export class SkillService {
     return { success: true, message: 'Ficha atualizada', data: updated };
   }
 
+  /**
+   * Returns the SAME evaluatee's most recent PRIOR assessment entry (by campaign
+   * createdAt) so the detail page can show "the difference vs the last" per
+   * topic. Matched by topicId (topics are a shared catalogue). Returns null when
+   * the evaluatee has no earlier assessment.
+   */
+  async getEntryComparison(entryId: string, currentUserId: string, currentUserRole: string) {
+    const entry = await this.prisma.assessmentEntry.findFirst({
+      where: { id: entryId, deletedAt: null },
+      include: { assessment: { select: { createdAt: true } } },
+    });
+    if (!entry) throw new NotFoundException('Ficha de avaliação não encontrada');
+    this.assertEntryAccess(entry, currentUserId, currentUserRole);
+
+    const previous = await this.prisma.assessmentEntry.findFirst({
+      where: {
+        evaluateeId: entry.evaluateeId,
+        id: { not: entryId },
+        deletedAt: null,
+        assessment: { deletedAt: null, createdAt: { lt: entry.assessment.createdAt } },
+      },
+      orderBy: { assessment: { createdAt: 'desc' } },
+      include: {
+        responses: { select: { topicId: true, score: true } },
+        assessment: { select: { id: true, name: true, periodStart: true, periodEnd: true } },
+      },
+    });
+
+    if (!previous) {
+      return { success: true, message: 'Sem avaliação anterior', data: null };
+    }
+
+    const responsesByTopic: Record<string, number> = {};
+    for (const r of previous.responses) responsesByTopic[r.topicId] = r.score;
+
+    return {
+      success: true,
+      message: 'Comparação encontrada',
+      data: {
+        assessmentId: previous.assessment.id,
+        assessmentName: previous.assessment.name,
+        periodStart: previous.assessment.periodStart,
+        periodEnd: previous.assessment.periodEnd,
+        responsesByTopic,
+      },
+    };
+  }
+
   // ===================================================================
   // ANALYTICS
   // ===================================================================

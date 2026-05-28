@@ -1249,6 +1249,7 @@ model Sector {
   users                  User[]
   goals                  Goal[]
   assessmentSectors      AssessmentSector[]
+  questionnaireSectors   QuestionnaireSector[]
 
   @@index([leaderId])
   @@index([secullumDepartamentoId])
@@ -1713,6 +1714,9 @@ model User {
   assessmentsCreated             Assessment[]                 @relation("ASSESSMENT_CREATED_BY")
   assessmentSectorAppraiserships AssessmentSector[]           @relation("ASSESSMENT_SECTOR_APPRAISER")
   assessmentSectorEvaluations    AssessmentSectorEvaluatee[]  @relation("ASSESSMENT_SECTOR_EVALUATEE")
+  questionnairesCreated          Questionnaire[]              @relation("QUESTIONNAIRE_CREATED_BY")
+  questionnaireEntries           QuestionnaireEntry[]         @relation("QUESTIONNAIRE_ENTRY_RESPONDENT")
+  questionnaireTargets           QuestionnaireUser[]          @relation("QUESTIONNAIRE_TARGET_USER")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -4022,4 +4026,197 @@ model AssessmentResponse {
   @@unique([entryId, topicId])
   @@index([entryId])
   @@index([topicId])
+}
+
+// =====================
+// Questionnaire Models
+// =====================
+// A SELF-FILL questionnaire domain, structurally mirroring the skill-assessment
+// domain but completely separate so the skill engine is never touched. Domain:
+// a QuestionnaireGroup (the "main group", e.g. "Satisfação no trabalho")
+// contains QuestionnaireQuestions (the assessable items, with a description),
+// each with one or more QuestionnaireOptions (the possible answers, carrying a
+// numeric `value` — by convention 0..5 so the shared ScoreBadge palette
+// applies). A Questionnaire is a campaign with start/end dates targeting
+// selected Sectors (or ALL users) and Questions; when opened, one
+// QuestionnaireEntry is generated PER targeted user. Unlike an assessment the
+// respondent fills it FOR THEMSELVES — there is no separate evaluator.
+
+enum QuestionnaireStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+enum QuestionnaireEntryStatus {
+  PENDING
+  IN_PROGRESS
+  SUBMITTED
+}
+
+model QuestionnaireGroup {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  description String?
+  order       Int
+  isActive    Boolean   @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  questions QuestionnaireQuestion[]
+
+  @@index([order])
+  @@index([isActive])
+  @@index([deletedAt])
+}
+
+model QuestionnaireQuestion {
+  id          String    @id @default(uuid())
+  groupId     String
+  order       Int
+  title       String
+  description String
+  helpText    String?
+  isActive    Boolean   @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  group   QuestionnaireGroup          @relation(fields: [groupId], references: [id])
+  options QuestionnaireOption[]
+  links   QuestionnaireQuestionLink[]
+  answers QuestionnaireAnswer[]
+
+  @@unique([groupId, order])
+  @@index([groupId])
+  @@index([deletedAt])
+}
+
+model QuestionnaireOption {
+  id          String   @id @default(uuid())
+  questionId  String
+  order       Int
+  value       Int
+  label       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  question QuestionnaireQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, order])
+  @@index([questionId])
+}
+
+model Questionnaire {
+  id             String              @id @default(uuid())
+  name           String
+  description    String?
+  periodStart    DateTime
+  periodEnd      DateTime
+  status         QuestionnaireStatus @default(DRAFT)
+  createdById    String
+  /// When true, opening generates an entry for every active user (sector list
+  /// is ignored). When false, only users in the targeted sectors get an entry.
+  targetAllUsers Boolean             @default(false)
+  /// Incognito mode. When true, responses are NEVER attributable to a respondent
+  /// via the API: per-respondent admin review is blocked, respondent identity is
+  /// stripped from every payload, and admins only ever see anonymized aggregate
+  /// results. The respondent↔answers link still exists in the DB (for delivery,
+  /// dedup and resume) but is never exposed. Locked once the questionnaire opens.
+  isAnonymous    Boolean             @default(false)
+  deletedAt      DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  createdBy   User                        @relation("QUESTIONNAIRE_CREATED_BY", fields: [createdById], references: [id])
+  sectors     QuestionnaireSector[]
+  targetUsers QuestionnaireUser[]
+  questions   QuestionnaireQuestionLink[]
+  entries     QuestionnaireEntry[]
+
+  @@index([status])
+  @@index([periodStart, periodEnd])
+  @@index([createdById])
+  @@index([deletedAt])
+}
+
+model QuestionnaireSector {
+  questionnaireId String
+  sectorId        String
+
+  questionnaire Questionnaire @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
+  sector        Sector        @relation(fields: [sectorId], references: [id])
+
+  @@id([questionnaireId, sectorId])
+  @@index([questionnaireId])
+  @@index([sectorId])
+}
+
+/// Explicit per-campaign target collaborators. When openQuestionnaire runs and
+/// targetAllUsers is false, one QuestionnaireEntry is generated per user listed here.
+model QuestionnaireUser {
+  questionnaireId String
+  userId          String
+
+  questionnaire Questionnaire @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
+  user          User          @relation("QUESTIONNAIRE_TARGET_USER", fields: [userId], references: [id])
+
+  @@id([questionnaireId, userId])
+  @@index([questionnaireId])
+  @@index([userId])
+}
+
+model QuestionnaireQuestionLink {
+  questionnaireId String
+  questionId      String
+
+  questionnaire Questionnaire         @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
+  question      QuestionnaireQuestion @relation(fields: [questionId], references: [id])
+
+  @@id([questionnaireId, questionId])
+  @@index([questionnaireId])
+  @@index([questionId])
+}
+
+model QuestionnaireEntry {
+  id              String                   @id @default(uuid())
+  questionnaireId String
+  respondentId    String
+  status          QuestionnaireEntryStatus @default(PENDING)
+  startedAt       DateTime?
+  submittedAt     DateTime?
+  notes           String?
+  deletedAt       DateTime?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  questionnaire Questionnaire        @relation(fields: [questionnaireId], references: [id])
+  respondent    User                 @relation("QUESTIONNAIRE_ENTRY_RESPONDENT", fields: [respondentId], references: [id])
+  answers       QuestionnaireAnswer[]
+
+  @@unique([questionnaireId, respondentId])
+  @@index([questionnaireId])
+  @@index([respondentId])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model QuestionnaireAnswer {
+  id         String   @id @default(uuid())
+  entryId    String
+  questionId String
+  value      Int
+  comment    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  entry    QuestionnaireEntry    @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  question QuestionnaireQuestion @relation(fields: [questionId], references: [id])
+
+  @@unique([entryId, questionId])
+  @@index([entryId])
+  @@index([questionId])
 }

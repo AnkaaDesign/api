@@ -89,8 +89,12 @@ export class UserPrismaRepository
     const createInput: Prisma.UserCreateInput = {
       ...rest,
       name: formData.name || 'Unnamed User', // Ensure name is provided
-      email: formData.email || '', // Ensure email is provided
-      phone: formData.phone || '', // Ensure phone is provided
+      // email/phone are `String? @unique`. They MUST coalesce to null (not '')
+      // when empty: Postgres treats multiple NULLs as distinct, but '' is a
+      // concrete value, so a second user with empty phone/email would trip the
+      // unique constraint ("já está em uso") even though none was provided.
+      email: formData.email || null,
+      phone: formData.phone || null,
       status: mapUserStatusToPrisma(formData.status),
       verified: formData.verified ?? false,
       performanceLevel: formData.performanceLevel ?? 0,

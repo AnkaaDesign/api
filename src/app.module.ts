@@ -69,6 +69,7 @@ import { SiegModule } from './modules/integrations/sieg/sieg.module';
 import { InvoiceModule } from './modules/financial/invoice/invoice.module';
 import { ReconciliationModule } from './modules/financial/reconciliation/reconciliation.module';
 import { SkillModule } from './modules/skill/skill.module';
+import { QuestionnaireModule } from './modules/questionnaire/questionnaire.module';
 
 @Module({
   imports: [
@@ -148,6 +149,7 @@ import { SkillModule } from './modules/skill/skill.module';
     InvoiceModule,
     ReconciliationModule,
     SkillModule,
+    QuestionnaireModule,
   ],
   controllers: [AppController],
   providers: [AppService],
