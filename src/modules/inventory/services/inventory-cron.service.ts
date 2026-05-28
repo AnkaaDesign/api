@@ -18,6 +18,7 @@ import {
   DORMANT_ITEM_MONTHS_THRESHOLD,
   ITEM_SIMILARITY_THRESHOLD,
   MAX_SIMILAR_ITEMS_TO_CHECK,
+  PPE_CONSUMPTION_REASONS,
   REGULAR_CONSUMPTION_REASONS,
   isToolType,
 } from '@/constants/inventory-config';
@@ -132,12 +133,18 @@ export class InventoryCronService {
       const promises = batch.map(async item => {
         try {
           // Pull all qualifying outbound activity for the target month so we
-          // can compute working-day-normalized totals.
+          // can compute working-day-normalized totals. PPE_DELIVERY is included
+          // so ON_DEMAND PPE items accumulate accurate snapshot history (they
+          // generate PPE_DELIVERY, not PRODUCTION_USAGE). REGULAR items never
+          // have PPE_DELIVERY activities, so this is additive-only.
+          const snapshotReasons = [
+            ...new Set([...REGULAR_CONSUMPTION_REASONS, ACTIVITY_REASON.PPE_DELIVERY]),
+          ] as ACTIVITY_REASON[];
           const activities = await this.prisma.activity.findMany({
             where: {
               itemId: item.id,
               operation: ACTIVITY_OPERATION.OUTBOUND,
-              reason: { in: REGULAR_CONSUMPTION_REASONS as ACTIVITY_REASON[] },
+              reason: { in: snapshotReasons },
               createdAt: { gte: monthStart, lte: monthEnd },
             },
             select: { quantity: true, reason: true, operation: true, createdAt: true },
@@ -298,12 +305,18 @@ export class InventoryCronService {
       new Set(items.map(i => i.supplierId).filter((v): v is string => !!v)),
     );
 
+    // Include PPE_DELIVERY so PPE items get their histTrailing12mo populated.
+    // Regular items never have PPE_DELIVERY activities, so the regular path is unaffected.
+    const allConsumptionReasons = [
+      ...new Set([...REGULAR_CONSUMPTION_REASONS, ...PPE_CONSUMPTION_REASONS]),
+    ] as ACTIVITY_REASON[];
+
     const [activities, orderItems, snapshotsByItem, latestPrices] = await Promise.all([
       this.prisma.activity.findMany({
         where: {
           itemId: { in: itemIds },
           operation: ACTIVITY_OPERATION.OUTBOUND,
-          reason: { in: REGULAR_CONSUMPTION_REASONS as ACTIVITY_REASON[] },
+          reason: { in: allConsumptionReasons },
           createdAt: { gte: lookbackStart },
         },
         select: { itemId: true, operation: true, reason: true, quantity: true, createdAt: true },
@@ -370,11 +383,19 @@ export class InventoryCronService {
         const itemActivities = activitiesByItem.get(item.id) ?? [];
         const seasonalCtx = this.buildSeasonalContext(snapshotsByItem.get(item.id));
 
+        const isPpeItem = (item.category?.type as ITEM_CATEGORY_TYPE | null) === ITEM_CATEGORY_TYPE.PPE;
+        const histTrailing12mo = isPpeItem
+          ? itemActivities
+              .filter(a => (PPE_CONSUMPTION_REASONS as string[]).includes(a.reason))
+              .reduce((sum, a) => sum + a.quantity, 0)
+          : undefined;
+
         const mcResult = calculateMonthlyConsumption({
           item: this.toItemLike(item),
           activities: itemActivities,
           now,
           seasonalCtx,
+          ...(isPpeItem && { ppe: { histTrailing12mo } }),
         });
 
         const monthlyHistory = this.buildMonthlyHistory(snapshotsByItem.get(item.id), now);
