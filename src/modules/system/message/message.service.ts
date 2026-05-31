@@ -5,9 +5,12 @@ import {
   InternalServerErrorException,
   Logger,
   ForbiddenException,
+  Inject,
 } from '@nestjs/common';
+import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { CreateMessageDto, UpdateMessageDto, FilterMessageDto } from './dto';
+import { MessagePublishedEvent } from './message.events';
 
 import type { Message, MessageView, MessageTarget, MessageStatus } from '@prisma/client';
 
@@ -21,7 +24,10 @@ type MessageWithRelations = Message & {
 export class MessageService {
   private readonly logger = new Logger(MessageService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
+  ) {}
 
   /**
    * Validate message content blocks
@@ -245,6 +251,33 @@ export class MessageService {
       }
 
       this.logger.log(`Message created successfully: ${message.id}`);
+
+      // Emit message.published ONLY when the message is created already-active
+      // AND already visible (no future startDate). A scheduled message with a
+      // future startDate is not yet visible in getUnviewedForUser, so notifying
+      // now would be premature; a scheduler should fire message.published once
+      // startDate is reached.
+      // TODO: add a @Cron that scans ACTIVE messages whose startDate has just
+      //       passed and were never notified, then emits message.published.
+      // Empty targetUserIds => ALL active users (decision in listener).
+      const startDate = data.startsAt ? new Date(data.startsAt) : null;
+      const isScheduledForFuture = startDate !== null && startDate.getTime() > Date.now();
+      if (data.isActive === true && !isScheduledForFuture) {
+        try {
+          this.eventEmitter.emit(
+            'message.published',
+            new MessagePublishedEvent(message, targetUserIds, createdById),
+          );
+        } catch (emitError) {
+          // Never let a notification failure break the business transaction.
+          this.logger.error('Error emitting message.published event:', emitError);
+        }
+      } else if (isScheduledForFuture) {
+        this.logger.log(
+          `Message ${message.id} scheduled for future (${startDate?.toISOString()}); suppressing message.published emit until visible.`,
+        );
+      }
+
       return message;
     } catch (error) {
       this.logger.error('Error creating message:', error);
@@ -457,15 +490,39 @@ export class MessageService {
         updateData.endDate = data.endsAt ? new Date(data.endsAt) : null;
       }
 
+      // Detect a first-time DRAFT -> ACTIVE transition (publish).
+      // Guard on publishedAt === null so the notification fires only once,
+      // even if the message is later toggled draft/active again.
+      const isFirstPublish = data.isActive === true && !existingMessage.publishedAt;
+
       // Update message using Prisma
       const message = await this.prisma.message.update({
         where: { id },
         data: updateData,
       });
 
+      // Track users newly added to an already-published message's target list,
+      // so we can notify ONLY them (the original recipients were already notified
+      // at publish time). Computed inside the targets-update block below.
+      let newlyAddedTargetUserIds: string[] = [];
+
       // Update targets if provided (frontend already resolved to user IDs)
       if (data.targets !== undefined) {
         const targetUserIds = data.targets || [];
+
+        // Snapshot the previous explicit targets BEFORE replacing them.
+        // findOne returns the message WITH its targets relation (typed loosely).
+        const previousTargetUserIds = (
+          ((existingMessage as any).targets as MessageTarget[]) || []
+        ).map(t => t.userId);
+        const previousSet = new Set(previousTargetUserIds);
+
+        // Newly added = present now but not before. Skip the "all users" case
+        // (empty previous OR empty new list means an open audience, which the
+        // config target rule already covers — no delta notification needed).
+        if (previousTargetUserIds.length > 0 && targetUserIds.length > 0) {
+          newlyAddedTargetUserIds = targetUserIds.filter(uid => !previousSet.has(uid));
+        }
 
         // Delete existing targets
         await this.prisma.messageTarget.deleteMany({
@@ -484,6 +541,57 @@ export class MessageService {
       }
 
       this.logger.log(`Message updated successfully: ${id}`);
+
+      // Emit message.published only on the first DRAFT -> ACTIVE transition.
+      if (isFirstPublish) {
+        try {
+          // Resolve current target user IDs from MessageTarget rows.
+          // Empty array => ALL active users (decision in listener).
+          const targetRows = await this.prisma.messageTarget.findMany({
+            where: { messageId: id },
+            select: { userId: true },
+          });
+          const targetUserIds = targetRows.map(t => t.userId);
+
+          this.eventEmitter.emit(
+            'message.published',
+            new MessagePublishedEvent(message, targetUserIds, message.createdById),
+          );
+        } catch (emitError) {
+          // Never let a notification failure break the business transaction.
+          this.logger.error('Error emitting message.published event:', emitError);
+        }
+      } else if (newlyAddedTargetUserIds.length > 0) {
+        // The message was ALREADY published (not a first publish), but its target
+        // list gained new recipients who were never notified. Notify ONLY the
+        // delta. Skip if the message is not currently visible (DRAFT, or scheduled
+        // for the future) — those will be (re)notified on publish/schedule.
+        const isActiveNow = message.status === 'ACTIVE';
+        const isVisibleNow =
+          isActiveNow && (!message.startDate || message.startDate.getTime() <= Date.now());
+
+        if (isVisibleNow) {
+          try {
+            this.eventEmitter.emit(
+              'message.published',
+              new MessagePublishedEvent(
+                message,
+                newlyAddedTargetUserIds,
+                message.createdById,
+              ),
+            );
+            this.logger.log(
+              `Notified ${newlyAddedTargetUserIds.length} newly added target(s) for message ${id}.`,
+            );
+          } catch (emitError) {
+            this.logger.error(
+              'Error emitting message.published event for newly added targets:',
+              emitError,
+            );
+          }
+        }
+      }
+
       return message;
     } catch (error) {
       this.logger.error('Error updating message:', error);

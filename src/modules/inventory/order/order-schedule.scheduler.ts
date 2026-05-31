@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { OrderScheduleService } from './order-schedule.service';
 import { OrderService } from './order.service';
 import { ORDER_STATUS, SCHEDULE_FREQUENCY, SCHEDULE_RUN_STATUS } from '../../../constants/enums';
@@ -45,6 +46,7 @@ export class OrderScheduleScheduler {
     private readonly prisma: PrismaService,
     private readonly orderScheduleService: OrderScheduleService,
     private readonly orderService: OrderService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
 
   /** Runs hourly at minute 5 (offset so it doesn't collide with the 0-minute
@@ -219,13 +221,58 @@ export class OrderScheduleScheduler {
   }
 
   /** Records a failed run without advancing nextRun (so the tick retries). */
-  private async recordRunFailure(scheduleId: string, error: string): Promise<void> {
+  private async recordRunFailure(
+    scheduleId: string,
+    error: string,
+    triggeredBy: string = 'system',
+  ): Promise<void> {
+    let scheduleName: string | undefined;
     await this.prisma.orderSchedule
       .update({
         where: { id: scheduleId },
         data: { lastRunStatus: SCHEDULE_RUN_STATUS.FAILED, lastRunError: error.slice(0, 1000) },
+        select: { id: true, name: true },
+      })
+      .then(s => {
+        scheduleName = s?.name ?? undefined;
       })
       .catch(() => undefined);
+
+    // Notify warehouse/logistics/admin that an automatic order schedule failed.
+    try {
+      const label = scheduleName ?? scheduleId;
+      // Sanitize the raw error (which may be an English message, JSON or a
+      // stack trace) into a short, human pt-BR-friendly snippet for the body.
+      const shortError = (error ?? '')
+        .split('\n')[0]
+        .replace(/[{}[\]"]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 120);
+      await this.dispatchService.dispatchByConfiguration('order_schedule.run.failed', triggeredBy, {
+        entityType: 'OrderSchedule',
+        entityId: scheduleId,
+        action: 'run_failed',
+        data: {
+          scheduleName: label,
+          errorMessage: error.slice(0, 500),
+        },
+        overrides: {
+          title: 'Falha no Agendamento de Pedido',
+          body: shortError
+            ? `Falha ao gerar o pedido agendado "${label}": ${shortError}`
+            : `Falha ao gerar o pedido agendado "${label}".`,
+          webUrl: `/estoque/pedidos/agendamentos/detalhes/${scheduleId}`,
+          mobileUrl: `/(tabs)/estoque/pedidos`,
+          relatedEntityType: 'ORDER_SCHEDULE',
+        },
+      });
+    } catch (notifyErr) {
+      this.logger.error(
+        'Falha ao notificar falha de agendamento (order_schedule.run.failed):',
+        notifyErr,
+      );
+    }
   }
 
   /** Compute the next run strictly after `now`, advancing from `base` and
@@ -324,7 +371,7 @@ export class OrderScheduleScheduler {
     if (!orderResp?.success) {
       const msg = `order creation returned non-success: ${JSON.stringify(orderResp)}`;
       this.logger.error(`Manual trigger for schedule ${scheduleId}: ${msg}`);
-      await this.recordRunFailure(scheduleId, msg);
+      await this.recordRunFailure(scheduleId, msg, userId ?? 'system');
       throw new InternalServerErrorException('Falha ao criar o pedido a partir do agendamento.');
     }
 

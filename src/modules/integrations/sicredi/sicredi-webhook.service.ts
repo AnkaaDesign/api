@@ -400,6 +400,80 @@ export class SicrediWebhookService {
     await this.cascadeService.cascadeFromInvoice(bankSlip.installment.invoiceId);
 
     this.logger.log(`Reversal handled for nossoNumero: ${nossoNumero}`);
+
+    // Notify FINANCIAL/ADMIN that a previously-paid boleto was reversed (estorno).
+    await this.dispatchBankSlipReversedNotification(
+      bankSlip.installment.invoiceId,
+      bankSlip.id,
+      nossoNumero,
+    );
+  }
+
+  /**
+   * Dispatch bank_slip.reversed when Sicredi reverses (estorna) a payment.
+   * Best-effort — never breaks the webhook processing. Deep link keyed by taskId.
+   */
+  private async dispatchBankSlipReversedNotification(
+    invoiceId: string,
+    bankSlipId: string,
+    nossoNumero: string,
+  ): Promise<void> {
+    try {
+      const invoice = await this.prismaService.invoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          customer: { select: { fantasyName: true } },
+          task: { select: { id: true, name: true } },
+        },
+      });
+      if (!invoice) {
+        this.logger.warn(
+          `Cannot dispatch bank_slip.reversed notification: Invoice ${invoiceId} not found`,
+        );
+        return;
+      }
+
+      const customerName = invoice.customer?.fantasyName || 'N/A';
+      const taskName = invoice.task?.name || 'N/A';
+      const taskId = invoice.task?.id ?? invoice.taskId ?? null;
+
+      const webUrl = taskId ? `/financeiro/faturamento/detalhes/${taskId}` : undefined;
+      const mobileUrl = taskId ? `financial/${taskId}` : undefined;
+
+      await this.notificationDispatchService.dispatchByConfiguration(
+        'bank_slip.reversed',
+        'system',
+        {
+          entityType: 'BankSlip',
+          entityId: taskId ?? invoice.id,
+          action: 'reversed',
+          data: {
+            customerName,
+            taskName,
+            nossoNumero,
+            invoiceId: invoice.id,
+            bankSlipId,
+            taskId: taskId || undefined,
+          },
+          overrides: {
+            title: 'Pagamento de Boleto Estornado',
+            body: `O pagamento do boleto ${nossoNumero} da tarefa ${taskName} (${customerName}) foi estornado pelo Sicredi.`,
+            relatedEntityType: 'BANK_SLIP',
+            ...(webUrl ? { webUrl } : {}),
+            ...(mobileUrl ? { mobileUrl } : {}),
+          },
+        },
+      );
+
+      this.logger.log(
+        `Bank slip reversed notification dispatched for nossoNumero: ${nossoNumero}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to dispatch bank_slip.reversed notification for nossoNumero: ${nossoNumero}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 
   async retryFailedEvent(eventId: string): Promise<{ success: boolean; error?: string }> {

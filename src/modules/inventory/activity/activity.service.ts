@@ -46,6 +46,7 @@ import {
   ORDER_STATUS,
   EXTERNAL_WITHDRAWAL_STATUS,
   ACTIVE_USER_STATUSES,
+  ITEM_CATEGORY_TYPE,
 } from '../../../constants/enums';
 import {
   REGULAR_CONSUMPTION_REASONS,
@@ -54,6 +55,21 @@ import { getStatusOrder } from '../../../utils/order';
 import { EXTERNAL_WITHDRAWAL_STATUS_ORDER } from '../../../constants/sortOrders';
 import { OrderItemEnteredInventoryEvent } from '../order/order.events';
 import { ItemRecomputeService } from '../services/item-recompute.service';
+import { StockNotificationService } from '../services/stock-notification.service';
+import type { StockCalculationResult } from '../services/atomic-stock-calculator.service';
+import { determineStockLevel } from '../../../utils';
+
+/** Per-item-write snapshot captured inside the transaction for post-commit
+ *  stock-threshold notification evaluation. */
+interface StockNotificationSnapshot {
+  itemId: string;
+  itemName: string;
+  oldQuantity: number;
+  newQuantity: number;
+  reorderPoint: number | null;
+  maxQuantity: number | null;
+  categoryType: ITEM_CATEGORY_TYPE | null;
+}
 
 @Injectable()
 export class ActivityService {
@@ -65,7 +81,75 @@ export class ActivityService {
     private readonly activityRepository: ActivityRepository,
     private readonly changeLogService: ChangeLogService,
     private readonly itemRecomputeService: ItemRecomputeService,
+    private readonly stockNotificationService: StockNotificationService,
   ) {}
+
+  /**
+   * Snapshot captured inside the transaction by updateItemQuantity so that
+   * stock-threshold notifications can be evaluated AFTER the transaction
+   * commits (never on a rollback). One entry per quantity-changing item write.
+   */
+  private buildStockNotificationCalculation(
+    snap: StockNotificationSnapshot,
+  ): StockCalculationResult {
+    const stockLevel = determineStockLevel({
+      quantity: snap.newQuantity,
+      reorderPoint: snap.reorderPoint,
+      maxQuantity: snap.maxQuantity,
+      hasActiveOrder: false,
+      categoryType: snap.categoryType,
+    });
+
+    // Shape mirrors AtomicStockCalculatorService output so we can reuse
+    // StockNotificationService.processStockNotifications unchanged. Only the
+    // fields consumed by its determineEventType/hydrateAndFilter are meaningful.
+    return {
+      itemId: snap.itemId,
+      itemName: snap.itemName,
+      currentQuantity: snap.oldQuantity,
+      finalQuantity: snap.newQuantity,
+      quantityChange: snap.newQuantity - snap.oldQuantity,
+      isValid: true,
+      errors: [],
+      warnings: [],
+      stockLevel,
+      hasActiveOrders: false,
+      reorderPoint: snap.reorderPoint,
+      maxQuantity: snap.maxQuantity,
+      operations: [],
+    };
+  }
+
+  /**
+   * Evaluate stock thresholds for items touched by an activity write and
+   * dispatch low/out/reorder/overstock notifications. MUST be called AFTER the
+   * surrounding transaction commits (uses this.prisma, not the tx) so we never
+   * notify on a rolled-back change. Wrapped so a failure never breaks the flow.
+   */
+  private async dispatchStockNotificationsAfterCommit(
+    snapshots: StockNotificationSnapshot[],
+  ): Promise<void> {
+    if (!snapshots.length) return;
+
+    // Collapse multiple writes to the same item to its final state (latest snap
+    // wins) so a reverse+apply pair in update() yields a single evaluation.
+    const latestByItem = new Map<string, StockNotificationSnapshot>();
+    for (const snap of snapshots) {
+      latestByItem.set(snap.itemId, snap);
+    }
+
+    try {
+      const calculations = Array.from(latestByItem.values()).map(snap =>
+        this.buildStockNotificationCalculation(snap),
+      );
+      await this.stockNotificationService.processStockNotifications(
+        calculations,
+        this.prisma as any,
+      );
+    } catch (error) {
+      this.logger.error('Erro ao despachar notificações de estoque:', error);
+    }
+  }
 
   /**
    * Find a matching order for the activity based on the item
@@ -242,6 +326,7 @@ export class ActivityService {
     options?: { skipSync?: boolean },
   ): Promise<ActivityCreateResponse> {
     try {
+      const stockSnapshots: StockNotificationSnapshot[] = [];
       const activity = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Determine reason based on business rules if not provided
         const determinedReason = await this.determineActivityReason(
@@ -285,6 +370,7 @@ export class ActivityService {
           userId,
           data,
           orderId,
+          stockSnapshots,
         );
 
         // Se a atividade está ligada a um pedido, sincronizar com o item do pedido
@@ -329,6 +415,9 @@ export class ActivityService {
 
         return { activity: newActivity, orderId, orderItemId, determinedReason };
       });
+
+      // Evaluate stock thresholds AFTER commit (never on rollback).
+      await this.dispatchStockNotificationsAfterCommit(stockSnapshots);
 
       // Emit event outside the transaction for order item entering inventory
       if (
@@ -378,6 +467,7 @@ export class ActivityService {
     userId?: string,
   ): Promise<ActivityUpdateResponse> {
     try {
+      const stockSnapshots: StockNotificationSnapshot[] = [];
       const updatedActivity = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar atividade existente
         const existingActivity = await this.activityRepository.findByIdWithTransaction(tx, id);
@@ -423,6 +513,9 @@ export class ActivityService {
             oldQuantity,
             ACTIVITY_OPERATION.OUTBOUND,
             userId,
+            undefined,
+            undefined,
+            stockSnapshots,
           );
         } else {
           await this.updateItemQuantity(
@@ -431,14 +524,26 @@ export class ActivityService {
             oldQuantity,
             ACTIVITY_OPERATION.INBOUND,
             userId,
+            undefined,
+            undefined,
+            stockSnapshots,
           );
         }
 
         // Aplicar a nova operação
-        await this.updateItemQuantity(tx, itemId, newQuantity, newOperation, userId, {
-          ...existingActivity,
-          ...data,
-        });
+        await this.updateItemQuantity(
+          tx,
+          itemId,
+          newQuantity,
+          newOperation,
+          userId,
+          {
+            ...existingActivity,
+            ...data,
+          },
+          undefined,
+          stockSnapshots,
+        );
 
         // Check if we need to reassign order based on changed item, operation, or reason
         let newOrderId = existingActivity.orderId;
@@ -567,6 +672,9 @@ export class ActivityService {
 
         return updatedActivity;
       });
+
+      // Evaluate stock thresholds AFTER commit (never on rollback).
+      await this.dispatchStockNotificationsAfterCommit(stockSnapshots);
 
       return {
         success: true,
@@ -716,6 +824,7 @@ export class ActivityService {
       await this.validateOrderSyncImpact(activity);
 
       // Se passou na validação, executar a exclusão em transação
+      const stockSnapshots: StockNotificationSnapshot[] = [];
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar novamente dentro da transação para garantir consistência
         const activityInTransaction = await this.activityRepository.findByIdWithTransaction(tx, id);
@@ -732,6 +841,9 @@ export class ActivityService {
             activityInTransaction.quantity,
             ACTIVITY_OPERATION.OUTBOUND,
             userId,
+            undefined,
+            undefined,
+            stockSnapshots,
           );
         } else {
           await this.updateItemQuantity(
@@ -740,6 +852,9 @@ export class ActivityService {
             activityInTransaction.quantity,
             ACTIVITY_OPERATION.INBOUND,
             userId,
+            undefined,
+            undefined,
+            stockSnapshots,
           );
         }
 
@@ -790,6 +905,9 @@ export class ActivityService {
         await this.activityRepository.deleteWithTransaction(tx, id);
       });
 
+      // Evaluate stock thresholds AFTER commit (never on rollback).
+      await this.dispatchStockNotificationsAfterCommit(stockSnapshots);
+
       return {
         success: true,
         message: 'Atividade excluída com sucesso',
@@ -814,6 +932,7 @@ export class ActivityService {
     userId?: string,
   ): Promise<ActivityBatchCreateResponse<ActivityCreateFormData>> {
     try {
+      const stockSnapshots: StockNotificationSnapshot[] = [];
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const processedActivities: ActivityCreateFormData[] = [];
         const validationErrors: any[] = [];
@@ -907,6 +1026,7 @@ export class ActivityService {
               userId || undefined,
               originalData,
               activity.orderId,
+              stockSnapshots,
             );
 
             // If activity is linked to an order, sync with order item
@@ -939,6 +1059,9 @@ export class ActivityService {
 
         return result;
       });
+
+      // Evaluate stock thresholds AFTER commit (never on rollback).
+      await this.dispatchStockNotificationsAfterCommit(stockSnapshots);
 
       // Emit events for order items that entered inventory (outside transaction)
       for (const activity of result.success) {
@@ -1472,6 +1595,7 @@ export class ActivityService {
     userId?: string,
     data?: Partial<ActivityCreateFormData>,
     orderId?: string | null,
+    stockEvalSink?: StockNotificationSnapshot[],
   ): Promise<void> {
     const item = await tx.item.findUnique({
       where: { id: itemId },
@@ -1482,6 +1606,7 @@ export class ActivityService {
         quantity: true,
         maxQuantity: true,
         reorderPoint: true,
+        category: { select: { type: true } },
         prices: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -1525,6 +1650,21 @@ export class ActivityService {
       where: { id: itemId },
       data: updateData,
     });
+
+    // Capture a snapshot for post-commit stock-threshold notification eval.
+    // The actual dispatch happens AFTER the transaction commits (never on
+    // rollback) — see dispatchStockNotificationsAfterCommit.
+    if (stockEvalSink) {
+      stockEvalSink.push({
+        itemId,
+        itemName: item.name,
+        oldQuantity,
+        newQuantity,
+        reorderPoint: item.reorderPoint ?? null,
+        maxQuantity: item.maxQuantity ?? null,
+        categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+      });
+    }
 
     // Activity-write-time recompute (mc / rp / max / reorderQty / leadTime).
     // The canonical math lives in stock-health utilities; nightly cron is the

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SecullumService } from '@modules/integrations/secullum/secullum.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { CacheService } from '@modules/common/cache/cache.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { getBonusPeriodStart, getBonusPeriodEnd } from '../../../utils/bonus';
 import { SecullumCalculationData } from '@modules/integrations/secullum/dto';
 
@@ -96,6 +97,7 @@ export class SecullumBonusIntegrationService {
     private readonly secullumService: SecullumService,
     private readonly prisma: PrismaService,
     private readonly cacheService: CacheService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
 
   private isBreakerOpen(): boolean {
@@ -110,7 +112,36 @@ export class SecullumBonusIntegrationService {
       this.logger.warn(
         'Secullum breaker OPEN for 60s — recent consecutive failures exceeded threshold',
       );
+      // Alert HR/Financial/Admin that payroll-affecting Secullum data is
+      // degraded. Emitting only on breaker-OPEN (not per failure) naturally
+      // rate-limits this to at most once per 60s window, avoiding spam during
+      // the frequent live-bonus pre-warm cron.
+      this.emitDataDegraded(
+        'A integração de bônus com a Secullum está indisponível (falhas consecutivas). Os cálculos de folha podem estar degradados.',
+      );
     }
+  }
+
+  /** Fire-and-forget URGENT alert; never blocks the bonus calculation flow. */
+  private emitDataDegraded(reason: string): void {
+    void this.dispatchService
+      .dispatchByConfiguration('secullum.payroll.dataDegraded', 'system', {
+        entityType: 'SecullumPayroll',
+        entityId: 'bonus-integration',
+        action: 'data_degraded',
+        data: { source: 'bonus', reason },
+        overrides: {
+          title: 'Dados de folha degradados (Secullum)',
+          body: reason,
+          webUrl: '/recursos-humanos/bonus',
+          relatedEntityType: 'SECULLUM_PAYROLL',
+        },
+      })
+      .catch((err) =>
+        this.logger.error(
+          `Notification dispatch failed for "secullum.payroll.dataDegraded": ${(err as Error).message}`,
+        ),
+      );
   }
 
   private recordBreakerSuccess(): void {

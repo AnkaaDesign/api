@@ -7,7 +7,6 @@ import {
 import {
   Prisma,
   ReconciliationAliasSource,
-  ReconciliationCategory,
   ReconciliationMatchType,
   ReconciliationSource,
   ReconciliationStatus,
@@ -20,14 +19,24 @@ import { IgnoreTransactionDto } from './dto/ignore-transaction.dto';
 import { ChangeCategoryDto } from './dto/change-category.dto';
 import { ClassifyBatchDto } from './dto/classify-batch.dto';
 import { ReconciliationMatcherService } from './reconciliation-matcher.service';
-import {
-  ReconciliationClassifierService,
-  SELF_JUSTIFYING_CATEGORIES,
-} from './reconciliation-classifier.service';
+import { ReconciliationClassifierService } from './reconciliation-classifier.service';
+import { TransactionCategoryService } from './transaction-category.service';
+import { ItemCategoryClassifierService } from './item-category-classifier.service';
 import {
   ReconciliationAliasService,
   inferCounterpartyCnpj,
 } from './reconciliation-alias.service';
+
+// Categories included on every transaction list/detail response.
+const CATEGORY_INCLUDE = {
+  categories: {
+    include: {
+      category: {
+        select: { id: true, name: true, slug: true, kind: true, color: true, isResolving: true, isRecurring: true },
+      },
+    },
+  },
+} satisfies Prisma.BankTransactionInclude;
 
 @Injectable()
 export class ReconciliationService {
@@ -38,6 +47,8 @@ export class ReconciliationService {
     private readonly matcher: ReconciliationMatcherService,
     private readonly aliasService: ReconciliationAliasService,
     private readonly classifier: ReconciliationClassifierService,
+    private readonly categories: TransactionCategoryService,
+    private readonly itemCategoryClassifier: ItemCategoryClassifierService,
   ) {}
 
   async listTransactions(filters: TransactionsFilterDto) {
@@ -47,10 +58,30 @@ export class ReconciliationService {
         ? { in: filters.reconciliationStatus }
         : filters.reconciliationStatus;
     }
-    if (filters.category) {
-      where.category = Array.isArray(filters.category)
-        ? { in: filters.category }
-        : filters.category;
+    if (filters.categoryIds && filters.categoryIds.length > 0) {
+      const ids = filters.categoryIds;
+      if (filters.categoryMatch === 'all') {
+        // Transaction must carry every requested category.
+        where.AND = [
+          ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+          ...ids.map(id => ({ categories: { some: { categoryId: id } } })),
+        ];
+      } else {
+        where.categories = { some: { categoryId: { in: ids } } };
+      }
+    }
+    if (filters.expectsFiscalDocument !== undefined) {
+      where.expectsFiscalDocument = filters.expectsFiscalDocument;
+    }
+    if (filters.categorySource) {
+      // Filter by provenance of the assigned category tags.
+      where.categories = {
+        ...(where.categories as Prisma.BankTransactionCategoryListRelationFilter),
+        some: {
+          ...((where.categories as { some?: object })?.some ?? {}),
+          source: filters.categorySource,
+        },
+      };
     }
     if (filters.reconciliationSource) where.reconciliationSource = filters.reconciliationSource;
     if (filters.matchType) {
@@ -90,6 +121,7 @@ export class ReconciliationService {
         skip: (filters.page - 1) * filters.pageSize,
         take: filters.pageSize,
         include: {
+          ...CATEGORY_INCLUDE,
           matches: {
             include: {
               fiscalDocument: {
@@ -135,6 +167,7 @@ export class ReconciliationService {
     const tx = await this.prisma.bankTransaction.findUnique({
       where: { id: transactionId },
       include: {
+        ...CATEGORY_INCLUDE,
         matches: {
           include: {
             fiscalDocument: {
@@ -204,6 +237,10 @@ export class ReconciliationService {
             unit: true,
             unitValue: true,
             totalValue: true,
+            categoryId: true,
+            categoryConfidence: true,
+            categorySource: true,
+            category: { select: { id: true, name: true, slug: true, color: true } },
           },
         },
       },
@@ -248,7 +285,13 @@ export class ReconciliationService {
       );
     }
 
+    const keepDocIds = [...allocByDoc.keys()];
     const updated = await this.prisma.$transaction(async tx2 => {
+      // Drop any prior matches NOT in the new payload, so re-matching with a
+      // different/smaller set can't leave stale (double-counted) matches behind.
+      await tx2.reconciliationMatch.deleteMany({
+        where: { transactionId, fiscalDocumentId: { notIn: keepDocIds } },
+      });
       for (const [fiscalDocumentId, amount] of allocByDoc) {
         await tx2.reconciliationMatch.upsert({
           where: { transactionId_fiscalDocumentId: { transactionId, fiscalDocumentId } },
@@ -279,7 +322,7 @@ export class ReconciliationService {
               ? ReconciliationStatus.PARTIAL
               : ReconciliationStatus.RECONCILED,
           reconciliationSource: ReconciliationSource.MANUAL,
-          category: ReconciliationCategory.NF,
+          expectsFiscalDocument: true,
           categorySource: ReconciliationSource.MANUAL,
         },
         include: { matches: true },
@@ -287,6 +330,8 @@ export class ReconciliationService {
     });
 
     await this.captureAliasesForMatch(tx, [...allocByDoc.keys()]);
+    // Derive item categories from the freshly-linked NF(s).
+    await this.itemCategoryClassifier.deriveForTransaction(transactionId);
     return updated;
   }
 
@@ -356,6 +401,9 @@ export class ReconciliationService {
         if (cp) reversedCounterparties.push(cp);
       }
     }
+    const matchedDocIds = tx.matches
+      .map(m => m.fiscalDocumentId)
+      .filter((id): id is string => Boolean(id));
 
     const updated = await this.prisma.$transaction(async tx2 => {
       await tx2.reconciliationMatch.updateMany({
@@ -363,15 +411,22 @@ export class ReconciliationService {
         data: { reversedAt: new Date(), reversedById: userId ?? null },
       });
       await tx2.reconciliationMatch.deleteMany({ where: { transactionId } });
+      // The NF link is gone, so the AUTO item-derived category tags it produced
+      // are no longer justified. Drop them; MANUAL tags the user set stay.
+      await tx2.bankTransactionCategory.deleteMany({
+        where: { transactionId, source: ReconciliationSource.AUTO },
+      });
+      await tx2.fiscalDocumentItem.updateMany({
+        where: { fiscalDocumentId: { in: matchedDocIds } },
+        data: { categoryId: null, categoryConfidence: null, categorySource: null },
+      });
       return tx2.bankTransaction.update({
         where: { id: transactionId },
         data: {
           reconciliationStatus: ReconciliationStatus.PENDING,
           reconciliationSource: null,
-          // Reset category so the classifier re-evaluates on next run; the user
-          // un-matched intentionally, so we drop NF and let regex/alias decide.
-          category: ReconciliationCategory.UNCLASSIFIED,
-          categorySource: null,
+          // Still expects an NF — user un-matched intentionally; the matcher can
+          // retry on the next run.
           bankSlipId: null,
         },
         include: { matches: true },
@@ -410,9 +465,13 @@ export class ReconciliationService {
   }
 
   /**
-   * Sets a category manually. For self-justifying categories the status flips
-   * to RECONCILED (with source=MANUAL). For NF, status returns to PENDING so
-   * the matcher can pick it up. Optionally records an alias for future imports.
+   * Sets the MANUAL category tags of a transaction. `categoryIds` is the full
+   * authoritative set the user wants: tags not in it are removed, AUTO tags in
+   * it are promoted to MANUAL, new ones are created. If any assigned category
+   * is `isResolving` (a transaction-only category like Aluguel), the
+   * transaction is marked RECONCILED without needing an NF — otherwise the
+   * status is left as-is (item-derived categories never resolve on their own).
+   * Optionally records an alias so future imports auto-classify.
    */
   async changeCategory(
     transactionId: string,
@@ -427,57 +486,88 @@ export class ReconciliationService {
         type: true,
         counterpartyCnpjCpf: true,
         reconciliationStatus: true,
-        matches: { select: { id: true } },
       },
     });
     if (!tx) throw new NotFoundException('Transação não encontrada');
 
-    const isSelfJustifying = SELF_JUSTIFYING_CATEGORIES.has(payload.category);
-    const becomesNF = payload.category === ReconciliationCategory.NF;
-
-    // If the transaction has live NF matches and the new category isn't NF,
-    // refuse — the user should unmatch first to avoid an inconsistent record.
-    if (!becomesNF && tx.matches.length > 0) {
-      throw new BadRequestException(
-        'Desfaça os vínculos com NF antes de alterar a categoria desta transação',
-      );
+    const ids = [...new Set(payload.categoryIds)];
+    const snap = await this.categories.snapshot();
+    const chosen = ids.map(id => snap.byId.get(id)).filter(Boolean);
+    if (chosen.length !== ids.length) {
+      throw new BadRequestException('Uma ou mais categorias informadas não existem');
     }
+    const hasResolving = chosen.some(c => c!.isResolving);
+    // Per-category amount split (only meaningful when >1 category). Categories
+    // without an entry store null → the stats fallback handles them.
+    const allocMap = new Map(
+      (payload.allocations ?? []).map(a => [a.categoryId, a.allocatedAmount]),
+    );
 
-    const updated = await this.prisma.bankTransaction.update({
-      where: { id: transactionId },
-      data: {
-        category: payload.category,
-        categorySource: ReconciliationSource.MANUAL,
-        classifiedAt: new Date(),
-        ...(isSelfJustifying
-          ? {
-              reconciliationStatus: ReconciliationStatus.RECONCILED,
-              reconciliationSource: ReconciliationSource.MANUAL,
-            }
-          : becomesNF
+    await this.prisma.$transaction(async db => {
+      // Drop tags no longer wanted.
+      await db.bankTransactionCategory.deleteMany({
+        where: { transactionId, categoryId: { notIn: ids.length ? ids : ['__none__'] } },
+      });
+      // Upsert the wanted set as MANUAL (converts AUTO tags to MANUAL).
+      for (const id of ids) {
+        const allocatedAmount = allocMap.has(id) ? allocMap.get(id)! : null;
+        await db.bankTransactionCategory.upsert({
+          where: { transactionId_categoryId: { transactionId, categoryId: id } },
+          create: {
+            transactionId,
+            categoryId: id,
+            source: ReconciliationSource.MANUAL,
+            assignedById: userId ?? null,
+            allocatedAmount,
+          },
+          update: {
+            source: ReconciliationSource.MANUAL,
+            assignedById: userId ?? null,
+            confidence: null,
+            allocatedAmount,
+          },
+        });
+      }
+      await db.bankTransaction.update({
+        where: { id: transactionId },
+        data: {
+          categorySource: ReconciliationSource.MANUAL,
+          classifiedAt: new Date(),
+          ...(hasResolving
             ? {
-                // Reset to PENDING so the matcher can pick it up.
-                reconciliationStatus: ReconciliationStatus.PENDING,
-                reconciliationSource: null,
+                reconciliationStatus: ReconciliationStatus.RECONCILED,
+                reconciliationSource: ReconciliationSource.MANUAL,
               }
             : {}),
-        ...(payload.notes ? { ignoredReason: payload.notes } : {}),
-      },
+        },
+      });
     });
 
-    if (payload.saveAlias && tx.memo && tx.counterpartyCnpjCpf) {
+    // Persist an alias for the first resolving (transaction-only) category so
+    // future imports with the same memo auto-classify.
+    const aliasCategory = chosen.find(c => c!.isResolving) ?? chosen[0];
+    if (payload.saveAlias && aliasCategory && tx.memo && tx.counterpartyCnpjCpf) {
       await this.aliasService
         .recordMatchSuccess({
           memo: tx.memo,
           txType: tx.type,
           counterpartyCnpjCpf: tx.counterpartyCnpjCpf,
           source: ReconciliationAliasSource.MANUAL_MATCH,
-          category: payload.category,
+          categoryId: aliasCategory.id,
         })
         .catch(err => this.logger.warn(`Failed to save category alias: ${err}`));
     }
 
-    return updated;
+    // Train the item-category learner from this human correction (no-op unless
+    // unambiguous — single item-derived/service category on a single-line NF).
+    await this.itemCategoryClassifier
+      .learnFromManual(
+        transactionId,
+        chosen.map(c => ({ id: c!.id, kind: c!.kind as string })),
+      )
+      .catch(err => this.logger.warn(`learnFromManual failed: ${err}`));
+
+    return this.getTransaction(transactionId);
   }
 
   /**
@@ -490,13 +580,43 @@ export class ReconciliationService {
       where.id = { in: payload.transactionIds };
     }
     if (payload.reconciliationStatus) where.reconciliationStatus = payload.reconciliationStatus;
-    if (payload.category) where.category = payload.category;
     if (payload.dateFrom || payload.dateTo) {
       where.postedAt = {};
       if (payload.dateFrom) (where.postedAt as Prisma.DateTimeFilter).gte = new Date(payload.dateFrom);
       if (payload.dateTo) (where.postedAt as Prisma.DateTimeFilter).lte = new Date(payload.dateTo);
     }
     return this.classifier.classifyBatch(Object.keys(where).length ? where : undefined);
+  }
+
+  /**
+   * (Re)derives item categories for matched transactions in scope. Used by the
+   * "Recategorizar" action and after bulk operations. Only touches transactions
+   * that have a non-reversed fiscal-document match (item categories require an NF).
+   */
+  async categorize(payload: {
+    transactionIds?: string[];
+    dateFrom?: string;
+    dateTo?: string;
+  }): Promise<{ processed: number; categorized: number }> {
+    const where: Prisma.BankTransactionWhereInput = {
+      matches: { some: { reversedAt: null, fiscalDocumentId: { not: null } } },
+      // Skip transactions the user has manually categorized — auto-derivation
+      // must not re-add guesses over a human decision.
+      categories: { none: { source: ReconciliationSource.MANUAL } },
+    };
+    if (payload.transactionIds?.length) where.id = { in: payload.transactionIds };
+    if (payload.dateFrom || payload.dateTo) {
+      where.postedAt = {};
+      if (payload.dateFrom) (where.postedAt as Prisma.DateTimeFilter).gte = new Date(payload.dateFrom);
+      if (payload.dateTo) (where.postedAt as Prisma.DateTimeFilter).lte = new Date(payload.dateTo);
+    }
+    const txs = await this.prisma.bankTransaction.findMany({ where, select: { id: true } });
+    let categorized = 0;
+    for (const t of txs) {
+      const n = await this.itemCategoryClassifier.deriveForTransaction(t.id);
+      if (n > 0) categorized += 1;
+    }
+    return { processed: txs.length, categorized };
   }
 
   async listFiscalDocuments(filters: FiscalDocumentsFilterDto) {

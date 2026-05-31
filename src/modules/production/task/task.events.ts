@@ -57,6 +57,9 @@ export class TaskFieldChangedEvent {
       changedAt: Date;
       changedBy: string;
     },
+    // Set only for the consolidated 'truck.layout' synthetic event: a human-readable
+    // pt-BR summary of which truck-layout sides changed (Motorista/Sapo/Traseira).
+    public readonly layoutChangeSummary?: string,
   ) {}
 }
 

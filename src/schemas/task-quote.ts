@@ -428,7 +428,7 @@ export const paymentConfigSchema = z.object({
   installmentCount: z.number().int().min(2).max(6).optional(),
   installmentStep: z.number().int().min(1).max(365).optional(),
   entryDays: z.number().int().min(1).max(365).optional(),
-  specificDate: z.string().optional(),
+  specificDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 export const taskQuoteCustomerConfigCreateNestedSchema = z.object({

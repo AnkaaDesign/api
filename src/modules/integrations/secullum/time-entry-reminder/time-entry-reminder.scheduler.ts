@@ -15,6 +15,7 @@ export class TimeEntryReminderScheduler {
   private readonly logger = new Logger(TimeEntryReminderScheduler.name);
 
   private isProcessing = false;
+  private isUnjustifiedProcessing = false;
 
   constructor(private readonly timeEntryReminderService: TimeEntryReminderService) {}
 
@@ -53,6 +54,32 @@ export class TimeEntryReminderScheduler {
       this.logger.log(`All entry type checks completed in ${duration}ms`);
     } finally {
       this.isProcessing = false;
+    }
+  }
+
+  /**
+   * Daily unjustified-absence detector.
+   * Runs once per workday morning (08:30 São Paulo, Mon-Fri) so the previous
+   * day's Secullum calculations have settled. Emits secullum.absence.unjustified
+   * (targeted to the affected employee; HR receives it via the config sector
+   * rule). Per-(user,date) Redis dedup in the service prevents duplicates.
+   */
+  @Cron('30 8 * * 1-5', { timeZone: 'America/Sao_Paulo' })
+  async checkUnjustifiedAbsences(): Promise<void> {
+    if (this.isUnjustifiedProcessing) {
+      this.logger.warn('Unjustified-absence check already in progress, skipping this run');
+      return;
+    }
+    this.isUnjustifiedProcessing = true;
+    try {
+      const result = await this.timeEntryReminderService.checkAndNotifyUnjustifiedAbsences();
+      this.logger.log(
+        `Unjustified-absence check completed - Scanned: ${result.scanned}, Notified: ${result.notified}, Dedup: ${result.skippedDedup}, Errors: ${result.errors}`,
+      );
+    } catch (error: any) {
+      this.logger.error(`Unjustified-absence check failed: ${error?.message}`, error?.stack);
+    } finally {
+      this.isUnjustifiedProcessing = false;
     }
   }
 

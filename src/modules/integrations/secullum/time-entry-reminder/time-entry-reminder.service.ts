@@ -491,6 +491,7 @@ export class TimeEntryReminderService {
           overrides: {
             actionUrl: '/pessoal/meus-pontos',
             webUrl: '/pessoal/meus-pontos',
+            mobileUrl: '/(tabs)/pessoal/meus-pontos',
             relatedEntityType: 'TIME_ENTRY',
             title: 'Lembrete de Ponto',
             body: `Você ainda não registrou sua ${entryLabel}. Horário esperado: ${expectedTime}.`,
@@ -550,5 +551,185 @@ export class TimeEntryReminderService {
     }
 
     return { secullumSchedules };
+  }
+
+  /**
+   * Resolve the active HR-sector user ids once per scan. These users receive an
+   * RH-facing copy of every unjustified-absence event (the employee gets their
+   * own employee-facing copy). Returns [] on any failure so the scan never
+   * breaks the business flow.
+   */
+  private async resolveHrUserIds(): Promise<string[]> {
+    try {
+      const users = await this.prisma.user.findMany({
+        where: {
+          isActive: true,
+          sector: { privileges: 'HUMAN_RESOURCES' as any },
+        },
+        select: { id: true },
+      });
+      return users.map((u) => u.id);
+    } catch (err: any) {
+      this.logger.warn(
+        `Failed to resolve HR-sector users for unjustified-absence dispatch: ${err?.message ?? err}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Daily unjustified-absence detector.
+   * Config key: secullum.absence.unjustified (targeted=true).
+   *
+   * Notifies BOTH the absent employee (employee-facing deep link → meus-pontos)
+   * AND the HUMAN_RESOURCES sector users (RH-facing deep link → calculos). The
+   * employee and RH copies use independent Redis dedup keys. Rows without a
+   * linked Ankaa user still generate an RH notification so the event is never
+   * silently dropped.
+   *
+   * Scans the given day (defaults to "yesterday" in São Paulo) via
+   * SecullumService.getUnjustifiedAbsences, which already fans out one
+   * /Calculos call per linked employee and resolves each row to an internal
+   * userId/name. Per-(user,date) Redis dedup prevents re-notifying on retries.
+   *
+   * NOTE: invoked by TimeEntryReminderScheduler's daily cron. Heavy fan-out —
+   * runs once per day only.
+   */
+  async checkAndNotifyUnjustifiedAbsences(targetDate?: string): Promise<{
+    scanned: number;
+    notified: number;
+    skippedDedup: number;
+    errors: number;
+  }> {
+    const stats = { scanned: 0, notified: 0, skippedDedup: 0, errors: 0 };
+
+    // Default to yesterday (São Paulo) so the previous workday's calculations
+    // have settled. Format YYYY-MM-DD.
+    let day = targetDate;
+    if (!day) {
+      const nowSp = new Date(
+        new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }),
+      );
+      nowSp.setDate(nowSp.getDate() - 1);
+      const y = nowSp.getFullYear();
+      const m = String(nowSp.getMonth() + 1).padStart(2, '0');
+      const d = String(nowSp.getDate()).padStart(2, '0');
+      day = `${y}-${m}-${d}`;
+    }
+
+    let response;
+    try {
+      response = await this.secullumService.getUnjustifiedAbsences({
+        startDate: day,
+        endDate: day,
+      });
+    } catch (error: any) {
+      this.logger.error(
+        `Unjustified-absence scan failed for ${day}: ${error?.message ?? error}`,
+      );
+      stats.errors++;
+      return stats;
+    }
+
+    const rows = response?.success && Array.isArray(response.data) ? response.data : [];
+    stats.scanned = rows.length;
+
+    // Resolve HR-sector recipients once; every row also notifies RH so the
+    // sector is no longer silently left out (the previous code only ever
+    // notified the employee). Wrapped so a failure here cannot break the scan.
+    const hrUserIds = await this.resolveHrUserIds();
+
+    for (const row of rows) {
+      try {
+        const userId = (row as any).userId as string | undefined;
+        const userName = (row as any).userName as string | undefined;
+        // SecullumAggregatedAbsence carries `Inicio` (ISO, YYYY-MM-DDT00:00:00).
+        const absenceDate = String((row as any).Inicio ?? '').slice(0, 10) || day;
+        const funcionarioId = (row as any).FuncionarioId as number | undefined;
+        const displayName = userName ?? `Funcionário ${funcionarioId ?? '?'}`;
+
+        // 1) Employee-facing copy (only when the row maps to a linked Ankaa user).
+        if (userId) {
+          const dedup = `secullum-unjustified:${day}:${userId}`;
+          const seen = await this.cacheService.get(dedup);
+          if (seen) {
+            stats.skippedDedup++;
+          } else {
+            await this.dispatchService.dispatchByConfigurationToUsers(
+              'secullum.absence.unjustified',
+              'system',
+              {
+                entityType: 'SecullumSolicitacao',
+                entityId: `${userId}:${absenceDate}`,
+                action: 'unjustified',
+                data: {
+                  userName: displayName,
+                  date: absenceDate,
+                },
+                metadata: { date: absenceDate },
+                overrides: {
+                  title: 'Ausência não justificada',
+                  body: `Foi detectada uma ausência não justificada em ${absenceDate}. Justifique ou procure o RH.`,
+                  webUrl: '/pessoal/meus-pontos',
+                  mobileUrl: '/(tabs)/pessoal/meus-pontos',
+                  relatedEntityType: 'SECULLUM_SOLICITACAO',
+                },
+              },
+              [userId],
+            );
+            await this.cacheService.set(dedup, '1', 7 * 24 * 60 * 60);
+            stats.notified++;
+          }
+        }
+
+        // 2) RH-facing copy (always, including rows with no linked Ankaa user so
+        // the event is never silently dropped). Independent dedup key.
+        if (hrUserIds.length > 0) {
+          const rhDedupId = userId ?? `func-${funcionarioId ?? 'unknown'}`;
+          const rhDedup = `secullum-unjustified-rh:${day}:${rhDedupId}`;
+          const rhSeen = await this.cacheService.get(rhDedup);
+          if (rhSeen) {
+            stats.skippedDedup++;
+          } else {
+            await this.dispatchService.dispatchByConfigurationToUsers(
+              'secullum.absence.unjustified',
+              'system',
+              {
+                entityType: 'SecullumSolicitacao',
+                entityId: `${rhDedupId}:${absenceDate}`,
+                action: 'unjustified',
+                data: {
+                  userName: displayName,
+                  date: absenceDate,
+                },
+                metadata: { date: absenceDate },
+                overrides: {
+                  title: 'Ausência não justificada de funcionário',
+                  body: `Foi detectada uma ausência não justificada de ${displayName} em ${absenceDate}.${
+                    userId ? '' : ' (funcionário sem usuário vinculado no Ankaa).'
+                  }`,
+                  webUrl: '/recursos-humanos/integracoes/secullum',
+                  mobileUrl: '/(tabs)/recursos-humanos/calculos',
+                  relatedEntityType: 'SECULLUM_SOLICITACAO',
+                },
+              },
+              hrUserIds,
+            );
+            await this.cacheService.set(rhDedup, '1', 7 * 24 * 60 * 60);
+            stats.notified++;
+          }
+        }
+      } catch (error: any) {
+        this.logger.error(
+          `Failed to dispatch unjustified-absence notification: ${error?.message ?? error}`,
+        );
+        stats.errors++;
+      }
+    }
+
+    this.logger.log(
+      `Unjustified-absence scan ${day}: scanned=${stats.scanned} notified=${stats.notified} dedup=${stats.skippedDedup} errors=${stats.errors}`,
+    );
+    return stats;
   }
 }

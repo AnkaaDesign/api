@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
+import { NotificationModule } from '@modules/common/notification/notification.module';
 import { SiegModule } from '@modules/integrations/sieg/sieg.module';
 import { ReconciliationController } from './reconciliation.controller';
 import { ReconciliationService } from './reconciliation.service';
@@ -12,9 +13,12 @@ import { OfxParserService } from './ofx-parser.service';
 import { ManualXmlImportService } from './manual-xml-import.service';
 import { ReconciliationAliasService } from './reconciliation-alias.service';
 import { ReconciliationClassifierService } from './reconciliation-classifier.service';
+import { TransactionCategoryService } from './transaction-category.service';
+import { ItemCategoryClassifierService } from './item-category-classifier.service';
+import { ItemCategoryAliasService } from './item-category-alias.service';
 
 @Module({
-  imports: [ConfigModule, PrismaModule, forwardRef(() => SiegModule)],
+  imports: [ConfigModule, PrismaModule, NotificationModule, forwardRef(() => SiegModule)],
   controllers: [ReconciliationController],
   providers: [
     ReconciliationService,
@@ -26,12 +30,17 @@ import { ReconciliationClassifierService } from './reconciliation-classifier.ser
     ManualXmlImportService,
     ReconciliationAliasService,
     ReconciliationClassifierService,
+    TransactionCategoryService,
+    ItemCategoryClassifierService,
+    ItemCategoryAliasService,
   ],
   exports: [
     ReconciliationService,
     ReconciliationMatcherService,
     ReconciliationAliasService,
     ReconciliationClassifierService,
+    TransactionCategoryService,
+    ItemCategoryClassifierService,
   ],
 })
 export class ReconciliationModule {}

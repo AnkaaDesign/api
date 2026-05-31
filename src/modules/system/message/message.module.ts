@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { MessageController } from './message.controller';
 import { MessageService } from './message.service';
+import { MessageListener } from './message.listener';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
+import { NotificationModule } from '@modules/common/notification/notification.module';
 
 /**
  * Message Module
@@ -13,9 +15,9 @@ import { PrismaModule } from '@modules/common/prisma/prisma.module';
  * - Rich content blocks
  */
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, NotificationModule],
   controllers: [MessageController],
-  providers: [MessageService],
+  providers: [MessageService, MessageListener],
   exports: [MessageService],
 })
 export class MessageModule {}

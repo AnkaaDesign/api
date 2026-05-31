@@ -18,6 +18,7 @@ import {
 } from '@nestjs/common';
 import { PayrollService } from './payroll.service';
 import { PayrollAnalyticsService } from './payroll-analytics.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -58,7 +59,46 @@ export class PayrollController {
   constructor(
     private readonly payrollService: PayrollService,
     private readonly payrollAnalyticsService: PayrollAnalyticsService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
+
+  /**
+   * Mirror of bonus-cron.service.ts:notifyFinalization (cron-only). The manual
+   * payroll generation endpoint persists the same data as the cron, so it must
+   * also emit payroll.finalization.succeeded / .failed. Never throws — a
+   * notification failure must not break the HTTP response.
+   */
+  private async notifyFinalization(
+    outcome: 'succeeded' | 'failed',
+    year: string,
+    month: string,
+    opts: { stage?: string; detail: string },
+  ): Promise<void> {
+    try {
+      const period = `${month}/${year}`;
+      const isFailure = outcome === 'failed';
+      await this.dispatchService.dispatchByConfiguration(
+        `payroll.finalization.${outcome}`,
+        'system',
+        {
+          entityType: 'Payroll',
+          entityId: `${year}-${month}`,
+          action: `finalization_${outcome}`,
+          data: { period, year, month, stage: opts.stage, detail: opts.detail },
+          overrides: {
+            webUrl: '/recursos-humanos/folha-de-pagamento',
+            relatedEntityType: 'PAYROLL',
+            title: isFailure
+              ? `Falha na finalização da folha (${period})`
+              : `Folha de pagamento finalizada (${period})`,
+            body: opts.detail,
+          },
+        },
+      );
+    } catch {
+      // Swallow — notification failures must not break the finalization flow.
+    }
+  }
 
   // =====================
   // Regular CRUD Operations (like any other entity)
@@ -237,6 +277,22 @@ export class PayrollController {
     }
 
     const result = await this.payrollService.generateForMonth(data.year, data.month, userId);
+
+    // Mirror the cron finalization notification for the manually-triggered path.
+    const yearStr = data.year.toString();
+    const monthStr = data.month.toString().padStart(2, '0');
+    if (result.errors && result.errors.length > 0) {
+      await this.notifyFinalization('failed', yearStr, monthStr, {
+        stage: 'Folha de pagamento',
+        detail: `${result.errors.length} erro(s) ao gerar a folha`,
+      });
+    } else {
+      await this.notifyFinalization('succeeded', yearStr, monthStr, {
+        stage: 'Folha de pagamento',
+        detail: `Folha de pagamento do período ${monthStr}/${yearStr} finalizada (${result.created} criada(s)).`,
+      });
+    }
+
     return {
       success: true,
       data: result,

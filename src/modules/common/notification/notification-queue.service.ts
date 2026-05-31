@@ -921,48 +921,63 @@ export class NotificationQueueService {
       throw new Error(`User not found for notification ${job.notificationId}`);
     }
 
+    // Per-channel pre-rendered templates persisted by the dispatch service.
+    // Each channel delivers its OWN rendered template when present, falling back
+    // to the persisted in-app title/body when a channel template is absent.
+    const channelTemplates =
+      ((notification.metadata as Record<string, any>) || {}).channelTemplates || {};
+
     // Route to appropriate channel method
     switch (job.channel) {
-      case NOTIFICATION_CHANNEL.EMAIL:
+      case NOTIFICATION_CHANNEL.EMAIL: {
         if (!user.email) {
           throw new Error(`User ${user.id} has no email address`);
         }
+        const emailTemplate = channelTemplates.email;
         return await this.addEmailJob(
           job.notificationId,
           user.email,
-          notification.title,
-          notification.body,
+          emailTemplate?.subject || notification.title,
+          emailTemplate?.body || notification.body,
           {
             actionUrl: notification.actionUrl || undefined,
-            metadata: { deliveryId: job.deliveryId, attempts: job.attempts },
+            metadata: {
+              deliveryId: job.deliveryId,
+              attempts: job.attempts,
+              ...(emailTemplate?.html ? { html: emailTemplate.html } : {}),
+            },
             priority: 'normal',
           },
         );
+      }
 
-      case NOTIFICATION_CHANNEL.WHATSAPP:
+      case NOTIFICATION_CHANNEL.WHATSAPP: {
         if (!user.phone) {
           throw new Error(`User ${user.id} has no phone number for WhatsApp`);
         }
+        const whatsappTemplate = channelTemplates.whatsapp;
         return await this.addWhatsAppJob(
           job.notificationId,
           user.id,
           user.phone,
-          notification.body,
+          whatsappTemplate?.body || notification.body,
           {
             metadata: { deliveryId: job.deliveryId, attempts: job.attempts },
             priority: 'normal',
           },
         );
+      }
 
-      case NOTIFICATION_CHANNEL.PUSH:
+      case NOTIFICATION_CHANNEL.PUSH: {
         // For push notifications, we send to all user's registered devices
         // Include notification metadata for mobile navigation (entityType, entityId, mobileUrl, etc.)
         const notificationMetadata = (notification.metadata as Record<string, any>) || {};
+        const pushTemplate = channelTemplates.push;
         return await this.addPushJobForUser(
           job.notificationId,
           user.id,
-          notification.title,
-          notification.body,
+          pushTemplate?.title || notification.title,
+          pushTemplate?.body || notification.body,
           {
             actionUrl: notification.actionUrl || undefined,
             metadata: {
@@ -973,6 +988,7 @@ export class NotificationQueueService {
             priority: 'normal',
           },
         );
+      }
 
       case NOTIFICATION_CHANNEL.IN_APP:
         return await this.addInAppJob(

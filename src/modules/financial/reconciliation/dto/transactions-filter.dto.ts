@@ -2,11 +2,16 @@ import { z } from 'zod';
 import {
   BankTransactionType,
   BankTransactionSubtype,
-  ReconciliationCategory,
   ReconciliationMatchType,
   ReconciliationSource,
   ReconciliationStatus,
 } from '@prisma/client';
+
+// Accepts a single value, an array, or a comma-separated string ("a,b,c") and
+// normalizes to a string array.
+const csvStringArray = z
+  .union([z.string(), z.array(z.string())])
+  .transform(v => (Array.isArray(v) ? v : v.split(',').map(s => s.trim()).filter(Boolean)));
 
 export const transactionsFilterSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -16,10 +21,15 @@ export const transactionsFilterSchema = z.object({
   reconciliationStatus: z
     .union([z.nativeEnum(ReconciliationStatus), z.array(z.nativeEnum(ReconciliationStatus))])
     .optional(),
-  // Category (NF / TRIBUTO / FOLHA / ...). Same multi-select semantics.
-  category: z
-    .union([z.nativeEnum(ReconciliationCategory), z.array(z.nativeEnum(ReconciliationCategory))])
-    .optional(),
+  // Dynamic taxonomy: filter by one or more TransactionCategory ids.
+  categoryIds: csvStringArray.optional(),
+  // 'any' (default) → transaction has at least one of the ids; 'all' → it has
+  // every requested id.
+  categoryMatch: z.enum(['any', 'all']).default('any'),
+  // Provenance of the category tag (AUTO fuzzy vs MANUAL).
+  categorySource: z.nativeEnum(ReconciliationSource).optional(),
+  // Whether the transaction expects an NF (replaces the old category=NF filter).
+  expectsFiscalDocument: z.coerce.boolean().optional(),
   reconciliationSource: z.nativeEnum(ReconciliationSource).optional(),
   matchType: z.nativeEnum(ReconciliationMatchType).optional(),
   type: z.nativeEnum(BankTransactionType).optional(),

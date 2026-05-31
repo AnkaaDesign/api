@@ -21,6 +21,7 @@ import { InvoiceService } from './invoice.service';
 import { InvoiceGenerationService } from './invoice-generation.service';
 import { InvoiceAnalyticsService } from './invoice-analytics.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
@@ -69,7 +70,165 @@ export class InvoiceController {
     private readonly sicrediService: SicrediService,
     private readonly municipalNfseService: ElotechOxyNfseService,
     private readonly nfseEmissionScheduler: NfseEmissionScheduler,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
+
+  /**
+   * Emit task_quote.settled when a manual payment / due-date change settles the
+   * whole quote. Best-effort — never breaks the request flow. The billing detail
+   * deep link is keyed by taskId (/financeiro/orcamento/detalhes/:taskId).
+   */
+  private async dispatchTaskQuoteSettled(quoteId: string, taskId: string | null): Promise<void> {
+    try {
+      let label = quoteId.slice(-8).toUpperCase();
+      if (taskId) {
+        const task = await this.prisma.task.findUnique({
+          where: { id: taskId },
+          select: { name: true, serialNumber: true },
+        });
+        if (task?.serialNumber) {
+          label = task.name ? `#${task.serialNumber} (${task.name})` : `#${task.serialNumber}`;
+        } else if (task?.name) {
+          label = task.name;
+        }
+      }
+      await this.dispatchService.dispatchByConfiguration('task_quote.settled', 'system', {
+        entityType: 'TaskQuote',
+        entityId: taskId ?? quoteId,
+        action: 'settled',
+        data: { quoteLabel: label },
+        overrides: {
+          title: 'Orçamento Liquidado',
+          body: `O orçamento ${label} foi totalmente liquidado. Todas as parcelas estão pagas.`,
+          relatedEntityType: 'TASK_QUOTE',
+          ...(taskId
+            ? {
+                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+              }
+            : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error('Falha ao notificar liquidação de orçamento (task_quote.settled):', error);
+    }
+  }
+
+  /**
+   * Dispatch bank_slip.paid for a manually-paid installment. Mirrors the same key
+   * + payload + deep link used by the Sicredi webhook/reconciliation paths.
+   * Best-effort — never breaks the request flow.
+   */
+  private async dispatchBankSlipPaidNotification(
+    invoiceId: string,
+    bankSlipId: string,
+    paidAmount: number,
+    dueDate: Date,
+  ): Promise<void> {
+    try {
+      const invoice = await this.prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          customer: { select: { fantasyName: true } },
+          task: { select: { id: true, name: true, serialNumber: true } },
+        },
+      });
+      if (!invoice) return;
+
+      const customerName = invoice.customer?.fantasyName || 'N/A';
+      const taskName = invoice.task?.name || 'N/A';
+      const formattedAmount = new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      }).format(Number(paidAmount));
+      const formattedDueDate = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+      }).format(dueDate);
+
+      const webUrl = `/financeiro/faturamento/detalhes/${invoice.taskId}`;
+      const mobileUrl = `financial/${invoice.taskId}`;
+      const actionUrl = JSON.stringify({ web: webUrl, mobile: mobileUrl });
+
+      await this.dispatchService.dispatchByConfiguration('bank_slip.paid', 'system', {
+        entityType: 'Financial',
+        entityId: invoice.id,
+        action: 'paid',
+        data: {
+          customerName,
+          taskName,
+          paidAmount: formattedAmount,
+          dueDate: formattedDueDate,
+          invoiceId: invoice.id,
+          bankSlipId,
+          taskId: invoice.taskId,
+        },
+        overrides: {
+          actionUrl,
+          webUrl,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Falha ao notificar pagamento de boleto (bank_slip.paid) para fatura ${invoiceId}:`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * Dispatch bank_slip.cancelled when a boleto is manually cancelled.
+   * Best-effort — never breaks the request flow. Deep link keyed by taskId.
+   */
+  private async dispatchBankSlipCancelledNotification(
+    invoiceId: string | null,
+    nossoNumero: string | null,
+  ): Promise<void> {
+    try {
+      let taskId: string | null = null;
+      let customerName = 'N/A';
+      let taskName = 'N/A';
+      if (invoiceId) {
+        const invoice = await this.prisma.invoice.findUnique({
+          where: { id: invoiceId },
+          include: {
+            customer: { select: { fantasyName: true } },
+            task: { select: { id: true, name: true } },
+          },
+        });
+        taskId = invoice?.task?.id ?? invoice?.taskId ?? null;
+        customerName = invoice?.customer?.fantasyName || 'N/A';
+        taskName = invoice?.task?.name || 'N/A';
+      }
+
+      const webUrl = taskId ? `/financeiro/faturamento/detalhes/${taskId}` : undefined;
+      const mobileUrl = taskId ? `financial/${taskId}` : undefined;
+
+      await this.dispatchService.dispatchByConfiguration('bank_slip.cancelled', 'system', {
+        entityType: 'BankSlip',
+        entityId: taskId ?? invoiceId ?? (nossoNumero || 'unknown'),
+        action: 'cancelled',
+        data: {
+          customerName,
+          taskName,
+          nossoNumero: nossoNumero || 'N/A',
+          invoiceId: invoiceId || undefined,
+          taskId: taskId || undefined,
+        },
+        overrides: {
+          title: 'Boleto Cancelado',
+          body: `O boleto ${nossoNumero ? nossoNumero + ' ' : ''}da tarefa ${taskName} (${customerName}) foi cancelado.`,
+          relatedEntityType: 'BANK_SLIP',
+          ...(webUrl ? { webUrl } : {}),
+          ...(mobileUrl ? { mobileUrl } : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        'Falha ao notificar cancelamento de boleto (bank_slip.cancelled):',
+        error,
+      );
+    }
+  }
 
   // ─── Invoice CRUD ──────────────────────────────────────────────
 
@@ -311,6 +470,64 @@ export class InvoiceController {
       }
     }
 
+    // If the regeneration also moved the due date, notify (mirrors bank_slip.due_date_changed).
+    if (body?.newDueDate) {
+      try {
+        const oldDueDate = installmentWithBankSlip.dueDate
+          ? new Date(installmentWithBankSlip.dueDate).toLocaleDateString('pt-BR', {
+              timeZone: 'America/Sao_Paulo',
+            })
+          : null;
+        const newDueDateLabel = resolvedDueDate.toLocaleDateString('pt-BR', {
+          timeZone: 'America/Sao_Paulo',
+        });
+
+        // Resolve taskId for the deep link (billing detail route is keyed by taskId).
+        let taskIdForLink: string | null = null;
+        if (invoiceId) {
+          const invoiceForLink = await this.prisma.invoice.findUnique({
+            where: { id: invoiceId },
+            select: {
+              customerConfig: {
+                select: { quote: { select: { task: { select: { id: true } } } } },
+              },
+            },
+          });
+          taskIdForLink = invoiceForLink?.customerConfig?.quote?.task?.id ?? null;
+        }
+
+        const nossoNumeroLabel = bankSlip?.nossoNumero ?? 'novo boleto';
+
+        await this.dispatchService.dispatchByConfiguration(
+          'bank_slip.due_date_changed',
+          'system',
+          {
+            entityType: 'BankSlip',
+            entityId: taskIdForLink ?? installmentId,
+            action: 'due_date_changed',
+            data: {
+              nossoNumero: nossoNumeroLabel,
+              oldDueDate,
+              newDueDate: newDueDateLabel,
+            },
+            overrides: {
+              title: 'Vencimento de Boleto Alterado',
+              body: `A data de vencimento do boleto ${nossoNumeroLabel}${oldDueDate ? ` foi alterada de ${oldDueDate}` : ' foi alterada'} para ${newDueDateLabel}.`,
+              relatedEntityType: 'BANK_SLIP',
+              ...(taskIdForLink
+                ? { webUrl: `/financeiro/faturamento/detalhes/${taskIdForLink}` }
+                : {}),
+            },
+          },
+        );
+      } catch (notifyErr) {
+        this.logger.error(
+          'Falha ao notificar alteração de vencimento na regeneração (bank_slip.due_date_changed):',
+          notifyErr,
+        );
+      }
+    }
+
     return { message: 'Boleto será recriado em instantes.' };
   }
 
@@ -356,6 +573,16 @@ export class InvoiceController {
       where: { id: bankSlip.id },
       data: { status: 'CANCELLED' },
     });
+
+    // Notify financial/admin/commercial that the boleto was manually cancelled.
+    const cancelledInstallment = await this.prisma.installment.findUnique({
+      where: { id: installmentId },
+      select: { invoiceId: true },
+    });
+    await this.dispatchBankSlipCancelledNotification(
+      cancelledInstallment?.invoiceId ?? null,
+      bankSlip.nossoNumero,
+    );
 
     return { message: 'Boleto cancelado com sucesso.' };
   }
@@ -476,6 +703,17 @@ export class InvoiceController {
         },
       });
 
+      // Notify that the boleto/installment was paid (manual PIX/cash/other path) —
+      // mirrors the bank_slip.paid notification dispatched by the Sicredi webhook.
+      // Emitted here (before the cascade block) so the early-return for non-cascadeable
+      // quotes does not skip it.
+      await this.dispatchBankSlipPaidNotification(
+        installment.invoiceId,
+        installment.bankSlip?.id ?? installmentId,
+        Number(installment.amount),
+        installment.dueDate,
+      );
+
       // Cascade: recalculate task quote status (SETTLED / PARTIAL / DUE / UPCOMING)
       const invoice = await this.prisma.invoice.findUnique({
         where: { id: installment.invoiceId },
@@ -536,6 +774,12 @@ export class InvoiceController {
         });
         if (task) {
           await syncEmNegociacaoForTask(this.prisma, task.id);
+        }
+
+        // Notify when this manual payment settles the whole quote (mirrors the
+        // task_quote.settled key emitted by the cascade/webhook paths).
+        if (newStatus === TASK_QUOTE_STATUS.SETTLED && newStatus !== currentQuote.status) {
+          await this.dispatchTaskQuoteSettled(quoteId, task?.id ?? null);
         }
       }
     }
@@ -657,6 +901,7 @@ export class InvoiceController {
   async changeBankSlipDueDate(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Body() body: { newDueDate: string },
+    @UserId() userId?: string,
   ) {
     if (!body.newDueDate) {
       throw new BadRequestException('Nova data de vencimento é obrigatória.');
@@ -777,6 +1022,15 @@ export class InvoiceController {
               this.logger.log(
                 `[BOLETO] Cascaded TaskQuote ${quoteId} status: ${currentQuote.status} → ${newQuoteStatus}`,
               );
+
+              // Notify if the due-date change settled the whole quote (mirrors task_quote.settled).
+              if (newQuoteStatus === TASK_QUOTE_STATUS.SETTLED) {
+                const settledTask = await this.prisma.task.findFirst({
+                  where: { quoteId },
+                  select: { id: true },
+                });
+                await this.dispatchTaskQuoteSettled(quoteId, settledTask?.id ?? null);
+              }
             }
           }
         }
@@ -785,6 +1039,61 @@ export class InvoiceController {
       this.logger.log(
         `[BOLETO] Due date changed for installment ${installmentId}: nossoNumero=${bankSlip.nossoNumero}, newDate=${formattedDate}`,
       );
+
+      // Notify financial/admin/commercial that the boleto due date changed.
+      try {
+        const oldDueDate = bankSlip.installment?.dueDate
+          ? new Date(bankSlip.installment.dueDate).toLocaleDateString('pt-BR', {
+              timeZone: 'America/Sao_Paulo',
+            })
+          : null;
+        const newDueDateLabel = newDate.toLocaleDateString('pt-BR', {
+          timeZone: 'America/Sao_Paulo',
+        });
+
+        // Resolve the TASK id for the deep link — the billing detail route is
+        // keyed by taskId (/financeiro/faturamento/detalhes/:taskId).
+        let taskIdForLink: string | null = null;
+        if (invoiceLink?.invoiceId) {
+          const invoiceForLink = await this.prisma.invoice.findUnique({
+            where: { id: invoiceLink.invoiceId },
+            select: {
+              customerConfig: {
+                select: { quote: { select: { task: { select: { id: true } } } } },
+              },
+            },
+          });
+          taskIdForLink = invoiceForLink?.customerConfig?.quote?.task?.id ?? null;
+        }
+
+        await this.dispatchService.dispatchByConfiguration(
+          'bank_slip.due_date_changed',
+          userId ?? 'system',
+          {
+            entityType: 'BankSlip',
+            entityId: taskIdForLink ?? bankSlip.id,
+            action: 'due_date_changed',
+            data: {
+              nossoNumero: bankSlip.nossoNumero,
+              oldDueDate,
+              newDueDate: newDueDateLabel,
+            },
+            overrides: {
+              title: 'Vencimento de Boleto Alterado',
+              body: `A data de vencimento do boleto ${bankSlip.nossoNumero}${oldDueDate ? ` foi alterada de ${oldDueDate}` : ' foi alterada'} para ${newDueDateLabel}.`,
+              relatedEntityType: 'BANK_SLIP',
+              ...(taskIdForLink
+                ? { webUrl: `/financeiro/faturamento/detalhes/${taskIdForLink}` }
+                : {}),
+            },
+          },
+        );
+      } catch (notifyErr) {
+        this.logger.error(
+          'Falha ao notificar alteração de vencimento (bank_slip.due_date_changed):',
+          notifyErr,
+        );
+      }
 
       return {
         message: 'Data de vencimento alterada com sucesso.',

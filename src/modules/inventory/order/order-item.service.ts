@@ -9,10 +9,19 @@ import {
   forwardRef,
   Inject,
 } from '@nestjs/common';
+import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { OrderItemRepository } from './repositories/order-item/order-item.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import {
+  OrderItemReceivedEvent,
+  OrderStatusChangedEvent,
+  OrderCancelledEvent,
+} from './order.events';
+import {
+  Order,
+  OrderItem,
+  User,
   OrderItemBatchCreateResponse,
   OrderItemBatchDeleteResponse,
   OrderItemBatchUpdateResponse,
@@ -56,6 +65,7 @@ export class OrderItemService {
     private readonly orderItemRepository: OrderItemRepository,
     private readonly changeLogService: ChangeLogService,
     @Inject(forwardRef(() => OrderService)) private readonly orderService: OrderService,
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
   /**
@@ -144,6 +154,16 @@ export class OrderItemService {
     userId?: string,
   ): Promise<OrderItemUpdateResponse> {
     try {
+      // Capture state needed for post-commit notification emits (mirrors
+      // OrderService.updateOrderItem which emits order.item.received, and the
+      // order status auto-recompute which otherwise persists silently).
+      let emitContext: {
+        orderId: string;
+        oldOrderStatus: string;
+        oldReceivedQuantity: number;
+        newReceivedQuantity: number;
+      } | null = null;
+
       const result = await this.prisma.$transaction(
         async (tx: PrismaTransaction) => {
           // Verificar se o item de pedido existe
@@ -151,6 +171,13 @@ export class OrderItemService {
           if (!existingOrderItem) {
             throw new NotFoundException('Item de pedido não encontrado');
           }
+
+          // Snapshot the parent order status BEFORE any auto-recompute so we can
+          // detect (and notify about) a status change after the transaction.
+          const orderBeforeUpdate = await tx.order.findUnique({
+            where: { id: existingOrderItem.orderId },
+            select: { status: true },
+          });
 
           // Atualizar o item de pedido
           const updatedOrderItem = await this.orderItemRepository.updateWithTransaction(
@@ -300,12 +327,33 @@ export class OrderItemService {
             }
           }
 
+          // Record context for post-commit notification emits
+          if (
+            data.receivedQuantity !== undefined &&
+            data.receivedQuantity !== existingOrderItem.receivedQuantity
+          ) {
+            emitContext = {
+              orderId: existingOrderItem.orderId,
+              oldOrderStatus: (orderBeforeUpdate?.status as string) || '',
+              oldReceivedQuantity: existingOrderItem.receivedQuantity || 0,
+              newReceivedQuantity: data.receivedQuantity,
+            };
+          }
+
           return updatedOrderItem;
         },
         {
           timeout: 60000, // Increase timeout to 60 seconds for complex operations
         },
       );
+
+      // Emit notifications AFTER the transaction commits. Mirrors the canonical
+      // single-item path (OrderService.updateOrderItem -> order.item.received)
+      // plus an order.status.changed emit for the silent auto-recompute that
+      // checkAndUpdateOrderReceivedStatus performs. Best-effort: never breaks flow.
+      if (emitContext) {
+        await this.emitReceivedAndStatusEvents(result as OrderItem, emitContext, userId);
+      }
 
       return { success: true, data: result, message: 'Item de pedido atualizado com sucesso' };
     } catch (error) {
@@ -316,6 +364,76 @@ export class OrderItemService {
       throw new InternalServerErrorException(
         'Erro ao atualizar item de pedido. Por favor, tente novamente',
       );
+    }
+  }
+
+  /**
+   * Emit order.item.received (when receivedQuantity increased) and
+   * order.status.changed (when the parent order status was auto-recomputed)
+   * after a transaction commits. Mirrors the canonical single-item path in
+   * OrderService so the existing OrderListener handles delivery. Best-effort.
+   */
+  private async emitReceivedAndStatusEvents(
+    updatedOrderItem: OrderItem,
+    ctx: {
+      orderId: string;
+      oldOrderStatus: string;
+      oldReceivedQuantity: number;
+      newReceivedQuantity: number;
+    },
+    userId?: string,
+  ): Promise<void> {
+    try {
+      const order = await this.prisma.order.findUnique({ where: { id: ctx.orderId } });
+      if (!order) {
+        return;
+      }
+
+      const user = userId
+        ? await this.prisma.user.findUnique({ where: { id: userId } })
+        : null;
+
+      // 1) order.item.received — only on a real received increase (mirror :2068 in order.service.ts)
+      if (ctx.newReceivedQuantity > ctx.oldReceivedQuantity) {
+        const quantityIncrease = ctx.newReceivedQuantity - ctx.oldReceivedQuantity;
+        const eventPayload: any = new OrderItemReceivedEvent(
+          order as Order,
+          updatedOrderItem,
+          quantityIncrease,
+        );
+        if (user) {
+          eventPayload.receivedBy = { id: user.id, name: user.name };
+        }
+        this.eventEmitter.emit('order.item.received', eventPayload);
+      }
+
+      // 2) order.status.changed — checkAndUpdateOrderReceivedStatus persists the
+      // new status silently; emit so listeners/notifications fire.
+      if (
+        ctx.oldOrderStatus &&
+        order.status &&
+        (order.status as string) !== ctx.oldOrderStatus &&
+        user
+      ) {
+        this.eventEmitter.emit(
+          'order.status.changed',
+          new OrderStatusChangedEvent(
+            order as Order,
+            ctx.oldOrderStatus as any,
+            order.status as any,
+            user as User,
+          ),
+        );
+
+        if ((order.status as string) === 'CANCELLED') {
+          this.eventEmitter.emit(
+            'order.cancelled',
+            new OrderCancelledEvent(order as Order, user as User, 'Pedido cancelado'),
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error('Erro ao emitir eventos de recebimento/status do item de pedido:', error);
     }
   }
 
@@ -434,12 +552,35 @@ export class OrderItemService {
     userId?: string,
   ): Promise<OrderItemBatchUpdateResponse<OrderItemUpdateFormData>> {
     try {
+      // Captured for post-commit notification emits (mirrors single-item path).
+      const receivedIncreases: Array<{
+        orderId: string;
+        orderItem: OrderItem;
+        quantityIncrease: number;
+      }> = [];
+      const oldOrderStatuses = new Map<string, string>();
+
       const result = await this.prisma.$transaction(
         async (tx: PrismaTransaction) => {
           // Fetch old values first for proper changelog tracking
           const itemIds = data.orderItems.map(item => item.id);
           const oldItems = await this.orderItemRepository.findByIdsWithTransaction(tx, itemIds);
           const oldItemsMap = new Map(oldItems.map(item => [item.id, item]));
+
+          // Snapshot parent order statuses BEFORE any auto-recompute so we can
+          // detect status changes after the transaction commits.
+          const affectedOrderIds = Array.from(
+            new Set(oldItems.map(item => item.orderId).filter(Boolean)),
+          );
+          for (const orderId of affectedOrderIds) {
+            const ord = await tx.order.findUnique({
+              where: { id: orderId },
+              select: { status: true },
+            });
+            if (ord) {
+              oldOrderStatuses.set(orderId, ord.status as string);
+            }
+          }
 
           // Ensure all items have required id and data fields
           const validatedItems = data.orderItems.map(item => ({
@@ -523,6 +664,16 @@ export class OrderItemService {
               }
               if (oldItem.receivedQuantity !== orderItem.receivedQuantity) {
                 ordersToCheckReceived.add(orderItem.orderId);
+
+                // Record received increases for post-commit notification emit
+                if (orderItem.receivedQuantity > (oldItem.receivedQuantity || 0)) {
+                  receivedIncreases.push({
+                    orderId: orderItem.orderId,
+                    orderItem,
+                    quantityIncrease:
+                      orderItem.receivedQuantity - (oldItem.receivedQuantity || 0),
+                  });
+                }
 
                 // Always create activities when received quantities change INSIDE the transaction
                 // Skip activity creation for temporary items (items without itemId)
@@ -608,6 +759,64 @@ export class OrderItemService {
           timeout: 60000, // Increase timeout to 60 seconds for complex batch operations
         },
       );
+
+      // Emit notifications AFTER the transaction commits, mirroring the
+      // single-item path. Best-effort: failures never break the batch flow.
+      try {
+        const user = userId
+          ? await this.prisma.user.findUnique({ where: { id: userId } })
+          : null;
+
+        // 1) order.item.received per item that increased
+        for (const inc of receivedIncreases) {
+          try {
+            const order = await this.prisma.order.findUnique({ where: { id: inc.orderId } });
+            if (!order) continue;
+            const eventPayload: any = new OrderItemReceivedEvent(
+              order as Order,
+              inc.orderItem,
+              inc.quantityIncrease,
+            );
+            if (user) {
+              eventPayload.receivedBy = { id: user.id, name: user.name };
+            }
+            this.eventEmitter.emit('order.item.received', eventPayload);
+          } catch (err) {
+            this.logger.error('Erro ao emitir order.item.received (lote):', err);
+          }
+        }
+
+        // 2) order.status.changed per order whose status was auto-recomputed
+        if (user) {
+          for (const [orderId, oldStatus] of oldOrderStatuses) {
+            try {
+              const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+              if (!order || !order.status || (order.status as string) === oldStatus) continue;
+
+              this.eventEmitter.emit(
+                'order.status.changed',
+                new OrderStatusChangedEvent(
+                  order as Order,
+                  oldStatus as any,
+                  order.status as any,
+                  user as User,
+                ),
+              );
+
+              if ((order.status as string) === 'CANCELLED') {
+                this.eventEmitter.emit(
+                  'order.cancelled',
+                  new OrderCancelledEvent(order as Order, user as User, 'Pedido cancelado'),
+                );
+              }
+            } catch (err) {
+              this.logger.error('Erro ao emitir order.status.changed (lote):', err);
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.error('Erro ao emitir notificações de atualização em lote de itens:', error);
+      }
 
       const message =
         result.totalUpdated === 1

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { NfseService } from './nfse.service';
 import { ElotechOxyNfseService } from './elotech-oxy-nfse.service';
 import { NfseStatus } from '@prisma/client';
@@ -23,7 +24,83 @@ export class NfseEmissionScheduler {
     private readonly prisma: PrismaService,
     private readonly nfseService: NfseService,
     private readonly municipalNfseService: ElotechOxyNfseService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
+
+  /**
+   * Emit nfse.issued (AUTHORIZED) or nfse.rejected (ERROR) to FINANCIAL/ADMIN.
+   * Best-effort — never breaks the emission flow. Deep link keyed by taskId.
+   */
+  private async dispatchNfseOutcomeNotification(
+    invoiceId: string,
+    outcome: 'AUTHORIZED' | 'ERROR',
+    detail?: { nfseNumber?: number | string | null; errorMessage?: string | null },
+  ): Promise<void> {
+    try {
+      const invoice = await this.prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          customer: { select: { fantasyName: true } },
+          task: { select: { id: true, name: true } },
+        },
+      });
+      if (!invoice) return;
+
+      const customerName = invoice.customer?.fantasyName || 'N/A';
+      const taskName = invoice.task?.name || 'N/A';
+      const taskId = invoice.task?.id ?? invoice.taskId ?? null;
+
+      const webUrl = taskId ? `/financeiro/faturamento/detalhes/${taskId}` : undefined;
+      const mobileUrl = taskId ? `financial/${taskId}` : undefined;
+
+      if (outcome === 'AUTHORIZED') {
+        await this.dispatchService.dispatchByConfiguration('nfse.issued', 'system', {
+          entityType: 'NfseDocument',
+          entityId: taskId ?? invoiceId,
+          action: 'issued',
+          data: {
+            customerName,
+            taskName,
+            nfseNumber: detail?.nfseNumber ?? 'N/A',
+            invoiceId,
+            taskId: taskId || undefined,
+          },
+          overrides: {
+            title: 'NFS-e Emitida',
+            body: `A NFS-e${detail?.nfseNumber ? ` Nº ${detail.nfseNumber}` : ''} da tarefa ${taskName} (${customerName}) foi autorizada.`,
+            relatedEntityType: 'NFSE',
+            ...(webUrl ? { webUrl } : {}),
+            ...(mobileUrl ? { mobileUrl } : {}),
+          },
+        });
+      } else {
+        await this.dispatchService.dispatchByConfiguration('nfse.rejected', 'system', {
+          entityType: 'NfseDocument',
+          entityId: taskId ?? invoiceId,
+          action: 'rejected',
+          data: {
+            customerName,
+            taskName,
+            errorMessage: detail?.errorMessage || 'N/A',
+            invoiceId,
+            taskId: taskId || undefined,
+          },
+          overrides: {
+            title: 'NFS-e Rejeitada',
+            body: `A emissão da NFS-e da tarefa ${taskName} (${customerName}) foi rejeitada.${detail?.errorMessage ? `\nMotivo: ${detail.errorMessage}` : ''}`,
+            relatedEntityType: 'NFSE',
+            ...(webUrl ? { webUrl } : {}),
+            ...(mobileUrl ? { mobileUrl } : {}),
+          },
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        `Falha ao notificar resultado de NFS-e (${outcome}) para fatura ${invoiceId}:`,
+        error,
+      );
+    }
+  }
 
   @Cron('0 9 * * *', {
     name: 'nfse-emission',
@@ -256,10 +333,22 @@ export class NfseEmissionScheduler {
                 : undefined,
           };
 
-          await this.municipalNfseService.emitNfse(emitInput);
+          const result = await this.municipalNfseService.emitNfse(emitInput);
           emitted++;
 
           this.logger.log(`NFS-e emitted for invoice ${invoice.id} (task: ${task.name})`);
+
+          // Notify FINANCIAL/ADMIN of the emission outcome. emitNfse returns
+          // { status: 'AUTHORIZED' | 'ERROR' | skipped }. Skip notifying on no-op skips.
+          if ((result as any)?.status === 'AUTHORIZED') {
+            await this.dispatchNfseOutcomeNotification(invoice.id, 'AUTHORIZED', {
+              nfseNumber: (result as any)?.nfseNumber ?? null,
+            });
+          } else if ((result as any)?.status === 'ERROR') {
+            await this.dispatchNfseOutcomeNotification(invoice.id, 'ERROR', {
+              errorMessage: (result as any)?.errorMessage ?? null,
+            });
+          }
         } catch (error) {
           errors++;
           const errorMessage = error instanceof Error ? error.message : String(error);
@@ -267,7 +356,10 @@ export class NfseEmissionScheduler {
           this.logger.error(`Failed to emit NFS-e for document ${doc.id}: ${errorMessage}`);
 
           // NfseService.emitNfse() already handles error status update,
-          // so we don't need to update the doc here
+          // so we don't need to update the doc here. Notify FINANCIAL/ADMIN of rejection.
+          if (doc.invoice?.id) {
+            await this.dispatchNfseOutcomeNotification(doc.invoice.id, 'ERROR', { errorMessage });
+          }
         }
       }
 
@@ -396,7 +488,7 @@ export class NfseEmissionScheduler {
 
         const truck = (task as any).truck;
 
-        await this.municipalNfseService.emitNfse({
+        const targetedResult = await this.municipalNfseService.emitNfse({
           id: invoice.id,
           totalAmount: Number(invoice.totalAmount),
           customer: {
@@ -443,12 +535,29 @@ export class NfseEmissionScheduler {
         this.logger.log(
           `[NFSE_TARGETED] NfSe emitted for invoice ${invoice.id} (task: ${task.name})`,
         );
+
+        // Notify FINANCIAL/ADMIN of the emission outcome.
+        if ((targetedResult as any)?.status === 'AUTHORIZED') {
+          await this.dispatchNfseOutcomeNotification(invoice.id, 'AUTHORIZED', {
+            nfseNumber: (targetedResult as any)?.nfseNumber ?? null,
+          });
+        } else if ((targetedResult as any)?.status === 'ERROR') {
+          await this.dispatchNfseOutcomeNotification(invoice.id, 'ERROR', {
+            errorMessage: (targetedResult as any)?.errorMessage ?? null,
+          });
+        }
       } catch (error) {
         errors++;
+        const targetedErrMsg = error instanceof Error ? error.message : String(error);
         this.logger.error(
-          `[NFSE_TARGETED] Failed to emit NfSe for document ${doc.id}: ${error instanceof Error ? error.message : String(error)}`,
+          `[NFSE_TARGETED] Failed to emit NfSe for document ${doc.id}: ${targetedErrMsg}`,
         );
-        // emitNfse() already updated the NfseDocument to ERROR status
+        // emitNfse() already updated the NfseDocument to ERROR status. Notify rejection.
+        if (doc.invoice?.id) {
+          await this.dispatchNfseOutcomeNotification(doc.invoice.id, 'ERROR', {
+            errorMessage: targetedErrMsg,
+          });
+        }
       }
     }
 

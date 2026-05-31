@@ -42,6 +42,7 @@ import { ItemService } from '@modules/inventory/item/item.service';
 import { ItemRepository } from '@modules/inventory/item/repositories/item/item.repository';
 import { ActivityService } from '@modules/inventory/activity/activity.service';
 import { ActivityRepository } from '@modules/inventory/activity/repositories/activity.repository';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import {
   CHANGE_TRIGGERED_BY,
   ACTIVITY_REASON,
@@ -66,7 +67,16 @@ export class ExternalWithdrawalService {
     private readonly activityService: ActivityService,
     private readonly activityRepository: ActivityRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
+
+  /**
+   * Build the deep-link path for an external withdrawal detail screen.
+   * Both web and mobile share the same route shape (see constants/routes.ts).
+   */
+  private buildExternalWithdrawalDeepLink(id: string): string {
+    return `/estoque/retiradas-externas/detalhes/${id}`;
+  }
 
   /**
    * Validate external withdrawal data
@@ -665,6 +675,36 @@ export class ExternalWithdrawalService {
         );
       });
 
+      // Notify warehouse/logistics that a new external withdrawal was created.
+      // Best-effort: never break the creation flow.
+      try {
+        if (externalWithdrawal) {
+          const deepLink = this.buildExternalWithdrawalDeepLink(externalWithdrawal.id);
+          const withdrawerName = externalWithdrawal.withdrawerName || 'Retirante';
+          await this.dispatchService.dispatchByConfiguration(
+            'external_withdrawal.created',
+            userId || 'system',
+            {
+              entityType: 'ExternalWithdrawal',
+              entityId: externalWithdrawal.id,
+              action: 'created',
+              data: {
+                withdrawerName,
+              },
+              overrides: {
+                title: 'Nova Retirada Externa',
+                body: `Uma nova retirada externa foi registrada para ${withdrawerName}.`,
+                webUrl: deepLink,
+                mobileUrl: deepLink,
+                relatedEntityType: 'EXTERNAL_WITHDRAWAL',
+              },
+            },
+          );
+        }
+      } catch (error) {
+        this.logger.error('Erro ao emitir notificação de retirada externa criada:', error);
+      }
+
       return {
         success: true,
         message: 'Retirada externa criada com sucesso',
@@ -699,6 +739,9 @@ export class ExternalWithdrawalService {
     },
   ): Promise<ExternalWithdrawalUpdateResponse> {
     try {
+      // Captured for post-commit notification emit (full-return).
+      let becameFullyReturned = false;
+
       const updatedWithdrawal = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar retirada existente
         const existingWithdrawal = await this.externalWithdrawalRepository.findByIdWithTransaction(
@@ -708,6 +751,13 @@ export class ExternalWithdrawalService {
 
         if (!existingWithdrawal) {
           throw new NotFoundException('Retirada externa não encontrada');
+        }
+
+        if (
+          data.status === EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED &&
+          existingWithdrawal.status !== EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED
+        ) {
+          becameFullyReturned = true;
         }
 
         // Validate external withdrawal data
@@ -944,6 +994,11 @@ export class ExternalWithdrawalService {
 
         return updatedWithdrawal;
       });
+
+      // Notify when the withdrawal was fully returned. Best-effort.
+      if (becameFullyReturned) {
+        await this.emitExternalWithdrawalReturned(updatedWithdrawal, userId);
+      }
 
       return {
         success: true,
@@ -1794,6 +1849,11 @@ export class ExternalWithdrawalService {
         return updatedWithdrawal;
       });
 
+      // Notify when the withdrawal was fully returned. Best-effort.
+      if (newStatus === EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED) {
+        await this.emitExternalWithdrawalReturned(updatedWithdrawal, userId);
+      }
+
       return {
         success: true,
         message: `Status atualizado para ${this.getStatusLabel(newStatus)} com sucesso`,
@@ -1807,6 +1867,44 @@ export class ExternalWithdrawalService {
       throw new InternalServerErrorException(
         'Erro ao atualizar status. Por favor, tente novamente',
       );
+    }
+  }
+
+  /**
+   * Emit external_withdrawal.returned when a withdrawal is fully returned.
+   * Best-effort: never breaks the business flow.
+   */
+  private async emitExternalWithdrawalReturned(
+    withdrawal: { id: string; withdrawerName?: string | null } | null | undefined,
+    userId?: string,
+  ): Promise<void> {
+    try {
+      if (!withdrawal) {
+        return;
+      }
+      const deepLink = this.buildExternalWithdrawalDeepLink(withdrawal.id);
+      const withdrawerName = withdrawal.withdrawerName || 'Retirante';
+      await this.dispatchService.dispatchByConfiguration(
+        'external_withdrawal.returned',
+        userId || 'system',
+        {
+          entityType: 'ExternalWithdrawal',
+          entityId: withdrawal.id,
+          action: 'returned',
+          data: {
+            withdrawerName,
+          },
+          overrides: {
+            title: 'Retirada Externa Devolvida',
+            body: `A retirada externa de ${withdrawerName} foi totalmente devolvida.`,
+            webUrl: deepLink,
+            mobileUrl: deepLink,
+            relatedEntityType: 'EXTERNAL_WITHDRAWAL',
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error('Erro ao emitir notificação de retirada externa devolvida:', error);
     }
   }
 

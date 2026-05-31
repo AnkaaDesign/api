@@ -920,8 +920,9 @@ export class NotificationConfigurationService {
       };
     }
 
-    // Check working day + work hours if configured — weekends, holidays, and off-hours blocked
-    if (config.respectWorkHours) {
+    // Check working day + work hours if configured — weekends, holidays, and off-hours blocked.
+    // URGENT notifications bypass the gate (critical alerts must not wait for working hours).
+    if (config.respectWorkHours && config.importance !== NOTIFICATION_IMPORTANCE.URGENT) {
       const canSend = await this.workScheduleService.canSendNow();
       if (!canSend) {
         const nextSendableTime = await this.workScheduleService.getNextSendableTime();

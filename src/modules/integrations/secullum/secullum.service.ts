@@ -1,6 +1,7 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { CacheService } from '@modules/common/cache/cache.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import archiver from 'archiver';
 import { randomUUID } from 'crypto';
@@ -118,6 +119,7 @@ export class SecullumService {
     private readonly cacheService: CacheService,
     private readonly prismaService: PrismaService,
     private readonly browserSigner: SecullumBrowserSignerService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {
     this.baseUrl = process.env.SECULLUM_BASE_URL || 'https://pontoweb.secullum.com.br';
     this.authUrl = process.env.SECULLUM_AUTH_URL || 'https://autenticador.secullum.com.br/Token';
@@ -2201,6 +2203,23 @@ export class SecullumService {
         status = 'degraded'; // Timeout indicates degraded performance
       }
 
+      // Alert ADMIN that the Secullum healthcheck/credentials are failing.
+      // getHealth() is on-demand (admin-triggered controller route), not a cron,
+      // so there's no spam risk from emitting here.
+      await this.safeDispatch('secullum.health.failed', 'system', {
+        entityType: 'SecullumSolicitacao',
+        entityId: 'health',
+        action: 'failed',
+        data: { status, error: this.getErrorMessage(error) },
+        overrides: {
+          title: 'Falha no healthcheck da Secullum',
+          body: `O healthcheck da Secullum falhou (${status}). Verifique as credenciais e a disponibilidade do serviço.`,
+          webUrl: '/recursos-humanos/integracoes/secullum',
+          mobileUrl: '/(tabs)/recursos-humanos/calculos',
+          relatedEntityType: 'SECULLUM_SOLICITACAO',
+        },
+      });
+
       return {
         success: false,
         status,
@@ -2926,6 +2945,51 @@ export class SecullumService {
         this.logger.debug(`Invalidated Batidas cache: ${cacheKey}`);
       }
 
+      // Notify the employee that their request was approved (targeted).
+      const approvedUser = await this.resolveUserIdBySecullumEmployeeId(requestData.FuncionarioId);
+      if (approvedUser) {
+        await this.safeDispatchToUsers(
+          'secullum.request.approved',
+          'system',
+          {
+            entityType: 'SecullumSolicitacao',
+            entityId: String(requestData.SolicitacaoId),
+            action: 'approved',
+            data: { employeeName: approvedUser.name },
+            overrides: {
+              title: 'Solicitação aprovada',
+              body: 'Sua solicitação de ponto foi aprovada.',
+              webUrl: '/recursos-humanos/integracoes/secullum',
+              mobileUrl: '/(tabs)/pessoal/meus-pontos',
+              relatedEntityType: 'SECULLUM_SOLICITACAO',
+            },
+          },
+          [approvedUser.id],
+        );
+      } else {
+        // No linked Ankaa user (secullumEmployeeId) for this FuncionarioId: the
+        // targeted employee notification cannot be delivered. Fall back to an
+        // HR-sector dispatch so the approval event is not silently lost — RH can
+        // then relay it to the employee. The config target rule (HUMAN_RESOURCES)
+        // decides the actual recipients.
+        this.logger.warn(
+          `secullum.request.approved: no linked user for FuncionarioId=${requestData.FuncionarioId}; falling back to HR-sector dispatch`,
+        );
+        await this.safeDispatch('secullum.request.approved', 'system', {
+          entityType: 'SecullumSolicitacao',
+          entityId: String(requestData.SolicitacaoId),
+          action: 'approved',
+          data: { funcionarioId: requestData.FuncionarioId },
+          overrides: {
+            title: 'Solicitação de ponto aprovada (funcionário não vinculado)',
+            body: `Uma solicitação de ponto (ID ${requestData.SolicitacaoId}) foi aprovada para o funcionário Secullum ${requestData.FuncionarioId}, que não possui usuário vinculado no Ankaa. Avise o funcionário.`,
+            webUrl: '/recursos-humanos/integracoes/secullum',
+            mobileUrl: '/(tabs)/recursos-humanos/calculos',
+            relatedEntityType: 'SECULLUM_SOLICITACAO',
+          },
+        });
+      }
+
       return {
         success: true,
         message: `Solicitação ${requestData.SolicitacaoId} aprovada com sucesso`,
@@ -2970,6 +3034,49 @@ export class SecullumService {
       );
 
       this.logger.log(`Successfully rejected request ID: ${requestData.SolicitacaoId}`);
+
+      // Notify the employee that their request was rejected, with the reason (targeted).
+      const rejectedUser = await this.resolveUserIdBySecullumEmployeeId(requestData.FuncionarioId);
+      if (rejectedUser) {
+        await this.safeDispatchToUsers(
+          'secullum.request.rejected',
+          'system',
+          {
+            entityType: 'SecullumSolicitacao',
+            entityId: String(requestData.SolicitacaoId),
+            action: 'rejected',
+            data: { employeeName: rejectedUser.name, motivo: rejectionBody.Motivo },
+            overrides: {
+              title: 'Solicitação rejeitada',
+              body: `Sua solicitação de ponto foi rejeitada. Motivo: ${rejectionBody.Motivo}`,
+              webUrl: '/recursos-humanos/integracoes/secullum',
+              mobileUrl: '/(tabs)/pessoal/meus-pontos',
+              relatedEntityType: 'SECULLUM_SOLICITACAO',
+            },
+          },
+          [rejectedUser.id],
+        );
+      } else {
+        // No linked Ankaa user for this FuncionarioId: fall back to an HR-sector
+        // dispatch (config target rule = HUMAN_RESOURCES) so the rejection event,
+        // including the reason, is not silently lost.
+        this.logger.warn(
+          `secullum.request.rejected: no linked user for FuncionarioId=${requestData.FuncionarioId}; falling back to HR-sector dispatch`,
+        );
+        await this.safeDispatch('secullum.request.rejected', 'system', {
+          entityType: 'SecullumSolicitacao',
+          entityId: String(requestData.SolicitacaoId),
+          action: 'rejected',
+          data: { funcionarioId: requestData.FuncionarioId, motivo: rejectionBody.Motivo },
+          overrides: {
+            title: 'Solicitação de ponto rejeitada (funcionário não vinculado)',
+            body: `Uma solicitação de ponto (ID ${requestData.SolicitacaoId}) foi rejeitada para o funcionário Secullum ${requestData.FuncionarioId}, que não possui usuário vinculado no Ankaa. Motivo: ${rejectionBody.Motivo}. Avise o funcionário.`,
+            webUrl: '/recursos-humanos/integracoes/secullum',
+            mobileUrl: '/(tabs)/recursos-humanos/calculos',
+            relatedEntityType: 'SECULLUM_SOLICITACAO',
+          },
+        });
+      }
 
       return {
         success: true,
@@ -3666,6 +3773,85 @@ export class SecullumService {
         job.atual = job.total || job.atual;
         job.updatedAt = Date.now();
       }
+
+      // Notify employees that their cartão-ponto apuração is ready for digital
+      // signature (targeted). Only fire when the apuração was actually created.
+      try {
+        if (result?.success && result?.data?.created) {
+          const results = Array.isArray(result.data.results) ? result.data.results : [];
+          // "ALL"/"func-<id>" sentinels are not real linked users; in the
+          // applyToAll path we can't enumerate every linked user here cheaply.
+          const targetUserIds = results
+            .filter(
+              (r: any) =>
+                r?.ok &&
+                typeof r.userId === 'string' &&
+                r.userId !== 'ALL' &&
+                !r.userId.startsWith('func-'),
+            )
+            .map((r: any) => r.userId as string);
+
+          if (targetUserIds.length > 0) {
+            await this.safeDispatchToUsers(
+              'secullum.signature.ready',
+              'system',
+              {
+                entityType: 'SecullumSolicitacao',
+                entityId: jobId,
+                action: 'ready',
+                data: { count: targetUserIds.length },
+                overrides: {
+                  title: 'Cartão-ponto pronto para assinatura',
+                  body: 'Seu cartão-ponto está disponível para assinatura digital. Acesse para revisar e assinar.',
+                  webUrl: '/recursos-humanos/integracoes/secullum',
+                  mobileUrl: '/(tabs)/pessoal/meus-pontos',
+                  relatedEntityType: 'SECULLUM_SOLICITACAO',
+                },
+              },
+              targetUserIds,
+            );
+          } else if (payload.applyToAll) {
+            // applyToAll created an apuração for every active linked employee but
+            // the result only carries an "ALL" sentinel. Re-query the active users
+            // that have a secullumEmployeeId so each employee is notified
+            // individually (rather than nobody). This runs once per bulk job.
+            const linkedUsers = await this.prismaService.user.findMany({
+              where: { isActive: true, secullumEmployeeId: { not: null } },
+              select: { id: true },
+            });
+            const allUserIds = linkedUsers.map((u) => u.id);
+            if (allUserIds.length > 0) {
+              await this.safeDispatchToUsers(
+                'secullum.signature.ready',
+                'system',
+                {
+                  entityType: 'SecullumSolicitacao',
+                  entityId: jobId,
+                  action: 'ready',
+                  data: { count: allUserIds.length },
+                  overrides: {
+                    title: 'Cartão-ponto pronto para assinatura',
+                    body: 'Seu cartão-ponto está disponível para assinatura digital. Acesse para revisar e assinar.',
+                    webUrl: '/recursos-humanos/integracoes/secullum',
+                    mobileUrl: '/(tabs)/pessoal/meus-pontos',
+                    relatedEntityType: 'SECULLUM_SOLICITACAO',
+                  },
+                },
+                allUserIds,
+              );
+            } else {
+              this.logger.warn(
+                'secullum.signature.ready: applyToAll apuração created but no active linked users found to notify',
+              );
+            }
+          }
+        }
+      } catch (notifyErr) {
+        this.logger.error(
+          'secullum.signature.ready dispatch failed',
+          notifyErr as Error,
+        );
+      }
     } catch (err: any) {
       const job = this.assinaturaJobs.get(jobId);
       if (job) {
@@ -4091,6 +4277,73 @@ export class SecullumService {
     return 'Unknown error occurred';
   }
 
+  // ===========================================================================
+  // NOTIFICATIONS — config-driven dispatch helpers (see order.listener.ts for
+  // the canonical pattern). Never let a notification failure break the Secullum
+  // business flow; everything below swallows its own errors.
+  // ===========================================================================
+
+  /**
+   * Resolve a Secullum FuncionarioId -> internal Ankaa userId via the unique
+   * `user.secullumEmployeeId` FK. Returns null when no linked user exists.
+   */
+  private async resolveUserIdBySecullumEmployeeId(
+    secullumEmployeeId: number | null | undefined,
+  ): Promise<{ id: string; name: string } | null> {
+    if (secullumEmployeeId == null) return null;
+    try {
+      const user = await this.prismaService.user.findUnique({
+        where: { secullumEmployeeId },
+        select: { id: true, name: true },
+      });
+      return user ?? null;
+    } catch (err) {
+      this.logger.warn(
+        `resolveUserIdBySecullumEmployeeId failed for ${secullumEmployeeId}: ${this.getErrorMessage(err)}`,
+      );
+      return null;
+    }
+  }
+
+  /** Sector-targeted dispatch wrapper (config target rule decides recipients). */
+  private async safeDispatch(
+    configKey: string,
+    triggeringUserId: string,
+    context: Parameters<NotificationDispatchService['dispatchByConfiguration']>[2],
+  ): Promise<void> {
+    try {
+      await this.dispatchService.dispatchByConfiguration(configKey, triggeringUserId, context);
+    } catch (err) {
+      this.logger.error(`Notification dispatch failed for "${configKey}"`, err as Error);
+    }
+  }
+
+  /** Targeted dispatch wrapper to a specific set of users. */
+  private async safeDispatchToUsers(
+    configKey: string,
+    triggeringUserId: string,
+    context: Parameters<NotificationDispatchService['dispatchByConfigurationToUsers']>[2],
+    targetUserIds: string[],
+  ): Promise<void> {
+    try {
+      const valid = (targetUserIds || []).filter(Boolean);
+      if (valid.length === 0) {
+        this.logger.warn(
+          `Notification "${configKey}": no target users resolved, skipping (consider sector fallback)`,
+        );
+        return;
+      }
+      await this.dispatchService.dispatchByConfigurationToUsers(
+        configKey,
+        triggeringUserId,
+        context,
+        valid,
+      );
+    } catch (err) {
+      this.logger.error(`Notification dispatch (targeted) failed for "${configKey}"`, err as Error);
+    }
+  }
+
   // =====================
   // EMPLOYEE SELF-SERVICE: Solicitação de Ausência (Justificar Ausência)
   // =====================
@@ -4344,6 +4597,33 @@ export class SecullumService {
 
       await this.makeAuthenticatedRequest<void>('POST', '/Solicitacoes', body);
 
+      // Notify HR / approvers that a justify-absence request was created.
+      const requester = await this.resolveUserIdBySecullumEmployeeId(secullumEmployeeId);
+      const requesterName = requester?.name ?? `Funcionário ${secullumEmployeeId}`;
+      await this.safeDispatch(
+        'secullum.request.justifyAbsence.created',
+        requester?.id ?? 'system',
+        {
+          entityType: 'SecullumSolicitacao',
+          entityId: `${secullumEmployeeId}:${payload.date}`,
+          action: 'created',
+          data: {
+            employeeName: requesterName,
+            date: payload.date,
+            observacoes: payload.observacoes ?? '',
+          },
+          overrides: {
+            title: 'Nova solicitação de justificativa de ausência',
+            body: `${requesterName} criou uma solicitação de justificativa de ausência para ${payload.date}.${
+              payload.observacoes ? ` Justificativa: ${payload.observacoes}` : ''
+            }`,
+            webUrl: '/recursos-humanos/integracoes/secullum',
+            mobileUrl: '/(tabs)/recursos-humanos/calculos',
+            relatedEntityType: 'SECULLUM_SOLICITACAO',
+          },
+        },
+      );
+
       return {
         success: true,
         message: 'Solicitação enviada para aprovação',
@@ -4419,6 +4699,29 @@ export class SecullumService {
       );
 
       await this.makeAuthenticatedRequest<void>('POST', '/Solicitacoes', body);
+
+      // Notify HR / approvers that a point-adjustment request was created.
+      const requester = await this.resolveUserIdBySecullumEmployeeId(secullumEmployeeId);
+      const requesterName = requester?.name ?? `Funcionário ${secullumEmployeeId}`;
+      await this.safeDispatch('secullum.request.adjustment.created', requester?.id ?? 'system', {
+        entityType: 'SecullumSolicitacao',
+        entityId: `${secullumEmployeeId}:${payload.date}`,
+        action: 'created',
+        data: {
+          employeeName: requesterName,
+          date: payload.date,
+          observacoes: payload.observacoes ?? '',
+        },
+        overrides: {
+          title: 'Nova solicitação de ajuste de ponto',
+          body: `${requesterName} criou uma solicitação de ajuste de ponto para ${payload.date}.${
+            payload.observacoes ? ` Observação: ${payload.observacoes}` : ''
+          }`,
+          webUrl: '/recursos-humanos/integracoes/secullum',
+          mobileUrl: '/(tabs)/recursos-humanos/calculos',
+          relatedEntityType: 'SECULLUM_SOLICITACAO',
+        },
+      });
 
       return {
         success: true,
@@ -4852,6 +5155,63 @@ export class SecullumService {
 
       await this.makePontowebappRequest<void>('POST', '/Solicitacoes', auth, fullBody);
 
+      // Notify HR / approvers that an employee self-service request was
+      // created. Mirrors the admin-OAuth twins (createSolicitacaoAusencia /
+      // createAjustePonto): branch on tipo and reuse the SAME existing keys.
+      // tipo 2 = Justificar Ausência; tipo 0/3 = Ajuste de Ponto / variantes.
+      const requester = await this.resolveUserIdBySecullumEmployeeId(body.funcionarioId);
+      const requesterName = requester?.name ?? `Funcionário ${body.funcionarioId}`;
+      const dateLabel = body.data?.slice(0, 10) ?? body.data;
+      if (body.tipo === 2) {
+        await this.safeDispatch(
+          'secullum.request.justifyAbsence.created',
+          requester?.id ?? 'system',
+          {
+            entityType: 'SecullumSolicitacao',
+            entityId: `${body.funcionarioId}:${dateLabel}`,
+            action: 'created',
+            data: {
+              employeeName: requesterName,
+              date: dateLabel,
+              observacoes: body.observacoes ?? '',
+            },
+            overrides: {
+              title: 'Nova solicitação de justificativa de ausência',
+              body: `${requesterName} criou uma solicitação de justificativa de ausência para ${dateLabel}.${
+                body.observacoes ? ` Justificativa: ${body.observacoes}` : ''
+              }`,
+              webUrl: '/recursos-humanos/integracoes/secullum',
+              mobileUrl: '/(tabs)/recursos-humanos/calculos',
+              relatedEntityType: 'SECULLUM_SOLICITACAO',
+            },
+          },
+        );
+      } else {
+        await this.safeDispatch(
+          'secullum.request.adjustment.created',
+          requester?.id ?? 'system',
+          {
+            entityType: 'SecullumSolicitacao',
+            entityId: `${body.funcionarioId}:${dateLabel}`,
+            action: 'created',
+            data: {
+              employeeName: requesterName,
+              date: dateLabel,
+              observacoes: body.observacoes ?? '',
+            },
+            overrides: {
+              title: 'Nova solicitação de ajuste de ponto',
+              body: `${requesterName} criou uma solicitação de ajuste de ponto para ${dateLabel}.${
+                body.observacoes ? ` Observação: ${body.observacoes}` : ''
+              }`,
+              webUrl: '/recursos-humanos/integracoes/secullum',
+              mobileUrl: '/(tabs)/recursos-humanos/calculos',
+              relatedEntityType: 'SECULLUM_SOLICITACAO',
+            },
+          },
+        );
+      }
+
       return { success: true, message: 'Solicitação enviada para aprovação' };
     } catch (error: any) {
       const errBody = error?.response?.data;
@@ -5029,6 +5389,28 @@ export class SecullumService {
         body,
         { funcionarioId: secullumEmployeeId },
       );
+
+      // Notify HR / approvers that a punch-inclusion request was created.
+      const requester = await this.resolveUserIdBySecullumEmployeeId(secullumEmployeeId);
+      const requesterName = requester?.name ?? `Funcionário ${secullumEmployeeId}`;
+      await this.safeDispatch('secullum.request.punchInclusion.created', requester?.id ?? 'system', {
+        entityType: 'SecullumSolicitacao',
+        entityId: `${secullumEmployeeId}`,
+        action: 'created',
+        data: {
+          employeeName: requesterName,
+          justificativa: payload.justificativa ?? '',
+        },
+        overrides: {
+          title: 'Nova solicitação de inclusão de marcação',
+          body: `${requesterName} solicitou a inclusão de uma marcação de ponto.${
+            payload.justificativa ? ` Justificativa: ${payload.justificativa}` : ''
+          }`,
+          webUrl: '/recursos-humanos/integracoes/secullum',
+          mobileUrl: '/(tabs)/recursos-humanos/calculos',
+          relatedEntityType: 'SECULLUM_SOLICITACAO',
+        },
+      });
 
       return {
         success: true,

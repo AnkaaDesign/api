@@ -140,13 +140,13 @@ import {
 // =====================
 
 export const ORDER_STATUS_LABELS: Record<ORDER_STATUS, string> = {
-  [ORDER_STATUS.CREATED]: 'Created',
-  [ORDER_STATUS.PARTIALLY_FULFILLED]: 'Partially Fulfilled',
-  [ORDER_STATUS.FULFILLED]: 'Fulfilled',
-  [ORDER_STATUS.OVERDUE]: 'Overdue',
-  [ORDER_STATUS.PARTIALLY_RECEIVED]: 'Partially Received',
-  [ORDER_STATUS.RECEIVED]: 'Received',
-  [ORDER_STATUS.CANCELLED]: 'Cancelled',
+  [ORDER_STATUS.CREATED]: 'Criado',
+  [ORDER_STATUS.PARTIALLY_FULFILLED]: 'Parcialmente Atendido',
+  [ORDER_STATUS.FULFILLED]: 'Atendido',
+  [ORDER_STATUS.OVERDUE]: 'Atrasado',
+  [ORDER_STATUS.PARTIALLY_RECEIVED]: 'Parcialmente Recebido',
+  [ORDER_STATUS.RECEIVED]: 'Recebido',
+  [ORDER_STATUS.CANCELLED]: 'Cancelado',
 };
 
 export const PAYMENT_METHOD_LABELS: Record<PAYMENT_METHOD, string> = {
@@ -196,10 +196,10 @@ export const SERVICE_ORDER_TYPE_LABELS: Record<SERVICE_ORDER_TYPE, string> = {
 };
 
 export const AIRBRUSHING_STATUS_LABELS: Record<AIRBRUSHING_STATUS, string> = {
-  [AIRBRUSHING_STATUS.PENDING]: 'Pending',
-  [AIRBRUSHING_STATUS.IN_PRODUCTION]: 'In Production',
-  [AIRBRUSHING_STATUS.COMPLETED]: 'Completed',
-  [AIRBRUSHING_STATUS.CANCELLED]: 'Cancelled',
+  [AIRBRUSHING_STATUS.PENDING]: 'Pendente',
+  [AIRBRUSHING_STATUS.IN_PRODUCTION]: 'Em Produção',
+  [AIRBRUSHING_STATUS.COMPLETED]: 'Concluído',
+  [AIRBRUSHING_STATUS.CANCELLED]: 'Cancelado',
 };
 
 export const CUT_TYPE_LABELS: Record<CUT_TYPE, string> = {
@@ -239,10 +239,10 @@ export const MAINTENANCE_SCHEDULE_STATUS_LABELS: Record<MAINTENANCE_SCHEDULE_STA
 };
 
 export const BORROW_STATUS_LABELS: Record<BORROW_STATUS, string> = {
-  [BORROW_STATUS.ACTIVE]: 'Active',
-  [BORROW_STATUS.RETURNED]: 'Returned',
-  [BORROW_STATUS.LOST]: 'Lost',
-  [BORROW_STATUS.OVERDUE]: 'Overdue',
+  [BORROW_STATUS.ACTIVE]: 'Ativo',
+  [BORROW_STATUS.RETURNED]: 'Devolvido',
+  [BORROW_STATUS.LOST]: 'Perdido',
+  [BORROW_STATUS.OVERDUE]: 'Atrasado',
 };
 
 export const EXTERNAL_WITHDRAWAL_TYPE_LABELS: Record<EXTERNAL_WITHDRAWAL_TYPE, string> = {
@@ -262,11 +262,11 @@ export const EXTERNAL_WITHDRAWAL_STATUS_LABELS: Record<EXTERNAL_WITHDRAWAL_STATU
 };
 
 export const PPE_REQUEST_STATUS_LABELS: Record<PPE_REQUEST_STATUS, string> = {
-  [PPE_REQUEST_STATUS.PENDING]: 'Pending',
-  [PPE_REQUEST_STATUS.APPROVED]: 'Approved',
-  [PPE_REQUEST_STATUS.REJECTED]: 'Rejected',
-  [PPE_REQUEST_STATUS.DELIVERED]: 'Delivered',
-  [PPE_REQUEST_STATUS.CANCELLED]: 'Cancelled',
+  [PPE_REQUEST_STATUS.PENDING]: 'Pendente',
+  [PPE_REQUEST_STATUS.APPROVED]: 'Aprovado',
+  [PPE_REQUEST_STATUS.REJECTED]: 'Rejeitado',
+  [PPE_REQUEST_STATUS.DELIVERED]: 'Entregue',
+  [PPE_REQUEST_STATUS.CANCELLED]: 'Cancelado',
 };
 
 export const PPE_DELIVERY_STATUS_LABELS: Record<PPE_DELIVERY_STATUS, string> = {
@@ -430,14 +430,14 @@ export const NOTIFICATION_ACTION_TYPE_LABELS: Record<NOTIFICATION_ACTION_TYPE, s
 };
 
 export const NOTIFICATION_IMPORTANCE_LABELS: Record<NOTIFICATION_IMPORTANCE, string> = {
-  [NOTIFICATION_IMPORTANCE.LOW]: 'Low',
+  [NOTIFICATION_IMPORTANCE.LOW]: 'Baixa',
   [NOTIFICATION_IMPORTANCE.NORMAL]: 'Normal',
-  [NOTIFICATION_IMPORTANCE.HIGH]: 'High',
-  [NOTIFICATION_IMPORTANCE.URGENT]: 'Urgent',
+  [NOTIFICATION_IMPORTANCE.HIGH]: 'Alta',
+  [NOTIFICATION_IMPORTANCE.URGENT]: 'Urgente',
 };
 
 export const NOTIFICATION_CHANNEL_LABELS: Record<NOTIFICATION_CHANNEL, string> = {
-  [NOTIFICATION_CHANNEL.IN_APP]: 'In App',
+  [NOTIFICATION_CHANNEL.IN_APP]: 'No Aplicativo',
   [NOTIFICATION_CHANNEL.PUSH]: 'Push',
   [NOTIFICATION_CHANNEL.EMAIL]: 'E-mail',
   [NOTIFICATION_CHANNEL.WHATSAPP]: 'WhatsApp',
@@ -625,19 +625,34 @@ export const MEASURE_TYPE_LABELS: Record<MEASURE_TYPE, string> = {
 // =====================
 
 export const SECTOR_PRIVILEGES_LABELS: Record<SECTOR_PRIVILEGES, string> = {
-  [SECTOR_PRIVILEGES.BASIC]: 'Basic',
-  [SECTOR_PRIVILEGES.MAINTENANCE]: 'Maintenance',
-  [SECTOR_PRIVILEGES.WAREHOUSE]: 'Warehouse',
-  [SECTOR_PRIVILEGES.PLOTTING]: 'Plotting',
+  [SECTOR_PRIVILEGES.BASIC]: 'Básico',
+  [SECTOR_PRIVILEGES.MAINTENANCE]: 'Manutenção',
+  [SECTOR_PRIVILEGES.WAREHOUSE]: 'Almoxarifado',
+  [SECTOR_PRIVILEGES.PLOTTING]: 'Plotagem',
   [SECTOR_PRIVILEGES.DESIGNER]: 'Designer',
-  [SECTOR_PRIVILEGES.LOGISTIC]: 'Logistic',
-  [SECTOR_PRIVILEGES.FINANCIAL]: 'Financial',
-  [SECTOR_PRIVILEGES.COMMERCIAL]: 'Commercial',
-  [SECTOR_PRIVILEGES.ADMIN]: 'Admin',
-  [SECTOR_PRIVILEGES.PRODUCTION]: 'Production',
+  [SECTOR_PRIVILEGES.LOGISTIC]: 'Logística',
+  [SECTOR_PRIVILEGES.FINANCIAL]: 'Financeiro',
+  [SECTOR_PRIVILEGES.COMMERCIAL]: 'Comercial',
+  [SECTOR_PRIVILEGES.ADMIN]: 'Administrador',
+  [SECTOR_PRIVILEGES.PRODUCTION]: 'Produção',
   [SECTOR_PRIVILEGES.HUMAN_RESOURCES]: 'Recursos Humanos',
-  [SECTOR_PRIVILEGES.EXTERNAL]: 'External',
+  [SECTOR_PRIVILEGES.EXTERNAL]: 'Externo',
   [SECTOR_PRIVILEGES.PRODUCTION_MANAGER]: 'Gerente de Produção',
+};
+
+/**
+ * pt-BR labels for free-form priority values used in notifications.
+ * Notification context.data.priority may arrive as PRIORITY_TYPE enum values
+ * (LOW/MEDIUM/HIGH/CRITICAL) or generic strings. Used by the notification
+ * dispatch normalization chokepoint. Unknown values pass through unchanged.
+ */
+export const NOTIFICATION_PRIORITY_LABELS: Record<string, string> = {
+  LOW: 'Baixa',
+  MEDIUM: 'Média',
+  NORMAL: 'Normal',
+  HIGH: 'Alta',
+  URGENT: 'Urgente',
+  CRITICAL: 'Crítica',
 };
 
 export const TREND_DIRECTION_LABELS: Record<TREND_DIRECTION, string> = {

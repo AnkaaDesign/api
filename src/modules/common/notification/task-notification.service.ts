@@ -79,9 +79,10 @@ const FIELD_LABELS: Record<string, string> = {
   'truck.category': 'Categoria do Caminhão',
   'truck.implementType': 'Tipo de Implemento',
   'truck.spot': 'Vaga do Caminhão',
-  'truck.leftSideLayoutId': 'Layout Lateral Esquerdo',
-  'truck.rightSideLayoutId': 'Layout Lateral Direito',
-  'truck.backSideLayoutId': 'Layout Traseiro',
+  'truck.leftSideLayoutId': 'Motorista',
+  'truck.rightSideLayoutId': 'Sapo',
+  'truck.backSideLayoutId': 'Traseira',
+  'truck.layout': 'Layout do Caminhão',
 };
 
 /**

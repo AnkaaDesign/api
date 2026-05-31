@@ -4,6 +4,7 @@ import { BonusService } from '../../human-resources/bonus/bonus.service';
 import { PayrollService } from '../../human-resources/payroll/payroll.service';
 import { CacheService } from '../cache/cache.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationDispatchService } from '../notification/notification-dispatch.service';
 
 @Injectable()
 export class BonusCronService {
@@ -16,6 +17,7 @@ export class BonusCronService {
     private readonly payrollService: PayrollService,
     private readonly cacheService: CacheService,
     private readonly prisma: PrismaService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
 
   // Runs daily at 01:00 SP time.
@@ -84,6 +86,10 @@ export class BonusCronService {
           this.logger.error(
             `[FINALIZATION] ${bonusResult.totalFailed} bonus failures — will retry tomorrow if within window`,
           );
+          await this.notifyFinalization('failed', year, month, {
+            stage: 'Bônus',
+            detail: `${bonusResult.totalFailed} falha(s) no cálculo de bônus`,
+          });
           return; // do not advance to payroll if bonuses are incomplete
         }
       }
@@ -106,14 +112,70 @@ export class BonusCronService {
         );
         if (payrollResult.errors && payrollResult.errors.length > 0) {
           this.logger.error('[FINALIZATION] Payroll errors:', payrollResult.errors);
+          await this.notifyFinalization('failed', year, month, {
+            stage: 'Folha de pagamento',
+            detail: `${payrollResult.errors.length} erro(s) ao gerar a folha`,
+          });
+          return;
         }
       }
 
       this.logger.log(`[FINALIZATION] Period ${year}/${month} finalization complete.`);
+      await this.notifyFinalization('succeeded', year, month, {
+        detail: `Bônus e folha de pagamento do período ${month}/${year} finalizados.`,
+      });
     } catch (error) {
       this.logger.error(
         `[FINALIZATION] Failed on attempt ${attempt}/6 — will retry tomorrow if within window`,
         error,
+      );
+      await this.notifyFinalization('failed', year, month, {
+        detail: `Erro inesperado na finalização (tentativa ${attempt}/6): ${(error as Error)?.message || error}`,
+      });
+    }
+  }
+
+  /**
+   * Emits payroll.finalization.succeeded / payroll.finalization.failed.
+   * System-triggered; never throws (notification failures must not break the cron).
+   */
+  private async notifyFinalization(
+    outcome: 'succeeded' | 'failed',
+    year: string,
+    month: string,
+    opts: { stage?: string; detail: string },
+  ): Promise<void> {
+    try {
+      const period = `${month}/${year}`;
+      const isFailure = outcome === 'failed';
+      await this.dispatchService.dispatchByConfiguration(
+        `payroll.finalization.${outcome}`,
+        'system',
+        {
+          entityType: 'Payroll',
+          entityId: `${year}-${month}`,
+          action: `finalization_${outcome}`,
+          data: {
+            period,
+            year,
+            month,
+            stage: opts.stage,
+            detail: opts.detail,
+          },
+          overrides: {
+            webUrl: '/recursos-humanos/folha-de-pagamento',
+            relatedEntityType: 'PAYROLL',
+            title: isFailure
+              ? `Falha na finalização da folha (${period})`
+              : `Folha de pagamento finalizada (${period})`,
+            body: opts.detail,
+          },
+        },
+      );
+    } catch (err) {
+      this.logger.error(
+        `[FINALIZATION] Failed to dispatch payroll.finalization.${outcome} notification`,
+        err as Error,
       );
     }
   }

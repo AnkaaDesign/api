@@ -42,6 +42,7 @@ import {
 } from '@constants';
 import { PPE_DELIVERY_STATUS_ORDER } from '@constants';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { UserRepository } from '@modules/people/user/repositories/user.repository';
 import { ItemRepository } from '@modules/inventory/item/repositories/item/item.repository';
 import { PpeDeliveryScheduleRepository } from './repositories/ppe-delivery-schedule/ppe-delivery-schedule.repository';
@@ -70,6 +71,7 @@ export class PpeDeliveryService {
     private readonly ppeDeliveryScheduleRepository: PpeDeliveryScheduleRepository,
     private readonly activityService: ActivityService,
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
 
   private async validateEntity(
@@ -1330,6 +1332,63 @@ export class PpeDeliveryService {
         );
       }
 
+      // Emit status-transition events when the generic update flips the status.
+      // The specialized methods (batchApprove/batchReject/markAsDelivered) emit
+      // these, but the generic update path did not, leaving these transitions
+      // silent. Mirror those emits here. Best-effort: never break the flow.
+      if (data.status && data.status !== oldPpeDelivery.status) {
+        try {
+          const reviewedById = (data as any).reviewedBy || userId;
+          const reviewedByUser = reviewedById
+            ? await this.userRepository.findById(reviewedById)
+            : null;
+          const deliveryWithRelations = await this.repository.findById(id, {
+            include: { item: true, user: true },
+          });
+
+          if (
+            deliveryWithRelations &&
+            deliveryWithRelations.item &&
+            deliveryWithRelations.user
+          ) {
+            if (data.status === PPE_DELIVERY_STATUS.APPROVED) {
+              this.eventEmitter.emit(
+                'ppe.approved',
+                new PpeApprovedEvent(
+                  deliveryWithRelations,
+                  deliveryWithRelations.item as any,
+                  deliveryWithRelations.user as any,
+                  reviewedByUser as any,
+                ),
+              );
+            } else if (data.status === PPE_DELIVERY_STATUS.REPROVED) {
+              this.eventEmitter.emit(
+                'ppe.rejected',
+                new PpeRejectedEvent(
+                  deliveryWithRelations,
+                  deliveryWithRelations.item as any,
+                  deliveryWithRelations.user as any,
+                  reviewedByUser as any,
+                  (data as any).reason,
+                ),
+              );
+            } else if (data.status === PPE_DELIVERY_STATUS.DELIVERED) {
+              this.eventEmitter.emit(
+                'ppe.delivered',
+                new PpeDeliveredEvent(
+                  deliveryWithRelations,
+                  deliveryWithRelations.item as any,
+                  deliveryWithRelations.user as any,
+                  reviewedByUser as any,
+                ),
+              );
+            }
+          }
+        } catch (error) {
+          console.error('Erro ao emitir evento de transição de status de EPI:', error);
+        }
+      }
+
       return {
         success: true,
         message: 'Entrega de PPE atualizada com sucesso.',
@@ -1503,6 +1562,17 @@ export class PpeDeliveryService {
         id: item.id!,
         data: item.data!,
       }));
+
+      // Snapshot old statuses BEFORE the update so we can detect status
+      // transitions and emit the matching notification events afterwards.
+      const oldStatusMap = new Map<string, string>();
+      for (const validatedItem of validatedItems) {
+        const old = await this.repository.findById(validatedItem.id);
+        if (old) {
+          oldStatusMap.set(validatedItem.id, old.status as string);
+        }
+      }
+
       const result = await this.repository.updateMany(validatedItems, { include });
 
       // Log successful updates
@@ -1520,6 +1590,64 @@ export class PpeDeliveryService {
           userId: userId || null,
           transaction: transaction,
         });
+      }
+
+      // Emit status-transition events per delivery whose status changed,
+      // mirroring batchApprove/batchReject/markAsDelivered. Best-effort.
+      for (const delivery of result.success) {
+        try {
+          const oldStatus = oldStatusMap.get(delivery.id);
+          if (!oldStatus || delivery.status === oldStatus) continue;
+
+          const reviewedById = (delivery as any).reviewedBy || userId;
+          const reviewedByUser = reviewedById
+            ? await this.userRepository.findById(reviewedById)
+            : null;
+          const deliveryWithRelations = await this.repository.findById(delivery.id, {
+            include: { item: true, user: true },
+          });
+
+          if (
+            deliveryWithRelations &&
+            deliveryWithRelations.item &&
+            deliveryWithRelations.user
+          ) {
+            if (delivery.status === PPE_DELIVERY_STATUS.APPROVED) {
+              this.eventEmitter.emit(
+                'ppe.approved',
+                new PpeApprovedEvent(
+                  deliveryWithRelations,
+                  deliveryWithRelations.item as any,
+                  deliveryWithRelations.user as any,
+                  reviewedByUser as any,
+                ),
+              );
+            } else if (delivery.status === PPE_DELIVERY_STATUS.REPROVED) {
+              this.eventEmitter.emit(
+                'ppe.rejected',
+                new PpeRejectedEvent(
+                  deliveryWithRelations,
+                  deliveryWithRelations.item as any,
+                  deliveryWithRelations.user as any,
+                  reviewedByUser as any,
+                  (deliveryWithRelations as any).reason,
+                ),
+              );
+            } else if (delivery.status === PPE_DELIVERY_STATUS.DELIVERED) {
+              this.eventEmitter.emit(
+                'ppe.delivered',
+                new PpeDeliveredEvent(
+                  deliveryWithRelations,
+                  deliveryWithRelations.item as any,
+                  deliveryWithRelations.user as any,
+                  reviewedByUser as any,
+                ),
+              );
+            }
+          }
+        } catch (error) {
+          console.error('Erro ao emitir evento de transição de status de EPI (lote):', error);
+        }
       }
 
       return {
@@ -1769,6 +1897,42 @@ export class PpeDeliveryService {
         };
       },
     );
+
+    // Notify the recipient that the PPE was delivered and is awaiting their
+    // digital signature. Targeted to the delivery's userId. Best-effort.
+    try {
+      const delivered = transactionResult.updatedDelivery as any;
+      const recipientId: string | undefined = delivered?.userId;
+      if (recipientId) {
+        const itemName = delivered?.item?.name || 'EPI';
+        await this.dispatchService.dispatchByConfigurationToUsers(
+          'ppe.signature_required',
+          // Use 'system' as the triggering user so the actor self-exclude does
+          // not drop the notification when the recorder is also the recipient
+          // (self-service delivery). The recipient must always be notified.
+          'system',
+          {
+            entityType: 'PpeDelivery',
+            entityId: delivered.id,
+            action: 'signature_required',
+            data: {
+              itemName,
+              quantity: delivered?.quantity,
+            },
+            overrides: {
+              title: 'Assinatura de EPI Pendente',
+              body: `O EPI "${itemName}" foi entregue a você e aguarda sua assinatura digital.`,
+              webUrl: `/estoque/epi/entregas/detalhes/${delivered.id}`,
+              mobileUrl: `/(tabs)/pessoal/meus-epis/detalhes/${delivered.id}`,
+              relatedEntityType: 'PPE_DELIVERY',
+            },
+          },
+          [recipientId],
+        );
+      }
+    } catch (error) {
+      console.error('Falha ao notificar assinatura de EPI pendente (ppe.signature_required):', error);
+    }
 
     return {
       success: true,

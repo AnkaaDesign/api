@@ -238,62 +238,70 @@ export class WhatsAppNotificationService {
         url,
       };
 
-      // Use specific formatter based on notification type
-      // Convert to string to handle both enum and string types
-      const type = String(notification.type || '');
+      // Use specific formatter based on the notification's configKey (stored in
+      // metadata). notification.type is the NOTIFICATION_TYPE enum
+      // (SYSTEM/PRODUCTION/STOCK/USER/GENERAL) and never matches event strings,
+      // so routing on it never fired. We route on the configKey instead,
+      // normalizing the various delimiter styles (service_order. / service-order.
+      // / serviceOrder.) to a single canonical dot form.
+      const rawKey = String(metadata?.configKey || notification.type || '');
+      const key = rawKey
+        .replace(/serviceOrder/gi, 'service_order')
+        .replace(/-/g, '_')
+        .replace(/\./g, '_')
+        .toLowerCase();
 
+      // Service Order notifications (check before generic "order" prefix)
+      if (key.startsWith('service_order')) {
+        if (key.includes('artwork') && key.includes('approval')) {
+          return this.formatter.formatArtworkWaitingApproval(data);
+        }
+        if (key.includes('status') || key.includes('completed') || key.includes('started')) {
+          return this.formatter.formatServiceOrderStatusChanged(data);
+        }
+        if (key.includes('created')) {
+          return this.formatter.formatServiceOrderCreated(data);
+        }
+        // Unknown service-order event: fall through to generic
+      }
       // Task notifications
-      if (type === 'task.created') {
-        return this.formatter.formatTaskCreated(data);
+      else if (key.startsWith('task')) {
+        if (key.includes('created')) {
+          return this.formatter.formatTaskCreated(data);
+        }
+        if (key.includes('status')) {
+          return this.formatter.formatTaskStatusChanged(data);
+        }
+        if (key.includes('deadline') || key.includes('forecast')) {
+          return this.formatter.formatTaskDeadlineApproaching(data);
+        }
+        if (key.includes('overdue')) {
+          return this.formatter.formatTaskOverdue(data);
+        }
       }
-      if (type === 'task.status' || type === 'task.status.changed') {
-        return this.formatter.formatTaskStatusChanged(data);
-      }
-      if (type === 'task.deadline' || type === 'task.deadline.approaching') {
-        return this.formatter.formatTaskDeadlineApproaching(data);
-      }
-      if (type === 'task.overdue') {
-        return this.formatter.formatTaskOverdue(data);
-      }
-
       // Order notifications
-      if (type === 'order.created') {
-        return this.formatter.formatOrderCreated(data);
+      else if (key.startsWith('order')) {
+        if (key.includes('created')) {
+          return this.formatter.formatOrderCreated(data);
+        }
+        if (key.includes('overdue')) {
+          return this.formatter.formatOrderOverdue(data);
+        }
       }
-      if (type === 'order.overdue') {
-        return this.formatter.formatOrderOverdue(data);
-      }
-
-      // Stock notifications
-      if (type === 'stock.low' || type === 'item.low_stock') {
-        return this.formatter.formatStockLow(data);
-      }
-      if (type === 'stock.critical' || type === 'item.critical_stock') {
-        return this.formatter.formatStockCritical(data);
-      }
-      if (type === 'stock.out' || type === 'item.out_of_stock') {
-        return this.formatter.formatStockOut(data);
-      }
-      if (
-        type === 'stock.reorder' ||
-        type === 'item.needing.order' ||
-        type === 'item.reorder_required'
-      ) {
-        return this.formatter.formatItemNeedingOrder(data);
-      }
-
-      // Service Order notifications
-      if (type === 'service-order.created' || type === 'serviceOrder.created') {
-        return this.formatter.formatServiceOrderCreated(data);
-      }
-      if (type === 'service-order.status.changed' || type === 'serviceOrder.status.changed') {
-        return this.formatter.formatServiceOrderStatusChanged(data);
-      }
-      if (
-        type === 'service-order.artwork-waiting-approval' ||
-        type === 'serviceOrder.artworkWaitingApproval'
-      ) {
-        return this.formatter.formatArtworkWaitingApproval(data);
+      // Stock / item notifications
+      else if (key.startsWith('stock') || key.startsWith('item')) {
+        if (key.includes('low')) {
+          return this.formatter.formatStockLow(data);
+        }
+        if (key.includes('critical')) {
+          return this.formatter.formatStockCritical(data);
+        }
+        if (key.includes('out')) {
+          return this.formatter.formatStockOut(data);
+        }
+        if (key.includes('reorder') || key.includes('needing')) {
+          return this.formatter.formatItemNeedingOrder(data);
+        }
       }
 
       // Fallback to generic formatter

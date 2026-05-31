@@ -734,6 +734,12 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     year: 'Ano',
     color: 'Cor',
     notes: 'Observações',
+    // Truck layout (renamed from "Medidas do Caminhão" to "Layout do Caminhão").
+    // Sides standardized to Motorista / Sapo / Traseira to match the UI.
+    layout: 'Layout do Caminhão',
+    leftSideLayoutId: 'Motorista',
+    rightSideLayoutId: 'Sapo',
+    backSideLayoutId: 'Traseira',
   },
   [CHANGE_LOG_ENTITY_TYPE.TASK_QUOTE]: {
     subtotal: 'Subtotal',

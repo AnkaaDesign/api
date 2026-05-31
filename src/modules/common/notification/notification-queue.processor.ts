@@ -288,11 +288,19 @@ export class NotificationQueueProcessor implements OnModuleInit {
 
       await job.progress(40);
 
+      // Prefer the channel-specific pre-rendered HTML template when present
+      // (persisted by the dispatch service as metadata.html); otherwise wrap the
+      // plain body in the default notification HTML shell.
+      const emailHtml =
+        typeof metadata?.html === 'string' && metadata.html.trim().length > 0
+          ? metadata.html
+          : this.generateEmailHtml(title, body, actionUrl, emailData);
+
       // Send email using email service
       const result = await this.emailService.sendEmailWithRetry(
         recipientEmail,
         title,
-        this.generateEmailHtml(title, body, actionUrl, emailData),
+        emailHtml,
         'NOTIFICATION',
       );
 

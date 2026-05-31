@@ -15,9 +15,10 @@ import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { ItemModule } from '@modules/inventory/item/item.module';
 import { ActivityModule } from '@modules/inventory/activity/activity.module';
+import { NotificationModule } from '@modules/common/notification/notification.module';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule, ItemModule, ActivityModule],
+  imports: [PrismaModule, ChangeLogModule, ItemModule, ActivityModule, NotificationModule],
   controllers: [ExternalWithdrawalController, ExternalWithdrawalItemController],
   providers: [
     ExternalWithdrawalService,

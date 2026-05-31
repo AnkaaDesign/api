@@ -239,7 +239,9 @@ export class StockNotificationService {
       case STOCK_EVENT_TYPE.REPLENISHED:
         return 'item.reorder_required';
       case STOCK_EVENT_TYPE.OVERSTOCKED:
-        return 'item.overstocked';
+        // Canonical key is item.overstock (matches ItemListener + item.service
+        // single-item path). Previously diverged as item.overstocked.
+        return 'item.overstock';
       default:
         return 'item.low_stock';
     }

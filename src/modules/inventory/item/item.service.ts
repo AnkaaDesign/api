@@ -1801,6 +1801,22 @@ export class ItemService {
         };
       });
 
+      // Check stock thresholds AFTER commit for each created item, mirroring the
+      // single-item create/update path (which fires checkStockThresholds on a
+      // quantity write). Wrapped per item so a failure never breaks the flow.
+      setImmediate(() => {
+        for (const createdItem of result.success) {
+          try {
+            this.checkStockThresholds(createdItem as Item);
+          } catch (error) {
+            this.logger.error(
+              `Error checking stock thresholds for created item ${createdItem?.id}:`,
+              error,
+            );
+          }
+        }
+      });
+
       const batchOperationResult = convertToBatchOperationResult<Item, ItemCreateFormData>(result);
       const message = generateBatchMessage(
         'criado',
@@ -1850,6 +1866,10 @@ export class ItemService {
         data: item.data,
       }));
 
+      // IDs of items whose stock-relevant fields changed; thresholds are checked
+      // for these AFTER commit, mirroring the single-item update path.
+      const itemsToCheckThresholds = new Set<string>();
+
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const successItems: any[] = [];
         const failedItems: any[] = [];
@@ -1874,6 +1894,25 @@ export class ItemService {
               { include },
             );
             successItems.push(updatedItem);
+
+            // Flag for post-commit threshold check if a stock-relevant field
+            // (quantity / reorderPoint / maxQuantity) actually changed.
+            const stockFields: Array<keyof ItemUpdateFormData> = [
+              'quantity',
+              'reorderPoint',
+              'maxQuantity',
+            ];
+            const stockFieldChanged = stockFields.some(
+              field =>
+                update.data[field] !== undefined &&
+                hasValueChanged(
+                  existingItem[field as keyof typeof existingItem],
+                  updatedItem[field as keyof typeof updatedItem],
+                ),
+            );
+            if (stockFieldChanged) {
+              itemsToCheckThresholds.add(updatedItem.id);
+            }
 
             // Registrar no changelog - track individual field changes
             const fieldsToTrack = Object.keys(update.data) as Array<keyof ItemUpdateFormData>;
@@ -1917,6 +1956,24 @@ export class ItemService {
           totalFailed: failedItems.length,
         };
       });
+
+      // Check stock thresholds AFTER commit for items whose stock-relevant
+      // fields changed, mirroring the single-item update path. Wrapped per item.
+      if (itemsToCheckThresholds.size > 0) {
+        setImmediate(() => {
+          for (const updatedItem of result.success) {
+            if (!itemsToCheckThresholds.has(updatedItem.id)) continue;
+            try {
+              this.checkStockThresholds(updatedItem as Item);
+            } catch (error) {
+              this.logger.error(
+                `Error checking stock thresholds for updated item ${updatedItem?.id}:`,
+                error,
+              );
+            }
+          }
+        });
+      }
 
       const batchOperationResult = convertToBatchOperationResult<
         Item,

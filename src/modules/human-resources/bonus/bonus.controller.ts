@@ -19,6 +19,7 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { BonusService } from './bonus.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -61,7 +62,48 @@ const periodAdjustmentSchema = z.object({
 @Controller('bonus')
 @UseGuards(AuthGuard)
 export class BonusController {
-  constructor(private readonly bonusService: BonusService) {}
+  constructor(
+    private readonly bonusService: BonusService,
+    private readonly dispatchService: NotificationDispatchService,
+  ) {}
+
+  /**
+   * Mirror of bonus-cron.service.ts:notifyFinalization (cron-only). The manual
+   * finalization endpoints persist the same data as the cron, so they must
+   * also emit payroll.finalization.succeeded / .failed. Never throws — a
+   * notification failure must not break the HTTP response.
+   */
+  private async notifyFinalization(
+    outcome: 'succeeded' | 'failed',
+    year: string,
+    month: string,
+    opts: { stage?: string; detail: string },
+  ): Promise<void> {
+    try {
+      const period = `${month}/${year}`;
+      const isFailure = outcome === 'failed';
+      await this.dispatchService.dispatchByConfiguration(
+        `payroll.finalization.${outcome}`,
+        'system',
+        {
+          entityType: 'Payroll',
+          entityId: `${year}-${month}`,
+          action: `finalization_${outcome}`,
+          data: { period, year, month, stage: opts.stage, detail: opts.detail },
+          overrides: {
+            webUrl: '/recursos-humanos/folha-de-pagamento',
+            relatedEntityType: 'PAYROLL',
+            title: isFailure
+              ? `Falha na finalização da folha (${period})`
+              : `Folha de pagamento finalizada (${period})`,
+            body: opts.detail,
+          },
+        },
+      );
+    } catch {
+      // Swallow — notification failures must not break the finalization flow.
+    }
+  }
 
   // =====================
   // Regular CRUD Operations (like any other entity)
@@ -390,11 +432,23 @@ export class BonusController {
       throw new Error('Ano deve estar entre 2020 e 2030');
     }
 
-    const result = await this.bonusService.calculateAndSaveBonuses(
-      year.toString(),
-      month.toString(),
-      userId,
-    );
+    const yearStr = year.toString();
+    const monthStr = month.toString().padStart(2, '0');
+    const result = await this.bonusService.calculateAndSaveBonuses(yearStr, monthStr, userId);
+
+    // Mirror the cron finalization notification for the manually-triggered path.
+    if (result.totalFailed > 0) {
+      await this.notifyFinalization('failed', yearStr, monthStr, {
+        stage: 'Bônus',
+        detail: `${result.totalFailed} falha(s) no cálculo de bônus`,
+      });
+    } else {
+      await this.notifyFinalization('succeeded', yearStr, monthStr, {
+        stage: 'Bônus',
+        detail: `${result.totalSuccess} bônus do período ${monthStr}/${yearStr} finalizado(s).`,
+      });
+    }
+
     return {
       success: true,
       data: result,

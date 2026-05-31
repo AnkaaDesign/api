@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
+import { NotificationModule } from '@modules/common/notification/notification.module';
 import { NfseCertificateService } from './nfse-certificate.service';
 import { NfseXmlBuilderService } from './nfse-xml-builder.service';
 import { NfseXmlSignerService } from './nfse-xml-signer.service';
@@ -10,7 +11,7 @@ import { ElotechOxyNfseService } from './elotech-oxy-nfse.service';
 import { NfseController } from './nfse.controller';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, NotificationModule],
   controllers: [NfseController],
   providers: [
     NfseCertificateService,

@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { Prisma } from '@prisma/client';
 import type {
   Skill,
@@ -53,7 +54,10 @@ import type {
 export class SkillService {
   private readonly logger = new Logger(SkillService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly dispatchService: NotificationDispatchService,
+  ) {}
 
   // ===================================================================
   // SKILL CRUD
@@ -707,6 +711,36 @@ export class SkillService {
       where: { id },
       include: { entries: true, sectors: true, topics: true },
     });
+
+    // Notify each evaluator that competence assessments were assigned to them.
+    try {
+      const evaluatorIds = Array.from(new Set(entriesToCreate.map(e => e.evaluatorId)));
+      if (evaluatorIds.length) {
+        const assessmentName = (fresh as any)?.name || existing.data.name || 'Avaliação';
+        await this.dispatchService.dispatchByConfigurationToUsers(
+          'assessment.assigned',
+          'system',
+          {
+            entityType: 'Assessment',
+            entityId: id,
+            action: 'assigned',
+            data: {
+              assessmentName,
+            },
+            overrides: {
+              title: 'Nova Avaliação Atribuída',
+              body: `A avaliação de competências "${assessmentName}" foi atribuída a você. Acesse para realizá-la.`,
+              webUrl: `/meu-pessoal/avaliacoes-competencias/${id}`,
+              relatedEntityType: 'ASSESSMENT',
+            },
+          },
+          evaluatorIds,
+        );
+      }
+    } catch (error) {
+      this.logger.error('Falha ao notificar atribuição de avaliação (assessment.assigned):', error);
+    }
+
     return {
       success: true,
       message: `Avaliação aberta com ${entriesToCreate.length} fichas geradas.`,
@@ -723,6 +757,45 @@ export class SkillService {
       where: { id },
       data: { status: 'CLOSED' },
     });
+
+    // Notify administrators/HR (and the campaign creator) that the assessment
+    // campaign was closed. Mirrors questionnaire.closed.
+    try {
+      const assessmentName = (updated as any)?.name || existing.data.name || 'Avaliação';
+      // Count submitted entries to enrich the override body (pt-BR).
+      const submittedCount = await this.prisma.assessmentEntry.count({
+        where: { assessmentId: id, status: 'SUBMITTED', deletedAt: null },
+      });
+      const closedContext = {
+        entityType: 'Assessment',
+        entityId: id,
+        action: 'closed',
+        data: {
+          assessmentName,
+          submittedCount,
+        },
+        overrides: {
+          title: 'Avaliação Encerrada',
+          body: `A campanha de avaliação "${assessmentName}" foi encerrada com ${submittedCount} ficha(s) enviada(s).`,
+          webUrl: `/administracao/avaliacao-competencias/${id}`,
+          relatedEntityType: 'ASSESSMENT',
+        },
+      };
+      await this.dispatchService.dispatchByConfiguration('assessment.closed', 'system', closedContext);
+      // Also notify the campaign creator, who may not belong to the targeted sector.
+      const createdById = (updated as any)?.createdById || (existing.data as any)?.createdById;
+      if (createdById) {
+        await this.dispatchService.dispatchByConfigurationToUsers(
+          'assessment.closed',
+          'system',
+          closedContext,
+          [createdById],
+        );
+      }
+    } catch (error) {
+      this.logger.error('Falha ao notificar encerramento de avaliação (assessment.closed):', error);
+    }
+
     return { success: true, message: 'Avaliação fechada', data: updated };
   }
 
@@ -934,6 +1007,7 @@ export class SkillService {
       include: {
         assessment: { include: { topics: true } },
         responses: true,
+        evaluatee: { select: { id: true, name: true } },
       },
     });
     if (!entry) throw new NotFoundException('Ficha de avaliação não encontrada');
@@ -959,6 +1033,47 @@ export class SkillService {
       where: { id: entryId },
       data: { status: 'SUBMITTED', submittedAt: new Date() },
     });
+
+    // Notify managers/HR/admin (and the campaign creator) that an assessment
+    // entry was submitted.
+    try {
+      const assessmentName = (entry.assessment as any)?.name || 'Avaliação';
+      const evaluateeName = (entry as any)?.evaluatee?.name || 'um colaborador';
+      const submittedContext = {
+        entityType: 'Assessment',
+        // Route by the assessment id (admin detail route is keyed by it).
+        entityId: entry.assessmentId,
+        action: 'submitted',
+        data: {
+          assessmentName,
+          evaluateeName,
+        },
+        overrides: {
+          title: 'Avaliação de Competência Enviada',
+          body: `Uma ficha da avaliação "${assessmentName}" referente a ${evaluateeName} foi enviada.`,
+          webUrl: `/administracao/avaliacao-competencias/${entry.assessmentId}`,
+          relatedEntityType: 'ASSESSMENT',
+        },
+      };
+      await this.dispatchService.dispatchByConfiguration(
+        'assessment.entry.submitted',
+        currentUserId,
+        submittedContext,
+      );
+      // Also notify the campaign creator, who may not belong to the targeted sector.
+      const createdById = (entry.assessment as any)?.createdById;
+      if (createdById) {
+        await this.dispatchService.dispatchByConfigurationToUsers(
+          'assessment.entry.submitted',
+          currentUserId,
+          submittedContext,
+          [createdById],
+        );
+      }
+    } catch (error) {
+      this.logger.error('Falha ao notificar envio de ficha (assessment.entry.submitted):', error);
+    }
+
     return { success: true, message: 'Ficha submetida', data: updated };
   }
 
