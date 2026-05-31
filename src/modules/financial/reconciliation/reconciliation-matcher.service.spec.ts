@@ -3,12 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import {
   BankTransactionType,
   FiscalDocumentOperation,
-  ReconciliationCategory,
   ReconciliationMatchType,
   ReconciliationStatus,
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ReconciliationAliasService } from './reconciliation-alias.service';
+import { ItemCategoryClassifierService } from './item-category-classifier.service';
 import { ReconciliationMatcherService } from './reconciliation-matcher.service';
 
 const COMPANY_CNPJ = '13636938000144';
@@ -28,7 +28,7 @@ function marketplaceTx(overrides: Partial<any> = {}) {
     memo: 'PAGAMENTO PIX-PIX_DEB 10573521000191 PIX Marketplace',
     bankSlipId: null,
     reconciliationStatus: ReconciliationStatus.PENDING,
-    category: ReconciliationCategory.NF,
+    expectsFiscalDocument: true,
     ...overrides,
   };
 }
@@ -76,6 +76,10 @@ describe('ReconciliationMatcherService — marketplace value-only matching', () 
         {
           provide: ReconciliationAliasService,
           useValue: { resolve: jest.fn().mockResolvedValue(null) },
+        },
+        {
+          provide: ItemCategoryClassifierService,
+          useValue: { deriveForTransaction: jest.fn().mockResolvedValue(0) },
         },
         {
           provide: ConfigService,
@@ -158,11 +162,11 @@ describe('ReconciliationMatcherService — marketplace value-only matching', () 
     expect(findMany).toHaveBeenCalledTimes(1);
   });
 
-  it('skips non-NF transactions entirely', async () => {
+  it('skips transactions that do not expect a fiscal document', async () => {
     await build(async () => [purchaseDoc()]);
 
     const result = await service.matchTransaction(
-      marketplaceTx({ category: ReconciliationCategory.ESTORNO }) as any,
+      marketplaceTx({ expectsFiscalDocument: false }) as any,
     );
 
     expect(result).toBe(false);

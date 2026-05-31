@@ -18,6 +18,7 @@ import { UserModule } from '@modules/people/user/user.module';
 import { BonusModule } from '../bonus/bonus.module';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { SecullumModule } from '@modules/integrations/secullum/secullum.module';
+import { NotificationModule } from '@modules/common/notification/notification.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { SecullumModule } from '@modules/integrations/secullum/secullum.module';
     forwardRef(() => BonusModule),
     ChangeLogModule,
     SecullumModule,
+    NotificationModule,
   ],
   controllers: [PayrollController, DiscountController],
   providers: [

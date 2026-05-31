@@ -125,7 +125,7 @@ export class TaskQuotePaymentScheduler {
 
         await this.dispatchService.dispatchByConfiguration('task_quote.payment_due', 'system', {
           entityType: 'TaskQuote',
-          entityId: quote.id,
+          entityId: task.id,
           action: 'payment_due',
           data: {
             taskName: task.name,
@@ -136,7 +136,52 @@ export class TaskQuotePaymentScheduler {
             amount: quote.total.toString(),
             budgetNumber: quote.budgetNumber,
           },
+          overrides: {
+            relatedEntityType: 'TASK_QUOTE',
+            webUrl: `/financeiro/orcamento/detalhes/${task.id}`,
+            mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${task.id}`,
+          },
         });
+
+        // Distinct "overdue" notification (boleto/parcela vencido) — higher
+        // importance + EMAIL channel per the notification configuration. The due
+        // date has now passed and the quote is still not settled.
+        try {
+          const customerName = config.customer.fantasyName || 'N/A';
+          const quoteLabel = task.serialNumber
+            ? `#${task.serialNumber}${task.name ? ` (${task.name})` : ''}`
+            : task.name || quote.id.slice(-8).toUpperCase();
+          await this.dispatchService.dispatchByConfiguration(
+            'task_quote.installment_overdue',
+            'system',
+            {
+              entityType: 'TaskQuote',
+              entityId: task.id,
+              action: 'installment_overdue',
+              data: {
+                taskName: task.name,
+                serialNumber: task.serialNumber,
+                customerName,
+                installmentLabel,
+                dueDate,
+                amount: quote.total.toString(),
+                budgetNumber: quote.budgetNumber,
+              },
+              overrides: {
+                title: 'Parcela Vencida',
+                body: `${installmentLabel} do orçamento ${quoteLabel} (cliente ${customerName}) venceu em ${dueDate} e continua em aberto.`,
+                webUrl: `/financeiro/orcamento/detalhes/${task.id}`,
+                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${task.id}`,
+                relatedEntityType: 'TASK_QUOTE',
+              },
+            },
+          );
+        } catch (overdueError) {
+          this.logger.error(
+            'Falha ao notificar parcela vencida (task_quote.installment_overdue):',
+            overdueError,
+          );
+        }
 
         notificationsSent++;
       }

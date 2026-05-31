@@ -17,6 +17,7 @@ import { SchedulerModule } from '@modules/common/scheduler/scheduler.module';
 import { UserModule } from '@modules/people/user/user.module';
 import { PositionModule } from '@modules/people/position/position.module';
 import { SecullumModule } from '@modules/integrations/secullum/secullum.module';
+import { NotificationModule } from '@modules/common/notification/notification.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { SecullumModule } from '@modules/integrations/secullum/secullum.module';
     UserModule,
     PositionModule,
     SecullumModule,
+    NotificationModule,
     forwardRef(() => SchedulerModule),
   ],
   controllers: [BonusController],

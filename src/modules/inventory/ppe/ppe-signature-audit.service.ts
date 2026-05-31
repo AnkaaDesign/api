@@ -11,6 +11,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { PpeSignatureEventType, Prisma } from '@prisma/client';
 
 export interface AuditEventContext {
@@ -37,7 +38,10 @@ export interface AuditEventRecord {
 export class PpeSignatureAuditService {
   private readonly logger = new Logger(PpeSignatureAuditService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly dispatchService: NotificationDispatchService,
+  ) {}
 
   /**
    * Record a single audit event. Never throws.
@@ -66,6 +70,57 @@ export class PpeSignatureAuditService {
           error instanceof Error ? error.message : error
         }`,
       );
+    }
+
+    // A failed signature/seal is an operational incident — notify HR/admin so it
+    // can be retried. Best-effort: never let a notification failure surface here.
+    if (type === 'SIGNATURE_FAILED' || type === 'PADES_FAILED') {
+      try {
+        // Best-effort: resolve the item name so the alert names the EPI.
+        let itemName = 'EPI';
+        try {
+          const delivery = await this.prisma.ppeDelivery.findUnique({
+            where: { id: deliveryId },
+            select: { item: { select: { name: true } } },
+          });
+          if (delivery?.item?.name) {
+            itemName = delivery.item.name;
+          }
+        } catch {
+          // ignore — fall back to the generic label
+        }
+
+        const reason =
+          type === 'PADES_FAILED'
+            ? 'falha ao selar digitalmente (PAdES) o comprovante'
+            : 'falha na assinatura digital do comprovante';
+
+        await this.dispatchService.dispatchByConfiguration(
+          'ppe.signature_failed',
+          ctx.actorUserId ?? 'system',
+          {
+            entityType: 'PpeDelivery',
+            entityId: deliveryId,
+            action: 'signature_failed',
+            data: {
+              eventType: type,
+              itemName,
+            },
+            overrides: {
+              title: 'Falha na Assinatura de EPI',
+              body: `Falha na entrega do EPI "${itemName}": ${reason}. Verifique e tente novamente.`,
+              webUrl: `/estoque/epi/entregas/detalhes/${deliveryId}`,
+              relatedEntityType: 'PPE_DELIVERY',
+            },
+          },
+        );
+      } catch (notifyErr) {
+        this.logger.error(
+          `Falha ao notificar falha de assinatura de EPI (ppe.signature_failed) para entrega ${deliveryId}: ${
+            notifyErr instanceof Error ? notifyErr.message : notifyErr
+          }`,
+        );
+      }
     }
   }
 

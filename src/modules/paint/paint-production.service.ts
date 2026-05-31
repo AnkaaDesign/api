@@ -4,7 +4,9 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  Inject,
 } from '@nestjs/common';
+import { EventEmitter } from 'events';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
@@ -63,7 +65,64 @@ export class PaintProductionService {
     private changeLogService: ChangeLogService,
     private prisma: PrismaService,
     private itemRecomputeService: ItemRecomputeService,
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
+
+  /**
+   * Emit the 'paint.produced' event after a production is committed.
+   * The PaintProductionListener (config key: paint.produced) consumes this and
+   * notifies users in sectors of tasks using the paint.
+   *
+   * Mirrors the PaintProducedEvent shape expected by paint-production.listener.ts:
+   *   { paintProductionId, formulaId, paintId, paintName, volumeLiters, producedBy:{id,name} }
+   *
+   * Wrapped in try/catch so a notification failure never breaks the business flow.
+   */
+  private async emitPaintProduced(
+    productionId: string,
+    formulaId: string,
+    volumeLiters: number,
+    userId?: string,
+  ): Promise<void> {
+    try {
+      // Resolve the paint (id + name) from the formula, plus the producer's name.
+      const formula = await this.prisma.paintFormula.findUnique({
+        where: { id: formulaId },
+        select: {
+          paintId: true,
+          paint: { select: { id: true, name: true } },
+        },
+      });
+
+      if (!formula?.paint) {
+        this.logger.warn(
+          `[emitPaintProduced] No paint found for formula ${formulaId}, skipping paint.produced event`,
+        );
+        return;
+      }
+
+      const producedBy = userId
+        ? await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, name: true },
+          })
+        : null;
+
+      this.eventEmitter.emit('paint.produced', {
+        paintProductionId: productionId,
+        formulaId,
+        paintId: formula.paint.id,
+        paintName: formula.paint.name,
+        volumeLiters,
+        producedBy: {
+          id: producedBy?.id || userId || 'system',
+          name: producedBy?.name || 'Sistema',
+        },
+      });
+    } catch (error) {
+      this.logger.warn('[emitPaintProduced] Failed to emit paint.produced event:', error);
+    }
+  }
 
   /**
    * Volume-based validation for paint production
@@ -751,6 +810,9 @@ export class PaintProductionService {
     if (!production) {
       throw new BadRequestException('Não foi possível criar a produção de tinta, tente novamente.');
     }
+
+    // Emit paint.produced AFTER the transaction commits (consumed by PaintProductionListener).
+    await this.emitPaintProduced(production.id, data.formulaId, data.volumeLiters, userId);
 
     return {
       success: true,
@@ -1653,6 +1715,17 @@ export class PaintProductionService {
           totalFailed: failedProductions.length,
         };
       });
+
+      // Emit paint.produced per created production AFTER the transaction commits,
+      // mirroring the single create path (consumed by PaintProductionListener).
+      for (const production of result.success) {
+        await this.emitPaintProduced(
+          production.id,
+          production.formulaId,
+          production.volumeLiters,
+          userId,
+        );
+      }
 
       const totalFailed = validationErrors.length + result.totalFailed;
       const successMessage =

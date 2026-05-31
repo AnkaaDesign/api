@@ -25,6 +25,21 @@ import { ReconciliationMatcherService } from './reconciliation-matcher.service';
 import { ReconciliationStatisticsService } from './reconciliation-statistics.service';
 import { ManualXmlImportService } from './manual-xml-import.service';
 import { ReconciliationAliasService } from './reconciliation-alias.service';
+import { TransactionCategoryService } from './transaction-category.service';
+import {
+  listCategoriesQuerySchema,
+  ListCategoriesQueryDto,
+  createCategorySchema,
+  CreateCategoryDto,
+  updateCategorySchema,
+  UpdateCategoryDto,
+} from './dto/transaction-category.dto';
+import {
+  categorizeSchema,
+  CategorizeDto,
+  forecastQuerySchema,
+  ForecastQueryDto,
+} from './dto/categorize.dto';
 import {
   transactionsFilterSchema,
   TransactionsFilterDto,
@@ -62,6 +77,7 @@ export class ReconciliationController {
     private readonly stats: ReconciliationStatisticsService,
     private readonly xmlImport: ManualXmlImportService,
     private readonly aliases: ReconciliationAliasService,
+    private readonly categories: TransactionCategoryService,
   ) {}
 
   @Post('import')
@@ -149,8 +165,9 @@ export class ReconciliationController {
 
   /**
    * Single "Reconciliar" pipeline: classify first (auto-reconciles
-   * self-justifying categories like TARIFA/FOLHA/TRIBUTO/...), then run the NF
-   * scoring matcher on whatever is still PENDING + category=NF.
+   * transaction-only categories like Tarifa/Folha/Tributo/...), then run the NF
+   * scoring matcher on whatever still expects a fiscal document. The matcher, on
+   * a successful link, also derives the NF's item categories.
    *
    * Returns both stages so the UI can summarize "X classificadas · Y conciliadas".
    */
@@ -163,41 +180,65 @@ export class ReconciliationController {
       dateTo: body.dateEnd,
     });
 
+    let matched: number;
     if (body.dateStart && body.dateEnd) {
-      const matched = await this.matcher.matchDateRange(
+      matched = await this.matcher.matchDateRange(
         new Date(body.dateStart),
         new Date(body.dateEnd),
       );
-      return { classified, matched };
+    } else if (body.transactionIds && body.transactionIds.length > 0) {
+      matched = await this.matcher.matchByIds(body.transactionIds);
+    } else {
+      // Global re-run for all PENDING transactions expecting a fiscal document.
+      matched = await this.matcher.matchAll();
     }
-    if (body.transactionIds && body.transactionIds.length > 0) {
-      let matched = 0;
-      for (const id of body.transactionIds) {
-        const tx = await this.matcher['prisma'].bankTransaction.findUnique({
-          where: { id },
-          select: {
-            id: true,
-            postedAt: true,
-            amount: true,
-            type: true,
-            counterpartyCnpjCpf: true,
-            counterpartyName: true,
-            memo: true,
-            bankSlipId: true,
-            reconciliationStatus: true,
-            category: true,
-          },
-        });
-        if (tx) {
-          const ok = await this.matcher.matchTransaction(tx as any);
-          if (ok) matched += 1;
-        }
-      }
-      return { classified, matched };
-    }
-    // Default: run for all PENDING NF transactions (global re-run from transactions list)
-    const matched = await this.matcher.matchAll();
-    return { classified, matched };
+    // Single "Verificar" pipeline also (re)derives item categories over the same
+    // scope, so one action classifies, matches AND categorizes.
+    const categorized = await this.service.categorize({
+      transactionIds: body.transactionIds,
+      dateFrom: body.dateStart,
+      dateTo: body.dateEnd,
+    });
+    return { classified, matched, categorized: categorized.categorized };
+  }
+
+  // ----- taxonomy (categories) --------------------------------------------
+
+  @Get('categories')
+  @UsePipes(new ZodValidationPipe(listCategoriesQuerySchema))
+  listCategories(@Query() query: ListCategoriesQueryDto) {
+    return this.categories.list(query);
+  }
+
+  @Post('categories')
+  @UsePipes(new ZodValidationPipe(createCategorySchema))
+  createCategory(@Body() payload: CreateCategoryDto) {
+    return this.categories.create(payload);
+  }
+
+  @Post('categories/:id')
+  @UsePipes(new ZodValidationPipe(updateCategorySchema))
+  updateCategory(@Param('id') id: string, @Body() payload: UpdateCategoryDto) {
+    return this.categories.update(id, payload);
+  }
+
+  @Post('categories/:id/delete')
+  deleteCategory(@Param('id') id: string) {
+    return this.categories.remove(id);
+  }
+
+  // Re-run the fuzzy item categorizer over matched transactions in scope.
+  @Post('categorize')
+  @UsePipes(new ZodValidationPipe(categorizeSchema))
+  categorize(@Body() payload: CategorizeDto) {
+    return this.service.categorize(payload);
+  }
+
+  // Recurring monthly payables view.
+  @Get('recurring/forecast')
+  @UsePipes(new ZodValidationPipe(forecastQuerySchema))
+  forecast(@Query() query: ForecastQueryDto) {
+    return this.categories.forecast(new Date(query.from), new Date(query.to));
   }
 
   @Post('transactions/:id/category')

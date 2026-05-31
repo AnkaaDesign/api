@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { TASK_QUOTE_STATUS, TASK_QUOTE_STATUS_ORDER } from '@constants';
 import { Decimal } from '@prisma/client/runtime/library';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
@@ -14,7 +15,69 @@ import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 export class TaskQuoteStatusCascadeService {
   private readonly logger = new Logger(TaskQuoteStatusCascadeService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly dispatchService: NotificationDispatchService,
+  ) {}
+
+  /**
+   * Best-effort human label for a quote — uses the linked task serial/name when
+   * available, falling back to the short quote id. Also returns the linked task
+   * id so notification deep links (keyed by taskId) can be built. Never throws.
+   */
+  private async buildQuoteLabel(
+    quoteId: string,
+  ): Promise<{ label: string; taskId: string | null }> {
+    try {
+      const task = await this.prisma.task.findFirst({
+        where: { quoteId },
+        select: { id: true, name: true, serialNumber: true },
+      });
+      if (task?.serialNumber) {
+        return {
+          label: task.name ? `#${task.serialNumber} (${task.name})` : `#${task.serialNumber}`,
+          taskId: task.id,
+        };
+      }
+      if (task?.name) return { label: task.name, taskId: task.id };
+      if (task?.id) return { label: quoteId.slice(-8).toUpperCase(), taskId: task.id };
+    } catch {
+      // ignore — fall through to id
+    }
+    return { label: quoteId.slice(-8).toUpperCase(), taskId: null };
+  }
+
+  /**
+   * Emit task_quote.settled when a cascade lands a quote on SETTLED.
+   * Best-effort — never breaks the cascade flow.
+   */
+  private async dispatchSettledNotification(quoteId: string): Promise<void> {
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
+      await this.dispatchService.dispatchByConfiguration('task_quote.settled', 'system', {
+        entityType: 'TaskQuote',
+        entityId: taskId ?? quoteId,
+        action: 'settled',
+        data: { quoteLabel },
+        overrides: {
+          title: 'Orçamento Liquidado',
+          body: `O orçamento ${quoteLabel} foi totalmente liquidado. Todas as parcelas estão pagas.`,
+          relatedEntityType: 'TASK_QUOTE',
+          ...(taskId
+            ? {
+                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+              }
+            : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Falha ao notificar liquidação de orçamento (task_quote.settled) para ${quoteId}:`,
+        error,
+      );
+    }
+  }
 
   /**
    * Recalculate and cascade TaskQuote status based on installment payment state.
@@ -138,6 +201,12 @@ export class TaskQuoteStatusCascadeService {
         });
         if (task) {
           await syncEmNegociacaoForTask(this.prisma, task.id);
+        }
+
+        // Notify when the quote becomes fully settled via cascade (webhook/reconciliation
+        // payment paths). Mirrors the task_quote.settled key emitted by manual settlement.
+        if (newStatus === TASK_QUOTE_STATUS.SETTLED) {
+          await this.dispatchSettledNotification(quoteId);
         }
       }
     } catch (error) {

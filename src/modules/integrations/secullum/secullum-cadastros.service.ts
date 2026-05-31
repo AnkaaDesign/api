@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { AxiosInstance } from 'axios';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { SecullumService } from './secullum.service';
 import {
   SecullumDepartamento,
@@ -40,6 +41,7 @@ export class SecullumCadastrosService {
   constructor(
     private readonly secullum: SecullumService,
     private readonly prisma: PrismaService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
 
   /** Convenience accessor — the legacy service exposes the configured axios client. */
@@ -215,6 +217,29 @@ export class SecullumCadastrosService {
     await this.http.post('/EncerramentoCalculos', {
       NovaDataEncerramento: iso,
     });
+
+    // Notify HR + Financial that the calculation period was closed.
+    try {
+      const closedDate = iso.slice(0, 10);
+      await this.dispatchService.dispatchByConfiguration('secullum.period.closed', 'system', {
+        entityType: 'SecullumSolicitacao',
+        entityId: closedDate,
+        action: 'closed',
+        data: { date: closedDate },
+        overrides: {
+          title: 'Período de apuração fechado',
+          body: `O período de apuração da Secullum foi encerrado até ${closedDate}.`,
+          webUrl: '/recursos-humanos/integracoes/secullum',
+          mobileUrl: '/(tabs)/recursos-humanos/calculos',
+          relatedEntityType: 'SECULLUM_SOLICITACAO',
+        },
+      });
+    } catch (err) {
+      this.logger.error(
+        `[secullum] notification dispatch failed for "secullum.period.closed": ${(err as Error).message}`,
+      );
+    }
+
     return { skipped: false };
   }
 

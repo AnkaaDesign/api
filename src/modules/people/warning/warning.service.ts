@@ -32,6 +32,7 @@ import {
   WarningInclude,
 } from '../../../schemas';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import {
   trackFieldChanges,
   trackAndLogFieldChanges,
@@ -54,7 +55,79 @@ export class WarningService {
     private readonly warningRepository: WarningRepository,
     private readonly changeLogService: ChangeLogService,
     private readonly fileService: FileService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
+
+  // pt-BR labels for warning category/severity used in notification bodies.
+  private static readonly CATEGORY_LABELS_PT: Record<string, string> = {
+    [WARNING_CATEGORY.SAFETY]: 'Segurança',
+    [WARNING_CATEGORY.MISCONDUCT]: 'Má conduta',
+    [WARNING_CATEGORY.INSUBORDINATION]: 'Insubordinação',
+    [WARNING_CATEGORY.POLICY_VIOLATION]: 'Violação de política',
+    [WARNING_CATEGORY.ATTENDANCE]: 'Assiduidade',
+    [WARNING_CATEGORY.PERFORMANCE]: 'Desempenho',
+    [WARNING_CATEGORY.BEHAVIOR]: 'Comportamento',
+    [WARNING_CATEGORY.OTHER]: 'Outros',
+  };
+
+  private static readonly SEVERITY_LABELS_PT: Record<string, string> = {
+    [WARNING_SEVERITY.VERBAL]: 'Verbal',
+    [WARNING_SEVERITY.WRITTEN]: 'Escrita',
+    [WARNING_SEVERITY.SUSPENSION]: 'Suspensão',
+    [WARNING_SEVERITY.FINAL_WARNING]: 'Advertência final',
+  };
+
+  /**
+   * Notify the warned collaborator that a warning (advertência) was issued for
+   * them. NEW key warning.issued, targeted to the collaborator. Never throws —
+   * notification failures must not break the warning creation flow.
+   */
+  private async notifyWarningIssued(warning: {
+    id: string;
+    collaboratorId: string;
+    category?: string | null;
+    severity?: string | null;
+    reason?: string | null;
+  }): Promise<void> {
+    try {
+      if (!warning.collaboratorId) return;
+      const categoryLabel = warning.category
+        ? WarningService.CATEGORY_LABELS_PT[warning.category] ?? warning.category
+        : 'Advertência';
+      const severityLabel = warning.severity
+        ? WarningService.SEVERITY_LABELS_PT[warning.severity] ?? warning.severity
+        : '';
+      const reasonText = warning.reason ? ` Motivo: ${warning.reason}` : '';
+      await this.dispatchService.dispatchByConfigurationToUsers(
+        'warning.issued',
+        'system',
+        {
+          entityType: 'Warning',
+          entityId: warning.id,
+          action: 'created',
+          data: {
+            warningId: warning.id,
+            category: warning.category,
+            severity: warning.severity,
+            reason: warning.reason,
+          },
+          overrides: {
+            title: `Você recebeu uma advertência${severityLabel ? ` (${severityLabel})` : ''}`,
+            body: `Foi registrada uma advertência referente a ${categoryLabel}.${reasonText}`,
+            webUrl: `/pessoal/minhas-advertencias/detalhes/${warning.id}`,
+            mobileUrl: `/(tabs)/pessoal/minhas-advertencias/detalhes/${warning.id}`,
+            relatedEntityType: 'WARNING',
+          },
+        },
+        [warning.collaboratorId],
+      );
+    } catch (err) {
+      this.logger.error(
+        `Falha ao notificar advertência ${warning.id} ao colaborador`,
+        err as Error,
+      );
+    }
+  }
 
   /**
    * Get user's led sector for team-based filtering
@@ -254,6 +327,15 @@ export class WarningService {
         }
 
         return newWarning;
+      });
+
+      // Notify the warned collaborator (NEW key warning.issued).
+      await this.notifyWarningIssued({
+        id: warning.id,
+        collaboratorId: (warning as any).collaboratorId ?? data.collaboratorId,
+        category: (warning as any).category ?? data.category,
+        severity: (warning as any).severity ?? data.severity,
+        reason: (warning as any).reason ?? data.reason,
       });
 
       return {
@@ -485,6 +567,18 @@ export class WarningService {
 
         return result;
       });
+
+      // Notify each warned collaborator (NEW key warning.issued), mirroring the
+      // single-item create path. After the transaction commits.
+      for (const warning of result.success) {
+        await this.notifyWarningIssued({
+          id: warning.id,
+          collaboratorId: (warning as any).collaboratorId,
+          category: (warning as any).category,
+          severity: (warning as any).severity,
+          reason: (warning as any).reason,
+        });
+      }
 
       const successMessage =
         result.totalCreated === 1

@@ -841,6 +841,9 @@ model ItemCategory {
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
   items     Item[]           @relation("ITEM_CATEGORY")
+  // Item-derived reconciliation categories mirror these rows (1:1) so a fiscal
+  // document line tagged "Verniz" maps back to this inventory category.
+  transactionCategories TransactionCategory[] @relation("ITEM_CATEGORY_TO_TX_CATEGORY")
 
   @@index([type, typeOrder])
 }
@@ -1708,6 +1711,7 @@ model User {
   bankTransactionImports         BankTransaction[]            @relation("BankTransactionUploader")
   reconciliationMatches          ReconciliationMatch[]        @relation("MatchedBy")
   reconciliationRuns             ReconciliationRun[]          @relation("ReconciliationRunTriggers")
+  transactionCategoryAssignments BankTransactionCategory[]    @relation("TransactionCategoryAssignedBy")
   assessmentEntriesAsEvaluatee   AssessmentEntry[]            @relation("ASSESSMENT_ENTRY_EVALUATEE")
   assessmentEntriesAsEvaluator   AssessmentEntry[]            @relation("ASSESSMENT_ENTRY_EVALUATOR")
   assessmentsCreated             Assessment[]                 @relation("ASSESSMENT_CREATED_BY")
@@ -3101,6 +3105,7 @@ enum ItemCategoryType {
   REGULAR
   TOOL
   PPE
+  ELECTRONIC_TOOL
 }
 
 enum BonusStatus {
@@ -3552,20 +3557,19 @@ enum ReconciliationSource {
   MANUAL
 }
 
-// What kind of payment the transaction represents. Drives which matching
-// strategy applies and whether a NotaFiscal is even expected.
-enum ReconciliationCategory {
-  NF // invoiceable payment — runs the scoring matcher against FiscalDocument
-  TRIBUTO // DARF / imposto — self-justifying
-  FOLHA // payroll debit — self-justifying
-  TRANSFERENCIA // investment, captacao, fund redemption — self-justifying
-  TARIFA_BANCARIA // bank fee / títulos maintenance — self-justifying
-  CONVENIO // recurring utility/convênio (SAMAE, COPEL, etc.) — self-justifying
-  PRO_LABORE // owner draws (matched by counterparty alias) — self-justifying
-  ALUGUEL // rent payment — self-justifying
-  ESTORNO // refund / chargeback (incoming credit reversing an earlier debit)
-  OUTROS // user-tagged catch-all — self-justifying
-  UNCLASSIFIED // default before classifier runs
+// Nature of a TransactionCategory.
+//   ITEM_DERIVED    — mirrors an inventory ItemCategory (Verniz, Tinta…); set
+//                     automatically from a matched NF's line items. Enrichment
+//                     only: never resolves a transaction on its own.
+//   SERVICE         — service taxonomy for NFSe content (Contabilidade, TI…);
+//                     also NF-derived enrichment.
+//   TRANSACTION_ONLY — pure transaction categories with no NF (Aluguel, Folha,
+//                     Pró-labore…). Assigning one (isResolving=true) reconciles
+//                     the transaction.
+enum TransactionCategoryKind {
+  ITEM_DERIVED
+  SERVICE
+  TRANSACTION_ONLY
 }
 
 enum ReconciliationMatchType {
@@ -3621,6 +3625,18 @@ enum ReconciliationAliasSource {
   ADMIN_SEEDED
 }
 
+// Provenance of a learned item-category alias.
+//   MANUAL      — a human set/corrected the category for this description.
+//   AUTO_CODE   — derived deterministically from a uniCode hit (ground truth);
+//                 safe to learn so the same product resolves later WITHOUT the
+//                 code present in the text.
+//   ADMIN_SEEDED — bulk-seeded.
+enum ItemCategoryAliasSource {
+  MANUAL
+  AUTO_CODE
+  ADMIN_SEEDED
+}
+
 model BankTransaction {
   id                   String                 @id @default(uuid())
   // Denormalized bank-account identifier columns. Together with fitId they form
@@ -3645,8 +3661,12 @@ model BankTransaction {
   reconciliationStatus ReconciliationStatus   @default(PENDING)
   // null until the classifier has run or the user has acted.
   reconciliationSource ReconciliationSource?
-  category             ReconciliationCategory @default(UNCLASSIFIED)
-  // AUTO when the classifier or alias set the category; MANUAL when a user did.
+  // Whether this transaction is expected to be backed by a FiscalDocument
+  // (replaces the old `category == NF` gate). The scoring matcher only runs on
+  // rows with this true; everything else is resolved by its assigned
+  // transaction categories. Set by the classifier.
+  expectsFiscalDocument Boolean               @default(false)
+  // AUTO when the classifier or alias set the categories; MANUAL when a user did.
   categorySource       ReconciliationSource?
   classifiedAt         DateTime?
   ignoredReason        String?
@@ -3661,11 +3681,15 @@ model BankTransaction {
   uploadedBy           User?                  @relation("BankTransactionUploader", fields: [uploadedById], references: [id])
   bankSlip             BankSlip?              @relation("BankSlipTransaction", fields: [bankSlipId], references: [id])
   matches              ReconciliationMatch[]  @relation("TransactionMatches")
+  // Zero-to-many category tags. Item-derived tags (Verniz, Endurecedor) come
+  // from the matched NF's line items; transaction-only tags (Aluguel) are set
+  // by the classifier or by a user.
+  categories           BankTransactionCategory[] @relation("TransactionCategoryTags")
 
   @@unique([bankCode, agency, accountNumber, fitId])
   @@index([postedAt])
   @@index([reconciliationStatus])
-  @@index([category])
+  @@index([expectsFiscalDocument])
   @@index([counterpartyCnpjCpf])
   @@index([amount])
   @@index([bankCode, accountNumber, postedAt])
@@ -3719,10 +3743,18 @@ model FiscalDocumentItem {
   unit             String?
   unitValue        Decimal?       @db.Decimal(15, 4)
   totalValue       Decimal        @db.Decimal(15, 2)
+  // Cached result of the fuzzy item-category classifier (description/code →
+  // ItemCategory-backed TransactionCategory). Null until the classifier runs
+  // or when no category clears the confidence threshold.
+  categoryId         String?
+  categoryConfidence Int? // 0-100, fuzzy match score
+  categorySource     ReconciliationSource?
   createdAt        DateTime       @default(now())
   fiscalDocument   FiscalDocument @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
+  category         TransactionCategory? @relation("FiscalItemCategory", fields: [categoryId], references: [id])
 
   @@index([fiscalDocumentId])
+  @@index([categoryId])
 }
 
 model ReconciliationMatch {
@@ -3780,8 +3812,9 @@ model ReconciliationAlias {
   source              ReconciliationAliasSource
   // Optional category to remember. When set, the classifier applies this
   // category to future transactions matching the same alias key (e.g.
-  // Sergio's CPF → PRO_LABORE). Null aliases only feed the NF scoring path.
-  category            ReconciliationCategory?
+  // Sergio's CPF → Pró-labore). Null aliases only feed the NF scoring path.
+  categoryId          String?
+  category            TransactionCategory?      @relation("AliasCategory", fields: [categoryId], references: [id])
   confirmedCount      Int                       @default(1)
   rejectedCount       Int                       @default(0)
   firstObservedAt     DateTime                  @default(now())
@@ -3794,6 +3827,103 @@ model ReconciliationAlias {
   @@index([memoFingerprint, txType])
   @@index([counterpartyCnpjCpf])
   @@index([disabledAt])
+  @@index([categoryId])
+}
+
+// Unified reconciliation taxonomy. Merges three kinds (see
+// TransactionCategoryKind): item-derived categories mirrored 1:1 from
+// ItemCategory, service categories for NFSe content, and pure transaction-only
+// categories the user creates (Aluguel etc.). Replaces the old
+// ReconciliationCategory enum so the list can grow at runtime.
+model TransactionCategory {
+  id             String                  @id @default(uuid())
+  name           String                  @unique
+  // URL/code-safe stable key. Item-derived/service/seeded rows have fixed slugs
+  // the classifier resolves against; user-created rows get a slugified name.
+  slug           String                  @unique
+  kind           TransactionCategoryKind
+  // Set for ITEM_DERIVED rows — the inventory category this mirrors.
+  itemCategoryId String?
+  // When true, assigning this category resolves the transaction (RECONCILED)
+  // without needing an NF. True for TRANSACTION_ONLY; false for the NF-derived
+  // kinds. Replaces the old hardcoded SELF_JUSTIFYING_CATEGORIES set.
+  isResolving    Boolean                 @default(false)
+  // Marks a recurring monthly obligation (rent, payroll…). Drives the monthly
+  // payables view. A flag only — amounts are read from the actual transactions.
+  isRecurring    Boolean                 @default(false)
+  color          String?
+  sortOrder      Int                     @default(0)
+  isActive       Boolean                 @default(true)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  itemCategory       ItemCategory?             @relation("ITEM_CATEGORY_TO_TX_CATEGORY", fields: [itemCategoryId], references: [id])
+  transactionTags    BankTransactionCategory[] @relation("CategoryToTransactionTags")
+  fiscalDocumentItems FiscalDocumentItem[]     @relation("FiscalItemCategory")
+  aliases            ReconciliationAlias[]     @relation("AliasCategory")
+  itemCategoryAliases ItemCategoryAlias[]      @relation("ItemCategoryAliasCategory")
+
+  @@index([kind])
+  @@index([itemCategoryId])
+  @@index([isRecurring])
+  @@index([isActive])
+}
+
+// Learned (NF line description fingerprint → category) pairs — the categorizer's
+// equivalent of ReconciliationAlias. Lets past categorizations (deterministic
+// uniCode hits and human corrections) drive future auto-categorization of
+// lines whose text alone is ambiguous. Consulted right after the uniCode tier,
+// ahead of fuzzy/keyword heuristics.
+model ItemCategoryAlias {
+  id                     String                  @id @default(uuid())
+  // descriptionFingerprint(): sorted, stoplisted token key of the NF line.
+  descriptionFingerprint String
+  categoryId             String
+  source                 ItemCategoryAliasSource
+  confirmedCount         Int                     @default(1)
+  rejectedCount          Int                     @default(0)
+  firstObservedAt        DateTime                @default(now())
+  lastConfirmedAt        DateTime                @default(now())
+  disabledAt             DateTime?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  category               TransactionCategory     @relation("ItemCategoryAliasCategory", fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([descriptionFingerprint, categoryId])
+  @@index([descriptionFingerprint])
+  @@index([categoryId])
+  @@index([disabledAt])
+}
+
+// Many-to-many tag between a transaction and the taxonomy. A single NF
+// transaction can carry several item-derived categories (Verniz + Endurecedor),
+// each with its own provenance, confidence and proportional amount split.
+model BankTransactionCategory {
+  id                   String              @id @default(uuid())
+  transactionId        String
+  categoryId           String
+  // AUTO when the fuzzy classifier set it; MANUAL when a user did.
+  source               ReconciliationSource @default(AUTO)
+  // 0-100 fuzzy confidence for AUTO item-derived tags; null for MANUAL.
+  confidence           Int?
+  // Proportional share of the transaction amount attributed to this category
+  // (sum of the matched NF line items' totalValue for this category, scaled to
+  // the transaction). Null for transaction-only tags.
+  allocatedAmount      Decimal?            @db.Decimal(14, 2)
+  // The NF line item this tag was derived from (provenance for AUTO tags).
+  derivedFromFiscalItemId String?
+  assignedById         String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  transaction BankTransaction     @relation("TransactionCategoryTags", fields: [transactionId], references: [id], onDelete: Cascade)
+  category    TransactionCategory @relation("CategoryToTransactionTags", fields: [categoryId], references: [id], onDelete: Restrict)
+  assignedBy  User?               @relation("TransactionCategoryAssignedBy", fields: [assignedById], references: [id])
+
+  @@unique([transactionId, categoryId])
+  @@index([transactionId])
+  @@index([categoryId])
+  @@index([categoryId, source])
 }
 
 // =====================

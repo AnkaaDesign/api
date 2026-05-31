@@ -76,19 +76,25 @@ export class WhatsAppMessageFormatterService {
 
   formatTaskStatusChanged(data: {
     taskName: string;
-    oldStatus: string;
-    newStatus: string;
+    oldStatus?: string;
+    newStatus?: string;
+    // The task notification path supplies oldValue/newValue instead of
+    // oldStatus/newStatus, so accept both field-contract shapes.
+    oldValue?: string;
+    newValue?: string;
     changedBy?: string;
     serialNumber?: string;
     url: string;
   }): WhatsAppMessageFormat {
-    const statusEmoji = this.getStatusEmoji(data.newStatus);
+    const oldStatus = data.oldStatus ?? data.oldValue ?? '';
+    const newStatus = data.newStatus ?? data.newValue ?? '';
+    const statusEmoji = this.getStatusEmoji(newStatus);
 
     const text = `${statusEmoji} *STATUS ATUALIZADO*
 
 📋 *Tarefa:* ${data.taskName}${data.serialNumber ? `\n🔢 *Série:* ${data.serialNumber}` : ''}
 
-🔄 *Status:* ${data.oldStatus} → *${data.newStatus}*${data.changedBy ? `\n👤 *Por:* ${data.changedBy}` : ''}
+🔄 *Status:* ${oldStatus} → *${newStatus}*${data.changedBy ? `\n👤 *Por:* ${data.changedBy}` : ''}
 
 🔗 *Ver detalhes:*
 ${data.url}`;
@@ -344,19 +350,22 @@ ${data.url}`;
   formatServiceOrderCreated(data: {
     serviceOrderDescription: string;
     taskName: string;
-    serviceOrderType: string;
+    // Listeners supply `type`; older code used `serviceOrderType`. Accept both.
+    serviceOrderType?: string;
+    type?: string;
     assignedTo?: string;
     dueDate?: string;
     creatorName?: string;
     url: string;
   }): WhatsAppMessageFormat {
+    const serviceOrderType = data.serviceOrderType ?? data.type ?? '';
     const text = `🛠️ *NOVA ORDEM DE SERVIÇO*
 
 📝 *Descrição:* ${data.serviceOrderDescription}
 
 📋 *Tarefa:* ${data.taskName}
 
-🏷️ *Tipo:* ${data.serviceOrderType}${data.assignedTo ? `\n👤 *Responsável:* ${data.assignedTo}` : ''}${data.dueDate ? `\n📅 *Prazo:* ${data.dueDate}` : ''}${data.creatorName ? `\n✏️ *Criado por:* ${data.creatorName}` : ''}
+🏷️ *Tipo:* ${serviceOrderType}${data.assignedTo ? `\n👤 *Responsável:* ${data.assignedTo}` : ''}${data.dueDate ? `\n📅 *Prazo:* ${data.dueDate}` : ''}${data.creatorName ? `\n✏️ *Criado por:* ${data.creatorName}` : ''}
 
 🔗 *Ver detalhes:*
 ${data.url}`;
@@ -370,12 +379,19 @@ ${data.url}`;
   formatServiceOrderStatusChanged(data: {
     serviceOrderDescription: string;
     taskName: string;
-    oldStatus: string;
-    newStatus: string;
+    oldStatus?: string;
+    newStatus?: string;
+    // Accept the oldValue/newValue field-contract shape as well.
+    oldValue?: string;
+    newValue?: string;
     changedByName?: string;
+    changedBy?: string;
     url: string;
   }): WhatsAppMessageFormat {
-    const statusEmoji = this.getStatusEmoji(data.newStatus);
+    const oldStatus = data.oldStatus ?? data.oldValue ?? '';
+    const newStatus = data.newStatus ?? data.newValue ?? '';
+    const changedBy = data.changedByName ?? data.changedBy;
+    const statusEmoji = this.getStatusEmoji(newStatus);
 
     const text = `${statusEmoji} *O.S. ATUALIZADA*
 
@@ -383,7 +399,7 @@ ${data.url}`;
 
 📋 *Tarefa:* ${data.taskName}
 
-🔄 *Status:* ${data.oldStatus} → *${data.newStatus}*${data.changedByName ? `\n👤 *Por:* ${data.changedByName}` : ''}
+🔄 *Status:* ${oldStatus} → *${newStatus}*${changedBy ? `\n👤 *Por:* ${changedBy}` : ''}
 
 🔗 *Ver detalhes:*
 ${data.url}`;
@@ -423,30 +439,73 @@ ${data.url}`;
   // ═══════════════════════════════════════════════════════════════
 
   private getStatusEmoji(status: string): string {
-    const statusMap: Record<string, string> = {
-      // Task statuses
-      PENDENTE: '⏸️',
-      EM_ANDAMENTO: '🔵',
-      PAUSADO: '⏸️',
-      CONCLUIDO: '✅',
-      CANCELADO: '❌',
+    if (!status) {
+      return '🔔';
+    }
 
-      // Order statuses
-      RASCUNHO: '📝',
-      AGUARDANDO: '⏳',
-      ENVIADO: '📤',
-      RECEBIDO: '✅',
-      PARCIALMENTE_RECEBIDO: '🟡',
-
-      // Service Order statuses
-      NAO_INICIADO: '⏸️',
-      EXECUTANDO: '🔵',
-      AGUARDANDO_APROVACAO: '⏰',
-      APROVADO: '✅',
-      REPROVADO: '❌',
+    // Primary keying: actual enum values (what dispatch normalization may not
+    // have rewritten, and what the persisted DB value is). This is what the
+    // old pt-BR-string keys never matched.
+    const enumMap: Record<string, string> = {
+      // Task statuses (TASK_STATUS)
+      PREPARATION: '📝',
+      WAITING_PRODUCTION: '⏳',
+      IN_PRODUCTION: '🔵',
+      // Service Order statuses (SERVICE_ORDER_STATUS)
+      PENDING: '⏳',
+      IN_PROGRESS: '🔵',
+      WAITING_ARTWORK: '🎨',
+      PAUSED: '⏸️',
+      WAITING_APPROVE: '⏰',
+      // Order statuses (ORDER_STATUS)
+      CREATED: '📝',
+      PARTIALLY_FULFILLED: '🟡',
+      FULFILLED: '📤',
+      PARTIALLY_RECEIVED: '🟡',
+      RECEIVED: '✅',
+      // Shared terminal statuses
+      COMPLETED: '✅',
+      CANCELLED: '❌',
+      OVERDUE: '⚠️',
     };
 
-    return statusMap[status] || '🔔';
+    // Fallback keying: pt-BR labels (after dispatch-layer normalization the
+    // status may already be a Portuguese label). Keyed on an
+    // accent/space-normalized form so "Em Produção" and "EM_PRODUCAO" both hit.
+    const labelMap: Record<string, string> = {
+      // Task
+      EM_PREPARACAO: '📝',
+      AGUARDANDO_PRODUCAO: '⏳',
+      EM_PRODUCAO: '🔵',
+      // Service order
+      PENDENTE: '⏳',
+      EM_ANDAMENTO: '🔵',
+      AGUARDANDO_ARTE: '🎨',
+      PAUSADO: '⏸️',
+      AGUARDANDO_APROVACAO: '⏰',
+      // Order
+      CRIADO: '📝',
+      PARCIALMENTE_ATENDIDO: '🟡',
+      ATENDIDO: '📤',
+      PARCIALMENTE_RECEBIDO: '🟡',
+      RECEBIDO: '✅',
+      // Shared
+      CONCLUIDO: '✅',
+      CANCELADO: '❌',
+      ATRASADO: '⚠️',
+    };
+
+    if (enumMap[status]) {
+      return enumMap[status];
+    }
+
+    const normalizedLabel = status
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, "") // strip accents
+      .toUpperCase()
+      .replace(/\s+/g, '_');
+
+    return labelMap[normalizedLabel] || '🔔';
   }
 
   private getPriorityEmoji(priority: string): string {
@@ -504,70 +563,28 @@ ${data.url}`;
 
     // Add metadata fields (only user-facing ones)
     if (data.metadata) {
-      // Internal/system keys that should never be displayed to users
-      // These are either system metadata or data already rendered in title/body
-      const internalKeys = new Set([
-        // System/routing metadata
-        'title',
-        'body',
-        'url',
-        'webUrl',
-        'mobileUrl',
-        'universalLink',
-        'configKey',
-        'actorId',
-        'entityType',
-        'entityId',
-        'itemId',
-        'taskId',
-        'orderId',
-        'serviceOrderId',
-        'userId',
-        'artworkId',
-        'relatedEntityType',
-        'relatedEntityId',
-        'actionUrl',
-        'action',
-        // Task/notification data fields (already rendered in body text)
-        'taskName',
-        'serialNumber',
-        'changedBy',
-        'changedById',
-        'fieldName',
-        'oldValue',
-        'newValue',
-        'addedCount',
-        'removedCount',
-        'count',
-        'fileChangeDescription',
-        'addedFiles',
-        'removedFiles',
-        'oldStatus',
-        'newStatus',
-        'status',
-        'description',
-        'type',
-        'createdBy',
-        'createdById',
-        'assignedTo',
-        'assignedBy',
-        'startedBy',
-        'approvedBy',
-        'completedBy',
-        'oldObservation',
-        'newObservation',
-        'daysOverdue',
-        'daysRemaining',
+      // WHITELIST of keys that are safe to display to end users in the generic
+      // fallback. We invert what used to be a blacklist of internal keys: any
+      // key NOT in this set is suppressed. This guarantees that future
+      // enum-bearing or internal metadata keys can never leak raw into a
+      // WhatsApp message — only explicitly-approved, human-readable fields show.
+      const displayableKeys = new Set([
         'dueDate',
-        'customerName',
-        'sectorName',
         'priority',
-        'noReschedule',
+        'sector',
+        'sectorName',
+        'customer',
+        'customerName',
+        'assignedTo',
+        'value',
+        'quantity',
+        'deadline',
+        'location',
       ]);
 
       const metadataLines: string[] = [];
       Object.entries(data.metadata).forEach(([key, value]) => {
-        if (internalKeys.has(key)) {
+        if (!displayableKeys.has(key)) {
           return;
         }
 
@@ -602,12 +619,16 @@ ${data.url}`;
   private getMetadataLabel(key: string): string {
     const labels: Record<string, string> = {
       dueDate: '📅 *Prazo*',
+      deadline: '📅 *Prazo*',
       priority: '🎯 *Prioridade*',
       sector: '🏢 *Setor*',
+      sectorName: '🏢 *Setor*',
       customer: '👤 *Cliente*',
+      customerName: '👤 *Cliente*',
       assignedTo: '👤 *Responsável*',
       value: '💰 *Valor*',
       quantity: '📊 *Quantidade*',
+      location: '📍 *Local*',
     };
 
     return labels[key] || `*${key}*`;

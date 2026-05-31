@@ -28,7 +28,6 @@ import { Logger } from '@nestjs/common';
 import {
   BankTransactionType,
   Prisma,
-  ReconciliationCategory,
   ReconciliationStatus,
 } from '@prisma/client';
 
@@ -56,7 +55,7 @@ const TX_SELECT = {
   memo: true,
   bankSlipId: true,
   reconciliationStatus: true,
-  category: true,
+  expectsFiscalDocument: true,
 } satisfies Prisma.BankTransactionSelect;
 
 function fmt(amount: Prisma.Decimal | number): string {
@@ -97,7 +96,7 @@ async function main(): Promise<void> {
 
     // 2. Run the value-only matcher on each pending marketplace NF tx.
     const txs = await prisma.bankTransaction.findMany({
-      where: { ...MARKETPLACE_PENDING, category: ReconciliationCategory.NF },
+      where: { ...MARKETPLACE_PENDING, expectsFiscalDocument: true },
       select: TX_SELECT,
       orderBy: { postedAt: 'asc' },
     });

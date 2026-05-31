@@ -800,6 +800,78 @@ export class CutService {
         };
       });
 
+      // Emit cut events AFTER commit, mirroring the single create() path exactly:
+      // cut.request.created (origin=REQUEST + reason), cut.created otherwise, and
+      // cuts.added.to.task once per task. Wrapped in try/catch; never breaks the flow.
+      if (userId && result.success.length > 0) {
+        try {
+          const createdByUser = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, name: true, email: true },
+          });
+
+          if (createdByUser) {
+            // Resolve each distinct task once for event payloads + cuts.added.to.task.
+            const taskIds = [
+              ...new Set(
+                result.success.map(c => c.taskId).filter((t): t is string => Boolean(t)),
+              ),
+            ];
+            const taskMap = new Map<string, any>();
+            for (const taskId of taskIds) {
+              const task = await this.prisma.task.findUnique({
+                where: { id: taskId },
+                select: { id: true, name: true, sectorId: true, status: true },
+              });
+              if (task) taskMap.set(taskId, task);
+            }
+
+            for (const cut of result.success) {
+              const task = cut.taskId ? taskMap.get(cut.taskId) || null : null;
+
+              if (cut.origin === CUT_ORIGIN.REQUEST && cut.reason) {
+                let parentCut = null;
+                if (cut.parentCutId) {
+                  parentCut = await this.prisma.cut.findUnique({
+                    where: { id: cut.parentCutId },
+                  });
+                }
+                this.eventEmitter.emit(
+                  'cut.request.created',
+                  new CutRequestCreatedEvent(
+                    cut,
+                    task,
+                    cut.reason,
+                    parentCut,
+                    createdByUser as any,
+                  ),
+                );
+              } else {
+                this.eventEmitter.emit(
+                  'cut.created',
+                  new CutCreatedEvent(cut, task, createdByUser as any),
+                );
+              }
+            }
+
+            // Emit cuts.added.to.task once per task with all its newly-created cuts.
+            for (const taskId of taskIds) {
+              const task = taskMap.get(taskId);
+              if (!task) continue;
+              const taskCuts = result.success.filter(c => c.taskId === taskId);
+              if (taskCuts.length > 0) {
+                this.eventEmitter.emit(
+                  'cuts.added.to.task',
+                  new CutsAddedToTaskEvent(task, taskCuts, createdByUser as any),
+                );
+              }
+            }
+          }
+        } catch (eventError) {
+          this.logger.warn('Failed to emit cut batch created events:', eventError);
+        }
+      }
+
       const successMessage =
         result.totalCreated === 1
           ? '1 corte criado com sucesso'
@@ -830,6 +902,10 @@ export class CutService {
     userId?: string,
   ): Promise<CutBatchUpdateResponse<CutBatchUpdateData>> {
     try {
+      // Capture status transitions per cut so we can emit cut.started / cut.completed
+      // AFTER commit, mirroring the single update() path.
+      const statusTransitions: Array<{ cut: any; oldStatus: any }> = [];
+
       const result = await this.prisma.$transaction(async tx => {
         const successfulUpdates: any[] = [];
         const failedUpdates: any[] = [];
@@ -844,12 +920,19 @@ export class CutService {
               throw new NotFoundException('Corte não encontrado.');
             }
 
+            const oldStatus = existingCut.status;
+
             // Validate cut data
             await this.cutValidation(updateData, id, tx);
 
             // Update the cut
             const updatedCut = await this.cutRepository.updateWithTransaction(tx, id, updateData);
             successfulUpdates.push(updatedCut);
+
+            // Record status change for post-commit event emission
+            if (oldStatus !== updatedCut.status) {
+              statusTransitions.push({ cut: updatedCut, oldStatus });
+            }
 
             // Track field changes
             const fieldsToTrack = [
@@ -892,6 +975,56 @@ export class CutService {
           totalFailed: failedUpdates.length,
         };
       });
+
+      // Emit status-change events AFTER commit, mirroring the single update() path:
+      // cut.started (-> CUTTING) and cut.completed (-> COMPLETED). Never breaks flow.
+      if (userId && statusTransitions.length > 0) {
+        try {
+          const changedByUser = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, name: true, email: true },
+          });
+
+          if (changedByUser) {
+            // Resolve each distinct task once for the event payloads.
+            const taskIds = [
+              ...new Set(
+                statusTransitions
+                  .map(t => t.cut.taskId)
+                  .filter((t): t is string => Boolean(t)),
+              ),
+            ];
+            const taskMap = new Map<string, any>();
+            for (const taskId of taskIds) {
+              const task = await this.prisma.task.findUnique({
+                where: { id: taskId },
+                select: { id: true, name: true, sectorId: true, status: true },
+              });
+              if (task) taskMap.set(taskId, task);
+            }
+
+            for (const { cut } of statusTransitions) {
+              const task = cut.taskId ? taskMap.get(cut.taskId) || null : null;
+
+              if (cut.status === CUT_STATUS.CUTTING) {
+                this.eventEmitter.emit(
+                  'cut.started',
+                  new CutStartedEvent(cut, task, changedByUser as any),
+                );
+              }
+
+              if (cut.status === CUT_STATUS.COMPLETED) {
+                this.eventEmitter.emit(
+                  'cut.completed',
+                  new CutCompletedEvent(cut, task, changedByUser as any),
+                );
+              }
+            }
+          }
+        } catch (eventError) {
+          this.logger.warn('Failed to emit cut batch status changed events:', eventError);
+        }
+      }
 
       const successMessage =
         result.totalUpdated === 1

@@ -8,9 +8,10 @@ import { InvoiceRepository } from './repositories/invoice.repository';
 import { InvoicePrismaRepository } from './repositories/invoice-prisma.repository';
 import { SicrediModule } from '@modules/integrations/sicredi/sicredi.module';
 import { NfseModule } from '@modules/integrations/nfse/nfse.module';
+import { NotificationModule } from '@modules/common/notification/notification.module';
 
 @Module({
-  imports: [PrismaModule, SicrediModule, NfseModule],
+  imports: [PrismaModule, SicrediModule, NfseModule, NotificationModule],
   controllers: [InvoiceController],
   providers: [
     InvoiceService,

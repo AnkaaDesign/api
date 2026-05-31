@@ -6,9 +6,10 @@ import { WarningPrismaRepository } from './repositories/warning-prisma.repositor
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { FileModule } from '@modules/common/file/file.module';
+import { NotificationModule } from '@modules/common/notification/notification.module';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule, FileModule],
+  imports: [PrismaModule, ChangeLogModule, FileModule, NotificationModule],
   controllers: [WarningController],
   providers: [
     WarningService,

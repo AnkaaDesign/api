@@ -1,6 +1,7 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import type { Task } from '../../../types';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 
 /**
  * Interface representing a single field change
@@ -37,6 +38,11 @@ export interface TaskFieldChangedEvent {
   changedBy: string;
   isFileArray?: boolean;
   fileChange?: FileArrayChange;
+  /**
+   * Present only on the synthetic 'truck.layout' consolidated event. Human-readable
+   * PT-BR summary listing which truck sides had their layout changed.
+   */
+  layoutChangeSummary?: string;
 }
 
 /**
@@ -85,6 +91,17 @@ const TRACKED_FIELDS = [
 ] as const;
 
 /**
+ * Truck layout side fields. When more than one of these change in the same task
+ * update, they are collapsed into a single synthetic 'truck.layout' field so that
+ * only ONE consolidated notification is emitted (instead of one per side).
+ */
+const TRUCK_LAYOUT_SIDE_FIELDS: Record<string, string> = {
+  'truck.leftSideLayoutId': 'Motorista',
+  'truck.rightSideLayoutId': 'Sapo',
+  'truck.backSideLayoutId': 'Traseira',
+};
+
+/**
  * File array fields that require special handling
  */
 const FILE_ARRAY_FIELDS = [
@@ -109,7 +126,82 @@ const FILE_ARRAY_FIELDS = [
 export class TaskFieldTrackerService {
   private readonly logger = new Logger(TaskFieldTrackerService.name);
 
-  constructor(@Inject('EventEmitter') private readonly eventEmitter: EventEmitter) {}
+  constructor(
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
+    private readonly notificationDispatch: NotificationDispatchService,
+  ) {}
+
+  /**
+   * Extract the set of responsible user IDs from a responsibles field value.
+   * Handles both arrays of user objects ({ id }) and arrays of raw id strings.
+   */
+  private extractResponsibleIds(value: any): string[] {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((r: any) => (r && typeof r === 'object' ? r.id : r))
+      .filter((id: any): id is string => typeof id === 'string' && id.length > 0);
+  }
+
+  /**
+   * NEW key: task.assigned — targeted notification to the collaborators who were
+   * NEWLY ADDED as responsibles for a task. Mirrors the deep-link convention used
+   * by the other task field-change notifications. The broadcast
+   * 'task.field.responsibles' event continues to fire separately (handled by the
+   * caller / task.listener.ts); this only adds the targeted "you were assigned" ping.
+   *
+   * Wrapped so a dispatch failure never breaks the field-change flow.
+   */
+  private async dispatchTaskAssigned(
+    task: Task,
+    oldValue: any,
+    newValue: any,
+    changedBy: string,
+  ): Promise<void> {
+    try {
+      const oldIds = new Set(this.extractResponsibleIds(oldValue));
+      const newIds = this.extractResponsibleIds(newValue);
+      const addedIds = newIds.filter(id => !oldIds.has(id));
+
+      if (addedIds.length === 0) {
+        return;
+      }
+
+      const taskName = (task as any)?.name || 'Tarefa';
+
+      this.logger.log(
+        `[task.assigned] Dispatching to ${addedIds.length} newly added responsible(s) for task ${task.id}`,
+      );
+
+      await this.notificationDispatch.dispatchByConfigurationToUsers(
+        'task.assigned',
+        changedBy || 'system',
+        {
+          entityType: 'Task',
+          entityId: task.id,
+          action: 'assigned',
+          data: {
+            taskId: task.id,
+            taskName,
+            serialNumber: (task as any)?.serialNumber,
+            taskSectorId: (task as any)?.sectorId || null,
+          },
+          overrides: {
+            title: 'Você foi adicionado(a) a uma tarefa',
+            body: `Você foi adicionado(a) como responsável pela tarefa "${taskName}".`,
+            webUrl: `/producao/agenda/detalhes/${task.id}`,
+            mobileUrl: `/(tabs)/producao/cronograma/detalhes/${task.id}`,
+            relatedEntityType: 'Task',
+          },
+        },
+        addedIds,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[task.assigned] Failed to dispatch task.assigned notification for task ${task.id}:`,
+        error,
+      );
+    }
+  }
 
   /**
    * Track all field changes between old and new task states
@@ -421,7 +513,42 @@ export class TaskFieldTrackerService {
   async emitFieldChangeEvents(task: Task, changes: FieldChange[], oldTask?: Task): Promise<void> {
     this.logger.debug(`Emitting ${changes.length} field change events for task ${task.id}`);
 
-    for (const change of changes) {
+    // Detect truck layout side changes. When MORE THAN ONE side changed in the same
+    // update, collapse them into a single synthetic 'truck.layout' event so only ONE
+    // consolidated notification fires instead of one per side.
+    // Collapse whenever ANY layout side changed (one OR more) so the legacy per-side
+    // configs (task.field.truck.*SideLayoutId) go fully dormant and we always emit the
+    // consolidated 'truck.layout' event instead.
+    const layoutSideChanges = changes.filter(c => TRUCK_LAYOUT_SIDE_FIELDS[c.field]);
+    const shouldCollapseLayout = layoutSideChanges.length >= 1;
+
+    let remainingChanges = changes;
+    if (shouldCollapseLayout) {
+      const changedSideLabels = layoutSideChanges.map(c => TRUCK_LAYOUT_SIDE_FIELDS[c.field]);
+      const layoutChangeSummary = changedSideLabels.join(', ');
+
+      this.logger.log(
+        `Collapsing ${layoutSideChanges.length} truck layout side changes into a single 'truck.layout' event (${layoutChangeSummary})`,
+      );
+
+      // Emit one consolidated event for the truck layout
+      const layoutEvent: TaskFieldChangedEvent = {
+        task,
+        field: 'truck.layout',
+        oldValue: null,
+        newValue: null,
+        changedBy: layoutSideChanges[0].changedBy,
+        isFileArray: false,
+        layoutChangeSummary,
+      };
+      this.eventEmitter.emit('task.field.changed', layoutEvent);
+      this.logger.debug(`Emitted consolidated task.field.changed event for field: truck.layout`);
+
+      // Remove the per-side changes so they don't each emit their own notification
+      remainingChanges = changes.filter(c => !TRUCK_LAYOUT_SIDE_FIELDS[c.field]);
+    }
+
+    for (const change of remainingChanges) {
       let fileChange: FileArrayChange | undefined;
       let isFileArray = false;
 
@@ -456,6 +583,13 @@ export class TaskFieldTrackerService {
       this.eventEmitter.emit('task.field.changed', event);
 
       this.logger.debug(`Emitted task.field.changed event for field: ${change.field}`);
+
+      // NEW key: task.assigned — in addition to the broadcast 'task.field.responsibles'
+      // notification emitted above, ping the collaborators who were NEWLY ADDED as
+      // responsibles for this task (diff old vs new). Fire-and-forget; never blocks.
+      if (change.field === 'responsibles') {
+        await this.dispatchTaskAssigned(task, change.oldValue, change.newValue, change.changedBy);
+      }
     }
 
     this.logger.log(`Successfully emitted all field change events for task ${task.id}`);

@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { InvoiceRepository } from './repositories/invoice.repository';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 import type {
@@ -28,7 +29,57 @@ export class InvoiceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly invoiceRepository: InvoiceRepository,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
+
+  /**
+   * Emit invoice.cancelled to FINANCIAL/COMMERCIAL/ADMIN after an invoice is cancelled.
+   * Best-effort — never breaks the cancellation flow. Deep link keyed by taskId.
+   */
+  private async dispatchInvoiceCancelledNotification(
+    invoiceId: string,
+    reason?: string,
+  ): Promise<void> {
+    try {
+      const invoice = await this.prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          customer: { select: { fantasyName: true } },
+          task: { select: { id: true, name: true, serialNumber: true } },
+        },
+      });
+      if (!invoice) return;
+
+      const customerName = invoice.customer?.fantasyName || 'N/A';
+      const taskName = invoice.task?.name || 'N/A';
+      const taskId = invoice.task?.id ?? invoice.taskId ?? null;
+
+      const webUrl = taskId ? `/financeiro/faturamento/detalhes/${taskId}` : undefined;
+      const mobileUrl = taskId ? `financial/${taskId}` : undefined;
+
+      await this.dispatchService.dispatchByConfiguration('invoice.cancelled', 'system', {
+        entityType: 'Invoice',
+        entityId: taskId ?? invoice.id,
+        action: 'cancelled',
+        data: {
+          customerName,
+          taskName,
+          reason: reason || 'Não especificado',
+          invoiceId: invoice.id,
+          taskId: taskId || undefined,
+        },
+        overrides: {
+          title: 'Fatura Cancelada',
+          body: `A fatura da tarefa ${taskName} (${customerName}) foi cancelada.${reason ? `\nMotivo: ${reason}` : ''}`,
+          relatedEntityType: 'INVOICE',
+          ...(webUrl ? { webUrl } : {}),
+          ...(mobileUrl ? { mobileUrl } : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error('Falha ao notificar cancelamento de fatura (invoice.cancelled):', error);
+    }
+  }
 
   /**
    * Find many invoices with filtering, pagination, and sorting.
@@ -230,6 +281,9 @@ export class InvoiceService {
         `Failed to revert TaskQuote status after invoice cancellation: ${revertError}`,
       );
     }
+
+    // Notify FINANCIAL/COMMERCIAL/ADMIN that the invoice was cancelled.
+    await this.dispatchInvoiceCancelledNotification(id, reason);
 
     // Return the updated invoice
     return this.findById(id);

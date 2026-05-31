@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { Prisma } from '@prisma/client';
 import type {
   QuestionnaireGroupCreateFormData,
@@ -25,7 +26,10 @@ const ADMIN_LIKE = new Set(['ADMIN', 'HUMAN_RESOURCES', 'PRODUCTION_MANAGER']);
 export class QuestionnaireService {
   private readonly logger = new Logger(QuestionnaireService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly dispatchService: NotificationDispatchService,
+  ) {}
 
   // ===================================================================
   // GROUP CRUD
@@ -422,6 +426,37 @@ export class QuestionnaireService {
       where: { id },
       include: { entries: true, targetUsers: true, questions: true },
     });
+
+    // Notify each targeted respondent that a questionnaire was assigned to them.
+    try {
+      const respondentIds = users.map(u => u.id);
+      if (respondentIds.length) {
+        const questionnaireName = (fresh as any)?.name || existing.data.name || 'Questionário';
+        await this.dispatchService.dispatchByConfigurationToUsers(
+          'questionnaire.assigned',
+          'system',
+          {
+            entityType: 'Questionnaire',
+            entityId: id,
+            action: 'assigned',
+            data: {
+              questionnaireName,
+            },
+            overrides: {
+              title: 'Novo Questionário Atribuído',
+              body: `O questionário "${questionnaireName}" foi atribuído a você. Acesse para respondê-lo.`,
+              webUrl: `/pessoal/questionarios`,
+              mobileUrl: `/(tabs)/pessoal/questionarios`,
+              relatedEntityType: 'QUESTIONNAIRE',
+            },
+          },
+          respondentIds,
+        );
+      }
+    } catch (error) {
+      this.logger.error('Falha ao notificar atribuição de questionário (questionnaire.assigned):', error);
+    }
+
     return {
       success: true,
       message: `Questionário aberto com ${users.length} fichas geradas.`,
@@ -435,6 +470,44 @@ export class QuestionnaireService {
       throw new BadRequestException('Apenas questionários abertos podem ser fechados.');
     }
     const updated = await this.prisma.questionnaire.update({ where: { id }, data: { status: 'CLOSED' } });
+
+    // Notify administrators (and the campaign creator) that the questionnaire was closed.
+    try {
+      const questionnaireName = (updated as any)?.name || existing.data.name || 'Questionário';
+      // Count submitted responses to enrich the override body (pt-BR).
+      const submittedCount = await this.prisma.questionnaireEntry.count({
+        where: { questionnaireId: id, status: 'SUBMITTED', deletedAt: null },
+      });
+      const closedContext = {
+        entityType: 'Questionnaire',
+        entityId: id,
+        action: 'closed',
+        data: {
+          questionnaireName,
+          submittedCount,
+        },
+        overrides: {
+          title: 'Questionário Encerrado',
+          body: `A campanha do questionário "${questionnaireName}" foi encerrada com ${submittedCount} resposta(s) enviada(s).`,
+          webUrl: `/administracao/questionarios/${id}`,
+          relatedEntityType: 'QUESTIONNAIRE',
+        },
+      };
+      await this.dispatchService.dispatchByConfiguration('questionnaire.closed', 'system', closedContext);
+      // Also notify the campaign creator, who may not belong to the targeted sector.
+      const createdById = (updated as any)?.createdById || (existing.data as any)?.createdById;
+      if (createdById) {
+        await this.dispatchService.dispatchByConfigurationToUsers(
+          'questionnaire.closed',
+          'system',
+          closedContext,
+          [createdById],
+        );
+      }
+    } catch (error) {
+      this.logger.error('Falha ao notificar encerramento de questionário (questionnaire.closed):', error);
+    }
+
     return { success: true, message: 'Questionário fechado', data: updated };
   }
 
@@ -687,6 +760,7 @@ export class QuestionnaireService {
       include: {
         questionnaire: { include: { questions: true } },
         answers: true,
+        respondent: { select: { id: true, name: true } },
       },
     });
     if (!entry) throw new NotFoundException('Ficha de questionário não encontrada');
@@ -712,6 +786,50 @@ export class QuestionnaireService {
       where: { id: entryId },
       data: { status: 'SUBMITTED', submittedAt: new Date() },
     });
+
+    // Notify ADMIN/HR (and the campaign creator) that a response was submitted.
+    // Suppress entirely when the questionnaire is anonymous/incognito to avoid
+    // leaking respondent identity.
+    try {
+      if (!(entry.questionnaire as any).isAnonymous) {
+        const questionnaireName = (entry.questionnaire as any)?.name || 'Questionário';
+        const respondentName = (entry as any)?.respondent?.name || 'Um colaborador';
+        const submittedContext = {
+          entityType: 'Questionnaire',
+          // Route by the questionnaire id (admin detail route is keyed by it).
+          entityId: entry.questionnaireId,
+          action: 'submitted',
+          data: {
+            questionnaireName,
+            respondentName,
+          },
+          overrides: {
+            title: 'Resposta de Questionário Enviada',
+            body: `${respondentName} enviou uma resposta do questionário "${questionnaireName}".`,
+            webUrl: `/administracao/questionarios/${entry.questionnaireId}`,
+            relatedEntityType: 'QUESTIONNAIRE',
+          },
+        };
+        await this.dispatchService.dispatchByConfiguration(
+          'questionnaire.entry.submitted',
+          currentUserId,
+          submittedContext,
+        );
+        // Also notify the campaign creator, who may not belong to the targeted sector.
+        const createdById = (entry.questionnaire as any)?.createdById;
+        if (createdById) {
+          await this.dispatchService.dispatchByConfigurationToUsers(
+            'questionnaire.entry.submitted',
+            currentUserId,
+            submittedContext,
+            [createdById],
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error('Falha ao notificar envio de ficha (questionnaire.entry.submitted):', error);
+    }
+
     return { success: true, message: 'Ficha enviada', data: updated };
   }
 

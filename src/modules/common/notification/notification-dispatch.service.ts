@@ -17,6 +17,19 @@ import {
   ENTITY_TYPE,
   CHANGE_ACTION,
   CHANGE_TRIGGERED_BY,
+  TASK_STATUS_LABELS,
+  SERVICE_ORDER_STATUS_LABELS,
+  SERVICE_ORDER_TYPE_LABELS,
+  ORDER_STATUS_LABELS,
+  AIRBRUSHING_STATUS_LABELS,
+  BORROW_STATUS_LABELS,
+  EXTERNAL_WITHDRAWAL_STATUS_LABELS,
+  PPE_REQUEST_STATUS_LABELS,
+  PPE_DELIVERY_STATUS_LABELS,
+  MAINTENANCE_STATUS_LABELS,
+  CUT_STATUS_LABELS,
+  SECTOR_PRIVILEGES_LABELS,
+  NOTIFICATION_PRIORITY_LABELS,
 } from '../../../constants';
 import { Prisma, NotificationActionType } from '@prisma/client';
 import { DeepLinkService } from './deep-link.service';
@@ -59,6 +72,10 @@ export interface NotificationContext {
     actionUrl?: string;
     /** Web URL for the notification metadata */
     webUrl?: string;
+    /** Mobile (expo-router) deep-link path for the notification metadata */
+    mobileUrl?: string;
+    /** Universal link for the notification metadata */
+    universalLink?: string;
     /** Related entity type for the notification record */
     relatedEntityType?: string;
     /** Related entity ID override (e.g., use taskId instead of serviceOrderId) */
@@ -173,8 +190,10 @@ export class NotificationDispatchService {
       }
 
       // 3.5. Check working day + work hours restriction (8:00-18:00, weekdays only, no holidays)
-      // All notifications respect this — no exceptions
-      const canSend = await this.workScheduleService.canSendNow();
+      // URGENT notifications bypass the work-hours gate — a critical alert (system health,
+      // payroll/data failure, fiscal rejection, security) must not wait until Monday 8AM.
+      const canSend =
+        notification.importance === 'URGENT' ? true : await this.workScheduleService.canSendNow();
       if (!canSend) {
         const metadata = notification.metadata as any;
 
@@ -1456,7 +1475,13 @@ export class NotificationDispatchService {
       }
 
       if (targetUsers.length === 0) {
-        this.logger.log(`No target users found for configuration: ${configKey}`);
+        // Distinguish "no eligible recipients" (empty/misconfigured sector, or the
+        // only eligible user is the actor and got self-excluded) so silent no-sends
+        // are diagnosable instead of invisible.
+        this.logger.warn(
+          `No target users for configuration "${configKey}" (actor=${triggeringUserId}). ` +
+            `Notification not sent — check targetRule.allowedSectors / actor-self-exclusion.`,
+        );
         return;
       }
 
@@ -1496,25 +1521,29 @@ export class NotificationDispatchService {
       // Render templates from database configuration
       // IMPORTANT: Spread raw data FIRST, then override with formatted values
       // This ensures proper formatting of dates, arrays, and other complex types
+      // Normalize known enum-bearing fields into pt-BR labels at the single
+      // chokepoint so no raw enum can leak into any channel (in-app/email/push/whatsapp).
+      const normalizedData = this.normalizeEnumLabels(context.entityType, context.data);
+
       // Determine add/remove/change verb for field changes (empty→value, value→empty, value→value)
-      const formattedOldValue = this.formatNotificationValue(context.data.oldValue);
-      const formattedNewValue = this.formatNotificationValue(context.data.newValue);
+      const formattedOldValue = this.formatNotificationValue(normalizedData.oldValue);
+      const formattedNewValue = this.formatNotificationValue(normalizedData.newValue);
       const isAdded = !formattedOldValue && !!formattedNewValue;
       const isRemoved = !!formattedOldValue && !formattedNewValue;
 
       const templateVars = {
-        ...context.data, // Raw data first (will be overwritten by formatted values below)
-        taskName: context.data.taskName || '',
-        serialNumber: context.data.serialNumber || '',
+        ...normalizedData, // Normalized data first (will be overwritten by formatted values below)
+        taskName: normalizedData.taskName || '',
+        serialNumber: normalizedData.serialNumber || '',
         oldValue: formattedOldValue,
         newValue: formattedNewValue,
-        changedBy: this.formatUserName(context.data.changedBy),
-        daysOverdue: this.formatDaysWithPlural(context.data.daysOverdue, 'dia', 'dias'),
-        daysRemaining: this.formatDaysWithPlural(context.data.daysRemaining, 'dia', 'dias'),
-        count: context.data.count?.toString() || '',
+        changedBy: this.formatUserName(normalizedData.changedBy),
+        daysOverdue: this.formatDaysWithPlural(normalizedData.daysOverdue, 'dia', 'dias'),
+        daysRemaining: this.formatDaysWithPlural(normalizedData.daysRemaining, 'dia', 'dias'),
+        count: normalizedData.count?.toString() || '',
         fileChangeDescription:
-          context.data.fileChangeDescription ||
-          this.formatFileChange(context.data.addedCount, context.data.removedCount),
+          normalizedData.fileChangeDescription ||
+          this.formatFileChange(normalizedData.addedCount, normalizedData.removedCount),
         isAdded,
         isRemoved,
         changeVerb: isAdded ? 'adicionado' : isRemoved ? 'removido' : 'alterado',
@@ -1526,8 +1555,17 @@ export class NotificationDispatchService {
       const title =
         context.overrides?.title ||
         renderedTemplates.inApp?.title ||
-        this.buildNotificationTitleFromConfig(dbConfig, context.data);
+        this.buildNotificationTitleFromConfig(dbConfig, normalizedData);
       const body = context.overrides?.body || renderedTemplates.inApp?.body || '';
+
+      // Build per-channel rendered templates so the queue processor can deliver
+      // each channel's OWN template (email/push/whatsapp) instead of the persisted
+      // in-app title/body. Explicit overrides win over the rendered channel template.
+      // inApp is intentionally omitted: the persisted title/body already represent it.
+      const channelTemplates = this.buildChannelTemplates(
+        renderedTemplates,
+        context.overrides,
+      );
 
       // Create notifications for all target users
       let notificationsCreated = 0;
@@ -1564,14 +1602,20 @@ export class NotificationDispatchService {
             channel: channels,
             metadata: {
               webUrl,
-              mobileUrl: deepLinks?.mobile || parsedOverrideLinks?.mobile,
-              universalLink: deepLinks?.universalLink || parsedOverrideLinks?.universalLink,
+              mobileUrl:
+                context.overrides?.mobileUrl || deepLinks?.mobile || parsedOverrideLinks?.mobile,
+              universalLink:
+                context.overrides?.universalLink ||
+                deepLinks?.universalLink ||
+                parsedOverrideLinks?.universalLink,
               configKey: configKey,
               actorId: triggeringUserId === 'system' ? undefined : triggeringUserId,
               entityType: context.entityType,
               entityId: context.entityId,
-              ...context.data,
+              ...normalizedData,
               ...context.metadata,
+              // Per-channel pre-rendered templates for the queue processor.
+              ...(channelTemplates ? { channelTemplates } : {}),
             },
           },
         });
@@ -1675,7 +1719,11 @@ export class NotificationDispatchService {
       });
 
       if (targetUsers.length === 0) {
-        this.logger.log(`No target users found for targeted dispatch: ${configKey}`);
+        this.logger.warn(
+          `No target users for targeted dispatch "${configKey}" (actor=${triggeringUserId}, ` +
+            `requested ${targetUserIds?.length ?? 0} id(s)). Notification not sent — ` +
+            `recipient ids may be unresolved, inactive, or all equal to the actor.`,
+        );
         return;
       }
 
@@ -1688,33 +1736,53 @@ export class NotificationDispatchService {
         ? null
         : this.generateDeepLinksForEntity(effectiveEntityType, effectiveEntityId);
 
+      // If actionUrl override is a JSON string with deep links, parse it to extract web/mobile/universal
+      let parsedOverrideLinks: { universalLink?: string; mobile?: string; web?: string } | null =
+        null;
+      if (context.overrides?.actionUrl) {
+        try {
+          const parsed = JSON.parse(context.overrides.actionUrl);
+          if (parsed && typeof parsed === 'object' && (parsed.universalLink || parsed.web || parsed.mobile)) {
+            parsedOverrideLinks = parsed;
+          }
+        } catch {
+          // Not JSON, that's fine — it's a plain URL string
+        }
+      }
+
       const actionUrl = context.overrides?.actionUrl || JSON.stringify(deepLinks);
       const webUrl =
         context.overrides?.webUrl ||
         deepLinks?.webPath ||
+        parsedOverrideLinks?.web ||
         `/producao/agenda/detalhes/${effectiveEntityId}`;
       const relatedEntityType = effectiveEntityType || 'TASK';
 
       // Render templates
       // IMPORTANT: Spread raw data FIRST, then override with formatted values
+      // Normalize known enum-bearing fields into pt-BR labels at the single chokepoint.
+      const normalizedData = this.normalizeEnumLabels(context.entityType, context.data);
+
       const templateVars = {
-        ...context.data, // Raw data first
-        taskName: context.data.taskName || '',
-        serialNumber: context.data.serialNumber || '',
-        oldValue: this.formatNotificationValue(context.data.oldValue),
-        newValue: this.formatNotificationValue(context.data.newValue),
-        changedBy: this.formatUserName(context.data.changedBy),
+        ...normalizedData, // Normalized data first
+        taskName: normalizedData.taskName || '',
+        serialNumber: normalizedData.serialNumber || '',
+        oldValue: this.formatNotificationValue(normalizedData.oldValue),
+        newValue: this.formatNotificationValue(normalizedData.newValue),
+        changedBy: this.formatUserName(normalizedData.changedBy),
         fileChangeDescription:
-          context.data.fileChangeDescription ||
-          this.formatFileChange(context.data.addedCount, context.data.removedCount),
+          normalizedData.fileChangeDescription ||
+          this.formatFileChange(normalizedData.addedCount, normalizedData.removedCount),
       };
 
       const renderedTemplates = this.configurationService.renderTemplates(dbConfig, templateVars);
       const title =
         context.overrides?.title ||
         renderedTemplates.inApp?.title ||
-        this.buildNotificationTitleFromConfig(dbConfig, context.data);
+        this.buildNotificationTitleFromConfig(dbConfig, normalizedData);
       const body = context.overrides?.body || renderedTemplates.inApp?.body || '';
+
+      const channelTemplates = this.buildChannelTemplates(renderedTemplates, context.overrides);
 
       const actionType = this.getActionTypeFromConfigKey(configKey);
 
@@ -1745,14 +1813,19 @@ export class NotificationDispatchService {
             channel: channels,
             metadata: {
               webUrl,
-              mobileUrl: deepLinks?.mobile,
-              universalLink: deepLinks?.universalLink,
+              mobileUrl:
+                context.overrides?.mobileUrl || deepLinks?.mobile || parsedOverrideLinks?.mobile,
+              universalLink:
+                context.overrides?.universalLink ||
+                deepLinks?.universalLink ||
+                parsedOverrideLinks?.universalLink,
               configKey,
               actorId: triggeringUserId === 'system' ? undefined : triggeringUserId,
               entityType: context.entityType,
               entityId: context.entityId,
-              ...context.data,
+              ...normalizedData,
               ...context.metadata,
+              ...(channelTemplates ? { channelTemplates } : {}),
             },
           },
         });
@@ -1866,10 +1939,216 @@ export class NotificationDispatchService {
         return this.deepLinkService.generateServiceOrderLinks(entityId);
       case 'User':
         return this.deepLinkService.generateUserLinks(entityId);
+      // New entity types route via the emit site's explicit overrides
+      // (overrides.webUrl + overrides.actionUrl JSON). Returning null here prevents
+      // them from falling through to bogus TASK deep links; the dispatch metadata
+      // build then picks up the override links (web/mobile/universal) instead.
+      case 'TaskQuote':
+      case 'SecullumSolicitacao':
+      case 'Questionnaire':
+      case 'Assessment':
+      case 'ReconciliationRun':
+      case 'OrderSchedule':
+      case 'PpeDelivery':
+      case 'BankSlip':
+      case 'Payroll':
+      case 'Message':
+        return null;
       default:
         // Fallback to task links for task-related entities (Cut, Artwork, etc.)
         return this.deepLinkService.generateTaskLinks(entityId);
     }
+  }
+
+  // =====================================================
+  // ENUM -> pt-BR LABEL NORMALIZATION (single chokepoint)
+  // =====================================================
+
+  /**
+   * Map a raw enum value to its pt-BR label using the given map.
+   * Unknown values (or non-strings) pass through unchanged so we never
+   * accidentally blank out a free-form value.
+   */
+  private labelFor(map: Record<string, string>, value: any): any {
+    if (typeof value !== 'string') {
+      return value;
+    }
+    return map[value] ?? value;
+  }
+
+  /**
+   * Pick the correct status label map for an entity type.
+   */
+  private statusLabelMapForEntity(entityType?: string): Record<string, string> {
+    switch (entityType) {
+      case 'Task':
+      case 'TASK':
+        return TASK_STATUS_LABELS as Record<string, string>;
+      case 'ServiceOrder':
+      case 'SERVICE_ORDER':
+        return SERVICE_ORDER_STATUS_LABELS as Record<string, string>;
+      case 'Order':
+      case 'ORDER':
+        return ORDER_STATUS_LABELS as Record<string, string>;
+      case 'Airbrushing':
+      case 'AIRBRUSHING':
+        return AIRBRUSHING_STATUS_LABELS as Record<string, string>;
+      case 'Borrow':
+      case 'BORROW':
+        return BORROW_STATUS_LABELS as Record<string, string>;
+      case 'ExternalWithdrawal':
+      case 'EXTERNAL_WITHDRAWAL':
+        return EXTERNAL_WITHDRAWAL_STATUS_LABELS as Record<string, string>;
+      case 'PpeRequest':
+      case 'PPE_REQUEST':
+        return PPE_REQUEST_STATUS_LABELS as Record<string, string>;
+      case 'PpeDelivery':
+      case 'PPE_DELIVERY':
+        return PPE_DELIVERY_STATUS_LABELS as Record<string, string>;
+      case 'Maintenance':
+      case 'MAINTENANCE':
+        return MAINTENANCE_STATUS_LABELS as Record<string, string>;
+      case 'Cut':
+      case 'CUT':
+        return CUT_STATUS_LABELS as Record<string, string>;
+      default:
+        // Unknown/unmapped entity type: merge ALL status maps so any status enum
+        // still resolves to a pt-BR label and never leaks raw into a message.
+        // (Status enum values are globally fairly unique across domains.)
+        this.logger.debug(
+          `normalizeEnumLabels: no dedicated status map for entityType "${entityType}" — using merged fallback`,
+        );
+        return {
+          ...(ORDER_STATUS_LABELS as Record<string, string>),
+          ...(TASK_STATUS_LABELS as Record<string, string>),
+          ...(SERVICE_ORDER_STATUS_LABELS as Record<string, string>),
+          ...(AIRBRUSHING_STATUS_LABELS as Record<string, string>),
+          ...(BORROW_STATUS_LABELS as Record<string, string>),
+          ...(EXTERNAL_WITHDRAWAL_STATUS_LABELS as Record<string, string>),
+          ...(PPE_REQUEST_STATUS_LABELS as Record<string, string>),
+          ...(PPE_DELIVERY_STATUS_LABELS as Record<string, string>),
+          ...(MAINTENANCE_STATUS_LABELS as Record<string, string>),
+          ...(CUT_STATUS_LABELS as Record<string, string>),
+        };
+    }
+  }
+
+  /**
+   * Normalize known enum-bearing fields in the notification data into their
+   * pt-BR labels BEFORE they reach templateVars and persisted metadata.
+   *
+   * This is the single chokepoint that prevents raw enum values
+   * (e.g. "IN_PRODUCTION", "WAITING_APPROVE", "PRODUCTION") from leaking into
+   * any delivery channel (in-app, email, push, WhatsApp). Returns a new object;
+   * the original context.data is not mutated.
+   */
+  private normalizeEnumLabels(
+    entityType: string | undefined,
+    data: Record<string, any>,
+  ): Record<string, any> {
+    if (!data || typeof data !== 'object') {
+      return data;
+    }
+
+    const statusMap = this.statusLabelMapForEntity(entityType);
+    const normalized: Record<string, any> = { ...data };
+
+    // Status fields — choose the map by entity type
+    for (const key of ['oldStatus', 'newStatus', 'status']) {
+      if (normalized[key] !== undefined) {
+        normalized[key] = this.labelFor(statusMap, normalized[key]);
+      }
+    }
+
+    // Service order type (and generic "type" when it carries an SO type enum)
+    if (
+      (entityType === 'ServiceOrder' || entityType === 'SERVICE_ORDER') &&
+      normalized.type !== undefined
+    ) {
+      normalized.type = this.labelFor(
+        SERVICE_ORDER_TYPE_LABELS as Record<string, string>,
+        normalized.type,
+      );
+    }
+
+    // Priority -> pt-BR
+    if (normalized.priority !== undefined) {
+      normalized.priority = this.labelFor(NOTIFICATION_PRIORITY_LABELS, normalized.priority);
+    }
+
+    // Sector / privileges -> pt-BR
+    for (const key of ['sector', 'privileges', 'privilege']) {
+      if (normalized[key] !== undefined) {
+        normalized[key] = this.labelFor(
+          SECTOR_PRIVILEGES_LABELS as Record<string, string>,
+          normalized[key],
+        );
+      }
+    }
+
+    // oldValue/newValue may carry a status enum when the changed field is the
+    // status itself; normalize against the status map (pass-through otherwise).
+    for (const key of ['oldValue', 'newValue']) {
+      if (typeof normalized[key] === 'string' && statusMap[normalized[key]] !== undefined) {
+        normalized[key] = statusMap[normalized[key]];
+      }
+    }
+
+    return normalized;
+  }
+
+  /**
+   * Build the per-channel rendered template payload persisted on
+   * notification.metadata.channelTemplates so the queue processor can deliver
+   * each channel's OWN template (email/push/whatsapp).
+   *
+   * Explicit overrides.title/body win over the rendered channel template for
+   * push (which has a title+body). Email keeps its own subject; WhatsApp has no
+   * title. Returns undefined when there are no non-inApp channel templates and
+   * no overrides, so we don't persist empty metadata.
+   */
+  private buildChannelTemplates(
+    renderedTemplates: {
+      email?: { subject: string; body: string; html?: string };
+      push?: { title: string; body: string };
+      whatsapp?: { body: string };
+    },
+    overrides?: { title?: string; body?: string },
+  ):
+    | {
+        email?: { subject: string; body: string; html?: string };
+        push?: { title: string; body: string };
+        whatsapp?: { body: string };
+      }
+    | undefined {
+    const result: {
+      email?: { subject: string; body: string; html?: string };
+      push?: { title: string; body: string };
+      whatsapp?: { body: string };
+    } = {};
+
+    if (renderedTemplates.email) {
+      result.email = {
+        subject: overrides?.title || renderedTemplates.email.subject,
+        body: overrides?.body || renderedTemplates.email.body,
+        html: renderedTemplates.email.html,
+      };
+    }
+
+    if (renderedTemplates.push) {
+      result.push = {
+        title: overrides?.title || renderedTemplates.push.title,
+        body: overrides?.body || renderedTemplates.push.body,
+      };
+    }
+
+    if (renderedTemplates.whatsapp) {
+      result.whatsapp = {
+        body: overrides?.body || renderedTemplates.whatsapp.body,
+      };
+    }
+
+    return Object.keys(result).length > 0 ? result : undefined;
   }
 
   // =====================================================

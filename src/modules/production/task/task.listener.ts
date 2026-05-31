@@ -244,6 +244,43 @@ export class TaskListener {
 
       const changedByName = changedByUser?.name || 'Sistema';
 
+      // Consolidated truck layout change. The TaskFieldTrackerService collapses all
+      // changed truck-layout side fields into a single synthetic 'truck.layout' event,
+      // so we dispatch ONE notification instead of one per side. The legacy per-side
+      // configs (task.field.truck.*SideLayoutId) go dormant since they are no longer emitted.
+      if (event.field === 'truck.layout') {
+        const layoutChangeSummary = event.layoutChangeSummary || 'lados atualizados';
+
+        await this.dispatchService.dispatchByConfiguration(
+          'task.field.truck.layout',
+          event.changedBy,
+          {
+            entityType: 'Task',
+            entityId: event.task.id,
+            action: 'field_changed',
+            data: {
+              taskId: event.task.id,
+              taskName: event.task.name,
+              serialNumber: event.task.serialNumber,
+              taskSectorId: event.task.sectorId || null,
+              fieldName: 'truck.layout',
+              changedBy: changedByName,
+              layoutChangeSummary,
+            },
+            overrides: {
+              title: 'Layout do Caminhão atualizado',
+              body: `Layout do caminhão da tarefa "${event.task.name}" atualizado por ${changedByName}: ${layoutChangeSummary}`,
+              webUrl: `/producao/agenda/detalhes/${event.task.id}`,
+            },
+          },
+        );
+
+        this.logger.log(
+          `Consolidated truck layout notification dispatched (task.field.truck.layout): ${layoutChangeSummary}`,
+        );
+        return;
+      }
+
       // Calculate counts and formatted description for file arrays
       let count: number | undefined;
       let addedCount: number | undefined;

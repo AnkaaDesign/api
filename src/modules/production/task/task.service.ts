@@ -86,6 +86,7 @@ import {
 } from '../../../utils/task-quote-service-order-sync';
 import { TaskCreatedEvent, TaskStatusChangedEvent } from './task.events';
 import { ArtworkApprovedEvent, ArtworkReprovedEvent } from './artwork.events';
+import { CutCreatedEvent, CutsAddedToTaskEvent } from '../cut/cut.events';
 import { TaskFieldTrackerService } from './task-field-tracker.service';
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
 // NOTE: TaskNotificationService import removed - legacy notification path was deprecated
@@ -6067,12 +6068,19 @@ export class TaskService {
         // We still fetch the privilege for logging, but fall back to ADMIN since the endpoint guard
         // already validated the user's permission level.
         let userPrivilege: string | undefined;
+        // Acting user (id/name/email) for artwork.approved/reproved event context — so the
+        // batch artwork-status path emits the SAME notifications as the single-update path.
+        let artworkEventUser: { id: string; name: string | null; email: string | null } | null =
+          null;
         if (userId) {
           const user = await tx.user.findUnique({
             where: { id: userId },
-            select: { sector: { select: { privileges: true } } },
+            select: { id: true, name: true, email: true, sector: { select: { privileges: true } } },
           });
           userPrivilege = user?.sector?.privileges || SECTOR_PRIVILEGES.ADMIN;
+          if (user) {
+            artworkEventUser = { id: user.id, name: user.name, email: user.email };
+          }
           this.logger.log(
             `[batchUpdate] User ${userId} privilege: ${userPrivilege} (sector: ${user?.sector?.privileges || 'none'})`,
           );
@@ -6093,6 +6101,11 @@ export class TaskService {
           newValue: any;
           isFileArray: boolean;
         }> = [];
+
+        // Store cuts created additively via the batch path, grouped by task, so that
+        // after the transaction commits we emit cut.created / cuts.added.to.task — mirroring
+        // CutService.create (the single-item path). Without this, batch-created cuts were silent.
+        const cutsCreatedByTask = new Map<string, any[]>();
 
         for (const update of data.tasks) {
           this.logger.log(`[batchUpdate] Processing task ${update.id}`);
@@ -6531,6 +6544,10 @@ export class TaskService {
                   artworkStatuses,
                   userPrivilege,
                   tx,
+                  // Event context so artwork.approved/reproved fire on batch status changes
+                  artworkEventUser
+                    ? { user: artworkEventUser, task: existingTaskStates.get(update.id) }
+                    : undefined,
                 );
               }
             } else if (existingArtworks.length > 0) {
@@ -6555,6 +6572,10 @@ export class TaskService {
                 artworkStatuses,
                 userPrivilege,
                 tx,
+                // Event context so artwork.approved/reproved fire on batch status changes
+                artworkEventUser
+                  ? { user: artworkEventUser, task: existingTaskStates.get(update.id) }
+                  : undefined,
               );
 
               // Combine found Artwork IDs with newly converted ones
@@ -6576,6 +6597,10 @@ export class TaskService {
                   artworkStatuses, // artworkStatuses from frontend
                   userPrivilege,
                   tx,
+                  // Event context so artwork.approved/reproved fire on batch status changes
+                  artworkEventUser
+                    ? { user: artworkEventUser, task: existingTaskStates.get(update.id) }
+                    : undefined,
                 );
 
                 if (!artworkEntityIds || artworkEntityIds.length === 0) {
@@ -6637,6 +6662,8 @@ export class TaskService {
                 artworkStatuses,
                 userPrivilege,
                 tx,
+                // Event context so artwork.approved/reproved fire on batch status changes
+                artworkEventUser ? { user: artworkEventUser, task: existingTask } : undefined,
               );
               this.logger.log(
                 `[batchUpdate] Task ${update.id}: Status-only update completed, ${updatedArtworkIds.length} artworks processed`,
@@ -6898,7 +6925,7 @@ export class TaskService {
                 if (!cutItem.fileId) continue;
                 const quantity = (cutItem as any).quantity || 1;
                 for (let i = 0; i < quantity; i++) {
-                  await tx.cut.create({
+                  const createdCut = await tx.cut.create({
                     data: {
                       fileId: cutItem.fileId,
                       type: cutItem.type as any,
@@ -6909,6 +6936,11 @@ export class TaskService {
                       taskId: update.id,
                     },
                   });
+
+                  // Collect for post-commit cut.created / cuts.added.to.task emission
+                  const existingCuts = cutsCreatedByTask.get(update.id) || [];
+                  existingCuts.push(createdCut);
+                  cutsCreatedByTask.set(update.id, existingCuts);
                 }
               }
 
@@ -7240,6 +7272,22 @@ export class TaskService {
               this.logger.log(
                 `[batchUpdate] Changelog created for task ${taskId}: layouts applied for ${sides.join(', ')}`,
               );
+
+              // Collect truck-layout side changes for post-commit notification emission.
+              // These are routed through fieldTracker.emitFieldChangeEvents which collapses
+              // the trio (truck.leftSideLayoutId/rightSideLayoutId/backSideLayoutId) into a
+              // SINGLE consolidated 'truck.layout' event — mirroring the single-update path.
+              for (const pair of layoutSidePairs) {
+                if (pair.oldId === pair.newId) continue;
+                fieldChangesForEvents.push({
+                  taskId,
+                  task: { id: taskId },
+                  field: `truck.${pair.field}`,
+                  oldValue: pair.oldId,
+                  newValue: pair.newId,
+                  isFileArray: false,
+                });
+              }
             }
 
             this.logger.log(`[batchUpdate] Finished processing layouts for task ${taskId}`);
@@ -7782,37 +7830,182 @@ export class TaskService {
         this.logger.log(
           `[batchUpdate] Transaction complete. Success: ${result.totalUpdated}, Failed: ${result.totalFailed}`,
         );
-        return { ...result, fieldChangesForEvents };
+        return { ...result, fieldChangesForEvents, cutsCreatedByTask };
       });
 
-      // After transaction: Emit field change events for notifications
+      // After transaction: Emit field change events for notifications.
+      // Instead of hand-rolling raw 'task.field.changed' emits (which bypassed the
+      // TaskFieldTrackerService), route every changed task through the SAME logic the
+      // single-update path uses:
+      //   (a) status changes -> dedicated 'task.status.changed' event (NOT a generic field),
+      //   (b) the truck-layout side trio -> ONE consolidated 'truck.layout' event,
+      //   (c) all other tracked fields -> fieldTracker.emitFieldChangeEvents (with proper
+      //       file-array add/remove analysis).
       if (result.fieldChangesForEvents && result.fieldChangesForEvents.length > 0) {
         this.logger.log(
-          `[batchUpdate] Emitting ${result.fieldChangesForEvents.length} field change event(s) for notifications`,
+          `[batchUpdate] Emitting field change events for ${result.fieldChangesForEvents.length} change(s) for notifications`,
         );
 
+        // Normalize batch field names to the tracker's TRACKED_FIELDS names so the
+        // downstream listener receives the same field identifiers as the single path.
+        const normalizeFieldName = (field: string): string => {
+          switch (field) {
+            case 'description':
+              return 'details';
+            case 'observations':
+              return 'observation';
+            default:
+              return field;
+          }
+        };
+
+        // Group changes by task so each task emits one consolidated truck.layout event.
+        const changesByTask = new Map<
+          string,
+          { task: any; changes: Array<{ field: string; oldValue: any; newValue: any }> }
+        >();
         for (const change of result.fieldChangesForEvents) {
-          try {
-            // Emit task.field.changed event (handled by task.listener.ts for notifications)
-            this.eventEmitter.emit('task.field.changed', {
-              task: change.task,
+          const entry = changesByTask.get(change.taskId);
+          // Prefer a task object that actually carries a name (full fetch) over the
+          // lightweight { id } placeholders pushed for truck-layout entries.
+          const candidateTask = change.task;
+          if (entry) {
+            if (!entry.task?.name && candidateTask?.name) {
+              entry.task = candidateTask;
+            }
+            entry.changes.push({
               field: change.field,
               oldValue: change.oldValue,
               newValue: change.newValue,
-              changedBy: userId,
-              isFileArray: change.isFileArray,
             });
-
-            this.logger.debug(
-              `[batchUpdate] Emitted task.field.changed for task ${change.taskId}, field: ${change.field}`,
-            );
-          } catch (eventError) {
-            this.logger.error(
-              `[batchUpdate] Error emitting event for task ${change.taskId}, field ${change.field}:`,
-              eventError,
-            );
-            // Don't throw - event emission is not critical
+          } else {
+            changesByTask.set(change.taskId, {
+              task: candidateTask,
+              changes: [
+                { field: change.field, oldValue: change.oldValue, newValue: change.newValue },
+              ],
+            });
           }
+        }
+
+        // Resolve the acting user once for status-change events.
+        let updatedByUser: any = null;
+        if (userId) {
+          try {
+            updatedByUser = await this.prisma.user.findUnique({ where: { id: userId } });
+          } catch (userError) {
+            this.logger.warn(`[batchUpdate] Could not resolve acting user ${userId}:`, userError);
+          }
+        }
+
+        for (const [taskId, group] of changesByTask) {
+          const taskForEvents = group.task || { id: taskId };
+          const existingTaskState = existingTaskStates.get(taskId);
+
+          // (a) Status change -> dedicated task.status.changed event (mirror single path)
+          const statusChange = group.changes.find(c => c.field === 'status');
+          if (statusChange && updatedByUser && statusChange.oldValue !== statusChange.newValue) {
+            try {
+              this.eventEmitter.emit(
+                'task.status.changed',
+                new TaskStatusChangedEvent(
+                  taskForEvents as Task,
+                  statusChange.oldValue as TASK_STATUS,
+                  statusChange.newValue as TASK_STATUS,
+                  updatedByUser as any,
+                ),
+              );
+              this.logger.debug(
+                `[batchUpdate] Emitted task.status.changed for task ${taskId}: ${statusChange.oldValue} -> ${statusChange.newValue}`,
+              );
+            } catch (statusError) {
+              this.logger.error(
+                `[batchUpdate] Error emitting task.status.changed for task ${taskId}:`,
+                statusError,
+              );
+            }
+          }
+
+          // (b)+(c) Remaining tracked fields -> route through the field tracker so the
+          // truck-layout trio collapses into one event and file arrays get add/remove analysis.
+          const trackerChanges = group.changes
+            .filter(c => c.field !== 'status')
+            .map(c => ({
+              field: normalizeFieldName(c.field),
+              oldValue: c.oldValue,
+              newValue: c.newValue,
+              changedAt: new Date(),
+              changedBy: userId || '',
+            }));
+
+          if (trackerChanges.length > 0) {
+            try {
+              await this.fieldTracker.emitFieldChangeEvents(
+                taskForEvents as Task,
+                trackerChanges,
+                existingTaskState as Task,
+              );
+              this.logger.debug(
+                `[batchUpdate] Routed ${trackerChanges.length} field change(s) through fieldTracker for task ${taskId}`,
+              );
+            } catch (eventError) {
+              this.logger.error(
+                `[batchUpdate] Error emitting field change events for task ${taskId}:`,
+                eventError,
+              );
+              // Don't throw - event emission is not critical
+            }
+          }
+        }
+      }
+
+      // After transaction: Emit cut.created / cuts.added.to.task for cuts created via the
+      // batch path — mirroring CutService.create so cut notifications fire for batch updates too.
+      if (result.cutsCreatedByTask && result.cutsCreatedByTask.size > 0) {
+        try {
+          const createdByUser = userId
+            ? await this.prisma.user.findUnique({
+                where: { id: userId },
+                select: { id: true, name: true, email: true },
+              })
+            : null;
+
+          if (createdByUser) {
+            for (const [cutTaskId, cuts] of result.cutsCreatedByTask) {
+              if (!cuts || cuts.length === 0) continue;
+              try {
+                const taskForEvent = await this.prisma.task.findUnique({
+                  where: { id: cutTaskId },
+                  select: { id: true, name: true, sectorId: true, status: true },
+                });
+
+                for (const cut of cuts) {
+                  this.eventEmitter.emit(
+                    'cut.created',
+                    new CutCreatedEvent(cut, taskForEvent as any, createdByUser as any),
+                  );
+                }
+
+                if (taskForEvent && cuts.length > 0) {
+                  this.eventEmitter.emit(
+                    'cuts.added.to.task',
+                    new CutsAddedToTaskEvent(taskForEvent as any, cuts, createdByUser as any),
+                  );
+                }
+
+                this.logger.debug(
+                  `[batchUpdate] Emitted cut.created x${cuts.length} + cuts.added.to.task for task ${cutTaskId}`,
+                );
+              } catch (perTaskCutError) {
+                this.logger.error(
+                  `[batchUpdate] Error emitting cut events for task ${cutTaskId}:`,
+                  perTaskCutError,
+                );
+              }
+            }
+          }
+        } catch (cutEventError) {
+          this.logger.error('[batchUpdate] Error emitting batch cut events:', cutEventError);
         }
       }
 
@@ -10050,6 +10243,16 @@ export class TaskService {
         throw new NotFoundException(`Artes não encontradas: ${missingIds.join(', ')}`);
       }
 
+      // Resolve acting user for artwork event context (consistency with single/batch paths).
+      // NOTE: artworkStatuses is undefined here (all default to DRAFT), so no status-change
+      // events fire — but we pass the context for parity with the other call sites.
+      const artworkEventUser = userId
+        ? await tx.user.findUnique({
+            where: { id: userId },
+            select: { id: true, name: true, email: true },
+          })
+        : null;
+
       // Convert File IDs to Artwork entity IDs (creates Artwork records if needed)
       const artworkEntityIds = await this.convertFileIdsToArtworkIds(
         artworkIds, // File IDs from request
@@ -10058,6 +10261,8 @@ export class TaskService {
         undefined, // artworkStatuses (all will default to DRAFT)
         undefined, // userRole
         tx, // transaction
+        // Event context so artwork.approved/reproved fire if a status change ever occurs here
+        artworkEventUser ? { user: artworkEventUser, task: null } : undefined,
       );
 
       // Add artworks to each task

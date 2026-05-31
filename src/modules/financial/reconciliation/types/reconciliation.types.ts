@@ -1,10 +1,18 @@
 import {
   BankTransactionType,
   BankTransactionSubtype,
-  ReconciliationCategory,
   ReconciliationMatchType,
   ReconciliationStatus,
 } from '@prisma/client';
+
+export interface CategoryDistributionEntry {
+  categoryId: string;
+  name: string;
+  slug: string;
+  kind: string;
+  count: number;
+  amount: number;
+}
 
 export interface ParsedOfxTransaction {
   fitId: string;
@@ -92,5 +100,5 @@ export interface ReconciliationStatistics {
   topUnmatchedByCounterparty: Array<{ counterparty: string; amount: number; count: number }>;
   matchTypeDistribution: Record<ReconciliationMatchType, number>;
   statusDistribution: Record<ReconciliationStatus, number>;
-  categoryDistribution: Record<ReconciliationCategory, number>;
+  categoryDistribution: CategoryDistributionEntry[];
 }

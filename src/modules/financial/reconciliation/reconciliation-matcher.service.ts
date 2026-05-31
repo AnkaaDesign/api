@@ -7,7 +7,6 @@ import {
   Prisma,
   ReconciliationAlias,
   ReconciliationAliasSource,
-  ReconciliationCategory,
   ReconciliationMatchType,
   ReconciliationSource,
   ReconciliationStatus,
@@ -16,6 +15,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { MatchCandidate } from './types/reconciliation.types';
 import { nameSimilarity } from './text-normalization';
 import { ReconciliationAliasService } from './reconciliation-alias.service';
+import { ItemCategoryClassifierService } from './item-category-classifier.service';
 import { isMarketplaceMemo } from './marketplace';
 
 const EXACT_DATE_WINDOW_DAYS = 5;
@@ -250,7 +250,7 @@ interface RawTransaction {
   memo?: string | null;
   bankSlipId: string | null;
   reconciliationStatus: ReconciliationStatus;
-  category: ReconciliationCategory;
+  expectsFiscalDocument: boolean;
 }
 
 interface RawDocument {
@@ -275,6 +275,7 @@ export class ReconciliationMatcherService {
   constructor(
     @Inject(forwardRef(() => PrismaService)) private readonly prisma: PrismaService,
     private readonly aliasService: ReconciliationAliasService,
+    private readonly itemCategoryClassifier: ItemCategoryClassifierService,
     private readonly config: ConfigService,
   ) {
     this.companyCnpj =
@@ -291,7 +292,7 @@ export class ReconciliationMatcherService {
     const txs = await this.prisma.bankTransaction.findMany({
       where: {
         reconciliationStatus: ReconciliationStatus.PENDING,
-        category: ReconciliationCategory.NF,
+        expectsFiscalDocument: true,
       },
       select: {
         id: true,
@@ -303,7 +304,7 @@ export class ReconciliationMatcherService {
         memo: true,
         bankSlipId: true,
         reconciliationStatus: true,
-        category: true,
+        expectsFiscalDocument: true,
       },
     });
     let matched = 0;
@@ -321,7 +322,7 @@ export class ReconciliationMatcherService {
     const txs = await this.prisma.bankTransaction.findMany({
       where: {
         reconciliationStatus: ReconciliationStatus.PENDING,
-        category: ReconciliationCategory.NF,
+        expectsFiscalDocument: true,
         postedAt: { gte: start, lte: end },
       },
       select: {
@@ -334,13 +335,48 @@ export class ReconciliationMatcherService {
         memo: true,
         bankSlipId: true,
         reconciliationStatus: true,
-        category: true,
+        expectsFiscalDocument: true,
       },
     });
     let matched = 0;
     for (const tx of txs) {
       const result = await this.matchTransaction(tx as RawTransaction);
       if (result) matched += 1;
+    }
+    return matched;
+  }
+
+  /**
+   * Re-runs auto-matching for a specific set of transaction ids. Used by the
+   * "Reconciliar" pipeline when scoped to selected rows.
+   */
+  async matchByIds(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const txs = await this.prisma.bankTransaction.findMany({
+      // Only PENDING rows that expect a fiscal document — guards re-runs from
+      // attaching a second NF to an already-reconciled transaction (and from
+      // re-incrementing alias confirmedCount on every "Verificar").
+      where: {
+        id: { in: ids },
+        reconciliationStatus: ReconciliationStatus.PENDING,
+        expectsFiscalDocument: true,
+      },
+      select: {
+        id: true,
+        postedAt: true,
+        amount: true,
+        type: true,
+        counterpartyCnpjCpf: true,
+        counterpartyName: true,
+        memo: true,
+        bankSlipId: true,
+        reconciliationStatus: true,
+        expectsFiscalDocument: true,
+      },
+    });
+    let matched = 0;
+    for (const tx of txs) {
+      if (await this.matchTransaction(tx as RawTransaction)) matched += 1;
     }
     return matched;
   }
@@ -356,8 +392,18 @@ export class ReconciliationMatcherService {
    */
   async matchTransaction(tx: RawTransaction): Promise<boolean> {
     if (tx.bankSlipId) return false;
-    if (tx.category !== ReconciliationCategory.NF) return false;
+    if (!tx.expectsFiscalDocument) return false;
 
+    const matched = await this.runMatchPasses(tx);
+    if (matched) {
+      // Enrich the now-matched transaction with item-derived categories from the
+      // matched NF's line items. Best-effort; never breaks the match result.
+      await this.itemCategoryClassifier.deriveForTransaction(tx.id);
+    }
+    return matched;
+  }
+
+  private async runMatchPasses(tx: RawTransaction): Promise<boolean> {
     // Pass 0 — Boleto bridge (CREDITs only)
     if (tx.type === BankTransactionType.CREDIT) {
       const bridge = await this.tryBoletoBridge(tx);
@@ -573,7 +619,7 @@ export class ReconciliationMatcherService {
           bankSlipId: slip.id,
           reconciliationStatus: ReconciliationStatus.RECONCILED,
           reconciliationSource: ReconciliationSource.AUTO,
-          category: ReconciliationCategory.NF,
+          expectsFiscalDocument: true,
         },
       });
       await tx2.reconciliationMatch.create({
@@ -947,7 +993,7 @@ export class ReconciliationMatcherService {
             bankSlipId: payload.bankSlipId,
             reconciliationStatus: ReconciliationStatus.RECONCILED,
             reconciliationSource: ReconciliationSource.AUTO,
-            category: ReconciliationCategory.NF,
+            expectsFiscalDocument: true,
           },
         });
         await tx2.reconciliationMatch.create({

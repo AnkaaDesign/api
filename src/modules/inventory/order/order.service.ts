@@ -1466,6 +1466,38 @@ export class OrderService {
         }
       });
 
+      // Emit order.created per created order AFTER the transaction commits,
+      // mirroring the single-create path (:403). Used by auto-order too.
+      // Best-effort: never break the batch flow.
+      try {
+        const user = userId
+          ? await this.prisma.user.findUnique({ where: { id: userId } })
+          : null;
+        if (user) {
+          for (const createdOrder of results.success) {
+            try {
+              this.eventEmitter.emit(
+                'order.created',
+                new OrderCreatedEvent(createdOrder, user as User),
+              );
+
+              // Mirror single-create: notify payment responsible if assigned
+              if ((createdOrder as any).paymentResponsibleId) {
+                this.eventEmitter.emit('order.payment.assigned', {
+                  order: createdOrder,
+                  paymentResponsibleId: (createdOrder as any).paymentResponsibleId,
+                  assignedById: userId,
+                });
+              }
+            } catch (err) {
+              this.logger.error('Error emitting order.created (batch):', err);
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.error('Error emitting batch order created events:', error);
+      }
+
       const successMessage =
         results.totalSuccess === 1
           ? '1 pedido criado com sucesso'
@@ -1521,6 +1553,14 @@ export class OrderService {
         totalSuccess: 0,
         totalFailed: 0,
       };
+
+      // Captured for post-commit notification emits (mirrors single-update :1063).
+      const statusTransitions: Array<{
+        order: Order;
+        oldStatus: ORDER_STATUS;
+        newStatus: ORDER_STATUS;
+        cancelReason?: string;
+      }> = [];
 
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Process each update individually to capture specific errors
@@ -1605,6 +1645,21 @@ export class OrderService {
             if (finalOrder) {
               results.success.push(finalOrder);
             }
+
+            // Record status transition for post-commit notification emit
+            if (
+              updateData.data.status &&
+              (updateData.data.status as ORDER_STATUS) !==
+                (existingOrder.status as ORDER_STATUS)
+            ) {
+              statusTransitions.push({
+                order: (finalOrder || updatedOrder) as Order,
+                oldStatus: existingOrder.status as ORDER_STATUS,
+                newStatus: updateData.data.status as ORDER_STATUS,
+                cancelReason: (updateData.data as any).notes || 'Pedido cancelado',
+              });
+            }
+
             results.totalSuccess++;
           } catch (error) {
             results.failed.push({
@@ -1624,6 +1679,36 @@ export class OrderService {
           }
         }
       });
+
+      // Emit order.status.changed / order.cancelled per order whose status
+      // changed, AFTER the transaction commits. Mirrors single-update (:1063).
+      // Best-effort: never break the batch flow.
+      try {
+        const user = userId
+          ? await this.prisma.user.findUnique({ where: { id: userId } })
+          : null;
+        if (user) {
+          for (const t of statusTransitions) {
+            try {
+              this.eventEmitter.emit(
+                'order.status.changed',
+                new OrderStatusChangedEvent(t.order, t.oldStatus, t.newStatus, user as User),
+              );
+
+              if (t.newStatus === ORDER_STATUS.CANCELLED) {
+                this.eventEmitter.emit(
+                  'order.cancelled',
+                  new OrderCancelledEvent(t.order, user as User, t.cancelReason),
+                );
+              }
+            } catch (err) {
+              this.logger.error('Error emitting order.status.changed (batch):', err);
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.error('Error emitting batch order status events:', error);
+      }
 
       const successMessage =
         results.totalSuccess === 1

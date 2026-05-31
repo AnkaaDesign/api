@@ -120,6 +120,23 @@ export class LayoutService {
       triggeredById: userId || null,
       userId: userId || null,
     });
+
+    // Dispatch the consolidated task.field.truck.layout notification (reusing the
+    // same helper the other layout paths use). Fired AFTER the update; failures are
+    // swallowed inside the helper so they never break the assign flow.
+    const sideLabels: Record<string, string> = {
+      left: 'Motorista',
+      right: 'Sapo',
+      back: 'Traseira',
+    };
+    const sideLabel = sideLabels[side] || side;
+    await this.dispatchConsolidatedLayoutNotification(
+      truckId,
+      `${sideLabel}: layout atribuído`,
+      userId,
+    ).catch(err => {
+      this.logger.error('Error sending layout assign notification:', err);
+    });
   }
 
   async create(data: LayoutCreateFormData, userId?: string): Promise<Layout> {
@@ -330,6 +347,7 @@ export class LayoutService {
     userId?: string,
     photoFile?: Express.Multer.File,
     existingLayoutId?: string, // NEW: Assign existing layout instead of creating new
+    suppressNotification?: boolean, // NEW: Skip per-side notification (used by batch consolidation)
   ): Promise<Layout> {
     this.logger.log('');
     this.logger.log('═══════════════════════════════════════════════════════════════');
@@ -681,17 +699,21 @@ export class LayoutService {
       })),
     };
 
-    // Send notifications for layout change (outside transaction to not block it)
-    this.sendLayoutChangeNotifications(
-      truckId,
-      side,
-      existingLayoutId ? 'assign' : 'update',
-      userId,
-      oldLayoutSnapshot,
-      newLayoutSnapshot,
-    ).catch(err => {
-      this.logger.error('Error sending layout change notifications:', err);
-    });
+    // Send notifications for layout change (outside transaction to not block it).
+    // Skipped when suppressNotification is set (the batch path dispatches ONE
+    // consolidated 'task.field.truck.layout' notification covering all sides).
+    if (!suppressNotification) {
+      this.sendLayoutChangeNotifications(
+        truckId,
+        side,
+        existingLayoutId ? 'assign' : 'update',
+        userId,
+        oldLayoutSnapshot,
+        newLayoutSnapshot,
+      ).catch(err => {
+        this.logger.error('Error sending layout change notifications:', err);
+      });
+    }
 
     return result;
   }
@@ -807,8 +829,8 @@ export class LayoutService {
     } | null,
   ): Promise<void> {
     const sideLabels: Record<string, string> = {
-      left: 'Lado Motorista',
-      right: 'Lado Sapo',
+      left: 'Motorista',
+      right: 'Sapo',
       back: 'Traseira',
     };
     const sideLabel = sideLabels[side] || side;
@@ -845,19 +867,6 @@ export class LayoutService {
 
     const task = truck.task;
 
-    // Map side to existing notification configuration keys
-    const sideConfigKeys: Record<string, string> = {
-      left: 'task.field.truck.leftSideLayoutId',
-      right: 'task.field.truck.rightSideLayoutId',
-      back: 'task.field.truck.backSideLayoutId',
-    };
-    const configKey = sideConfigKeys[side];
-
-    if (!configKey) {
-      this.logger.warn(`[sendLayoutChangeNotifications] Unknown side: ${side}`);
-      return;
-    }
-
     const changedByUser = userId
       ? await this.prisma.user.findUnique({
           where: { id: userId },
@@ -865,6 +874,11 @@ export class LayoutService {
         })
       : null;
     const changedByName = changedByUser?.name || 'Sistema';
+
+    // Use the consolidated config key. The legacy per-side keys
+    // (task.field.truck.*SideLayoutId) are no longer dispatched so they go dormant.
+    const configKey = 'task.field.truck.layout';
+    const layoutChangeSummary = `${sideLabel}: ${layoutChangeDescription}`;
 
     try {
       await this.dispatchService.dispatchByConfiguration(configKey, userId || 'system', {
@@ -879,8 +893,14 @@ export class LayoutService {
           actorId: userId,
           changedBy: changedByName,
           layoutChangeDescription,
+          layoutChangeSummary,
           oldLayoutSummary,
           newLayoutSummary,
+        },
+        overrides: {
+          title: 'Layout do Caminhão atualizado',
+          body: `Layout do caminhão da tarefa "${task.name}" atualizado por ${changedByName}: ${layoutChangeSummary}`,
+          webUrl: `/producao/agenda/detalhes/${task.id}`,
         },
       });
 
@@ -889,6 +909,201 @@ export class LayoutService {
       );
     } catch (err) {
       this.logger.error(`[sendLayoutChangeNotifications] Failed to dispatch notification:`, err);
+    }
+  }
+
+  /**
+   * Batch-update multiple truck layout sides in a single operation and dispatch ONE
+   * consolidated 'task.field.truck.layout' notification summarizing all changed sides.
+   *
+   * Each provided side is processed via createOrUpdateTruckLayout with
+   * suppressNotification=true so no per-side notifications fire; this method then sends
+   * a single notification describing only the sides that actually changed.
+   */
+  async updateTruckLayoutBatch(
+    truckId: string,
+    sides: {
+      left?: LayoutCreateFormData;
+      right?: LayoutCreateFormData;
+      back?: LayoutCreateFormData;
+    },
+    userId?: string,
+  ): Promise<{
+    left?: Layout;
+    right?: Layout;
+    back?: Layout;
+  }> {
+    const sideLabels: Record<string, string> = {
+      left: 'Motorista',
+      right: 'Sapo',
+      back: 'Traseira',
+    };
+
+    // Capture old layout snapshots BEFORE any update so we can describe the changes.
+    const truckBefore = await this.prisma.truck.findUnique({
+      where: { id: truckId },
+      include: {
+        leftSideLayout: {
+          include: { layoutSections: { orderBy: { position: 'asc' as const } } },
+        },
+        rightSideLayout: {
+          include: { layoutSections: { orderBy: { position: 'asc' as const } } },
+        },
+        backSideLayout: {
+          include: { layoutSections: { orderBy: { position: 'asc' as const } } },
+        },
+      },
+    });
+
+    if (!truckBefore) {
+      throw new NotFoundException(`Caminhão não encontrado para ID ${truckId}.`);
+    }
+
+    const oldLayoutBySide: Record<
+      string,
+      { height: number; layoutSections: Array<{ width: number; isDoor: boolean }> } | null
+    > = {
+      left: truckBefore.leftSideLayout
+        ? {
+            height: (truckBefore.leftSideLayout as any).height,
+            layoutSections: ((truckBefore.leftSideLayout as any).layoutSections || []).map(
+              (s: any) => ({ width: s.width, isDoor: s.isDoor }),
+            ),
+          }
+        : null,
+      right: truckBefore.rightSideLayout
+        ? {
+            height: (truckBefore.rightSideLayout as any).height,
+            layoutSections: ((truckBefore.rightSideLayout as any).layoutSections || []).map(
+              (s: any) => ({ width: s.width, isDoor: s.isDoor }),
+            ),
+          }
+        : null,
+      back: truckBefore.backSideLayout
+        ? {
+            height: (truckBefore.backSideLayout as any).height,
+            layoutSections: ((truckBefore.backSideLayout as any).layoutSections || []).map(
+              (s: any) => ({ width: s.width, isDoor: s.isDoor }),
+            ),
+          }
+        : null,
+    };
+
+    const result: { left?: Layout; right?: Layout; back?: Layout } = {};
+    const changedSideDescriptions: string[] = [];
+
+    for (const side of ['left', 'right', 'back'] as const) {
+      const data = sides[side];
+      if (!data) continue;
+
+      // Process this side, suppressing its individual notification.
+      result[side] = await this.createOrUpdateTruckLayout(
+        truckId,
+        side,
+        data,
+        userId,
+        undefined,
+        undefined,
+        true, // suppressNotification
+      );
+
+      const newLayoutSnapshot = {
+        height: data.height,
+        layoutSections: (data.layoutSections || []).map(s => ({
+          width: s.width,
+          isDoor: s.isDoor,
+        })),
+      };
+
+      const description = this.formatLayoutChangeDescription(
+        side,
+        oldLayoutBySide[side],
+        newLayoutSnapshot,
+      );
+      changedSideDescriptions.push(`${sideLabels[side]}: ${description}`);
+    }
+
+    // Dispatch ONE consolidated notification for all changed sides.
+    if (changedSideDescriptions.length > 0) {
+      await this.dispatchConsolidatedLayoutNotification(
+        truckId,
+        changedSideDescriptions.join('; '),
+        userId,
+      ).catch(err => {
+        this.logger.error('Error sending consolidated layout change notification:', err);
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Dispatch a single consolidated 'task.field.truck.layout' notification for a truck.
+   */
+  private async dispatchConsolidatedLayoutNotification(
+    truckId: string,
+    layoutChangeSummary: string,
+    userId?: string,
+  ): Promise<void> {
+    const truck = await this.prisma.truck.findUnique({
+      where: { id: truckId },
+      select: {
+        task: {
+          select: { id: true, name: true, sectorId: true },
+        },
+      },
+    });
+
+    if (!truck?.task) {
+      this.logger.warn(
+        `[dispatchConsolidatedLayoutNotification] No task found for truck ${truckId}`,
+      );
+      return;
+    }
+
+    const task = truck.task;
+
+    const changedByUser = userId
+      ? await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true },
+        })
+      : null;
+    const changedByName = changedByUser?.name || 'Sistema';
+
+    try {
+      await this.dispatchService.dispatchByConfiguration(
+        'task.field.truck.layout',
+        userId || 'system',
+        {
+          entityType: 'Task',
+          entityId: task.id,
+          action: 'field_changed',
+          data: {
+            taskId: task.id,
+            taskName: task.name,
+            taskSectorId: task.sectorId || null,
+            fieldName: 'truck.layout',
+            truckId,
+            changedBy: changedByName,
+            layoutChangeSummary,
+          },
+          overrides: {
+            title: 'Layout do Caminhão atualizado',
+            body: `Layout do caminhão da tarefa "${task.name}" atualizado por ${changedByName}: ${layoutChangeSummary}`,
+            webUrl: `/producao/agenda/detalhes/${task.id}`,
+          },
+        },
+      );
+
+      this.logger.log(
+        `[dispatchConsolidatedLayoutNotification] Dispatched task.field.truck.layout: ${layoutChangeSummary}`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `[dispatchConsolidatedLayoutNotification] Failed to dispatch notification:`,
+        err,
+      );
     }
   }
 }

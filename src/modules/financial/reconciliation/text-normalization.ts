@@ -145,3 +145,95 @@ export function memoFingerprint(memo: string | null | undefined): string | null 
   if (tokens.length === 0) return null;
   return tokens.join(' ');
 }
+
+// ---------------------------------------------------------------------------
+// NF line-item normalization (used by the item-category fuzzy classifier).
+//
+// FiscalDocumentItem.description is supplier free-text: UPPERCASE, abbreviated,
+// with packaging/units and SEFAZ noise ("ONU 1263", "QUANT.LTDA", trailing
+// "3 II"). These primitives strip that down to the tokens that carry the
+// product's category signal, sharing stripAccents() with the rest of the module
+// so the lexicon (built from Item.name) and the lookup (NF descriptions) speak
+// the same dialect.
+// ---------------------------------------------------------------------------
+
+// Units, packaging and SEFAZ/classification noise dropped before matching an NF
+// line to an item category. Kept separate from COMPANY_SUFFIX_TOKENS — that one
+// targets counterparty names, this one targets product descriptions.
+export const ITEM_STOPLIST: ReadonlySet<string> = new Set([
+  // units / packaging
+  'kg', 'kgs', 'gr', 'grs', 'mg', 'ml', 'lt', 'lts', 'litro', 'litros', 'un',
+  'und', 'unid', 'unidade', 'cx', 'caixa', 'pct', 'pacote', 'pcs', 'pca',
+  'metro', 'metros', 'pol', 'kit', 'fardo', 'rolo', 'rolos', 'saco', 'sacos',
+  'lata', 'latas', 'galao', 'balde', 'frasco', 'tubo', 'par', 'pares', 'jogo',
+  'pecas',
+  // SEFAZ / NF noise observed in real data
+  'onu', 'quant', 'ltda', 'material', 'relacionado', 'com', 'tintas',
+  'classe', 'risco', 'embalagem',
+  // NFSe painting-service noise (license plates / vehicle words / labels that
+  // otherwise let a service line fuzzy-match a product item)
+  'placa', 'placas', 'caminhao', 'carreta', 'cabine', 'serie', 'valor', 'veiculo',
+  // generic connectors / filler
+  'para', 'pra', 'tipo', 'cor', 'ref', 'cod', 'codigo', 'produto', 'item',
+  'novo', 'nova',
+]);
+
+// Bare colour words. A colour alone must NOT resolve a category (it would let
+// single-token "Pigmento" items like "Azul"/"Vermelho" hijack any line — paint
+// descriptions and even NFSe vehicle-painting lines contain colours). The fuzzy
+// matcher skips single-token item matches whose only token is a colour.
+export const COLOR_TOKENS: ReadonlySet<string> = new Set([
+  'azul', 'verde', 'vermelho', 'amarelo', 'laranja', 'preto', 'branco', 'cinza',
+  'rosa', 'violeta', 'roxo', 'marrom', 'bege', 'dourado', 'prata', 'vinho',
+  'creme', 'gelo', 'grafite', 'fosco', 'metalico',
+  // colour modifiers — so a colour PHRASE ("Vermelho Vivo", "Azul Claro") is
+  // still recognised as all-colour and can't hijack a paint line.
+  'vivo', 'claro', 'escuro', 'medio', 'neon', 'perola', 'perolizado',
+]);
+
+/**
+ * Tokenises an NF line description into category-signal tokens. Same accent +
+ * lowercase + non-alnum-split rules as nameTokens, but with the item stoplist
+ * and a 3-char floor. Critical short tokens (e.g. "pu") are handled by the
+ * curated keyword overrides, not here.
+ */
+export function itemDescriptionTokens(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  const cleaned = stripAccents(raw)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  if (!cleaned) return [];
+  return cleaned
+    .split(/\s+/)
+    .filter(t => t.length >= 3 && !ITEM_STOPLIST.has(t) && !/^\d+$/.test(t));
+}
+
+/**
+ * Extracts likely product-code tokens from a free-text description — tokens that
+ * contain BOTH a letter and a digit (e.g. "m3500", "stv200", "int_hok" → "int",
+ * "hok" don't qualify but "m3500" does). NF descriptions routinely embed our
+ * Item.uniCode in the text ("MASSA POLIESTER M3500 …"); matching those against
+ * the uniCode index disambiguates same-named items across categories. The
+ * letter+digit rule deliberately excludes pure measures ("750", "6") and plain
+ * words to avoid false uniCode collisions.
+ */
+export function codeCandidateTokens(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  const cleaned = stripAccents(raw).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  if (!cleaned) return [];
+  return cleaned
+    .split(/\s+/)
+    .filter(t => t.length >= 3 && /[a-z]/.test(t) && /[0-9]/.test(t));
+}
+
+/**
+ * Order-independent fingerprint of an NF line description, for the item-category
+ * alias learner (description token-set → chosen category). Mirrors
+ * memoFingerprint's strip-then-sort approach using the item stoplist.
+ */
+export function descriptionFingerprint(raw: string | null | undefined): string | null {
+  const tokens = itemDescriptionTokens(raw).slice().sort();
+  if (tokens.length === 0) return null;
+  return tokens.join(' ');
+}

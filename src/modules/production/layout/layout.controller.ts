@@ -212,7 +212,43 @@ export class LayoutController {
 
     return {
       success: true,
-      message: `Layout atribuído ao lado ${data.side === 'left' ? 'esquerdo' : data.side === 'right' ? 'direito' : 'traseiro'} do caminhão com sucesso`,
+      message: `Layout atribuído ao lado ${data.side === 'left' ? 'Motorista' : data.side === 'right' ? 'Sapo' : 'Traseira'} do caminhão com sucesso`,
+    };
+  }
+
+  // NEW: Batch-update multiple truck layout sides with a SINGLE consolidated notification
+  @Post('truck/:truckId/batch')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async updateTruckLayoutBatch(
+    @Param('truckId') truckId: string,
+    @Body()
+    data: {
+      left?: LayoutCreateFormData;
+      right?: LayoutCreateFormData;
+      back?: LayoutCreateFormData;
+    },
+    @UserId() userId: string,
+  ) {
+    const layouts = await this.layoutService.updateTruckLayoutBatch(
+      truckId,
+      {
+        left: data.left ? layoutCreateSchema.parse(data.left) : undefined,
+        right: data.right ? layoutCreateSchema.parse(data.right) : undefined,
+        back: data.back ? layoutCreateSchema.parse(data.back) : undefined,
+      },
+      userId,
+    );
+
+    return {
+      success: true,
+      message: 'Layout do caminhão salvo com sucesso',
+      data: layouts,
     };
   }
 
@@ -247,7 +283,7 @@ export class LayoutController {
 
     return {
       success: true,
-      message: `Layout ${side === 'left' ? 'esquerdo' : side === 'right' ? 'direito' : 'traseiro'} do caminhão salvo com sucesso`,
+      message: `Layout ${side === 'left' ? 'Motorista' : side === 'right' ? 'Sapo' : 'Traseira'} do caminhão salvo com sucesso`,
       data: layout,
     };
   }

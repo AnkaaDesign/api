@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject, Logger } from '@nestjs/common';
+import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
@@ -49,11 +50,85 @@ export interface GarageAvailability {
 
 @Injectable()
 export class TruckService {
+  private readonly logger = new Logger(TruckService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly changeLogService: ChangeLogService,
     private readonly notificationDispatchService: NotificationDispatchService,
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
+
+  /**
+   * Truck scalar fields that map 1:1 to a tracked task field ('truck.<field>').
+   * The TaskFieldTrackerService emits the SAME 'task.field.changed' events when a
+   * truck is updated as part of a task; here we mirror those emits for the
+   * standalone truck-update paths (update / batchUpdateSpots) so the existing
+   * task.listener.ts handler dispatches 'task.field.truck.<field>' notifications.
+   */
+  private static readonly TRUCK_TRACKED_FIELDS = [
+    'plate',
+    'chassisNumber',
+    'category',
+    'implementType',
+    'spot',
+  ] as const;
+
+  /**
+   * Emit 'task.field.changed' events (one per changed truck field) for a truck's
+   * owning task, mirroring the TaskFieldTrackerService output so task.listener.ts
+   * dispatches the 'task.field.truck.<field>' notifications.
+   *
+   * Called AFTER the truck-update transaction commits. Wrapped in try/catch so a
+   * notification failure never breaks the business flow.
+   *
+   * ASSUMPTION: task.listener.ts reads event.field as 'truck.plate' etc. and
+   * dispatches `task.field.${event.field}`; the field tracker uses the EventEmitter
+   * token 'EventEmitter' and the same 'task.field.changed' event name.
+   */
+  private async emitTruckTaskFieldChanges(
+    truckId: string,
+    changes: Array<{ field: string; oldValue: any; newValue: any }>,
+    userId?: string,
+  ): Promise<void> {
+    if (changes.length === 0) return;
+
+    try {
+      const truck = await this.prisma.truck.findUnique({
+        where: { id: truckId },
+        select: {
+          taskId: true,
+          task: {
+            select: { id: true, name: true, serialNumber: true, sectorId: true, status: true },
+          },
+        },
+      });
+
+      if (!truck?.task) {
+        // No owning task -> nothing to notify (truck-level changelog already recorded).
+        return;
+      }
+
+      const task = truck.task;
+      const changedBy = userId || 'system';
+
+      for (const change of changes) {
+        this.eventEmitter.emit('task.field.changed', {
+          task,
+          field: `truck.${change.field}`,
+          oldValue: change.oldValue,
+          newValue: change.newValue,
+          changedBy,
+          isFileArray: false,
+        });
+      }
+    } catch (error) {
+      this.logger.warn(
+        `[emitTruckTaskFieldChanges] Failed to emit task.field.changed for truck ${truckId}:`,
+        error,
+      );
+    }
+  }
 
   async findAll(query?: any) {
     return this.prisma.truck.findMany({
@@ -85,7 +160,7 @@ export class TruckService {
     }
 
     // Use transaction to update and log changes
-    return this.prisma.$transaction(async (tx: PrismaTransaction) => {
+    const updated = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
       // Update truck
       const updated = await tx.truck.update({
         where: { id },
@@ -114,6 +189,19 @@ export class TruckService {
 
       return updated;
     });
+
+    // After commit: mirror the TaskFieldTracker by emitting task.field.changed for
+    // each changed truck field so task.listener.ts fires the truck.* notifications.
+    const truckFieldChanges = TruckService.TRUCK_TRACKED_FIELDS.filter(
+      field => (existing as any)[field] !== (updated as any)[field],
+    ).map(field => ({
+      field,
+      oldValue: (existing as any)[field],
+      newValue: (updated as any)[field],
+    }));
+    await this.emitTruckTaskFieldChanges(id, truckFieldChanges, userId);
+
+    return updated;
   }
 
   /**
@@ -274,6 +362,10 @@ export class TruckService {
 
     // Note: null spot means "remove from patio entirely" (truck left the facility)
 
+    // Track spot changes so we can emit task.field.changed AFTER commit (mirroring
+    // the TaskFieldTracker) and fire 'task.field.truck.spot' notifications.
+    const spotChanges: Array<{ truckId: string; oldValue: any; newValue: any }> = [];
+
     // Use transaction to update all trucks atomically and log changes
     await this.prisma.$transaction(async (tx: PrismaTransaction) => {
       // Collect all target spots and truck IDs in this batch
@@ -388,9 +480,27 @@ export class TruckService {
             triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
             transaction: tx,
           });
+
+          spotChanges.push({
+            truckId: update.truckId,
+            oldValue: existing.spot,
+            newValue: updated.spot,
+          });
         }
       }
     });
+
+    // After commit: emit task.field.changed for each truck whose spot changed,
+    // mirroring the TaskFieldTracker so 'task.field.truck.spot' notifications fire.
+    // NOTE: conflicting-truck spot clears above are SYSTEM_GENERATED side effects and
+    // intentionally NOT notified here (mirrors the single-item user-action semantics).
+    for (const change of spotChanges) {
+      await this.emitTruckTaskFieldChanges(
+        change.truckId,
+        [{ field: 'spot', oldValue: change.oldValue, newValue: change.newValue }],
+        userId,
+      );
+    }
 
     return { success: true, updated: updates.length };
   }

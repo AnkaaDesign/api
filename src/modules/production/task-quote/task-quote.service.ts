@@ -10,6 +10,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { TaskQuoteRepository } from './repositories/task-quote.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { InvoiceGenerationService } from '@modules/financial/invoice/invoice-generation.service';
@@ -88,6 +89,7 @@ export class TaskQuoteService {
     private readonly invoiceGenerationService: InvoiceGenerationService,
     private readonly nfseEmissionScheduler: NfseEmissionScheduler,
     private readonly sicrediService: SicrediService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
 
   /**
@@ -1440,6 +1442,20 @@ export class TaskQuoteService {
         await syncEmNegociacaoForTask(this.prisma, task.id, userId);
       }
 
+      // Generic status route (PUT /:id/status) can advance a quote to an approval
+      // state directly (bypassing budgetApprove/commercialApprove). When that happens,
+      // notify the NEXT approver that an approval is pending. The dedicated approve
+      // methods emit their own *_approved keys; this covers the generic path.
+      if (
+        status === TASK_QUOTE_STATUS.BUDGET_APPROVED ||
+        status === TASK_QUOTE_STATUS.COMMERCIAL_APPROVED
+      ) {
+        await this.dispatchApprovalPendingNotification(id, status, userId);
+      } else if (status === TASK_QUOTE_STATUS.SETTLED) {
+        // Manual SETTLED via the generic route — task_quote.settled + bank_slip.paid
+        // are already emitted inside settleManually(); nothing more to do here.
+      }
+
       return {
         success: true,
         data: updated.data,
@@ -1458,6 +1474,15 @@ export class TaskQuoteService {
   private async settleManually(quoteId: string): Promise<void> {
     // Track bank slips that need to be cancelled at Sicredi (after the local transaction commits)
     const slipsToCancelAtSicredi: Array<{ id: string; nossoNumero: string }> = [];
+
+    // Track installments marked PAID in this settlement so we can emit bank_slip.paid
+    // notifications AFTER the transaction commits (mirrors the webhook/reconciliation path).
+    const paidNow: Array<{
+      invoiceId: string | null;
+      bankSlipId: string | null;
+      amount: number;
+      dueDate: Date;
+    }> = [];
 
     await this.prisma.$transaction(async tx => {
       // Find all installments for this quote that aren't already PAID or CANCELLED
@@ -1507,6 +1532,13 @@ export class TaskQuoteService {
             paidAmount: installment.amount,
             paidAt: now,
           },
+        });
+
+        paidNow.push({
+          invoiceId: installment.invoiceId ?? null,
+          bankSlipId: installment.bankSlip?.id ?? null,
+          amount: Number(installment.amount),
+          dueDate: installment.dueDate,
         });
       }
 
@@ -1603,20 +1635,247 @@ export class TaskQuoteService {
     this.logger.log(
       `[SETTLE_MANUALLY] Quote ${quoteId} settled manually. All installments marked as PAID, open bank slips cancelled.`,
     );
+
+    // Notify bank_slip.paid per installment settled (mirrors the Sicredi webhook path),
+    // then task_quote.settled once for the whole quote. Best-effort — never breaks settlement.
+    for (const paid of paidNow) {
+      if (!paid.invoiceId) continue;
+      await this.dispatchBankSlipPaidNotification(
+        paid.invoiceId,
+        paid.bankSlipId ?? paid.invoiceId,
+        paid.amount,
+        paid.dueDate,
+      );
+    }
+    await this.dispatchTaskQuoteSettledNotification(quoteId);
+  }
+
+  /**
+   * Dispatch bank_slip.paid for a manually-settled installment. Mirrors the key +
+   * payload + deep link used by the Sicredi webhook/reconciliation paths.
+   * Best-effort — never breaks the settlement flow.
+   */
+  private async dispatchBankSlipPaidNotification(
+    invoiceId: string,
+    bankSlipId: string,
+    paidAmount: number,
+    dueDate: Date,
+  ): Promise<void> {
+    try {
+      const invoice = await this.prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          customer: { select: { fantasyName: true } },
+          task: { select: { id: true, name: true, serialNumber: true } },
+        },
+      });
+      if (!invoice) return;
+
+      const customerName = invoice.customer?.fantasyName || 'N/A';
+      const taskName = invoice.task?.name || 'N/A';
+      const formattedAmount = new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      }).format(Number(paidAmount));
+      const formattedDueDate = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+      }).format(dueDate);
+
+      const webUrl = `/financeiro/faturamento/detalhes/${invoice.taskId}`;
+      const mobileUrl = `financial/${invoice.taskId}`;
+      const actionUrl = JSON.stringify({ web: webUrl, mobile: mobileUrl });
+
+      await this.dispatchService.dispatchByConfiguration('bank_slip.paid', 'system', {
+        entityType: 'Financial',
+        entityId: invoice.id,
+        action: 'paid',
+        data: {
+          customerName,
+          taskName,
+          paidAmount: formattedAmount,
+          dueDate: formattedDueDate,
+          invoiceId: invoice.id,
+          bankSlipId,
+          taskId: invoice.taskId,
+        },
+        overrides: {
+          actionUrl,
+          webUrl,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Falha ao notificar pagamento de boleto (bank_slip.paid) para fatura ${invoiceId}:`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * Dispatch task_quote.approval_pending to the next approver when a quote advances
+   * to an approval state via the generic status route. Best-effort — never throws.
+   */
+  private async dispatchApprovalPendingNotification(
+    quoteId: string,
+    newStatus: TASK_QUOTE_STATUS,
+    userId: string,
+  ): Promise<void> {
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
+
+      const nextStep =
+        newStatus === TASK_QUOTE_STATUS.BUDGET_APPROVED
+          ? 'aprovação comercial'
+          : 'aprovação de faturamento';
+
+      await this.dispatchService.dispatchByConfiguration(
+        'task_quote.approval_pending',
+        userId,
+        {
+          entityType: 'TaskQuote',
+          entityId: taskId ?? quoteId,
+          action: 'approval_pending',
+          data: { quoteLabel, nextStep },
+          overrides: {
+            title: 'Aprovação Pendente',
+            body: `O orçamento ${quoteLabel} aguarda ${nextStep}.`,
+            relatedEntityType: 'TASK_QUOTE',
+            ...(taskId
+              ? {
+                  webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                  mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+                }
+              : {}),
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error(
+        'Falha ao notificar aprovação pendente (task_quote.approval_pending):',
+        error,
+      );
+    }
+  }
+
+  /**
+   * Dispatch task_quote.settled when a quote is settled manually.
+   * Best-effort — never breaks the settlement flow.
+   */
+  private async dispatchTaskQuoteSettledNotification(quoteId: string): Promise<void> {
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
+      await this.dispatchService.dispatchByConfiguration('task_quote.settled', 'system', {
+        entityType: 'TaskQuote',
+        entityId: taskId ?? quoteId,
+        action: 'settled',
+        data: { quoteLabel },
+        overrides: {
+          title: 'Orçamento Liquidado',
+          body: `O orçamento ${quoteLabel} foi totalmente liquidado. Todas as parcelas estão pagas.`,
+          relatedEntityType: 'TASK_QUOTE',
+          ...(taskId
+            ? {
+                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+              }
+            : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        'Falha ao notificar liquidação de orçamento (task_quote.settled):',
+        error,
+      );
+    }
   }
 
   /**
    * Customer approves the budget
    */
   async budgetApprove(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
-    return this.updateStatus(id, TASK_QUOTE_STATUS.BUDGET_APPROVED, userId);
+    const result = await this.updateStatus(id, TASK_QUOTE_STATUS.BUDGET_APPROVED, userId);
+
+    // Budget approved by customer -> notify the commercial team.
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(id);
+      await this.dispatchService.dispatchByConfiguration('task_quote.budget_approved', userId, {
+        entityType: 'TaskQuote',
+        entityId: taskId ?? id,
+        action: 'budget_approved',
+        data: { quoteLabel },
+        overrides: {
+          title: 'Orçamento Aprovado',
+          body: `O orçamento ${quoteLabel} foi aprovado pelo cliente. Prossiga com a aprovação comercial.`,
+          relatedEntityType: 'TASK_QUOTE',
+          ...(taskId
+            ? {
+                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+              }
+            : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error('Falha ao notificar aprovação de orçamento (task_quote.budget_approved):', error);
+    }
+
+    return result;
   }
 
   /**
    * Commercial approves the quote
    */
   async commercialApprove(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
-    return this.updateStatus(id, TASK_QUOTE_STATUS.COMMERCIAL_APPROVED, userId);
+    const result = await this.updateStatus(id, TASK_QUOTE_STATUS.COMMERCIAL_APPROVED, userId);
+
+    // Commercial approval done -> notify the financial team to proceed with billing.
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(id);
+      await this.dispatchService.dispatchByConfiguration('task_quote.commercial_approved', userId, {
+        entityType: 'TaskQuote',
+        entityId: taskId ?? id,
+        action: 'commercial_approved',
+        data: { quoteLabel },
+        overrides: {
+          title: 'Aprovação Comercial Concluída',
+          body: `O orçamento ${quoteLabel} recebeu aprovação comercial. O faturamento pode ser aprovado.`,
+          relatedEntityType: 'TASK_QUOTE',
+          ...(taskId
+            ? {
+                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+              }
+            : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error('Falha ao notificar aprovação comercial (task_quote.commercial_approved):', error);
+    }
+
+    return result;
+  }
+
+  /** Best-effort human label for a quote — uses the linked task serial/name when
+   *  available, falling back to the short quote id. Also returns the linked task
+   *  id so notification deep links (keyed by taskId) can be built. Never throws. */
+  private async buildQuoteLabel(quoteId: string): Promise<{ label: string; taskId: string | null }> {
+    try {
+      const task = await this.prisma.task.findFirst({
+        where: { quoteId },
+        select: { id: true, name: true, serialNumber: true },
+      });
+      if (task?.serialNumber) {
+        return {
+          label: task.name ? `#${task.serialNumber} (${task.name})` : `#${task.serialNumber}`,
+          taskId: task.id,
+        };
+      }
+      if (task?.name) return { label: task.name, taskId: task.id };
+      if (task?.id) return { label: quoteId.slice(-8).toUpperCase(), taskId: task.id };
+    } catch {
+      // ignore — fall through to id
+    }
+    return { label: quoteId.slice(-8).toUpperCase(), taskId: null };
   }
 
   /**
@@ -1827,6 +2086,31 @@ export class TaskQuoteService {
     }
 
     const refreshed = await this.taskQuoteRepository.findById(id);
+
+    // Billing approved (invoices + NFS-e emitted) -> notify commercial/financial/admin.
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(id);
+      await this.dispatchService.dispatchByConfiguration('task_quote.billing_approved', userId, {
+        entityType: 'TaskQuote',
+        entityId: taskId ?? id,
+        action: 'billing_approved',
+        data: { quoteLabel },
+        overrides: {
+          title: 'Faturamento Aprovado',
+          body: `O faturamento do orçamento ${quoteLabel} foi aprovado e as faturas foram geradas.`,
+          relatedEntityType: 'TASK_QUOTE',
+          ...(taskId
+            ? {
+                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+              }
+            : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error('Falha ao notificar faturamento aprovado (task_quote.billing_approved):', error);
+    }
+
     return {
       success: true,
       data: refreshed as any,

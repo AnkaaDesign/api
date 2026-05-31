@@ -9,6 +9,7 @@ import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import unzipper from 'unzipper';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { OfxParserService } from './ofx-parser.service';
 import { ReconciliationClassifierService } from './reconciliation-classifier.service';
 import { ReconciliationMatcherService } from './reconciliation-matcher.service';
@@ -36,6 +37,7 @@ export class ReconciliationImportService {
     private readonly ofxParser: OfxParserService,
     private readonly matcher: ReconciliationMatcherService,
     private readonly classifier: ReconciliationClassifierService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
 
   /**
@@ -128,9 +130,10 @@ export class ReconciliationImportService {
         }
       }
 
-      // Classify first (auto-reconciles self-justifying categories like TARIFA,
-      // FOLHA, TRIBUTO, TRANSFERENCIA, CONVENIO), then run the NF matcher on
-      // anything still PENDING + category=NF.
+      // Classify first (auto-reconciles transaction-only categories like Tarifa,
+      // Folha, Tributo, Transferência, Convênio), then run the NF matcher on
+      // anything still PENDING that expects a fiscal document. The matcher, on a
+      // successful link, also derives the NF's item categories.
       let autoMatched = 0;
       for (const id of newlyInsertedIds) {
         await this.classifier.classifyAndPersist(id).catch(err =>
@@ -148,7 +151,7 @@ export class ReconciliationImportService {
             memo: true,
             bankSlipId: true,
             reconciliationStatus: true,
-            category: true,
+            expectsFiscalDocument: true,
           },
         });
         if (!tx) continue;
@@ -172,6 +175,42 @@ export class ReconciliationImportService {
           },
         },
       });
+
+      // Partial outcome: some files failed to ingest, or inserted transactions
+      // remained without an automatic match. Notify the financial team to review.
+      try {
+        const unmatchedCount = Math.max(summary.transactionsInserted - autoMatched, 0);
+        const isPartial = summary.failedFiles.length > 0 || unmatchedCount > 0;
+        if (isPartial) {
+          await this.dispatchService.dispatchByConfiguration(
+            'reconciliation.run.partial',
+            userId ?? 'system',
+            {
+              entityType: 'ReconciliationRun',
+              entityId: run.id,
+              action: 'partial',
+              data: {
+                filesProcessed: summary.filesProcessed,
+                failedFiles: summary.failedFiles.length,
+                transactionsInserted: summary.transactionsInserted,
+                autoMatched,
+                unmatchedCount,
+              },
+              overrides: {
+                title: 'Conciliação Concluída Parcialmente',
+                body: `A conciliação foi concluída com pendências: ${unmatchedCount} transação(ões) sem correspondência${summary.failedFiles.length ? ` e ${summary.failedFiles.length} arquivo(s) com falha` : ''}. Revise os itens pendentes.`,
+                webUrl: `/financeiro/conciliacao`,
+                relatedEntityType: 'RECONCILIATION_RUN',
+              },
+            },
+          );
+        }
+      } catch (notifyErr) {
+        this.logger.error(
+          'Falha ao notificar conciliação parcial (reconciliation.run.partial):',
+          notifyErr,
+        );
+      }
     } catch (err) {
       await this.prisma.reconciliationRun.update({
         where: { id: run.id },
@@ -181,10 +220,71 @@ export class ReconciliationImportService {
           errorMessage: (err as Error).message.slice(0, 500),
         },
       });
+
+      // Notify financial/admin that the reconciliation run failed.
+      try {
+        // Sanitize the raw error into a short pt-BR summary — the underlying
+        // message is usually a technical/English string (or a JSON/stack dump)
+        // that should never surface verbatim in a user notification.
+        const rawError = (err as Error).message ?? '';
+        const errorSummary = this.summarizeReconciliationError(rawError);
+        await this.dispatchService.dispatchByConfiguration(
+          'reconciliation.run.failed',
+          userId ?? 'system',
+          {
+            entityType: 'ReconciliationRun',
+            entityId: run.id,
+            action: 'failed',
+            data: {
+              errorMessage: rawError.slice(0, 500),
+              errorSummary,
+            },
+            overrides: {
+              title: 'Falha na Conciliação',
+              body: `A execução da conciliação falhou: ${errorSummary} Verifique os arquivos importados e tente novamente.`,
+              webUrl: `/financeiro/conciliacao`,
+              relatedEntityType: 'RECONCILIATION_RUN',
+            },
+          },
+        );
+      } catch (notifyErr) {
+        this.logger.error(
+          'Falha ao notificar falha de conciliação (reconciliation.run.failed):',
+          notifyErr,
+        );
+      }
+
       throw err;
     }
 
     return summary;
+  }
+
+  /**
+   * Turns a raw error message into a short, user-safe pt-BR sentence for the
+   * "reconciliation failed" notification. Maps known technical signatures to
+   * friendly causes; otherwise emits a generic phrase (never the raw text,
+   * so English/JSON/stack content never leaks to the user).
+   */
+  private summarizeReconciliationError(rawMessage: string): string {
+    const msg = (rawMessage ?? '').toLowerCase();
+    if (!msg.trim()) return 'Ocorreu um erro inesperado durante o processamento.';
+    if (msg.includes('zip') && (msg.includes('exced') || msg.includes('size'))) {
+      return 'Um arquivo enviado excede o tamanho máximo permitido.';
+    }
+    if (msg.includes('.ofx') || msg.includes('.qfx') || msg.includes('não contém')) {
+      return 'Nenhum arquivo OFX/QFX válido foi encontrado nos arquivos enviados.';
+    }
+    if (msg.includes('parse') || msg.includes('invalid') || msg.includes('malformed')) {
+      return 'Não foi possível ler o conteúdo de um dos arquivos enviados.';
+    }
+    if (msg.includes('timeout') || msg.includes('timed out')) {
+      return 'O processamento excedeu o tempo limite.';
+    }
+    if (msg.includes('prisma') || msg.includes('database') || msg.includes('connection')) {
+      return 'Ocorreu um erro ao gravar os dados da conciliação.';
+    }
+    return 'Ocorreu um erro inesperado durante o processamento.';
   }
 
   /**

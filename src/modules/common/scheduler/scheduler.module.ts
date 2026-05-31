@@ -11,6 +11,7 @@ import { OrderModule } from '../../inventory/order/order.module';
 import { PpeModule } from '../../inventory/ppe/ppe.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ChangeLogModule } from '../changelog/changelog.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { ChangeLogModule } from '../changelog/changelog.module';
     forwardRef(() => PpeModule),
     PrismaModule,
     ChangeLogModule,
+    NotificationModule,
   ],
   providers: [BonusCronService, CronService, InventoryCronService],
   exports: [BonusCronService, CronService, InventoryCronService],

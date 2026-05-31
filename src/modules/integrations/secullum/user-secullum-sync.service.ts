@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { SecullumCadastrosService } from './secullum-cadastros.service';
 import { SecullumService } from './secullum.service';
 import {
@@ -93,7 +94,25 @@ export class UserSecullumSyncService implements OnModuleInit {
     private readonly cadastros: SecullumCadastrosService,
     private readonly secullum: SecullumService,
     @Inject('EventEmitter') private readonly events: EventEmitter,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
+
+  /**
+   * Sector-targeted dispatch wrapper. Never lets a notification failure break
+   * the (best-effort) Secullum sync flow.
+   */
+  private async safeDispatch(
+    configKey: string,
+    context: Parameters<NotificationDispatchService['dispatchByConfiguration']>[2],
+  ): Promise<void> {
+    try {
+      await this.dispatchService.dispatchByConfiguration(configKey, 'system', context);
+    } catch (err) {
+      this.logger.error(
+        `[secullum] notification dispatch failed for "${configKey}": ${(err as Error).message}`,
+      );
+    }
+  }
 
   onModuleInit(): void {
     this.events.on(SECULLUM_USER_CREATED_EVENT, (p: SecullumUserCreatedPayload) => {
@@ -236,6 +255,19 @@ export class UserSecullumSyncService implements OnModuleInit {
         this.logger.error(
           `[secullum] createFuncionario failed for user ${userId}: ${message}`,
         );
+        await this.safeDispatch('secullum.sync.failed', {
+          entityType: 'SecullumSolicitacao',
+          entityId: userId,
+          action: 'create_failed',
+          data: { userId, userName: user.name, error: message },
+          overrides: {
+            title: 'Falha na sincronização com a Secullum',
+            body: `Falha ao criar o funcionário "${user.name}" na Secullum: ${message}`,
+            webUrl: '/recursos-humanos/integracoes/secullum',
+            mobileUrl: '/(tabs)/recursos-humanos/calculos',
+            relatedEntityType: 'SECULLUM_SOLICITACAO',
+          },
+        });
         return { status: 'error', reason: message };
       }
     } catch (outer) {
@@ -340,6 +372,19 @@ export class UserSecullumSyncService implements OnModuleInit {
         this.logger.error(
           `[secullum] updateFuncionario failed for user ${userId}: ${message}`,
         );
+        await this.safeDispatch('secullum.sync.failed', {
+          entityType: 'SecullumSolicitacao',
+          entityId: userId,
+          action: 'update_failed',
+          data: { userId, userName: user.name, error: message },
+          overrides: {
+            title: 'Falha na sincronização com a Secullum',
+            body: `Falha ao atualizar o funcionário "${user.name}" na Secullum: ${message}`,
+            webUrl: '/recursos-humanos/integracoes/secullum',
+            mobileUrl: '/(tabs)/recursos-humanos/calculos',
+            relatedEntityType: 'SECULLUM_SOLICITACAO',
+          },
+        });
         return { status: 'error', reason: message };
       }
     } catch (outer) {
@@ -502,6 +547,28 @@ export class UserSecullumSyncService implements OnModuleInit {
     this.logger.log(
       `[secullum/backfill] done: total=${result.totalAnkaaUsers} secullum=${result.totalSecullumEmployees} newlyLinked=${result.newlyLinked} alreadyLinked=${result.alreadyLinked} conflicts=${result.conflicts} unmatched=${result.unmatched}`,
     );
+
+    // One consolidated conflict notification per backfill run (not per-row) so
+    // HR/ADMIN reconcile rather than getting spammed.
+    if (result.conflicts > 0) {
+      const sample = result.conflictDetails
+        .slice(0, 5)
+        .map((c) => `${c.ankaaUserName} (atual=${c.oldId}, calculado=${c.newId})`)
+        .join('; ');
+      await this.safeDispatch('secullum.sync.conflict', {
+        entityType: 'SecullumSolicitacao',
+        entityId: 'backfill',
+        action: 'conflict',
+        data: { conflicts: result.conflicts, sample },
+        overrides: {
+          title: 'Conflito de vínculo Secullum detectado',
+          body: `${result.conflicts} conflito(s) de vínculo durante a sincronização Secullum. Reconcilie manualmente.${sample ? ` Ex.: ${sample}` : ''}`,
+          webUrl: '/recursos-humanos/integracoes/secullum',
+          mobileUrl: '/(tabs)/recursos-humanos/calculos',
+          relatedEntityType: 'SECULLUM_SOLICITACAO',
+        },
+      });
+    }
 
     return result;
   }

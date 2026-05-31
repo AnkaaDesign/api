@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SecullumService } from '@modules/integrations/secullum/secullum.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { SecullumCalculationData } from '@modules/integrations/secullum/dto';
 
 /**
@@ -58,7 +59,16 @@ export interface SecullumPayrollData {
 export class SecullumPayrollIntegrationService {
   private readonly logger = new Logger(SecullumPayrollIntegrationService.name);
 
-  constructor(private readonly secullumService: SecullumService) {}
+  // Per-period in-memory dedup so a single payroll-generation run that fails for
+  // many employees emits at most ONE URGENT "data degraded" alert per period.
+  // Cleared by TTL so a later run can re-alert. In-process only (best-effort).
+  private readonly degradedAlertedPeriods = new Map<string, number>();
+  private readonly DEGRADED_ALERT_TTL_MS = 60 * 60 * 1000; // 1h
+
+  constructor(
+    private readonly secullumService: SecullumService,
+    private readonly dispatchService: NotificationDispatchService,
+  ) {}
 
   /**
    * Fetches and parses Secullum calculation data for a specific employee/period.
@@ -115,8 +125,48 @@ export class SecullumPayrollIntegrationService {
       return payrollData;
     } catch (error) {
       this.logger.error(`Error fetching Secullum data for employee ${employeeId}:`, error);
+      // Falling back to empty payroll data means the saved payroll for this
+      // employee is missing Secullum-derived hours/absences — i.e. degraded.
+      // Alert HR/Financial/Admin once per period.
+      this.emitDataDegradedOncePerPeriod(year, month, (error as Error)?.message);
       return this.getEmptyPayrollData(employeeId, secullumId, year, month);
     }
+  }
+
+  /**
+   * Fire-and-forget URGENT "payroll data degraded" alert, deduped to one emit
+   * per (year/month) per TTL window. Never blocks payroll generation.
+   */
+  private emitDataDegradedOncePerPeriod(year: number, month: number, reason?: string): void {
+    const key = `${year}-${month}`;
+    const now = Date.now();
+    const last = this.degradedAlertedPeriods.get(key);
+    if (last && now - last < this.DEGRADED_ALERT_TTL_MS) return;
+    this.degradedAlertedPeriods.set(key, now);
+
+    const body =
+      `Os dados da Secullum para a folha de ${String(month).padStart(2, '0')}/${year} estão ` +
+      `indisponíveis/degradados. Parte da folha pode ter sido gerada sem horas/ausências da Secullum.` +
+      (reason ? ` Detalhe: ${reason}` : '');
+
+    void this.dispatchService
+      .dispatchByConfiguration('secullum.payroll.dataDegraded', 'system', {
+        entityType: 'SecullumPayroll',
+        entityId: key,
+        action: 'data_degraded',
+        data: { source: 'payroll', year, month, reason: reason ?? '' },
+        overrides: {
+          title: 'Dados de folha degradados (Secullum)',
+          body,
+          webUrl: '/recursos-humanos/folha-de-pagamento',
+          relatedEntityType: 'SECULLUM_PAYROLL',
+        },
+      })
+      .catch((err) =>
+        this.logger.error(
+          `Notification dispatch failed for "secullum.payroll.dataDegraded": ${(err as Error).message}`,
+        ),
+      );
   }
 
   /**

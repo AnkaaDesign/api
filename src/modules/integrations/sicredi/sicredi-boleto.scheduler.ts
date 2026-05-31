@@ -507,6 +507,16 @@ export class SicrediBoletoScheduler implements OnModuleInit {
               `nossoNumero=${boletoResponse.nossoNumero}, codigoBarras=${boletoResponse.codigoBarras}, ` +
               `pixQrCode=${pixQrCode ? 'YES' : 'NO'}, txid=${boletoResponse.txid || 'N/A'}`,
           );
+
+          // Notify (LOW) that a boleto was registered and is now ACTIVE at Sicredi.
+          if (installment.invoice?.id) {
+            await this.dispatchBankSlipCreatedNotification(
+              installment.invoice.id,
+              boletoResponse.nossoNumero,
+              Number(installment.amount),
+              new Date(installment.dueDate),
+            );
+          }
         } catch (error) {
           errors++;
           const errorMessage = error instanceof Error ? error.message : String(error);
@@ -587,6 +597,18 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             this.logger.warn(
               `[BOLETO_CREATE]   - BankSlip=${slip.id}, installmentId=${instId}, customer="${custName}", errorCount=${slip.errorCount}, lastError="${slip.errorMessage || 'N/A'}"`,
             );
+
+            // Notify FINANCIAL/ADMIN that this boleto permanently failed to register
+            // at Sicredi (errorCount >= 3) and needs manual intervention. Guard against
+            // re-notifying: only emit when the failure was reached in this run is not
+            // tracked — we emit best-effort per slip; downstream config dedupes by entity.
+            if (slip.installment?.invoice?.id) {
+              await this.dispatchBankSlipRegistrationFailedNotification(
+                slip.installment.invoice.id,
+                slip.id,
+                slip.errorMessage,
+              );
+            }
           }
         }
       } catch (summaryError) {
@@ -1083,6 +1105,15 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             if (bankSlip.installment.invoice) {
               await this.updateInvoiceStatus(bankSlip.installment.invoice.id);
               await this.cascadeService.cascadeFromInvoice(bankSlip.installment.invoice.id);
+
+              // Notify FINANCIAL/ADMIN that the boleto is now overdue.
+              await this.dispatchBankSlipOverdueNotification(
+                bankSlip.installment.invoice.id,
+                bankSlip.id,
+                bankSlip.nossoNumero,
+                bankSlip.dueDate,
+                Number(bankSlip.amount),
+              );
             }
           }
 
@@ -1405,6 +1436,188 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       });
 
       this.logger.log(`Invoice ${invoiceId} status updated to ${newStatus} (paid: ${totalPaid})`);
+    }
+  }
+
+  /**
+   * Resolve task context (taskId/name/customer) for a financial deep link from an invoice.
+   * Returns nulls if anything is missing. Never throws.
+   */
+  private async resolveInvoiceContext(invoiceId: string): Promise<{
+    taskId: string | null;
+    taskName: string;
+    customerName: string;
+  } | null> {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        customer: { select: { fantasyName: true } },
+        task: { select: { id: true, name: true } },
+      },
+    });
+    if (!invoice) return null;
+    return {
+      taskId: invoice.task?.id ?? invoice.taskId ?? null,
+      taskName: invoice.task?.name || 'N/A',
+      customerName: invoice.customer?.fantasyName || 'N/A',
+    };
+  }
+
+  /**
+   * Dispatch bank_slip.overdue when a boleto passes its due date (per slip).
+   * Best-effort — never breaks the overdue sweep.
+   */
+  private async dispatchBankSlipOverdueNotification(
+    invoiceId: string,
+    bankSlipId: string,
+    nossoNumero: string | null,
+    dueDate: Date,
+    amount: number,
+  ): Promise<void> {
+    try {
+      const ctx = await this.resolveInvoiceContext(invoiceId);
+      if (!ctx) return;
+
+      const formattedAmount = new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      }).format(amount);
+      const formattedDueDate = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+      }).format(dueDate);
+
+      const webUrl = ctx.taskId ? `/financeiro/faturamento/detalhes/${ctx.taskId}` : undefined;
+      const mobileUrl = ctx.taskId ? `financial/${ctx.taskId}` : undefined;
+
+      await this.notificationDispatchService.dispatchByConfiguration('bank_slip.overdue', 'system', {
+        entityType: 'BankSlip',
+        entityId: ctx.taskId ?? invoiceId,
+        action: 'overdue',
+        data: {
+          customerName: ctx.customerName,
+          taskName: ctx.taskName,
+          nossoNumero: nossoNumero || 'N/A',
+          amount: formattedAmount,
+          dueDate: formattedDueDate,
+          invoiceId,
+          bankSlipId,
+          taskId: ctx.taskId || undefined,
+        },
+        overrides: {
+          title: 'Boleto Vencido',
+          body: `O boleto ${nossoNumero || ''} da tarefa ${ctx.taskName} (${ctx.customerName}) venceu em ${formattedDueDate}. Valor: ${formattedAmount}.`,
+          relatedEntityType: 'BANK_SLIP',
+          ...(webUrl ? { webUrl } : {}),
+          ...(mobileUrl ? { mobileUrl } : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to dispatch bank_slip.overdue notification for bankSlip: ${bankSlipId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  /**
+   * Dispatch bank_slip.created (LOW) when a boleto is registered and ACTIVE at Sicredi.
+   * Best-effort — never breaks the creation job.
+   */
+  private async dispatchBankSlipCreatedNotification(
+    invoiceId: string,
+    nossoNumero: string,
+    amount: number,
+    dueDate: Date,
+  ): Promise<void> {
+    try {
+      const ctx = await this.resolveInvoiceContext(invoiceId);
+      if (!ctx) return;
+
+      const formattedAmount = new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      }).format(amount);
+      const formattedDueDate = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+      }).format(dueDate);
+
+      const webUrl = ctx.taskId ? `/financeiro/faturamento/detalhes/${ctx.taskId}` : undefined;
+      const mobileUrl = ctx.taskId ? `financial/${ctx.taskId}` : undefined;
+
+      await this.notificationDispatchService.dispatchByConfiguration('bank_slip.created', 'system', {
+        entityType: 'BankSlip',
+        entityId: ctx.taskId ?? invoiceId,
+        action: 'created',
+        data: {
+          customerName: ctx.customerName,
+          taskName: ctx.taskName,
+          nossoNumero,
+          amount: formattedAmount,
+          dueDate: formattedDueDate,
+          invoiceId,
+          taskId: ctx.taskId || undefined,
+        },
+        overrides: {
+          title: 'Boleto Gerado',
+          body: `Boleto ${nossoNumero} gerado para a tarefa ${ctx.taskName} (${ctx.customerName}). Valor: ${formattedAmount}, vencimento ${formattedDueDate}.`,
+          relatedEntityType: 'BANK_SLIP',
+          ...(webUrl ? { webUrl } : {}),
+          ...(mobileUrl ? { mobileUrl } : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to dispatch bank_slip.created notification for invoice: ${invoiceId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  /**
+   * Dispatch bank_slip.registration_failed when a boleto permanently fails to register
+   * at Sicredi (errorCount >= 3). Best-effort — never breaks the creation job.
+   */
+  private async dispatchBankSlipRegistrationFailedNotification(
+    invoiceId: string,
+    bankSlipId: string,
+    errorMessage: string | null,
+  ): Promise<void> {
+    try {
+      const ctx = await this.resolveInvoiceContext(invoiceId);
+      if (!ctx) return;
+
+      const webUrl = ctx.taskId ? `/financeiro/faturamento/detalhes/${ctx.taskId}` : undefined;
+      const mobileUrl = ctx.taskId ? `financial/${ctx.taskId}` : undefined;
+
+      await this.notificationDispatchService.dispatchByConfiguration(
+        'bank_slip.registration_failed',
+        'system',
+        {
+          entityType: 'BankSlip',
+          entityId: ctx.taskId ?? invoiceId,
+          action: 'registration_failed',
+          data: {
+            customerName: ctx.customerName,
+            taskName: ctx.taskName,
+            errorMessage: errorMessage || 'N/A',
+            invoiceId,
+            bankSlipId,
+            taskId: ctx.taskId || undefined,
+          },
+          overrides: {
+            title: 'Falha ao Registrar Boleto',
+            body: `Não foi possível registrar o boleto da tarefa ${ctx.taskName} (${ctx.customerName}) no Sicredi após várias tentativas. Intervenção manual necessária.${errorMessage ? `\nErro: ${errorMessage}` : ''}`,
+            relatedEntityType: 'BANK_SLIP',
+            ...(webUrl ? { webUrl } : {}),
+            ...(mobileUrl ? { mobileUrl } : {}),
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to dispatch bank_slip.registration_failed notification for bankSlip: ${bankSlipId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
     }
   }
 
