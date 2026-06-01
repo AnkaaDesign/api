@@ -196,7 +196,7 @@ export class SkillService {
         where: finalWhere,
         skip: computedSkip,
         take,
-        orderBy: orderBy ?? [{ skillId: 'asc' }, { order: 'asc' }],
+        orderBy: orderBy ?? [{ skill: { order: 'asc' } }, { order: 'asc' }],
         include: include ?? undefined,
       }),
       this.prisma.topic.count({ where: finalWhere }),
@@ -1483,6 +1483,12 @@ export class SkillService {
   ): Promise<{ success: boolean; message: string; data: SkillStatsOverviewResponse }> {
     const { entries, topicIndex } = await this.loadStatsEntries(filters);
 
+    // When a skill/topic filter is active, each entry's `responses` is the
+    // FILTERED subset — so "every response scored" no longer means the whole
+    // entry is complete (it would over-count completion). In that case fall
+    // back to the strict SUBMITTED status for the completed metric.
+    const hasContentFilter = !!(filters.skillIds?.length || filters.topicIds?.length);
+
     // Build a stable skill axis from every skill that appeared in any response.
     const skillMeta = new Map<string, { name: string; order: number }>();
     for (const meta of topicIndex.values()) {
@@ -1519,6 +1525,7 @@ export class SkillService {
     const submittedEntryIds = new Set<string>();
     let totalEntries = 0;
     let submittedEntries = 0;
+    let completedEntries = 0;
     let inProgressEntries = 0;
     let pendingEntries = 0; // always 0 with default filter, kept for API parity
 
@@ -1527,6 +1534,16 @@ export class SkillService {
       if (entry.status === 'SUBMITTED') submittedEntries++;
       else if (entry.status === 'IN_PROGRESS') inProgressEntries++;
       else pendingEntries++;
+
+      // "Completed" = finalized OR every loaded response scored (the campaign
+      // page's "Concluída" state). On open campaigns evaluators often answer
+      // everything without pressing submit, so submittedEntries alone reads as
+      // 0% even though the data is effectively done.
+      const fullyScored =
+        !hasContentFilter &&
+        entry.responses.length > 0 &&
+        entry.responses.every((r: any) => r.score != null);
+      if (entry.status === 'SUBMITTED' || fullyScored) completedEntries++;
 
       assessmentIds.add(entry.assessmentId);
       if (entry.evaluateeId) allUserIds.add(entry.evaluateeId);
@@ -1701,9 +1718,10 @@ export class SkillService {
           totalEvaluated: allUserIds.size,
           totalEntries,
           submittedEntries,
+          completedEntries,
           inProgressEntries,
           pendingEntries,
-          submissionRate: totalEntries > 0 ? submittedEntries / totalEntries : 0,
+          submissionRate: totalEntries > 0 ? completedEntries / totalEntries : 0,
           overallAverage,
           assessmentsCount: assessmentIds.size,
           bestSector: bestSectorEntry && bestSectorEntry.overallAverage != null
