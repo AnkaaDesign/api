@@ -25,6 +25,14 @@ export interface SiegDownloadParams {
   skip?: number;
 }
 
+/** Per-item tax group extracted from NFe `det.imposto`. */
+export interface ParsedItemTaxes {
+  icms?: { vBC?: number; pICMS?: number; vICMS?: number; cst?: string } | null;
+  ipi?: { vBC?: number; pIPI?: number; vIPI?: number; cst?: string } | null;
+  pis?: { vBC?: number; pPIS?: number; vPIS?: number; cst?: string } | null;
+  cofins?: { vBC?: number; pCOFINS?: number; vCOFINS?: number; cst?: string } | null;
+}
+
 export interface ParsedFiscalDocumentItem {
   /** Product code (NFe `cProd`) or service code (NFSe `ItemListaServico` / `cServ`). */
   code: string | null;
@@ -37,6 +45,45 @@ export interface ParsedFiscalDocumentItem {
   unitValue: number | null;
   /** Line total (NFe `vProd`; NFSe `ValorServicos` / `vServPrest`). */
   totalValue: number;
+  /** Fiscal classification (NFe only). */
+  ncm?: string | null;
+  cfop?: string | null;
+  cest?: string | null;
+  ean?: string | null;
+  cst?: string | null;
+  discount?: number | null;
+  freight?: number | null;
+  taxes?: ParsedItemTaxes | null;
+}
+
+/** Address block extracted from NFe `enderEmit`/`enderDest`. */
+export interface ParsedAddress {
+  logradouro?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  municipio?: string | null;
+  uf?: string | null;
+  cep?: string | null;
+  fone?: string | null;
+}
+
+/** NFe ICMSTot totals breakdown. */
+export interface ParsedTotals {
+  vBC?: number;
+  vICMS?: number;
+  vICMSDeson?: number;
+  vProd?: number;
+  vFrete?: number;
+  vSeg?: number;
+  vDesc?: number;
+  vOutro?: number;
+  vST?: number;
+  vIPI?: number;
+  vPIS?: number;
+  vCOFINS?: number;
+  vNF?: number;
+  vTotTrib?: number;
 }
 
 export interface ParsedFiscalDocument {
@@ -55,6 +102,34 @@ export interface ParsedFiscalDocument {
   paymentMethods: unknown;
   rawXml: string;
   items: ParsedFiscalDocumentItem[];
+
+  // --- Rich fields (persisted to FiscalDocument columns) ---
+  series?: string | null;
+  model?: string | null;
+  naturezaOperacao?: string | null;
+  protocolNumber?: string | null;
+  authorizationDate?: Date | null;
+  cStat?: string | null;
+  xMotivo?: string | null;
+  /** True when issueDate could not be parsed and was inferred to "now". */
+  dateInferred?: boolean;
+  emitIE?: string | null;
+  emitAddress?: ParsedAddress | null;
+  destIE?: string | null;
+  destEmail?: string | null;
+  destAddress?: ParsedAddress | null;
+  totals?: ParsedTotals | null;
+  cancelledAt?: Date | null;
+  // NFSe-specific
+  issValue?: number | null;
+  issRetained?: boolean | null;
+  issRate?: number | null;
+  baseCalculo?: number | null;
+  valorLiquido?: number | null;
+  valorServicos?: number | null;
+  codigoTributacaoMunicipio?: string | null;
+  municipioPrestacao?: string | null;
+  itemListaServico?: string | null;
 }
 
 export const SIEG_XML_TYPE_MAP: Record<FiscalDocumentType, 1 | 2 | 3 | 4 | 5> = {

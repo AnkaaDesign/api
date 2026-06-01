@@ -399,6 +399,22 @@ export class ReconciliationMatcherService {
       // Enrich the now-matched transaction with item-derived categories from the
       // matched NF's line items. Best-effort; never breaks the match result.
       await this.itemCategoryClassifier.deriveForTransaction(tx.id);
+      await this.prisma.bankTransaction
+        .update({ where: { id: tx.id }, data: { topMatchScore: null } })
+        .catch(() => undefined);
+    } else {
+      // Record the best candidate's confidence so the list can show how close
+      // the closest NF is ("Pendente · 40%"). Best-effort; never blocks matching.
+      try {
+        const candidates = await this.getCandidatesForTransaction(tx.id);
+        const top = candidates.length ? candidates[0].confidence : null;
+        await this.prisma.bankTransaction.update({
+          where: { id: tx.id },
+          data: { topMatchScore: top },
+        });
+      } catch {
+        /* best-effort */
+      }
     }
     return matched;
   }
@@ -522,6 +538,23 @@ export class ReconciliationMatcherService {
       destName: true,
       destCpf: true,
       operationType: true,
+      nfNumber: true,
+      // Full line items so the manual UI can show WHAT the invoice is for and
+      // let the user categorize each line inline.
+      items: {
+        select: {
+          id: true,
+          code: true,
+          description: true,
+          totalValue: true,
+          quantity: true,
+          unit: true,
+          unitValue: true,
+          categoryId: true,
+          category: { select: { id: true, name: true, slug: true, color: true } },
+        },
+        take: 100,
+      },
     } satisfies Prisma.FiscalDocumentSelect;
 
     // First pass: CNPJ-scoped candidates with a wide date window.
@@ -570,20 +603,43 @@ export class ReconciliationMatcherService {
       .map(doc => ({ doc, score: scoreCandidate(tx, doc, aliasContext) }))
       .sort((a, b) => b.score.total - a.score.total);
 
-    return scored.map(({ doc, score }) => ({
-      fiscalDocumentId: doc.id,
-      accessKey: doc.accessKey,
-      docType: doc.docType,
-      issueDate: doc.issueDate,
-      totalValue: Number(doc.totalValue),
-      emitCnpj: doc.emitCnpj,
-      emitName: doc.emitName,
-      destCnpj: doc.destCnpj,
-      destName: doc.destName,
-      confidence: score.total,
-      matchType: score.matchType,
-      rationale: score.reasons.join(' • ') || 'Aproximação por valor/data',
-    }));
+    return scored.map(({ doc, score }) => {
+      const docTotal = Number(doc.totalValue);
+      const daysDelta = Math.round(
+        Math.abs(doc.issueDate.getTime() - tx.postedAt.getTime()) / 86_400_000,
+      );
+      return {
+        fiscalDocumentId: doc.id,
+        accessKey: doc.accessKey,
+        docType: doc.docType,
+        operationType: doc.operationType,
+        issueDate: doc.issueDate,
+        totalValue: docTotal,
+        emitCnpj: doc.emitCnpj,
+        emitName: doc.emitName,
+        destCnpj: doc.destCnpj,
+        destCpf: doc.destCpf ?? null,
+        destName: doc.destName,
+        nfNumber: doc.nfNumber ?? null,
+        confidence: score.total,
+        matchType: score.matchType,
+        rationale: score.reasons.join(' • ') || 'Aproximação por valor/data',
+        amountDelta: Math.abs(docTotal - absAmount),
+        daysDelta,
+        aliasAssisted: !!aliasContext,
+        items: (doc.items ?? []).map((it: any) => ({
+          id: it.id,
+          code: it.code ?? null,
+          description: it.description,
+          totalValue: Number(it.totalValue),
+          quantity: it.quantity != null ? Number(it.quantity) : null,
+          unit: it.unit ?? null,
+          unitValue: it.unitValue != null ? Number(it.unitValue) : null,
+          categoryId: it.categoryId ?? null,
+          category: it.category ?? null,
+        })),
+      };
+    });
   }
 
   private async tryBoletoBridge(tx: RawTransaction): Promise<boolean> {

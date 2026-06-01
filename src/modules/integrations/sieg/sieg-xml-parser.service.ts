@@ -90,6 +90,14 @@ export class SiegXmlParserService {
     const total = infNFe.total?.ICMSTot || {};
     const pag = infNFe.pag?.detPag;
 
+    // Authorization protocol lives at the *proc* level: nfeProc.protNFe /
+    // nfceProc.protNFe, or doc.protNFe for bare envelopes.
+    const infProt =
+      doc.nfeProc?.protNFe?.infProt ||
+      doc.nfceProc?.protNFe?.infProt ||
+      doc.protNFe?.infProt ||
+      {};
+
     // Derive operation from the COMPANY's perspective:
     //   - company is emitter   → SAIDA (we sold / issued)
     //   - company is recipient → ENTRADA (we received)
@@ -105,7 +113,11 @@ export class SiegXmlParserService {
         // they don't masquerade as outbound sales.
         : FiscalDocumentOperation.ENTRADA;
 
-    const cancelled = !!(doc.protNFe?.infProt?.cStat === '101' || doc.cancNFe);
+    const protCStat = infProt.cStat ? String(infProt.cStat) : null;
+    const cancelled = !!(protCStat === '101' || doc.cancNFe);
+    const { date: issueDate, inferred: dateInferred } = this.parseDateFlagged(
+      ide.dhEmi || ide.dEmi,
+    );
 
     // NFe `det` may be a single object or an array (fast-xml-parser collapses
     // single-element arrays). Always normalize to an array before iterating.
@@ -122,28 +134,138 @@ export class SiegXmlParserService {
           unit: prod.uCom ? String(prod.uCom) : null,
           unitValue: this.toNumberOrNull(prod.vUnCom),
           totalValue: this.toNumberOrZero(prod.vProd),
+          ncm: prod.NCM ? String(prod.NCM) : null,
+          cfop: prod.CFOP ? String(prod.CFOP) : null,
+          cest: prod.CEST ? String(prod.CEST) : null,
+          ean: prod.cEAN && prod.cEAN !== 'SEM GTIN' ? String(prod.cEAN) : null,
+          discount: this.toNumberOrNull(prod.vDesc),
+          freight: this.toNumberOrNull(prod.vFrete),
+          taxes: this.extractItemTaxes(det?.imposto),
+          cst: this.extractItemCst(det?.imposto),
         };
         return item;
       })
       .filter((i): i is ParsedFiscalDocumentItem => i !== null);
 
     return {
-      accessKey: accessKey || `${docType}_${ide.cNF || Date.now()}_${ide.nNF || ''}`,
+      accessKey: accessKey || `${docType}_${ide.cNF || ide.nNF || 'UNK'}`,
       docType,
       operationType,
       status: cancelled ? FiscalDocumentStatus.CANCELLED : FiscalDocumentStatus.AUTHORIZED,
-      issueDate: this.parseDate(ide.dhEmi || ide.dEmi),
+      issueDate,
+      dateInferred,
       totalValue: parseFloat(total.vNF || '0'),
       emitCnpj: String(emit.CNPJ || ''),
       emitName: emit.xNome ? String(emit.xNome) : null,
+      emitIE: emit.IE ? String(emit.IE) : null,
+      emitAddress: this.extractAddress(emit.enderEmit),
       destCnpj: dest.CNPJ ? String(dest.CNPJ) : null,
       destCpf: dest.CPF ? String(dest.CPF) : null,
       destName: dest.xNome ? String(dest.xNome) : null,
+      destIE: dest.IE ? String(dest.IE) : null,
+      destEmail: dest.email ? String(dest.email) : null,
+      destAddress: this.extractAddress(dest.enderDest),
       nfNumber: ide.nNF ? String(ide.nNF) : null,
+      series: ide.serie ? String(ide.serie) : null,
+      model: ide.mod ? String(ide.mod) : null,
+      naturezaOperacao: ide.natOp ? String(ide.natOp) : null,
+      protocolNumber: infProt.nProt ? String(infProt.nProt) : null,
+      authorizationDate: this.parseDateOrNull(infProt.dhRecbto),
+      cStat: protCStat,
+      xMotivo: infProt.xMotivo ? String(infProt.xMotivo) : null,
+      totals: this.extractTotals(total),
+      cancelledAt: cancelled ? this.parseDateOrNull(infProt.dhRecbto) : null,
       paymentMethods: pag ?? null,
       rawXml,
       items,
     };
+  }
+
+  /** Builds an address blob from an NFe `enderEmit`/`enderDest` node. */
+  private extractAddress(ender: any): ParsedFiscalDocument['emitAddress'] {
+    if (!ender || typeof ender !== 'object') return null;
+    const addr = {
+      logradouro: ender.xLgr ? String(ender.xLgr) : null,
+      numero: ender.nro ? String(ender.nro) : null,
+      complemento: ender.xCpl ? String(ender.xCpl) : null,
+      bairro: ender.xBairro ? String(ender.xBairro) : null,
+      municipio: ender.xMun ? String(ender.xMun) : null,
+      uf: ender.UF ? String(ender.UF) : null,
+      cep: ender.CEP ? String(ender.CEP) : null,
+      fone: ender.fone ? String(ender.fone) : null,
+    };
+    return Object.values(addr).some((v) => v !== null) ? addr : null;
+  }
+
+  /** Extracts the ICMSTot totals breakdown from an NFe `total.ICMSTot` node. */
+  private extractTotals(t: any): ParsedFiscalDocument['totals'] {
+    if (!t || typeof t !== 'object') return null;
+    const out: Record<string, number> = {};
+    for (const k of [
+      'vBC', 'vICMS', 'vICMSDeson', 'vProd', 'vFrete', 'vSeg',
+      'vDesc', 'vOutro', 'vST', 'vIPI', 'vPIS', 'vCOFINS', 'vNF', 'vTotTrib',
+    ]) {
+      const n = this.toNumberOrNull(t[k]);
+      if (n !== null) out[k] = n;
+    }
+    return Object.keys(out).length ? out : null;
+  }
+
+  /** Extracts the per-item ICMS/IPI/PIS/COFINS breakdown from `det.imposto`. */
+  private extractItemTaxes(imposto: any): ParsedFiscalDocumentItem['taxes'] {
+    if (!imposto || typeof imposto !== 'object') return null;
+    // ICMS is wrapped in a CST-keyed sub-node (ICMS00, ICMS10, ICMSSN102, ...).
+    const icmsNode = imposto.ICMS
+      ? Object.values(imposto.ICMS).find((v) => v && typeof v === 'object')
+      : null;
+    const icms = icmsNode as any;
+    const ipi = imposto.IPI?.IPITrib;
+    const pis = imposto.PIS
+      ? (Object.values(imposto.PIS).find((v) => v && typeof v === 'object') as any)
+      : null;
+    const cofins = imposto.COFINS
+      ? (Object.values(imposto.COFINS).find((v) => v && typeof v === 'object') as any)
+      : null;
+    const taxes: ParsedFiscalDocumentItem['taxes'] = {};
+    if (icms)
+      taxes.icms = {
+        vBC: this.toNumberOrNull(icms.vBC) ?? undefined,
+        pICMS: this.toNumberOrNull(icms.pICMS) ?? undefined,
+        vICMS: this.toNumberOrNull(icms.vICMS) ?? undefined,
+        cst: icms.CST ? String(icms.CST) : icms.CSOSN ? String(icms.CSOSN) : undefined,
+      };
+    if (ipi)
+      taxes.ipi = {
+        vBC: this.toNumberOrNull(ipi.vBC) ?? undefined,
+        pIPI: this.toNumberOrNull(ipi.pIPI) ?? undefined,
+        vIPI: this.toNumberOrNull(ipi.vIPI) ?? undefined,
+        cst: ipi.CST ? String(ipi.CST) : undefined,
+      };
+    if (pis)
+      taxes.pis = {
+        vBC: this.toNumberOrNull(pis.vBC) ?? undefined,
+        pPIS: this.toNumberOrNull(pis.pPIS) ?? undefined,
+        vPIS: this.toNumberOrNull(pis.vPIS) ?? undefined,
+        cst: pis.CST ? String(pis.CST) : undefined,
+      };
+    if (cofins)
+      taxes.cofins = {
+        vBC: this.toNumberOrNull(cofins.vBC) ?? undefined,
+        pCOFINS: this.toNumberOrNull(cofins.pCOFINS) ?? undefined,
+        vCOFINS: this.toNumberOrNull(cofins.vCOFINS) ?? undefined,
+        cst: cofins.CST ? String(cofins.CST) : undefined,
+      };
+    return Object.keys(taxes).length ? taxes : null;
+  }
+
+  /** Pulls the ICMS CST/CSOSN code for quick display on the item row. */
+  private extractItemCst(imposto: any): string | null {
+    if (!imposto?.ICMS) return null;
+    const node = Object.values(imposto.ICMS).find(
+      (v) => v && typeof v === 'object',
+    ) as any;
+    if (!node) return null;
+    return node.CST ? String(node.CST) : node.CSOSN ? String(node.CSOSN) : null;
   }
 
   private parseCTe(doc: any, rawXml: string): ParsedFiscalDocument | null {
@@ -167,6 +289,8 @@ export class SiegXmlParserService {
     // CTe is a freight document; it has no product/service line items in the
     // sense the NF detail modal expects. We synthesize a single descriptive row
     // so the modal still renders something useful.
+    const infProt =
+      doc.cteProc?.protCTe?.infProt || doc.CT_eProc?.protCTe?.infProt || {};
     const cteTotal = parseFloat(vPrest.vTPrest || '0');
     const cteDesc =
       (infCTe.infCTeNorm?.infServico?.xDescServ as string | undefined) ??
@@ -181,20 +305,34 @@ export class SiegXmlParserService {
         totalValue: cteTotal,
       },
     ];
+    const { date: issueDate, inferred: dateInferred } = this.parseDateFlagged(
+      ide.dhEmi || ide.dEmi,
+    );
 
     return {
-      accessKey: accessKey || `CTE_${Date.now()}`,
+      accessKey: accessKey || `CTE_${ide.nCT || 'UNK'}`,
       docType: FiscalDocumentType.CTE,
       operationType,
       status: FiscalDocumentStatus.AUTHORIZED,
-      issueDate: this.parseDate(ide.dhEmi || ide.dEmi),
+      issueDate,
+      dateInferred,
       totalValue: cteTotal,
       emitCnpj: String(emit.CNPJ || ''),
       emitName: emit.xNome ? String(emit.xNome) : null,
+      emitIE: emit.IE ? String(emit.IE) : null,
+      emitAddress: this.extractAddress(emit.enderEmit),
       destCnpj: dest.CNPJ ? String(dest.CNPJ) : null,
       destCpf: dest.CPF ? String(dest.CPF) : null,
       destName: dest.xNome ? String(dest.xNome) : null,
+      destAddress: this.extractAddress(dest.enderDest),
       nfNumber: ide.nCT ? String(ide.nCT) : null,
+      series: ide.serie ? String(ide.serie) : null,
+      model: ide.mod ? String(ide.mod) : null,
+      naturezaOperacao: ide.natOp ? String(ide.natOp) : null,
+      protocolNumber: infProt.nProt ? String(infProt.nProt) : null,
+      authorizationDate: this.parseDateOrNull(infProt.dhRecbto),
+      cStat: infProt.cStat ? String(infProt.cStat) : null,
+      xMotivo: infProt.xMotivo ? String(infProt.xMotivo) : null,
       paymentMethods: null,
       rawXml,
       items,
@@ -230,19 +368,22 @@ export class SiegXmlParserService {
     const serv = infDPS.serv || {};
     const cServ = serv.cServ || {};
     const valoresDPS = infDPS.valores?.vServPrest || infDPS.valores || {};
+    const tribMun = valoresNFSe.trib?.tribMun || infDPS.valores?.trib?.tribMun || {};
 
     const emitCnpj = String(emit.CNPJ || emit.CPF || '');
     const tomaCnpj = String(toma.CNPJ || '');
     const tomaCpf = String(toma.CPF || '');
     const dhEmi = infDPS.dhEmi || infNFSe.dhProc;
-    const issueDate = this.parseDate(dhEmi);
+    const { date: issueDate, inferred: dateInferred } = this.parseDateFlagged(dhEmi);
     const nfNumber = String(infNFSe.nNFSe || infDPS.nDPS || '');
 
+    const valorServicos = this.toNumberOrNull(
+      valoresDPS.vServ || valoresNFSe.vServPrest?.vServ,
+    );
+    const valorLiquido = this.toNumberOrNull(valoresNFSe.vLiq);
     // Prefer vLiq (valor líquido após retenções) — that's what hits the bank.
     // Fall back to vServ (gross service value) when vLiq is missing.
-    const totalValue = parseFloat(
-      valoresNFSe.vLiq || valoresDPS.vServ || valoresNFSe.vServPrest?.vServ || '0',
-    );
+    const totalValue = valorLiquido ?? valorServicos ?? 0;
 
     // cStat 100/107/135 = autorizada; 101 = cancelada.
     const cStat = String(infNFSe.cStat || '100');
@@ -253,16 +394,18 @@ export class SiegXmlParserService {
         ? FiscalDocumentOperation.SAIDA
         : FiscalDocumentOperation.ENTRADA;
 
+    const itemListaServico = cServ.cTribNac ? String(cServ.cTribNac) : null;
+    const discriminacao = String(
+      cServ.xDescServ || cServ.descServ || infNFSe.xTribNac || '',
+    );
     const items: ParsedFiscalDocumentItem[] = [
       {
-        code: cServ.cTribNac ? String(cServ.cTribNac) : null,
-        description: String(
-          cServ.xDescServ || cServ.descServ || infNFSe.xTribNac || '',
-        ),
+        code: itemListaServico,
+        description: discriminacao,
         quantity: null,
         unit: null,
         unitValue: null,
-        totalValue,
+        totalValue: valorServicos ?? totalValue,
       },
     ];
 
@@ -272,6 +415,7 @@ export class SiegXmlParserService {
       operationType,
       status: cancelled ? FiscalDocumentStatus.CANCELLED : FiscalDocumentStatus.AUTHORIZED,
       issueDate,
+      dateInferred,
       totalValue,
       emitCnpj,
       emitName: emit.xNome ? String(emit.xNome) : null,
@@ -279,6 +423,20 @@ export class SiegXmlParserService {
       destCpf: tomaCpf || null,
       destName: toma.xNome ? String(toma.xNome) : null,
       nfNumber: nfNumber || null,
+      cStat,
+      authorizationDate: this.parseDateOrNull(infNFSe.dhProc),
+      cancelledAt: cancelled ? this.parseDateOrNull(infNFSe.dhProc) : null,
+      issValue: this.toNumberOrNull(tribMun.vISSQN || valoresNFSe.vISS),
+      issRate: this.toNumberOrNull(tribMun.pAliq),
+      issRetained: tribMun.tpRetISSQN != null ? String(tribMun.tpRetISSQN) === '1' : null,
+      baseCalculo: this.toNumberOrNull(valoresNFSe.vBC || tribMun.vBC),
+      valorLiquido,
+      valorServicos,
+      codigoTributacaoMunicipio: cServ.cTribMun ? String(cServ.cTribMun) : null,
+      municipioPrestacao: serv.locPrest?.cLocPrestacao
+        ? String(serv.locPrest.cLocPrestacao)
+        : null,
+      itemListaServico,
       paymentMethods: null,
       rawXml,
       items,
@@ -289,10 +447,11 @@ export class SiegXmlParserService {
     const prest = infDPS.prest || {};
     const tomad = infDPS.toma || infDPS.tomador || {};
     const valores = infDPS.valores?.vServPrest || infDPS.valores || {};
+    const tribMun = infDPS.valores?.trib?.tribMun || {};
     const dhEmi = infDPS.dhEmi || infDPS.dEmi;
     const emitCnpj = String(prest.CNPJ || prest.cnpj || '');
     const nfNumber = String(infDPS.nDPS || infDPS.nNFSe || '');
-    const issueDate = this.parseDate(dhEmi);
+    const { date: issueDate, inferred: dateInferred } = this.parseDateFlagged(dhEmi);
 
     const operationType =
       emitCnpj === (this.companyCnpj || '')
@@ -301,13 +460,20 @@ export class SiegXmlParserService {
 
     // SEFIN Nacional DPS carries the service description under `serv.cServ` /
     // `serv.discServ` (some integrators emit `xDescServ` instead).
-    const totalValue = parseFloat(valores.vServ || valores.vServPrest || '0');
+    const valorServicos = this.toNumberOrNull(valores.vServ || valores.vServPrest);
+    const totalValue = valorServicos ?? 0;
     const servico = infDPS.serv || infDPS.servico || {};
+    const cServ = servico.cServ || {};
+    const itemListaServico = cServ.cTribNac
+      ? String(cServ.cTribNac)
+      : servico.cServ && typeof servico.cServ !== 'object'
+        ? String(servico.cServ)
+        : null;
     const items: ParsedFiscalDocumentItem[] = [
       {
-        code: servico.cServ ? String(servico.cServ) : null,
+        code: itemListaServico,
         description: String(
-          servico.discServ || servico.xDescServ || servico.descServ || '',
+          servico.discServ || cServ.xDescServ || servico.xDescServ || servico.descServ || '',
         ),
         quantity: null,
         unit: null,
@@ -322,6 +488,7 @@ export class SiegXmlParserService {
       operationType,
       status: FiscalDocumentStatus.AUTHORIZED,
       issueDate,
+      dateInferred,
       totalValue,
       emitCnpj,
       emitName: prest.xNome || prest.razaoSocial || null,
@@ -329,6 +496,12 @@ export class SiegXmlParserService {
       destCpf: tomad.CPF || tomad.cpf || null,
       destName: tomad.xNome || tomad.razaoSocial || null,
       nfNumber: nfNumber || null,
+      issValue: this.toNumberOrNull(tribMun.vISSQN),
+      issRate: this.toNumberOrNull(tribMun.pAliq),
+      issRetained: tribMun.tpRetISSQN != null ? String(tribMun.tpRetISSQN) === '1' : null,
+      valorServicos,
+      codigoTributacaoMunicipio: cServ.cTribMun ? String(cServ.cTribMun) : null,
+      itemListaServico,
       paymentMethods: null,
       rawXml,
       items,
@@ -354,7 +527,10 @@ export class SiegXmlParserService {
       info.IdentificacaoTomador ||
       info.Tomador ||
       {};
-    const servico = decl.Servico || info.Servico || {};
+    // ABRASF can carry one Servico object or an array of them.
+    const servicoRaw = decl.Servico || info.Servico || {};
+    const servicoList: any[] = Array.isArray(servicoRaw) ? servicoRaw : [servicoRaw];
+    const servico = servicoList[0] || {};
     const valoresNfse = info.ValoresNfse || {};
     const valoresServico = servico.Valores || {};
 
@@ -380,53 +556,101 @@ export class SiegXmlParserService {
       tomad.IdentificacaoTomador?.CpfCnpj?.Cpf || tomad.CpfCnpj?.Cpf || tomad.Cpf || '',
     );
     const nfNumber = String(info.Numero || info.numero || '');
-    const issueDate = this.parseDate(dataEmissao);
+    const { date: issueDate, inferred: dateInferred } = this.parseDateFlagged(dataEmissao);
 
     const operationType =
       prestCnpj === (this.companyCnpj || '')
         ? FiscalDocumentOperation.SAIDA
         : FiscalDocumentOperation.ENTRADA;
 
-    // Total: ValoresNfse.ValorLiquidoNfse is the canonical "what arrived at the
-    // bank" amount in Elotech. Fall back to Servico.Valores.ValorServicos for
-    // variants that don't carry the NFSe-level totals.
-    const totalValue = parseFloat(
-      valoresNfse.ValorLiquidoNfse ||
-        valoresNfse.valorLiquidoNfse ||
-        valoresServico.ValorServicos ||
-        valoresServico.valorServicos ||
-        valoresNfse.BaseCalculo ||
-        '0',
+    const valorLiquido = this.toNumberOrNull(
+      valoresNfse.ValorLiquidoNfse || valoresNfse.valorLiquidoNfse,
     );
+    const valorServicos = this.toNumberOrNull(
+      valoresServico.ValorServicos || valoresServico.valorServicos,
+    );
+    const baseCalculo = this.toNumberOrNull(
+      valoresNfse.BaseCalculo || valoresServico.BaseCalculo,
+    );
+    // Total: ValorLiquidoNfse is the canonical "what arrived at the bank" amount
+    // in Elotech. Fall back to ValorServicos then BaseCalculo.
+    const totalValue = valorLiquido ?? valorServicos ?? baseCalculo ?? 0;
 
-    const items: ParsedFiscalDocumentItem[] = [
-      {
-        code: servico.ItemListaServico
-          ? String(servico.ItemListaServico)
-          : servico.itemListaServico
-            ? String(servico.itemListaServico)
-            : null,
-        description: String(servico.Discriminacao || servico.discriminacao || ''),
+    const items: ParsedFiscalDocumentItem[] = servicoList
+      .map((s) => {
+        const v = s?.Valores || {};
+        const code = s?.ItemListaServico
+          ? String(s.ItemListaServico)
+          : s?.itemListaServico
+            ? String(s.itemListaServico)
+            : null;
+        const desc = String(s?.Discriminacao || s?.discriminacao || '');
+        if (!code && !desc) return null;
+        return {
+          code,
+          description: desc,
+          quantity: null,
+          unit: null,
+          unitValue: null,
+          totalValue:
+            this.toNumberOrNull(v.ValorServicos || v.valorServicos) ?? totalValue,
+        } as ParsedFiscalDocumentItem;
+      })
+      .filter((i): i is ParsedFiscalDocumentItem => i !== null);
+    if (items.length === 0) {
+      items.push({
+        code: null,
+        description: '',
         quantity: null,
         unit: null,
         unitValue: null,
         totalValue,
-      },
-    ];
+      });
+    }
+
+    const cancelled = !!(info.NfseCancelamento || info.Cancelada === 'true');
+    const itemListaServico = servico.ItemListaServico
+      ? String(servico.ItemListaServico)
+      : null;
 
     return {
       accessKey: this.synthNfseKey(prestCnpj, issueDate, nfNumber),
       docType: FiscalDocumentType.NFSE,
       operationType,
-      status: FiscalDocumentStatus.AUTHORIZED,
+      status: cancelled
+        ? FiscalDocumentStatus.CANCELLED
+        : FiscalDocumentStatus.AUTHORIZED,
       issueDate,
+      dateInferred,
       totalValue,
       emitCnpj: prestCnpj,
       emitName: prest.RazaoSocial || prest.razaoSocial || null,
+      emitIE: prest.InscricaoMunicipal ? String(prest.InscricaoMunicipal) : null,
       destCnpj: tomadCnpj || null,
       destCpf: tomadCpf || null,
       destName: tomad.RazaoSocial || tomad.razaoSocial || tomad.xNome || null,
+      destEmail: tomad.Contato?.Email ? String(tomad.Contato.Email) : null,
       nfNumber: nfNumber || null,
+      protocolNumber: info.CodigoVerificacao ? String(info.CodigoVerificacao) : null,
+      issValue: this.toNumberOrNull(valoresServico.ValorIss || valoresServico.valorIss),
+      issRate: this.toNumberOrNull(valoresServico.Aliquota || valoresServico.aliquota),
+      issRetained:
+        valoresServico.IssRetido != null
+          ? String(valoresServico.IssRetido) === '1' ||
+            String(valoresServico.IssRetido).toLowerCase() === 'true'
+          : null,
+      baseCalculo,
+      valorLiquido,
+      valorServicos,
+      codigoTributacaoMunicipio: servico.CodigoTributacaoMunicipio
+        ? String(servico.CodigoTributacaoMunicipio)
+        : null,
+      municipioPrestacao: servico.MunicipioPrestacaoServico
+        ? String(servico.MunicipioPrestacaoServico)
+        : servico.CodigoMunicipio
+          ? String(servico.CodigoMunicipio)
+          : null,
+      itemListaServico,
       paymentMethods: null,
       rawXml,
       items,
@@ -439,10 +663,27 @@ export class SiegXmlParserService {
   }
 
   private parseDate(value: unknown): Date {
-    if (!value) return new Date();
-    const s = String(value);
-    const parsed = new Date(s);
-    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+    return this.parseDateFlagged(value).date;
+  }
+
+  /**
+   * Parses an XML date and reports whether it had to be inferred (missing or
+   * unparseable → "now"). Callers persist `inferred` so the UI can warn that
+   * the issue date may be wrong.
+   */
+  private parseDateFlagged(value: unknown): { date: Date; inferred: boolean } {
+    if (!value) return { date: new Date(), inferred: true };
+    const parsed = new Date(String(value));
+    return Number.isNaN(parsed.getTime())
+      ? { date: new Date(), inferred: true }
+      : { date: parsed, inferred: false };
+  }
+
+  /** Like parseDate but returns null instead of "now" when missing/invalid. */
+  private parseDateOrNull(value: unknown): Date | null {
+    if (!value) return null;
+    const parsed = new Date(String(value));
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 
   /**

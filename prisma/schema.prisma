@@ -3670,6 +3670,9 @@ model BankTransaction {
   categorySource       ReconciliationSource?
   classifiedAt         DateTime?
   ignoredReason        String?
+  // Best candidate confidence (0-100) computed by the matcher when an auto-match
+  // did NOT succeed — lets the list show "Pendente · 40%" for quick triage.
+  topMatchScore        Int?
   bankSlipId           String?
   // Audit trail of the OFX import that created this row.
   rawFileId            String?
@@ -3717,6 +3720,40 @@ model FiscalDocument {
   cancelledAt    DateTime?
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
+
+  // --- Rich data extracted from the source XML (backfilled from rawXmlFile) ---
+  // Document identification (NFe ide block / NFSe header)
+  series            String? // ide.serie
+  model             String? // ide.mod (55=NFe, 65=NFCe, 57=CTe)
+  naturezaOperacao  String? // ide.natOp
+  // Authorization protocol (protNFe.infProt / NFSe protocol)
+  protocolNumber    String? // nProt
+  authorizationDate DateTime? // dhRecbto — when SEFAZ authorized
+  cStat             String? // protocol status code (100=authorized, 101=cancelled, ...)
+  xMotivo           String? // protocol status reason
+  // True when issueDate could not be parsed from the XML and was inferred.
+  dateInferred      Boolean @default(false)
+  // Emitente / Destinatário extra data (addresses/IE/email stored as JSON blobs:
+  // { logradouro, numero, complemento, bairro, municipio, uf, cep, fone })
+  emitIE         String?
+  emitAddress    Json?
+  destIE         String?
+  destEmail      String?
+  destAddress    Json?
+  // NFe ICMSTot totals breakdown: { vBC, vICMS, vICMSDeson, vProd, vFrete,
+  // vSeg, vDesc, vOutro, vST, vIPI, vPIS, vCOFINS, vNF, vTotTrib }
+  totals         Json?
+  // NFSe service-specific fields (null for NFe/NFCe/CTe)
+  issValue                   Decimal? @db.Decimal(14, 2)
+  issRetained                Boolean?
+  issRate                    Decimal? @db.Decimal(7, 4) // aliquota %
+  baseCalculo                Decimal? @db.Decimal(14, 2)
+  valorLiquido               Decimal? @db.Decimal(14, 2)
+  valorServicos              Decimal? @db.Decimal(14, 2) // gross (before retenções)
+  codigoTributacaoMunicipio  String?
+  municipioPrestacao         String? // IBGE code or name
+  itemListaServico           String? // ABRASF service list code
+
   rawXmlFile     File?                   @relation("FiscalDocXml", fields: [rawXmlFileId], references: [id])
   matches        ReconciliationMatch[]   @relation("DocumentMatches")
   items          FiscalDocumentItem[]
@@ -3743,6 +3780,17 @@ model FiscalDocumentItem {
   unit             String?
   unitValue        Decimal?       @db.Decimal(15, 4)
   totalValue       Decimal        @db.Decimal(15, 2)
+  // Fiscal classification extracted from the source XML (NFe det/prod + imposto)
+  ncm              String? // prod.NCM
+  cfop             String? // prod.CFOP
+  cest             String? // prod.CEST
+  ean              String? // prod.cEAN
+  cst              String? // ICMS CST / CSOSN
+  discount         Decimal?       @db.Decimal(15, 2) // prod.vDesc
+  freight          Decimal?       @db.Decimal(15, 2) // prod.vFrete
+  // Per-item tax breakdown: { icms:{vBC,pICMS,vICMS,cst}, ipi:{...},
+  // pis:{...}, cofins:{...} } — null for NFSe service lines.
+  taxes            Json?
   // Cached result of the fuzzy item-category classifier (description/code →
   // ItemCategory-backed TransactionCategory). Null until the classifier runs
   // or when no category clears the confidence threshold.
