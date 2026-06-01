@@ -119,9 +119,11 @@ export interface SkillStatsOverviewSummary {
   totalEvaluated: number;
   totalEntries: number;
   submittedEntries: number;
+  /** SUBMITTED or fully-scored ("Concluída") — see skill.service computation. */
+  completedEntries: number;
   inProgressEntries: number;
   pendingEntries: number;
-  submissionRate: number; // 0..1
+  submissionRate: number; // 0..1 — now completedEntries / totalEntries
   overallAverage: number | null;
   bestSector: { sectorId: string; sectorName: string; average: number } | null;
   bestUser: { userId: string; userName: string; average: number } | null;

@@ -269,14 +269,31 @@ export const skillOrderBySchema = buildOrderBySchema([
   'updatedAt',
 ]);
 
-export const topicOrderBySchema = buildOrderBySchema([
-  'id',
-  'skillId',
-  'order',
-  'title',
-  'createdAt',
-  'updatedAt',
-]);
+// Topics support nested ordering by their parent competency (skill) — e.g.
+// `[{ skill: { order } }, { order }]` to sort by competency order then topic
+// order. A plain field list (buildOrderBySchema) would strip the `skill` key.
+const topicOrderByObject = z.object({
+  id: orderByDirectionSchema.optional(),
+  skillId: orderByDirectionSchema.optional(),
+  order: orderByDirectionSchema.optional(),
+  title: orderByDirectionSchema.optional(),
+  createdAt: orderByDirectionSchema.optional(),
+  updatedAt: orderByDirectionSchema.optional(),
+  skill: z
+    .object({
+      id: orderByDirectionSchema.optional(),
+      name: orderByDirectionSchema.optional(),
+      order: orderByDirectionSchema.optional(),
+      createdAt: orderByDirectionSchema.optional(),
+      updatedAt: orderByDirectionSchema.optional(),
+    })
+    .partial()
+    .optional(),
+});
+
+export const topicOrderBySchema = z
+  .union([topicOrderByObject, z.array(topicOrderByObject.partial())])
+  .optional();
 
 export const assessmentOrderBySchema = buildOrderBySchema([
   'id',
