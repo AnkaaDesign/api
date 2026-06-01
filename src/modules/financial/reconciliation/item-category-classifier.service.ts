@@ -140,6 +140,25 @@ export class ItemCategoryClassifierService {
     }
   }
 
+  /**
+   * Records a manual NF-line → category mapping as a learning signal. Unlike
+   * learnFromManual (which infers the line from a transaction's single matched
+   * NF), this is called when the user categorizes a specific item directly — the
+   * description→category mapping is unambiguous, so it's the cleanest signal.
+   */
+  async recordItemAlias(description: string, categoryId: string): Promise<void> {
+    try {
+      await this.aliasService.record({
+        description,
+        categoryId,
+        source: ItemCategoryAliasSource.MANUAL,
+      });
+      this.invalidateLexicon();
+    } catch (err) {
+      this.logger.warn(`recordItemAlias failed: ${err}`);
+    }
+  }
+
   private async buildLexicon(force = false): Promise<Lexicon> {
     const now = Date.now();
     if (!force && this.lexicon && now - this.lexiconLoadedAt < LEXICON_TTL_MS) {
@@ -526,8 +545,20 @@ export class ItemCategoryClassifierService {
     prismaTx?: Prisma.TransactionClient,
   ): Promise<void> {
     const run = async (db: Prisma.TransactionClient) => {
+      // Respect manual per-item categorizations: a user who picked a category on
+      // an NF line (categorySource = MANUAL) must not have it stomped by the
+      // auto-classifier on the next "Verificar".
+      const manualItems = await db.fiscalDocumentItem.findMany({
+        where: {
+          id: { in: lineResults.map(l => l.itemId) },
+          categorySource: ReconciliationSource.MANUAL,
+        },
+        select: { id: true },
+      });
+      const manualItemIds = new Set(manualItems.map(i => i.id));
       // Cache the per-line derived category on the fiscal items (for the NF detail).
       for (const l of lineResults) {
+        if (manualItemIds.has(l.itemId)) continue; // keep the human's choice
         await db.fiscalDocumentItem.update({
           where: { id: l.itemId },
           data: {

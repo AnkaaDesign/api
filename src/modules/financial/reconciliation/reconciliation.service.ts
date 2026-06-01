@@ -17,6 +17,7 @@ import { FiscalDocumentsFilterDto } from './dto/fiscal-documents-filter.dto';
 import { ManualMatchDto } from './dto/manual-match.dto';
 import { IgnoreTransactionDto } from './dto/ignore-transaction.dto';
 import { ChangeCategoryDto } from './dto/change-category.dto';
+import { ChangeItemCategoryDto } from './dto/change-item-category.dto';
 import { ClassifyBatchDto } from './dto/classify-batch.dto';
 import { ReconciliationMatcherService } from './reconciliation-matcher.service';
 import { ReconciliationClassifierService } from './reconciliation-classifier.service';
@@ -185,6 +186,24 @@ export class ReconciliationService {
                 destName: true,
                 nfNumber: true,
                 status: true,
+                items: {
+                  orderBy: { createdAt: 'asc' },
+                  select: {
+                    id: true,
+                    code: true,
+                    description: true,
+                    quantity: true,
+                    unit: true,
+                    unitValue: true,
+                    totalValue: true,
+                    ncm: true,
+                    cfop: true,
+                    categoryId: true,
+                    categoryConfidence: true,
+                    categorySource: true,
+                    category: { select: { id: true, name: true, slug: true, color: true } },
+                  },
+                },
               },
             },
             bankSlip: {
@@ -237,6 +256,14 @@ export class ReconciliationService {
             unit: true,
             unitValue: true,
             totalValue: true,
+            ncm: true,
+            cfop: true,
+            cest: true,
+            ean: true,
+            cst: true,
+            discount: true,
+            freight: true,
+            taxes: true,
             categoryId: true,
             categoryConfidence: true,
             categorySource: true,
@@ -247,6 +274,49 @@ export class ReconciliationService {
     });
     if (!doc) throw new NotFoundException('Nota fiscal não encontrada');
     return doc;
+  }
+
+  /**
+   * Sets (or clears) the category of a single NF line item. Marks the item
+   * categorySource = MANUAL so the auto-classifier never overwrites the human's
+   * choice. Returns the re-hydrated fiscal document so the detail page refreshes.
+   */
+  async changeItemCategory(
+    itemId: string,
+    payload: ChangeItemCategoryDto,
+    _userId: string | undefined,
+  ) {
+    const item = await this.prisma.fiscalDocumentItem.findUnique({
+      where: { id: itemId },
+      select: { id: true, description: true, fiscalDocumentId: true },
+    });
+    if (!item) throw new NotFoundException('Item da nota fiscal não encontrado');
+
+    if (payload.categoryId) {
+      const snap = await this.categories.snapshot();
+      if (!snap.byId.get(payload.categoryId)) {
+        throw new BadRequestException('Categoria informada não existe');
+      }
+    }
+
+    await this.prisma.fiscalDocumentItem.update({
+      where: { id: itemId },
+      data: {
+        categoryId: payload.categoryId,
+        categorySource: payload.categoryId ? ReconciliationSource.MANUAL : null,
+        categoryConfidence: payload.categoryId ? 100 : null,
+      },
+    });
+
+    // Best-effort learning: a manual item→category mapping is the cleanest
+    // possible training signal. Never block the response on it.
+    if (payload.saveAlias && payload.categoryId) {
+      await this.itemCategoryClassifier
+        .recordItemAlias(item.description, payload.categoryId)
+        .catch(() => undefined);
+    }
+
+    return this.getFiscalDocument(item.fiscalDocumentId);
   }
 
   async manualMatch(

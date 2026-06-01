@@ -63,6 +63,10 @@ import {
   ChangeCategoryDto,
 } from './dto/change-category.dto';
 import {
+  changeItemCategorySchema,
+  ChangeItemCategoryDto,
+} from './dto/change-item-category.dto';
+import {
   classifyBatchSchema,
   ClassifyBatchDto,
 } from './dto/classify-batch.dto';
@@ -249,6 +253,16 @@ export class ReconciliationController {
     @Req() req: Request & { user?: { id?: string } },
   ) {
     return this.service.changeCategory(id, payload, req.user?.id);
+  }
+
+  @Post('fiscal-documents/items/:id/category')
+  @UsePipes(new ZodValidationPipe(changeItemCategorySchema))
+  changeItemCategory(
+    @Param('id') id: string,
+    @Body() payload: ChangeItemCategoryDto,
+    @Req() req: Request & { user?: { id?: string } },
+  ) {
+    return this.service.changeItemCategory(id, payload, req.user?.id);
   }
 
   @Post('classify')

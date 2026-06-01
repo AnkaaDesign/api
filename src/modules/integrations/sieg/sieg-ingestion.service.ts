@@ -35,27 +35,29 @@ export class SiegIngestionService {
       select: { id: true, accessKey: true },
     });
     if (existing) {
-      // Refresh items on re-import — the parser may have improved between runs,
-      // and items are a derived projection of the XML. Cascade FK ensures
-      // delete is safe; items are not referenced by other tables.
-      if (parsed.items && parsed.items.length > 0) {
-        await this.prisma.$transaction([
-          this.prisma.fiscalDocumentItem.deleteMany({
-            where: { fiscalDocumentId: existing.id },
-          }),
-          this.prisma.fiscalDocumentItem.createMany({
-            data: parsed.items.map((it) => ({
-              fiscalDocumentId: existing.id,
-              code: it.code,
-              description: it.description,
-              quantity: it.quantity,
-              unit: it.unit,
-              unitValue: it.unitValue,
-              totalValue: it.totalValue,
-            })),
-          }),
-        ]);
-      }
+      // Refresh both header fields AND items on re-import: the parser may have
+      // improved between runs, and — critically — a late-arriving cancellation
+      // (cStat 101 / cancNFe) must flip status/cancelledAt on the stored doc.
+      // Cascade FK makes the item delete safe; items aren't referenced elsewhere.
+      await this.prisma.$transaction([
+        this.prisma.fiscalDocument.update({
+          where: { id: existing.id },
+          data: this.mapHeaderFields(parsed),
+        }),
+        ...(parsed.items && parsed.items.length > 0
+          ? [
+              this.prisma.fiscalDocumentItem.deleteMany({
+                where: { fiscalDocumentId: existing.id },
+              }),
+              this.prisma.fiscalDocumentItem.createMany({
+                data: parsed.items.map((it) => ({
+                  fiscalDocumentId: existing.id,
+                  ...this.mapItemFields(it),
+                })),
+              }),
+            ]
+          : []),
+      ]);
       return { id: existing.id, accessKey: existing.accessKey, created: false };
     }
 
@@ -83,33 +85,13 @@ export class SiegIngestionService {
     const created = await this.prisma.fiscalDocument.create({
       data: {
         accessKey: parsed.accessKey,
-        docType: parsed.docType,
-        operationType: parsed.operationType,
-        status: parsed.status,
         source,
-        issueDate: parsed.issueDate,
-        totalValue: parsed.totalValue,
-        emitCnpj: parsed.emitCnpj,
-        emitName: parsed.emitName,
-        destCnpj: parsed.destCnpj,
-        destCpf: parsed.destCpf,
-        destName: parsed.destName,
-        nfNumber: parsed.nfNumber,
-        paymentMethods: parsed.paymentMethods as any,
         siegId: siegId ?? null,
         rawXmlFileId,
+        ...this.mapHeaderFields(parsed),
         items:
           parsed.items && parsed.items.length > 0
-            ? {
-                create: parsed.items.map((it) => ({
-                  code: it.code,
-                  description: it.description,
-                  quantity: it.quantity,
-                  unit: it.unit,
-                  unitValue: it.unitValue,
-                  totalValue: it.totalValue,
-                })),
-              }
+            ? { create: parsed.items.map((it) => this.mapItemFields(it)) }
             : undefined,
       },
     });
@@ -120,5 +102,72 @@ export class SiegIngestionService {
     });
 
     return { id: created.id, accessKey: created.accessKey, created: true };
+  }
+
+  /**
+   * Maps the parsed header into the FiscalDocument column set shared by the
+   * create and re-import paths. `source`/`siegId`/`rawXmlFileId`/`accessKey`
+   * are handled by the caller (they are set only on create).
+   */
+  private mapHeaderFields(parsed: ParsedFiscalDocument) {
+    return {
+      docType: parsed.docType,
+      operationType: parsed.operationType,
+      status: parsed.status,
+      issueDate: parsed.issueDate,
+      totalValue: parsed.totalValue,
+      emitCnpj: parsed.emitCnpj,
+      emitName: parsed.emitName,
+      destCnpj: parsed.destCnpj,
+      destCpf: parsed.destCpf,
+      destName: parsed.destName,
+      nfNumber: parsed.nfNumber,
+      paymentMethods: (parsed.paymentMethods ?? null) as any,
+      cancelledAt: parsed.cancelledAt ?? null,
+      // Rich XML-derived columns
+      series: parsed.series ?? null,
+      model: parsed.model ?? null,
+      naturezaOperacao: parsed.naturezaOperacao ?? null,
+      protocolNumber: parsed.protocolNumber ?? null,
+      authorizationDate: parsed.authorizationDate ?? null,
+      cStat: parsed.cStat ?? null,
+      xMotivo: parsed.xMotivo ?? null,
+      dateInferred: parsed.dateInferred ?? false,
+      emitIE: parsed.emitIE ?? null,
+      emitAddress: (parsed.emitAddress ?? null) as any,
+      destIE: parsed.destIE ?? null,
+      destEmail: parsed.destEmail ?? null,
+      destAddress: (parsed.destAddress ?? null) as any,
+      totals: (parsed.totals ?? null) as any,
+      issValue: parsed.issValue ?? null,
+      issRetained: parsed.issRetained ?? null,
+      issRate: parsed.issRate ?? null,
+      baseCalculo: parsed.baseCalculo ?? null,
+      valorLiquido: parsed.valorLiquido ?? null,
+      valorServicos: parsed.valorServicos ?? null,
+      codigoTributacaoMunicipio: parsed.codigoTributacaoMunicipio ?? null,
+      municipioPrestacao: parsed.municipioPrestacao ?? null,
+      itemListaServico: parsed.itemListaServico ?? null,
+    };
+  }
+
+  /** Maps a parsed line item into the FiscalDocumentItem column set. */
+  private mapItemFields(it: ParsedFiscalDocument['items'][number]) {
+    return {
+      code: it.code,
+      description: it.description,
+      quantity: it.quantity,
+      unit: it.unit,
+      unitValue: it.unitValue,
+      totalValue: it.totalValue,
+      ncm: it.ncm ?? null,
+      cfop: it.cfop ?? null,
+      cest: it.cest ?? null,
+      ean: it.ean ?? null,
+      cst: it.cst ?? null,
+      discount: it.discount ?? null,
+      freight: it.freight ?? null,
+      taxes: (it.taxes ?? null) as any,
+    };
   }
 }

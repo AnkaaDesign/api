@@ -56,19 +56,44 @@ export interface OfxImportFileResult {
   error?: string;
 }
 
+/** A line of the candidate document, surfaced so the UI can show what the
+ * invoice is for without a second round-trip. */
+export interface MatchCandidateItem {
+  id: string;
+  code: string | null;
+  description: string;
+  totalValue: number;
+  quantity: number | null;
+  unit: string | null;
+  unitValue: number | null;
+  categoryId: string | null;
+  category: { id: string; name: string; slug: string; color: string | null } | null;
+}
+
 export interface MatchCandidate {
   fiscalDocumentId: string;
   accessKey: string;
   docType: string;
+  operationType: string;
   issueDate: Date;
   totalValue: number;
   emitCnpj: string;
   emitName: string | null;
   destCnpj: string | null;
+  destCpf: string | null;
   destName: string | null;
+  nfNumber: string | null;
   confidence: number;
   matchType: ReconciliationMatchType;
   rationale: string;
+  /** Absolute R$ difference between the NF total and |transaction amount|. */
+  amountDelta: number;
+  /** Whole-day difference between issue date and posting date. */
+  daysDelta: number;
+  /** True when a learned memo→CNPJ alias contributed to the CNPJ score. */
+  aliasAssisted: boolean;
+  /** First few line items / services (descriptions) of the candidate doc. */
+  items: MatchCandidateItem[];
 }
 
 export interface ImportSummary {
