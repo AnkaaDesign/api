@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import {
+  AccountingType,
   BankTransactionSubtype,
   BankTransactionType,
   Prisma,
@@ -54,6 +55,67 @@ const MEMO_RULES: readonly CategoryRule[] = [
   { slug: 'estorno', pattern: /^\s*devolucao\s+pix/i },
 ];
 
+// Resolving-category slug → chart-of-accounts group. The classifier already
+// resolves to one of these slugs; this maps the chosen slug onto its cost
+// group so the written tag's accountingType can be surfaced/validated without
+// re-querying. Kept in sync with the seeded TransactionCategory.accountingType.
+const SLUG_ACCOUNTING_TYPE: Readonly<Record<string, AccountingType>> = {
+  'pro-labore': AccountingType.SALARIOS,
+  folha: AccountingType.SALARIOS,
+  aluguel: AccountingType.DESPESAS_FIXAS,
+  convenio: AccountingType.DESPESAS_FIXAS,
+  tributo: AccountingType.IMPOSTO_TARIFAS,
+  'tarifa-bancaria': AccountingType.IMPOSTO_TARIFAS,
+  transferencia: AccountingType.APLICACAO_FINANCEIRA,
+  'aplicacao-financeira': AccountingType.APLICACAO_FINANCEIRA,
+  'lucro-distribuido': AccountingType.LUCRO_DISTRIBUIDO,
+  estorno: AccountingType.ESTORNO,
+};
+
+// Memo prefix + doc-type (CPF vs CNPJ) + subtype → chart-of-accounts group.
+// Used to infer the accountingType for NF-awaiting transactions (no resolving
+// category) so the cost report can still bucket them, and as a fallback when a
+// resolving category carries no accountingType of its own. Ordered by signal
+// strength; first hit wins. Returns null when nothing matches.
+function inferAccountingType(tx: {
+  type: BankTransactionType;
+  subtype: BankTransactionSubtype;
+  memo: string | null;
+  counterpartyCnpjCpf: string | null;
+}): AccountingType | null {
+  const memo = tx.memo ?? '';
+  const digits = (tx.counterpartyCnpjCpf ?? '').replace(/\D/g, '');
+  const isCpf = digits.length === 11; // pessoa física
+  const isCnpj = digits.length === 14; // pessoa jurídica
+
+  // Reversals / refunds first — overrides counterparty doc-type.
+  if (/devolucao|estorno/i.test(memo)) return AccountingType.ESTORNO;
+
+  // Bank fees / taxes.
+  if (tx.subtype === BankTransactionSubtype.TARIFA) return AccountingType.IMPOSTO_TARIFAS;
+  if (/^\s*tarifa\b|^\s*manutencao\s+de\s+titulos/i.test(memo))
+    return AccountingType.IMPOSTO_TARIFAS;
+  if (/^\s*debito\s+arrecadacao|\bdarf\b|\bgps\b/i.test(memo))
+    return AccountingType.IMPOSTO_TARIFAS;
+
+  // Financial application moves.
+  if (/aplic\.?\s*financ|\bcaptacao\b|aplic\s+fundos|resg\s+fundos|resg\.?\s*aplic|resgate\s+aplic|plano\s+int\s+capital/i.test(memo))
+    return AccountingType.APLICACAO_FINANCEIRA;
+
+  // Fixed expenses: payroll-system debits + utilities/convênios.
+  if (/\bfolha\s+pagto\b|\bfolha\s+de\s+pagamento\b/i.test(memo))
+    return AccountingType.SALARIOS;
+  if (/^\s*debito\s+convenios/i.test(memo)) return AccountingType.DESPESAS_FIXAS;
+
+  // Counterparty doc-type signal (PIX/transfers without a memo rule):
+  // CPF → pessoa física → SALÁRIOS (pró-labore/comissão/salário sem NF);
+  // CNPJ → pessoa jurídica → MATÉRIA-PRIMA (production purchase awaiting NF).
+  if (isCpf) return AccountingType.SALARIOS;
+  if (isCnpj) return AccountingType.MATERIA_PRIMA;
+
+  return null;
+}
+
 export interface ClassificationResult {
   // True → the scoring matcher should try to link a FiscalDocument (old "NF").
   expectsFiscalDocument: boolean;
@@ -62,6 +124,11 @@ export interface ClassificationResult {
   source: ReconciliationSource;
   // True when assigning a resolving category — caller flips status to RECONCILED.
   shouldReconcile: boolean;
+  // Inferred chart-of-accounts group (plano de contas). Mirrors the resolving
+  // category's accountingType when one is assigned, else inferred from
+  // memo/doc-type/subtype so NF-awaiting transactions still bucket into a cost
+  // group. Null when no signal matched.
+  accountingType: AccountingType | null;
   reason: string;
 }
 
@@ -108,7 +175,7 @@ export class ReconciliationClassifierService {
       const slug = COUNTERPARTY_CATEGORY_RULES[digits];
       if (slug) {
         const cat = await this.categories.resolveBySlug(slug);
-        if (cat) return this.txOnly(cat, `Contraparte configurada (${digits})`);
+        if (cat) return this.txOnly(cat, `Contraparte configurada (${digits})`, tx);
       }
     }
 
@@ -116,13 +183,13 @@ export class ReconciliationClassifierService {
     const alias = await this.aliasService.resolve(tx.memo, tx.type);
     if (alias?.categoryId) {
       const cat = (await this.categories.snapshot()).byId.get(alias.categoryId);
-      if (cat) return this.txOnly(cat, `Alias confirmado (${alias.confirmedCount}x)`);
+      if (cat) return this.txOnly(cat, `Alias confirmado (${alias.confirmedCount}x)`, tx);
     }
 
     // 3. Subtype fast path.
     if (tx.subtype === BankTransactionSubtype.TARIFA) {
       const cat = await this.categories.resolveBySlug('tarifa-bancaria');
-      if (cat) return this.txOnly(cat, 'Subtype TARIFA');
+      if (cat) return this.txOnly(cat, 'Subtype TARIFA', tx);
     }
 
     // 4. Memo regex rules.
@@ -130,7 +197,7 @@ export class ReconciliationClassifierService {
     for (const rule of MEMO_RULES) {
       if (rule.pattern.test(memo)) {
         const cat = await this.categories.resolveBySlug(rule.slug);
-        if (cat) return this.txOnly(cat, `Regra de memo: ${rule.pattern.source.slice(0, 40)}`);
+        if (cat) return this.txOnly(cat, `Regra de memo: ${rule.pattern.source.slice(0, 40)}`, tx);
       }
     }
 
@@ -141,6 +208,7 @@ export class ReconciliationClassifierService {
         category: null,
         source: ReconciliationSource.AUTO,
         shouldReconcile: false,
+        accountingType: inferAccountingType(tx),
         reason: 'Pagamento marketplace (conciliação por valor)',
       };
     }
@@ -152,6 +220,10 @@ export class ReconciliationClassifierService {
         category: null,
         source: ReconciliationSource.AUTO,
         shouldReconcile: false,
+        // No resolving category, but the doc-type (CPF→SALÁRIOS, CNPJ→
+        // MATÉRIA-PRIMA) and memo still let the cost report bucket it while it
+        // awaits an NF.
+        accountingType: inferAccountingType(tx),
         reason: 'Default NF (contraparte identificada)',
       };
     }
@@ -160,16 +232,29 @@ export class ReconciliationClassifierService {
       category: null,
       source: ReconciliationSource.AUTO,
       shouldReconcile: false,
+      accountingType: inferAccountingType(tx),
       reason: 'Sem padrão identificável',
     };
   }
 
-  private txOnly(category: TransactionCategory, reason: string): ClassificationResult {
+  private txOnly(
+    category: TransactionCategory,
+    reason: string,
+    tx?: Pick<ClassifierInput, 'type' | 'subtype' | 'memo' | 'counterpartyCnpjCpf'>,
+  ): ClassificationResult {
+    // Prefer the resolving category's own chart-of-accounts group; fall back to
+    // the slug map, then to memo/doc-type inference. Keeps the written tag's
+    // accountingType consistent with the resolving-category choice.
+    const accountingType =
+      category.accountingType ??
+      SLUG_ACCOUNTING_TYPE[category.slug] ??
+      (tx ? inferAccountingType(tx) : null);
     return {
       expectsFiscalDocument: false,
       category,
       source: ReconciliationSource.AUTO,
       shouldReconcile: category.isResolving,
+      accountingType,
       reason,
     };
   }

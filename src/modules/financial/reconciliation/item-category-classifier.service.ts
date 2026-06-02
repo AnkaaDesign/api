@@ -15,6 +15,7 @@ import {
   SERVICE_KEYWORD_RULES,
   EMITTER_PRIORS,
 } from './category-keywords';
+import { lookupNcm, NcmTarget } from './ncm-category-map';
 
 const LEXICON_TTL_MS = 5 * 60_000;
 // Minimum confidence for a derived tag to be persisted at all. Below this the
@@ -63,16 +64,16 @@ interface LineResult {
  *
  * Identify the real inventory Item FIRST, then take its category — generic
  * heuristics only fill the gaps. Layered, highest-confidence-first:
- *   1. uniCode hit — from the `code` field OR a uniCode embedded in the
- *      description text (e.g. "MASSA POLIESTER M3500 …"); brand-disambiguated
- *      when one code maps to items in different categories (100).
- *   2. Fuzzy item match — name-token overlap vs the real Item corpus, with a
- *      brand tiebreak for same-named items across categories (70-94).
- *   3. Curated product/service keyword overrides — DEMOTED below real-item
- *      matches (capped 70); disambiguate Pigmento/Tinta etc. only when no item
- *      matched.
- *   4. Token-vote lexicon (capped 70).
- *   5. Emitter-name prior (capped 60).
+ *   1.  uniCode hit — from the `code` field OR a uniCode embedded in the
+ *       description text; brand-disambiguated across categories (100).
+ *   1b. Learned alias (human corrections + AUTO_CODE self-training).
+ *   2.  NCM → mirrored subcategory leaf — near-deterministic fiscal code
+ *       (85-96 for 8-digit; lower for chapter/heading prefixes).
+ *   3.  Supplier-root prior — constrains toward the emitter's category family.
+ *   4.  Fuzzy item match — name-token overlap vs the real Item corpus (70-94).
+ *   5.  Curated product/service keyword overrides (capped 70).
+ *   6.  Token-vote lexicon (capped 70).
+ *   7.  Emitter-name prior floor (capped 60).
  *
  * The invariant: no keyword/lexicon/emitter heuristic may outrank a real-item
  * match — that inversion is what fixes same-name-different-category items
@@ -231,9 +232,44 @@ export class ItemCategoryClassifierService {
   }
 
   /**
+   * Resolves a mirror-leaf TransactionCategory from an ordered list of candidate
+   * names then candidate slugs — returns the first that exists. This insulates
+   * the NCM table / keyword rules from the new-vs-old taxonomy: a rule can target
+   * the verbose new leaf name AND still fall back to the legacy flat name/slug.
+   */
+  private async resolveLeaf(
+    names?: string[],
+    slugs?: string[],
+  ): Promise<string | undefined> {
+    for (const nm of names ?? []) {
+      const cat = await this.categories.resolveByName(nm);
+      if (cat) return cat.id;
+    }
+    for (const sl of slugs ?? []) {
+      const cat = await this.categories.resolveBySlug(sl);
+      if (cat) return cat.id;
+    }
+    return undefined;
+  }
+
+  /**
    * Classifies a single NF line. Returns the best TransactionCategory id and a
    * 0-100 confidence, or null below threshold. Pure given the lexicon + the
    * category cache, so it is unit-testable.
+   *
+   * Precedence (highest trust first):
+   *   1.  uniCode / code exact item → its category (100).
+   *   1b. Learned alias (human corrections + AUTO_CODE self-training).
+   *   2.  NCM → mirrored subcategory leaf — deterministic for this supplier mix
+   *       (85-96 for 8-digit codes, lower for chapter/heading prefixes).
+   *   3.  Supplier-root prior — constrains the result toward the emitter's
+   *       category family BEFORE the noisier fuzzy/keyword tiers.
+   *   4.  Fuzzy item-name match against the real Item corpus (70-94).
+   *   5.  Curated product/service keyword overrides (capped 70).
+   *   6.  Token-vote lexicon (capped 70).
+   *   7.  Emitter prior again as a last-resort floor (capped 60).
+   *
+   * No keyword/lexicon/emitter heuristic may outrank a real-item or NCM match.
    */
   private async classifyLine(
     code: string | null,
@@ -241,6 +277,7 @@ export class ItemCategoryClassifierService {
     emitName: string | null,
     lex: Lexicon,
     docType?: string | null,
+    ncm?: string | null,
   ): Promise<{ categoryId: string; confidence: number } | null> {
     const raw = stripAccents(description || '').toLowerCase();
     const descTokens = new Set(itemDescriptionTokens(description));
@@ -285,7 +322,47 @@ export class ItemCategoryClassifierService {
       if (learned) consider(learned.categoryId, learned.confidence);
     }
 
-    // 2. Fuzzy item match against the real Item corpus. We pick the single best
+    // 2. NCM → mirrored subcategory leaf. Near-deterministic for this supplier
+    //    mix (NCM is a federally-coded fiscal classification on every NFe line),
+    //    so it outranks fuzzy/keyword/emitter heuristics. Only applies to
+    //    product docs — NFSe service lines carry an ItemListaServico, not an NCM.
+    if (!isService) {
+      const target: NcmTarget | null = lookupNcm(ncm);
+      if (target) {
+        const leafId = await this.resolveLeaf(target.names, target.slugs);
+        if (leafId) {
+          // A deterministic 8-digit NCM is as trustworthy as a uniCode hit; only
+          // a real uniCode/item match (≥95) should be able to override it.
+          if (target.confidence >= 95) return { categoryId: leafId, confidence: target.confidence };
+          consider(leafId, target.confidence);
+        }
+      }
+    }
+
+    // 3. Supplier-root prior — constrain toward the emitter's category family
+    //    BEFORE the noisier fuzzy/keyword tiers. Capped so a real-item match
+    //    (step 4) can still win, but it biases thin lines correctly.
+    if ((!best || best.confidence < 60) && emitName) {
+      const emitRoot = stripAccents(emitName).toLowerCase();
+      for (const prior of EMITTER_PRIORS) {
+        if (!prior.pattern.test(emitRoot)) continue;
+        if (!isService) {
+          for (const nm of prior.itemCategoryNames ?? []) {
+            const cat = await this.categories.resolveByName(nm);
+            if (cat) {
+              consider(cat.id, Math.min(58, prior.confidence));
+              break; // first resolvable name in the family is enough
+            }
+          }
+        }
+        if (prior.serviceSlug) {
+          const cat = await this.categories.resolveBySlug(prior.serviceSlug);
+          consider(cat?.id, Math.min(58, prior.confidence));
+        }
+      }
+    }
+
+    // 4. Fuzzy item match against the real Item corpus. We pick the single best
     //    item by IDF-weighted matched-token score: rare, discriminative tokens
     //    (e.g. "interface", present in one item) outweigh common ones ("disco",
     //    "hookit"), which is what separates same-prefix items across categories
@@ -350,16 +427,21 @@ export class ItemCategoryClassifierService {
       }
     }
 
-    // 3. Curated keyword overrides — DEMOTED (capped 70) so they never beat a
-    //    real-item match; only consulted when nothing strong matched. Product
+    // 5. Curated keyword overrides — DEMOTED (capped 70) so they never beat a
+    //    real-item/NCM match; only consulted when nothing strong matched. Product
     //    keywords are skipped for NFSe (service docs have no inventory items).
+    //    Prefer the new mirror-leaf name (itemCategoryNames) when it resolves,
+    //    falling back to the legacy flat name.
     if (!best || best.confidence < 70) {
       if (!isService) {
         for (const rule of PRODUCT_KEYWORD_RULES) {
-          if (rule.pattern.test(raw) && rule.itemCategoryName) {
-            const cat = await this.categories.resolveByName(rule.itemCategoryName);
-            consider(cat?.id, Math.min(70, rule.confidence));
-          }
+          if (!rule.pattern.test(raw)) continue;
+          const leafId =
+            (await this.resolveLeaf(rule.itemCategoryNames)) ??
+            (rule.itemCategoryName
+              ? (await this.categories.resolveByName(rule.itemCategoryName))?.id
+              : undefined);
+          consider(leafId, Math.min(70, rule.confidence));
         }
       }
       for (const rule of SERVICE_KEYWORD_RULES) {
@@ -370,13 +452,13 @@ export class ItemCategoryClassifierService {
       }
     }
 
-    // 4. Token-vote lexicon (capped 70). Item-derived only → skip for NFSe.
+    // 6. Token-vote lexicon (capped 70). Item-derived only → skip for NFSe.
     if ((!best || best.confidence < 70) && !isService) {
       const lexHit = await this.scoreFromLexicon(description, lex);
       if (lexHit) consider(lexHit.categoryId, Math.min(70, lexHit.confidence));
     }
 
-    // 5. Emitter prior (capped 60).
+    // 7. Emitter prior (capped 60).
     if (!best || best.confidence < REVIEW_CONFIDENCE_THRESHOLD) {
       const emit = stripAccents(emitName || '').toLowerCase();
       for (const prior of EMITTER_PRIORS) {
@@ -475,7 +557,7 @@ export class ItemCategoryClassifierService {
           emitName: true,
           docType: true,
           items: {
-            select: { id: true, code: true, description: true, totalValue: true },
+            select: { id: true, code: true, description: true, totalValue: true, ncm: true },
           },
         },
       });
@@ -484,7 +566,7 @@ export class ItemCategoryClassifierService {
       const lineResults: LineResult[] = [];
       for (const doc of docs) {
         for (const item of doc.items) {
-          const hit = await this.classifyLine(item.code, item.description, doc.emitName, lex, doc.docType);
+          const hit = await this.classifyLine(item.code, item.description, doc.emitName, lex, doc.docType, item.ncm);
           // Learn from deterministic uniCode hits (confidence 100): the same
           // product's description will then resolve later even without the code.
           if (hit && hit.confidence === 100) {
@@ -534,6 +616,84 @@ export class ItemCategoryClassifierService {
       this.logger.warn(`Item categorization failed for ${transactionId}: ${err}`);
       return 0;
     }
+  }
+
+  /**
+   * Re-runs line classification over EVERY FiscalDocumentItem (not just matched
+   * transactions) and refreshes the cached per-line category on each item:
+   * `categoryId` / `categoryConfidence` / `categorySource = AUTO`.
+   *
+   * MANUAL per-item categorizations are preserved (never stomped). This powers
+   * the reprocess script after the NCM map / keyword rules change — it does NOT
+   * touch BankTransaction tags (those are re-derived by deriveForTransaction on
+   * the next "Verificar"). Returns coverage stats for before/after logging.
+   */
+  async reclassifyAllItems(
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<{ total: number; before: number; after: number; updated: number; skippedManual: number }> {
+    const lex = await this.buildLexicon(true);
+    const docs = await this.prisma.fiscalDocument.findMany({
+      select: {
+        emitName: true,
+        docType: true,
+        items: {
+          select: { id: true, code: true, description: true, ncm: true, categoryId: true, categorySource: true },
+        },
+      },
+    });
+
+    let total = 0;
+    let before = 0;
+    let after = 0;
+    let updated = 0;
+    let skippedManual = 0;
+    let done = 0;
+
+    for (const doc of docs) {
+      for (const item of doc.items) {
+        total += 1;
+        if (item.categoryId) before += 1;
+        // Never overwrite a human decision.
+        if (item.categorySource === ReconciliationSource.MANUAL) {
+          if (item.categoryId) after += 1;
+          skippedManual += 1;
+          continue;
+        }
+        const hit = await this.classifyLine(
+          item.code,
+          item.description,
+          doc.emitName,
+          lex,
+          doc.docType,
+          item.ncm,
+        );
+        const newCategoryId = hit?.categoryId ?? null;
+        if (newCategoryId) after += 1;
+        if (newCategoryId !== item.categoryId) {
+          await this.prisma.fiscalDocumentItem.update({
+            where: { id: item.id },
+            data: {
+              categoryId: newCategoryId,
+              categoryConfidence: newCategoryId ? hit!.confidence : null,
+              categorySource: newCategoryId ? ReconciliationSource.AUTO : null,
+            },
+          });
+          updated += 1;
+        }
+        // Self-train on deterministic hits, mirroring deriveForTransaction.
+        if (hit && hit.confidence === 100) {
+          await this.aliasService.record({
+            description: item.description,
+            categoryId: hit.categoryId,
+            source: ItemCategoryAliasSource.AUTO_CODE,
+          });
+        }
+        done += 1;
+        if (onProgress && done % 100 === 0) onProgress(done, total);
+      }
+    }
+    if (onProgress) onProgress(done, total);
+    return { total, before, after, updated, skippedManual };
   }
 
   private async persist(

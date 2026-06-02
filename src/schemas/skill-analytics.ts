@@ -41,11 +41,14 @@ export type SkillStatsOverviewFilters = z.infer<typeof skillStatsOverviewFilters
 
 export const skillStatsComparisonFiltersSchema = baseAnalyticsFiltersSchema.extend({
   /**
-   * `user`   → each entityId is a User id; one radar series per user.
-   * `sector` → each entityId is a Sector id; one radar series per sector
-   *            (average across all users in that sector).
+   * `user`     → each entityId is a User id; one radar series per user.
+   * `sector`   → each entityId is a Sector id; one radar series per sector
+   *              (average across all users in that sector).
+   * `campaign` → each entityId is an Assessment (campaign) id; one radar
+   *              series per campaign (average across that campaign's scope).
+   *              Used when the user compares 2+ campaigns on a skill/topic axis.
    */
-  mode: z.enum(['user', 'sector']).default('user'),
+  mode: z.enum(['user', 'sector', 'campaign']).default('user'),
   entityIds: uuidArray.min(1, 'Selecione ao menos um item para comparação'),
   /**
    * When true, the response includes a `companyAverage` overlay computed
@@ -61,8 +64,12 @@ export const skillStatsEvolutionFiltersSchema = baseAnalyticsFiltersSchema.exten
    * `company`  → company-wide average per assessment (one line).
    * `sector`   → one line per sector in `entityIds`.
    * `user`     → one line per user in `entityIds`.
+   * `skill`    → one line per skill in `entityIds`; value = that skill's
+   *              average within each assessment. Drives X=campaign × series=skill.
+   * `topic`    → one line per topic in `entityIds`; value = that topic's
+   *              average within each assessment.
    */
-  mode: z.enum(['company', 'sector', 'user']).default('company'),
+  mode: z.enum(['company', 'sector', 'user', 'skill', 'topic']).default('company'),
   entityIds: uuidArray.optional(),
 });
 export type SkillStatsEvolutionFilters = z.infer<typeof skillStatsEvolutionFiltersSchema>;
@@ -153,7 +160,7 @@ export interface SkillStatsComparisonEntity {
 }
 
 export interface SkillStatsComparisonResponse {
-  mode: 'user' | 'sector';
+  mode: 'user' | 'sector' | 'campaign';
   /** Stable skill axis used by all entities (the radar's indicators). */
   axis: { skillId: string; skillName: string; skillOrder: number }[];
   /** Per-topic axis (deeper view; consumer can choose skill- or topic-level). */
@@ -176,7 +183,7 @@ export interface SkillStatsEvolutionPoint {
 }
 
 export interface SkillStatsEvolutionResponse {
-  mode: 'company' | 'sector' | 'user';
+  mode: 'company' | 'sector' | 'user' | 'skill' | 'topic';
   series: { id: string; name: string }[];
   points: SkillStatsEvolutionPoint[];
 }

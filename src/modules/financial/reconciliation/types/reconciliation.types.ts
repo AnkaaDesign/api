@@ -94,6 +94,22 @@ export interface MatchCandidate {
   aliasAssisted: boolean;
   /** First few line items / services (descriptions) of the candidate doc. */
   items: MatchCandidateItem[];
+  // --- Order-group candidates (several NFs of one purchase order summed) ---
+  /** True when this candidate is a synthetic group of NFs sharing one order
+   *  code (`#Ped:` in infCpl), summed into a single matchable unit. */
+  isOrderGroup?: boolean;
+  /** The shared purchase-order code, when isOrderGroup. */
+  orderCode?: string;
+  /** The fiscal-document ids of every NF in the group (for allocation on accept). */
+  memberFiscalDocumentIds?: string[];
+  /** Per-member NF id + value, so the UI can send accurate per-NF allocations. */
+  members?: { fiscalDocumentId: string; nfNumber: string | null; totalValue: number }[];
+  /** Number of NFs in the group. */
+  memberCount?: number;
+  /** True when no member NF belongs to more than one order — only clean groups
+   *  may be auto-confirmed; unclean groups are surfaced for manual review only
+   *  (summing them would double-count a consolidated NF across orders). */
+  cleanGroup?: boolean;
 }
 
 export interface ImportSummary {

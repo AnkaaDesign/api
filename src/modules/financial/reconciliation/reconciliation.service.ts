@@ -226,6 +226,9 @@ export class ReconciliationService {
     const doc = await this.prisma.fiscalDocument.findUnique({
       where: { id: fiscalDocumentId },
       include: {
+        // Purchase-order codes parsed from infCpl (#Ped:) — shown on the NF
+        // detail and used by order-group reconciliation.
+        orderCodes: { select: { code: true }, orderBy: { code: 'asc' } },
         matches: {
           include: {
             transaction: {
@@ -702,6 +705,11 @@ export class ReconciliationService {
         { emitName: { contains: filters.search, mode: 'insensitive' } },
         { destName: { contains: filters.search, mode: 'insensitive' } },
         { nfNumber: { contains: filters.search } },
+        // Complementary info (infNFe/infAdic/infCpl) free text, e.g. an order
+        // number, "Vend", or any note the supplier stamped on the NF.
+        { infCpl: { contains: filters.search, mode: 'insensitive' } },
+        // Normalized #Ped: order codes (so "C44304" matches even with spacing).
+        { orderCodes: { some: { code: { contains: filters.search, mode: 'insensitive' } } } },
       ];
     }
     if (filters.dateFrom || filters.dateTo) {

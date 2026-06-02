@@ -16,6 +16,7 @@ import { ReconciliationClassifierService } from './reconciliation-classifier.ser
 import { TransactionCategoryService } from './transaction-category.service';
 import { ItemCategoryClassifierService } from './item-category-classifier.service';
 import { ItemCategoryAliasService } from './item-category-alias.service';
+import { ItemCategoryMirrorListener } from './item-category-mirror.listener';
 
 @Module({
   imports: [ConfigModule, PrismaModule, NotificationModule, forwardRef(() => SiegModule)],
@@ -33,6 +34,7 @@ import { ItemCategoryAliasService } from './item-category-alias.service';
     TransactionCategoryService,
     ItemCategoryClassifierService,
     ItemCategoryAliasService,
+    ItemCategoryMirrorListener,
   ],
   exports: [
     ReconciliationService,

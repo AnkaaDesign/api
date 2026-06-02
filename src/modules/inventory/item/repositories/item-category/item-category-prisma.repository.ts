@@ -53,20 +53,36 @@ export class ItemCategoryPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: ItemCategoryCreateFormData,
   ): Prisma.ItemCategoryCreateInput {
-    const { type, ...restData } = formData;
+    // Strip relation/derived fields handled explicitly below so they don't leak
+    // into the checked create input as scalar FKs.
+    const { type, parentId, categoryLevel, accountingType, ...restData } = formData as any;
 
-    return {
+    const createInput: Prisma.ItemCategoryCreateInput = {
       ...restData,
       name: formData.name || 'Unnamed Category', // Ensure name is provided
       type,
       typeOrder: type ? ITEM_CATEGORY_TYPE_ORDER[type] : ITEM_CATEGORY_TYPE_ORDER.REGULAR,
     };
+
+    if (accountingType !== undefined) {
+      createInput.accountingType = accountingType;
+    }
+
+    // Connect to parent when provided; categoryLevel is derived (1=category, 2=subcategory).
+    if (parentId) {
+      createInput.parent = { connect: { id: parentId } };
+      createInput.categoryLevel = categoryLevel ?? 2;
+    } else {
+      createInput.categoryLevel = categoryLevel ?? 1;
+    }
+
+    return createInput;
   }
 
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: ItemCategoryUpdateFormData,
   ): Prisma.ItemCategoryUpdateInput {
-    const { type, ...restData } = formData;
+    const { type, parentId, categoryLevel, accountingType, ...restData } = formData as any;
 
     const updateInput: Prisma.ItemCategoryUpdateInput = {
       ...restData,
@@ -75,6 +91,23 @@ export class ItemCategoryPrismaRepository
     if (type !== undefined) {
       updateInput.type = type;
       updateInput.typeOrder = ITEM_CATEGORY_TYPE_ORDER[type];
+    }
+
+    if (accountingType !== undefined) {
+      updateInput.accountingType = accountingType;
+    }
+
+    // Reparent / detach. parentId === null detaches and resets to a top-level category.
+    if (parentId !== undefined) {
+      if (parentId === null) {
+        updateInput.parent = { disconnect: true };
+        updateInput.categoryLevel = categoryLevel ?? 1;
+      } else {
+        updateInput.parent = { connect: { id: parentId } };
+        updateInput.categoryLevel = categoryLevel ?? 2;
+      }
+    } else if (categoryLevel !== undefined) {
+      updateInput.categoryLevel = categoryLevel;
     }
 
     return updateInput;
@@ -180,6 +213,36 @@ export class ItemCategoryPrismaRepository
       return result ? this.mapDatabaseEntityToEntity(result) : null;
     } catch (error) {
       this.logError(`buscar categoria por nome ${name}`, error);
+      throw error;
+    }
+  }
+
+  async listDescendantIds(id: string): Promise<string[]> {
+    try {
+      // Breadth-first walk of the CATEGORY_TREE self relation. The seeded tree is
+      // 2 levels deep, but this loop handles arbitrary depth defensively.
+      const collected = new Set<string>([id]);
+      let frontier: string[] = [id];
+
+      while (frontier.length > 0) {
+        const children = await this.prisma.itemCategory.findMany({
+          where: { parentId: { in: frontier } },
+          select: { id: true },
+        });
+
+        const next: string[] = [];
+        for (const child of children) {
+          if (!collected.has(child.id)) {
+            collected.add(child.id);
+            next.push(child.id);
+          }
+        }
+        frontier = next;
+      }
+
+      return Array.from(collected);
+    } catch (error) {
+      this.logError(`listar descendentes da categoria ${id}`, error);
       throw error;
     }
   }

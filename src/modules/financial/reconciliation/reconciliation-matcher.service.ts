@@ -56,6 +56,21 @@ const MARKETPLACE_MATCH_CONFIDENCE = 80;
 // Company CNPJ fallback, mirrored from SiegXmlParserService so marketplace
 // matching scopes to our own purchases even when COMPANY_CNPJ is unset in dev.
 const DEFAULT_COMPANY_CNPJ = '13636938000144';
+// Order-group matching: a single payment that settles several NFs of ONE
+// purchase order (supplier stamps "#Ped:<code>" in infCpl). When the summed NF
+// totals land within this R$ tolerance of the payment we treat the order as the
+// matchable unit. Slightly looser than PERFECT_VALUE_TOLERANCE because rounding
+// accumulates across many summed NFs (observed deltas up to ~R$ 1.50). Auto
+// confirm is still gated by clean-group + CNPJ-root + past-dated + uniqueness.
+const ORDER_GROUP_VALUE_TOLERANCE = 2.0;
+// Max |postedAt − member NF issue date| for an order-group auto-match. Unlike
+// single-NF matching (which requires the NF to be past-dated, since a debit
+// rarely pre-pays a future invoice), consolidated order payments routinely land
+// BEFORE some of the order's NFs are issued — advance payment triggers staged
+// invoicing (observed lag −25..+45d for this supplier). So we use a SYMMETRIC
+// window instead of a past-dated guard; the clean-group + exact-sum + CNPJ-root
+// + uniqueness gate is what prevents false positives, not the date direction.
+const ORDER_GROUP_DATE_WINDOW_DAYS = 75;
 
 function cnpjRoot(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -440,7 +455,175 @@ export class ReconciliationMatcherService {
     const exact = await this.tryExactMatch(tx);
     if (exact) return true;
 
+    // Pass 2 — Order-group: one DEBIT settling several NFs of a single purchase
+    // order (supplier "#Ped:" in infCpl). Runs after the single-NF pass so a
+    // direct 1:1 match always wins; only reached when no single NF fits.
+    if (tx.type === BankTransactionType.DEBIT) {
+      const grouped = await this.tryOrderGroupMatch(tx);
+      if (grouped) return true;
+    }
+
     return false;
+  }
+
+  /**
+   * Pure grouping of fiscal docs by their order code. One NF can list several
+   * order codes, so it appears in several groups. A group is "clean" when every
+   * member NF references exactly one order — only clean groups are safe to sum,
+   * because a multi-order NF's value can't be split per order from the XML and
+   * would otherwise be double-counted across the orders it belongs to.
+   */
+  private groupDocsByOrderCode<
+    T extends { totalValue: Prisma.Decimal | number; issueDate: Date; orderCodes: { code: string }[] },
+  >(docs: T[]): Array<{ code: string; members: T[]; clean: boolean; total: number; earliest: Date; latest: Date }> {
+    const groups = new Map<string, T[]>();
+    for (const d of docs) {
+      for (const oc of d.orderCodes) {
+        const arr = groups.get(oc.code);
+        if (arr) arr.push(d);
+        else groups.set(oc.code, [d]);
+      }
+    }
+    return [...groups.entries()].map(([code, members]) => {
+      const total = members.reduce((s, m) => s + Number(m.totalValue), 0);
+      const times = members.map(m => m.issueDate.getTime());
+      return {
+        code,
+        members,
+        clean: members.every(m => m.orderCodes.length === 1),
+        total,
+        earliest: new Date(Math.min(...times)),
+        latest: new Date(Math.max(...times)),
+      };
+    });
+  }
+
+  /**
+   * Order-group auto-match. Finds unmatched supplier NFs (by CNPJ root, wide
+   * date window) that carry a `#Ped:` order code, sums each clean order's NFs,
+   * and auto-confirms when exactly one clean order's total matches the payment
+   * (within ORDER_GROUP_VALUE_TOLERANCE), the CNPJ root matches, and the latest
+   * member NF is on/before the payment. Writes one ReconciliationMatch per
+   * member NF with a per-NF allocation that sums exactly to the payment.
+   *
+   * Conservative by design: dirty (multi-order) groups, ambiguous ties, and
+   * future-dated orders are never auto-confirmed — they remain visible as
+   * manual candidates (see getCandidatesForTransaction).
+   */
+  private async tryOrderGroupMatch(tx: RawTransaction): Promise<boolean> {
+    // Groups rely on a real CNPJ root to scope the supplier — no alias guessing.
+    const effectiveCnpj = tx.counterpartyCnpjCpf;
+    const root = cnpjRoot(effectiveCnpj);
+    if (!effectiveCnpj || !root) return false;
+
+    const absAmount = Math.abs(Number(tx.amount));
+    const lower = new Date(tx.postedAt.getTime() - PERFECT_MATCH_DATE_WINDOW_DAYS * 86_400_000);
+    const upper = new Date(tx.postedAt.getTime() + PERFECT_MATCH_DATE_WINDOW_DAYS * 86_400_000);
+
+    // No value filter: member NFs are each far smaller than the summed payment.
+    const docs = await this.prisma.fiscalDocument.findMany({
+      where: {
+        status: 'AUTHORIZED',
+        matches: { none: {} },
+        issueDate: { gte: lower, lte: upper },
+        orderCodes: { some: {} },
+        OR: [
+          { emitCnpj: effectiveCnpj },
+          { destCnpj: effectiveCnpj },
+          { emitCnpj: { startsWith: root } },
+          { destCnpj: { startsWith: root } },
+        ],
+      },
+      take: 200,
+      select: {
+        id: true,
+        totalValue: true,
+        issueDate: true,
+        emitCnpj: true,
+        destCnpj: true,
+        destCpf: true,
+        emitName: true,
+        destName: true,
+        orderCodes: { select: { code: true } },
+      },
+    });
+    if (docs.length === 0) return false;
+
+    // Symmetric date window: every member NF must fall within the window on
+    // either side of the payment (advance payments are normal here, see const).
+    const windowMs = ORDER_GROUP_DATE_WINDOW_DAYS * 86_400_000;
+    const groups = this.groupDocsByOrderCode(docs).filter(
+      g =>
+        g.members.length >= 2 && // a 1-NF "group" is just the single-NF pass
+        g.clean && // never auto-sum a multi-order NF
+        Math.abs(g.total - absAmount) <= ORDER_GROUP_VALUE_TOLERANCE &&
+        g.earliest.getTime() >= tx.postedAt.getTime() - windowMs &&
+        g.latest.getTime() <= tx.postedAt.getTime() + windowMs,
+    );
+
+    // Require a UNIQUE qualifying order — if two distinct orders both sum to the
+    // payment, defer to manual disambiguation rather than guess.
+    if (groups.length !== 1) return false;
+    const grp = groups[0];
+
+    // Confirm the CNPJ actually scores (root or exact) against a member doc.
+    const rep = grp.members[0];
+    const score = scoreCandidate(
+      tx,
+      {
+        totalValue: grp.total,
+        issueDate: grp.earliest,
+        emitCnpj: rep.emitCnpj,
+        destCnpj: rep.destCnpj,
+        destCpf: rep.destCpf,
+        emitName: rep.emitName,
+        destName: rep.destName,
+      },
+      null,
+    );
+    if (!score.cnpj.exact && !score.cnpj.rootOnly) return false;
+
+    // Allocate each member its own vNF; absorb the (small) rounding residual on
+    // the largest member so allocations sum EXACTLY to the payment.
+    const residual = grp.total - absAmount; // total − payment (within tolerance)
+    const largestIdx = grp.members.reduce(
+      (best, m, i, arr) => (Number(m.totalValue) > Number(arr[best].totalValue) ? i : best),
+      0,
+    );
+    const allocations = grp.members.map((m, i) => ({
+      id: m.id,
+      amount: Number((Number(m.totalValue) - (i === largestIdx ? residual : 0)).toFixed(2)),
+    }));
+
+    await this.prisma.$transaction(async tx2 => {
+      await tx2.bankTransaction.update({
+        where: { id: tx.id },
+        data: {
+          reconciliationStatus: ReconciliationStatus.RECONCILED,
+          reconciliationSource: ReconciliationSource.AUTO,
+        },
+      });
+      for (const a of allocations) {
+        await tx2.reconciliationMatch.create({
+          data: {
+            transactionId: tx.id,
+            fiscalDocumentId: a.id,
+            allocatedAmount: a.amount,
+            matchType: ReconciliationMatchType.VALUE_DATE,
+            confidenceScore: score.total,
+            notes:
+              `Pareamento automático por pedido #${grp.code}: ` +
+              `${grp.members.length} notas somando R$ ${grp.total.toFixed(2)}` +
+              (Math.abs(residual) > 0.005 ? ` (Δ R$ ${Math.abs(residual).toFixed(2)})` : ''),
+          },
+        });
+      }
+    });
+
+    this.logger.log(
+      `Order-group match: tx ${tx.id} → order #${grp.code} (${grp.members.length} NFs, R$ ${grp.total.toFixed(2)})`,
+    );
+    return true;
   }
 
   /**
@@ -603,7 +786,7 @@ export class ReconciliationMatcherService {
       .map(doc => ({ doc, score: scoreCandidate(tx, doc, aliasContext) }))
       .sort((a, b) => b.score.total - a.score.total);
 
-    return scored.map(({ doc, score }) => {
+    const singleCandidates = scored.map(({ doc, score }) => {
       const docTotal = Number(doc.totalValue);
       const daysDelta = Math.round(
         Math.abs(doc.issueDate.getTime() - tx.postedAt.getTime()) / 86_400_000,
@@ -639,6 +822,172 @@ export class ReconciliationMatcherService {
           category: it.category ?? null,
         })),
       };
+    });
+
+    // Order-group candidates: NFs of one purchase order summed into a single
+    // matchable unit (so a payment that settles several NFs of one order shows
+    // up as one row matching the payment total). Only built when we have a
+    // supplier CNPJ to scope by; surfaced for both clean and dirty groups (the
+    // user can confirm dirty ones manually).
+    const groupCandidates = counterparty
+      ? await this.buildOrderGroupCandidates(tx, counterparty, aliasContext)
+      : [];
+
+    return [...groupCandidates, ...singleCandidates].sort(
+      (a, b) => b.confidence - a.confidence,
+    );
+  }
+
+  /**
+   * Builds synthetic "order-group" candidates for the manual UI: supplier NFs
+   * sharing a `#Ped:` order code, summed. Only groups with ≥2 members whose
+   * summed total is value-relevant to the payment (valueScore > 0) are returned,
+   * so the matching order floats to the top without flooding the list.
+   */
+  private async buildOrderGroupCandidates(
+    tx: {
+      postedAt: Date;
+      amount: Prisma.Decimal | number;
+      counterpartyCnpjCpf: string | null;
+      counterpartyName?: string | null;
+    },
+    effectiveCnpj: string,
+    aliasContext: AliasContext | null,
+  ): Promise<MatchCandidate[]> {
+    const root = cnpjRoot(effectiveCnpj);
+    const absAmount = Math.abs(Number(tx.amount));
+    const lower = new Date(tx.postedAt.getTime() - CNPJ_CANDIDATE_DATE_WINDOW_DAYS * 86_400_000);
+    const upper = new Date(tx.postedAt.getTime() + CNPJ_CANDIDATE_DATE_WINDOW_DAYS * 86_400_000);
+
+    const docs = await this.prisma.fiscalDocument.findMany({
+      where: {
+        status: 'AUTHORIZED',
+        matches: { none: {} },
+        issueDate: { gte: lower, lte: upper },
+        orderCodes: { some: {} },
+        OR: [
+          { emitCnpj: effectiveCnpj },
+          { destCnpj: effectiveCnpj },
+          { destCpf: effectiveCnpj },
+          ...(root
+            ? [
+                { emitCnpj: { startsWith: root } } as Prisma.FiscalDocumentWhereInput,
+                { destCnpj: { startsWith: root } } as Prisma.FiscalDocumentWhereInput,
+              ]
+            : []),
+        ],
+      },
+      take: 200,
+      select: {
+        id: true,
+        accessKey: true,
+        docType: true,
+        operationType: true,
+        issueDate: true,
+        totalValue: true,
+        emitCnpj: true,
+        emitName: true,
+        destCnpj: true,
+        destName: true,
+        destCpf: true,
+        nfNumber: true,
+        orderCodes: { select: { code: true } },
+        items: {
+          select: {
+            id: true,
+            code: true,
+            description: true,
+            totalValue: true,
+            quantity: true,
+            unit: true,
+            unitValue: true,
+            categoryId: true,
+            category: { select: { id: true, name: true, slug: true, color: true } },
+          },
+          take: 100,
+        },
+      },
+    });
+    if (docs.length === 0) return [];
+
+    const groups = this.groupDocsByOrderCode(docs).filter(
+      g => g.members.length >= 2 && valueScore(absAmount, g.total) > 0,
+    );
+
+    return groups.map(g => {
+      const rep = g.members[0];
+      const score = scoreCandidate(
+        tx,
+        {
+          totalValue: g.total,
+          issueDate: g.earliest,
+          emitCnpj: rep.emitCnpj,
+          destCnpj: rep.destCnpj,
+          destCpf: rep.destCpf,
+          emitName: rep.emitName,
+          destName: rep.destName,
+        },
+        aliasContext,
+      );
+      const daysDelta = Math.round(
+        Math.abs(g.earliest.getTime() - tx.postedAt.getTime()) / 86_400_000,
+      );
+      const items = g.members
+        .flatMap((m: any) => m.items ?? [])
+        .slice(0, 100)
+        .map((it: any) => ({
+          id: it.id,
+          code: it.code ?? null,
+          description: it.description,
+          totalValue: Number(it.totalValue),
+          quantity: it.quantity != null ? Number(it.quantity) : null,
+          unit: it.unit ?? null,
+          unitValue: it.unitValue != null ? Number(it.unitValue) : null,
+          categoryId: it.categoryId ?? null,
+          category: it.category ?? null,
+        }));
+      const nfList = g.members
+        .map((m: any) => m.nfNumber)
+        .filter(Boolean)
+        .join(', ');
+      const cleanNote = g.clean
+        ? ''
+        : ' • Contém nota de múltiplos pedidos — revisar antes de conciliar';
+      return {
+        fiscalDocumentId: `order-group:${g.code}`,
+        accessKey: `PED:${g.code}`,
+        docType: rep.docType,
+        operationType: rep.operationType,
+        issueDate: g.earliest,
+        totalValue: g.total,
+        emitCnpj: rep.emitCnpj,
+        emitName: rep.emitName,
+        destCnpj: rep.destCnpj,
+        destCpf: rep.destCpf ?? null,
+        destName: rep.destName,
+        nfNumber: nfList || null,
+        confidence: score.total,
+        matchType: score.matchType,
+        rationale:
+          `Pedido #${g.code}: ${g.members.length} notas (${nfList}) somando ` +
+          `R$ ${g.total.toFixed(2)}` +
+          (score.reasons.length ? ` • ${score.reasons.join(' • ')}` : '') +
+          cleanNote,
+        amountDelta: Math.abs(g.total - absAmount),
+        daysDelta,
+        aliasAssisted: !!aliasContext,
+        items,
+        isOrderGroup: true,
+        orderCode: g.code,
+        memberFiscalDocumentIds: g.members.map((m: any) => m.id),
+        members: g.members.map((m: any) => ({
+          fiscalDocumentId: m.id,
+          nfNumber: m.nfNumber ?? null,
+          totalValue: Number(m.totalValue),
+        })),
+        memberCount: g.members.length,
+        cleanGroup: g.clean,
+      } satisfies MatchCandidate;
     });
   }
 

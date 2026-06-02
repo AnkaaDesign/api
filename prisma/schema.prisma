@@ -711,6 +711,9 @@ model Item {
   xyzCategoryOrder               Int?
   brandId                        String?
   categoryId                     String?
+  // True when the item's category was auto-assigned with low confidence during
+  // the taxonomy migration and still needs human confirmation ("a revisar").
+  categoryReviewNeeded           Boolean                  @default(false)
   supplierId                     String?
   estimatedLeadTime              Int?                     @default(30)
   isActive                       Boolean                  @default(true)
@@ -833,19 +836,52 @@ model ItemBrand {
   items     Item[]   @relation("ITEM_BRAND")
 }
 
+// Chart-of-accounts groups (plano de contas, from CONTABILIDADE PDF). This is
+// the COST/accounting axis — orthogonal to the operational item taxonomy and to
+// ItemCategoryType (physical nature). Used directly on transactions, and as a
+// rollup ("ponte") on item categories so a purchase lands in the right cost group.
+enum AccountingType {
+  SALARIOS // wages, pró-labore, commission, aerografia labor, bonus
+  DESPESAS_FIXAS // fuel, water, energy, telephony, internet, rent
+  PRODUTIVO // production consumables (adesivos, fita, máscara, papel, peças, massas)
+  IMPOSTO_TARIFAS // taxes, bank fees, charges
+  MATERIA_PRIMA // paints, toners, thinner, removers
+  INVESTIMENTO // durable goods: tools, equipment (internos/externos)
+  MANUTENCAO // equipment maintenance parts/services
+  COZINHA_ALIMENTACAO // kitchen / food
+  EPI // PPE + uniforms
+  ESCRITORIO // office / admin supplies
+  APLICACAO_FINANCEIRA // financial investment moves
+  ESTORNO // reversals / refunds
+  LUCRO_DISTRIBUIDO // distributed profit (LD/S, LD/G)
+}
+
 model ItemCategory {
   id        String           @id @default(uuid())
   name      String           @unique
   type      ItemCategoryType @default(REGULAR)
   typeOrder Int              @default(1)
+  // Operational taxonomy tree (production flow): a top category has parentId null
+  // and its subcategories point back to it. Items attach to the LEAF (subcategory)
+  // when one exists, otherwise to the top category. categoryLevel: 1=category, 2=subcategory.
+  parentId      String?
+  categoryLevel Int           @default(1)
+  // Rollup to the chart of accounts (the "ponte"/grupoContabil). Inherited down the
+  // tree; set on subcategories so per-item splits (e.g. Peças → PRODUTIVO vs
+  // MANUTENCAO, Uniforme → EPI) land in the correct cost group.
+  accountingType AccountingType?
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
+  parent    ItemCategory?    @relation("CATEGORY_TREE", fields: [parentId], references: [id], onDelete: SetNull)
+  children  ItemCategory[]   @relation("CATEGORY_TREE")
   items     Item[]           @relation("ITEM_CATEGORY")
   // Item-derived reconciliation categories mirror these rows (1:1) so a fiscal
   // document line tagged "Verniz" maps back to this inventory category.
   transactionCategories TransactionCategory[] @relation("ITEM_CATEGORY_TO_TX_CATEGORY")
 
   @@index([type, typeOrder])
+  @@index([parentId])
+  @@index([accountingType])
 }
 
 model Observation {
@@ -3726,6 +3762,8 @@ model FiscalDocument {
   series            String? // ide.serie
   model             String? // ide.mod (55=NFe, 65=NFCe, 57=CTe)
   naturezaOperacao  String? // ide.natOp
+  // infNFe/infAdic/infCpl — Informações Complementares de Interesse do Contribuinte
+  infCpl            String? @db.Text
   // Authorization protocol (protNFe.infProt / NFSe protocol)
   protocolNumber    String? // nProt
   authorizationDate DateTime? // dhRecbto — when SEFAZ authorized
@@ -3757,6 +3795,7 @@ model FiscalDocument {
   rawXmlFile     File?                   @relation("FiscalDocXml", fields: [rawXmlFileId], references: [id])
   matches        ReconciliationMatch[]   @relation("DocumentMatches")
   items          FiscalDocumentItem[]
+  orderCodes     FiscalDocumentOrderCode[]
 
   @@index([docType])
   @@index([operationType])
@@ -3803,6 +3842,25 @@ model FiscalDocumentItem {
 
   @@index([fiscalDocumentId])
   @@index([categoryId])
+}
+
+// Purchase-order codes ("#Ped:" tokens) parsed from FiscalDocument.infCpl.
+// Many-to-many in practice: one NF may list several order codes (consolidated
+// invoice), and one order spans several NFs (split deliveries). Stored as a
+// normalized join so the matcher can do the reverse lookup "all NFs for order X"
+// as an indexed `code` seek when summing an order's NFs into a single payment.
+// Refreshed delete-then-create on re-import, mirroring FiscalDocumentItem.
+model FiscalDocumentOrderCode {
+  id               String         @id @default(uuid())
+  fiscalDocumentId String
+  code             String // raw "#Ped:" code from infCpl (e.g. "C34673")
+  createdAt        DateTime       @default(now())
+
+  fiscalDocument   FiscalDocument @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
+
+  @@unique([fiscalDocumentId, code])
+  @@index([code])
+  @@index([fiscalDocumentId])
 }
 
 model ReconciliationMatch {
@@ -3902,6 +3960,10 @@ model TransactionCategory {
   color          String?
   sortOrder      Int                     @default(0)
   isActive       Boolean                 @default(true)
+  // Chart-of-accounts rollup (plano de contas). For ITEM_DERIVED rows this mirrors
+  // the linked ItemCategory.accountingType; for TRANSACTION_ONLY/SERVICE rows it's
+  // the cost group the transaction lands in (Folha→SALARIOS, Tributo→IMPOSTO…).
+  accountingType AccountingType?
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
 
@@ -3915,6 +3977,7 @@ model TransactionCategory {
   @@index([itemCategoryId])
   @@index([isRecurring])
   @@index([isActive])
+  @@index([accountingType])
 }
 
 // Learned (NF line description fingerprint → category) pairs — the categorizer's
