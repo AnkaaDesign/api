@@ -58,9 +58,9 @@ import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
-import { AppModule } from '../app.module';
-import { PrismaService } from '../modules/common/prisma/prisma.service';
-import { ItemRecomputeService } from '../modules/inventory/services/item-recompute.service';
+import { AppModule } from '../../app.module';
+import { PrismaService } from '../../modules/common/prisma/prisma.service';
+import { ItemRecomputeService } from '../../modules/inventory/services/item-recompute.service';
 import {
   ABC_CATEGORY,
   ACTIVITY_OPERATION,
@@ -69,25 +69,27 @@ import {
   PPE_DELIVERY_MODE,
   PPE_TYPE,
   XYZ_CATEGORY,
-} from '../constants/enums';
+} from '../../constants/enums';
 import {
   REGULAR_CONSUMPTION_REASONS,
-} from '../constants/inventory-config';
+} from '../../constants/inventory-config';
 import {
   isInVacationPeriod,
-} from '../constants/working-days-config';
+} from '../../constants/working-days-config';
 import {
   workingDaysForMonth,
   detectSaturdayShifts,
-} from '../utils/working-days';
-import { distributeBulkAdjustments } from '../utils/bulk-adjustment-distributor';
+} from '../../utils/working-days';
+import { distributeBulkAdjustments } from '../../utils/bulk-adjustment-distributor';
 import {
   classifyAbc,
   classifyXyz,
   type AbcInput,
   type XyzInput,
-} from '../utils/abc-xyz';
-import { CORPUS_MONTHLY_INDEX } from '../constants/seasonality-config';
+  type AbcAssignment,
+  type XyzAssignment,
+} from '../../utils/abc-xyz';
+import { CORPUS_MONTHLY_INDEX } from '../../constants/seasonality-config';
 import { CATEGORY_ASSIGNMENTS } from './categorization-map';
 
 // ---------------------------------------------------------------------------
@@ -1478,8 +1480,8 @@ async function phaseF_abcXyzPass(
       (i.category?.type as ITEM_CATEGORY_TYPE | null) !== ITEM_CATEGORY_TYPE.TOOL,
   }));
 
-  const abc = new Map(classifyAbc(abcInputs).map(a => [a.itemId, a]));
-  const xyz = new Map(classifyXyz(xyzInputs).map(x => [x.itemId, x]));
+  const abc = new Map<string, AbcAssignment>(classifyAbc(abcInputs).map(a => [a.itemId, a]));
+  const xyz = new Map<string, XyzAssignment>(classifyXyz(xyzInputs).map(x => [x.itemId, x]));
 
   let classified = 0;
   let xyzPopulated = 0;

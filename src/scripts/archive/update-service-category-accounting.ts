@@ -8,8 +8,8 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import { AccountingType } from '@prisma/client';
-import { AppModule } from '../app.module';
-import { PrismaService } from '../modules/common/prisma/prisma.service';
+import { AppModule } from '../../app.module';
+import { PrismaService } from '../../modules/common/prisma/prisma.service';
 
 // name → { accountingType, isRecurring }. Extend after user confirms the rest.
 const UPDATES: Record<string, { accountingType: AccountingType; isRecurring?: boolean }> = {

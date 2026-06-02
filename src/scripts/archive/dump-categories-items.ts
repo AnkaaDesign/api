@@ -11,8 +11,8 @@ import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { AppModule } from '../app.module';
-import { PrismaService } from '../modules/common/prisma/prisma.service';
+import { AppModule } from '../../app.module';
+import { PrismaService } from '../../modules/common/prisma/prisma.service';
 
 const OUT_DIR = path.join(process.cwd(), '..', 'Working Files', 'category-reclassify');
 
