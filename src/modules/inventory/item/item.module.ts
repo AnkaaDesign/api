@@ -56,6 +56,7 @@ import { ItemCategoryPrismaRepository } from './repositories/item-category/item-
     ItemBrandService,
     ItemCategoryService,
     ItemRepository,
+    ItemCategoryRepository,
     StockNotificationService,
     ItemRecomputeService,
   ],

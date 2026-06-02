@@ -837,8 +837,12 @@ export class PpeDeliveryService {
 
       const ppeDelivery = await this.repository.create(data, { include });
 
-      // If delivery has actualDeliveryDate, update stock
-      if (data.actualDeliveryDate) {
+      // Only decrement stock when the delivery is actually DELIVERED. A
+      // PENDING/APPROVED delivery (even with an actualDeliveryDate set) is already
+      // counted as totalPending in availability calculations, so decrementing here
+      // would double-subtract. The PENDING→DELIVERED transition handles the
+      // decrement exactly once.
+      if (data.actualDeliveryDate && ppeDelivery.status === PPE_DELIVERY_STATUS.DELIVERED) {
         // Pass size info from validation
         const sizeInfo = (data as any)._validatedSize;
         const ppeType = (data as any)._ppeType;
@@ -1225,8 +1229,17 @@ export class PpeDeliveryService {
         transaction: transaction,
       });
 
-      // Handle stock updates if actualDeliveryDate is being set for the first time
-      if (!oldPpeDelivery.actualDeliveryDate && data.actualDeliveryDate) {
+      // Handle stock decrement exactly once, when the delivery transitions INTO
+      // the DELIVERED state. Create-path no longer decrements for PENDING/APPROVED
+      // (they only count as totalPending), so the decrement must happen here on the
+      // PENDING/APPROVED→DELIVERED transition. Gating on the status transition
+      // (rather than "actualDeliveryDate set for the first time") ensures stock is
+      // decremented even when actualDeliveryDate was already set at creation time,
+      // and prevents a double decrement when both fields change together.
+      const transitionedToDelivered =
+        updatedPpeDelivery.status === PPE_DELIVERY_STATUS.DELIVERED &&
+        oldPpeDelivery.status !== PPE_DELIVERY_STATUS.DELIVERED;
+      if (transitionedToDelivered) {
         // Get size info from the updated delivery
         const itemWithConfig = await this.itemRepository.findById(updatedPpeDelivery.itemId);
         const userWithSize = await this.userRepository.findById(updatedPpeDelivery.userId, {
@@ -1270,8 +1283,15 @@ export class PpeDeliveryService {
         });
       }
 
-      // Handle stock restoration when reverting a delivery (actualDeliveryDate cleared)
-      if (oldPpeDelivery.actualDeliveryDate && data.actualDeliveryDate === null) {
+      // Handle stock restoration when reverting a delivered delivery (actualDeliveryDate cleared).
+      // Gated on the old status being DELIVERED: only a DELIVERED delivery had its
+      // stock decremented, so only that case should be restored. A PENDING/APPROVED
+      // delivery (even one created with an actualDeliveryDate) was never decremented.
+      if (
+        oldPpeDelivery.status === PPE_DELIVERY_STATUS.DELIVERED &&
+        oldPpeDelivery.actualDeliveryDate &&
+        data.actualDeliveryDate === null
+      ) {
         // Restore stock directly - we update the item quantity and create an activity record
         const item = await this.itemRepository.findById(oldPpeDelivery.itemId);
         if (item) {
@@ -1301,8 +1321,12 @@ export class PpeDeliveryService {
         }
       }
 
-      // Handle stock adjustments if quantity changed on delivered items
+      // Handle stock adjustments if quantity changed on already-delivered items.
+      // Gated on the old status being DELIVERED so quantity edits on a not-yet-
+      // delivered (PENDING/APPROVED) delivery — which never decremented stock — do
+      // not spuriously adjust inventory.
       if (
+        oldPpeDelivery.status === PPE_DELIVERY_STATUS.DELIVERED &&
         oldPpeDelivery.actualDeliveryDate &&
         data.quantity !== undefined &&
         data.quantity !== oldPpeDelivery.quantity
@@ -1407,8 +1431,15 @@ export class PpeDeliveryService {
         );
       }
 
-      // If delivery was already delivered, restore stock by creating an inbound activity
-      if (ppeDelivery.actualDeliveryDate) {
+      // If delivery was already DELIVERED, restore stock by creating an inbound
+      // activity. Gated on DELIVERED status: only DELIVERED deliveries had their
+      // stock decremented, so only those should be restored on delete. A
+      // PENDING/APPROVED delivery (even with an actualDeliveryDate) was never
+      // decremented.
+      if (
+        ppeDelivery.status === PPE_DELIVERY_STATUS.DELIVERED &&
+        ppeDelivery.actualDeliveryDate
+      ) {
         await this.activityService.create(
           {
             itemId: ppeDelivery.itemId,

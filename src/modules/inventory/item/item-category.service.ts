@@ -568,11 +568,28 @@ export class ItemCategoryService {
    */
   async findTree(query: ItemCategoryGetManyFormData): Promise<ItemCategoryGetManyResponse> {
     try {
+      // NOTE: `query` has already passed through the GetMany schema transform at the
+      // controller, so `topLevelOnly` (if the client sent it) was folded into `where`
+      // and the flag itself was stripped. Setting `topLevelOnly` here would be a no-op
+      // because the repository's `findMany` does not re-run the transform. We therefore
+      // enforce top-level scoping (parentId === null) directly on the `where` clause.
+      const existingWhere = (query as any)?.where;
+      const topLevelWhere = existingWhere
+        ? { AND: [existingWhere, { parentId: null }] }
+        : { parentId: null };
+
       const treeQuery: any = {
         ...query,
-        topLevelOnly: true,
+        // Roots are few; ensure the whole tree comes back in one page rather than
+        // being clipped by the default list page size.
+        page: 1,
+        limit: (query as any)?.limit ?? 1000,
+        take: (query as any)?.take ?? (query as any)?.limit ?? 1000,
+        where: topLevelWhere,
         include: {
           ...(query?.include || {}),
+          // Nest two levels of children so the response is a ready-to-render tree.
+          // Each node carries `children`; leaf nodes get an empty array.
           children: {
             include: { children: true },
             orderBy: [{ typeOrder: 'asc' }, { name: 'asc' }],

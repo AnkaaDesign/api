@@ -525,7 +525,12 @@ export class SecullumController {
    */
   @Get('absence-days')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+  )
   @HttpCode(HttpStatus.OK)
   async getAbsenceDays(
     @UserId() userId: string,
@@ -552,7 +557,12 @@ export class SecullumController {
    */
   @Get('absences/unjustified')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+  )
   @HttpCode(HttpStatus.OK)
   async getUnjustifiedAbsences(
     @UserId() userId: string,
@@ -572,7 +582,12 @@ export class SecullumController {
    */
   @Get('absences/:funcionarioId')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+  )
   @HttpCode(HttpStatus.OK)
   async getAbsencesByEmployee(
     @UserId() userId: string,
@@ -592,7 +607,12 @@ export class SecullumController {
    */
   @Get('absences')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+  )
   @HttpCode(HttpStatus.OK)
   async getAggregatedAbsences(
     @UserId() userId: string,

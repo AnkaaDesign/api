@@ -56,6 +56,7 @@ import { EXTERNAL_WITHDRAWAL_STATUS_ORDER } from '../../../constants/sortOrders'
 import { OrderItemEnteredInventoryEvent } from '../order/order.events';
 import { ItemRecomputeService } from '../services/item-recompute.service';
 import { StockNotificationService } from '../services/stock-notification.service';
+import { ItemCategoryRepository } from '../item/repositories/item-category/item-category.repository';
 import type { StockCalculationResult } from '../services/atomic-stock-calculator.service';
 import { determineStockLevel } from '../../../utils';
 
@@ -82,7 +83,40 @@ export class ActivityService {
     private readonly changeLogService: ChangeLogService,
     private readonly itemRecomputeService: ItemRecomputeService,
     private readonly stockNotificationService: StockNotificationService,
+    private readonly itemCategoryRepository: ItemCategoryRepository,
   ) {}
+
+  /**
+   * Expand any `item.categoryId { in: [...] }` filter (produced by the activity
+   * where-schema transform from selected categoryIds) to include each selected
+   * category's descendant ids. Items attach to leaf categories, so without this a
+   * level-1 parent categoryId would match no activities. The transform runs
+   * synchronously at the DTO layer and cannot call a repository, so the expansion
+   * is applied here at the service layer just before querying.
+   */
+  private async expandCategoryFilter(query: ActivityGetManyFormData): Promise<void> {
+    const andConditions = (query as any)?.where?.AND;
+    if (!Array.isArray(andConditions)) {
+      return;
+    }
+    for (const condition of andConditions) {
+      const inClause = condition?.item?.categoryId?.in;
+      if (Array.isArray(inClause) && inClause.length > 0) {
+        const expanded = new Set<string>(inClause);
+        for (const id of inClause) {
+          try {
+            const descendants = await this.itemCategoryRepository.listDescendantIds(id);
+            for (const descendantId of descendants) {
+              expanded.add(descendantId);
+            }
+          } catch (error) {
+            this.logger.warn(`Falha ao expandir descendentes da categoria ${id}: ${error}`);
+          }
+        }
+        condition.item.categoryId.in = Array.from(expanded);
+      }
+    }
+  }
 
   /**
    * Snapshot captured inside the transaction by updateItemQuantity so that
@@ -207,6 +241,7 @@ export class ActivityService {
    */
   async findMany(query: ActivityGetManyFormData): Promise<ActivityGetManyResponse> {
     try {
+      await this.expandCategoryFilter(query);
       const result = await this.activityRepository.findMany(query);
 
       return {
@@ -1008,14 +1043,29 @@ export class ActivityService {
           { include },
         );
 
+        // Correlate each created activity back to its source input by index.
+        // createManyWithTransaction iterates inputs in order and pushes successes
+        // in that same order (skipping failed indices), so we walk the inputs
+        // skipping the failed ones to pair them 1:1 with result.success. Using
+        // `.find(itemId)` here would mis-correlate when a batch has 2+ activities
+        // for the same item.
+        const repoFailedIndices = new Set(result.failed.map(f => f.index));
+        const successOriginalData: ActivityCreateFormData[] = [];
+        for (let inputIndex = 0; inputIndex < processedActivities.length; inputIndex++) {
+          if (!repoFailedIndices.has(inputIndex)) {
+            successOriginalData.push(processedActivities[inputIndex]);
+          }
+        }
+
         // Add validation errors to the failed list
         result.failed.push(...validationErrors);
         result.totalFailed += validationErrors.length;
 
         // Process successful activities - update item quantities and log changes
-        for (const activity of result.success) {
-          // Find the original activity data to get the operation and quantity
-          const originalData = processedActivities.find(a => a.itemId === activity.itemId);
+        for (let successIndex = 0; successIndex < result.success.length; successIndex++) {
+          const activity = result.success[successIndex];
+          // Original input data correlated by index (not by itemId match).
+          const originalData = successOriginalData[successIndex];
           if (originalData) {
             // Update item quantity
             await this.updateItemQuantity(
@@ -1634,8 +1684,10 @@ export class ActivityService {
       );
     }
 
-    // Atualizar o item
-    const updateData: any = { quantity: newQuantity };
+    // Atualizar o item de forma atômica (increment) para evitar lost-update sob
+    // concorrência. delta é assinado: positivo para INBOUND, negativo para OUTBOUND.
+    const delta = operation === ACTIVITY_OPERATION.INBOUND ? quantity : -quantity;
+    const updateData: any = { quantity: { increment: delta } };
 
     // Update lastUsedAt for consumption outbound activities
     if (
@@ -1646,10 +1698,19 @@ export class ActivityService {
       updateData.lastUsedAt = new Date();
     }
 
-    await tx.item.update({
+    const updatedItem = await tx.item.update({
       where: { id: itemId },
       data: updateData,
+      select: { quantity: true },
     });
+
+    // Re-check the atomically computed quantity to roll back the transaction if a
+    // concurrent write drove stock negative (pre-read guard above can be stale).
+    if (updatedItem.quantity < 0) {
+      throw new BadRequestException(
+        `Operação resultaria em quantidade negativa. Disponível: ${item.quantity}, Tentando remover: ${quantity}`,
+      );
+    }
 
     // Capture a snapshot for post-commit stock-threshold notification eval.
     // The actual dispatch happens AFTER the transaction commits (never on
@@ -1762,8 +1823,7 @@ export class ActivityService {
       where: { id: orderItemId },
       data: {
         receivedQuantity: newReceivedQuantity,
-        receivedAt:
-          operation === ACTIVITY_OPERATION.INBOUND && newReceivedQuantity > 0 ? new Date() : null,
+        receivedAt: newReceivedQuantity > 0 ? (orderItem.receivedAt ?? new Date()) : null,
       },
     });
 

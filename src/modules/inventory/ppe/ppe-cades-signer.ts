@@ -10,7 +10,6 @@
 
 import * as forge from 'node-forge';
 import { Signer } from '@signpdf/utils';
-import { PpeTsaClient } from './ppe-tsa-client';
 
 // OID table
 const OID_SHA256 = '2.16.840.1.101.3.4.2.1';
@@ -19,9 +18,6 @@ const OID_CONTENT_TYPE = '1.2.840.113549.1.9.3';
 const OID_SIGNING_TIME = '1.2.840.113549.1.9.5';
 const OID_MESSAGE_DIGEST = '1.2.840.113549.1.9.4';
 const OID_SIGNING_CERT_V2 = '1.2.840.113549.1.9.16.2.47';
-// id-aa-signatureTimeStampToken (RFC 3161 §3.3 / ETSI EN 319 122) — carried as an
-// unsigned attribute; its presence upgrades the signature from PAdES-B-B to B-T.
-const OID_SIGNATURE_TIMESTAMP = '1.2.840.113549.1.9.16.2.14';
 const OID_DATA = '1.2.840.113549.1.7.1';
 const OID_SIGNED_DATA = '1.2.840.113549.1.7.2';
 
@@ -41,34 +37,10 @@ function algIdSha256(): forge.asn1.Asn1 {
   ]);
 }
 
-export interface CadesSignerOptions {
-  /** When set, a signature-timestamp is requested and embedded (PAdES-B-T). */
-  tsaClient?: PpeTsaClient;
-  /** If true, a TSA failure aborts signing instead of falling back to B-B. */
-  tsaRequired?: boolean;
-}
-
-export interface CadesTimestampResult {
-  /** Whether a TSA timestamp token was successfully embedded. */
-  applied: boolean;
-  /** TSA-asserted time (TSTInfo.genTime), when parseable. */
-  genTime: Date | null;
-  /** Failure reason when a TSA was configured but no token was embedded. */
-  error?: string;
-}
-
 export class CadesP12Signer extends Signer {
-  /**
-   * Outcome of the timestamp step, populated during sign(). Read by the caller
-   * after signing to record the achieved PAdES level. Null until sign() runs or
-   * when no TSA client was provided.
-   */
-  public timestamp: CadesTimestampResult | null = null;
-
   constructor(
     private readonly p12Buffer: Buffer,
     private readonly passphrase: string,
-    private readonly options: CadesSignerOptions = {},
   ) {
     super();
   }
@@ -170,27 +142,6 @@ export class CadesP12Signer extends Signer {
       'RSASSA-PKCS1-V1_5',
     );
 
-    // --- Signature-timestamp (PAdES-B-T): RFC 3161 token over the SignatureValue ---
-    // RFC 3161 §3.3.1 / ETSI EN 319 122-1: the signature-time-stamp is computed
-    // over the SignerInfo signature bytes, then carried as an unsigned attribute.
-    let unsignedAttrsCtx: forge.asn1.Asn1 | null = null;
-    if (this.options.tsaClient) {
-      try {
-        const token = await this.options.tsaClient.requestToken(signatureBytes);
-        const tsTokenAsn1 = asn1.fromDer(token.tokenDer.toString('binary'));
-        const tsAttr = mkAttr(OID_SIGNATURE_TIMESTAMP, tsTokenAsn1);
-        // unsignedAttrs ::= [1] IMPLICIT SET OF Attribute (RFC 5652 §5.3)
-        unsignedAttrsCtx = asn1.create(asn1.Class.CONTEXT_SPECIFIC, 1, true, [tsAttr]);
-        this.timestamp = { applied: true, genTime: token.genTime };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.timestamp = { applied: false, genTime: null, error: message };
-        if (this.options.tsaRequired) {
-          throw new Error(`Trusted timestamp required but failed: ${message}`);
-        }
-      }
-    }
-
     // --- Issuer + serial extracted from cert ASN.1 to avoid encoding drift ---
     const certAsn1 = pki.certificateToAsn1(signingCert);
     const tbsCert = certAsn1.value[0] as forge.asn1.Asn1;
@@ -198,7 +149,7 @@ export class CadesP12Signer extends Signer {
     const serialAsn1 = tbsCert.value[1] as forge.asn1.Asn1; // CertificateSerialNumber
 
     // --- SignerInfo (RFC 5652 §5.3) ---
-    const signerInfoChildren: forge.asn1.Asn1[] = [
+    const signerInfo = asn1.create(asn1.Class.UNIVERSAL, asn1.Type.SEQUENCE, true, [
       asn1.create(asn1.Class.UNIVERSAL, asn1.Type.INTEGER, false, '\x01'), // version 1
       asn1.create(asn1.Class.UNIVERSAL, asn1.Type.SEQUENCE, true, [
         issuerAsn1,
@@ -216,15 +167,7 @@ export class CadesP12Signer extends Signer {
         asn1.create(asn1.Class.UNIVERSAL, asn1.Type.NULL, false, ''),
       ]),
       asn1.create(asn1.Class.UNIVERSAL, asn1.Type.OCTETSTRING, false, signatureBytes),
-    ];
-    // Append unsignedAttrs [1] IMPLICIT last, after the signature (B-T timestamp).
-    if (unsignedAttrsCtx) signerInfoChildren.push(unsignedAttrsCtx);
-    const signerInfo = asn1.create(
-      asn1.Class.UNIVERSAL,
-      asn1.Type.SEQUENCE,
-      true,
-      signerInfoChildren,
-    );
+    ]);
 
     // --- SignedData (RFC 5652 §5.1) ---
     const signedData = asn1.create(asn1.Class.UNIVERSAL, asn1.Type.SEQUENCE, true, [

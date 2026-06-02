@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { FiscalDocumentSource } from '@prisma/client';
+import {
+  FiscalDocumentSource,
+  FiscalDocumentStatus,
+  ReconciliationSource,
+  ReconciliationStatus,
+} from '@prisma/client';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
@@ -32,49 +37,146 @@ export class SiegIngestionService {
   ): Promise<IngestedFiscalDocument> {
     const existing = await this.prisma.fiscalDocument.findUnique({
       where: { accessKey: parsed.accessKey },
-      select: { id: true, accessKey: true },
+      select: { id: true, accessKey: true, status: true },
     });
     if (existing) {
-      // Refresh both header fields AND items on re-import: the parser may have
-      // improved between runs, and — critically — a late-arriving cancellation
-      // (cStat 101 / cancNFe) must flip status/cancelledAt on the stored doc.
-      // Cascade FK makes the item delete safe; items aren't referenced elsewhere.
-      await this.prisma.$transaction([
-        this.prisma.fiscalDocument.update({
+      const becameCancelled =
+        parsed.status === FiscalDocumentStatus.CANCELLED &&
+        existing.status !== FiscalDocumentStatus.CANCELLED;
+
+      // Re-import rebuilds the item rows, which would otherwise WIPE the cached
+      // item categories. Snapshot the existing categorizations (keyed by
+      // code+description) so we can re-apply them to the rebuilt lines — MANUAL
+      // choices must survive (a human set them), and AUTO ones are kept too so an
+      // unchanged line keeps its category instead of going null until the next
+      // classify run. Genuinely new/changed lines start null and get classified
+      // when the document is (re)matched.
+      const preserved = new Map<
+        string,
+        {
+          categoryId: string | null;
+          categoryConfidence: number | null;
+          categorySource: ReconciliationSource | null;
+        }
+      >();
+      if (parsed.items && parsed.items.length > 0) {
+        const prior = await this.prisma.fiscalDocumentItem.findMany({
+          where: { fiscalDocumentId: existing.id, categoryId: { not: null } },
+          select: {
+            code: true,
+            description: true,
+            categoryId: true,
+            categoryConfidence: true,
+            categorySource: true,
+          },
+        });
+        for (const it of prior) {
+          preserved.set(this.itemFingerprint(it.code, it.description), {
+            categoryId: it.categoryId,
+            categoryConfidence: it.categoryConfidence,
+            categorySource: it.categorySource,
+          });
+        }
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        // Refresh header fields. A late-arriving cancellation (cStat 101 /
+        // cancNFe) flips status/cancelledAt here.
+        await tx.fiscalDocument.update({
           where: { id: existing.id },
           data: this.mapHeaderFields(parsed),
-        }),
-        ...(parsed.items && parsed.items.length > 0
-          ? [
-              this.prisma.fiscalDocumentItem.deleteMany({
-                where: { fiscalDocumentId: existing.id },
-              }),
-              this.prisma.fiscalDocumentItem.createMany({
-                data: parsed.items.map((it) => ({
-                  fiscalDocumentId: existing.id,
-                  ...this.mapItemFields(it),
-                })),
-              }),
-            ]
-          : []),
+        });
+
+        if (parsed.items && parsed.items.length > 0) {
+          await tx.fiscalDocumentItem.deleteMany({
+            where: { fiscalDocumentId: existing.id },
+          });
+          await tx.fiscalDocumentItem.createMany({
+            data: parsed.items.map((it) => ({
+              fiscalDocumentId: existing.id,
+              ...this.mapItemFields(it),
+            })),
+          });
+          if (preserved.size > 0) {
+            const fresh = await tx.fiscalDocumentItem.findMany({
+              where: { fiscalDocumentId: existing.id },
+              select: { id: true, code: true, description: true },
+            });
+            for (const f of fresh) {
+              const keep = preserved.get(this.itemFingerprint(f.code, f.description));
+              if (keep?.categoryId) {
+                await tx.fiscalDocumentItem.update({
+                  where: { id: f.id },
+                  data: {
+                    categoryId: keep.categoryId,
+                    categoryConfidence: keep.categoryConfidence,
+                    categorySource: keep.categorySource,
+                  },
+                });
+              }
+            }
+          }
+        }
+
         // Refresh order codes (delete-then-create) so re-parsing an improved
         // infCpl repopulates the join rows. Always clear, even when none were
         // parsed, so a correction that removes a code is reflected.
-        this.prisma.fiscalDocumentOrderCode.deleteMany({
+        await tx.fiscalDocumentOrderCode.deleteMany({
           where: { fiscalDocumentId: existing.id },
-        }),
-        ...(parsed.orderCodes && parsed.orderCodes.length > 0
-          ? [
-              this.prisma.fiscalDocumentOrderCode.createMany({
-                data: parsed.orderCodes.map((code) => ({
-                  fiscalDocumentId: existing.id,
-                  code,
-                })),
-                skipDuplicates: true,
-              }),
-            ]
-          : []),
-      ]);
+        });
+        if (parsed.orderCodes && parsed.orderCodes.length > 0) {
+          await tx.fiscalDocumentOrderCode.createMany({
+            data: parsed.orderCodes.map((code) => ({
+              fiscalDocumentId: existing.id,
+              code,
+            })),
+            skipDuplicates: true,
+          });
+        }
+
+        // A void NF must not stay matched to a payment. Reverse its open matches
+        // and return any transaction left with no open matches to PENDING so the
+        // matcher can re-link a corrected NF.
+        if (becameCancelled) {
+          const open = await tx.reconciliationMatch.findMany({
+            where: { fiscalDocumentId: existing.id, reversedAt: null },
+            select: { transactionId: true },
+          });
+          if (open.length > 0) {
+            await tx.reconciliationMatch.updateMany({
+              where: { fiscalDocumentId: existing.id, reversedAt: null },
+              data: { reversedAt: new Date() },
+            });
+            const txIds = [
+              ...new Set(
+                open
+                  .map((m) => m.transactionId)
+                  .filter((id): id is string => Boolean(id)),
+              ),
+            ];
+            for (const tId of txIds) {
+              const remaining = await tx.reconciliationMatch.count({
+                where: { transactionId: tId, reversedAt: null },
+              });
+              if (remaining === 0) {
+                await tx.bankTransaction.update({
+                  where: { id: tId },
+                  data: {
+                    reconciliationStatus: ReconciliationStatus.PENDING,
+                    reconciliationSource: null,
+                  },
+                });
+              }
+            }
+          }
+        }
+      });
+
+      if (becameCancelled) {
+        this.logger.log(
+          `Fiscal document ${existing.accessKey} cancelled on re-import — reversed its open reconciliation matches.`,
+        );
+      }
       return { id: existing.id, accessKey: existing.accessKey, created: false };
     }
 
@@ -130,6 +232,14 @@ export class SiegIngestionService {
    * create and re-import paths. `source`/`siegId`/`rawXmlFileId`/`accessKey`
    * are handled by the caller (they are set only on create).
    */
+  /**
+   * Stable key for matching an item across a re-import (code may be null, so it
+   * is combined with the description). Used to carry categorizations forward.
+   */
+  private itemFingerprint(code: string | null, description: string): string {
+    return `${code ?? ''} ${description}`;
+  }
+
   private mapHeaderFields(parsed: ParsedFiscalDocument) {
     return {
       docType: parsed.docType,
