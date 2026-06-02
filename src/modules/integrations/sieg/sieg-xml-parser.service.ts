@@ -169,6 +169,10 @@ export class SiegXmlParserService {
       series: ide.serie ? String(ide.serie) : null,
       model: ide.mod ? String(ide.mod) : null,
       naturezaOperacao: ide.natOp ? String(ide.natOp) : null,
+      infCpl: infNFe.infAdic?.infCpl ? String(infNFe.infAdic.infCpl) : null,
+      orderCodes: this.extractOrderCodes(
+        infNFe.infAdic?.infCpl ? String(infNFe.infAdic.infCpl) : null,
+      ),
       protocolNumber: infProt.nProt ? String(infProt.nProt) : null,
       authorizationDate: this.parseDateOrNull(infProt.dhRecbto),
       cStat: protCStat,
@@ -179,6 +183,40 @@ export class SiegXmlParserService {
       rawXml,
       items,
     };
+  }
+
+  /**
+   * Extracts purchase-order codes from an infCpl free-text blob.
+   *
+   * Suppliers (e.g. Farben) embed the buyer's order number(s) in the NFe
+   * complementary info as a `#Ped:` block, optionally listing several
+   * space-separated codes when one invoice consolidates multiple orders:
+   *
+   *   "#Total p/ CFOP/ICMS: 5101=... #Ped:C34673 C34505 C34508 #Vend:000428#..."
+   *
+   * We isolate the text between `#Ped:` and the next `#<letter>` token (e.g.
+   * `#Vend`, `#Declaro`) or end-of-string, then pull each code token. A code is
+   * an optional letter prefix followed by 3+ digits — this matches both the
+   * `C#####` (Farben) and long-numeric marketplace formats while ignoring the
+   * CFOP/value numbers that live OUTSIDE the `#Ped:` span. Returns a
+   * de-duplicated, order-preserving array (empty for null / no-match input).
+   */
+  private extractOrderCodes(infCpl: string | null | undefined): string[] {
+    if (!infCpl) return [];
+    // Capture everything after "#Ped:" up to the next "#<letter>" tag or EOS.
+    const block = /#Ped:\s*([\s\S]*?)(?=#[A-Za-zÀ-ÿ]|$)/.exec(infCpl);
+    if (!block) return [];
+    const tokens = block[1].match(/[A-Za-z]?\d{3,}/g) ?? [];
+    const seen = new Set<string>();
+    const codes: string[] = [];
+    for (const t of tokens) {
+      const code = t.toUpperCase();
+      if (!seen.has(code)) {
+        seen.add(code);
+        codes.push(code);
+      }
+    }
+    return codes;
   }
 
   /** Builds an address blob from an NFe `enderEmit`/`enderDest` node. */

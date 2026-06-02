@@ -57,6 +57,23 @@ export class SiegIngestionService {
               }),
             ]
           : []),
+        // Refresh order codes (delete-then-create) so re-parsing an improved
+        // infCpl repopulates the join rows. Always clear, even when none were
+        // parsed, so a correction that removes a code is reflected.
+        this.prisma.fiscalDocumentOrderCode.deleteMany({
+          where: { fiscalDocumentId: existing.id },
+        }),
+        ...(parsed.orderCodes && parsed.orderCodes.length > 0
+          ? [
+              this.prisma.fiscalDocumentOrderCode.createMany({
+                data: parsed.orderCodes.map((code) => ({
+                  fiscalDocumentId: existing.id,
+                  code,
+                })),
+                skipDuplicates: true,
+              }),
+            ]
+          : []),
       ]);
       return { id: existing.id, accessKey: existing.accessKey, created: false };
     }
@@ -93,6 +110,10 @@ export class SiegIngestionService {
           parsed.items && parsed.items.length > 0
             ? { create: parsed.items.map((it) => this.mapItemFields(it)) }
             : undefined,
+        orderCodes:
+          parsed.orderCodes && parsed.orderCodes.length > 0
+            ? { create: parsed.orderCodes.map((code) => ({ code })) }
+            : undefined,
       },
     });
 
@@ -128,6 +149,7 @@ export class SiegIngestionService {
       series: parsed.series ?? null,
       model: parsed.model ?? null,
       naturezaOperacao: parsed.naturezaOperacao ?? null,
+      infCpl: parsed.infCpl ?? null,
       protocolNumber: parsed.protocolNumber ?? null,
       authorizationDate: parsed.authorizationDate ?? null,
       cStat: parsed.cStat ?? null,

@@ -333,6 +333,29 @@ export class ItemUnifiedController {
     return this.itemCategoryService.findMany(query);
   }
 
+  // Operational taxonomy tree: top-level categories with nested children.
+  // Must be declared before `categories/:id` so 'tree' is not matched as an id.
+  @Get('categories/tree')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getItemCategoryTree(
+    @Query(new ZodQueryValidationPipe(itemCategoryGetManySchema))
+    query: ItemCategoryGetManyFormData,
+  ): Promise<ItemCategoryGetManyResponse> {
+    return this.itemCategoryService.findTree(query);
+  }
+
   @Get('categories/:id')
   @Roles(
     SECTOR_PRIVILEGES.MAINTENANCE,
@@ -352,6 +375,32 @@ export class ItemUnifiedController {
     @Query(new ZodQueryValidationPipe(itemCategoryQuerySchema)) query: ItemCategoryQueryFormData,
   ): Promise<ItemCategoryGetUniqueResponse> {
     return this.itemCategoryService.findById(id, query.include);
+  }
+
+  // Returns the category id plus all descendant ids (subtree) for item filtering.
+  @Get('categories/:id/descendants')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getItemCategoryDescendants(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ success: boolean; message: string; data: string[] }> {
+    const data = await this.itemCategoryService.listDescendantIds(id);
+    return {
+      success: true,
+      message: 'Descendentes carregados com sucesso.',
+      data,
+    };
   }
 
   @Post('categories')

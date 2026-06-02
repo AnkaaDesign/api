@@ -174,7 +174,20 @@ export const assessmentEntryIncludeSchema: z.ZodType<any> = z.lazy(() =>
       responses: z
         .union([
           z.boolean(),
-          z.object({ include: z.object({ topic: z.boolean().optional() }).optional() }),
+          z.object({
+            include: z
+              .object({
+                // topic can be a plain boolean OR pull its parent skill (used by
+                // the stats drill-down to label/sort by competência).
+                topic: z
+                  .union([
+                    z.boolean(),
+                    z.object({ include: z.object({ skill: z.boolean().optional() }).optional() }),
+                  ])
+                  .optional(),
+              })
+              .optional(),
+          }),
         ])
         .optional(),
       _count: z
@@ -396,6 +409,13 @@ export const assessmentEntryWhereSchema: z.ZodType<any> = z.lazy(() =>
           z.object({ in: z.array(assessmentEntryStatusSchema).optional() }),
         ])
         .optional(),
+      // Relation filters used by the stats drill-down: exclude dismissed
+      // evaluatees, narrow by sector/position, and scope by topic/skill/score.
+      // Kept permissive (Prisma validates the concrete shape) so the modal's
+      // `evaluatee.is` / `responses.some` filters reach the query instead of
+      // being silently stripped.
+      evaluatee: z.record(z.any()).optional(),
+      responses: z.record(z.any()).optional(),
       deletedAt: z.union([z.null(), dateFilter, z.object({ not: z.null().optional() })]).optional(),
       createdAt: dateFilter,
       updatedAt: dateFilter,

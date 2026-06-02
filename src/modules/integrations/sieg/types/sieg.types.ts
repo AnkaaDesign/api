@@ -107,6 +107,10 @@ export interface ParsedFiscalDocument {
   series?: string | null;
   model?: string | null;
   naturezaOperacao?: string | null;
+  /** infNFe/infAdic/infCpl — complementary free-text info of taxpayer interest. */
+  infCpl?: string | null;
+  /** Purchase-order codes parsed from infCpl `#Ped:` (deduped). NFe/NFCe only. */
+  orderCodes?: string[];
   protocolNumber?: string | null;
   authorizationDate?: Date | null;
   cStat?: string | null;

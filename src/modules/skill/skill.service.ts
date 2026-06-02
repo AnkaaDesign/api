@@ -34,6 +34,7 @@ import type {
   AssessmentEntryResponsesUpsertFormData,
   AssessmentEntryUpdateFormData,
 } from '../../types/skill';
+import { USER_STATUS } from '../../constants';
 import type {
   SkillStatsOverviewFilters,
   SkillStatsComparisonFilters,
@@ -1394,7 +1395,12 @@ export class SkillService {
         : {}),
     };
 
+    // Dismissed collaborators must never appear in HR statistics (counts,
+    // chart data, per-topic score lists, collaborator filter options) — the
+    // same rule every Secullum/HR-derived screen follows. Applied
+    // unconditionally below, so this where is always non-empty.
     const evaluateeWhere: Prisma.UserWhereInput = {
+      status: { not: USER_STATUS.DISMISSED },
       ...(filters.sectorIds?.length ? { sectorId: { in: filters.sectorIds } } : {}),
     };
 
@@ -1450,6 +1456,9 @@ export class SkillService {
             },
           },
         },
+        // UNFILTERED response count — used for the completion metric so it
+        // doesn't collapse when a skill/topic content filter narrows `responses`.
+        _count: { select: { responses: true } },
       },
     });
 
@@ -1482,12 +1491,6 @@ export class SkillService {
     filters: SkillStatsOverviewFilters,
   ): Promise<{ success: boolean; message: string; data: SkillStatsOverviewResponse }> {
     const { entries, topicIndex } = await this.loadStatsEntries(filters);
-
-    // When a skill/topic filter is active, each entry's `responses` is the
-    // FILTERED subset — so "every response scored" no longer means the whole
-    // entry is complete (it would over-count completion). In that case fall
-    // back to the strict SUBMITTED status for the completed metric.
-    const hasContentFilter = !!(filters.skillIds?.length || filters.topicIds?.length);
 
     // Build a stable skill axis from every skill that appeared in any response.
     const skillMeta = new Map<string, { name: string; order: number }>();
@@ -1535,15 +1538,16 @@ export class SkillService {
       else if (entry.status === 'IN_PROGRESS') inProgressEntries++;
       else pendingEntries++;
 
-      // "Completed" = finalized OR every loaded response scored (the campaign
+      // "Completed" = finalized OR the entry has scored responses (the campaign
       // page's "Concluída" state). On open campaigns evaluators often answer
-      // everything without pressing submit, so submittedEntries alone reads as
-      // 0% even though the data is effectively done.
-      const fullyScored =
-        !hasContentFilter &&
-        entry.responses.length > 0 &&
-        entry.responses.every((r: any) => r.score != null);
-      if (entry.status === 'SUBMITTED' || fullyScored) completedEntries++;
+      // everything without pressing submit, so submittedEntries alone reads 0%.
+      // CRITICAL: use the entry's UNFILTERED response count (`_count.responses`),
+      // not the filtered `responses` array — otherwise selecting a competência
+      // (which narrows `responses`) would make completion swing to 0% for the
+      // very same set of entries. Completion is an entry-level lifecycle fact and
+      // must not depend on the skill/topic content filter.
+      const hasScoredResponses = ((entry as any)._count?.responses ?? entry.responses.length) > 0;
+      if (entry.status === 'SUBMITTED' || hasScoredResponses) completedEntries++;
 
       assessmentIds.add(entry.assessmentId);
       if (entry.evaluateeId) allUserIds.add(entry.evaluateeId);
@@ -1785,6 +1789,9 @@ export class SkillService {
       ...baseFilters,
       userIds: filters.mode === 'user' ? filters.entityIds : filters.userIds,
       sectorIds: filters.mode === 'sector' ? filters.entityIds : filters.sectorIds,
+      // campaign mode: the compared entities ARE the campaigns, so scope the
+      // load to exactly those assessments.
+      assessmentIds: filters.mode === 'campaign' ? filters.entityIds : filters.assessmentIds,
     };
     const { entries, topicIndex } = await this.loadStatsEntries(scopedFilters);
 
@@ -1831,11 +1838,17 @@ export class SkillService {
       const sectorId = entry.evaluatee?.sector?.id ?? null;
       const sectorName = entry.evaluatee?.sector?.name ?? null;
 
-      const entityId = filters.mode === 'user' ? entry.evaluateeId : sectorId;
+      const entityId = filters.mode === 'user'
+        ? entry.evaluateeId
+        : filters.mode === 'campaign'
+          ? entry.assessment?.id ?? null
+          : sectorId;
       if (!entityId) continue;
       const entityName = filters.mode === 'user'
         ? entry.evaluatee?.name ?? 'Desconhecido'
-        : sectorName ?? '—';
+        : filters.mode === 'campaign'
+          ? entry.assessment?.name ?? '—'
+          : sectorName ?? '—';
 
       let bucket = buckets.get(entityId);
       if (!bucket) {
@@ -1894,10 +1907,20 @@ export class SkillService {
       };
     });
 
-    // Optional company-average benchmark (unscoped by entityIds)
+    // Optional benchmark: the average over the surrounding scope, IGNORING the
+    // compared dimension's own narrowing — otherwise "the company average" would
+    // just be the average of the very entities being compared. So for user mode
+    // we drop userIds, for sector mode sectorIds; remaining filters (e.g. a
+    // selected sector while comparing users) still scope it, which is exactly
+    // what the scope-aware label promises.
     let companyAverage: SkillStatsComparisonResponse['companyAverage'] = null;
     if (filters.includeCompanyAverage) {
-      const { entries: companyEntries } = await this.loadStatsEntries(baseFilters);
+      const benchmarkFilters = {
+        ...baseFilters,
+        userIds: filters.mode === 'user' ? undefined : baseFilters.userIds,
+        sectorIds: filters.mode === 'sector' ? undefined : baseFilters.sectorIds,
+      };
+      const { entries: companyEntries } = await this.loadStatsEntries(benchmarkFilters);
       const compBySkill = new Map<string, number[]>();
       const compByTopic = new Map<string, number[]>();
       for (const e of companyEntries) {
@@ -1942,8 +1965,10 @@ export class SkillService {
       ...filters,
       userIds: filters.mode === 'user' ? (filters.entityIds ?? filters.userIds) : filters.userIds,
       sectorIds: filters.mode === 'sector' ? (filters.entityIds ?? filters.sectorIds) : filters.sectorIds,
+      skillIds: filters.mode === 'skill' ? (filters.entityIds ?? filters.skillIds) : filters.skillIds,
+      topicIds: filters.mode === 'topic' ? (filters.entityIds ?? filters.topicIds) : filters.topicIds,
     };
-    const { entries } = await this.loadStatsEntries(scopedFilters);
+    const { entries, topicIndex } = await this.loadStatsEntries(scopedFilters);
 
     // Group entries by assessment
     const byAssessment = new Map<
@@ -1998,6 +2023,19 @@ export class SkillService {
         const arr = bucket.scores.get(sectorId);
         if (arr) arr.push(...entryScores);
         else bucket.scores.set(sectorId, [...entryScores]);
+      } else if (filters.mode === 'skill' || filters.mode === 'topic') {
+        // One series per skill/topic: bucket each response by its own
+        // skill/topic so a campaign point carries a value per selected series.
+        for (const r of entry.responses) {
+          const meta = topicIndex.get(r.topicId);
+          if (!meta) continue;
+          const seriesId = filters.mode === 'skill' ? meta.skillId : r.topicId;
+          const seriesName = filters.mode === 'skill' ? meta.skillName : meta.title;
+          if (!seriesNames.has(seriesId)) seriesNames.set(seriesId, seriesName);
+          const arr = bucket.scores.get(seriesId);
+          if (arr) arr.push(r.score);
+          else bucket.scores.set(seriesId, [r.score]);
+        }
       }
     }
 
@@ -2007,7 +2045,11 @@ export class SkillService {
 
     const series = filters.mode === 'company'
       ? [{ id: 'company', name: 'Empresa' }]
-      : Array.from(seriesNames.entries()).map(([id, name]) => ({ id, name }));
+      // skill/topic: keep the user's selection order so series are stable; a
+      // selected series with no responses in scope still shows (null values).
+      : (filters.mode === 'skill' || filters.mode === 'topic') && filters.entityIds?.length
+        ? filters.entityIds.map(id => ({ id, name: seriesNames.get(id) ?? '—' }))
+        : Array.from(seriesNames.entries()).map(([id, name]) => ({ id, name }));
 
     const points: SkillStatsEvolutionPoint[] = orderedAssessments.map(([assessmentId, bucket]) => {
       const values: Record<string, number | null> = {};

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  AccountingType,
   Prisma,
   ReconciliationMatchType,
   ReconciliationStatus,
@@ -8,11 +9,30 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ReconciliationStatistics } from './types/reconciliation.types';
 import { StatisticsFilterDto } from './dto/statistics-filter.dto';
 
+// One chart-of-accounts (plano de contas) group's roll-up: total value and
+// transaction-tag count across the period. accountingType is null for the
+// bucket of tagged-but-ungrouped transactions (no accountingType on the
+// resolving category yet).
+export interface AccountingTypeDistributionEntry {
+  accountingType: AccountingType | null;
+  count: number;
+  amount: number;
+}
+
+// getStatistics returns the base ReconciliationStatistics plus the new
+// chart-of-accounts roll-up. Defined here (not in types/) to keep the addition
+// scoped to the statistics service.
+export type ReconciliationStatisticsWithAccounting = ReconciliationStatistics & {
+  accountingTypeDistribution: AccountingTypeDistributionEntry[];
+};
+
 @Injectable()
 export class ReconciliationStatisticsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getStatistics(filters: StatisticsFilterDto): Promise<ReconciliationStatistics> {
+  async getStatistics(
+    filters: StatisticsFilterDto,
+  ): Promise<ReconciliationStatisticsWithAccounting> {
     const now = new Date();
     const to = filters.to ? new Date(filters.to) : now;
     const from = filters.from
@@ -31,6 +51,7 @@ export class ReconciliationStatisticsService {
       typeDistribution,
       statusDistribution,
       categoryDistribution,
+      accountingTypeDistribution,
     ] = await Promise.all([
       this.prisma.reconciliationMatch.aggregate({
         _sum: { allocatedAmount: true },
@@ -59,6 +80,7 @@ export class ReconciliationStatisticsService {
       this.aggregateMatchTypeDistribution(from, to),
       this.aggregateStatusDistribution(from, to),
       this.aggregateCategoryDistribution(from, to),
+      this.aggregateAccountingTypeDistribution(from, to),
     ]);
 
     return {
@@ -71,6 +93,7 @@ export class ReconciliationStatisticsService {
       matchTypeDistribution: typeDistribution,
       statusDistribution,
       categoryDistribution,
+      accountingTypeDistribution,
     };
   }
 
@@ -192,6 +215,51 @@ export class ReconciliationStatisticsService {
       name: r.name,
       slug: r.slug,
       kind: r.kind,
+      count: Number(r.count),
+      amount: r.amount ?? 0,
+    }));
+  }
+
+  /**
+   * Roll-up over the chart of accounts (plano de contas): the same per-tag
+   * value as aggregateCategoryDistribution, but grouped by the tagged
+   * TransactionCategory's accountingType so cost reports see the 13
+   * chart-of-accounts groups instead of the dynamic taxonomy. Tags whose
+   * category has no accountingType land in the null bucket. Uses the same
+   * even-split for null-allocated tags so a multi-category NF isn't
+   * double-counted by value.
+   */
+  private async aggregateAccountingTypeDistribution(
+    from: Date,
+    to: Date,
+  ): Promise<AccountingTypeDistributionEntry[]> {
+    const rows = await this.prisma.$queryRaw<
+      Array<{ accountingType: AccountingType | null; count: bigint; amount: number }>
+    >(Prisma.sql`
+      SELECT
+        c."accountingType"::text AS "accountingType",
+        COUNT(*) AS count,
+        SUM(x."eff")::float AS amount
+      FROM (
+        SELECT
+          btc."categoryId" AS cid,
+          COALESCE(
+            btc."allocatedAmount",
+            ABS(t.amount) / NULLIF(
+              COUNT(*) FILTER (WHERE btc."allocatedAmount" IS NULL)
+                OVER (PARTITION BY btc."transactionId"),
+              0)
+          ) AS eff
+        FROM "BankTransactionCategory" btc
+        JOIN "BankTransaction" t ON t."id" = btc."transactionId"
+        WHERE t."postedAt" >= ${from} AND t."postedAt" <= ${to}
+      ) x
+      JOIN "TransactionCategory" c ON c."id" = x."cid"
+      GROUP BY c."accountingType"
+      ORDER BY amount DESC NULLS LAST
+    `);
+    return rows.map(r => ({
+      accountingType: (r.accountingType as AccountingType | null) ?? null,
       count: Number(r.count),
       amount: r.amount ?? 0,
     }));

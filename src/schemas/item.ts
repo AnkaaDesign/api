@@ -10,6 +10,7 @@ import {
   optionalNonNegativeNumber,
 } from './common';
 import type { Item, ItemBrand, ItemCategory } from '@types';
+import { AccountingType } from '@prisma/client';
 import {
   MEASURE_UNIT,
   MEASURE_TYPE,
@@ -58,9 +59,15 @@ export const itemCategorySelectSchema = z
     name: z.boolean().optional(),
     type: z.boolean().optional(),
     typeOrder: z.boolean().optional(),
+    // Operational taxonomy tree + accounting rollup fields
+    parentId: z.boolean().optional(),
+    categoryLevel: z.boolean().optional(),
+    accountingType: z.boolean().optional(),
     createdAt: z.boolean().optional(),
     updatedAt: z.boolean().optional(),
     items: z.boolean().optional(),
+    parent: z.boolean().optional(),
+    children: z.boolean().optional(),
     orderSchedule: z.boolean().optional(),
     ppeSchedules: z.boolean().optional(),
     _count: z.boolean().optional(),
@@ -92,6 +99,7 @@ export const itemSelectSchema = z
     xyzCategoryOrder: z.boolean().optional(),
     brandId: z.boolean().optional(),
     categoryId: z.boolean().optional(),
+    categoryReviewNeeded: z.boolean().optional(),
     supplierId: z.boolean().optional(),
     estimatedLeadTime: z.boolean().optional(),
     isActive: z.boolean().optional(),
@@ -128,6 +136,9 @@ export const itemSelectSchema = z
               name: z.boolean().optional(),
               type: z.boolean().optional(),
               typeOrder: z.boolean().optional(),
+              parentId: z.boolean().optional(),
+              categoryLevel: z.boolean().optional(),
+              accountingType: z.boolean().optional(),
               createdAt: z.boolean().optional(),
               updatedAt: z.boolean().optional(),
             })
@@ -234,6 +245,7 @@ export const itemComboboxSelectSchema = z.object({
               id: z.literal(true),
               name: z.literal(true),
               type: z.literal(true).optional(),
+              accountingType: z.literal(true).optional(),
             })
             .optional(),
         })
@@ -259,6 +271,9 @@ export const itemCategoryComboboxSelectSchema = z.object({
       id: z.literal(true),
       name: z.literal(true),
       type: z.literal(true).optional(),
+      parentId: z.literal(true).optional(),
+      categoryLevel: z.literal(true).optional(),
+      accountingType: z.literal(true).optional(),
     })
     .optional(),
 });
@@ -293,6 +308,7 @@ export const itemFormSelectSchema = z.object({
       xyzCategoryOrder: z.literal(true),
       brandId: z.literal(true),
       categoryId: z.literal(true),
+      categoryReviewNeeded: z.literal(true).optional(),
       supplierId: z.literal(true),
       estimatedLeadTime: z.literal(true),
       isActive: z.literal(true),
@@ -320,6 +336,9 @@ export const itemFormSelectSchema = z.object({
               id: z.literal(true),
               name: z.literal(true),
               type: z.literal(true),
+              parentId: z.literal(true).optional(),
+              categoryLevel: z.literal(true).optional(),
+              accountingType: z.literal(true).optional(),
             })
             .optional(),
         })
@@ -406,6 +425,7 @@ export const itemDetailSelectSchema = z.object({
       xyzCategoryOrder: z.literal(true),
       brandId: z.literal(true),
       categoryId: z.literal(true),
+      categoryReviewNeeded: z.literal(true).optional(),
       supplierId: z.literal(true),
       estimatedLeadTime: z.literal(true),
       isActive: z.literal(true),
@@ -435,6 +455,9 @@ export const itemDetailSelectSchema = z.object({
               name: z.literal(true),
               type: z.literal(true),
               typeOrder: z.literal(true),
+              parentId: z.literal(true).optional(),
+              categoryLevel: z.literal(true).optional(),
+              accountingType: z.literal(true).optional(),
             })
             .optional(),
         })
@@ -757,6 +780,29 @@ export const itemCategoryIncludeSchema = z
         }),
       ])
       .optional(),
+    // Operational taxonomy tree relations (self-referential)
+    parent: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z.lazy(() => itemCategoryIncludeSchema).optional(),
+          select: itemCategorySelectSchema.optional(),
+        }),
+      ])
+      .optional(),
+    children: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z.lazy(() => itemCategoryIncludeSchema).optional(),
+          select: itemCategorySelectSchema.optional(),
+          where: z.lazy(() => itemCategoryWhereSchema).optional(),
+          orderBy: z.lazy(() => itemCategoryOrderBySchema).optional(),
+          take: z.coerce.number().optional(),
+          skip: z.coerce.number().optional(),
+        }),
+      ])
+      .optional(),
     orderSchedule: z.boolean().optional(),
     ppeSchedules: z.boolean().optional(),
     _count: z
@@ -766,6 +812,7 @@ export const itemCategoryIncludeSchema = z
           select: z
             .object({
               items: z.boolean().optional(),
+              children: z.boolean().optional(),
               orderSchedule: z.boolean().optional(),
               ppeSchedules: z.boolean().optional(),
             })
@@ -784,10 +831,18 @@ export const itemCategoryOrderBySchema = z
         name: orderByDirectionSchema.optional(),
         type: orderByDirectionSchema.optional(),
         typeOrder: orderByDirectionSchema.optional(),
+        categoryLevel: orderByDirectionSchema.optional(),
+        accountingType: orderByDirectionSchema.optional(),
+        parentId: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
         // Aggregated fields for sorting by items count
         items: z
+          .object({
+            _count: orderByDirectionSchema.optional(),
+          })
+          .optional(),
+        children: z
           .object({
             _count: orderByDirectionSchema.optional(),
           })
@@ -801,10 +856,18 @@ export const itemCategoryOrderBySchema = z
           name: orderByDirectionSchema.optional(),
           type: orderByDirectionSchema.optional(),
           typeOrder: orderByDirectionSchema.optional(),
+          categoryLevel: orderByDirectionSchema.optional(),
+          accountingType: orderByDirectionSchema.optional(),
+          parentId: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
           // Aggregated fields for sorting by items count
           items: z
+            .object({
+              _count: orderByDirectionSchema.optional(),
+            })
+            .optional(),
+          children: z
             .object({
               _count: orderByDirectionSchema.optional(),
             })
@@ -878,6 +941,49 @@ export const itemCategoryWhereSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
+      // Operational taxonomy tree fields
+      parentId: z
+        .union([
+          z.string(),
+          z.null(),
+          z.object({
+            equals: z.string().nullable().optional(),
+            not: z.union([z.string(), z.null()]).optional(),
+            in: z.array(z.string()).optional(),
+            notIn: z.array(z.string()).optional(),
+          }),
+        ])
+        .optional(),
+
+      categoryLevel: z
+        .union([
+          z.number(),
+          z.object({
+            equals: z.number().optional(),
+            not: z.number().optional(),
+            gt: z.number().optional(),
+            gte: z.number().optional(),
+            lt: z.number().optional(),
+            lte: z.number().optional(),
+            in: z.array(z.number()).optional(),
+            notIn: z.array(z.number()).optional(),
+          }),
+        ])
+        .optional(),
+
+      accountingType: z
+        .union([
+          z.nativeEnum(AccountingType),
+          z.null(),
+          z.object({
+            equals: z.nativeEnum(AccountingType).nullable().optional(),
+            not: z.union([z.nativeEnum(AccountingType), z.null()]).optional(),
+            in: z.array(z.nativeEnum(AccountingType)).optional(),
+            notIn: z.array(z.nativeEnum(AccountingType)).optional(),
+          }),
+        ])
+        .optional(),
+
       createdAt: z
         .union([
           z.date(),
@@ -912,6 +1018,14 @@ export const itemCategoryWhereSchema: z.ZodSchema = z.lazy(() =>
           some: z.any().optional(),
           every: z.any().optional(),
           none: z.any().optional(),
+        })
+        .optional(),
+      parent: z.lazy(() => itemCategoryWhereSchema).optional(),
+      children: z
+        .object({
+          some: z.lazy(() => itemCategoryWhereSchema).optional(),
+          every: z.lazy(() => itemCategoryWhereSchema).optional(),
+          none: z.lazy(() => itemCategoryWhereSchema).optional(),
         })
         .optional(),
     })
@@ -1508,6 +1622,16 @@ export const itemWhereSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
+      categoryReviewNeeded: z
+        .union([
+          z.boolean(),
+          z.object({
+            equals: z.boolean().optional(),
+            not: z.boolean().optional(),
+          }),
+        ])
+        .optional(),
+
       // PPE Type field
       ppeType: z
         .union([
@@ -1749,10 +1873,16 @@ const itemFilters = {
   hasMaxQuantity: z.boolean().optional(),
   negativeStock: z.boolean().optional(),
 
+  // Category review flag (operational taxonomy migration)
+  categoryReviewNeeded: z.boolean().optional(),
+
   // Array filters
   itemIds: z.array(z.string()).optional(),
   brandIds: z.array(z.string()).optional(),
   categoryIds: z.array(z.string()).optional(),
+  // Filter by a category AND all of its descendant subcategories. The service
+  // expands these ids into the full descendant set before querying.
+  categoryIdsWithDescendants: z.array(z.string()).optional(),
   supplierIds: z.array(z.string()).optional(),
   barcodes: z.array(z.string()).optional(),
   names: z.array(z.string()).optional(),
@@ -1814,6 +1944,15 @@ const itemCategoryFilters = {
   isPpe: z.boolean().optional(), // Backwards compatibility
   type: z.nativeEnum(ITEM_CATEGORY_TYPE).optional(),
   hasItems: z.boolean().optional(),
+  // Operational taxonomy tree filters
+  parentId: z.string().nullable().optional(),
+  parentIds: z.array(z.string()).optional(),
+  categoryLevel: z.coerce.number().int().optional(),
+  accountingType: z.nativeEnum(AccountingType).optional(),
+  accountingTypes: z.array(z.nativeEnum(AccountingType)).optional(),
+  // When true (and no parentId/parentIds), restrict to top-level (level 1) categories.
+  // The repository/service can then nest `children` via the include schema to build a tree.
+  topLevelOnly: z.coerce.boolean().optional(),
 };
 
 // =====================
@@ -1857,6 +1996,15 @@ const itemTransform = (data: any) => {
   } else if (data.where && typeof data.where.isActive === 'boolean') {
     andConditions.push({ isActive: data.where.isActive });
     delete data.where.isActive;
+  }
+
+  // categoryReviewNeeded filter (operational taxonomy migration flag)
+  if (typeof data.categoryReviewNeeded === 'boolean') {
+    andConditions.push({ categoryReviewNeeded: data.categoryReviewNeeded });
+    delete data.categoryReviewNeeded;
+  } else if (data.where && typeof data.where.categoryReviewNeeded === 'boolean') {
+    andConditions.push({ categoryReviewNeeded: data.where.categoryReviewNeeded });
+    delete data.where.categoryReviewNeeded;
   }
 
   // isPpe filter (backwards compatibility - converts to type filter)
@@ -2067,6 +2215,28 @@ const itemTransform = (data: any) => {
       andConditions.push({ categoryId: { in: actualCategoryIds } });
     }
     delete data.categoryIds;
+  }
+
+  // categoryIdsWithDescendants: match items whose category is one of the given ids
+  // OR whose category is a subcategory (child) of one of the given ids. The
+  // operational taxonomy is a 2-level tree (category -> subcategory), so the
+  // subtree of any id is itself plus its direct children. This is resolved
+  // relationally by Prisma; for an exhaustive id list use the category service's
+  // listDescendantIds() helper.
+  if (
+    data.categoryIdsWithDescendants &&
+    Array.isArray(data.categoryIdsWithDescendants) &&
+    data.categoryIdsWithDescendants.length > 0
+  ) {
+    const subtreeIds = data.categoryIdsWithDescendants.filter((id: string) => id !== 'null');
+    if (subtreeIds.length > 0) {
+      andConditions.push({
+        category: {
+          OR: [{ id: { in: subtreeIds } }, { parentId: { in: subtreeIds } }],
+        },
+      });
+    }
+    delete data.categoryIdsWithDescendants;
   }
 
   if (data.supplierIds && Array.isArray(data.supplierIds) && data.supplierIds.length > 0) {
@@ -2301,6 +2471,51 @@ const itemCategoryTransform = (data: any) => {
     andConditions.push({ type: data.type });
     delete data.type;
   }
+
+  // Operational taxonomy tree filters
+  if (data.parentId !== undefined) {
+    andConditions.push({ parentId: data.parentId });
+    delete data.parentId;
+  }
+
+  if (data.parentIds && Array.isArray(data.parentIds) && data.parentIds.length > 0) {
+    const hasNullParent = data.parentIds.includes('null');
+    const actualParentIds = data.parentIds.filter((id: string) => id !== 'null');
+    if (hasNullParent && actualParentIds.length > 0) {
+      andConditions.push({ OR: [{ parentId: null }, { parentId: { in: actualParentIds } }] });
+    } else if (hasNullParent) {
+      andConditions.push({ parentId: null });
+    } else {
+      andConditions.push({ parentId: { in: actualParentIds } });
+    }
+    delete data.parentIds;
+  }
+
+  if (typeof data.categoryLevel === 'number') {
+    andConditions.push({ categoryLevel: data.categoryLevel });
+    delete data.categoryLevel;
+  }
+
+  if (data.accountingType) {
+    andConditions.push({ accountingType: data.accountingType });
+    delete data.accountingType;
+  }
+
+  if (
+    data.accountingTypes &&
+    Array.isArray(data.accountingTypes) &&
+    data.accountingTypes.length > 0
+  ) {
+    andConditions.push({ accountingType: { in: data.accountingTypes } });
+    delete data.accountingTypes;
+  }
+
+  // topLevelOnly restricts to root categories (no parent). Only applied when no
+  // explicit parent filter was provided above.
+  if (data.topLevelOnly === true) {
+    andConditions.push({ parentId: null });
+  }
+  delete data.topLevelOnly;
 
   if (data.hasItems === true) {
     andConditions.push({ items: { some: {} } });
@@ -2676,6 +2891,12 @@ export const itemCategoryCreateSchema = z
   .object({
     name: createNameSchema(1, 255, 'Nome da categoria'),
     type: z.nativeEnum(ITEM_CATEGORY_TYPE).default(ITEM_CATEGORY_TYPE.REGULAR),
+    // Operational taxonomy tree: parentId links a subcategory to its category.
+    // categoryLevel is derived from parent presence by the service (1=category, 2=subcategory).
+    parentId: z.string().uuid({ message: 'Categoria pai inválida' }).nullable().optional(),
+    categoryLevel: z.coerce.number().int().min(1).max(2).optional(),
+    // accountingType is the cost rollup (chart-of-accounts group).
+    accountingType: z.nativeEnum(AccountingType).nullable().optional(),
     itemIds: z
       .array(z.string().uuid({ message: 'Item inválido' }))
       .refine(arr => new Set(arr).size === arr.length, {
@@ -2689,6 +2910,10 @@ export const itemCategoryUpdateSchema = z
   .object({
     name: z.string().min(1).max(255).optional(),
     type: z.nativeEnum(ITEM_CATEGORY_TYPE).optional(),
+    // Operational taxonomy tree (see create schema).
+    parentId: z.string().uuid({ message: 'Categoria pai inválida' }).nullable().optional(),
+    categoryLevel: z.coerce.number().int().min(1).max(2).optional(),
+    accountingType: z.nativeEnum(AccountingType).nullable().optional(),
     itemIds: z
       .array(z.string().uuid({ message: 'Item inválido' }))
       .refine(arr => new Set(arr).size === arr.length, {

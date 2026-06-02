@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import {
@@ -43,14 +44,70 @@ import {
 @Injectable()
 export class ItemCategoryService {
   // Define fields to track for item category changes
-  private readonly ITEM_CATEGORY_FIELDS_TO_TRACK = ['name', 'type'];
+  private readonly ITEM_CATEGORY_FIELDS_TO_TRACK = [
+    'name',
+    'type',
+    'parentId',
+    'categoryLevel',
+    'accountingType',
+  ];
+
+  // EventEmitter2 event names consumed by the TransactionCategory mirror listener.
+  private static readonly EVENT_CHANGED = 'item-category.changed';
+  private static readonly EVENT_DELETED = 'item-category.deleted';
 
   constructor(
     private readonly repository: ItemCategoryRepository,
     private readonly itemRepository: ItemRepository,
     private readonly prisma: PrismaService,
     private readonly changeLogService: ChangeLogService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  /** Emit the mirror-sync event after a create/update. Never throws. */
+  private emitChanged(id: string): void {
+    this.eventEmitter.emit(ItemCategoryService.EVENT_CHANGED, { id });
+  }
+
+  /** Emit the mirror-deactivation event after a delete. Never throws. */
+  private emitDeleted(id: string): void {
+    this.eventEmitter.emit(ItemCategoryService.EVENT_DELETED, { id });
+  }
+
+  /**
+   * Validates a parent reference for the operational taxonomy tree:
+   * - parent must exist
+   * - prevents cycles (a category cannot be its own ancestor/descendant)
+   * Returns the derived categoryLevel (1 when no parent, 2 when a parent is set).
+   */
+  private async validateParentAndResolveLevel(
+    parentId: string | null | undefined,
+    selfId?: string,
+  ): Promise<number | undefined> {
+    if (parentId === undefined) return undefined;
+    if (parentId === null) return 1;
+
+    if (selfId && parentId === selfId) {
+      throw new BadRequestException('Uma categoria não pode ser sua própria categoria pai.');
+    }
+
+    const parent = await this.repository.findById(parentId);
+    if (!parent) {
+      throw new NotFoundException('Categoria pai não encontrada. Verifique se o ID está correto.');
+    }
+
+    // Cycle prevention: the chosen parent must not be a descendant of this category.
+    if (selfId) {
+      const descendantIds = await this.repository.listDescendantIds(selfId);
+      if (descendantIds.includes(parentId)) {
+        throw new BadRequestException(
+          'Hierarquia inválida: a categoria pai selecionada é descendente desta categoria.',
+        );
+      }
+    }
+
+    return 2;
+  }
 
   private async validateUniqueConstraints(
     data: { name?: string },
@@ -257,8 +314,19 @@ export class ItemCategoryService {
         await this.validateItemIds(itemIds);
       }
 
+      // Validate parent (operational taxonomy tree) and derive categoryLevel.
+      const derivedLevel = await this.validateParentAndResolveLevel(
+        (categoryData as any).parentId,
+      );
+      const categoryDataWithLevel: any = { ...categoryData };
+      if (derivedLevel !== undefined) {
+        categoryDataWithLevel.categoryLevel = derivedLevel;
+      }
+
       const created = await this.prisma.$transaction(async tx => {
-        const category = await this.repository.createWithTransaction(tx, categoryData, { include });
+        const category = await this.repository.createWithTransaction(tx, categoryDataWithLevel, {
+          include,
+        });
 
         // Handle item associations if provided
         if (itemIds && itemIds.length > 0) {
@@ -283,6 +351,9 @@ export class ItemCategoryService {
 
         return category;
       });
+
+      // Mirror the change into TransactionCategory (separate listener track).
+      this.emitChanged(created.id);
 
       return {
         success: true,
@@ -329,6 +400,16 @@ export class ItemCategoryService {
         await this.validateItemIds(itemIds);
       }
 
+      // Validate parent (operational taxonomy tree), prevent cycles, derive level.
+      const derivedLevel = await this.validateParentAndResolveLevel(
+        (categoryData as any).parentId,
+        id,
+      );
+      const categoryDataWithLevel: any = { ...categoryData };
+      if (derivedLevel !== undefined) {
+        categoryDataWithLevel.categoryLevel = derivedLevel;
+      }
+
       const updated = await this.prisma.$transaction(async tx => {
         // Get existing category before update
         const existingCategory = await this.repository.findByIdWithTransaction(tx, id);
@@ -336,9 +417,14 @@ export class ItemCategoryService {
           throw new NotFoundException('Categoria não encontrada');
         }
 
-        const category = await this.repository.updateWithTransaction(tx, id, categoryData, {
-          include,
-        });
+        const category = await this.repository.updateWithTransaction(
+          tx,
+          id,
+          categoryDataWithLevel,
+          {
+            include,
+          },
+        );
 
         // Handle item associations if itemIds is provided
         if (itemIds !== undefined) {
@@ -367,6 +453,9 @@ export class ItemCategoryService {
 
         return category;
       });
+
+      // Mirror the change into TransactionCategory (separate listener track).
+      this.emitChanged(id);
 
       return {
         success: true,
@@ -415,6 +504,9 @@ export class ItemCategoryService {
           transaction: tx,
         });
       });
+
+      // Mirror the deletion into TransactionCategory (separate listener track).
+      this.emitDeleted(id);
 
       return {
         success: true,
@@ -465,6 +557,59 @@ export class ItemCategoryService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
       throw new BadRequestException(`Erro ao buscar categorias: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Returns the operational taxonomy as a tree: top-level (level 1) categories
+   * with their nested `children` (and grandchildren when present). Honors any
+   * incoming where/orderBy/pagination from the query; forces top-level scoping
+   * and a `children` include so the response is ready to render as a tree.
+   */
+  async findTree(query: ItemCategoryGetManyFormData): Promise<ItemCategoryGetManyResponse> {
+    try {
+      const treeQuery: any = {
+        ...query,
+        topLevelOnly: true,
+        include: {
+          ...(query?.include || {}),
+          children: {
+            include: { children: true },
+            orderBy: [{ typeOrder: 'asc' }, { name: 'asc' }],
+          },
+        },
+      };
+
+      const result = await this.repository.findMany(treeQuery);
+
+      return {
+        success: true,
+        message: 'Árvore de categorias carregada com sucesso.',
+        ...result,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+      throw new BadRequestException(`Erro ao buscar árvore de categorias: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Lists a category id plus all of its descendant ids (subtree). Used by item
+   * filtering to match items in a category including its subcategories.
+   */
+  async listDescendantIds(id: string): Promise<string[]> {
+    try {
+      const existing = await this.repository.findById(id);
+      if (!existing) {
+        throw new NotFoundException('Categoria não encontrada. Verifique se o ID está correto.');
+      }
+      return await this.repository.listDescendantIds(id);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+      throw new BadRequestException(`Erro ao listar descendentes da categoria: ${errorMessage}`);
     }
   }
 
@@ -548,8 +693,17 @@ export class ItemCategoryService {
           await this.validateItemIds(itemIds);
         }
 
+        // Validate parent (operational taxonomy tree) and derive categoryLevel.
+        const derivedLevel = await this.validateParentAndResolveLevel(
+          (categoryData as any).parentId,
+        );
+        const categoryDataWithLevel: any = { ...categoryData };
+        if (derivedLevel !== undefined) {
+          categoryDataWithLevel.categoryLevel = derivedLevel;
+        }
+
         const created = await this.prisma.$transaction(async tx => {
-          const category = await this.repository.createWithTransaction(tx, categoryData, {
+          const category = await this.repository.createWithTransaction(tx, categoryDataWithLevel, {
             include,
           });
 
@@ -576,6 +730,9 @@ export class ItemCategoryService {
 
           return category;
         });
+
+        // Mirror the change into TransactionCategory (separate listener track).
+        this.emitChanged(created.id);
 
         results.push({
           success: true,
@@ -666,6 +823,16 @@ export class ItemCategoryService {
           await this.validateItemIds(itemIds);
         }
 
+        // Validate parent (operational taxonomy tree), prevent cycles, derive level.
+        const derivedLevel = await this.validateParentAndResolveLevel(
+          (categoryData as any).parentId,
+          id,
+        );
+        const categoryDataWithLevel: any = { ...categoryData };
+        if (derivedLevel !== undefined) {
+          categoryDataWithLevel.categoryLevel = derivedLevel;
+        }
+
         const updated = await this.prisma.$transaction(async tx => {
           // Get existing category before update
           const existingCategory = await this.repository.findByIdWithTransaction(tx, id);
@@ -673,9 +840,14 @@ export class ItemCategoryService {
             throw new NotFoundException('Categoria não encontrada');
           }
 
-          const category = await this.repository.updateWithTransaction(tx, id, categoryData, {
-            include,
-          });
+          const category = await this.repository.updateWithTransaction(
+            tx,
+            id,
+            categoryDataWithLevel,
+            {
+              include,
+            },
+          );
 
           // Handle item associations if itemIds is provided
           if (itemIds !== undefined) {
@@ -704,6 +876,9 @@ export class ItemCategoryService {
 
           return category;
         });
+
+        // Mirror the change into TransactionCategory (separate listener track).
+        this.emitChanged(id);
 
         results.push({
           success: true,
@@ -804,6 +979,9 @@ export class ItemCategoryService {
             transaction: tx,
           });
         });
+
+        // Mirror the deletion into TransactionCategory (separate listener track).
+        this.emitDeleted(id);
 
         results.push({
           success: true,

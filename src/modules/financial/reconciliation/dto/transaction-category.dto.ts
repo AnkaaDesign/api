@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TransactionCategoryKind } from '@prisma/client';
+import { TransactionCategoryKind, AccountingType } from '@prisma/client';
 
 export const listCategoriesQuerySchema = z.object({
   kind: z.nativeEnum(TransactionCategoryKind).optional(),
@@ -21,6 +21,10 @@ export const createCategorySchema = z.object({
   isRecurring: z.boolean().optional(),
   color: z.string().max(32).nullable().optional(),
   sortOrder: z.number().int().optional(),
+  // Chart-of-accounts rollup. For ITEM_DERIVED rows this is mirrored from the
+  // linked ItemCategory; for hand-created TRANSACTION_ONLY/SERVICE rows it's the
+  // cost group the transaction lands in.
+  accountingType: z.nativeEnum(AccountingType).nullable().optional(),
 });
 export type CreateCategoryDto = z.infer<typeof createCategorySchema>;
 
@@ -31,5 +35,6 @@ export const updateCategorySchema = z.object({
   color: z.string().max(32).nullable().optional(),
   sortOrder: z.number().int().optional(),
   isActive: z.boolean().optional(),
+  accountingType: z.nativeEnum(AccountingType).nullable().optional(),
 });
 export type UpdateCategoryDto = z.infer<typeof updateCategorySchema>;
