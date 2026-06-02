@@ -5,6 +5,10 @@ import {
   FiscalDocumentType,
 } from '@prisma/client';
 
+// String-aware boolean for query flags. `z.coerce.boolean()` treats the string
+// "false" as truthy (Boolean of a non-empty string), inverting `?flag=false`.
+const queryBoolean = z.preprocess(v => v === 'true' || v === true, z.boolean());
+
 export const fiscalDocumentsFilterSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(1000).default(50),
@@ -25,7 +29,7 @@ export const fiscalDocumentsFilterSchema = z.object({
   search: z.string().optional(),
   valueMin: z.coerce.number().optional(),
   valueMax: z.coerce.number().optional(),
-  hasMatch: z.coerce.boolean().optional(),
+  hasMatch: queryBoolean.optional(),
   sortBy: z.enum(['issueDate', 'totalValue']).default('issueDate'),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
 });

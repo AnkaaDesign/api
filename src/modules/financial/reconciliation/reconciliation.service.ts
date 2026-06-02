@@ -397,6 +397,9 @@ export class ReconciliationService {
           reconciliationSource: ReconciliationSource.MANUAL,
           expectsFiscalDocument: true,
           categorySource: ReconciliationSource.MANUAL,
+          // Tx is now reconciled — drop the stale best-candidate score so the
+          // list badge stops showing "Pendente · NN%".
+          topMatchScore: null,
         },
         include: { matches: true },
       });
@@ -490,7 +493,12 @@ export class ReconciliationService {
         where: { transactionId, source: ReconciliationSource.AUTO },
       });
       await tx2.fiscalDocumentItem.updateMany({
-        where: { fiscalDocumentId: { in: matchedDocIds } },
+        // Only clear AUTO-derived item categories. Items the user hand-set
+        // (categorySource=MANUAL) must survive an un-match.
+        where: {
+          fiscalDocumentId: { in: matchedDocIds },
+          categorySource: ReconciliationSource.AUTO,
+        },
         data: { categoryId: null, categoryConfidence: null, categorySource: null },
       });
       return tx2.bankTransaction.update({

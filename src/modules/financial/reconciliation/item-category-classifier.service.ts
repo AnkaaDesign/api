@@ -246,7 +246,13 @@ export class ItemCategoryClassifierService {
       if (cat) return cat.id;
     }
     for (const sl of slugs ?? []) {
-      const cat = await this.categories.resolveBySlug(sl);
+      // ITEM_DERIVED mirror rows carry an `item-`-prefixed slug (see
+      // mirrorSlug() in TransactionCategoryService). The NCM/keyword tables list
+      // the bare operational slug (e.g. `diluentes-e-thinners`), so try the
+      // mirror-prefixed form FIRST, then the bare slug (legacy/seeded rows).
+      const cat =
+        (await this.categories.resolveBySlug(`item-${sl}`)) ??
+        (await this.categories.resolveBySlug(sl));
       if (cat) return cat.id;
     }
     return undefined;
@@ -331,9 +337,12 @@ export class ItemCategoryClassifierService {
       if (target) {
         const leafId = await this.resolveLeaf(target.names, target.slugs);
         if (leafId) {
-          // A deterministic 8-digit NCM is as trustworthy as a uniCode hit; only
-          // a real uniCode/item match (≥95) should be able to override it.
-          if (target.confidence >= 95) return { categoryId: leafId, confidence: target.confidence };
+          // A deterministic 8-digit NCM is as trustworthy as a uniCode hit, so it
+          // short-circuits the heuristics below — but it must NOT override an
+          // already-stronger signal (a learned MANUAL alias can score 96-97).
+          if (target.confidence >= 95 && target.confidence > (best?.confidence ?? 0)) {
+            return { categoryId: leafId, confidence: target.confidence };
+          }
           consider(leafId, target.confidence);
         }
       }

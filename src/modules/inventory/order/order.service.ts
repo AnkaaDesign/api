@@ -1355,18 +1355,12 @@ export class OrderService {
               },
             });
 
-            // Update item stock manually since we're using direct Prisma
-            const currentItem = await tx.item.findUnique({
+            // Update item stock atomically (increment) to avoid lost-update under
+            // concurrency.
+            await tx.item.update({
               where: { id: item.itemId },
+              data: { quantity: { increment: quantityToAddToStock } },
             });
-
-            if (currentItem) {
-              const newQuantity = currentItem.quantity + quantityToAddToStock;
-              await tx.item.update({
-                where: { id: item.itemId },
-                data: { quantity: newQuantity },
-              });
-            }
           } else if (!item.itemId) {
             this.logger.debug(
               `Item ${item.id}: Skipping activity and stock update for temporary item (no itemId)`,
@@ -2077,15 +2071,19 @@ export class OrderService {
             where: {
               orderItemId: id,
               reason: ACTIVITY_REASON.ORDER_RECEIVED,
-              operation: ACTIVITY_OPERATION.INBOUND,
             },
           });
 
-          // Calculate what was already added to stock
-          const alreadyInStock = existingActivities.reduce(
-            (sum, activity) => sum + activity.quantity,
-            0,
-          );
+          // Calculate net quantity already added to stock (INBOUND adds, OUTBOUND
+          // corrections subtract) so reversals aren't double-counted.
+          const alreadyInStock = existingActivities.reduce((sum, activity) => {
+            if (activity.operation === ACTIVITY_OPERATION.INBOUND) {
+              return sum + activity.quantity;
+            } else if (activity.operation === ACTIVITY_OPERATION.OUTBOUND) {
+              return sum - activity.quantity;
+            }
+            return sum;
+          }, 0);
 
           // Calculate the difference between new received quantity and what's already in stock
           const stockAdjustment = data.receivedQuantity - alreadyInStock;
@@ -2107,16 +2105,20 @@ export class OrderService {
               },
             });
 
-            // Update item stock
-            const currentItem = await tx.item.findUnique({
+            // Update item stock atomically (increment) to avoid lost-update under
+            // concurrency. stockAdjustment is signed (negative on reversal).
+            const updatedStockItem = await tx.item.update({
               where: { id: existingItem.itemId },
+              data: { quantity: { increment: stockAdjustment } },
+              select: { quantity: true },
             });
 
-            if (currentItem) {
-              const newQuantity = currentItem.quantity + stockAdjustment;
+            // Preserve the non-negative clamp: if a concurrent write drove the
+            // result below zero, floor it back to 0.
+            if (updatedStockItem.quantity < 0) {
               await tx.item.update({
                 where: { id: existingItem.itemId },
-                data: { quantity: Math.max(0, newQuantity) },
+                data: { quantity: 0 },
               });
             }
           }

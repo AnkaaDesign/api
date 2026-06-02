@@ -320,8 +320,7 @@ export class PpeInAppSignatureService {
           padesSealedAt = sealed.sealedAt;
           certMeta = sealed.cert;
           this.logger.log(
-            `PAdES seal applied to delivery ${deliveryId} with cert ${certMeta.subjectCommonName} ` +
-              `(serial ${certMeta.serialNumber}, level ${sealed.level})`,
+            `PAdES seal applied to delivery ${deliveryId} with cert ${certMeta.subjectCommonName} (serial ${certMeta.serialNumber})`,
           );
           await this.auditService.recordEvent(deliveryId, 'PADES_SEALED' as any, {
             actorUserId: authenticatedUserId,
@@ -329,11 +328,6 @@ export class PpeInAppSignatureService {
               certCnpj: certMeta.cnpj,
               certSerial: certMeta.serialNumber,
               certIssuer: certMeta.issuer,
-              padesLevel: sealed.level,
-              timestampApplied: sealed.timestamp.applied,
-              tsaUrl: sealed.timestamp.url,
-              tsaGenTime: sealed.timestamp.genTime?.toISOString() ?? null,
-              tsaError: sealed.timestamp.error ?? null,
             },
           });
         } catch (sealError) {

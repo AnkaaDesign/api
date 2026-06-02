@@ -652,6 +652,8 @@ model File {
   installmentReceipts                     Installment[]             @relation("InstallmentReceipts")
   bankTransactionImports                  BankTransaction[]         @relation("BankTransactionFile")
   fiscalDocumentXmls                      FiscalDocument[]          @relation("FiscalDocXml")
+  wasteCertificatePdfs                    WasteCertificate[]        @relation("WASTE_CERTIFICATE_PDF")
+  wasteCertificateSigned                  WasteCertificate[]        @relation("WASTE_CERTIFICATE_SIGNED")
 
   @@index([filename])
   @@index([originalName])
@@ -4445,4 +4447,34 @@ model QuestionnaireAnswer {
   @@unique([entryId, questionId])
   @@index([entryId])
   @@index([questionId])
+}
+
+// =====================================================================
+// WASTE CERTIFICATE — Certificado de Coleta e Destinação de Resíduos
+// Industriais. Generated client-side (pdf-lib), stored as a File, shared
+// via a public link, then re-uploaded once physically signed.
+// =====================================================================
+model WasteCertificate {
+  id           String                 @id @default(uuid())
+  date         DateTime // issue date (header "Cambé, DD de Mês de AAAA")
+  periodStart  DateTime
+  periodEnd    DateTime
+  description  String // e.g. "RESÍDUOS LIQUIDO CLASSE I"
+  volume       String // e.g. "792L"
+  status       WasteCertificateStatus @default(GENERATED)
+  pdfFileId    String?
+  signedFileId String?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  pdfFile    File? @relation("WASTE_CERTIFICATE_PDF", fields: [pdfFileId], references: [id])
+  signedFile File? @relation("WASTE_CERTIFICATE_SIGNED", fields: [signedFileId], references: [id])
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum WasteCertificateStatus {
+  GENERATED // PDF generated, awaiting signed upload
+  SIGNED // signed PDF uploaded
 }

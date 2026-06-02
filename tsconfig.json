@@ -58,6 +58,7 @@
   "exclude": [
     "dist",
     "node_modules",
+    "src/scripts/archive/**",
     "**/*.test-utils.ts",
     "**/*.test.ts",
     "**/*.spec.ts",

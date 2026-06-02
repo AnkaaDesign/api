@@ -7,6 +7,10 @@ import {
   ReconciliationStatus,
 } from '@prisma/client';
 
+// String-aware boolean for query flags. `z.coerce.boolean()` treats the string
+// "false" as truthy (Boolean of a non-empty string), inverting `?flag=false`.
+const queryBoolean = z.preprocess(v => v === 'true' || v === true, z.boolean());
+
 // Accepts a single value, an array, or a comma-separated string ("a,b,c") and
 // normalizes to a string array.
 const csvStringArray = z
@@ -29,7 +33,7 @@ export const transactionsFilterSchema = z.object({
   // Provenance of the category tag (AUTO fuzzy vs MANUAL).
   categorySource: z.nativeEnum(ReconciliationSource).optional(),
   // Whether the transaction expects an NF (replaces the old category=NF filter).
-  expectsFiscalDocument: z.coerce.boolean().optional(),
+  expectsFiscalDocument: queryBoolean.optional(),
   reconciliationSource: z.nativeEnum(ReconciliationSource).optional(),
   matchType: z.nativeEnum(ReconciliationMatchType).optional(),
   type: z.nativeEnum(BankTransactionType).optional(),

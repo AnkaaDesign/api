@@ -18,8 +18,6 @@ import { ReconciliationAliasService } from './reconciliation-alias.service';
 import { ItemCategoryClassifierService } from './item-category-classifier.service';
 import { isMarketplaceMemo } from './marketplace';
 
-const EXACT_DATE_WINDOW_DAYS = 5;
-const VALUE_DATE_WINDOW_DAYS = 3;
 const FUZZY_DATE_WINDOW_DAYS = 10;
 const BOLETO_BRIDGE_WINDOW_DAYS = 2;
 // When CNPJ is known, widen the candidates window significantly — Brazilian B2B
@@ -268,20 +266,6 @@ interface RawTransaction {
   expectsFiscalDocument: boolean;
 }
 
-interface RawDocument {
-  id: string;
-  totalValue: Prisma.Decimal;
-  issueDate: Date;
-  emitCnpj: string;
-  destCnpj: string | null;
-  destCpf: string | null;
-  destName: string | null;
-  emitName: string | null;
-  operationType: FiscalDocumentOperation;
-  accessKey: string;
-  docType: string;
-}
-
 @Injectable()
 export class ReconciliationMatcherService {
   private readonly logger = new Logger(ReconciliationMatcherService.name);
@@ -398,9 +382,10 @@ export class ReconciliationMatcherService {
 
   /**
    * Attempts to auto-match a single transaction. Returns true if a match was
-   * created. CONSERVATIVE: only Pass 0 (boleto bridge) and Pass 1 (exact value +
-   * CNPJ + date window) auto-confirm. Passes 2/3 are exposed as candidates
-   * through `getCandidatesForTransaction()` for the manual-match UI.
+   * created. CONSERVATIVE auto-confirm passes: boleto bridge, marketplace
+   * value-only, exact (value + CNPJ + date window), and clean/unique order
+   * groups. Anything below those bars is exposed as a candidate through
+   * `getCandidatesForTransaction()` for the manual-match UI.
    *
    * Only NF-category transactions are matched against FiscalDocument; everything
    * else is already self-justifying (reconciled by the classifier).
@@ -592,7 +577,11 @@ export class ReconciliationMatcherService {
     );
     const allocations = grp.members.map((m, i) => ({
       id: m.id,
-      amount: Number((Number(m.totalValue) - (i === largestIdx ? residual : 0)).toFixed(2)),
+      // Clamp to 0 so a small largest-member value can't be driven negative by
+      // absorbing the residual.
+      amount: Number(
+        Math.max(0, Number(m.totalValue) - (i === largestIdx ? residual : 0)).toFixed(2),
+      ),
     }));
 
     await this.prisma.$transaction(async tx2 => {
@@ -766,7 +755,10 @@ export class ReconciliationMatcherService {
           ],
         },
         orderBy: { issueDate: 'desc' },
-        take: 30,
+        // Take a generous slice: the scorer ranks by value proximity AFTER the
+        // fetch, so too small a cap could truncate the value-exact NF for a
+        // high-volume supplier (many same-CNPJ docs in the window).
+        take: 100,
         select,
       });
     }
@@ -1003,15 +995,6 @@ export class ReconciliationMatcherService {
         paidAmount: { gte: absAmount - 0.05, lte: absAmount + 0.05 },
         transactions: { none: {} }, // not already linked
       },
-      include: {
-        installment: {
-          include: {
-            invoice: {
-              include: { nfseDocuments: true },
-            },
-          },
-        },
-      },
     });
 
     if (candidates.length !== 1) return false;
@@ -1037,35 +1020,9 @@ export class ReconciliationMatcherService {
           notes: `Pareamento automático com boleto ${slip.nossoNumero}`,
         },
       });
-
-      // Forward link to NFSe (if emitted and present in FiscalDocument)
-      const nfseDoc = slip.installment.invoice?.nfseDocuments?.[0];
-      if (nfseDoc?.nfseNumber) {
-        const synthKey = await this.findNfseAccessKeyForInvoice(nfseDoc.id);
-        if (synthKey) {
-          await tx2.reconciliationMatch
-            .create({
-              data: {
-                transactionId: tx.id,
-                fiscalDocumentId: synthKey,
-                allocatedAmount: absAmount,
-                matchType: ReconciliationMatchType.BANK_SLIP_BRIDGE,
-                confidenceScore: 100,
-                notes: 'Encadeamento boleto → NFSe emitida',
-              },
-            })
-            .catch(() => undefined);
-        }
-      }
     });
 
     return true;
-  }
-
-  private async findNfseAccessKeyForInvoice(_nfseDocumentId: string): Promise<string | null> {
-    // We do not currently have a stable join from NfseDocument to FiscalDocument.
-    // Future enhancement: store the access key on NfseDocument when emitted.
-    return null;
   }
 
   private async tryExactMatch(tx: RawTransaction): Promise<boolean> {

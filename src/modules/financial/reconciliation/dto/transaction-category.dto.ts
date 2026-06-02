@@ -1,10 +1,14 @@
 import { z } from 'zod';
 import { TransactionCategoryKind, AccountingType } from '@prisma/client';
 
+// String-aware boolean for query flags. `z.coerce.boolean()` treats the string
+// "false" as truthy (Boolean of a non-empty string), inverting `?flag=false`.
+const queryBoolean = z.preprocess(v => v === 'true' || v === true, z.boolean());
+
 export const listCategoriesQuerySchema = z.object({
   kind: z.nativeEnum(TransactionCategoryKind).optional(),
-  isRecurring: z.coerce.boolean().optional(),
-  includeInactive: z.coerce.boolean().optional(),
+  isRecurring: queryBoolean.optional(),
+  includeInactive: queryBoolean.optional(),
 });
 export type ListCategoriesQueryDto = z.infer<typeof listCategoriesQuerySchema>;
 

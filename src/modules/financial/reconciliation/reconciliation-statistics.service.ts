@@ -197,7 +197,16 @@ export class ReconciliationStatisticsService {
           btc."categoryId" AS cid,
           COALESCE(
             btc."allocatedAmount",
-            ABS(t.amount) / NULLIF(
+            -- Null-allocated tags split only the UNALLOCATED remainder
+            -- (clamped to >= 0), not the full ABS(amount), so allocated
+            -- ITEM_DERIVED tags on the same transaction aren't double-counted.
+            GREATEST(
+              ABS(t.amount) - COALESCE(
+                SUM(btc."allocatedAmount")
+                  OVER (PARTITION BY btc."transactionId"),
+                0),
+              0
+            ) / NULLIF(
               COUNT(*) FILTER (WHERE btc."allocatedAmount" IS NULL)
                 OVER (PARTITION BY btc."transactionId"),
               0)
@@ -245,7 +254,16 @@ export class ReconciliationStatisticsService {
           btc."categoryId" AS cid,
           COALESCE(
             btc."allocatedAmount",
-            ABS(t.amount) / NULLIF(
+            -- Null-allocated tags split only the UNALLOCATED remainder
+            -- (clamped to >= 0), not the full ABS(amount), so allocated
+            -- ITEM_DERIVED tags on the same transaction aren't double-counted.
+            GREATEST(
+              ABS(t.amount) - COALESCE(
+                SUM(btc."allocatedAmount")
+                  OVER (PARTITION BY btc."transactionId"),
+                0),
+              0
+            ) / NULLIF(
               COUNT(*) FILTER (WHERE btc."allocatedAmount" IS NULL)
                 OVER (PARTITION BY btc."transactionId"),
               0)

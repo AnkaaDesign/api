@@ -70,6 +70,7 @@ import { InvoiceModule } from './modules/financial/invoice/invoice.module';
 import { ReconciliationModule } from './modules/financial/reconciliation/reconciliation.module';
 import { SkillModule } from './modules/skill/skill.module';
 import { QuestionnaireModule } from './modules/questionnaire/questionnaire.module';
+import { WasteCertificateModule } from './modules/waste-certificate/waste-certificate.module';
 
 @Module({
   imports: [
@@ -150,6 +151,7 @@ import { QuestionnaireModule } from './modules/questionnaire/questionnaire.modul
     ReconciliationModule,
     SkillModule,
     QuestionnaireModule,
+    WasteCertificateModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -17,12 +17,41 @@ import type {
 import type { ConsumptionAnalyticsFormData } from '../../../schemas/consumption-analytics';
 import { ACTIVITY_OPERATION } from '../../../constants/enums';
 import { Prisma } from '@prisma/client';
+import { ItemCategoryRepository } from '../item/repositories/item-category/item-category.repository';
 
 @Injectable()
 export class ConsumptionAnalyticsService {
   private readonly logger = new Logger(ConsumptionAnalyticsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly itemCategoryRepository: ItemCategoryRepository,
+  ) {}
+
+  /**
+   * Expand the selected category ids to include every descendant id (subtree).
+   * Items attach to leaf categories, so filtering by a level-1 parent id alone
+   * matches nothing — we union each selected id with its descendants.
+   */
+  private async expandCategoryIds(categoryIds?: string[]): Promise<string[] | undefined> {
+    if (!categoryIds || categoryIds.length === 0) {
+      return categoryIds;
+    }
+    const expanded = new Set<string>();
+    for (const id of categoryIds) {
+      expanded.add(id);
+      try {
+        const descendants = await this.itemCategoryRepository.listDescendantIds(id);
+        for (const descendantId of descendants) {
+          expanded.add(descendantId);
+        }
+      } catch (error) {
+        // Tolerate unknown/removed ids: keep the original id in the filter.
+        this.logger.warn(`Falha ao expandir descendentes da categoria ${id}: ${error}`);
+      }
+    }
+    return Array.from(expanded);
+  }
 
   /**
    * Get consumption analytics with comparison support
@@ -31,6 +60,11 @@ export class ConsumptionAnalyticsService {
     query: ConsumptionAnalyticsFormData,
   ): Promise<ConsumptionAnalyticsResponse> {
     try {
+      // Expand selected category ids to their full subtree so a level-1 parent
+      // category matches items attached to its leaf subcategories. Done once here
+      // so every downstream comparison method sees the expanded ids.
+      query = { ...query, categoryIds: await this.expandCategoryIds(query.categoryIds) };
+
       // Determine comparison mode
       const mode = this.determineComparisonMode(query);
 
