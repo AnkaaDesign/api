@@ -8,8 +8,8 @@
  */
 import { NestFactory } from '@nestjs/core';
 import { AccountingType, TransactionCategoryKind } from '@prisma/client';
-import { AppModule } from '../app.module';
-import { PrismaService } from '../modules/common/prisma/prisma.service';
+import { AppModule } from '../../app.module';
+import { PrismaService } from '../../modules/common/prisma/prisma.service';
 
 const slug = (s: string) =>
   s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

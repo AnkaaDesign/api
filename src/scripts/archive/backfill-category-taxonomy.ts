@@ -21,8 +21,8 @@ import { Logger } from '@nestjs/common';
 import { AccountingType, ItemCategoryType, TransactionCategoryKind } from '@prisma/client';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { AppModule } from '../app.module';
-import { PrismaService } from '../modules/common/prisma/prisma.service';
+import { AppModule } from '../../app.module';
+import { PrismaService } from '../../modules/common/prisma/prisma.service';
 
 const CSV_PATH = path.join(
   process.cwd(),

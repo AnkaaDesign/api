@@ -11,8 +11,8 @@
  * Run: npx ts-node -r tsconfig-paths/register --transpile-only src/scripts/tx-category-reassign-delete.ts
  */
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../app.module';
-import { PrismaService } from '../modules/common/prisma/prisma.service';
+import { AppModule } from '../../app.module';
+import { PrismaService } from '../../modules/common/prisma/prisma.service';
 
 async function main() {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });

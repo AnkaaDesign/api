@@ -36,8 +36,8 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import { AccountingType } from '@prisma/client';
-import { AppModule } from '../app.module';
-import { PrismaService } from '../modules/common/prisma/prisma.service';
+import { AppModule } from '../../app.module';
+import { PrismaService } from '../../modules/common/prisma/prisma.service';
 
 const REVIEW_CATEGORY_NAME = 'A Revisar';
 
