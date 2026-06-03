@@ -900,7 +900,7 @@ export class LayoutService {
         overrides: {
           title: 'Layout do Caminhão atualizado',
           body: `Layout do caminhão da tarefa "${task.name}" atualizado por ${changedByName}: ${layoutChangeSummary}`,
-          webUrl: `/producao/agenda/detalhes/${task.id}`,
+          webUrl: `/producao/cronograma/detalhes/${task.id}`,
         },
       });
 
@@ -1091,7 +1091,7 @@ export class LayoutService {
           overrides: {
             title: 'Layout do Caminhão atualizado',
             body: `Layout do caminhão da tarefa "${task.name}" atualizado por ${changedByName}: ${layoutChangeSummary}`,
-            webUrl: `/producao/agenda/detalhes/${task.id}`,
+            webUrl: `/producao/cronograma/detalhes/${task.id}`,
           },
         },
       );

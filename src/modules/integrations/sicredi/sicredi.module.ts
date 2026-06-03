@@ -12,6 +12,6 @@ import { SicrediBoletoScheduler } from './sicredi-boleto.scheduler';
   imports: [PrismaModule, NotificationModule, forwardRef(() => TaskQuoteModule)],
   controllers: [SicrediWebhookController],
   providers: [SicrediAuthService, SicrediService, SicrediWebhookService, SicrediBoletoScheduler],
-  exports: [SicrediService, SicrediAuthService, SicrediWebhookService],
+  exports: [SicrediService, SicrediAuthService, SicrediWebhookService, SicrediBoletoScheduler],
 })
 export class SicrediModule {}

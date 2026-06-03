@@ -18,6 +18,10 @@ const COUNTERPARTY_CATEGORY_RULES: Readonly<Record<string, string>> = {
   '07332960923': 'pro-labore', // Genivaldo Rodrigues
   '33034206968': 'aluguel', // Marcos Antonio Pelisson
   '70564949949': 'aluguel', // Sandro Furlan Bochi
+  '04368898000106': 'energia-eletrica', // COPEL DISTRIBUICAO
+  '78079639000100': 'agua', // SAMAE IBIPORA
+  '40432544000147': 'internet-telefone', // CLARO MOVEL
+  '08890343000180': 'internet-telefone', // PRTURBO INTERNET WIRELESS LTDA
 };
 
 interface MemoRule {
@@ -41,7 +45,6 @@ const MEMO_RULES: readonly MemoRule[] = [
   { slug: 'transferencia', pattern: /resg\.?\s*aplic/i },
   { slug: 'transferencia', pattern: /resgate\s+aplic/i },
   { slug: 'transferencia', pattern: /plano\s+int\s+capital/i },
-  { slug: 'convenio', pattern: /^\s*debito\s+convenios/i },
   { slug: 'estorno', pattern: /^\s*devolucao\s+pix/i },
 ];
 

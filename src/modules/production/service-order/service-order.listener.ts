@@ -19,6 +19,8 @@ function getTypedConfigKey(baseKey: string, soType: string): string {
 const STATUS_CONFIG_MAP: Record<string, string> = {
   // ASSIGNED status is handled by the 'service_order.assigned' event directly
   [SERVICE_ORDER_STATUS.IN_PROGRESS]: 'service_order.started',
+  [SERVICE_ORDER_STATUS.PAUSED]: 'service_order.paused',
+  [SERVICE_ORDER_STATUS.PENDING]: 'service_order.pending',
   [SERVICE_ORDER_STATUS.WAITING_APPROVE]: 'service_order.waiting_approval',
   [SERVICE_ORDER_STATUS.WAITING_ARTWORK]: 'service_order.waiting_artwork',
   [SERVICE_ORDER_STATUS.COMPLETED]: 'service_order.completed',
@@ -96,7 +98,7 @@ export class ServiceOrderListener {
         },
         // Override to navigate to the task, not the service order
         overrides: {
-          webUrl: `/producao/agenda/detalhes/${event.serviceOrder.taskId}`,
+          webUrl: `/producao/cronograma/detalhes/${event.serviceOrder.taskId}`,
           relatedEntityType: 'Task',
           relatedEntityId: event.serviceOrder.taskId,
         },
@@ -167,7 +169,7 @@ export class ServiceOrderListener {
         },
         // Override to navigate to the task, not the service order
         overrides: {
-          webUrl: `/producao/agenda/detalhes/${event.serviceOrder.taskId}`,
+          webUrl: `/producao/cronograma/detalhes/${event.serviceOrder.taskId}`,
           relatedEntityType: 'Task',
           relatedEntityId: event.serviceOrder.taskId,
         },
@@ -262,7 +264,7 @@ export class ServiceOrderListener {
         },
         // Override to navigate to the task, not the service order
         overrides: {
-          webUrl: `/producao/agenda/detalhes/${serviceOrder.taskId}`,
+          webUrl: `/producao/cronograma/detalhes/${serviceOrder.taskId}`,
           relatedEntityType: 'Task',
           relatedEntityId: serviceOrder.taskId,
         },
@@ -306,7 +308,7 @@ export class ServiceOrderListener {
             },
             // Override to navigate to the task, not the service order
             overrides: {
-              webUrl: `/producao/agenda/detalhes/${serviceOrder.taskId}`,
+              webUrl: `/producao/cronograma/detalhes/${serviceOrder.taskId}`,
               relatedEntityType: 'Task',
               relatedEntityId: serviceOrder.taskId,
             },
@@ -379,7 +381,7 @@ export class ServiceOrderListener {
         },
         // Override to navigate to the task, not the service order
         overrides: {
-          webUrl: `/producao/agenda/detalhes/${serviceOrder.taskId}`,
+          webUrl: `/producao/cronograma/detalhes/${serviceOrder.taskId}`,
           relatedEntityType: 'Task',
           relatedEntityId: serviceOrder.taskId,
         },

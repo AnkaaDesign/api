@@ -188,7 +188,7 @@ export class TaskFieldTrackerService {
           overrides: {
             title: 'Você foi adicionado(a) a uma tarefa',
             body: `Você foi adicionado(a) como responsável pela tarefa "${taskName}".`,
-            webUrl: `/producao/agenda/detalhes/${task.id}`,
+            webUrl: `/producao/cronograma/detalhes/${task.id}`,
             mobileUrl: `/(tabs)/producao/cronograma/detalhes/${task.id}`,
             relatedEntityType: 'Task',
           },

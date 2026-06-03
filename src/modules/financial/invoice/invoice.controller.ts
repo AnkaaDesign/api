@@ -23,6 +23,7 @@ import { InvoiceAnalyticsService } from './invoice-analytics.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
+import { SicrediBoletoScheduler } from '@modules/integrations/sicredi/sicredi-boleto.scheduler';
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -68,6 +69,7 @@ export class InvoiceController {
     private readonly invoiceAnalyticsService: InvoiceAnalyticsService,
     private readonly prisma: PrismaService,
     private readonly sicrediService: SicrediService,
+    private readonly sicrediBoletoScheduler: SicrediBoletoScheduler,
     private readonly municipalNfseService: ElotechOxyNfseService,
     private readonly nfseEmissionScheduler: NfseEmissionScheduler,
     private readonly dispatchService: NotificationDispatchService,
@@ -98,7 +100,7 @@ export class InvoiceController {
         action: 'settled',
         data: { quoteLabel: label },
         overrides: {
-          title: 'Orçamento Liquidado',
+          title: 'Pagamento Liquidado',
           body: `O orçamento ${label} foi totalmente liquidado. Todas as parcelas estão pagas.`,
           relatedEntityType: 'TASK_QUOTE',
           ...(taskId
@@ -588,6 +590,77 @@ export class InvoiceController {
   }
 
   /**
+   * PUT /invoices/:installmentId/boleto/sync-from-sicredi
+   * Pull the current due date and seuNumero from Sicredi and update our records.
+   * Use this after a due date or seuNumero was changed directly in Sicredi's portal
+   * (e.g. after cancelling and regenerating an NF-e without regenerating the boleto).
+   * The daily sync cron (9 AM SP) does this automatically, but this endpoint lets
+   * you trigger it immediately for a single installment.
+   */
+  @Put(':installmentId/boleto/sync-from-sicredi')
+  @HttpCode(HttpStatus.OK)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  async syncBoletoFromSicredi(@Param('installmentId', ParseUUIDPipe) installmentId: string) {
+    const bankSlip = await this.prisma.bankSlip.findUnique({
+      where: { installmentId },
+      select: {
+        id: true,
+        nossoNumero: true,
+        dueDate: true,
+        seuNumero: true,
+        status: true,
+        installment: {
+          select: {
+            id: true,
+            status: true,
+            customerConfig: { select: { quoteId: true } },
+          },
+        },
+      },
+    });
+
+    if (!bankSlip) {
+      throw new NotFoundException(`Boleto não encontrado para a parcela ${installmentId}.`);
+    }
+
+    if (
+      bankSlip.status === BANK_SLIP_STATUS.PAID ||
+      bankSlip.status === BANK_SLIP_STATUS.CANCELLED
+    ) {
+      throw new BadRequestException(
+        'Não é possível sincronizar um boleto já pago ou cancelado.',
+      );
+    }
+
+    if (!bankSlip.nossoNumero || bankSlip.nossoNumero.startsWith('TMP-') || bankSlip.nossoNumero.startsWith('ERR-')) {
+      throw new BadRequestException('Boleto ainda não foi registrado no Sicredi.');
+    }
+
+    const result = await this.sicrediBoletoScheduler.syncOneBankSlip(bankSlip);
+
+    const messages: string[] = [];
+    if (result.dueDateChanged && result.newDueDate) {
+      const newDateLabel = result.newDueDate.toLocaleDateString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+      });
+      messages.push(`Data de vencimento atualizada para ${newDateLabel}`);
+    }
+    if (result.seuNumeroChanged) {
+      messages.push('Seu Número atualizado');
+    }
+    if (messages.length === 0) {
+      messages.push('Nenhuma alteração detectada — dados já estavam sincronizados');
+    }
+
+    return {
+      message: messages.join('. ') + '.',
+      dueDateChanged: result.dueDateChanged,
+      seuNumeroChanged: result.seuNumeroChanged,
+      ...(result.newDueDate ? { newDueDate: result.newDueDate.toISOString() } : {}),
+    };
+  }
+
+  /**
    * PUT /invoices/:installmentId/boleto/mark-paid
    * Cancel the boleto and mark the installment as paid via PIX/cash/other.
    */
@@ -724,12 +797,19 @@ export class InvoiceController {
         const now = new Date();
         const allQuoteInstallments = await this.prisma.installment.findMany({
           where: { customerConfig: { quoteId } },
-          select: { status: true, dueDate: true },
+          select: { id: true, status: true, dueDate: true },
         });
         const active = allQuoteInstallments.filter(i => i.status !== 'CANCELLED');
-        const paidCount = active.filter(i => i.status === INSTALLMENT_STATUS.PAID).length;
+        // Treat the just-paid installment as PAID regardless of what the DB returned,
+        // mirroring the invoice-recalculation workaround above (i.id === installmentId).
+        const paidCount = active.filter(
+          i => i.id === installmentId || i.status === INSTALLMENT_STATUS.PAID,
+        ).length;
         const overdueCount = active.filter(
-          i => i.status !== INSTALLMENT_STATUS.PAID && new Date(i.dueDate) < now,
+          i =>
+            i.id !== installmentId &&
+            i.status !== INSTALLMENT_STATUS.PAID &&
+            new Date(i.dueDate) < now,
         ).length;
 
         // Only cascade quotes that are in a payment-progress status
@@ -992,12 +1072,14 @@ export class InvoiceController {
             const now = new Date();
             const allInstallments = await this.prisma.installment.findMany({
               where: { customerConfig: { quoteId } },
-              select: { status: true, dueDate: true },
+              select: { id: true, status: true, dueDate: true },
             });
             const active = allInstallments.filter(i => i.status !== 'CANCELLED');
             const paidCount = active.filter(i => i.status === INSTALLMENT_STATUS.PAID).length;
             const overdueCount = active.filter(
-              i => i.status !== INSTALLMENT_STATUS.PAID && new Date(i.dueDate) < now,
+              // Use the newly set dueDate for the changed installment in case the DB
+              // returns its old (overdue) dueDate before the write is visible.
+              i => i.status !== INSTALLMENT_STATUS.PAID && new Date(i.id === installmentId ? newDate : i.dueDate) < now,
             ).length;
 
             let newQuoteStatus: TASK_QUOTE_STATUS;

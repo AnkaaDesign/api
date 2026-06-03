@@ -210,7 +210,11 @@ export class NotificationSchedulerService {
 
       for (const item of items) {
         try {
-          this.eventEmitter.emit('item.low-stock', { item });
+          this.eventEmitter.emit('item.low-stock', {
+            item,
+            currentQuantity: item.quantity,
+            reorderPoint: item.reorderPoint ?? 0,
+          });
           notificationCount++;
           this.logger.log(
             `Emitted low stock event for item ${item.id}: ${item.name} (${item.quantity} units)`,

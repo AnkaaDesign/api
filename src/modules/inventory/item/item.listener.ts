@@ -231,7 +231,7 @@ export class ItemListener {
           itemName: item.name,
           itemCode: item.uniCode,
           currentQuantity: event.currentQuantity,
-          reorderPoint: event.currentQuantity,
+          reorderPoint: event.reorderQuantity,
           suggestedOrderQuantity: event.reorderQuantity,
           preferredSupplier,
           category: item.category?.name || '',

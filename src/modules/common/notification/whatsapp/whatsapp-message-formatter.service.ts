@@ -107,22 +107,25 @@ ${data.url}`;
 
   formatTaskDeadlineApproaching(data: {
     taskName: string;
-    daysRemaining: number;
-    dueDate: string;
+    daysRemaining: number | string;
+    dueDate?: string;
     serialNumber?: string;
     priority?: string;
     url: string;
   }): WhatsAppMessageFormat {
-    const urgencyEmoji = data.daysRemaining <= 1 ? '🚨' : data.daysRemaining <= 3 ? '⚠️' : '⏰';
+    const daysNum = typeof data.daysRemaining === 'number'
+      ? data.daysRemaining
+      : parseInt(String(data.daysRemaining), 10) || 0;
+    const urgencyEmoji = daysNum <= 1 ? '🚨' : daysNum <= 3 ? '⚠️' : '⏰';
+    const prazoText = data.dueDate ? `⏰ *Prazo:* ${data.dueDate}\n_Faltam ${daysNum} dia${daysNum !== 1 ? 's' : ''}_` : `⏰ _Faltam ${daysNum} dia${daysNum !== 1 ? 's' : ''}_`;
 
     const text = `${urgencyEmoji} *PRAZO SE APROXIMANDO*
 
 📋 *Tarefa:* ${data.taskName}${data.serialNumber ? `\n🔢 *Série:* ${data.serialNumber}` : ''}
 
-⏰ *Prazo:* ${data.dueDate}
-_Faltam ${data.daysRemaining} dia${data.daysRemaining !== 1 ? 's' : ''}_${data.priority ? `\n🎯 *Prioridade:* ${this.getPriorityEmoji(data.priority)} ${data.priority}` : ''}
+${prazoText}${data.priority ? `\n🎯 *Prioridade:* ${this.getPriorityEmoji(data.priority)} ${data.priority}` : ''}
 
-${data.daysRemaining <= 1 ? '⚠️ *AÇÃO IMEDIATA NECESSÁRIA!*\n\n' : ''}🔗 *Ver detalhes:*
+${daysNum <= 1 ? '⚠️ *AÇÃO IMEDIATA NECESSÁRIA!*\n\n' : ''}🔗 *Ver detalhes:*
 ${data.url}`;
 
     return {
@@ -133,20 +136,22 @@ ${data.url}`;
 
   formatTaskOverdue(data: {
     taskName: string;
-    daysOverdue: number;
-    dueDate: string;
+    daysOverdue: number | string;
+    dueDate?: string;
     serialNumber?: string;
     url: string;
   }): WhatsAppMessageFormat {
+    const daysNum = typeof data.daysOverdue === 'number'
+      ? data.daysOverdue
+      : parseInt(String(data.daysOverdue), 10) || 0;
+
     const text = `🚨 *TAREFA ATRASADA*
 
 ⚠️ _Esta tarefa está atrasada!_
 
 📋 *Tarefa:* ${data.taskName}${data.serialNumber ? `\n🔢 *Série:* ${data.serialNumber}` : ''}
 
-📅 *Prazo:* ${data.dueDate}
-
-🔴 *Atrasada há ${data.daysOverdue} dia${data.daysOverdue !== 1 ? 's' : ''}*
+${data.dueDate ? `📅 *Prazo:* ${data.dueDate}\n\n` : ''}🔴 *Atrasada há ${daysNum} dia${daysNum !== 1 ? 's' : ''}*
 
 ⚡ *AÇÃO URGENTE NECESSÁRIA*
 
@@ -190,10 +195,14 @@ ${data.url}`;
   formatOrderOverdue(data: {
     orderNumber: string;
     supplierName: string;
-    daysOverdue: number;
+    daysOverdue: number | string;
     expectedDate: string;
     url: string;
   }): WhatsAppMessageFormat {
+    const daysNum = typeof data.daysOverdue === 'number'
+      ? data.daysOverdue
+      : parseInt(String(data.daysOverdue), 10) || 0;
+
     const text = `🚨 *PEDIDO ATRASADO*
 
 ⚠️ _Entrega não recebida no prazo!_
@@ -204,7 +213,7 @@ ${data.url}`;
 
 📅 *Entrega esperada:* ${data.expectedDate}
 
-🔴 *Atrasado há ${data.daysOverdue} dia${data.daysOverdue !== 1 ? 's' : ''}*
+🔴 *Atrasado há ${daysNum} dia${daysNum !== 1 ? 's' : ''}*
 
 📞 Contatar fornecedor para atualização
 
@@ -393,7 +402,7 @@ ${data.url}`;
     const changedBy = data.changedByName ?? data.changedBy;
     const statusEmoji = this.getStatusEmoji(newStatus);
 
-    const text = `${statusEmoji} *O.S. ATUALIZADA*
+    const text = `${statusEmoji} *ORDEM DE SERVIÇO ATUALIZADA*
 
 📝 *Ordem:* ${data.serviceOrderDescription}
 

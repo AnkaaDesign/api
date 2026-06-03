@@ -490,6 +490,7 @@ export class QuestionnaireService {
           title: 'Questionário Encerrado',
           body: `A campanha do questionário "${questionnaireName}" foi encerrada com ${submittedCount} resposta(s) enviada(s).`,
           webUrl: `/administracao/questionarios/${id}`,
+          mobileUrl: `/(tabs)/administracao/questionarios/${id}`,
           relatedEntityType: 'QUESTIONNAIRE',
         },
       };
@@ -807,6 +808,7 @@ export class QuestionnaireService {
             title: 'Resposta de Questionário Enviada',
             body: `${respondentName} enviou uma resposta do questionário "${questionnaireName}".`,
             webUrl: `/administracao/questionarios/${entry.questionnaireId}`,
+            mobileUrl: `/(tabs)/administracao/questionarios/${entry.questionnaireId}`,
             relatedEntityType: 'QUESTIONNAIRE',
           },
         };

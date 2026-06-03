@@ -60,7 +60,7 @@ export class TaskQuoteStatusCascadeService {
         action: 'settled',
         data: { quoteLabel },
         overrides: {
-          title: 'Orçamento Liquidado',
+          title: 'Pagamento Liquidado',
           body: `O orçamento ${quoteLabel} foi totalmente liquidado. Todas as parcelas estão pagas.`,
           relatedEntityType: 'TASK_QUOTE',
           ...(taskId

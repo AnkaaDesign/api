@@ -227,11 +227,11 @@ const CONFIGS: ConfigDef[] = [
     notificationType: 'USER',
     eventType: 'secullum.request.approved',
     description: 'Solicitação do funcionário aprovada; avisa o funcionário',
-    importance: 'NORMAL',
+    importance: 'HIGH',
     workHoursOnly: true,
     batchingEnabled: false,
-    channels: ['IN_APP', 'PUSH'],
-    sectors: ['HUMAN_RESOURCES'],
+    channels: ['IN_APP', 'PUSH', 'EMAIL'],
+    sectors: [],
     trigger: 'secullum.service.ts ~:2895',
     targeted: true,
     templates: {
@@ -255,7 +255,7 @@ const CONFIGS: ConfigDef[] = [
     workHoursOnly: false,
     batchingEnabled: false,
     channels: ['IN_APP', 'PUSH', 'EMAIL'],
-    sectors: ['HUMAN_RESOURCES'],
+    sectors: [],
     trigger: 'secullum.service.ts ~:2943',
     targeted: true,
     templates: {
@@ -505,11 +505,11 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: 'Novo Questionário',
-        body: 'Você recebeu o questionário "{{questionnaireTitle}}".{{#if dueDate}} Prazo: {{dueDate}}.{{/if}}',
+        body: 'Você recebeu o questionário "{{questionnaireName}}".{{#if dueDate}} Prazo: {{dueDate}}.{{/if}}',
       },
       push: {
         title: 'Novo Questionário',
-        body: '{{questionnaireTitle}}',
+        body: '{{questionnaireName}}',
       },
     },
   },
@@ -529,7 +529,7 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: 'Resposta de Questionário',
-        body: 'Uma resposta do questionário "{{questionnaireTitle}}" foi enviada{{#if respondentName}} por {{respondentName}}{{/if}}.',
+        body: 'Uma resposta do questionário "{{questionnaireName}}" foi enviada{{#if respondentName}} por {{respondentName}}{{/if}}.',
       },
     },
   },
@@ -549,11 +549,11 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: 'Questionário Encerrado',
-        body: 'A campanha do questionário "{{questionnaireTitle}}" foi encerrada.{{#if responseCount}} {{responseCount}} respostas.{{/if}}',
+        body: 'A campanha do questionário "{{questionnaireName}}" foi encerrada.{{#if responseCount}} {{responseCount}} respostas.{{/if}}',
       },
       push: {
         title: 'Questionário Encerrado',
-        body: '{{questionnaireTitle}} encerrado',
+        body: '{{questionnaireName}} encerrado',
       },
     },
   },
@@ -574,11 +574,11 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: 'Nova Avaliação de Competência',
-        body: 'Você foi designado para a avaliação "{{assessmentTitle}}".{{#if dueDate}} Prazo: {{dueDate}}.{{/if}}',
+        body: 'Você foi designado para a avaliação "{{assessmentName}}".{{#if dueDate}} Prazo: {{dueDate}}.{{/if}}',
       },
       push: {
         title: 'Nova Avaliação',
-        body: '{{assessmentTitle}}',
+        body: '{{assessmentName}}',
       },
     },
   },
@@ -598,7 +598,7 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: 'Avaliação Enviada',
-        body: 'A avaliação "{{assessmentTitle}}" foi enviada{{#if evaluatorName}} por {{evaluatorName}}{{/if}}.',
+        body: 'A avaliação "{{assessmentName}}" foi enviada{{#if evaluatorName}} por {{evaluatorName}}{{/if}}.',
       },
     },
   },
@@ -953,11 +953,11 @@ const CONFIGS: ConfigDef[] = [
   // ─── Task field: consolidated truck layout ─────────────────────────────────────
   {
     key: 'task.field.truck.layout',
-    name: 'Layout do Caminhão Atualizado',
+    name: 'Medidas do Caminhão Atualizadas',
     notificationType: 'PRODUCTION',
     eventType: 'task.field.truck.layout',
     description:
-      'Layout do caminhão da tarefa atualizado (notificação única consolidada, NÃO uma por lado)',
+      'Medidas do caminhão da tarefa atualizadas (notificação única consolidada, NÃO uma por lado)',
     importance: 'NORMAL',
     workHoursOnly: false,
     batchingEnabled: false,
@@ -968,12 +968,12 @@ const CONFIGS: ConfigDef[] = [
     targeted: false,
     templates: {
       inApp: {
-        title: 'Layout do Caminhão Atualizado',
-        body: 'O layout do caminhão da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi atualizado{{#if changedBy}} por {{changedBy}}{{/if}}.',
+        title: 'Medidas do Caminhão Atualizadas',
+        body: 'As medidas do caminhão da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}} foram atualizadas{{#if changedBy}} por {{changedBy}}{{/if}}.',
       },
       push: {
-        title: 'Layout Atualizado',
-        body: '{{taskName}} — layout do caminhão atualizado',
+        title: 'Medidas Atualizadas',
+        body: '{{taskName}} — medidas do caminhão atualizadas',
       },
     },
   },
@@ -1331,7 +1331,7 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: 'Avaliação Encerrada',
-        body: 'A avaliação de competência "{{assessmentTitle}}" foi encerrada.',
+        body: 'A avaliação de competência "{{assessmentName}}" foi encerrada.',
       },
     },
   },
@@ -1351,11 +1351,11 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: 'Lembrete de Questionário',
-        body: 'Você ainda não respondeu o questionário "{{questionnaireTitle}}".{{#if dueDate}} Prazo: {{dueDate}}.{{/if}}',
+        body: 'Você ainda não respondeu o questionário "{{questionnaireName}}".{{#if dueDate}} Prazo: {{dueDate}}.{{/if}}',
       },
       push: {
         title: 'Lembrete de Questionário',
-        body: '{{questionnaireTitle}}{{#if dueDate}} — prazo {{dueDate}}{{/if}}',
+        body: '{{questionnaireName}}{{#if dueDate}} — prazo {{dueDate}}{{/if}}',
       },
     },
   },
@@ -1375,11 +1375,11 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: 'Lembrete de Avaliação',
-        body: 'Você ainda não concluiu a avaliação "{{assessmentTitle}}".{{#if dueDate}} Prazo: {{dueDate}}.{{/if}}',
+        body: 'Você ainda não concluiu a avaliação "{{assessmentName}}".{{#if dueDate}} Prazo: {{dueDate}}.{{/if}}',
       },
       push: {
         title: 'Lembrete de Avaliação',
-        body: '{{assessmentTitle}}{{#if dueDate}} — prazo {{dueDate}}{{/if}}',
+        body: '{{assessmentName}}{{#if dueDate}} — prazo {{dueDate}}{{/if}}',
       },
     },
   },
@@ -1815,7 +1815,8 @@ const EXISTING_KEYS_CREATE_ONLY: ExistingKeyDef[] = [
     notificationType: 'USER',
     importance: 'NORMAL',
     channels: ['IN_APP', 'PUSH'],
-    sectors: ['HUMAN_RESOURCES'],
+    sectors: [],
+    targeted: true,
   },
   // ─── Truck ─────────────────────────────────────────────────────────────────────
   {
