@@ -6,53 +6,11 @@ import {
   ReconciliationSource,
   ReconciliationStatus,
   TransactionCategory,
-  TransactionCategoryKind,
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { ReconciliationAliasService } from './reconciliation-alias.service';
 import { TransactionCategoryService } from './transaction-category.service';
-import { isMarketplaceMemo } from './marketplace';
-
-// Counterparty CPF/CNPJ → transaction-category slug. Highest-priority rule:
-// fires before alias lookup and memo regex. Use when counterparty identity
-// alone determines the category regardless of how the bank formats the memo.
-// Keys are digits-only.
-//
-// (DB-backed config table is the eventual home — see ReconciliationCategoryRule
-// in the design notes — but the hardcoded set stays correct in the meantime.)
-const COUNTERPARTY_CATEGORY_RULES: Readonly<Record<string, string>> = {
-  // Owners — pró-labore draws.
-  '06856214995': 'pro-labore', // Sergio Rodrigues
-  '07332960923': 'pro-labore', // Genivaldo Rodrigues
-  // Landlords — monthly rent PIX (paid to CPF, no NF-e to match against).
-  '33034206968': 'aluguel', // Marcos Antonio Pelisson
-  '70564949949': 'aluguel', // Sandro Furlan Bochi
-};
-
-interface CategoryRule {
-  slug: string;
-  pattern: RegExp;
-}
-
-// Ordered: most-specific patterns first.
-const MEMO_RULES: readonly CategoryRule[] = [
-  { slug: 'tarifa-bancaria', pattern: /^\s*tarifa\b/i },
-  { slug: 'tarifa-bancaria', pattern: /^\s*manutencao\s+de\s+titulos/i },
-  { slug: 'tributo', pattern: /^\s*debito\s+arrecadacao/i },
-  { slug: 'tributo', pattern: /\bdarf\b/i },
-  { slug: 'tributo', pattern: /\bgps\b/i },
-  { slug: 'folha', pattern: /\bfolha\s+pagto\b/i },
-  { slug: 'folha', pattern: /\bfolha\s+de\s+pagamento\b/i },
-  { slug: 'transferencia', pattern: /aplic\.?\s*financ/i },
-  { slug: 'transferencia', pattern: /\bcaptacao\b/i },
-  { slug: 'transferencia', pattern: /aplic\s+fundos/i },
-  { slug: 'transferencia', pattern: /resg\s+fundos/i },
-  { slug: 'transferencia', pattern: /resg\.?\s*aplic/i },
-  { slug: 'transferencia', pattern: /resgate\s+aplic/i },
-  { slug: 'transferencia', pattern: /plano\s+int\s+capital/i },
-  { slug: 'convenio', pattern: /^\s*debito\s+convenios/i },
-  { slug: 'estorno', pattern: /^\s*devolucao\s+pix/i },
-];
+import { CategoryFusionService } from './learning/category-fusion.service';
+import { ClassifierSignalInput, DecisionTier, FusedDecision } from './learning/category-signal';
 
 export interface ClassificationResult {
   // True → the scoring matcher should try to link a FiscalDocument (old "NF").
@@ -71,24 +29,17 @@ export interface ClassifierInput {
   subtype: BankTransactionSubtype;
   memo: string | null;
   counterpartyCnpjCpf: string | null;
+  counterpartyName?: string | null;
+  amount?: number | Prisma.Decimal | null;
   reconciliationStatus: ReconciliationStatus;
 }
 
 /**
- * Pattern + alias driven classifier. Decides whether a transaction expects an
- * NF (→ scoring matcher) or carries a transaction-only category (Aluguel,
- * Folha, …) that resolves it on its own.
- *
- * Precedence:
- *   1. Counterparty CPF/CNPJ hardcoded rule.
- *   2. Alias hit with a learned category.
- *   3. Subtype=TARIFA fast path.
- *   4. Memo regex rules.
- *   5. Marketplace DEBIT → expects NF (value-only matcher pass).
- *   6. Fallthrough: expects NF when a counterparty CNPJ/CPF is present, else
- *      leave unclassified.
- *
- * Already-RECONCILED transactions are skipped — never undoes a confirmed match.
+ * Thin entry point over the {@link CategoryFusionService}. Builds a signal input
+ * from a transaction, asks the fusion engine for a decision, and (for the
+ * persist paths) applies it. The actual precedence/learning lives in the
+ * learners + fusion spine; this service only adapts to the legacy
+ * ClassificationResult shape and preserves the MANUAL/RECONCILED skip guards.
  */
 @Injectable()
 export class ReconciliationClassifierService {
@@ -96,86 +47,46 @@ export class ReconciliationClassifierService {
 
   constructor(
     @Inject(forwardRef(() => PrismaService)) private readonly prisma: PrismaService,
-    private readonly aliasService: ReconciliationAliasService,
     private readonly categories: TransactionCategoryService,
+    private readonly fusion: CategoryFusionService,
   ) {}
+
+  private toSignalInput(tx: ClassifierInput): ClassifierSignalInput {
+    return {
+      id: tx.id,
+      type: tx.type,
+      subtype: tx.subtype,
+      memo: tx.memo ?? null,
+      counterpartyCnpjCpf: tx.counterpartyCnpjCpf ?? null,
+      counterpartyName: tx.counterpartyName ?? null,
+      amount: tx.amount != null ? Number(tx.amount) : 0,
+      reconciliationStatus: tx.reconciliationStatus,
+    };
+  }
+
+  private async toResult(decision: FusedDecision): Promise<ClassificationResult> {
+    let category: TransactionCategory | null = null;
+    if (decision.tier === DecisionTier.AUTO_APPLY && decision.categoryId) {
+      category = (await this.categories.snapshot()).byId.get(decision.categoryId) ?? null;
+    }
+    return {
+      expectsFiscalDocument: decision.expectsFiscalDocument,
+      category,
+      source: ReconciliationSource.AUTO,
+      shouldReconcile: decision.shouldReconcile,
+      reason: decision.reason,
+    };
+  }
 
   /** Pure classification — no DB write. */
   async classify(tx: ClassifierInput): Promise<ClassificationResult> {
-    // 1. Counterparty CPF/CNPJ hardcoded rules.
-    if (tx.counterpartyCnpjCpf) {
-      const digits = tx.counterpartyCnpjCpf.replace(/\D/g, '');
-      const slug = COUNTERPARTY_CATEGORY_RULES[digits];
-      if (slug) {
-        const cat = await this.categories.resolveBySlug(slug);
-        if (cat) return this.txOnly(cat, `Contraparte configurada (${digits})`);
-      }
-    }
-
-    // 2. Alias lookup with a learned category.
-    const alias = await this.aliasService.resolve(tx.memo, tx.type);
-    if (alias?.categoryId) {
-      const cat = (await this.categories.snapshot()).byId.get(alias.categoryId);
-      if (cat) return this.txOnly(cat, `Alias confirmado (${alias.confirmedCount}x)`);
-    }
-
-    // 3. Subtype fast path.
-    if (tx.subtype === BankTransactionSubtype.TARIFA) {
-      const cat = await this.categories.resolveBySlug('tarifa-bancaria');
-      if (cat) return this.txOnly(cat, 'Subtype TARIFA');
-    }
-
-    // 4. Memo regex rules.
-    const memo = tx.memo ?? '';
-    for (const rule of MEMO_RULES) {
-      if (rule.pattern.test(memo)) {
-        const cat = await this.categories.resolveBySlug(rule.slug);
-        if (cat) return this.txOnly(cat, `Regra de memo: ${rule.pattern.source.slice(0, 40)}`);
-      }
-    }
-
-    // 5. Marketplace DEBIT → expects NF (value-only matcher pass).
-    if (tx.type === BankTransactionType.DEBIT && isMarketplaceMemo(tx.memo)) {
-      return {
-        expectsFiscalDocument: true,
-        category: null,
-        source: ReconciliationSource.AUTO,
-        shouldReconcile: false,
-        reason: 'Pagamento marketplace (conciliação por valor)',
-      };
-    }
-
-    // 6. Fallthrough.
-    if (tx.counterpartyCnpjCpf) {
-      return {
-        expectsFiscalDocument: true,
-        category: null,
-        source: ReconciliationSource.AUTO,
-        shouldReconcile: false,
-        reason: 'Default NF (contraparte identificada)',
-      };
-    }
-    return {
-      expectsFiscalDocument: false,
-      category: null,
-      source: ReconciliationSource.AUTO,
-      shouldReconcile: false,
-      reason: 'Sem padrão identificável',
-    };
-  }
-
-  private txOnly(category: TransactionCategory, reason: string): ClassificationResult {
-    return {
-      expectsFiscalDocument: false,
-      category,
-      source: ReconciliationSource.AUTO,
-      shouldReconcile: category.isResolving,
-      reason,
-    };
+    const decision = await this.fusion.classify(this.toSignalInput(tx));
+    return this.toResult(decision);
   }
 
   /**
-   * Classify a single transaction and persist the result. Skips RECONCILED rows.
+   * Classify a single transaction and persist the result. Skips RECONCILED and
+   * MANUAL rows — never undoes a confirmed match nor stomps a hand-set category.
    */
   async classifyAndPersist(
     txId: string,
@@ -190,63 +101,19 @@ export class ReconciliationClassifierService {
         subtype: true,
         memo: true,
         counterpartyCnpjCpf: true,
+        counterpartyName: true,
+        amount: true,
         reconciliationStatus: true,
         categorySource: true,
       },
     });
     if (!tx) return null;
     if (tx.reconciliationStatus === ReconciliationStatus.RECONCILED) return null;
-    // Never let auto-classification overwrite a category the user set by hand.
     if (tx.categorySource === ReconciliationSource.MANUAL) return null;
 
-    const result = await this.classify(tx);
-    await this.applyResult(txId, result, prismaTx);
-    return result;
-  }
-
-  /** Persists a classification result (expects-NF flag + transaction-only tag). */
-  private async applyResult(
-    txId: string,
-    result: ClassificationResult,
-    prismaTx?: Prisma.TransactionClient,
-  ): Promise<void> {
-    const db = prismaTx ?? this.prisma;
-    await db.bankTransaction.update({
-      where: { id: txId },
-      data: {
-        expectsFiscalDocument: result.expectsFiscalDocument,
-        categorySource: ReconciliationSource.AUTO,
-        classifiedAt: new Date(),
-        ...(result.shouldReconcile
-          ? {
-              reconciliationStatus: ReconciliationStatus.RECONCILED,
-              reconciliationSource: ReconciliationSource.AUTO,
-            }
-          : {}),
-      },
-    });
-
-    // Reconcile the single AUTO transaction-only tag with the classification.
-    await db.bankTransactionCategory.deleteMany({
-      where: {
-        transactionId: txId,
-        source: ReconciliationSource.AUTO,
-        category: { kind: TransactionCategoryKind.TRANSACTION_ONLY },
-      },
-    });
-    if (result.category) {
-      await db.bankTransactionCategory.upsert({
-        where: {
-          transactionId_categoryId: { transactionId: txId, categoryId: result.category.id },
-        },
-        create: {
-          transactionId: txId,
-          categoryId: result.category.id,
-          source: ReconciliationSource.AUTO,
-        },
-        update: { source: ReconciliationSource.AUTO },
-      });
-    }
+    const decision = await this.fusion.classify(this.toSignalInput(tx));
+    await this.fusion.applyDecision(txId, decision, prismaTx);
+    return this.toResult(decision);
   }
 
   /**
@@ -271,6 +138,8 @@ export class ReconciliationClassifierService {
         subtype: true,
         memo: true,
         counterpartyCnpjCpf: true,
+        counterpartyName: true,
+        amount: true,
         reconciliationStatus: true,
         categorySource: true,
       },
@@ -280,18 +149,26 @@ export class ReconciliationClassifierService {
     let reconciled = 0;
     for (const tx of txs) {
       if (tx.reconciliationStatus === ReconciliationStatus.RECONCILED) continue;
-      // Skip transactions the user manually categorized — auto must not stomp MANUAL.
       if (tx.categorySource === ReconciliationSource.MANUAL) continue;
       try {
-        const result = await this.classify(tx);
-        await this.applyResult(tx.id, result);
-        const key = result.category?.slug ?? (result.expectsFiscalDocument ? 'nf' : 'unclassified');
+        const decision = await this.fusion.classify(this.toSignalInput(tx));
+        await this.fusion.applyDecision(tx.id, decision);
+        const key = await this.tallyKey(decision);
         byCategory[key] = (byCategory[key] ?? 0) + 1;
-        if (result.shouldReconcile) reconciled += 1;
+        if (decision.shouldReconcile) reconciled += 1;
       } catch (err) {
         this.logger.warn(`Failed to classify transaction ${tx.id}: ${err}`);
       }
     }
     return { processed: txs.length, reconciled, byCategory };
+  }
+
+  private async tallyKey(decision: FusedDecision): Promise<string> {
+    if (decision.tier === DecisionTier.SUGGEST) return 'suggest';
+    if (decision.tier === DecisionTier.AUTO_APPLY && decision.categoryId) {
+      const cat = (await this.categories.snapshot()).byId.get(decision.categoryId);
+      return cat?.slug ?? 'auto';
+    }
+    return decision.expectsFiscalDocument ? 'nf' : 'unclassified';
   }
 }

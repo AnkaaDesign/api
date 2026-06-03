@@ -257,12 +257,16 @@ export class NotificationAdminController {
         sectorId,
         dateFrom,
         dateTo,
-        page = 1,
-        limit = 20,
+        page: pageRaw = 1,
+        limit: limitRaw = 20,
         orderBy = 'createdAt',
         order = 'desc',
         searchingFor,
       } = filters;
+
+      // Query params arrive as strings; coerce to integers for Prisma skip/take
+      const page = Math.max(1, Number(pageRaw) || 1);
+      const limit = Math.max(1, Number(limitRaw) || 20);
 
       // Build where clause with AND array to combine conditions properly
       const where: any = {};

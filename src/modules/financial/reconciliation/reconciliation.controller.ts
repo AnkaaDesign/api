@@ -26,6 +26,8 @@ import { ReconciliationStatisticsService } from './reconciliation-statistics.ser
 import { ManualXmlImportService } from './manual-xml-import.service';
 import { ReconciliationAliasService } from './reconciliation-alias.service';
 import { TransactionCategoryService } from './transaction-category.service';
+import { CategoryFusionService } from './learning/category-fusion.service';
+import { RecurrenceLearnerService } from './recurrence-learner.service';
 import {
   listCategoriesQuerySchema,
   ListCategoriesQueryDto,
@@ -82,6 +84,8 @@ export class ReconciliationController {
     private readonly xmlImport: ManualXmlImportService,
     private readonly aliases: ReconciliationAliasService,
     private readonly categories: TransactionCategoryService,
+    private readonly fusion: CategoryFusionService,
+    private readonly recurrence: RecurrenceLearnerService,
   ) {}
 
   @Post('import')
@@ -303,5 +307,56 @@ export class ReconciliationController {
   async backfillAliases(@Query('limit') limit?: string) {
     const parsedLimit = limit ? Math.min(50000, Math.max(1, parseInt(limit, 10))) : 5000;
     return this.aliases.backfillFromHistory(parsedLimit);
+  }
+
+  // ----- self-learning layer ----------------------------------------------
+
+  // "Why was this categorized?" — live fused decision + per-learner confidence
+  // breakdown + the persisted decision history.
+  @Get('transactions/:id/explain')
+  explain(@Param('id') id: string) {
+    return this.fusion.explain(id);
+  }
+
+  // Inbox of medium-confidence SUGGEST-tier proposals awaiting one-click confirm.
+  @Get('suggestions')
+  listSuggestions() {
+    return this.service.listSuggestions();
+  }
+
+  // Promote a stored suggestion to a MANUAL category (one click → also trains).
+  @Post('transactions/:id/suggestion/confirm')
+  confirmSuggestion(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: { id?: string } },
+  ) {
+    return this.service.confirmSuggestion(id, req.user?.id);
+  }
+
+  // Learned per-counterparty cadence + expected-amount forecast with anomaly
+  // flags (distinct from the static isRecurring forecast above).
+  @Get('recurring/learned-forecast')
+  learnedForecast(@Query('reference') reference?: string) {
+    return this.recurrence.forecast(reference ? new Date(reference) : new Date());
+  }
+
+  // Admin: list learned rules across the counterparty/memo/emitter learners.
+  @Get('learned-rules')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  listLearnedRules(@Query('kind') kind?: string) {
+    return this.fusion.listRules(kind);
+  }
+
+  // Admin: soft-disable a learned rule (sets disabledAt; never hard-deletes).
+  @Post('learned-rules/:kind/:id/disable')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  disableLearnedRule(@Param('kind') kind: string, @Param('id') id: string) {
+    return this.fusion.setRuleDisabled(kind, id, true);
+  }
+
+  @Post('learned-rules/:kind/:id/enable')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  enableLearnedRule(@Param('kind') kind: string, @Param('id') id: string) {
+    return this.fusion.setRuleDisabled(kind, id, false);
   }
 }

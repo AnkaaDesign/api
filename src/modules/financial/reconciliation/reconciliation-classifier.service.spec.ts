@@ -9,6 +9,13 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ReconciliationAliasService } from './reconciliation-alias.service';
 import { ReconciliationClassifierService } from './reconciliation-classifier.service';
 import { TransactionCategoryService } from './transaction-category.service';
+import { CounterpartyLearningService } from './counterparty-learning.service';
+import { MemoCategoryLearnerService } from './memo-category-learner.service';
+import { FiscalDerivedLearnerService } from './fiscal-derived-learner.service';
+import { RecurrenceLearnerService } from './recurrence-learner.service';
+import { LadderLearner } from './learning/ladder.learner';
+import { CategoryFusionService } from './learning/category-fusion.service';
+import { CATEGORY_LEARNERS } from './learning/category-signal';
 
 // Fake transaction-only taxonomy: slug → category row. Mirrors what the
 // migration seeds (all transaction-only, isResolving=true).
@@ -82,15 +89,46 @@ const PROD_SAMPLES: Array<{
   { memo: 'COMPRAS NACIONAIS-VE0593231 EMPORIO CENTRAL', subtype: BankTransactionSubtype.CARTAO, type: BankTransactionType.DEBIT, counterpartyCnpjCpf: null, expected: 'UNCLASSIFIED', note: 'Debit card purchase without parseable CNPJ' },
 ];
 
+// The classifier now delegates to the fusion engine. We wire the real fusion
+// stack but with an EMPTY prisma mock, so the DB-backed learners (counterparty /
+// memo / emitter) catch their failed queries and return no signals — leaving the
+// LadderLearner to reproduce exactly the legacy precedence the cases below pin.
 async function buildService(
   aliasResolve: jest.Mock = jest.fn().mockResolvedValue(null),
 ): Promise<ReconciliationClassifierService> {
+  const aliasMock = {
+    resolve: aliasResolve,
+    aliasConfidence: (a: { confirmedCount?: number } | null) =>
+      (a?.confirmedCount ?? 0) >= 3 ? 1.0 : 0.9,
+    recordReversal: jest.fn(),
+  };
   const moduleRef = await Test.createTestingModule({
     providers: [
       ReconciliationClassifierService,
-      { provide: ReconciliationAliasService, useValue: { resolve: aliasResolve } },
+      CategoryFusionService,
+      LadderLearner,
+      CounterpartyLearningService,
+      MemoCategoryLearnerService,
+      FiscalDerivedLearnerService,
+      RecurrenceLearnerService,
+      { provide: ReconciliationAliasService, useValue: aliasMock },
       { provide: PrismaService, useValue: {} },
       { provide: TransactionCategoryService, useValue: fakeCategoryService() },
+      {
+        provide: CATEGORY_LEARNERS,
+        useFactory: (
+          ladder: LadderLearner,
+          counterparty: CounterpartyLearningService,
+          memo: MemoCategoryLearnerService,
+          fiscal: FiscalDerivedLearnerService,
+        ) => [ladder, counterparty, memo, fiscal],
+        inject: [
+          LadderLearner,
+          CounterpartyLearningService,
+          MemoCategoryLearnerService,
+          FiscalDerivedLearnerService,
+        ],
+      },
     ],
   }).compile();
   return moduleRef.get(ReconciliationClassifierService);
