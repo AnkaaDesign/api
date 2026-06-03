@@ -33,6 +33,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
   private isProcessingOverdue = false;
   private isProcessingWebhookRetry = false;
   private isProcessingDueNotifications = false;
+  private isProcessingDueSync = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -835,7 +836,30 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       `[RECONCILE_MANUAL] Triggered for range ${start.toISOString().split('T')[0]} → ${end.toISOString().split('T')[0]}`,
     );
 
-    return this.runReconciliationForRange(start, end, '[RECONCILE_MANUAL]');
+    const result = await this.runReconciliationForRange(start, end, '[RECONCILE_MANUAL]');
+
+    // After reconciling payments, also sync due dates and seuNumero from Sicredi.
+    // This ensures that any due-date changes made directly in Sicredi's portal are
+    // immediately reflected in our installments and quote statuses — not just during
+    // the nightly 9 AM cron.
+    // Skip if the scheduled 9 AM sync is already running to avoid concurrent API flood.
+    if (!this.isProcessingDueSync) {
+      this.runSyncAllActiveBankSlips()
+        .then(r =>
+          this.logger.log(
+            `[RECONCILE_MANUAL] Post-reconciliation sync done — checked: ${r.checked}, due-date changes: ${r.dueDateChanges}, seuNumero changes: ${r.seuNumeroChanges}, errors: ${r.errors}`,
+          ),
+        )
+        .catch(err =>
+          this.logger.error(`[RECONCILE_MANUAL] Post-reconciliation date sync failed: ${err}`),
+        );
+    } else {
+      this.logger.log(
+        '[RECONCILE_MANUAL] Scheduled 9 AM sync already in progress — skipping post-reconciliation date sync',
+      );
+    }
+
+    return result;
   }
 
   /**
@@ -1362,7 +1386,220 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     }
   }
 
-  // ─── Job 6: Webhook Contract Periodic Health Check ──────────────────────────
+  // ─── Job 6: Bank Slip Data Sync from Sicredi ───────────────────────────────
+  //
+  // Runs daily at 9 AM SP — after the overdue check (7 AM) and before the
+  // paid-boleto reconciliation (10 AM).  Queries Sicredi for every ACTIVE or
+  // OVERDUE bank slip and pulls back the current dataVencimento and seuNumero.
+  // Whenever Sicredi's record differs from ours (e.g. a due date was changed
+  // directly in Sicredi's portal, or seuNumero was updated after an NF-e
+  // regeneration) we update BankSlip + Installment and cascade the quote status.
+
+  @Cron('0 9 * * *', {
+    name: 'sicredi-boleto-due-date-sync',
+    timeZone: 'America/Sao_Paulo',
+  })
+  async syncBankSlipDataFromSicredi(): Promise<void> {
+    if (this.isProcessingDueSync) {
+      this.logger.warn('[BOLETO_SYNC] Sync already in progress, skipping');
+      return;
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      this.logger.log('[BOLETO_SYNC] Skipping bank slip data sync in dev mode');
+      return;
+    }
+
+    this.isProcessingDueSync = true;
+
+    try {
+      await this.runSyncAllActiveBankSlips();
+    } catch (error) {
+      this.logger.error('[BOLETO_SYNC] Error during bank slip data sync:', error);
+    } finally {
+      this.isProcessingDueSync = false;
+    }
+  }
+
+  /**
+   * Query every ACTIVE / OVERDUE bank slip, compare against Sicredi's current
+   * data, and update local BankSlip + Installment records that diverged.
+   * Called by the daily cron (syncBankSlipDataFromSicredi) and also after a
+   * manual reconciliation so both payment status AND due dates stay in sync.
+   */
+  async runSyncAllActiveBankSlips(): Promise<{
+    checked: number;
+    dueDateChanges: number;
+    seuNumeroChanges: number;
+    errors: number;
+  }> {
+    this.logger.log('[BOLETO_SYNC] Starting bank slip data sync from Sicredi...');
+
+    const allActive = await this.prisma.bankSlip.findMany({
+      where: {
+        status: { in: [BANK_SLIP_STATUS.ACTIVE, BANK_SLIP_STATUS.OVERDUE] },
+      },
+      select: {
+        id: true,
+        nossoNumero: true,
+        dueDate: true,
+        seuNumero: true,
+        status: true,
+        installment: {
+          select: {
+            id: true,
+            status: true,
+            customerConfig: { select: { quoteId: true } },
+          },
+        },
+      },
+    });
+
+    const bankSlips = allActive.filter(
+      bs => bs.nossoNumero && !bs.nossoNumero.startsWith('TMP-') && !bs.nossoNumero.startsWith('ERR-'),
+    );
+
+    this.logger.log(
+      `[BOLETO_SYNC] Checking ${bankSlips.length} registered bank slip(s) against Sicredi`,
+    );
+
+    let dueDateChanges = 0;
+    let seuNumeroChanges = 0;
+    let errors = 0;
+
+    for (const bankSlip of bankSlips) {
+      try {
+        const result = await this.syncOneBankSlip(bankSlip);
+        if (result.dueDateChanged) dueDateChanges++;
+        if (result.seuNumeroChanged) seuNumeroChanges++;
+      } catch (error) {
+        errors++;
+        this.logger.warn(
+          `[BOLETO_SYNC] Failed to sync boleto ${bankSlip.nossoNumero}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
+      // Small courtesy delay between Sicredi API calls
+      await new Promise(res => setTimeout(res, 80));
+    }
+
+    this.logger.log(
+      `[BOLETO_SYNC] Done. Checked: ${bankSlips.length}, Due-date changes: ${dueDateChanges}, SeuNumero changes: ${seuNumeroChanges}, Errors: ${errors}`,
+    );
+
+    return { checked: bankSlips.length, dueDateChanges, seuNumeroChanges, errors };
+  }
+
+  /**
+   * Sync a single bank slip's data from Sicredi (due date + seuNumero).
+   * Called by the daily cron and by the manual endpoint on the invoice controller.
+   */
+  async syncOneBankSlip(bankSlip: {
+    id: string;
+    nossoNumero: string;
+    dueDate: Date;
+    seuNumero: string | null;
+    status: string;
+    installment: {
+      id: string;
+      status: string;
+      customerConfig: { quoteId: string };
+    } | null;
+  }): Promise<{ dueDateChanged: boolean; seuNumeroChanged: boolean; newDueDate?: Date }> {
+    const sicrediData = await this.sicrediService.queryBoleto(bankSlip.nossoNumero);
+
+    const bankSlipUpdates: Record<string, unknown> = { lastSyncAt: new Date() };
+    let dueDateChanged = false;
+    let seuNumeroChanged = false;
+    let newParsedDate: Date | undefined;
+
+    // --- Due date ---
+    // Use the existing parseSicrediDate for parsing, then compare calendar days in
+    // SP timezone (the authoritative local timezone for these dates). Store any
+    // change at noon UTC — the convention used everywhere else in the system.
+    const sicrediRaw = this.parseSicrediDate(sicrediData.dataVencimento);
+    if (sicrediRaw) {
+      const sicrediYMD = sicrediRaw.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+      const localYMD = bankSlip.dueDate.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+
+      if (localYMD !== sicrediYMD) {
+        dueDateChanged = true;
+        // Rebuild at noon UTC for timezone-safe storage
+        const [y, m, d] = sicrediYMD.split('-').map(Number);
+        newParsedDate = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+        bankSlipUpdates.dueDate = newParsedDate;
+
+        // If the boleto was OVERDUE and Sicredi's date is now in the future,
+        // restore it to ACTIVE so the overdue-check job won't re-mark it immediately.
+        if (bankSlip.status === BANK_SLIP_STATUS.OVERDUE && newParsedDate > new Date()) {
+          bankSlipUpdates.status = BANK_SLIP_STATUS.ACTIVE;
+        }
+
+        this.logger.log(
+          `[BOLETO_SYNC] ${bankSlip.nossoNumero} due date: ${localYMD} → ${sicrediYMD}` +
+            (bankSlipUpdates.status ? ' (restored ACTIVE)' : ''),
+        );
+      }
+    } else {
+      this.logger.warn(
+        `[BOLETO_SYNC] Cannot parse dataVencimento="${sicrediData.dataVencimento}" for boleto ${bankSlip.nossoNumero}`,
+      );
+    }
+
+    // --- seuNumero ---
+    if (
+      sicrediData.seuNumero != null &&
+      sicrediData.seuNumero !== bankSlip.seuNumero
+    ) {
+      seuNumeroChanged = true;
+      bankSlipUpdates.seuNumero = sicrediData.seuNumero;
+      this.logger.log(
+        `[BOLETO_SYNC] ${bankSlip.nossoNumero} seuNumero: "${bankSlip.seuNumero}" → "${sicrediData.seuNumero}"`,
+      );
+    }
+
+    // --- Warn on unexpected terminal states ---
+    if (sicrediData.situacao === 'LIQUIDADO') {
+      this.logger.warn(
+        `[BOLETO_SYNC] Boleto ${bankSlip.nossoNumero} is LIQUIDADO at Sicredi but ${bankSlip.status} locally — reconciliation job should handle this`,
+      );
+    } else if (sicrediData.situacao === 'BAIXADO') {
+      this.logger.warn(
+        `[BOLETO_SYNC] Boleto ${bankSlip.nossoNumero} is BAIXADO at Sicredi but ${bankSlip.status} locally`,
+      );
+    }
+
+    // Persist all changes (at minimum lastSyncAt)
+    await this.prisma.bankSlip.update({
+      where: { id: bankSlip.id },
+      data: bankSlipUpdates,
+    });
+
+    // Propagate due-date change down to the installment and up to the quote
+    if (dueDateChanged && newParsedDate && bankSlip.installment) {
+      const installmentUpdates: Record<string, unknown> = { dueDate: newParsedDate };
+
+      // Restore OVERDUE installment to PENDING when date is pushed into the future
+      if (
+        bankSlip.installment.status === INSTALLMENT_STATUS.OVERDUE &&
+        newParsedDate > new Date()
+      ) {
+        installmentUpdates.status = INSTALLMENT_STATUS.PENDING;
+      }
+
+      await this.prisma.installment.update({
+        where: { id: bankSlip.installment.id },
+        data: installmentUpdates,
+      });
+
+      // Recalculate quote status — a future due date removes the overdue flag
+      await this.cascadeService.cascadeFromQuote(bankSlip.installment.customerConfig.quoteId);
+    }
+
+    return { dueDateChanged, seuNumeroChanged, newDueDate: newParsedDate };
+  }
+
+  // ─── Job 7: Webhook Contract Periodic Health Check ──────────────────────────
 
   // Runs every 6 hours in São Paulo time (00:00, 06:00, 12:00, 18:00).
   // Ensures the Sicredi webhook contract is always ATIVO so payment events are
@@ -1686,4 +1923,5 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       );
     }
   }
+
 }

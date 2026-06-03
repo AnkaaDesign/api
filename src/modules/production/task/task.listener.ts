@@ -268,9 +268,9 @@ export class TaskListener {
               layoutChangeSummary,
             },
             overrides: {
-              title: 'Layout do Caminhão atualizado',
-              body: `Layout do caminhão da tarefa "${event.task.name}" atualizado por ${changedByName}: ${layoutChangeSummary}`,
-              webUrl: `/producao/agenda/detalhes/${event.task.id}`,
+              title: 'Medidas do Caminhão atualizadas',
+              body: `Medidas do caminhão da tarefa "${event.task.name}" atualizadas por ${changedByName}: ${layoutChangeSummary}`,
+              webUrl: `/producao/cronograma/detalhes/${event.task.id}`,
             },
           },
         );
@@ -388,6 +388,14 @@ export class TaskListener {
           taskSectorId: event.task.sectorId || null,
           daysRemaining: event.daysRemaining,
           hoursRemaining: event.hoursRemaining,
+          dueDate: event.task.term
+            ? new Date(event.task.term).toLocaleDateString('pt-BR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                timeZone: 'America/Sao_Paulo',
+              })
+            : undefined,
         },
       });
 
@@ -415,6 +423,14 @@ export class TaskListener {
           serialNumber: event.task.serialNumber,
           taskSectorId: event.task.sectorId || null,
           daysOverdue: event.daysOverdue,
+          dueDate: event.task.term
+            ? new Date(event.task.term).toLocaleDateString('pt-BR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                timeZone: 'America/Sao_Paulo',
+              })
+            : undefined,
         },
       });
 
@@ -457,6 +473,14 @@ export class TaskListener {
           daysRemaining: event.daysRemaining,
           hasIncompleteOrders: event.hasIncompleteOrders,
           incompleteOrderTypes: event.incompleteOrderTypes,
+          dueDate: event.task.forecastDate
+            ? new Date(event.task.forecastDate).toLocaleDateString('pt-BR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                timeZone: 'America/Sao_Paulo',
+              })
+            : undefined,
         },
       });
 

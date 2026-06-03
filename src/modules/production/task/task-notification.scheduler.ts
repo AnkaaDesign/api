@@ -55,6 +55,18 @@ export class TaskNotificationScheduler {
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
+  /** Returns midnight of today in São Paulo time as a UTC Date */
+  private todayMidnightSP(): Date {
+    const spDateStr = new Date().toLocaleString('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    // São Paulo is UTC-3 (no DST since 2019)
+    return new Date(`${spDateStr}T00:00:00-03:00`);
+  }
+
   // =====================
   // PRODUCTION TASK DEADLINES (term field)
   // =====================
@@ -168,8 +180,7 @@ export class TaskNotificationScheduler {
     this.logger.log('Running daily term deadline check...');
 
     try {
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
+      const now = this.todayMidnightSP();
 
       const deadlineThresholds = [1, 3, 7];
 
@@ -229,8 +240,7 @@ export class TaskNotificationScheduler {
     this.logger.log('Running daily overdue term task check...');
 
     try {
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
+      const now = this.todayMidnightSP();
 
       const overdueTasks = await this.prisma.task.findMany({
         where: {
@@ -293,8 +303,7 @@ export class TaskNotificationScheduler {
     this.logger.log('Running daily forecast deadline check...');
 
     try {
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
+      const now = this.todayMidnightSP();
 
       // Define forecast thresholds (days before forecast date)
       const forecastThresholds = [10, 7, 3, 1, 0]; // 0 = today
@@ -380,8 +389,7 @@ export class TaskNotificationScheduler {
     this.logger.log('Running daily overdue forecast task check...');
 
     try {
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
+      const now = this.todayMidnightSP();
 
       const overdueTasks = await this.prisma.task.findMany({
         where: {

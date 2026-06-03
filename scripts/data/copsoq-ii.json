@@ -1,0 +1,626 @@
+{
+  "_doc": "COPSOQ-II — 41 questões como Tópicos em 3 Skills. Score 5=melhor/0=pior sempre. Constructs alinhados à nomenclatura oficial do COPSOQ-II. Tópicos neg-polarity refraseados para que score alto = bom resultado organizacional.",
+  "_score_mapping": "pos: chosen_index [0,1,2,3,4] → score [0,1,2,3,5]. neg: [5,3,2,1,0]. neg-pinned: sempre 5.",
+  "Exigências do Trabalho": [
+    {
+      "title": "1. Quantidade de Trabalho — Distribuição de Carga",
+      "copsoq_q": 1,
+      "polarity": "neg",
+      "description": "Avalia se o volume de trabalho é adequadamente planejado e distribuído entre os colaboradores, sem gerar acúmulo por falhas de organização ou desequilíbrio na atribuição de tarefas, contribuindo para a sustentabilidade operacional e prevenção de sobrecarga.",
+      "counter_behaviors": "Acumular tarefas por distribuição desigual ou falta de planejamento; sobrecarregar parte da equipe enquanto outros ficam ociosos; não revisar a distribuição de demandas quando há picos ou ausências; transferir tarefas de última hora sem organização; não comunicar volume excessivo à liderança.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "A carga de trabalho acumula-se de forma crônica e sistemática por má distribuição, gerando sobrecarga severa, erros recorrentes e comprometimento da saúde dos colaboradores." },
+        { "score": 1, "name": "Elevado",    "description": "Acúmulo de trabalho é frequente e a redistribuição só ocorre após pressão da equipe ou intervenção da liderança, sem caráter preventivo." },
+        { "score": 2, "name": "Irregular",  "description": "A distribuição de carga é razoável na maioria do tempo, porém ainda há episódios recorrentes de acúmulo que impactam o desempenho e o bem-estar." },
+        { "score": 3, "name": "Adequado",   "description": "A carga de trabalho é bem distribuída na maior parte do tempo, com ajustes realizados quando necessário e poucos episódios de acúmulo significativo." },
+        { "score": 4, "name": "Consciente", "description": "A distribuição de carga é sistematicamente planejada e monitorada, com rara ocorrência de acúmulo e mecanismos proativos de nivelamento." },
+        { "score": 5, "name": "Referência", "description": "A organização do trabalho é exemplar: a carga nunca se acumula por falhas de distribuição, e o planejamento previne desequilíbrios antes que se tornem problemas." }
+      ]
+    },
+    {
+      "title": "2. Quantidade de Trabalho — Pressão Temporal",
+      "copsoq_q": 2,
+      "polarity": "neg",
+      "description": "Avalia se o volume de tarefas atribuído aos colaboradores é compatível com o tempo disponível na jornada de trabalho, sem exigir esforço extraordinário sistemático para o cumprimento das demandas, contribuindo para a qualidade das entregas e para a saúde ocupacional.",
+      "counter_behaviors": "Atribuir volume de tarefas incompatível com a jornada disponível; não revisar prioridades quando há excesso de demanda; exigir conclusão de todas as atividades sem ajuste de prazos; naturalizar a extensão da jornada como prática habitual; não considerar o impacto do volume excessivo sobre a qualidade.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "Os colaboradores raramente conseguem concluir suas tarefas no tempo disponível, gerando acúmulo crônico, comprometimento da qualidade e sobrecarga sistêmica." },
+        { "score": 1, "name": "Elevado",    "description": "Tarefas não concluídas no prazo são frequentes; o cumprimento das demandas depende de extensão habitual da jornada ou de priorização forçada." },
+        { "score": 2, "name": "Irregular",  "description": "Na maioria do tempo há volume gerenciável, porém picos de demanda recorrentes ainda comprometem o cumprimento das tarefas dentro da jornada." },
+        { "score": 3, "name": "Adequado",   "description": "O volume de trabalho é geralmente compatível com o tempo disponível; situações de excesso são pontuais e tratadas com ajuste de prioridades." },
+        { "score": 4, "name": "Consciente", "description": "O planejamento das demandas assegura que os colaboradores quase sempre concluam suas tarefas dentro da jornada, sem necessidade de esforço extra sistemático." },
+        { "score": 5, "name": "Referência", "description": "O dimensionamento das tarefas é sempre compatível com o tempo disponível; a gestão da carga é referência e os colaboradores raramente enfrentam pressão temporal." }
+      ]
+    },
+    {
+      "title": "3. Ritmo de Trabalho",
+      "copsoq_q": 3,
+      "polarity": "neg",
+      "description": "Avalia se o ritmo de execução das atividades é sustentável e compatível com a capacidade humana, sem exigir velocidade excessiva de forma habitual, contribuindo para a qualidade do trabalho, redução de erros e prevenção do adoecimento por sobrecarga.",
+      "counter_behaviors": "Impor ritmo de trabalho acelerado de forma contínua; não dimensionar adequadamente o tempo necessário para execução das tarefas; pressionar por velocidade em detrimento da qualidade; naturalizar a pressa como padrão operacional; não identificar quando o ritmo imposto compromete a segurança.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O trabalho é executado sob ritmo excessivo de forma constante, gerando erros frequentes, fadiga crônica e risco de adoecimento dos colaboradores." },
+        { "score": 1, "name": "Elevado",    "description": "O ritmo acelerado é frequente e só aliviado em situações excepcionais, comprometendo consistentemente a qualidade e o bem-estar da equipe." },
+        { "score": 2, "name": "Irregular",  "description": "O ritmo de trabalho é adequado na maior parte do tempo, porém ainda há períodos recorrentes de pressão excessiva de velocidade." },
+        { "score": 3, "name": "Adequado",   "description": "O ritmo de trabalho é geralmente sustentável; picos de velocidade ocorrem esporadicamente e são tratados como exceção, não como regra." },
+        { "score": 4, "name": "Consciente", "description": "O fluxo de trabalho é bem dimensionado e o ritmo raramente excede o sustentável; ajustes são feitos proativamente quando há risco de sobrecarga." },
+        { "score": 5, "name": "Referência", "description": "O ritmo de trabalho é sempre planejado para ser sustentável e compatível com a saúde dos colaboradores; é referência em equilíbrio entre produtividade e bem-estar." }
+      ]
+    },
+    {
+      "title": "4. Exigências Cognitivas",
+      "copsoq_q": 4,
+      "polarity": "neg",
+      "description": "Avalia o nível de demanda cognitiva imposta pelo trabalho — especialmente a necessidade de atenção intensa e ininterrupta —, considerando se essa exigência é compatível com a capacidade humana de sustentação do foco, contribuindo para a prevenção da fadiga mental e do erro.",
+      "counter_behaviors": "Estruturar processos que exijam atenção máxima de forma ininterrupta; não prever pausas cognitivas ao longo da jornada; subestimar o impacto da sobrecarga mental na qualidade e na segurança; ignorar sinais de fadiga cognitiva na equipe; acumular atividades de alta concentração sem alternância.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O trabalho exige atenção constante e intensa sem intervalos adequados, gerando fadiga cognitiva crônica, erros frequentes e risco elevado de acidentes ou falhas." },
+        { "score": 1, "name": "Elevado",    "description": "A demanda cognitiva é frequentemente intensa e pouco alternada, comprometendo o desempenho e o bem-estar mental dos colaboradores de forma regular." },
+        { "score": 2, "name": "Irregular",  "description": "A carga cognitiva é aceitável na maior parte do tempo, porém ainda há períodos frequentes de exigência mental excessiva sem pausas adequadas." },
+        { "score": 3, "name": "Adequado",   "description": "As demandas cognitivas são geralmente compatíveis com a capacidade humana, com alternância de atividades e pausas suficientes ao longo da jornada." },
+        { "score": 4, "name": "Consciente", "description": "A organização do trabalho prevê alternância de atividades cognitivas e pausas adequadas; a fadiga mental raramente compromete o desempenho." },
+        { "score": 5, "name": "Referência", "description": "As exigências cognitivas são cuidadosamente dimensionadas e gerenciadas; o design do trabalho é referência em prevenção da fadiga mental e promoção do foco sustentável." }
+      ]
+    },
+    {
+      "title": "5. Exigências Decisórias",
+      "copsoq_q": 5,
+      "polarity": "neg",
+      "description": "Avalia se o trabalho impõe exigências de tomada de decisão compatíveis com o papel e a capacitação do colaborador, com suporte adequado para situações de maior complexidade, contribuindo para a segurança psicológica e para a qualidade das decisões operacionais.",
+      "counter_behaviors": "Delegar responsabilidades decisórias incompatíveis com o nível hierárquico ou a capacitação do colaborador; não oferecer suporte ou estrutura para decisões complexas; transferir pressão decisória excessiva sem respaldo da liderança; não criar protocolos claros para situações críticas; expor colaboradores a consequências de decisões sem amparo.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O trabalho impõe decisões de alta complexidade de forma constante, sem estrutura de suporte, gerando insegurança severa, desgaste e risco de erros com consequências graves." },
+        { "score": 1, "name": "Elevado",    "description": "Decisões difíceis são frequentes e os colaboradores raramente contam com suporte ou protocolos claros para embasá-las adequadamente." },
+        { "score": 2, "name": "Irregular",  "description": "As exigências decisórias são gerenciáveis na maioria do tempo, porém ainda há situações recorrentes de complexidade além do esperado sem suporte suficiente." },
+        { "score": 3, "name": "Adequado",   "description": "As decisões exigidas são compatíveis com o papel do colaborador e há suporte disponível para situações de maior complexidade." },
+        { "score": 4, "name": "Consciente", "description": "O nível de complexidade decisória é bem calibrado e os colaboradores contam com protocolos e suporte que tornam as decisões difíceis episódios gerenciáveis." },
+        { "score": 5, "name": "Referência", "description": "O design das responsabilidades decisórias é exemplar: cada colaborador atua no nível adequado ao seu papel, com suporte robusto para situações excepcionais." }
+      ]
+    },
+    {
+      "title": "6. Exigências Emocionais",
+      "copsoq_q": 6,
+      "polarity": "neg",
+      "description": "Avalia o grau de desgaste emocional imposto pelo trabalho — como o contato com situações de conflito, sofrimento ou pressão intensa —, considerando se há suporte organizacional adequado para mitigar o impacto dessas exigências, contribuindo para a prevenção do esgotamento emocional.",
+      "counter_behaviors": "Expor colaboradores a situações de alta intensidade emocional sem suporte ou preparo; ignorar sinais de desgaste emocional na equipe; não oferecer canais de escuta ou suporte psicológico; normalizar o adoecimento emocional como consequência natural do trabalho; não capacitar líderes para identificar e mitigar sobrecarga emocional.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O trabalho impõe exigências emocionais extremas de forma contínua, sem nenhum suporte organizacional, gerando esgotamento severo e risco elevado de adoecimento." },
+        { "score": 1, "name": "Elevado",    "description": "As demandas emocionais são frequentemente intensas e o suporte disponível é insuficiente para mitigar o desgaste da equipe." },
+        { "score": 2, "name": "Irregular",  "description": "As exigências emocionais são aceitáveis na maior parte do tempo, porém ainda há episódios recorrentes de sobrecarga sem suporte adequado." },
+        { "score": 3, "name": "Adequado",   "description": "As exigências emocionais são compatíveis com o papel e há suporte disponível quando necessário para auxiliar os colaboradores no manejo do desgaste." },
+        { "score": 4, "name": "Consciente", "description": "A organização prevê ativamente suporte emocional e mecanismos de mitigação; o desgaste emocional raramente atinge níveis preocupantes." },
+        { "score": 5, "name": "Referência", "description": "A gestão das exigências emocionais é exemplar: há estrutura robusta de suporte, capacitação de lideranças e cultura de cuidado que previne o adoecimento emocional." }
+      ]
+    }
+  ],
+  "Organização e Relações no Trabalho": [
+    {
+      "title": "7. Influência no Trabalho",
+      "copsoq_q": 7,
+      "polarity": "pos",
+      "description": "Avalia o grau de autonomia e controle que o colaborador exerce sobre seu próprio trabalho — como pode organizar suas atividades, definir prioridades e tomar decisões dentro do seu escopo —, contribuindo para o senso de protagonismo, motivação e qualidade das entregas.",
+      "counter_behaviors": "Impor métodos rígidos de execução sem considerar a autonomia do colaborador; centralizar todas as decisões na liderança; não envolver a equipe na definição de prioridades; desconsiderar sugestões de quem executa o trabalho; tratar o colaborador como executor passivo sem voz no processo.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O colaborador não tem nenhuma autonomia sobre seu trabalho; todas as decisões são impostas, gerando passividade, desmotivação e ausência de protagonismo." },
+        { "score": 1, "name": "Dependente", "description": "A influência sobre o próprio trabalho é muito limitada; ajustes e iniciativas só são aceitos mediante aprovação constante da liderança." },
+        { "score": 2, "name": "Irregular",  "description": "Há alguma autonomia em tarefas rotineiras, porém a influência sobre o trabalho ainda é bastante restrita e condicionada." },
+        { "score": 3, "name": "Adequado",   "description": "O colaborador exerce autonomia real sobre suas atividades, pode organizar seu trabalho e contribuir com decisões dentro do seu escopo de forma consistente." },
+        { "score": 4, "name": "Consciente", "description": "A influência no trabalho é ampla e reconhecida; o colaborador tem voz ativa sobre métodos, prioridades e melhorias dentro do seu campo de atuação." },
+        { "score": 5, "name": "Referência", "description": "O colaborador exerce autonomia plena e tem influência reconhecida sobre seu trabalho e processos; é referência em protagonismo e autogestão." }
+      ]
+    },
+    {
+      "title": "8. Possibilidades de Desenvolvimento — Iniciativa",
+      "copsoq_q": 8,
+      "polarity": "pos",
+      "description": "Avalia se o trabalho cria condições para que o colaborador exerça iniciativa, propondo soluções, assumindo responsabilidades e atuando além do escopo mínimo esperado, contribuindo para o desenvolvimento profissional e para a capacidade de inovação da organização.",
+      "counter_behaviors": "Inibir a iniciativa dos colaboradores ao centralizar decisões; não criar espaço para propostas ou melhorias; punir ou ignorar ações proativas; limitar o escopo de atuação a tarefas estritamente prescritas; não reconhecer contribuições espontâneas da equipe.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O ambiente não oferece nenhum espaço para iniciativa; os colaboradores executam exclusivamente o que é ordenado, sem possibilidade de contribuição própria." },
+        { "score": 1, "name": "Dependente", "description": "A iniciativa é tolerada apenas em situações muito específicas e quando autorizada, não fazendo parte da cultura ou das expectativas do trabalho." },
+        { "score": 2, "name": "Irregular",  "description": "Há abertura ocasional para iniciativas, mas sem consistência; a cultura ainda privilegia a execução prescrita em detrimento da proatividade." },
+        { "score": 3, "name": "Adequado",   "description": "O trabalho valoriza e estimula a iniciativa dos colaboradores de forma consistente, criando espaço para contribuições além do mínimo esperado." },
+        { "score": 4, "name": "Consciente", "description": "A iniciativa é parte estrutural da cultura de trabalho; colaboradores são incentivados e reconhecidos por propor melhorias e assumir responsabilidades adicionais." },
+        { "score": 5, "name": "Referência", "description": "O ambiente é referência em estímulo à iniciativa; colaboradores com postura proativa são desenvolvidos, reconhecidos e influenciam positivamente toda a equipe." }
+      ]
+    },
+    {
+      "title": "9. Possibilidades de Desenvolvimento — Aprendizagem",
+      "copsoq_q": 9,
+      "polarity": "pos",
+      "description": "Avalia se o trabalho proporciona oportunidades reais de aprendizado e aquisição de novas competências ao longo do tempo, contribuindo para o desenvolvimento profissional contínuo, a empregabilidade e o engajamento dos colaboradores.",
+      "counter_behaviors": "Manter atividades repetitivas sem possibilidade de ampliação do escopo; não investir em treinamento ou desenvolvimento da equipe; negar oportunidades de aprendizado por conveniência operacional; ignorar o interesse dos colaboradores em crescer profissionalmente; tratar o desenvolvimento como benefício opcional, não como responsabilidade organizacional.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O trabalho é completamente repetitivo e estagnado; não há nenhuma oportunidade de aprendizado ou desenvolvimento de novas competências." },
+        { "score": 1, "name": "Dependente", "description": "O aprendizado ocorre de forma esporádica e não planejada; o desenvolvimento profissional depende exclusivamente da iniciativa individual, sem suporte organizacional." },
+        { "score": 2, "name": "Irregular",  "description": "Há alguma possibilidade de aprendizado, mas de forma inconsistente e sem estrutura; as oportunidades de desenvolvimento não são sistemáticas." },
+        { "score": 3, "name": "Adequado",   "description": "O trabalho proporciona oportunidades regulares de aprendizado e o desenvolvimento de novas competências faz parte da rotina de forma consistente." },
+        { "score": 4, "name": "Consciente", "description": "O desenvolvimento contínuo é incentivado ativamente; há estrutura, planejamento e reconhecimento do crescimento profissional como prioridade organizacional." },
+        { "score": 5, "name": "Referência", "description": "A organização é referência em possibilidades de desenvolvimento; o aprendizado contínuo é parte central da cultura e os colaboradores crescem consistentemente." }
+      ]
+    },
+    {
+      "title": "10. Previsibilidade — Antecipação de Mudanças",
+      "copsoq_q": 10,
+      "polarity": "pos",
+      "description": "Avalia se a organização comunica com antecedência decisões importantes, mudanças organizacionais e planos futuros aos colaboradores, contribuindo para a segurança psicológica, o planejamento individual e o engajamento da equipe com as diretrizes institucionais.",
+      "counter_behaviors": "Comunicar mudanças importantes de última hora ou após a implementação; não envolver a equipe em processos de mudança que afetam diretamente seu trabalho; manter decisões estratégicas restritas à liderança sem repasse oportuno; gerar insegurança por falta de transparência sobre o futuro; deixar rumores ocuparem o espaço da comunicação oficial.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "Mudanças e decisões importantes nunca são comunicadas com antecedência; os colaboradores ficam sabendo após os fatos, gerando insegurança e desconfiança crônicas." },
+        { "score": 1, "name": "Dependente", "description": "A comunicação prévia ocorre de forma irregular e só quando há pressão; a falta de antecipação ainda gera surpresas e instabilidade frequentes." },
+        { "score": 2, "name": "Irregular",  "description": "Algumas mudanças são comunicadas com antecedência, porém ainda há lacunas significativas que geram incerteza desnecessária na equipe." },
+        { "score": 3, "name": "Adequado",   "description": "A organização comunica decisões e mudanças importantes com antecedência adequada na maioria das situações, proporcionando segurança e possibilidade de adaptação." },
+        { "score": 4, "name": "Consciente", "description": "A antecipação de mudanças é uma prática consolidada; a equipe raramente é surpreendida e a comunicação prévia é estruturada e confiável." },
+        { "score": 5, "name": "Referência", "description": "A organização é referência em previsibilidade; colaboradores são informados com ampla antecedência sobre decisões e planos, fortalecendo o engajamento e a confiança institucional." }
+      ]
+    },
+    {
+      "title": "11. Previsibilidade — Acesso à Informação",
+      "copsoq_q": 11,
+      "polarity": "pos",
+      "description": "Avalia se os colaboradores recebem, de forma consistente, as informações operacionais e técnicas necessárias para executar bem seu trabalho, contribuindo para a qualidade das entregas, a autonomia e a redução de erros por falta de clareza.",
+      "counter_behaviors": "Reter informações necessárias para a execução do trabalho; criar dependência de canais informais para obter diretrizes operacionais; não atualizar a equipe sobre mudanças em processos ou procedimentos; deixar colaboradores operando com informações desatualizadas ou incompletas; não estruturar canais claros de repasse de informação.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "Os colaboradores operam sistematicamente sem as informações necessárias; o fluxo de informação é precário, gerando erros constantes e retrabalho." },
+        { "score": 1, "name": "Dependente", "description": "As informações chegam de forma incompleta e irregular; os colaboradores precisam buscá-las ativamente por conta própria com frequência." },
+        { "score": 2, "name": "Irregular",  "description": "O acesso à informação é razoável na maioria do tempo, porém lacunas frequentes ainda comprometem a execução e geram imprecisões." },
+        { "score": 3, "name": "Adequado",   "description": "Os colaboradores recebem as informações necessárias de forma consistente para executar bem seu trabalho na grande maioria das situações." },
+        { "score": 4, "name": "Consciente", "description": "O fluxo de informação é bem estruturado e confiável; os colaboradores raramente enfrentam dificuldades por falta ou desatualização das informações." },
+        { "score": 5, "name": "Referência", "description": "O acesso à informação é exemplar; a organização mantém canais claros, atualizados e acessíveis, tornando-se referência em transparência operacional." }
+      ]
+    },
+    {
+      "title": "12. Clareza de Papéis",
+      "copsoq_q": 12,
+      "polarity": "pos",
+      "description": "Avalia se os colaboradores têm clareza plena sobre suas responsabilidades, atribuições, expectativas de desempenho e limites de atuação dentro da organização, contribuindo para a autonomia, o foco e a prevenção de conflitos de papel.",
+      "counter_behaviors": "Definir responsabilidades de forma ambígua ou incompleta; não comunicar claramente as expectativas de desempenho; permitir sobreposições de funções que geram conflitos; não atualizar descrições de cargo com a evolução das atividades; deixar que os colaboradores descubram suas atribuições por tentativa e erro.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "As responsabilidades são completamente ambíguas; os colaboradores não sabem o que se espera deles, gerando conflitos de papel, erros e baixa produtividade." },
+        { "score": 1, "name": "Dependente", "description": "A clareza de papéis é insuficiente; os colaboradores precisam buscar orientação constante da liderança para saber o que devem ou não fazer." },
+        { "score": 2, "name": "Irregular",  "description": "As responsabilidades são razoavelmente claras para as atividades rotineiras, porém ainda há ambiguidades significativas em situações menos frequentes." },
+        { "score": 3, "name": "Adequado",   "description": "Os colaboradores têm clareza sobre suas responsabilidades e expectativas de desempenho na grande maioria das situações e conseguem atuar com autonomia." },
+        { "score": 4, "name": "Consciente", "description": "Os papéis e responsabilidades são bem definidos e comunicados; os colaboradores raramente enfrentam dúvidas sobre suas atribuições ou limites de atuação." },
+        { "score": 5, "name": "Referência", "description": "A clareza de papéis é exemplar na organização; cada colaborador conhece com precisão suas responsabilidades, expectativas e espaço de autonomia." }
+      ]
+    },
+    {
+      "title": "13. Reconhecimento e Recompensas",
+      "copsoq_q": 13,
+      "polarity": "pos",
+      "description": "Avalia se a liderança reconhece, valoriza e comunica explicitamente as contribuições dos colaboradores, criando um ambiente onde o esforço e o bom desempenho são percebidos e apreciados, contribuindo para a motivação, o engajamento e a retenção de talentos.",
+      "counter_behaviors": "Não reconhecer contribuições individuais ou coletivas; tratar o bom desempenho como obrigação óbvia sem feedback positivo; dar feedback apenas em situações de falha; fazer elogios genéricos ou inconsistentes; favorecer determinados colaboradores no reconhecimento sem critério justo.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O trabalho e as contribuições dos colaboradores não são reconhecidos pela gerência; a ausência de reconhecimento é crônica e impacta severamente a motivação." },
+        { "score": 1, "name": "Dependente", "description": "O reconhecimento ocorre de forma esporádica e inconsistente, sem relação clara com o desempenho e sem caráter motivacional estruturado." },
+        { "score": 2, "name": "Irregular",  "description": "Há algum reconhecimento, porém limitado a situações excepcionais; o desempenho cotidiano ainda é frequentemente tratado sem apreciação explícita." },
+        { "score": 3, "name": "Adequado",   "description": "A liderança reconhece as contribuições dos colaboradores de forma consistente, com feedback positivo integrado à rotina de gestão." },
+        { "score": 4, "name": "Consciente", "description": "O reconhecimento é estruturado, frequente e genuíno; a organização valoriza ativamente o bom desempenho e cria uma cultura de apreciação." },
+        { "score": 5, "name": "Referência", "description": "O reconhecimento é um pilar da cultura organizacional; colaboradores se sentem valorizados de forma consistente e o ambiente é referência em apreciação e motivação." }
+      ]
+    },
+    {
+      "title": "14. Justiça e Respeito",
+      "copsoq_q": 14,
+      "polarity": "pos",
+      "description": "Avalia se os colaboradores percebem ser tratados com equidade, respeito e imparcialidade no ambiente de trabalho — nas decisões, nas oportunidades e nas interações cotidianas —, contribuindo para a confiança institucional, a coesão da equipe e a saúde organizacional.",
+      "counter_behaviors": "Tomar decisões com critérios percebidos como injustos ou arbitrários; tratar colaboradores de forma diferenciada sem justificativa; não garantir igualdade de oportunidades; tolerar comportamentos desrespeitosos de lideranças ou colegas; não criar mecanismos de contestação de decisões percebidas como injustas.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "A percepção de injustiça e desrespeito é generalizada; as decisões são vistas como arbitrárias e o ambiente é marcado por tratamento desigual e falta de equidade." },
+        { "score": 1, "name": "Dependente", "description": "O tratamento justo é inconsistente e percebido como dependente de favoritismos ou da pressão exercida; a confiança na equidade organizacional é baixa." },
+        { "score": 2, "name": "Irregular",  "description": "A percepção de justiça é razoável na maioria das situações, porém ainda há episódios frequentes de tratamento desigual ou decisões percebidas como injustas." },
+        { "score": 3, "name": "Adequado",   "description": "Os colaboradores percebem ser tratados com justiça e respeito de forma consistente, com critérios claros para decisões e oportunidades." },
+        { "score": 4, "name": "Consciente", "description": "A equidade e o respeito são valores praticados ativamente; os colaboradores confiam nos critérios organizacionais e raramente percebem tratamento injusto." },
+        { "score": 5, "name": "Referência", "description": "A organização é referência em justiça e respeito; as decisões são transparentes, os critérios são claros e o ambiente é percebido como genuinamente equitativo." }
+      ]
+    },
+    {
+      "title": "15. Suporte Social de Supervisores",
+      "copsoq_q": 15,
+      "polarity": "pos",
+      "description": "Avalia a disponibilidade, a frequência e a qualidade do apoio oferecido pelo superior imediato aos colaboradores — tanto no suporte técnico quanto no emocional —, contribuindo para a segurança, a eficácia e o bem-estar da equipe.",
+      "counter_behaviors": "Estar inacessível ou indisponível para a equipe; não oferecer suporte quando solicitado; resolver problemas da equipe apenas quando pressionado; não acompanhar as dificuldades dos colaboradores; tratar pedidos de apoio como sinal de incompetência.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O superior imediato não oferece suporte à equipe; os colaboradores estão completamente sem respaldo, comprometendo o desempenho e o bem-estar de forma severa." },
+        { "score": 1, "name": "Dependente", "description": "O suporte do superior é escasso e irregular; os colaboradores raramente recebem apoio oportuno e precisam resolver problemas sem respaldo adequado." },
+        { "score": 2, "name": "Irregular",  "description": "O suporte existe, mas é inconsistente; a disponibilidade do superior varia de forma imprevisível, gerando incerteza sobre quando contar com apoio." },
+        { "score": 3, "name": "Adequado",   "description": "O superior imediato oferece apoio consistente à equipe, estando disponível para suporte técnico e emocional na grande maioria das situações." },
+        { "score": 4, "name": "Consciente", "description": "O suporte do superior é proativo e estruturado; o líder acompanha ativamente a equipe, antecipa dificuldades e oferece respaldo antes de ser solicitado." },
+        { "score": 5, "name": "Referência", "description": "O suporte da liderança é exemplar; o superior é referência em disponibilidade, emppatia e eficácia no apoio, tornando-se um pilar de segurança para a equipe." }
+      ]
+    },
+    {
+      "title": "16. Comunidade Social no Trabalho",
+      "copsoq_q": 16,
+      "polarity": "pos",
+      "description": "Avalia a qualidade das relações interpessoais entre colegas — cooperação, respeito mútuo, senso de pertencimento e suporte do grupo —, contribuindo para o clima organizacional, a saúde mental coletiva e a eficácia da equipe.",
+      "counter_behaviors": "Tolerar comportamentos de exclusão, fofoca ou hostilidade entre colegas; não intervir em conflitos interpessoais que comprometem o clima; valorizar a competição individual em detrimento da colaboração; não criar oportunidades de integração e fortalecimento das relações da equipe; ignorar a deterioração do clima social.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O ambiente entre colegas é marcado por hostilidade, falta de cooperação ou conflitos crônicos, comprometendo severamente o clima e a saúde psicossocial." },
+        { "score": 1, "name": "Dependente", "description": "As relações são predominantemente frias ou tensas; o trabalho em equipe ocorre apenas quando exigido pela tarefa, sem senso real de comunidade." },
+        { "score": 2, "name": "Irregular",  "description": "O clima entre colegas é razoável, porém ainda há conflitos ou distâncias interpessoais frequentes que limitam a colaboração e o suporte mútuo." },
+        { "score": 3, "name": "Adequado",   "description": "Há um bom ambiente de trabalho entre colegas, com respeito mútuo, colaboração e senso de pertencimento presentes de forma consistente." },
+        { "score": 4, "name": "Consciente", "description": "As relações interpessoais são sólidas e a cooperação é natural; o grupo demonstra coesão, suporte mútuo e um clima genuinamente positivo." },
+        { "score": 5, "name": "Referência", "description": "A comunidade social é referência na organização; o ambiente entre colegas é de alta cooperação, confiança e pertencimento, fortalecendo consistentemente a saúde coletiva." }
+      ]
+    },
+    {
+      "title": "17. Qualidade da Liderança — Desenvolvimento",
+      "copsoq_q": 17,
+      "polarity": "pos",
+      "description": "Avalia se o líder imediato cria ativamente oportunidades de desenvolvimento profissional para os colaboradores e para a equipe como grupo, contribuindo para o crescimento contínuo, a motivação e a capacidade organizacional.",
+      "counter_behaviors": "Não investir no desenvolvimento da equipe por priorizar exclusivamente entregas imediatas; não oferecer feedback de crescimento; negar oportunidades de novos desafios ou responsabilidades; não identificar potenciais e talentos na equipe; tratar desenvolvimento como tarefa do RH, não da liderança direta.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "A liderança não cria nenhuma oportunidade de desenvolvimento; a equipe está estagnada e o crescimento profissional não é reconhecido como responsabilidade do líder." },
+        { "score": 1, "name": "Dependente", "description": "Oportunidades de desenvolvimento são raras e ocorrem apenas quando há demanda externa ou pressão organizacional; não há iniciativa da liderança." },
+        { "score": 2, "name": "Irregular",  "description": "O líder oferece algumas oportunidades de desenvolvimento, porém de forma inconsistente e sem planejamento estruturado." },
+        { "score": 3, "name": "Adequado",   "description": "O líder promove o desenvolvimento da equipe de forma consistente, identificando oportunidades e apoiando o crescimento individual e coletivo." },
+        { "score": 4, "name": "Consciente", "description": "O desenvolvimento é uma prioridade ativa da liderança; o líder planeja, acompanha e cria oportunidades de crescimento para cada membro da equipe." },
+        { "score": 5, "name": "Referência", "description": "A liderança é referência em desenvolvimento de equipe; o líder é reconhecido pela capacidade de identificar potenciais, criar oportunidades e formar colaboradores de alta performance." }
+      ]
+    },
+    {
+      "title": "18. Qualidade da Liderança — Planejamento",
+      "copsoq_q": 18,
+      "polarity": "pos",
+      "description": "Avalia a competência do líder imediato no planejamento, organização e distribuição das atividades da equipe, garantindo clareza, previsibilidade e eficiência operacional, contribuindo para o desempenho coletivo e para a redução do retrabalho.",
+      "counter_behaviors": "Planejar de forma reativa e desorganizada; não comunicar prioridades com clareza; criar imprevisibilidade constante na rotina da equipe; não antecipar recursos ou demandas necessárias; deixar a equipe sem direcionamento claro sobre o que deve ser feito e quando.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O líder não planeja efetivamente o trabalho da equipe; a rotina é caótica, imprevisível e os colaboradores operam sem direcionamento claro, comprometendo o desempenho." },
+        { "score": 1, "name": "Dependente", "description": "O planejamento ocorre de forma reativa; a organização do trabalho só é ajustada após falhas ou pressão, sem antevisão de demandas e recursos." },
+        { "score": 2, "name": "Irregular",  "description": "O planejamento é razoável na maioria do tempo, porém ainda há lacunas frequentes de organização que geram retrabalho ou imprevisibilidade para a equipe." },
+        { "score": 3, "name": "Adequado",   "description": "O líder planeja e organiza o trabalho da equipe de forma eficaz, proporcionando clareza e previsibilidade adequadas para o cumprimento das demandas." },
+        { "score": 4, "name": "Consciente", "description": "O planejamento da liderança é consistentemente estruturado e antecipado; a equipe tem visibilidade clara das prioridades e raramente enfrenta imprevistos por falta de organização." },
+        { "score": 5, "name": "Referência", "description": "A liderança é referência em planejamento; a organização do trabalho é exemplar, proporcionando alta previsibilidade, eficiência e clareza para toda a equipe." }
+      ]
+    },
+    {
+      "title": "19. Qualidade da Liderança — Confiança",
+      "copsoq_q": 19,
+      "polarity": "pos",
+      "description": "Avalia se o líder imediato demonstra confiança na capacidade de entrega dos colaboradores, delegando responsabilidades com autonomia real e evitando a microgestão, contribuindo para o desenvolvimento da equipe e para um ambiente de trabalho de alto desempenho.",
+      "counter_behaviors": "Microgerenciar as atividades da equipe de forma excessiva; não delegar responsabilidades por desconfiança; revisar e interferir em trabalhos concluídos sem justificativa técnica; criar dependência ao centralizar todas as decisões; tratar a autonomia como privilégio e não como padrão de gestão.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O líder não demonstra confiança na equipe; a microgestão é constante, a autonomia é inexistente e os colaboradores não têm espaço para demonstrar sua competência." },
+        { "score": 1, "name": "Dependente", "description": "A confiança é baixa e limitada a tarefas muito simples; os colaboradores precisam de aprovação constante e a supervisão excessiva é a norma." },
+        { "score": 2, "name": "Irregular",  "description": "Há confiança em situações rotineiras, porém a microgestão ainda ocorre com frequência em tarefas mais complexas, limitando a autonomia." },
+        { "score": 3, "name": "Adequado",   "description": "O líder demonstra confiança real na equipe, delega responsabilidades com autonomia adequada e evita a supervisão excessiva de forma consistente." },
+        { "score": 4, "name": "Consciente", "description": "A confiança é um valor praticado ativamente pela liderança; os colaboradores têm ampla autonomia e se sentem respeitados e capacitados para entregar resultados." },
+        { "score": 5, "name": "Referência", "description": "O líder é referência em confiança e delegação; a equipe opera com plena autonomia, alto senso de responsabilidade e sem necessidade de supervisão excessiva." }
+      ]
+    },
+    {
+      "title": "20. Qualidade da Liderança — Transparência",
+      "copsoq_q": 20,
+      "polarity": "pos",
+      "description": "Avalia a confiabilidade e a consistência das informações transmitidas pelo líder imediato à equipe, considerando a clareza, a honestidade e a coerência da comunicação da liderança, contribuindo para a confiança institucional e para a segurança psicológica.",
+      "counter_behaviors": "Transmitir informações imprecisas, contraditórias ou incompletas; comunicar decisões sem explicar os motivos; criar versões diferentes de informações para públicos distintos; não reconhecer erros ou mudanças de curso; usar a informação como instrumento de controle.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "A comunicação da liderança é percebida como pouco confiável ou contraditória; os colaboradores não sabem em quais informações do líder podem confiar, gerando desconfiança sistêmica." },
+        { "score": 1, "name": "Dependente", "description": "A confiança nas informações da liderança é baixa; inconsistências frequentes fazem com que os colaboradores precisem confirmar dados por outras fontes." },
+        { "score": 2, "name": "Irregular",  "description": "A comunicação do líder é confiável em situações cotidianas, porém ainda há episódios de inconsistência ou opacidade que minam a confiança em momentos importantes." },
+        { "score": 3, "name": "Adequado",   "description": "As informações transmitidas pelo líder são geralmente confiáveis e consistentes; os colaboradores confiam na comunicação da liderança de forma consistente." },
+        { "score": 4, "name": "Consciente", "description": "A liderança é reconhecida pela transparência e confiabilidade; a comunicação é clara, honesta e coerente, raramente gerando dúvidas ou desconfiança." },
+        { "score": 5, "name": "Referência", "description": "O líder é referência em comunicação transparente; a equipe tem total confiança nas informações recebidas e o padrão de clareza e honestidade é exemplar." }
+      ]
+    },
+    {
+      "title": "21. Gestão de Conflitos",
+      "copsoq_q": 21,
+      "polarity": "pos",
+      "description": "Avalia se os conflitos interpessoais e organizacionais são tratados de forma justa, transparente e eficaz pela organização, contribuindo para a coesão da equipe, o clima saudável e a prevenção de ressentimentos que comprometem a colaboração.",
+      "counter_behaviors": "Ignorar ou minimizar conflitos que afetam a equipe; resolver conflitos de forma parcial ou favorecendo determinadas partes sem critério justo; não criar canais seguros para reporte de conflitos; tratar o conflito como fraqueza em vez de oportunidade de melhoria; não acompanhar a eficácia das soluções adotadas.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "Os conflitos não são resolvidos ou são tratados de forma injusta e parcial; ressentimentos crônicos e desconfiança comprometem gravemente o clima e o desempenho." },
+        { "score": 1, "name": "Dependente", "description": "A gestão de conflitos é reativa e inconsistente; a intervenção só ocorre quando os problemas já atingiram proporções que afetam a operação." },
+        { "score": 2, "name": "Irregular",  "description": "Alguns conflitos são tratados adequadamente, porém ainda há casos frequentes em que a resolução é percebida como injusta ou insuficiente." },
+        { "score": 3, "name": "Adequado",   "description": "Os conflitos são tratados de forma justa e transparente na grande maioria das situações, com mecanismos claros de resolução e acompanhamento." },
+        { "score": 4, "name": "Consciente", "description": "A organização trata conflitos de forma proativa, com processos estruturados, imparcialidade reconhecida e acompanhamento das soluções." },
+        { "score": 5, "name": "Referência", "description": "A gestão de conflitos é exemplar; a organização é referência em justiça, transparência e eficácia no tratamento de tensões interpessoais e organizacionais." }
+      ]
+    },
+    {
+      "title": "22. Equidade Organizacional",
+      "copsoq_q": 22,
+      "polarity": "pos",
+      "description": "Avalia se as tarefas, responsabilidades e cargas de trabalho são distribuídas de forma equitativa entre os colaboradores, sem concentração desproporcional em indivíduos ou grupos, contribuindo para o clima justo, a motivação e a prevenção de sobrecarga seletiva.",
+      "counter_behaviors": "Distribuir tarefas com base em preferências pessoais ou conveniência; sobrecarregar consistentemente os colaboradores mais comprometidos; não revisar a distribuição de trabalho com base em capacidade e carga atual; tratar a desigualdade de tarefas como natural; não criar critérios transparentes para atribuição de responsabilidades.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "A distribuição de trabalho é cronicamente desequilibrada; alguns colaboradores são sobrecarregados enquanto outros têm carga reduzida, gerando injustiça e desmotivação." },
+        { "score": 1, "name": "Dependente", "description": "A equidade na distribuição ocorre apenas quando cobrada; sem intervenção, a desigualdade é a norma e os critérios de atribuição são opacos." },
+        { "score": 2, "name": "Irregular",  "description": "A distribuição é razoável na maioria do tempo, porém desequilíbrios frequentes ainda geram percepção de injustiça em parte da equipe." },
+        { "score": 3, "name": "Adequado",   "description": "O trabalho é distribuído de forma equitativa e os critérios são suficientemente claros; desequilíbrios são pontuais e corrigidos adequadamente." },
+        { "score": 4, "name": "Consciente", "description": "A equidade na distribuição é monitorada e gerenciada proativamente; a organização previne desequilíbrios antes que se tornem fontes de injustiça." },
+        { "score": 5, "name": "Referência", "description": "A organização é referência em equidade; a distribuição do trabalho é transparente, justa e consistente, fortalecendo a confiança e o clima organizacional." }
+      ]
+    },
+    {
+      "title": "23. Autoeficácia Profissional",
+      "copsoq_q": 23,
+      "polarity": "pos",
+      "description": "Avalia a crença do colaborador em sua própria capacidade de enfrentar desafios, resolver problemas e alcançar resultados com esforço e persistência, contribuindo para a resiliência individual, a autonomia e o desempenho sustentado em situações adversas.",
+      "counter_behaviors": "Criar ambiente que mina a confiança dos colaboradores em suas próprias capacidades; não reconhecer esforços e superações; expor colaboradores a falhas sem aprendizado estruturado; não oferecer suporte que permita o desenvolvimento da autoconfiança; culpar indivíduos por resultados sem considerar fatores sistêmicos.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O colaborador não acredita em sua capacidade de resolver problemas; a autoconfiança é nula e a desistência diante de dificuldades é o padrão predominante." },
+        { "score": 1, "name": "Dependente", "description": "A crença na própria capacidade é baixa e instável; o colaborador frequentemente desiste antes de esgotar as possibilidades de solução." },
+        { "score": 2, "name": "Irregular",  "description": "Há autoeficácia em situações simples, porém diante de desafios maiores a confiança na própria capacidade ainda falha com frequência." },
+        { "score": 3, "name": "Adequado",   "description": "O colaborador acredita em sua capacidade de resolver problemas com esforço e persistência, demonstrando resiliência na maioria das situações." },
+        { "score": 4, "name": "Consciente", "description": "A autoeficácia é sólida e consistente; o colaborador enfrenta desafios com confiança e perseverança, superando obstáculos de forma autônoma." },
+        { "score": 5, "name": "Referência", "description": "O colaborador é referência em autoeficácia; sua confiança na própria capacidade e sua resiliência diante de adversidades inspiram e fortalecem a equipe." }
+      ]
+    },
+    {
+      "title": "24. Significado do Trabalho",
+      "copsoq_q": 24,
+      "polarity": "pos",
+      "description": "Avalia o grau em que o colaborador percebe propósito, relevância e valor no trabalho que realiza — sentindo que suas atividades têm impacto e contribuem para algo maior —, contribuindo para o engajamento profundo, a motivação intrínseca e a satisfação duradoura.",
+      "counter_behaviors": "Não conectar o trabalho operacional a propósitos e resultados organizacionais mais amplos; não comunicar o impacto das atividades dos colaboradores; criar cultura onde o trabalho é tratado apenas como troca comercial; ignorar a dimensão de propósito na gestão de pessoas; não reconhecer a contribuição individual para o todo.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O colaborador não percebe nenhum significado ou propósito no trabalho que realiza; a sensação de inutilidade ou irrelevância é severa e constante." },
+        { "score": 1, "name": "Dependente", "description": "O significado percebido é mínimo; o trabalho é encarado essencialmente como obrigação sem conexão com propósito ou impacto real." },
+        { "score": 2, "name": "Irregular",  "description": "O colaborador percebe algum significado em seu trabalho, porém de forma inconsistente; a conexão com propósito ainda é superficial ou episódica." },
+        { "score": 3, "name": "Adequado",   "description": "O colaborador percebe significado real em seu trabalho e sente que suas atividades têm impacto e relevância de forma consistente." },
+        { "score": 4, "name": "Consciente", "description": "O trabalho tem forte significado para o colaborador; há clara conexão entre as atividades diárias e um propósito maior que gera motivação intrínseca." },
+        { "score": 5, "name": "Referência", "description": "O colaborador percebe extremo significado e propósito no seu trabalho; essa conexão profunda é fonte de realização, engajamento e influência positiva sobre a equipe." }
+      ]
+    },
+    {
+      "title": "25. Relevância do Trabalho Percebida",
+      "copsoq_q": 25,
+      "polarity": "pos",
+      "description": "Avalia se o colaborador sente que seu trabalho tem importância real para a organização, para os colegas ou para a sociedade — percebendo que sua ausência ou falha seria notada e significativa —, contribuindo para o orgulho profissional e para o comprometimento com a qualidade.",
+      "counter_behaviors": "Não comunicar a importância do papel de cada colaborador para os resultados organizacionais; tratar funções operacionais como substituíveis ou insignificantes; não valorizar contribuições individuais que sustentam o funcionamento do todo; criar cultura onde apenas cargos de liderança são percebidos como relevantes.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O colaborador sente que seu trabalho não tem nenhuma importância ou relevância; a percepção de ser descartável e irrelevante é intensa e desmotivante." },
+        { "score": 1, "name": "Dependente", "description": "A percepção de importância é muito baixa; o colaborador raramente sente que sua contribuição faz diferença para a organização ou para as pessoas." },
+        { "score": 2, "name": "Irregular",  "description": "Há alguma percepção de relevância em situações específicas, porém o colaborador ainda questiona frequentemente a importância do seu trabalho." },
+        { "score": 3, "name": "Adequado",   "description": "O colaborador percebe que seu trabalho é importante e que sua contribuição é valorizada pela organização de forma consistente." },
+        { "score": 4, "name": "Consciente", "description": "A percepção de relevância é sólida; o colaborador tem claro senso do impacto do seu trabalho e orgulho pela contribuição que oferece." },
+        { "score": 5, "name": "Referência", "description": "O colaborador percebe seu trabalho como extremamente importante e relevante; essa convicção alimenta um nível de comprometimento e qualidade exemplares." }
+      ]
+    },
+    {
+      "title": "26. Comprometimento com o Local de Trabalho",
+      "copsoq_q": 26,
+      "polarity": "pos",
+      "description": "Avalia o grau de identificação e pertencimento do colaborador com a organização — sentindo que os problemas e objetivos da empresa são também seus —, contribuindo para o engajamento, a iniciativa e a disposição em contribuir além das obrigações formais.",
+      "counter_behaviors": "Criar cultura onde os colaboradores são tratados como recursos e não como parte da organização; não envolver a equipe em decisões que a afetam; não cultivar senso de pertencimento e identidade organizacional; tratar os problemas da empresa como responsabilidade exclusiva da liderança; não reconhecer contribuições espontâneas fora do escopo formal.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O colaborador não se identifica com a organização; os problemas da empresa são vistos como irrelevantes e a postura de indiferença ao coletivo é predominante." },
+        { "score": 1, "name": "Dependente", "description": "O comprometimento é puramente transacional; o colaborador cumpre obrigações formais mas não demonstra identificação ou senso de pertencimento à organização." },
+        { "score": 2, "name": "Irregular",  "description": "Há algum senso de pertencimento em situações positivas, porém o comprometimento com os desafios e problemas organizacionais ainda é inconsistente." },
+        { "score": 3, "name": "Adequado",   "description": "O colaborador demonstra comprometimento real com a organização, sentindo que seus objetivos e desafios são também seus de forma consistente." },
+        { "score": 4, "name": "Consciente", "description": "O comprometimento é profundo e genuíno; o colaborador vai além das obrigações formais e contribui ativamente para os objetivos e a superação dos desafios organizacionais." },
+        { "score": 5, "name": "Referência", "description": "O colaborador é referência em comprometimento organizacional; seu senso de pertencimento e responsabilidade pelo coletivo inspira e fortalece toda a equipe." }
+      ]
+    },
+    {
+      "title": "27. Satisfação com o Trabalho",
+      "copsoq_q": 27,
+      "polarity": "pos",
+      "description": "Avalia o nível geral de satisfação do colaborador com seu trabalho considerando todas as suas dimensões — atividades, ambiente, relações, condições e perspectivas —, contribuindo para a retenção de talentos, o engajamento sustentado e a saúde organizacional.",
+      "counter_behaviors": "Ignorar índices de insatisfação como dado estratégico; não realizar pesquisas ou conversas regulares sobre satisfação; tratar a rotatividade como inevitável em vez de sinal de gestão inadequada; não agir sobre fatores identificados como causas de insatisfação; desconsiderar a satisfação dos colaboradores como variável de desempenho.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O colaborador está completamente insatisfeito com seu trabalho; a insatisfação é severa, generalizada e tem impacto direto no desempenho, na saúde e na intenção de permanecer." },
+        { "score": 1, "name": "Dependente", "description": "A satisfação é muito baixa; o colaborador cumpre suas funções, mas a experiência predominante no trabalho é de insatisfação e falta de realização." },
+        { "score": 2, "name": "Irregular",  "description": "Há satisfação em alguns aspectos, porém a percepção geral ainda é de insuficiência; momentos de satisfação não compensam os fatores de insatisfação presentes." },
+        { "score": 3, "name": "Adequado",   "description": "O colaborador está satisfeito com o trabalho de forma geral; as condições, relações e perspectivas proporcionam um nível adequado de realização profissional." },
+        { "score": 4, "name": "Consciente", "description": "A satisfação é alta e consistente; o colaborador encontra realização profunda em seu trabalho e raramente vivencia insatisfação significativa." },
+        { "score": 5, "name": "Referência", "description": "O colaborador está extremamente satisfeito com o trabalho em todas as suas dimensões; essa satisfação plena é visível, contagiante e contribui para o engajamento coletivo." }
+      ]
+    }
+  ],
+  "Bem-estar e Saúde Psicossocial": [
+    {
+      "title": "28. Insegurança no Emprego",
+      "copsoq_q": 28,
+      "polarity": "neg",
+      "description": "Avalia o grau de preocupação do colaborador com a estabilidade do seu emprego, considerando se a organização transmite segurança sobre a continuidade do vínculo laboral, contribuindo para a saúde mental, o foco no trabalho e a prevenção da ansiedade ocupacional.",
+      "counter_behaviors": "Gerar incerteza desnecessária sobre estabilidade de emprego por comunicação inadequada; realizar demissões sem critérios claros ou comunicação prévia; não dar feedback sobre desempenho que permita ao colaborador avaliar sua posição; criar cultura de medo como instrumento de gestão; deixar rumores sobre cortes circularem sem esclarecimento oficial.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O colaborador vive em estado de intensa preocupação com o desemprego; a insegurança é severa, constante e compromete significativamente o bem-estar e o desempenho." },
+        { "score": 1, "name": "Elevado",    "description": "A preocupação com a estabilidade é frequente e significativa; o colaborador dificilmente consegue dissociá-la do cotidiano do trabalho." },
+        { "score": 2, "name": "Moderado",   "description": "Há alguma preocupação com a estabilidade em situações de incerteza organizacional; a insegurança ainda afeta o bem-estar em períodos de mudança." },
+        { "score": 3, "name": "Adequado",   "description": "O colaborador percebe relativa estabilidade no emprego; a preocupação com desemprego é baixa e não compromete o foco ou o bem-estar de forma significativa." },
+        { "score": 4, "name": "Favorável",  "description": "O colaborador raramente se preocupa com a estabilidade do emprego; a organização transmite segurança e confiança sobre a continuidade do vínculo." },
+        { "score": 5, "name": "Referência", "description": "O colaborador não tem preocupação com desemprego; a segurança no emprego é plena e a organização é referência em estabilidade e transparência sobre vínculos laborais." }
+      ]
+    },
+    {
+      "title": "29. Saúde Geral Autorrelatada",
+      "copsoq_q": 29,
+      "polarity": "neg",
+      "_note": "Escala invertida na origem: Excelente=índice 0 (melhor). Mapear chosen_index 0→score 5, 1→4, 2→3, 3→1, 4→0.",
+      "description": "Avalia a percepção geral do colaborador sobre seu próprio estado de saúde física e mental, dimensão sensível para detectar o impacto acumulado das condições de trabalho sobre o organismo, contribuindo para a gestão precoce de riscos de adoecimento ocupacional.",
+      "counter_behaviors": "Ignorar indicadores coletivos de deterioração da saúde da equipe; não promover ações de saúde preventiva; normalizar absenteísmo por doença como fato isolado; não investigar padrões de adoecimento que possam ter origem ocupacional; deixar de notificar e tratar condições que afetam a saúde dos colaboradores.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O colaborador avalia sua saúde como deficitária; apresenta limitações físicas ou mentais significativas com impacto direto na capacidade de trabalho e qualidade de vida." },
+        { "score": 1, "name": "Elevado",    "description": "A saúde autorrelatada é razoável; o colaborador convive com queixas frequentes e limitações que afetam o desempenho e o bem-estar de forma regular." },
+        { "score": 2, "name": "Moderado",   "description": "A saúde é boa em linhas gerais, porém com queixas recorrentes que indicam impacto acumulado das condições de trabalho sobre o organismo." },
+        { "score": 3, "name": "Adequado",   "description": "O colaborador avalia sua saúde como muito boa; raramente apresenta queixas e sua vitalidade e capacidade de trabalho são preservadas." },
+        { "score": 4, "name": "Favorável",  "description": "A saúde é percebida como excelente; o colaborador tem alta vitalidade, ausência de limitações e a condição de trabalho não compromete seu bem-estar físico e mental." },
+        { "score": 5, "name": "Referência", "description": "O colaborador goza de saúde plena e excelente em todas as dimensões; é referência em bem-estar integral e as condições de trabalho contribuem positivamente para sua saúde." }
+      ]
+    },
+    {
+      "title": "30. Interface Trabalho-Família — Demanda de Energia",
+      "copsoq_q": 30,
+      "polarity": "neg",
+      "description": "Avalia se o trabalho drena energia do colaborador a ponto de comprometer sua vida pessoal, relacionamentos e atividades fora do ambiente laboral, contribuindo para a detecção precoce de desequilíbrio entre vida profissional e pessoal.",
+      "counter_behaviors": "Criar demandas que esgotam sistematicamente os colaboradores além da jornada; não reconhecer o impacto da intensidade do trabalho sobre a vida pessoal; exigir disponibilidade permanente sem respeitar o tempo de recuperação; não promover cultura de desconexão saudável; ignorar sinais de esgotamento que se manifestam fora do trabalho.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O trabalho drena toda a energia do colaborador, comprometendo gravemente relacionamentos, saúde e qualidade de vida de forma crônica e severa." },
+        { "score": 1, "name": "Elevado",    "description": "A vida pessoal do colaborador é frequentemente afetada pelo nível de energia consumida pelo trabalho; o equilíbrio raramente é alcançado." },
+        { "score": 2, "name": "Moderado",   "description": "O trabalho afeta a energia disponível para a vida pessoal em determinados períodos, com impacto ainda significativo sobre o bem-estar fora do ambiente laboral." },
+        { "score": 3, "name": "Adequado",   "description": "O trabalho raramente compromete a energia disponível para a vida pessoal; o colaborador consegue manter equilíbrio satisfatório na maior parte do tempo." },
+        { "score": 4, "name": "Favorável",  "description": "O trabalho quase nunca afeta negativamente a vida pessoal em termos de energia; o colaborador mantém vitalidade para suas atividades e relacionamentos fora do trabalho." },
+        { "score": 5, "name": "Referência", "description": "O equilíbrio entre energia demandada pelo trabalho e vida pessoal é pleno; o trabalho nunca compromete a vitalidade e o bem-estar além do ambiente laboral." }
+      ]
+    },
+    {
+      "title": "31. Interface Trabalho-Família — Demanda de Tempo",
+      "copsoq_q": 31,
+      "polarity": "neg",
+      "description": "Avalia se as demandas de tempo do trabalho respeitam a vida privada do colaborador, sem invadir sistematicamente o espaço pessoal, familiar e de descanso, contribuindo para o equilíbrio saudável entre as esferas profissional e pessoal.",
+      "counter_behaviors": "Normalizar jornadas excessivas como padrão operacional; exigir disponibilidade fora do horário de trabalho de forma habitual; não criar limites claros entre tempo de trabalho e tempo pessoal; cobrar presença ou responsividade nos momentos de descanso; não compensar horas extras de forma justa e transparente.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O trabalho invade completamente o tempo privado do colaborador; as fronteiras entre vida profissional e pessoal são inexistentes, gerando impacto severo nos relacionamentos e na saúde." },
+        { "score": 1, "name": "Elevado",    "description": "A vida privada do colaborador é frequentemente comprometida pelas demandas de tempo do trabalho; o equilíbrio é raramente alcançado." },
+        { "score": 2, "name": "Moderado",   "description": "O trabalho afeta o tempo pessoal em determinadas situações com alguma frequência; as fronteiras existem mas ainda são regularmente ultrapassadas." },
+        { "score": 3, "name": "Adequado",   "description": "As demandas de tempo do trabalho raramente comprometem a vida privada; as fronteiras são respeitadas na grande maioria das situações." },
+        { "score": 4, "name": "Favorável",  "description": "O equilíbrio entre tempo de trabalho e vida pessoal é bem estabelecido; o colaborador quase nunca tem sua vida privada comprometida pelas demandas laborais." },
+        { "score": 5, "name": "Referência", "description": "As fronteiras entre trabalho e vida pessoal são plenamente respeitadas; a organização é referência em equilíbrio trabalho-família e na proteção do tempo privado." }
+      ]
+    },
+    {
+      "title": "32. Distúrbios do Sono",
+      "copsoq_q": 32,
+      "polarity": "neg",
+      "description": "Avalia a frequência com que o colaborador apresenta problemas de sono — como acordar durante a noite e não conseguir dormir novamente —, dimensão frequentemente associada ao estresse ocupacional e ao comprometimento da recuperação física e mental.",
+      "counter_behaviors": "Ignorar indicadores de que as condições de trabalho estão comprometendo a qualidade do sono da equipe; não oferecer suporte ou orientação sobre gestão do estresse; criar pressão ou cobranças que se estendem mentalmente para além da jornada; normalizar a privação de sono como consequência aceitável do trabalho; não investigar padrões de absenteísmo por fadiga.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "O colaborador apresenta distúrbios de sono graves e frequentes; a privação de sono crônica compromete severamente a recuperação, o desempenho e a saúde física e mental." },
+        { "score": 1, "name": "Elevado",    "description": "Problemas de sono são frequentes e significativos; o colaborador raramente consegue descanso adequado, acumulando deficit de recuperação ao longo do tempo." },
+        { "score": 2, "name": "Moderado",   "description": "Distúrbios de sono ocorrem com alguma frequência, geralmente associados a períodos de maior pressão ou estresse; a recuperação ainda é irregular." },
+        { "score": 3, "name": "Adequado",   "description": "O colaborador raramente apresenta problemas de sono; a qualidade do descanso é boa na maioria do tempo e os episódios de sono interrompido são pontuais." },
+        { "score": 4, "name": "Favorável",  "description": "Distúrbios de sono são muito raros; o colaborador tem descanso de qualidade de forma consistente e a recuperação entre jornadas é adequada." },
+        { "score": 5, "name": "Referência", "description": "O colaborador nunca apresenta distúrbios de sono relacionados ao trabalho; descansa plenamente e a qualidade do sono reflete um equilíbrio psicossocial exemplar." }
+      ]
+    },
+    {
+      "title": "33. Burnout — Exaustão Física",
+      "copsoq_q": 33,
+      "polarity": "neg",
+      "description": "Avalia a frequência com que o colaborador experimenta exaustão física intensa nas últimas semanas, indicador central do esgotamento ocupacional (burnout) na dimensão somática, sinalizando sobrecarga das demandas físicas e da intensidade do trabalho.",
+      "counter_behaviors": "Ignorar sinais físicos de esgotamento na equipe; não dimensionar adequadamente a carga física das atividades; naturalizar a fadiga extrema como parte do trabalho; não criar condições de recuperação adequadas entre jornadas; não investigar causas quando o absenteísmo por exaustão se torna padrão.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "Exaustão física intensa é constante e crônica; o colaborador está em estado de esgotamento severo com impacto direto na capacidade de trabalho e na saúde." },
+        { "score": 1, "name": "Elevado",    "description": "Exaustão física é frequente e significativa; a recuperação entre jornadas é insuficiente e o esgotamento comprometer regularmente o desempenho." },
+        { "score": 2, "name": "Moderado",   "description": "Episódios de exaustão física ocorrem com alguma frequência, geralmente associados a picos de demanda; a recuperação ainda é irregular." },
+        { "score": 3, "name": "Adequado",   "description": "O colaborador raramente sente exaustão física intensa; a carga de trabalho é gerenciável e a recuperação entre jornadas é adequada na maioria do tempo." },
+        { "score": 4, "name": "Favorável",  "description": "Exaustão física é muito rara; o colaborador mantém vitalidade e energia de forma consistente, com boa capacidade de recuperação." },
+        { "score": 5, "name": "Referência", "description": "O colaborador nunca experimenta exaustão física relacionada ao trabalho; mantém plena vitalidade e disposição, refletindo condições de trabalho adequadas." }
+      ]
+    },
+    {
+      "title": "34. Burnout — Exaustão Emocional",
+      "copsoq_q": 34,
+      "polarity": "neg",
+      "description": "Avalia a frequência com que o colaborador experimenta esgotamento emocional nas últimas semanas, dimensão central do burnout e indicador crítico de sobrecarga psicossocial, sinalizando risco de adoecimento mental relacionado ao trabalho.",
+      "counter_behaviors": "Ignorar sinais de esgotamento emocional na equipe; não oferecer suporte psicológico ou canais de escuta; normalizar o desgaste emocional como parte inevitável do trabalho; não capacitar líderes para identificar e intervir em situações de burnout; criar cultura que penaliza a expressão de vulnerabilidade emocional.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "Esgotamento emocional é constante e intenso; o colaborador está em estado crítico de burnout, com impacto severo na saúde mental, nas relações e na capacidade de trabalho." },
+        { "score": 1, "name": "Elevado",    "description": "Exaustão emocional é frequente e significativa; sinais evidentes de burnout comprometem regularmente o desempenho, o humor e o bem-estar do colaborador." },
+        { "score": 2, "name": "Moderado",   "description": "Episódios de exaustão emocional ocorrem com alguma frequência, especialmente em períodos de maior pressão; a situação requer monitoramento." },
+        { "score": 3, "name": "Adequado",   "description": "O colaborador raramente experimenta exaustão emocional; o equilíbrio emocional é mantido na maioria do tempo e a recuperação é adequada." },
+        { "score": 4, "name": "Favorável",  "description": "Esgotamento emocional é muito raro; o colaborador mantém bem-estar emocional consistente e demonstra boa resiliência às demandas do trabalho." },
+        { "score": 5, "name": "Referência", "description": "O colaborador nunca experimenta esgotamento emocional relacionado ao trabalho; mantém pleno equilíbrio e bem-estar, refletindo condições psicossociais saudáveis." }
+      ]
+    },
+    {
+      "title": "35. Stress — Irritabilidade",
+      "copsoq_q": 35,
+      "polarity": "neg",
+      "description": "Avalia a frequência com que o colaborador experimenta irritabilidade nas últimas semanas, sintoma comum de sobrecarga de estresse ocupacional com impacto direto nas relações interpessoais e no clima da equipe, contribuindo para a detecção precoce de desequilíbrio psicossocial.",
+      "counter_behaviors": "Criar ambiente de alta pressão sem oferecer mecanismos de regulação emocional; ignorar episódios frequentes de irritabilidade como indicadores de estresse sistêmico; não intervir quando a irritabilidade de colaboradores compromete o clima da equipe; naturalizar o estresse crônico como característica do cargo; não oferecer suporte ao manejo emocional.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "Irritabilidade intensa é constante; o colaborador está visivelmente sobrecarregado emocionalmente, comprometendo relações, clima e qualidade do trabalho de forma grave." },
+        { "score": 1, "name": "Elevado",    "description": "Episódios de irritabilidade são frequentes e têm impacto perceptível nas relações interpessoais e no ambiente de trabalho." },
+        { "score": 2, "name": "Moderado",   "description": "Irritabilidade ocorre com alguma frequência, geralmente associada a períodos de maior pressão; o impacto no clima ainda é considerável." },
+        { "score": 3, "name": "Adequado",   "description": "O colaborador raramente apresenta irritabilidade no trabalho; o equilíbrio emocional é predominante e os episódios são pontuais e de curta duração." },
+        { "score": 4, "name": "Favorável",  "description": "Irritabilidade é muito rara; o colaborador demonstra estabilidade emocional consistente mesmo em situações de pressão." },
+        { "score": 5, "name": "Referência", "description": "O colaborador nunca apresenta irritabilidade relacionada ao trabalho; mantém equilíbrio emocional exemplar e influencia positivamente o clima da equipe." }
+      ]
+    },
+    {
+      "title": "36. Stress — Ansiedade",
+      "copsoq_q": 36,
+      "polarity": "neg",
+      "description": "Avalia a frequência com que o colaborador experimenta ansiedade nas últimas semanas, sintoma central do estresse ocupacional crônico com impacto na saúde mental, no desempenho cognitivo e na qualidade de vida, contribuindo para a identificação precoce de riscos psicossociais.",
+      "counter_behaviors": "Criar ambientes de alta incerteza, cobrança excessiva ou imprevisibilidade que alimentam a ansiedade; não oferecer suporte ao manejo da ansiedade; ignorar relatos de ansiedade como sinal clínico relevante; não investigar fatores organizacionais que contribuem para o estado ansioso dos colaboradores; não promover ambiente de segurança psicológica.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "Ansiedade intensa é constante e severa; o colaborador está em estado de angústia crônica com impacto grave na saúde mental, no sono, no desempenho e nos relacionamentos." },
+        { "score": 1, "name": "Elevado",    "description": "Ansiedade é frequente e significativa; compromete regularmente o bem-estar, o foco e a qualidade de vida do colaborador." },
+        { "score": 2, "name": "Moderado",   "description": "Episódios de ansiedade ocorrem com alguma frequência, especialmente em contextos de incerteza ou pressão; a situação merece atenção e monitoramento." },
+        { "score": 3, "name": "Adequado",   "description": "O colaborador raramente experimenta ansiedade relacionada ao trabalho; o equilíbrio psicológico é mantido na maioria das situações." },
+        { "score": 4, "name": "Favorável",  "description": "Ansiedade é muito rara; o colaborador mantém saúde mental consistente e demonstra boa capacidade de regulação emocional diante das demandas." },
+        { "score": 5, "name": "Referência", "description": "O colaborador nunca experimenta ansiedade relacionada ao trabalho; seu bem-estar psicológico é pleno e reflete condições psicossociais saudáveis." }
+      ]
+    },
+    {
+      "title": "37. Stress — Estado Depressivo",
+      "copsoq_q": 37,
+      "polarity": "neg",
+      "description": "Avalia a frequência com que o colaborador experimenta tristeza persistente nas últimas semanas, sintoma que pode indicar depressão ocupacional ou adoecimento psíquico relacionado ao trabalho, contribuindo para a detecção precoce e intervenção preventiva.",
+      "counter_behaviors": "Ignorar relatos ou sinais de tristeza persistente como potencial indicador de adoecimento; não oferecer suporte de saúde mental; criar ambientes de trabalho que alimentam sentimentos de impotência ou fracasso; não investigar causas organizacionais quando a tristeza é padrão na equipe; tratar saúde mental como responsabilidade exclusiva do indivíduo.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "Tristeza intensa e persistente é constante; o colaborador apresenta sinais severos de adoecimento emocional com impacto grave na capacidade de trabalho e na qualidade de vida." },
+        { "score": 1, "name": "Elevado",    "description": "Sentimentos de tristeza são frequentes e significativos, comprometendo regularmente o bem-estar, a motivação e o desempenho do colaborador." },
+        { "score": 2, "name": "Moderado",   "description": "Episódios de tristeza ocorrem com alguma frequência; ainda que não severos, indicam nível de impacto psicossocial que merece atenção organizacional." },
+        { "score": 3, "name": "Adequado",   "description": "O colaborador raramente experimenta tristeza relacionada ao trabalho; o equilíbrio emocional e o bem-estar são preservados na grande maioria das situações." },
+        { "score": 4, "name": "Favorável",  "description": "Tristeza relacionada ao trabalho é muito rara; o colaborador mantém equilíbrio emocional positivo de forma consistente." },
+        { "score": 5, "name": "Referência", "description": "O colaborador nunca experimenta tristeza relacionada ao trabalho; o bem-estar emocional é pleno e as condições psicossociais são exemplares." }
+      ]
+    },
+    {
+      "title": "38. Comportamentos Ofensivos — Violência Verbal",
+      "copsoq_q": 38,
+      "polarity": "neg-pinned",
+      "description": "Avalia a ocorrência de insultos, provocações e agressões verbais no ambiente de trabalho nos últimos 12 meses, dimensão crítica de segurança psicossocial que afeta diretamente a dignidade, a saúde mental e a segurança dos colaboradores.",
+      "counter_behaviors": "Tolerar ou minimizar episódios de agressão verbal entre colaboradores ou de lideranças; não criar canais seguros de denúncia; não responsabilizar agressores de forma consistente; tratar violência verbal como 'estilo de comunicação'; não implementar política clara de tolerância zero a comportamentos ofensivos.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "Insultos e provocações verbais são constantes no ambiente; a violência verbal é normalizada e os colaboradores estão cronicamente expostos a situações de agressão e humilhação." },
+        { "score": 1, "name": "Elevado",    "description": "Episódios de violência verbal são frequentes e sem resposta organizacional efetiva; a insegurança psicológica no ambiente de trabalho é elevada." },
+        { "score": 2, "name": "Moderado",   "description": "Ocorrências de violência verbal ainda acontecem com alguma frequência; o ambiente não é plenamente seguro e episódios de provocação ainda afetam os colaboradores." },
+        { "score": 3, "name": "Adequado",   "description": "Episódios de insultos ou provocações são raros; a organização age quando necessário e o ambiente é majoritariamente respeitoso e seguro." },
+        { "score": 4, "name": "Favorável",  "description": "Violência verbal é muito rara e tratada com rigor quando ocorre; o ambiente é amplamente seguro e a cultura de respeito é consolidada." },
+        { "score": 5, "name": "Referência", "description": "Nunca há insultos ou violência verbal; o ambiente é completamente livre de agressões verbais e é referência em respeito, dignidade e segurança psicossocial." }
+      ]
+    },
+    {
+      "title": "39. Comportamentos Ofensivos — Assédio Sexual",
+      "copsoq_q": 39,
+      "polarity": "neg-pinned",
+      "description": "Avalia a exposição dos colaboradores a assédio sexual no ambiente de trabalho nos últimos 12 meses, dimensão de tolerância zero que reflete a qualidade da cultura organizacional, dos mecanismos de proteção e do compromisso com a dignidade e a segurança de todos.",
+      "counter_behaviors": "Não ter política clara e comunicada de combate ao assédio sexual; não oferecer canais seguros, confidenciais e efetivos de denúncia; não investigar ou responsabilizar envolvidos em situações de assédio; silenciar vítimas por medo de represálias; tratar casos isolados como responsabilidade individual sem investigar causas culturais.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "Assédio sexual é recorrente no ambiente de trabalho; a situação é gravíssima, com impacto severo na saúde, na dignidade e na segurança dos colaboradores expostos." },
+        { "score": 1, "name": "Elevado",    "description": "Episódios de assédio sexual ocorreram com frequência e a organização não demonstrou resposta efetiva; o ambiente não é seguro para os colaboradores afetados." },
+        { "score": 2, "name": "Moderado",   "description": "Houve algum episódio de conduta de natureza sexual indesejada; o ambiente ainda não pode ser considerado plenamente seguro e requer atenção e medidas preventivas." },
+        { "score": 3, "name": "Adequado",   "description": "Episódios de assédio sexual são raros; quando ocorrem, a organização age com rigor e o ambiente é majoritariamente seguro para todos os colaboradores." },
+        { "score": 4, "name": "Favorável",  "description": "Assédio sexual é praticamente inexistente; a cultura organizacional é de respeito e os mecanismos de prevenção e resposta são consolidados e efetivos." },
+        { "score": 5, "name": "Referência", "description": "Nunca houve assédio sexual; o ambiente é absolutamente seguro e a organização é referência em proteção à dignidade, com tolerância zero a qualquer conduta abusiva." }
+      ]
+    },
+    {
+      "title": "40. Comportamentos Ofensivos — Ameaças de Violência",
+      "copsoq_q": 40,
+      "polarity": "neg-pinned",
+      "description": "Avalia a exposição dos colaboradores a ameaças de violência no ambiente de trabalho nos últimos 12 meses, dimensão crítica de segurança física e psicológica que impacta diretamente o senso de proteção, a saúde mental e a capacidade de trabalho com tranquilidade.",
+      "counter_behaviors": "Não criar mecanismos de proteção contra ameaças no ambiente de trabalho; não investigar ou registrar formalmente episódios de ameaça; não responsabilizar os responsáveis por ameaças de forma rápida e efetiva; deixar colaboradores expostos sem suporte após episódios de ameaça; não implementar medidas preventivas em situações de risco identificado.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "Ameaças de violência são constantes no ambiente de trabalho; os colaboradores vivem em estado crônico de insegurança e medo, com impacto severo na saúde e no desempenho." },
+        { "score": 1, "name": "Elevado",    "description": "Ameaças de violência ocorrem com frequência e sem resposta organizacional efetiva; a segurança física e psicológica dos colaboradores está comprometida." },
+        { "score": 2, "name": "Moderado",   "description": "Alguns episódios de ameaça ocorreram no período; o ambiente ainda apresenta riscos e requer atenção, medidas preventivas e acompanhamento estruturado." },
+        { "score": 3, "name": "Adequado",   "description": "Ameaças de violência são raras e tratadas com rigor pela organização; o ambiente é majoritariamente seguro e os colaboradores se sentem protegidos." },
+        { "score": 4, "name": "Favorável",  "description": "Ameaças de violência são praticamente inexistentes; a organização tem mecanismos efetivos de prevenção e o ambiente transmite alto senso de segurança." },
+        { "score": 5, "name": "Referência", "description": "Nunca houve ameaças de violência; o ambiente é completamente seguro e a organização é referência em proteção física e psicológica dos colaboradores." }
+      ]
+    },
+    {
+      "title": "41. Comportamentos Ofensivos — Violência Física",
+      "copsoq_q": 41,
+      "polarity": "neg-pinned",
+      "description": "Avalia a exposição dos colaboradores a violência física no ambiente de trabalho nos últimos 12 meses, indicador de máxima gravidade que exige tolerância zero, protocolo de resposta imediata e investigação obrigatória para garantia da integridade e da segurança de todos.",
+      "counter_behaviors": "Não investigar ou registrar episódios de violência física; não responsabilizar agressores de forma imediata e rigorosa; não oferecer suporte médico e psicológico às vítimas; tratar violência física como evento isolado sem análise de causas; não implementar medidas estruturais de prevenção após ocorrências.",
+      "levels": [
+        { "score": 0, "name": "Crítico",    "description": "Violência física é recorrente no ambiente de trabalho; situação de máxima gravidade que exige intervenção imediata e reestruturação radical das condições e da cultura organizacional." },
+        { "score": 1, "name": "Elevado",    "description": "Episódios de violência física ocorreram com frequência; a integridade dos colaboradores está seriamente ameaçada e a resposta organizacional é insuficiente." },
+        { "score": 2, "name": "Moderado",   "description": "Houve episódio(s) de violência física no período; ainda que não frequente, qualquer ocorrência exige investigação rigorosa, responsabilização e medidas preventivas robustas." },
+        { "score": 3, "name": "Adequado",   "description": "Violência física é rara e tratada com máximo rigor quando ocorre; o ambiente é majoritariamente seguro e a organização age com seriedade diante de qualquer episódio." },
+        { "score": 4, "name": "Favorável",  "description": "Violência física é praticamente inexistente; a organização tem cultura de segurança consolidada e mecanismos preventivos efetivos." },
+        { "score": 5, "name": "Referência", "description": "Nunca houve violência física; o ambiente é absolutamente seguro e a organização é referência em integridade, proteção e tolerância zero a qualquer forma de agressão." }
+      ]
+    }
+  ]
+}

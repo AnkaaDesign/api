@@ -1511,11 +1511,12 @@ export class NotificationDispatchService {
         }
       }
 
-      const actionUrl = context.overrides?.actionUrl || JSON.stringify(deepLinks);
+      const actionUrl = context.overrides?.actionUrl || (deepLinks ? JSON.stringify(deepLinks) : null);
       const webUrl =
         context.overrides?.webUrl ||
         deepLinks?.webPath ||
-        `/producao/agenda/detalhes/${effectiveEntityId}`;
+        parsedOverrideLinks?.web ||
+        undefined;
       const relatedEntityType = effectiveEntityType || 'TASK';
 
       // Render templates from database configuration
@@ -1538,8 +1539,12 @@ export class NotificationDispatchService {
         oldValue: formattedOldValue,
         newValue: formattedNewValue,
         changedBy: this.formatUserName(normalizedData.changedBy),
-        daysOverdue: this.formatDaysWithPlural(normalizedData.daysOverdue, 'dia', 'dias'),
-        daysRemaining: this.formatDaysWithPlural(normalizedData.daysRemaining, 'dia', 'dias'),
+        // Keep raw numbers so WhatsApp formatter can do arithmetic; email/push templates use
+        // the pre-formatted string only if they explicitly call formatDaysWithPlural themselves.
+        daysOverdue: normalizedData.daysOverdue ?? 0,
+        daysRemaining: normalizedData.daysRemaining ?? 0,
+        daysOverdueLabel: this.formatDaysWithPlural(normalizedData.daysOverdue, 'dia', 'dias'),
+        daysRemainingLabel: this.formatDaysWithPlural(normalizedData.daysRemaining, 'dia', 'dias'),
         count: normalizedData.count?.toString() || '',
         fileChangeDescription:
           normalizedData.fileChangeDescription ||
@@ -1750,12 +1755,12 @@ export class NotificationDispatchService {
         }
       }
 
-      const actionUrl = context.overrides?.actionUrl || JSON.stringify(deepLinks);
+      const actionUrl = context.overrides?.actionUrl || (deepLinks ? JSON.stringify(deepLinks) : null);
       const webUrl =
         context.overrides?.webUrl ||
         deepLinks?.webPath ||
         parsedOverrideLinks?.web ||
-        `/producao/agenda/detalhes/${effectiveEntityId}`;
+        undefined;
       const relatedEntityType = effectiveEntityType || 'TASK';
 
       // Render templates

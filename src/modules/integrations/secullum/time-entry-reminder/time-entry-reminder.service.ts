@@ -49,7 +49,19 @@ export class TimeEntryReminderService {
   ) {}
 
   private nowInSaoPaulo(): Date {
-    return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(now);
+    const get = (type: string) => parseInt(parts.find(p => p.type === type)!.value, 10);
+    return new Date(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
   }
 
   private todayStrSaoPaulo(): string {
@@ -133,7 +145,7 @@ export class TimeEntryReminderService {
    * Check if today is a working day (not weekend and not holiday)
    */
   async isWorkingDay(): Promise<boolean> {
-    const today = new Date();
+    const today = this.nowInSaoPaulo();
 
     // Check weekend first (quick check)
     if (isWeekend(today)) {

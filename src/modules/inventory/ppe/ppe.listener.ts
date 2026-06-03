@@ -79,7 +79,7 @@ export class PpeListener {
       const itemName = event.item.name;
       const quantity = event.delivery.quantity || 1;
       const quantityLabel = quantity > 1 ? `${quantity} unidades de ` : '';
-      const webUrl = `/estoque/epi/entregas/${event.delivery.id}`;
+      const webUrl = `/estoque/epi/entregas/detalhes/${event.delivery.id}`;
 
       await this.dispatchService.dispatchByConfiguration('ppe.requested', event.requestedBy.id, {
         entityType: 'PPE_DELIVERY',
@@ -140,7 +140,7 @@ export class PpeListener {
       const itemName = event.item.name;
       const quantity = event.delivery.quantity || 1;
       const quantityLabel = quantity > 1 ? `${quantity} unidades de ` : '';
-      const webUrl = `/estoque/epi/entregas/${event.delivery.id}`;
+      const webUrl = `/estoque/epi/entregas/detalhes/${event.delivery.id}`;
 
       // Notify the requester that their request was approved
       await this.dispatchService.dispatchByConfigurationToUsers(
@@ -214,7 +214,7 @@ export class PpeListener {
 
     try {
       const itemName = event.item.name;
-      const webUrl = `/estoque/epi/entregas/${event.delivery.id}`;
+      const webUrl = `/estoque/epi/entregas/detalhes/${event.delivery.id}`;
 
       await this.dispatchService.dispatchByConfigurationToUsers(
         'ppe.rejected',
@@ -282,7 +282,7 @@ export class PpeListener {
       const itemName = event.item.name;
       const quantity = event.delivery.quantity || 1;
       const quantityLabel = quantity > 1 ? `${quantity} unidades de ` : '';
-      const webUrl = `/estoque/epi/entregas/${event.delivery.id}`;
+      const webUrl = `/estoque/epi/entregas/detalhes/${event.delivery.id}`;
       const mobileUrl = `ankaadesign://ppe-delivery/${event.delivery.id}`;
 
       await this.dispatchService.dispatchByConfigurationToUsers(
@@ -417,7 +417,7 @@ export class PpeListener {
           .map(d => (d.item as any)?.name || 'EPI')
           .slice(0, 3)
           .join(', ');
-        const webUrl = `/estoque/epi/entregas/${userDeliveries[0].id}`;
+        const webUrl = `/estoque/epi/entregas/detalhes/${userDeliveries[0].id}`;
         const mobileUrl = `ankaadesign://ppe-delivery/${userDeliveries[0].id}`;
 
         await this.dispatchService.dispatchByConfigurationToUsers(

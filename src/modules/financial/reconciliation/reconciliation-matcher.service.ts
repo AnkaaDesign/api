@@ -718,6 +718,7 @@ export class ReconciliationMatcherService {
       destCpf: true,
       operationType: true,
       nfNumber: true,
+      orderCodes: { select: { code: true } },
       // Full line items so the manual UI can show WHAT the invoice is for and
       // let the user categorize each line inline.
       items: {
@@ -770,8 +771,36 @@ export class ReconciliationMatcherService {
       });
     }
 
-    // Fallback: value+date proximity when CNPJ yielded nothing (no CNPJ on transaction
-    // or no matching docs found by CNPJ in the wider window).
+    // Second pass: widen to the same 365-day window the auto-matcher uses when
+    // the CNPJ-scoped 60-day search returned nothing. Keeps the manual UI in sync
+    // with the stored topMatchScore (which was computed with the wider window).
+    if (docs.length === 0 && counterparty) {
+      const widestLower = new Date(tx.postedAt.getTime() - PERFECT_MATCH_DATE_WINDOW_DAYS * 86_400_000);
+      const widestUpper = new Date(tx.postedAt.getTime() + PERFECT_MATCH_DATE_WINDOW_DAYS * 86_400_000);
+      docs = await this.prisma.fiscalDocument.findMany({
+        where: {
+          status: 'AUTHORIZED',
+          matches: { none: {} },
+          issueDate: { gte: widestLower, lte: widestUpper },
+          OR: [
+            { emitCnpj: counterparty },
+            { destCnpj: counterparty },
+            { destCpf: counterparty },
+            ...(root
+              ? [
+                  { emitCnpj: { startsWith: root } } as Prisma.FiscalDocumentWhereInput,
+                  { destCnpj: { startsWith: root } } as Prisma.FiscalDocumentWhereInput,
+                ]
+              : []),
+          ],
+        },
+        orderBy: { issueDate: 'desc' },
+        take: 100,
+        select,
+      });
+    }
+
+    // Final fallback: value+date proximity when CNPJ yielded nothing at all.
     if (docs.length === 0) {
       docs = await this.prisma.fiscalDocument.findMany({
         where: baseWhere,
@@ -809,6 +838,7 @@ export class ReconciliationMatcherService {
         amountDelta: Math.abs(docTotal - absAmount),
         daysDelta,
         aliasAssisted: !!aliasContext,
+        orderCodes: (doc.orderCodes ?? []).map((oc: { code: string }) => ({ code: oc.code })),
         items: (doc.items ?? []).map((it: any) => ({
           id: it.id,
           code: it.code ?? null,
@@ -832,7 +862,17 @@ export class ReconciliationMatcherService {
       ? await this.buildOrderGroupCandidates(tx, counterparty, aliasContext)
       : [];
 
-    return [...groupCandidates, ...singleCandidates].sort(
+    // Deduplicate: suppress individual NF rows that are already represented
+    // inside an order-group candidate — showing both would confuse the user
+    // (they'd see "Pedido C44751" AND the two NFs separately below it).
+    const groupMemberIds = new Set(
+      groupCandidates.flatMap(g => g.memberFiscalDocumentIds ?? []),
+    );
+    const dedupedSingles = groupMemberIds.size > 0
+      ? singleCandidates.filter(c => !groupMemberIds.has(c.fiscalDocumentId))
+      : singleCandidates;
+
+    return [...groupCandidates, ...dedupedSingles].sort(
       (a, b) => b.confidence - a.confidence,
     );
   }

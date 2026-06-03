@@ -77,15 +77,15 @@ export class DeepLinkService {
   // Web routes match the actual web application routes
   // Mobile routes use entity shortcuts that the mobile app's ENTITY_ALIAS_MAP can parse
   // These routes align with relatedEntityType string patterns:
-  // TASK_* → /producao/agenda/detalhes/:id (web) | task/:id (mobile)
+  // TASK_* → /producao/cronograma/detalhes/:id (web) | task/:id (mobile)
   // ORDER_* → /estoque/pedidos/detalhes/:id (web) | order/:id (mobile)
   // STOCK_*, ITEM_* → /estoque/produtos/detalhes/:id (web) | item/:id (mobile)
   // FINANCIAL_* → /financeiro/faturamento/detalhes/:id (web) | financial/:id (mobile)
-  // SERVICE_ORDER_* → /producao/ordens-de-servico/detalhes/:id (web) | service-order/:id (mobile)
-  // USER_*, PROFILE_* → /administracao/usuarios/detalhes/:id (web) | user/:id (mobile)
+  // SERVICE_ORDER_* → /producao/cronograma/detalhes/:id (web) | task/:id (mobile, navigates via task)
+  // USER_*, PROFILE_* → /administracao/colaboradores/detalhes/:id (web) | user/:id (mobile)
   private readonly ROUTES: Record<DeepLinkEntity, RouteConfig> = {
     [DeepLinkEntity.Task]: {
-      web: '/producao/agenda/detalhes/',
+      web: '/producao/cronograma/detalhes/',
       mobile: 'task/',
     },
     [DeepLinkEntity.Order]: {
@@ -97,15 +97,15 @@ export class DeepLinkService {
       mobile: 'item/',
     },
     [DeepLinkEntity.ServiceOrder]: {
-      web: '/producao/ordens-de-servico/detalhes/',
-      mobile: 'service-order/',
+      web: '/producao/cronograma/detalhes/',
+      mobile: 'task/',
     },
     [DeepLinkEntity.Financial]: {
       web: '/financeiro/faturamento/detalhes/',
       mobile: 'financial/',
     },
     [DeepLinkEntity.User]: {
-      web: '/administracao/usuarios/detalhes/',
+      web: '/administracao/colaboradores/detalhes/',
       mobile: 'user/',
     },
   };
