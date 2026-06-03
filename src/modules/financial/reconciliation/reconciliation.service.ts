@@ -27,6 +27,13 @@ import {
   ReconciliationAliasService,
   inferCounterpartyCnpj,
 } from './reconciliation-alias.service';
+import { CounterpartyLearningService } from './counterparty-learning.service';
+import { MemoCategoryLearnerService } from './memo-category-learner.service';
+import { FiscalDerivedLearnerService } from './fiscal-derived-learner.service';
+import { RecurrenceLearnerService } from './recurrence-learner.service';
+import { CategoryFusionService } from './learning/category-fusion.service';
+import { LearnedRuleSource } from '@prisma/client';
+import { memoFingerprint } from './text-normalization';
 
 // Categories included on every transaction list/detail response.
 const CATEGORY_INCLUDE = {
@@ -50,6 +57,11 @@ export class ReconciliationService {
     private readonly classifier: ReconciliationClassifierService,
     private readonly categories: TransactionCategoryService,
     private readonly itemCategoryClassifier: ItemCategoryClassifierService,
+    private readonly counterpartyLearning: CounterpartyLearningService,
+    private readonly memoLearner: MemoCategoryLearnerService,
+    private readonly fiscalLearner: FiscalDerivedLearnerService,
+    private readonly recurrenceLearner: RecurrenceLearnerService,
+    private readonly fusion: CategoryFusionService,
   ) {}
 
   async listTransactions(filters: TransactionsFilterDto) {
@@ -337,6 +349,7 @@ export class ReconciliationService {
         memo: true,
         type: true,
         counterpartyCnpjCpf: true,
+        counterpartyName: true,
         ownerCnpj: true,
       },
     });
@@ -408,6 +421,11 @@ export class ReconciliationService {
     await this.captureAliasesForMatch(tx, [...allocByDoc.keys()]);
     // Derive item categories from the freshly-linked NF(s).
     await this.itemCategoryClassifier.deriveForTransaction(transactionId);
+    // Learn emitter→category priors + per-counterparty recurrence from the
+    // confirmed match. Best-effort — never blocks the match action.
+    await this.fiscalLearner
+      .learnFromTransaction(transactionId, { manual: true })
+      .catch(err => this.logger.warn(`fiscal learnFromTransaction failed: ${err}`));
     return updated;
   }
 
@@ -421,11 +439,12 @@ export class ReconciliationService {
       memo: string | null;
       type: import('@prisma/client').BankTransactionType;
       counterpartyCnpjCpf: string | null;
+      counterpartyName: string | null;
       ownerCnpj: string | null;
     },
     fiscalDocumentIds: string[],
   ): Promise<void> {
-    if (!tx.memo || fiscalDocumentIds.length === 0) return;
+    if (fiscalDocumentIds.length === 0) return;
     try {
       const docs = await this.prisma.fiscalDocument.findMany({
         where: { id: { in: fiscalDocumentIds } },
@@ -435,11 +454,22 @@ export class ReconciliationService {
         const counterparty =
           tx.counterpartyCnpjCpf || inferCounterpartyCnpj(doc, tx.ownerCnpj);
         if (!counterparty) continue;
-        await this.aliasService.recordMatchSuccess({
-          memo: tx.memo,
-          txType: tx.type,
+        // Memo alias needs a memo; counterparty identity does not.
+        if (tx.memo) {
+          await this.aliasService.recordMatchSuccess({
+            memo: tx.memo,
+            txType: tx.type,
+            counterpartyCnpjCpf: counterparty,
+            source: ReconciliationAliasSource.MANUAL_MATCH,
+          });
+        }
+        // Learn the name→CNPJ identity (no category here — a match confirms who,
+        // not what). AUTO-sourced so it can never bootstrap a category alone.
+        await this.counterpartyLearning.record({
           counterpartyCnpjCpf: counterparty,
-          source: ReconciliationAliasSource.MANUAL_MATCH,
+          counterpartyName: tx.counterpartyName,
+          txType: tx.type,
+          source: LearnedRuleSource.AUTO,
         });
       }
     } catch (err) {
@@ -566,6 +596,9 @@ export class ReconciliationService {
         memo: true,
         type: true,
         counterpartyCnpjCpf: true,
+        counterpartyName: true,
+        postedAt: true,
+        amount: true,
         reconciliationStatus: true,
       },
     });
@@ -627,6 +660,7 @@ export class ReconciliationService {
     // Persist an alias for the first resolving (transaction-only) category so
     // future imports with the same memo auto-classify.
     const aliasCategory = chosen.find(c => c!.isResolving) ?? chosen[0];
+    const txOnlyCat = chosen.find(c => c!.isResolving);
     if (payload.saveAlias && aliasCategory && tx.memo && tx.counterpartyCnpjCpf) {
       await this.aliasService
         .recordMatchSuccess({
@@ -639,6 +673,49 @@ export class ReconciliationService {
         .catch(err => this.logger.warn(`Failed to save category alias: ${err}`));
     }
 
+    // Learn the memo-independent counterparty → category rule (the learnable
+    // replacement for the hardcoded pró-labore/aluguel CPF map) + the name→CNPJ
+    // identity. Fires even without a memo — that is the whole point.
+    if (payload.saveAlias && aliasCategory) {
+      await this.counterpartyLearning
+        .record({
+          counterpartyCnpjCpf: tx.counterpartyCnpjCpf,
+          counterpartyName: tx.counterpartyName,
+          txType: tx.type,
+          categoryId: aliasCategory.id,
+          source: LearnedRuleSource.MANUAL,
+        })
+        .catch(err => this.logger.warn(`counterparty learn failed: ${err}`));
+    }
+
+    // Learn the generalizing memo token-vote model for a resolving category
+    // (DARF/folha/tarifa). Needs only the memo — no CNPJ required, which is why
+    // tax/payroll memos (often CNPJ-less) can finally learn.
+    if (txOnlyCat && tx.memo) {
+      await this.memoLearner
+        .learnFromConfirmation(tx.memo, txOnlyCat.id, LearnedRuleSource.MANUAL)
+        .catch(err => this.logger.warn(`memo learn failed: ${err}`));
+    }
+
+    // Record a recurrence observation for a resolving (transaction-only)
+    // category set WITHOUT an NF (rent/pró-labore PIX) — the match-completion
+    // path handles the NF case. Keyed by CNPJ/CPF when known, else memo.
+    if (txOnlyCat) {
+      const key = (tx.counterpartyCnpjCpf || '').replace(/\D/g, '') || memoFingerprint(tx.memo);
+      if (key) {
+        await this.recurrenceLearner
+          .recordCadence({
+            counterpartyKey: key,
+            counterpartyLabel: tx.counterpartyName,
+            categoryId: txOnlyCat.id,
+            transactionId,
+            occurredAt: tx.postedAt,
+            amount: Number(tx.amount),
+          })
+          .catch(err => this.logger.warn(`recurrence recordCadence failed: ${err}`));
+      }
+    }
+
     // Train the item-category learner from this human correction (no-op unless
     // unambiguous — single item-derived/service category on a single-line NF).
     await this.itemCategoryClassifier
@@ -648,7 +725,65 @@ export class ReconciliationService {
       )
       .catch(err => this.logger.warn(`learnFromManual failed: ${err}`));
 
+    // Unified feedback: decay whatever the prior auto-decision relied on for
+    // categories the user did NOT choose, and reinforce the new ones across all
+    // learners. One correction fixes the future everywhere.
+    await this.fusion
+      .recordCorrection(transactionId, ids)
+      .catch(err => this.logger.warn(`fusion.recordCorrection failed: ${err}`));
+
     return this.getTransaction(transactionId);
+  }
+
+  /**
+   * Inbox of stored SUGGEST-tier proposals: pending transactions the learning
+   * layer categorized with medium confidence, awaiting a one-click confirm.
+   */
+  async listSuggestions() {
+    const rows = await this.prisma.bankTransaction.findMany({
+      where: {
+        suggestedCategoryId: { not: null },
+        reconciliationStatus: ReconciliationStatus.PENDING,
+      },
+      orderBy: [{ suggestionConfidence: 'desc' }, { postedAt: 'desc' }],
+      take: 200,
+      include: {
+        ...CATEGORY_INCLUDE,
+        suggestedCategory: {
+          select: { id: true, name: true, slug: true, kind: true, color: true, isResolving: true },
+        },
+      },
+    });
+    return rows;
+  }
+
+  /**
+   * Promote a stored suggestion to a MANUAL category (one click). Reuses
+   * changeCategory so the same learning/reconcile/correction path runs, then
+   * clears the now-consumed suggestion.
+   */
+  async confirmSuggestion(transactionId: string, userId: string | undefined) {
+    const tx = await this.prisma.bankTransaction.findUnique({
+      where: { id: transactionId },
+      select: { suggestedCategoryId: true },
+    });
+    if (!tx?.suggestedCategoryId) {
+      throw new BadRequestException('Nenhuma sugestão pendente para esta transação');
+    }
+    const result = await this.changeCategory(
+      transactionId,
+      { categoryIds: [tx.suggestedCategoryId], saveAlias: true },
+      userId,
+    );
+    await this.prisma.bankTransaction.update({
+      where: { id: transactionId },
+      data: {
+        suggestedCategoryId: null,
+        suggestionConfidence: null,
+        suggestionProvenance: Prisma.JsonNull,
+      },
+    });
+    return result;
   }
 
   /**

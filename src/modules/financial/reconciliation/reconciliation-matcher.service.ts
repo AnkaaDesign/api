@@ -16,6 +16,7 @@ import { MatchCandidate } from './types/reconciliation.types';
 import { nameSimilarity } from './text-normalization';
 import { ReconciliationAliasService } from './reconciliation-alias.service';
 import { ItemCategoryClassifierService } from './item-category-classifier.service';
+import { FiscalDerivedLearnerService } from './fiscal-derived-learner.service';
 import { isMarketplaceMemo } from './marketplace';
 
 const FUZZY_DATE_WINDOW_DAYS = 10;
@@ -275,6 +276,7 @@ export class ReconciliationMatcherService {
     @Inject(forwardRef(() => PrismaService)) private readonly prisma: PrismaService,
     private readonly aliasService: ReconciliationAliasService,
     private readonly itemCategoryClassifier: ItemCategoryClassifierService,
+    private readonly fiscalLearner: FiscalDerivedLearnerService,
     private readonly config: ConfigService,
   ) {
     this.companyCnpj =
@@ -399,6 +401,11 @@ export class ReconciliationMatcherService {
       // Enrich the now-matched transaction with item-derived categories from the
       // matched NF's line items. Best-effort; never breaks the match result.
       await this.itemCategoryClassifier.deriveForTransaction(tx.id);
+      // Learn emitter→category priors + per-counterparty recurrence from the
+      // auto-confirmed match (AUTO-sourced, so it never bootstraps alone).
+      await this.fiscalLearner
+        .learnFromTransaction(tx.id, { manual: false })
+        .catch(() => undefined);
       await this.prisma.bankTransaction
         .update({ where: { id: tx.id }, data: { topMatchScore: null } })
         .catch(() => undefined);

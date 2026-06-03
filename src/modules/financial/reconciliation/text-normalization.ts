@@ -146,6 +146,64 @@ export function memoFingerprint(memo: string | null | undefined): string | null 
   return tokens.join(' ');
 }
 
+/**
+ * Sorted, stoplisted token key of a counterparty NAME — the lookup key for
+ * CounterpartyProfile (name → CNPJ identity learning). Mirrors memoFingerprint
+ * but uses the name pipeline (a name field carries no CNPJ/date/amount noise).
+ * Returns null when nothing survives.
+ */
+export function nameFingerprint(raw: string | null | undefined): string | null {
+  const tokens = [...nameTokens(raw)].sort();
+  if (tokens.length === 0) return null;
+  return tokens.join(' ');
+}
+
+// Stoplist for MEMO LEARNING tokens. Deliberately SMALLER than
+// COMPANY_SUFFIX_TOKENS — words like "tarifa", "folha", "darf", "gps" ARE the
+// category signal for transaction-only buckets, so they must survive here even
+// though name-matching strips them. We drop only rail/instrument noise and pure
+// connectors. Ubiquity of generic rails (pix/ted) is demoted by IDF at score
+// time, not removed, so a memo that is ONLY "PIX" still contributes weakly.
+export const MEMO_LEARN_STOPLIST: ReadonlySet<string> = new Set([
+  // pure connectors
+  'do', 'da', 'de', 'dos', 'das', 'em', 'no', 'na', 'ou', 'com', 'ref',
+  // generic rail/instrument words that never disambiguate a category
+  'pagamento', 'pagto', 'pgto', 'pgmt', 'recebimento', 'receb',
+  'transf', 'doc', 'cred', 'credito', 'deb', 'debito', 'liquidacao', 'liquidado',
+  // counterparty-form noise (subset of COMPANY_SUFFIX_TOKENS)
+  'ltda', 'sa', 'epp', 'eireli', 'mei', 'cia',
+]);
+
+// Generic rails that must NOT resolve a category on their own — IDF demotes them
+// and the learner floor-guards on minimum evidence.
+export const MEMO_UBIQUITOUS_TOKENS: ReadonlySet<string> = new Set([
+  'pix', 'ted', 'boleto', 'blt', 'tar',
+]);
+
+/**
+ * Tokenises a memo into category-learning tokens. Unlike memoFingerprint (which
+ * sorts+joins into a SINGLE exact key) this returns the INDIVIDUAL surviving
+ * tokens so each votes independently — the generalization the exact alias lacks.
+ * Strips CNPJ/CPF/dates/values like memoFingerprint, then applies the smaller
+ * MEMO_LEARN_STOPLIST. Numbers are dropped (reference codes are exactly why
+ * exact aliases fail to generalize: "darf 1410" and "darf 0220" → ["darf"]).
+ * Returns [] when nothing survives.
+ */
+export function memoLearnTokens(memo: string | null | undefined): string[] {
+  if (!memo) return [];
+  const stripped = stripAccents(memo)
+    .toLowerCase()
+    .replace(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/g, ' ')
+    .replace(/\d{3}\.\d{3}\.\d{3}-\d{2}/g, ' ')
+    .replace(/\d{11,14}/g, ' ')
+    .replace(/\d{2}[./\-]\d{2}[./\-]\d{2,4}/g, ' ')
+    .replace(/r\$\s?\d+[.,]?\d*/g, ' ')
+    .replace(/[^a-z0-9 ]+/g, ' ');
+  return stripped
+    .split(/\s+/)
+    .filter(t => t.length >= 3 && !MEMO_LEARN_STOPLIST.has(t) && !/^\d+$/.test(t));
+}
+
 // ---------------------------------------------------------------------------
 // NF line-item normalization (used by the item-category fuzzy classifier).
 //

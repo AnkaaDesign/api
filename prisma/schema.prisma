@@ -3675,6 +3675,25 @@ enum ItemCategoryAliasSource {
   ADMIN_SEEDED
 }
 
+// Shared provenance for the self-learning layer (counterparty rules, memo-token
+// weights, emitter priors). Mirrors the safety posture of the alias learners:
+//   MANUAL       — a human confirmed/corrected; sacred, never auto-disabled.
+//   AUTO         — harvested from an accepted auto-classification/auto-match;
+//                  needs sustained confirmation before it is trusted.
+//   ADMIN_SEEDED — bulk-seeded (e.g. migrating the hardcoded rule maps).
+enum LearnedRuleSource {
+  MANUAL
+  AUTO
+  ADMIN_SEEDED
+}
+
+// Tier a fused classification decision lands in (persisted on CategoryDecisionLog).
+enum CategoryDecisionTier {
+  AUTO_APPLY
+  SUGGEST
+  ABSTAIN
+}
+
 model BankTransaction {
   id                   String                 @id @default(uuid())
   // Denormalized bank-account identifier columns. Together with fitId they form
@@ -3711,6 +3730,12 @@ model BankTransaction {
   // Best candidate confidence (0-100) computed by the matcher when an auto-match
   // did NOT succeed — lets the list show "Pendente · 40%" for quick triage.
   topMatchScore        Int?
+  // --- Fusion spine: SUGGEST-tier output (medium confidence, awaiting one-click
+  // confirm). Non-null ⇒ the learning layer proposed this category but did NOT
+  // apply it. Cleared on AUTO_APPLY or when the user categorizes by hand.
+  suggestedCategoryId  String?
+  suggestionConfidence Int?                   // 0-100 fused confidence
+  suggestionProvenance Json?                  // CategorySignal[] breakdown snapshot
   bankSlipId           String?
   // Audit trail of the OFX import that created this row.
   rawFileId            String?
@@ -3726,6 +3751,9 @@ model BankTransaction {
   // from the matched NF's line items; transaction-only tags (Aluguel) are set
   // by the classifier or by a user.
   categories           BankTransactionCategory[] @relation("TransactionCategoryTags")
+  suggestedCategory    TransactionCategory?   @relation("TxSuggestedCategory", fields: [suggestedCategoryId], references: [id])
+  decisionLogs         CategoryDecisionLog[]  @relation("TxDecisionLog")
+  cadenceObservations  CadenceObservation[]   @relation("TxCadenceObservation")
 
   @@unique([bankCode, agency, accountNumber, fitId])
   @@index([postedAt])
@@ -3734,6 +3762,7 @@ model BankTransaction {
   @@index([counterpartyCnpjCpf])
   @@index([amount])
   @@index([bankCode, accountNumber, postedAt])
+  @@index([suggestedCategoryId])
 }
 
 model FiscalDocument {
@@ -3974,6 +4003,11 @@ model TransactionCategory {
   fiscalDocumentItems FiscalDocumentItem[]     @relation("FiscalItemCategory")
   aliases            ReconciliationAlias[]     @relation("AliasCategory")
   itemCategoryAliases ItemCategoryAlias[]      @relation("ItemCategoryAliasCategory")
+  counterpartyRules  CounterpartyCategoryRule[] @relation("CounterpartyRuleCategory")
+  memoTokenWeights   MemoTokenWeight[]         @relation("MemoTokenCategory")
+  emitterPriors      EmitterCategoryPrior[]    @relation("EmitterPriorCategory")
+  cadences           CounterpartyCadence[]     @relation("CadenceCategory")
+  suggestedTransactions BankTransaction[]      @relation("TxSuggestedCategory")
 
   @@index([kind])
   @@index([itemCategoryId])
@@ -4037,6 +4071,205 @@ model BankTransactionCategory {
   @@index([transactionId])
   @@index([categoryId])
   @@index([categoryId, source])
+}
+
+// ===========================================================================
+// Self-learning layer — counterparty / memo-token / NF-emitter learners + the
+// fusion-decision audit log. All learners mirror ReconciliationAlias safety:
+// single AUTO attestation never bootstraps (confidence 0), MANUAL is never
+// auto-disabled, soft-disable via disabledAt after sustained rejections.
+// ===========================================================================
+
+// Learned (counterparty CPF/CNPJ → category), memo-independent. The DB-backed,
+// learnable replacement for the hardcoded COUNTERPARTY_CATEGORY_RULES map: a CPF
+// resolves to exactly one category per direction (txType), regardless of how the
+// bank formats the memo (pró-labore draws, rent PIX paid to a CPF, …).
+model CounterpartyCategoryRule {
+  id                  String              @id @default(uuid())
+  // digits-only CPF (11) or CNPJ (14).
+  counterpartyCnpjCpf String
+  // Same CPF can mean different things on DEBIT vs CREDIT.
+  txType              BankTransactionType
+  categoryId          String
+  category            TransactionCategory @relation("CounterpartyRuleCategory", fields: [categoryId], references: [id], onDelete: Cascade)
+  source              LearnedRuleSource
+  confirmedCount      Int                 @default(1)
+  rejectedCount       Int                 @default(0)
+  firstObservedAt     DateTime            @default(now())
+  lastConfirmedAt     DateTime            @default(now())
+  disabledAt          DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  // Identity→category is a function: one winning category per (cnpj, txType). A
+  // different category is a contested update handled in service code, not a row.
+  @@unique([counterpartyCnpjCpf, txType])
+  @@index([counterpartyCnpjCpf])
+  @@index([categoryId])
+  @@index([disabledAt])
+}
+
+// Learned (counterparty NAME fingerprint → CPF/CNPJ identity). When an OFX memo
+// carries a payee name but no parseable document, this recovers the identity,
+// which then unlocks CounterpartyCategoryRule + the NF scoring path.
+model CounterpartyProfile {
+  id                  String            @id @default(uuid())
+  // nameFingerprint(counterpartyName): sorted, stoplisted token key.
+  nameFingerprint     String
+  counterpartyCnpjCpf String            // digits-only resolved identity
+  displayName         String?           // last-seen raw name, for the admin UI
+  source              LearnedRuleSource
+  confirmedCount      Int               @default(1)
+  rejectedCount       Int               @default(0)
+  firstObservedAt     DateTime          @default(now())
+  lastConfirmedAt     DateTime          @default(now())
+  disabledAt          DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  // One row per (nameFp, cnpj); two CNPJs for one name → two rows → the
+  // ambiguity guard in resolveIdentity() decides whether to answer.
+  @@unique([nameFingerprint, counterpartyCnpjCpf])
+  @@index([nameFingerprint])
+  @@index([counterpartyCnpjCpf])
+  @@index([disabledAt])
+}
+
+// Learned token-vote model for transaction memos → TRANSACTION_ONLY categories.
+// One row per (token, categoryId). Effective vote = max(0, weight - negWeight),
+// so a re-categorization decays the wrong token without erasing its history.
+// Generalizes where exact-fingerprint aliases can't (one DARF teaches all DARFs).
+model MemoTokenWeight {
+  id              String              @id @default(uuid())
+  token           String              // normalized memo token (memoLearnTokens())
+  categoryId      String
+  category        TransactionCategory @relation("MemoTokenCategory", fields: [categoryId], references: [id], onDelete: Cascade)
+  source          LearnedRuleSource   @default(AUTO)
+  weight          Float               @default(0)
+  negWeight       Float               @default(0)
+  confirmedCount  Int                 @default(0)
+  rejectedCount   Int                 @default(0)
+  firstObservedAt DateTime            @default(now())
+  lastConfirmedAt DateTime            @default(now())
+  disabledAt      DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@unique([token, categoryId])
+  @@index([token])
+  @@index([categoryId])
+  @@index([disabledAt])
+}
+
+// Global document frequency per memo token (across ALL categories), so the IDF
+// down-weight of ubiquitous tokens (pix/ted/pagamento) is O(1) at score time.
+model MemoTokenStat {
+  id            String   @id @default(uuid())
+  token         String   @unique
+  categoryCount Int      @default(0) // distinct categories this token votes for
+  totalCount    Int      @default(0)
+  updatedAt     DateTime @updatedAt
+
+  @@index([token])
+}
+
+// Learned (emitter CNPJ → transaction category) prior, aggregated across every
+// confirmed NF from a given emitter — predicts the category BEFORE line-level
+// classification. Purity is derived across sibling rows sharing an emitterCnpj.
+model EmitterCategoryPrior {
+  id              String                  @id @default(uuid())
+  emitterCnpj     String                  // full digits-only CNPJ
+  emitterRoot     String                  // first 8 digits — root fallback
+  categoryId      String
+  category        TransactionCategory     @relation("EmitterPriorCategory", fields: [categoryId], references: [id], onDelete: Cascade)
+  categoryKind    TransactionCategoryKind // weight ITEM_DERIVED/SERVICE vs TRANSACTION_ONLY
+  source          LearnedRuleSource       @default(AUTO)
+  confirmedCount  Int                     @default(1)
+  rejectedCount   Int                     @default(0)
+  firstObservedAt DateTime                @default(now())
+  lastConfirmedAt DateTime                @default(now())
+  disabledAt      DateTime?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@unique([emitterCnpj, categoryId])
+  @@index([emitterCnpj])
+  @@index([emitterRoot])
+  @@index([categoryId])
+  @@index([disabledAt])
+}
+
+// Per-(counterparty, category) cadence + rolling expected amount. Learned from
+// the spacing/amounts of confirmed transactions; drives the learned-recurring
+// flag, the forecast read model and the per-period anomaly band.
+model CounterpartyCadence {
+  id                 String               @id @default(uuid())
+  // CNPJ/CPF (digits) when known, else memoFingerprint.
+  counterpartyKey    String
+  counterpartyLabel  String?
+  categoryId         String
+  category           TransactionCategory  @relation("CadenceCategory", fields: [categoryId], references: [id], onDelete: Cascade)
+  sampleCount        Int                  @default(0)
+  meanPeriodDays     Float?               // EWMA inter-arrival gap
+  periodVarianceDays Float?
+  expectedAmount     Decimal?             @db.Decimal(14, 2) // EWMA abs amount
+  amountVariance     Float?
+  lastSeenAt         DateTime?
+  lastAmount         Decimal?             @db.Decimal(14, 2)
+  // Learned recurring flag — distinct from TransactionCategory.isRecurring
+  // (which stays the manual/global flag).
+  isLearnedRecurring Boolean              @default(false)
+  periodCv           Float?               // coefficient of variation of the period
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  observations       CadenceObservation[] @relation("CadenceObservations")
+
+  @@unique([counterpartyKey, categoryId])
+  @@index([categoryId])
+  @@index([isLearnedRecurring])
+  @@index([lastSeenAt])
+}
+
+// Append-only ledger of each occurrence feeding a CounterpartyCadence. Lets us
+// recompute stats deterministically and dedupe a re-categorized tx so its amount
+// is never double-counted into the rolling mean.
+model CadenceObservation {
+  id            String              @id @default(uuid())
+  cadenceId     String
+  transactionId String
+  occurredAt    DateTime
+  amount        Decimal             @db.Decimal(14, 2)
+  createdAt     DateTime            @default(now())
+  cadence       CounterpartyCadence @relation("CadenceObservations", fields: [cadenceId], references: [id], onDelete: Cascade)
+  transaction   BankTransaction     @relation("TxCadenceObservation", fields: [transactionId], references: [id], onDelete: Cascade)
+
+  // One observation per (cadence, transaction): re-categorizing must not add a
+  // second data point.
+  @@unique([cadenceId, transactionId])
+  @@index([cadenceId])
+  @@index([transactionId])
+}
+
+// Append-only audit of every fusion decision (AUTO_APPLY/SUGGEST/ABSTAIN) and
+// every correction. Powers the explain() ("why was this categorized?") endpoint
+// and is the source of truth for which learned rows to decay on a correction.
+model CategoryDecisionLog {
+  id            String               @id @default(uuid())
+  transactionId String
+  transaction   BankTransaction      @relation("TxDecisionLog", fields: [transactionId], references: [id], onDelete: Cascade)
+  tier          CategoryDecisionTier
+  categoryId    String?
+  confidence    Int                  // 0-100
+  // Full CategorySignal[] at decision time (winners + conflicts + losers).
+  breakdown     Json
+  // Winning signals only, denormalized for fast reversal fan-out.
+  winners       Json
+  // 'CLASSIFY' | 'CORRECTION' | 'REPLAY'
+  event         String
+  createdAt     DateTime             @default(now())
+
+  @@index([transactionId, createdAt])
+  @@index([tier])
 }
 
 // =====================
