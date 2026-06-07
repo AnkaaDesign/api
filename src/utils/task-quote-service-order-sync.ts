@@ -84,6 +84,14 @@ export function areDescriptionsEqual(desc1: string | null, desc2: string | null)
 }
 
 /**
+ * Returns a composite key combining description and observation for deduplication.
+ * Needed because multiple items can share a description (e.g. "Outros") with different observations.
+ */
+export function makeDescObsKey(description: string | null, observation?: string | null): string {
+  return `${normalizeDescription(description)}::${normalizeDescription(observation || '')}`;
+}
+
+/**
  * DEPRECATED: Kept for backwards compatibility
  * Now just returns the description as-is since we have separate observation field
  */
@@ -145,9 +153,10 @@ export function getServiceOrderToQuoteSync(
     };
   }
 
-  // Check if a quote item with this exact description already exists
+  // Check if a quote item with this exact description+observation already exists
   const existingItem = existingQuoteItems.find(item =>
-    areDescriptionsEqual(item.description, description),
+    areDescriptionsEqual(item.description, description) &&
+    areDescriptionsEqual(item.observation || '', observation || ''),
   );
 
   if (existingItem) {
@@ -218,13 +227,14 @@ export function getQuoteItemToServiceOrderSync(
     };
   }
 
-  // Check if a PRODUCTION service order with this exact description already exists
+  // Check if a PRODUCTION service order with this exact description+observation already exists
   const productionOrders = existingServiceOrders.filter(
     so => so.type === SERVICE_ORDER_TYPE.PRODUCTION,
   );
 
   const existingOrder = productionOrders.find(so =>
-    areDescriptionsEqual(so.description, description),
+    areDescriptionsEqual(so.description, description) &&
+    areDescriptionsEqual(so.observation || '', observation || ''),
   );
 
   if (existingOrder) {
@@ -335,8 +345,8 @@ export function getBidirectionalSyncActions(
     }>,
   };
 
-  // Track what's already been matched to avoid duplicates
-  const matchedQuoteDescriptions = new Set<string>();
+  // Track what's already been matched to avoid duplicates (keyed by description::observation)
+  const matchedQuoteKeys = new Set<string>();
   const matchedServiceOrderIds = new Set<string>();
 
   // First pass: Service Orders → Quote Items
@@ -346,15 +356,15 @@ export function getBidirectionalSyncActions(
     const syncResult = getServiceOrderToQuoteSync(so, quoteItems);
 
     if (syncResult.shouldCreateQuoteItem) {
-      const normalizedDesc = normalizeDescription(syncResult.quoteItemDescription);
-      if (!matchedQuoteDescriptions.has(normalizedDesc)) {
+      const key = makeDescObsKey(syncResult.quoteItemDescription, syncResult.quoteItemObservation);
+      if (!matchedQuoteKeys.has(key)) {
         result.quoteItemsToCreate.push({
           description: syncResult.quoteItemDescription,
           observation: syncResult.quoteItemObservation,
           amount: syncResult.quoteItemAmount,
           sourceServiceOrderId: so.id,
         });
-        matchedQuoteDescriptions.add(normalizedDesc);
+        matchedQuoteKeys.add(key);
       }
     } else if (syncResult.shouldUpdateQuoteItem && syncResult.existingQuoteItemId) {
       result.quoteItemsToUpdate.push({
@@ -363,19 +373,19 @@ export function getBidirectionalSyncActions(
         observation: syncResult.quoteItemObservation,
         sourceServiceOrderId: so.id,
       });
-      matchedQuoteDescriptions.add(normalizeDescription(syncResult.quoteItemDescription));
+      matchedQuoteKeys.add(makeDescObsKey(syncResult.quoteItemDescription, syncResult.quoteItemObservation));
     } else if (syncResult.existingQuoteItemId) {
-      matchedQuoteDescriptions.add(normalizeDescription(syncResult.quoteItemDescription));
+      matchedQuoteKeys.add(makeDescObsKey(syncResult.quoteItemDescription, syncResult.quoteItemObservation));
       if (so.id) matchedServiceOrderIds.add(so.id);
     }
   }
 
   // Second pass: Quote Items → Service Orders
   for (const pi of quoteItems) {
-    const normalizedDesc = normalizeDescription(pi.description);
+    const key = makeDescObsKey(pi.description, pi.observation);
 
     // Skip if this quote item was already matched from a service order
-    if (matchedQuoteDescriptions.has(normalizedDesc)) {
+    if (matchedQuoteKeys.has(key)) {
       continue;
     }
 
@@ -403,7 +413,7 @@ export function getBidirectionalSyncActions(
 }
 
 /**
- * Helper function to check if a quote item description matches a service order
+ * Helper function to check if a quote item matches a service order (by description+observation)
  */
 export function isQuoteItemMatchingServiceOrder(
   quoteItem: SyncQuoteItem,
@@ -413,7 +423,10 @@ export function isQuoteItemMatchingServiceOrder(
     return false;
   }
 
-  return areDescriptionsEqual(quoteItem.description, serviceOrder.description);
+  return (
+    areDescriptionsEqual(quoteItem.description, serviceOrder.description) &&
+    areDescriptionsEqual(quoteItem.observation || '', serviceOrder.observation || '')
+  );
 }
 
 /**
@@ -429,22 +442,22 @@ export function getQuoteItemsToAddFromServiceOrders(
     observation: string | null;
     amount: number;
   }> = [];
-  const existingDescriptions = new Set(
-    existingQuoteItems.map(pi => normalizeDescription(pi.description)),
+  const existingKeys = new Set(
+    existingQuoteItems.map(pi => makeDescObsKey(pi.description, pi.observation)),
   );
 
   for (const so of serviceOrders) {
     if (so.type !== SERVICE_ORDER_TYPE.PRODUCTION) continue;
     if (!so.description) continue;
 
-    const normalizedDesc = normalizeDescription(so.description);
-    if (!existingDescriptions.has(normalizedDesc)) {
+    const key = makeDescObsKey(so.description, so.observation);
+    if (!existingKeys.has(key)) {
       result.push({
         description: so.description.trim(),
         observation: so.observation?.trim() || null,
         amount: 0,
       });
-      existingDescriptions.add(normalizedDesc);
+      existingKeys.add(key);
     }
   }
 
@@ -457,22 +470,22 @@ export function getServiceOrdersToAddFromQuoteItems(
   _historicalDescriptions?: string[],
 ): Array<{ description: string; observation: string | null }> {
   const result: Array<{ description: string; observation: string | null }> = [];
-  const existingDescriptions = new Set(
+  const existingKeys = new Set(
     existingServiceOrders
       .filter(so => so.type === SERVICE_ORDER_TYPE.PRODUCTION)
-      .map(so => normalizeDescription(so.description)),
+      .map(so => makeDescObsKey(so.description, so.observation)),
   );
 
   for (const pi of quoteItems) {
     if (!pi.description) continue;
 
-    const normalizedDesc = normalizeDescription(pi.description);
-    if (!existingDescriptions.has(normalizedDesc)) {
+    const key = makeDescObsKey(pi.description, pi.observation);
+    if (!existingKeys.has(key)) {
       result.push({
         description: pi.description.trim(),
         observation: pi.observation?.trim() || null,
       });
-      existingDescriptions.add(normalizedDesc);
+      existingKeys.add(key);
     }
   }
 

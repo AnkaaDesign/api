@@ -180,6 +180,7 @@ export class StockNotificationService {
     const configKey = this.resolveConfigKey(bucket.eventType);
     const { title, body } = this.buildContent(bucket.eventType, supplierName, bucket.items);
     const importance = this.resolveImportance(bucket.eventType);
+    const firstItem = bucket.items.length === 1 ? bucket.items[0] : null;
 
     try {
       await this.dispatchService.dispatchByConfiguration(configKey, 'system', {
@@ -193,6 +194,13 @@ export class StockNotificationService {
           importance,
           title,
           body,
+          // Top-level aliases so the WhatsApp formatter and DB channel templates
+          // can access item fields directly (they cannot traverse items[]).
+          itemName: firstItem ? firstItem.itemName : `${bucket.items.length} itens`,
+          currentQuantity: firstItem?.quantity,
+          quantity: firstItem?.quantity,
+          reorderPoint: firstItem?.reorderPoint,
+          minQuantity: firstItem?.reorderPoint,
           items: bucket.items.map(i => ({
             itemId: i.itemId,
             itemName: i.itemName,
@@ -211,6 +219,10 @@ export class StockNotificationService {
           channels: bucket.eventType === STOCK_EVENT_TYPE.OVERSTOCKED ? ['IN_APP'] : null,
           triggeredAt: new Date().toISOString(),
         } as any,
+        overrides: {
+          title,
+          body,
+        },
       });
     } catch (error: any) {
       this.logger.error(

@@ -257,6 +257,34 @@ export class OrderScheduleService {
           { include },
         );
 
+        // Recompute nextRun server-side so it always aligns with the configured
+        // occurrence pattern. The user's form-provided date is used as a "not
+        // before" hint: the system finds the next valid occurrence on or after
+        // that date. This prevents orders from being created on the wrong day
+        // (e.g. the user accidentally set a non-Tuesday date for a "first Tuesday"
+        // monthly schedule).
+        if (newOrderSchedule.isActive) {
+          const scheduleWithConfig = await tx.orderSchedule.findUnique({
+            where: { id: newOrderSchedule.id },
+            include: { monthlyConfig: true, weeklyConfig: true, yearlyConfig: true },
+          });
+          if (scheduleWithConfig) {
+            const fromDate = newOrderSchedule.nextRun ?? new Date();
+            const correctNextRun = this.calculateNextRunDate(scheduleWithConfig as any, fromDate);
+            if (
+              correctNextRun &&
+              (!newOrderSchedule.nextRun ||
+                correctNextRun.getTime() !== new Date(newOrderSchedule.nextRun).getTime())
+            ) {
+              await tx.orderSchedule.update({
+                where: { id: newOrderSchedule.id },
+                data: { nextRun: correctNextRun },
+              });
+              (newOrderSchedule as any).nextRun = correctNextRun;
+            }
+          }
+        }
+
         // Log creation
         await logEntityChange({
           changeLogService: this.changeLogService,
