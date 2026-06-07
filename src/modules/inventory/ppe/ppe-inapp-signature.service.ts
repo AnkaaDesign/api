@@ -590,7 +590,8 @@ export class PpeInAppSignatureService {
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/[^a-zA-Z0-9\s]/g, '')
-        .replace(/\s+/g, '_');
+        .replace(/\s+/g, ' ')
+        .trim();
 
       const now = new Date();
       const year = String(now.getFullYear()).slice(-2);

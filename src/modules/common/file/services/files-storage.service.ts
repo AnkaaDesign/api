@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { promises as fs, existsSync } from 'fs';
 import { join, extname, basename, dirname } from 'path';
+import { PrismaService } from '@modules/common/prisma/prisma.service';
 
 /**
  * Files storage folder mapping for different file types and contexts
@@ -58,6 +59,9 @@ export interface FilesFolderMapping {
   userAvatar: string;
   signedPpeDocuments: string;
 
+  // Entity-specific folders - Financial
+  installmentReceipts: string;
+
   // Entity-specific folders - Other
   observations: string;
   warning: string;
@@ -105,6 +109,8 @@ export class FilesStorageService {
   // Production: FILES_ROOT=/srv/files
   // Development: FILES_ROOT=./files
   private readonly filesRoot = process.env.FILES_ROOT || './files';
+
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
    * Folder structure mapping — suffix after entity root (Clientes/{name}/ or Fornecedores/{name}/)
@@ -155,6 +161,9 @@ export class FilesStorageService {
     // User folders (under Colaboradores/{userName}/)
     userAvatar: 'Fotos',
     signedPpeDocuments: 'EPIs',
+
+    // Financial folders (under Clientes/{customerName}/)
+    installmentReceipts: 'Comprovantes',
 
     // Other entity folders
     observations: 'Observacoes',
@@ -257,6 +266,7 @@ export class FilesStorageService {
     'quote-layouts',
     'plotterEspovo',
     'plotterAdesivo',
+    'installmentReceipts',
   ]);
 
   /**
@@ -746,6 +756,46 @@ export class FilesStorageService {
         return 'archives';
       default:
         return 'general';
+    }
+  }
+
+  /**
+   * Move a file from a generic staging folder (Fotos, Auxiliares, Uploads) to the
+   * correct customer context folder. Updates the File record path in the database.
+   * Non-fatal: if the move fails, the file remains accessible at its current path.
+   */
+  async moveFileToCustomerContext(
+    fileId: string,
+    context: keyof FilesFolderMapping,
+    customerName: string,
+  ): Promise<void> {
+    const file = await this.prisma.file.findUnique({ where: { id: fileId } });
+    if (!file) return;
+
+    const GENERIC_DIRS = ['/Fotos/', '/Auxiliares/', '/Uploads/'];
+    if (!GENERIC_DIRS.some(d => file.path.includes(d))) return;
+
+    const targetFolder = this.getFolderPath(
+      context,
+      file.mimetype,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      customerName,
+    );
+    const filename = basename(file.path);
+    const newPath = join(targetFolder, filename);
+
+    if (newPath === file.path) return;
+
+    try {
+      await fs.mkdir(targetFolder, { recursive: true });
+      await fs.rename(file.path, newPath);
+      await this.prisma.file.update({ where: { id: fileId }, data: { path: newPath } });
+      this.logger.log(`Moved file ${fileId} → ${newPath}`);
+    } catch (error: any) {
+      this.logger.warn(`Could not move file ${fileId} to customer folder: ${error.message}`);
     }
   }
 }

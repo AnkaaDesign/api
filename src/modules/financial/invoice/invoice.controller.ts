@@ -22,6 +22,7 @@ import { InvoiceGenerationService } from './invoice-generation.service';
 import { InvoiceAnalyticsService } from './invoice-analytics.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
+import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 import { SicrediBoletoScheduler } from '@modules/integrations/sicredi/sicredi-boleto.scheduler';
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
@@ -73,6 +74,7 @@ export class InvoiceController {
     private readonly municipalNfseService: ElotechOxyNfseService,
     private readonly nfseEmissionScheduler: NfseEmissionScheduler,
     private readonly dispatchService: NotificationDispatchService,
+    private readonly filesStorageService: FilesStorageService,
   ) {}
 
   /**
@@ -913,6 +915,24 @@ export class InvoiceController {
           : {}),
       },
     });
+
+    // Move any receipt files that landed in a generic folder to the correct customer path.
+    if (body.receiptFileIds?.length) {
+      const installmentForMove = await this.prisma.installment.findUnique({
+        where: { id: installmentId },
+        select: {
+          customerConfig: {
+            select: { customer: { select: { fantasyName: true } } },
+          },
+        },
+      });
+      const customerName = installmentForMove?.customerConfig?.customer?.fantasyName;
+      if (customerName) {
+        for (const fileId of body.receiptFileIds) {
+          await this.filesStorageService.moveFileToCustomerContext(fileId, 'installmentReceipts', customerName);
+        }
+      }
+    }
 
     return { message: 'Parcela atualizada com sucesso.' };
   }
