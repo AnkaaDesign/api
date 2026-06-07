@@ -32,6 +32,7 @@ import { OrderModule } from './modules/inventory/order/order.module';
 import { PaintModule } from './modules/paint/paint.module';
 import { PositionModule } from './modules/people/position/position.module';
 import { PreferencesModule } from './modules/people/preferences/preferences.module';
+import { StatisticsPreferencesModule } from './modules/people/statistics-preferences/statistics-preferences.module';
 import { ResponsibleModule } from './modules/people/responsible/responsible.module';
 import { PrismaModule } from './modules/common/prisma/prisma.module';
 import { WarningModule } from './modules/people/warning/warning.module';
@@ -116,6 +117,7 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     PaintModule,
     PositionModule,
     PreferencesModule,
+    StatisticsPreferencesModule,
     ResponsibleModule,
     PrismaModule,
     WarningModule,

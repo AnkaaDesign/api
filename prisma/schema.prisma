@@ -1758,6 +1758,8 @@ model User {
   questionnairesCreated          Questionnaire[]              @relation("QUESTIONNAIRE_CREATED_BY")
   questionnaireEntries           QuestionnaireEntry[]         @relation("QUESTIONNAIRE_ENTRY_RESPONDENT")
   questionnaireTargets           QuestionnaireUser[]          @relation("QUESTIONNAIRE_TARGET_USER")
+  statisticsPagePreferences      StatisticsPagePreference[]   @relation("USER_STATISTICS_PAGE_PREFERENCES")
+  statisticsPresets              StatisticsPreset[]           @relation("USER_STATISTICS_PRESETS")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -1788,6 +1790,33 @@ model Preferences {
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
   user                  User        @relation("USER_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model StatisticsPagePreference {
+  id         String   @id @default(uuid())
+  userId     String
+  pageKey    String
+  lastConfig Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation("USER_STATISTICS_PAGE_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pageKey])
+  @@index([userId])
+}
+
+model StatisticsPreset {
+  id        String   @id @default(uuid())
+  userId    String
+  pageKey   String
+  name      String
+  config    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation("USER_STATISTICS_PRESETS", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pageKey, name])
+  @@index([userId, pageKey])
 }
 
 model NotificationPreference {

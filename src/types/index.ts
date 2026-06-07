@@ -38,6 +38,7 @@ export * from './sector';
 export * from './service';
 export * from './serviceOrder';
 // export * from "./statistics"; // TODO: Re-enable when statistics module is implemented
+export * from "./statistics-preferences";
 export * from './summary';
 export * from './supplier';
 export * from './task';

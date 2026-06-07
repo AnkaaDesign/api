@@ -139,5 +139,6 @@ export {
   type DiscountWhere,
 } from './discount';
 // export * from "./statistics"; // TODO: Re-enable when statistics module is implemented
+export * from "./statistics-preferences";
 export * from './deployment';
 export * from './skill';
