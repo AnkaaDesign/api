@@ -9,9 +9,10 @@ import { InvoicePrismaRepository } from './repositories/invoice-prisma.repositor
 import { SicrediModule } from '@modules/integrations/sicredi/sicredi.module';
 import { NfseModule } from '@modules/integrations/nfse/nfse.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
+import { FilesStorageModule } from '@modules/common/file/services/files-storage.module';
 
 @Module({
-  imports: [PrismaModule, SicrediModule, NfseModule, NotificationModule],
+  imports: [PrismaModule, SicrediModule, NfseModule, NotificationModule, FilesStorageModule],
   controllers: [InvoiceController],
   providers: [
     InvoiceService,
