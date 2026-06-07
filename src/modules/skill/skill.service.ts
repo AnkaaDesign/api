@@ -1520,6 +1520,7 @@ export class SkillService {
         userName: string;
         sectorId: string | null;
         sectorName: string | null;
+        positionId: string | null;
         positionName: string | null;
         bySkill: Map<string, number[]>;
         submittedAt: Date | null;
@@ -1558,6 +1559,7 @@ export class SkillService {
       const evaluateeName = entry.evaluatee?.name ?? 'Desconhecido';
       const sectorId = entry.evaluatee?.sector?.id ?? null;
       const sectorName = entry.evaluatee?.sector?.name ?? null;
+      const positionId = entry.evaluatee?.position?.id ?? null;
       const positionName = entry.evaluatee?.position?.name ?? null;
 
       let userBucket = aggByUser.get(entry.evaluateeId);
@@ -1566,6 +1568,7 @@ export class SkillService {
           userName: evaluateeName,
           sectorId,
           sectorName,
+          positionId,
           positionName,
           bySkill: new Map(),
           submittedAt: entry.submittedAt,
@@ -1691,6 +1694,7 @@ export class SkillService {
         userName: bucket.userName,
         sectorId: bucket.sectorId,
         sectorName: bucket.sectorName,
+        positionId: bucket.positionId,
         positionName: bucket.positionName,
         submittedAt: bucket.submittedAt,
         overallAverage: avg(allScores),
