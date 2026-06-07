@@ -145,21 +145,23 @@ export class BackupService implements OnModuleInit {
   }
 
   /**
-   * Get date-based path for backup organization
-   * Format: YYYY/MM/DD
+   * Get date+hour path for backup organization
+   * Format: YYYY/MM/DD/HH
    * Uses São Paulo timezone (America/Sao_Paulo) to match shell scripts
    */
   private getDateBasedPath(): string {
-    // Use São Paulo timezone to match shell scripts
-    const formatter = new Intl.DateTimeFormat('en-CA', {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Sao_Paulo',
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
-    });
-    // Format returns YYYY-MM-DD, convert to YYYY/MM/DD
-    const datePath = formatter.format(new Date()).replace(/-/g, '/');
-    return datePath;
+      hour: '2-digit',
+      hour12: false,
+    }).formatToParts(now);
+    const get = (type: string) => parts.find(p => p.type === type)?.value ?? '';
+    const hour = get('hour').replace('24', '00');
+    return `${get('year')}/${get('month')}/${get('day')}/${hour}`;
   }
 
   /**
@@ -232,8 +234,8 @@ export class BackupService implements OnModuleInit {
   }
 
   /**
-   * Ensure date-based directory exists for a specific backup type
-   * Creates structure: /banco-de-dados/2025/10/25/backup_XXX/
+   * Ensure date+hour directory exists for a specific backup type
+   * Creates structure: /banco-de-dados/2025/10/25/HH/
    */
   private async ensureDateBasedDirectory(
     type:
@@ -245,18 +247,17 @@ export class BackupService implements OnModuleInit {
       | 'sistema'
       | 'banco-de-dados'
       | 'completo',
-    backupId: string,
+    _backupId: string,
   ): Promise<string> {
     const dateBasedPath = this.getBackupDirectoryPath(type);
-    const backupFolderPath = path.join(dateBasedPath, backupId);
 
     try {
-      await fs.mkdir(backupFolderPath, { recursive: true });
+      await fs.mkdir(dateBasedPath, { recursive: true });
       // NOTE: Don't set www-data permissions here - it prevents the running user from writing.
       // Permissions will be set AFTER backup files are created via setBackupPermissions()
-      return backupFolderPath;
+      return dateBasedPath;
     } catch (error) {
-      this.logger.error(`Failed to create backup directory ${backupFolderPath}: ${error.message}`);
+      this.logger.error(`Failed to create backup directory ${dateBasedPath}: ${error.message}`);
       throw error;
     }
   }
@@ -559,12 +560,11 @@ export class BackupService implements OnModuleInit {
 
     const basePath = path.join(this.backupBasePath, typeFolder);
 
-    // If we have a stored file path, use it directly
+    // If we have a stored file path, delete the file directly
     if (backup.filePath) {
       const fullPath = path.join(this.backupBasePath, backup.filePath);
-      const dirPath = path.dirname(fullPath);
       try {
-        await this.deleteBackupDirectory(dirPath, backup.id);
+        await this.deleteFileWithPermissions(fullPath);
         return;
       } catch (error) {
         this.logger.warn(`Could not delete using stored path: ${error.message}`);
@@ -764,36 +764,42 @@ export class BackupService implements OnModuleInit {
       const backupFileName = `${backupId}.tar.gz`;
       let backupPath: string;
 
-      // Try new folder structure first (Portuguese folder names)
-      const folderMapping: Record<string, string> = {
-        database: 'banco-de-dados',
-        files: 'arquivos',
-        system: 'sistema',
-        full: 'completo',
-      };
-      const typeFolder = folderMapping[metadata.type] || metadata.type;
-      const dateBasedDir = this.getBackupDirectoryPath(typeFolder as any);
-      const newBackupDir = path.join(dateBasedDir, backupId);
-      const newBackupPath = path.join(newBackupDir, backupFileName);
-
-      // Check if backup file exists in new structure
-      try {
-        await fs.access(newBackupPath);
-        backupPath = newBackupPath;
-        this.logger.log(`Using new structure backup: ${backupPath}`);
-      } catch (error) {
-        // Try old flat structure
-        const oldBackupPath = path.join(this.backupBasePath, metadata.type, backupFileName);
+      // Use stored filePath if available (most reliable)
+      if (metadata.filePath) {
+        const storedPath = path.join(this.backupBasePath, metadata.filePath);
         try {
-          await fs.access(oldBackupPath);
-          backupPath = oldBackupPath;
-          this.logger.log(`Using old structure backup: ${backupPath}`);
-        } catch (oldError) {
-          this.logger.error(
-            `Backup file not found in new path: ${newBackupPath} or old path: ${oldBackupPath}`,
-          );
-          throw new Error('Backup file not found');
+          await fs.access(storedPath);
+          backupPath = storedPath;
+          this.logger.log(`Using stored filePath: ${backupPath}`);
+        } catch {
+          this.logger.warn(`Stored filePath not accessible: ${storedPath}`);
         }
+      }
+
+      if (!backupPath) {
+        // Search recursively under the type folder as fallback
+        const folderMapping: Record<string, string> = {
+          database: 'banco-de-dados',
+          files: 'arquivos',
+          system: 'sistema',
+          full: 'completo',
+        };
+        const typeFolder = folderMapping[metadata.type] || metadata.type;
+        const basePath = path.join(this.backupBasePath, typeFolder);
+        const found = await this.findBackupDir(basePath, backupId);
+        if (found) {
+          const candidate = path.join(found.fullPath, backupFileName);
+          try {
+            await fs.access(candidate);
+            backupPath = candidate;
+          } catch {
+            // directory found but no file — fall through
+          }
+        }
+      }
+
+      if (!backupPath) {
+        throw new Error('Backup file not found');
       }
 
       // Queue the restore job
