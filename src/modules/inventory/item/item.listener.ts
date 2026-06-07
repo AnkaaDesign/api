@@ -106,8 +106,12 @@ export class ItemListener {
           itemName: item.name,
           itemCode: item.uniCode,
           currentQuantity: event.currentQuantity,
+          quantity: event.currentQuantity,
           minimumQuantity: event.reorderPoint,
+          reorderPoint: event.reorderPoint,
+          minQuantity: event.reorderPoint,
           category: item.category?.name || '',
+          categoryName: item.category?.name || '',
         },
         metadata: { itemId: item.id },
         overrides: {

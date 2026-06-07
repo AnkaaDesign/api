@@ -587,7 +587,22 @@ function calculateNextMonthlyRun(
 
     return nextDate;
   } else if (monthlyConfig.occurrence && monthlyConfig.dayOfWeek) {
-    // Occurrence pattern (e.g., "first Monday")
+    // Occurrence pattern (e.g., "first Monday").
+    // Check if the current month's occurrence is still in the future.
+    // If so, return it — don't skip to the next cycle. This handles the case
+    // where a schedule is created (or recomputed) before the target day within
+    // the same month, e.g. created June 1 for "first Tuesday of month" → June 2.
+    const thisMonthOccurrence = calculateOccurrenceDate(
+      nextDate,
+      monthlyConfig.occurrence,
+      monthlyConfig.dayOfWeek,
+      0,
+    );
+    if (thisMonthOccurrence > nextDate) {
+      return thisMonthOccurrence;
+    }
+    // This month's occurrence has already passed (or is today); advance by the
+    // configured number of months.
     return calculateOccurrenceDate(
       nextDate,
       monthlyConfig.occurrence,

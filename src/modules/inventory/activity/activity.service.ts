@@ -820,6 +820,21 @@ export class ActivityService {
       newQuantityReceived = orderItem.receivedQuantity + activity.quantity;
     }
 
+    // Bloquear exclusão de atividades de recebimento de pedido (ORDER_RECEIVED) vinculadas
+    // a pedidos. Essas atividades representam uma entrada formal de mercadoria; removê-las
+    // zeraria a quantidade recebida e reverteria automaticamente o status do pedido de
+    // RECEIVED para FULFILLED, causando inconsistência de estoque.
+    if (
+      activity.reason === ACTIVITY_REASON.ORDER_RECEIVED &&
+      activity.operation === ACTIVITY_OPERATION.INBOUND
+    ) {
+      throw new BadRequestException(
+        `Não é possível excluir esta atividade pois ela representa o recebimento formal do pedido. ` +
+          `Para corrigir a quantidade recebida, utilize a funcionalidade de gerenciamento do pedido. ` +
+          `Item: "${orderItem.item.name}", quantidade recebida: ${orderItem.receivedQuantity}.`,
+      );
+    }
+
     // Validar se a quantidade recebida ficaria negativa
     if (newQuantityReceived < 0) {
       throw new BadRequestException(
@@ -1881,10 +1896,14 @@ export class ActivityService {
       newStatus = ORDER_STATUS.RECEIVED;
     } else if (someReceived) {
       newStatus = ORDER_STATUS.PARTIALLY_RECEIVED;
-    } else if (noneReceived && order.status === ORDER_STATUS.RECEIVED) {
-      // Se estava recebido e agora não tem nada recebido, voltar para o status anterior
+    } else if (noneReceived && order.status === ORDER_STATUS.PARTIALLY_RECEIVED) {
+      // All partial receipts were reversed — go back to FULFILLED (no items received at all).
       newStatus = ORDER_STATUS.FULFILLED;
     }
+    // NOTE: we intentionally do NOT downgrade from RECEIVED to FULFILLED via activity sync.
+    // If an order reached RECEIVED it was explicitly confirmed by a user; removing a stock
+    // activity should not silently undo that confirmation. Use the order management UI to
+    // reverse a receipt if truly needed.
 
     // Atualizar o status se mudou
     if (newStatus !== order.status) {
