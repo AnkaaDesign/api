@@ -39,11 +39,9 @@ export const HOLIDAY_PROVIDER = 'HOLIDAY_PROVIDER';
 export class WorkScheduleService {
   private readonly logger = new Logger(WorkScheduleService.name);
 
-  // Work hours in São Paulo timezone
-  // Spec §10: business hours are 8:00–18:00. End remains 18.5 internally so
-  // 18:15 time-entry reminders still get processed (they have their own gating).
-  private readonly WORK_START_HOUR = 8.0; // 8:00 AM
-  private readonly WORK_END_HOUR = 18.5; // 6:30 PM (allows time entry reminders at 18:15 to be processed)
+  // Work hours in São Paulo timezone — covers the full cron window (07:00–18:45).
+  private readonly WORK_START_HOUR = 7.0; // 7:00 AM
+  private readonly WORK_END_HOUR = 19.0; // 7:00 PM (covers the 18:45 cron tick for SAIDA2 reminders)
 
   // Holiday cache — stores holiday date strings (YYYY-MM-DD) for the current year
   private cachedHolidays: Set<string> | null = null;

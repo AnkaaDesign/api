@@ -353,8 +353,8 @@ export class TimeEntryReminderService {
     };
 
     const fieldName = entryFieldMap[entryType];
-    const actualTime = todayEntry?.[fieldName] || null;
-    const isMissing = !actualTime;
+    const actualTime = todayEntry?.[fieldName] ?? null;
+    const isMissing = !actualTime || actualTime === '';
 
     return {
       userId: user.id,
@@ -368,10 +368,35 @@ export class TimeEntryReminderService {
   }
 
   /**
+   * Fetch Secullum employees and clear the schedule cache.
+   * Called once per scheduler run before iterating all entry types,
+   * so the /Funcionarios and /Horarios calls are not repeated 4× per tick.
+   * Returns the employee list, or null if the fetch failed (caller should abort the run).
+   */
+  async prepareRun(): Promise<any[] | null> {
+    this.scheduleCache.clear();
+    try {
+      const empResponse = await this.secullumService.getEmployees();
+      if (empResponse.success && Array.isArray(empResponse.data)) {
+        return empResponse.data;
+      }
+      this.logger.warn('Secullum getEmployees returned no data');
+      return [];
+    } catch (error) {
+      this.logger.error(`Failed to fetch Secullum employees: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Check all users for missing time entries and send notifications.
    * Called for each entry type. Uses Redis dedup to avoid duplicate notifications.
+   * Pass `preloadedEmployees` (from prepareRun) to skip per-call employee fetch.
    */
-  async checkAndNotifyMissingEntries(entryType: TimeEntryType): Promise<{
+  async checkAndNotifyMissingEntries(
+    entryType: TimeEntryType,
+    preloadedEmployees?: any[],
+  ): Promise<{
     checked: number;
     missing: number;
     notified: number;
@@ -389,19 +414,24 @@ export class TimeEntryReminderService {
       return stats;
     }
 
-    // Clear in-memory schedule cache at the start of each run
-    this.scheduleCache.clear();
-
-    // Fetch all Secullum employees once (avoid N+1)
-    let allSecullumEmployees: any[] = [];
-    try {
-      const empResponse = await this.secullumService.getEmployees();
-      if (empResponse.success && Array.isArray(empResponse.data)) {
-        allSecullumEmployees = empResponse.data;
+    // Use preloaded employees if provided (scheduler pre-fetches once per run);
+    // otherwise fetch independently (e.g. manual trigger for a single type).
+    let allSecullumEmployees: any[];
+    if (preloadedEmployees !== undefined) {
+      allSecullumEmployees = preloadedEmployees;
+    } else {
+      this.scheduleCache.clear();
+      try {
+        const empResponse = await this.secullumService.getEmployees();
+        if (empResponse.success && Array.isArray(empResponse.data)) {
+          allSecullumEmployees = empResponse.data;
+        } else {
+          allSecullumEmployees = [];
+        }
+      } catch (error) {
+        this.logger.error(`Failed to fetch Secullum employees: ${error.message}`);
+        return stats;
       }
-    } catch (error) {
-      this.logger.error(`Failed to fetch Secullum employees: ${error.message}`);
-      return stats;
     }
 
     // Get active users
