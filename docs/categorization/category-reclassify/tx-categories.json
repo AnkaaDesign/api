@@ -1,0 +1,1142 @@
+[
+  {
+    "id": "4ef58a51-703f-40b3-a703-3587ed4db6d5",
+    "name": "Abrasivos",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "6481fb30-e7d7-4cae-88cd-3ff4696f0d94"
+  },
+  {
+    "id": "90d1817d-eef0-4b15-8e8b-5a48e947f507",
+    "name": "Abrasivos e Polimento",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "192d6b4f-7dc7-4d7a-be6a-72b5d0e699c1"
+  },
+  {
+    "id": "cf500fc9-2862-48c4-ba36-75b16f0af878",
+    "name": "Abraçadeiras e presilhas",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "b074173d-7c52-44ec-aefd-8b9bcc38489b"
+  },
+  {
+    "id": "6707a1bd-d44c-4c69-8bf7-f119072f34a9",
+    "name": "Acesso, apoio e infraestrutura elétrica",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "INVESTIMENTO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "06bfea39-f9dc-4812-850a-e3894955de28"
+  },
+  {
+    "id": "2b996f7a-af3e-488e-b2b7-8bf14fc5bdd0",
+    "name": "Aditivos e ajustes de mistura",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "MATERIA_PRIMA",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "a0e3cff8-3fd7-464b-890e-89b059df7598"
+  },
+  {
+    "id": "fc920230-eb83-4d6c-bd32-b24b588c2135",
+    "name": "Aluguel",
+    "kind": "TRANSACTION_ONLY",
+    "accountingType": "DESPESAS_FIXAS",
+    "isRecurring": true,
+    "isActive": true,
+    "isResolving": true,
+    "itemCategoryId": null
+  },
+  {
+    "id": "3c7b67fe-3f9c-458d-982c-4a7fef411965",
+    "name": "Aplicadores de selante (calafetadores)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "525d37bd-db4d-4110-a318-fc89c4b33f58"
+  },
+  {
+    "id": "2de1e753-6ef3-4fb9-bb0e-adade3884177",
+    "name": "Aplicadores e Auxiliares de Mistura",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "50785487-d77c-44bb-9e23-1f96f057bfb5"
+  },
+  {
+    "id": "7ce7d104-1ad7-475b-878c-c84fbc7d125d",
+    "name": "Aplicação Financeira",
+    "kind": "TRANSACTION_ONLY",
+    "accountingType": "APLICACAO_FINANCEIRA",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": true,
+    "itemCategoryId": null
+  },
+  {
+    "id": "15281b9a-0d4e-4d0a-bc96-eabdd83d0cff",
+    "name": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "ESCRITORIO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "e44edc3a-2bde-4475-9575-61724625f291"
+  },
+  {
+    "id": "2a3ceb44-a4cf-4e45-9870-25c6941d0aaf",
+    "name": "Base",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "a80fa168-8590-4d77-bcef-7f26c7b659a0"
+  },
+  {
+    "id": "bf2bda52-66b1-4317-972d-ba57824d385f",
+    "name": "Baterias e carregadores",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "INVESTIMENTO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "37f67021-6232-43de-bac4-4bb7449163a3"
+  },
+  {
+    "id": "1e617b28-7b21-4c8f-a863-9b235c2dc3ab",
+    "name": "Calçados de segurança",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "EPI",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "bcd50ea7-32d1-4ab5-82e0-56ec18b49160"
+  },
+  {
+    "id": "52db8b22-34e8-4d5b-8a9a-c22aa0642f3a",
+    "name": "Chaves de fenda, catraca e alicates",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "INVESTIMENTO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "0869cfbd-e7c7-4b09-9a99-8287384b53cf"
+  },
+  {
+    "id": "1544651b-30c7-484c-ad6c-c2f95e5fda41",
+    "name": "Chaves e soquetes (parafusaria)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "INVESTIMENTO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "35f9b376-9a06-4b22-bc88-622880af6ea3"
+  },
+  {
+    "id": "acdb56b4-8265-4f5b-b945-6817d09fff65",
+    "name": "Comunicação Visual",
+    "kind": "SERVICE",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": null
+  },
+  {
+    "id": "5a681d6d-cf2f-4ca9-a298-2090b9f2a678",
+    "name": "Conexões e redução (pneumática/hidráulica)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "0fbefb81-706f-466d-8f41-d40415c180a3"
+  },
+  {
+    "id": "14d8c939-0a36-4d2e-b70b-605c69784814",
+    "name": "Consumível",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "4fd65479-c5b7-47a4-842d-33878aee5c95"
+  },
+  {
+    "id": "f51b93aa-3fe3-4e1c-a739-96b18f12031b",
+    "name": "Contabilidade",
+    "kind": "SERVICE",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": null
+  },
+  {
+    "id": "4f08d197-884a-4bfe-98f2-77039625cc38",
+    "name": "Convênio",
+    "kind": "TRANSACTION_ONLY",
+    "accountingType": "DESPESAS_FIXAS",
+    "isRecurring": true,
+    "isActive": true,
+    "isResolving": true,
+    "itemCategoryId": null
+  },
+  {
+    "id": "ae9aac86-5916-408f-9bda-2da63719587a",
+    "name": "Copa / descartáveis (alimentação)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "ESCRITORIO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "bd837a9b-eb2a-44dc-a5b4-ebb6d3bea805"
+  },
+  {
+    "id": "7978b51f-64f1-4fe8-9f69-7d751eb6e7a2",
+    "name": "Copos, potes e baldes de mistura",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "457984f9-37a8-4e66-811d-c2c72299a752"
+  },
+  {
+    "id": "ad6e7614-ea30-42d7-a22d-3e0665109de9",
+    "name": "Cortesia",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "d0a31165-a6e9-41b1-add8-88c7cfe47be4"
+  },
+  {
+    "id": "be578d07-bbae-4ad0-b1f9-7782e628d96e",
+    "name": "Cortesia / brindes (pós-venda)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "ESCRITORIO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "25a7906e-6b55-410a-ae51-abc7b3723dd5"
+  },
+  {
+    "id": "cce01677-c422-4dd7-9b80-eee631f30304",
+    "name": "Cozinha",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "317caae9-8fa0-4085-be66-65a1adba1a40"
+  },
+  {
+    "id": "c5f72271-c69b-49a5-8d93-01aa3b49984b",
+    "name": "Diluente",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "48d5236e-6ff8-4bbf-8734-58da6ebb11e5"
+  },
+  {
+    "id": "16c8434b-a200-4379-a374-d5a6129496a7",
+    "name": "Diluentes e thinners",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "MATERIA_PRIMA",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "5e3cb409-31b5-440a-86d7-8fbde61b0552"
+  },
+  {
+    "id": "9ecefcbb-cdb1-4c81-8c27-2d1bdc34ff20",
+    "name": "Discos de desbaste e corte (esmerilhadeira)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "1e975dca-f2f4-414e-9c66-964f81fff840"
+  },
+  {
+    "id": "23a1cc57-babe-4712-a6dc-2c888ec2297f",
+    "name": "Discos de lixa Hookit (orbital / velcro)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "f1e4db3d-e127-4348-8410-b28ccc618ae8"
+  },
+  {
+    "id": "adf4dbc1-9e8e-4ccc-a995-84dc546cd7b2",
+    "name": "Discos e compostos de polimento/refino",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "ab3d93e4-2835-4e0a-9471-0217a03b4846"
+  },
+  {
+    "id": "7046d02e-44a8-4870-a8c9-3a12fdfc92c4",
+    "name": "Dosagem, transferência e filtragem",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "76c640e0-ef24-464c-8058-9ec6655587d2"
+  },
+  {
+    "id": "02716bdb-12a5-430c-85af-b243fe98356c",
+    "name": "EPI — Equipamentos de Proteção Individual",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "EPI",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "145baad4-1d5c-44a5-9b71-35056c292f12"
+  },
+  {
+    "id": "a4ae9376-8f85-465d-9453-caf5273275bd",
+    "name": "Elétrico",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "a1d93b2a-6745-4717-a83a-f60c0d08e7dc"
+  },
+  {
+    "id": "e6be4c02-b9f4-4ee9-aba3-6d45ce6858b0",
+    "name": "Endurecedor",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "ad16ee0a-db04-4e7a-a29a-e4b95abcb60c"
+  },
+  {
+    "id": "9b5e04e7-ac8e-4282-8b76-7a9b04fd0718",
+    "name": "Endurecedores e catalisadores",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "MATERIA_PRIMA",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "7239bdde-f2e0-410f-b476-3d1e356d174b"
+  },
+  {
+    "id": "57f1c24c-bfff-4f15-a853-2c713128b0d7",
+    "name": "Epi",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "058b232b-1258-4c1f-8c03-6cedac2224e7"
+  },
+  {
+    "id": "0f1597f8-a86a-4b10-9abf-b416953e06cf",
+    "name": "Equipamento e consumíveis de plotter",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "aab4478c-8e84-4b4a-981b-59c27e5e9b57"
+  },
+  {
+    "id": "410b1fa0-1966-464f-95ef-7fae5646803a",
+    "name": "Escritório",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "afb2253f-28c1-47af-b17d-81c1cf1d518a"
+  },
+  {
+    "id": "2182ad56-c880-4f3e-9db8-8c6497345744",
+    "name": "Escritório / administrativo",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "ESCRITORIO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "219a6319-d8da-4754-8d17-65ec7fa1165e"
+  },
+  {
+    "id": "b5c63efc-aef1-44c2-a474-494a76710a09",
+    "name": "Espátulas de funilaria/massa",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "779b7b36-ba41-4ec9-9b34-0a61d3ae53ef"
+  },
+  {
+    "id": "f7d66a53-1241-4cc7-9b23-b5f009c30c92",
+    "name": "Estorno",
+    "kind": "TRANSACTION_ONLY",
+    "accountingType": "ESTORNO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": true,
+    "itemCategoryId": null
+  },
+  {
+    "id": "390873ba-1ce1-4056-b354-c4134cdf9557",
+    "name": "Faixas e películas refletivas",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "d7b8cfb5-41c7-4859-834a-c4cf97ab1025"
+  },
+  {
+    "id": "ade37765-5dc8-48d4-ad5e-be833068aa62",
+    "name": "Ferramenta",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "18296916-e7f4-4a6b-aabe-a9f0293e2a15"
+  },
+  {
+    "id": "1616e066-d072-4319-89f2-0efae560590f",
+    "name": "Ferramenta Eletronica",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "857f287f-0c0e-4e27-a915-c0083ff43d24"
+  },
+  {
+    "id": "ee52d321-b1d6-4eb5-a8d2-cd720f382296",
+    "name": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "INVESTIMENTO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "a891fec6-76f5-4e3d-942f-2cce62e64dd2"
+  },
+  {
+    "id": "13543bf3-5c43-47bf-9fcd-70fea44293d2",
+    "name": "Ferramentas Manuais e Medição",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "INVESTIMENTO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "59968f3c-7a54-4866-b9b6-59e199d1e54d"
+  },
+  {
+    "id": "9126602a-15d9-4229-a2d2-fdc6ff427ff6",
+    "name": "Ferramentas de aplicação de adesivo",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "39c11ce5-fd20-4894-b093-6f161c492f90"
+  },
+  {
+    "id": "668b8906-3e35-4ade-abc5-09953a37d92b",
+    "name": "Ferramentas de corte/recorte e escovas",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "INVESTIMENTO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "4916ce99-3e8d-4042-9137-c2fa9c38e248"
+  },
+  {
+    "id": "07d4d56d-10de-46b2-9bf8-a518dfbda6bc",
+    "name": "Ferramentas de fixação e furação",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "INVESTIMENTO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "398656a1-0ef4-45d3-9d1c-85e918bc11a7"
+  },
+  {
+    "id": "c54627fe-26e6-4b15-aadf-dcd0a0b48c1e",
+    "name": "Ferramentas elétricas de abrasão e acabamento",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "INVESTIMENTO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "da439856-1b75-4870-a8bf-b69fa98b0290"
+  },
+  {
+    "id": "04eaf10d-c0a0-43cb-95d8-da10efa4b880",
+    "name": "Fibras e fosqueamento manual",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "d9a5bdf3-bb84-49c7-a2f2-af28eda71bb1"
+  },
+  {
+    "id": "c0dbed12-ece6-4ad5-82d5-ec31cb45fb58",
+    "name": "Fita crepe / fita de mascaramento",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "7cfd8432-2d18-4668-9169-441b9bf045fa"
+  },
+  {
+    "id": "61d77ada-ea69-48f1-9010-f33b98d33d52",
+    "name": "Fixadores — arruelas",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "21d84642-4895-45b5-a45d-38da1fbcd388"
+  },
+  {
+    "id": "5a8ee973-1a44-4088-a687-27dabb99ba0d",
+    "name": "Fixadores — parafusos e porcas",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "db7f2cc3-0a98-46ce-a073-6b686885f98d"
+  },
+  {
+    "id": "806ad5e6-afbe-4945-b82e-ed77dfb1f691",
+    "name": "Fixadores — rebites",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "ead59b7e-2529-4e85-ad39-f525eb900964"
+  },
+  {
+    "id": "328660f3-d715-43cd-a9df-453da641542b",
+    "name": "Folha de Pagamento",
+    "kind": "TRANSACTION_ONLY",
+    "accountingType": "SALARIOS",
+    "isRecurring": true,
+    "isActive": true,
+    "isResolving": true,
+    "itemCategoryId": null
+  },
+  {
+    "id": "df79a043-c542-48c9-9520-a2790ab4be7b",
+    "name": "Fontes de calor (maçarico/soprador)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "INVESTIMENTO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "f80a0fc3-9534-4b48-9494-3d6711119cfc"
+  },
+  {
+    "id": "0d7c30a1-a6b1-4290-8c87-c6bfa509a2cc",
+    "name": "Funilaria e Reparo de Carroceria",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "031d3afb-77f8-45ab-9115-cfd02d57f296"
+  },
+  {
+    "id": "775b6432-aaaf-4783-8a9d-17574575934e",
+    "name": "Higiene e limpeza/zeladoria",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "ESCRITORIO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "655708da-ab6a-431a-987c-577d5bafaf4c"
+  },
+  {
+    "id": "82ab6028-60d0-4570-8b4c-d40454624a02",
+    "name": "Informática / eletrônicos de apoio",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "ESCRITORIO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "da639cef-7508-4488-9190-6e3b0e26a55c"
+  },
+  {
+    "id": "64144a3f-1673-4f95-ae27-be681d0c7690",
+    "name": "Instrumentos de medição e alinhamento",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "INVESTIMENTO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "29cf5ad9-c7c3-4234-888c-5ed5565b8432"
+  },
+  {
+    "id": "79c505ae-0489-41d4-a8de-a93ec8f1ae3c",
+    "name": "Laminação e fibra de vidro",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "bdbd3770-296e-44b1-bac2-964b46be2cd1"
+  },
+  {
+    "id": "c5149f18-da2f-4c59-8e3b-c40c1c22ba19",
+    "name": "Linha de ar comprimido",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "INVESTIMENTO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "27afef5d-b6a2-4a54-aa91-0dc0d5ca56d3"
+  },
+  {
+    "id": "3fb50072-2af2-409e-84d0-ee46174a4276",
+    "name": "Linha vinílica de plotagem (tintas, vernizes e solvente)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "MATERIA_PRIMA",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "5d88de5e-8001-4d97-a35e-86d2d6980f82"
+  },
+  {
+    "id": "b6c8ac18-8a83-4e10-be28-d3c1349bc5be",
+    "name": "Lixas em folha (manual / d'água)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "e33cb960-ab70-4781-ac8a-e0cd80bdc70e"
+  },
+  {
+    "id": "643bd253-7f88-4ea7-b9fb-513dfd21459f",
+    "name": "Lucro Distribuído",
+    "kind": "TRANSACTION_ONLY",
+    "accountingType": "LUCRO_DISTRIBUIDO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": true,
+    "itemCategoryId": null
+  },
+  {
+    "id": "fc5432d2-82d5-41db-8af8-e19c4e0b7be6",
+    "name": "Líquido de mascaramento",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "393602b6-e251-4285-b236-d0f3cd6303e5"
+  },
+  {
+    "id": "2def7215-2edc-43f7-9ccf-dee4781be18e",
+    "name": "Mangueiras, conduletes e suportes (hidráulica/elétrica de parede)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "580b6754-24b2-4179-a3f3-090da2a60426"
+  },
+  {
+    "id": "bb38c84d-407a-4903-a264-2f19e2af09f9",
+    "name": "Martelos e impacto manual",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "INVESTIMENTO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "d54f4afb-1149-43f4-bffc-ab5a7309853f"
+  },
+  {
+    "id": "fcadc47c-c7d0-4591-a9c6-450f37c1077d",
+    "name": "Mascaramento e Cobertura",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "d2d1363b-5a4b-4963-97a7-bab4f31af496"
+  },
+  {
+    "id": "2c7629e7-b794-4687-9242-f84f8d66720e",
+    "name": "Massas de reparo (poliéster/plástica)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "255823fb-dad3-400b-92bd-5a0f8d9f2465"
+  },
+  {
+    "id": "bee6c14c-71d8-44dc-ade9-54d45a954a22",
+    "name": "Material",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "d4918847-8aef-4022-9709-0b265691691a"
+  },
+  {
+    "id": "e10ae82d-15aa-4666-8939-f1067e4bb9a7",
+    "name": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "MATERIA_PRIMA",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "ea7d4604-48ed-4340-8f64-f826df3eef86"
+  },
+  {
+    "id": "9a112fe3-9a58-4e74-ba9d-4becccfaab68",
+    "name": "Matéria-Prima — Tintas e Toners (Cor)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "MATERIA_PRIMA",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "aa5f1cb2-0cd2-4360-bbc3-390ad9b7df76"
+  },
+  {
+    "id": "c51f2521-1600-4576-a3e7-c3e86162642f",
+    "name": "Monitoramento",
+    "kind": "SERVICE",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": null
+  },
+  {
+    "id": "d196d0a0-420d-4d7c-8bfd-f66e77465391",
+    "name": "Máscara de transferência de adesivo (transfer tape)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "3d92c4c1-1000-45be-ba00-524128f39f76"
+  },
+  {
+    "id": "580b3a6a-3ffa-470f-819d-2c31840d62d3",
+    "name": "Outros",
+    "kind": "TRANSACTION_ONLY",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": true,
+    "itemCategoryId": null
+  },
+  {
+    "id": "e9477fa5-6dcf-473e-9c3b-e1d069b83f2f",
+    "name": "Papel e bobina de cobertura",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "8180724a-4ac6-4c3a-af47-3516baed5313"
+  },
+  {
+    "id": "d98c1ab4-40d7-4729-ba1e-42a1501363ff",
+    "name": "Peça",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "25bfe9ee-fcd8-4ef5-b8bb-7619ff6e3694"
+  },
+  {
+    "id": "3a1f8f53-526f-4576-8fb9-7d9b72a56bc5",
+    "name": "Peças de manutenção de equipamento (filtros, mancais, borrachas, gás)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "78b0da16-e45c-4fd7-97d0-69b3dd219240"
+  },
+  {
+    "id": "fabbf9f5-4bc4-4a46-b7ba-0a093badf0f7",
+    "name": "Peças, Fixação e Conexões",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "9c2dea54-40bd-4c29-acc5-1fbd43794034"
+  },
+  {
+    "id": "353a6a38-ecab-468a-b75e-8177bda69a1e",
+    "name": "Pigmento",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "1d1a9ce0-2daf-4d1b-83ab-96307954b47b"
+  },
+  {
+    "id": "bb1fc67e-d1dd-4eb5-aecd-53955341b9f2",
+    "name": "Pincéis e pincéis de retoque",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "60dabc24-ac20-43da-9108-4efddf0823eb"
+  },
+  {
+    "id": "6d1d8104-bde8-4ac9-819e-ebb93eafb474",
+    "name": "Pintura e Colorimetria",
+    "kind": "SERVICE",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": null
+  },
+  {
+    "id": "deb42dc0-d4fe-4936-ab6b-14d5e3fbc2c4",
+    "name": "Pistolas de pintura e aerografia",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "INVESTIMENTO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "7d645927-885a-4695-8a25-884f0d0b8f67"
+  },
+  {
+    "id": "5cd26c55-627e-4c24-8889-47bedf6343e1",
+    "name": "Plotagem e Adesivação",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "2fbb6295-61a6-47eb-b830-6de323b3213c"
+  },
+  {
+    "id": "44ac1086-50bb-482f-b914-f03b9701eed8",
+    "name": "Plástico e filme de cobertura",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "64f9abf7-5585-4e1f-905a-dc1e851164b7"
+  },
+  {
+    "id": "74dbf4f6-a391-4e96-8162-f96f1f364961",
+    "name": "Preparadores de superfície (desengraxante/removedor)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "MATERIA_PRIMA",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "b8faa91c-3615-4211-89d4-d7cc816c3046"
+  },
+  {
+    "id": "4a902148-902f-4a51-894c-00b94061a5bc",
+    "name": "Primers, wash primers e seladoras (fundos)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "MATERIA_PRIMA",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "3e32f1cc-560a-4d75-a04a-4ae97730e9b5"
+  },
+  {
+    "id": "4a197b15-867a-4cd5-abdd-424bdffb6104",
+    "name": "Proteção das mãos — luvas descartáveis",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "EPI",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "a26b343c-aba4-49fb-b55b-1e90a4bbf6ab"
+  },
+  {
+    "id": "381dacb4-ca69-4dbb-ae37-32f8c16d92de",
+    "name": "Proteção das mãos — luvas reutilizáveis",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "EPI",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "b6b4f052-1b31-482f-9f49-e3a343af1f06"
+  },
+  {
+    "id": "914d7cba-61ca-4c81-bdfb-1aecf6cbf1f9",
+    "name": "Proteção respiratória — consumíveis (cartucho/filtro/retentor)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "EPI",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "de0fbbeb-ce1e-4301-adbd-01440fbdf954"
+  },
+  {
+    "id": "c40bad4e-9694-4eb3-9e7b-8a4c4ec22004",
+    "name": "Proteção respiratória — máscaras e respiradores",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "EPI",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "e0c19cfc-7541-412a-b258-4547821a72ed"
+  },
+  {
+    "id": "85bd0fb6-1b56-43f8-b581-3ad0f03f4968",
+    "name": "Proteção visual, auditiva e corporal",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "EPI",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "c4431f48-7794-4f34-ad8e-e20384a8e0c6"
+  },
+  {
+    "id": "f873faec-0596-4958-b242-71d7c167c063",
+    "name": "Pró-labore",
+    "kind": "TRANSACTION_ONLY",
+    "accountingType": "SALARIOS",
+    "isRecurring": true,
+    "isActive": true,
+    "isResolving": true,
+    "itemCategoryId": null
+  },
+  {
+    "id": "04ceb456-57ac-4bbd-8fe0-5dbd2a017dad",
+    "name": "Rolos de pintura (capas e suportes)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "7de99a24-2da1-42b6-8dbe-21b1dae96337"
+  },
+  {
+    "id": "66638737-fae0-45c2-8f8c-dc0ac455998f",
+    "name": "Saúde e Medicina do Trabalho",
+    "kind": "SERVICE",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": null
+  },
+  {
+    "id": "2bb83381-c842-4e34-ac1f-e349ce7d875f",
+    "name": "Selantes e vedantes de carroceria",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "779b6023-dab2-4958-90bf-0aa55b15336c"
+  },
+  {
+    "id": "31325692-83a7-4bf3-8755-b98e407059b0",
+    "name": "Suportes e bases de abrasivos",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "a5bc42d5-743e-4e4f-991c-87b855b0650e"
+  },
+  {
+    "id": "38fe503c-a0d2-4fe2-8578-2bd120558847",
+    "name": "TI e Cloud",
+    "kind": "SERVICE",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": null
+  },
+  {
+    "id": "a701f3a8-4047-44b9-91d7-de408a6a28f2",
+    "name": "Tarifa Bancária",
+    "kind": "TRANSACTION_ONLY",
+    "accountingType": "IMPOSTO_TARIFAS",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": true,
+    "itemCategoryId": null
+  },
+  {
+    "id": "b29d6a4a-cf97-4397-805c-df7cf9b19189",
+    "name": "Tinta",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "3b0dfb4c-1fa1-4d6c-afd3-d96ca666f728"
+  },
+  {
+    "id": "5fba4081-f486-425b-bc43-fa2ceda24387",
+    "name": "Tintas de chassi e acabamento direto",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "MATERIA_PRIMA",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "1737b3e6-c485-4af8-a870-1d191f7f3a54"
+  },
+  {
+    "id": "98852366-d342-466d-a4a7-75aa013ef684",
+    "name": "Tintas e bases prontas (acrílico, sintético, base coat)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "MATERIA_PRIMA",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "5e27bd7f-7363-4b1e-b724-38dc3a246eb3"
+  },
+  {
+    "id": "44793b57-746b-48e2-9a78-ed2011f2b58e",
+    "name": "Toners / Bases tintométricas (corantes de cor)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "MATERIA_PRIMA",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "87ea7e0d-e2ac-49c8-8221-bd4bba7c800b"
+  },
+  {
+    "id": "198e6e5e-51f9-470e-8118-986f0ed03bd4",
+    "name": "Toners de efeito (alumínios, perolizados, xirallic)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "MATERIA_PRIMA",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "756fbefe-7f2c-4810-83c9-f938ec56af2d"
+  },
+  {
+    "id": "762b34de-7dbf-49a8-a2f4-b0bc9c9a6cf9",
+    "name": "Transferência",
+    "kind": "TRANSACTION_ONLY",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": true,
+    "itemCategoryId": null
+  },
+  {
+    "id": "4544e4c6-3445-4342-a5d2-305995cf5e36",
+    "name": "Tributo",
+    "kind": "TRANSACTION_ONLY",
+    "accountingType": "IMPOSTO_TARIFAS",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": true,
+    "itemCategoryId": null
+  },
+  {
+    "id": "7de28c99-8174-4d08-a836-9b8856c8139f",
+    "name": "Uniforme / Fardamento",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "EPI",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "f62c6607-e942-4f06-b924-f68f31c18767"
+  },
+  {
+    "id": "ad206217-fab3-45bc-a236-788bf9dcf3a3",
+    "name": "Uniforme — parte inferior",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "EPI",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "1793009f-8efc-4134-9bf6-6baa1e6e4651"
+  },
+  {
+    "id": "628bdfdd-6bce-4104-941b-a1edf22b5d26",
+    "name": "Uniforme — parte superior",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "EPI",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "c3247dda-3653-4134-bfcd-48ab7cccd276"
+  },
+  {
+    "id": "d6990a03-9fda-4a3c-a307-7c73359e2934",
+    "name": "Verniz",
+    "kind": "ITEM_DERIVED",
+    "accountingType": null,
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "76233e57-dde2-44c0-8345-2faf044d0b08"
+  },
+  {
+    "id": "966879ff-8ae6-4f51-877a-1321e7cec06e",
+    "name": "Vernizes e clears (acabamento)",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "MATERIA_PRIMA",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "722f05d4-0b72-4936-a275-c03aab50d0de"
+  },
+  {
+    "id": "86b62f02-35ae-470f-9ec0-7740b2213a5b",
+    "name": "Vinil de recorte / adesivo colorido",
+    "kind": "ITEM_DERIVED",
+    "accountingType": "PRODUTIVO",
+    "isRecurring": false,
+    "isActive": true,
+    "isResolving": false,
+    "itemCategoryId": "93658198-2580-46eb-a52d-236a24239da2"
+  }
+]
