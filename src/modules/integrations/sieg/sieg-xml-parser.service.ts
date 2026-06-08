@@ -1,11 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { XMLParser } from 'fast-xml-parser';
-import {
-  FiscalDocumentOperation,
-  FiscalDocumentStatus,
-  FiscalDocumentType,
-} from '@prisma/client';
+import { FiscalDocumentOperation, FiscalDocumentStatus, FiscalDocumentType } from '@prisma/client';
 import { ParsedFiscalDocument, ParsedFiscalDocumentItem } from './types/sieg.types';
 
 /**
@@ -27,8 +23,7 @@ export class SiegXmlParserService {
 
   constructor(private readonly config: ConfigService) {
     this.companyCnpj =
-      this.config.get<string>('COMPANY_CNPJ') ||
-      SiegXmlParserService.DEFAULT_COMPANY_CNPJ;
+      this.config.get<string>('COMPANY_CNPJ') || SiegXmlParserService.DEFAULT_COMPANY_CNPJ;
     this.parser = new XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: '@_',
@@ -72,6 +67,66 @@ export class SiegXmlParserService {
     return null;
   }
 
+  /**
+   * Detects an NF-e CANCELLATION event XML (`procEventoNFe` / `evento`,
+   * tpEvento 110111 = Cancelamento, 110112 = Cancelamento por substituição).
+   * A cancellation is a SEPARATE document from the NF-e itself, so it never
+   * reaches `parse()` (which only classifies full NFe/NFCe/CTe/NFSe). Returns
+   * the cancelled NF's 44-digit access key so the caller can flip the existing
+   * FiscalDocument to CANCELLED. Returns null for any non-cancellation XML.
+   */
+  parseCancellationEvent(
+    xmlOrBase64: string,
+  ): { accessKey: string; protocol: string | null } | null {
+    let rawXml: string;
+    try {
+      rawXml = xmlOrBase64.trimStart().startsWith('<')
+        ? xmlOrBase64
+        : Buffer.from(xmlOrBase64, 'base64').toString('utf8');
+    } catch {
+      return null;
+    }
+
+    let doc: any;
+    try {
+      doc = this.parser.parse(rawXml);
+    } catch {
+      return null;
+    }
+
+    // The event node can sit under several roots depending on how the file was
+    // exported (full proc, bare event, or a batch envelope).
+    const candidates: any[] = [];
+    const push = (n: any) => {
+      if (!n) return;
+      if (Array.isArray(n)) candidates.push(...n);
+      else candidates.push(n);
+    };
+    push(doc.procEventoNFe?.evento);
+    push(doc.evento);
+    push(doc.envEvento?.evento);
+    push(doc.retEnvEvento?.retEvento);
+    push(doc.procEventoNFe?.retEvento);
+
+    const CANCEL_EVENTS = new Set(['110111', '110112']);
+    for (const ev of candidates) {
+      const inf = ev?.infEvento ?? ev;
+      if (!inf) continue;
+      const tpEvento = inf.tpEvento != null ? String(inf.tpEvento) : null;
+      const chNFe = inf.chNFe ? String(inf.chNFe).replace(/\D/g, '') : null;
+      if (chNFe && chNFe.length === 44 && tpEvento && CANCEL_EVENTS.has(tpEvento)) {
+        const protocol =
+          inf.nProt != null
+            ? String(inf.nProt)
+            : inf.detEvento?.nProt != null
+              ? String(inf.detEvento.nProt)
+              : null;
+        return { accessKey: chNFe, protocol };
+      }
+    }
+    return null;
+  }
+
   private parseNFe(
     doc: any,
     rawXml: string,
@@ -93,10 +148,7 @@ export class SiegXmlParserService {
     // Authorization protocol lives at the *proc* level: nfeProc.protNFe /
     // nfceProc.protNFe, or doc.protNFe for bare envelopes.
     const infProt =
-      doc.nfeProc?.protNFe?.infProt ||
-      doc.nfceProc?.protNFe?.infProt ||
-      doc.protNFe?.infProt ||
-      {};
+      doc.nfeProc?.protNFe?.infProt || doc.nfceProc?.protNFe?.infProt || doc.protNFe?.infProt || {};
 
     // Derive operation from the COMPANY's perspective:
     //   - company is emitter   → SAIDA (we sold / issued)
@@ -108,10 +160,10 @@ export class SiegXmlParserService {
     const operationType: FiscalDocumentOperation =
       emitCnpj === this.companyCnpj
         ? FiscalDocumentOperation.SAIDA
-        // Either destCnpj matches (typical case) or neither side matches
-        // (third-party NFe imported by mistake) — both default to ENTRADA so
-        // they don't masquerade as outbound sales.
-        : FiscalDocumentOperation.ENTRADA;
+        : // Either destCnpj matches (typical case) or neither side matches
+          // (third-party NFe imported by mistake) — both default to ENTRADA so
+          // they don't masquerade as outbound sales.
+          FiscalDocumentOperation.ENTRADA;
 
     const protCStat = infProt.cStat ? String(infProt.cStat) : null;
     const cancelled = !!(protCStat === '101' || doc.cancNFe);
@@ -124,7 +176,7 @@ export class SiegXmlParserService {
     const detRaw = infNFe.det;
     const detList: any[] = detRaw ? (Array.isArray(detRaw) ? detRaw : [detRaw]) : [];
     const items: ParsedFiscalDocumentItem[] = detList
-      .map((det) => {
+      .map(det => {
         const prod = det?.prod;
         if (!prod) return null;
         const item: ParsedFiscalDocumentItem = {
@@ -232,7 +284,7 @@ export class SiegXmlParserService {
       cep: ender.CEP ? String(ender.CEP) : null,
       fone: ender.fone ? String(ender.fone) : null,
     };
-    return Object.values(addr).some((v) => v !== null) ? addr : null;
+    return Object.values(addr).some(v => v !== null) ? addr : null;
   }
 
   /** Extracts the ICMSTot totals breakdown from an NFe `total.ICMSTot` node. */
@@ -240,8 +292,20 @@ export class SiegXmlParserService {
     if (!t || typeof t !== 'object') return null;
     const out: Record<string, number> = {};
     for (const k of [
-      'vBC', 'vICMS', 'vICMSDeson', 'vProd', 'vFrete', 'vSeg',
-      'vDesc', 'vOutro', 'vST', 'vIPI', 'vPIS', 'vCOFINS', 'vNF', 'vTotTrib',
+      'vBC',
+      'vICMS',
+      'vICMSDeson',
+      'vProd',
+      'vFrete',
+      'vSeg',
+      'vDesc',
+      'vOutro',
+      'vST',
+      'vIPI',
+      'vPIS',
+      'vCOFINS',
+      'vNF',
+      'vTotTrib',
     ]) {
       const n = this.toNumberOrNull(t[k]);
       if (n !== null) out[k] = n;
@@ -254,15 +318,15 @@ export class SiegXmlParserService {
     if (!imposto || typeof imposto !== 'object') return null;
     // ICMS is wrapped in a CST-keyed sub-node (ICMS00, ICMS10, ICMSSN102, ...).
     const icmsNode = imposto.ICMS
-      ? Object.values(imposto.ICMS).find((v) => v && typeof v === 'object')
+      ? Object.values(imposto.ICMS).find(v => v && typeof v === 'object')
       : null;
     const icms = icmsNode as any;
     const ipi = imposto.IPI?.IPITrib;
     const pis = imposto.PIS
-      ? (Object.values(imposto.PIS).find((v) => v && typeof v === 'object') as any)
+      ? (Object.values(imposto.PIS).find(v => v && typeof v === 'object') as any)
       : null;
     const cofins = imposto.COFINS
-      ? (Object.values(imposto.COFINS).find((v) => v && typeof v === 'object') as any)
+      ? (Object.values(imposto.COFINS).find(v => v && typeof v === 'object') as any)
       : null;
     const taxes: ParsedFiscalDocumentItem['taxes'] = {};
     if (icms)
@@ -299,9 +363,7 @@ export class SiegXmlParserService {
   /** Pulls the ICMS CST/CSOSN code for quick display on the item row. */
   private extractItemCst(imposto: any): string | null {
     if (!imposto?.ICMS) return null;
-    const node = Object.values(imposto.ICMS).find(
-      (v) => v && typeof v === 'object',
-    ) as any;
+    const node = Object.values(imposto.ICMS).find(v => v && typeof v === 'object') as any;
     if (!node) return null;
     return node.CST ? String(node.CST) : node.CSOSN ? String(node.CSOSN) : null;
   }
@@ -327,8 +389,7 @@ export class SiegXmlParserService {
     // CTe is a freight document; it has no product/service line items in the
     // sense the NF detail modal expects. We synthesize a single descriptive row
     // so the modal still renders something useful.
-    const infProt =
-      doc.cteProc?.protCTe?.infProt || doc.CT_eProc?.protCTe?.infProt || {};
+    const infProt = doc.cteProc?.protCTe?.infProt || doc.CT_eProc?.protCTe?.infProt || {};
     const cteTotal = parseFloat(vPrest.vTPrest || '0');
     const cteDesc =
       (infCTe.infCTeNorm?.infServico?.xDescServ as string | undefined) ??
@@ -415,9 +476,7 @@ export class SiegXmlParserService {
     const { date: issueDate, inferred: dateInferred } = this.parseDateFlagged(dhEmi);
     const nfNumber = String(infNFSe.nNFSe || infDPS.nDPS || '');
 
-    const valorServicos = this.toNumberOrNull(
-      valoresDPS.vServ || valoresNFSe.vServPrest?.vServ,
-    );
+    const valorServicos = this.toNumberOrNull(valoresDPS.vServ || valoresNFSe.vServPrest?.vServ);
     const valorLiquido = this.toNumberOrNull(valoresNFSe.vLiq);
     // Prefer vLiq (valor líquido após retenções) — that's what hits the bank.
     // Fall back to vServ (gross service value) when vLiq is missing.
@@ -433,9 +492,7 @@ export class SiegXmlParserService {
         : FiscalDocumentOperation.ENTRADA;
 
     const itemListaServico = cServ.cTribNac ? String(cServ.cTribNac) : null;
-    const discriminacao = String(
-      cServ.xDescServ || cServ.descServ || infNFSe.xTribNac || '',
-    );
+    const discriminacao = String(cServ.xDescServ || cServ.descServ || infNFSe.xTribNac || '');
     const items: ParsedFiscalDocumentItem[] = [
       {
         code: itemListaServico,
@@ -471,9 +528,7 @@ export class SiegXmlParserService {
       valorLiquido,
       valorServicos,
       codigoTributacaoMunicipio: cServ.cTribMun ? String(cServ.cTribMun) : null,
-      municipioPrestacao: serv.locPrest?.cLocPrestacao
-        ? String(serv.locPrest.cLocPrestacao)
-        : null,
+      municipioPrestacao: serv.locPrest?.cLocPrestacao ? String(serv.locPrest.cLocPrestacao) : null,
       itemListaServico,
       paymentMethods: null,
       rawXml,
@@ -585,10 +640,7 @@ export class SiegXmlParserService {
         '',
     );
     const tomadCnpj = String(
-      tomad.IdentificacaoTomador?.CpfCnpj?.Cnpj ||
-        tomad.CpfCnpj?.Cnpj ||
-        tomad.Cnpj ||
-        '',
+      tomad.IdentificacaoTomador?.CpfCnpj?.Cnpj || tomad.CpfCnpj?.Cnpj || tomad.Cnpj || '',
     );
     const tomadCpf = String(
       tomad.IdentificacaoTomador?.CpfCnpj?.Cpf || tomad.CpfCnpj?.Cpf || tomad.Cpf || '',
@@ -607,15 +659,13 @@ export class SiegXmlParserService {
     const valorServicos = this.toNumberOrNull(
       valoresServico.ValorServicos || valoresServico.valorServicos,
     );
-    const baseCalculo = this.toNumberOrNull(
-      valoresNfse.BaseCalculo || valoresServico.BaseCalculo,
-    );
+    const baseCalculo = this.toNumberOrNull(valoresNfse.BaseCalculo || valoresServico.BaseCalculo);
     // Total: ValorLiquidoNfse is the canonical "what arrived at the bank" amount
     // in Elotech. Fall back to ValorServicos then BaseCalculo.
     const totalValue = valorLiquido ?? valorServicos ?? baseCalculo ?? 0;
 
     const items: ParsedFiscalDocumentItem[] = servicoList
-      .map((s) => {
+      .map(s => {
         const v = s?.Valores || {};
         const code = s?.ItemListaServico
           ? String(s.ItemListaServico)
@@ -630,8 +680,7 @@ export class SiegXmlParserService {
           quantity: null,
           unit: null,
           unitValue: null,
-          totalValue:
-            this.toNumberOrNull(v.ValorServicos || v.valorServicos) ?? totalValue,
+          totalValue: this.toNumberOrNull(v.ValorServicos || v.valorServicos) ?? totalValue,
         } as ParsedFiscalDocumentItem;
       })
       .filter((i): i is ParsedFiscalDocumentItem => i !== null);
@@ -647,17 +696,13 @@ export class SiegXmlParserService {
     }
 
     const cancelled = !!(info.NfseCancelamento || info.Cancelada === 'true');
-    const itemListaServico = servico.ItemListaServico
-      ? String(servico.ItemListaServico)
-      : null;
+    const itemListaServico = servico.ItemListaServico ? String(servico.ItemListaServico) : null;
 
     return {
       accessKey: this.synthNfseKey(prestCnpj, issueDate, nfNumber),
       docType: FiscalDocumentType.NFSE,
       operationType,
-      status: cancelled
-        ? FiscalDocumentStatus.CANCELLED
-        : FiscalDocumentStatus.AUTHORIZED,
+      status: cancelled ? FiscalDocumentStatus.CANCELLED : FiscalDocumentStatus.AUTHORIZED,
       issueDate,
       dateInferred,
       totalValue,
