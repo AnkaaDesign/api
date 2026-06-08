@@ -755,6 +755,16 @@ export class SkillService {
     if (existing.data.status !== 'OPEN') {
       throw new BadRequestException('Apenas avaliações abertas podem ser fechadas.');
     }
+
+    // Auto-submit every IN_PROGRESS entry so their responses are visible in
+    // statistics. Evaluators on closed campaigns can no longer submit manually,
+    // so any data they entered would otherwise be silently excluded from stats.
+    const now = new Date();
+    const autoSubmitted = await this.prisma.assessmentEntry.updateMany({
+      where: { assessmentId: id, status: 'IN_PROGRESS', deletedAt: null },
+      data: { status: 'SUBMITTED', submittedAt: now },
+    });
+
     const updated = await this.prisma.assessment.update({
       where: { id },
       data: { status: 'CLOSED' },
@@ -764,7 +774,7 @@ export class SkillService {
     // campaign was closed. Mirrors questionnaire.closed.
     try {
       const assessmentName = (updated as any)?.name || existing.data.name || 'Avaliação';
-      // Count submitted entries to enrich the override body (pt-BR).
+      // Count submitted entries (including those just auto-submitted above).
       const submittedCount = await this.prisma.assessmentEntry.count({
         where: { assessmentId: id, status: 'SUBMITTED', deletedAt: null },
       });

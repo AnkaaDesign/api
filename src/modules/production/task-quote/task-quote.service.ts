@@ -15,6 +15,7 @@ import { TaskQuoteRepository } from './repositories/task-quote.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { InvoiceGenerationService } from '@modules/financial/invoice/invoice-generation.service';
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
+import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 import type {
   TaskQuoteCreateFormData,
@@ -90,6 +91,7 @@ export class TaskQuoteService {
     private readonly nfseEmissionScheduler: NfseEmissionScheduler,
     private readonly sicrediService: SicrediService,
     private readonly dispatchService: NotificationDispatchService,
+    private readonly elotechNfseService: ElotechOxyNfseService,
   ) {}
 
   /**
@@ -1124,24 +1126,28 @@ export class TaskQuoteService {
           const oldServices = (existing as any).services || [];
           const newServices = (updatedQuote as any).services || [];
 
-          // Build set of normalized descriptions in the new services
-          const newDescriptions = new Set(
-            newServices.map((s: any) => normalizeDescription(s.description)),
+          // Composite key: description + observation combined
+          const makeKey = (desc: string | null, obs: string | null): string =>
+            `${normalizeDescription(desc)}|${normalizeDescription(obs)}`;
+
+          // Build set of composite keys in the new services
+          const newKeys = new Set(
+            newServices.map((s: any) => makeKey(s.description, s.observation)),
           );
 
-          // Find descriptions that were removed (in old but not in new)
-          const descriptionsToDelete = new Set<string>();
+          // Find composite keys that were removed (in old but not in new)
+          const keysToDelete = new Set<string>();
 
           for (const oldSvc of oldServices) {
-            const normalized = normalizeDescription(oldSvc.description);
-            if (!normalized) continue;
-            if (!newDescriptions.has(normalized)) {
+            const key = makeKey(oldSvc.description, oldSvc.observation);
+            if (key.startsWith('|')) continue; // empty description, skip
+            if (!newKeys.has(key)) {
               // Service was removed from quote
-              descriptionsToDelete.add(normalized);
+              keysToDelete.add(key);
             }
           }
 
-          if (descriptionsToDelete.size > 0) {
+          if (keysToDelete.size > 0) {
             // Get the task ID for this quote
             const quoteWithTask = await tx.taskQuote.findUnique({
               where: { id },
@@ -1159,8 +1165,8 @@ export class TaskQuoteService {
               });
 
               for (const so of productionSOs) {
-                const soNormalized = normalizeDescription(so.description);
-                if (descriptionsToDelete.has(soNormalized)) {
+                const soKey = makeKey(so.description, so.observation);
+                if (keysToDelete.has(soKey)) {
                   this.logger.log(
                     `[Quote Update] Deleting service order ${so.id} (${so.description}) — quote service removed`,
                   );
@@ -2151,33 +2157,38 @@ export class TaskQuoteService {
     });
     if (!task) throw new NotFoundException(`Tarefa para o orçamento ${id} não encontrada.`);
 
-    // Verify all bank slips are cancelled
+    // Collect active bank slips to baixar at Sicredi (best-effort, before deleting records)
     const activeSlips = await this.prisma.bankSlip.findMany({
       where: {
         installment: { invoice: { taskId: task.id } },
-        status: { not: 'CANCELLED' },
+        status: { notIn: ['CANCELLED', 'PAID'] },
+        nossoNumero: { not: null },
       },
-      select: { id: true, status: true },
+      select: { id: true, nossoNumero: true, status: true },
     });
-    if (activeSlips.length > 0) {
-      throw new BadRequestException(
-        `Existem ${activeSlips.length} boleto(s) não cancelado(s). ` +
-          `Cancele todos os boletos antes de reverter o faturamento.`,
-      );
-    }
 
-    // Verify all NFS-e docs are cancelled or error (not authorized/processing)
-    const activeNfses = await this.prisma.nfseDocument.findMany({
+    // Collect AUTHORIZED NFS-e to cancel at Elotech (best-effort, before deleting records)
+    const authorizedNfses = await this.prisma.nfseDocument.findMany({
       where: {
         invoice: { taskId: task.id },
-        status: { in: ['AUTHORIZED', 'PROCESSING', 'PENDING'] },
+        status: 'AUTHORIZED',
+        elotechNfseId: { not: null },
+      },
+      select: { id: true, nfseNumber: true, elotechNfseId: true },
+    });
+
+    // Block if any NFS-e is still PROCESSING or PENDING — they may become AUTHORIZED soon
+    const pendingNfses = await this.prisma.nfseDocument.findMany({
+      where: {
+        invoice: { taskId: task.id },
+        status: { in: ['PROCESSING', 'PENDING'] },
       },
       select: { id: true, status: true },
     });
-    if (activeNfses.length > 0) {
+    if (pendingNfses.length > 0) {
       throw new BadRequestException(
-        `Existem NFS-e(s) não cancelada(s) (${activeNfses.map(n => n.status).join(', ')}). ` +
-          `Cancele todas as NFS-e antes de reverter o faturamento.`,
+        `Existem NFS-e(s) em processamento (${pendingNfses.map(n => n.status).join(', ')}). ` +
+          `Aguarde a conclusão ou cancele-as antes de reverter o faturamento.`,
       );
     }
 
@@ -2193,6 +2204,51 @@ export class TaskQuoteService {
       throw new BadRequestException(
         `Existem ${paidInstallments.length} parcela(s) paga(s). Não é possível reverter um faturamento com pagamentos registrados.`,
       );
+    }
+
+    // Best-effort baixa at Sicredi for all active/overdue bank slips
+    if (activeSlips.length > 0) {
+      const slipOutcomes = await Promise.allSettled(
+        activeSlips
+          .filter(s => s.nossoNumero && !s.nossoNumero.startsWith('TMP-'))
+          .map(s => this.sicrediService.cancelBoleto(s.nossoNumero!)),
+      );
+      slipOutcomes.forEach((outcome, i) => {
+        if (outcome.status === 'rejected') {
+          this.logger.warn(
+            `[REVERT_BILLING] Failed to baixar boleto ${activeSlips[i].nossoNumero} at Sicredi: ${outcome.reason}`,
+          );
+        } else {
+          this.logger.log(
+            `[REVERT_BILLING] Baixado boleto ${activeSlips[i].nossoNumero} at Sicredi`,
+          );
+        }
+      });
+    }
+
+    // Best-effort cancel at Elotech for all AUTHORIZED NFS-e
+    if (authorizedNfses.length > 0) {
+      const nfseOutcomes = await Promise.allSettled(
+        authorizedNfses.map(n =>
+          this.elotechNfseService.cancelNfse(
+            n.id,
+            'Cancelamento automático por reversão de faturamento.',
+            1,
+          ),
+        ),
+      );
+      nfseOutcomes.forEach((outcome, i) => {
+        const nfse = authorizedNfses[i];
+        if (outcome.status === 'rejected') {
+          this.logger.warn(
+            `[REVERT_BILLING] Failed to cancel NFS-e #${nfse.nfseNumber} (elotechId=${nfse.elotechNfseId}) at Elotech: ${outcome.reason}. Must be cancelled manually at Elotech OXY portal.`,
+          );
+        } else {
+          this.logger.log(
+            `[REVERT_BILLING] Cancelled NFS-e #${nfse.nfseNumber} at Elotech`,
+          );
+        }
+      });
     }
 
     await this.prisma.$transaction(async tx => {

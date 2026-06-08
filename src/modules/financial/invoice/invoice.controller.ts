@@ -1206,6 +1206,31 @@ export class InvoiceController {
       this.logger.error(
         `[BOLETO] Failed to change due date for installment ${installmentId}: ${errMsg}`,
       );
+
+      // For OVERDUE boletos, Sicredi often refuses date changes after the expiration window.
+      // Fallback: cancel the boleto locally (best-effort baixa at Sicredi) so the user can
+      // regenerate it with the desired due date instead of being stuck.
+      if (bankSlip.status === BANK_SLIP_STATUS.OVERDUE) {
+        if (bankSlip.nossoNumero && !bankSlip.nossoNumero.startsWith('TMP-')) {
+          try {
+            await this.sicrediService.cancelBoleto(bankSlip.nossoNumero);
+          } catch (cancelErr) {
+            this.logger.warn(
+              `[BOLETO] Fallback baixa failed for overdue boleto ${bankSlip.nossoNumero}: ${cancelErr}`,
+            );
+          }
+        }
+        await this.prisma.bankSlip.update({
+          where: { id: bankSlip.id },
+          data: { status: 'CANCELLED' },
+        });
+        return {
+          message:
+            'O Sicredi não permite alterar a data de boletos muito vencidos. O boleto foi cancelado — use "Regenerar Boleto" para criar um novo com a data desejada.',
+          fallback: 'CANCELLED',
+        };
+      }
+
       throw new BadRequestException(
         `Falha ao alterar data de vencimento no Sicredi. O boleto pode estar em um estado que não permite alteração (já baixado ou liquidado). Detalhes: ${errMsg}`,
       );
@@ -1371,7 +1396,7 @@ export class InvoiceController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async cancelNfse(
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
-    @Body() body: { reason?: string; reasonCode?: number; nfseDocumentId?: string },
+    @Body() body: { reason?: string; reasonCode?: number; nfseDocumentId?: string; force?: boolean },
   ) {
     // Find the specific NfseDocument to cancel
     let nfseDoc;
@@ -1420,6 +1445,29 @@ export class InvoiceController {
         (error as any)?.response?.data?.message ||
         (error instanceof Error ? error.message : String(error));
       this.logger.error(`Failed to cancel NFS-e for invoice ${invoiceId}: ${errMsg}`);
+
+      // Force-cancel: mark the NFS-e as CANCELLED locally even though Elotech refused.
+      // This is offered when Elotech won't accept the cancellation (e.g. > 30 days after emission).
+      // The NFS-e number is preserved in errorMessage so the user knows to cancel it manually at Elotech.
+      if (body.force) {
+        await this.prisma.nfseDocument.update({
+          where: { id: nfseDoc.id },
+          data: {
+            status: 'CANCELLED',
+            errorMessage: `Cancelamento forçado localmente (Elotech recusou: ${errMsg.slice(0, 300)}). NFS-e #${nfseDoc.nfseNumber ?? nfseDoc.elotechNfseId} deve ser cancelada manualmente no portal Elotech OXY.`,
+          },
+        });
+        this.logger.warn(
+          `[NFS-e] Force-cancelled NFS-e ${nfseDoc.id} locally — NFS-e #${nfseDoc.nfseNumber} needs manual cancellation at Elotech OXY.`,
+        );
+        return {
+          message: `NFS-e cancelada localmente. A NFS-e #${nfseDoc.nfseNumber ?? nfseDoc.elotechNfseId} deve ser cancelada manualmente no portal Elotech OXY.`,
+          forceCancel: true,
+          nfseNumber: nfseDoc.nfseNumber,
+          elotechNfseId: nfseDoc.elotechNfseId,
+        };
+      }
+
       throw new BadRequestException(`Falha ao cancelar NFS-e: ${errMsg}`);
     }
   }
