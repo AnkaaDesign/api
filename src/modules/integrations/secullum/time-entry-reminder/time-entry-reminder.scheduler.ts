@@ -16,6 +16,8 @@ export class TimeEntryReminderScheduler {
 
   private isProcessing = false;
   private isUnjustifiedProcessing = false;
+  private processingStartedAt: number | null = null;
+  private readonly MAX_RUN_MS = 12 * 60 * 1000; // 12 minutes — release lock if a run hangs
 
   constructor(private readonly timeEntryReminderService: TimeEntryReminderService) {}
 
@@ -24,23 +26,40 @@ export class TimeEntryReminderScheduler {
    */
   @Cron('0,15,30,45 7-18 * * 1-5', { timeZone: 'America/Sao_Paulo' })
   async checkAllEntryTypes(): Promise<void> {
+    // Release a stale lock if a previous run hung beyond the max allowed duration
     if (this.isProcessing) {
-      this.logger.warn('Time entry check already in progress, skipping this run');
-      return;
+      const elapsed = Date.now() - (this.processingStartedAt ?? 0);
+      if (elapsed < this.MAX_RUN_MS) {
+        this.logger.warn('Time entry check already in progress, skipping this run');
+        return;
+      }
+      this.logger.error(
+        `Time entry check lock held for ${Math.round(elapsed / 1000)}s — releasing stale lock and starting new run`,
+      );
     }
 
     this.isProcessing = true;
-    const startTime = Date.now();
+    this.processingStartedAt = Date.now();
 
     try {
       const entryTypes: TimeEntryType[] = ['ENTRADA1', 'SAIDA1', 'ENTRADA2', 'SAIDA2'];
+
+      // Fetch Secullum employees once and clear the horario cache once for the whole run,
+      // so the /Funcionarios and /Horarios calls are not repeated for each of the 4 entry types.
+      const preloadedEmployees = await this.timeEntryReminderService.prepareRun();
+      if (preloadedEmployees === null) {
+        this.logger.error('Failed to fetch Secullum employees — aborting this run');
+        return;
+      }
 
       for (const entryType of entryTypes) {
         try {
           this.logger.log(`[${entryType}] Starting time entry check`);
 
-          const result =
-            await this.timeEntryReminderService.checkAndNotifyMissingEntries(entryType);
+          const result = await this.timeEntryReminderService.checkAndNotifyMissingEntries(
+            entryType,
+            preloadedEmployees,
+          );
 
           this.logger.log(
             `[${entryType}] Check completed - Checked: ${result.checked}, Missing: ${result.missing}, Notified: ${result.notified}, Dedup: ${result.skippedDedup}, Errors: ${result.errors}`,
@@ -50,10 +69,11 @@ export class TimeEntryReminderScheduler {
         }
       }
 
-      const duration = Date.now() - startTime;
+      const duration = Date.now() - this.processingStartedAt;
       this.logger.log(`All entry type checks completed in ${duration}ms`);
     } finally {
       this.isProcessing = false;
+      this.processingStartedAt = null;
     }
   }
 

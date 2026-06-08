@@ -335,7 +335,7 @@ export class NotificationSchedulerService {
           await this.retryDelivery(delivery);
           retriedCount++;
           this.logger.log(
-            `Retried delivery ${delivery.id} for notification ${delivery.notificationId} (attempt ${delivery.retryCount + 1}/${maxRetries})`,
+            `Retried delivery ${delivery.id} for notification ${delivery.notificationId} (attempt ${(delivery.retryCount || 0) + 1}/${maxRetries})`,
           );
         } catch (error) {
           errorCount++;

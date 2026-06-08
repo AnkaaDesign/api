@@ -40,6 +40,7 @@ export class InvoiceGenerationService {
     taskId: string,
     userId: string,
     approvalDate?: Date,
+    options?: { skipBankSlips?: boolean; skipNfse?: boolean },
   ): Promise<string[]> {
     this.logger.log(`[INVOICE_GEN] ====== Starting invoice generation for task ${taskId} ======`);
 
@@ -189,8 +190,9 @@ export class InvoiceGenerationService {
 
         // Determine if bank slips should be generated.
         // generateBankSlip=false means the customer pays via direct transfer/PIX — no boleto needed.
-        // customPaymentText is a display-only label (PDFs, quotes) and does NOT affect boleto creation.
-        const shouldCreateBankSlips = (config as any).generateBankSlip !== false;
+        // options.skipBankSlips=true overrides the config flag (used for manual settlement).
+        const shouldCreateBankSlips =
+          !options?.skipBankSlips && (config as any).generateBankSlip !== false;
 
         if (!shouldCreateBankSlips) {
           this.logger.log(
@@ -237,7 +239,8 @@ export class InvoiceGenerationService {
         }
 
         // Create NfseDocument for municipal emission (Elotech OXY) only if generateInvoice is true
-        const shouldGenerateNfse = config.generateInvoice !== false;
+        // and options.skipNfse is not set (used for manual settlement where NFS-e is not auto-emitted).
+        const shouldGenerateNfse = !options?.skipNfse && config.generateInvoice !== false;
 
         if (shouldGenerateNfse) {
           await tx.nfseDocument.create({

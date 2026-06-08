@@ -1429,7 +1429,7 @@ export class TaskQuoteService {
 
       // Manual SETTLED: auto-cancel open bank slips and mark installments as paid
       if (status === TASK_QUOTE_STATUS.SETTLED) {
-        await this.settleManually(id);
+        await this.settleManually(id, userId);
       } else {
         // Validate prerequisites for the target status
         await this.validateStatusPrerequisites(id, existing.status as TASK_QUOTE_STATUS, status);
@@ -1477,7 +1477,41 @@ export class TaskQuoteService {
    * Settle a quote manually — auto-cancels open bank slips and marks all installments as PAID.
    * Used when payment was received via PIX, cash, or other non-boleto means.
    */
-  private async settleManually(quoteId: string): Promise<void> {
+  private async settleManually(quoteId: string, userId: string): Promise<void> {
+    // If this quote has no installments yet (e.g. COMMERCIAL_APPROVED → SETTLED, skipping
+    // BILLING_APPROVED), generate invoices+installments now so the settlement has a financial record.
+    const existingInstallmentCount = await this.prisma.installment.count({
+      where: { customerConfig: { quoteId } },
+    });
+
+    if (existingInstallmentCount === 0) {
+      const task = await this.prisma.task.findFirst({
+        where: { quoteId },
+        select: { id: true, finishedAt: true },
+      });
+      if (task?.id && task.finishedAt) {
+        const generatedInvoiceIds = await this.invoiceGenerationService.generateInvoicesForTask(
+          task.id,
+          userId,
+          new Date(),
+          { skipBankSlips: true, skipNfse: true },
+        );
+        if (generatedInvoiceIds.length > 0) {
+          this.logger.log(
+            `[SETTLE_MANUALLY] Pre-generated ${generatedInvoiceIds.length} invoice(s) for quote ${quoteId} before settlement (no prior installments found).`,
+          );
+        } else {
+          this.logger.warn(
+            `[SETTLE_MANUALLY] No invoices could be generated for quote ${quoteId} (paymentCondition or finishedAt may be missing). Settlement proceeds with no installments.`,
+          );
+        }
+      } else {
+        this.logger.warn(
+          `[SETTLE_MANUALLY] Quote ${quoteId} has no linked task or task.finishedAt — cannot auto-generate installments. Settlement proceeds with no installments.`,
+        );
+      }
+    }
+
     // Track bank slips that need to be cancelled at Sicredi (after the local transaction commits)
     const slipsToCancelAtSicredi: Array<{ id: string; nossoNumero: string }> = [];
 
