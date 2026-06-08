@@ -1358,7 +1358,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                 amount: formattedAmount,
                 nossoNumero: bankSlip.nossoNumero,
                 dueDate: formattedDueDate,
-                daysRemaining: daysRemaining === 0 ? 'hoje' : `${daysRemaining} dia(s)`,
+                daysRemaining: daysRemaining,
                 invoiceId: invoice.id,
                 bankSlipId: bankSlip.id,
                 taskId: invoice.taskId,

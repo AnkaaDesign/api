@@ -2276,6 +2276,7 @@ export class NotificationDispatchService {
     if (isNaN(num)) {
       return '';
     }
+    if (num === 0) return 'hoje';
     return `${num} ${num === 1 ? singular : plural}`;
   }
 

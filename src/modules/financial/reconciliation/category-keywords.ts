@@ -112,12 +112,12 @@ export const PRODUCT_KEYWORD_RULES: readonly KeywordRule[] = [
 // Service keywords → SERVICE slug (seeded in the migration). Used for NFSe
 // content that has no inventory equivalent.
 export const SERVICE_KEYWORD_RULES: readonly KeywordRule[] = [
-  { pattern: /\b(pintura|colorimetr|repintura|funilaria)\b/, serviceSlug: 'pintura', confidence: 85 },
+  // Aerografia — airbrush artwork on vehicles by subcontractors
+  { pattern: /\b(aerografi|aerografo|desenho\s+em)\b/, serviceSlug: 'aerografia', confidence: 88 },
+  // Impressão de Adesivo — digital sticker/banner/wrap printing
+  { pattern: /\b(adesiv|plotagem|impressao\s+digital|banner|fachada|letreiro|envelopament)\b/, serviceSlug: 'impressao-de-adesivo', confidence: 82 },
   { pattern: /\b(contab|escrit(a|ur)|fiscal|honorario|consultoria\s+contab)\b/, serviceSlug: 'contabilidade', confidence: 85 },
-  { pattern: /\b(medic|saude|exame|aso|seguranca\s+do\s+trabalho|ocupacional|nutri)\b/, serviceSlug: 'saude', confidence: 82 },
-  { pattern: /\b(cloud|hosting|hospedagem|software|licenca|google|microsoft|saas|sistema|dominio|servidor)\b/, serviceSlug: 'ti', confidence: 80 },
   { pattern: /\b(monitoramento|alarme|vigilancia|seguranca\s+eletr|cftv|cameras?)\b/, serviceSlug: 'monitoramento', confidence: 85 },
-  { pattern: /\b(comunicacao\s+visual|adesiv|plotagem|banner|fachada|letreiro|desenho\s+em|envelopament)\b/, serviceSlug: 'comunicacao-visual', confidence: 82 },
 ];
 
 // Emitter-name priors. Strong recurring suppliers bias the whole NF toward a
@@ -141,8 +141,13 @@ export const EMITTER_PRIORS: readonly EmitterPrior[] = [
   // NUTRICARD → Cozinha / alimentação (Apoio).
   { pattern: /\bnutricard\b/, itemCategoryNames: ['Copa / descartáveis (alimentação)', 'Cozinha'], confidence: 55 },
   { pattern: /\bconsiga\b|\bcontabil/, serviceSlug: 'contabilidade', confidence: 60 },
-  { pattern: /\bgoogle\b|\bmicrosoft\b|\bamazon\s+web\b/, serviceSlug: 'ti', confidence: 60 },
   { pattern: /\balarm|\bmonitora|\bsegur/, serviceSlug: 'monitoramento', confidence: 55 },
-  { pattern: /\bcomunicacao\s+visual|\bplotagem|\badesiv/, serviceSlug: 'comunicacao-visual', confidence: 55 },
-  { pattern: /\bunimed\b|\bnutricard\b|\bmedic/, serviceSlug: 'saude', confidence: 55 },
+  // Impressão de Adesivo — Aderi / RT Comunicação Visual and similar sticker printers
+  { pattern: /\badesiv|\bplotagem|\br\s*t\s+comunicacao/, serviceSlug: 'impressao-de-adesivo', confidence: 60 },
+  // Aerografia — known aerography subcontractors (truck artwork)
+  { pattern: /\bpaulo\s+batista\b/, serviceSlug: 'aerografia', confidence: 72 },
+  { pattern: /\bmarcos\s+aurelio\b/, serviceSlug: 'aerografia', confidence: 72 },
+  { pattern: /\bclaudemir\b/, serviceSlug: 'aerografia', confidence: 72 },
+  // Colorimetria / painting subcontractor → generic service
+  { pattern: /\bkennedy\s+(de\s+)?campos\b/, serviceSlug: 'prestacao-de-servicos', confidence: 72 },
 ];

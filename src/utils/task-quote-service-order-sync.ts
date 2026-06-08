@@ -153,34 +153,13 @@ export function getServiceOrderToQuoteSync(
     };
   }
 
-  // Check if a quote item with this exact description+observation already exists
+  // Match on both description AND observation — different observations = different items
   const existingItem = existingQuoteItems.find(item =>
     areDescriptionsEqual(item.description, description) &&
     areDescriptionsEqual(item.observation || '', observation || ''),
   );
 
   if (existingItem) {
-    // Check if observation needs to be updated
-    const observationChanged = !areDescriptionsEqual(
-      existingItem.observation || '',
-      observation || '',
-    );
-
-    if (observationChanged) {
-      // Allow both adding and clearing observations
-      return {
-        shouldCreateQuoteItem: false,
-        shouldUpdateQuoteItem: true,
-        existingQuoteItemId: existingItem.id,
-        quoteItemDescription: description,
-        quoteItemObservation: observation,
-        quoteItemAmount: existingItem.amount || 0,
-        reason: observation
-          ? 'Atualizando observação do item de precificação existente'
-          : 'Removendo observação do item de precificação existente',
-      };
-    }
-
     return {
       shouldCreateQuoteItem: false,
       shouldUpdateQuoteItem: false,
@@ -188,7 +167,7 @@ export function getServiceOrderToQuoteSync(
       quoteItemDescription: description,
       quoteItemObservation: existingItem.observation || null,
       quoteItemAmount: existingItem.amount || 0,
-      reason: 'Item de precificação já existe com esta descrição',
+      reason: 'Item de precificação já existe com esta descrição e observação',
     };
   }
 
@@ -232,39 +211,20 @@ export function getQuoteItemToServiceOrderSync(
     so => so.type === SERVICE_ORDER_TYPE.PRODUCTION,
   );
 
+  // Match on both description AND observation — different observations = different items
   const existingOrder = productionOrders.find(so =>
     areDescriptionsEqual(so.description, description) &&
     areDescriptionsEqual(so.observation || '', observation || ''),
   );
 
   if (existingOrder) {
-    // Check if observation needs to be updated
-    const observationChanged = !areDescriptionsEqual(
-      existingOrder.observation || '',
-      observation || '',
-    );
-
-    if (observationChanged) {
-      // Allow both adding and clearing observations
-      return {
-        shouldCreateServiceOrder: false,
-        shouldUpdateServiceOrder: true,
-        existingServiceOrderId: existingOrder.id,
-        serviceOrderDescription: description,
-        serviceOrderObservation: observation,
-        reason: observation
-          ? 'Atualizando observação da ordem de serviço existente'
-          : 'Removendo observação da ordem de serviço existente',
-      };
-    }
-
     return {
       shouldCreateServiceOrder: false,
       shouldUpdateServiceOrder: false,
       existingServiceOrderId: existingOrder.id,
       serviceOrderDescription: description,
       serviceOrderObservation: existingOrder.observation || null,
-      reason: 'Ordem de serviço de produção já existe com esta descrição',
+      reason: 'Ordem de serviço de produção já existe com esta descrição e observação',
     };
   }
 
