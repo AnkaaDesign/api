@@ -52,6 +52,19 @@ const MARKETPLACE_DATE_WINDOW_DAYS = 15;
 // Value-only matches carry less corroborating signal than CNPJ+value, so they
 // land below the 90 auto-match threshold to read as "auto, but verify" in audit.
 const MARKETPLACE_MATCH_CONFIDENCE = 80;
+// A marketplace DEBIT routinely bundles DIFAL (interstate ICMS, up to ~18%) and
+// marketplace/PIX fees ON TOP of the NF total — so the matching purchase NF sits
+// BELOW the payment, often well beyond the generic 2% value tolerance. For the
+// MANUAL candidate list we therefore accept NFs from this much down to surface
+// the right purchase for the user to confirm (the auto pass stays strict).
+const MARKETPLACE_VALUE_BELOW_TOLERANCE = 0.25;
+// Base confidence for "value-band" marketplace candidates: medium — plausible
+// and scoped to our purchases, but value isn't exact, so "review". Date
+// proximity (0–20 from dateScore) is ADDED on top so that when several NFs share
+// the same value (common for repeat purchases), the one closest to the payment
+// date ranks first instead of all showing an identical, misleading score.
+const MARKETPLACE_CANDIDATE_CONFIDENCE = 45;
+const MARKETPLACE_CANDIDATE_CONFIDENCE_MAX = 70;
 // Company CNPJ fallback, mirrored from SiegXmlParserService so marketplace
 // matching scopes to our own purchases even when COMPANY_CNPJ is unset in dev.
 const DEFAULT_COMPANY_CNPJ = '13636938000144';
@@ -1407,8 +1420,12 @@ export class ReconciliationMatcherService {
     // the CNPJ-scoped 60-day search returned nothing. Keeps the manual UI in sync
     // with the stored topMatchScore (which was computed with the wider window).
     if (docs.length === 0 && counterparty) {
-      const widestLower = new Date(tx.postedAt.getTime() - PERFECT_MATCH_DATE_WINDOW_DAYS * 86_400_000);
-      const widestUpper = new Date(tx.postedAt.getTime() + PERFECT_MATCH_DATE_WINDOW_DAYS * 86_400_000);
+      const widestLower = new Date(
+        tx.postedAt.getTime() - PERFECT_MATCH_DATE_WINDOW_DAYS * 86_400_000,
+      );
+      const widestUpper = new Date(
+        tx.postedAt.getTime() + PERFECT_MATCH_DATE_WINDOW_DAYS * 86_400_000,
+      );
       docs = await this.prisma.fiscalDocument.findMany({
         where: {
           status: 'AUTHORIZED',
@@ -1432,6 +1449,36 @@ export class ReconciliationMatcherService {
       });
     }
 
+    // Marketplace: the debit settles to an intermediary (CNPJ unusable) and
+    // usually bundles DIFAL + marketplace/PIX fees ON TOP of the NF, so the
+    // purchase NF sits BELOW the payment by more than the generic value
+    // tolerance. Surface OUR purchases (ENTRADA, our company as recipient) in a
+    // tight date window with an ASYMMETRIC value band (NF from ~25% below up to
+    // roughly the payment) so the user can pick the right one. Tracked so we can
+    // tag these candidates with a clearer rationale/confidence below.
+    const marketplaceBandIds = new Set<string>();
+    if (marketplace && docs.length === 0) {
+      const mktLower = new Date(tx.postedAt.getTime() - MARKETPLACE_DATE_WINDOW_DAYS * 86_400_000);
+      const mktUpper = new Date(tx.postedAt.getTime() + MARKETPLACE_DATE_WINDOW_DAYS * 86_400_000);
+      docs = await this.prisma.fiscalDocument.findMany({
+        where: {
+          status: 'AUTHORIZED',
+          operationType: FiscalDocumentOperation.ENTRADA,
+          destCnpj: this.companyCnpj,
+          matches: { none: {} },
+          issueDate: { gte: mktLower, lte: mktUpper },
+          totalValue: {
+            gte: absAmount * (1 - MARKETPLACE_VALUE_BELOW_TOLERANCE),
+            lte: absAmount + PERFECT_VALUE_TOLERANCE,
+          },
+        },
+        orderBy: { issueDate: 'desc' },
+        take: 50,
+        select,
+      });
+      for (const d of docs) marketplaceBandIds.add(d.id);
+    }
+
     // Final fallback: value+date proximity when CNPJ yielded nothing at all.
     if (docs.length === 0) {
       docs = await this.prisma.fiscalDocument.findMany({
@@ -1451,6 +1498,11 @@ export class ReconciliationMatcherService {
       const daysDelta = Math.round(
         Math.abs(doc.issueDate.getTime() - tx.postedAt.getTime()) / 86_400_000,
       );
+      // Marketplace value-band candidate: value isn't exact (payment bundles
+      // DIFAL/fees), so scoreCandidate scores it ~0. Surface it as a clear
+      // medium-confidence "review" suggestion with an explanatory rationale.
+      const isMarketplaceBand = marketplaceBandIds.has(doc.id);
+      const belowPct = absAmount > 0 ? ((absAmount - docTotal) / absAmount) * 100 : 0;
       return {
         fiscalDocumentId: doc.id,
         accessKey: doc.accessKey,
@@ -1464,9 +1516,17 @@ export class ReconciliationMatcherService {
         destCpf: doc.destCpf ?? null,
         destName: doc.destName,
         nfNumber: doc.nfNumber ?? null,
-        confidence: score.total,
+        confidence: isMarketplaceBand
+          ? Math.min(
+              MARKETPLACE_CANDIDATE_CONFIDENCE_MAX,
+              MARKETPLACE_CANDIDATE_CONFIDENCE + score.parts.date,
+            )
+          : score.total,
         matchType: score.matchType,
-        rationale: score.reasons.join(' • ') || 'Aproximação por valor/data',
+        rationale: isMarketplaceBand
+          ? `Compra via marketplace • nota R$ ${docTotal.toFixed(2)} (pagamento ` +
+            `R$ ${absAmount.toFixed(2)} inclui DIFAL/taxas, ${belowPct.toFixed(0)}% acima da nota)`
+          : score.reasons.join(' • ') || 'Aproximação por valor/data',
         amountDelta: Math.abs(docTotal - absAmount),
         daysDelta,
         aliasAssisted: !!aliasContext,
@@ -1497,16 +1557,13 @@ export class ReconciliationMatcherService {
     // Deduplicate: suppress individual NF rows that are already represented
     // inside an order-group candidate — showing both would confuse the user
     // (they'd see "Pedido C44751" AND the two NFs separately below it).
-    const groupMemberIds = new Set(
-      groupCandidates.flatMap(g => g.memberFiscalDocumentIds ?? []),
-    );
-    const dedupedSingles = groupMemberIds.size > 0
-      ? singleCandidates.filter(c => !groupMemberIds.has(c.fiscalDocumentId))
-      : singleCandidates;
+    const groupMemberIds = new Set(groupCandidates.flatMap(g => g.memberFiscalDocumentIds ?? []));
+    const dedupedSingles =
+      groupMemberIds.size > 0
+        ? singleCandidates.filter(c => !groupMemberIds.has(c.fiscalDocumentId))
+        : singleCandidates;
 
-    return [...groupCandidates, ...dedupedSingles].sort(
-      (a, b) => b.confidence - a.confidence,
-    );
+    return [...groupCandidates, ...dedupedSingles].sort((a, b) => b.confidence - a.confidence);
   }
 
   /**

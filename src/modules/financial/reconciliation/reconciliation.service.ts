@@ -21,10 +21,7 @@ import {
 import { ReconciliationClassifierService } from './reconciliation-classifier.service';
 import { TransactionCategoryService } from './transaction-category.service';
 import { ItemCategoryClassifierService } from './item-category-classifier.service';
-import {
-  ReconciliationAliasService,
-  inferCounterpartyCnpj,
-} from './reconciliation-alias.service';
+import { ReconciliationAliasService, inferCounterpartyCnpj } from './reconciliation-alias.service';
 import { CounterpartyLearningService } from './counterparty-learning.service';
 import { MemoCategoryLearnerService } from './memo-category-learner.service';
 import { FiscalDerivedLearnerService } from './fiscal-derived-learner.service';
@@ -373,9 +370,14 @@ export class ReconciliationService {
       for (const id of payload.fiscalDocumentIds) allocByDoc.set(id, split);
     }
     const sum = [...allocByDoc.values()].reduce((a, b) => a + b, 0);
-    if (Math.abs(sum - txAmount) > 0.05) {
+    // Reject only OVER-allocation (linking NFs worth more than the payment is
+    // never valid). Under-allocation is allowed and produces a PARTIAL status:
+    // a payment can legitimately be backed by an NF for LESS than the full
+    // amount — e.g. a marketplace debit that bundles DIFAL/fees on top of the
+    // NF total, or an NF + tip/tariff. The remainder stays unreconciled.
+    if (sum > txAmount + 0.05) {
       throw new BadRequestException(
-        `Soma das alocações (R$${sum.toFixed(2)}) difere do valor da transação (R$${txAmount.toFixed(2)})`,
+        `Soma das alocações (R$${sum.toFixed(2)}) excede o valor da transação (R$${txAmount.toFixed(2)})`,
       );
     }
 

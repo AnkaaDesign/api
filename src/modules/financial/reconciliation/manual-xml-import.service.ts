@@ -13,6 +13,10 @@ export interface XmlImportFailure {
 
 export interface XmlImportResult {
   created: number;
+  /** Existing documents whose status/fields changed on re-import (incl. an
+   *  applied cancellation event) — i.e. NOT silently skipped. */
+  updated: number;
+  /** Existing documents re-imported with no material change (true duplicates). */
   skipped: number;
   failed: number;
   /** Per-file failures with a human-readable reason (so the UI can show WHY a
@@ -34,7 +38,13 @@ export class ManualXmlImportService {
    * or a ZIP containing many XMLs.
    */
   async importFiles(files: Express.Multer.File[]): Promise<XmlImportResult> {
-    const result: XmlImportResult = { created: 0, skipped: 0, failed: 0, failedFiles: [] };
+    const result: XmlImportResult = {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      failed: 0,
+      failedFiles: [],
+    };
 
     for (const file of files) {
       try {
@@ -87,18 +97,41 @@ export class ManualXmlImportService {
   private async ingestSingle(xml: string, sourceName: string, result: XmlImportResult) {
     const parsed = this.parser.parse(xml);
     if (!parsed) {
+      // Not a full fiscal document. It may be a CANCELLATION event — apply it to
+      // the already-imported NF so re-uploading a cancellation flips the status.
+      const cancellation = this.parser.parseCancellationEvent(xml);
+      if (cancellation) {
+        const outcome = await this.ingestion.applyCancellation(
+          cancellation.accessKey,
+          cancellation.protocol,
+        );
+        if (outcome === 'cancelled') result.updated += 1;
+        else if (outcome === 'unchanged') result.skipped += 1;
+        else {
+          result.failed += 1;
+          result.failedFiles.push({
+            name: sourceName,
+            reason:
+              `Evento de cancelamento da NF ${cancellation.accessKey} recebido, ` +
+              'mas a nota ainda não foi importada. Importe a NF primeiro e ' +
+              'reenvie o cancelamento.',
+          });
+        }
+        return;
+      }
       result.failed += 1;
       result.failedFiles.push({
         name: sourceName,
         reason:
           'XML não reconhecido como NFe/NFCe/CTe/NFSe. Pode ser um evento ' +
-          '(cancelamento/carta de correção), uma inutilização, um resumo de ' +
-          'distribuição (DFe) ou um XML inválido/corrompido.',
+          '(carta de correção), uma inutilização, um resumo de distribuição ' +
+          '(DFe) ou um XML inválido/corrompido.',
       });
       return;
     }
     const ingestion = await this.ingestion.upsert(parsed, FiscalDocumentSource.MANUAL_UPLOAD);
     if (ingestion.created) result.created += 1;
+    else if (ingestion.updated) result.updated += 1;
     else result.skipped += 1;
   }
 }

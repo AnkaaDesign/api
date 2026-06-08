@@ -3,6 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   FiscalDocumentSource,
   FiscalDocumentStatus,
+  Prisma,
   ReconciliationSource,
   ReconciliationStatus,
 } from '@prisma/client';
@@ -14,7 +15,12 @@ import { ParsedFiscalDocument } from './types/sieg.types';
 export interface IngestedFiscalDocument {
   id: string;
   accessKey: string;
+  /** True when the document was newly inserted. */
   created: boolean;
+  /** True when an EXISTING document's status/material fields changed on
+   *  re-import (e.g. AUTHORIZED → CANCELLED). When both created and updated are
+   *  false, the re-import was a true no-op duplicate. */
+  updated: boolean;
 }
 
 @Injectable()
@@ -37,12 +43,34 @@ export class SiegIngestionService {
   ): Promise<IngestedFiscalDocument> {
     const existing = await this.prisma.fiscalDocument.findUnique({
       where: { accessKey: parsed.accessKey },
-      select: { id: true, accessKey: true, status: true },
+      select: {
+        id: true,
+        accessKey: true,
+        status: true,
+        cStat: true,
+        xMotivo: true,
+        totalValue: true,
+        cancelledAt: true,
+        protocolNumber: true,
+      },
     });
     if (existing) {
       const becameCancelled =
         parsed.status === FiscalDocumentStatus.CANCELLED &&
         existing.status !== FiscalDocumentStatus.CANCELLED;
+
+      // Did anything MATERIAL change vs the stored copy? Status is the field the
+      // user cares about most (authorized → cancelled), but we also treat a
+      // changed protocol, motivo, total or cancellation timestamp as a real
+      // update so the re-import is reported as "atualizada" rather than a silent
+      // "duplicada".
+      const changed =
+        existing.status !== parsed.status ||
+        existing.cStat !== (parsed.cStat ?? null) ||
+        existing.xMotivo !== (parsed.xMotivo ?? null) ||
+        existing.protocolNumber !== (parsed.protocolNumber ?? null) ||
+        Number(existing.totalValue) !== Number(parsed.totalValue) ||
+        (existing.cancelledAt?.getTime() ?? null) !== (parsed.cancelledAt?.getTime() ?? null);
 
       // Re-import rebuilds the item rows, which would otherwise WIPE the cached
       // item categories. Snapshot the existing categorizations (keyed by
@@ -79,7 +107,7 @@ export class SiegIngestionService {
         }
       }
 
-      await this.prisma.$transaction(async (tx) => {
+      await this.prisma.$transaction(async tx => {
         // Refresh header fields. A late-arriving cancellation (cStat 101 /
         // cancNFe) flips status/cancelledAt here.
         await tx.fiscalDocument.update({
@@ -92,7 +120,7 @@ export class SiegIngestionService {
             where: { fiscalDocumentId: existing.id },
           });
           await tx.fiscalDocumentItem.createMany({
-            data: parsed.items.map((it) => ({
+            data: parsed.items.map(it => ({
               fiscalDocumentId: existing.id,
               ...this.mapItemFields(it),
             })),
@@ -126,7 +154,7 @@ export class SiegIngestionService {
         });
         if (parsed.orderCodes && parsed.orderCodes.length > 0) {
           await tx.fiscalDocumentOrderCode.createMany({
-            data: parsed.orderCodes.map((code) => ({
+            data: parsed.orderCodes.map(code => ({
               fiscalDocumentId: existing.id,
               code,
             })),
@@ -138,37 +166,7 @@ export class SiegIngestionService {
         // and return any transaction left with no open matches to PENDING so the
         // matcher can re-link a corrected NF.
         if (becameCancelled) {
-          const open = await tx.reconciliationMatch.findMany({
-            where: { fiscalDocumentId: existing.id, reversedAt: null },
-            select: { transactionId: true },
-          });
-          if (open.length > 0) {
-            await tx.reconciliationMatch.updateMany({
-              where: { fiscalDocumentId: existing.id, reversedAt: null },
-              data: { reversedAt: new Date() },
-            });
-            const txIds = [
-              ...new Set(
-                open
-                  .map((m) => m.transactionId)
-                  .filter((id): id is string => Boolean(id)),
-              ),
-            ];
-            for (const tId of txIds) {
-              const remaining = await tx.reconciliationMatch.count({
-                where: { transactionId: tId, reversedAt: null },
-              });
-              if (remaining === 0) {
-                await tx.bankTransaction.update({
-                  where: { id: tId },
-                  data: {
-                    reconciliationStatus: ReconciliationStatus.PENDING,
-                    reconciliationSource: null,
-                  },
-                });
-              }
-            }
-          }
+          await this.reverseMatchesForDocument(tx, existing.id);
         }
       });
 
@@ -177,7 +175,12 @@ export class SiegIngestionService {
           `Fiscal document ${existing.accessKey} cancelled on re-import — reversed its open reconciliation matches.`,
         );
       }
-      return { id: existing.id, accessKey: existing.accessKey, created: false };
+      return {
+        id: existing.id,
+        accessKey: existing.accessKey,
+        created: false,
+        updated: changed,
+      };
     }
 
     let rawXmlFileId: string | null = null;
@@ -210,11 +213,11 @@ export class SiegIngestionService {
         ...this.mapHeaderFields(parsed),
         items:
           parsed.items && parsed.items.length > 0
-            ? { create: parsed.items.map((it) => this.mapItemFields(it)) }
+            ? { create: parsed.items.map(it => this.mapItemFields(it)) }
             : undefined,
         orderCodes:
           parsed.orderCodes && parsed.orderCodes.length > 0
-            ? { create: parsed.orderCodes.map((code) => ({ code })) }
+            ? { create: parsed.orderCodes.map(code => ({ code })) }
             : undefined,
       },
     });
@@ -224,7 +227,90 @@ export class SiegIngestionService {
       accessKey: created.accessKey,
     });
 
-    return { id: created.id, accessKey: created.accessKey, created: true };
+    return {
+      id: created.id,
+      accessKey: created.accessKey,
+      created: true,
+      updated: false,
+    };
+  }
+
+  /**
+   * Applies a CANCELLATION event (parsed from a `procEventoNFe` XML) to an
+   * already-imported NF: flips it to CANCELLED and reverses any open
+   * reconciliation matches (returning fully-freed transactions to PENDING).
+   * Cancellations arrive as a separate document from the NF-e itself, so this
+   * is how a manual re-upload of the cancellation reflects the new status.
+   *
+   * Returns 'not_found' when the referenced NF hasn't been imported yet,
+   * 'unchanged' when it was already cancelled, or 'cancelled' on success.
+   */
+  async applyCancellation(
+    accessKey: string,
+    protocol?: string | null,
+  ): Promise<'cancelled' | 'unchanged' | 'not_found'> {
+    const existing = await this.prisma.fiscalDocument.findUnique({
+      where: { accessKey },
+      select: { id: true, status: true },
+    });
+    if (!existing) return 'not_found';
+    if (existing.status === FiscalDocumentStatus.CANCELLED) return 'unchanged';
+
+    await this.prisma.$transaction(async tx => {
+      await tx.fiscalDocument.update({
+        where: { id: existing.id },
+        data: {
+          status: FiscalDocumentStatus.CANCELLED,
+          cancelledAt: new Date(),
+          cStat: '101',
+          xMotivo: 'Cancelamento registrado (evento importado)',
+          protocolNumber: protocol ?? undefined,
+        },
+      });
+      await this.reverseMatchesForDocument(tx, existing.id);
+    });
+
+    this.logger.log(
+      `Cancellation event applied to ${accessKey} — status set to CANCELLED and open matches reversed.`,
+    );
+    return 'cancelled';
+  }
+
+  /**
+   * Reverses every open (non-reversed) reconciliation match pointing at a fiscal
+   * document and returns any transaction thereby left with no open match to
+   * PENDING. Shared by the re-import cancellation path and applyCancellation.
+   */
+  private async reverseMatchesForDocument(
+    tx: Prisma.TransactionClient,
+    fiscalDocumentId: string,
+  ): Promise<void> {
+    const open = await tx.reconciliationMatch.findMany({
+      where: { fiscalDocumentId, reversedAt: null },
+      select: { transactionId: true },
+    });
+    if (open.length === 0) return;
+    await tx.reconciliationMatch.updateMany({
+      where: { fiscalDocumentId, reversedAt: null },
+      data: { reversedAt: new Date() },
+    });
+    const txIds = [
+      ...new Set(open.map(m => m.transactionId).filter((id): id is string => Boolean(id))),
+    ];
+    for (const tId of txIds) {
+      const remaining = await tx.reconciliationMatch.count({
+        where: { transactionId: tId, reversedAt: null },
+      });
+      if (remaining === 0) {
+        await tx.bankTransaction.update({
+          where: { id: tId },
+          data: {
+            reconciliationStatus: ReconciliationStatus.PENDING,
+            reconciliationSource: null,
+          },
+        });
+      }
+    }
   }
 
   /**
