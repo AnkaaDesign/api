@@ -1664,9 +1664,14 @@ export class OrderScheduleService {
       // Calculate next run date for the schedule
       const nextRunDate = this.calculateNextRunDate(schedule as OrderSchedule);
 
-      // Create order description
+      // Create order description from the schedule's own name (falling back to
+      // its description, then a generic item-count label for unnamed schedules).
+      // The "(automático)" suffix flags it as a scheduled order in listings.
       const itemCount = orderItems.length;
-      const description = `Pedido automático - ${itemCount} ${itemCount === 1 ? 'item' : 'itens'}`;
+      const scheduleName = schedule.name?.trim() || schedule.description?.trim();
+      const description = scheduleName
+        ? `${scheduleName} (automático)`
+        : `Pedido automático - ${itemCount} ${itemCount === 1 ? 'item' : 'itens'}`;
 
       // Prepare order data. supplierId is propagated from the schedule when
       // present (added 2026-05-21 — see migration memo). Falls back to NULL

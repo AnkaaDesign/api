@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   Prisma,
   ReconciliationAliasSource,
@@ -19,7 +14,10 @@ import { IgnoreTransactionDto } from './dto/ignore-transaction.dto';
 import { ChangeCategoryDto } from './dto/change-category.dto';
 import { ChangeItemCategoryDto } from './dto/change-item-category.dto';
 import { ClassifyBatchDto } from './dto/classify-batch.dto';
-import { ReconciliationMatcherService } from './reconciliation-matcher.service';
+import {
+  ReconciliationMatcherService,
+  RECON_ADVISORY_LOCK_KEY,
+} from './reconciliation-matcher.service';
 import { ReconciliationClassifierService } from './reconciliation-classifier.service';
 import { TransactionCategoryService } from './transaction-category.service';
 import { ItemCategoryClassifierService } from './item-category-classifier.service';
@@ -40,7 +38,15 @@ const CATEGORY_INCLUDE = {
   categories: {
     include: {
       category: {
-        select: { id: true, name: true, slug: true, kind: true, color: true, isResolving: true, isRecurring: true },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          kind: true,
+          color: true,
+          isResolving: true,
+          isRecurring: true,
+        },
       },
     },
   },
@@ -119,13 +125,16 @@ export class ReconciliationService {
     }
     if (filters.dateFrom || filters.dateTo) {
       where.postedAt = {};
-      if (filters.dateFrom) (where.postedAt as Prisma.DateTimeFilter).gte = new Date(filters.dateFrom);
+      if (filters.dateFrom)
+        (where.postedAt as Prisma.DateTimeFilter).gte = new Date(filters.dateFrom);
       if (filters.dateTo) (where.postedAt as Prisma.DateTimeFilter).lte = new Date(filters.dateTo);
     }
     if (filters.amountMin !== undefined || filters.amountMax !== undefined) {
       where.amount = {};
-      if (filters.amountMin !== undefined) (where.amount as Prisma.DecimalFilter).gte = filters.amountMin;
-      if (filters.amountMax !== undefined) (where.amount as Prisma.DecimalFilter).lte = filters.amountMax;
+      if (filters.amountMin !== undefined)
+        (where.amount as Prisma.DecimalFilter).gte = filters.amountMin;
+      if (filters.amountMax !== undefined)
+        (where.amount as Prisma.DecimalFilter).lte = filters.amountMax;
     }
     const [data, total] = await Promise.all([
       this.prisma.bankTransaction.findMany({
@@ -136,6 +145,7 @@ export class ReconciliationService {
         include: {
           ...CATEGORY_INCLUDE,
           matches: {
+            where: { reversedAt: null },
             include: {
               fiscalDocument: {
                 select: {
@@ -182,6 +192,7 @@ export class ReconciliationService {
       include: {
         ...CATEGORY_INCLUDE,
         matches: {
+          where: { reversedAt: null },
           include: {
             fiscalDocument: {
               select: {
@@ -242,6 +253,7 @@ export class ReconciliationService {
         // detail and used by order-group reconciliation.
         orderCodes: { select: { code: true }, orderBy: { code: 'asc' } },
         matches: {
+          where: { reversedAt: null },
           include: {
             transaction: {
               select: {
@@ -334,11 +346,7 @@ export class ReconciliationService {
     return this.getFiscalDocument(item.fiscalDocumentId);
   }
 
-  async manualMatch(
-    transactionId: string,
-    payload: ManualMatchDto,
-    userId: string | undefined,
-  ) {
+  async manualMatch(transactionId: string, payload: ManualMatchDto, userId: string | undefined) {
     // Pull memo/type/ownerCnpj up front: we need them for the allocation math
     // and for the alias learning step below.
     const tx = await this.prisma.bankTransaction.findUnique({
@@ -372,7 +380,53 @@ export class ReconciliationService {
     }
 
     const keepDocIds = [...allocByDoc.keys()];
+
     const updated = await this.prisma.$transaction(async tx2 => {
+      // Serialize against the auto-matcher and other manual matches so the
+      // over-allocation guard below is a race-free check-then-write.
+      await tx2.$executeRaw`SELECT pg_advisory_xact_lock(${RECON_ADVISORY_LOCK_KEY})`;
+
+      // Over-allocation guard: an NF may legitimately be split across several
+      // transactions (installments/parcelas), but the cumulative allocation
+      // across ALL of them must never exceed the NF total. Sum the non-reversed
+      // allocations already pointing at each NF from OTHER transactions and
+      // reject if adding this transaction's allocation would push it past the
+      // NF total. Runs inside the locked transaction to close the TOCTOU window.
+      const docs = await tx2.fiscalDocument.findMany({
+        where: { id: { in: keepDocIds } },
+        select: { id: true, totalValue: true, nfNumber: true },
+      });
+      const totalById = new Map(docs.map(d => [d.id, Number(d.totalValue)]));
+      const otherMatches = await tx2.reconciliationMatch.findMany({
+        where: {
+          fiscalDocumentId: { in: keepDocIds },
+          reversedAt: null,
+          transactionId: { not: transactionId },
+        },
+        select: { fiscalDocumentId: true, allocatedAmount: true },
+      });
+      const otherAllocById = new Map<string, number>();
+      for (const m of otherMatches) {
+        if (!m.fiscalDocumentId) continue;
+        otherAllocById.set(
+          m.fiscalDocumentId,
+          (otherAllocById.get(m.fiscalDocumentId) ?? 0) + Number(m.allocatedAmount),
+        );
+      }
+      for (const [docId, amount] of allocByDoc) {
+        const docTotal = totalById.get(docId);
+        if (docTotal == null) continue;
+        const already = otherAllocById.get(docId) ?? 0;
+        if (already + amount > docTotal + 0.05) {
+          const nf = docs.find(d => d.id === docId);
+          const label = nf?.nfNumber ? `NF ${nf.nfNumber}` : 'A nota fiscal';
+          throw new BadRequestException(
+            `${label} já possui R$${already.toFixed(2)} alocados em outras transações; ` +
+              `alocar mais R$${amount.toFixed(2)} excederia o total da nota (R$${docTotal.toFixed(2)})`,
+          );
+        }
+      }
+
       // Drop any prior matches NOT in the new payload, so re-matching with a
       // different/smaller set can't leave stale (double-counted) matches behind.
       await tx2.reconciliationMatch.deleteMany({
@@ -403,10 +457,18 @@ export class ReconciliationService {
       return tx2.bankTransaction.update({
         where: { id: transactionId },
         data: {
+          // Status reflects COVERAGE, not the number of linked NFs. The sum check
+          // above guarantees the allocations cover the transaction in full, so a
+          // valid manual match — whether to one NF or several (order group) — is
+          // RECONCILED. (PARTIAL would only apply to an under-covered tx, which
+          // this path rejects.) This keeps manual matches consistent with the
+          // auto order-group/subset passes, which also mark multi-NF as
+          // RECONCILED, and avoids the stats double-counting PARTIAL as both
+          // "pending" and "matched".
           reconciliationStatus:
-            payload.fiscalDocumentIds.length > 1
-              ? ReconciliationStatus.PARTIAL
-              : ReconciliationStatus.RECONCILED,
+            Math.abs(sum - txAmount) <= 0.05
+              ? ReconciliationStatus.RECONCILED
+              : ReconciliationStatus.PARTIAL,
           reconciliationSource: ReconciliationSource.MANUAL,
           expectsFiscalDocument: true,
           categorySource: ReconciliationSource.MANUAL,
@@ -451,8 +513,7 @@ export class ReconciliationService {
         select: { emitCnpj: true, destCnpj: true, destCpf: true },
       });
       for (const doc of docs) {
-        const counterparty =
-          tx.counterpartyCnpjCpf || inferCounterpartyCnpj(doc, tx.ownerCnpj);
+        const counterparty = tx.counterpartyCnpjCpf || inferCounterpartyCnpj(doc, tx.ownerCnpj);
         if (!counterparty) continue;
         // Memo alias needs a memo; counterparty identity does not.
         if (tx.memo) {
@@ -501,9 +562,7 @@ export class ReconciliationService {
     if (tx.memo) {
       for (const m of tx.matches) {
         if (!m.fiscalDocument) continue;
-        const cp =
-          tx.counterpartyCnpjCpf ||
-          inferCounterpartyCnpj(m.fiscalDocument, tx.ownerCnpj);
+        const cp = tx.counterpartyCnpjCpf || inferCounterpartyCnpj(m.fiscalDocument, tx.ownerCnpj);
         if (cp) reversedCounterparties.push(cp);
       }
     }
@@ -557,6 +616,127 @@ export class ReconciliationService {
     }
 
     return updated;
+  }
+
+  /**
+   * Unmatches a fiscal document from EVERY transaction it's linked to (the
+   * NF-side counterpart of `unmatch`). This is the escape hatch for installments
+   * (one NF settled by several transactions): undoing a single transaction would
+   * otherwise leave the NF partially linked and invisible to re-matching
+   * (`matches: { none: {} }`), so a "reset this NF" action is the clean recovery.
+   *
+   * A transaction may also be linked to OTHER NFs (one payment → several NFs), so
+   * we remove only the (tx, this-NF) links and RECOMPUTE each affected
+   * transaction's status from its remaining non-reversed matches — never blindly
+   * resetting a transaction that still has other valid links.
+   */
+  async unmatchFiscalDocument(fiscalDocumentId: string, userId: string | undefined) {
+    const doc = await this.prisma.fiscalDocument.findUnique({
+      where: { id: fiscalDocumentId },
+      select: { emitCnpj: true, destCnpj: true, destCpf: true },
+    });
+    if (!doc) throw new NotFoundException('Nota fiscal não encontrada');
+
+    const matches = await this.prisma.reconciliationMatch.findMany({
+      where: { fiscalDocumentId, reversedAt: null },
+      include: {
+        transaction: {
+          select: {
+            id: true,
+            memo: true,
+            type: true,
+            amount: true,
+            counterpartyCnpjCpf: true,
+            ownerCnpj: true,
+          },
+        },
+      },
+    });
+    if (matches.length === 0) return this.getFiscalDocument(fiscalDocumentId);
+
+    // Snapshot (memo → counterparty) pairs to reverse in the alias learner, and
+    // the distinct affected transactions to recompute afterwards.
+    const reversals: Array<{
+      memo: string | null;
+      txType: import('@prisma/client').BankTransactionType;
+      cp: string;
+    }> = [];
+    const txById = new Map<string, (typeof matches)[number]['transaction']>();
+    for (const m of matches) {
+      if (!m.transaction) continue;
+      txById.set(m.transactionId, m.transaction);
+      if (m.transaction.memo) {
+        const cp =
+          m.transaction.counterpartyCnpjCpf || inferCounterpartyCnpj(doc, m.transaction.ownerCnpj);
+        if (cp) reversals.push({ memo: m.transaction.memo, txType: m.transaction.type, cp });
+      }
+    }
+
+    await this.prisma.$transaction(async tx2 => {
+      // Serialize against the auto-matcher / manual matches so the per-tx status
+      // recompute below sees a consistent set of remaining matches.
+      await tx2.$executeRaw`SELECT pg_advisory_xact_lock(${RECON_ADVISORY_LOCK_KEY})`;
+
+      await tx2.reconciliationMatch.updateMany({
+        where: { fiscalDocumentId, reversedAt: null },
+        data: { reversedAt: new Date(), reversedById: userId ?? null },
+      });
+      await tx2.reconciliationMatch.deleteMany({ where: { fiscalDocumentId } });
+
+      // AUTO item-categories derived from this NF are no longer justified.
+      await tx2.fiscalDocumentItem.updateMany({
+        where: { fiscalDocumentId, categorySource: ReconciliationSource.AUTO },
+        data: { categoryId: null, categoryConfidence: null, categorySource: null },
+      });
+
+      // Recompute each affected transaction from its REMAINING (non-reversed)
+      // matches: fully covered → RECONCILED, partly → PARTIAL, none → PENDING.
+      for (const t of txById.values()) {
+        if (!t) continue;
+        const remaining = await tx2.reconciliationMatch.findMany({
+          where: { transactionId: t.id, reversedAt: null },
+          select: { allocatedAmount: true },
+        });
+        if (remaining.length === 0) {
+          await tx2.bankTransactionCategory.deleteMany({
+            where: { transactionId: t.id, source: ReconciliationSource.AUTO },
+          });
+          await tx2.bankTransaction.update({
+            where: { id: t.id },
+            data: {
+              reconciliationStatus: ReconciliationStatus.PENDING,
+              reconciliationSource: null,
+            },
+          });
+        } else {
+          const allocated = remaining.reduce((s, r) => s + Number(r.allocatedAmount), 0);
+          const txAmount = Math.abs(Number(t.amount));
+          await tx2.bankTransaction.update({
+            where: { id: t.id },
+            data: {
+              reconciliationStatus:
+                Math.abs(allocated - txAmount) <= 0.05
+                  ? ReconciliationStatus.RECONCILED
+                  : ReconciliationStatus.PARTIAL,
+            },
+          });
+        }
+      }
+    });
+
+    for (const r of reversals) {
+      try {
+        await this.aliasService.recordReversal({
+          memo: r.memo,
+          txType: r.txType,
+          counterpartyCnpjCpf: r.cp,
+        });
+      } catch (err) {
+        this.logger.warn(`Failed to record alias reversal: ${err}`);
+      }
+    }
+
+    return this.getFiscalDocument(fiscalDocumentId);
   }
 
   async ignore(transactionId: string, payload: IgnoreTransactionDto) {
@@ -798,7 +978,8 @@ export class ReconciliationService {
     if (payload.reconciliationStatus) where.reconciliationStatus = payload.reconciliationStatus;
     if (payload.dateFrom || payload.dateTo) {
       where.postedAt = {};
-      if (payload.dateFrom) (where.postedAt as Prisma.DateTimeFilter).gte = new Date(payload.dateFrom);
+      if (payload.dateFrom)
+        (where.postedAt as Prisma.DateTimeFilter).gte = new Date(payload.dateFrom);
       if (payload.dateTo) (where.postedAt as Prisma.DateTimeFilter).lte = new Date(payload.dateTo);
     }
     return this.classifier.classifyBatch(Object.keys(where).length ? where : undefined);
@@ -823,7 +1004,8 @@ export class ReconciliationService {
     if (payload.transactionIds?.length) where.id = { in: payload.transactionIds };
     if (payload.dateFrom || payload.dateTo) {
       where.postedAt = {};
-      if (payload.dateFrom) (where.postedAt as Prisma.DateTimeFilter).gte = new Date(payload.dateFrom);
+      if (payload.dateFrom)
+        (where.postedAt as Prisma.DateTimeFilter).gte = new Date(payload.dateFrom);
       if (payload.dateTo) (where.postedAt as Prisma.DateTimeFilter).lte = new Date(payload.dateTo);
     }
     const txs = await this.prisma.bankTransaction.findMany({ where, select: { id: true } });
@@ -857,13 +1039,16 @@ export class ReconciliationService {
     }
     if (filters.dateFrom || filters.dateTo) {
       where.issueDate = {};
-      if (filters.dateFrom) (where.issueDate as Prisma.DateTimeFilter).gte = new Date(filters.dateFrom);
+      if (filters.dateFrom)
+        (where.issueDate as Prisma.DateTimeFilter).gte = new Date(filters.dateFrom);
       if (filters.dateTo) (where.issueDate as Prisma.DateTimeFilter).lte = new Date(filters.dateTo);
     }
     if (filters.valueMin !== undefined || filters.valueMax !== undefined) {
       where.totalValue = {};
-      if (filters.valueMin !== undefined) (where.totalValue as Prisma.DecimalFilter).gte = filters.valueMin;
-      if (filters.valueMax !== undefined) (where.totalValue as Prisma.DecimalFilter).lte = filters.valueMax;
+      if (filters.valueMin !== undefined)
+        (where.totalValue as Prisma.DecimalFilter).gte = filters.valueMin;
+      if (filters.valueMax !== undefined)
+        (where.totalValue as Prisma.DecimalFilter).lte = filters.valueMax;
     }
     if (filters.hasMatch !== undefined) {
       if (filters.hasMatch) where.matches = { some: {} };
@@ -878,6 +1063,7 @@ export class ReconciliationService {
         take: filters.pageSize,
         include: {
           matches: {
+            where: { reversedAt: null },
             select: {
               id: true,
               transaction: { select: { id: true, postedAt: true, amount: true } },
