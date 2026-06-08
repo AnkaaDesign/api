@@ -42,36 +42,18 @@ import {
   forecastQuerySchema,
   ForecastQueryDto,
 } from './dto/categorize.dto';
-import {
-  transactionsFilterSchema,
-  TransactionsFilterDto,
-} from './dto/transactions-filter.dto';
+import { transactionsFilterSchema, TransactionsFilterDto } from './dto/transactions-filter.dto';
 import {
   fiscalDocumentsFilterSchema,
   FiscalDocumentsFilterDto,
 } from './dto/fiscal-documents-filter.dto';
 import { statisticsFilterSchema, StatisticsFilterDto } from './dto/statistics-filter.dto';
 import { manualMatchSchema, ManualMatchDto } from './dto/manual-match.dto';
-import {
-  ignoreTransactionSchema,
-  IgnoreTransactionDto,
-} from './dto/ignore-transaction.dto';
-import {
-  rerunMatchingSchema,
-  RerunMatchingDto,
-} from './dto/rerun-matching.dto';
-import {
-  changeCategorySchema,
-  ChangeCategoryDto,
-} from './dto/change-category.dto';
-import {
-  changeItemCategorySchema,
-  ChangeItemCategoryDto,
-} from './dto/change-item-category.dto';
-import {
-  classifyBatchSchema,
-  ClassifyBatchDto,
-} from './dto/classify-batch.dto';
+import { ignoreTransactionSchema, IgnoreTransactionDto } from './dto/ignore-transaction.dto';
+import { rerunMatchingSchema, RerunMatchingDto } from './dto/rerun-matching.dto';
+import { changeCategorySchema, ChangeCategoryDto } from './dto/change-category.dto';
+import { changeItemCategorySchema, ChangeItemCategoryDto } from './dto/change-item-category.dto';
+import { classifyBatchSchema, ClassifyBatchDto } from './dto/classify-batch.dto';
 
 @Controller('financial/reconciliation')
 @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
@@ -119,9 +101,7 @@ export class ReconciliationController {
       },
     }),
   )
-  async importXml(
-    @UploadedFiles() body: { files?: Express.Multer.File[] },
-  ) {
+  async importXml(@UploadedFiles() body: { files?: Express.Multer.File[] }) {
     const files = body?.files ?? [];
     if (files.length === 0) {
       throw new BadRequestException('Envie ao menos um arquivo XML ou ZIP');
@@ -148,6 +128,11 @@ export class ReconciliationController {
   @Get('fiscal-documents/:id')
   getFiscalDocument(@Param('id') id: string) {
     return this.service.getFiscalDocument(id);
+  }
+
+  @Post('fiscal-documents/:id/unmatch')
+  unmatchFiscalDocument(@Param('id') id: string, @Req() req: Request & { user?: { id?: string } }) {
+    return this.service.unmatchFiscalDocument(id, req.user?.id);
   }
 
   @Post('transactions/:id/match')
@@ -190,10 +175,7 @@ export class ReconciliationController {
 
     let matched: number;
     if (body.dateStart && body.dateEnd) {
-      matched = await this.matcher.matchDateRange(
-        new Date(body.dateStart),
-        new Date(body.dateEnd),
-      );
+      matched = await this.matcher.matchDateRange(new Date(body.dateStart), new Date(body.dateEnd));
     } else if (body.transactionIds && body.transactionIds.length > 0) {
       matched = await this.matcher.matchByIds(body.transactionIds);
     } else {
@@ -292,10 +274,7 @@ export class ReconciliationController {
     const file = await this.service.getFiscalDocumentXml(accessKey);
     const xml = await fs.readFile(file.path);
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${accessKey}.xml"`,
-    );
+    res.setHeader('Content-Disposition', `attachment; filename="${accessKey}.xml"`);
     res.send(xml);
   }
 

@@ -3792,6 +3792,11 @@ model BankTransaction {
   @@index([amount])
   @@index([bankCode, accountNumber, postedAt])
   @@index([suggestedCategoryId])
+  // Serves the matchAll/matchDateRange scan (PENDING + expectsFiscalDocument,
+  // optionally by postedAt range) and the installment sibling lookup
+  // (counterparty + PENDING + postedAt window).
+  @@index([reconciliationStatus, expectsFiscalDocument, postedAt])
+  @@index([counterpartyCnpjCpf, reconciliationStatus, postedAt])
 }
 
 model FiscalDocument {

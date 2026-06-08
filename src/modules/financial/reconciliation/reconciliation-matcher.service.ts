@@ -71,6 +71,165 @@ const ORDER_GROUP_VALUE_TOLERANCE = 2.0;
 // + uniqueness gate is what prevents false positives, not the date direction.
 const ORDER_GROUP_DATE_WINDOW_DAYS = 75;
 
+// --- Subset-sum matching (Case A fallback + Case B installments) -------------
+// Many consolidated payments settle several NFs of one supplier WITHOUT the
+// supplier stamping a "#Ped:" order code in infCpl (only ~20% of NFs carry one
+// in practice). When the order-code path can't group them, we fall back to a
+// bounded subset-sum search over the supplier's unmatched NFs: a UNIQUE subset
+// whose totals sum to the payment is treated as the matchable order. The
+// symmetric case — one NF paid in several installments (parcelas/duplicatas) —
+// uses the same engine on the transaction side.
+//
+// Rounding accumulates across summed documents, so the tolerance scales with
+// subset size (≈ R$ 0,50 per summed item, capped). Observed real clusters drift
+// up to ~R$ 1,50 across 3 NFs, which this comfortably covers.
+const SUBSET_PER_ITEM_TOLERANCE = 0.5;
+const SUBSET_MAX_TOLERANCE = 2.0;
+// A payment is realistically split across a handful of NFs/installments, never
+// dozens. Bounding the subset SIZE keeps the combinatorics small and — crucially
+// — keeps false positives down: the more items allowed, the more spurious
+// combinations coincidentally hit the target. minSize 2 (size-1 is the
+// single-NF exact pass).
+const SUBSET_MIN_SIZE = 2;
+const SUBSET_MAX_SIZE = 5;
+// Anchorless subset-sum has no order code tying members together, so it leans
+// entirely on (a) a tight per-item tolerance and (b) members being issued close
+// to EACH OTHER (one real order/installment plan is bunched in time, not spread
+// across monthly billing cycles). This caps the intra-subset issue-date span,
+// independent of the wider payment-to-member window.
+const SUBSET_INTRA_SPAN_DAYS = 35;
+// We never DROP candidate items to bound the search (that would silently miss a
+// valid subset). Instead we bound the DFS node count and the result count: if a
+// confident answer can't be settled within budget, the search reports itself
+// "incomplete" and the caller defers to manual review rather than guessing.
+const SUBSET_MAX_NODES = 200_000;
+const SUBSET_MAX_RESULTS = 8;
+// Installments (duplicatas) routinely run 30/60/90-day terms, so the window for
+// gathering sibling installment transactions is wider than the order-group one.
+const INSTALLMENT_DATE_WINDOW_DAYS = 95;
+// Candidate-fetch caps. If a query returns EXACTLY its cap, the supplier's pool
+// may be truncated — and a truncated pool can make a coincidental subset look
+// "unique" because the real member that would have created ambiguity was cut
+// off. The anchorless passes (subset-sum, installments) therefore DEFER to
+// manual review on a cap hit instead of risking a false auto-confirm. Caps sit
+// well above any realistic single-supplier volume in the search window.
+const AUTO_MATCH_POOL_CAP = 400;
+const INSTALLMENT_SIBLING_CAP = 80;
+
+// Single app-wide advisory lock serializing all reconciliation WRITES. Matching
+// is low-frequency batch work, so a global lock is cheap and closes the
+// check-then-act race where two concurrent runs both read an NF as unmatched
+// (`matches: { none: {} }`) and each link it to a different transaction.
+export const RECON_ADVISORY_LOCK_KEY = 4_337_271;
+
+const SUBSET_OPTS = {
+  perItemTolerance: SUBSET_PER_ITEM_TOLERANCE,
+  maxTolerance: SUBSET_MAX_TOLERANCE,
+  minSize: SUBSET_MIN_SIZE,
+  maxSize: SUBSET_MAX_SIZE,
+} as const;
+
+/**
+ * Finds subsets of `items` whose values sum to `target` within a size-scaled
+ * tolerance. Returns up to `SUBSET_MAX_RESULTS` qualifying subsets plus a
+ * `complete` flag: callers treat a result as confidently UNIQUE only when
+ * `complete === true && subsets.length === 1`. `complete === false` means the
+ * search hit its node/result budget — the answer is not trustworthy, so defer.
+ *
+ * All arithmetic is in integer cents to eliminate float drift across summed
+ * Decimal→Number values. Ordering is fully deterministic (value, then id), so
+ * the same input always yields the same output regardless of DB row order.
+ * Items larger than `target + maxTolerance` (which can't belong to any subset
+ * summing to the target) and duplicate ids are dropped; NO size-based pool
+ * truncation is performed, so a valid large member is never silently lost.
+ */
+function findSubsetSums(
+  items: Array<{ id: string; value: number }>,
+  target: number,
+  opts: {
+    perItemTolerance: number;
+    maxTolerance: number;
+    minSize: number;
+    maxSize: number;
+  },
+): { subsets: Array<{ ids: string[]; sum: number }>; complete: boolean } {
+  const toCents = (n: number): number => Math.round(n * 100);
+  const targetC = toCents(target);
+  const maxTolC = toCents(opts.maxTolerance);
+  const perItemC = toCents(opts.perItemTolerance);
+
+  const seen = new Set<string>();
+  const pool = items
+    .filter(it => {
+      if (it.value <= 0 || seen.has(it.id)) return false;
+      seen.add(it.id);
+      return toCents(it.value) <= targetC + maxTolC;
+    })
+    .map(it => ({ id: it.id, valueC: toCents(it.value) }))
+    .sort((a, b) => a.valueC - b.valueC || a.id.localeCompare(b.id));
+
+  const subsets: Array<{ ids: string[]; sum: number }> = [];
+  const chosen: Array<{ id: string; valueC: number }> = [];
+  let nodes = 0;
+  let complete = true;
+
+  const dfs = (start: number, sumC: number): void => {
+    if (subsets.length >= SUBSET_MAX_RESULTS || ++nodes > SUBSET_MAX_NODES) {
+      complete = false;
+      return;
+    }
+    if (chosen.length >= opts.minSize) {
+      const tolC = Math.min(perItemC * chosen.length, maxTolC);
+      if (Math.abs(sumC - targetC) <= tolC) {
+        subsets.push({ ids: chosen.map(c => c.id), sum: sumC / 100 });
+      }
+    }
+    if (chosen.length >= opts.maxSize) return;
+    for (let i = start; i < pool.length; i++) {
+      const next = sumC + pool[i].valueC;
+      // Ascending sort: once a partial sum overshoots target+maxTol, every later
+      // (larger) item overshoots too — prune the rest of this branch. (Sound
+      // because the size-scaled acceptance tol is always ≤ maxTol.)
+      if (next - targetC > maxTolC) break;
+      chosen.push(pool[i]);
+      dfs(i + 1, next);
+      chosen.pop();
+      if (!complete) return;
+    }
+  };
+  dfs(0, 0);
+  return { subsets, complete };
+}
+
+/**
+ * Distributes each member its own value and absorbs the (small, within-
+ * tolerance) rounding residual on the largest member so the allocations sum
+ * EXACTLY to `target`. Returns null when the residual can't be absorbed without
+ * producing a negative allocation (which would signal a bad/oversized residual)
+ * — callers abort the match rather than persist a corrupted allocation.
+ */
+function allocateWithResidual(
+  members: Array<{ id: string; value: number }>,
+  target: number,
+): Array<{ id: string; amount: number }> | null {
+  if (members.length === 0) return null;
+  const subtotal = members.reduce((s, m) => s + m.value, 0);
+  const residual = subtotal - target;
+  const largestIdx = members.reduce((best, m, i, arr) => (m.value > arr[best].value ? i : best), 0);
+  const allocations = members.map((m, i) => ({
+    id: m.id,
+    amount: Number((m.value - (i === largestIdx ? residual : 0)).toFixed(2)),
+  }));
+  // Correct any 1-cent toFixed drift on the largest member (never silently
+  // clamp) so Σ allocations === target to the cent.
+  const drift = Number((allocations.reduce((s, a) => s + a.amount, 0) - target).toFixed(2));
+  if (Math.abs(drift) >= 0.01) {
+    allocations[largestIdx].amount = Number((allocations[largestIdx].amount - drift).toFixed(2));
+  }
+  if (allocations.some(a => a.amount < 0)) return null;
+  return allocations;
+}
+
 function cnpjRoot(value: string | null | undefined): string | null {
   if (!value) return null;
   const digits = value.replace(/\D/g, '');
@@ -119,9 +278,12 @@ function cnpjScore(
   doc: { emitCnpj?: string | null; destCnpj?: string | null; destCpf?: string | null },
 ): CnpjScore {
   if (!counterparty) return { score: 0, exact: false, rootOnly: false, side: null };
-  if (counterparty === doc.emitCnpj) return { score: 30, exact: true, rootOnly: false, side: 'emit' };
-  if (counterparty === doc.destCnpj) return { score: 30, exact: true, rootOnly: false, side: 'dest' };
-  if (counterparty === doc.destCpf) return { score: 30, exact: true, rootOnly: false, side: 'dest' };
+  if (counterparty === doc.emitCnpj)
+    return { score: 30, exact: true, rootOnly: false, side: 'emit' };
+  if (counterparty === doc.destCnpj)
+    return { score: 30, exact: true, rootOnly: false, side: 'dest' };
+  if (counterparty === doc.destCpf)
+    return { score: 30, exact: true, rootOnly: false, side: 'dest' };
   const root = cnpjRoot(counterparty);
   if (root) {
     // Same parent CNPJ + different filial is a *strong* signal in Brazilian
@@ -165,7 +327,12 @@ interface AliasContext {
 }
 
 function scoreCandidate(
-  tx: { amount: Prisma.Decimal | number; postedAt: Date; counterpartyCnpjCpf: string | null; counterpartyName?: string | null },
+  tx: {
+    amount: Prisma.Decimal | number;
+    postedAt: Date;
+    counterpartyCnpjCpf: string | null;
+    counterpartyName?: string | null;
+  },
   doc: {
     totalValue: Prisma.Decimal | number;
     issueDate: Date;
@@ -191,14 +358,16 @@ function scoreCandidate(
     ? { ...cRaw, score: Math.round(cRaw.score * (alias?.confidence ?? 0)) }
     : cRaw;
 
-  const counterName = (tx as any).counterpartyName as string | null | undefined;
-  const docName = c.side === 'emit' ? doc.emitName : c.side === 'dest' ? doc.destName : doc.emitName;
+  const counterName = tx.counterpartyName;
+  const docName =
+    c.side === 'emit' ? doc.emitName : c.side === 'dest' ? doc.destName : doc.emitName;
   const jacc = nameSimilarity(counterName, docName);
   const n = nameScore(jacc);
 
   const reasons: string[] = [];
   const diff = Math.abs(absAmount - total);
-  if (v === 35) reasons.push(diff <= 0.05 ? 'Valor idêntico' : `Valor equivalente (Δ R$ ${diff.toFixed(2)})`);
+  if (v === 35)
+    reasons.push(diff <= 0.05 ? 'Valor idêntico' : `Valor equivalente (Δ R$ ${diff.toFixed(2)})`);
   else if (v >= 25) reasons.push(`Valor compatível (Δ R$ ${diff.toFixed(2)})`);
   else if (v > 0) reasons.push(`Valor aproximado (Δ R$ ${diff.toFixed(2)})`);
 
@@ -236,13 +405,14 @@ function scoreCandidate(
     reasons.push('Combinação determinística (valor + nome + grupo)');
   }
 
-  const matchType: ReconciliationMatchType = c.exact && !aliasAssisted
-    ? ReconciliationMatchType.EXACT
-    : c.rootOnly
-      ? ReconciliationMatchType.VALUE_DATE
-      : v >= 25 && d >= 14
+  const matchType: ReconciliationMatchType =
+    c.exact && !aliasAssisted
+      ? ReconciliationMatchType.EXACT
+      : c.rootOnly
         ? ReconciliationMatchType.VALUE_DATE
-        : ReconciliationMatchType.FUZZY;
+        : v >= 25 && d >= 14
+          ? ReconciliationMatchType.VALUE_DATE
+          : ReconciliationMatchType.FUZZY;
 
   return {
     total: finalTotal,
@@ -279,8 +449,7 @@ export class ReconciliationMatcherService {
     private readonly fiscalLearner: FiscalDerivedLearnerService,
     private readonly config: ConfigService,
   ) {
-    this.companyCnpj =
-      this.config.get<string>('COMPANY_CNPJ') || DEFAULT_COMPANY_CNPJ;
+    this.companyCnpj = this.config.get<string>('COMPANY_CNPJ') || DEFAULT_COMPANY_CNPJ;
   }
 
   /**
@@ -396,6 +565,18 @@ export class ReconciliationMatcherService {
     if (tx.bankSlipId) return false;
     if (!tx.expectsFiscalDocument) return false;
 
+    // Re-check the LIVE status: the installment pass (Case B) reconciles sibling
+    // transactions as a side-effect, so a batch re-run may reach a tx that an
+    // earlier sibling already matched. The fetched list is a snapshot — without
+    // this guard we'd double-match it. Cheap single-row read.
+    const live = await this.prisma.bankTransaction.findUnique({
+      where: { id: tx.id },
+      select: { reconciliationStatus: true },
+    });
+    if (!live || live.reconciliationStatus !== ReconciliationStatus.PENDING) {
+      return false;
+    }
+
     const matched = await this.runMatchPasses(tx);
     if (matched) {
       // Enrich the now-matched transaction with item-derived categories from the
@@ -453,6 +634,21 @@ export class ReconciliationMatcherService {
     if (tx.type === BankTransactionType.DEBIT) {
       const grouped = await this.tryOrderGroupMatch(tx);
       if (grouped) return true;
+
+      // Pass 3 — Subset-sum fallback (Case A without an order code): one DEBIT
+      // settling several of a supplier's NFs that don't carry a `#Ped:` stamp.
+      // Strictly gated on a UNIQUE summing subset, so it only fires when there's
+      // no ambiguity about which NFs the payment covers.
+      const subset = await this.trySubsetSumMatch(tx);
+      if (subset) return true;
+
+      // Pass 4 — Installments (Case B): this DEBIT is one parcela of a larger
+      // NF settled across several payments. Looks for a UNIQUE set of the
+      // supplier's pending transactions (including this one) that sums to one
+      // unmatched NF's total. Runs last: a tx that fully matches anything above
+      // is never treated as a partial installment.
+      const installment = await this.tryInstallmentMatch(tx);
+      if (installment) return true;
     }
 
     return false;
@@ -466,8 +662,21 @@ export class ReconciliationMatcherService {
    * would otherwise be double-counted across the orders it belongs to.
    */
   private groupDocsByOrderCode<
-    T extends { totalValue: Prisma.Decimal | number; issueDate: Date; orderCodes: { code: string }[] },
-  >(docs: T[]): Array<{ code: string; members: T[]; clean: boolean; total: number; earliest: Date; latest: Date }> {
+    T extends {
+      totalValue: Prisma.Decimal | number;
+      issueDate: Date;
+      orderCodes: { code: string }[];
+    },
+  >(
+    docs: T[],
+  ): Array<{
+    code: string;
+    members: T[];
+    clean: boolean;
+    total: number;
+    earliest: Date;
+    latest: Date;
+  }> {
     const groups = new Map<string, T[]>();
     for (const d of docs) {
       for (const oc of d.orderCodes) {
@@ -526,7 +735,8 @@ export class ReconciliationMatcherService {
           { destCnpj: { startsWith: root } },
         ],
       },
-      take: 200,
+      orderBy: { id: 'asc' },
+      take: AUTO_MATCH_POOL_CAP,
       select: {
         id: true,
         totalValue: true,
@@ -558,7 +768,8 @@ export class ReconciliationMatcherService {
     if (groups.length !== 1) return false;
     const grp = groups[0];
 
-    // Confirm the CNPJ actually scores (root or exact) against a member doc.
+    // Confirm the CNPJ actually scores (root or exact) against EVERY member doc,
+    // not just a representative — the group must be one coherent supplier.
     const rep = grp.members[0];
     const score = scoreCandidate(
       tx,
@@ -574,47 +785,29 @@ export class ReconciliationMatcherService {
       null,
     );
     if (!score.cnpj.exact && !score.cnpj.rootOnly) return false;
+    if (!grp.members.every(m => this.memberMatchesSupplier(m, effectiveCnpj, root))) {
+      return false;
+    }
 
     // Allocate each member its own vNF; absorb the (small) rounding residual on
     // the largest member so allocations sum EXACTLY to the payment.
     const residual = grp.total - absAmount; // total − payment (within tolerance)
-    const largestIdx = grp.members.reduce(
-      (best, m, i, arr) => (Number(m.totalValue) > Number(arr[best].totalValue) ? i : best),
-      0,
+    const allocations = allocateWithResidual(
+      grp.members.map(m => ({ id: m.id, value: Number(m.totalValue) })),
+      absAmount,
     );
-    const allocations = grp.members.map((m, i) => ({
-      id: m.id,
-      // Clamp to 0 so a small largest-member value can't be driven negative by
-      // absorbing the residual.
-      amount: Number(
-        Math.max(0, Number(m.totalValue) - (i === largestIdx ? residual : 0)).toFixed(2),
-      ),
-    }));
+    if (!allocations) return false;
 
-    await this.prisma.$transaction(async tx2 => {
-      await tx2.bankTransaction.update({
-        where: { id: tx.id },
-        data: {
-          reconciliationStatus: ReconciliationStatus.RECONCILED,
-          reconciliationSource: ReconciliationSource.AUTO,
-        },
-      });
-      for (const a of allocations) {
-        await tx2.reconciliationMatch.create({
-          data: {
-            transactionId: tx.id,
-            fiscalDocumentId: a.id,
-            allocatedAmount: a.amount,
-            matchType: ReconciliationMatchType.VALUE_DATE,
-            confidenceScore: score.total,
-            notes:
-              `Pareamento automático por pedido #${grp.code}: ` +
-              `${grp.members.length} notas somando R$ ${grp.total.toFixed(2)}` +
-              (Math.abs(residual) > 0.005 ? ` (Δ R$ ${Math.abs(residual).toFixed(2)})` : ''),
-          },
-        });
-      }
+    const committed = await this.writeMultiNfMatch({
+      transactionId: tx.id,
+      allocations,
+      confidenceScore: score.total,
+      notes:
+        `Pareamento automático por pedido #${grp.code}: ` +
+        `${grp.members.length} notas somando R$ ${grp.total.toFixed(2)}` +
+        (Math.abs(residual) > 0.005 ? ` (Δ R$ ${Math.abs(residual).toFixed(2)})` : ''),
     });
+    if (!committed) return false;
 
     this.logger.log(
       `Order-group match: tx ${tx.id} → order #${grp.code} (${grp.members.length} NFs, R$ ${grp.total.toFixed(2)})`,
@@ -623,8 +816,443 @@ export class ReconciliationMatcherService {
   }
 
   /**
-   * Returns candidate fiscal documents for the manual-match UI. Used by Pass 2/3
-   * lookup (lower-confidence suggestions) without persisting speculative matches.
+   * Acquires the app-wide reconciliation advisory lock for the current
+   * transaction. Held until the transaction commits/rolls back, so all matching
+   * writers serialize and the `matches: { none: {} }` reads they re-run after
+   * acquiring it are race-free.
+   */
+  private async lockWrites(tx2: Prisma.TransactionClient): Promise<void> {
+    await tx2.$executeRaw`SELECT pg_advisory_xact_lock(${RECON_ADVISORY_LOCK_KEY})`;
+  }
+
+  /** True when a fiscal document's emit/dest CNPJ belongs to the supplier. */
+  private memberMatchesSupplier(
+    doc: { emitCnpj?: string | null; destCnpj?: string | null },
+    effectiveCnpj: string,
+    root: string,
+  ): boolean {
+    return (
+      doc.emitCnpj === effectiveCnpj ||
+      doc.destCnpj === effectiveCnpj ||
+      cnpjRoot(doc.emitCnpj) === root ||
+      cnpjRoot(doc.destCnpj) === root
+    );
+  }
+
+  /**
+   * Writes a one-transaction → many-NF match (order-group / subset-sum) under
+   * the advisory lock, re-validating inside the transaction that the payment is
+   * still PENDING and none of the target NFs were matched by a concurrent run.
+   * Returns false (no-op) if the race check fails, so the caller reports "no
+   * match" rather than corrupting state.
+   */
+  private async writeMultiNfMatch(args: {
+    transactionId: string;
+    allocations: Array<{ id: string; amount: number }>;
+    confidenceScore: number;
+    notes: string;
+  }): Promise<boolean> {
+    return this.prisma.$transaction(async tx2 => {
+      await this.lockWrites(tx2);
+
+      const txState = await tx2.bankTransaction.findUnique({
+        where: { id: args.transactionId },
+        select: { reconciliationStatus: true },
+      });
+      if (txState?.reconciliationStatus !== ReconciliationStatus.PENDING) return false;
+
+      const docIds = args.allocations.map(a => a.id);
+      const taken = await tx2.reconciliationMatch.count({
+        where: { fiscalDocumentId: { in: docIds }, reversedAt: null },
+      });
+      if (taken > 0) return false;
+
+      await tx2.bankTransaction.update({
+        where: { id: args.transactionId },
+        data: {
+          reconciliationStatus: ReconciliationStatus.RECONCILED,
+          reconciliationSource: ReconciliationSource.AUTO,
+        },
+      });
+      for (const a of args.allocations) {
+        await tx2.reconciliationMatch.create({
+          data: {
+            transactionId: args.transactionId,
+            fiscalDocumentId: a.id,
+            allocatedAmount: a.amount,
+            matchType: ReconciliationMatchType.VALUE_DATE,
+            confidenceScore: args.confidenceScore,
+            notes: args.notes,
+          },
+        });
+      }
+      return true;
+    });
+  }
+
+  /**
+   * Subset-sum auto-match — Case A WITHOUT an order code. A single DEBIT that
+   * settles several of one supplier's purchase (ENTRADA) NFs that don't carry a
+   * `#Ped:` stamp (the order-group pass requires the code; only ~20% of NFs
+   * have one).
+   *
+   * This pass has NO structural anchor (no order code), so it is gated harder
+   * than the order-group pass — every guard below is load-bearing for financial
+   * safety, since it auto-confirms with no human review:
+   *   - ENTRADA only + supplier on the EMIT side: a DEBIT pays a supplier who
+   *     EMITTED the purchase NF, so we can never grab our own outgoing sales.
+   *   - EVERY member's CNPJ must belong to the supplier (the subset is chosen by
+   *     value alone, so members are re-validated against the supplier root).
+   *   - members issued within SUBSET_INTRA_SPAN_DAYS of each other — one real
+   *     order is bunched in time, not stitched across billing cycles.
+   *   - the summing subset must be CONFIDENTLY unique (complete search, exactly
+   *     one result); 0/ambiguous/over-budget all defer to manual.
+   *   - if any order-CODED group of these NFs already sums to the payment, the
+   *     order-group pass saw it and deliberately abstained — we do NOT override
+   *     that with an arithmetic guess.
+   */
+  private async trySubsetSumMatch(tx: RawTransaction): Promise<boolean> {
+    const effectiveCnpj = tx.counterpartyCnpjCpf;
+    const root = cnpjRoot(effectiveCnpj);
+    if (!effectiveCnpj || !root) return false;
+
+    const absAmount = Math.abs(Number(tx.amount));
+    const windowMs = ORDER_GROUP_DATE_WINDOW_DAYS * 86_400_000;
+    const lower = new Date(tx.postedAt.getTime() - windowMs);
+    const upper = new Date(tx.postedAt.getTime() + windowMs);
+
+    const docs = await this.prisma.fiscalDocument.findMany({
+      where: {
+        status: 'AUTHORIZED',
+        operationType: FiscalDocumentOperation.ENTRADA,
+        matches: { none: {} },
+        issueDate: { gte: lower, lte: upper },
+        // Members are each smaller than the summed payment (plus tolerance).
+        totalValue: { lte: absAmount + SUBSET_MAX_TOLERANCE },
+        // Supplier on the emit side only (ENTRADA ⇒ supplier emitted the NF).
+        OR: [{ emitCnpj: effectiveCnpj }, { emitCnpj: { startsWith: root } }],
+      },
+      // Deterministic order so subset selection / logging are reproducible.
+      orderBy: { id: 'asc' },
+      take: AUTO_MATCH_POOL_CAP,
+      select: {
+        id: true,
+        totalValue: true,
+        issueDate: true,
+        emitCnpj: true,
+        destCnpj: true,
+        destCpf: true,
+        emitName: true,
+        destName: true,
+        orderCodes: { select: { code: true } },
+      },
+    });
+    // Cap hit ⇒ the supplier pool may be truncated; a missing member could make a
+    // coincidental subset look unique. Defer to manual rather than risk it.
+    if (docs.length >= AUTO_MATCH_POOL_CAP) {
+      this.logger.debug(
+        `Subset-sum deferred: supplier ${root} pool hit cap (${AUTO_MATCH_POOL_CAP})`,
+      );
+      return false;
+    }
+    // The `startsWith` filter is a loose prefix; re-validate the strict 8-digit
+    // root so a coincidental prefix can't smuggle in a different company.
+    const pool = docs.filter(d => this.memberMatchesSupplier(d, effectiveCnpj, root));
+    if (pool.length < SUBSET_MIN_SIZE) return false;
+
+    // Abstention: if an order-CODED group of these NFs already sums to the
+    // payment, the order-group pass owns this decision (it ran first and chose
+    // not to auto-confirm). Don't override a deliberate abstention.
+    const codedGroups = this.groupDocsByOrderCode(pool).filter(
+      g => g.members.length >= 2 && Math.abs(g.total - absAmount) <= ORDER_GROUP_VALUE_TOLERANCE,
+    );
+    if (codedGroups.length > 0) return false;
+
+    const { subsets, complete } = findSubsetSums(
+      pool.map(d => ({ id: d.id, value: Number(d.totalValue) })),
+      absAmount,
+      SUBSET_OPTS,
+    );
+    // Confident uniqueness only: 0 = nothing fits, ≥2 = ambiguous, !complete =
+    // search hit its budget — all defer to the manual UI.
+    if (!complete || subsets.length !== 1) return false;
+
+    const memberIds = new Set(subsets[0].ids);
+    const members = pool.filter(d => memberIds.has(d.id));
+    const subtotal = subsets[0].sum;
+    const times = members.map(m => m.issueDate.getTime());
+    const earliest = new Date(Math.min(...times));
+
+    // Members of one order are issued close together.
+    if (Math.max(...times) - Math.min(...times) > SUBSET_INTRA_SPAN_DAYS * 86_400_000) {
+      return false;
+    }
+
+    // Every member must belong to the supplier, and the CNPJ must score.
+    if (!members.every(m => this.memberMatchesSupplier(m, effectiveCnpj, root))) {
+      return false;
+    }
+    const rep = members[0];
+    const score = scoreCandidate(
+      tx,
+      {
+        totalValue: subtotal,
+        issueDate: earliest,
+        emitCnpj: rep.emitCnpj,
+        destCnpj: rep.destCnpj,
+        destCpf: rep.destCpf,
+        emitName: rep.emitName,
+        destName: rep.destName,
+      },
+      null,
+    );
+    if (!score.cnpj.exact && !score.cnpj.rootOnly) return false;
+
+    const residual = subtotal - absAmount; // within tolerance
+    const allocations = allocateWithResidual(
+      members.map(m => ({ id: m.id, value: Number(m.totalValue) })),
+      absAmount,
+    );
+    if (!allocations) return false;
+
+    const committed = await this.writeMultiNfMatch({
+      transactionId: tx.id,
+      allocations,
+      confidenceScore: score.total,
+      notes:
+        `Pareamento automático por soma de notas do mesmo fornecedor: ` +
+        `${members.length} notas somando R$ ${subtotal.toFixed(2)}` +
+        (Math.abs(residual) > 0.005 ? ` (Δ R$ ${Math.abs(residual).toFixed(2)})` : ''),
+    });
+    if (!committed) return false;
+
+    this.logger.log(
+      `Subset-sum match: tx ${tx.id} → ${members.length} NFs (R$ ${subtotal.toFixed(2)}) of supplier ${root}`,
+    );
+    return true;
+  }
+
+  /**
+   * Installment auto-match — Case B (several transactions → one NF). This DEBIT
+   * is one parcela of a larger purchase (ENTRADA) NF being settled across
+   * multiple payments (boleto/duplicata terms). Looks for a CONFIDENTLY UNIQUE
+   * (NF, transaction-subset) pair where the subset INCLUDES this transaction and
+   * its amounts sum to the NF's total.
+   *
+   * Safety gating:
+   *   - supplier scoped on the EMIT side, ENTRADA only (can't touch our sales);
+   *   - siblings that themselves ~equal an unmatched NF total are EXCLUDED — they
+   *     have their own 1:1 match and must not be consumed as installments;
+   *   - the (NF, subset) answer must be globally unique AND the search complete
+   *     (over-budget/ambiguous → defer to manual);
+   *   - the CNPJ must score against the NF.
+   * Writes one ReconciliationMatch per member transaction → the NF (each
+   * allocated its own amount) under the advisory lock, with a PENDING-guarded
+   * update per member so a concurrently-matched sibling rolls the whole match
+   * back instead of double-reconciling.
+   */
+  private async tryInstallmentMatch(tx: RawTransaction): Promise<boolean> {
+    const effectiveCnpj = tx.counterpartyCnpjCpf;
+    const root = cnpjRoot(effectiveCnpj);
+    if (!effectiveCnpj || !root) return false;
+
+    const absAmount = Math.abs(Number(tx.amount));
+    const windowMs = INSTALLMENT_DATE_WINDOW_DAYS * 86_400_000;
+    const lower = new Date(tx.postedAt.getTime() - windowMs);
+    const upper = new Date(tx.postedAt.getTime() + windowMs);
+
+    // Supplier's unmatched purchase NFs in the window (emit side, ENTRADA).
+    const supplierNfsRaw = await this.prisma.fiscalDocument.findMany({
+      where: {
+        status: 'AUTHORIZED',
+        operationType: FiscalDocumentOperation.ENTRADA,
+        matches: { none: {} },
+        issueDate: { gte: lower, lte: upper },
+        OR: [{ emitCnpj: effectiveCnpj }, { emitCnpj: { startsWith: root } }],
+      },
+      orderBy: { id: 'asc' },
+      take: AUTO_MATCH_POOL_CAP,
+      select: {
+        id: true,
+        totalValue: true,
+        issueDate: true,
+        emitCnpj: true,
+        destCnpj: true,
+        destCpf: true,
+        emitName: true,
+        destName: true,
+      },
+    });
+    // Cap hit ⇒ a candidate NF may be truncated away; defer rather than risk a
+    // spurious "unique" installment grouping against an incomplete NF set.
+    if (supplierNfsRaw.length >= AUTO_MATCH_POOL_CAP) return false;
+    const supplierNfs = supplierNfsRaw.filter(d =>
+      this.memberMatchesSupplier(d, effectiveCnpj, root),
+    );
+    if (supplierNfs.length === 0) return false;
+
+    // Sibling pending transactions of the same supplier (OFX CNPJ required).
+    const siblingsRaw = await this.prisma.bankTransaction.findMany({
+      where: {
+        id: { not: tx.id },
+        type: tx.type,
+        reconciliationStatus: ReconciliationStatus.PENDING,
+        expectsFiscalDocument: true,
+        bankSlipId: null,
+        postedAt: { gte: lower, lte: upper },
+        OR: [{ counterpartyCnpjCpf: effectiveCnpj }, { counterpartyCnpjCpf: { startsWith: root } }],
+      },
+      orderBy: { id: 'asc' },
+      take: INSTALLMENT_SIBLING_CAP,
+      select: { id: true, amount: true, postedAt: true, counterpartyCnpjCpf: true },
+    });
+    // Cap hit ⇒ the sibling pool may be truncated; a missing installment sibling
+    // could make a coincidental subset look unique. Defer to manual.
+    if (siblingsRaw.length >= INSTALLMENT_SIBLING_CAP) return false;
+
+    // A sibling whose own amount ~equals an unmatched NF total has a direct 1:1
+    // match — never consume it as an installment (that would starve its match).
+    const hasOwnSingleMatch = (value: number): boolean =>
+      supplierNfs.some(nf => Math.abs(Number(nf.totalValue) - value) <= PERFECT_VALUE_TOLERANCE);
+    const siblings = siblingsRaw.filter(
+      s =>
+        (s.counterpartyCnpjCpf === effectiveCnpj || cnpjRoot(s.counterpartyCnpjCpf) === root) &&
+        !hasOwnSingleMatch(Math.abs(Number(s.amount))),
+    );
+    if (siblings.length === 0) return false;
+
+    const pool = [
+      { id: tx.id, value: absAmount, postedAt: tx.postedAt },
+      ...siblings.map(s => ({
+        id: s.id,
+        value: Math.abs(Number(s.amount)),
+        postedAt: s.postedAt,
+      })),
+    ];
+    const poolById = new Map(pool.map(p => [p.id, p]));
+    const poolSum = pool.reduce((s, p) => s + p.value, 0);
+
+    // Candidate target NFs: total ≥ this payment (an installment never exceeds
+    // the NF) and ≤ the funds available in the pool (a subset can't sum higher).
+    const candidateNfs = supplierNfs.filter(nf => {
+      const total = Number(nf.totalValue);
+      return (
+        total >= absAmount - PERFECT_VALUE_TOLERANCE && total <= poolSum + SUBSET_MAX_TOLERANCE
+      );
+    });
+    if (candidateNfs.length === 0) return false;
+
+    // Collect every (NF, subset-including-this-tx) hit; require GLOBAL, confident
+    // uniqueness across all candidate NFs.
+    const hits: Array<{ nf: (typeof candidateNfs)[number]; ids: string[] }> = [];
+    for (const nf of candidateNfs) {
+      const { subsets, complete } = findSubsetSums(
+        pool.map(p => ({ id: p.id, value: p.value })),
+        Number(nf.totalValue),
+        SUBSET_OPTS,
+      );
+      // Can't settle this NF's ambiguity confidently → defer the whole attempt.
+      if (!complete) return false;
+      for (const s of subsets) {
+        if (s.ids.includes(tx.id)) hits.push({ nf, ids: s.ids });
+      }
+      if (hits.length >= 2) return false;
+    }
+    if (hits.length !== 1) return false;
+
+    const { nf, ids } = hits[0];
+    const members = ids
+      .map(id => poolById.get(id))
+      .filter((p): p is (typeof pool)[number] => Boolean(p));
+    if (members.length !== ids.length) return false;
+    const earliest = new Date(Math.min(...members.map(m => m.postedAt.getTime())));
+    const totalPaid = members.reduce((s, x) => s + x.value, 0);
+
+    // The summed installments equal the NF total, so scoring the aggregate
+    // payment against the NF yields an honest value score (not a fabricated one).
+    const score = scoreCandidate(
+      {
+        amount: totalPaid,
+        postedAt: earliest,
+        counterpartyCnpjCpf: tx.counterpartyCnpjCpf,
+        counterpartyName: tx.counterpartyName,
+      },
+      {
+        totalValue: nf.totalValue,
+        issueDate: nf.issueDate,
+        emitCnpj: nf.emitCnpj,
+        destCnpj: nf.destCnpj,
+        destCpf: nf.destCpf,
+        emitName: nf.emitName,
+        destName: nf.destName,
+      },
+      null,
+    );
+    if (!score.cnpj.exact && !score.cnpj.rootOnly) return false;
+
+    const committed = await this.prisma
+      .$transaction(async tx2 => {
+        await this.lockWrites(tx2);
+        // NF must still be unmatched.
+        const taken = await tx2.reconciliationMatch.count({
+          where: { fiscalDocumentId: nf.id, reversedAt: null },
+        });
+        if (taken > 0) return false;
+        for (const m of members) {
+          // PENDING-guarded update: if a sibling was matched concurrently between
+          // our read and this write, count !== 1 → throw → whole tx rolls back.
+          const upd = await tx2.bankTransaction.updateMany({
+            where: {
+              id: m.id,
+              reconciliationStatus: ReconciliationStatus.PENDING,
+              bankSlipId: null,
+            },
+            data: {
+              reconciliationStatus: ReconciliationStatus.RECONCILED,
+              reconciliationSource: ReconciliationSource.AUTO,
+              topMatchScore: null,
+            },
+          });
+          if (upd.count !== 1) throw new Error('installment-member-not-pending');
+          await tx2.reconciliationMatch.create({
+            data: {
+              transactionId: m.id,
+              fiscalDocumentId: nf.id,
+              allocatedAmount: Number(m.value.toFixed(2)),
+              matchType: ReconciliationMatchType.VALUE_DATE,
+              confidenceScore: score.total,
+              notes:
+                `Pareamento automático de parcela: ${members.length} pagamentos ` +
+                `somando R$ ${totalPaid.toFixed(2)} ` +
+                `para a nota de R$ ${Number(nf.totalValue).toFixed(2)}`,
+            },
+          });
+        }
+        return true;
+      })
+      .catch(err => {
+        this.logger.debug(`Installment match aborted for tx ${tx.id}: ${err}`);
+        return false;
+      });
+    if (!committed) return false;
+
+    // Item-category derivation for EVERY member tx (matchTransaction only
+    // enriches the triggering tx; siblings would otherwise stay uncategorized).
+    for (const m of members) {
+      await this.itemCategoryClassifier.deriveForTransaction(m.id).catch(() => undefined);
+    }
+
+    this.logger.log(
+      `Installment match: ${members.length} txs (incl. ${tx.id}) → NF ${nf.id} (R$ ${Number(
+        nf.totalValue,
+      ).toFixed(2)}) of supplier ${root}`,
+    );
+    return true;
+  }
+
+  /**
+   * Returns candidate fiscal documents for the manual-match UI (lower-confidence
+   * suggestions) without persisting speculative matches.
    *
    * Strategy:
    *   1. Skip entirely for tax/fee transactions (DARF, IOF, TARIFA) — they
@@ -743,8 +1371,12 @@ export class ReconciliationMatcherService {
     // We skip the value filter here and let the scorer rank by value proximity.
     let docs: any[] = [];
     if (counterparty) {
-      const wideLower = new Date(tx.postedAt.getTime() - CNPJ_CANDIDATE_DATE_WINDOW_DAYS * 86_400_000);
-      const wideUpper = new Date(tx.postedAt.getTime() + CNPJ_CANDIDATE_DATE_WINDOW_DAYS * 86_400_000);
+      const wideLower = new Date(
+        tx.postedAt.getTime() - CNPJ_CANDIDATE_DATE_WINDOW_DAYS * 86_400_000,
+      );
+      const wideUpper = new Date(
+        tx.postedAt.getTime() + CNPJ_CANDIDATE_DATE_WINDOW_DAYS * 86_400_000,
+      );
       docs = await this.prisma.fiscalDocument.findMany({
         where: {
           status: 'AUTHORIZED',
@@ -1177,8 +1809,7 @@ export class ReconciliationMatcherService {
     // NF this debit is paying for — keep them visible as candidates but never
     // auto-confirm them.
     const isStrongMatch = (s: CandidateScore): boolean =>
-      s.parts.value === 35 &&
-      (s.cnpj.exact || (s.cnpj.rootOnly && s.parts.name === 15));
+      s.parts.value === 35 && (s.cnpj.exact || (s.cnpj.rootOnly && s.parts.name === 15));
 
     const PAST_DATED_BUFFER_MS = 5 * 86_400_000;
     const isPastDated = (issueDate: Date): boolean =>
@@ -1186,9 +1817,7 @@ export class ReconciliationMatcherService {
 
     const isBestPerfect = isStrongMatch(best.score) && isPastDated(best.doc.issueDate);
     const isRunnerUpPerfect =
-      !!runnerUp &&
-      isStrongMatch(runnerUp.score) &&
-      isPastDated(runnerUp.doc.issueDate);
+      !!runnerUp && isStrongMatch(runnerUp.score) && isPastDated(runnerUp.doc.issueDate);
 
     let acceptPerfect = isBestPerfect && !isRunnerUpPerfect;
 
@@ -1200,11 +1829,9 @@ export class ReconciliationMatcherService {
     const PROXIMITY_GAP_DAYS = 3;
     let perfectChoiceReason: string | null = null;
     if (isBestPerfect && isRunnerUpPerfect) {
-      const bestDays =
-        Math.abs(tx.postedAt.getTime() - best.doc.issueDate.getTime()) / 86_400_000;
+      const bestDays = Math.abs(tx.postedAt.getTime() - best.doc.issueDate.getTime()) / 86_400_000;
       const runnerDays =
-        Math.abs(tx.postedAt.getTime() - runnerUp!.doc.issueDate.getTime()) /
-        86_400_000;
+        Math.abs(tx.postedAt.getTime() - runnerUp!.doc.issueDate.getTime()) / 86_400_000;
       if (runnerDays - bestDays >= PROXIMITY_GAP_DAYS) {
         acceptPerfect = true;
         perfectChoiceReason = `Nota mais próxima da data do pagamento (${Math.round(
@@ -1268,9 +1895,7 @@ export class ReconciliationMatcherService {
             source: ReconciliationAliasSource.AUTO_MATCH,
             prismaTx: tx2,
           })
-          .catch(err =>
-            this.logger.warn(`Alias capture failed in tryExactMatch: ${err}`),
-          );
+          .catch(err => this.logger.warn(`Alias capture failed in tryExactMatch: ${err}`));
       }
     });
 
@@ -1336,9 +1961,7 @@ export class ReconciliationMatcherService {
 
     const doc = candidates[0];
     const diff = Math.abs(absAmount - Number(doc.totalValue));
-    const days = Math.round(
-      Math.abs(tx.postedAt.getTime() - doc.issueDate.getTime()) / 86_400_000,
-    );
+    const days = Math.round(Math.abs(tx.postedAt.getTime() - doc.issueDate.getTime()) / 86_400_000);
 
     await this.prisma.$transaction(async tx2 => {
       await tx2.bankTransaction.update({
