@@ -157,6 +157,23 @@ export const UPLOAD_CONFIG = {
   },
 };
 
+// Some extensions are legitimately reported with MORE THAN ONE MIME type by
+// different operating systems/browsers, and these can cross the application/text
+// boundary (so the "same media category" leniency below doesn't cover them).
+// Treat each group as interchangeable so a valid file is never rejected just
+// because the OS labeled, e.g., an .xml as `text/xml` instead of
+// `application/xml`, or an .ofx as `text/plain`/`application/octet-stream`.
+const MIME_EQUIVALENTS: Record<string, string[]> = {
+  'application/xml': ['application/xml', 'text/xml'],
+  'text/xml': ['application/xml', 'text/xml'],
+  'application/x-ofx': ['application/x-ofx', 'application/octet-stream', 'text/plain'],
+  'application/vnd.intu.qfx': [
+    'application/vnd.intu.qfx',
+    'application/octet-stream',
+    'text/plain',
+  ],
+};
+
 // File filter function
 export const fileFilter = (req: any, file: Express.Multer.File, callback: Function) => {
   // Check if file type is allowed
@@ -167,12 +184,14 @@ export const fileFilter = (req: any, file: Express.Multer.File, callback: Functi
 
   // Additional extension validation
   // Allow mismatches within the same media category (e.g. .jpg file with image/png MIME)
-  // since users commonly rename files. Only reject if the extension maps to a completely
-  // different category (e.g. .pdf extension with image/png MIME).
+  // since users commonly rename files, and across known-equivalent MIME types
+  // (e.g. .xml as text/xml vs application/xml). Only reject if the extension maps
+  // to a completely different category (e.g. .pdf extension with image/png MIME).
   const ext = path.extname(file.originalname).toLowerCase();
   if (ext && UPLOAD_CONFIG.extensionToMimeType[ext]) {
     const expectedMimeType = UPLOAD_CONFIG.extensionToMimeType[ext];
-    if (expectedMimeType !== file.mimetype) {
+    const acceptedMimeTypes = MIME_EQUIVALENTS[expectedMimeType] ?? [expectedMimeType];
+    if (!acceptedMimeTypes.includes(file.mimetype)) {
       const expectedCategory = expectedMimeType.split('/')[0];
       const actualCategory = file.mimetype.split('/')[0];
       if (expectedCategory !== actualCategory) {

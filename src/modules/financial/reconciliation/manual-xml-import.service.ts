@@ -6,11 +6,18 @@ import unzipper from 'unzipper';
 import { SiegXmlParserService } from '@modules/integrations/sieg/sieg-xml-parser.service';
 import { SiegIngestionService } from '@modules/integrations/sieg/sieg-ingestion.service';
 
+export interface XmlImportFailure {
+  name: string;
+  reason: string;
+}
+
 export interface XmlImportResult {
   created: number;
   skipped: number;
   failed: number;
-  failedFiles: string[];
+  /** Per-file failures with a human-readable reason (so the UI can show WHY a
+   *  file wasn't imported, not just that it failed). */
+  failedFiles: XmlImportFailure[];
 }
 
 @Injectable()
@@ -40,7 +47,10 @@ export class ManualXmlImportService {
       } catch (err) {
         this.logger.error(`Failed to process ${file.originalname}: ${err}`);
         result.failed += 1;
-        result.failedFiles.push(file.originalname);
+        result.failedFiles.push({
+          name: file.originalname,
+          reason: (err as Error)?.message || 'Falha ao ler o arquivo',
+        });
       } finally {
         // Clean up multer temp file
         await fs.unlink(file.path).catch(() => undefined);
@@ -66,7 +76,10 @@ export class ManualXmlImportService {
       } catch (err) {
         this.logger.warn(`Failed to process zip entry ${entry.path}: ${err}`);
         result.failed += 1;
-        result.failedFiles.push(entry.path);
+        result.failedFiles.push({
+          name: entry.path,
+          reason: (err as Error)?.message || 'Falha ao ler o arquivo do ZIP',
+        });
       }
     }
   }
@@ -75,7 +88,13 @@ export class ManualXmlImportService {
     const parsed = this.parser.parse(xml);
     if (!parsed) {
       result.failed += 1;
-      result.failedFiles.push(sourceName);
+      result.failedFiles.push({
+        name: sourceName,
+        reason:
+          'XML não reconhecido como NFe/NFCe/CTe/NFSe. Pode ser um evento ' +
+          '(cancelamento/carta de correção), uma inutilização, um resumo de ' +
+          'distribuição (DFe) ou um XML inválido/corrompido.',
+      });
       return;
     }
     const ingestion = await this.ingestion.upsert(parsed, FiscalDocumentSource.MANUAL_UPLOAD);
