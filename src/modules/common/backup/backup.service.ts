@@ -43,6 +43,7 @@ export interface BackupMetadata {
   priority?: 'low' | 'medium' | 'high' | 'critical';
   compressionLevel?: number;
   encrypted?: boolean;
+  filePath?: string;
   autoDelete?: {
     enabled: boolean;
     retention:
@@ -161,7 +162,7 @@ export class BackupService implements OnModuleInit {
     }).formatToParts(now);
     const get = (type: string) => parts.find(p => p.type === type)?.value ?? '';
     const hour = get('hour').replace('24', '00');
-    return `${get('year')}/${get('month')}/${get('day')}/${hour}`;
+    return `${get('year')}/${get('month')}/${get('day')}/${hour}:00`;
   }
 
   /**
@@ -206,7 +207,8 @@ export class BackupService implements OnModuleInit {
   private async ensureBackupDirectories(): Promise<void> {
     try {
       // Create base directories (Portuguese naming convention)
-      const baseDirectories = ['banco-de-dados', 'arquivos', 'sistema', 'completo'];
+      // 'arquivos' intentionally excluded — files use rsync mirror, not tar archives
+      const baseDirectories = ['banco-de-dados', 'sistema', 'completo'];
       for (const dir of baseDirectories) {
         const dirPath = path.join(this.backupBasePath, dir);
         await fs.mkdir(dirPath, { recursive: true });
@@ -434,6 +436,7 @@ export class BackupService implements OnModuleInit {
       description: backup.description || undefined,
       paths: backup.paths,
       error: backup.error || undefined,
+      filePath: backup.filePath || undefined,
       priority: this.mapDbPriorityToDto(backup.priority),
       compressionLevel: backup.compressionLevel,
       encrypted: backup.encrypted,
@@ -1692,11 +1695,19 @@ export class BackupService implements OnModuleInit {
       for (const schedule of enabledSchedules) {
         const jobId = `scheduled-backup-${schedule.name}-${schedule.id}`;
 
-        // Check if job already exists in Bull queue
+        // Check if job already exists in Bull queue with matching cron
         if (schedule.bullJobId && existingJobIds.has(schedule.bullJobId)) {
-          this.logger.debug(`Schedule ${schedule.name} already exists in Bull queue, skipping`);
-          skipped++;
-          continue;
+          const existingJob = existingJobs.find(j => j.id === schedule.bullJobId);
+          if (existingJob && existingJob.cron === schedule.cronExpression) {
+            this.logger.debug(`Schedule ${schedule.name} already in Bull queue with matching cron, skipping`);
+            skipped++;
+            continue;
+          }
+          // Cron was changed in DB — remove old Bull job and re-register below
+          if (existingJob) {
+            await this.backupQueue.removeRepeatableByKey(existingJob.key);
+            this.logger.log(`Cron updated for ${schedule.name}: ${existingJob.cron} → ${schedule.cronExpression}`);
+          }
         }
 
         try {
@@ -1746,6 +1757,24 @@ export class BackupService implements OnModuleInit {
       }
 
       this.logger.log(`Schedule recovery complete: ${recovered} recovered, ${skipped} skipped`);
+
+      // Remove Bull repeatable jobs for disabled schedules (handles DB toggle without restart)
+      try {
+        const disabledSchedules = await this.backupScheduleRepository.findAll({ enabled: false });
+        if (disabledSchedules.length > 0) {
+          const allJobs = await this.backupQueue.getRepeatableJobs();
+          for (const schedule of disabledSchedules) {
+            if (!schedule.bullJobId) continue;
+            const job = allJobs.find(j => j.id === schedule.bullJobId || j.key === schedule.bullJobId);
+            if (job) {
+              await this.backupQueue.removeRepeatableByKey(job.key);
+              this.logger.log(`Removed Bull job for disabled schedule: ${schedule.name}`);
+            }
+          }
+        }
+      } catch (err) {
+        this.logger.warn(`Could not clean up disabled schedule Bull jobs: ${err.message}`);
+      }
     } catch (error) {
       this.logger.error(`Failed to recover scheduled backups: ${error.message}`);
     }
