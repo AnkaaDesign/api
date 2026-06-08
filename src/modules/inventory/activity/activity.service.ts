@@ -1255,6 +1255,7 @@ export class ActivityService {
     userId?: string,
   ): Promise<ActivityBatchUpdateResponse<ActivityUpdateFormData>> {
     try {
+      const stockSnapshots: StockNotificationSnapshot[] = [];
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Get existing activities to determine proper reasons for updates
         const activityIds = data.activities.map(a => a.id);
@@ -1283,7 +1284,7 @@ export class ActivityService {
           const newOperation = activity.data.operation ?? existingActivity.operation;
           const newUserId =
             activity.data.userId !== undefined ? activity.data.userId : existingActivity.userId;
-          const batchItemId = existingActivity.itemId; // Item ID doesn't change in batch updates
+          const batchItemId = activity.data.itemId ?? existingActivity.itemId;
 
           // For updates, always recalculate reason based on new operation and user assignment
           const autoReason = await this.determineActivityReason(
@@ -1297,6 +1298,37 @@ export class ActivityService {
             activity.data.reason && activity.data.reason !== autoReason
               ? (activity.data.reason as ACTIVITY_REASON)
               : autoReason;
+
+          // Adjust item stock: reverse the previous effect, then apply the new one.
+          // Without this, batch-editing an activity's quantity/operation/item leaves
+          // Item.quantity stale (the single-record update() does this; batch must too).
+          const oldQuantity = existingActivity.quantity;
+          const oldOperation = existingActivity.operation;
+          const newQuantity = activity.data.quantity ?? existingActivity.quantity;
+
+          await this.updateItemQuantity(
+            tx,
+            existingActivity.itemId,
+            oldQuantity,
+            oldOperation === ACTIVITY_OPERATION.INBOUND
+              ? ACTIVITY_OPERATION.OUTBOUND
+              : ACTIVITY_OPERATION.INBOUND,
+            userId,
+            undefined,
+            undefined,
+            stockSnapshots,
+          );
+
+          await this.updateItemQuantity(
+            tx,
+            batchItemId,
+            newQuantity,
+            newOperation,
+            userId,
+            { ...existingActivity, ...activity.data, reason: determinedReason },
+            undefined,
+            stockSnapshots,
+          );
 
           updates.push({
             id: activity.id,
@@ -1328,6 +1360,9 @@ export class ActivityService {
 
         return result;
       });
+
+      // Evaluate stock thresholds AFTER commit (never on rollback).
+      await this.dispatchStockNotificationsAfterCommit(stockSnapshots);
 
       const successMessage =
         result.totalUpdated === 1
@@ -1376,12 +1411,31 @@ export class ActivityService {
     userId?: string,
   ): Promise<ActivityBatchDeleteResponse> {
     try {
+      const stockSnapshots: StockNotificationSnapshot[] = [];
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar atividades antes de excluir para o changelog
         const activities = await this.activityRepository.findByIdsWithTransaction(
           tx,
           data.activityIds,
         );
+
+        // Reverter o efeito de cada atividade no estoque antes de excluir.
+        // Sem isso, excluir atividades em lote deixa Item.quantity defasado
+        // (o delete() de registro único faz essa reversão; o batch também deve).
+        for (const activity of activities) {
+          await this.updateItemQuantity(
+            tx,
+            activity.itemId,
+            activity.quantity,
+            activity.operation === ACTIVITY_OPERATION.INBOUND
+              ? ACTIVITY_OPERATION.OUTBOUND
+              : ACTIVITY_OPERATION.INBOUND,
+            userId,
+            undefined,
+            undefined,
+            stockSnapshots,
+          );
+        }
 
         // Registrar exclusões
         for (const activity of activities) {
@@ -1400,6 +1454,9 @@ export class ActivityService {
 
         return this.activityRepository.deleteManyWithTransaction(tx, data.activityIds);
       });
+
+      // Evaluate stock thresholds AFTER commit (never on rollback).
+      await this.dispatchStockNotificationsAfterCommit(stockSnapshots);
 
       const successMessage =
         result.totalDeleted === 1
