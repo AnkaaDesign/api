@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Nova Categorização de Itens — Ankaa</title>
+<style>
+  :root{
+    --bg:hsl(0 0% 96%); --fg:hsl(0 0% 25%); --card:hsl(0 0% 100%);
+    --card-nested:hsl(0 0% 98%); --muted:hsl(0 0% 45%); --border:hsl(0 0% 83%);
+    --primary:hsl(142 72% 29%); --primary-soft:hsl(142 45% 92%);
+    --warning:hsl(38 70% 42%); --warning-soft:hsl(38 80% 93%);
+    --error:hsl(0 55% 48%); --error-soft:hsl(0 70% 95%);
+    --info:hsl(210 50% 42%); --info-soft:hsl(210 60% 94%);
+    --purple:hsl(265 45% 50%); --purple-soft:hsl(265 50% 95%);
+    --radius:.6rem;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:hsl(0 0% 11%); --fg:hsl(0 0% 85%); --card:hsl(0 0% 15%);
+      --card-nested:hsl(0 0% 18%); --muted:hsl(0 0% 56%); --border:hsl(0 0% 24%);
+      --primary:hsl(142 55% 44%); --primary-soft:hsl(142 30% 17%);
+      --warning:hsl(38 60% 55%); --warning-soft:hsl(38 40% 16%);
+      --error:hsl(0 55% 60%); --error-soft:hsl(0 40% 16%);
+      --info:hsl(210 55% 60%); --info-soft:hsl(210 40% 16%);
+      --purple:hsl(265 55% 70%); --purple-soft:hsl(265 35% 18%);
+    }
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter','Inter Variable',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    background:var(--bg);color:var(--fg);line-height:1.55;-webkit-font-smoothing:antialiased;padding-bottom:5rem}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 1.5rem}
+  header{background:linear-gradient(135deg,var(--primary),hsl(142 72% 20%));color:#fff;padding:3.2rem 0 2.6rem;margin-bottom:2.5rem}
+  header .wrap{display:flex;flex-direction:column;gap:.5rem}
+  header h1{font-size:2rem;font-weight:750;letter-spacing:-.02em}
+  header p{opacity:.92;font-size:1.02rem;max-width:70ch}
+  .badge{display:inline-block;background:rgba(255,255,255,.18);padding:.25rem .75rem;border-radius:999px;font-size:.74rem;font-weight:600;width:fit-content;margin-bottom:.4rem;letter-spacing:.03em}
+  h2{font-size:1.35rem;font-weight:750;margin:2.8rem 0 1rem;letter-spacing:-.01em;display:flex;align-items:center;gap:.65rem}
+  h2 .n{background:var(--primary);color:#fff;width:1.8rem;height:1.8rem;border-radius:.45rem;display:grid;place-items:center;font-size:.95rem}
+  h3{font-size:1.02rem;font-weight:650;margin:1.4rem 0 .6rem}
+  p.lead{color:var(--muted);margin-bottom:1rem;max-width:82ch}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.3rem 1.5rem;margin-bottom:1rem}
+  .grid{display:grid;gap:1rem}
+  .k4{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+  .k2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .stat{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem 1.25rem}
+  .stat .v{font-size:2rem;font-weight:780;color:var(--primary);line-height:1}
+  .stat .l{font-size:.8rem;color:var(--muted);margin-top:.4rem}
+  .stat.warn .v{color:var(--warning)} .stat.err .v{color:var(--error)} .stat.info .v{color:var(--info)}
+  .pill{display:inline-block;padding:.12rem .55rem;border-radius:999px;font-size:.72rem;font-weight:650;white-space:nowrap}
+  .pill.ok{background:var(--primary-soft);color:var(--primary)}
+  .pill.warn{background:var(--warning-soft);color:var(--warning)}
+  .pill.err{background:var(--error-soft);color:var(--error)}
+  .pill.info{background:var(--info-soft);color:var(--info)}
+  .pill.pp{background:var(--purple-soft);color:var(--purple)}
+  /* fluxo */
+  .flow{display:flex;flex-wrap:wrap;gap:.5rem;align-items:stretch}
+  .step{flex:1 1 220px;background:var(--card);border:1px solid var(--border);border-left:4px solid var(--primary);border-radius:var(--radius);padding:.85rem 1rem;position:relative}
+  .step .sn{font-size:.72rem;font-weight:750;color:var(--primary);letter-spacing:.04em}
+  .step .st{font-weight:650;margin:.15rem 0 .35rem;font-size:.95rem}
+  .step .sd{font-size:.8rem;color:var(--muted)}
+  /* categoria accordion */
+  .cat{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:.7rem;background:var(--card)}
+  .cat>summary{cursor:pointer;list-style:none;padding:1rem 1.2rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap}
+  .cat>summary::-webkit-details-marker{display:none}
+  .cat>summary:hover{background:var(--card-nested)}
+  .cat .cn{font-weight:700;font-size:1.02rem;flex:1 1 240px}
+  .cat .qty{font-weight:750;color:var(--primary);font-size:1.1rem}
+  .cat[open]>summary{border-bottom:1px solid var(--border)}
+  .cat .body{padding:.9rem 1.2rem 1.1rem;background:var(--card-nested)}
+  .subs{display:flex;flex-direction:column;gap:.55rem}
+  .sub{background:var(--card);border:1px solid var(--border);border-radius:.4rem;padding:.55rem .8rem}
+  .sub b{font-size:.9rem} .sub .ex{font-size:.78rem;color:var(--muted);display:block;margin-top:.15rem}
+  .meta{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.2rem}
+  table{width:100%;border-collapse:collapse;font-size:.875rem}
+  th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--border);vertical-align:top}
+  th{font-size:.71rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:650}
+  tr:last-child td{border-bottom:none}
+  .bar{height:9px;border-radius:999px;background:var(--border);overflow:hidden}
+  .bar>span{display:block;height:100%;background:var(--primary);border-radius:999px}
+  .fix{border-left:3px solid var(--warning);padding:.7rem 1rem;background:var(--card-nested);border-radius:0 var(--radius) var(--radius) 0;margin-bottom:.6rem}
+  .fix b{color:var(--warning)}
+  .crit{border-left-color:var(--error)} .crit b{color:var(--error)}
+  ul.clean{list-style:none;display:flex;flex-direction:column;gap:.5rem}
+  ul.clean li{padding-left:1.45rem;position:relative}
+  ul.clean li::before{content:"→";position:absolute;left:0;color:var(--primary);font-weight:700}
+  .princ{display:grid;gap:.8rem;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+  .princ .p{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.1rem}
+  .princ .p .pt{font-weight:700;color:var(--primary);margin-bottom:.3rem;font-size:.95rem}
+  .princ .p .pb{font-size:.84rem;color:var(--muted)}
+  code{background:var(--card-nested);border:1px solid var(--border);border-radius:.3rem;padding:.05rem .35rem;font-size:.82em}
+  footer{margin-top:3rem;padding-top:1.5rem;border-top:1px solid var(--border);color:var(--muted);font-size:.8rem;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <span class="badge">ANÁLISE PROFUNDA · TAXONOMIA DE ESTOQUE · ANKAA</span>
+    <h1>Nova Categorização de Itens</h1>
+    <p>Taxonomia em 2 níveis (Categoria → Subcategoria) desenhada a partir do <b>fluxo real de produção</b> da oficina de pintura e customização de veículos — não do plano de contas. Mapeada de volta à contabilidade para o rateio de custo.</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- RESUMO -->
+  <h2><span class="n">1</span>Resumo executivo</h2>
+  <div class="grid k4">
+    <div class="stat"><div class="v">729</div><div class="l">itens classificados</div></div>
+    <div class="stat info"><div class="v">13</div><div class="l">categorias (antes: 16 planas)</div></div>
+    <div class="stat"><div class="v">~60</div><div class="l">subcategorias (nível 2 — antes: 0)</div></div>
+    <div class="stat err"><div class="v">174→0</div><div class="l">itens sem categoria resolvidos</div></div>
+  </div>
+  <div class="card">
+    <p class="lead" style="margin:0">O acervo atual sofria de três males: <b>1 em cada 4 itens sem categoria</b>, dois "baldões" — <code>Ferramenta</code> (200) e <code>Pigmento</code> (106) — concentrando 42% do estoque, e categorias genéricas que não dialogavam com a contabilidade. A nova taxonomia organiza tudo pela <b>função do item no fluxo de produção</b>, quebra os baldões, separa <b>durável de consumível</b> (para não disparar falso alarme de reposição) e trata marca/granulometria/cor/bitola/tamanho como <b>atributos</b>, nunca como subcategoria. Apenas <b>33 itens</b> (4,5%) ficaram com baixa confiança e precisam de conferência manual.</p>
+  </div>
+
+  <!-- NEGÓCIO E FLUXO -->
+  <h2><span class="n">2</span>O negócio e o fluxo de produção</h2>
+  <p class="lead">Lido diretamente do código (módulos de produção/garagem, tintas e artes/layouts) e das ordens de serviço reais: a Ankaa pinta e customiza <b>caminhões e implementos</b>. Cada veículo é uma <i>Task</i> com até três layouts de plotagem (lateral esq., lateral dir., traseira) e percorre a garagem (barracões B1/B2/B3 × fileira × vaga). Os materiais são consumidos por etapa:</p>
+  <div class="flow">
+    <div class="step"><div class="sn">ETAPA 1</div><div class="st">Recebimento / Comercial</div><div class="sd">Check-in, cadastro do veículo, orçamento, fotos de entrada. Pátio de espera.</div></div>
+    <div class="step"><div class="sn">ETAPA 2</div><div class="st">Design / Arte / Layout</div><div class="sd">Layout de plotagem das laterais/traseira, aprovação de artes, preparo dos arquivos de corte.</div></div>
+    <div class="step"><div class="sn">ETAPA 3</div><div class="st">Preparação / Funilaria</div><div class="sd">Remoção, reparos, massa/fibra, lixamento e mascaramento das áreas.</div></div>
+    <div class="step"><div class="sn">ETAPA 4</div><div class="st">Pintura</div><div class="sd">Fundo/primer e cor formulada na sala de mistura (toners), por área do veículo.</div></div>
+    <div class="step"><div class="sn">ETAPA 5</div><div class="st">Verniz / Acabamento</div><div class="sd">Verniz de proteção, lixamento fino e polimento.</div></div>
+    <div class="step"><div class="sn">ETAPA 6</div><div class="st">Plotagem / Adesivação</div><div class="sd">Recorte e aplicação de vinil, logomarcas e faixas refletivas com máscara de transferência.</div></div>
+    <div class="step"><div class="sn">ETAPA 7</div><div class="st">Aerografia</div><div class="sd">Pintura artística manual sobre a superfície já pronta.</div></div>
+    <div class="step"><div class="sn">ETAPA 8</div><div class="st">Acabamento / Entrega</div><div class="sd">Inspeção, limpeza, fotos de saída, faturamento. Pátio de saída.</div></div>
+  </div>
+
+  <!-- PRINCIPIOS -->
+  <h2><span class="n">3</span>Princípios da nova taxonomia</h2>
+  <div class="princ">
+    <div class="p"><div class="pt">1 · Função acima de nome/código</div><div class="pb">Clears e primers que vazavam para "Base"/"Pigmento" por terem código numérico são reclassificados pelo que <b>fazem</b> (fundo / cor / acabamento). Palavras ambíguas (máscara, rolo, fita, luva, filtro, vinil) são tratadas caso a caso.</div></div>
+    <div class="p"><div class="pt">2 · Quebrar os baldões</div><div class="pb">"Pigmento" vira toners de cor × toners de efeito (caros, giro lento) × fundos/clears mal alocados. "Ferramenta" separa manuais/medição × elétricas/pneumáticas × acessórios consumíveis de alto giro.</div></div>
+    <div class="p"><div class="pt">3 · Durável × consumível e ponto de compra</div><div class="pb">Itens comprados juntos, do mesmo fornecedor e na mesma fase ficam juntos. Equipamento patrimonial nunca compartilha subcategoria com consumível que precisa de reposição.</div></div>
+    <div class="p"><div class="pt">4 · Atributo ≠ subcategoria</div><div class="pb">Marca, granulometria (P40–P2000), bitola, cor do vinil e tamanho de uniforme são <b>atributos</b> do item — evita fragmentar centenas de SKUs do mesmo produto.</div></div>
+  </div>
+
+  <!-- TAXONOMIA -->
+  <h2><span class="n">4</span>As 13 categorias propostas</h2>
+  <p class="lead">Cada categoria carrega seu <span class="pill info">estágio de produção</span> e o <span class="pill ok">grupo contábil</span> correspondente do plano de contas. Clique para ver as subcategorias e exemplos reais.</p>
+
+  <details class="cat" open><summary><span class="cn">🎨 Matéria-Prima — Tintas e Toners (Cor)</span><span class="meta"><span class="pill info">Etapa 4 · Pintura</span><span class="pill ok">Matéria-Prima › Tintas</span></span><span class="qty">124</span></summary>
+    <div class="body"><div class="subs">
+      <div class="sub"><b>Toners / Bases tintométricas (corantes de cor)</b><span class="ex">UC269 Vermelho Intenso, AC180 Preto, LL117 Laranja</span></div>
+      <div class="sub"><b>Toners de efeito (alumínios, perolizados, xirallic)</b><span class="ex">caros e de giro lento — candidatos a estoque morto · UC675 Alumínio, UC624 Xirallic Galaxy Blue</span></div>
+      <div class="sub"><b>Tintas e bases prontas (acrílico, sintético, base coat)</b><span class="ex">ANC50 Base Branca, 536.8540 Acrílico Preto Cadillac</span></div>
+      <div class="sub"><b>Tintas de chassi e acabamento direto</b><span class="ex">113.8780 Preto Fosco Chassi, Primer Chassis</span></div>
+      <div class="sub"><b>Linha vinílica de plotagem (tintas, vernizes e solvente)</b><span class="ex">separada da repintura PU · 4800.300 Prata Vinílico, Verniz Vinílico Brilhante</span></div>
+    </div></div>
+  </details>
+
+  <details class="cat"><summary><span class="cn">🧪 Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos</span><span class="meta"><span class="pill info">Etapas 3–5</span><span class="pill ok">Matéria-Prima › Tintas / Thinner / Removedor</span></span><span class="qty">56</span></summary>
+    <div class="body"><div class="subs">
+      <div class="sub"><b>Primers, wash primers e seladoras (fundos)</b><span class="ex">513.000 Primer PU 3000, 517.600 Wash Primer</span></div>
+      <div class="sub"><b>Vernizes e clears (acabamento)</b><span class="ex">543.950 Verniz PU Acrílico, APA85 Clear Acrílico</span></div>
+      <div class="sub"><b>Endurecedores e catalisadores</b><span class="ex">573.950 Endurecedor PU, H0010 Endurecedor Verniz Fosco</span></div>
+      <div class="sub"><b>Diluentes e thinners</b><span class="ex">558.400 Diluente, 557.000 Thinner 18l, 369 Thinner 7000</span></div>
+      <div class="sub"><b>Aditivos e ajustes de mistura</b><span class="ex">Aditivo Anticratera, Acelerador de Secagem, Flexibilizante</span></div>
+      <div class="sub"><b>Preparadores de superfície (desengraxante/removedor)</b><span class="ex">559.500 Desengraxante, 290.010 Removedor</span></div>
+    </div></div>
+  </details>
+
+  <details class="cat"><summary><span class="cn">🔨 Funilaria e Reparo de Carroceria</span><span class="meta"><span class="pill info">Etapa 3</span><span class="pill ok">Produtivo › Massas</span></span><span class="qty">16</span></summary>
+    <div class="body"><div class="subs">
+      <div class="sub"><b>Massas de reparo (poliéster/plástica)</b><span class="ex">262 Massa Poliéster, 475 Massa Plástica</span></div>
+      <div class="sub"><b>Laminação e fibra de vidro</b><span class="ex">3487 Manta de Fibra de Vidro, Resina Laminação</span></div>
+      <div class="sub"><b>Selantes e vedantes de carroceria</b><span class="ex">Adesivo Selante PU40, Fita Dupla Face 3M</span></div>
+    </div></div>
+  </details>
+
+  <details class="cat"><summary><span class="cn">🌀 Abrasivos e Polimento</span><span class="meta"><span class="pill info">Etapas 3–5</span><span class="pill ok">Produtivo › Abrasivos</span></span><span class="qty">38</span></summary>
+    <div class="body"><div class="subs">
+      <div class="sub"><b>Lixas em folha (manual / d'água)</b><span class="ex">Lixa Folha 80, Lixa D'água P400</span></div>
+      <div class="sub"><b>Discos de lixa Hookit (orbital / velcro)</b><span class="ex">Hookit P40, P150, P320</span></div>
+      <div class="sub"><b>Discos de desbaste e corte (esmerilhadeira)</b><span class="ex">Disco Flap, Disco de Corte</span></div>
+      <div class="sub"><b>Discos e compostos de polimento/refino</b><span class="ex">Trizact 3000, Finishing Foam, Pluma P2000</span></div>
+      <div class="sub"><b>Fibras e fosqueamento manual</b><span class="ex">Scotch Brite, Palha de Aço</span></div>
+      <div class="sub"><b>Suportes e bases de abrasivos</b><span class="ex">Base Hookit, Adaptador Boina Polimento</span></div>
+    </div></div>
+  </details>
+
+  <details class="cat"><summary><span class="cn">🛡️ Mascaramento e Cobertura</span><span class="meta"><span class="pill info">Etapas 3–4</span><span class="pill ok">Produtivo › Fita Crepe / Papel</span></span><span class="qty">15</span></summary>
+    <div class="body"><div class="subs">
+      <div class="sub"><b>Fita crepe / fita de mascaramento</b><span class="ex">Fita Crepe Uso Geral, Premium Azul, Automotiva</span></div>
+      <div class="sub"><b>Papel e bobina de cobertura</b><span class="ex">Papel Kraft 70GR, Bobina Papel Ondulado</span></div>
+      <div class="sub"><b>Plástico e filme de cobertura</b><span class="ex">Lona Plástica, Filme Stretch, Plástico Bolha</span></div>
+      <div class="sub"><b>Líquido de mascaramento</b><span class="ex">506.000 Líq. de Mascaramento</span></div>
+    </div></div>
+  </details>
+
+  <details class="cat"><summary><span class="cn">🏷️ Plotagem e Adesivação</span><span class="meta"><span class="pill info">Etapa 6</span><span class="pill ok">Produtivo › Adesivos / Impressão</span></span><span class="qty">24</span></summary>
+    <div class="body"><div class="subs">
+      <div class="sub"><b>Vinil de recorte / adesivo colorido</b><span class="ex">Vinil King Blue (Oracal 651), White, Yellow</span></div>
+      <div class="sub"><b>Faixas e películas refletivas</b><span class="ex">Faixa Refletiva 3M / Avery / DM — lado/posição é atributo</span></div>
+      <div class="sub"><b>Máscara de transferência de adesivo (transfer tape)</b><span class="ex">⚠ uniCode 321 e 328 (Adere) — NÃO é EPI</span></div>
+      <div class="sub"><b>Laminação e proteção do vinil</b><span class="ex">Resina/película de laminação de acabamento</span></div>
+      <div class="sub"><b>Equipamento e consumíveis de plotter</b><span class="ex">Plotter de Recorte, Lâmina Plotter, Lâmina Norma</span></div>
+      <div class="sub"><b>Ferramentas de aplicação de adesivo</b><span class="ex">Espátula de Feltro, Espátula Celuloide</span></div>
+    </div></div>
+  </details>
+
+  <details class="cat"><summary><span class="cn">🪣 Aplicadores e Auxiliares de Mistura</span><span class="meta"><span class="pill info">Etapas 2–4</span><span class="pill ok">Produtivo › Consumíveis</span></span><span class="qty">28</span></summary>
+    <div class="body"><div class="subs">
+      <div class="sub"><b>Rolos de pintura (capas e suportes)</b><span class="ex">Rolo Fibra Sintética, Rolo Anti-Respingo, Suporte Garfo</span></div>
+      <div class="sub"><b>Pincéis e pincéis de retoque</b><span class="ex">Pincel de Retoque C/50, Pincel Médio 302</span></div>
+      <div class="sub"><b>Espátulas de funilaria/massa</b><span class="ex">Espátula de Aço, Inox 12cm</span></div>
+      <div class="sub"><b>Copos, potes e baldes de mistura</b><span class="ex">Copo Cristal 145ml, Caixa Pote Redondo PP</span></div>
+      <div class="sub"><b>Dosagem, transferência e filtragem</b><span class="ex">Bisnaga Plástica, Pisseta, Funil Reto</span></div>
+      <div class="sub"><b>Aplicadores de selante (calafetadores)</b><span class="ex">Aplicador Calafetador Manual / Pneumático</span></div>
+    </div></div>
+  </details>
+
+  <details class="cat"><summary><span class="cn">🔧 Ferramentas Manuais e Medição</span><span class="meta"><span class="pill info">Etapas 3 e 6</span><span class="pill pp">Investimento › Internos</span></span><span class="qty">155</span></summary>
+    <div class="body"><div class="subs">
+      <div class="sub"><b>Chaves e soquetes (parafusaria)</b><span class="ex">Soquete Sextavado 16 Longo, Torx T-45, Chave Biela L12</span></div>
+      <div class="sub"><b>Chaves de fenda, catraca e alicates</b><span class="ex">Chave Fenda, Catraca Média, Alicate Pressão</span></div>
+      <div class="sub"><b>Martelos e impacto manual</b><span class="ex">Martelo Pena Cabo Fibra</span></div>
+      <div class="sub"><b>Instrumentos de medição e alinhamento</b><span class="ex">Trena 8m, Esquadro, Nível de Mão</span></div>
+      <div class="sub"><b>Ferramentas de corte/recorte e escovas</b><span class="ex">Estilete Snap Off, Lâmina Norma, Escova de Aço</span></div>
+    </div></div>
+  </details>
+
+  <details class="cat"><summary><span class="cn">⚡ Ferramentas Elétricas/Pneumáticas e Equipamentos</span><span class="meta"><span class="pill info">Etapas 3–6</span><span class="pill pp">Investimento › Internos · acessórios → Manutenção</span></span><span class="qty">78</span></summary>
+    <div class="body"><div class="subs">
+      <div class="sub"><b>Pistolas de pintura e aerografia</b><span class="ex">Pistola PRO-534, Pistola K3, Aerógrafo Vonder</span></div>
+      <div class="sub"><b>Ferramentas elétricas de abrasão e acabamento</b><span class="ex">Esmerilhadeira Bosch, Lixadeira Orbital 3M, Politriz</span></div>
+      <div class="sub"><b>Ferramentas de fixação e furação</b><span class="ex">Furadeira Bosch, Parafusadeira Makita</span></div>
+      <div class="sub"><b>Fontes de calor (maçarico/soprador)</b><span class="ex">Soprador Térmico Vonder, Maçarico</span></div>
+      <div class="sub"><b>Baterias e carregadores</b><span class="ex">Bateria 4.0ah Makita / 5.0ah Bosch</span></div>
+      <div class="sub"><b>Linha de ar comprimido</b><span class="ex">Regulador de Pressão, Engate Rápido, Mangueira de Ar</span></div>
+      <div class="sub"><b>Acesso, apoio e infraestrutura elétrica</b><span class="ex">Escada de Alumínio, Banqueta Dobrável, Cavalete</span></div>
+    </div></div>
+  </details>
+
+  <details class="cat"><summary><span class="cn">🔩 Peças, Fixação e Conexões</span><span class="meta"><span class="pill info">Etapas 3 e 8</span><span class="pill ok">Produtivo › Peças / Manutenção</span></span><span class="qty">78</span></summary>
+    <div class="body"><div class="subs">
+      <div class="sub"><b>Fixadores — parafusos e porcas</b><span class="ex">Parafuso Philips Flangeado, Sextavado Inox, Allen DIN-912</span></div>
+      <div class="sub"><b>Fixadores — arruelas</b><span class="ex">Arruela Lisa Zincada, Arruela Pressão</span></div>
+      <div class="sub"><b>Fixadores — rebites</b><span class="ex">Rebite de Repuxo 516/630, Rebite Rosca Lisa M10</span></div>
+      <div class="sub"><b>Abraçadeiras e presilhas</b><span class="ex">Abraçadeira Inox Fita, Nylon Preta</span></div>
+      <div class="sub"><b>Conexões e redução (pneumática/hidráulica)</b><span class="ex">Plugue Macho/Fêmea, Válvula Esférica, Niple Duplo · inclui "Luva Redução" (não é EPI)</span></div>
+      <div class="sub"><b>Mangueiras, conduletes e suportes</b><span class="ex">Mangueira de Água, Condulete PVC</span></div>
+      <div class="sub"><b>Peças de manutenção de equipamento</b><span class="ex">Filtro Compressor, Filtro de Óleo, Mancal, Refil de Gás</span></div>
+    </div></div>
+  </details>
+
+  <details class="cat"><summary><span class="cn">🦺 EPI — Equipamentos de Proteção Individual</span><span class="meta"><span class="pill warn">Transversal</span><span class="pill ok">EPI</span></span><span class="qty">52</span></summary>
+    <div class="body"><div class="subs">
+      <div class="sub"><b>Proteção respiratória — máscaras e respiradores</b><span class="ex">Semi Facial 3M 7501/7502, Respirador PFF2</span></div>
+      <div class="sub"><b>Proteção respiratória — consumíveis (cartucho/filtro/retentor)</b><span class="ex">Cartucho 3M 6003, Filtro 3M 5N11, Retentor 3M 5000</span></div>
+      <div class="sub"><b>Proteção das mãos — luvas descartáveis</b><span class="ex">Luva Nitrílica, Látex (caixa)</span></div>
+      <div class="sub"><b>Proteção das mãos — luvas reutilizáveis</b><span class="ex">Luva Neoprene Volk, Luva de Vaqueta</span></div>
+      <div class="sub"><b>Proteção visual, auditiva e corporal</b><span class="ex">Óculos, Protetor Auricular, Macacão de Segurança</span></div>
+      <div class="sub"><b>Calçados de segurança</b><span class="ex">Botina Ecosafety, Galocha (→ ppeType RAIN_BOOTS)</span></div>
+    </div></div>
+  </details>
+
+  <details class="cat"><summary><span class="cn">👕 Uniforme / Fardamento</span><span class="meta"><span class="pill warn">Transversal</span><span class="pill ok">EPI (sem CA — compra distinta)</span></span><span class="qty">39</span></summary>
+    <div class="body"><div class="subs">
+      <div class="sub"><b>Uniforme — parte superior</b><span class="ex">Camisa P/M/G/GG/EXG, Camiseta — tamanho é atributo</span></div>
+      <div class="sub"><b>Uniforme — parte inferior</b><span class="ex">Calça, Bermuda (→ ppeType SHORT)</span></div>
+    </div></div>
+  </details>
+
+  <details class="cat"><summary><span class="cn">📎 Apoio — Escritório, Cozinha, Limpeza e Cortesia</span><span class="meta"><span class="pill warn">Indireto</span><span class="pill ok">Escritório / Cozinha / Desp. Fixas / Cortesia</span></span><span class="qty">26</span></summary>
+    <div class="body"><div class="subs">
+      <div class="sub"><b>Escritório / administrativo</b><span class="ex">Papel Sulfite A4, Tinta de impressora, Rolo Etiqueta</span></div>
+      <div class="sub"><b>Informática / eletrônicos de apoio</b><span class="ex">Cartão de Memória, Power Bank, Pilha AAA</span></div>
+      <div class="sub"><b>Copa / descartáveis (alimentação)</b><span class="ex">Copo 50/150 ml</span></div>
+      <div class="sub"><b>Higiene e limpeza/zeladoria</b><span class="ex">Papel Higiênico, Papel Toalha, Saco de Lixo</span></div>
+      <div class="sub"><b>Cortesia / brindes (pós-venda)</b><span class="ex">Boné Cinza e Verde</span></div>
+    </div></div>
+  </details>
+
+  <!-- DISTRIBUICAO -->
+  <h2><span class="n">5</span>Distribuição dos itens</h2>
+  <div class="card"><table>
+    <tr><th>Categoria</th><th>Itens</th><th style="width:42%">Volume</th></tr>
+    <tr><td>Ferramentas Manuais e Medição</td><td>155</td><td><div class="bar"><span style="width:100%"></span></div></td></tr>
+    <tr><td>Matéria-Prima — Tintas e Toners (Cor)</td><td>124</td><td><div class="bar"><span style="width:80%"></span></div></td></tr>
+    <tr><td>Peças, Fixação e Conexões</td><td>78</td><td><div class="bar"><span style="width:50%"></span></div></td></tr>
+    <tr><td>Ferramentas Elétricas/Pneumáticas e Equipamentos</td><td>78</td><td><div class="bar"><span style="width:50%"></span></div></td></tr>
+    <tr><td>Matéria-Prima — Fundos, Vernizes e Auxiliares</td><td>56</td><td><div class="bar"><span style="width:36%"></span></div></td></tr>
+    <tr><td>EPI</td><td>52</td><td><div class="bar"><span style="width:34%"></span></div></td></tr>
+    <tr><td>Uniforme / Fardamento</td><td>39</td><td><div class="bar"><span style="width:25%"></span></div></td></tr>
+    <tr><td>Abrasivos e Polimento</td><td>38</td><td><div class="bar"><span style="width:24%"></span></div></td></tr>
+    <tr><td>Aplicadores e Auxiliares de Mistura</td><td>28</td><td><div class="bar"><span style="width:18%"></span></div></td></tr>
+    <tr><td>Apoio — Escritório/Cozinha/Limpeza/Cortesia</td><td>26</td><td><div class="bar"><span style="width:17%"></span></div></td></tr>
+    <tr><td>Plotagem e Adesivação</td><td>24</td><td><div class="bar"><span style="width:15%"></span></div></td></tr>
+    <tr><td>Funilaria e Reparo de Carroceria</td><td>16</td><td><div class="bar"><span style="width:10%"></span></div></td></tr>
+    <tr><td>Mascaramento e Cobertura</td><td>15</td><td><div class="bar"><span style="width:10%"></span></div></td></tr>
+  </table></div>
+
+  <!-- CORRECOES -->
+  <h2><span class="n">6</span>Correções e regras de migração</h2>
+  <div class="fix crit"><b>CRÍTICO — Máscara 321/328:</b> os itens "Máscara" uniCode <code>321</code> e <code>328</code> (marca Adere, sem <code>ppeType</code>) são <b>Máscara de Transferência de Adesivo</b> da plotagem — <b>não</b> são EPI respiratório. Mover para <i>Plotagem e Adesivação</i> e renomear para eliminar a ambiguidade.</div>
+  <div class="fix"><b>Quebrar "Pigmento" (106):</b> códigos UC/AC/LL de cor → Toners de cor; alumínios/perolizados/xirallic → Toners de efeito (caros, giro lento, risco de estoque morto); primers/clears que vazaram para lá → Fundos ou Vernizes conforme a função.</div>
+  <div class="fix"><b>Quebrar "Ferramenta" (200):</b> separar manuais/medição × elétricas/pneumáticas e <b>retirar os consumíveis</b> hoje marcados como ferramenta — discos de polimento (Trizact/Finishing Foam/Pluma), Massa de Polir, Lâmina Plotter e Resina de Laminação não são ferramenta.</div>
+  <div class="fix"><b>Clears são acabamento, não base:</b> Clear PU/Acrílico/Poliéster/Epóxi/Laca hoje em "Base" migram para <i>Vernizes e clears</i>. Classificar pela função (fundo/cor/acabamento), nunca pela linha ou código.</div>
+  <div class="fix"><b>Falsos positivos de nome:</b> "Luva Redução" (Gedore) é conexão pneumática, não luva-EPI. "Faixa Refletiva" é material de plotagem, não EPI. "Filtro" do compressor ≠ filtro da máscara. "Rolo"/"Fita"/"Vinil" precisam de leitura de função.</div>
+  <div class="fix"><b>Padronizar ppeType:</b> Galocha → <code>RAIN_BOOTS</code>; Bermuda → <code>SHORT</code>; itens de EPI sem categoria que já têm ppeType (Luva Neoprene, Bota PVC, Macacão) migram para EPI.</div>
+  <div class="fix"><b>Variantes e duplicados:</b> revisar códigos repetidos com embalagens diferentes (ex.: 557.000 em 900ml/3,6L/18L; Bico de Ar DG-10 duplicado) — tratar como variantes de um mesmo item, não itens distintos.</div>
+
+  <!-- CONTABIL -->
+  <h2><span class="n">7</span>Ponte com a contabilidade</h2>
+  <p class="lead">Cada categoria operacional aponta para um grupo do plano de contas do PDF, então o estoque continua servindo ao rateio de custo sem forçar o operador a pensar em termos contábeis.</p>
+  <div class="card"><table>
+    <tr><th>Grupo contábil (PDF)</th><th>Categorias de item que alimentam</th></tr>
+    <tr><td><span class="pill ok">Matéria-Prima</span></td><td>Tintas e Toners (Cor) · Fundos, Vernizes e Auxiliares Químicos</td></tr>
+    <tr><td><span class="pill ok">Produtivo</span></td><td>Funilaria · Abrasivos e Polimento · Mascaramento · Plotagem · Aplicadores · Peças (parte produtiva)</td></tr>
+    <tr><td><span class="pill pp">Investimento</span></td><td>Ferramentas Manuais e Medição · Ferramentas Elétricas/Pneumáticas e Equipamentos</td></tr>
+    <tr><td><span class="pill warn">Manutenção</span></td><td>Peças de manutenção de equipamento · acessórios consumíveis de ferramentas</td></tr>
+    <tr><td><span class="pill ok">EPI</span></td><td>EPI · Uniforme/Fardamento (subconta separada, sem CA)</td></tr>
+    <tr><td><span class="pill info">Escritório / Cozinha / Desp. Fixas / Cortesia</span></td><td>Apoio — Escritório, Cozinha, Limpeza e Cortesia</td></tr>
+  </table></div>
+
+  <!-- PROXIMOS PASSOS -->
+  <h2><span class="n">8</span>Próximos passos</h2>
+  <ul class="clean">
+    <li><b>Validar 33 itens de baixa confiança</b> — conferir com a oficina os casos ambíguos listados no CSV (ex.: Copo Cristal copa × mistura; as duas "Resina Laminação").</li>
+    <li><b>Modelar o 2º nível</b> — adicionar <code>parentId</code> em <code>ItemCategory</code> (auto-relação) para Categoria → Subcategoria, sem nova tabela.</li>
+    <li><b>Migrar via CSV</b> — aplicar o <code>itens-classificados.csv</code> gerado (729 itens), iniciando pelos 174 sem categoria e pelos baldões.</li>
+    <li><b>Promover atributos</b> — granulometria, bitola, cor do vinil e tamanho como campos de atributo, não como categorias.</li>
+    <li><b>Mapear categoria → grupo contábil</b> — popular o campo na <code>TransactionCategory</code> para que compras de itens caiam sozinhas no grupo de custo certo.</li>
+  </ul>
+
+  <footer>
+    Análise gerada por workflow multi-agente (31 agentes) sobre o dump <code>safety_ankaa_dev_20260528</code>, o código de produção/tintas/plotagem e o plano de contas (PDF).<br/>
+    Classificação completa dos 729 itens em <code>Working Files/itens-classificados.csv</code>. Estilo alinhado ao design system Ankaa (verde-700 · Inter).
+  </footer>
+</div>
+</body>
+</html>

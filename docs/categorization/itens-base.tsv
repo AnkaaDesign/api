@@ -1,0 +1,729 @@
+idx	uniCode	nome	categoriaAtual	marca	qtd	ppeType
+1		Rebite Rosca Lisa	(sem)	Genérico	1200	
+2		Soquete Sextavado 16 Longo	(sem)	Genérico	2	
+3	002	Garrafa Quadrada	Material/REGULAR	Genérico	30	
+4	UC296	Vermelho Transparente	Pigmento/REGULAR	Farben	6.9878	
+5	UC619	Perolizado Lilas	Pigmento/REGULAR	Farben	7.701	
+6		Calça - 42	Epi/PPE	Via Grafit	0	PANTS
+7		Ouro Villa Rica	Tinta/REGULAR	Lazzuril	1	
+8	AC172	Amarelo Ouro	Pigmento/REGULAR	Farben	3.5093999999999994	
+9		Luva Neoprene - M	(sem)	Volk	31	GLOVES
+10		Soquete Sextavado 15 Longo	(sem)	Genérico	2	
+11	550-15	Copo Pistola de Pintura	Ferramenta/TOOL	Pdr	28	
+12	4800.300	Prata Vinilico Brilhante	Tinta/REGULAR	Saturno	10	
+13	25x4,2mm	Parafuso Philips Brocante flangeado	Material/REGULAR	Vila	500	
+14		Soquete Hexagonal 7	Ferramenta/TOOL	Gedore	0	
+15		Calça - 48	Epi/PPE	Via Grafit	4	PANTS
+16	DG-10	Bico de Ar	Ferramenta/TOOL	Steels	6	
+17		Espatula Feltro	(sem)	Genérico	5	
+18	543.010	Verniz Pu Auto S/FO (900ml)	Verniz/REGULAR	Farben	2	
+19	GWS -8 LI5	Esmerilhadeira Bat/11.000rpm	Ferramenta/TOOL	Bosch	1	
+20	43612	Combinada Speedy 16	Ferramenta/TOOL	Sata	1	
+21	08780	Aditivo Anticratera	(sem)	Lazzuril	13	
+22	UC624	Xirallic Galaxy Blue	Pigmento/REGULAR	Farben	1	
+23	0068	Acelerador de Secagem	Endurecedor/REGULAR	Lazzuril	0	
+24		Bermuda - 36	Epi/PPE	Via Grafit	1	
+25		Soquete Sextavado 12 Longo	(sem)	Genérico	1	
+26		Camisa - GG	Epi/PPE	Via Grafit	8	SHIRT
+27	PRO-300	Martelete Pneumatico	(sem)	Genérico	1	
+28	ph2s2	kit Bits Phhillips	Ferramenta/TOOL	Gross	1	
+29		Aplicador Calafetador Manual	Ferramenta/TOOL	Genérico	1	
+30		Galocha - 41	Epi/PPE	Kadesh	1	RAIN_BOOTS
+31		Soquete Sextavado 13 Longo	(sem)	Genérico	1	
+32	7 degraus	Escada de Alumínio	Ferramenta/TOOL	Outra	4	
+33		Pistola Pintura K3	(sem)	Genérico	4	
+34	REB40-04M	Manômetro	Peça/REGULAR		13	
+35		Botina Reposição - 37	Epi/PPE	Kadesh	0	BOOTS
+36	651 #049	Adesivo Vinil King Blue	Material/REGULAR	Oracal	20.5	
+37		Pacote Papel Higiênico c/ 8 unidades	Cozinha/REGULAR	Pop	7	
+38	F390.05	Verniz	Verniz/REGULAR	PPG	0	
+39	H0010	Endurecedor Verniz Fosco	Endurecedor/REGULAR	Lazzuril	37	
+40	113.0050	Clear Pu	Base/REGULAR	Farben	3	
+41	3,5m x 2,5cm	Cinta Catraca Pequena	Ferramenta/TOOL	Genérico	1	
+42	3/8	Extensor p/ Soquete pequeno	Ferramenta/TOOL	Robustec	1	
+43	T-27	Chave Torx 27	Ferramenta/TOOL		1	
+44	8937	Verniz	Verniz/REGULAR	Lazzuril	18	
+45		Chave Catraca Grande	Ferramenta/TOOL	Gedore	1	
+46	DWE300-	Serra Tico Tico	Ferramenta/TOOL	Dewalt	1	
+47		Chave Catraca Media	Ferramenta/TOOL	Gedore	1	
+48		Espatula Celuloide	(sem)	Lazzuril	0	
+49	UC269	Vermelho Intenso	Pigmento/REGULAR	Farben	4.123999999999998	
+50	Preta- s/pó	Caixa Luva Nitrílica G	Epi/PPE	Bompack	3	GLOVES
+51		Adesivo Preto Jateado	Material/REGULAR	Altak	20	
+52	UC580	Solução Ajuste Metalico	Pigmento/REGULAR	Farben	16.304999999999986	
+53	271	Trava Rosca	Ferramenta/TOOL	Loctite	1	
+54	RE40-04	Regulador de Pressão	(sem)	Vortex	36	
+55	651 #010	Adesivo Vinil White	Material/REGULAR	Oracal	12	
+56		Garra Jacaré 600a	Ferramenta/TOOL	Genérico	2	
+57	AC177	Azul	Pigmento/REGULAR	Farben	4.384799999999994	
+58		Lixa Hookit P320	Abrasivos/REGULAR	3M	500	
+59	Branca c/pó	Caixa Luva Látex-M	Epi/PPE	Bompack	1	GLOVES
+60	19x4,2mm	Parafuso philips Brocante Flangeado	Material/REGULAR	Genérico	208	
+61	UC609	Perolizado Vermelho Graudo	Pigmento/REGULAR	Farben	15.874300000000002	
+62	GWS-9	Esmerilhadeira	Ferramenta/TOOL	Bosch	1	
+63		Creme Desengraxante	Consumível/REGULAR	Mavaro	1	
+64	UC268	Vermelho Scarlat Transparente	Pigmento/REGULAR	Farben	4.994	
+65	Direita 	Faixa Refletiva 3M .	Material/REGULAR	3M	40	
+66		Combinada 16	Ferramenta/TOOL	Gedore	0	
+67		Soquete Sextavado 8	(sem)	Genérico	1	
+68		Bermuda - 48	Epi/PPE	Gourmet	5	SHORT
+69	702	Rebite Rosca Sextavado 630	(sem)	Genérico	200	
+70		Parafuso Allen M06 X 0,40	(sem)	Genérico	100	
+71	513.030	Prime PU P/plas 1k (3,6L)	Pigmento/REGULAR	Farben	10	
+72		Combinada Catraca 12	Ferramenta/TOOL	Gedore	0	
+73		Botina Reposição - 39	Epi/PPE	Kadesh	2	BOOTS
+74		Botina Reposição - 41	Epi/PPE	Kadesh	3	BOOTS
+75		Botina Reposição - 35	Epi/PPE	Kadesh	0	BOOTS
+76	536.8540	 Acrilico Preto Cadillac	Base/REGULAR	Farben	22	
+77		Alicate Pressão	Ferramenta/TOOL	Gedore	2	
+78		Chave Biela L12	Ferramenta/TOOL	Gedore	0	
+79		Soquete Sextavado 9	(sem)	Genérico	1	
+80	UC273	Amarelo Limpo	Pigmento/REGULAR	Farben	7.7737	
+81	A4	Pacote Papel Sulfite	(sem)	Report	0	
+82	1/2	Extensão P/ Soquete Pequeno	Ferramenta/TOOL	Gedore	1	
+83	33-9	Rebite de Repuxo 630	(sem)	Genérico	200	
+84		Bermuda - 44	Epi/PPE	Gourmet	7	SHORT
+85		Parafuso Sextavado Inox 5/16x1	(sem)	Genérico	100	
+86	P/	Banqueta Dobravel	(sem)	Vonder	0	
+87		Parafuso Sextavado Inox 5/16 X 7/8	(sem)	Genérico	100	
+88		Chave Biela L16	Ferramenta/TOOL	Gedore	1	
+89	3402.04	Flexibilizante	(sem)	PPG	0	
+90	t20	Soquete Torx T-20	Ferramenta/TOOL	Genérico	1	
+91	021	Adesivo Vinil Yellow	Material/REGULAR	Oracal	2	
+92	AC176	Vermelho Oxido	Pigmento/REGULAR	Farben	3.838500000000001	
+93	D8115.11	Verniz Fosco	Verniz/REGULAR	PPG	11	
+94		Primer Multfill	(sem)	PPG	2	
+95		Lixa Folha D'agua P400	Abrasivos/REGULAR	3M	800	
+96	400gr	Refil de Gás	(sem)	Eos	0	
+97	ANC50	Base Branca	Base/REGULAR	Farben	39	
+98		Chave Biela L14	Ferramenta/TOOL	Gedore	1	
+99	ANC55	Clear Laca	Base/REGULAR	Farben	72.76920000000003	
+100		Tinta para impressora	Escritório/REGULAR	Epson	4	
+101	00065	Endurecedor	Endurecedor/REGULAR	Lazzuril	0	
+102	UC297	Azul Esverdeado	Pigmento/REGULAR	Farben	4	
+103	APA85	Clear Acrilico	Base/REGULAR	Farben	50.8333	
+104		Chave Biela L13	Ferramenta/TOOL	Gedore	1	
+105		Galocha - 39	Epi/PPE	Kadesh	3	RAIN_BOOTS
+106	GA5010	Esmerilhadeira	Ferramenta/TOOL	Makita	1	
+107		Lixa Folha 320	Abrasivos/REGULAR	3M	1800	
+108	43611	Combinada Speedy 15	Ferramenta/TOOL	Sata	1	
+109	DMB9300	Faixa Refletiva Lateral Direita	(sem)	Dm	900	
+110		Chave Canhão 11	Ferramenta/TOOL	Gedore	0	
+111	UC284	Amarelo Oxido	Pigmento/REGULAR	Farben	6.053799999999999	
+112		Chave Canhão 10	Ferramenta/TOOL	Gedore	0	
+113		Mangueira Irrigação	(sem)	Genérico	100	
+114	UC612	Xirallic Solaris Red	Pigmento/REGULAR	Farben	2	
+115		Esquadro Carpinteiro	Ferramenta/TOOL	Starret	1	
+116		Balde P/ Pçs de Varão	(sem)	Gerplast	13	
+117	UC295	Vermelho Extra Limpo	Pigmento/REGULAR	Farben	14	
+118		Chave Biela L9	Ferramenta/TOOL	Gedore	1	
+119		Lamina Norma	(sem)	Genérico	1319	
+120	4478	Resina Laminação	Endurecedor/REGULAR	Mercure Tintas	5	
+121		Soquete Sextavado 19	Ferramenta/TOOL	Gedore	1	
+122	UC101	Branco Especial	Pigmento/REGULAR	Farben	0	
+123		Rolo Fibra Sintética	(sem)	Riberfibras	1	
+124		Soquete Hexagonal 5	Ferramenta/TOOL	Gedore	3	
+125	AC121	Violeta	Pigmento/REGULAR	Farben	3.7863000000000007	
+126	UC675	Aluminio Super Graúdo	Pigmento/REGULAR	Farben	6.9674	
+127	4800.010	Amarelo Limão Vinilico Brilhante	Tinta/REGULAR	Saturno	12	
+128	4800.012	Amarelo Médio Vinilico Brilhante	Tinta/REGULAR	Saturno	7	
+129		Solvente Vinilico	Diluente/REGULAR	Petrus	2	
+130		Calça	Epi/PPE	Gourmet	16	PANTS
+131	UC112	Amarelo Ouro Especial	Pigmento/REGULAR	Farben	0	
+132	Esquerdo	Faixa Refletiva 3M	Material/REGULAR	3M	20	
+133		Chave Biela L19	Ferramenta/TOOL	Gedore	0	
+134		Conjunto Chave Allen	Ferramenta/TOOL	Gedore	0	
+135		Rebite de Repuxo 619	(sem)	Genérico	192	
+136		Lixa Hookit P400	Abrasivos/REGULAR	3M	150	
+137	4800.235	Azul Anil Vinilico Brilhante	Tinta/REGULAR	Saturno	1	
+138	4800.237	Azul Médio Vinilico Brilhante	Tinta/REGULAR	Saturno	6	
+139		Funil Reto	(sem)	Kala	2	
+140		Chave Biela L11	Ferramenta/TOOL	Gedore	1	
+141		Condulete Pvc Preto	(sem)	Hidrossol	20	
+142		Abraçadeira Radial Inox	Peça/REGULAR	Genérico	222	
+143		Lampada Led	(sem)	Taschibra	0	
+144		Chave Biela L15	Ferramenta/TOOL	Gedore	1	
+145		Chave Biela L17	Ferramenta/TOOL	Gedore	1	
+146	UC627	Perolizado Azul Esverdeado	Pigmento/REGULAR	Farben	11	
+147	USB Tipo-C3.0	Cabo Flexivel tipo-C	Elétrico/REGULAR	Genérico	12	
+148		Plugue Macho	(sem)	Genérico	3	
+149	UC645	Aluminio Graudo	Pigmento/REGULAR	Farben	16.8497	
+150	UC115	Laranja Especial	Pigmento/REGULAR	Farben	0	
+151	LL117	Laranja	Pigmento/REGULAR	Lazzuril	12	
+152	LL130	Branco	Pigmento/REGULAR	Lazzuril	4	
+153	LL143	Vermelho Oxido	Pigmento/REGULAR	Lazzuril	3	
+154		Garra Jacaré 400a	Ferramenta/TOOL	Rotony	0	
+155		Pacote Estopa	Consumível/REGULAR	Brasil Sul	22	
+156		Disco Hookit 800	Ferramenta/TOOL	Norton	0	
+157	GR2000	Disco Finishing Foam	Ferramenta/TOOL	Norton	0	
+158		Alicate de Corte	Ferramenta/TOOL	Gedore	3	
+159		Palha de Aço	(sem)	Vega	91	
+160		Carvão Em Pó	Material/REGULAR	Genérico	0	
+161	LL128	Vermelho	Pigmento/REGULAR	Lazzuril	0	
+162		Lixa Folha 80	Abrasivos/REGULAR	3M	1550	
+163	LL112	Preto	Pigmento/REGULAR	Lazzuril	0	
+164	S/Furo	Disco Trizact Espuma 3000	Ferramenta/TOOL	Nk	0	
+165		Disco Trizact 1500	Ferramenta/TOOL	3M	0	
+166		Combinada 14	Ferramenta/TOOL	Gedore	1	
+167		Chave Biela L18	Ferramenta/TOOL	Gedore	1	
+168		Combinada Catraca 14	Ferramenta/TOOL	Gedore	1	
+169	200x4,6mm	Abraçadeira Nylon Preta	Material/REGULAR	Genérico	7	
+170	UC257	Azul Limpo Esverdeado	Pigmento/REGULAR	Farben	0	
+171		Lixa Hookit P500	Abrasivos/REGULAR	3M	400	
+172		Kit de Rodas	Ferramenta/TOOL	Rodline	1	
+173		Combinada 8	Ferramenta/TOOL	Gedore	1	
+174		Botina - 44	Epi/PPE	Ecosafety	3	BOOTS
+175	RSGU1	Abraçadeira Emborrachada	Peça/REGULAR	Norma	12	
+176	106m	Adesivo 	Material/REGULAR	Hcr	3	
+177	Branca c/pó	Caixa Luva Látex-G	Epi/PPE	Bompack	1	GLOVES
+178	H38	Endurecedor P/ Spectra	Endurecedor/REGULAR	Lazzuril	52	
+179		Lixa Hookit P800	Abrasivos/REGULAR	Maverick	150	
+180	102x121mm - 14mm	Abraçadeira Inox Fita	Peça/REGULAR	Genérico	10	
+181	DC18	Carregador de Bateria	Ferramenta/TOOL	Makita	1	
+182	UC262	Amarelo Alaranjado	Pigmento/REGULAR	Farben	0	
+183	43610	Combinada Speedy 14	Ferramenta/TOOL	Sata	1	
+184		Suporte Reforçado	(sem)	Genérico	1	
+185	UC264	Laranja Limpo	Pigmento/REGULAR	Farben	0	
+186	UNC 5/16"	Macho	Ferramenta/TOOL	Rocast	1	
+187		Fita Led	(sem)	Genérico	0	
+188		Soquete Sextavado 32	Ferramenta/TOOL	Gedore	1	
+189		Soquete Sextavado 11 Longo	(sem)	Genérico	1	
+190		Lamina Plotter	(sem)	Rolland	20	
+191		Bobina Filme Stretch	Consumível/REGULAR	Genérico	2	
+192	SP-40	Engate Rapido Fêmea	(sem)	Japonês	33	
+193	25mts	Bobina Papel Ondulado	Consumível/REGULAR	Genérico	0	
+194	57x76mm - 13mm	Abraçadeira Inox Fita	Peça/REGULAR	Genérico	14	
+195		Combinada 18	Ferramenta/TOOL	Gedore	0	
+196		Combinada 6	Ferramenta/TOOL	Gedore	0	
+197		Combinada 21	Ferramenta/TOOL	Gedore	0	
+198		Combinada 20	Ferramenta/TOOL	Gedore	0	
+199		Combinada 7	Ferramenta/TOOL	Gedore	0	
+200	573.950	Endurecedor Pu	Endurecedor/REGULAR	Farben	193	
+201		Combinada Catraca 8	Ferramenta/TOOL	Gedore	0	
+202	1/2	Soquete Sextavado 17	Ferramenta/TOOL	Gedore	2	
+203	AC178	Verde	Pigmento/REGULAR	Farben	3.5036	
+204		Combinada Catraca 9	Ferramenta/TOOL	Gedore	0	
+205	57x76mm - 9mm	Abraçadeira Inox Fita	Peça/REGULAR	Genérico	10	
+206	UC265	Laranja Orgânico	Pigmento/REGULAR	Farben	0	
+207	128gb	Cartão de Memória	Escritório/REGULAR	Sandisk	0	
+208	NH2	Serra Marmore	Ferramenta/TOOL	Makita	1	
+209	UC289	Vermelho Pleno	Pigmento/REGULAR	Farben	0	
+210		Combinada 22	Ferramenta/TOOL	Gedore	1	
+211		Galocha - 45	Epi/PPE	Kadesh	1	RAIN_BOOTS
+212		Sacola Plástica	(sem)	Genérico	1	
+213		Calça - 38	Epi/PPE	Via Grafit	2	PANTS
+214	1/2	Soquete Sextavado 15	Ferramenta/TOOL	Gedore	2	
+215		Combinada 32	Ferramenta/TOOL	Sata	1	
+216		Bermuda - 38	Epi/PPE	Via Grafit	5	PANTS
+217		Bermuda - 40	Epi/PPE	Via Grafit	3	PANTS
+218		Kit Bateria 4,0ah	Ferramenta/TOOL	Bosch	1	
+219		Pigmento Fluorescente Amarelo	Pigmento/REGULAR	Saturn	20	
+220	C/50	Pacote Pincel de Retoque	Consumível/REGULAR	Genérico	2	
+221		Espaguete Termoretratil	(sem)	Genérico	0	
+222	18v/3.0ah	Baterias 3,0ah	Ferramenta/TOOL	Makita	5	
+223	32x44mm - 13mm	Abraçadeira Inox Fita	Peça/REGULAR	Genérico	12	
+224	UC604	Xirallic Gold	Pigmento/REGULAR	Farben	0	
+225		Pistola Pintura	(sem)	Wwsoldas	2	
+226		Combinada 15	Ferramenta/TOOL	Gedore	1	
+227		Calça - 36	Epi/PPE	Via Grafit	12	PANTS
+228		Lixa Hookit P40	Abrasivos/REGULAR	3M	350	
+229	9cm	Rolo anti respingo	(sem)	Roma	32	
+230		Trava Porta Macho	(sem)	Genérico	0	
+231		Camisa - P	Epi/PPE	Via Grafit	33	SHIRT
+232		Pigmento Flourescente Verde	Pigmento/REGULAR	Saturn	2	
+233	509.080	Solução Flexibilizante	Diluente/REGULAR	Farben	10	
+234		Arame Galvanizado	Material/REGULAR	Genérico	2	
+235	Atmega328	Arduino Nano	Elétrico/REGULAR	Genérico	3	
+236		Trava Porta Fêmea	(sem)	Genérico	0	
+237		Broca P/ Martelet	Ferramenta/TOOL	Genérico	2	
+238	43609	Combinada Speedy 13	Ferramenta/TOOL	Sata	1	
+239	455KGFM PRO-198	Chave de Impacto	Ferramenta/TOOL	Pdr	0	
+240		Bermuda - 44	Epi/PPE	Via Grafit	1	PANTS
+241		Bermuda - 46	Epi/PPE	Via Grafit	4	PANTS
+242		Bermuda - 48	Epi/PPE	Via Grafit	0	PANTS
+243	UC607	Perolizado Bronze	Pigmento/REGULAR	Farben	0	
+244		Galocha - 46 	Epi/PPE	Kadesh	0	RAIN_BOOTS
+245		Lixa Folha 600	Abrasivos/REGULAR	3M	350	
+246	CD88171913	Elemento Filtro de Ar	Peça/REGULAR	Genérico	1	
+247	UC613	Xirallic Copper	Pigmento/REGULAR	Farben	0	
+248		Arame Recozido N°14	Material/REGULAR	Gerdau	1	
+249	CD39329602	Filtro de Oleo	(sem)	Genérico	1	
+250		Bermuda - 36	Epi/PPE	Gourmet	4	SHORT
+251	NA8	Morsa	Ferramenta/TOOL	Nocram Marcon	0	
+252	duo/	Trena Dewalt Emb	Ferramenta/TOOL	Genérico	0	
+253		Chapa Compensado Fenólico	Material/REGULAR	Genérico	0	
+254	573.009	Endurecedor Pu	Endurecedor/REGULAR	Farben	11	
+255		Bermuda - 42	Epi/PPE	Gourmet	7	PANTS
+256	CD24121212	Elemento Separador Ar/oleo	Peça/REGULAR	Genérico	1	
+257		Trena 8m	(sem)	Lufkin	6	
+258		Conjunto Mancal Extremidade	(sem)	Genérico	0	
+259	4 Furos	Conjunto Mancal Intermediário	(sem)	Genérico	0	
+260	PR539	Fita Crepe Uso Geral	(sem)	Farben	0	
+261	2 Furos	Conjunto Mancal Intermediário	(sem)	Genérico	0	
+262		Massa Poliester	(sem)	Farben	0	
+263		Botina Reposição - 44	Epi/PPE	Kadesh	2	BOOTS
+264	PJK1351	Plotter de Recorte	Ferramenta/TOOL	Velve	4	
+265	UC291	Vermelho Limpo	Pigmento/REGULAR	Farben	7.846799999999998	
+266	32x44 - 9mm	Abraçadeira Inox Fita	Peça/REGULAR	Genérico	9	
+267	PRO-406	Hookit	(sem)	Pdr	1	
+268	18v/5.0ah	Bateria 5.0ah	Ferramenta/TOOL	Bosch	4	
+269		Soquete Torx T-45	Consumível/REGULAR	King Tony	24	
+270	045	Wash Primer	(sem)	Lazzuril	9	
+271	UC614	Xirallic Branco Cristal	Pigmento/REGULAR	Farben	0	
+272	9x13mm - 9mm	Abraçadeira Inox Fita	Peça/REGULAR	Genérico	18	
+273	m14	Adapitador Boina Polimento	Ferramenta/TOOL	Makita	1	
+274		Mandril P/ Martelet	Ferramenta/TOOL	Genérico	0	
+275		Arame Recozido N°18	Material/REGULAR	Gerdau	2	
+276	UC628	Perolizado Verde	Pigmento/REGULAR	Farben	17	
+277		Intercap	Consumível/REGULAR	Genérico	4	
+278		Bandeija P/pintura	(sem)	Genérico	0	
+279	AC186	Vinho Oxido	Pigmento/REGULAR	Farben	7	
+280		Combinada 17	Ferramenta/TOOL	Gedore	1	
+281	30/degraus	Escada de Aluminio	Ferramenta/TOOL	Outras	1	
+282		Bermuda - 38	Epi/PPE	Gourmet	2	SHORT
+283		Bermuda - 40	Epi/PPE	Gourmet	9	SHORT
+284	D8117.11	Verniz Semi Brilho	Verniz/REGULAR	PPG	14	
+285	509.080	Flexibilizante	(sem)	Farben	10	
+286	423	Fita Crepe Uso Geral	(sem)	Adere	1645	
+287		Bermuda - 46	Epi/PPE	Gourmet	4	SHORT
+288		Botina - 45	Epi/PPE	Ecosafety	2	BOOTS
+289		Alicate Universal	Ferramenta/TOOL	Gedore	2	
+290		Luva Redução	(sem)	Gedore	19	
+291		Conexão Te Galv	(sem)	Genérico	6	
+292		Camisa - EXG	Epi/PPE	Via Grafit	10	SHIRT
+293		Conexão Cotov 90°galv	(sem)	Genérico	8	
+294		Galocha - 44	Epi/PPE	Kadesh	4	RAIN_BOOTS
+295		Soquete Hexagonal 6	Ferramenta/TOOL	Gedore	4	
+296	SGT-1013	Aplicador Calafetador Pneumático	Ferramenta/TOOL	Sigma	2	
+297		Combinada Catraca 16	Ferramenta/TOOL	Gedore	1	
+298		Combinada Articulada 11	Ferramenta/TOOL	Belzer	1	
+299		Combinada Articulada 10	Ferramenta/TOOL	Belzer	1	
+300		Bit T-27	Consumível/REGULAR	King Tony	52	
+301		Chave Philips Média	Ferramenta/TOOL	Genérico	1	
+302	MM-1001	Motoesmiril 1,0cv/220v	Ferramenta/TOOL	Motomil	1	
+303		Macacão de Segurança	(sem)	Vicsa	7	
+304		Calça - 46	Epi/PPE	Via Grafit	1	PANTS
+305	UC292	Laranja Imp	Pigmento/REGULAR	Farben	2	
+306	5T/	Cinta Catraca P/marração	Ferramenta/TOOL	Robustec	1	
+307	UC253	Amarelo Limão Imp	Pigmento/REGULAR	Farben	2	
+308	UC615	Perolizado Branco Graúdo	Pigmento/REGULAR	Farben	0	
+309		Combinada Articulada 12	Ferramenta/TOOL	Belzer	1	
+310		Galocha - 40	Epi/PPE	Kadesh	5	BOOTS
+311	UC252	Amarelo Ouro Imp	Pigmento/REGULAR	Farben	2	
+312		Saco de lixo 60 lts	Cozinha/REGULAR	Genérico	4	
+313		Soquete Sextavado 7 Longo	Ferramenta/TOOL	Genérico	1	
+314	UC623	Xirallic Stellar Green	Pigmento/REGULAR	Farben	0	
+315		Suporte de Mangueira	(sem)	Tramontina	5	
+316	SKU:SNUGG	Manguito - M	Epi/PPE	Pro Tour	8	SLEEVES
+317	1Kg	Estopa de Pano	Consumível/REGULAR		350	
+318	UC652	Alumínio Extra Fino Brilhante	Pigmento/REGULAR	Farben	0	
+319	543.005	Verniz Pu Acrilico Fosco	Verniz/REGULAR	Farben	12	
+320		Luva de Vaqueta	Epi/PPE	Nacionalplus	1	
+321		Lixa Folha 220	Abrasivos/REGULAR	3M	1100	
+322		Combinada Articulada 15	Ferramenta/TOOL	Belzer	1	
+323		Soquete Sextavado 8 Longo	(sem)	Genérico	1	
+324		Soquete Sextavado 9 Longo	(sem)	Genérico	1	
+325	5L	Pulverizador de Pressão	Ferramenta/TOOL	Genérico	1	
+326	18v/6.0ah	Bateria 6.0ah	Ferramenta/TOOL	Makita	3	
+327	490	Diluente Alta Temperatura	Diluente/REGULAR	Lazzuril	7	
+328		Botina - 43	Epi/PPE	Ecosafety	5	BOOTS
+329	031	Par Protetor Auric. Auditivo	Epi/PPE	Valeplast	22	OTHERS
+330		Camiseta	Epi/PPE	Gourmet	13	SHIRT
+331		Camiseta	Epi/PPE	Gourmet	14	SHIRT
+332	UC650	Alumínio Fino	Pigmento/REGULAR	Farben	0	
+333	UC611	Xirallic Radiant Red	Pigmento/REGULAR	Farben	0	
+334	GR80 4- x	Disco Flap	Abrasivos/REGULAR	Tyrolit	0	
+335		Boné Cinza e Verde	Cortesia/REGULAR	Genérico	17	
+336	UC653	Alumínio Fino Limpo	Pigmento/REGULAR	Farben	0	
+337		Combinada Catraca 17	Ferramenta/TOOL	Gedore	1	
+338		Chave Canhão 5	Ferramenta/TOOL	Gedore	1	
+339	3/16 in	Lixadeira Orbital	Ferramenta/TOOL	3M	3	
+340	5000	Retentor Para Máscara	Epi/PPE	3M	20	OTHERS
+341	UC276	Marrom Transparente	Pigmento/REGULAR	Farben	6.2749999999999995	
+342	DR6-006	Base Hookit	Peça/REGULAR	Ldr2	41	
+343	t27	Soquete Torx T-27	Ferramenta/TOOL	Genérico	2	
+344	D854.11	Seladora Poliuretano	(sem)	PPG	8	
+345	513.000	Primer Pu 3000	(sem)	Farben	1	
+346	UC606	Perolizado Amarelo	Pigmento/REGULAR	Farben	12.996500000000003	
+347		Camiseta	Epi/PPE	Gourmet	45	SHIRT
+348	UC680	Aluminio Brilhante	Pigmento/REGULAR	Farben	32.36619999999999	
+349		Bermuda - 42	Epi/PPE	Via Grafit	3	PANTS
+350	a-36	Suporte para Pistola	Material/REGULAR		30	
+351	UC694	Alumínio Orange	Pigmento/REGULAR	Farben	0	
+352	573.950	Endurecedor Pu Alif	Endurecedor/REGULAR	Farben	2	
+353		Bota Pvc - 42	(sem)	Genérico	3	BOOTS
+354		Combinada 10	Ferramenta/TOOL	Gedore	1	
+355	508.200	Massa Poliester	(sem)	Farben	0	
+356		Boné Cinza C/ Tela	Cortesia/REGULAR	Genérico	16	
+357		Botina - 35	Epi/PPE	Ecosafety	2	BOOTS
+358	7/32	Soquete allen 7/32	Ferramenta/TOOL	Gedore	6	
+359	UC288	Verde	Pigmento/REGULAR	Farben	7.8997000000000055	
+360		Combinada 11	Ferramenta/TOOL	Gedore	1	
+361		Refletor Led	Ferramenta/TOOL	Genérico	2	
+362	GR40 4- X	Disco Flap Tyrolit	Abrasivos/REGULAR	Tyrolit	18	
+363		Combinada 13	Ferramenta/TOOL	Gedore	1	
+364		Calça	Epi/PPE	Gourmet	4	PANTS
+365	UC695	Alumínio Cobre	Pigmento/REGULAR	Farben	0	
+366		Calça	Epi/PPE	Gourmet	37	PANTS
+367	6003	Par de Cartucho Para Máscara	Epi/PPE	3M	8	OTHERS
+368	513.030	Primer Pu P/plas 1k (900ml)	Pigmento/REGULAR	Farben	0	
+369	557.000-198	Thinner 7000	Diluente/REGULAR	Farben	2	
+370		Lixa Folha 150	Abrasivos/REGULAR	3M	1500	
+371		Bit T-45	Consumível/REGULAR	King Tony	195	
+372	43608	Combinada Speedy 12	Ferramenta/TOOL	Sata	1	
+373		Chave Canhão 4	Ferramenta/TOOL	Gedore	1	
+374		Chave Canhão 9	Ferramenta/TOOL	Gedore	1	
+375		Combinada Articulada 17	Ferramenta/TOOL	Belzer	1	
+376	UC283	Amarelo Limão	Pigmento/REGULAR	Farben	19.126100000000005	
+377		Chave Canhão 12	Ferramenta/TOOL	Gedore	1	
+378	UC266	Castanho Transparente	Pigmento/REGULAR	Farben	7	
+379		Chave Canhão 13	Ferramenta/TOOL	Gedore	1	
+380	7501	Máscara Semi Facial Pequena	(sem)	Genérico	15	
+381		Combinada Catraca 19	Ferramenta/TOOL	Gedore	1	
+382		Combinada Catraca 22	Ferramenta/TOOL	Gedore	1	
+383		Combinada Catraca 24	Ferramenta/TOOL	Gedore	1	
+384		Combinada Articulada 18	Ferramenta/TOOL	Belzer	1	
+385		Combinada Articulada 19	Ferramenta/TOOL	Belzer	1	
+386		Botina - 41	Epi/PPE	Ecosafety	6	BOOTS
+387	SKU:SNUGG	Manguito - P	Epi/PPE	Pro Tour	1	SLEEVES
+388	004	Garrafa Quadrada	Material/REGULAR	Genérico	30	
+389		Chave Canhão 14	Ferramenta/TOOL	Gedore	1	
+390	AJ008	Aerógrafo	Ferramenta/TOOL	Vonder	10	
+391		Lixa Folha D'agua P320	Abrasivos/REGULAR	3M	100	
+392	3487	Manta de Fibra de Vidro	Consumível/REGULAR	MassaFix	4	
+393	UC221	Violeta	Pigmento/REGULAR	Farben	5.1388	
+394	PR539	Fita Crepe Premium Azul	(sem)	Farben	108	
+395		Chave Canhão 8	Ferramenta/TOOL	Gedore	0	
+396		Combinada Articulada 9	Ferramenta/TOOL	Belzer	1	
+397		Lixa Hookit P80	Abrasivos/REGULAR	3M	200	
+398		Luva Neoprene - G	(sem)	Volk	48	GLOVES
+399	15cm	Rolo Antirespingo	(sem)	Roma	44	
+400	1777-4	Escova de Aço Latonado	(sem)	Acr	133	
+401	UC270	Preto Intenso	Pigmento/REGULAR	Farben	12.974700000000002	
+402	AC180	Preto	Pigmento/REGULAR	Farben	5.374800000000027	
+403	UC293	Verde Amarelado	Pigmento/REGULAR	Farben	7	
+404	UC626	Perolizado Azul Fino	Pigmento/REGULAR	Farben	7	
+405	PRO-534	Pistola de Pintura	(sem)	Pdr	13	
+406		Conjunto Trava Porta Pequeno	(sem)		11	
+407	PFF2-	Respirador Descartável - C/ Válvula	Epi/PPE	Camper	25	OTHERS
+408	AC189	Rosa	Pigmento/REGULAR	Farben	1.9078	
+409		Arruela Pressão Média 5/16	Material/REGULAR	Genérico	122	
+410	UC275	Rosa	Pigmento/REGULAR	Farben	11.2566	
+411	GPO 14 CE	Politriz	Ferramenta/TOOL	Bosch	1	
+412	Preta- s/pó	Caixa Luva Nitrílica M	Epi/PPE	Bompack	4	GLOVES
+413		Camiseta	Epi/PPE	Gourmet	5	SHIRT
+414		Soquete Torx T-40 Longo	(sem)	Genérico	2	
+415	UC282	Amarelo Ouro	Pigmento/REGULAR	Farben	3.9943	
+416	577.000	Catalisador Wash Primer	Endurecedor/REGULAR	Farben	44	
+417		Copo 150 ML	Cozinha/REGULAR	Kerocopo	1	
+418		Arruela Lisa Zincada 5/16	Material/REGULAR	Genérico	1622	
+419		Arruela Lisa Zincada 1/4	Material/REGULAR	Genérico	864	
+420		Arruela Lisa Zincada 3/16	Material/REGULAR	Genérico	1000	
+421	DIN-912	Parafuso Allen Inox 10x25	(sem)	Genérico	200	
+422	UNC 3/	Parafuso Sextavado Zincado	(sem)	Genérico	900	
+423		Rebite de Repuxo 516	(sem)	Genérico	1000	
+424	18v/2.0ah	Bateria 2.0ah	Ferramenta/TOOL	Makita	4	
+425		Botina Reposição - 40	Epi/PPE	Kadesh	6	BOOTS
+426	4800.222	Verde Paris Vinilico Brilhante	Tinta/REGULAR	Saturno	5	
+427	4800.224	Verde Puro Vinilico Brilhante	Tinta/REGULAR	Saturno	7	
+428	4800.223	Verde Médio Vinilico Brilhante	Tinta/REGULAR	Saturno	2	
+429	PP	Caixa Pote Redondo	(sem)	Genérico	2	
+430		Verniz Viniclico Fosco	Verniz/REGULAR	Sicoltex	12	
+431	UC285	Laranja	Pigmento/REGULAR	Farben	2.8943999999999974	
+432		Verniz Vinilico Brilhante	Verniz/REGULAR	Sicoltex	7	
+433	4800.020	Laranja Vinilico Brilhante	Tinta/REGULAR	Saturno	4	
+434	UC610	Perolizado Bordo	Pigmento/REGULAR	Farben	10	
+435	UC620	Perolizado Cobre	Pigmento/REGULAR	Farben	7	
+436	1/2	Soquete Sextavado 13	Ferramenta/TOOL	Gedore	2	
+437	651 #070	Adesivo Vinil Black	Material/REGULAR	Oracal	10	
+438	AC173	Amarelo Limão	Pigmento/REGULAR	Farben	2.8958000000000004	
+439	C/500	Copo Cristal 145ml	Material/REGULAR	Genérico	2	
+440	UC648	Aluminio Super Fino	Pigmento/REGULAR	Farben	6	
+441	P85510	Tomada 20a Preta	(sem)	Alumbra Inova	20	
+442		Fita Dupla Face	Ferramenta/TOOL	3M	1	
+443	X	Fita Veda Rosca	Ferramenta/TOOL	Genérico	5	
+444		Power Bank Portátil 5000mAh sem fio 20W	Escritório/REGULAR	Basike	5	
+445	UC617	Perolizado Red Violet	Pigmento/REGULAR	Farben	6.945	
+446		Rolo de Lona Plastica	Consumível/REGULAR	Genérico	1	
+447		Lixa Folha D'agua P1200	Abrasivos/REGULAR	3M	300	
+448		Calça - 40	Epi/PPE	Via Grafit	1	PANTS
+449		Camisa - M	Epi/PPE	Via Grafit	26	SHIRT
+450	513.540	Primer Pu Fast Dry	(sem)	Farben	0	
+451		Chave Catraca Pequena	Ferramenta/TOOL	Gedore	0	
+452		Botina Reposição - 42	Epi/PPE	Kadesh	4	BOOTS
+453	UC294	Amarelo Transparente	Pigmento/REGULAR	Farben	7	
+454	UC279	Vermelho Avioletado	Pigmento/REGULAR	Farben	3.7279999999999998	
+455	LP550	Pu Branco	(sem)	Lazzuril	1	
+456		Peneira	(sem)	2001	0	
+457		Primer 8200	(sem)	Lazzuril	54	
+458	LP513	Pu Preto Intenso	(sem)	Lazzuril	0	
+459	VF001	Verniz Fosco	Verniz/REGULAR	Lazzuril	39	
+460	00950	Clear	Base/REGULAR	Lazzuril	0	
+461	F366.11	Endurecedor Primer Epoxi	Endurecedor/REGULAR	PPG	0	
+462	UC272	Amarelo Alaranjado	Pigmento/REGULAR	Farben	8.4936	
+463	517.600	Wash Primer	(sem)	Farben	7	
+464		Lapis 6b	(sem)	Genérico	9	
+465		Cavalete Para Pintura	(sem)	Genérico	0	
+466	END010	Endurecedor Medio PPG	Endurecedor/REGULAR	PPG	2	
+467	D803.11	Endurecedor Rapido PPG	Endurecedor/REGULAR	PPG	2	
+468	113.042	Preto Chassis	Tinta/REGULAR	Farben	12	
+469		Soquete Sextavado 18	(sem)	Genérico	1	
+470	UC655	Aluminio Médio	Pigmento/REGULAR	Farben	5.8428	
+471	302	Pincel Médio	(sem)	Roma	2	
+472	AC171	Branco	Pigmento/REGULAR	Farben	3.091200000000013	
+473		Soquete Sextavado 7	(sem)	Genérico	1	
+474	328	Máscara	(sem)	Adere	207	
+475		Massa Plastica	(sem)	2001	0	
+476	18v/2.0ah	Bateria 2.0ah	Ferramenta/TOOL	Bosch	3	
+477		Boné Cinza	Cortesia/REGULAR	Rhino Size	13	
+478	793	Super Bonder	Ferramenta/TOOL	Tekbond	8	
+479		Macho	Ferramenta/TOOL	Genérico	5	
+480	051	Endurecedor Wash Primer	Endurecedor/REGULAR	Lazzuril	62	
+481	70GR	Papel Kraft	(sem)	Genérico	286	
+482		Rolo de Fita Para Arquear	(sem)	Genérico	6	
+483	P85022	Tomada 20a Vermelha	(sem)	Alumbra Inova	20	
+484		Tampa P/ Condulete 2 Modulos	(sem)	Hidrossol	20	
+485		Esmalte Sintetico Branco	Tinta/REGULAR	Galle	11	
+486		Espatula de Aço	(sem)	Paceta	3	
+487	081	Seladora Plastico	(sem)	Lazzuril	1	
+488	Tek Lub	Desengripante	Ferramenta/TOOL	Tekbond	0	
+489	513.030	Primer Pu Cinza	(sem)	Farben	16	
+490	4800.001	Branco Vinilico Brilhante	Tinta/REGULAR	Saturno	1	
+491	480.9999	Preto Vinilico Brilhante	Tinta/REGULAR	Saturno	14	
+492		Calça	Epi/PPE	Gourmet	15	PANTS
+493		Soquete Sextavado 6	(sem)	Genérico	1	
+494		Selo Metalico Para Arquear	(sem)	Genérico	3	
+495	Preta- s/pó	Caixa Luva Nitrílica P	Epi/PPE	Talge	3	GLOVES
+496	SGT0738	Rebitadeira de Rosca Pneumatica	Ferramenta/TOOL	Sigma	1	
+497	UC685	Aluminio Medio Limpo	Pigmento/REGULAR	Farben	13.2458	
+498	UC274	Vermelho Azulado	Pigmento/REGULAR	Farben	6.843300000000001	
+499	UC298	Azul Escuro	Pigmento/REGULAR	Farben	8.2073	
+500	M10 15x10mm	Arruela zincada 10mm	Material/REGULAR		100	
+501		Pincel	(sem)	Atlas	18	
+502	PE	Bisnaga Plastico	(sem)	Nalgon	0	
+503	PE	Bisnaga Plastica	(sem)	Nalgon	0	
+504		Pá de Lixo Inox	(sem)	Genérico	0	
+505	GR x	Disco Flap Vila	(sem)	Vila	0	
+506	PR503	Pistola Pintura K3	(sem)	Pdr	0	
+507		Aerógrafo	Ferramenta/TOOL	Neoeco	0	
+508		Óculos de Proteção	Epi/PPE	Leopardo	3	OTHERS
+509		Balde Plástico	(sem)	Genérico	4	
+510		Camisa - G	Epi/PPE	Via Grafit	0	SHIRT
+511	UC297	Azul Esverdeado	Pigmento/REGULAR	Farben	2.2270000000000003	
+512	43605	Combinada Speedy 9	Ferramenta/TOOL	Sata	1	
+513	1/2	Soquete Sextavado 11	Ferramenta/TOOL	Gedore	2	
+514	43604	Combinada Speedy 8	Ferramenta/TOOL	Sata	1	
+515	651 #032	Adesivo Vinil Light Red	Material/REGULAR	Oracal	2	
+516	NK-65	Disco Pluma P2000 (polimento)	Ferramenta/TOOL	Genérico	2	
+517	AC175	Laranja	Pigmento/REGULAR	Farben	6.472199999999997	
+518		Bobina Papel Tkv	(sem)	Madruga	0	
+519		Calça - 44	Epi/PPE	Via Grafit	0	PANTS
+520	SKU:SNUGG	Manguito - G	Epi/PPE	Pro Tour	9	SLEEVES
+521		Boné Verde C/ Tela	Cortesia/REGULAR	Genérico	11	
+522	PU40	Adesivo Selante Cinza	(sem)	Autofix	0	
+523	PU40	Adesivo Selante Preto	(sem)	Autofix	0	
+524	200x2,5mm	Abraçadeira Nylon Preta	Material/REGULAR	Genérico	7	
+525		Chave Canhão 7	Ferramenta/TOOL	Gedore	0	
+526		Combinada 9	Ferramenta/TOOL	Gedore	1	
+527		Fita Filete Pvc	(sem)	Genérico	29	
+528		Nivel de Mão	Ferramenta/TOOL	Fertak	1	
+529		Combinada 19	Ferramenta/TOOL	Genérico	1	
+530	dg-10	Bico de Ar	(sem)	Luft	0	
+531		Chave Canhão 6	Ferramenta/TOOL	Gedore	1	
+532	4.1/	Disco de Corte	(sem)	Norton	0	
+533		Boné Verde	Cortesia/REGULAR	Genérico	14	
+534		Chave P/ Mandril	Ferramenta/TOOL	Genérico	1	
+535	150	Tripé P/ Nivel Á Laser	Ferramenta/TOOL	Genérico	1	
+536	DW088	Nivel Á Laser	Ferramenta/TOOL	Genérico	1	
+537	290.010	Removedor	Diluente/REGULAR	Farben	90	
+538	XXG	Macacão de Segurança	(sem)	Vicsa	5	
+539	P30 Branco	Primer Spectra 2k	(sem)	Lazzuril	21	
+540		Botina - 42	Epi/PPE	Ecosafety	9	BOOTS
+541	PR .7m	Pistola de Pintura	(sem)	Pdr	1	
+542	C/100	Pacote Saco de Lixo 200 lts	(sem)	Genérico	7	
+543	43615	Combinada Speedy 19	Ferramenta/TOOL	Sata	1	
+544		Rompedor/talhadeira	Ferramenta/TOOL	Genérico	1	
+545		Lanterna Led	(sem)	Genérico	1	
+546	t30	Soquete Torx T-30	Ferramenta/TOOL	Genérico	5	
+547	AAA 	Pilha	(sem)	Elgin	40	
+548		Kit Soquete Adaptador Macho	(sem)	Genérico	1	
+549		Rebite de Repuxo 416	(sem)	Genérico	400	
+550		Rebite de Repuxo 525	(sem)	Genérico	770	
+551	M10	Rebite Rosca Lisa	(sem)	Genérico	200	
+552		Rolo Etiqueta	(sem)	Niimbot	1	
+553	GDS -400	Chave de Impacto	Ferramenta/TOOL	Bosch	3	
+554	DPH486RFJ	Parafusadeira Bat 18v-3,0ah	Ferramenta/TOOL	Genérico	1	
+555		Papel Toalha Interfolha Branco	Cozinha/REGULAR	Pop	3	
+556	Ondulado	Papel Corrugado (ondulado)	Consumível/REGULAR		1	
+557	SKU-431E	Manguito - GG	Epi/PPE	Pro Tour	3	SLEEVES
+558		Ferro de Solda	Ferramenta/TOOL	Exbom	1	
+559		Disco Desbaste	(sem)	Verg	5	
+560		Chave Inglesa	Ferramenta/TOOL	Gedore	1	
+561	430	Conjunto Trava Porta Grande	(sem)	Genérico	7	
+562	CD24286676	Filtro Compressor	(sem)	Outra	2	
+563	9042	Primer Pu Preto Rodo	Base/REGULAR	Farben	8	
+564	UC601	Perolizado Branco Fino	Pigmento/REGULAR	Farben	6.442599999999998	
+565		Micro Retifica Worker 190 Peças	Ferramenta/TOOL	Worker	1	
+566		Lixa Folha D'agua P600	Abrasivos/REGULAR	3M	600	
+567	D25133-B2	Martelet	Ferramenta/TOOL	Genérico	1	
+568	16/degraus	Escada de Aluminio	(sem)	Genérico	1	
+569		Lanterna de Cabeça	Ferramenta/TOOL	Headlamp	9	
+570	AC185	Laranja Organico	Pigmento/REGULAR	Farben	2	
+571		Soquete Sextavado 14 Longo	(sem)	Genérico	1	
+572		Copo 50 ML c/100 unid.	Cozinha/REGULAR	Kerocopo	51	
+573		Botina Reposição - 45	Epi/PPE	Kadesh	0	BOOTS
+574	UC286	Vermelho Oxido	Pigmento/REGULAR	Farben	10.277799999999997	
+575		Macho 3/8	Ferramenta/TOOL	Dormer	4	
+576	MBPN25 4355	Valvula Esferica Latão 3/4	(sem)	Genérico	2	
+577	MBPN25 4353	Valvula Esferica Latão 1/2	(sem)	Genérico	8	
+578	Esquerda	Faixa Refletiva	Consumível/REGULAR	Avery Denisson	100	
+579	UC278	Amarelo Esverdeado Transparente	Pigmento/REGULAR	Farben	16	
+580	DTW700Z	Chave de Impacto Bat/18v	Ferramenta/TOOL	Genérico	1	
+581	DTD-157Z	Parafusadeira Impc 18v	Ferramenta/TOOL	Genérico	1	
+582		Disco Corte Super	Abrasivos/REGULAR	Norton	0	
+583		Chave Biela L8	Ferramenta/TOOL	Gedore	1	
+584		Niple Duplo Galv	(sem)	Outra	30	
+585		Tampa Para Bisnaga	(sem)	Nalgon	33	
+586		Combinada Articulada 8	Ferramenta/TOOL	Belzer	0	
+587	23cm	Rolo Anti Respingo	(sem)	Roma	36	
+588	543.950	Verniz Pu Acrilico	Verniz/REGULAR	Farben	50	
+589	UC281	Branco	Pigmento/REGULAR	Farben	6.287000000000005	
+590		Botina - 39	Epi/PPE	Ecosafety	2	BOOTS
+591	APE75	Clear Poliester	Base/REGULAR	Farben	47.93919999999999	
+592		Rebite de Repuxo 640	(sem)	Genérico	400	
+593	V POS/RETRO	Lanterna Led Âmbar	(sem)	Genérico	0	
+594		Lanterna Side Marker Led Âmbar	(sem)	Braslux	0	
+595	127m	Adesivo	Material/REGULAR	Hcr	46	
+596	300x7,2mm	Abraçadeira Nylon Preta	Material/REGULAR	Genérico	7	
+597	5N11	Par de Filtro Para Máscara	Epi/PPE	3M	13	OTHERS
+598		Escova Aço Motoesmeril	(sem)	Genérico	1	
+599		Parafuso Sextavado Inox 6x20 8.8	Material/REGULAR		100	
+600	43613	Combinada Speedy 17	Ferramenta/TOOL	Sata	1	
+601		Bucha de Redução	Material/REGULAR	Genérico	10	
+602	513.820	Primer Pu Preto 5x1	Pigmento/REGULAR	Farben	10	
+603		Broca Sds P/ Concreto	Ferramenta/TOOL	Twill	1	
+604		Parafuso Sextavado Inox	(sem)	Genérico	500	
+605		Refil de Maçarico	(sem)	Eos*	21	
+606	BS120	Máscara Solda/autom	Ferramenta/TOOL	Boxer	1	
+607		Parafuso Sextavado Zincado	(sem)	Genérico	1100	
+608	UC608	Perolizado Vermelho Fino	Pigmento/REGULAR	Farben	8.341900000000003	
+609		Marreta Pequena	Ferramenta/TOOL	Gedore	3	
+610	Direita	Faixa Refletiva	Material/REGULAR	Avery Denisson	100	
+611	9mx55mm 3T	Cinta Catraca P/ Amarração	Ferramenta/TOOL	Multiekip	11	
+612	43607	Combinada Speedy 11	Ferramenta/TOOL	Sata	1	
+613	UC625	Perolizado Azul Graudo	Pigmento/REGULAR	Farben	21	
+614		Galocha - 35	Epi/PPE	Kadesh	1	RAIN_BOOTS
+615		Vira Macho Reto	Ferramenta/TOOL	Rocast	2	
+616	Fm	Chave Fenda Grande	Ferramenta/TOOL	Genérico	1	
+617	UC690	Aluminio Ouro	Pigmento/REGULAR	Farben	3.8533999999999993	
+618	DMB	Faixa Refletiva Lateral Esquerda	(sem)	Dm	900	
+619		Plugue Fêmea	(sem)	Genérico	3	
+620	8pçs	Conjunto de Chaves Fenda Phillips	Ferramenta/TOOL	Gedore	1	
+621	UC271	Branco Transparente	Pigmento/REGULAR	Farben	5.896000000000003	
+622		Lixa Folha 400	Abrasivos/REGULAR	3M	500	
+623	AMF	Scotch Brite	(sem)	3M	600	
+624		Massa de Polir	Ferramenta/TOOL	Pérola	4	
+625		Espatula Inox/12cm Cab Pvc	(sem)	Genérico	2	
+626		Estilete Snap Off	(sem)	Irwin	86	
+627	PRO-316	Rebitadeira Pneumatica	Ferramenta/TOOL	Pdr	2	
+628	GSB 13 RE	Furadeira	Ferramenta/TOOL	Bosch	1	
+629	UC287	Azul	Pigmento/REGULAR	Farben	6	
+630	X	Batente Borracha	(sem)	Genérico	14	
+631		Suporte Garfo Rolo de Pintura	Ferramenta/TOOL	Atlas	6	
+632		Galocha - 43	Epi/PPE	Kadesh	2	RAIN_BOOTS
+633	001	Garrafa Quadrada	Material/REGULAR	Genérico	30	
+634	Fm	Chave Fenda Média	Ferramenta/TOOL	Genérico	1	
+635		Combinada 12	Ferramenta/TOOL	Gedore	1	
+636	GSB -50	Parafusadeira	Ferramenta/TOOL	Bosch	1	
+637	508.800	Massa Poliester Fibras	(sem)	Farben	19	
+638	7501	Máscara Semi Facial Pequena	Epi/PPE	3M	12	MASK
+639		Combinada Catraca 15	Ferramenta/TOOL	Gedore	1	
+640		Mangueira de Ar	(sem)	Ibira	988	
+641	UC642	Aluminio Fino Brilhante	Pigmento/REGULAR	Farben	13.796600000000002	
+642		Combinada Catraca 13	Ferramenta/TOOL	Gedore	1	
+643		Combinada Catraca 10	Ferramenta/TOOL	Gedore	1	
+644	NK-65	Disco Pluma P1500 (polimento)	Ferramenta/TOOL	Genérico	2	
+645	Fm	Chave Fenda Pequena	Ferramenta/TOOL	Genérico	1	
+646		Martelo Pena Cabo Fibra	Ferramenta/TOOL	Gedore	0	
+647	1/2	Soquete Sextavado 16	Ferramenta/TOOL	Gedore	2	
+648	SM-40	Engate Rápido Macho	(sem)	Japonês	55	
+649	GR3	Creme Protetor p/ Pele	Epi/PPE	Nutriex	3	OTHERS
+650		Lixa Hookit P150	Abrasivos/REGULAR	3M	600	
+651	AC174	Amarelo Oxido	Pigmento/REGULAR	Farben	3.198899999999997	
+652	43606	Combinada Speedy 10	Ferramenta/TOOL	Sata	1	
+653		Combinada Articulada 16	Ferramenta/TOOL	Belzer	1	
+654	1/2	Soquete Sextavado 12	Ferramenta/TOOL	Gedore	2	
+655		Combinada Articulada 14	Ferramenta/TOOL	Belzer	1	
+656	2022	Espatula Rigida Adesivo	(sem)	Exfak	211	
+657	DHP482	Parafusadeira	Ferramenta/TOOL	Makita	1	
+658		Chave Canhão 3	Ferramenta/TOOL	Gedore	1	
+659		Bobina Plástico Bolha	(sem)	Genérico	1	
+660	6IN 3/ PRO	Lixadeira Orbital	Ferramenta/TOOL	3M	3	
+661	558.400	Diluente	Diluente/REGULAR	Farben	61.69859999999998	
+662	43614	Combinada Speedy 18	Ferramenta/TOOL	Sata	1	
+663	1/2	Soquete Sextavado 10	Ferramenta/TOOL	Gedore	2	
+664	557.000	Thinner 18l	Diluente/REGULAR	Farben	4	
+665	321	Máscara	(sem)	Adere	3	
+666	M3500	Massa Poliester	Ferramenta/TOOL	Lazzuril	1	
+667	P22	Fita Isolante	Ferramenta/TOOL	Prysmian	3	
+668	506.000	Líq. de Mascaramento	(sem)	Farben	99	
+669	UC277	Azul Avermelhado	Pigmento/REGULAR	Farben	12.198200000000002	
+670	UC643	Aluminio Medio Brilhante	Pigmento/REGULAR	Farben	14.041	
+671		Camiseta - fem	Epi/PPE	Gourmet	0	SHIRT
+672	425	Fita Crepe Automotiva	Material/REGULAR	Adere	532	
+673	PP-40	Engate Rapido Macho	(sem)	Japonês	65	
+674		Lixa Hookit P600	Abrasivos/REGULAR	3M	300	
+675	113.8780e	Preto Fosco Chassi	Pigmento/REGULAR	Farben	26	
+676	UC605	Perolizado Dourado	Pigmento/REGULAR	Farben	8	
+677	UC290	Preto	Pigmento/REGULAR	Farben	10.377500000000005	
+678		Botina - 40	Epi/PPE	Ecosafety	6	BOOTS
+679	c/25	Copo Cristal 770ml	Material/REGULAR	Genérico	92	
+680	F10	Fitilho Reciclado	(sem)	Genérico	4	
+681	536.1080	Branco Acrilico Puro	Base/REGULAR	Farben	38	
+682	1/2	Soquete Sextavado 14	Ferramenta/TOOL	Gedore	2	
+683	AC135	Vermelho Vivo	Pigmento/REGULAR	Farben	3.856999999999997	
+684	PM-20	Engate Rapido Macho (ext)	Peça/REGULAR	Japonês	147	
+685	399021376	Refletor Led 50w-6500k	(sem)	Easy	11	
+686	UC622	Perolizado Verde Luminoso	Pigmento/REGULAR	Farben	3.3979999999999997	
+687	18v/4.0ah	Bateria 4.0ah	Ferramenta/TOOL	Bosch	9	
+688	PF-20	Engate Rapido Macho (int)	(sem)	Japonês	85	
+689	40grs Madeira	Bobina Papel Tk	Material/REGULAR	Del Rey	1470.5	
+690	U-400	Adesivo Selante Preto	Consumível/REGULAR	Iiesa	41	
+691	7502	Máscara Semi Facial Média	Epi/PPE	3M	17	MASK
+692	IEP340	Clear Epoxi	Base/REGULAR	Farben	15.6854	
+693	200x4,8mm	Abraçadeira Nylon Natural	Material/REGULAR	Genérico	2	
+694	UC280	Preto Azulado	Pigmento/REGULAR	Farben	11.6949	
+695		Disco de Interface	(sem)	Atlas	2	
+696	STV200	Soprador Térmico	(sem)	Vonder	0	
+697		Calça	Epi/PPE	Gourmet	8	PANTS
+698		Soquete Sextavado 10 Longo	Ferramenta/TOOL	Genérico	2	
+699		Parafuso Torx Inox	(sem)	Furgão	568	
+700		Calça	Epi/PPE	Gourmet	16	PANTS
+701		Camiseta	Epi/PPE	Gourmet	11	SHIRT
+702		Soquete Hexagonal 4	Ferramenta/TOOL	Gedore	4	
+703		Chave Biela L10	Ferramenta/TOOL	Gedore	1	
+704	508.080	Resina Laminação	Ferramenta/TOOL	Farben	2	
+705		Combinada Articulada 13	Ferramenta/TOOL	Belzer	1	
+706		Maçarico	(sem)	Genérico	1	
+707		Soprador Térmico Bateria	(sem)	Genérico	2	
+708		Combinada Catraca 11	Ferramenta/TOOL	Gedore	1	
+709		Botina Reposição - 43	Epi/PPE	Kadesh	1	BOOTS
+710		Lixa Folha D'agua P220	Abrasivos/REGULAR	3M	700	
+711		Bit T-30	Consumível/REGULAR	King Tony	38	
+712	PP	Bisnaga Pisseta	(sem)	Genérico	3	
+713		Mangueira de Água	(sem)	Ibirá	0	
+714		Vassoura de Palha	(sem)	Atlas	2	
+715	543.010	Verniz Pu Auto S/FO (3,6L)	Verniz/REGULAR	Farben	12	
+716	2x	Extensão Elétrica	(sem)	Daneva	5	
+717	P30 Cinza	Primer Spectra 2k	(sem)	Lazzuril	29	
+718	1/2	Extensor P/ Soquete Grande	Ferramenta/TOOL	Gedore	3	
+719		Galocha - 42	Epi/PPE	Kadesh	1	RAIN_BOOTS
+720		Trena 5m	(sem)	Lufkin	13	
+721	152m	Adesivo	Material/REGULAR	Hcr	223	
+722		Calça	Epi/PPE	Gourmet	19	PANTS
+723	559.500	Desengraxante	Diluente/REGULAR	Farben	439	
+724		Faixa Refletiva Para Choque	(sem)	Dm	92	
+725	U-400	Adesivo Selante Cinza	Consumível/REGULAR	Iiesa	90	
+726	543.850	Verniz	Verniz/REGULAR	Farben	52	
+727		Lixa Hookit P220	Abrasivos/REGULAR	3M	800	
+728		Fita Crepe Amarela	Material/REGULAR	3M	589	
