@@ -2701,7 +2701,11 @@ export class TaskQuoteService {
     const ALLOWED: Record<TASK_QUOTE_STATUS, TASK_QUOTE_STATUS[]> = {
       [TASK_QUOTE_STATUS.PENDING]:             [TASK_QUOTE_STATUS.BUDGET_APPROVED],
       [TASK_QUOTE_STATUS.BUDGET_APPROVED]:     [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.COMMERCIAL_APPROVED],
-      [TASK_QUOTE_STATUS.COMMERCIAL_APPROVED]: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.BILLING_APPROVED],
+      // COMMERCIAL_APPROVED → SETTLED covers "direct" quotes (orçamento direto)
+      // paid upfront with no billing/installment phase — the FINANCIAL sector
+      // settles them without generating invoices/boletos via BILLING_APPROVED.
+      // settleManually has no installments to clean up in this case, so it's safe.
+      [TASK_QUOTE_STATUS.COMMERCIAL_APPROVED]: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.BILLING_APPROVED, TASK_QUOTE_STATUS.SETTLED],
       // BILLING_APPROVED → SETTLED covers prepayment edge cases (customer pays
       // before installments are tracked) and lets operators settle quotes that
       // got stuck at BILLING_APPROVED when internalApprove's auto-transition to
