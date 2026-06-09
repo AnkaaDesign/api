@@ -1,73 +1,77 @@
 {
-  "note": "Merged ~40-leaf target taxonomy for item reclassification. Each item maps to exactly ONE leaf. 'leaf' strings are canonical select values; classifiers MUST return one of them verbatim.",
+  "note": "Final operational taxonomy for Ankaa (truck painting + funilaria + fleet plotagem). Each item maps to exactly ONE leaf; classifiers MUST return a leaf name verbatim. The TOP carries the default AccountingType; a leaf may OVERRIDE it via its own \"acct\". Cost semantics: production/MATERIA_PRIMA = consumed on customer trucks; MANUTENCAO = keeps the SHOP running (electrical + pneumatic installations, equipment spares); INVESTIMENTO = durable tools/equipment. 14 tops.",
   "categories": [
-    { "top": "Abrasivos e Polimento", "acct": "PRODUTIVO", "leaves": [
-      { "leaf": "Discos de corte e desbaste", "hints": "disco de corte, disco de desbaste, esmerilhadeira, flap" },
-      { "leaf": "Lixas, fibras e suportes", "hints": "lixa, hookit, lixa d'água, folha, fibra, scotch-brite, fosqueamento, suporte/base de lixa, prato" },
-      { "leaf": "Polimento e refino", "hints": "boina, composto de polimento, massa de polir, refino, lustro" }
-    ]},
-    { "top": "Aplicadores e Auxiliares de Mistura", "acct": "PRODUTIVO", "leaves": [
-      { "leaf": "Pincéis, rolos e espátulas", "hints": "pincel, rolo de pintura, capa de rolo, espátula, calafetador, aplicador de selante, trincha" },
-      { "leaf": "Copos, dosagem e filtragem", "hints": "copo de mistura, pote, balde, bico medidor, funil, filtro de tinta, peneira, dosador, régua de mistura" }
-    ]},
-    { "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia", "acct": "ESCRITORIO", "leaves": [
-      { "leaf": "Escritório e administrativo", "hints": "papel sulfite, caneta, grampeador, pasta, etiqueta, material de escritório" },
-      { "leaf": "Higiene, limpeza e zeladoria", "hints": "detergente, pano, vassoura, álcool limpeza, sabão, desinfetante, papel toalha, saco de lixo" },
-      { "leaf": "Copa, alimentação e cortesia", "hints": "café, copo descartável, água, açúcar, brinde, cortesia pós-venda, chaveiro" },
-      { "leaf": "Informática e eletrônicos de apoio", "hints": "cabo usb, mouse, teclado, pen drive, adaptador, HD, periférico de apoio" }
-    ]},
-    { "top": "EPI — Equipamentos de Proteção Individual", "acct": "EPI", "leaves": [
-      { "leaf": "Calçados de segurança", "hints": "bota, botina, sapato de segurança, calçado" },
-      { "leaf": "Proteção das mãos (luvas)", "hints": "luva nitrílica, luva látex, luva descartável, luva reutilizável, luva de raspa" },
-      { "leaf": "Proteção respiratória", "hints": "máscara, respirador, cartucho, filtro, retentor, PFF2, semifacial" },
-      { "leaf": "Proteção visual, auditiva e corporal", "hints": "óculos de proteção, protetor auricular, abafador, avental, macacão, capacete, protetor facial" }
-    ]},
-    { "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos", "acct": "INVESTIMENTO", "leaves": [
-      { "leaf": "Ferramentas elétricas", "hints": "furadeira, parafusadeira elétrica, esmerilhadeira elétrica, lixadeira orbital elétrica, politriz, serra elétrica, makita, dewalt, bosch" },
-      { "leaf": "Ferramentas pneumáticas", "hints": "pneumática, pneumático, à ar, chave de impacto pneumática, lixadeira pneumática, riscadeira pneumática, roquete pneumático" },
-      { "leaf": "Pistolas de pintura e aerografia", "hints": "pistola de pintura, HVLP, gravidade, aerógrafo, bico, agulha de pistola" },
-      { "leaf": "Linha de ar comprimido", "hints": "compressor, mangueira de ar, engate rápido, regulador de ar, filtro de linha, secador de ar" },
-      { "leaf": "Energia e infraestrutura elétrica", "hints": "bateria, carregador, extensão, filtro de linha elétrico, maçarico, soprador térmico, gerador, tomada" }
-    ]},
-    { "top": "Ferramentas Manuais e Medição", "acct": "INVESTIMENTO", "leaves": [
-      { "leaf": "Chaves, alicates e soquetes", "hints": "chave de fenda, philips, chave combinada, soquete, catraca, alicate, chave allen, jogo de chaves" },
-      { "leaf": "Corte, impacto e escovas manuais", "hints": "martelo, marreta, serra manual, estilete, alicate de corte, escova de aço, formão, talhadeira" },
-      { "leaf": "Medição e alinhamento", "hints": "trena, paquímetro, nível, esquadro, régua, micrômetro, espessímetro, termômetro" }
+    { "top": "Tintas, Vernizes e Auxiliares Químicos", "acct": "MATERIA_PRIMA", "leaves": [
+      { "leaf": "Pigmento", "hints": "toner, base tintométrica, corante, pigmento, perolizado, alumínio, xirallic, efeito, base de cor" },
+      { "leaf": "Base", "hints": "clears / sistemas de resina (a 'base' do acabamento): clear, clear acrílico, clear epóxi, clear laca, clear poliéster, clear PU; base de mistura/binder" },
+      { "leaf": "Bases prontas / Tintas", "hints": "tinta pronta, base pronta, acrílico, sintético, esmalte, tinta de chassi, preto fosco chassi, acabamento direto, monocomponente" },
+      { "leaf": "Linha Vinílica", "hints": "tinta vinílica, verniz vinílico, solvente de plotagem, vinílico, eco-solvente, linha vinílica" },
+      { "leaf": "Vernizes", "hints": "verniz, verniz PU, verniz fosco, verniz semibrilho, verniz acrílico, anti-risco, acabamento transparente final (os 'clears' de resina vão para Base)" },
+      { "leaf": "Endurecedores e catalisadores", "hints": "endurecedor, catalisador, ativador, hardener" },
+      { "leaf": "Auxiliares", "hints": "aditivo, flexibilizante, acelerador de secagem, retardador, anti-cratera, fish eye, promotor de aderência, plastificante, anti-silicone" },
+      { "leaf": "Solventes e thinners", "hints": "thinner, diluente, redutor, solvente, desengraxante, desengripante, removedor, álcool isopropílico, preparador de superfície" }
     ]},
     { "top": "Funilaria e Reparo de Carroceria", "acct": "PRODUTIVO", "leaves": [
       { "leaf": "Massas e laminação", "hints": "massa plástica, massa poliéster, massa rápida, manta de fibra, resina, laminação" },
-      { "leaf": "Selantes e vedantes de carroceria", "hints": "selante, vedante, cola de parabrisa, PU, sikaflex, costura de solda" }
+      { "leaf": "Selantes e vedantes de carroceria", "hints": "selante, vedante, cola de parabrisa, PU, sikaflex, costura de solda, adesivo selante" },
+      { "leaf": "Primers, seladoras e fundos", "acct": "MATERIA_PRIMA", "hints": "primer, wash primer, fundo, seladora, fosfatizante, fundo PU, fundo epóxi" }
+    ]},
+    { "top": "Abrasivos e Polimento", "acct": "PRODUTIVO", "leaves": [
+      { "leaf": "Discos de corte e desbaste", "hints": "disco de corte, disco de desbaste, esmerilhadeira, flap" },
+      { "leaf": "Lixas, fibras e suportes", "hints": "lixa, hookit, lixa d'água, folha, fibra, scotch-brite, fosqueamento, suporte/base de lixa, prato, trizact, disco de interface" },
+      { "leaf": "Polimento e refino", "hints": "boina, composto de polimento, massa de polir, refino, lustro, disco de polir, pluma, finishing foam, trizact polimento" }
     ]},
     { "top": "Mascaramento e Cobertura", "acct": "PRODUTIVO", "leaves": [
       { "leaf": "Fitas de mascaramento", "hints": "fita crepe, fita de mascaramento, fita fina, líquido de mascaramento, fita dupla face de mascarar" },
-      { "leaf": "Papel e plástico de cobertura", "hints": "papel mascaramento, bobina, plástico de cobertura, filme, lona, manta de cobrir" }
+      { "leaf": "Papel", "hints": "papel de mascaramento, papel kraft, papel corrugado, papel ondulado, bobina de papel — APENAS papel (sem plástico/filme; superfícies grandes de caminhão usam papel)" }
     ]},
-    { "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos", "acct": "MATERIA_PRIMA", "leaves": [
-      { "leaf": "Primers, seladoras e fundos", "hints": "primer, wash primer, fundo, seladora, fosfatizante, fundo PU/epóxi" },
-      { "leaf": "Vernizes e clears", "hints": "verniz, clear, anti-risco, verniz PU, verniz HS, acabamento transparente" },
-      { "leaf": "Endurecedores, catalisadores e aditivos", "hints": "endurecedor, catalisador, ativador, aditivo, acelerador, retardador, flexibilizante, fish eye" },
-      { "leaf": "Diluentes, thinners e preparadores de superfície", "hints": "thinner, diluente, redutor, desengraxante, removedor, álcool isopropílico, preparador de superfície" }
+    { "top": "Plotagem e Adesivação", "acct": "PRODUTIVO", "leaves": [
+      { "leaf": "Vinil, películas e adesivos", "hints": "vinil de recorte, adesivo colorido, película refletiva, refletivo, faixa, faixa lateral, faixa para-choque, DOT, conspicuidade, blackout, jateado" },
+      { "leaf": "Máscaras de transferência", "hints": "máscara de transferência, transfer tape, máscara de aplicação, papel de transferência" },
+      { "leaf": "Ferramentas e equipamentos de plotagem", "hints": "espátula de aplicação, rodo de vinil, feltro, aplicador de adesivo, plotter de recorte, lâmina de plotter, ponteira, base de corte, refil de impressão" }
     ]},
-    { "top": "Matéria-Prima — Tintas e Pigmentos (Cor)", "acct": "MATERIA_PRIMA", "leaves": [
-      { "leaf": "Pigmento", "hints": "toner, base tintométrica, corante, pigmento, perolizado, alumínio, xirallic, efeito, base de cor" },
-      { "leaf": "Base", "hints": "base coat, base incolor, binder, base para mistura, base PU, base de mistura, verniz base" },
-      { "leaf": "Bases prontas / Tintas", "hints": "tinta pronta, base pronta, acrílico, sintético, esmalte, tinta de chassi, acabamento direto, monocomponente, primer pronto" },
-      { "leaf": "Linha Vinílica", "hints": "tinta vinílica, verniz vinílico, solvente de plotagem, vinílico, eco-solvente, linha vinílica" }
+    { "top": "Aplicadores e Auxiliares de Mistura", "acct": "PRODUTIVO", "leaves": [
+      { "leaf": "Pincéis, rolos e espátulas", "hints": "pincel, rolo de pintura, capa de rolo, espátula, calafetador, aplicador de selante, trincha, bandeja de pintura" },
+      { "leaf": "Copos, dosagem e filtragem", "hints": "copo de mistura, pote, balde, bico medidor, funil, filtro de tinta, peneira, dosador, régua de mistura" }
     ]},
     { "top": "Peças, Fixação e Conexões", "acct": "PRODUTIVO", "leaves": [
       { "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)", "hints": "parafuso, porca, arruela, rebite, prego, bucha, fixador" },
-      { "leaf": "Abraçadeiras e presilhas", "hints": "abraçadeira, presilha, cinta, clip, grampo de fixação" },
-      { "leaf": "Conexões, mangueiras e suportes", "hints": "conexão, redução, niple, mangueira, conduíte, registro, suporte de parede, engate" },
-      { "leaf": "Peças de manutenção de equipamento", "hints": "filtro, mancal, rolamento, borracha, reparo de pistola, kit de reparo, vedação, gás, correia" }
+      { "leaf": "Abraçadeiras e presilhas", "hints": "abraçadeira, presilha, cinta, clip, grampo de fixação, arame" },
+      { "leaf": "Conexões, mangueiras e suportes", "hints": "mangueira de água, mangueira de irrigação, suporte de parede, suporte de bancada, suporte de pistola, cavalete, trava de porta (conexões de AR vão para Instalação pneumática)" }
     ]},
-    { "top": "Plotagem e Adesivação", "acct": "PRODUTIVO", "leaves": [
-      { "leaf": "Vinil, películas e adesivos", "hints": "vinil de recorte, adesivo colorido, película refletiva, faixa, refletivo, blackout, jateado" },
-      { "leaf": "Transfer e ferramentas de aplicação", "hints": "transfer tape, máscara de transferência, espátula de aplicação, rodo de vinil, feltro, aplicador de adesivo" },
-      { "leaf": "Equipamento e consumíveis de plotter", "hints": "plotter, lâmina de plotter, ponteira, base de corte, refil de impressão" }
+    { "top": "Ferramentas Manuais", "acct": "INVESTIMENTO", "leaves": [
+      { "leaf": "Chaves, alicates e soquetes", "hints": "chave de fenda, philips, chave combinada, soquete, catraca, alicate, chave allen, jogo de chaves, bit, extensor de soquete, chave biela, chave canhão" },
+      { "leaf": "Corte, impacto e escovas manuais", "hints": "martelo, marreta, serra manual, estilete, alicate de corte, escova de aço, formão, talhadeira, morsa" },
+      { "leaf": "Medição e alinhamento", "hints": "trena, paquímetro, nível, esquadro, régua, micrômetro, espessímetro, termômetro" }
     ]},
-    { "top": "Uniforme / Fardamento", "acct": "EPI", "leaves": [
+    { "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos", "acct": "INVESTIMENTO", "leaves": [
+      { "leaf": "Ferramentas elétricas", "hints": "furadeira, parafusadeira elétrica, esmerilhadeira elétrica, lixadeira orbital elétrica, politriz, serra elétrica, makita, dewalt, bosch, soldador de plástico, ferro de solda, soprador térmico, maçarico" },
+      { "leaf": "Ferramentas pneumáticas", "hints": "pneumática, à ar, chave de impacto pneumática, lixadeira pneumática, riscadeira pneumática, roquete pneumático, martelete pneumático, rebitadeira pneumática" },
+      { "leaf": "Pistolas de pintura e aerografia", "hints": "pistola de pintura, HVLP, gravidade, aerógrafo, bico de pistola, agulha de pistola, copo de pistola" },
+      { "leaf": "Equipamentos e acesso", "hints": "compressor, gerador, escada, banqueta, cavalete de elevação, equipamento durável de oficina" }
+    ]},
+    { "top": "Manutenção e Instalações", "acct": "MANUTENCAO", "leaves": [
+      { "leaf": "Instalação elétrica", "hints": "tomada, plugue, extensão elétrica, fio, cabo, fita isolante, espaguete termoretrátil, conduíte, condulete, disjuntor, garra jacaré, lâmpada, lanterna, refletor, fita led, bateria, carregador, pilha" },
+      { "leaf": "Instalação pneumática", "hints": "tubo, conexão galvanizada, cotovelo, niple, redução, bucha de redução, luva de redução, válvula, registro, veda rosca, engate rápido, mangueira de ar, bico de ar, regulador de pressão, manômetro, secador de ar, filtro de linha/compressor, plugue de ar" },
+      { "leaf": "Peças de manutenção de equipamento", "hints": "filtro, mancal, rolamento, borracha, reparo de pistola, kit de reparo, vedação, correia, elemento separador ar/óleo, elemento filtro de ar" }
+    ]},
+    { "top": "EPI — Equipamentos de Proteção Individual", "acct": "EPI", "leaves": [
+      { "leaf": "Calçados de segurança", "hints": "bota, botina, sapato de segurança, calçado, galocha" },
+      { "leaf": "Proteção das mãos (luvas)", "hints": "luva nitrílica, luva látex, luva descartável, luva reutilizável, luva de raspa, luva anticorte" },
+      { "leaf": "Proteção respiratória", "hints": "máscara, respirador, cartucho, filtro respiratório, retentor, PFF2, semifacial" },
+      { "leaf": "Proteção visual, auditiva e corporal", "hints": "óculos de proteção, óculos de sobrepor, protetor auricular, abafador, avental, macacão, capacete, protetor facial" }
+    ]},
+    { "top": "Uniforme", "acct": "EPI", "leaves": [
       { "leaf": "Uniforme — parte superior", "hints": "camisa, camiseta, jaleco, blusa, jaqueta de uniforme" },
       { "leaf": "Uniforme — parte inferior", "hints": "calça, bermuda, avental de uniforme" }
+    ]},
+    { "top": "Escritório, Cozinha, Limpeza e Cortesia", "acct": "ESCRITORIO", "leaves": [
+      { "leaf": "Escritório e administrativo", "hints": "papel sulfite, caneta, grampeador, pasta, etiqueta, material de escritório" },
+      { "leaf": "Higiene, limpeza e zeladoria", "hints": "detergente, pano, vassoura, álcool limpeza, sabão, desinfetante, papel toalha, papel higiênico, saco de lixo, estopa" },
+      { "leaf": "Copa e alimentação", "hints": "café, copo descartável, água, açúcar, alimentação, copa" },
+      { "leaf": "Cortesia", "hints": "brinde, cortesia pós-venda, chaveiro, boné, calendário, item promocional" },
+      { "leaf": "Informática e Eletrônicos", "hints": "cabo usb, mouse, teclado, pen drive, cartão de memória, power bank, adaptador, HD, arduino, periférico" },
+      { "leaf": "Embalagem e expedição", "hints": "filme stretch, plástico bolha, lona plástica, fitilho, embalagem, material de expedição, estiramento" }
     ]},
     { "top": "Outros / Genérico", "acct": null, "leaves": [
       { "leaf": "Genérico", "hints": "catch-all para itens genéricos ou sem classificação confiável" }

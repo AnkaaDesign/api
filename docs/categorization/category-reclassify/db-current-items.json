@@ -1,0 +1,8802 @@
+[
+ {
+  "name": "Acrilico Preto Cadillac",
+  "uniCode": "536.8540",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Bases prontas / Tintas",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Abraçadeira Emborrachada",
+  "uniCode": "RSGU1",
+  "brands": [
+   "Norma"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Abraçadeira Inox Fita",
+  "uniCode": "9x13mm - 9mm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Abraçadeira Inox Fita",
+  "uniCode": "32x44 - 9mm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Abraçadeira Inox Fita",
+  "uniCode": "102x121mm - 14mm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Abraçadeira Inox Fita",
+  "uniCode": "57x76mm - 9mm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Abraçadeira Inox Fita",
+  "uniCode": "32x44mm - 13mm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Abraçadeira Inox Fita",
+  "uniCode": "57x76mm - 13mm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Abraçadeira Nylon Natural",
+  "uniCode": "200x4,8mm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Abraçadeira Nylon Preta",
+  "uniCode": "200x4,6mm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Abraçadeira Nylon Preta",
+  "uniCode": "200x2,5mm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Abraçadeira Nylon Preta",
+  "uniCode": "300x7,2mm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Abraçadeira Radial Inox",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Acelerador de Secagem",
+  "uniCode": "0068",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Adapitador Boina Polimento",
+  "uniCode": "m14",
+  "brands": [
+   "Makita"
+  ],
+  "leaf": "Polimento e refino",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Adesivo",
+  "uniCode": "152m",
+  "brands": [
+   "Hcr"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Adesivo",
+  "uniCode": "127m",
+  "brands": [
+   "Hcr"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Adesivo",
+  "uniCode": "106m",
+  "brands": [
+   "Hcr"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Adesivo Preto Jateado",
+  "uniCode": null,
+  "brands": [
+   "Altak"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Adesivo Selante Cinza",
+  "uniCode": "U-400",
+  "brands": [
+   "Iiesa"
+  ],
+  "leaf": "Selantes e vedantes de carroceria",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Adesivo Selante Cinza",
+  "uniCode": "PU40",
+  "brands": [
+   "Autofix"
+  ],
+  "leaf": "Selantes e vedantes de carroceria",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Adesivo Selante Preto",
+  "uniCode": "U-400",
+  "brands": [
+   "Iiesa"
+  ],
+  "leaf": "Selantes e vedantes de carroceria",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Adesivo Selante Preto",
+  "uniCode": "PU40",
+  "brands": [
+   "Autofix"
+  ],
+  "leaf": "Selantes e vedantes de carroceria",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Adesivo Vinil Black",
+  "uniCode": "651 #070",
+  "brands": [
+   "Oracal"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Adesivo Vinil King Blue",
+  "uniCode": "651 #049",
+  "brands": [
+   "Oracal"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Adesivo Vinil Light Red",
+  "uniCode": "651 #032",
+  "brands": [
+   "Oracal"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Adesivo Vinil White",
+  "uniCode": "651 #010",
+  "brands": [
+   "Oracal"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Adesivo Vinil Yellow",
+  "uniCode": "021",
+  "brands": [
+   "Oracal"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Aditivo Anticratera",
+  "uniCode": "08780",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Aerógrafo",
+  "uniCode": "AJ008",
+  "brands": [
+   "Vonder"
+  ],
+  "leaf": "Pistolas de pintura e aerografia",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Aerógrafo",
+  "uniCode": null,
+  "brands": [
+   "Neoeco"
+  ],
+  "leaf": "Pistolas de pintura e aerografia",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Alicate Pressão",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Alicate Universal",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Alicate de Corte",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Corte, impacto e escovas manuais",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": true
+ },
+ {
+  "name": "Aluminio Brilhante",
+  "uniCode": "UC680",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Aluminio Fino Brilhante",
+  "uniCode": "UC642",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Aluminio Graudo",
+  "uniCode": "UC645",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Aluminio Medio Brilhante",
+  "uniCode": "UC643",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Aluminio Medio Limpo",
+  "uniCode": "UC685",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Aluminio Médio",
+  "uniCode": "UC655",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Aluminio Ouro",
+  "uniCode": "UC690",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Aluminio Super Fino",
+  "uniCode": "UC648",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Aluminio Super Graúdo",
+  "uniCode": "UC675",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Alumínio Cobre",
+  "uniCode": "UC695",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Alumínio Extra Fino Brilhante",
+  "uniCode": "UC652",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Alumínio Fino",
+  "uniCode": "UC650",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Alumínio Fino Limpo",
+  "uniCode": "UC653",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Alumínio Orange",
+  "uniCode": "UC694",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Alaranjado",
+  "uniCode": "UC262",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Alaranjado",
+  "uniCode": "UC272",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Esverdeado Transparente",
+  "uniCode": "UC278",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Limpo",
+  "uniCode": "UC273",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Limão",
+  "uniCode": "UC283",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Limão",
+  "uniCode": "AC173",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Limão Imp",
+  "uniCode": "UC253",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Limão Vinilico Brilhante",
+  "uniCode": "4800.010",
+  "brands": [
+   "Saturno"
+  ],
+  "leaf": "Linha Vinílica",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Médio Vinilico Brilhante",
+  "uniCode": "4800.012",
+  "brands": [
+   "Saturno"
+  ],
+  "leaf": "Linha Vinílica",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Ouro",
+  "uniCode": "UC282",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Ouro",
+  "uniCode": "AC172",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Ouro Especial",
+  "uniCode": "UC112",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Ouro Imp",
+  "uniCode": "UC252",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Oxido",
+  "uniCode": "UC284",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Oxido",
+  "uniCode": "AC174",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Amarelo Transparente",
+  "uniCode": "UC294",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Aplicador Calafetador Manual",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Aplicador Calafetador Pneumático",
+  "uniCode": "SGT-1013",
+  "brands": [
+   "Sigma"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Arame Galvanizado",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Arame Recozido N°14",
+  "uniCode": null,
+  "brands": [
+   "Gerdau"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Arame Recozido N°18",
+  "uniCode": null,
+  "brands": [
+   "Gerdau"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Arduino Nano",
+  "uniCode": "Atmega328",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Informática e eletrônicos de apoio",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Arruela Lisa Zincada 1/4",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Arruela Lisa Zincada 3/16",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Arruela Lisa Zincada 5/16",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Arruela Pressão Média 5/16",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Arruela zincada 10mm",
+  "uniCode": "M10 15x10mm",
+  "brands": [],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Azul",
+  "uniCode": "UC287",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Azul",
+  "uniCode": "AC177",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Azul Anil Vinilico Brilhante",
+  "uniCode": "4800.235",
+  "brands": [
+   "Saturno"
+  ],
+  "leaf": "Linha Vinílica",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Azul Avermelhado",
+  "uniCode": "UC277",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Azul Escuro",
+  "uniCode": "UC298",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Azul Esverdeado",
+  "uniCode": "UC297",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Azul Esverdeado",
+  "uniCode": "UC297",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Azul Limpo Esverdeado",
+  "uniCode": "UC257",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Azul Médio Vinilico Brilhante",
+  "uniCode": "4800.237",
+  "brands": [
+   "Saturno"
+  ],
+  "leaf": "Linha Vinílica",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Balde P/ Pçs de Varão",
+  "uniCode": null,
+  "brands": [
+   "Gerplast"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Balde Plástico",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Bandeija P/pintura",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Banqueta Dobravel",
+  "uniCode": "P/",
+  "brands": [
+   "Vonder"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Base Branca",
+  "uniCode": "ANC50",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Bases prontas / Tintas",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Base Hookit",
+  "uniCode": "DR6-006",
+  "brands": [
+   "Ldr2"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Batente Borracha",
+  "uniCode": "X",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Bateria 2.0ah",
+  "uniCode": "18v/2.0ah",
+  "brands": [
+   "Bosch"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Bateria 2.0ah",
+  "uniCode": "18v/2.0ah",
+  "brands": [
+   "Makita"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Bateria 4.0ah",
+  "uniCode": "18v/4.0ah",
+  "brands": [
+   "Bosch"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Bateria 5.0ah",
+  "uniCode": "18v/5.0ah",
+  "brands": [
+   "Bosch"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Bateria 6.0ah",
+  "uniCode": "18v/6.0ah",
+  "brands": [
+   "Makita"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Baterias 3,0ah",
+  "uniCode": "18v/3.0ah",
+  "brands": [
+   "Makita"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Bermuda - 36",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Bermuda - 36",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Bermuda - 38",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Bermuda - 38",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Bermuda - 40",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Bermuda - 40",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Bermuda - 42",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Bermuda - 42",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Bermuda - 44",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Bermuda - 44",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Bermuda - 46",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Bermuda - 46",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Bermuda - 48",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Bermuda - 48",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Bico de Ar",
+  "uniCode": "DG-10",
+  "brands": [
+   "Steels"
+  ],
+  "leaf": "Linha de ar comprimido",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Bico de Ar",
+  "uniCode": "dg-10",
+  "brands": [
+   "Luft"
+  ],
+  "leaf": "Linha de ar comprimido",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Bisnaga Pisseta",
+  "uniCode": "PP",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Bisnaga Plastica",
+  "uniCode": "PE",
+  "brands": [
+   "Nalgon"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Bisnaga Plastico",
+  "uniCode": "PE",
+  "brands": [
+   "Nalgon"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Bit T-27",
+  "uniCode": null,
+  "brands": [
+   "King Tony"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Bit T-30",
+  "uniCode": null,
+  "brands": [
+   "King Tony"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Bit T-45",
+  "uniCode": null,
+  "brands": [
+   "King Tony"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Bobina Filme Stretch",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Papel e plástico de cobertura",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Bobina Papel Ondulado",
+  "uniCode": "25mts",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Papel e plástico de cobertura",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Bobina Papel Tk",
+  "uniCode": "40grs Madeira",
+  "brands": [
+   "Del Rey"
+  ],
+  "leaf": "Papel e plástico de cobertura",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Bobina Papel Tkv",
+  "uniCode": null,
+  "brands": [
+   "Madruga"
+  ],
+  "leaf": "Papel e plástico de cobertura",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Bobina Plástico Bolha",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Papel e plástico de cobertura",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Boina Dupla Face p/ Polimento",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Polimento e refino",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Boné Cinza",
+  "uniCode": null,
+  "brands": [
+   "Rhino Size"
+  ],
+  "leaf": "Copa, alimentação e cortesia",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Boné Cinza C/ Tela",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Copa, alimentação e cortesia",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Boné Cinza e Verde",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Copa, alimentação e cortesia",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Boné Verde",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Copa, alimentação e cortesia",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Boné Verde C/ Tela",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Copa, alimentação e cortesia",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Bota Pvc - 42",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina - 35",
+  "uniCode": null,
+  "brands": [
+   "Ecosafety"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina - 39",
+  "uniCode": null,
+  "brands": [
+   "Ecosafety"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina - 40",
+  "uniCode": null,
+  "brands": [
+   "Ecosafety"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina - 41",
+  "uniCode": null,
+  "brands": [
+   "Ecosafety"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina - 42",
+  "uniCode": null,
+  "brands": [
+   "Ecosafety"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina - 43",
+  "uniCode": null,
+  "brands": [
+   "Ecosafety"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina - 44",
+  "uniCode": null,
+  "brands": [
+   "Ecosafety"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina - 45",
+  "uniCode": null,
+  "brands": [
+   "Ecosafety"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina Reposição - 35",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina Reposição - 37",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina Reposição - 38",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": null,
+  "top": "A Revisar",
+  "acct": null,
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Botina Reposição - 39",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina Reposição - 40",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina Reposição - 41",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina Reposição - 42",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina Reposição - 43",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina Reposição - 44",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Botina Reposição - 45",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Branco",
+  "uniCode": "AC171",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Branco",
+  "uniCode": "LL130",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Branco",
+  "uniCode": "UC281",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Branco Acrilico Puro",
+  "uniCode": "536.1080",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Bases prontas / Tintas",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Branco Especial",
+  "uniCode": "UC101",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Branco Transparente",
+  "uniCode": "UC271",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Branco Vinilico Brilhante",
+  "uniCode": "4800.001",
+  "brands": [
+   "Saturno"
+  ],
+  "leaf": "Linha Vinílica",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Broca P/ Martelet",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": true
+ },
+ {
+  "name": "Broca Sds P/ Concreto",
+  "uniCode": null,
+  "brands": [
+   "Twill"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": true
+ },
+ {
+  "name": "Bucha de Redução",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Cabo Flexivel tipo-C",
+  "uniCode": "USB Tipo-C3.0",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Informática e eletrônicos de apoio",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Caixa Luva Látex-G",
+  "uniCode": "Branca c/pó",
+  "brands": [
+   "Bompack"
+  ],
+  "leaf": "Proteção das mãos (luvas)",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Caixa Luva Látex-M",
+  "uniCode": "Branca c/pó",
+  "brands": [
+   "Bompack"
+  ],
+  "leaf": "Proteção das mãos (luvas)",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Caixa Luva Nitrílica G",
+  "uniCode": "Preta- s/pó",
+  "brands": [
+   "Bompack"
+  ],
+  "leaf": "Proteção das mãos (luvas)",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Caixa Luva Nitrílica M",
+  "uniCode": "Preta- s/pó",
+  "brands": [
+   "Bompack"
+  ],
+  "leaf": "Proteção das mãos (luvas)",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Caixa Luva Nitrílica P",
+  "uniCode": "Preta- s/pó",
+  "brands": [
+   "Talge"
+  ],
+  "leaf": "Proteção das mãos (luvas)",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Caixa Pote Redondo",
+  "uniCode": "PP",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Calça",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Calça",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Calça",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Calça",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Calça",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Calça",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Calça",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Calça - 36",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Calça - 38",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Calça - 40",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Calça - 42",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Calça - 44",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Calça - 46",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Calça - 48",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte inferior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Camisa - EXG",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte superior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Camisa - G",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte superior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Camisa - GG",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte superior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Camisa - M",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte superior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Camisa - P",
+  "uniCode": null,
+  "brands": [
+   "Via Grafit"
+  ],
+  "leaf": "Uniforme — parte superior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Camiseta",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte superior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Camiseta",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte superior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Camiseta",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte superior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Camiseta",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte superior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Camiseta",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte superior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Camiseta - fem",
+  "uniCode": null,
+  "brands": [
+   "Gourmet"
+  ],
+  "leaf": "Uniforme — parte superior",
+  "top": "Uniforme / Fardamento",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Carregador de Bateria",
+  "uniCode": "DC18",
+  "brands": [
+   "Makita"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Cartão de Memória",
+  "uniCode": "128gb",
+  "brands": [
+   "Sandisk"
+  ],
+  "leaf": "Informática e eletrônicos de apoio",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Carvão Em Pó",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Escritório e administrativo",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Castanho Transparente",
+  "uniCode": "UC266",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Catalisador Wash Primer",
+  "uniCode": "577.000",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Cavalete Para Pintura",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Chapa Compensado Fenólico",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Massas e laminação",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Chave Biela L10",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Biela L11",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Biela L12",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Biela L13",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Biela L14",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Biela L15",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Biela L16",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Biela L17",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Biela L18",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Biela L19",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Biela L8",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Biela L9",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Canhão 10",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Canhão 11",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Canhão 12",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Canhão 13",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Canhão 14",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Canhão 3",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Canhão 4",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Canhão 5",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Canhão 6",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Canhão 7",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Canhão 8",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Canhão 9",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Catraca Grande",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Catraca Media",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Catraca Pequena",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Fenda Grande",
+  "uniCode": "Fm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Fenda Média",
+  "uniCode": "Fm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Fenda Pequena",
+  "uniCode": "Fm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Inglesa",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave P/ Mandril",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Philips Média",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave Torx 27",
+  "uniCode": "T-27",
+  "brands": [],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave de Impacto",
+  "uniCode": "GDS -400",
+  "brands": [
+   "Bosch"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave de Impacto",
+  "uniCode": "455KGFM PRO-198",
+  "brands": [
+   "Pdr"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Chave de Impacto Bat/18v",
+  "uniCode": "DTW700Z",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Cinta Catraca P/ Amarração",
+  "uniCode": "9mx55mm 3T",
+  "brands": [
+   "Multiekip"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Cinta Catraca P/marração",
+  "uniCode": "5T/",
+  "brands": [
+   "Robustec"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Cinta Catraca Pequena",
+  "uniCode": "3,5m x 2,5cm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Clear",
+  "uniCode": "00950",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Clear Acrilico",
+  "uniCode": "APA85",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Clear Epoxi",
+  "uniCode": "IEP340",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Clear Laca",
+  "uniCode": "ANC55",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Clear Poliester",
+  "uniCode": "APE75",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Clear Pu",
+  "uniCode": "113.0050",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Combinada 10",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 11",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 12",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 13",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 14",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 15",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 16",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 17",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 18",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 19",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 20",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 21",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 22",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 32",
+  "uniCode": null,
+  "brands": [
+   "Sata"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 6",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 7",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 8",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada 9",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Articulada 10",
+  "uniCode": null,
+  "brands": [
+   "Belzer"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Articulada 11",
+  "uniCode": null,
+  "brands": [
+   "Belzer"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Articulada 12",
+  "uniCode": null,
+  "brands": [
+   "Belzer"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Articulada 13",
+  "uniCode": null,
+  "brands": [
+   "Belzer"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Articulada 14",
+  "uniCode": null,
+  "brands": [
+   "Belzer"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Articulada 15",
+  "uniCode": null,
+  "brands": [
+   "Belzer"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Articulada 16",
+  "uniCode": null,
+  "brands": [
+   "Belzer"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Articulada 17",
+  "uniCode": null,
+  "brands": [
+   "Belzer"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Articulada 18",
+  "uniCode": null,
+  "brands": [
+   "Belzer"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Articulada 19",
+  "uniCode": null,
+  "brands": [
+   "Belzer"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Articulada 8",
+  "uniCode": null,
+  "brands": [
+   "Belzer"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Articulada 9",
+  "uniCode": null,
+  "brands": [
+   "Belzer"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Catraca 10",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Catraca 11",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Catraca 12",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Catraca 13",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Catraca 14",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Catraca 15",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Catraca 16",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Catraca 17",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Catraca 19",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Catraca 22",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Catraca 24",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Catraca 8",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Catraca 9",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Speedy 10",
+  "uniCode": "43606",
+  "brands": [
+   "Sata"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Speedy 11",
+  "uniCode": "43607",
+  "brands": [
+   "Sata"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Speedy 12",
+  "uniCode": "43608",
+  "brands": [
+   "Sata"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Speedy 13",
+  "uniCode": "43609",
+  "brands": [
+   "Sata"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Speedy 14",
+  "uniCode": "43610",
+  "brands": [
+   "Sata"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Speedy 15",
+  "uniCode": "43611",
+  "brands": [
+   "Sata"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Speedy 16",
+  "uniCode": "43612",
+  "brands": [
+   "Sata"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Speedy 17",
+  "uniCode": "43613",
+  "brands": [
+   "Sata"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Speedy 18",
+  "uniCode": "43614",
+  "brands": [
+   "Sata"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Speedy 19",
+  "uniCode": "43615",
+  "brands": [
+   "Sata"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Speedy 8",
+  "uniCode": "43604",
+  "brands": [
+   "Sata"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Combinada Speedy 9",
+  "uniCode": "43605",
+  "brands": [
+   "Sata"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Condulete Pvc Preto",
+  "uniCode": null,
+  "brands": [
+   "Hidrossol"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Conexão Cotov 90°galv",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Conexão Te Galv",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Conjunto Chave Allen",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Conjunto Mancal Extremidade",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Conjunto Mancal Intermediário",
+  "uniCode": "4 Furos",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Conjunto Mancal Intermediário",
+  "uniCode": "2 Furos",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Conjunto Trava Porta Grande",
+  "uniCode": "430",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Conjunto Trava Porta Pequeno",
+  "uniCode": null,
+  "brands": [],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Conjunto de Chaves Fenda Phillips",
+  "uniCode": "8pçs",
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Copo 150 ML",
+  "uniCode": null,
+  "brands": [
+   "Kerocopo"
+  ],
+  "leaf": "Copa, alimentação e cortesia",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Copo 50 ML c/100 unid.",
+  "uniCode": null,
+  "brands": [
+   "Kerocopo"
+  ],
+  "leaf": "Copa, alimentação e cortesia",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Copo Cristal 145ml",
+  "uniCode": "C/500",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Copo Cristal 770ml",
+  "uniCode": "c/25",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Copo Pistola de Pintura",
+  "uniCode": "550-15",
+  "brands": [
+   "Pdr"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Creme Desengraxante",
+  "uniCode": null,
+  "brands": [
+   "Mavaro"
+  ],
+  "leaf": "Diluentes, thinners e preparadores de superfície",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Desengraxante",
+  "uniCode": "559.500",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Diluentes, thinners e preparadores de superfície",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Desengripante",
+  "uniCode": "Tek Lub",
+  "brands": [
+   "Tekbond"
+  ],
+  "leaf": "Diluentes, thinners e preparadores de superfície",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Diluente",
+  "uniCode": "558.400",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Diluentes, thinners e preparadores de superfície",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Diluente Alta Temperatura",
+  "uniCode": "490",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Diluentes, thinners e preparadores de superfície",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Disco Corte Super",
+  "uniCode": null,
+  "brands": [
+   "Norton"
+  ],
+  "leaf": "Discos de corte e desbaste",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Disco Desbaste",
+  "uniCode": null,
+  "brands": [
+   "Verg"
+  ],
+  "leaf": "Discos de corte e desbaste",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Disco Finishing Foam",
+  "uniCode": "GR2000",
+  "brands": [
+   "Norton"
+  ],
+  "leaf": "Polimento e refino",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Disco Flap",
+  "uniCode": "GR80 4- x",
+  "brands": [
+   "Tyrolit"
+  ],
+  "leaf": "Discos de corte e desbaste",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Disco Flap Tyrolit",
+  "uniCode": "GR40 4- X",
+  "brands": [
+   "Tyrolit"
+  ],
+  "leaf": "Discos de corte e desbaste",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Disco Flap Vila",
+  "uniCode": "GR x",
+  "brands": [
+   "Vila"
+  ],
+  "leaf": "Discos de corte e desbaste",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Disco Hookit 800",
+  "uniCode": null,
+  "brands": [
+   "Norton"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Disco Pluma P1500 (polimento)",
+  "uniCode": "NK-65",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Polimento e refino",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Disco Pluma P2000 (polimento)",
+  "uniCode": "NK-65",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Polimento e refino",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Disco Trizact P1000",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Disco de Corte",
+  "uniCode": "4.1/",
+  "brands": [
+   "Norton"
+  ],
+  "leaf": "Discos de corte e desbaste",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Disco de Interface",
+  "uniCode": null,
+  "brands": [
+   "Atlas"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Disco de polir Trizact P3000",
+  "uniCode": "S/Furo",
+  "brands": [
+   "3M"
+  ],
+  "leaf": null,
+  "top": "A Revisar",
+  "acct": null,
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Elemento Filtro de Ar",
+  "uniCode": "CD88171913",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Elemento Separador Ar/oleo",
+  "uniCode": "CD24121212",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Endurecedor",
+  "uniCode": "00065",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Endurecedor Medio PPG",
+  "uniCode": "END010",
+  "brands": [
+   "PPG"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Endurecedor P/ Spectra",
+  "uniCode": "H38",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Endurecedor Primer Epoxi",
+  "uniCode": "F366.11",
+  "brands": [
+   "PPG"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Endurecedor Pu",
+  "uniCode": "573.009",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Endurecedor Pu",
+  "uniCode": "573.950",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Endurecedor Pu Alif",
+  "uniCode": "573.950",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Endurecedor Rapido PPG",
+  "uniCode": "D803.11",
+  "brands": [
+   "PPG"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Endurecedor Verniz Fosco",
+  "uniCode": "H0010",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Endurecedor Wash Primer",
+  "uniCode": "051",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Engate Rapido Fêmea",
+  "uniCode": "SP-40",
+  "brands": [
+   "Japonês"
+  ],
+  "leaf": "Linha de ar comprimido",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Engate Rapido Macho",
+  "uniCode": "PP-40",
+  "brands": [
+   "Japonês"
+  ],
+  "leaf": "Linha de ar comprimido",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Engate Rapido Macho (ext)",
+  "uniCode": "PM-20",
+  "brands": [
+   "Japonês"
+  ],
+  "leaf": "Linha de ar comprimido",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Engate Rapido Macho (int)",
+  "uniCode": "PF-20",
+  "brands": [
+   "Japonês"
+  ],
+  "leaf": "Linha de ar comprimido",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Engate Rápido Macho",
+  "uniCode": "SM-40",
+  "brands": [
+   "Japonês"
+  ],
+  "leaf": "Linha de ar comprimido",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Escada de Aluminio",
+  "uniCode": "16/degraus",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Escada de Aluminio",
+  "uniCode": "30/degraus",
+  "brands": [
+   "Outras"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Escada de Alumínio",
+  "uniCode": "7 degraus",
+  "brands": [
+   "Outra"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Escova Aço Motoesmeril",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Corte, impacto e escovas manuais",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Escova de Aço Latonado",
+  "uniCode": "1777-4",
+  "brands": [
+   "Acr"
+  ],
+  "leaf": "Corte, impacto e escovas manuais",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Esmalte Sintetico Branco",
+  "uniCode": null,
+  "brands": [
+   "Galle"
+  ],
+  "leaf": "Bases prontas / Tintas",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Esmerilhadeira",
+  "uniCode": "GA5010",
+  "brands": [
+   "Makita"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Esmerilhadeira",
+  "uniCode": "GWS-9",
+  "brands": [
+   "Bosch"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Esmerilhadeira Bat/11.000rpm",
+  "uniCode": "GWS -8 LI5",
+  "brands": [
+   "Bosch"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Espaguete Termoretratil",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Espatula Celuloide",
+  "uniCode": null,
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Espatula Feltro",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Transfer e ferramentas de aplicação",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Espatula Inox/12cm Cab Pvc",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Espatula Rigida Adesivo",
+  "uniCode": "2022",
+  "brands": [
+   "Exfak"
+  ],
+  "leaf": "Transfer e ferramentas de aplicação",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Espatula de Aço",
+  "uniCode": null,
+  "brands": [
+   "Paceta"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Esquadro Carpinteiro",
+  "uniCode": null,
+  "brands": [
+   "Starret"
+  ],
+  "leaf": "Medição e alinhamento",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Estilete Snap Off",
+  "uniCode": null,
+  "brands": [
+   "Irwin"
+  ],
+  "leaf": "Corte, impacto e escovas manuais",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Estopa Fiapo",
+  "uniCode": null,
+  "brands": [
+   "Brasil Sul"
+  ],
+  "leaf": null,
+  "top": "A Revisar",
+  "acct": null,
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Estopa de Pano",
+  "uniCode": "1Kg",
+  "brands": [],
+  "leaf": "Higiene, limpeza e zeladoria",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Extensor P/ Soquete Grande",
+  "uniCode": "1/2",
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Extensor p/ Soquete pequeno",
+  "uniCode": "3/8",
+  "brands": [
+   "Robustec"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Extensão Elétrica",
+  "uniCode": "2x",
+  "brands": [
+   "Daneva"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Extensão P/ Soquete Pequeno",
+  "uniCode": "1/2",
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Faixa Refletiva",
+  "uniCode": "Esquerda",
+  "brands": [
+   "Avery Denisson"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Faixa Refletiva",
+  "uniCode": "Direita",
+  "brands": [
+   "Avery Denisson"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Faixa Refletiva 3M",
+  "uniCode": "Esquerdo",
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Faixa Refletiva 3M .",
+  "uniCode": "Direita ",
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Faixa Refletiva Lateral Direita",
+  "uniCode": "DMB9300",
+  "brands": [
+   "Dm"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Faixa Refletiva Lateral Esquerda",
+  "uniCode": "DMB",
+  "brands": [
+   "Dm"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Faixa Refletiva Para Choque",
+  "uniCode": null,
+  "brands": [
+   "Dm"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Ferro de Solda",
+  "uniCode": null,
+  "brands": [
+   "Exbom"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Filtro Compressor",
+  "uniCode": "CD24286676",
+  "brands": [
+   "Outra"
+  ],
+  "leaf": "Linha de ar comprimido",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Filtro de Oleo",
+  "uniCode": "CD39329602",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Fita Crepe Amarela",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Fitas de mascaramento",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Fita Crepe Automotiva",
+  "uniCode": "425",
+  "brands": [
+   "Adere"
+  ],
+  "leaf": "Fitas de mascaramento",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Fita Crepe Premium Azul",
+  "uniCode": "PR539",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Fitas de mascaramento",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Fita Crepe Uso Geral",
+  "uniCode": "423",
+  "brands": [
+   "Adere"
+  ],
+  "leaf": "Fitas de mascaramento",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Fita Crepe Uso Geral",
+  "uniCode": "PR539",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Fitas de mascaramento",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Fita Dupla Face",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Fitas de mascaramento",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Fita Filete Pvc",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Vinil, películas e adesivos",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Fita Isolante",
+  "uniCode": "P22",
+  "brands": [
+   "Prysmian"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Fita Led",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Fita Veda Rosca",
+  "uniCode": "X",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Fitilho Reciclado",
+  "uniCode": "F10",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Papel e plástico de cobertura",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Flexibilizante",
+  "uniCode": "3402.04",
+  "brands": [
+   "PPG"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Flexibilizante",
+  "uniCode": "509.080",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Funil Reto",
+  "uniCode": null,
+  "brands": [
+   "Kala"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Furadeira",
+  "uniCode": "GSB 13 RE",
+  "brands": [
+   "Bosch"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Galocha - 35",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Galocha - 38",
+  "uniCode": null,
+  "brands": [],
+  "leaf": null,
+  "top": "A Revisar",
+  "acct": null,
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Galocha - 39",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Galocha - 40",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Galocha - 41",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Galocha - 42",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Galocha - 43",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Galocha - 44",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Galocha - 45",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Galocha - 46",
+  "uniCode": null,
+  "brands": [
+   "Kadesh"
+  ],
+  "leaf": "Calçados de segurança",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Garra Jacaré 400a",
+  "uniCode": null,
+  "brands": [
+   "Rotony"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Garra Jacaré 600a",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Garrafa Quadrada",
+  "uniCode": "004",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Garrafa Quadrada",
+  "uniCode": "002",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Garrafa Quadrada",
+  "uniCode": "001",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Hookit",
+  "uniCode": "PRO-406",
+  "brands": [
+   "Pdr"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Intercap",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Kit Bateria 4,0ah",
+  "uniCode": null,
+  "brands": [
+   "Bosch"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Kit Soquete Adaptador Macho",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Kit de Rodas",
+  "uniCode": null,
+  "brands": [
+   "Rodline"
+  ],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Lamina Norma",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Equipamento e consumíveis de plotter",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Lamina Plotter",
+  "uniCode": null,
+  "brands": [
+   "Rolland"
+  ],
+  "leaf": "Equipamento e consumíveis de plotter",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lampada Led",
+  "uniCode": null,
+  "brands": [
+   "Taschibra"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Lanterna Led",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Lanterna Led Âmbar",
+  "uniCode": "V POS/RETRO",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Lanterna Side Marker Led Âmbar",
+  "uniCode": null,
+  "brands": [
+   "Braslux"
+  ],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Lanterna de Cabeça",
+  "uniCode": null,
+  "brands": [
+   "Headlamp"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Lapis 6b",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Escritório e administrativo",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Laranja",
+  "uniCode": "AC175",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Laranja",
+  "uniCode": "UC285",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Laranja",
+  "uniCode": "LL117",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Laranja Especial",
+  "uniCode": "UC115",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Laranja Imp",
+  "uniCode": "UC292",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Laranja Limpo",
+  "uniCode": "UC264",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Laranja Organico",
+  "uniCode": "AC185",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Laranja Orgânico",
+  "uniCode": "UC265",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Laranja Vinilico Brilhante",
+  "uniCode": "4800.020",
+  "brands": [
+   "Saturno"
+  ],
+  "leaf": "Linha Vinílica",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Folha 150",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Folha 220",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Folha 320",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Folha 400",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Folha 600",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Folha 80",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Folha D'agua P1200",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Folha D'agua P220",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Folha D'agua P320",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Folha D'agua P400",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Folha D'agua P600",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Hookit P150",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Hookit P220",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Hookit P320",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Hookit P40",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Hookit P400",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Hookit P500",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Hookit P600",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Hookit P80",
+  "uniCode": null,
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixa Hookit P800",
+  "uniCode": null,
+  "brands": [
+   "Maverick"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Lixadeira Orbital",
+  "uniCode": "6IN 3/ PRO",
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Lixadeira Orbital",
+  "uniCode": "3/16 in",
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Luva Neoprene - G",
+  "uniCode": null,
+  "brands": [
+   "Volk"
+  ],
+  "leaf": "Proteção das mãos (luvas)",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Luva Neoprene - M",
+  "uniCode": null,
+  "brands": [
+   "Volk"
+  ],
+  "leaf": "Proteção das mãos (luvas)",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Luva Química",
+  "uniCode": "GR3",
+  "brands": [
+   "Nutriex"
+  ],
+  "leaf": "Proteção das mãos (luvas)",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Luva Redução",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Luva de Proteção Anticorte",
+  "uniCode": "CA.50881",
+  "brands": [
+   "Kalipso Epi"
+  ],
+  "leaf": null,
+  "top": "A Revisar",
+  "acct": null,
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Luva de Vaqueta",
+  "uniCode": null,
+  "brands": [
+   "Nacionalplus"
+  ],
+  "leaf": "Proteção das mãos (luvas)",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Líq. de Mascaramento",
+  "uniCode": "506.000",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Fitas de mascaramento",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Macacão de Segurança",
+  "uniCode": "XXG",
+  "brands": [
+   "Vicsa"
+  ],
+  "leaf": "Proteção visual, auditiva e corporal",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Macacão de Segurança",
+  "uniCode": null,
+  "brands": [
+   "Vicsa"
+  ],
+  "leaf": "Proteção visual, auditiva e corporal",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Macho",
+  "uniCode": "UNC 5/16\"",
+  "brands": [
+   "Rocast"
+  ],
+  "leaf": "Corte, impacto e escovas manuais",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": true
+ },
+ {
+  "name": "Macho",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Corte, impacto e escovas manuais",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": true
+ },
+ {
+  "name": "Macho 3/8",
+  "uniCode": null,
+  "brands": [
+   "Dormer"
+  ],
+  "leaf": "Corte, impacto e escovas manuais",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": true
+ },
+ {
+  "name": "Mandril P/ Martelet",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Mangueira Irrigação",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Mangueira de Ar",
+  "uniCode": null,
+  "brands": [
+   "Ibira"
+  ],
+  "leaf": "Linha de ar comprimido",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Mangueira de Água",
+  "uniCode": null,
+  "brands": [
+   "Ibirá"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Manguito - G",
+  "uniCode": "SKU:SNUGG",
+  "brands": [
+   "Pro Tour"
+  ],
+  "leaf": "Proteção visual, auditiva e corporal",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": true
+ },
+ {
+  "name": "Manguito - GG",
+  "uniCode": "SKU-431E",
+  "brands": [
+   "Pro Tour"
+  ],
+  "leaf": "Proteção visual, auditiva e corporal",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": true
+ },
+ {
+  "name": "Manguito - M",
+  "uniCode": "SKU:SNUGG",
+  "brands": [
+   "Pro Tour"
+  ],
+  "leaf": "Proteção visual, auditiva e corporal",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": true
+ },
+ {
+  "name": "Manguito - P",
+  "uniCode": "SKU:SNUGG",
+  "brands": [
+   "Pro Tour"
+  ],
+  "leaf": "Proteção visual, auditiva e corporal",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": true
+ },
+ {
+  "name": "Manta de Fibra de Vidro",
+  "uniCode": "3487",
+  "brands": [
+   "MassaFix"
+  ],
+  "leaf": "Massas e laminação",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Manômetro",
+  "uniCode": "REB40-04M",
+  "brands": [],
+  "leaf": "Medição e alinhamento",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": true
+ },
+ {
+  "name": "Marreta Pequena",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Corte, impacto e escovas manuais",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Marrom Transparente",
+  "uniCode": "UC276",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Martelet",
+  "uniCode": "D25133-B2",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Martelete Pneumatico",
+  "uniCode": "PRO-300",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Ferramentas pneumáticas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Martelo Pena Cabo Fibra",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Corte, impacto e escovas manuais",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Massa Plastica",
+  "uniCode": null,
+  "brands": [
+   "2001"
+  ],
+  "leaf": "Massas e laminação",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Massa Poliester",
+  "uniCode": null,
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Massas e laminação",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Massa Poliester",
+  "uniCode": "M3500",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Massas e laminação",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Massa Poliester",
+  "uniCode": "508.200",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Massas e laminação",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Massa Poliester Fibras",
+  "uniCode": "508.800",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Massas e laminação",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Massa de Polir",
+  "uniCode": null,
+  "brands": [
+   "Pérola"
+  ],
+  "leaf": "Polimento e refino",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Maçarico",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Micro Retifica Worker 190 Peças",
+  "uniCode": null,
+  "brands": [
+   "Worker"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Morsa",
+  "uniCode": "NA8",
+  "brands": [
+   "Nocram Marcon"
+  ],
+  "leaf": "Corte, impacto e escovas manuais",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": true
+ },
+ {
+  "name": "Motoesmiril 1,0cv/220v",
+  "uniCode": "MM-1001",
+  "brands": [
+   "Motomil"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Máscara",
+  "uniCode": "321",
+  "brands": [
+   "Adere"
+  ],
+  "leaf": "Transfer e ferramentas de aplicação",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Máscara",
+  "uniCode": "328",
+  "brands": [
+   "Adere"
+  ],
+  "leaf": "Transfer e ferramentas de aplicação",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Máscara Semi Facial Média",
+  "uniCode": "7502",
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Proteção respiratória",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Máscara Semi Facial Pequena",
+  "uniCode": "7501",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Proteção respiratória",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Máscara Semi Facial Pequena",
+  "uniCode": "7501",
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Proteção respiratória",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Máscara Solda/autom",
+  "uniCode": "BS120",
+  "brands": [
+   "Boxer"
+  ],
+  "leaf": "Proteção visual, auditiva e corporal",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Niple Duplo Galv",
+  "uniCode": null,
+  "brands": [
+   "Outra"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Nivel de Mão",
+  "uniCode": null,
+  "brands": [
+   "Fertak"
+  ],
+  "leaf": "Medição e alinhamento",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Nivel Á Laser",
+  "uniCode": "DW088",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Medição e alinhamento",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Ouro Villa Rica",
+  "uniCode": null,
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Bases prontas / Tintas",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Pacote Estopa",
+  "uniCode": null,
+  "brands": [
+   "Brasil Sul"
+  ],
+  "leaf": "Higiene, limpeza e zeladoria",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Pacote Papel Higiênico c/ 8 unidades",
+  "uniCode": null,
+  "brands": [
+   "Pop"
+  ],
+  "leaf": "Higiene, limpeza e zeladoria",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Pacote Papel Sulfite",
+  "uniCode": "A4",
+  "brands": [
+   "Report"
+  ],
+  "leaf": "Escritório e administrativo",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Pacote Pincel de Retoque",
+  "uniCode": "C/50",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Pacote Saco de Lixo 200 lts",
+  "uniCode": "C/100",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Higiene, limpeza e zeladoria",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Palha de Aço",
+  "uniCode": "Nº 2",
+  "brands": [
+   "Vega"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Papel Corrugado (ondulado)",
+  "uniCode": "Ondulado",
+  "brands": [],
+  "leaf": "Papel e plástico de cobertura",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Papel Kraft",
+  "uniCode": "70GR",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Papel e plástico de cobertura",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Papel Toalha Interfolha Branco",
+  "uniCode": null,
+  "brands": [
+   "Pop"
+  ],
+  "leaf": "Higiene, limpeza e zeladoria",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Par Protetor Auric. Auditivo",
+  "uniCode": "031",
+  "brands": [
+   "Valeplast"
+  ],
+  "leaf": "Proteção visual, auditiva e corporal",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Par de Cartucho Para Máscara",
+  "uniCode": "6003",
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Proteção respiratória",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Par de Filtro Para Máscara",
+  "uniCode": "5N11",
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Proteção respiratória",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Parafusadeira",
+  "uniCode": "DHP482",
+  "brands": [
+   "Makita"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Parafusadeira",
+  "uniCode": "GSB -50",
+  "brands": [
+   "Bosch"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Parafusadeira Bat 18v-3,0ah",
+  "uniCode": "DPH486RFJ",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Parafusadeira Impc 18v",
+  "uniCode": "DTD-157Z",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Parafuso Allen Inox 10x25",
+  "uniCode": "DIN-912",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Parafuso Allen M06 X 0,40",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Parafuso Philips Brocante flangeado",
+  "uniCode": "25x4,2mm",
+  "brands": [
+   "Vila"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Parafuso Sextavado Inox",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Parafuso Sextavado Inox 5/16 X 7/8",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Parafuso Sextavado Inox 5/16x1",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Parafuso Sextavado Inox 6x20 8.8",
+  "uniCode": null,
+  "brands": [],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Parafuso Sextavado Zincado",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Parafuso Sextavado Zincado",
+  "uniCode": "UNC 3/",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Parafuso Torx Inox",
+  "uniCode": null,
+  "brands": [
+   "Furgão"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Parafuso philips Brocante Flangeado",
+  "uniCode": "19x4,2mm",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Peneira",
+  "uniCode": null,
+  "brands": [
+   "2001"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Amarelo",
+  "uniCode": "UC606",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Azul Esverdeado",
+  "uniCode": "UC627",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Azul Fino",
+  "uniCode": "UC626",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Azul Graudo",
+  "uniCode": "UC625",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Bordo",
+  "uniCode": "UC610",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Branco Fino",
+  "uniCode": "UC601",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Branco Graúdo",
+  "uniCode": "UC615",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Bronze",
+  "uniCode": "UC607",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Cobre",
+  "uniCode": "UC620",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Dourado",
+  "uniCode": "UC605",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Lilas",
+  "uniCode": "UC619",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Red Violet",
+  "uniCode": "UC617",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Verde",
+  "uniCode": "UC628",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Verde Luminoso",
+  "uniCode": "UC622",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Vermelho Fino",
+  "uniCode": "UC608",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Perolizado Vermelho Graudo",
+  "uniCode": "UC609",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Pigmento Flourescente Verde",
+  "uniCode": null,
+  "brands": [
+   "Saturn"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Pigmento Fluorescente Amarelo",
+  "uniCode": null,
+  "brands": [
+   "Saturn"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Pilha",
+  "uniCode": "AAA ",
+  "brands": [
+   "Elgin"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Pincel",
+  "uniCode": null,
+  "brands": [
+   "Atlas"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Pincel Médio",
+  "uniCode": "302",
+  "brands": [
+   "Roma"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Pistola Pintura",
+  "uniCode": null,
+  "brands": [
+   "Wwsoldas"
+  ],
+  "leaf": "Pistolas de pintura e aerografia",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Pistola Pintura K3",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Pistolas de pintura e aerografia",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Pistola Pintura K3",
+  "uniCode": "PR503",
+  "brands": [
+   "Pdr"
+  ],
+  "leaf": "Pistolas de pintura e aerografia",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Pistola de Pintura",
+  "uniCode": "PRO-534",
+  "brands": [
+   "Pdr"
+  ],
+  "leaf": "Pistolas de pintura e aerografia",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Pistola de Pintura",
+  "uniCode": "PR .7m",
+  "brands": [
+   "Pdr"
+  ],
+  "leaf": "Pistolas de pintura e aerografia",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Plotter de Recorte",
+  "uniCode": "PJK1351",
+  "brands": [
+   "Velve"
+  ],
+  "leaf": "Equipamento e consumíveis de plotter",
+  "top": "Plotagem e Adesivação",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Plugue Fêmea",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Plugue Macho",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Politriz",
+  "uniCode": "GPO 14 CE",
+  "brands": [
+   "Bosch"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Power Bank Portátil 5000mAh sem fio 20W",
+  "uniCode": null,
+  "brands": [
+   "Basike"
+  ],
+  "leaf": "Informática e eletrônicos de apoio",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Prata Vinilico Brilhante",
+  "uniCode": "4800.300",
+  "brands": [
+   "Saturno"
+  ],
+  "leaf": "Linha Vinílica",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Preto",
+  "uniCode": "LL112",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Preto",
+  "uniCode": "UC290",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Preto",
+  "uniCode": "AC180",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Preto Azulado",
+  "uniCode": "UC280",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Preto Chassis",
+  "uniCode": "113.042",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Bases prontas / Tintas",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Preto Fosco Chassi",
+  "uniCode": "113.8780e",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Bases prontas / Tintas",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Preto Intenso",
+  "uniCode": "UC270",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Preto Vinilico Brilhante",
+  "uniCode": "480.9999",
+  "brands": [
+   "Saturno"
+  ],
+  "leaf": "Linha Vinílica",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Prime PU P/plas 1k (3,6L)",
+  "uniCode": "513.030",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Primer 8200",
+  "uniCode": null,
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Primer Multfill",
+  "uniCode": null,
+  "brands": [
+   "PPG"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Primer Pu 3000",
+  "uniCode": "513.000",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Primer Pu Cinza",
+  "uniCode": "513.030",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Primer Pu Fast Dry",
+  "uniCode": "513.540",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Primer Pu P/plas 1k (900ml)",
+  "uniCode": "513.030",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Primer Pu Preto 5x1",
+  "uniCode": "513.820",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Primer Pu Preto Rodo",
+  "uniCode": "9042",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Primer Spectra 2k",
+  "uniCode": "P30 Branco",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Primer Spectra 2k",
+  "uniCode": "P30 Cinza",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Pu Branco",
+  "uniCode": "LP550",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Bases prontas / Tintas",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Pu Preto Intenso",
+  "uniCode": "LP513",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Bases prontas / Tintas",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Pulverizador de Pressão",
+  "uniCode": "5L",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Pá de Lixo Inox",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Higiene, limpeza e zeladoria",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rebitadeira Pneumatica",
+  "uniCode": "PRO-316",
+  "brands": [
+   "Pdr"
+  ],
+  "leaf": "Ferramentas pneumáticas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Rebitadeira de Rosca Pneumatica",
+  "uniCode": "SGT0738",
+  "brands": [
+   "Sigma"
+  ],
+  "leaf": "Ferramentas pneumáticas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Rebite Rosca Lisa",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rebite Rosca Lisa",
+  "uniCode": "M10",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rebite Rosca Sextavado 630",
+  "uniCode": "702",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rebite de Repuxo 416",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rebite de Repuxo 516",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rebite de Repuxo 525",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rebite de Repuxo 619",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rebite de Repuxo 630",
+  "uniCode": "33-9",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rebite de Repuxo 640",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Refil de Gás",
+  "uniCode": "400gr",
+  "brands": [
+   "Eos"
+  ],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Refil de Maçarico",
+  "uniCode": null,
+  "brands": [
+   "Eos*"
+  ],
+  "leaf": "Peças de manutenção de equipamento",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Refletor Led",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Refletor Led 50w-6500k",
+  "uniCode": "399021376",
+  "brands": [
+   "Easy"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Regulador de Pressão",
+  "uniCode": "RE40-04",
+  "brands": [
+   "Vortex"
+  ],
+  "leaf": "Linha de ar comprimido",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Removedor",
+  "uniCode": "290.010",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Diluentes, thinners e preparadores de superfície",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Resina Laminação",
+  "uniCode": "508.080",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Massas e laminação",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Resina Laminação",
+  "uniCode": "4478",
+  "brands": [
+   "Mercure Tintas"
+  ],
+  "leaf": "Massas e laminação",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Respirador Descartável - C/ Válvula",
+  "uniCode": "PFF2-",
+  "brands": [
+   "Camper"
+  ],
+  "leaf": "Proteção respiratória",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Retentor Para Máscara",
+  "uniCode": "5000",
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Proteção respiratória",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Rolo Anti Respingo",
+  "uniCode": "23cm",
+  "brands": [
+   "Roma"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rolo Antirespingo",
+  "uniCode": "15cm",
+  "brands": [
+   "Roma"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rolo Etiqueta",
+  "uniCode": null,
+  "brands": [
+   "Niimbot"
+  ],
+  "leaf": "Escritório e administrativo",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rolo Fibra Sintética",
+  "uniCode": null,
+  "brands": [
+   "Riberfibras"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rolo anti respingo",
+  "uniCode": "9cm",
+  "brands": [
+   "Roma"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rolo de Fita Para Arquear",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Rolo de Lona Plastica",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Papel e plástico de cobertura",
+  "top": "Mascaramento e Cobertura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rompedor/talhadeira",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Corte, impacto e escovas manuais",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Rosa",
+  "uniCode": "AC189",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Rosa",
+  "uniCode": "UC275",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Saco de lixo 60 lts",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Higiene, limpeza e zeladoria",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Sacola Plástica",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Higiene, limpeza e zeladoria",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Scotch Brite",
+  "uniCode": "AMF",
+  "brands": [
+   "3M"
+  ],
+  "leaf": "Lixas, fibras e suportes",
+  "top": "Abrasivos e Polimento",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Seladora Plastico",
+  "uniCode": "081",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Seladora Poliuretano",
+  "uniCode": "D854.11",
+  "brands": [
+   "PPG"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Selo Metalico Para Arquear",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Abraçadeiras e presilhas",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Serra Marmore",
+  "uniCode": "NH2",
+  "brands": [
+   "Makita"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Serra Tico Tico",
+  "uniCode": "DWE300-",
+  "brands": [
+   "Dewalt"
+  ],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Soldador de Plástico",
+  "uniCode": null,
+  "brands": [],
+  "leaf": "Ferramentas elétricas",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": true
+ },
+ {
+  "name": "Solução Ajuste Metalico",
+  "uniCode": "UC580",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Solução Flexibilizante",
+  "uniCode": "509.080",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Endurecedores, catalisadores e aditivos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Solvente Vinilico",
+  "uniCode": null,
+  "brands": [
+   "Petrus"
+  ],
+  "leaf": "Linha Vinílica",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Soprador Térmico",
+  "uniCode": "STV200",
+  "brands": [
+   "Vonder"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Soprador Térmico Bateria",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Hexagonal 4",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Hexagonal 5",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Hexagonal 6",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Hexagonal 7",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 10",
+  "uniCode": "1/2",
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 10 Longo",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 11",
+  "uniCode": "1/2",
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 11 Longo",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 12",
+  "uniCode": "1/2",
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 12 Longo",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 13",
+  "uniCode": "1/2",
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 13 Longo",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 14",
+  "uniCode": "1/2",
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 14 Longo",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 15",
+  "uniCode": "1/2",
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 15 Longo",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 16",
+  "uniCode": "1/2",
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 16 Longo",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 17",
+  "uniCode": "1/2",
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 18",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 19",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 32",
+  "uniCode": null,
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 6",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 7",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 7 Longo",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 8",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 8 Longo",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 9",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Sextavado 9 Longo",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Torx T-20",
+  "uniCode": "t20",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Torx T-27",
+  "uniCode": "t27",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Torx T-30",
+  "uniCode": "t30",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Torx T-40 Longo",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete Torx T-45",
+  "uniCode": null,
+  "brands": [
+   "King Tony"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Soquete allen 7/32",
+  "uniCode": "7/32",
+  "brands": [
+   "Gedore"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Super Bonder",
+  "uniCode": "793",
+  "brands": [
+   "Tekbond"
+  ],
+  "leaf": "Selantes e vedantes de carroceria",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Suporte Garfo Rolo de Pintura",
+  "uniCode": null,
+  "brands": [
+   "Atlas"
+  ],
+  "leaf": "Pincéis, rolos e espátulas",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Suporte Reforçado",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Suporte de Mangueira",
+  "uniCode": null,
+  "brands": [
+   "Tramontina"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Suporte para Pistola",
+  "uniCode": "a-36",
+  "brands": [],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Tampa P/ Condulete 2 Modulos",
+  "uniCode": null,
+  "brands": [
+   "Hidrossol"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Tampa Para Bisnaga",
+  "uniCode": null,
+  "brands": [
+   "Nalgon"
+  ],
+  "leaf": "Copos, dosagem e filtragem",
+  "top": "Aplicadores e Auxiliares de Mistura",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Thinner 18l",
+  "uniCode": "557.000",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Diluentes, thinners e preparadores de superfície",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Thinner 7000",
+  "uniCode": "557.000-198",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Diluentes, thinners e preparadores de superfície",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Tinta para impressora",
+  "uniCode": null,
+  "brands": [
+   "Epson"
+  ],
+  "leaf": "Escritório e administrativo",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Tomada 20a Preta",
+  "uniCode": "P85510",
+  "brands": [
+   "Alumbra Inova"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Tomada 20a Vermelha",
+  "uniCode": "P85022",
+  "brands": [
+   "Alumbra Inova"
+  ],
+  "leaf": "Energia e infraestrutura elétrica",
+  "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "review": false
+ },
+ {
+  "name": "Trava Porta Fêmea",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Trava Porta Macho",
+  "uniCode": null,
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Trava Rosca",
+  "uniCode": "271",
+  "brands": [
+   "Loctite"
+  ],
+  "leaf": "Selantes e vedantes de carroceria",
+  "top": "Funilaria e Reparo de Carroceria",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": true
+ },
+ {
+  "name": "Trena 5m",
+  "uniCode": null,
+  "brands": [
+   "Lufkin"
+  ],
+  "leaf": "Medição e alinhamento",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Trena 8m",
+  "uniCode": null,
+  "brands": [
+   "Lufkin"
+  ],
+  "leaf": "Medição e alinhamento",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Trena Dewalt Emb",
+  "uniCode": "duo/",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Medição e alinhamento",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Tripé P/ Nivel Á Laser",
+  "uniCode": "150",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Medição e alinhamento",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": true
+ },
+ {
+  "name": "Valvula Esferica Latão 1/2",
+  "uniCode": "MBPN25 4353",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Valvula Esferica Latão 3/4",
+  "uniCode": "MBPN25 4355",
+  "brands": [
+   "Genérico"
+  ],
+  "leaf": "Conexões, mangueiras e suportes",
+  "top": "Peças, Fixação e Conexões",
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vassoura de Palha",
+  "uniCode": null,
+  "brands": [
+   "Atlas"
+  ],
+  "leaf": "Higiene, limpeza e zeladoria",
+  "top": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verde",
+  "uniCode": "AC178",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verde",
+  "uniCode": "UC288",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verde Amarelado",
+  "uniCode": "UC293",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verde Médio Vinilico Brilhante",
+  "uniCode": "4800.223",
+  "brands": [
+   "Saturno"
+  ],
+  "leaf": "Linha Vinílica",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verde Paris Vinilico Brilhante",
+  "uniCode": "4800.222",
+  "brands": [
+   "Saturno"
+  ],
+  "leaf": "Linha Vinílica",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verde Puro Vinilico Brilhante",
+  "uniCode": "4800.224",
+  "brands": [
+   "Saturno"
+  ],
+  "leaf": "Linha Vinílica",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vermelho",
+  "uniCode": "LL128",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vermelho Avioletado",
+  "uniCode": "UC279",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vermelho Azulado",
+  "uniCode": "UC274",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vermelho Extra Limpo",
+  "uniCode": "UC295",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vermelho Intenso",
+  "uniCode": "UC269",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vermelho Limpo",
+  "uniCode": "UC291",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vermelho Oxido",
+  "uniCode": "UC286",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vermelho Oxido",
+  "uniCode": "LL143",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vermelho Oxido",
+  "uniCode": "AC176",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vermelho Pleno",
+  "uniCode": "UC289",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vermelho Scarlat Transparente",
+  "uniCode": "UC268",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vermelho Transparente",
+  "uniCode": "UC296",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vermelho Vivo",
+  "uniCode": "AC135",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verniz",
+  "uniCode": "543.850",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verniz",
+  "uniCode": "8937",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verniz",
+  "uniCode": "F390.05",
+  "brands": [
+   "PPG"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verniz Fosco",
+  "uniCode": "D8115.11",
+  "brands": [
+   "PPG"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verniz Fosco",
+  "uniCode": "VF001",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verniz Pu Acrilico",
+  "uniCode": "543.950",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verniz Pu Acrilico Fosco",
+  "uniCode": "543.005",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verniz Pu Auto S/FO (3,6L)",
+  "uniCode": "543.010",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verniz Pu Auto S/FO (900ml)",
+  "uniCode": "543.010",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verniz Semi Brilho",
+  "uniCode": "D8117.11",
+  "brands": [
+   "PPG"
+  ],
+  "leaf": "Vernizes e clears",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verniz Viniclico Fosco",
+  "uniCode": null,
+  "brands": [
+   "Sicoltex"
+  ],
+  "leaf": "Linha Vinílica",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Verniz Vinilico Brilhante",
+  "uniCode": null,
+  "brands": [
+   "Sicoltex"
+  ],
+  "leaf": "Linha Vinílica",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vinho Oxido",
+  "uniCode": "AC186",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Violeta",
+  "uniCode": "UC221",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Violeta",
+  "uniCode": "AC121",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Vira Macho Reto",
+  "uniCode": null,
+  "brands": [
+   "Rocast"
+  ],
+  "leaf": "Corte, impacto e escovas manuais",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": true
+ },
+ {
+  "name": "Wash Primer",
+  "uniCode": "517.600",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Wash Primer",
+  "uniCode": "045",
+  "brands": [
+   "Lazzuril"
+  ],
+  "leaf": "Primers, seladoras e fundos",
+  "top": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Xirallic Branco Cristal",
+  "uniCode": "UC614",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Xirallic Copper",
+  "uniCode": "UC613",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Xirallic Galaxy Blue",
+  "uniCode": "UC624",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Xirallic Gold",
+  "uniCode": "UC604",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Xirallic Radiant Red",
+  "uniCode": "UC611",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Xirallic Solaris Red",
+  "uniCode": "UC612",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "Xirallic Stellar Green",
+  "uniCode": "UC623",
+  "brands": [
+   "Farben"
+  ],
+  "leaf": "Pigmento",
+  "top": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "review": false
+ },
+ {
+  "name": "kit Bits Phhillips",
+  "uniCode": "ph2s2",
+  "brands": [
+   "Gross"
+  ],
+  "leaf": "Chaves, alicates e soquetes",
+  "top": "Ferramentas Manuais e Medição",
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "review": false
+ },
+ {
+  "name": "Óculos de Proteção",
+  "uniCode": null,
+  "brands": [
+   "Leopardo"
+  ],
+  "leaf": "Proteção visual, auditiva e corporal",
+  "top": "EPI — Equipamentos de Proteção Individual",
+  "acct": "EPI",
+  "physical": "PPE",
+  "review": false
+ },
+ {
+  "name": "Óculos de Sobrepor Escuro",
+  "uniCode": "CA.10344",
+  "brands": [
+   "Kalipso Epi"
+  ],
+  "leaf": null,
+  "top": "A Revisar",
+  "acct": null,
+  "physical": "REGULAR",
+  "review": true
+ }
+]

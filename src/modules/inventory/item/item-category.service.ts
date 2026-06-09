@@ -588,10 +588,19 @@ export class ItemCategoryService {
         where: topLevelWhere,
         include: {
           ...(query?.include || {}),
+          // Item count for the top-level node. Required explicitly: because we pass an
+          // `include` here, the repository's default include (which carries `_count`)
+          // is bypassed, so without this every node would report 0 items.
+          _count: { select: { items: true } },
           // Nest two levels of children so the response is a ready-to-render tree.
-          // Each node carries `children`; leaf nodes get an empty array.
+          // Each node carries `children` and its own item `_count` (items attach to the
+          // LEAF subcategory, so the count must be present at every level); leaf nodes
+          // get an empty `children` array.
           children: {
-            include: { children: true },
+            include: {
+              _count: { select: { items: true } },
+              children: { include: { _count: { select: { items: true } } } },
+            },
             orderBy: [{ typeOrder: 'asc' }, { name: 'asc' }],
           },
         },

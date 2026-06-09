@@ -1,0 +1,524 @@
+[
+ {
+  "name": "A Revisar",
+  "level": 1,
+  "acct": null,
+  "physical": "REGULAR",
+  "parent": null,
+  "items": 6,
+  "children": 0
+ },
+ {
+  "name": "Abrasivos e Polimento",
+  "level": 1,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": null,
+  "items": 0,
+  "children": 3
+ },
+ {
+  "name": "Aplicadores e Auxiliares de Mistura",
+  "level": 1,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": null,
+  "items": 0,
+  "children": 2
+ },
+ {
+  "name": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "level": 1,
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "parent": null,
+  "items": 0,
+  "children": 4
+ },
+ {
+  "name": "EPI — Equipamentos de Proteção Individual",
+  "level": 1,
+  "acct": "EPI",
+  "physical": "PPE",
+  "parent": null,
+  "items": 0,
+  "children": 4
+ },
+ {
+  "name": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "level": 1,
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "parent": null,
+  "items": 0,
+  "children": 5
+ },
+ {
+  "name": "Ferramentas Manuais e Medição",
+  "level": 1,
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "parent": null,
+  "items": 0,
+  "children": 3
+ },
+ {
+  "name": "Funilaria e Reparo de Carroceria",
+  "level": 1,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": null,
+  "items": 0,
+  "children": 2
+ },
+ {
+  "name": "Mascaramento e Cobertura",
+  "level": 1,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": null,
+  "items": 0,
+  "children": 2
+ },
+ {
+  "name": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "level": 1,
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "parent": null,
+  "items": 0,
+  "children": 4
+ },
+ {
+  "name": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "level": 1,
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "parent": null,
+  "items": 0,
+  "children": 4
+ },
+ {
+  "name": "Outros / Genérico",
+  "level": 1,
+  "acct": null,
+  "physical": "REGULAR",
+  "parent": null,
+  "items": 0,
+  "children": 1
+ },
+ {
+  "name": "Peças, Fixação e Conexões",
+  "level": 1,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": null,
+  "items": 0,
+  "children": 4
+ },
+ {
+  "name": "Plotagem e Adesivação",
+  "level": 1,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": null,
+  "items": 0,
+  "children": 3
+ },
+ {
+  "name": "Uniforme / Fardamento",
+  "level": 1,
+  "acct": "EPI",
+  "physical": "PPE",
+  "parent": null,
+  "items": 0,
+  "children": 2
+ },
+ {
+  "name": "Abraçadeiras e presilhas",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Peças, Fixação e Conexões",
+  "items": 20,
+  "children": 0
+ },
+ {
+  "name": "Base",
+  "level": 2,
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "parent": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "items": 0,
+  "children": 0
+ },
+ {
+  "name": "Bases prontas / Tintas",
+  "level": 2,
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "parent": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "items": 9,
+  "children": 0
+ },
+ {
+  "name": "Calçados de segurança",
+  "level": 2,
+  "acct": "EPI",
+  "physical": "PPE",
+  "parent": "EPI — Equipamentos de Proteção Individual",
+  "items": 27,
+  "children": 0
+ },
+ {
+  "name": "Chaves, alicates e soquetes",
+  "level": 2,
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "parent": "Ferramentas Manuais e Medição",
+  "items": 138,
+  "children": 0
+ },
+ {
+  "name": "Conexões, mangueiras e suportes",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Peças, Fixação e Conexões",
+  "items": 20,
+  "children": 0
+ },
+ {
+  "name": "Copa, alimentação e cortesia",
+  "level": 2,
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "parent": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "items": 7,
+  "children": 0
+ },
+ {
+  "name": "Copos, dosagem e filtragem",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Aplicadores e Auxiliares de Mistura",
+  "items": 15,
+  "children": 0
+ },
+ {
+  "name": "Corte, impacto e escovas manuais",
+  "level": 2,
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "parent": "Ferramentas Manuais e Medição",
+  "items": 12,
+  "children": 0
+ },
+ {
+  "name": "Diluentes, thinners e preparadores de superfície",
+  "level": 2,
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "parent": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "items": 8,
+  "children": 0
+ },
+ {
+  "name": "Discos de corte e desbaste",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Abrasivos e Polimento",
+  "items": 6,
+  "children": 0
+ },
+ {
+  "name": "Endurecedores, catalisadores e aditivos",
+  "level": 2,
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "parent": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "items": 16,
+  "children": 0
+ },
+ {
+  "name": "Energia e infraestrutura elétrica",
+  "level": 2,
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "parent": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "items": 30,
+  "children": 0
+ },
+ {
+  "name": "Equipamento e consumíveis de plotter",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Plotagem e Adesivação",
+  "items": 3,
+  "children": 0
+ },
+ {
+  "name": "Escritório e administrativo",
+  "level": 2,
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "parent": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "items": 5,
+  "children": 0
+ },
+ {
+  "name": "Ferramentas elétricas",
+  "level": 2,
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "parent": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "items": 20,
+  "children": 0
+ },
+ {
+  "name": "Ferramentas pneumáticas",
+  "level": 2,
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "parent": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "items": 3,
+  "children": 0
+ },
+ {
+  "name": "Fitas de mascaramento",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Mascaramento e Cobertura",
+  "items": 7,
+  "children": 0
+ },
+ {
+  "name": "Fixadores (parafusos, porcas, arruelas, rebites)",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Peças, Fixação e Conexões",
+  "items": 25,
+  "children": 0
+ },
+ {
+  "name": "Genérico",
+  "level": 2,
+  "acct": null,
+  "physical": "REGULAR",
+  "parent": "Outros / Genérico",
+  "items": 0,
+  "children": 0
+ },
+ {
+  "name": "Higiene, limpeza e zeladoria",
+  "level": 2,
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "parent": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "items": 9,
+  "children": 0
+ },
+ {
+  "name": "Informática e eletrônicos de apoio",
+  "level": 2,
+  "acct": "ESCRITORIO",
+  "physical": "REGULAR",
+  "parent": "Apoio — Escritório, Cozinha, Limpeza e Cortesia",
+  "items": 4,
+  "children": 0
+ },
+ {
+  "name": "Linha Vinílica",
+  "level": 2,
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "parent": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "items": 14,
+  "children": 0
+ },
+ {
+  "name": "Linha de ar comprimido",
+  "level": 2,
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "parent": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "items": 10,
+  "children": 0
+ },
+ {
+  "name": "Lixas, fibras e suportes",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Abrasivos e Polimento",
+  "items": 27,
+  "children": 0
+ },
+ {
+  "name": "Massas e laminação",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Funilaria e Reparo de Carroceria",
+  "items": 9,
+  "children": 0
+ },
+ {
+  "name": "Medição e alinhamento",
+  "level": 2,
+  "acct": "INVESTIMENTO",
+  "physical": "TOOL",
+  "parent": "Ferramentas Manuais e Medição",
+  "items": 8,
+  "children": 0
+ },
+ {
+  "name": "Papel e plástico de cobertura",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Mascaramento e Cobertura",
+  "items": 9,
+  "children": 0
+ },
+ {
+  "name": "Peças de manutenção de equipamento",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Peças, Fixação e Conexões",
+  "items": 15,
+  "children": 0
+ },
+ {
+  "name": "Pigmento",
+  "level": 2,
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "parent": "Matéria-Prima — Tintas e Pigmentos (Cor)",
+  "items": 102,
+  "children": 0
+ },
+ {
+  "name": "Pincéis, rolos e espátulas",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Aplicadores e Auxiliares de Mistura",
+  "items": 15,
+  "children": 0
+ },
+ {
+  "name": "Pistolas de pintura e aerografia",
+  "level": 2,
+  "acct": "INVESTIMENTO",
+  "physical": "ELECTRONIC_TOOL",
+  "parent": "Ferramentas Elétricas/Pneumáticas e Equipamentos",
+  "items": 7,
+  "children": 0
+ },
+ {
+  "name": "Polimento e refino",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Abrasivos e Polimento",
+  "items": 6,
+  "children": 0
+ },
+ {
+  "name": "Primers, seladoras e fundos",
+  "level": 2,
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "parent": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "items": 16,
+  "children": 0
+ },
+ {
+  "name": "Proteção das mãos (luvas)",
+  "level": 2,
+  "acct": "EPI",
+  "physical": "PPE",
+  "parent": "EPI — Equipamentos de Proteção Individual",
+  "items": 9,
+  "children": 0
+ },
+ {
+  "name": "Proteção respiratória",
+  "level": 2,
+  "acct": "EPI",
+  "physical": "PPE",
+  "parent": "EPI — Equipamentos de Proteção Individual",
+  "items": 7,
+  "children": 0
+ },
+ {
+  "name": "Proteção visual, auditiva e corporal",
+  "level": 2,
+  "acct": "EPI",
+  "physical": "PPE",
+  "parent": "EPI — Equipamentos de Proteção Individual",
+  "items": 9,
+  "children": 0
+ },
+ {
+  "name": "Selantes e vedantes de carroceria",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Funilaria e Reparo de Carroceria",
+  "items": 6,
+  "children": 0
+ },
+ {
+  "name": "Transfer e ferramentas de aplicação",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Plotagem e Adesivação",
+  "items": 4,
+  "children": 0
+ },
+ {
+  "name": "Uniforme — parte inferior",
+  "level": 2,
+  "acct": "EPI",
+  "physical": "PPE",
+  "parent": "Uniforme / Fardamento",
+  "items": 28,
+  "children": 0
+ },
+ {
+  "name": "Uniforme — parte superior",
+  "level": 2,
+  "acct": "EPI",
+  "physical": "PPE",
+  "parent": "Uniforme / Fardamento",
+  "items": 11,
+  "children": 0
+ },
+ {
+  "name": "Vernizes e clears",
+  "level": 2,
+  "acct": "MATERIA_PRIMA",
+  "physical": "REGULAR",
+  "parent": "Matéria-Prima — Fundos, Vernizes e Auxiliares Químicos",
+  "items": 16,
+  "children": 0
+ },
+ {
+  "name": "Vinil, películas e adesivos",
+  "level": 2,
+  "acct": "PRODUTIVO",
+  "physical": "REGULAR",
+  "parent": "Plotagem e Adesivação",
+  "items": 17,
+  "children": 0
+ }
+]

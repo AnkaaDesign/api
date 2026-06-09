@@ -65,3 +65,7 @@ Thumbs.db
 firebase-service-account.json
 **/firebase-service-account*.json
 config/firebase*.json
+
+# Published OTA (Expo Updates) bundles — build artifacts, keep the folder only
+/updates/*
+!/updates/.gitkeep
