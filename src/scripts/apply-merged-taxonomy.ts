@@ -2,7 +2,7 @@
  * apply-merged-taxonomy.ts
  * ---------------------------------------------------------------------------
  * Applies the FINAL merged item taxonomy (docs/categorization/category-reclassify/
- * merged-taxonomy.json — 14 top categories › 43 leaf subcategories, each top
+ * merged-taxonomy.json — 14 top categories › 47 leaf subcategories, each top
  * carrying an AccountingType rollup) to the live ItemCategory tree and repoints
  * every Item to its merged leaf, using the per-item classification in
  * classified-batch-1..8.json.
