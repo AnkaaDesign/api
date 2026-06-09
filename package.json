@@ -43,6 +43,7 @@
     "stock:correct": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/correct-stock-metrics.ts",
     "stock:migrate": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/inventory-deep-migration.ts",
     "reconcile:marketplace": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/backfill-marketplace-reconciliation.ts",
+    "reconcile:cnpj": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/cnpj-reconciliation.ts",
     "seed:notifications": "tsx prisma/scripts/seed-notification-configs.ts"
   },
   "dependencies": {
