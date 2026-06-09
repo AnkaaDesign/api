@@ -342,22 +342,56 @@ async function main(): Promise<void> {
     }
     log.log(`Items repointed: ${repointed} (flagged review: ${flagged})`);
 
-    // ---- Cleanup empty legacy categories ------------------------------
+    // ---- Cleanup empty legacy categories (transitive, bottom-up) ------
+    // After the repoint above, no Item points at a legacy category, so a legacy
+    // subtree is empty of items. The previous single-pass delete used a STALE
+    // child-count snapshot: a legacy PARENT whose children were deleted in the
+    // same batch was evaluated as still-populated and left orphaned. Compute
+    // deletability transitively instead — a legacy row is deletable iff it holds
+    // no items AND every child is itself a deletable legacy row. Kept rows (the
+    // 14 tops, the leaves, "A Revisar") are never deleted and block any legacy
+    // ancestor. (parentId is onDelete: SetNull, so deleting a whole deletable
+    // subtree in one deleteMany is FK-safe and never strands a survivor.)
     const targetIds = new Set<string>([...topId.values(), ...leafId.values(), reviewId]);
     const all = await prisma.itemCategory.findMany({
-      select: { id: true, name: true, _count: { select: { items: true, children: true } } },
+      select: { id: true, name: true, parentId: true, _count: { select: { items: true } } },
     });
     const legacy = all.filter((c) => !targetIds.has(c.id) && c.name !== REVIEW_NAME);
-    const deletable = legacy.filter((c) => c._count.items === 0 && c._count.children === 0);
-    const blocked = legacy.filter((c) => c._count.items > 0 || c._count.children > 0);
+    const legacyIds = new Set(legacy.map((c) => c.id));
+    const itemsById = new Map(legacy.map((c) => [c.id, c._count.items]));
+    const childrenOf = new Map<string, string[]>();
+    for (const c of all) {
+      if (c.parentId)
+        (childrenOf.get(c.parentId) ?? childrenOf.set(c.parentId, []).get(c.parentId)!).push(c.id);
+    }
+    const memo = new Map<string, boolean>();
+    const isDeletable = (id: string): boolean => {
+      if (memo.has(id)) return memo.get(id)!;
+      if (!legacyIds.has(id)) return false; // kept row → blocks its ancestors
+      memo.set(id, false); // cycle guard (no cycles expected)
+      let ok = (itemsById.get(id) ?? 0) === 0;
+      if (ok)
+        for (const childId of childrenOf.get(id) ?? [])
+          if (!isDeletable(childId)) {
+            ok = false;
+            break;
+          }
+      memo.set(id, ok);
+      return ok;
+    };
+    const deletable = legacy.filter((c) => isDeletable(c.id));
+    const blocked = legacy.filter((c) => !isDeletable(c.id));
     if (blocked.length)
       log.warn(
         `Legacy rows NOT deleted (still populated): ${blocked
-          .map((c) => `${c.name}[items=${c._count.items},children=${c._count.children}]`)
+          .map((c) => `${c.name}[items=${itemsById.get(c.id) ?? 0},children=${(childrenOf.get(c.id) ?? []).length}]`)
           .join(', ')}`,
       );
-    if (!DRY_RUN && deletable.length)
-      await prisma.itemCategory.deleteMany({ where: { id: { in: deletable.map((c) => c.id) } } });
+    if (!DRY_RUN && deletable.length) {
+      const ids = deletable.map((c) => c.id);
+      for (let i = 0; i < ids.length; i += 500)
+        await prisma.itemCategory.deleteMany({ where: { id: { in: ids.slice(i, i + 500) } } });
+    }
     log.log(`Legacy categories deleted: ${deletable.length}${DRY_RUN ? ' (dry-run, would delete)' : ''}`);
     if (deletable.length) log.log(`  -> ${deletable.map((c) => c.name).join(', ')}`);
 
@@ -365,7 +399,9 @@ async function main(): Promise<void> {
     if (!DRY_RUN) {
       const mirror = app.get(TransactionCategoryService);
       const r = await mirror.syncAllItemCategoryMirrors();
-      log.log(`Mirror sync: created=${r.created} updated=${r.updated} deactivated=${r.deactivated} unchanged=${r.unchanged}`);
+      log.log(
+        `Mirror sync: created=${r.created} updated=${r.updated} deactivated=${r.deactivated} deleted=${r.deleted} unchanged=${r.unchanged}`,
+      );
     } else {
       log.log('Mirror sync skipped (dry-run).');
     }
