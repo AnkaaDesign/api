@@ -120,7 +120,8 @@ export class SupplierController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // Deletion is ADMIN-only — WAREHOUSE manages suppliers but must never delete them.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(supplierBatchDeleteSchema)) data: SupplierBatchDeleteFormData,
@@ -167,7 +168,8 @@ export class SupplierController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // Deletion is ADMIN-only — WAREHOUSE manages suppliers but must never delete them.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,

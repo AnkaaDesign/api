@@ -183,7 +183,8 @@ export class ItemUnifiedController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // Deletion is ADMIN-only — WAREHOUSE manages inventory but must never delete items.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async batchDeleteItems(
     @Body(new ZodValidationPipe(itemBatchDeleteSchema)) data: ItemBatchDeleteFormData,
     @UserId() userId: string,
@@ -270,7 +271,8 @@ export class ItemUnifiedController {
   }
 
   @Delete('brands/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // Deletion is ADMIN-only — WAREHOUSE manages brands but must never delete them.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async deleteItemBrand(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,
@@ -300,7 +302,8 @@ export class ItemUnifiedController {
   }
 
   @Delete('brands/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // Deletion is ADMIN-only — WAREHOUSE manages brands but must never delete them.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async batchDeleteItemBrands(
     @Body(new ZodValidationPipe(itemBrandBatchDeleteSchema)) data: ItemBrandBatchDeleteFormData,
     @UserId() userId: string,
@@ -426,7 +429,8 @@ export class ItemUnifiedController {
   }
 
   @Delete('categories/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // Deletion is ADMIN-only — WAREHOUSE manages categories but must never delete them.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async deleteItemCategory(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,
@@ -458,7 +462,8 @@ export class ItemUnifiedController {
   }
 
   @Delete('categories/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // Deletion is ADMIN-only — WAREHOUSE manages categories but must never delete them.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async batchDeleteItemCategories(
     @Body(new ZodValidationPipe(itemCategoryBatchDeleteSchema))
     data: ItemCategoryBatchDeleteFormData,
@@ -614,7 +619,8 @@ export class ItemUnifiedController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // Deletion is ADMIN-only — WAREHOUSE manages inventory but must never delete items.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async deleteItem(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,

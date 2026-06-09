@@ -242,7 +242,8 @@ export class OrderController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // Deletion is ADMIN-only — WAREHOUSE manages orders but must never delete them.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(orderBatchDeleteSchema)) data: OrderBatchDeleteFormData,
@@ -310,7 +311,8 @@ export class OrderController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // Deletion is ADMIN-only — WAREHOUSE manages orders but must never delete them.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,
@@ -606,7 +608,8 @@ export class OrderScheduleController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // Deletion is ADMIN-only — WAREHOUSE manages schedules but must never delete them.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(orderScheduleBatchDeleteSchema))
@@ -655,7 +658,8 @@ export class OrderScheduleController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // Deletion is ADMIN-only — WAREHOUSE manages schedules but must never delete them.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,
