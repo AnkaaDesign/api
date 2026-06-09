@@ -61,6 +61,7 @@ import { SystemThrottlerModule } from './modules/system/throttler/throttler.modu
 import { RepositoryModule } from './modules/system/repository/repository.module';
 import { GitCommitModule } from './modules/system/git-commit/git-commit.module';
 import { AppsModule } from './modules/system/app/app.module';
+import { UpdateModule } from './modules/system/update/update.module';
 import { WhatsAppModule } from './modules/common/whatsapp/whatsapp.module';
 import { MessageModule } from './modules/system/message/message.module';
 import { DeepLinkModule } from './modules/common/deep-link/deep-link.module';
@@ -143,6 +144,7 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     RepositoryModule,
     GitCommitModule,
     AppsModule,
+    UpdateModule,
     WhatsAppModule,
     MessageModule,
     DeepLinkModule,
