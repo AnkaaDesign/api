@@ -303,21 +303,65 @@ export class MessageService {
 
       // Build where conditions using Prisma
       const where: any = {};
+      const andConditions: any[] = [];
 
       if (filters.isActive !== undefined) {
         where.status = filters.isActive ? 'ACTIVE' : 'DRAFT';
       }
 
+      // Free-text search across the message title
+      if (filters.searchingFor && filters.searchingFor.trim()) {
+        where.title = { contains: filters.searchingFor.trim(), mode: 'insensitive' };
+      }
+
+      // Status filter. Web sends lowercase values (draft|active|archived) which map
+      // onto the Prisma MessageStatus enum (DRAFT|ACTIVE|ARCHIVED).
+      if (Array.isArray(filters.status) && filters.status.length > 0) {
+        const statusMap: Record<string, string> = {
+          draft: 'DRAFT',
+          scheduled: 'SCHEDULED',
+          active: 'ACTIVE',
+          expired: 'EXPIRED',
+          archived: 'ARCHIVED',
+        };
+        const mapped = filters.status.map(s => statusMap[String(s).toLowerCase()] || String(s).toUpperCase()).filter(Boolean);
+        if (mapped.length > 0) {
+          where.status = { in: mapped };
+        }
+      }
+
+      // Recipient filter: messages targeted to any of these users.
+      if (Array.isArray(filters.recipientIds) && filters.recipientIds.length > 0) {
+        andConditions.push({ targets: { some: { userId: { in: filters.recipientIds } } } });
+      }
+
+      // Sector filter: messages targeted to users belonging to any of these sectors.
+      if (Array.isArray(filters.sectorIds) && filters.sectorIds.length > 0) {
+        andConditions.push({ targets: { some: { user: { sectorId: { in: filters.sectorIds } } } } });
+      }
+
+      // Creation date range filter (gte/lte ISO strings).
+      if (filters.createdAt && (filters.createdAt.gte || filters.createdAt.lte)) {
+        const createdAt: any = {};
+        if (filters.createdAt.gte) createdAt.gte = new Date(filters.createdAt.gte);
+        if (filters.createdAt.lte) createdAt.lte = new Date(filters.createdAt.lte);
+        where.createdAt = createdAt;
+      }
+
       if (filters.visibleAt) {
         const visibleDate = new Date(filters.visibleAt);
-        where.AND = [
+        andConditions.push(
           {
             OR: [{ startDate: null }, { startDate: { lte: visibleDate } }],
           },
           {
             OR: [{ endDate: null }, { endDate: { gte: visibleDate } }],
           },
-        ];
+        );
+      }
+
+      if (andConditions.length > 0) {
+        where.AND = andConditions;
       }
 
       // Count total

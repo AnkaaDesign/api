@@ -79,6 +79,7 @@ export class AirbrushingPrismaRepository
   ): Prisma.AirbrushingCreateInput {
     const {
       taskId,
+      painterId,
       budgetIds,
       invoiceIds,
       receiptIds,
@@ -94,6 +95,10 @@ export class AirbrushingPrismaRepository
       statusOrder: getAirbrushingStatusOrder(formData.status),
       task: { connect: { id: taskId } },
     };
+
+    if (painterId) {
+      createInput.painter = { connect: { id: painterId } };
+    }
 
     // Handle file attachments
     if (budgetIds && budgetIds.length > 0) {
@@ -140,6 +145,7 @@ export class AirbrushingPrismaRepository
   ): Prisma.AirbrushingUpdateInput {
     const {
       taskId,
+      painterId,
       status,
       budgetIds,
       invoiceIds,
@@ -163,6 +169,10 @@ export class AirbrushingPrismaRepository
     // Handle optional relations with proper null handling
     if (taskId !== undefined) {
       updateData.task = { connect: { id: taskId } };
+    }
+
+    if (painterId !== undefined) {
+      updateData.painter = painterId ? { connect: { id: painterId } } : { disconnect: true };
     }
 
     // Handle file attachments - use set to replace all connections

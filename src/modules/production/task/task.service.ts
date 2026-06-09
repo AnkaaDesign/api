@@ -4247,7 +4247,18 @@ export class TaskService {
                     : null,
                 startDate: airbrushingData.startDate || null,
                 finishDate: airbrushingData.finishDate || null,
+                startedAt: airbrushingData.startedAt || null,
+                finishedAt: airbrushingData.finishedAt || null,
               };
+
+              // Handle painter (User ID)
+              if (airbrushingData.painterId !== undefined) {
+                updatePayload.painterId = airbrushingData.painterId || null;
+              }
+
+              if (airbrushingData.paymentStatus !== undefined) {
+                updatePayload.paymentStatus = airbrushingData.paymentStatus;
+              }
 
               // Handle receipts (File IDs)
               if (airbrushingData.receiptIds !== undefined) {
@@ -4312,6 +4323,10 @@ export class TaskService {
                       : null,
                   startDate: airbrushingData.startDate || null,
                   finishDate: airbrushingData.finishDate || null,
+                  startedAt: airbrushingData.startedAt || null,
+                  finishedAt: airbrushingData.finishedAt || null,
+                  paymentStatus: airbrushingData.paymentStatus || 'PENDING',
+                  painterId: airbrushingData.painterId || null,
                   receipts:
                     airbrushingData.receiptIds && airbrushingData.receiptIds.length > 0
                       ? { connect: airbrushingData.receiptIds.map((fid: string) => ({ id: fid })) }

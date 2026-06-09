@@ -28,6 +28,7 @@ export const getSectorPrivilegeSortOrder = (privilege: SECTOR_PRIVILEGES): numbe
     [SECTOR_PRIVILEGES.ADMIN]: 11,
     [SECTOR_PRIVILEGES.EXTERNAL]: 12,
     [SECTOR_PRIVILEGES.PRODUCTION_MANAGER]: 13,
+    [SECTOR_PRIVILEGES.AIRBRUSHING]: 14,
   };
   return sortOrder[privilege] || 1;
 };
