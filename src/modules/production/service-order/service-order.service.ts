@@ -59,6 +59,7 @@ import {
   getServiceDescriptionsByType,
   SERVICE_DESCRIPTIONS_BY_TYPE,
 } from '../../../constants/service-descriptions';
+import { calculateWorkingSeconds } from '../../../utils/working-hours';
 
 @Injectable()
 export class ServiceOrderService {
@@ -175,8 +176,20 @@ export class ServiceOrderService {
           createData.statusOrder = 4;
           createData.startedAt = new Date();
           createData.startedById = userId || '';
+          createData.lastStartedAt = new Date();
           createData.finishedAt = new Date();
           createData.completedById = userId || '';
+        }
+
+        // Auto-set timing for SOs created directly as IN_PROGRESS (e.g. "Em Negociação")
+        if (createData.status === SERVICE_ORDER_STATUS.IN_PROGRESS) {
+          if (!createData.startedAt) {
+            createData.startedAt = new Date();
+            createData.startedById = createData.startedById || userId || '';
+          }
+          if (!createData.lastStartedAt) {
+            createData.lastStartedAt = new Date();
+          }
         }
 
         const created = await this.serviceOrderRepository.createWithTransaction(tx, createData, {
@@ -442,19 +455,52 @@ export class ServiceOrderService {
           ...(data.description && { description: this.toTitleCase(data.description) }),
         };
 
-        // Automatically set startedBy/startedAt when status changes to IN_PROGRESS
+        const now = new Date();
+
+        // ── IN_PROGRESS (any entry: first start, resume from PAUSED, rejection from WAITING_APPROVE/COMPLETED) ──
         if (
           data.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
           oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS
         ) {
           if (!oldData.startedById) {
             updateData.startedById = userId || null;
-            updateData.startedAt = new Date();
+            updateData.startedAt = now;
+          }
+          // Always refresh lastStartedAt so the live timer has the correct session origin
+          updateData.lastStartedAt = now;
+
+          if (oldData.status === SERVICE_ORDER_STATUS.PAUSED) {
+            updateData.pausedById = null;
+            updateData.pausedAt = null;
+          }
+
+          if (
+            oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE ||
+            oldData.status === SERVICE_ORDER_STATUS.COMPLETED
+          ) {
+            if (oldData.status === SERVICE_ORDER_STATUS.COMPLETED) {
+              updateData.completedById = null;
+              updateData.finishedAt = null;
+            }
           }
         }
 
-        // Automatically set approvedBy/approvedAt when status changes from WAITING_APPROVE to another status (approved)
-        // This happens when an ARTWORK service order is approved by admin
+        // ── WAITING_APPROVE (artwork submission — worker stops, accumulate time) ──
+        if (
+          data.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
+          oldData.status === SERVICE_ORDER_STATUS.IN_PROGRESS
+        ) {
+          const sessionStart = oldData.lastStartedAt ?? oldData.startedAt;
+          if (sessionStart) {
+            const worked = calculateWorkingSeconds(sessionStart, now);
+            updateData.totalActiveTimeSeconds = (oldData.totalActiveTimeSeconds ?? 0) + worked;
+            this.logger.log(
+              `[TIMING] SO ${id}: WAITING_APPROVE accumulate ${worked}s (total ${updateData.totalActiveTimeSeconds}s)`,
+            );
+          }
+        }
+
+        // ── WAITING_APPROVE exit (approval or rejection) ──
         if (
           oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
           data.status &&
@@ -466,61 +512,69 @@ export class ServiceOrderService {
           ) {
             if (!oldData.approvedById) {
               updateData.approvedById = userId || null;
-              updateData.approvedAt = new Date();
+              updateData.approvedAt = now;
             }
           }
         }
 
-        // Automatically set completedBy/finishedAt when status changes to COMPLETED
+        // ── PAUSED (accumulate working time for this session) ──
+        if (
+          data.status === SERVICE_ORDER_STATUS.PAUSED &&
+          oldData.status !== SERVICE_ORDER_STATUS.PAUSED
+        ) {
+          updateData.pausedById = userId || null;
+          updateData.pausedAt = now;
+          const sessionStart = oldData.lastStartedAt ?? oldData.startedAt;
+          if (sessionStart) {
+            const worked = calculateWorkingSeconds(sessionStart, now);
+            updateData.totalActiveTimeSeconds = (oldData.totalActiveTimeSeconds ?? 0) + worked;
+            this.logger.log(
+              `[TIMING] SO ${id}: PAUSED accumulate ${worked}s (total ${updateData.totalActiveTimeSeconds}s)`,
+            );
+          }
+        }
+
+        // ── COMPLETED ──
         if (
           data.status === SERVICE_ORDER_STATUS.COMPLETED &&
           oldData.status !== SERVICE_ORDER_STATUS.COMPLETED
         ) {
           if (!oldData.completedById) {
             updateData.completedById = userId || null;
-            updateData.finishedAt = new Date();
+            updateData.finishedAt = now;
           }
-          // Also set startedAt/startedById if not already set (e.g., skipped IN_PROGRESS)
           if (!oldData.startedById) {
             updateData.startedById = userId || null;
-            updateData.startedAt = updateData.finishedAt || new Date();
+            updateData.startedAt = updateData.finishedAt ?? now;
+          }
+
+          // Clear any lingering pause state (completing from PAUSED)
+          if (oldData.pausedAt) {
+            updateData.pausedAt = null;
+            updateData.pausedById = null;
+          }
+
+          // Accumulate working time only when the SO was actively running at completion
+          // (PAUSED state already accumulated its time at pause; WAITING_APPROVE did so at submission)
+          if (
+            oldData.status === SERVICE_ORDER_STATUS.IN_PROGRESS ||
+            (oldData.status !== SERVICE_ORDER_STATUS.PAUSED &&
+              oldData.status !== SERVICE_ORDER_STATUS.WAITING_APPROVE)
+          ) {
+            const sessionStart = oldData.lastStartedAt ?? oldData.startedAt;
+            if (sessionStart) {
+              const worked = calculateWorkingSeconds(sessionStart, updateData.finishedAt ?? now);
+              if (worked > 0) {
+                updateData.totalActiveTimeSeconds = (oldData.totalActiveTimeSeconds ?? 0) + worked;
+                this.logger.log(
+                  `[TIMING] SO ${id}: COMPLETED accumulate ${worked}s (total ${updateData.totalActiveTimeSeconds}s)`,
+                );
+              }
+            }
           }
         }
 
-        // Automatically set pausedBy/pausedAt when status changes to PAUSED
-        if (
-          data.status === SERVICE_ORDER_STATUS.PAUSED &&
-          oldData.status !== SERVICE_ORDER_STATUS.PAUSED
-        ) {
-          updateData.pausedById = userId || null;
-          updateData.pausedAt = new Date();
-        }
-
-        // When resuming from PAUSED back to IN_PROGRESS, clear pause data and track resume time
-        if (
-          data.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
-          oldData.status === SERVICE_ORDER_STATUS.PAUSED
-        ) {
-          updateData.pausedById = null;
-          updateData.pausedAt = null;
-          updateData.lastStartedAt = new Date();
-        }
-
-        // If going back to IN_PROGRESS (rejection scenario), clear approval data
-        if (
-          data.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
-          (oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE ||
-            oldData.status === SERVICE_ORDER_STATUS.COMPLETED)
-        ) {
-          // The observation field should be set by the caller for rejection reasons
-          // Clear completion data if going back from completed
-          if (oldData.status === SERVICE_ORDER_STATUS.COMPLETED) {
-            updateData.completedById = null;
-            updateData.finishedAt = null;
-          }
-        }
-
-        // If going back to PENDING, clear all progress data (rollback to initial state)
+        // ── PENDING rollback (full reset) ──
         if (
           data.status === SERVICE_ORDER_STATUS.PENDING &&
           oldData.status !== SERVICE_ORDER_STATUS.PENDING
@@ -537,6 +591,7 @@ export class ServiceOrderService {
           updateData.pausedById = null;
           updateData.pausedAt = null;
           updateData.lastStartedAt = null;
+          updateData.totalActiveTimeSeconds = 0;
         }
 
         const updated = await this.serviceOrderRepository.updateWithTransaction(
@@ -1968,18 +2023,47 @@ export class ServiceOrderService {
           ...(item.data.description && { description: this.toTitleCase(item.data.description) }),
         };
 
-        // Automatically set startedBy/startedAt when status changes to IN_PROGRESS
+        const batchNow = new Date();
+
+        // ── IN_PROGRESS ──
         if (
           updateData.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
           oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS
         ) {
           if (!oldData.startedById) {
             updateData.startedById = userId || null;
-            updateData.startedAt = new Date();
+            updateData.startedAt = batchNow;
+          }
+          updateData.lastStartedAt = batchNow;
+
+          if (oldData.status === SERVICE_ORDER_STATUS.PAUSED) {
+            updateData.pausedById = null;
+            updateData.pausedAt = null;
+          }
+          if (
+            oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE ||
+            oldData.status === SERVICE_ORDER_STATUS.COMPLETED
+          ) {
+            if (oldData.status === SERVICE_ORDER_STATUS.COMPLETED) {
+              updateData.completedById = null;
+              updateData.finishedAt = null;
+            }
           }
         }
 
-        // Automatically set approvedBy/approvedAt when status changes from WAITING_APPROVE to another status (approved)
+        // ── WAITING_APPROVE (submission — accumulate time) ──
+        if (
+          updateData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
+          oldData.status === SERVICE_ORDER_STATUS.IN_PROGRESS
+        ) {
+          const sessionStart = oldData.lastStartedAt ?? oldData.startedAt;
+          if (sessionStart) {
+            const worked = calculateWorkingSeconds(sessionStart, batchNow);
+            updateData.totalActiveTimeSeconds = (oldData.totalActiveTimeSeconds ?? 0) + worked;
+          }
+        }
+
+        // ── WAITING_APPROVE exit ──
         if (
           oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
           updateData.status &&
@@ -1991,38 +2075,72 @@ export class ServiceOrderService {
           ) {
             if (!oldData.approvedById) {
               updateData.approvedById = userId || null;
-              updateData.approvedAt = new Date();
+              updateData.approvedAt = batchNow;
             }
           }
         }
 
-        // Automatically set completedBy/finishedAt when status changes to COMPLETED
+        // ── PAUSED (accumulate time) ──
+        if (
+          updateData.status === SERVICE_ORDER_STATUS.PAUSED &&
+          oldData.status !== SERVICE_ORDER_STATUS.PAUSED
+        ) {
+          updateData.pausedById = userId || null;
+          updateData.pausedAt = batchNow;
+          const sessionStart = oldData.lastStartedAt ?? oldData.startedAt;
+          if (sessionStart) {
+            const worked = calculateWorkingSeconds(sessionStart, batchNow);
+            updateData.totalActiveTimeSeconds = (oldData.totalActiveTimeSeconds ?? 0) + worked;
+          }
+        }
+
+        // ── COMPLETED ──
         if (
           updateData.status === SERVICE_ORDER_STATUS.COMPLETED &&
           oldData.status !== SERVICE_ORDER_STATUS.COMPLETED
         ) {
           if (!oldData.completedById) {
             updateData.completedById = userId || null;
-            updateData.finishedAt = new Date();
+            updateData.finishedAt = batchNow;
           }
-          // Also set startedAt/startedById if not already set (e.g., skipped IN_PROGRESS)
           if (!oldData.startedById) {
             updateData.startedById = userId || null;
-            updateData.startedAt = updateData.finishedAt || new Date();
+            updateData.startedAt = updateData.finishedAt || batchNow;
+          }
+          if (oldData.pausedAt) {
+            updateData.pausedAt = null;
+            updateData.pausedById = null;
+          }
+          if (
+            oldData.status === SERVICE_ORDER_STATUS.IN_PROGRESS ||
+            (oldData.status !== SERVICE_ORDER_STATUS.PAUSED &&
+              oldData.status !== SERVICE_ORDER_STATUS.WAITING_APPROVE)
+          ) {
+            const sessionStart = oldData.lastStartedAt ?? oldData.startedAt;
+            if (sessionStart) {
+              const worked = calculateWorkingSeconds(sessionStart, updateData.finishedAt ?? batchNow);
+              if (worked > 0) {
+                updateData.totalActiveTimeSeconds = (oldData.totalActiveTimeSeconds ?? 0) + worked;
+              }
+            }
           }
         }
 
-        // If going back to IN_PROGRESS (rejection scenario), clear approval data
+        // ── PENDING rollback ──
         if (
-          updateData.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
-          (oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE ||
-            oldData.status === SERVICE_ORDER_STATUS.COMPLETED)
+          updateData.status === SERVICE_ORDER_STATUS.PENDING &&
+          oldData.status !== SERVICE_ORDER_STATUS.PENDING
         ) {
-          // Clear completion data if going back from completed
-          if (oldData.status === SERVICE_ORDER_STATUS.COMPLETED) {
-            updateData.completedById = null;
-            updateData.finishedAt = null;
-          }
+          updateData.startedById = null;
+          updateData.startedAt = null;
+          updateData.approvedById = null;
+          updateData.approvedAt = null;
+          updateData.completedById = null;
+          updateData.finishedAt = null;
+          updateData.pausedById = null;
+          updateData.pausedAt = null;
+          updateData.lastStartedAt = null;
+          updateData.totalActiveTimeSeconds = 0;
         }
 
         return { id: item.id, data: updateData };

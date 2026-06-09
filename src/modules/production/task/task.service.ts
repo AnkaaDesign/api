@@ -489,10 +489,16 @@ export class TaskService {
           const isEmNegociacao =
             so?.type === SERVICE_ORDER_TYPE.COMMERCIAL &&
             (so?.description ?? '').toLowerCase().trim() === 'em negociação';
-          if (isEmNegociacao && (!so.status || so.status === SERVICE_ORDER_STATUS.PENDING)) {
-            so.status = SERVICE_ORDER_STATUS.IN_PROGRESS;
-            so.statusOrder = 2;
-            if (!so.startedAt) so.startedAt = new Date();
+          if (isEmNegociacao) {
+            if (!so.status || so.status === SERVICE_ORDER_STATUS.PENDING) {
+              so.status = SERVICE_ORDER_STATUS.IN_PROGRESS;
+              so.statusOrder = 2;
+            }
+            // Ensure timing is set for all IN_PROGRESS Em Negociação SOs
+            if (so.status === SERVICE_ORDER_STATUS.IN_PROGRESS) {
+              if (!so.startedAt) so.startedAt = new Date();
+              if (!so.lastStartedAt) so.lastStartedAt = new Date();
+            }
           }
         }
       }
