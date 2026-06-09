@@ -354,69 +354,142 @@ export class TransactionCategoryService {
   /**
    * Recurring payables view over an arbitrary date range. Lists recurring
    * categories and the actual amount paid in [from, to] (sum of abs transaction
-   * amounts tagged to each). It's a "marked recurring" flag only — no
-   * expected/predicted value — so it copes with amounts that change period to
-   * period.
+   * amounts tagged to each), the payment date, plus a forecast ("previsão")
+   * derived from the past 3 months: an expected amount (average of the per-month
+   * totals) and, for not-yet-paid categories, a predicted payment date from the
+   * typical payment day. Copes with amounts that change period to period.
    */
   async forecast(from: Date, to: Date): Promise<{
     from: Date;
     to: Date;
     totalPaid: number;
+    totalForecast: number;
     items: Array<{
       category: TransactionCategory;
       paidAmount: number;
+      forecastAmount: number;
       transactionCount: number;
       status: 'PAID' | 'PENDING';
+      paymentDate: Date | null;
+      isPaymentDateForecast: boolean;
     }>;
   }> {
     const recurring = await this.prisma.transactionCategory.findMany({
       where: { isRecurring: true, isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
+    const recurringIds = recurring.map(c => c.id);
 
-    const grouped = await this.prisma.bankTransactionCategory.groupBy({
-      by: ['categoryId'],
-      where: {
-        categoryId: { in: recurring.map(c => c.id) },
-        transaction: { postedAt: { gte: from, lte: to } },
-      },
-      _count: { _all: true },
-      _sum: { allocatedAmount: true },
-    });
+    // Look back 3 whole months before the period start to derive the expected
+    // amount and the typical payment day for each recurring category.
+    const lookbackStart = new Date(from);
+    lookbackStart.setMonth(lookbackStart.getMonth() - 3);
 
-    // allocatedAmount is null for transaction-only tags, so fall back to the
-    // transaction amount for those. Compute that fallback per category.
-    const byCat = new Map(grouped.map(g => [g.categoryId, g]));
-    const items = await Promise.all(
-      recurring.map(async category => {
-        const g = byCat.get(category.id);
-        const count = g?._count._all ?? 0;
-        let paidAmount = Number(g?._sum.allocatedAmount ?? 0);
-        if (count > 0 && paidAmount === 0) {
-          const agg = await this.prisma.bankTransaction.aggregate({
-            _sum: { amount: true },
-            where: {
-              postedAt: { gte: from, lte: to },
-              categories: { some: { categoryId: category.id } },
+    const txs = recurringIds.length
+      ? await this.prisma.bankTransaction.findMany({
+          where: {
+            postedAt: { gte: lookbackStart, lte: to },
+            categories: { some: { categoryId: { in: recurringIds } } },
+          },
+          select: {
+            postedAt: true,
+            amount: true,
+            categories: {
+              where: { categoryId: { in: recurringIds } },
+              select: { categoryId: true, allocatedAmount: true },
             },
-          });
-          paidAmount = Math.abs(Number(agg._sum.amount ?? 0));
+          },
+        })
+      : [];
+
+    // Bucket each transaction's contribution under every recurring category it
+    // is tagged with, split into the current period vs. the historical lookback.
+    // allocatedAmount is null/0 for transaction-only tags → fall back to the
+    // transaction amount.
+    type Entry = { date: Date; amount: number };
+    const buckets = new Map<string, { current: Entry[]; history: Entry[] }>();
+    for (const id of recurringIds) buckets.set(id, { current: [], history: [] });
+
+    for (const tx of txs) {
+      const txAmount = Math.abs(Number(tx.amount));
+      for (const link of tx.categories) {
+        const bucket = buckets.get(link.categoryId);
+        if (!bucket) continue;
+        const allocated =
+          link.allocatedAmount != null ? Number(link.allocatedAmount) : 0;
+        const amount = allocated !== 0 ? Math.abs(allocated) : txAmount;
+        const entry: Entry = { date: tx.postedAt, amount };
+        if (tx.postedAt >= from) bucket.current.push(entry);
+        else bucket.history.push(entry);
+      }
+    }
+
+    const items = recurring.map(category => {
+      const { current, history } = buckets.get(category.id)!;
+      const paidAmount = current.reduce((a, e) => a + e.amount, 0);
+      const transactionCount = current.length;
+      const status: 'PAID' | 'PENDING' =
+        transactionCount > 0 ? 'PAID' : 'PENDING';
+
+      // Expected amount = average of the per-month totals over the lookback
+      // window. Falls back to the current paid amount when there's no history.
+      const monthly = new Map<string, number>();
+      for (const e of history) {
+        const key = `${e.date.getFullYear()}-${e.date.getMonth()}`;
+        monthly.set(key, (monthly.get(key) ?? 0) + e.amount);
+      }
+      const forecastAmount =
+        monthly.size > 0
+          ? [...monthly.values()].reduce((a, b) => a + b, 0) / monthly.size
+          : paidAmount;
+
+      // Payment date: the latest actual date when paid, otherwise the predicted
+      // date from the typical (median) payment day across past + current dates.
+      const paidDates = current
+        .map(e => e.date)
+        .sort((a, b) => a.getTime() - b.getTime());
+      let paymentDate: Date | null = paidDates.length
+        ? paidDates[paidDates.length - 1]
+        : null;
+      let isPaymentDateForecast = false;
+      if (!paymentDate) {
+        const days = [...history, ...current]
+          .map(e => e.date.getDate())
+          .sort((a, b) => a - b);
+        if (days.length) {
+          const medianDay = days[Math.floor(days.length / 2)];
+          paymentDate = this.dateForDayInPeriod(medianDay, from, to);
+          isPaymentDateForecast = paymentDate != null;
         }
-        return {
-          category,
-          paidAmount,
-          transactionCount: count,
-          status: (count > 0 ? 'PAID' : 'PENDING') as 'PAID' | 'PENDING',
-        };
-      }),
-    );
+      }
+
+      return {
+        category,
+        paidAmount,
+        forecastAmount,
+        transactionCount,
+        status,
+        paymentDate,
+        isPaymentDateForecast,
+      };
+    });
 
     return {
       from,
       to,
       totalPaid: items.reduce((a, b) => a + b.paidAmount, 0),
+      totalForecast: items.reduce((a, b) => a + b.forecastAmount, 0),
       items,
     };
+  }
+
+  /** Maps a day-of-month onto the actual date that falls inside [from, to]. */
+  private dateForDayInPeriod(day: number, from: Date, to: Date): Date | null {
+    for (const base of [from, to]) {
+      const d = new Date(base.getFullYear(), base.getMonth(), day, 12, 0, 0, 0);
+      if (d >= from && d <= to) return d;
+    }
+    return null;
   }
 
   // ----- helpers -----------------------------------------------------------

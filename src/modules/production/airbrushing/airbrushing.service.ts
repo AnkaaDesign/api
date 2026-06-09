@@ -67,6 +67,16 @@ export class AirbrushingService {
       }
     }
 
+    // Validar se o pintor existe
+    if (data.painterId) {
+      const painterExists = await transaction.user.findUnique({
+        where: { id: data.painterId },
+      });
+      if (!painterExists) {
+        throw new NotFoundException('Pintor não encontrado.');
+      }
+    }
+
     // Aerografia não tem campos únicos para validar
   }
 

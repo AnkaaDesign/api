@@ -922,6 +922,10 @@ export class TaskPrismaRepository
           price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
           startDate: item.startDate || null,
           finishDate: item.finishDate || null,
+          startedAt: item.startedAt || null,
+          finishedAt: item.finishedAt || null,
+          paymentStatus: item.paymentStatus || 'PENDING',
+          painter: item.painterId ? { connect: { id: item.painterId } } : undefined,
           receipts:
             item.receiptIds && item.receiptIds.length > 0
               ? { connect: item.receiptIds.map((id: string) => ({ id })) }

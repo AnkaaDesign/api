@@ -33,16 +33,23 @@ model Activity {
 }
 
 model Airbrushing {
-  id                    String            @id @default(uuid())
+  id                    String                   @id @default(uuid())
+  /// Expected (planned) start/finish dates
   startDate             DateTime?
   finishDate            DateTime?
+  /// Actual start/finish timestamps (mirrors Task.startedAt/finishedAt)
+  startedAt             DateTime?
+  finishedAt            DateTime?
   price                 Float?
+  paymentStatus         AirbrushingPaymentStatus @default(PENDING)
   status                AirbrushingStatus @default(PENDING)
   statusOrder           Int               @default(1)
   taskId                String
+  painterId             String?
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
   task                  Task              @relation("AIRBRUSHING", fields: [taskId], references: [id], onDelete: Cascade)
+  painter               User?             @relation("AIRBRUSHING_PAINTER", fields: [painterId], references: [id], onDelete: SetNull)
   artworks              Artwork[]
   budgets               File[]            @relation("AIRBRUSHING_BUDGETS")
   invoices              File[]            @relation("AIRBRUSHING_INVOICES")
@@ -51,6 +58,7 @@ model Airbrushing {
   reimbursements        File[]            @relation("AIRBRUSHING_REIMBURSEMENTS")
 
   @@index([statusOrder])
+  @@index([painterId])
 }
 
 model Artwork {
@@ -1761,6 +1769,7 @@ model User {
   questionnaireTargets           QuestionnaireUser[]          @relation("QUESTIONNAIRE_TARGET_USER")
   statisticsPagePreferences      StatisticsPagePreference[]   @relation("USER_STATISTICS_PAGE_PREFERENCES")
   statisticsPresets              StatisticsPreset[]           @relation("USER_STATISTICS_PRESETS")
+  airbrushingsAsPainter          Airbrushing[]                @relation("AIRBRUSHING_PAINTER")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -2602,6 +2611,12 @@ enum AirbrushingStatus {
   CANCELLED
 }
 
+enum AirbrushingPaymentStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+}
+
 enum ArtworkStatus {
   DRAFT
   APPROVED
@@ -2817,6 +2832,7 @@ enum SectorPrivileges {
   LOGISTIC
   COMMERCIAL
   PRODUCTION_MANAGER
+  AIRBRUSHING
 }
 
 enum ScheduleFrequency {
