@@ -153,7 +153,7 @@ export class PpeDeliveryService {
       const item = await this.itemRepository.findById(data.itemId, {
         include: {
           category: true,
-          brand: true,
+          brands: true,
           measures: {
             where: { measureType: 'SIZE' },
           },
@@ -1106,7 +1106,7 @@ export class PpeDeliveryService {
           OR: [
             { name: { contains: search, mode: 'insensitive' } },
             { uniCode: { contains: search, mode: 'insensitive' } },
-            { brand: { name: { contains: search, mode: 'insensitive' } } },
+            { brands: { some: { name: { contains: search, mode: 'insensitive' } } } },
           ],
         },
       ];
@@ -1117,7 +1117,7 @@ export class PpeDeliveryService {
     const allItems = await this.prisma.item.findMany({
       where: whereConditions,
       include: {
-        brand: true,
+        brands: true,
         category: true,
         measures: {
           where: { measureType: 'SIZE' },
@@ -2286,7 +2286,7 @@ export class PpeDeliveryService {
       where: whereConditions,
       include: {
         // No need to include ppeConfig as it's now directly on item
-        brand: true,
+        brands: true,
         category: true,
         prices: true,
         measures: {

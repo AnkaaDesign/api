@@ -755,8 +755,8 @@ export class TaskPrismaRepository
       name,
       status: mapTaskStatusToPrisma(status || TASK_STATUS.PREPARATION),
       statusOrder: getTaskStatusOrder(status || TASK_STATUS.PREPARATION),
-      commission: (commission as any) || 'NO_COMMISSION',
-      commissionOrder: getCommissionStatusOrder((commission as string) || 'NO_COMMISSION'),
+      commission: (commission as any) || 'FULL_COMMISSION',
+      commissionOrder: getCommissionStatusOrder((commission as string) || 'FULL_COMMISSION'),
     };
 
     if (serialNumber !== undefined) taskData.serialNumber = serialNumber;

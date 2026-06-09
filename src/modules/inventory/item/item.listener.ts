@@ -57,8 +57,9 @@ export class ItemListener {
       details.push(`Codigo: ${item.uniCode}`);
     }
 
-    if (item.brand?.name) {
-      details.push(`Marca: ${item.brand.name}`);
+    const brandNames = item.brands?.map((b: any) => b.name).join(', ');
+    if (brandNames) {
+      details.push(`Marca: ${brandNames}`);
     }
 
     if (item.category?.name) {
@@ -81,7 +82,7 @@ export class ItemListener {
       const item = await this.prisma.item.findUnique({
         where: { id: event.item.id },
         include: {
-          brand: true,
+          brands: true,
           category: true,
           supplier: true,
         },
@@ -140,7 +141,7 @@ export class ItemListener {
       const item = await this.prisma.item.findUnique({
         where: { id: event.item.id },
         include: {
-          brand: true,
+          brands: true,
           category: true,
           supplier: true,
         },
@@ -199,7 +200,7 @@ export class ItemListener {
       const item = await this.prisma.item.findUnique({
         where: { id: event.item.id },
         include: {
-          brand: true,
+          brands: true,
           category: true,
           supplier: true,
         },
@@ -269,7 +270,7 @@ export class ItemListener {
       const item = await this.prisma.item.findUnique({
         where: { id: event.item.id },
         include: {
-          brand: true,
+          brands: true,
           category: true,
         },
       });

@@ -189,11 +189,13 @@ export class NotificationDispatchService {
         return;
       }
 
-      // 3.5. Check working day + work hours restriction (8:00-18:00, weekdays only, no holidays)
-      // URGENT notifications bypass the work-hours gate — a critical alert (system health,
-      // payroll/data failure, fiscal rejection, security) must not wait until Monday 8AM.
-      const canSend =
-        notification.importance === 'URGENT' ? true : await this.workScheduleService.canSendNow();
+      // 3.5. Check working day + work hours restriction (07:00-18:00, weekdays only, no holidays).
+      // This is a HARD rule — even URGENT notifications wait for working hours (deferred, not lost).
+      // Time-sensitive clock-out reminders (Secullum SAIDA2) opt into the extended 19:00 cutoff.
+      const dispatchMetadata = notification.metadata as any;
+      const canSend = await this.workScheduleService.canSendNow({
+        allowExtendedHours: !!dispatchMetadata?.allowExtendedHours,
+      });
       if (!canSend) {
         const metadata = notification.metadata as any;
 

@@ -10,7 +10,7 @@ import type {
   BaseBatchResponse,
 } from './common';
 import type { ACTIVITY_OPERATION, ACTIVITY_REASON, ORDER_BY_DIRECTION } from '@constants';
-import type { Item, ItemIncludes, ItemOrderBy } from './item';
+import type { Item, ItemBrand, ItemIncludes, ItemOrderBy } from './item';
 import type { User, UserIncludes, UserOrderBy } from './user';
 import type {
   Order,
@@ -73,8 +73,7 @@ export interface ActivitySelect {
           maxStock?: boolean;
           supplierId?: boolean;
           categoryId?: boolean;
-          brandId?: boolean;
-          brand?: boolean | { select?: Record<string, boolean> };
+          brands?: boolean | { select?: Record<string, boolean> };
           category?: boolean | { select?: Record<string, boolean> };
           supplier?: boolean | { select?: Record<string, boolean> };
         };
@@ -223,7 +222,7 @@ export type ActivitySelectTable = {
         id: true;
         name: true;
         uniCode: true;
-        brand?: {
+        brands?: {
           select: {
             id: true;
             name: true;
@@ -301,7 +300,7 @@ export type ActivitySelectDetail = {
         currentStock: true;
         minStock: true;
         maxStock: true;
-        brand?: {
+        brands?: {
           select: {
             id: true;
             name: true;
@@ -402,7 +401,7 @@ export type ActivitySelectExport = {
         id: true;
         name: true;
         uniCode: true;
-        brand?: {
+        brands?: {
           select: {
             name: true;
           };
@@ -476,7 +475,7 @@ export type ActivityTable = Pick<
   | 'orderId'
 > & {
   item?: Pick<Item, 'id' | 'name' | 'uniCode'> & {
-    brand?: Pick<Item['brand'], 'id' | 'name'>;
+    brands?: Pick<ItemBrand, 'id' | 'name'>[];
     category?: Pick<Item['category'], 'id' | 'name'>;
   };
   user?: Pick<User, 'id' | 'name' | 'email'>;
@@ -504,7 +503,7 @@ export type ActivityForm = Pick<
 // Activity type optimized for detailed view
 export type ActivityDetail = Activity & {
   item?: Item & {
-    brand?: { id: string; name: string };
+    brands?: { id: string; name: string }[];
     category?: { id: string; name: string };
     supplier?: { id: string; fantasyName: string; corporateName: string };
   };
@@ -547,7 +546,7 @@ export const ACTIVITY_SELECT_TABLE: ActivitySelectTable = {
         id: true,
         name: true,
         uniCode: true,
-        brand: {
+        brands: {
           select: {
             id: true,
             name: true,

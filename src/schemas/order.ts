@@ -77,7 +77,7 @@ export const orderIncludeSchema = z
                   z.object({
                     include: z
                       .object({
-                        brand: z.boolean().optional(),
+                        brands: z.boolean().optional(),
                         category: z.boolean().optional(),
                         supplier: z.boolean().optional(),
                         measures: z.boolean().optional(),
@@ -142,7 +142,7 @@ export const orderItemIncludeSchema = z
         z.object({
           include: z
             .object({
-              brand: z.boolean().optional(),
+              brands: z.boolean().optional(),
               category: z.boolean().optional(),
               supplier: z.boolean().optional(),
               activities: z.boolean().optional(),
@@ -253,6 +253,7 @@ export const orderOrderBySchema = z.union([
   z
     .object({
       id: orderByDirectionSchema.optional(),
+      orderNumber: orderByDirectionSchema.optional(),
       description: orderByDirectionSchema.optional(),
       forecast: orderByDirectionSchema.optional(),
       status: orderByDirectionSchema.optional(),
@@ -267,6 +268,7 @@ export const orderOrderBySchema = z.union([
     z
       .object({
         id: orderByDirectionSchema.optional(),
+        orderNumber: orderByDirectionSchema.optional(),
         description: orderByDirectionSchema.optional(),
         forecast: orderByDirectionSchema.optional(),
         status: orderByDirectionSchema.optional(),
@@ -862,10 +864,12 @@ const orderTransform = (data: any) => {
         // Search by item name through order items
         { items: { some: { item: { name: { contains: searchTerm, mode: 'insensitive' } } } } },
 
-        // Search by item brand through order items
+        // Search by item brand through order items (multi-brand: match any brand)
         {
           items: {
-            some: { item: { brand: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+            some: {
+              item: { brands: { some: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+            },
           },
         },
 

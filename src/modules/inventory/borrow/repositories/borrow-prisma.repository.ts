@@ -198,7 +198,7 @@ export class BorrowPrismaRepository
           name: true,
           uniCode: true,
           quantity: true,
-          brand: {
+          brands: {
             select: {
               name: true,
             },
@@ -250,7 +250,7 @@ export class BorrowPrismaRepository
           name: true,
           uniCode: true,
           quantity: true,
-          brand: {
+          brands: {
             select: {
               id: true,
               name: true,
@@ -310,12 +310,11 @@ export class BorrowPrismaRepository
           name: true,
           uniCode: true,
           quantity: true,
-          brandId: true,
           categoryId: true,
           supplierId: true,
           createdAt: true,
           updatedAt: true,
-          brand: {
+          brands: {
             select: {
               id: true,
               name: true,

@@ -19,6 +19,9 @@ import type { Order, OrderIncludes, OrderRule, OrderRuleIncludes } from './order
 // =====================
 
 export interface Supplier extends BaseEntity {
+  // Sequential number assigned in createdAt order (Nth supplier created). Used in the
+  // order code on PDFs (the "01" in "Pedido 0001-01.1"). Backfilled for legacy suppliers.
+  sequentialNumber: number | null;
   fantasyName: string;
   cnpj: string | null;
   corporateName: string | null;

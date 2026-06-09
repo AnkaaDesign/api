@@ -303,6 +303,9 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   maxQuantity: 'quantidade máxima',
   barcode: 'código de barras',
   categoryId: 'categoria',
+  // Multi-brand: Item now tracks a list of brands (M2M) instead of a single brandId.
+  // 'brandId' kept for historical changelog entries created before the migration.
+  brands: 'marcas',
   brandId: 'marca',
   supplierId: 'fornecedor',
 
@@ -532,7 +535,8 @@ export const ENTITY_ESSENTIAL_FIELDS: Partial<Record<ENTITY_TYPE, string[]>> = {
     'minQuantity',
     'maxQuantity',
     'categoryId',
-    'brandId',
+    // Multi-brand: track the M2M brand list instead of the removed scalar brandId.
+    'brands',
     'supplierId',
   ],
   [ENTITY_TYPE.USER]: ['id', 'name', 'email', 'cpf', 'status', 'positionId', 'sectorId'],

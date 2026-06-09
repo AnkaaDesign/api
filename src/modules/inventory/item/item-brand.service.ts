@@ -89,10 +89,10 @@ export class ItemBrandService {
   ): Promise<void> {
     if (!itemIds || itemIds.length === 0) return;
 
-    // Update all specified items to use this brand
-    await tx.item.updateMany({
-      where: { id: { in: itemIds } },
-      data: { brandId: brandId },
+    // Associate all specified items with this brand (many-to-many)
+    await tx.itemBrand.update({
+      where: { id: brandId },
+      data: { items: { connect: itemIds.map(id => ({ id })) } },
     });
 
     // Log the association changes
@@ -123,10 +123,10 @@ export class ItemBrandService {
     // Items to remove from this brand
     const itemsToRemove = currentItemIds.filter(id => !newSet.has(id));
     if (itemsToRemove.length > 0) {
-      // Set brandId to null for items being removed from this brand
-      await tx.item.updateMany({
-        where: { id: { in: itemsToRemove } },
-        data: { brandId: null },
+      // Disconnect these items from this brand (many-to-many)
+      await tx.itemBrand.update({
+        where: { id: brandId },
+        data: { items: { disconnect: itemsToRemove.map(id => ({ id })) } },
       });
 
       // Log removal for each item
@@ -147,16 +147,15 @@ export class ItemBrandService {
     // Items to add to this brand
     const itemsToAdd = newItemIds.filter(id => !currentSet.has(id));
     if (itemsToAdd.length > 0) {
-      // First check if these items belong to other brands
       const itemsToUpdate = await tx.item.findMany({
         where: { id: { in: itemsToAdd } },
-        select: { id: true, brandId: true, name: true },
+        select: { id: true, name: true },
       });
 
-      // Update items to new brand
-      await tx.item.updateMany({
-        where: { id: { in: itemsToAdd } },
-        data: { brandId: brandId },
+      // Connect these items with this brand (many-to-many)
+      await tx.itemBrand.update({
+        where: { id: brandId },
+        data: { items: { connect: itemsToAdd.map(id => ({ id })) } },
       });
 
       // Log additions with more context
@@ -166,10 +165,7 @@ export class ItemBrandService {
           entityType: ENTITY_TYPE.ITEM,
           entityId: item.id,
           action: CHANGE_ACTION.UPDATE,
-          reason:
-            item.brandId !== brandId
-              ? `Item "${item.name}" movido da marca ${item.brandId} para ${brandId}`
-              : `Item "${item.name}" associado à marca ${brandId}`,
+          reason: `Item "${item.name}" associado à marca ${brandId}`,
           userId: userId || null,
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           transaction: tx,
@@ -321,13 +317,9 @@ export class ItemBrandService {
       }
 
       await this.prisma.$transaction(async tx => {
-        // If brand has items, set their brandId to null
+        // The _ITEM_BRANDS join rows are removed automatically via ON DELETE CASCADE.
+        // Just log the disassociation for each previously associated item.
         if (existing.items && existing.items.length > 0) {
-          await tx.item.updateMany({
-            where: { brandId: id },
-            data: { brandId: null },
-          });
-
           // Log the update for each item
           for (const item of existing.items) {
             await logEntityChange({
@@ -828,13 +820,9 @@ export class ItemBrandService {
               throw new NotFoundException('Marca não encontrada');
             }
 
-            // If brand has items, set their brandId to null
+            // The _ITEM_BRANDS join rows are removed automatically via ON DELETE CASCADE.
+            // Just log the disassociation for each previously associated item.
             if (brand.items && brand.items.length > 0) {
-              await tx.item.updateMany({
-                where: { brandId: brandId },
-                data: { brandId: null },
-              });
-
               // Log the update for each item
               for (const item of brand.items) {
                 await logEntityChange({

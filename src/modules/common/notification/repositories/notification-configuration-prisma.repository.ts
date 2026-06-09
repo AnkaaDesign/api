@@ -426,7 +426,6 @@ export class NotificationConfigurationPrismaRepository implements NotificationCo
             data: {
               configurationId: configId,
               allowedSectors: allowedSectors,
-              excludeInactive: true,
               excludeOnVacation: true,
               customFilter: targetRule.customQuery || null,
             },

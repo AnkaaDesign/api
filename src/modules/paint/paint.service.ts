@@ -162,7 +162,7 @@ export class PaintService {
         include: {
           componentItems: {
             include: {
-              brand: true,
+              brands: true,
               category: true,
               measures: true,
             },
@@ -185,7 +185,7 @@ export class PaintService {
         include: {
           componentItems: {
             include: {
-              brand: true,
+              brands: true,
               category: true,
               measures: true,
             },
@@ -201,7 +201,7 @@ export class PaintService {
           include: {
             componentItems: {
               include: {
-                brand: true,
+                brands: true,
                 category: true,
                 measures: true,
               },

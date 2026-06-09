@@ -344,6 +344,19 @@ export class OrderPrismaRepository
   ): Promise<Order> {
     try {
       const createInput = this.mapCreateFormDataToDatabaseCreateInput(data);
+
+      // Derive the forecast (expected delivery) from the average lead time of the
+      // order's inventory items when no explicit forecast was provided. Applies to
+      // every create path (manual, batch, schedule) since they all funnel here.
+      // forecast = today + round(avg(Item.estimatedLeadTime in days)). Temporary
+      // items (no itemId) carry no lead time and are ignored.
+      if (createInput.forecast == null) {
+        const computedForecast = await this.computeLeadTimeForecast(transaction, (data as any).items);
+        if (computedForecast) {
+          createInput.forecast = computedForecast;
+        }
+      }
+
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
@@ -509,9 +522,40 @@ export class OrderPrismaRepository
   // Private helper methods
   // =====================
 
+  /**
+   * Compute an order's forecast (expected delivery date) from the average lead time
+   * of its inventory items: today + round(avg(Item.estimatedLeadTime)) days. Items
+   * without an itemId (temporary items) are ignored. Returns null when there are no
+   * inventory items to derive a lead time from.
+   */
+  private async computeLeadTimeForecast(
+    transaction: PrismaTransaction,
+    items?: Array<{ itemId?: string | null }>,
+  ): Promise<Date | null> {
+    if (!Array.isArray(items) || items.length === 0) return null;
+
+    const itemIds = items.map(i => i?.itemId).filter((id): id is string => !!id);
+    if (itemIds.length === 0) return null;
+
+    const inventoryItems = await transaction.item.findMany({
+      where: { id: { in: itemIds } },
+      select: { estimatedLeadTime: true },
+    });
+    if (inventoryItems.length === 0) return null;
+
+    // estimatedLeadTime defaults to 30 in the schema; treat nulls as 30 too.
+    const leadTimes = inventoryItems.map(it => it.estimatedLeadTime ?? 30);
+    const avgDays = Math.round(leadTimes.reduce((sum, n) => sum + n, 0) / leadTimes.length);
+
+    const forecast = new Date();
+    forecast.setDate(forecast.getDate() + avgDays);
+    return forecast;
+  }
+
   private mapDatabaseOrderToOrder(databaseOrder: PrismaOrder & Record<string, unknown>): Order {
     return {
       id: databaseOrder.id,
+      orderNumber: (databaseOrder as any).orderNumber ?? null,
       description: databaseOrder.description,
       forecast: databaseOrder.forecast,
       status: databaseOrder.status as ORDER_STATUS,

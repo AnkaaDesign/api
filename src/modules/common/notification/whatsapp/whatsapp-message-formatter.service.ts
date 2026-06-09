@@ -16,16 +16,18 @@ export interface WhatsAppMessageFormat {
   fallbackText?: string;
 }
 
+/** Notification importance levels (mirrors the Prisma `Importance` enum). */
+type Importance = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+
 /**
  * WhatsApp Message Formatter Service
  *
- * Creates beautiful, professional WhatsApp messages with:
- * - Strategic emoji usage for visual hierarchy
- * - WhatsApp markdown formatting (*bold*, _italic_)
- * - Clean, organized structure
- * - Professional tone
- * - Interactive buttons for actions (with text fallback)
- * - Simple dividers that work across all devices
+ * Emoji policy (2026-06-08): a message carries EXACTLY ONE emoji — the leading
+ * importance marker on the title line. No emojis anywhere in the body.
+ *   NORMAL / LOW → 🔔   HIGH → ⚠️   URGENT → 🚨
+ * The emoji is driven solely by the notification's importance, never by event
+ * type or status. Structure/hierarchy is carried by WhatsApp markdown
+ * (*bold*, _italic_) and plain text labels.
  */
 @Injectable()
 export class WhatsAppMessageFormatterService {
@@ -39,39 +41,31 @@ export class WhatsAppMessageFormatterService {
     serialNumber?: string;
     customerName?: string;
     dueDate?: string;
+    importance?: Importance;
     url: string;
   }): WhatsAppMessageFormat {
     const lines: string[] = [];
 
-    lines.push('🎯 *NOVA TAREFA CRIADA*');
+    lines.push(this.titleLine(data.importance, 'NOVA TAREFA CRIADA'));
     lines.push('');
-    lines.push(`📋 *Tarefa:* ${data.taskName}`);
-    lines.push(`🏢 *Setor:* ${data.sectorName}`);
+    lines.push(`*Tarefa:* ${data.taskName}`);
+    lines.push(`*Setor:* ${data.sectorName}`);
 
     if (data.customerName) {
-      lines.push(`👤 *Cliente:* ${data.customerName}`);
+      lines.push(`*Cliente:* ${data.customerName}`);
     }
 
     if (data.serialNumber) {
-      lines.push(`🔢 *Serie:* ${data.serialNumber}`);
+      lines.push(`*Série:* ${data.serialNumber}`);
     }
 
     if (data.dueDate) {
-      lines.push(`📅 *Prazo:* ${data.dueDate}`);
+      lines.push(`*Prazo:* ${data.dueDate}`);
     }
 
-    if (data.url) {
-      lines.push('');
-      lines.push('🔗 *Ver detalhes:*');
-      lines.push(data.url);
-    }
+    lines.push(...this.linkLines(data.url));
 
-    const text = lines.join('\n');
-
-    return {
-      text,
-      fallbackText: text,
-    };
+    return this.wrap(lines);
   }
 
   formatTaskStatusChanged(data: {
@@ -84,25 +78,27 @@ export class WhatsAppMessageFormatterService {
     newValue?: string;
     changedBy?: string;
     serialNumber?: string;
+    importance?: Importance;
     url: string;
   }): WhatsAppMessageFormat {
     const oldStatus = data.oldStatus ?? data.oldValue ?? '';
     const newStatus = data.newStatus ?? data.newValue ?? '';
-    const statusEmoji = this.getStatusEmoji(newStatus);
 
-    const text = `${statusEmoji} *STATUS ATUALIZADO*
+    const lines: string[] = [];
+    lines.push(this.titleLine(data.importance, 'STATUS ATUALIZADO'));
+    lines.push('');
+    lines.push(`*Tarefa:* ${data.taskName}`);
+    if (data.serialNumber) {
+      lines.push(`*Série:* ${data.serialNumber}`);
+    }
+    lines.push('');
+    lines.push(`*Status:* ${oldStatus} → *${newStatus}*`);
+    if (data.changedBy) {
+      lines.push(`*Por:* ${data.changedBy}`);
+    }
+    lines.push(...this.linkLines(data.url));
 
-📋 *Tarefa:* ${data.taskName}${data.serialNumber ? `\n🔢 *Série:* ${data.serialNumber}` : ''}
-
-🔄 *Status:* ${oldStatus} → *${newStatus}*${data.changedBy ? `\n👤 *Por:* ${data.changedBy}` : ''}
-
-🔗 *Ver detalhes:*
-${data.url}`;
-
-    return {
-      text,
-      fallbackText: text,
-    };
+    return this.wrap(lines);
   }
 
   formatTaskDeadlineApproaching(data: {
@@ -111,27 +107,36 @@ ${data.url}`;
     dueDate?: string;
     serialNumber?: string;
     priority?: string;
+    importance?: Importance;
     url: string;
   }): WhatsAppMessageFormat {
-    const daysNum = typeof data.daysRemaining === 'number'
-      ? data.daysRemaining
-      : parseInt(String(data.daysRemaining), 10) || 0;
-    const urgencyEmoji = daysNum <= 1 ? '🚨' : daysNum <= 3 ? '⚠️' : '⏰';
-    const prazoText = data.dueDate ? `⏰ *Prazo:* ${data.dueDate}\n_Faltam ${daysNum} dia${daysNum !== 1 ? 's' : ''}_` : `⏰ _Faltam ${daysNum} dia${daysNum !== 1 ? 's' : ''}_`;
+    const daysNum =
+      typeof data.daysRemaining === 'number'
+        ? data.daysRemaining
+        : parseInt(String(data.daysRemaining), 10) || 0;
 
-    const text = `${urgencyEmoji} *PRAZO SE APROXIMANDO*
+    const lines: string[] = [];
+    lines.push(this.titleLine(data.importance, 'PRAZO SE APROXIMANDO'));
+    lines.push('');
+    lines.push(`*Tarefa:* ${data.taskName}`);
+    if (data.serialNumber) {
+      lines.push(`*Série:* ${data.serialNumber}`);
+    }
+    lines.push('');
+    if (data.dueDate) {
+      lines.push(`*Prazo:* ${data.dueDate}`);
+    }
+    lines.push(`_Faltam ${daysNum} dia${daysNum !== 1 ? 's' : ''}_`);
+    if (data.priority) {
+      lines.push(`*Prioridade:* ${data.priority}`);
+    }
+    if (daysNum <= 1) {
+      lines.push('');
+      lines.push('*AÇÃO IMEDIATA NECESSÁRIA!*');
+    }
+    lines.push(...this.linkLines(data.url));
 
-📋 *Tarefa:* ${data.taskName}${data.serialNumber ? `\n🔢 *Série:* ${data.serialNumber}` : ''}
-
-${prazoText}${data.priority ? `\n🎯 *Prioridade:* ${this.getPriorityEmoji(data.priority)} ${data.priority}` : ''}
-
-${daysNum <= 1 ? '⚠️ *AÇÃO IMEDIATA NECESSÁRIA!*\n\n' : ''}🔗 *Ver detalhes:*
-${data.url}`;
-
-    return {
-      text,
-      fallbackText: text,
-    };
+    return this.wrap(lines);
   }
 
   formatTaskOverdue(data: {
@@ -139,29 +144,33 @@ ${data.url}`;
     daysOverdue: number | string;
     dueDate?: string;
     serialNumber?: string;
+    importance?: Importance;
     url: string;
   }): WhatsAppMessageFormat {
-    const daysNum = typeof data.daysOverdue === 'number'
-      ? data.daysOverdue
-      : parseInt(String(data.daysOverdue), 10) || 0;
+    const daysNum =
+      typeof data.daysOverdue === 'number'
+        ? data.daysOverdue
+        : parseInt(String(data.daysOverdue), 10) || 0;
 
-    const text = `🚨 *TAREFA ATRASADA*
+    const lines: string[] = [];
+    lines.push(this.titleLine(data.importance, 'TAREFA ATRASADA'));
+    lines.push('');
+    lines.push('_Esta tarefa está atrasada!_');
+    lines.push('');
+    lines.push(`*Tarefa:* ${data.taskName}`);
+    if (data.serialNumber) {
+      lines.push(`*Série:* ${data.serialNumber}`);
+    }
+    lines.push('');
+    if (data.dueDate) {
+      lines.push(`*Prazo:* ${data.dueDate}`);
+    }
+    lines.push(`*Atrasada há ${daysNum} dia${daysNum !== 1 ? 's' : ''}*`);
+    lines.push('');
+    lines.push('*AÇÃO URGENTE NECESSÁRIA*');
+    lines.push(...this.linkLines(data.url));
 
-⚠️ _Esta tarefa está atrasada!_
-
-📋 *Tarefa:* ${data.taskName}${data.serialNumber ? `\n🔢 *Série:* ${data.serialNumber}` : ''}
-
-${data.dueDate ? `📅 *Prazo:* ${data.dueDate}\n\n` : ''}🔴 *Atrasada há ${daysNum} dia${daysNum !== 1 ? 's' : ''}*
-
-⚡ *AÇÃO URGENTE NECESSÁRIA*
-
-🔗 *Ver detalhes:*
-${data.url}`;
-
-    return {
-      text,
-      fallbackText: text,
-    };
+    return this.wrap(lines);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -175,21 +184,30 @@ ${data.url}`;
     itemCount?: number;
     expectedDate?: string;
     createdBy?: string;
+    importance?: Importance;
     url: string;
   }): WhatsAppMessageFormat {
-    const text = `📦 *NOVO PEDIDO CRIADO*
+    const lines: string[] = [];
+    lines.push(this.titleLine(data.importance, 'NOVO PEDIDO CRIADO'));
+    lines.push('');
+    lines.push(`*Pedido:* #${data.orderNumber}`);
+    lines.push('');
+    lines.push(`*Fornecedor:* ${data.supplierName}`);
+    if (data.totalValue) {
+      lines.push(`*Valor:* ${data.totalValue}`);
+    }
+    if (data.itemCount) {
+      lines.push(`*Itens:* ${data.itemCount}`);
+    }
+    if (data.expectedDate) {
+      lines.push(`*Entrega:* ${data.expectedDate}`);
+    }
+    if (data.createdBy) {
+      lines.push(`*Por:* ${data.createdBy}`);
+    }
+    lines.push(...this.linkLines(data.url));
 
-🔖 *Pedido:* #${data.orderNumber}
-
-🏪 *Fornecedor:* ${data.supplierName}${data.totalValue ? `\n💰 *Valor:* ${data.totalValue}` : ''}${data.itemCount ? `\n📊 *Itens:* ${data.itemCount}` : ''}${data.expectedDate ? `\n📅 *Entrega:* ${data.expectedDate}` : ''}${data.createdBy ? `\n👤 *Por:* ${data.createdBy}` : ''}
-
-🔗 *Ver detalhes:*
-${data.url}`;
-
-    return {
-      text,
-      fallbackText: text,
-    };
+    return this.wrap(lines);
   }
 
   formatOrderOverdue(data: {
@@ -197,33 +215,31 @@ ${data.url}`;
     supplierName: string;
     daysOverdue: number | string;
     expectedDate: string;
+    importance?: Importance;
     url: string;
   }): WhatsAppMessageFormat {
-    const daysNum = typeof data.daysOverdue === 'number'
-      ? data.daysOverdue
-      : parseInt(String(data.daysOverdue), 10) || 0;
+    const daysNum =
+      typeof data.daysOverdue === 'number'
+        ? data.daysOverdue
+        : parseInt(String(data.daysOverdue), 10) || 0;
 
-    const text = `🚨 *PEDIDO ATRASADO*
+    const lines: string[] = [];
+    lines.push(this.titleLine(data.importance, 'PEDIDO ATRASADO'));
+    lines.push('');
+    lines.push('_Entrega não recebida no prazo!_');
+    lines.push('');
+    lines.push(`*Pedido:* #${data.orderNumber}`);
+    lines.push('');
+    lines.push(`*Fornecedor:* ${data.supplierName}`);
+    lines.push('');
+    lines.push(`*Entrega esperada:* ${data.expectedDate}`);
+    lines.push('');
+    lines.push(`*Atrasado há ${daysNum} dia${daysNum !== 1 ? 's' : ''}*`);
+    lines.push('');
+    lines.push('Contatar fornecedor para atualização');
+    lines.push(...this.linkLines(data.url));
 
-⚠️ _Entrega não recebida no prazo!_
-
-🔖 *Pedido:* #${data.orderNumber}
-
-🏪 *Fornecedor:* ${data.supplierName}
-
-📅 *Entrega esperada:* ${data.expectedDate}
-
-🔴 *Atrasado há ${daysNum} dia${daysNum !== 1 ? 's' : ''}*
-
-📞 Contatar fornecedor para atualização
-
-🔗 *Ver detalhes:*
-${data.url}`;
-
-    return {
-      text,
-      fallbackText: text,
-    };
+    return this.wrap(lines);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -236,25 +252,25 @@ ${data.url}`;
     reorderPoint: number;
     unit?: string;
     categoryName?: string;
+    importance?: Importance;
     url: string;
   }): WhatsAppMessageFormat {
-    const text = `⚠️ *ESTOQUE BAIXO*
+    const lines: string[] = [];
+    lines.push(this.titleLine(data.importance, 'ESTOQUE BAIXO'));
+    lines.push('');
+    lines.push(`*Item:* ${data.itemName}`);
+    if (data.categoryName) {
+      lines.push(`*Categoria:* ${data.categoryName}`);
+    }
+    lines.push('');
+    lines.push('*Situação:*');
+    lines.push(`${data.currentQuantity} ${data.unit || 'un'}`);
+    lines.push(`Ponto de reabastecimento: ${data.reorderPoint}`);
+    lines.push('');
+    lines.push('_Recomenda-se fazer um novo pedido_');
+    lines.push(...this.linkLines(data.url));
 
-📦 *Item:* ${data.itemName}${data.categoryName ? `\n🏷️ *Categoria:* ${data.categoryName}` : ''}
-
-📊 *Situação:*
-🟡 ${data.currentQuantity} ${data.unit || 'un'}
-📌 Ponto de reabastecimento: ${data.reorderPoint}
-
-💡 _Recomenda-se fazer um novo pedido_
-
-🔗 *Ver detalhes:*
-${data.url}`;
-
-    return {
-      text,
-      fallbackText: text,
-    };
+    return this.wrap(lines);
   }
 
   formatStockCritical(data: {
@@ -262,26 +278,26 @@ ${data.url}`;
     currentQuantity: number;
     unit?: string;
     categoryName?: string;
+    importance?: Importance;
     url: string;
   }): WhatsAppMessageFormat {
-    const text = `🚨 *ESTOQUE CRÍTICO*
+    const lines: string[] = [];
+    lines.push(this.titleLine(data.importance, 'ESTOQUE CRÍTICO'));
+    lines.push('');
+    lines.push('_Nível crítico atingido!_');
+    lines.push('');
+    lines.push(`*Item:* ${data.itemName}`);
+    if (data.categoryName) {
+      lines.push(`*Categoria:* ${data.categoryName}`);
+    }
+    lines.push('');
+    lines.push('*Restante:*');
+    lines.push(`*${data.currentQuantity} ${data.unit || 'un'}*`);
+    lines.push('');
+    lines.push('*REABASTECIMENTO URGENTE!*');
+    lines.push(...this.linkLines(data.url));
 
-⚠️ _Nível crítico atingido!_
-
-📦 *Item:* ${data.itemName}${data.categoryName ? `\n🏷️ *Categoria:* ${data.categoryName}` : ''}
-
-📊 *Restante:*
-🔴 *${data.currentQuantity} ${data.unit || 'un'}*
-
-⚡ *REABASTECIMENTO URGENTE!*
-
-🔗 *Ver detalhes:*
-${data.url}`;
-
-    return {
-      text,
-      fallbackText: text,
-    };
+    return this.wrap(lines);
   }
 
   formatStockOut(data: {
@@ -289,26 +305,30 @@ ${data.url}`;
     categoryName?: string;
     category?: string;
     lastMovement?: string;
+    importance?: Importance;
     url: string;
   }): WhatsAppMessageFormat {
     const categoryName = data.categoryName || data.category;
-    const text = `🚨 *ESTOQUE ESGOTADO*
 
-⛔ *SEM ESTOQUE DISPONÍVEL*
+    const lines: string[] = [];
+    lines.push(this.titleLine(data.importance, 'ESTOQUE ESGOTADO'));
+    lines.push('');
+    lines.push('*SEM ESTOQUE DISPONÍVEL*');
+    lines.push('');
+    lines.push(`*Item:* ${data.itemName}`);
+    if (categoryName) {
+      lines.push(`*Categoria:* ${categoryName}`);
+    }
+    if (data.lastMovement) {
+      lines.push(`*Última movimentação:* ${data.lastMovement}`);
+    }
+    lines.push('');
+    lines.push('*Quantidade:* 0 unidades');
+    lines.push('');
+    lines.push('*AÇÃO IMEDIATA NECESSÁRIA!*');
+    lines.push(...this.linkLines(data.url));
 
-📦 *Item:* ${data.itemName}${categoryName ? `\n🏷️ *Categoria:* ${categoryName}` : ''}${data.lastMovement ? `\n🕐 *Última movimentação:* ${data.lastMovement}` : ''}
-
-📊 *Quantidade:* 🔴 *0 unidades*
-
-⚡ *AÇÃO IMEDIATA NECESSÁRIA!*
-
-🔗 *Ver detalhes:*
-${data.url}`;
-
-    return {
-      text,
-      fallbackText: text,
-    };
+    return this.wrap(lines);
   }
 
   formatItemNeedingOrder(data: {
@@ -320,13 +340,14 @@ ${data.url}`;
       unit?: string;
     }>;
     totalItems: number;
+    importance?: Importance;
     url: string;
   }): WhatsAppMessageFormat {
     const itemsList = data.items
       .slice(0, 5)
       .map(
         (item, index) =>
-          `${index + 1}. *${item.name}*\n   📊 ${item.currentQuantity} ${item.unit || 'un'}${item.suggestedQuantity ? ` → ${item.suggestedQuantity}` : ''}`,
+          `${index + 1}. *${item.name}*\n   ${item.currentQuantity} ${item.unit || 'un'}${item.suggestedQuantity ? ` → ${item.suggestedQuantity}` : ''}`,
       )
       .join('\n\n');
 
@@ -335,21 +356,19 @@ ${data.url}`;
         ? `\n\n_...e mais ${data.totalItems - 5} item${data.totalItems - 5 !== 1 ? 'ns' : ''}_`
         : '';
 
-    const text = `📋 *ITENS PRECISAM REABASTECIMENTO*
+    const lines: string[] = [];
+    lines.push(this.titleLine(data.importance, 'ITENS PRECISAM REABASTECIMENTO'));
+    lines.push('');
+    lines.push(
+      `*${data.totalItems} item${data.totalItems !== 1 ? 'ns' : ''} abaixo do ponto de reabastecimento*`,
+    );
+    lines.push('');
+    lines.push(`${itemsList}${moreItems}`);
+    lines.push('');
+    lines.push('_Criar pedido de compra para estes itens_');
+    lines.push(...this.linkLines(data.url));
 
-⚠️ *${data.totalItems} item${data.totalItems !== 1 ? 'ns' : ''} abaixo do ponto de reabastecimento*
-
-${itemsList}${moreItems}
-
-💡 _Criar pedido de compra para estes itens_
-
-🔗 *Ver detalhes:*
-${data.url}`;
-
-    return {
-      text,
-      fallbackText: text,
-    };
+    return this.wrap(lines);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -365,24 +384,31 @@ ${data.url}`;
     assignedTo?: string;
     dueDate?: string;
     creatorName?: string;
+    importance?: Importance;
     url: string;
   }): WhatsAppMessageFormat {
     const serviceOrderType = data.serviceOrderType ?? data.type ?? '';
-    const text = `🛠️ *NOVA ORDEM DE SERVIÇO*
 
-📝 *Descrição:* ${data.serviceOrderDescription}
+    const lines: string[] = [];
+    lines.push(this.titleLine(data.importance, 'NOVA ORDEM DE SERVIÇO'));
+    lines.push('');
+    lines.push(`*Descrição:* ${data.serviceOrderDescription}`);
+    lines.push('');
+    lines.push(`*Tarefa:* ${data.taskName}`);
+    lines.push('');
+    lines.push(`*Tipo:* ${serviceOrderType}`);
+    if (data.assignedTo) {
+      lines.push(`*Responsável:* ${data.assignedTo}`);
+    }
+    if (data.dueDate) {
+      lines.push(`*Prazo:* ${data.dueDate}`);
+    }
+    if (data.creatorName) {
+      lines.push(`*Criado por:* ${data.creatorName}`);
+    }
+    lines.push(...this.linkLines(data.url));
 
-📋 *Tarefa:* ${data.taskName}
-
-🏷️ *Tipo:* ${serviceOrderType}${data.assignedTo ? `\n👤 *Responsável:* ${data.assignedTo}` : ''}${data.dueDate ? `\n📅 *Prazo:* ${data.dueDate}` : ''}${data.creatorName ? `\n✏️ *Criado por:* ${data.creatorName}` : ''}
-
-🔗 *Ver detalhes:*
-${data.url}`;
-
-    return {
-      text,
-      fallbackText: text,
-    };
+    return this.wrap(lines);
   }
 
   formatServiceOrderStatusChanged(data: {
@@ -395,28 +421,27 @@ ${data.url}`;
     newValue?: string;
     changedByName?: string;
     changedBy?: string;
+    importance?: Importance;
     url: string;
   }): WhatsAppMessageFormat {
     const oldStatus = data.oldStatus ?? data.oldValue ?? '';
     const newStatus = data.newStatus ?? data.newValue ?? '';
     const changedBy = data.changedByName ?? data.changedBy;
-    const statusEmoji = this.getStatusEmoji(newStatus);
 
-    const text = `${statusEmoji} *ORDEM DE SERVIÇO ATUALIZADA*
+    const lines: string[] = [];
+    lines.push(this.titleLine(data.importance, 'ORDEM DE SERVIÇO ATUALIZADA'));
+    lines.push('');
+    lines.push(`*Ordem:* ${data.serviceOrderDescription}`);
+    lines.push('');
+    lines.push(`*Tarefa:* ${data.taskName}`);
+    lines.push('');
+    lines.push(`*Status:* ${oldStatus} → *${newStatus}*`);
+    if (changedBy) {
+      lines.push(`*Por:* ${changedBy}`);
+    }
+    lines.push(...this.linkLines(data.url));
 
-📝 *Ordem:* ${data.serviceOrderDescription}
-
-📋 *Tarefa:* ${data.taskName}
-
-🔄 *Status:* ${oldStatus} → *${newStatus}*${changedBy ? `\n👤 *Por:* ${changedBy}` : ''}
-
-🔗 *Ver detalhes:*
-${data.url}`;
-
-    return {
-      text,
-      fallbackText: text,
-    };
+    return this.wrap(lines);
   }
 
   formatArtworkWaitingApproval(data: {
@@ -424,159 +449,100 @@ ${data.url}`;
     taskName: string;
     artistName?: string;
     filesCount?: number;
+    importance?: Importance;
     url: string;
   }): WhatsAppMessageFormat {
-    const text = `🎨 *ARTE AGUARDANDO APROVAÇÃO*
+    const lines: string[] = [];
+    lines.push(this.titleLine(data.importance, 'ARTE AGUARDANDO APROVAÇÃO'));
+    lines.push('');
+    lines.push(`*Ordem:* ${data.serviceOrderDescription}`);
+    lines.push('');
+    lines.push(`*Tarefa:* ${data.taskName}`);
+    if (data.artistName) {
+      lines.push(`*Artista:* ${data.artistName}`);
+    }
+    if (data.filesCount) {
+      lines.push(`*Arquivos:* ${data.filesCount}`);
+    }
+    lines.push('');
+    lines.push('_Revisar e aprovar a arte_');
+    lines.push(...this.linkLines(data.url));
 
-📝 *Ordem:* ${data.serviceOrderDescription}
-
-📋 *Tarefa:* ${data.taskName}${data.artistName ? `\n🎨 *Artista:* ${data.artistName}` : ''}${data.filesCount ? `\n📁 *Arquivos:* ${data.filesCount}` : ''}
-
-✅ _Revisar e aprovar a arte_
-
-🔗 *Ver detalhes:*
-${data.url}`;
-
-    return {
-      text,
-      fallbackText: text,
-    };
+    return this.wrap(lines);
   }
 
   // ═══════════════════════════════════════════════════════════════
   // HELPER METHODS
   // ═══════════════════════════════════════════════════════════════
 
-  private getStatusEmoji(status: string): string {
-    if (!status) {
-      return '🔔';
-    }
-
-    // Primary keying: actual enum values (what dispatch normalization may not
-    // have rewritten, and what the persisted DB value is). This is what the
-    // old pt-BR-string keys never matched.
-    const enumMap: Record<string, string> = {
-      // Task statuses (TASK_STATUS)
-      PREPARATION: '📝',
-      WAITING_PRODUCTION: '⏳',
-      IN_PRODUCTION: '🔵',
-      // Service Order statuses (SERVICE_ORDER_STATUS)
-      PENDING: '⏳',
-      IN_PROGRESS: '🔵',
-      WAITING_ARTWORK: '🎨',
-      PAUSED: '⏸️',
-      WAITING_APPROVE: '⏰',
-      // Order statuses (ORDER_STATUS)
-      CREATED: '📝',
-      PARTIALLY_FULFILLED: '🟡',
-      FULFILLED: '📤',
-      PARTIALLY_RECEIVED: '🟡',
-      RECEIVED: '✅',
-      // Shared terminal statuses
-      COMPLETED: '✅',
-      CANCELLED: '❌',
-      OVERDUE: '⚠️',
-    };
-
-    // Fallback keying: pt-BR labels (after dispatch-layer normalization the
-    // status may already be a Portuguese label). Keyed on an
-    // accent/space-normalized form so "Em Produção" and "EM_PRODUCAO" both hit.
-    const labelMap: Record<string, string> = {
-      // Task
-      EM_PREPARACAO: '📝',
-      AGUARDANDO_PRODUCAO: '⏳',
-      EM_PRODUCAO: '🔵',
-      // Service order
-      PENDENTE: '⏳',
-      EM_ANDAMENTO: '🔵',
-      AGUARDANDO_ARTE: '🎨',
-      PAUSADO: '⏸️',
-      AGUARDANDO_APROVACAO: '⏰',
-      // Order
-      CRIADO: '📝',
-      PARCIALMENTE_ATENDIDO: '🟡',
-      ATENDIDO: '📤',
-      PARCIALMENTE_RECEBIDO: '🟡',
-      RECEBIDO: '✅',
-      // Shared
-      CONCLUIDO: '✅',
-      CANCELADO: '❌',
-      ATRASADO: '⚠️',
-    };
-
-    if (enumMap[status]) {
-      return enumMap[status];
-    }
-
-    const normalizedLabel = status
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, "") // strip accents
-      .toUpperCase()
-      .replace(/\s+/g, '_');
-
-    return labelMap[normalizedLabel] || '🔔';
-  }
-
-  private getPriorityEmoji(priority: string): string {
-    const priorityMap: Record<string, string> = {
-      URGENTE: '🔴',
-      ALTA: '🟠',
-      MEDIA: '🟡',
-      BAIXA: '🟢',
-      CRITICA: '🚨',
-    };
-
-    return priorityMap[priority.toUpperCase()] || '📌';
-  }
-
   /**
-   * Get urgency icon based on importance level
+   * The single emoji a message is allowed to carry — the importance marker on
+   * the title line. NORMAL/LOW → 🔔, HIGH → ⚠️, URGENT → 🚨.
+   * Public so other formatters (e.g. the simple fallback) reuse the same map.
    */
-  private getUrgencyIcon(importance?: string): string {
-    const importanceMap: Record<string, string> = {
-      URGENT: '🚨',
-      HIGH: '🔴',
-      MEDIUM: '🔔',
-      LOW: 'ℹ️',
-    };
+  getImportanceEmoji(importance?: string): string {
+    switch ((importance || 'NORMAL').toUpperCase()) {
+      case 'URGENT':
+        return '🚨';
+      case 'HIGH':
+        return '⚠️';
+      // LOW and NORMAL share the bell.
+      default:
+        return '🔔';
+    }
+  }
 
-    return importanceMap[importance?.toUpperCase() || 'MEDIUM'] || '🔔';
+  /** Build the title line: the lone importance emoji + bold, upper-case title. */
+  private titleLine(importance: string | undefined, title: string): string {
+    return `${this.getImportanceEmoji(importance)} *${title}*`;
+  }
+
+  /** Trailing link block (no emoji), or nothing when there is no URL. */
+  private linkLines(url?: string): string[] {
+    if (!url) {
+      return [];
+    }
+    return ['', '*Ver detalhes:*', url];
+  }
+
+  /** Join lines into the final text + fallbackText shape. */
+  private wrap(lines: string[]): WhatsAppMessageFormat {
+    const text = lines.join('\n');
+    return {
+      text,
+      fallbackText: text,
+    };
   }
 
   /**
-   * Format generic notification with consistent structure
+   * Format generic notification with consistent structure.
+   * Title carries the lone importance emoji; body and metadata stay emoji-free.
    */
   formatGenericNotification(data: {
     title: string;
     body: string;
     url?: string;
     metadata?: Record<string, any>;
-    importance?: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+    importance?: Importance;
   }): WhatsAppMessageFormat {
-    // Build message line by line - simple and clean
     const lines: string[] = [];
 
-    // Get urgency icon based on importance
-    const urgencyIcon = this.getUrgencyIcon(data.importance);
-
-    // Add title with urgency icon
+    // Title with the lone importance emoji
     if (data.title) {
-      lines.push(`${urgencyIcon} *${data.title.toUpperCase()}*`);
+      lines.push(this.titleLine(data.importance, data.title.toUpperCase()));
       lines.push('');
     }
 
-    // Add body
+    // Body
     if (data.body) {
       lines.push(data.body);
     }
 
-    // Add metadata fields (only user-facing ones)
+    // Metadata fields (only user-facing, whitelisted ones)
     if (data.metadata) {
       // WHITELIST of keys that are safe to display to end users in the generic
-      // fallback. We invert what used to be a blacklist of internal keys: any
-      // key NOT in this set is suppressed. This guarantees that future
-      // enum-bearing or internal metadata keys can never leak raw into a
-      // WhatsApp message — only explicitly-approved, human-readable fields show.
+      // fallback. Any key NOT in this set is suppressed, so future enum-bearing
+      // or internal metadata keys can never leak raw into a WhatsApp message.
       const displayableKeys = new Set([
         'dueDate',
         'priority',
@@ -610,34 +576,29 @@ ${data.url}`;
       }
     }
 
-    // Add URL at the end with action icon
+    // URL at the end (no emoji)
     if (data.url) {
       lines.push('');
-      lines.push('🔗 *Ver mais:*');
+      lines.push('*Ver mais:*');
       lines.push(data.url);
     }
 
-    const text = lines.join('\n');
-
-    return {
-      text,
-      fallbackText: text,
-    };
+    return this.wrap(lines);
   }
 
   private getMetadataLabel(key: string): string {
     const labels: Record<string, string> = {
-      dueDate: '📅 *Prazo*',
-      deadline: '📅 *Prazo*',
-      priority: '🎯 *Prioridade*',
-      sector: '🏢 *Setor*',
-      sectorName: '🏢 *Setor*',
-      customer: '👤 *Cliente*',
-      customerName: '👤 *Cliente*',
-      assignedTo: '👤 *Responsável*',
-      value: '💰 *Valor*',
-      quantity: '📊 *Quantidade*',
-      location: '📍 *Local*',
+      dueDate: '*Prazo*',
+      deadline: '*Prazo*',
+      priority: '*Prioridade*',
+      sector: '*Setor*',
+      sectorName: '*Setor*',
+      customer: '*Cliente*',
+      customerName: '*Cliente*',
+      assignedTo: '*Responsável*',
+      value: '*Valor*',
+      quantity: '*Quantidade*',
+      location: '*Local*',
     };
 
     return labels[key] || `*${key}*`;

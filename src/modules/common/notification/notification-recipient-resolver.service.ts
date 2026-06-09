@@ -41,8 +41,6 @@ export interface TargetRule {
 export interface NotificationConfiguration {
   /** Target rule defining who should receive notifications */
   targetRule: TargetRule;
-  /** Whether to exclude inactive users (default: true) */
-  excludeInactive?: boolean;
   /** Whether to exclude users currently on vacation (default: false) */
   excludeOnVacation?: boolean;
   /** Custom filter function name */
@@ -105,7 +103,6 @@ export class NotificationRecipientResolverService {
     this.logger.debug('Resolving notification recipients', {
       allowedSectors: config.targetRule.allowedSectors,
       customFilter: config.customFilter,
-      excludeInactive: config.excludeInactive,
       excludeOnVacation: config.excludeOnVacation,
     });
 
@@ -134,8 +131,8 @@ export class NotificationRecipientResolverService {
       this.logger.debug(`Excluded ${beforeCount - users.length} users from excludeUserIds`);
     }
 
-    // Step 4: Apply excludeInactive filter (default: true)
-    if (config.excludeInactive !== false) {
+    // Step 4: Always exclude inactive users — they must never receive notifications.
+    {
       const beforeCount = users.length;
       users = this.filterActiveUsers(users);
       this.logger.debug(`Filtered out ${beforeCount - users.length} inactive users`);
@@ -210,6 +207,7 @@ export class NotificationRecipientResolverService {
 
     const users = await this.prisma.user.findMany({
       where: {
+        isActive: true,
         sector: {
           privileges: {
             in: sectors,
@@ -237,6 +235,7 @@ export class NotificationRecipientResolverService {
 
     const users = await this.prisma.user.findMany({
       where: {
+        isActive: true,
         id: {
           in: userIds,
         },
@@ -367,7 +366,6 @@ export class NotificationRecipientResolverService {
   async resolveRecipientsForSector(
     privilege: SectorPrivileges,
     options?: {
-      excludeInactive?: boolean;
       excludeOnVacation?: boolean;
       excludeUserIds?: string[];
     },
@@ -378,7 +376,6 @@ export class NotificationRecipientResolverService {
           allowedSectors: [privilege],
           excludeUserIds: options?.excludeUserIds,
         },
-        excludeInactive: options?.excludeInactive,
         excludeOnVacation: options?.excludeOnVacation,
       },
       {},
@@ -396,7 +393,6 @@ export class NotificationRecipientResolverService {
   async resolveRecipientsForSectors(
     privileges: SectorPrivileges[],
     options?: {
-      excludeInactive?: boolean;
       excludeOnVacation?: boolean;
       excludeUserIds?: string[];
     },
@@ -407,7 +403,6 @@ export class NotificationRecipientResolverService {
           allowedSectors: privileges,
           excludeUserIds: options?.excludeUserIds,
         },
-        excludeInactive: options?.excludeInactive,
         excludeOnVacation: options?.excludeOnVacation,
       },
       {},
@@ -445,7 +440,9 @@ export class NotificationRecipientResolverService {
 
     const leaders = sectors
       .map(s => s.leader)
-      .filter((m): m is NonNullable<typeof m> => m !== null);
+      .filter((m): m is NonNullable<typeof m> => m !== null)
+      // Inactive leaders must never receive notifications.
+      .filter(m => (m as unknown as User).isActive === true);
 
     return leaders as unknown as User[];
   }
@@ -459,6 +456,7 @@ export class NotificationRecipientResolverService {
   async getUsersBySectorId(sectorId: string): Promise<User[]> {
     const users = await this.prisma.user.findMany({
       where: {
+        isActive: true,
         sectorId,
       },
       include: {

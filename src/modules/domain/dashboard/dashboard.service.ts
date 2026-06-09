@@ -84,7 +84,7 @@ export class DashboardService {
       // Item filters
       const itemWhere = {
         ...(query.categoryId && { categoryId: query.categoryId }),
-        ...(query.brandId && { brandId: query.brandId }),
+        ...(query.brandId && { brands: { some: { id: query.brandId } } }),
         ...(query.supplierId && { supplierId: query.supplierId }),
         ...(!query.includeInactive && { isActive: true }),
       };

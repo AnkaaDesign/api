@@ -409,6 +409,20 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
+      // Suppress link previews on text messages. `generateHighQualityLinkPreview: false`
+      // only skips the HQ thumbnail upload — Baileys still always passes `getUrlInfo`
+      // and attaches a low-quality preview (matched-text + title + jpegThumbnail, i.e.
+      // our site logo card). Setting `linkPreview: null` makes generateWAMessageContent
+      // treat the preview as explicitly disabled (it only auto-generates when the field
+      // is `undefined`), so the recipient sees the bare URL.
+      if (
+        content &&
+        typeof content.text === 'string' &&
+        content.linkPreview === undefined
+      ) {
+        content = { ...content, linkPreview: null };
+      }
+
       // Format phone number for Baileys (remove non-digits)
       const cleanPhone = phone.replace(/\D/g, '');
 

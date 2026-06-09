@@ -272,7 +272,7 @@ export class OrderAnalyticsService {
       include: {
         item: {
           include: {
-            brand: true,
+            brands: true,
             category: true,
           },
         },
@@ -324,7 +324,10 @@ export class OrderAnalyticsService {
         itemName: data.item.name,
         itemUniCode: data.item.uniCode,
         categoryName: data.item.category?.name || null,
-        brandName: data.item.brand?.name || null,
+        // Multi-brand: join all of the item's brand names for display.
+        brandName: data.item.brands?.length
+          ? data.item.brands.map((b: { name: string }) => b.name).join(', ')
+          : null,
         totalOrdered: data.totalOrdered,
         totalReceived: data.totalReceived,
         fulfillmentRate: data.totalOrdered > 0 ? (data.totalReceived / data.totalOrdered) * 100 : 0,

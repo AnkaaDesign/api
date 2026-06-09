@@ -32,6 +32,9 @@ const commonFields: Record<string, string> = {
   // Common relationships
   supplierId: 'Fornecedor',
   categoryId: 'Categoria',
+  // Multi-brand: Item now has a list of brands (M2M). 'brandId' kept for
+  // historical changelog entries created before the migration.
+  brands: 'Marcas',
   brandId: 'Marca',
 
   // Audit fields
@@ -248,6 +251,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'observation.type': 'Tipo da Observação',
   },
   [CHANGE_LOG_ENTITY_TYPE.SUPPLIER]: {
+    sequentialNumber: 'Número',
     corporateName: 'Razão Social',
     fantasyName: 'Nome Fantasia',
     cnpj: 'CNPJ',

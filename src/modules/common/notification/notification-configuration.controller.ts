@@ -46,9 +46,10 @@ import {
  * Filter DTO for listing notification configurations
  */
 interface NotificationConfigurationFiltersDto {
-  notificationType?: NOTIFICATION_TYPE;
-  enabled?: boolean;
-  importance?: NOTIFICATION_IMPORTANCE;
+  notificationType?: NOTIFICATION_TYPE | NOTIFICATION_TYPE[];
+  enabled?: boolean | string | (boolean | string)[];
+  importance?: NOTIFICATION_IMPORTANCE | NOTIFICATION_IMPORTANCE[];
+  allowedSectors?: SECTOR_PRIVILEGES[] | SECTOR_PRIVILEGES;
   search?: string;
   page?: number;
   limit?: number;
@@ -81,7 +82,6 @@ interface CreateNotificationConfigurationDto {
   }>;
   targetRules?: {
     allowedSectors?: SECTOR_PRIVILEGES[];
-    excludeInactive?: boolean;
     excludeOnVacation?: boolean;
     customFilter?: string;
   };
@@ -106,7 +106,6 @@ interface UpdateNotificationConfigurationDto {
   metadata?: Record<string, any>;
   targetRule?: {
     allowedSectors?: SECTOR_PRIVILEGES[];
-    excludeInactive?: boolean;
     excludeOnVacation?: boolean;
     customFilter?: string;
   };
@@ -248,7 +247,6 @@ export class NotificationConfigurationController {
             data: {
               configurationId: config.id,
               allowedSectors: dto.targetRules.allowedSectors ?? [],
-              excludeInactive: dto.targetRules.excludeInactive ?? true,
               excludeOnVacation: dto.targetRules.excludeOnVacation ?? true,
               customFilter: dto.targetRules.customFilter,
             },
@@ -313,6 +311,13 @@ export class NotificationConfigurationController {
     description: 'Filter by importance level',
   })
   @ApiQuery({
+    name: 'allowedSectors',
+    required: false,
+    isArray: true,
+    enum: SECTOR_PRIVILEGES,
+    description: 'Filter by the sectors that receive the notification',
+  })
+  @ApiQuery({
     name: 'search',
     required: false,
     description: 'Search in key, description, and eventType',
@@ -348,6 +353,7 @@ export class NotificationConfigurationController {
         notificationType,
         enabled,
         importance,
+        allowedSectors,
         search,
         page = 1,
         limit = 20,
@@ -359,16 +365,44 @@ export class NotificationConfigurationController {
       const where: any = {};
       const andConditions: any[] = [];
 
-      if (notificationType) {
-        where.notificationType = notificationType;
+      // All multi-select filters arrive as arrays (qs) but may be a single value;
+      // normalize to an array and match with `in`.
+      const toArray = <T,>(v: T | T[] | undefined): T[] =>
+        v === undefined || v === null ? [] : Array.isArray(v) ? v : [v];
+
+      const types = toArray(notificationType);
+      if (types.length > 0) {
+        where.notificationType = { in: types };
       }
 
-      if (enabled !== undefined) {
-        where.enabled = enabled === true || enabled === ('true' as any);
+      const importances = toArray(importance);
+      if (importances.length > 0) {
+        where.importance = { in: importances };
       }
 
-      if (importance) {
-        where.importance = importance;
+      // `enabled` is a Boolean scalar — Prisma's BoolFilter has no `in`. Selecting both
+      // (or none) means "no filter"; a single value filters by equality.
+      const enabledValues = [
+        ...new Set(
+          toArray(enabled as boolean | string | (boolean | string)[] | undefined).map(
+            (v) => v === true || v === 'true',
+          ),
+        ),
+      ];
+      if (enabledValues.length === 1) {
+        where.enabled = enabledValues[0];
+      }
+
+      // Filter by the sectors that receive the notification.
+      // Matches either targetRule.allowedSectors or per-sector overrides.
+      const sectorsFilter = toArray(allowedSectors);
+      if (sectorsFilter.length > 0) {
+        andConditions.push({
+          OR: [
+            { targetRule: { allowedSectors: { hasSome: sectorsFilter } } },
+            { sectorOverrides: { some: { sector: { in: sectorsFilter } } } },
+          ],
+        });
       }
 
       if (search && search.trim()) {
@@ -566,7 +600,6 @@ export class NotificationConfigurationController {
             where: { id: existingTargetRule.id },
             data: {
               allowedSectors: dto.targetRule.allowedSectors,
-              excludeInactive: dto.targetRule.excludeInactive,
               excludeOnVacation: dto.targetRule.excludeOnVacation,
             },
           });
@@ -575,7 +608,6 @@ export class NotificationConfigurationController {
             data: {
               configurationId: id,
               allowedSectors: dto.targetRule.allowedSectors ?? [],
-              excludeInactive: dto.targetRule.excludeInactive ?? true,
               excludeOnVacation: dto.targetRule.excludeOnVacation ?? false,
             },
           });
@@ -767,7 +799,8 @@ export class NotificationConfigurationController {
           },
         });
       } else if (configuration.targetRule) {
-        // Use target rules to determine recipients
+        // Use target rules to determine recipients.
+        // Inactive users are NEVER notified, so isActive: true is unconditional.
         const whereClause: any = { isActive: true };
 
         if (
@@ -777,10 +810,6 @@ export class NotificationConfigurationController {
           whereClause.sector = {
             privileges: { in: configuration.targetRule.allowedSectors },
           };
-        }
-
-        if (configuration.targetRule.excludeInactive) {
-          whereClause.isActive = true;
         }
 
         // excludeOnVacation flag is honored once Secullum vacation data is aggregated

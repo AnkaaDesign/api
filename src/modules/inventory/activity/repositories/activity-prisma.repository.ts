@@ -39,7 +39,7 @@ const DEFAULT_ACTIVITY_SELECT_TABLE: Prisma.ActivitySelect = {
       id: true,
       name: true,
       uniCode: true,
-      brand: {
+      brands: {
         select: {
           id: true,
           name: true,
@@ -113,7 +113,7 @@ const DEFAULT_ACTIVITY_SELECT_DETAIL: Prisma.ActivitySelect = {
       quantity: true,
       maxQuantity: true,
       reorderPoint: true,
-      brand: {
+      brands: {
         select: {
           id: true,
           name: true,
@@ -185,7 +185,7 @@ const DEFAULT_ACTIVITY_INCLUDE: Prisma.ActivityInclude = {
       prices: true,
       supplier: true,
       category: true,
-      brand: true,
+      brands: true,
     },
   },
   user: {

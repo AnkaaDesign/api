@@ -711,7 +711,6 @@ model Item {
   abcCategoryOrder               Int?
   xyzCategory                    XyzCategory?
   xyzCategoryOrder               Int?
-  brandId                        String?
   categoryId                     String?
   // True when the item's category was auto-assigned with low confidence during
   // the taxonomy migration and still needs human confirmation ("a revisar").
@@ -735,7 +734,7 @@ model Item {
   activities                     Activity[]               @relation("ACTIVITY_ITEM")
   borrows                        Borrow[]
   externalWithdrawalItems        ExternalWithdrawalItem[]
-  brand                          ItemBrand?               @relation("ITEM_BRAND", fields: [brandId], references: [id])
+  brands                         ItemBrand[]              @relation("ITEM_BRANDS")
   category                       ItemCategory?            @relation("ITEM_CATEGORY", fields: [categoryId], references: [id])
   supplier                       Supplier?                @relation("ITEM_SUPPLIER", fields: [supplierId], references: [id])
   maintenance                    Maintenance[]            @relation("MAINTENANCE_ITEM")
@@ -754,7 +753,7 @@ model Item {
   relatedItems                   Item[]                   @relation("RelatedItems")
 
   @@index([shouldAssignToUser])
-  @@index([categoryId, brandId])
+  @@index([categoryId])
   @@index([name])
   @@index([isActive])
   @@index([supplierId])
@@ -835,7 +834,7 @@ model ItemBrand {
   name      String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  items     Item[]   @relation("ITEM_BRAND")
+  items     Item[]   @relation("ITEM_BRANDS")
 }
 
 // Chart-of-accounts groups (plano de contas, from CONTABILIDADE PDF). This is
@@ -1016,6 +1015,7 @@ model MaintenanceSchedule {
 
 model Order {
   id                    String               @id @default(uuid())
+  orderNumber           Int?                 @unique @default(dbgenerated("nextval('order_number_seq'::regclass)"))
   description           String
   forecast              DateTime?
   status                OrderStatus          @default(CREATED)
@@ -1419,6 +1419,7 @@ model TaskQuoteCustomerConfig {
 
 model Supplier {
   id                String      @id @default(uuid())
+  sequentialNumber  Int?        @unique @default(dbgenerated("nextval('supplier_number_seq'::regclass)"))
   fantasyName       String      @unique
   cnpj              String?     @unique
   corporateName     String?
@@ -2001,7 +2002,6 @@ model NotificationTargetRule {
   id                String                    @id @default(uuid())
   configurationId   String                    @unique
   allowedSectors    SectorPrivileges[]
-  excludeInactive   Boolean                   @default(true)
   excludeOnVacation Boolean                   @default(true)
   customFilter      String?
   createdAt         DateTime                  @default(now())

@@ -207,12 +207,11 @@ export type BorrowSelectDetail = {
       quantity: true;
       isActive: true;
       isPpe?: true;
-      brandId: true;
       categoryId: true;
       supplierId: true;
       createdAt: true;
       updatedAt: true;
-      brand?: {
+      brands?: {
         select: {
           id: true;
           name: true;

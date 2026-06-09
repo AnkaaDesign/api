@@ -459,26 +459,46 @@ export class DashboardPrismaRepository implements DashboardRepository {
   }
 
   async getItemsByBrand(where?: any): Promise<DashboardChartData> {
-    const byBrand = await this.prisma.item.groupBy({
-      by: ['brandId'],
+    // Multi-brand: an item now has many brands (M2M), so we can no longer
+    // groupBy a scalar brandId column. Fetch each item's brands and fan out the
+    // count per brand in JS. NOTE the fan-out: an item with N brands contributes
+    // to N brand buckets, so the per-brand counts can sum to more than the total
+    // number of items. Items with no brand are bucketed under "Sem marca".
+    const items = await this.prisma.item.findMany({
       where,
-      _count: { id: true },
+      select: { brands: { select: { id: true, name: true } } },
     });
 
-    const brandIds = byBrand.map(b => b.brandId).filter(id => id !== null);
-    const brands = await this.prisma.itemBrand.findMany({
-      where: { id: { in: brandIds } },
-      select: { id: true, name: true },
-    });
+    const countByBrand = new Map<string, number>();
+    let noBrandCount = 0;
 
-    const brandMap = new Map(brands.map(b => [b.id, b.name]));
+    for (const item of items) {
+      if (!item.brands || item.brands.length === 0) {
+        noBrandCount++;
+        continue;
+      }
+      for (const brand of item.brands) {
+        countByBrand.set(brand.name, (countByBrand.get(brand.name) || 0) + 1);
+      }
+    }
+
+    const labels: string[] = [];
+    const data: number[] = [];
+    for (const [name, count] of countByBrand) {
+      labels.push(name);
+      data.push(count);
+    }
+    if (noBrandCount > 0) {
+      labels.push('Sem marca');
+      data.push(noBrandCount);
+    }
 
     return {
-      labels: byBrand.map(b => brandMap.get(b.brandId || '') || 'Sem marca'),
+      labels,
       datasets: [
         {
           label: 'Quantidade de Itens',
-          data: byBrand.map(b => b._count.id),
+          data,
         },
       ],
     };
@@ -3458,7 +3478,15 @@ export class DashboardPrismaRepository implements DashboardRepository {
   async getLowStockItems(): Promise<HomeDashboardLowStockItem[]> {
     const items: any[] = await this.prisma.$queryRaw`
       SELECT i.id, i.name, i.quantity, i."reorderPoint", i."maxQuantity",
-             i."monthlyConsumption", b.name as "brandName",
+             i."monthlyConsumption",
+             -- Multi-brand: items now have many brands via "_ITEM_BRANDS".
+             -- Aggregate all brand names into one comma-separated label per item.
+             (
+               SELECT string_agg(b.name, ', ' ORDER BY b.name)
+               FROM "_ITEM_BRANDS" ib
+               JOIN "ItemBrand" b ON b.id = ib."B"
+               WHERE ib."A" = i.id
+             ) as "brandName",
              CASE
                WHEN i.quantity < 0 THEN 0
                WHEN i.quantity = 0 THEN 1
@@ -3466,7 +3494,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
                ELSE 3
              END as "_level"
       FROM "Item" i
-      LEFT JOIN "ItemBrand" b ON i."brandId" = b.id
       WHERE i."isActive" = true
         AND (
           i.quantity < 0

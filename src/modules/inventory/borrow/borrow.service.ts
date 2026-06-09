@@ -117,7 +117,7 @@ export class BorrowService {
             type: true,
           },
         },
-        brand: {
+        brands: {
           select: {
             id: true,
             name: true,
