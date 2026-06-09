@@ -6,6 +6,7 @@ import {
   TASK_QUOTE_STATUS,
 } from '../constants/enums';
 import { SERVICE_ORDER_STATUS_ORDER } from '../constants/sortOrders';
+import { calculateWorkingSeconds } from './working-hours';
 
 type PrismaContext = Prisma.TransactionClient | { artwork: any; serviceOrder: any; task: any };
 
@@ -66,7 +67,15 @@ export async function syncEmNegociacaoForTask(
         // purposes — it's the rendered layout uploaded via the budget editor.
         quote: { select: { status: true, layoutFileId: true } },
         serviceOrders: {
-          select: { id: true, description: true, status: true, type: true },
+          select: {
+            id: true,
+            description: true,
+            status: true,
+            type: true,
+            startedAt: true,
+            lastStartedAt: true,
+            totalActiveTimeSeconds: true,
+          },
         },
         artworks: { select: { id: true, status: true } },
       },
@@ -79,7 +88,7 @@ export async function syncEmNegociacaoForTask(
       (so: any) =>
         so.type === SERVICE_ORDER_TYPE.COMMERCIAL &&
         (so.description ?? '').toLowerCase().trim() === EM_NEGOCIACAO_DESC,
-    );
+    ) as any;
     if (!emNegociacao) return; // task without the default SO — nothing to sync
 
     // Respect manual control states
@@ -124,13 +133,35 @@ export async function syncEmNegociacaoForTask(
       status: target,
       statusOrder: SERVICE_ORDER_STATUS_ORDER[target] ?? 1,
     };
+
     if (target === SERVICE_ORDER_STATUS.COMPLETED) {
       patch.finishedAt = now;
       if (userId) patch.completedById = userId;
+      // Accumulate working time if the SO was actively running before auto-completion
+      if (
+        emNegociacao.status === SERVICE_ORDER_STATUS.IN_PROGRESS ||
+        emNegociacao.status === SERVICE_ORDER_STATUS.WAITING_ARTWORK
+      ) {
+        const sessionStart = emNegociacao.lastStartedAt ?? emNegociacao.startedAt;
+        if (sessionStart) {
+          const worked = calculateWorkingSeconds(sessionStart, now);
+          patch.totalActiveTimeSeconds = (emNegociacao.totalActiveTimeSeconds ?? 0) + worked;
+        }
+      }
+    } else if (target === SERVICE_ORDER_STATUS.WAITING_ARTWORK) {
+      // Commercial work done — accumulate time like a pause
+      if (emNegociacao.status === SERVICE_ORDER_STATUS.IN_PROGRESS) {
+        const sessionStart = emNegociacao.lastStartedAt ?? emNegociacao.startedAt;
+        if (sessionStart) {
+          const worked = calculateWorkingSeconds(sessionStart, now);
+          patch.totalActiveTimeSeconds = (emNegociacao.totalActiveTimeSeconds ?? 0) + worked;
+        }
+      }
     } else if (target === SERVICE_ORDER_STATUS.IN_PROGRESS) {
-      // Reverting from COMPLETED/WAITING_ARTWORK: clear the completed marker.
+      // Reverting from COMPLETED/WAITING_ARTWORK: clear the completed marker and restart timer
       patch.finishedAt = null;
       patch.completedById = null;
+      patch.lastStartedAt = now;
     }
 
     await (prisma as any).serviceOrder.update({
