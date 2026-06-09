@@ -2,7 +2,8 @@
  * One-off bulk sync of the ITEM_DERIVED TransactionCategory mirror against the
  * current ItemCategory tree. Creates/updates one ITEM_DERIVED reconciliation
  * category per ItemCategory (carrying name, accountingType and an `item-<slug>`
- * slug) and deactivates mirrors whose source ItemCategory no longer exists.
+ * slug) and cleans up mirrors whose source ItemCategory no longer exists —
+ * archiving those still referenced by history, deleting the rest outright.
  *
  * The runtime listener (item-category.changed / item-category.deleted) keeps the
  * mirror in sync going forward; this script reconciles any drift / backfills the
@@ -34,7 +35,7 @@ async function main(): Promise<void> {
     const result = await categories.syncAllItemCategoryMirrors();
     logger.log(
       `Done. created=${result.created} updated=${result.updated} ` +
-        `deactivated=${result.deactivated} unchanged=${result.unchanged}`,
+        `deactivated=${result.deactivated} deleted=${result.deleted} unchanged=${result.unchanged}`,
     );
   } catch (err) {
     exitCode = 1;

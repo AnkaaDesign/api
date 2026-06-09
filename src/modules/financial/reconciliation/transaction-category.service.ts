@@ -275,13 +275,21 @@ export class TransactionCategoryService {
 
   /**
    * Bulk reconciliation of the entire ITEM_DERIVED mirror set against the current
-   * ItemCategory tree. Creates/updates one mirror per ItemCategory and deactivates
+   * ItemCategory tree. Creates/updates one mirror per ItemCategory and cleans up
    * mirrors whose source ItemCategory no longer exists. Idempotent.
+   *
+   * Orphan cleanup is two-tier:
+   *   - Mirrors still referenced by history (a categorized bank transaction or a
+   *     fiscal-document line) are DEACTIVATED — the row must survive so those
+   *     references keep resolving.
+   *   - Mirrors with no such references are DELETED outright, so deleting an
+   *     ItemCategory leaves no trace in the categories list.
    */
   async syncAllItemCategoryMirrors(): Promise<{
     created: number;
     updated: number;
     deactivated: number;
+    deleted: number;
     unchanged: number;
   }> {
     const categories = await this.prisma.itemCategory.findMany({
@@ -298,29 +306,47 @@ export class TransactionCategoryService {
       else unchanged += 1;
     }
 
-    // Deactivate orphaned mirrors (source ItemCategory deleted).
+    // Reconcile orphaned mirrors (source ItemCategory deleted). Deleting an
+    // ItemCategory SetNulls the mirror's itemCategoryId (optional relation), so
+    // an orphan can have EITHER a null id OR a stale id absent from liveIds — we
+    // must catch both. (The previous query filtered `itemCategoryId: { not: null }`,
+    // which let every SetNull'd orphan stay ACTIVE in the categories list forever.)
     const liveIds = new Set(categories.map(c => c.id));
     const mirrors = await this.prisma.transactionCategory.findMany({
-      where: {
-        kind: TransactionCategoryKind.ITEM_DERIVED,
+      where: { kind: TransactionCategoryKind.ITEM_DERIVED },
+      select: {
+        id: true,
+        itemCategoryId: true,
         isActive: true,
-        itemCategoryId: { not: null },
+        _count: { select: { transactionTags: true, fiscalDocumentItems: true } },
       },
-      select: { id: true, itemCategoryId: true },
     });
     let deactivated = 0;
+    let deleted = 0;
     for (const m of mirrors) {
-      if (m.itemCategoryId && !liveIds.has(m.itemCategoryId)) {
-        await this.prisma.transactionCategory.update({
-          where: { id: m.id },
-          data: { isActive: false },
-        });
-        deactivated += 1;
+      // Still mirrors a live ItemCategory → leave it (already up to date above).
+      if (m.itemCategoryId && liveIds.has(m.itemCategoryId)) continue;
+      // Real history pins the row in place; archive instead of deleting so the
+      // categorized transactions / fiscal lines keep resolving.
+      const hasHistory = m._count.transactionTags > 0 || m._count.fiscalDocumentItems > 0;
+      if (hasHistory) {
+        if (m.isActive) {
+          await this.prisma.transactionCategory.update({
+            where: { id: m.id },
+            data: { isActive: false },
+          });
+          deactivated += 1;
+        }
+      } else {
+        // No history → safe to remove. Learning tables cascade; alias/suggestion
+        // FKs SetNull. Cleans up both active and previously-archived orphans.
+        await this.prisma.transactionCategory.delete({ where: { id: m.id } });
+        deleted += 1;
       }
     }
-    if (created || updated || deactivated) this.invalidate();
+    if (created || updated || deactivated || deleted) this.invalidate();
 
-    return { created, updated, deactivated, unchanged };
+    return { created, updated, deactivated, deleted, unchanged };
   }
 
   // ----- recurring monthly forecast ---------------------------------------
