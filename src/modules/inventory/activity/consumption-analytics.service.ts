@@ -188,7 +188,7 @@ export class ConsumptionAnalyticsService {
         }),
       ...(brandIds &&
         brandIds.length > 0 && {
-          item: { brandId: { in: brandIds } },
+          item: { brands: { some: { id: { in: brandIds } } } },
         }),
       ...(categoryIds &&
         categoryIds.length > 0 && {
@@ -216,7 +216,7 @@ export class ConsumptionAnalyticsService {
         ${itemIds && itemIds.length > 0 ? Prisma.sql`AND "itemId" = ANY(${itemIds})` : Prisma.empty}
         ${userIds && userIds.length > 0 ? Prisma.sql`AND "userId" = ANY(${userIds})` : Prisma.empty}
         ${sectorIds && sectorIds.length > 0 ? Prisma.sql`AND "userId" IN (SELECT "id" FROM "User" WHERE "sectorId" = ANY(${sectorIds}))` : Prisma.empty}
-        ${brandIds && brandIds.length > 0 ? Prisma.sql`AND "itemId" IN (SELECT "id" FROM "Item" WHERE "brandId" = ANY(${brandIds}))` : Prisma.empty}
+        ${brandIds && brandIds.length > 0 ? Prisma.sql`AND "itemId" IN (SELECT i."id" FROM "Item" i WHERE EXISTS (SELECT 1 FROM "_ITEM_BRANDS" ib WHERE ib."A" = i."id" AND ib."B" = ANY(${brandIds})))` : Prisma.empty}
         ${categoryIds && categoryIds.length > 0 ? Prisma.sql`AND "itemId" IN (SELECT "id" FROM "Item" WHERE "categoryId" = ANY(${categoryIds}))` : Prisma.empty}
       GROUP BY "itemId"
       ORDER BY
@@ -236,7 +236,7 @@ export class ConsumptionAnalyticsService {
     const items = await this.prisma.item.findMany({
       where: { id: { in: itemIdsToFetch } },
       include: {
-        brand: true,
+        brands: true,
         category: true,
         prices: {
           orderBy: { createdAt: 'desc' },
@@ -267,8 +267,10 @@ export class ConsumptionAnalyticsService {
           itemUniCode: item.uniCode,
           categoryId: item.categoryId,
           categoryName: item.category?.name || null,
-          brandId: item.brandId,
-          brandName: item.brand?.name || null,
+          // Multi-brand: an item can now carry several brands. Expose the first id
+          // (legacy single-value field) and the joined names for display.
+          brandId: item.brands?.[0]?.id ?? null,
+          brandName: item.brands?.length ? item.brands.map(b => b.name).join(', ') : null,
           totalQuantity,
           totalValue,
           movementCount: Number(data.movementCount),
@@ -365,7 +367,7 @@ export class ConsumptionAnalyticsService {
         AND s."id" = ANY(${sectorIds})
         ${operation && operation !== 'ALL' ? Prisma.sql`AND a."operation" = ${operation}::"ActivityOperation"` : Prisma.empty}
         ${itemIds && itemIds.length > 0 ? Prisma.sql`AND a."itemId" = ANY(${itemIds})` : Prisma.empty}
-        ${brandIds && brandIds.length > 0 ? Prisma.sql`AND a."itemId" IN (SELECT "id" FROM "Item" WHERE "brandId" = ANY(${brandIds}))` : Prisma.empty}
+        ${brandIds && brandIds.length > 0 ? Prisma.sql`AND a."itemId" IN (SELECT i."id" FROM "Item" i WHERE EXISTS (SELECT 1 FROM "_ITEM_BRANDS" ib WHERE ib."A" = i."id" AND ib."B" = ANY(${brandIds})))` : Prisma.empty}
         ${categoryIds && categoryIds.length > 0 ? Prisma.sql`AND a."itemId" IN (SELECT "id" FROM "Item" WHERE "categoryId" = ANY(${categoryIds}))` : Prisma.empty}
       GROUP BY a."itemId", s."id", s."name"
       ORDER BY a."itemId", SUM(a."quantity") DESC
@@ -412,7 +414,7 @@ export class ConsumptionAnalyticsService {
     const items = await this.prisma.item.findMany({
       where: { id: { in: paginatedItemIds } },
       include: {
-        brand: true,
+        brands: true,
         category: true,
         prices: {
           orderBy: { createdAt: 'desc' },
@@ -465,8 +467,10 @@ export class ConsumptionAnalyticsService {
           itemUniCode: item.uniCode,
           categoryId: item.categoryId,
           categoryName: item.category?.name || null,
-          brandId: item.brandId,
-          brandName: item.brand?.name || null,
+          // Multi-brand: an item can now carry several brands. Expose the first id
+          // (legacy single-value field) and the joined names for display.
+          brandId: item.brands?.[0]?.id ?? null,
+          brandName: item.brands?.length ? item.brands.map(b => b.name).join(', ') : null,
           totalQuantity,
           totalValue,
           comparisons,
@@ -563,7 +567,7 @@ export class ConsumptionAnalyticsService {
         AND u."id" = ANY(${userIds})
         ${operation && operation !== 'ALL' ? Prisma.sql`AND a."operation" = ${operation}::"ActivityOperation"` : Prisma.empty}
         ${itemIds && itemIds.length > 0 ? Prisma.sql`AND a."itemId" = ANY(${itemIds})` : Prisma.empty}
-        ${brandIds && brandIds.length > 0 ? Prisma.sql`AND a."itemId" IN (SELECT "id" FROM "Item" WHERE "brandId" = ANY(${brandIds}))` : Prisma.empty}
+        ${brandIds && brandIds.length > 0 ? Prisma.sql`AND a."itemId" IN (SELECT i."id" FROM "Item" i WHERE EXISTS (SELECT 1 FROM "_ITEM_BRANDS" ib WHERE ib."A" = i."id" AND ib."B" = ANY(${brandIds})))` : Prisma.empty}
         ${categoryIds && categoryIds.length > 0 ? Prisma.sql`AND a."itemId" IN (SELECT "id" FROM "Item" WHERE "categoryId" = ANY(${categoryIds}))` : Prisma.empty}
       GROUP BY a."itemId", u."id", u."name"
       ORDER BY a."itemId", SUM(a."quantity") DESC
@@ -610,7 +614,7 @@ export class ConsumptionAnalyticsService {
     const items = await this.prisma.item.findMany({
       where: { id: { in: paginatedItemIds } },
       include: {
-        brand: true,
+        brands: true,
         category: true,
         prices: {
           orderBy: { createdAt: 'desc' },
@@ -663,8 +667,10 @@ export class ConsumptionAnalyticsService {
           itemUniCode: item.uniCode,
           categoryId: item.categoryId,
           categoryName: item.category?.name || null,
-          brandId: item.brandId,
-          brandName: item.brand?.name || null,
+          // Multi-brand: an item can now carry several brands. Expose the first id
+          // (legacy single-value field) and the joined names for display.
+          brandId: item.brands?.[0]?.id ?? null,
+          brandName: item.brands?.length ? item.brands.map(b => b.name).join(', ') : null,
           totalQuantity,
           totalValue,
           comparisons,
@@ -764,7 +770,7 @@ export class ConsumptionAnalyticsService {
           ${itemIds && itemIds.length > 0 ? Prisma.sql`AND "itemId" = ANY(${itemIds})` : Prisma.empty}
           ${userIds && userIds.length > 0 ? Prisma.sql`AND "userId" = ANY(${userIds})` : Prisma.empty}
           ${sectorIds && sectorIds.length > 0 ? Prisma.sql`AND "userId" IN (SELECT "id" FROM "User" WHERE "sectorId" = ANY(${sectorIds}))` : Prisma.empty}
-          ${brandIds && brandIds.length > 0 ? Prisma.sql`AND "itemId" IN (SELECT "id" FROM "Item" WHERE "brandId" = ANY(${brandIds}))` : Prisma.empty}
+          ${brandIds && brandIds.length > 0 ? Prisma.sql`AND "itemId" IN (SELECT i."id" FROM "Item" i WHERE EXISTS (SELECT 1 FROM "_ITEM_BRANDS" ib WHERE ib."A" = i."id" AND ib."B" = ANY(${brandIds})))` : Prisma.empty}
           ${categoryIds && categoryIds.length > 0 ? Prisma.sql`AND "itemId" IN (SELECT "id" FROM "Item" WHERE "categoryId" = ANY(${categoryIds}))` : Prisma.empty}
         GROUP BY "itemId"
       `;
@@ -807,7 +813,7 @@ export class ConsumptionAnalyticsService {
     const items = await this.prisma.item.findMany({
       where: { id: { in: paginatedItemIds } },
       include: {
-        brand: true,
+        brands: true,
         category: true,
         prices: {
           orderBy: { createdAt: 'desc' },
@@ -861,8 +867,10 @@ export class ConsumptionAnalyticsService {
           itemUniCode: item.uniCode,
           categoryId: item.categoryId,
           categoryName: item.category?.name || null,
-          brandId: item.brandId,
-          brandName: item.brand?.name || null,
+          // Multi-brand: an item can now carry several brands. Expose the first id
+          // (legacy single-value field) and the joined names for display.
+          brandId: item.brands?.[0]?.id ?? null,
+          brandName: item.brands?.length ? item.brands.map(b => b.name).join(', ') : null,
           totalQuantity,
           totalValue,
           comparisons,

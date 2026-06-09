@@ -171,6 +171,16 @@ export class OrderController {
     return this.orderService.findMany(query);
   }
 
+  // Predicted next order number (highest saved + 1), used to preview the order code
+  // in the create form's PDF before the order is saved. Declared before @Get(':id')
+  // so "next-number" isn't captured as an :id param.
+  @Get('next-number')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.LOGISTIC)
+  async getNextNumber(): Promise<{ success: boolean; data: { nextOrderNumber: number } }> {
+    const nextOrderNumber = await this.orderService.getNextOrderNumber();
+    return { success: true, data: { nextOrderNumber } };
+  }
+
   // =====================
   // Order CRUD Operations
   // =====================

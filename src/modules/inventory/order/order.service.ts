@@ -310,6 +310,17 @@ export class OrderService {
   // =====================
 
   /**
+   * Predict the order number the next created order will receive, so forms can show
+   * it before saving (e.g. in the order-form PDF). This is the highest assigned
+   * orderNumber + 1 (1 when there are no numbered orders yet). It's a best-effort
+   * preview — the authoritative number is assigned by the DB sequence at insert time.
+   */
+  async getNextOrderNumber(): Promise<number> {
+    const { _max } = await this.prisma.order.aggregate({ _max: { orderNumber: true } });
+    return (_max.orderNumber ?? 0) + 1;
+  }
+
+  /**
    * Create a new order with complete changelog tracking
    */
   async create(

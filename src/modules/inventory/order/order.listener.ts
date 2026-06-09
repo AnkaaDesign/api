@@ -486,7 +486,7 @@ export class OrderListener {
       const item = await this.prisma.item.findUnique({
         where: { id: event.itemId },
         include: {
-          brand: true,
+          brands: true,
           category: true,
         },
       });

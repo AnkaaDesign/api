@@ -1942,7 +1942,6 @@ async function createConfigGraph(
     data: {
       configurationId: config.id,
       allowedSectors: def.sectors,
-      excludeInactive: true,
       excludeOnVacation: true,
     },
   });
@@ -2113,12 +2112,10 @@ async function upsertConfig(def: ConfigDef): Promise<ConfigOutcome> {
       create: {
         configurationId: config.id,
         allowedSectors: def.sectors,
-        excludeInactive: true,
         excludeOnVacation: true,
       },
       update: {
         allowedSectors: def.sectors,
-        excludeInactive: true,
         excludeOnVacation: true,
       },
     });

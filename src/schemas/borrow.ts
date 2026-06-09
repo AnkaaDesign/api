@@ -39,13 +39,12 @@ export const borrowSelectSchema = z
               quantity: z.boolean().optional(),
               isActive: z.boolean().optional(),
               isPpe: z.boolean().optional(),
-              brandId: z.boolean().optional(),
               categoryId: z.boolean().optional(),
               supplierId: z.boolean().optional(),
               createdAt: z.boolean().optional(),
               updatedAt: z.boolean().optional(),
               // Nested relations in select
-              brand: z
+              brands: z
                 .union([
                   z.boolean(),
                   z.object({
@@ -163,7 +162,7 @@ export const borrowIncludeSchema = z
         z.object({
           include: z
             .object({
-              brand: z.boolean().optional(),
+              brands: z.boolean().optional(),
               category: z.boolean().optional(),
               supplier: z.boolean().optional(),
               price: z.boolean().optional(),
@@ -235,7 +234,7 @@ export const borrowSelectTableSchema = borrowSelectSchema.parse({
       name: true,
       uniCode: true,
       quantity: true,
-      brand: {
+      brands: {
         select: {
           name: true,
         },
@@ -286,7 +285,7 @@ export const borrowSelectFormSchema = borrowSelectSchema.parse({
       uniCode: true,
       quantity: true,
       isPpe: true,
-      brand: {
+      brands: {
         select: {
           id: true,
           name: true,
@@ -346,12 +345,11 @@ export const borrowSelectDetailSchema = borrowSelectSchema.parse({
       quantity: true,
       isActive: true,
       isPpe: true,
-      brandId: true,
       categoryId: true,
       supplierId: true,
       createdAt: true,
       updatedAt: true,
-      brand: {
+      brands: {
         select: {
           id: true,
           name: true,
@@ -707,7 +705,7 @@ const borrowTransform = (data: any) => {
   }
 
   if (data.brandIds?.length) {
-    andConditions.push({ item: { brandId: { in: data.brandIds } } });
+    andConditions.push({ item: { brands: { some: { id: { in: data.brandIds } } } } });
     delete data.brandIds;
   }
 

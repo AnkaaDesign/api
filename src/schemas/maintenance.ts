@@ -23,7 +23,7 @@ export const maintenanceIncludeSchema: z.ZodSchema = z.lazy(() =>
           z.object({
             include: z
               .object({
-                brand: z.boolean().optional(),
+                brands: z.boolean().optional(),
                 category: z.boolean().optional(),
                 supplier: z.boolean().optional(),
                 prices: z
@@ -53,7 +53,7 @@ export const maintenanceIncludeSchema: z.ZodSchema = z.lazy(() =>
                     z.object({
                       include: z
                         .object({
-                          brand: z.boolean().optional(),
+                          brands: z.boolean().optional(),
                           category: z.boolean().optional(),
                           supplier: z.boolean().optional(),
                           prices: z
@@ -135,7 +135,7 @@ export const maintenanceItemIncludeSchema = z
         z.object({
           include: z
             .object({
-              brand: z.boolean().optional(),
+              brands: z.boolean().optional(),
               category: z.boolean().optional(),
               supplier: z.boolean().optional(),
             })
@@ -574,7 +574,11 @@ const maintenanceTransform = (data: any): any => {
         { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
         { description: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
         { item: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
-        { item: { brand: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } } },
+        {
+          item: {
+            brands: { some: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+          },
+        },
         {
           item: { category: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
         },
@@ -608,7 +612,7 @@ const maintenanceTransform = (data: any): any => {
 
   // Handle brandIds filter
   if (data.brandIds && Array.isArray(data.brandIds) && data.brandIds.length > 0) {
-    andConditions.push({ item: { brandId: { in: data.brandIds } } });
+    andConditions.push({ item: { brands: { some: { id: { in: data.brandIds } } } } });
     delete data.brandIds;
   }
 
@@ -1141,7 +1145,7 @@ export const maintenanceScheduleIncludeSchema = z
         z.object({
           include: z
             .object({
-              brand: z.boolean().optional(),
+              brands: z.boolean().optional(),
               category: z.boolean().optional(),
               supplier: z.boolean().optional(),
             })

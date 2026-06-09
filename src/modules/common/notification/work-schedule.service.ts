@@ -39,9 +39,13 @@ export const HOLIDAY_PROVIDER = 'HOLIDAY_PROVIDER';
 export class WorkScheduleService {
   private readonly logger = new Logger(WorkScheduleService.name);
 
-  // Work hours in São Paulo timezone — covers the full cron window (07:00–18:45).
+  // Work hours in São Paulo timezone. Notifications are only delivered between
+  // 07:00 and 18:00 on working days (no weekends, no holidays) — this is a hard rule.
   private readonly WORK_START_HOUR = 7.0; // 7:00 AM
-  private readonly WORK_END_HOUR = 19.0; // 7:00 PM (covers the 18:45 cron tick for SAIDA2 reminders)
+  private readonly WORK_END_HOUR = 18.0; // 6:00 PM (strict business-hours cutoff)
+  // Extended cutoff used ONLY by time-sensitive clock-out reminders (Secullum SAIDA2),
+  // whose cron ticks until 18:45. Opt-in via canSendNow({ allowExtendedHours: true }).
+  private readonly WORK_END_HOUR_EXTENDED = 19.0;
 
   // Holiday cache — stores holiday date strings (YYYY-MM-DD) for the current year
   private cachedHolidays: Set<string> | null = null;
@@ -60,9 +64,12 @@ export class WorkScheduleService {
    * Returns false if:
    * - It's a weekend (Saturday/Sunday)
    * - It's a holiday (from Secullum)
-   * - It's outside work hours (before 8:00 or after 18:00 São Paulo time)
+   * - It's outside work hours (before 07:00 or at/after 18:00 São Paulo time)
+   *
+   * @param options.allowExtendedHours - When true, uses the extended 19:00 cutoff.
+   *   Reserved for time-sensitive clock-out reminders (Secullum SAIDA2) only.
    */
-  async canSendNow(): Promise<boolean> {
+  async canSendNow(options?: { allowExtendedHours?: boolean }): Promise<boolean> {
     const now = new Date();
     const saoPauloTime = this.toSaoPauloTime(now);
 
@@ -84,8 +91,9 @@ export class WorkScheduleService {
     const hours = saoPauloTime.getHours();
     const minutes = saoPauloTime.getMinutes();
     const currentTimeInHours = hours + minutes / 60;
+    const endHour = options?.allowExtendedHours ? this.WORK_END_HOUR_EXTENDED : this.WORK_END_HOUR;
 
-    if (currentTimeInHours < this.WORK_START_HOUR || currentTimeInHours >= this.WORK_END_HOUR) {
+    if (currentTimeInHours < this.WORK_START_HOUR || currentTimeInHours >= endHour) {
       this.logger.debug(
         `Blocked: outside work hours (${hours}:${minutes.toString().padStart(2, '0')})`,
       );
@@ -97,22 +105,22 @@ export class WorkScheduleService {
 
   /**
    * Calculate the next time notifications can be sent.
-   * Skips weekends and holidays, returns next working day at 8:00 AM São Paulo time.
+   * Skips weekends and holidays, returns next working day at 07:00 São Paulo time.
    */
   async getNextSendableTime(): Promise<Date> {
     const now = new Date();
     const saoPauloTime = this.toSaoPauloTime(now);
     const currentHours = saoPauloTime.getHours() + saoPauloTime.getMinutes() / 60;
 
-    // Start candidate: today at 8:00 if before 8:00, otherwise tomorrow at 8:00
+    // Start candidate: today at 07:00 if before 07:00, otherwise tomorrow at 07:00
     const candidate = new Date(saoPauloTime);
     if (currentHours < this.WORK_START_HOUR) {
       // Today might still be valid — check if it's a working day
-      candidate.setHours(8, 0, 0, 0);
+      candidate.setHours(7, 0, 0, 0);
     } else {
       // Already past work start, move to tomorrow
       candidate.setDate(candidate.getDate() + 1);
-      candidate.setHours(8, 0, 0, 0);
+      candidate.setHours(7, 0, 0, 0);
     }
 
     // Skip weekends and holidays (max 10 days to prevent infinite loop)
@@ -125,7 +133,7 @@ export class WorkScheduleService {
         }
       }
       candidate.setDate(candidate.getDate() + 1);
-      candidate.setHours(8, 0, 0, 0);
+      candidate.setHours(7, 0, 0, 0);
     }
 
     this.logger.debug(`Next sendable time: ${candidate.toISOString()}`);

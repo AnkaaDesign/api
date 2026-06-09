@@ -96,7 +96,7 @@ export const activitySelectTableSchema = z.object({
             id: z.literal(true),
             name: z.literal(true),
             uniCode: z.literal(true),
-            brand: z
+            brands: z
               .object({
                 select: z.object({
                   id: z.literal(true),
@@ -190,7 +190,7 @@ export const activitySelectDetailSchema = z.object({
             currentStock: z.literal(true),
             minStock: z.literal(true),
             maxStock: z.literal(true),
-            brand: z
+            brands: z
               .object({
                 select: z.object({
                   id: z.literal(true),
@@ -303,7 +303,7 @@ export const activityIncludeSchema = z
                 .optional(),
               supplier: z.boolean().optional(),
               category: z.boolean().optional(),
-              brand: z.boolean().optional(),
+              brands: z.boolean().optional(),
               activities: z.boolean().optional(),
               borrows: z.boolean().optional(),
               formulaComponents: z.boolean().optional(),
@@ -713,8 +713,8 @@ const activityTransform = (data: any) => {
         { item: { name: { contains: searchTerm, mode: 'insensitive' } } },
         { item: { uniCode: { contains: searchTerm, mode: 'insensitive' } } },
 
-        // Item brand name (nested relation)
-        { item: { brand: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+        // Item brand name (nested relation, multi-brand: match any brand)
+        { item: { brands: { some: { name: { contains: searchTerm, mode: 'insensitive' } } } } },
 
         // Item category name (nested relation)
         { item: { category: { name: { contains: searchTerm, mode: 'insensitive' } } } },
@@ -788,7 +788,7 @@ const activityTransform = (data: any) => {
 
   // Handle brandIds filter - filter activities by item brand
   if (data.brandIds && Array.isArray(data.brandIds) && data.brandIds.length > 0) {
-    andConditions.push({ item: { brandId: { in: data.brandIds } } });
+    andConditions.push({ item: { brands: { some: { id: { in: data.brandIds } } } } });
     delete data.brandIds;
   }
 

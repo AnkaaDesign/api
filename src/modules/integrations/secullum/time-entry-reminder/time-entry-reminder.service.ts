@@ -529,6 +529,7 @@ export class TimeEntryReminderService {
             expectedTime,
             date: today,
             noReschedule: true, // Time entry reminders are time-sensitive — drop if outside work hours
+            allowExtendedHours: true, // Clock-out (SAIDA2) reminders may fire until 18:45
           },
           overrides: {
             actionUrl: '/pessoal/meus-pontos',

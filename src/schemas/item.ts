@@ -97,7 +97,6 @@ export const itemSelectSchema = z
     abcCategoryOrder: z.boolean().optional(),
     xyzCategory: z.boolean().optional(),
     xyzCategoryOrder: z.boolean().optional(),
-    brandId: z.boolean().optional(),
     categoryId: z.boolean().optional(),
     categoryReviewNeeded: z.boolean().optional(),
     supplierId: z.boolean().optional(),
@@ -111,7 +110,7 @@ export const itemSelectSchema = z
     createdAt: z.boolean().optional(),
     updatedAt: z.boolean().optional(),
     // Relations
-    brand: z
+    brands: z
       .union([
         z.boolean(),
         z.object({
@@ -228,7 +227,7 @@ export const itemComboboxSelectSchema = z.object({
       uniCode: z.literal(true).optional(),
       quantity: z.literal(true).optional(),
       isActive: z.literal(true).optional(),
-      brand: z
+      brands: z
         .object({
           select: z
             .object({
@@ -306,7 +305,6 @@ export const itemFormSelectSchema = z.object({
       abcCategoryOrder: z.literal(true),
       xyzCategory: z.literal(true),
       xyzCategoryOrder: z.literal(true),
-      brandId: z.literal(true),
       categoryId: z.literal(true),
       categoryReviewNeeded: z.literal(true).optional(),
       supplierId: z.literal(true),
@@ -319,7 +317,7 @@ export const itemFormSelectSchema = z.object({
       ppeStandardQuantity: z.literal(true),
       createdAt: z.literal(true),
       updatedAt: z.literal(true),
-      brand: z
+      brands: z
         .object({
           select: z
             .object({
@@ -423,7 +421,6 @@ export const itemDetailSelectSchema = z.object({
       abcCategoryOrder: z.literal(true),
       xyzCategory: z.literal(true),
       xyzCategoryOrder: z.literal(true),
-      brandId: z.literal(true),
       categoryId: z.literal(true),
       categoryReviewNeeded: z.literal(true).optional(),
       supplierId: z.literal(true),
@@ -436,7 +433,7 @@ export const itemDetailSelectSchema = z.object({
       ppeStandardQuantity: z.literal(true),
       createdAt: z.literal(true),
       updatedAt: z.literal(true),
-      brand: z
+      brands: z
         .object({
           select: z
             .object({
@@ -567,7 +564,7 @@ export const itemBrandIncludeSchema = z
         z.object({
           include: z
             .object({
-              brand: z.boolean().optional(),
+              brands: z.boolean().optional(),
               category: z.boolean().optional(),
               supplier: z.boolean().optional(),
               prices: z
@@ -743,7 +740,7 @@ export const itemCategoryIncludeSchema = z
         z.object({
           include: z
             .object({
-              brand: z.boolean().optional(),
+              brands: z.boolean().optional(),
               category: z.boolean().optional(),
               supplier: z.boolean().optional(),
               prices: z
@@ -1038,7 +1035,7 @@ export const itemCategoryWhereSchema: z.ZodSchema = z.lazy(() =>
 
 export const itemIncludeSchema = z
   .object({
-    brand: z
+    brands: z
       .union([
         z.boolean(),
         z.object({
@@ -1154,7 +1151,7 @@ export const itemIncludeSchema = z
         z.object({
           include: z
             .object({
-              brand: z.boolean().optional(),
+              brands: z.boolean().optional(),
               category: z.boolean().optional(),
               supplier: z.boolean().optional(),
               prices: z
@@ -1188,7 +1185,7 @@ export const itemIncludeSchema = z
         z.object({
           include: z
             .object({
-              brand: z.boolean().optional(),
+              brands: z.boolean().optional(),
               category: z.boolean().optional(),
               supplier: z.boolean().optional(),
               prices: z
@@ -1267,7 +1264,6 @@ export const itemOrderBySchema = z
         monthlyConsumption: orderByDirectionSchema.optional(),
         monthlyConsumptionTrendPercent: orderByDirectionSchema.optional(),
         shouldAssignToUser: orderByDirectionSchema.optional(),
-        brandId: orderByDirectionSchema.optional(),
         categoryId: orderByDirectionSchema.optional(),
         supplierId: orderByDirectionSchema.optional(),
         estimatedLeadTime: orderByDirectionSchema.optional(),
@@ -1277,14 +1273,6 @@ export const itemOrderBySchema = z
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
         // Nested ordering for related entities
-        brand: z
-          .object({
-            id: orderByDirectionSchema.optional(),
-            name: orderByDirectionSchema.optional(),
-            createdAt: orderByDirectionSchema.optional(),
-            updatedAt: orderByDirectionSchema.optional(),
-          })
-          .optional(),
         category: z
           .object({
             id: orderByDirectionSchema.optional(),
@@ -1331,14 +1319,6 @@ export const itemOrderBySchema = z
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
           // Nested ordering for related entities
-          brand: z
-            .object({
-              id: orderByDirectionSchema.optional(),
-              name: orderByDirectionSchema.optional(),
-              createdAt: orderByDirectionSchema.optional(),
-              updatedAt: orderByDirectionSchema.optional(),
-            })
-            .optional(),
           category: z
             .object({
               id: orderByDirectionSchema.optional(),
@@ -1375,18 +1355,6 @@ export const itemWhereSchema: z.ZodSchema = z.lazy(() =>
 
       // UUID fields
       id: z
-        .union([
-          z.string(),
-          z.object({
-            equals: z.string().optional(),
-            not: z.string().optional(),
-            in: z.array(z.string()).optional(),
-            notIn: z.array(z.string()).optional(),
-          }),
-        ])
-        .optional(),
-
-      brandId: z
         .union([
           z.string(),
           z.object({
@@ -1730,7 +1698,13 @@ export const itemWhereSchema: z.ZodSchema = z.lazy(() =>
         .optional(),
 
       // Relations
-      brand: z.lazy(() => itemBrandWhereSchema).optional(),
+      brands: z
+        .object({
+          some: z.lazy(() => itemBrandWhereSchema).optional(),
+          every: z.lazy(() => itemBrandWhereSchema).optional(),
+          none: z.lazy(() => itemBrandWhereSchema).optional(),
+        })
+        .optional(),
       category: z.lazy(() => itemCategoryWhereSchema).optional(),
       supplier: z.any().optional(),
       prices: z
@@ -1980,7 +1954,7 @@ const itemTransform = (data: any) => {
         { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
         { uniCode: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
         { barcodes: { has: data.searchingFor.trim() } },
-        { brand: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        { brands: { some: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } } },
         { category: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
         { supplier: { fantasyName: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
       ],
@@ -2183,16 +2157,16 @@ const itemTransform = (data: any) => {
     const actualBrandIds = data.brandIds.filter((id: string) => id !== 'null');
 
     if (hasNullBrand && actualBrandIds.length > 0) {
-      // Include both null and specific brands
+      // Include both items with no brand and items having one of these brands
       andConditions.push({
-        OR: [{ brandId: null }, { brandId: { in: actualBrandIds } }],
+        OR: [{ brands: { none: {} } }, { brands: { some: { id: { in: actualBrandIds } } } }],
       });
     } else if (hasNullBrand) {
-      // Only null brands
-      andConditions.push({ brandId: null });
+      // Only items with no brand
+      andConditions.push({ brands: { none: {} } });
     } else {
-      // Only specific brands
-      andConditions.push({ brandId: { in: actualBrandIds } });
+      // Only items having one of these brands
+      andConditions.push({ brands: { some: { id: { in: actualBrandIds } } } });
     }
     delete data.brandIds;
   }
@@ -2701,7 +2675,7 @@ export const itemCreateSchemaBase = z.object({
   shouldAssignToUser: z.boolean().default(true),
   abcCategory: z.nativeEnum(ABC_CATEGORY).nullable().optional(),
   xyzCategory: z.nativeEnum(XYZ_CATEGORY).nullable().optional(),
-  brandId: z.string().uuid({ message: 'Marca inválida' }).nullable().optional(),
+  brandIds: z.array(z.string().uuid({ message: 'Marca inválida' })).optional(),
   categoryId: z.string().uuid({ message: 'Categoria inválida' }).nullable().optional(),
   supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).nullable().optional(),
   estimatedLeadTime: z.number().int().nullable().default(30).optional(),
@@ -2793,7 +2767,7 @@ export const itemUpdateSchemaBase = z.object({
   shouldAssignToUser: z.boolean().optional(),
   abcCategory: z.nativeEnum(ABC_CATEGORY).nullable().optional(),
   xyzCategory: z.nativeEnum(XYZ_CATEGORY).nullable().optional(),
-  brandId: z.string().uuid({ message: 'Marca inválida' }).nullable().optional(),
+  brandIds: z.array(z.string().uuid({ message: 'Marca inválida' })).optional(),
   categoryId: z.string().uuid({ message: 'Categoria inválida' }).nullable().optional(),
   supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).nullable().optional(),
   estimatedLeadTime: z.number().int().nullable().optional(),
@@ -3113,7 +3087,7 @@ export const mapItemToFormData = createMapToFormDataHelper<Item, ItemUpdateFormD
   monthlyConsumptionTrendPercent: item.monthlyConsumptionTrendPercent,
   barcodes: item.barcodes,
   shouldAssignToUser: item.shouldAssignToUser,
-  brandId: item.brandId || undefined,
+  brandIds: item.brands?.map(b => b.id) ?? [],
   categoryId: item.categoryId || undefined,
   supplierId: item.supplierId || undefined,
   estimatedLeadTime: item.estimatedLeadTime || undefined,
@@ -3153,6 +3127,13 @@ export const itemMergeConflictsSchema = z
     keepPrimaryDescription: z.boolean().optional(),
     combineBarcodes: z.boolean().optional(),
     combineTags: z.boolean().optional(),
+    // Brands is a many-to-many relation. The merge dialog resolves a conflict by
+    // sending the chosen brand set as an array of brand objects (or ids); the
+    // service translates it into a relation `set` write so the union survives the
+    // source-item deletion (whose join rows are otherwise CASCADE-removed).
+    brands: z
+      .array(z.union([z.string(), z.object({ id: z.string() }).passthrough()]))
+      .optional(),
   })
   .optional();
 

@@ -44,6 +44,7 @@ export class SupplierPrismaRepository
   protected mapDatabaseEntityToEntity(databaseEntity: any): Supplier {
     return {
       id: databaseEntity.id,
+      sequentialNumber: databaseEntity.sequentialNumber ?? null,
       fantasyName: databaseEntity.fantasyName,
       cnpj: databaseEntity.cnpj,
       corporateName: databaseEntity.corporateName,

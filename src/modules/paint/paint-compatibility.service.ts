@@ -203,7 +203,7 @@ export class PaintCompatibilityService {
         include: {
           componentItems: {
             include: {
-              brand: true,
+              brands: true,
               category: true,
               measures: true,
             },
@@ -222,7 +222,7 @@ export class PaintCompatibilityService {
         include: {
           componentItems: {
             include: {
-              brand: true,
+              brands: true,
               category: true,
               measures: true,
             },

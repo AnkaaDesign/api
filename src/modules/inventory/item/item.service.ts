@@ -181,21 +181,19 @@ export class ItemService {
       }
     }
 
-    // Check name uniqueness within same brand/category
-    if (data.name || data.brandId !== undefined || data.categoryId !== undefined) {
+    // Check name uniqueness within same category
+    if (data.name || data.categoryId !== undefined) {
       // Get current item data if updating
-      let currentItem: { name: string; brandId: string | null; categoryId: string | null } | null =
-        null;
+      let currentItem: { name: string; categoryId: string | null } | null = null;
       if (excludeId) {
         currentItem = await prismaClient.item.findUnique({
           where: { id: excludeId },
-          select: { name: true, brandId: true, categoryId: true },
+          select: { name: true, categoryId: true },
         });
       }
 
       const nameToCheck = data.name || currentItem?.name;
       // Handle explicit null values from the update data
-      const brandIdToCheck = data.brandId !== undefined ? data.brandId : currentItem?.brandId;
       const categoryIdToCheck =
         data.categoryId !== undefined ? data.categoryId : currentItem?.categoryId;
 
@@ -205,13 +203,6 @@ export class ItemService {
           name: nameToCheck,
           ...(excludeId && { NOT: { id: excludeId } }),
         };
-
-        // Handle brandId - use null explicitly if not provided
-        if (brandIdToCheck) {
-          whereClause.brandId = brandIdToCheck;
-        } else {
-          whereClause.brandId = null;
-        }
 
         // Handle categoryId - use null explicitly if not provided
         if (categoryIdToCheck) {
@@ -293,21 +284,22 @@ export class ItemService {
 
           // Only throw error if items are truly identical
           if (!hasDifferentAttributes) {
-            const brandInfo = brandIdToCheck ? ' para esta marca' : '';
-            const categoryInfo = categoryIdToCheck ? ' e categoria' : '';
-            errors.push(`Já existe um item com o nome "${nameToCheck}"${brandInfo}${categoryInfo}`);
+            const categoryInfo = categoryIdToCheck ? ' para esta categoria' : '';
+            errors.push(`Já existe um item com o nome "${nameToCheck}"${categoryInfo}`);
           }
         }
       }
     }
 
-    // Validate itemBrandId exists
-    if (data.brandId) {
-      const brand = await prismaClient.itemBrand.findUnique({
-        where: { id: data.brandId },
+    // Validate every brandId in brandIds exists
+    if (data.brandIds && data.brandIds.length > 0) {
+      const uniqueBrandIds = [...new Set(data.brandIds)];
+      const foundBrands = await prismaClient.itemBrand.findMany({
+        where: { id: { in: uniqueBrandIds } },
+        select: { id: true },
       });
-      if (!brand) {
-        errors.push('Marca não encontrada');
+      if (foundBrands.length !== uniqueBrandIds.length) {
+        errors.push('Uma ou mais marcas não foram encontradas');
       }
     }
 
@@ -1542,7 +1534,7 @@ export class ItemService {
           reorderPoint: { not: null },
         },
         include: {
-          brand: { select: { name: true } },
+          brands: { select: { name: true }, orderBy: { name: 'asc' } },
           category: { select: { name: true, type: true } },
           supplier: { select: { fantasyName: true } },
         },
@@ -1620,7 +1612,7 @@ export class ItemService {
       // Format the response
       const formattedItems = itemsBelowMinimum.map(item => ({
         ...item,
-        brandName: item.brand?.name || null,
+        brandName: item.brands?.map(b => b.name).join(', ') || null,
         categoryName: item.category?.name || null,
         supplierName: item.supplier?.fantasyName || null,
         stockLevel: classify(item),
@@ -2975,7 +2967,7 @@ export class ItemService {
           relatedItems: true,
           relatedTo: true,
           ppeDelivery: true,
-          brand: true,
+          brands: true,
           category: true,
           supplier: true,
         },
@@ -2999,7 +2991,7 @@ export class ItemService {
           maintenanceItemsNeeded: true,
           formulaComponents: true,
           externalWithdrawalItems: true,
-          brand: true,
+          brands: true,
           category: true,
           supplier: true,
         },
@@ -3203,7 +3195,17 @@ export class ItemService {
       if (data.conflictResolutions && Object.keys(data.conflictResolutions).length > 0) {
         const updateData: any = {};
         for (const [field, value] of Object.entries(data.conflictResolutions)) {
-          if (value !== undefined) {
+          if (value === undefined) continue;
+          if (field === 'brands') {
+            // Many-to-many relation: translate the resolved brand list (objects
+            // or ids) into a Prisma `set` so the chosen union is persisted.
+            const brandIds = Array.isArray(value)
+              ? value
+                  .map((b: any) => (typeof b === 'string' ? b : b?.id))
+                  .filter((id: unknown): id is string => typeof id === 'string')
+              : [];
+            updateData.brands = { set: brandIds.map((id) => ({ id })) };
+          } else {
             updateData[field] = value;
           }
         }
@@ -3242,7 +3244,7 @@ export class ItemService {
         where: { id: data.targetItemId },
         include: include || {
           category: true,
-          brand: true,
+          brands: true,
           supplier: true,
           measures: true,
           prices: { orderBy: { createdAt: 'desc' }, take: 1 },
@@ -3272,7 +3274,6 @@ export class ItemService {
     const fieldsToCheck = [
       'name',
       'uniCode',
-      'brandId',
       'categoryId',
       'supplierId',
       'reorderPoint',

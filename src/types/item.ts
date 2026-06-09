@@ -83,7 +83,6 @@ export interface Item extends BaseEntity {
   monthlyConsumptionTrendPercent: number | null;
   barcodes: string[];
   shouldAssignToUser: boolean;
-  brandId?: string;
   categoryId?: string;
   supplierId: string | null;
   estimatedLeadTime: number | null;
@@ -104,7 +103,7 @@ export interface Item extends BaseEntity {
   measureValue?: number;
 
   // Relations
-  brand?: ItemBrand;
+  brands?: ItemBrand[];
   category?: ItemCategory;
   supplier?: Supplier;
   prices?: MonetaryValue[];
@@ -160,7 +159,6 @@ export type ItemBasic = Pick<
   | 'reorderPoint'
   | 'price'
   | 'isActive'
-  | 'brandId'
   | 'categoryId'
   | 'supplierId'
   | 'monthlyConsumption'
@@ -275,13 +273,12 @@ export interface ItemSelect {
   ppeStandardQuantity?: boolean;
 
   // Foreign keys
-  brandId?: boolean;
   categoryId?: boolean;
   supplierId?: boolean;
   estimatedLeadTime?: boolean;
 
   // Relations
-  brand?: boolean | { select?: ItemBrandSelect };
+  brands?: boolean | { select?: ItemBrandSelect };
   category?: boolean | { select?: ItemCategorySelect };
   supplier?: boolean;
   prices?:
@@ -367,7 +364,6 @@ export const ItemSelectPresets = {
     maxQuantity: true,
     reorderPoint: true,
     isActive: true,
-    brandId: true,
     categoryId: true,
     supplierId: true,
     monthlyConsumption: true,
@@ -468,7 +464,7 @@ export interface ItemCategoryIncludes {
 }
 
 export interface ItemIncludes {
-  brand?:
+  brands?:
     | boolean
     | {
         include?: ItemBrandIncludes;
@@ -781,7 +777,6 @@ export interface ItemWhere {
     | { has?: string; hasEvery?: string[]; hasSome?: string[]; isEmpty?: boolean };
 
   // Relation IDs
-  brandId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
   categoryId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
   supplierId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
 
@@ -812,7 +807,7 @@ export interface ItemWhere {
       };
 
   // Relations
-  brand?: ItemBrandIncludes;
+  brands?: { some?: ItemBrandWhere; every?: ItemBrandWhere; none?: ItemBrandWhere };
   category?: ItemCategoryIncludes;
   supplier?: SupplierIncludes | null;
 }
@@ -976,7 +971,6 @@ export interface ItemOrderBy {
   xyzCategoryOrder?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;
   updatedAt?: ORDER_BY_DIRECTION;
-  brand?: ItemBrandOrderBy;
   category?: ItemCategoryOrderBy;
   supplier?: SupplierOrderBy;
 }

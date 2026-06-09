@@ -363,6 +363,7 @@ export class OrderScheduleService {
           'lastRun',
           'items',
           'finishedAt',
+          'supplierId',
         ];
         await trackAndLogFieldChanges({
           changeLogService: this.changeLogService,
@@ -1576,14 +1577,21 @@ export class OrderScheduleService {
       return null;
     }
 
-    const nextRunDate = this.calculateNextRunDate(schedule as OrderSchedule);
+    // Name the order after the schedule (matches the cron path createOrderFromSchedule):
+    // "<schedule name> (automático)". Trigger-now orders still carry orderScheduleId, so
+    // they are automatic (.1) — naming them "(automático)" keeps that consistent.
     const itemCount = orderItems.length;
-    const description = `Pedido manual (execução) - ${itemCount} ${itemCount === 1 ? 'item' : 'itens'}`;
+    const scheduleName = schedule.name?.trim() || schedule.description?.trim();
+    const description = scheduleName
+      ? `${scheduleName} (automático)`
+      : `Pedido automático - ${itemCount} ${itemCount === 1 ? 'item' : 'itens'}`;
 
     return {
       supplierId: schedule.supplierId ?? null,
       description,
-      forecast: nextRunDate || new Date(),
+      // forecast left null so order creation derives it from the items' average
+      // lead time (expected delivery), not the schedule's next-run date.
+      forecast: null,
       status: 'CREATED',
       orderScheduleId: scheduleId,
       items: orderItems,
@@ -1661,9 +1669,6 @@ export class OrderScheduleService {
         };
       });
 
-      // Calculate next run date for the schedule
-      const nextRunDate = this.calculateNextRunDate(schedule as OrderSchedule);
-
       // Create order description from the schedule's own name (falling back to
       // its description, then a generic item-count label for unnamed schedules).
       // The "(automático)" suffix flags it as a scheduled order in listings.
@@ -1679,7 +1684,9 @@ export class OrderScheduleService {
       const orderData = {
         supplierId: schedule.supplierId ?? null,
         description,
-        forecast: nextRunDate || new Date(),
+        // forecast left null so order creation derives it from the items' average
+        // lead time (expected delivery), not the schedule's next-run date.
+        forecast: null,
         status: 'CREATED',
         orderScheduleId: scheduleId,
         items: orderItems,

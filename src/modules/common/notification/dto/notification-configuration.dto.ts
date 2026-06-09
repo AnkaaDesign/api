@@ -631,14 +631,6 @@ export class UpdateTargetRuleDto {
   allowedSectors?: SECTOR_PRIVILEGES[];
 
   @ApiPropertyOptional({
-    description: 'Whether to exclude inactive users',
-    default: true,
-  })
-  @IsOptional()
-  @IsBoolean()
-  excludeInactive?: boolean;
-
-  @ApiPropertyOptional({
     description: 'Whether to exclude users on vacation',
     default: true,
   })

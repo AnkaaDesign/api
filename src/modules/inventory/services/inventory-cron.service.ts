@@ -615,7 +615,6 @@ export class InventoryCronService {
         id: true,
         name: true,
         categoryId: true,
-        brandId: true,
         supplierId: true,
         quantity: true,
         lastUsedAt: true,
@@ -661,7 +660,6 @@ export class InventoryCronService {
           item.id,
           item.name,
           item.categoryId,
-          item.brandId,
           cutoffDate,
         );
 
@@ -1112,7 +1110,6 @@ export class InventoryCronService {
     excludeItemId: string,
     itemName: string,
     categoryId: string | null,
-    brandId: string | null,
     usedAfterDate: Date,
   ): Promise<Array<{ id: string; name: string; similarity: number }>> {
     const normalizedName = this.normalizeName(itemName);

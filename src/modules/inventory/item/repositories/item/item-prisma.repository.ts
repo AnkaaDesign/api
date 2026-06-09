@@ -58,7 +58,7 @@ export class ItemPrismaRepository
     formData: ItemCreateFormData,
   ): Prisma.ItemCreateInput {
     const {
-      brandId,
+      brandIds,
       categoryId,
       supplierId,
       ppeType,
@@ -94,8 +94,10 @@ export class ItemPrismaRepository
       name: formData.name || 'Unnamed Item', // Ensure name is provided
       barcodes: barcodesArray,
       totalPrice: 0, // totalPrice is calculated, not provided
-      // Handle optional brand relation
-      ...(brandId ? { brand: { connect: { id: brandId } } } : {}),
+      // Handle optional brand relations (many-to-many)
+      ...(brandIds && brandIds.length > 0
+        ? { brands: { connect: brandIds.map(id => ({ id })) } }
+        : {}),
       // Handle optional category relation
       ...(categoryId ? { category: { connect: { id: categoryId } } } : {}),
       // Map PPE fields if present - ensure they are properly typed
@@ -126,7 +128,7 @@ export class ItemPrismaRepository
     formData: ItemUpdateFormData,
   ): Prisma.ItemUpdateInput {
     const {
-      brandId,
+      brandIds,
       categoryId,
       supplierId,
       ppeType,
@@ -178,8 +180,9 @@ export class ItemPrismaRepository
 
     // totalPrice is calculated based on quantity and latest price, not updated directly
 
-    if (brandId !== undefined) {
-      updateInput.brand = brandId ? { connect: { id: brandId } } : { disconnect: true };
+    if (brandIds !== undefined) {
+      // `set` replaces the entire brand list (empty array clears all brands)
+      updateInput.brands = { set: brandIds.map(id => ({ id })) };
     }
 
     if (categoryId !== undefined) {
@@ -344,7 +347,7 @@ export class ItemPrismaRepository
 
   protected getDefaultInclude(): Prisma.ItemInclude | undefined {
     return {
-      brand: true,
+      brands: { orderBy: { name: 'asc' } },
       category: true,
       supplier: true,
       prices: {
@@ -367,15 +370,17 @@ export class ItemPrismaRepository
       uniCode: true,
       quantity: true,
       isActive: true,
-      brandId: true,
       categoryId: true,
       supplierId: true,
       createdAt: true,
       updatedAt: true,
-      brand: {
+      brands: {
         select: {
           id: true,
           name: true,
+        },
+        orderBy: {
+          name: 'asc',
         },
       },
       category: {
@@ -447,7 +452,6 @@ export class ItemPrismaRepository
       abcCategoryOrder: true,
       xyzCategory: true,
       xyzCategoryOrder: true,
-      brandId: true,
       categoryId: true,
       supplierId: true,
       estimatedLeadTime: true,
@@ -458,10 +462,13 @@ export class ItemPrismaRepository
       ppeStandardQuantity: true,
       createdAt: true,
       updatedAt: true,
-      brand: {
+      brands: {
         select: {
           id: true,
           name: true,
+        },
+        orderBy: {
+          name: 'asc',
         },
       },
       category: {
@@ -530,7 +537,6 @@ export class ItemPrismaRepository
       abcCategoryOrder: true,
       xyzCategory: true,
       xyzCategoryOrder: true,
-      brandId: true,
       categoryId: true,
       supplierId: true,
       estimatedLeadTime: true,
@@ -541,12 +547,15 @@ export class ItemPrismaRepository
       ppeStandardQuantity: true,
       createdAt: true,
       updatedAt: true,
-      brand: {
+      brands: {
         select: {
           id: true,
           name: true,
           createdAt: true,
           updatedAt: true,
+        },
+        orderBy: {
+          name: 'asc',
         },
       },
       category: {
@@ -899,13 +908,6 @@ export class ItemPrismaRepository
             const aPrice = a.prices?.[0]?.value || 0;
             const bPrice = b.prices?.[0]?.value || 0;
             comparison = aPrice - bPrice;
-          } else if (field === 'brand' && typeof direction === 'object' && direction.name) {
-            // Compare by brand name
-            const aName = a.brand?.name || '';
-            const bName = b.brand?.name || '';
-            comparison = aName.localeCompare(bName);
-            if (!isAsc) comparison = -comparison;
-            continue;
           } else if (field === 'category' && typeof direction === 'object' && direction.name) {
             // Compare by category name
             const aName = a.category?.name || '';

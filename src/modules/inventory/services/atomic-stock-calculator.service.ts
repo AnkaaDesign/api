@@ -218,7 +218,7 @@ export class AtomicStockCalculatorService {
     const items = await tx.item.findMany({
       where: { id: { in: itemIds } },
       include: {
-        brand: { select: { name: true } },
+        brands: { select: { name: true } },
         category: { select: { name: true, type: true } },
         prices: {
           orderBy: { createdAt: 'desc' },

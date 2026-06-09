@@ -920,9 +920,10 @@ export class NotificationConfigurationService {
       };
     }
 
-    // Check working day + work hours if configured — weekends, holidays, and off-hours blocked.
-    // URGENT notifications bypass the gate (critical alerts must not wait for working hours).
-    if (config.respectWorkHours && config.importance !== NOTIFICATION_IMPORTANCE.URGENT) {
+    // Work hours are ALWAYS enforced — notifications only go out 07:00-18:00 on working
+    // days (no weekends, no holidays). There is no per-config opt-out and no severity
+    // bypass: even URGENT notifications are deferred to the next working window.
+    {
       const canSend = await this.workScheduleService.canSendNow();
       if (!canSend) {
         const nextSendableTime = await this.workScheduleService.getNextSendableTime();
@@ -1226,7 +1227,6 @@ export class NotificationConfigurationService {
     const targetRule = entity.targetRule
       ? {
           allowedSectors: entity.targetRule.allowedSectors || [],
-          excludeInactive: entity.targetRule.excludeInactive ?? true,
           excludeOnVacation: entity.targetRule.excludeOnVacation ?? true,
           customFilter: entity.targetRule.customFilter || null,
         }

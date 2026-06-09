@@ -50,7 +50,7 @@ export const supplierIncludeSchema = z
         z.object({
           include: z
             .object({
-              brand: z.boolean().optional(),
+              brands: z.boolean().optional(),
               category: z.boolean().optional(),
               supplier: z.boolean().optional(),
               price: z.boolean().optional(),
@@ -618,7 +618,7 @@ const supplierTransform = (data: any): any => {
     andConditions.push({
       items: {
         some: {
-          brandId: { in: data.itemBrandIds },
+          brands: { some: { id: { in: data.itemBrandIds } } },
         },
       },
     });

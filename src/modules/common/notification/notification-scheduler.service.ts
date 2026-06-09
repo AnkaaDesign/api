@@ -465,7 +465,7 @@ export class NotificationSchedulerService {
         },
         include: {
           category: true,
-          brand: true,
+          brands: true,
         },
       });
     } catch (error) {

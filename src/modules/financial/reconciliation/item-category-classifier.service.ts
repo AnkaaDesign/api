@@ -171,7 +171,7 @@ export class ItemCategoryClassifierService {
         name: true,
         uniCode: true,
         categoryId: true,
-        brand: { select: { name: true } },
+        brands: { select: { name: true } },
       },
     });
     const lex: Lexicon = {
@@ -185,8 +185,9 @@ export class ItemCategoryClassifierService {
     for (const it of items) {
       const catId = it.categoryId!;
       const nameTokens = new Set(itemDescriptionTokens(it.name));
+      // Multi-brand: tokenize every brand name the item carries.
       const brandTokens = new Set(
-        it.brand?.name ? itemDescriptionTokens(it.brand.name) : [],
+        (it.brands ?? []).flatMap(b => itemDescriptionTokens(b.name)),
       );
       const idx = lex.items.push({ nameTokens, brandTokens, itemCategoryId: catId }) - 1;
       if (it.uniCode) {

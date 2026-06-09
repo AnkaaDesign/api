@@ -21,6 +21,9 @@ export interface RawStockData {
   itemName: string;
   categoryId: string;
   categoryName: string;
+  // Multi-brand: an item can carry several brands. brandId holds the first
+  // brand's id (legacy single value) and brandName the comma-joined brand
+  // names, used as a single grouping label by transformToCategoryBreakdown.
   brandId: string;
   brandName: string;
   currentStock: number;

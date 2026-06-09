@@ -232,10 +232,13 @@ export class WhatsAppNotificationService {
       const url = this.extractActionUrl(notification, metadata);
 
       // Build data object for formatter
-      // For specific formatters, include all metadata plus url
+      // For specific formatters, include all metadata plus url. Importance is
+      // set last so notification.importance always wins — it drives the single
+      // title emoji every formatter renders.
       const data = {
         ...metadata,
         url,
+        importance: notification.importance,
       };
 
       // Use specific formatter based on the notification's configKey (stored in
@@ -406,7 +409,9 @@ export class WhatsAppNotificationService {
     const lines: string[] = [];
 
     if (notification.title) {
-      lines.push(`*${notification.title}*`);
+      // Lone importance emoji on the title line, consistent with the formatter.
+      const emoji = this.formatter.getImportanceEmoji(notification.importance);
+      lines.push(`${emoji} *${notification.title}*`);
       lines.push('');
     }
 
@@ -430,7 +435,7 @@ export class WhatsAppNotificationService {
 
     return {
       text,
-      fallbackText: url ? `${text}\n\n🔗 ${url}` : text,
+      fallbackText: url ? `${text}\n\n*Ver detalhes:*\n${url}` : text,
     };
   }
 
@@ -1004,24 +1009,6 @@ export class WhatsAppNotificationService {
     const end = phone.slice(-2);
     const middle = '*'.repeat(phone.length - 4);
     return `${start}${middle}${end}`;
-  }
-
-  /**
-   * Get emoji for priority level
-   *
-   * @param priority - The priority level
-   * @returns Emoji string
-   */
-  private getPriorityEmoji(priority: string): string {
-    const priorityMap: { [key: string]: string } = {
-      URGENT: '🔴',
-      HIGH: '🟠',
-      MEDIUM: '🟡',
-      LOW: '🟢',
-      CRITICAL: '🚨',
-    };
-
-    return priorityMap[priority.toUpperCase()] || '📌';
   }
 
   /**
