@@ -9,7 +9,7 @@ import { join, normalize, resolve } from 'path';
  * Implements the Expo Updates protocol (v0/v1) so the API can deliver
  * over-the-air (OTA) JS bundle updates to the mobile app WITHOUT EAS.
  *
- * Publishing flow (see `mobile/scripts/publish-ota.sh`):
+ * Publishing flow (see `mobile/scripts/publish-ota.mjs`):
  *   1. `npx expo export` produces a `dist/` folder (metadata.json + _expo/ + assets/).
  *   2. The script copies that folder into `UPDATES_ROOT/<runtimeVersion>/`
  *      and writes an `expo-publish.json` sidecar with the publish timestamp.
