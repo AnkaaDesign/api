@@ -339,7 +339,8 @@ export const TRUCK_CATEGORY_LABELS: Record<TRUCK_CATEGORY, string> = {
   [TRUCK_CATEGORY.TRUCK]: 'Truck',
   [TRUCK_CATEGORY.SEMI_TRAILER]: 'Semirreboque',
   [TRUCK_CATEGORY.SEMI_TRAILER_2_AXLES]: 'Semirreboque 2 Eixos',
-  [TRUCK_CATEGORY.B_DOUBLE]: 'Bitrem',
+  [TRUCK_CATEGORY.B_DOUBLE_FRONT]: 'Bitrem Compartimento Frontal',
+  [TRUCK_CATEGORY.B_DOUBLE_REAR]: 'Bitrem Compartimento Traseiro',
   [TRUCK_CATEGORY.BITRUCK]: 'Bitruck',
 };
 

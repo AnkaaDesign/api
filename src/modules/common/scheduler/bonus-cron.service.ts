@@ -58,26 +58,41 @@ export class BonusCronService {
 
     try {
       // Check what is already persisted for this period
-      const [savedBonusCount, savedPayrollCount] = await Promise.all([
+      const [savedBonusCount, savedPayrollCount, expectedUserCount] = await Promise.all([
         this.prisma.bonus.count({ where: { year: periodYear, month: periodMonth } }),
         this.prisma.payroll.count({ where: { year: periodYear, month: periodMonth } }),
+        this.prisma.user.count({
+          where: {
+            status: 'EFFECTED',
+            payrollNumber: { not: null },
+            secullumEmployeeId: { not: null },
+          },
+        }),
       ]);
 
-      if (savedBonusCount > 0 && savedPayrollCount > 0) {
+      // Bonuses are complete only when every currently-eligible user has a record.
+      // A partial count (savedBonusCount > 0 but < expected) means the first run
+      // succeeded for some users but new hires were added after — must re-run upsert.
+      const bonusesComplete = savedBonusCount >= expectedUserCount && expectedUserCount > 0;
+
+      if (bonusesComplete && savedPayrollCount > 0) {
         this.logger.log(
           `[FINALIZATION] Period ${year}/${month} already complete` +
-            ` (${savedBonusCount} bonuses, ${savedPayrollCount} payrolls). Nothing to do.`,
+            ` (${savedBonusCount}/${expectedUserCount} bonuses, ${savedPayrollCount} payrolls). Nothing to do.`,
         );
         return;
       }
 
-      // Step 1 — bonuses (skip if already saved)
-      if (savedBonusCount > 0) {
+      // Step 1 — bonuses (skip only if all expected users already have records)
+      if (bonusesComplete) {
         this.logger.log(
-          `[FINALIZATION] Step 1 already done (${savedBonusCount} bonuses). Skipping.`,
+          `[FINALIZATION] Step 1 already done (${savedBonusCount}/${expectedUserCount} bonuses). Skipping.`,
         );
       } else {
-        this.logger.log(`[FINALIZATION] Step 1: Calculating and saving bonuses for ${year}/${month}...`);
+        this.logger.log(
+          `[FINALIZATION] Step 1: Calculating and saving bonuses for ${year}/${month}` +
+            ` (${savedBonusCount} existing / ${expectedUserCount} expected)...`,
+        );
         const bonusResult = await this.bonusService.calculateAndSaveBonuses(year, month, 'system');
         this.logger.log(
           `[FINALIZATION] Bonuses: ${bonusResult.totalSuccess} ok, ${bonusResult.totalFailed} failed`,
