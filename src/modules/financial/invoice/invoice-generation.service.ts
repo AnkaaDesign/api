@@ -604,7 +604,8 @@ export class InvoiceGenerationService {
       TRUCK: 'Truck',
       SEMI_TRAILER: 'Semirreboque',
       SEMI_TRAILER_2_AXLES: 'Semirreboque 2 Eixos',
-      B_DOUBLE: 'Bitrem',
+      B_DOUBLE_FRONT: 'Bitrem Compartimento Frontal',
+      B_DOUBLE_REAR: 'Bitrem Compartimento Traseiro',
       BITRUCK: 'Bitruck',
     };
     return category ? (map[category] ?? category) : null;
