@@ -155,13 +155,14 @@ export const COMMERCIAL_SERVICE_DESCRIPTIONS = [
 ] as const;
 
 // =====================
-// ARTWORK - Design Actions (6 items)
+// ARTWORK - Design Actions (7 items)
 // =====================
 export const ARTWORK_SERVICE_DESCRIPTIONS = [
   'Elaborar Layout',
   'Ajustar Layout',
   'Elaborar Projeto',
   'Ajustar Projeto',
+  'Formular Cor',
   'Preparar Arquivos para Plotagem',
   'Aprovar com o Cliente',
 ] as const;

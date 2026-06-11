@@ -245,7 +245,14 @@ export class PaintUnifiedController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // COMMERCIAL/FINANCIAL may create paints inline from the budget form (quick-create);
+  // update/delete remain WAREHOUSE/ADMIN only
+  @Roles(
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.FINANCIAL,
+  )
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('colorPreview', multerConfig))
   async createPaint(
