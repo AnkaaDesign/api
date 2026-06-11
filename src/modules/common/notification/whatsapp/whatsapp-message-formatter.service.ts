@@ -93,9 +93,8 @@ export class WhatsAppMessageFormatterService {
     }
     lines.push('');
     lines.push(`*Status:* ${oldStatus} → *${newStatus}*`);
-    if (data.changedBy) {
-      lines.push(`*Por:* ${data.changedBy}`);
-    }
+    // Actor names are never rendered in notification text (changedBy stays in
+    // metadata for routing/audit only).
     lines.push(...this.linkLines(data.url));
 
     return this.wrap(lines);
@@ -202,9 +201,8 @@ export class WhatsAppMessageFormatterService {
     if (data.expectedDate) {
       lines.push(`*Entrega:* ${data.expectedDate}`);
     }
-    if (data.createdBy) {
-      lines.push(`*Por:* ${data.createdBy}`);
-    }
+    // Actor names are never rendered in notification text (createdBy is kept in
+    // the payload for compatibility but intentionally not displayed).
     lines.push(...this.linkLines(data.url));
 
     return this.wrap(lines);
@@ -332,18 +330,40 @@ export class WhatsAppMessageFormatterService {
   }
 
   formatItemNeedingOrder(data: {
-    items: Array<{
+    items?: Array<{
       name: string;
       currentQuantity: number;
       reorderPoint: number;
       suggestedQuantity?: number;
       unit?: string;
     }>;
-    totalItems: number;
+    totalItems?: number;
+    // Single-item payload fields (item.reorder_required emits ONE item, not a
+    // list — see item.listener.ts handleReorderRequired). Used as fallback when
+    // `items` is missing/not an array so the formatter never throws.
+    itemName?: string;
+    currentQuantity?: number;
+    reorderPoint?: number;
+    suggestedOrderQuantity?: number;
+    unit?: string;
     importance?: Importance;
     url: string;
   }): WhatsAppMessageFormat {
-    const itemsList = data.items
+    const items =
+      Array.isArray(data.items) && data.items.length > 0
+        ? data.items
+        : [
+            {
+              name: data.itemName || 'Item',
+              currentQuantity: data.currentQuantity ?? 0,
+              reorderPoint: data.reorderPoint ?? 0,
+              suggestedQuantity: data.suggestedOrderQuantity,
+              unit: data.unit,
+            },
+          ];
+    const totalItems = data.totalItems ?? items.length;
+
+    const itemsList = items
       .slice(0, 5)
       .map(
         (item, index) =>
@@ -352,15 +372,15 @@ export class WhatsAppMessageFormatterService {
       .join('\n\n');
 
     const moreItems =
-      data.totalItems > 5
-        ? `\n\n_...e mais ${data.totalItems - 5} item${data.totalItems - 5 !== 1 ? 'ns' : ''}_`
+      totalItems > 5
+        ? `\n\n_...e mais ${totalItems - 5} item${totalItems - 5 !== 1 ? 'ns' : ''}_`
         : '';
 
     const lines: string[] = [];
     lines.push(this.titleLine(data.importance, 'ITENS PRECISAM REABASTECIMENTO'));
     lines.push('');
     lines.push(
-      `*${data.totalItems} item${data.totalItems !== 1 ? 'ns' : ''} abaixo do ponto de reabastecimento*`,
+      `*${totalItems} item${totalItems !== 1 ? 'ns' : ''} abaixo do ponto de reabastecimento*`,
     );
     lines.push('');
     lines.push(`${itemsList}${moreItems}`);
@@ -403,9 +423,8 @@ export class WhatsAppMessageFormatterService {
     if (data.dueDate) {
       lines.push(`*Prazo:* ${data.dueDate}`);
     }
-    if (data.creatorName) {
-      lines.push(`*Criado por:* ${data.creatorName}`);
-    }
+    // Actor names are never rendered in notification text (creatorName is kept
+    // in the payload for compatibility but intentionally not displayed).
     lines.push(...this.linkLines(data.url));
 
     return this.wrap(lines);
@@ -426,7 +445,6 @@ export class WhatsAppMessageFormatterService {
   }): WhatsAppMessageFormat {
     const oldStatus = data.oldStatus ?? data.oldValue ?? '';
     const newStatus = data.newStatus ?? data.newValue ?? '';
-    const changedBy = data.changedByName ?? data.changedBy;
 
     const lines: string[] = [];
     lines.push(this.titleLine(data.importance, 'ORDEM DE SERVIÇO ATUALIZADA'));
@@ -436,9 +454,8 @@ export class WhatsAppMessageFormatterService {
     lines.push(`*Tarefa:* ${data.taskName}`);
     lines.push('');
     lines.push(`*Status:* ${oldStatus} → *${newStatus}*`);
-    if (changedBy) {
-      lines.push(`*Por:* ${changedBy}`);
-    }
+    // Actor names are never rendered in notification text (changedBy/changedByName
+    // stay in metadata for routing/audit only).
     lines.push(...this.linkLines(data.url));
 
     return this.wrap(lines);
@@ -458,9 +475,8 @@ export class WhatsAppMessageFormatterService {
     lines.push(`*Ordem:* ${data.serviceOrderDescription}`);
     lines.push('');
     lines.push(`*Tarefa:* ${data.taskName}`);
-    if (data.artistName) {
-      lines.push(`*Artista:* ${data.artistName}`);
-    }
+    // Actor names are never rendered in notification text (artistName is the
+    // user who submitted the artwork — kept in the payload, not displayed).
     if (data.filesCount) {
       lines.push(`*Arquivos:* ${data.filesCount}`);
     }

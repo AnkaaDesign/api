@@ -9,7 +9,7 @@ import {
 import type { Request, Response } from 'express';
 import { UpdateService } from './update.service';
 import { Public } from '@modules/common/auth/decorators/public.decorator';
-import { NoRateLimit } from '@modules/common/throttler/throttler.decorators';
+import { NoRateLimit, ReadRateLimit } from '@modules/common/throttler/throttler.decorators';
 
 /**
  * Expo Updates protocol endpoints (self-hosted OTA server).
@@ -39,7 +39,10 @@ export class UpdateController {
 
   @Get('manifest')
   @Public()
-  @NoRateLimit()
+  // Pre-auth update checks: keep public, but rate-limit generously instead of
+  // not at all (the manifest build is cached, but still no reason to allow
+  // unbounded anonymous traffic).
+  @ReadRateLimit()
   async manifest(
     @Headers('expo-protocol-version') protocolVersionHeader: string,
     @Headers('expo-platform') platformHeader: string,

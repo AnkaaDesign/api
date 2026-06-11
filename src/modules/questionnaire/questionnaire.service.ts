@@ -490,7 +490,9 @@ export class QuestionnaireService {
           title: 'Questionário Encerrado',
           body: `A campanha do questionário "${questionnaireName}" foi encerrada com ${submittedCount} resposta(s) enviada(s).`,
           webUrl: `/administracao/questionarios/${id}`,
-          mobileUrl: `/(tabs)/administracao/questionarios/${id}`,
+          // Mobile has no admin questionnaire screens — point to the personal
+          // questionnaire list, the only questionnaire area that exists there.
+          mobileUrl: `/(tabs)/pessoal/questionarios`,
           relatedEntityType: 'QUESTIONNAIRE',
         },
       };
@@ -806,9 +808,11 @@ export class QuestionnaireService {
           },
           overrides: {
             title: 'Resposta de Questionário Enviada',
-            body: `${respondentName} enviou uma resposta do questionário "${questionnaireName}".`,
+            body: `Uma resposta de ${respondentName} ao questionário "${questionnaireName}" foi enviada.`,
             webUrl: `/administracao/questionarios/${entry.questionnaireId}`,
-            mobileUrl: `/(tabs)/administracao/questionarios/${entry.questionnaireId}`,
+            // Mobile has no admin questionnaire screens — point to the personal
+            // questionnaire list, the only questionnaire area that exists there.
+            mobileUrl: `/(tabs)/pessoal/questionarios`,
             relatedEntityType: 'QUESTIONNAIRE',
           },
         };

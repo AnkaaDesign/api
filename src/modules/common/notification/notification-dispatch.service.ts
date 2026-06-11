@@ -23,7 +23,7 @@ import {
   ORDER_STATUS_LABELS,
   AIRBRUSHING_STATUS_LABELS,
   BORROW_STATUS_LABELS,
-  EXTERNAL_WITHDRAWAL_STATUS_LABELS,
+  EXTERNAL_OPERATION_STATUS_LABELS,
   PPE_REQUEST_STATUS_LABELS,
   PPE_DELIVERY_STATUS_LABELS,
   MAINTENANCE_STATUS_LABELS,
@@ -319,6 +319,7 @@ export class NotificationDispatchService {
         user.id,
         notification.type,
         notification.actionType || undefined,
+        (notification.metadata as any)?.configKey,
       );
     }
 
@@ -701,6 +702,7 @@ export class NotificationDispatchService {
         user.id,
         notification.type,
         notification.actionType || undefined,
+        (notification.metadata as any)?.configKey,
       );
 
       if (channels.length === 0) {
@@ -769,22 +771,37 @@ export class NotificationDispatchService {
    * Get user's preferred notification channels based on preferences
    *
    * Logic:
-   * 1. Check if user has custom preferences for this notification type
-   * 2. If not, use default preferences
-   * 3. Handle mandatory notifications (can't be disabled)
-   * 4. Respect user's channel preferences
+   * 1. Mandatory channels come from the configuration's channel rows
+   *    (NotificationChannelConfig.mandatory && enabled) and are ALWAYS included —
+   *    user preferences cannot disable them.
+   * 2. If the user has custom preferences for this notification type, use them
+   *    (plus mandatory channels).
+   * 3. If not, derive defaults from the configuration's channel rows
+   *    (enabled && defaultOn), falling back to the legacy global
+   *    NotificationPreference row and finally IN_APP.
    *
    * @param userId - The user ID
    * @param notificationType - The notification type
    * @param eventType - Optional event type for more specific preferences
+   * @param configKey - Optional configuration key (notification.metadata.configKey)
+   *                    used to resolve channel defaults/mandatory flags
    * @returns Array of enabled notification channels
    */
   async getUserChannels(
     userId: string,
     notificationType: string,
     eventType?: string,
+    configKey?: string,
   ): Promise<NOTIFICATION_CHANNEL[]> {
     try {
+      // Resolve the configuration (if known) for channel defaults + mandatory flags.
+      // mandatoryChannels/defaultChannels are derived from NotificationChannelConfig
+      // rows (mandatory && enabled / defaultOn && enabled) by the configuration service.
+      const config = configKey
+        ? await this.configurationService.getConfiguration(configKey)
+        : null;
+      const mandatoryChannels = (config?.mandatoryChannels ?? []) as NOTIFICATION_CHANNEL[];
+
       // Get user preferences
       const userPreferences = await this.prisma.userNotificationPreference.findFirst({
         where: {
@@ -794,27 +811,43 @@ export class NotificationDispatchService {
         },
       });
 
-      // If user has specific preferences, use them
+      // If user has specific preferences, use them (mandatory channels always included)
       if (userPreferences) {
-        // If mandatory, ignore user preference and use all channels
-        if (userPreferences.isMandatory) {
-          this.logger.log(
-            `Notification type ${notificationType} is mandatory for user ${userId}, using all channels`,
-          );
-          return userPreferences.channels as NOTIFICATION_CHANNEL[];
-        }
-
-        // If disabled, return empty array
+        // If disabled, only mandatory channels (from the config) still go out
         if (!userPreferences.enabled) {
-          this.logger.log(`User ${userId} has disabled notifications for type ${notificationType}`);
-          return [];
+          this.logger.log(
+            `User ${userId} has disabled notifications for type ${notificationType}` +
+              (mandatoryChannels.length > 0
+                ? `, keeping mandatory channels: ${mandatoryChannels.join(', ')}`
+                : ''),
+          );
+          return [...mandatoryChannels];
         }
 
-        // Return user's preferred channels
-        return userPreferences.channels as NOTIFICATION_CHANNEL[];
+        // User's preferred channels + mandatory channels
+        return Array.from(
+          new Set<NOTIFICATION_CHANNEL>([
+            ...(userPreferences.channels as NOTIFICATION_CHANNEL[]),
+            ...mandatoryChannels,
+          ]),
+        );
       }
 
-      // If no user preferences, get global default preferences
+      // No user preference rows: derive defaults from the config's channel rows
+      // (enabled && defaultOn) instead of collapsing to IN_APP only.
+      if (config) {
+        const channels = Array.from(
+          new Set<NOTIFICATION_CHANNEL>([
+            ...(config.defaultChannels as NOTIFICATION_CHANNEL[]),
+            ...mandatoryChannels,
+          ]),
+        );
+        if (channels.length > 0) {
+          return channels;
+        }
+      }
+
+      // Legacy fallback: global default preferences by notification type
       const defaultPreference = await this.prisma.notificationPreference.findFirst({
         where: {
           notificationType: notificationType as any,
@@ -1423,13 +1456,16 @@ export class NotificationDispatchService {
         userId: triggeringUserId === 'system' ? undefined : triggeringUserId,
         entityId: context.entityId,
         entityType: context.entityType,
+        metadata: context.metadata,
         ...context.data,
       });
 
-      if (!businessRulesCheck.allowed) {
-        this.logger.log(
-          `Business rules blocked notification ${configKey}: ${businessRulesCheck.reason}`,
-        );
+      // When blocked by work hours, DEFER (create with scheduledAt) instead of dropping.
+      // The EVERY_MINUTE processScheduledNotifications cron re-dispatches the rows once
+      // the working window opens, mirroring the entity-path behavior in
+      // dispatchNotification(). Time-sensitive emitters opt out via metadata.noReschedule.
+      const deferredUntil = this.resolveDeferral(configKey, businessRulesCheck, context);
+      if (!businessRulesCheck.allowed && deferredUntil === null) {
         return;
       }
 
@@ -1497,7 +1533,7 @@ export class NotificationDispatchService {
       // Generate deep links — use overrides if provided, otherwise generate based on entity type
       const deepLinks = context.overrides?.actionUrl
         ? null // actionUrl already provided
-        : this.generateDeepLinksForEntity(effectiveEntityType, effectiveEntityId);
+        : this.generateDeepLinksForEntity(effectiveEntityType, effectiveEntityId, context.data);
 
       // If actionUrl override is a JSON string with deep links, parse it to extract universalLink/mobile
       let parsedOverrideLinks: { universalLink?: string; mobile?: string; web?: string } | null =
@@ -1594,7 +1630,8 @@ export class NotificationDispatchService {
         // Determine action type based on config key
         const actionType = this.getActionTypeFromConfigKey(configKey);
 
-        // Create notification
+        // Create notification (deferred ones carry scheduledAt and are picked up
+        // by the EVERY_MINUTE processScheduledNotifications cron)
         const notification = await this.prisma.notification.create({
           data: {
             userId: user.id,
@@ -1604,6 +1641,7 @@ export class NotificationDispatchService {
             body,
             actionType: actionType as NotificationActionType,
             actionUrl,
+            scheduledAt: deferredUntil,
             relatedEntityId: effectiveEntityId,
             relatedEntityType: relatedEntityType,
             channel: channels,
@@ -1626,6 +1664,12 @@ export class NotificationDispatchService {
             },
           },
         });
+
+        if (deferredUntil) {
+          // Deferred for the next working window — scheduler cron will dispatch it.
+          notificationsCreated++;
+          continue;
+        }
 
         // Dispatch the notification
         await this.dispatchNotification(notification.id);
@@ -1699,18 +1743,19 @@ export class NotificationDispatchService {
         userId: triggeringUserId === 'system' ? undefined : triggeringUserId,
         entityId: context.entityId,
         entityType: context.entityType,
+        metadata: context.metadata,
         ...context.data,
       });
 
-      if (!businessRulesCheck.allowed) {
-        this.logger.log(
-          `Business rules blocked notification ${configKey}: ${businessRulesCheck.reason}`,
-        );
+      // Work-hours blocks are DEFERRED (scheduledAt), not dropped — see
+      // dispatchByConfiguration for the full rationale.
+      const deferredUntil = this.resolveDeferral(configKey, businessRulesCheck, context);
+      if (!businessRulesCheck.allowed && deferredUntil === null) {
         return;
       }
 
       // Filter to only active users from the provided IDs, excluding the triggering user
-      const targetUsers = await this.prisma.user.findMany({
+      let targetUsers = await this.prisma.user.findMany({
         where: {
           id: { in: targetUserIds },
           isActive: true,
@@ -1726,12 +1771,29 @@ export class NotificationDispatchService {
       });
 
       if (targetUsers.length === 0) {
+        // Fallback audience (seed contract): when the explicit recipient ids resolve to
+        // nobody (unresolved, inactive, or all equal to the actor), fall back to the
+        // config's sector-based audience instead of silently dropping the notification.
+        const allowedSectors = this.extractAllowedSectorsFromConfig(dbConfig);
+        targetUsers = (await this.getTargetUsersByRoles(
+          allowedSectors,
+          triggeringUserId === 'system' ? undefined : triggeringUserId,
+        )) as typeof targetUsers;
+
+        if (targetUsers.length === 0) {
+          this.logger.warn(
+            `No target users for targeted dispatch "${configKey}" (actor=${triggeringUserId}, ` +
+              `requested ${targetUserIds?.length ?? 0} id(s)) and the sector fallback ` +
+              `(${allowedSectors.join(', ')}) also resolved to 0 users. Notification not sent.`,
+          );
+          return;
+        }
+
         this.logger.warn(
-          `No target users for targeted dispatch "${configKey}" (actor=${triggeringUserId}, ` +
-            `requested ${targetUserIds?.length ?? 0} id(s)). Notification not sent — ` +
-            `recipient ids may be unresolved, inactive, or all equal to the actor.`,
+          `Targeted dispatch "${configKey}" had no resolvable recipient ids ` +
+            `(requested ${targetUserIds?.length ?? 0}); falling back to sector audience ` +
+            `(${allowedSectors.join(', ')}) — ${targetUsers.length} user(s).`,
         );
-        return;
       }
 
       // When overrides specify a different entity type/id, use those for deep links
@@ -1741,7 +1803,7 @@ export class NotificationDispatchService {
       // Generate deep links — use overrides if provided, otherwise generate based on entity type
       const deepLinks = context.overrides?.actionUrl
         ? null
-        : this.generateDeepLinksForEntity(effectiveEntityType, effectiveEntityId);
+        : this.generateDeepLinksForEntity(effectiveEntityType, effectiveEntityId, context.data);
 
       // If actionUrl override is a JSON string with deep links, parse it to extract web/mobile/universal
       let parsedOverrideLinks: { universalLink?: string; mobile?: string; web?: string } | null =
@@ -1815,6 +1877,7 @@ export class NotificationDispatchService {
             body,
             actionType: actionType as NotificationActionType,
             actionUrl,
+            scheduledAt: deferredUntil,
             relatedEntityId: effectiveEntityId,
             relatedEntityType: relatedEntityType,
             channel: channels,
@@ -1837,6 +1900,12 @@ export class NotificationDispatchService {
           },
         });
 
+        if (deferredUntil) {
+          // Deferred for the next working window — scheduler cron will dispatch it.
+          notificationsCreated++;
+          continue;
+        }
+
         await this.dispatchNotification(notification.id);
         notificationsCreated++;
       }
@@ -1847,6 +1916,52 @@ export class NotificationDispatchService {
     } catch (error) {
       this.logger.error(`Error in targeted dispatch ${configKey}: ${error.message}`, error.stack);
     }
+  }
+
+  /**
+   * Resolve whether a business-rules block should DEFER the notification
+   * (create it with scheduledAt = next working window) instead of dropping it.
+   *
+   * Returns:
+   * - null when the dispatch must not be deferred (allowed, hard-blocked by
+   *   dedup/frequency/disabled, or the emitter opted out via metadata.noReschedule)
+   * - the reschedule Date when the block is work-hours based and deferrable
+   *
+   * Deferred notifications are picked up by the EVERY_MINUTE
+   * processScheduledNotifications cron (notification-scheduler.service.ts), which
+   * calls dispatchNotification — re-running the work-hours gate and delivering
+   * through the channels resolved (and persisted on the row) at creation time.
+   */
+  private resolveDeferral(
+    configKey: string,
+    businessRulesCheck: { allowed: boolean; reason?: string; shouldReschedule?: boolean; rescheduleTime?: Date },
+    context: NotificationContext,
+  ): Date | null {
+    if (businessRulesCheck.allowed) {
+      return null;
+    }
+
+    if (!businessRulesCheck.shouldReschedule || !businessRulesCheck.rescheduleTime) {
+      // Hard block (dedup, frequency limit, disabled config) — drop.
+      this.logger.log(
+        `Business rules blocked notification ${configKey}: ${businessRulesCheck.reason}`,
+      );
+      return null;
+    }
+
+    if (context.metadata?.noReschedule) {
+      // Time-sensitive emitters (e.g., time-entry reminders) opt out of deferral.
+      this.logger.log(
+        `Notification ${configKey} blocked outside working hours and has noReschedule flag — dropping`,
+      );
+      return null;
+    }
+
+    this.logger.log(
+      `Notification ${configKey} blocked (${businessRulesCheck.reason}) — deferring creation ` +
+        `with scheduledAt=${businessRulesCheck.rescheduleTime.toISOString()}`,
+    );
+    return businessRulesCheck.rescheduleTime;
   }
 
   /**
@@ -1933,37 +2048,98 @@ export class NotificationDispatchService {
   /**
    * Generate deep links for any entity type.
    * Routes to the appropriate deep link generator based on entity type.
+   *
+   * Entity type matching is NORMALIZED (uppercased, separators stripped) so both
+   * the PascalCase values ('TaskQuote') and the UPPER_SNAKE values emit sites use
+   * via overrides.relatedEntityType ('TASK_QUOTE') resolve to the same links.
+   *
+   * Unknown entity types return null (the dispatch metadata build tolerates it
+   * and falls back to the emit site's explicit override links). There is
+   * deliberately NO default-to-Task fallback anymore — it was the root cause of
+   * notifications opening a task screen with a foreign entity id.
+   *
+   * @param data - Optional context data; used to resolve a taskId for entities
+   *               whose detail pages are keyed by the TASK id (quote/billing).
    */
-  private generateDeepLinksForEntity(entityType: string, entityId: string): any {
-    switch (entityType) {
-      case 'Task':
+  private generateDeepLinksForEntity(
+    entityType: string,
+    entityId: string,
+    data?: Record<string, any>,
+  ): any {
+    if (!entityType || !entityId) {
+      return null;
+    }
+
+    // 'TaskQuote' / 'TASK_QUOTE' / 'task-quote' → 'TASKQUOTE'
+    const normalized = entityType.toUpperCase().replace(/[_\s-]/g, '');
+    const taskId = typeof data?.taskId === 'string' && data.taskId ? data.taskId : null;
+
+    switch (normalized) {
+      case 'TASK':
         return this.deepLinkService.generateTaskLinks(entityId);
-      case 'Order':
+      case 'ORDER':
         return this.deepLinkService.generateOrderLinks(entityId);
-      case 'Item':
+      case 'ITEM':
+      case 'STOCK':
         return this.deepLinkService.generateItemLinks(entityId);
-      case 'ServiceOrder':
-        return this.deepLinkService.generateServiceOrderLinks(entityId);
-      case 'User':
+      case 'SERVICEORDER': {
+        // Service-order detail pages (web, mobile AND universal links) are keyed
+        // by the TASK id — there is no service-order detail route. Emit sites
+        // (service-order.listener.ts) always pass data.taskId; without it we
+        // generate no links rather than a /task/<serviceOrderId> 404.
+        if (taskId) {
+          return this.deepLinkService.generateTaskLinks(taskId);
+        }
+        this.logger.debug(
+          `No taskId in context for ServiceOrder ${entityId} — skipping deep link generation`,
+        );
+        return null;
+      }
+      case 'USER':
         return this.deepLinkService.generateUserLinks(entityId);
-      // New entity types route via the emit site's explicit overrides
-      // (overrides.webUrl + overrides.actionUrl JSON). Returning null here prevents
-      // them from falling through to bogus TASK deep links; the dispatch metadata
-      // build then picks up the override links (web/mobile/universal) instead.
-      case 'TaskQuote':
-      case 'SecullumSolicitacao':
-      case 'Questionnaire':
-      case 'Assessment':
-      case 'ReconciliationRun':
-      case 'OrderSchedule':
-      case 'PpeDelivery':
-      case 'BankSlip':
-      case 'Payroll':
-      case 'Message':
+      case 'TASKQUOTE': {
+        // Quote detail pages are keyed by the TASK id. Emit sites pass
+        // entityId = taskId ?? quoteId, so prefer an explicit data.taskId and
+        // fall back to entityId; if neither is a task id the page 404s the same
+        // way the old null did, but all current emitters pass the task id.
+        const quoteTaskId = taskId || entityId;
+        return this.deepLinkService.generatePathLinks(
+          `/financeiro/orcamento/detalhes/${encodeURIComponent(quoteTaskId)}`,
+          `/(tabs)/financeiro/orcamento/detalhes/${encodeURIComponent(quoteTaskId)}`,
+        );
+      }
+      case 'MAINTENANCESCHEDULE':
+        return this.deepLinkService.generatePathLinks(
+          `/estoque/manutencao/agendamentos/detalhes/${encodeURIComponent(entityId)}`,
+        );
+      case 'ORDERSCHEDULE':
+        return this.deepLinkService.generatePathLinks(
+          `/estoque/pedidos/agendamentos/detalhes/${encodeURIComponent(entityId)}`,
+        );
+      case 'BANKSLIP':
+      case 'NFSE':
+      case 'NFSEDOCUMENT':
+      case 'FINANCIAL':
+      case 'INVOICE':
+        // Billing detail pages (web AND mobile) are keyed by the TASK id —
+        // only link when we actually have one.
+        if (taskId) {
+          return this.deepLinkService.generatePathLinks(
+            `/financeiro/faturamento/detalhes/${encodeURIComponent(taskId)}`,
+            `/(tabs)/financeiro/faturamento/detalhes/${encodeURIComponent(taskId)}`,
+          );
+        }
+        this.logger.debug(
+          `No taskId in context for ${entityType} ${entityId} — skipping deep link generation`,
+        );
         return null;
       default:
-        // Fallback to task links for task-related entities (Cut, Artwork, etc.)
-        return this.deepLinkService.generateTaskLinks(entityId);
+        // Unknown entity type: no links. Emit sites that need links must provide
+        // overrides (webUrl/mobileUrl/actionUrl) or get an entry above.
+        this.logger.debug(
+          `No deep link mapping for entity type "${entityType}" (id ${entityId}) — returning null`,
+        );
+        return null;
     }
   }
 
@@ -2003,9 +2179,9 @@ export class NotificationDispatchService {
       case 'Borrow':
       case 'BORROW':
         return BORROW_STATUS_LABELS as Record<string, string>;
-      case 'ExternalWithdrawal':
-      case 'EXTERNAL_WITHDRAWAL':
-        return EXTERNAL_WITHDRAWAL_STATUS_LABELS as Record<string, string>;
+      case 'ExternalOperation':
+      case 'EXTERNAL_OPERATION':
+        return EXTERNAL_OPERATION_STATUS_LABELS as Record<string, string>;
       case 'PpeRequest':
       case 'PPE_REQUEST':
         return PPE_REQUEST_STATUS_LABELS as Record<string, string>;
@@ -2031,7 +2207,7 @@ export class NotificationDispatchService {
           ...(SERVICE_ORDER_STATUS_LABELS as Record<string, string>),
           ...(AIRBRUSHING_STATUS_LABELS as Record<string, string>),
           ...(BORROW_STATUS_LABELS as Record<string, string>),
-          ...(EXTERNAL_WITHDRAWAL_STATUS_LABELS as Record<string, string>),
+          ...(EXTERNAL_OPERATION_STATUS_LABELS as Record<string, string>),
           ...(PPE_REQUEST_STATUS_LABELS as Record<string, string>),
           ...(PPE_DELIVERY_STATUS_LABELS as Record<string, string>),
           ...(MAINTENANCE_STATUS_LABELS as Record<string, string>),

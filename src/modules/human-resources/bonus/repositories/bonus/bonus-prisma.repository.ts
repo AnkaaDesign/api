@@ -26,7 +26,7 @@ import { Prisma, Bonus as PrismaBonus } from '@prisma/client';
 import { BonusCalculationService } from '../../bonus-calculation.service';
 import { BonusCalculationContextService } from '../../bonus-calculation-context.service';
 import {
-  COMMISSION_STATUS,
+  BONIFICATION_STATUS,
   TASK_STATUS,
   ACTIVE_USER_STATUSES,
 } from '../../../../../constants/enums';
@@ -747,8 +747,8 @@ export class BonusPrismaRepository
     // Get all eligible tasks in the period
     const tasks = await model.task.findMany({
       where: {
-        commission: {
-          in: [COMMISSION_STATUS.FULL_COMMISSION, COMMISSION_STATUS.PARTIAL_COMMISSION],
+        bonification: {
+          in: [BONIFICATION_STATUS.FULL_BONIFICATION, BONIFICATION_STATUS.PARTIAL_BONIFICATION],
         },
         finishedAt: {
           gte: startDate,
@@ -758,7 +758,7 @@ export class BonusPrismaRepository
       },
       select: {
         id: true,
-        commission: true,
+        bonification: true,
         createdById: true,
         sectorId: true,
         customerId: true,
@@ -780,9 +780,9 @@ export class BonusPrismaRepository
     // Calculate weighted task count
     let ponderedTaskCount = 0;
     for (const task of tasks) {
-      if (task.commission === COMMISSION_STATUS.FULL_COMMISSION) {
+      if (task.bonification === BONIFICATION_STATUS.FULL_BONIFICATION) {
         ponderedTaskCount += 1.0;
-      } else if (task.commission === COMMISSION_STATUS.PARTIAL_COMMISSION) {
+      } else if (task.bonification === BONIFICATION_STATUS.PARTIAL_BONIFICATION) {
         ponderedTaskCount += 0.5;
       }
     }
@@ -861,8 +861,8 @@ export class BonusPrismaRepository
     const userTasks = await model.task.findMany({
       where: {
         createdById: userId,
-        commission: {
-          in: ['FULL_COMMISSION', 'PARTIAL_COMMISSION', 'SUSPENDED_COMMISSION', 'NO_COMMISSION'],
+        bonification: {
+          in: ['FULL_BONIFICATION', 'PARTIAL_BONIFICATION', 'SUSPENDED_BONIFICATION', 'NO_BONIFICATION'],
         },
         status: 'COMPLETED',
         finishedAt: { gte: startDate, lte: endDate },
@@ -870,7 +870,7 @@ export class BonusPrismaRepository
       select: {
         id: true,
         name: true,
-        commission: true,
+        bonification: true,
         finishedAt: true,
       },
     });

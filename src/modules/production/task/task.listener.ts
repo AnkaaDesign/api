@@ -194,6 +194,12 @@ export class TaskListener {
         this.logger.log(
           `[TASK EVENT] Status-specific notification dispatched: ${statusConfigKey} (generic task.field.status skipped)`,
         );
+      } else if (event.newStatus === TASK_STATUS.WAITING_PRODUCTION) {
+        // WAITING_PRODUCTION is fully covered by 'task.ready_for_production'
+        // (dispatched below) — suppress the generic fallback to avoid double-firing
+        this.logger.log(
+          '[TASK EVENT] Generic task.field.status skipped for WAITING_PRODUCTION (task.ready_for_production covers it)',
+        );
       } else {
         // No status-specific config — use the generic field-level status change notification
         await this.dispatchService.dispatchByConfiguration(
@@ -269,7 +275,7 @@ export class TaskListener {
             },
             overrides: {
               title: 'Medidas do Caminhão atualizadas',
-              body: `Medidas do caminhão da tarefa "${event.task.name}" atualizadas por ${changedByName}: ${layoutChangeSummary}`,
+              body: `Medidas do caminhão da tarefa "${event.task.name}" atualizadas: ${layoutChangeSummary}`,
               webUrl: `/producao/cronograma/detalhes/${event.task.id}`,
             },
           },

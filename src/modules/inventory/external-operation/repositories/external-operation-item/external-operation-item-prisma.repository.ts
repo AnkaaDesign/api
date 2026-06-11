@@ -1,18 +1,18 @@
-// repositories/external-withdrawal-item/external-withdrawal-item-prisma.repository.ts
+// repositories/external-operation-item/external-operation-item-prisma.repository.ts
 
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { Injectable, Logger } from '@nestjs/common';
-import { ExternalWithdrawalItem } from '../../../../../types';
+import { ExternalOperationItem } from '../../../../../types';
 import {
-  ExternalWithdrawalItemCreateFormData,
-  ExternalWithdrawalItemUpdateFormData,
-  ExternalWithdrawalItemInclude,
-  ExternalWithdrawalItemOrderBy,
-  ExternalWithdrawalItemWhere,
+  ExternalOperationItemCreateFormData,
+  ExternalOperationItemUpdateFormData,
+  ExternalOperationItemInclude,
+  ExternalOperationItemOrderBy,
+  ExternalOperationItemWhere,
 } from '../../../../../schemas';
-import { ExternalWithdrawalItemRepository } from './external-withdrawal-item.repository';
+import { ExternalOperationItemRepository } from './external-operation-item.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
-import { Prisma, ExternalWithdrawalItem as PrismaExternalWithdrawalItem } from '@prisma/client';
+import { Prisma, ExternalOperationItem as PrismaExternalOperationItem } from '@prisma/client';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import {
   FindManyOptions,
@@ -22,75 +22,75 @@ import {
 } from '../../../../../types';
 
 @Injectable()
-export class ExternalWithdrawalItemPrismaRepository
+export class ExternalOperationItemPrismaRepository
   extends BaseStringPrismaRepository<
-    ExternalWithdrawalItem,
-    ExternalWithdrawalItemCreateFormData,
-    ExternalWithdrawalItemUpdateFormData,
-    ExternalWithdrawalItemInclude,
-    ExternalWithdrawalItemOrderBy,
-    ExternalWithdrawalItemWhere,
-    PrismaExternalWithdrawalItem,
-    Prisma.ExternalWithdrawalItemCreateInput,
-    Prisma.ExternalWithdrawalItemUpdateInput,
-    Prisma.ExternalWithdrawalItemInclude,
-    Prisma.ExternalWithdrawalItemOrderByWithRelationInput,
-    Prisma.ExternalWithdrawalItemWhereInput
+    ExternalOperationItem,
+    ExternalOperationItemCreateFormData,
+    ExternalOperationItemUpdateFormData,
+    ExternalOperationItemInclude,
+    ExternalOperationItemOrderBy,
+    ExternalOperationItemWhere,
+    PrismaExternalOperationItem,
+    Prisma.ExternalOperationItemCreateInput,
+    Prisma.ExternalOperationItemUpdateInput,
+    Prisma.ExternalOperationItemInclude,
+    Prisma.ExternalOperationItemOrderByWithRelationInput,
+    Prisma.ExternalOperationItemWhereInput
   >
-  implements ExternalWithdrawalItemRepository
+  implements ExternalOperationItemRepository
 {
-  protected readonly logger = new Logger(ExternalWithdrawalItemPrismaRepository.name);
+  protected readonly logger = new Logger(ExternalOperationItemPrismaRepository.name);
 
   constructor(protected readonly prisma: PrismaService) {
     super(prisma);
   }
 
-  protected getDefaultInclude(): Prisma.ExternalWithdrawalItemInclude {
+  protected getDefaultInclude(): Prisma.ExternalOperationItemInclude {
     return {
       item: true,
-      externalWithdrawal: true,
+      externalOperation: true,
     };
   }
 
   protected mapIncludeToDatabaseInclude(
-    include?: ExternalWithdrawalItemInclude,
-  ): Prisma.ExternalWithdrawalItemInclude | undefined {
+    include?: ExternalOperationItemInclude,
+  ): Prisma.ExternalOperationItemInclude | undefined {
     if (!include) return undefined;
 
     return {
       item: include.item,
-      externalWithdrawal: include.externalWithdrawal,
+      externalOperation: include.externalOperation,
     };
   }
 
-  protected mapOrderByToDatabaseOrderBy(orderBy?: ExternalWithdrawalItemOrderBy): any {
+  protected mapOrderByToDatabaseOrderBy(orderBy?: ExternalOperationItemOrderBy): any {
     return orderBy || { createdAt: 'desc' };
   }
 
   protected mapWhereToDatabaseWhere(
-    where?: ExternalWithdrawalItemWhere,
-  ): Prisma.ExternalWithdrawalItemWhereInput | undefined {
+    where?: ExternalOperationItemWhere,
+  ): Prisma.ExternalOperationItemWhereInput | undefined {
     if (!where) return undefined;
 
     return where as any;
   }
 
   protected mapCreateFormDataToDatabaseCreateInput(
-    formData: ExternalWithdrawalItemCreateFormData,
-  ): Prisma.ExternalWithdrawalItemCreateInput {
+    formData: ExternalOperationItemCreateFormData,
+  ): Prisma.ExternalOperationItemCreateInput {
     return {
       withdrawedQuantity: formData.withdrawedQuantity,
       returnedQuantity: 0,
       price: formData.price,
       item: { connect: { id: formData.itemId } },
-      externalWithdrawal: { connect: { id: formData.externalWithdrawalId } },
+      externalOperation: { connect: { id: formData.externalOperationId } },
     };
   }
 
   protected mapUpdateFormDataToDatabaseUpdateInput(
-    formData: ExternalWithdrawalItemUpdateFormData,
-  ): Prisma.ExternalWithdrawalItemUpdateInput {
-    const updateInput: Prisma.ExternalWithdrawalItemUpdateInput = {};
+    formData: ExternalOperationItemUpdateFormData,
+  ): Prisma.ExternalOperationItemUpdateInput {
+    const updateInput: Prisma.ExternalOperationItemUpdateInput = {};
 
     if (formData.returnedQuantity !== undefined) {
       updateInput.returnedQuantity = formData.returnedQuantity;
@@ -102,10 +102,10 @@ export class ExternalWithdrawalItemPrismaRepository
     return updateInput;
   }
 
-  protected mapDatabaseEntityToEntity(databaseEntity: any): ExternalWithdrawalItem {
+  protected mapDatabaseEntityToEntity(databaseEntity: any): ExternalOperationItem {
     return {
       id: databaseEntity.id,
-      externalWithdrawalId: databaseEntity.externalWithdrawalId,
+      externalOperationId: databaseEntity.externalOperationId,
       itemId: databaseEntity.itemId,
       withdrawedQuantity: databaseEntity.withdrawedQuantity,
       returnedQuantity: databaseEntity.returnedQuantity,
@@ -113,8 +113,8 @@ export class ExternalWithdrawalItemPrismaRepository
       createdAt: databaseEntity.createdAt,
       updatedAt: databaseEntity.updatedAt,
       ...(databaseEntity.item && { item: databaseEntity.item }),
-      ...(databaseEntity.externalWithdrawal && {
-        externalWithdrawal: databaseEntity.externalWithdrawal,
+      ...(databaseEntity.externalOperation && {
+        externalOperation: databaseEntity.externalOperation,
       }),
     };
   }
@@ -123,22 +123,22 @@ export class ExternalWithdrawalItemPrismaRepository
 
   async createWithTransaction(
     transaction: PrismaTransaction,
-    data: ExternalWithdrawalItemCreateFormData,
-    options?: CreateOptions<ExternalWithdrawalItemInclude>,
-  ): Promise<ExternalWithdrawalItem> {
+    data: ExternalOperationItemCreateFormData,
+    options?: CreateOptions<ExternalOperationItemInclude>,
+  ): Promise<ExternalOperationItem> {
     try {
       const createInput = this.mapCreateFormDataToDatabaseCreateInput(data);
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-      const result = await transaction.externalWithdrawalItem.create({
+      const result = await transaction.externalOperationItem.create({
         data: createInput,
         include: includeInput,
       });
 
       return this.mapDatabaseEntityToEntity(result);
     } catch (error) {
-      this.logError('criar item de retirada externa', error, { data });
+      this.logError('criar item de operação externa', error, { data });
       throw error;
     }
   }
@@ -146,20 +146,20 @@ export class ExternalWithdrawalItemPrismaRepository
   async findByIdWithTransaction(
     transaction: PrismaTransaction,
     id: string,
-    options?: CreateOptions<ExternalWithdrawalItemInclude>,
-  ): Promise<ExternalWithdrawalItem | null> {
+    options?: CreateOptions<ExternalOperationItemInclude>,
+  ): Promise<ExternalOperationItem | null> {
     try {
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-      const result = await transaction.externalWithdrawalItem.findUnique({
+      const result = await transaction.externalOperationItem.findUnique({
         where: { id },
         include: includeInput,
       });
 
       return result ? this.mapDatabaseEntityToEntity(result) : null;
     } catch (error) {
-      this.logError(`buscar item de retirada externa por ID ${id}`, error);
+      this.logError(`buscar item de operação externa por ID ${id}`, error);
       throw error;
     }
   }
@@ -167,20 +167,20 @@ export class ExternalWithdrawalItemPrismaRepository
   async findByIdsWithTransaction(
     transaction: PrismaTransaction,
     ids: string[],
-    options?: CreateOptions<ExternalWithdrawalItemInclude>,
-  ): Promise<ExternalWithdrawalItem[]> {
+    options?: CreateOptions<ExternalOperationItemInclude>,
+  ): Promise<ExternalOperationItem[]> {
     try {
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-      const results = await transaction.externalWithdrawalItem.findMany({
+      const results = await transaction.externalOperationItem.findMany({
         where: { id: { in: ids } },
         include: includeInput,
       });
 
       return results.map(result => this.mapDatabaseEntityToEntity(result));
     } catch (error) {
-      this.logError('buscar itens de retirada externa por IDs', error, { ids });
+      this.logError('buscar itens de operação externa por IDs', error, { ids });
       throw error;
     }
   }
@@ -188,19 +188,19 @@ export class ExternalWithdrawalItemPrismaRepository
   async findManyWithTransaction(
     transaction: PrismaTransaction,
     options?: FindManyOptions<
-      ExternalWithdrawalItemOrderBy,
-      ExternalWithdrawalItemWhere,
-      ExternalWithdrawalItemInclude
+      ExternalOperationItemOrderBy,
+      ExternalOperationItemWhere,
+      ExternalOperationItemInclude
     >,
-  ): Promise<FindManyResult<ExternalWithdrawalItem>> {
+  ): Promise<FindManyResult<ExternalOperationItem>> {
     const { where, orderBy, page = 1, take = 20, include } = options || {};
     const skip = Math.max(0, (page - 1) * take);
 
     const [total, items] = await Promise.all([
-      transaction.externalWithdrawalItem.count({
+      transaction.externalOperationItem.count({
         where: this.mapWhereToDatabaseWhere(where),
       }),
-      transaction.externalWithdrawalItem.findMany({
+      transaction.externalOperationItem.findMany({
         where: this.mapWhereToDatabaseWhere(where),
         orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { createdAt: 'desc' },
         skip,
@@ -218,15 +218,15 @@ export class ExternalWithdrawalItemPrismaRepository
   async updateWithTransaction(
     transaction: PrismaTransaction,
     id: string,
-    data: ExternalWithdrawalItemUpdateFormData,
-    options?: UpdateOptions<ExternalWithdrawalItemInclude>,
-  ): Promise<ExternalWithdrawalItem> {
+    data: ExternalOperationItemUpdateFormData,
+    options?: UpdateOptions<ExternalOperationItemInclude>,
+  ): Promise<ExternalOperationItem> {
     try {
       const updateInput = this.mapUpdateFormDataToDatabaseUpdateInput(data);
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-      const result = await transaction.externalWithdrawalItem.update({
+      const result = await transaction.externalOperationItem.update({
         where: { id },
         data: updateInput,
         include: includeInput,
@@ -234,7 +234,7 @@ export class ExternalWithdrawalItemPrismaRepository
 
       return this.mapDatabaseEntityToEntity(result);
     } catch (error) {
-      this.logError(`atualizar item de retirada externa ${id}`, error, { data });
+      this.logError(`atualizar item de operação externa ${id}`, error, { data });
       throw error;
     }
   }
@@ -242,29 +242,29 @@ export class ExternalWithdrawalItemPrismaRepository
   async deleteWithTransaction(
     transaction: PrismaTransaction,
     id: string,
-  ): Promise<ExternalWithdrawalItem> {
+  ): Promise<ExternalOperationItem> {
     try {
-      const result = await transaction.externalWithdrawalItem.delete({
+      const result = await transaction.externalOperationItem.delete({
         where: { id },
         include: this.getDefaultInclude(),
       });
 
       return this.mapDatabaseEntityToEntity(result);
     } catch (error) {
-      this.logError(`deletar item de retirada externa ${id}`, error);
+      this.logError(`deletar item de operação externa ${id}`, error);
       throw error;
     }
   }
 
   async countWithTransaction(
     transaction: PrismaTransaction,
-    where?: ExternalWithdrawalItemWhere,
+    where?: ExternalOperationItemWhere,
   ): Promise<number> {
     try {
       const whereInput = this.mapWhereToDatabaseWhere(where);
-      return await transaction.externalWithdrawalItem.count({ where: whereInput });
+      return await transaction.externalOperationItem.count({ where: whereInput });
     } catch (error) {
-      this.logError('contar itens de retirada externa', error, { where });
+      this.logError('contar itens de operação externa', error, { where });
       throw error;
     }
   }

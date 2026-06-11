@@ -37,7 +37,7 @@ import {
   ABC_CATEGORY,
   XYZ_CATEGORY,
 } from '../../../constants/enums';
-import { DEFAULT_LEAD_TIME_DAYS, isToolType } from '../../../constants/inventory-config';
+import { DEFAULT_LEAD_TIME_DAYS, isFixedTarget } from '../../../constants/inventory-config';
 import { calculateReorderQuantity } from '../../../utils/stock-health';
 import { calculateSafetyStock } from '../../../utils/safety-stock';
 import {
@@ -1092,9 +1092,10 @@ export class OrderScheduleService {
           startStock: effectiveStock,
         });
 
-      // Tools (regular + electronic) never go through scheduled replenishment.
-      if (isToolType(item.category?.type)) {
-        pushPassive('Ferramenta — não entra em reabastecimento automático', true);
+      // Fixed-target items never go through scheduled replenishment
+      // (TYPE_SYSTEM_CONTRACT §2 — gate keys on item.stockModel, not category).
+      if (isFixedTarget(item)) {
+        pushPassive('Item de alvo fixo — não entra em reabastecimento automático', true);
         continue;
       }
       if (monthlyConsumption <= 0) {

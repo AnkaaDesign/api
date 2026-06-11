@@ -142,6 +142,14 @@ export class TimeEntryReminderService {
   }
 
   /**
+   * Redis dedup key for a sector escalation (independent of the employee reminder key,
+   * since the escalation fires on a later tick with a larger grace window).
+   */
+  private escalationDedupKey(date: string, userId: string, entryType: TimeEntryType): string {
+    return `time-entry-escalation:${date}:${userId}:${entryType}`;
+  }
+
+  /**
    * Check if today is a working day (not weekend and not holiday)
    */
   async isWorkingDay(): Promise<boolean> {
@@ -451,7 +459,7 @@ export class TimeEntryReminderService {
         if (result.isMissing) {
           stats.missing++;
 
-          // Redis dedup check
+          // Redis dedup check (employee reminder)
           const key = this.dedupKey(today, user.id, entryType);
           const alreadySent = await this.cacheService.exists(key);
           if (alreadySent) {
@@ -459,20 +467,41 @@ export class TimeEntryReminderService {
             this.logger.debug(
               `Skipping duplicate ${entryType} reminder for ${user.name} (already sent today)`,
             );
-            continue;
+          } else {
+            // Send notification
+            await this.sendTimeEntryReminder(user.id, user.name, entryType, result.expectedTime);
+
+            // Mark as sent (24h TTL)
+            await this.cacheService.set(key, '1', 24 * 60 * 60);
+
+            stats.notified++;
+
+            this.logger.log(
+              `Sent ${entryType} reminder to ${user.name} (expected: ${result.expectedTime})`,
+            );
           }
 
-          // Send notification
-          await this.sendTimeEntryReminder(user.id, user.name, entryType, result.expectedTime);
+          // Sector escalation: only after a larger grace window (expected + 30 min,
+          // vs 15 min for the employee reminder) so the employee gets a chance to
+          // self-correct. Own dedup key, independent of the employee reminder's.
+          if (this.isTimePastEntry(result.expectedTime, 30)) {
+            const escalationKey = this.escalationDedupKey(today, user.id, entryType);
+            const escalationSent = await this.cacheService.exists(escalationKey);
+            if (!escalationSent) {
+              await this.sendTimeEntryEscalation(
+                { id: user.id, name: user.name },
+                entryType,
+                result.expectedTime,
+              );
 
-          // Mark as sent (24h TTL)
-          await this.cacheService.set(key, '1', 24 * 60 * 60);
+              // Mark as sent (24h TTL)
+              await this.cacheService.set(escalationKey, '1', 24 * 60 * 60);
 
-          stats.notified++;
-
-          this.logger.log(
-            `Sent ${entryType} reminder to ${user.name} (expected: ${result.expectedTime})`,
-          );
+              this.logger.log(
+                `Sent ${entryType} escalation for ${user.name} (expected: ${result.expectedTime})`,
+              );
+            }
+          }
         }
       } catch (error) {
         stats.errors++;
@@ -549,6 +578,66 @@ export class TimeEntryReminderService {
   }
 
   /**
+   * Escalate a still-missing punch to the responsible sectors.
+   * Config key: timeentry.missing.escalation (sector-routed — the config row carries
+   * ADMIN + HUMAN_RESOURCES + PRODUCTION_MANAGER in allowedSectors).
+   * Fired only after the 30-min grace window (vs 15 min for the employee reminder).
+   */
+  async sendTimeEntryEscalation(
+    user: { id: string; name: string },
+    entryType: TimeEntryType,
+    expectedTime: string,
+  ): Promise<void> {
+    const entryTypeLabels: Record<TimeEntryType, string> = {
+      ENTRADA1: 'entrada (1º período)',
+      SAIDA1: 'saída para almoço',
+      ENTRADA2: 'retorno do almoço',
+      SAIDA2: 'saída (fim do expediente)',
+    };
+
+    const entryLabel = entryTypeLabels[entryType];
+    const today = new Date().toLocaleDateString('pt-BR');
+
+    try {
+      await this.dispatchService.dispatchByConfiguration(
+        'timeentry.missing.escalation',
+        'system', // Cron-triggered, no actor user
+        {
+          entityType: 'TimeEntry',
+          entityId: user.id, // Use userId as entity since there's no TimeEntry entity
+          action: 'missing_escalation',
+          data: {
+            userName: user.name,
+            entryType,
+            entryLabel,
+            expectedTime,
+            date: today,
+          },
+          metadata: {
+            entryType,
+            expectedTime,
+            date: today,
+            noReschedule: true, // Time-sensitive — drop if outside work hours
+            allowExtendedHours: true, // Clock-out (SAIDA2) escalations may fire until 18:45
+          },
+          overrides: {
+            actionUrl: '/recursos-humanos/controle-ponto',
+            webUrl: '/recursos-humanos/controle-ponto',
+            relatedEntityType: 'TIME_ENTRY',
+            title: `Ponto não registrado — ${user.name}`,
+            body: `${user.name} não registrou ${entryLabel} (horário esperado: ${expectedTime}) em ${today}.`,
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to send time entry escalation for ${user.name}: ${error.message}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
    * Get schedule summary for debugging/admin purposes.
    * Now shows actual Secullum schedules instead of hardcoded configs.
    */
@@ -597,24 +686,24 @@ export class TimeEntryReminderService {
   }
 
   /**
-   * Resolve the active HR-sector user ids once per scan. These users receive an
-   * RH-facing copy of every unjustified-absence event (the employee gets their
-   * own employee-facing copy). Returns [] on any failure so the scan never
-   * breaks the business flow.
+   * Resolve the active escalation-sector user ids (HUMAN_RESOURCES + PRODUCTION_MANAGER)
+   * once per scan. These users receive an RH/management-facing copy of every
+   * unjustified-absence event (the employee gets their own employee-facing copy).
+   * Returns [] on any failure so the scan never breaks the business flow.
    */
-  private async resolveHrUserIds(): Promise<string[]> {
+  private async resolveEscalationUserIds(): Promise<string[]> {
     try {
       const users = await this.prisma.user.findMany({
         where: {
           isActive: true,
-          sector: { privileges: 'HUMAN_RESOURCES' as any },
+          sector: { privileges: { in: ['HUMAN_RESOURCES', 'PRODUCTION_MANAGER'] as any } },
         },
         select: { id: true },
       });
       return users.map((u) => u.id);
     } catch (err: any) {
       this.logger.warn(
-        `Failed to resolve HR-sector users for unjustified-absence dispatch: ${err?.message ?? err}`,
+        `Failed to resolve escalation-sector users for unjustified-absence dispatch: ${err?.message ?? err}`,
       );
       return [];
     }
@@ -677,10 +766,11 @@ export class TimeEntryReminderService {
     const rows = response?.success && Array.isArray(response.data) ? response.data : [];
     stats.scanned = rows.length;
 
-    // Resolve HR-sector recipients once; every row also notifies RH so the
-    // sector is no longer silently left out (the previous code only ever
-    // notified the employee). Wrapped so a failure here cannot break the scan.
-    const hrUserIds = await this.resolveHrUserIds();
+    // Resolve escalation-sector recipients (HR + production managers) once;
+    // every row also notifies them so the sector is no longer silently left out
+    // (the previous code only ever notified the employee). Wrapped so a failure
+    // here cannot break the scan.
+    const hrUserIds = await this.resolveEscalationUserIds();
 
     for (const row of rows) {
       try {

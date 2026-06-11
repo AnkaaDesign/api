@@ -168,10 +168,11 @@ export class PpeDeliveryService {
         throw new BadRequestException('Item não está ativo e não pode ser entregue');
       }
 
-      // Check if item is configured as PPE (check category type)
-      if (!item.category || item.category.type !== 'PPE') {
+      // PPE identity = item.ppeType != null (TYPE_SYSTEM_CONTRACT §2) —
+      // category.type is display/grouping only.
+      if (!item.ppeType) {
         throw new BadRequestException(
-          'O item selecionado não está configurado como PPE. Configure o item como PPE antes de criar entregas',
+          'O item selecionado não está configurado como EPI (tipo de EPI não definido). Configure o tipo de EPI do item antes de criar entregas',
         );
       }
 
@@ -796,6 +797,27 @@ export class PpeDeliveryService {
         transaction: transaction,
       });
 
+      // Emit ppe.requested so approvers (HR/WAREHOUSE/ADMIN) learn about the new
+      // pending scheduled delivery — mirrors the manual create path. Actor is
+      // 'system' (schedule-driven, no acting user). Best-effort.
+      try {
+        if (
+          newDelivery.status === PPE_DELIVERY_STATUS.PENDING &&
+          (newDelivery as any).item
+        ) {
+          this.eventEmitter.emit(
+            'ppe.requested',
+            new PpeRequestedEvent(
+              newDelivery,
+              (newDelivery as any).item,
+              { id: 'system', name: 'Sistema' } as any,
+            ),
+          );
+        }
+      } catch (error) {
+        console.error('Error emitting ppe.requested event (scheduled delivery):', error);
+      }
+
       return newDelivery;
     } catch (error) {
       // Log the error but don't fail the main transaction
@@ -1076,13 +1098,11 @@ export class PpeDeliveryService {
       }
     };
 
-    // Build the base query for PPE items
+    // Build the base query for PPE items — PPE identity keys on
+    // `ppeType != null` (set below), never on category.type.
     // Only include items available for on-demand delivery
     const whereConditions: any = {
       isActive: true,
-      category: {
-        type: 'PPE',
-      },
       // Only show items that can be requested on-demand
       OR: [
         { ppeDeliveryMode: 'ON_DEMAND' },
@@ -2903,6 +2923,47 @@ export class PpeDeliveryService {
         }
       } catch (error) {
         console.error('Error emitting ppe.batch.delivered event:', error);
+      }
+    }
+
+    // Notify each recipient that the PPE was delivered and awaits their digital
+    // signature — mirrors the single markAsDelivered post-commit dispatch.
+    // Actor is 'system' so actor self-exclusion never drops the notification.
+    // Best-effort per delivery.
+    for (const r of transactionResult.results) {
+      if (!r.success) continue;
+      try {
+        const delivered = r.data as any;
+        const recipientId: string | undefined = delivered?.userId;
+        if (recipientId) {
+          const itemName = delivered?.item?.name || 'EPI';
+          await this.dispatchService.dispatchByConfigurationToUsers(
+            'ppe.signature_required',
+            'system',
+            {
+              entityType: 'PpeDelivery',
+              entityId: delivered.id,
+              action: 'signature_required',
+              data: {
+                itemName,
+                quantity: delivered?.quantity,
+              },
+              overrides: {
+                title: 'Assinatura de EPI Pendente',
+                body: `O EPI "${itemName}" foi entregue a você e aguarda sua assinatura digital.`,
+                webUrl: `/estoque/epi/entregas/detalhes/${delivered.id}`,
+                mobileUrl: `/(tabs)/pessoal/meus-epis/detalhes/${delivered.id}`,
+                relatedEntityType: 'PPE_DELIVERY',
+              },
+            },
+            [recipientId],
+          );
+        }
+      } catch (error) {
+        console.error(
+          'Falha ao notificar assinatura de EPI pendente em lote (ppe.signature_required):',
+          error,
+        );
       }
     }
 

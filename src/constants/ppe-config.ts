@@ -14,6 +14,7 @@ export const PPE_DEFAULT_INTERVAL_MONTHS: Record<PPE_TYPE, number> = {
   [PPE_TYPE.BOOTS]: 12,
   [PPE_TYPE.RAIN_BOOTS]: 24,
   [PPE_TYPE.GLOVES]: 3,
+  [PPE_TYPE.OVERALL]: 6,
   [PPE_TYPE.OTHERS]: 3,
 };
 
@@ -28,6 +29,8 @@ export const PPE_HEADCOUNT: Record<PPE_TYPE, number> = {
   [PPE_TYPE.SHIRT]: 27,
   [PPE_TYPE.PANTS]: 27,
   [PPE_TYPE.SHORT]: 27,
+  // Coveralls are production-floor PPE (painters), not staff-wide uniform.
+  [PPE_TYPE.OVERALL]: 22,
   [PPE_TYPE.OTHERS]: 27,
 };
 

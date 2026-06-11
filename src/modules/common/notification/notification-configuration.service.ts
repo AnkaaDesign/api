@@ -198,9 +198,8 @@ export class NotificationConfigurationService {
   private readonly cache = new Map<string, CacheEntry<NotificationConfiguration>>();
   private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-  // Tracking for frequency limits and deduplication
-  private readonly frequencyTracker = new Map<string, Date[]>();
-  private readonly deduplicationTracker = new Map<string, Date>();
+  // Frequency limits and deduplication are DB-backed (queries on the
+  // Notification table) — see checkFrequencyLimit / checkDeduplication.
 
   constructor(
     private readonly prisma: PrismaService,
@@ -923,8 +922,12 @@ export class NotificationConfigurationService {
     // Work hours are ALWAYS enforced — notifications only go out 07:00-18:00 on working
     // days (no weekends, no holidays). There is no per-config opt-out and no severity
     // bypass: even URGENT notifications are deferred to the next working window.
+    // Time-sensitive clock-out reminders (Secullum SAIDA2) opt into the extended
+    // 19:00 cutoff via context.metadata.allowExtendedHours (set by the emit site).
     {
-      const canSend = await this.workScheduleService.canSendNow();
+      const canSend = await this.workScheduleService.canSendNow({
+        allowExtendedHours: !!context.metadata?.allowExtendedHours,
+      });
       if (!canSend) {
         const nextSendableTime = await this.workScheduleService.getNextSendableTime();
         return {
@@ -936,24 +939,26 @@ export class NotificationConfigurationService {
       }
     }
 
-    // Check frequency limit
-    if (config.maxPerDay && context.userId) {
+    // Check frequency limit (DB-backed; enforced for ALL dispatches, including
+    // system-triggered ones where there is no acting user)
+    if (config.maxPerDay) {
       const frequencyCheck = await this.checkFrequencyLimit(
-        context.userId,
         config.key,
         config.maxPerDay,
+        context.entityId,
       );
       if (!frequencyCheck.allowed) {
         return frequencyCheck;
       }
     }
 
-    // Check deduplication
-    if (config.deduplicationWindowMinutes && context.userId) {
+    // Check deduplication (DB-backed; keyed by config + related entity, NOT by
+    // the triggering actor — enforced for system dispatches too)
+    if (config.deduplicationWindowMinutes) {
       const dedupCheck = await this.checkDeduplication(
-        context.userId,
         config.key,
         config.deduplicationWindowMinutes,
+        context.entityId,
       );
       if (!dedupCheck.allowed) {
         return dedupCheck;
@@ -991,31 +996,45 @@ export class NotificationConfigurationService {
   }
 
   /**
-   * Check frequency limit for a user and config
+   * Check frequency limit for a configuration (DB-backed).
    *
-   * @param userId - User ID
+   * Counts today's Notification rows for the config key (scoped to the related
+   * entity when provided), grouped per recipient: the limit is breached when any
+   * single recipient has already received maxPerDay notifications today. This
+   * survives restarts (unlike the old in-memory tracker), is enforced for
+   * system dispatches, and is keyed by the RECIPIENT rather than the actor.
+   *
    * @param configKey - Configuration key
    * @param maxPerDay - Maximum notifications per day
+   * @param entityId - Related entity id from the dispatch context (optional scope)
    * @returns Check result
    */
   async checkFrequencyLimit(
-    userId: string,
     configKey: string,
     maxPerDay: number,
+    entityId?: string,
   ): Promise<BusinessRulesCheckResult> {
-    const trackingKey = `${userId}:${configKey}`;
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    // Get timestamps from tracker
-    let timestamps = this.frequencyTracker.get(trackingKey) || [];
+    const grouped = await this.prisma.notification.groupBy({
+      by: ['userId'],
+      where: {
+        createdAt: { gte: startOfDay },
+        AND: [
+          { metadata: { path: ['configKey'], equals: configKey } },
+          ...(entityId ? [{ metadata: { path: ['entityId'], equals: entityId } }] : []),
+        ],
+      },
+      _count: { _all: true },
+    });
 
-    // Filter to only today's timestamps
-    timestamps = timestamps.filter(ts => ts >= startOfDay);
+    const maxForAnyRecipient = grouped.reduce((max, g) => Math.max(max, g._count._all), 0);
 
-    if (timestamps.length >= maxPerDay) {
+    if (maxForAnyRecipient >= maxPerDay) {
       this.logger.debug(
-        `Frequency limit reached for ${userId} and ${configKey}: ${timestamps.length}/${maxPerDay}`,
+        `Frequency limit reached for ${configKey}${entityId ? ` (entity ${entityId})` : ''}: ` +
+          `${maxForAnyRecipient}/${maxPerDay} today`,
       );
       return {
         allowed: false,
@@ -1023,48 +1042,55 @@ export class NotificationConfigurationService {
       };
     }
 
-    // Add current timestamp
-    timestamps.push(now);
-    this.frequencyTracker.set(trackingKey, timestamps);
-
     return { allowed: true };
   }
 
   /**
-   * Check deduplication window for a user and config
+   * Check deduplication window for a configuration (DB-backed).
    *
-   * @param userId - User ID
+   * Looks for an existing Notification row created within the window with the
+   * same configKey AND (when provided) the same context entityId. The created
+   * rows themselves are the dedup record — no in-memory state, so the check
+   * survives restarts, applies across actors, and covers system dispatches.
+   *
    * @param configKey - Configuration key
    * @param windowMinutes - Deduplication window in minutes
+   * @param entityId - Related entity id from the dispatch context (optional scope)
    * @returns Check result
    */
   async checkDeduplication(
-    userId: string,
     configKey: string,
     windowMinutes: number,
+    entityId?: string,
   ): Promise<BusinessRulesCheckResult> {
-    const trackingKey = `dedup:${userId}:${configKey}`;
     const now = new Date();
-    const lastSent = this.deduplicationTracker.get(trackingKey);
+    const windowMs = windowMinutes * 60 * 1000;
+    const windowStart = new Date(now.getTime() - windowMs);
 
-    if (lastSent) {
-      const timeSinceLastMs = now.getTime() - lastSent.getTime();
-      const windowMs = windowMinutes * 60 * 1000;
+    const existing = await this.prisma.notification.findFirst({
+      where: {
+        createdAt: { gte: windowStart },
+        AND: [
+          { metadata: { path: ['configKey'], equals: configKey } },
+          ...(entityId ? [{ metadata: { path: ['entityId'], equals: entityId } }] : []),
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, createdAt: true },
+    });
 
-      if (timeSinceLastMs < windowMs) {
-        const remainingMinutes = Math.ceil((windowMs - timeSinceLastMs) / 60000);
-        this.logger.debug(
-          `Deduplication check failed for ${userId} and ${configKey}: ${remainingMinutes} minutes remaining`,
-        );
-        return {
-          allowed: false,
-          reason: `Similar notification sent recently. Wait ${remainingMinutes} minutes.`,
-        };
-      }
+    if (existing) {
+      const timeSinceLastMs = now.getTime() - existing.createdAt.getTime();
+      const remainingMinutes = Math.ceil((windowMs - timeSinceLastMs) / 60000);
+      this.logger.debug(
+        `Deduplication check failed for ${configKey}${entityId ? ` (entity ${entityId})` : ''}: ` +
+          `${remainingMinutes} minutes remaining`,
+      );
+      return {
+        allowed: false,
+        reason: `Similar notification sent recently. Wait ${remainingMinutes} minutes.`,
+      };
     }
-
-    // Update tracker
-    this.deduplicationTracker.set(trackingKey, now);
 
     return { allowed: true };
   }

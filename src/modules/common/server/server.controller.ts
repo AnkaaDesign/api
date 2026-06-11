@@ -183,6 +183,7 @@ export class ServerController {
   }
 
   @Post('services/:serviceName/restart')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
   async restartService(@UserId() userId: string, @Param('serviceName') serviceName: string) {
@@ -194,6 +195,7 @@ export class ServerController {
   }
 
   @Post('services/:serviceName/start')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
   async startService(@UserId() userId: string, @Param('serviceName') serviceName: string) {
@@ -205,6 +207,7 @@ export class ServerController {
   }
 
   @Post('services/:serviceName/stop')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
   async stopService(@UserId() userId: string, @Param('serviceName') serviceName: string) {
@@ -216,6 +219,7 @@ export class ServerController {
   }
 
   @Post('users')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
   @HttpCode(HttpStatus.CREATED)
   async createUser(
@@ -238,6 +242,7 @@ export class ServerController {
   }
 
   @Put('users/:username/password')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
   async setUserPassword(
@@ -516,6 +521,7 @@ export class ServerController {
   }
 
   @Post('ssd-health/refresh')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
   async refreshSsdHealth(@UserId() userId: string) {
@@ -536,6 +542,7 @@ export class ServerController {
   }
 
   @Post('raid-status/refresh')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
   async refreshRaidStatus(@UserId() userId: string) {
@@ -567,6 +574,7 @@ export class ServerController {
   }
 
   @Post('database/sync')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
   async triggerDatabaseSync(@UserId() userId: string) {

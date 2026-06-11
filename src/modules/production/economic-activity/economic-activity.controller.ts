@@ -12,6 +12,8 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { EconomicActivityService } from './economic-activity.service';
+import { Roles } from '@modules/common/auth/decorators/roles.decorator';
+import { SECTOR_PRIVILEGES } from '../../../constants';
 import { ZodValidationPipe, ZodQueryValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { ArrayFixPipe } from '../../common/pipes/array-fix.pipe';
 import {
@@ -69,6 +71,7 @@ export class EconomicActivityController {
   }
 
   @Post()
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(economicActivityCreateSchema))
@@ -80,6 +83,7 @@ export class EconomicActivityController {
   }
 
   @Put(':id')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(economicActivityUpdateSchema))
@@ -91,6 +95,7 @@ export class EconomicActivityController {
   }
 
   @Delete(':id')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param('id', ParseUUIDPipe) id: string): Promise<EconomicActivityDeleteResponse> {
     return this.economicActivityService.delete(id);
@@ -98,6 +103,7 @@ export class EconomicActivityController {
 
   // Batch Operations
   @Post('batch')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(economicActivityBatchCreateSchema))
@@ -109,6 +115,7 @@ export class EconomicActivityController {
   }
 
   @Put('batch')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   async batchUpdate(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(economicActivityBatchUpdateSchema))
     data: EconomicActivityBatchUpdateFormData,
@@ -119,6 +126,7 @@ export class EconomicActivityController {
   }
 
   @Delete('batch')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(economicActivityBatchDeleteSchema))

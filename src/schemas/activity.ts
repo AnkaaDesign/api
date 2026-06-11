@@ -322,7 +322,7 @@ export const activityIncludeSchema = z
                 .optional(),
               ppeDeliveries: z.boolean().optional(),
               orderRules: z.boolean().optional(),
-              externalWithdrawalItems: z.boolean().optional(),
+              externalOperationItems: z.boolean().optional(),
               relatedItems: z.boolean().optional(),
               relatedTo: z.boolean().optional(),
             })
@@ -345,7 +345,7 @@ export const activityIncludeSchema = z
               borrows: z.boolean().optional(),
               notifications: z.boolean().optional(),
               tasks: z.boolean().optional(),
-              commissions: z.boolean().optional(),
+              bonifications: z.boolean().optional(),
               warningsCollaborator: z.boolean().optional(),
               warningsSupervisor: z.boolean().optional(),
               warningsWitness: z.boolean().optional(),

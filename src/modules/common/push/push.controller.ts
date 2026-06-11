@@ -14,6 +14,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { PushService } from './push.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
+import { SECTOR_PRIVILEGES } from '../../../constants';
 import {
   RegisterDeviceTokenDto,
   UnregisterDeviceTokenDto,
@@ -119,7 +120,7 @@ export class PushController {
 
   @Post('test')
   @HttpCode(HttpStatus.OK)
-  @Roles('ADMIN', 'WAREHOUSE')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @ApiOperation({
     summary: 'Send a test push notification (Admin only)',
   })

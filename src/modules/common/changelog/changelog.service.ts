@@ -285,13 +285,13 @@ export class ChangeLogService {
       orderBy: { createdAt: 'asc' },
     });
 
-    // Commission changes are tracked as part of task changes (field-level changes)
-    // since commission is a field on the Task entity, not a separate entity
+    // Bonification changes are tracked as part of task changes (field-level changes)
+    // since bonification is a field on the Task entity, not a separate entity
 
     return {
       taskChanges: changes,
       serviceChanges: serviceChanges.data,
-      commissionChanges: [], // Commission changes are included in taskChanges
+      bonificationChanges: [], // Bonification changes are included in taskChanges
     };
   }
 }

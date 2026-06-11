@@ -18,6 +18,7 @@ import type {
   PPE_TYPE,
   PPE_SIZE,
   PPE_DELIVERY_MODE,
+  STOCK_MODEL,
   ITEM_CATEGORY_TYPE,
 } from '@constants';
 import type { Supplier, SupplierIncludes, SupplierOrderBy } from './supplier';
@@ -83,6 +84,9 @@ export interface Item extends BaseEntity {
   monthlyConsumptionTrendPercent: number | null;
   barcodes: string[];
   shouldAssignToUser: boolean;
+  isBorrowable: boolean;
+  stockModel: STOCK_MODEL;
+  fixedTargetQuantity: number | null;
   categoryId?: string;
   supplierId: string | null;
   estimatedLeadTime: number | null;
@@ -258,6 +262,9 @@ export interface ItemSelect {
   monthlyConsumptionTrendPercent?: boolean;
   barcodes?: boolean;
   shouldAssignToUser?: boolean;
+  isBorrowable?: boolean;
+  stockModel?: boolean;
+  fixedTargetQuantity?: boolean;
   isActive?: boolean;
 
   // Category fields
@@ -721,6 +728,24 @@ export interface ItemWhere {
     | XYZ_CATEGORY
     | { equals?: XYZ_CATEGORY; not?: XYZ_CATEGORY; in?: XYZ_CATEGORY[]; notIn?: XYZ_CATEGORY[] }
     | null;
+  stockModel?:
+    | STOCK_MODEL
+    | { equals?: STOCK_MODEL; not?: STOCK_MODEL; in?: STOCK_MODEL[]; notIn?: STOCK_MODEL[] };
+
+  // Stock model number fields
+  fixedTargetQuantity?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      }
+    | null;
 
   // PPE-specific enum fields
   ppeType?:
@@ -769,6 +794,7 @@ export interface ItemWhere {
 
   // Boolean fields
   shouldAssignToUser?: boolean | { equals?: boolean; not?: boolean };
+  isBorrowable?: boolean | { equals?: boolean; not?: boolean };
   isActive?: boolean | { equals?: boolean; not?: boolean };
 
   // Array fields
@@ -963,6 +989,9 @@ export interface ItemOrderBy {
   monthlyConsumption?: ORDER_BY_DIRECTION;
   monthlyConsumptionTrendPercent?: ORDER_BY_DIRECTION;
   shouldAssignToUser?: ORDER_BY_DIRECTION;
+  isBorrowable?: ORDER_BY_DIRECTION;
+  stockModel?: ORDER_BY_DIRECTION;
+  fixedTargetQuantity?: ORDER_BY_DIRECTION;
   estimatedLeadTime?: ORDER_BY_DIRECTION;
   isActive?: ORDER_BY_DIRECTION;
   abcCategory?: ORDER_BY_DIRECTION;

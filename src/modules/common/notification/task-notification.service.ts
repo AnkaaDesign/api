@@ -52,7 +52,7 @@ const FIELD_LABELS: Record<string, string> = {
   artworks: 'Anexos',
   observation: 'Comentários',
   // Additional fields
-  commission: 'Comissão',
+  bonification: 'Bonificação',
   serialNumber: 'Número de Série',
   entryDate: 'Data de Entrada',
   startedAt: 'Data de Início',
@@ -193,7 +193,11 @@ export class TaskNotificationService {
     return {
       actionUrl: webPath, // Web path for backward compatibility
       metadata: {
-        webUrl: deepLinks.web, // Full web URL
+        // RELATIVE web path: the web client SPA-navigates relative paths but
+        // window.open()s full https:// URLs in a new tab. Channel deliveries
+        // (e.g. WhatsApp extractActionUrl) prefix WEB_APP_URL where an absolute
+        // URL is needed.
+        webUrl: webPath,
         mobileUrl: deepLinks.mobile, // Mobile deep link (ankaadesign://task/UUID)
         universalLink: deepLinks.universalLink || '', // Universal link
         entityType: 'Task', // Entity type for mobile navigation
@@ -554,13 +558,13 @@ export class TaskNotificationService {
    * @returns True if values are different
    */
   private hasValueChanged(oldValue: any, newValue: any, fieldName?: string): boolean {
-    // Commission field normalization: treat null/undefined as NO_COMMISSION
-    // This prevents false positive changes when both display as "Sem Comissão"
-    if (fieldName === 'commission') {
+    // Bonification field normalization: treat null/undefined as NO_BONIFICATION
+    // This prevents false positive changes when both display as "Sem Bonificação"
+    if (fieldName === 'bonification') {
       const normalizedOld =
-        oldValue === null || oldValue === undefined ? 'NO_COMMISSION' : oldValue;
+        oldValue === null || oldValue === undefined ? 'NO_BONIFICATION' : oldValue;
       const normalizedNew =
-        newValue === null || newValue === undefined ? 'NO_COMMISSION' : newValue;
+        newValue === null || newValue === undefined ? 'NO_BONIFICATION' : newValue;
       return normalizedOld !== normalizedNew;
     }
 

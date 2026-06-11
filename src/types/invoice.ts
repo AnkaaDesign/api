@@ -12,8 +12,11 @@ import {
 // =====================
 
 export interface Invoice extends BaseEntity {
-  customerConfigId: string;
-  taskId: string;
+  // Exactly one of customerConfigId (task/quote billing) or externalOperationId
+  // ("Operação Externa" billing) is set — app-enforced.
+  customerConfigId: string | null;
+  taskId: string | null;
+  externalOperationId: string | null;
   customerId: string;
   totalAmount: number;
   paidAmount: number;
@@ -24,6 +27,11 @@ export interface Invoice extends BaseEntity {
   nfseDocuments?: NfseDocument[];
   customer?: { id: string; fantasyName: string; cnpj?: string | null };
   task?: { id: string; name?: string | null; serialNumber?: string | null };
+  externalOperation?: {
+    id: string;
+    withdrawerName?: string | null;
+    status?: string;
+  } | null;
   createdBy?: { id: string; name: string } | null;
 }
 
@@ -34,6 +42,7 @@ export interface InvoiceInclude {
   nfseDocuments?: boolean;
   customer?: boolean;
   task?: boolean;
+  externalOperation?: boolean;
   createdBy?: boolean;
   customerConfig?: boolean;
 }
@@ -57,7 +66,9 @@ export interface InvoiceWhere {
 // =====================
 
 export interface Installment extends BaseEntity {
-  customerConfigId: string;
+  // Exactly one of customerConfigId or externalOperationId is set — app-enforced.
+  customerConfigId: string | null;
+  externalOperationId: string | null;
   invoiceId: string | null;
   number: number;
   dueDate: Date;

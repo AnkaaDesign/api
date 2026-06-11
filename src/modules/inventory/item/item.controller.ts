@@ -477,7 +477,7 @@ export class ItemUnifiedController {
   // =====================
 
   @Post('batch-adjust-prices')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   @HttpCode(HttpStatus.OK)
   async adjustItemPrices(
     @Body() data: { itemIds: string[]; percentage: number },

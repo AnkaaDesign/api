@@ -10,7 +10,7 @@ import type {
   BaseBatchResponse,
   ORDER_BY_DIRECTION,
 } from './common';
-import type { TASK_STATUS, COMMISSION_STATUS } from '@constants';
+import type { TASK_STATUS, BONIFICATION_STATUS } from '@constants';
 import type { Sector, SectorIncludes, SectorOrderBy } from './sector';
 import type { Customer, CustomerIncludes, CustomerOrderBy } from './customer';
 import type { File, FileIncludes } from './file';
@@ -33,8 +33,8 @@ export interface Task extends BaseEntity {
   name: string;
   status: TASK_STATUS;
   statusOrder: number;
-  commission: COMMISSION_STATUS | null;
-  commissionOrder: number;
+  bonification: BONIFICATION_STATUS | null;
+  bonificationOrder: number;
   serialNumber: string | null;
   details: string | null;
   entryDate: Date | null;
@@ -118,7 +118,7 @@ export interface TaskSelectFields {
   name?: boolean;
   status?: boolean;
   statusOrder?: boolean;
-  commission?: boolean;
+  bonification?: boolean;
   serialNumber?: boolean;
   details?: boolean;
   entryDate?: boolean;
@@ -128,7 +128,7 @@ export interface TaskSelectFields {
   forecastDate?: boolean;
   cleared?: boolean;
   paintId?: boolean;
-  commissionOrder?: boolean;
+  bonificationOrder?: boolean;
   customerId?: boolean;
   sectorId?: boolean;
   createdById?: boolean;
@@ -328,7 +328,7 @@ export const TASK_SELECT_CARD: TaskSelect = {
   entryDate: true,
   startedAt: true,
   finishedAt: true,
-  commission: true,
+  bonification: true,
   createdById: true,
   // Additional relations
   createdBy: {
@@ -352,7 +352,7 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
   name: true,
   status: true,
   statusOrder: true,
-  commission: true,
+  bonification: true,
   serialNumber: true,
   details: true,
   entryDate: true,
@@ -536,7 +536,7 @@ export interface TaskCard extends TaskMinimal {
   entryDate: Date | null;
   startedAt: Date | null;
   finishedAt: Date | null;
-  commission: COMMISSION_STATUS | null;
+  bonification: BONIFICATION_STATUS | null;
   createdById: string | null;
   createdBy?: { id: string; name: string } | null;
   truck?: { id: string; plate: string | null; spot: string | null } | null;
@@ -550,7 +550,7 @@ export interface TaskDetailed extends BaseEntity {
   name: string;
   status: TASK_STATUS;
   statusOrder: number;
-  commission: COMMISSION_STATUS | null;
+  bonification: BONIFICATION_STATUS | null;
   serialNumber: string | null;
   details: string | null;
   entryDate: Date | null;
@@ -811,7 +811,7 @@ export interface TaskOrderBy {
   name?: ORDER_BY_DIRECTION;
   status?: ORDER_BY_DIRECTION;
   statusOrder?: ORDER_BY_DIRECTION;
-  commission?: ORDER_BY_DIRECTION;
+  bonification?: ORDER_BY_DIRECTION;
   serialNumber?: ORDER_BY_DIRECTION;
   details?: ORDER_BY_DIRECTION;
   entryDate?: ORDER_BY_DIRECTION;
@@ -837,7 +837,7 @@ export interface TaskWhere {
   id?: string;
   name?: string;
   status?: TASK_STATUS;
-  commission?: COMMISSION_STATUS;
+  bonification?: BONIFICATION_STATUS;
   serialNumber?: string;
   details?: string;
   entryDate?: Date;

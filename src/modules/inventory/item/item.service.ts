@@ -49,6 +49,7 @@ import {
   PPE_SIZE,
   PPE_DELIVERY_MODE,
   ITEM_CATEGORY_TYPE,
+  STOCK_MODEL,
 } from '../../../constants/enums';
 import {
   REGULAR_CONSUMPTION_REASONS,
@@ -69,12 +70,8 @@ import {
   convertToBatchOperationResult,
   generateBatchMessage,
 } from '@modules/common/utils/batch-operation.utils';
-import {
-  ItemLowStockEvent,
-  ItemOutOfStockEvent,
-  ItemReorderRequiredEvent,
-  ItemOverstockEvent,
-} from './item.events';
+import { StockNotificationService } from '../services/stock-notification.service';
+import { StockCalculationResult } from '../services/atomic-stock-calculator.service';
 
 interface ReorderPointUpdateResult {
   itemId: string;
@@ -107,52 +104,60 @@ export class ItemService {
     private readonly changeLogService: ChangeLogService,
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly itemRecomputeService: ItemRecomputeService,
+    private readonly stockNotificationService: StockNotificationService,
   ) {}
 
   /**
-   * Check stock thresholds and emit appropriate events
+   * Check stock thresholds for a direct item edit.
+   *
+   * Routes through StockNotificationService.processStockNotifications — the SAME
+   * threshold-bucket engine the activity-driven pipeline uses (audit F7) — so:
+   * - direct edits and activity-driven changes share one source of truth;
+   * - item.replenished fires on direct edits too (needs previousQuantity);
+   * - item.reorder_required fires on activity-driven crossings as well;
+   * - supplier-grouped aggregation + the 24h DB cooldown prevent storms.
+   *
+   * @param previousQuantity - Quantity BEFORE the edit (enables replenished /
+   *   out-of-stock transition detection). Defaults to the current quantity when
+   *   unknown (e.g., creation), which disables transition-based events.
    */
-  private checkStockThresholds(item: Item): void {
+  private checkStockThresholds(item: Item, previousQuantity?: number): void {
     try {
-      // Check if item is out of stock
-      if (item.quantity === 0) {
-        this.eventEmitter.emit('item.out-of-stock', new ItemOutOfStockEvent(item));
-        this.logger.log(`Emitted out-of-stock event for item ${item.id}: ${item.name}`);
-        return; // No need to check other thresholds if out of stock
-      }
+      const prevQty = previousQuantity ?? item.quantity;
 
-      // Check if item exceeds max quantity
-      if (item.maxQuantity !== null && item.quantity > item.maxQuantity) {
-        this.eventEmitter.emit(
-          'item.overstock',
-          new ItemOverstockEvent(item, item.quantity, item.maxQuantity),
-        );
-        this.logger.log(
-          `Emitted overstock event for item ${item.id}: ${item.quantity}/${item.maxQuantity}`,
-        );
-      }
+      const stockLevel = determineStockLevel({
+        quantity: item.quantity,
+        reorderPoint: item.reorderPoint ?? null,
+        maxQuantity: item.maxQuantity ?? null,
+        hasActiveOrder: false,
+        stockModel: (item as any).stockModel ?? null,
+        fixedTargetQuantity: (item as any).fixedTargetQuantity ?? null,
+      });
 
-      // Check if item is at or below reorder point
-      if (item.reorderPoint !== null && item.quantity <= item.reorderPoint) {
-        this.eventEmitter.emit(
-          'item.low-stock',
-          new ItemLowStockEvent(item, item.quantity, item.reorderPoint),
-        );
-        this.logger.log(
-          `Emitted low-stock event for item ${item.id}: ${item.quantity}/${item.reorderPoint}`,
-        );
+      const calculation: StockCalculationResult = {
+        itemId: item.id,
+        itemName: item.name,
+        currentQuantity: prevQty,
+        finalQuantity: item.quantity,
+        quantityChange: item.quantity - prevQty,
+        isValid: true,
+        errors: [],
+        warnings: [],
+        stockLevel,
+        hasActiveOrders: false,
+        reorderPoint: item.reorderPoint ?? null,
+        maxQuantity: item.maxQuantity ?? null,
+        operations: [],
+      };
 
-        // Also emit reorder required if reorder quantity is defined
-        if (item.reorderQuantity !== null && item.reorderQuantity > 0) {
-          this.eventEmitter.emit(
-            'item.reorder-required',
-            new ItemReorderRequiredEvent(item, item.quantity, item.reorderQuantity),
-          );
-          this.logger.log(
-            `Emitted reorder-required event for item ${item.id}: ${item.reorderQuantity} units`,
-          );
-        }
-      }
+      void this.stockNotificationService
+        .processStockNotifications([calculation], this.prisma)
+        .catch(error =>
+          this.logger.error(
+            `Error dispatching stock notifications for item ${item.id}:`,
+            error,
+          ),
+        );
     } catch (error) {
       this.logger.error(`Error checking stock thresholds for item ${item.id}:`, error);
     }
@@ -331,6 +336,36 @@ export class ItemService {
     // Ensure maximumStock is not negative
     if (data.maxQuantity !== undefined && data.maxQuantity !== null && data.maxQuantity < 0) {
       errors.push('Estoque máximo não pode ser negativo');
+    }
+
+    // Validate capability fields (defense in depth — zod also validates):
+    // fixedTargetQuantity only makes sense when the effective stockModel is FIXED_TARGET
+    const capabilityData = data as {
+      stockModel?: STOCK_MODEL | null;
+      fixedTargetQuantity?: number | null;
+    };
+    if (
+      capabilityData.fixedTargetQuantity !== undefined &&
+      capabilityData.fixedTargetQuantity !== null
+    ) {
+      if (capabilityData.fixedTargetQuantity <= 0) {
+        errors.push('Quantidade alvo deve ser maior que zero');
+      }
+
+      let effectiveStockModel: STOCK_MODEL | null | undefined = capabilityData.stockModel;
+      if (effectiveStockModel === undefined && excludeId) {
+        const existingItem = await prismaClient.item.findUnique({
+          where: { id: excludeId },
+          select: { stockModel: true },
+        });
+        effectiveStockModel = existingItem?.stockModel as STOCK_MODEL | undefined;
+      }
+
+      if ((effectiveStockModel ?? STOCK_MODEL.CONSUMPTION) !== STOCK_MODEL.FIXED_TARGET) {
+        errors.push(
+          'Quantidade alvo só pode ser definida quando o modelo de estoque é alvo fixo',
+        );
+      }
     }
 
     // Validate measures array if provided
@@ -708,6 +743,47 @@ export class ItemService {
   }
 
   /**
+   * Aplicar defaults de capacidade a partir da categoria na CRIAÇÃO.
+   * Quando o cliente NÃO envia os campos explicitamente, a categoria escolhida
+   * fornece os defaults: TOOL → isBorrowable=true, stockModel=FIXED_TARGET,
+   * fixedTargetQuantity=1. Valores explícitos do cliente sempre vencem.
+   * Em UPDATE a troca de categoria NUNCA altera os flags silenciosamente
+   * (este método não é chamado no update).
+   */
+  private async applyCategoryCapabilityDefaults(
+    itemData: any,
+    tx: PrismaTransaction,
+  ): Promise<void> {
+    if (!itemData.categoryId) return;
+
+    const allExplicit =
+      itemData.isBorrowable !== undefined &&
+      itemData.stockModel !== undefined &&
+      itemData.fixedTargetQuantity !== undefined;
+    if (allExplicit) return;
+
+    const category = await tx.itemCategory.findUnique({
+      where: { id: itemData.categoryId },
+      select: { type: true },
+    });
+
+    if (category?.type !== ITEM_CATEGORY_TYPE.TOOL) return;
+
+    if (itemData.isBorrowable === undefined) {
+      itemData.isBorrowable = true;
+    }
+    if (itemData.stockModel === undefined) {
+      itemData.stockModel = STOCK_MODEL.FIXED_TARGET;
+    }
+    if (
+      itemData.fixedTargetQuantity === undefined &&
+      itemData.stockModel === STOCK_MODEL.FIXED_TARGET
+    ) {
+      itemData.fixedTargetQuantity = 1;
+    }
+  }
+
+  /**
    * Criar novo item
    */
   async create(
@@ -730,6 +806,10 @@ export class ItemService {
             measuresArray = Object.values(measures);
           }
         }
+
+        // Defaults de capacidade a partir da categoria (somente na criação;
+        // valores explícitos do cliente sempre vencem)
+        await this.applyCategoryCapabilityDefaults(itemData, tx);
 
         // Pass measures for validation
         const dataForValidation = {
@@ -794,6 +874,10 @@ export class ItemService {
     userId: string,
   ): Promise<ItemUpdateResponse> {
     try {
+      // Captured inside the transaction for the post-commit threshold check
+      // (replenished/out-of-stock detection needs the BEFORE quantity).
+      let previousQuantity: number | undefined;
+
       const updatedItem = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar item existente
         const existingItem = await this.itemRepository.findByIdWithTransaction(tx, id);
@@ -801,6 +885,8 @@ export class ItemService {
         if (!existingItem) {
           throw new NotFoundException('Item não encontrado');
         }
+
+        previousQuantity = existingItem.quantity;
 
         // Extract measures from data before updating item
         const { measures, ...itemData } = data as any;
@@ -941,7 +1027,7 @@ export class ItemService {
       if (data.quantity !== undefined) {
         // Use setImmediate to emit events asynchronously
         setImmediate(() => {
-          this.checkStockThresholds(updatedItem);
+          this.checkStockThresholds(updatedItem, previousQuantity);
         });
       }
 
@@ -1201,7 +1287,8 @@ export class ItemService {
           maxQuantity: item.maxQuantity,
           hasActiveOrder: incoming > 0,
           incomingOrderedQuantity: incoming,
-          categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+          stockModel: item.stockModel ?? null,
+          fixedTargetQuantity: item.fixedTargetQuantity ?? null,
         });
         return stockHealthLevels.includes(stockLevel);
       });
@@ -1445,7 +1532,8 @@ export class ItemService {
           select: {
             reorderPoint: true,
             maxQuantity: true,
-            category: { select: { type: true } },
+            stockModel: true,
+            fixedTargetQuantity: true,
           },
         });
 
@@ -1476,7 +1564,8 @@ export class ItemService {
           maxQuantity: fullItem?.maxQuantity || null,
           hasActiveOrder,
           incomingOrderedQuantity,
-          categoryType: (fullItem?.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+          stockModel: fullItem?.stockModel ?? null,
+          fixedTargetQuantity: fullItem?.fixedTargetQuantity ?? null,
         });
 
         if (stockLevel === STOCK_LEVEL.CRITICAL || stockLevel === STOCK_LEVEL.LOW) {
@@ -1585,7 +1674,8 @@ export class ItemService {
           maxQuantity: item.maxQuantity,
           hasActiveOrder: incoming > 0,
           incomingOrderedQuantity: incoming,
-          categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+          stockModel: item.stockModel ?? null,
+          fixedTargetQuantity: item.fixedTargetQuantity ?? null,
         });
       };
 
@@ -1642,7 +1732,8 @@ export class ItemService {
           quantity: true,
           reorderPoint: true,
           maxQuantity: true,
-          category: { select: { type: true } },
+          stockModel: true,
+          fixedTargetQuantity: true,
         },
       });
 
@@ -1677,7 +1768,8 @@ export class ItemService {
         maxQuantity: item.maxQuantity,
         hasActiveOrder,
         incomingOrderedQuantity,
-        categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+        stockModel: item.stockModel ?? null,
+        fixedTargetQuantity: item.fixedTargetQuantity ?? null,
       });
 
       return { stockLevel, hasActiveOrder };
@@ -1753,6 +1845,9 @@ export class ItemService {
         for (let index = 0; index < items.length; index++) {
           const item = items[index];
           try {
+            // Defaults de capacidade a partir da categoria (valores explícitos vencem)
+            await this.applyCategoryCapabilityDefaults(item, tx);
+
             // Use comprehensive validation for each item
             await this.validateItem(item, undefined, tx);
 
@@ -1799,6 +1894,8 @@ export class ItemService {
       setImmediate(() => {
         for (const createdItem of result.success) {
           try {
+            // Newly created items have no previous quantity (treated as the
+            // current quantity — transition-based events don't apply).
             this.checkStockThresholds(createdItem as Item);
           } catch (error) {
             this.logger.error(
@@ -1858,9 +1955,10 @@ export class ItemService {
         data: item.data,
       }));
 
-      // IDs of items whose stock-relevant fields changed; thresholds are checked
-      // for these AFTER commit, mirroring the single-item update path.
-      const itemsToCheckThresholds = new Set<string>();
+      // Items whose stock-relevant fields changed (id → previous quantity);
+      // thresholds are checked for these AFTER commit, mirroring the
+      // single-item update path.
+      const itemsToCheckThresholds = new Map<string, number>();
 
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const successItems: any[] = [];
@@ -1903,7 +2001,7 @@ export class ItemService {
                 ),
             );
             if (stockFieldChanged) {
-              itemsToCheckThresholds.add(updatedItem.id);
+              itemsToCheckThresholds.set(updatedItem.id, existingItem.quantity);
             }
 
             // Registrar no changelog - track individual field changes
@@ -1956,7 +2054,10 @@ export class ItemService {
           for (const updatedItem of result.success) {
             if (!itemsToCheckThresholds.has(updatedItem.id)) continue;
             try {
-              this.checkStockThresholds(updatedItem as Item);
+              this.checkStockThresholds(
+                updatedItem as Item,
+                itemsToCheckThresholds.get(updatedItem.id),
+              );
             } catch (error) {
               this.logger.error(
                 `Error checking stock thresholds for updated item ${updatedItem?.id}:`,
@@ -2231,6 +2332,8 @@ export class ItemService {
           ppeType: true,
           ppeDeliveryMode: true,
           ppeStandardQuantity: true,
+          stockModel: true,
+          fixedTargetQuantity: true,
           category: { select: { type: true } },
         },
       });
@@ -2403,6 +2506,8 @@ export class ItemService {
           ppeType: true,
           ppeDeliveryMode: true,
           ppeStandardQuantity: true,
+          stockModel: true,
+          fixedTargetQuantity: true,
           category: { select: { type: true } },
         },
       });
@@ -2488,6 +2593,8 @@ export class ItemService {
           ppeType: true,
           ppeDeliveryMode: true,
           ppeStandardQuantity: true,
+          stockModel: true,
+          fixedTargetQuantity: true,
           category: { select: { type: true } },
         },
       });
@@ -2669,6 +2776,8 @@ export class ItemService {
           ppeType: true,
           ppeDeliveryMode: true,
           ppeStandardQuantity: true,
+          stockModel: true,
+          fixedTargetQuantity: true,
           category: { select: { type: true } },
         },
       });
@@ -2990,7 +3099,7 @@ export class ItemService {
           ppeDelivery: true,
           maintenanceItemsNeeded: true,
           formulaComponents: true,
-          externalWithdrawalItems: true,
+          externalOperationItems: true,
           brands: true,
           category: true,
           supplier: true,
@@ -3146,8 +3255,8 @@ export class ItemService {
 
       // 12. Update external withdrawal items references
       for (const sourceItem of sourceItems) {
-        if (sourceItem.externalWithdrawalItems.length > 0) {
-          await tx.externalWithdrawalItem.updateMany({
+        if (sourceItem.externalOperationItems.length > 0) {
+          await tx.externalOperationItem.updateMany({
             where: { itemId: sourceItem.id },
             data: { itemId: data.targetItemId },
           });

@@ -199,30 +199,28 @@ export const routes = {
       create: '/recursos-humanos/folha-de-pagamento/criar',
       edit: (payrollId: string) => `/recursos-humanos/folha-de-pagamento/editar/${payrollId}`,
     },
+    // Mirrors web/src/constants/routes.ts (the registered web routes are
+    // /recursos-humanos/bonus/:id and /recursos-humanos/bonus/simulacao-de-bonus)
     bonus: {
-      root: '/recursos-humanos/bonificacoes',
-      list: '/recursos-humanos/bonificacoes',
-      create: '/recursos-humanos/bonificacoes/cadastrar',
-      details: (id: string) => `/recursos-humanos/bonificacoes/detalhes/${id}`,
-      edit: (id: string) => `/recursos-humanos/bonificacoes/editar/${id}`,
-      simulation: '/recursos-humanos/simulacao-bonus',
-      discounts: {
-        root: '/recursos-humanos/bonificacoes-desconto',
-        create: '/recursos-humanos/bonificacoes-desconto/cadastrar',
-        details: (id: string) => `/recursos-humanos/bonificacoes-desconto/detalhes/${id}`,
-        edit: (id: string) => `/recursos-humanos/bonificacoes-desconto/editar/${id}`,
+      root: '/recursos-humanos/bonus',
+      list: '/recursos-humanos/bonus',
+      details: (id: string) => `/recursos-humanos/bonus/${id}`,
+      simulation: '/recursos-humanos/bonus/simulacao-de-bonus',
+      performanceLevels: {
+        root: '/recursos-humanos/bonus/nivel-de-performance',
+        list: '/recursos-humanos/bonus/nivel-de-performance',
       },
     },
   },
 
   // Inventory - Estoque - Inventory Management
   inventory: {
-    externalWithdrawals: {
-      create: '/estoque/retiradas-externas/cadastrar',
-      details: (id: string) => `/estoque/retiradas-externas/detalhes/${id}`,
-      edit: (id: string) => `/estoque/retiradas-externas/editar/${id}`,
-      list: '/estoque/retiradas-externas',
-      root: '/estoque/retiradas-externas',
+    externalOperations: {
+      create: '/estoque/operacoes-externas/cadastrar',
+      details: (id: string) => `/estoque/operacoes-externas/detalhes/${id}`,
+      edit: (id: string) => `/estoque/operacoes-externas/editar/${id}`,
+      list: '/estoque/operacoes-externas',
+      root: '/estoque/operacoes-externas',
     },
     loans: {
       batchEdit: '/estoque/emprestimos/editar-lote',

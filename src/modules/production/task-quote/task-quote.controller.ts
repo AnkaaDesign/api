@@ -24,7 +24,7 @@ import { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { TaskQuoteService } from './task-quote.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
-import { UserId } from '@modules/common/auth/decorators/user.decorator';
+import { UserId, User } from '@modules/common/auth/decorators/user.decorator';
 import { Public } from '@modules/common/auth/decorators/public.decorator';
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { SECTOR_PRIVILEGES, TASK_QUOTE_STATUS } from '@constants';
@@ -147,6 +147,8 @@ export class TaskQuoteController {
    * Update existing quote
    *
    * Access: FINANCIAL, COMMERCIAL, ADMIN
+   * Explicit status changes are role-gated per stage inside the service
+   * (same roles as the dedicated /status endpoints).
    */
   @Put(':id')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
@@ -155,8 +157,9 @@ export class TaskQuoteController {
     @Body(new ZodValidationPipe(taskQuoteUpdateSchema))
     data: TaskQuoteUpdateFormData,
     @UserId() userId: string,
+    @User('role') userPrivilege: string,
   ) {
-    return this.taskQuoteService.update(id, data, userId);
+    return this.taskQuoteService.update(id, data, userId, false, userPrivilege);
   }
 
   /**
@@ -350,9 +353,12 @@ export class TaskQuoteController {
   /**
    * POST /task-quotes/public/:id/signature
    * Upload customer signature for quote
-   * Only allows upload if quote is not expired
    *
-   * Access: PUBLIC (no authentication required)
+   * Access: PUBLIC (no authentication required). There is no dedicated share
+   * token — the unguessable quote UUID is the link capability (same as
+   * GET public/:id). The service therefore enforces the strongest available
+   * checks: the quote must NOT be expired and must be in a signature-pending
+   * status (PENDING or BUDGET_APPROVED); uploads are rejected otherwise.
    */
   @Post('public/:id/signature')
   @Public()

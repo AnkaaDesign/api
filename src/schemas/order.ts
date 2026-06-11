@@ -1576,6 +1576,11 @@ export const orderItemCreateSchema = z
 
 export const orderItemUpdateSchema = z
   .object({
+    // Conversion: link a temporary (free-text) line to a catalog item. Only the
+    // null→itemId transition is accepted (service-enforced) — re-pointing an
+    // already-linked line or unlinking is rejected. Without this link, received
+    // temp lines NEVER enter stock (no inbound activity is created for them).
+    itemId: z.string().uuid({ message: 'Item inválido' }).optional(),
     temporaryItemDescription: z
       .string()
       .min(1, 'Descrição do item temporário é obrigatória')

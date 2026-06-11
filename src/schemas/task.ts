@@ -16,7 +16,7 @@ import {
   TASK_STATUS,
   SERVICE_ORDER_STATUS,
   SERVICE_ORDER_TYPE,
-  COMMISSION_STATUS,
+  BONIFICATION_STATUS,
   TRUCK_CATEGORY,
   IMPLEMENT_TYPE,
   TRUCK_SPOT,
@@ -66,7 +66,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
       name: z.boolean().optional(),
       status: z.boolean().optional(),
       statusOrder: z.boolean().optional(),
-      commission: z.boolean().optional(),
+      bonification: z.boolean().optional(),
       serialNumber: z.boolean().optional(),
       details: z.boolean().optional(),
       entryDate: z.boolean().optional(),
@@ -682,7 +682,7 @@ export const taskSelectDetail = {
   name: true,
   status: true,
   statusOrder: true,
-  commission: true,
+  bonification: true,
   serialNumber: true,
   details: true,
   entryDate: true,
@@ -902,7 +902,7 @@ export const taskSelectForm = {
   name: true,
   status: true,
   statusOrder: true,
-  commission: true,
+  bonification: true,
   serialNumber: true,
   details: true,
   entryDate: true,
@@ -1139,7 +1139,7 @@ const taskOrderByFieldsSchema = z.object({
   status: orderByDirectionSchema.optional(),
   statusOrder: orderByDirectionSchema.optional(),
   serialNumber: orderByWithNullsSchema.optional(),
-  commissionOrder: orderByDirectionSchema.optional(),
+  bonificationOrder: orderByDirectionSchema.optional(),
   entryDate: orderByDirectionSchema.optional(),
   term: orderByDirectionSchema.optional(),
   startedAt: orderByDirectionSchema.optional(),
@@ -1209,7 +1209,7 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         .optional(),
       serialNumber: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
       details: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
-      commission: z
+      bonification: z
         .union([
           z.string(),
           z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
@@ -1255,7 +1255,7 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
           none: z.any().optional(),
         })
         .optional(),
-      commissions: z
+      bonifications: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -1412,9 +1412,9 @@ const taskTransform = (data: any): any => {
     delete data.hasPaints;
   }
 
-  // Commission functionality has been removed
-  if (data.hasCommissions !== undefined) {
-    delete data.hasCommissions;
+  // hasBonifications is not a Prisma field; strip it before building the where clause
+  if (data.hasBonifications !== undefined) {
+    delete data.hasBonifications;
   }
 
   if (data.hasServices === true) {
@@ -2438,9 +2438,9 @@ export const taskCreateSchema = z
     paintId: z.string().uuid('Tinta inválida').nullable().optional(),
     customerId: z.string().uuid('Cliente inválido').nullable().optional(),
     sectorId: z.string().uuid('Setor inválido').nullable().optional(),
-    commission: z
-      .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: 'Status de comissão inválido' }),
+    bonification: z
+      .enum(Object.values(BONIFICATION_STATUS) as [string, ...string[]], {
+        errorMap: () => ({ message: 'Status de bonificação inválido' }),
       })
       .nullable()
       .optional(),
@@ -2663,9 +2663,9 @@ export const taskUpdateSchema = z
     paintId: z.string().uuid('Tinta inválida').nullable().optional(),
     customerId: z.string().uuid('Cliente inválido').nullable().optional(),
     sectorId: z.string().uuid('Setor inválido').nullable().optional(),
-    commission: z
-      .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: 'Status de comissão inválido' }),
+    bonification: z
+      .enum(Object.values(BONIFICATION_STATUS) as [string, ...string[]], {
+        errorMap: () => ({ message: 'Status de bonificação inválido' }),
       })
       .nullable()
       .optional(),

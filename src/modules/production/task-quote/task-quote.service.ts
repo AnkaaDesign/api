@@ -58,6 +58,12 @@ import {
 } from '../../../utils/task-quote-service-order-sync';
 import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
+import {
+  QUOTE_STATUS_LOCKED,
+  QUOTE_VALUE_REVERTABLE_STATUSES,
+  QUOTE_SAFE_AFTER_BILLING_FIELDS,
+  validateQuoteStatusChangeRole,
+} from './task-quote.guards';
 
 /**
  * Compute the discount amount for a customer config based on its discount type, value, and subtotal.
@@ -594,12 +600,17 @@ export class TaskQuoteService {
    * @param _internal When true (called from updateStatus/internalApprove), relaxes the
    *   status-change guard for locked quotes. External callers must use the dedicated
    *   status-update endpoints for all post-billing status transitions.
+   * @param actorPrivilege Sector privilege of the acting user (threaded from the
+   *   controller). Used to role-gate explicit status changes through the generic
+   *   update so they enforce the same per-stage roles as the dedicated /status
+   *   endpoints. Ignored for internal callers.
    */
   async update(
     id: string,
     data: TaskQuoteUpdateFormData,
     userId: string,
     _internal = false,
+    actorPrivilege?: string,
   ): Promise<TaskQuoteUpdateResponse> {
     try {
       const existing = await this.taskQuoteRepository.findById(id, {
@@ -658,14 +669,10 @@ export class TaskQuoteService {
       // fields, forcing the user through revertBilling() first.
       // The caller can override by setting data.status explicitly.
       // ─────────────────────────────────────────────────────────────────────
-      const VALUE_REVERTABLE_STATUSES: TASK_QUOTE_STATUS[] = [
-        TASK_QUOTE_STATUS.BUDGET_APPROVED,
-        TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
-      ];
       if (
         !_internal &&
         !clientProvidedStatus &&
-        VALUE_REVERTABLE_STATUSES.includes(currentStatus) &&
+        QUOTE_VALUE_REVERTABLE_STATUSES.includes(currentStatus) &&
         this.hasValueAffectingChange(existing, data)
       ) {
         this.logger.log(
@@ -675,15 +682,24 @@ export class TaskQuoteService {
       }
 
       // ─────────────────────────────────────────────────────────────────────
+      // Role-gate EXPLICIT status changes through the generic update so they
+      // enforce the same per-stage roles as the dedicated /status endpoints.
+      // Pinning the current status (no-op) was stripped by
+      // filterToMaterialChanges above and is intentionally NOT gated — pinning
+      // is the designed escape to keep approval while editing values.
+      // ─────────────────────────────────────────────────────────────────────
+      if (
+        !_internal &&
+        clientProvidedStatus &&
+        data.status !== undefined &&
+        data.status !== currentStatus
+      ) {
+        validateQuoteStatusChangeRole(data.status as TASK_QUOTE_STATUS, actorPrivilege);
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
       // Guard: lock pricing/customer/payment edits once the quote is locked-in
       // ─────────────────────────────────────────────────────────────────────
-      const STATUS_LOCKED: TASK_QUOTE_STATUS[] = [
-        TASK_QUOTE_STATUS.BILLING_APPROVED,
-        TASK_QUOTE_STATUS.UPCOMING,
-        TASK_QUOTE_STATUS.DUE,
-        TASK_QUOTE_STATUS.PARTIAL,
-        TASK_QUOTE_STATUS.SETTLED,
-      ];
       // BILLING_APPROVED must go through internalApprove() — never a raw update() call.
       // This applies regardless of current status so it can never be smuggled in.
       if (data.status === TASK_QUOTE_STATUS.BILLING_APPROVED) {
@@ -691,20 +707,11 @@ export class TaskQuoteService {
           'A aprovação de faturamento deve ser realizada pelo endpoint dedicado.',
         );
       }
-      const SAFE_AFTER_BILLING_FIELDS = new Set<string>([
-        'expiresAt',
-        'customGuaranteeText',
-        'layoutFileId',
-        'status',
-        'guaranteeYears',
-        'customForecastDays',
-        'simultaneousTasks',
-      ]);
-      if (STATUS_LOCKED.includes(currentStatus)) {
+      if (QUOTE_STATUS_LOCKED.includes(currentStatus)) {
         for (const key of Object.keys(data)) {
           // Ignore explicit undefined entries — only reject if the caller actually intends a change.
           if ((data as any)[key] === undefined) continue;
-          if (!SAFE_AFTER_BILLING_FIELDS.has(key)) {
+          if (!QUOTE_SAFE_AFTER_BILLING_FIELDS.has(key)) {
             throw new BadRequestException(
               'Após aprovação para faturamento, este campo não pode ser alterado. Solicite o cancelamento do orçamento para editá-lo.',
             );
@@ -1721,8 +1728,11 @@ export class TaskQuoteService {
         timeZone: 'America/Sao_Paulo',
       }).format(dueDate);
 
+      // Billing detail pages (web AND the mobile faturamento screen) are keyed
+      // by the TASK id, so build all links from it. The old `financial/:taskId`
+      // mobile route was unparseable on mobile.
       const webUrl = `/financeiro/faturamento/detalhes/${invoice.taskId}`;
-      const mobileUrl = `financial/${invoice.taskId}`;
+      const mobileUrl = `/(tabs)/financeiro/faturamento/detalhes/${invoice.taskId}`;
       const actionUrl = JSON.stringify({ web: webUrl, mobile: mobileUrl });
 
       await this.dispatchService.dispatchByConfiguration('bank_slip.paid', 'system', {
@@ -2610,6 +2620,23 @@ export class TaskQuoteService {
       if (new Date(quote.expiresAt) < now) {
         throw new BadRequestException(
           'Este orçamento expirou. Não é possível enviar a assinatura.',
+        );
+      }
+
+      // Security (A10): the public link carries no dedicated access token (the
+      // unguessable quote UUID is the capability), so the strongest available
+      // server-side check is a STATUS gate — signatures are only accepted while
+      // the quote is actually awaiting the customer's approval (PENDING) or
+      // re-signing right after it (BUDGET_APPROVED). From COMMERCIAL_APPROVED
+      // onward the deal is internally locked and an anonymous signature upload
+      // must not alter it.
+      const signatureAllowedStatuses: TASK_QUOTE_STATUS[] = [
+        TASK_QUOTE_STATUS.PENDING,
+        TASK_QUOTE_STATUS.BUDGET_APPROVED,
+      ];
+      if (!signatureAllowedStatuses.includes(quote.status as TASK_QUOTE_STATUS)) {
+        throw new BadRequestException(
+          'Este orçamento não está aguardando assinatura do cliente.',
         );
       }
 

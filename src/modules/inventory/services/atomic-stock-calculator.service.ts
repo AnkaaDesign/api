@@ -572,7 +572,8 @@ export class AtomicStockCalculatorService {
       reorderPoint: currentItem.reorderPoint,
       maxQuantity: currentItem.maxQuantity,
       hasActiveOrder: result.hasActiveOrders,
-      categoryType: currentItem.category?.type ?? null,
+      stockModel: currentItem.stockModel ?? null,
+      fixedTargetQuantity: currentItem.fixedTargetQuantity ?? null,
     });
 
     // Add warnings based on stock level

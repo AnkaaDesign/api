@@ -113,8 +113,19 @@ export class ElotechOxyNfseService {
       return { skipped: true, reason: 'ALREADY_AUTHORIZED' };
     }
 
-    // Claim for processing
-    if (nfseDoc && nfseDoc.status !== NfseStatus.PROCESSING) {
+    // H3c: a PROCESSING document is claimed by ANOTHER process (scheduler sweep or a
+    // concurrent targeted emission) — proceeding would double-emit at Elotech.
+    // emitNfse() is the single claim authority: every caller goes through the atomic
+    // claim below and only proceeds when count === 1.
+    if (nfseDoc && nfseDoc.status === NfseStatus.PROCESSING) {
+      this.logger.warn(
+        `[MUNICIPAL] NfseDocument ${nfseDoc.id} is already being processed by another process, skipping`,
+      );
+      return { skipped: true, reason: 'ALREADY_PROCESSING' };
+    }
+
+    // Atomic claim for processing: PENDING/ERROR → PROCESSING, proceed only when count === 1
+    if (nfseDoc) {
       const claimed = await this.prisma.nfseDocument.updateMany({
         where: {
           id: nfseDoc.id,
@@ -122,7 +133,7 @@ export class ElotechOxyNfseService {
         },
         data: { status: NfseStatus.PROCESSING, errorMessage: null },
       });
-      if (claimed.count === 0) {
+      if (claimed.count !== 1) {
         this.logger.warn(`[MUNICIPAL] Could not claim NfseDocument ${nfseDoc.id}, skipping`);
         return { skipped: true, reason: 'CLAIM_FAILED' };
       }

@@ -60,7 +60,7 @@ export const supplierIncludeSchema = z
               orderItems: z.boolean().optional(),
               ppeDeliveries: z.boolean().optional(),
               orderRules: z.boolean().optional(),
-              externalWithdrawalItems: z.boolean().optional(),
+              externalOperationItems: z.boolean().optional(),
               relatedItems: z.boolean().optional(),
               relatedTo: z.boolean().optional(),
             })

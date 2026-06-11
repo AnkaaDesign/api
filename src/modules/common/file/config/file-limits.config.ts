@@ -92,17 +92,17 @@ export const ENTITY_FILE_LIMITS: Record<string, FileLimitConfig> = {
   },
 
   // External withdrawal relationships
-  externalWithdrawalBudgets: {
+  externalOperationBudgets: {
     maxFiles: 10,
-    description: 'Máximo de 10 orçamentos por retirada externa',
+    description: 'Máximo de 10 orçamentos por operação externa',
   },
-  externalWithdrawalInvoices: {
+  externalOperationInvoices: {
     maxFiles: 10,
-    description: 'Máximo de 10 notas fiscais por retirada externa',
+    description: 'Máximo de 10 notas fiscais por operação externa',
   },
-  externalWithdrawalReceipts: {
+  externalOperationReceipts: {
     maxFiles: 10,
-    description: 'Máximo de 10 recibos por retirada externa',
+    description: 'Máximo de 10 recibos por operação externa',
   },
 };
 

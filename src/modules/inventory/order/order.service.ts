@@ -413,12 +413,13 @@ export class OrderService {
 
       // Emit order created event
       try {
-        // Get the user who created the order
+        // Get the user who created the order. Schedule/cron-created orders have no
+        // acting user — emit with the 'system' actor (dispatcher convention) so
+        // automatic recurring orders still fire order.created.
         const user = userId ? await this.prisma.user.findUnique({ where: { id: userId } }) : null;
+        const actor = (user as User) || ({ id: 'system', name: 'Sistema' } as unknown as User);
 
-        if (user) {
-          this.eventEmitter.emit('order.created', new OrderCreatedEvent(order, user as User));
-        }
+        this.eventEmitter.emit('order.created', new OrderCreatedEvent(order, actor));
 
         // Emit payment assigned event if paymentResponsibleId was set
         if ((data as any).paymentResponsibleId && userId) {
@@ -1362,7 +1363,8 @@ export class OrderService {
                 reasonOrder: 1, // Order received
                 orderId: existingOrder.id,
                 orderItemId: item.id,
-                userId: null, // Order received activities are not assigned to the user making the request
+                // Attribute the auto-generated INBOUND to the acting user (audit trail)
+                userId: userId || null,
               },
             });
 
@@ -1567,6 +1569,14 @@ export class OrderService {
         cancelReason?: string;
       }> = [];
 
+      // Captured for post-commit payment notification emits (mirrors single-update :1112).
+      const paymentAssignedEvents: Array<{ order: Order; paymentResponsibleId: string }> = [];
+      const paymentFulfilledEvents: Array<{
+        order: Order;
+        paymentAssignedById: string;
+        paymentResponsibleId: string | null;
+      }> = [];
+
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Process each update individually to capture specific errors
         for (const [index, updateData] of data.orders.entries()) {
@@ -1665,6 +1675,31 @@ export class OrderService {
               });
             }
 
+            // Record payment assignment for post-commit notification emit
+            const newPaymentResponsibleId = (updateData.data as any).paymentResponsibleId;
+            if (
+              newPaymentResponsibleId &&
+              newPaymentResponsibleId !== existingOrder.paymentResponsibleId
+            ) {
+              paymentAssignedEvents.push({
+                order: (finalOrder || updatedOrder) as Order,
+                paymentResponsibleId: newPaymentResponsibleId,
+              });
+            }
+
+            // Record payment fulfillment (→FULFILLED with an assigner) for post-commit emit
+            if (
+              (updateData.data.status as ORDER_STATUS) === ORDER_STATUS.FULFILLED &&
+              (existingOrder.status as ORDER_STATUS) !== ORDER_STATUS.FULFILLED &&
+              (updatedOrder as any).paymentAssignedById
+            ) {
+              paymentFulfilledEvents.push({
+                order: (finalOrder || updatedOrder) as Order,
+                paymentAssignedById: (updatedOrder as any).paymentAssignedById,
+                paymentResponsibleId: (updatedOrder as any).paymentResponsibleId ?? null,
+              });
+            }
+
             results.totalSuccess++;
           } catch (error) {
             results.failed.push({
@@ -1713,6 +1748,38 @@ export class OrderService {
         }
       } catch (error) {
         this.logger.error('Error emitting batch order status events:', error);
+      }
+
+      // Emit payment events per order, AFTER the transaction commits.
+      // Mirrors single-update (:1112 assigned / :1135 fulfilled). Best-effort.
+      try {
+        if (userId) {
+          for (const p of paymentAssignedEvents) {
+            try {
+              this.eventEmitter.emit('order.payment.assigned', {
+                order: p.order,
+                paymentResponsibleId: p.paymentResponsibleId,
+                assignedById: userId,
+              });
+            } catch (err) {
+              this.logger.error('Error emitting order.payment.assigned (batch):', err);
+            }
+          }
+        }
+
+        for (const p of paymentFulfilledEvents) {
+          try {
+            this.eventEmitter.emit('order.payment.fulfilled', {
+              order: p.order,
+              paymentAssignedById: p.paymentAssignedById,
+              paymentResponsibleId: p.paymentResponsibleId,
+            });
+          } catch (err) {
+            this.logger.error('Error emitting order.payment.fulfilled (batch):', err);
+          }
+        }
+      } catch (error) {
+        this.logger.error('Error emitting batch order payment events:', error);
       }
 
       const successMessage =

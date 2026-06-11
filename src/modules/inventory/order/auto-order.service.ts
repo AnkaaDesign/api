@@ -8,11 +8,11 @@ import {
   ACTIVITY_OPERATION,
   ITEM_CATEGORY_TYPE,
   STOCK_LEVEL,
+  STOCK_MODEL,
 } from '@/constants/enums';
 import {
   CONSUMPTION_LOOKBACK_MONTHS,
-  getToolTarget,
-  isToolType,
+  getFixedTarget,
 } from '@/constants/inventory-config';
 import { PPE_DEFAULT_INTERVAL_MONTHS } from '@/constants/ppe-config';
 import {
@@ -75,9 +75,13 @@ interface DemandAnalysis {
   supplierName: string | null;
   categoryId: string | null;
   categoryName: string | null;
-  /** Category type so clients can branch on tool / electronic-tool / regular
-   *  without re-fetching the item. PPE never appears here (excluded). */
+  /** Category type — DISPLAY/GROUPING ONLY (never a behavior gate). */
   categoryType: ITEM_CATEGORY_TYPE | null;
+  /** Stock model of the item; clients badge/group fixed-target items on
+   *  `stockModel === 'FIXED_TARGET'`. PPE never appears here (excluded). */
+  stockModel: STOCK_MODEL | null;
+  /** Target on-hand quantity for FIXED_TARGET items (engine fallback: 1). */
+  fixedTargetQuantity: number | null;
   lastOrderDate: Date | null;
   daysSinceLastOrder: number | null;
   hasActivePendingOrder: boolean;
@@ -155,9 +159,10 @@ export class AutoOrderService {
    *   - Supplier suppliers with <3 orders/12mo are filtered out of recs.
    *   - Consolidation window is derived from supplier cadence
    *     (orders/12mo) — see `CONSOLIDATION_WINDOW_BANDS`.
-   *   - PPE: pulled in only when next default-interval delivery window
-   *     falls inside `leadTime + safetyDays`.
-   *   - TOOL: only when `quantity === 0`; no rp/max compute.
+   *   - PPE (`item.ppeType != null`): pulled in only when next
+   *     default-interval delivery window falls inside `leadTime + safetyDays`.
+   *   - FIXED_TARGET (`item.stockModel`): only when `quantity === 0`;
+   *     no consumption-driven rp/max compute.
    *   - Computed mc/trend/rp/max/reorderQty are persisted back to `Item`
    *     in batched transactions at the end of analysis.
    */
@@ -295,9 +300,10 @@ export class AutoOrderService {
     eligibleSupplierIds: Set<string>,
     now: Date,
   ): { analysis: DemandAnalysis | null; metrics: ComputedItemMetrics | null } | null {
-    const categoryType = (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null;
-    const isTool = isToolType(categoryType);
-    const isPpe = categoryType === ITEM_CATEGORY_TYPE.PPE;
+    // Behavior gates key on the item's own capability fields — category.type
+    // is display-only (TYPE_SYSTEM_CONTRACT §2).
+    const isFixedTargetItem = item.stockModel === STOCK_MODEL.FIXED_TARGET;
+    const isPpe = item.ppeType != null;
 
     const itemLike: ItemLike = {
       id: item.id,
@@ -309,6 +315,8 @@ export class AutoOrderService {
       boxQuantity: item.boxQuantity,
       monthlyConsumption: item.monthlyConsumption != null ? Number(item.monthlyConsumption) : null,
       category: item.category ? { type: item.category.type } : null,
+      stockModel: item.stockModel ?? null,
+      fixedTargetQuantity: item.fixedTargetQuantity ?? null,
       abcCategory: item.abcCategory ?? null,
       xyzCategory: item.xyzCategory ?? null,
       ppeType: item.ppeType ?? null,
@@ -316,7 +324,7 @@ export class AutoOrderService {
       ppeDeliveryMode: item.ppeDeliveryMode ?? null,
     };
 
-    // mc — TOOL = 0, REGULAR/PPE via util layer.
+    // mc — FIXED_TARGET = 0, consumption/PPE via util layer.
     const mcResult = calculateMonthlyConsumption({
       item: itemLike,
       activities: item.activities,
@@ -336,7 +344,7 @@ export class AutoOrderService {
     // inside the util; here we just feed raw counts since `calculateConsumptionTrend`
     // does its own arithmetic).
     const monthlyHistory = this.bucketActivitiesByMonth(item.activities, now);
-    const trendPercentage = isTool ? 0 : calculateConsumptionTrend(monthlyHistory);
+    const trendPercentage = isFixedTargetItem ? 0 : calculateConsumptionTrend(monthlyHistory);
     const trend: 'increasing' | 'stable' | 'decreasing' =
       trendPercentage > 20 ? 'increasing' : trendPercentage < -20 ? 'decreasing' : 'stable';
 
@@ -349,7 +357,7 @@ export class AutoOrderService {
     );
     const adjustedSafetyFactor = applyTrendAdjustment(cell.safetyFactor, trendPercentage);
 
-    // rp / max — TOOL branch short-circuits inside the util (rp=0, max=item.quantity).
+    // rp / max — FIXED_TARGET branch short-circuits inside the util layer.
     const reorderPoint = calculateReorderPoint({
       item: itemLike,
       monthlyConsumption,
@@ -400,20 +408,22 @@ export class AutoOrderService {
     // consequently dead code, left in place for when PPE re-enters the flow.
     if (isPpe) return { analysis: null, metrics };
 
-    // Supplier eligibility filter (no supplier always allowed). Tools bypass
-    // the supplier-cadence requirement entirely — they're replenished by a
-    // fixed-minimum rule, not by how often the supplier is ordered from.
-    if (item.supplierId && !isTool && !eligibleSupplierIds.has(item.supplierId)) {
+    // Supplier eligibility filter (no supplier always allowed). Fixed-target
+    // items bypass the supplier-cadence requirement entirely — they're
+    // replenished by a fixed-target rule, not by how often the supplier is
+    // ordered from.
+    if (item.supplierId && !isFixedTargetItem && !eligibleSupplierIds.has(item.supplierId)) {
       return { analysis: null, metrics };
     }
 
-    // TOOL — replenish up to a fixed target minimum (not consumption-driven).
-    // The util layer already set reorderPoint and maxQuantity to the target (1)
-    // and reorderQuantity to the box-rounded shortfall (target − stock −
-    // incoming), so we recommend only once the tool runs out (qty drops to 0).
-    if (isTool) {
+    // FIXED_TARGET — replenish up to the item's fixed target (not
+    // consumption-driven). The util layer already set reorderPoint and
+    // maxQuantity to the target (fixedTargetQuantity ?? 1) and
+    // reorderQuantity to the box-rounded shortfall (target − stock −
+    // incoming), so we recommend only once the item runs out (qty drops to 0).
+    if (isFixedTargetItem) {
       if (reorderQuantity <= 0) return { analysis: null, metrics };
-      const target = getToolTarget(categoryType);
+      const target = getFixedTarget(item);
       const isEmpty = item.quantity <= 0;
       const analysis = this.buildAnalysis(item, {
         currentStock: item.quantity,
@@ -424,8 +434,8 @@ export class AutoOrderService {
         recommendedOrderQuantity: reorderQuantity,
         urgency: isEmpty ? 'critical' : 'high',
         reason: isEmpty
-          ? 'Ferramenta esgotada — reposição imediata'
-          : `Ferramenta abaixo do mínimo (${item.quantity}/${target})`,
+          ? 'Item de alvo fixo esgotado — reposição imediata'
+          : `Item abaixo do alvo fixo (${item.quantity}/${target})`,
         scheduleInfo,
         estimatedLeadTime: leadTimeDays,
         reorderPoint,
@@ -478,7 +488,8 @@ export class AutoOrderService {
       maxQuantity,
       hasActiveOrder: hasActivePendingOrder,
       incomingOrderedQuantity,
-      categoryType,
+      stockModel: item.stockModel ?? null,
+      fixedTargetQuantity: item.fixedTargetQuantity ?? null,
     });
     const isCritical =
       stockLevel === STOCK_LEVEL.NEGATIVE_STOCK ||
@@ -602,7 +613,7 @@ export class AutoOrderService {
   }
 
   /** Lightweight constructor for the response DTO. Keeps the shape stable
-   *  across TOOL / REGULAR / PPE branches. */
+   *  across FIXED_TARGET / CONSUMPTION / PPE branches. */
   private buildAnalysis(
     item: any,
     overrides: {
@@ -642,6 +653,8 @@ export class AutoOrderService {
       categoryId: item.categoryId,
       categoryName: item.category?.name ?? null,
       categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+      stockModel: (item.stockModel ?? null) as STOCK_MODEL | null,
+      fixedTargetQuantity: item.fixedTargetQuantity ?? null,
       lastOrderDate: overrides.lastOrderDate ?? null,
       daysSinceLastOrder: overrides.daysSinceLastOrder ?? null,
       hasActivePendingOrder: overrides.hasActivePendingOrder ?? false,
@@ -793,10 +806,11 @@ export class AutoOrderService {
       for (const item of candidates) {
         if (existingIds.has(item.id)) continue;
         if (scheduledItems.has(item.id)) continue;
-        if (isToolType(item.category?.type)) continue;
+        // Fixed-target items replenish only at zero — never pulled in early.
+        if (item.stockModel === STOCK_MODEL.FIXED_TARGET) continue;
         // PPE consolidation handled in per-item gate already; skip here to
         // avoid double-pulling PPE items outside their window.
-        if (item.category?.type === ITEM_CATEGORY_TYPE.PPE) continue;
+        if (item.ppeType != null) continue;
 
         const itemLike: ItemLike = {
           id: item.id,
@@ -808,6 +822,8 @@ export class AutoOrderService {
           boxQuantity: item.boxQuantity,
           monthlyConsumption: item.monthlyConsumption != null ? Number(item.monthlyConsumption) : null,
           category: item.category ? { type: item.category.type } : null,
+          stockModel: item.stockModel ?? null,
+          fixedTargetQuantity: item.fixedTargetQuantity ?? null,
           abcCategory: item.abcCategory ?? null,
           xyzCategory: item.xyzCategory ?? null,
           ppeType: item.ppeType ?? null,
@@ -893,6 +909,8 @@ export class AutoOrderService {
           categoryId: item.categoryId,
           categoryName: item.category?.name ?? null,
           categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+          stockModel: (item.stockModel ?? null) as STOCK_MODEL | null,
+          fixedTargetQuantity: item.fixedTargetQuantity ?? null,
           lastOrderDate: null,
           daysSinceLastOrder: null,
           hasActivePendingOrder: false,

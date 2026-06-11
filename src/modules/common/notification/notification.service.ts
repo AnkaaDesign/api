@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   InternalServerErrorException,
   Logger,
   Inject,
@@ -58,6 +59,7 @@ import {
   ENTITY_TYPE,
   NOTIFICATION_IMPORTANCE,
   CHANGE_ACTION,
+  SECTOR_PRIVILEGES,
 } from '../../../constants';
 import { NotificationGatewayService } from './notification-gateway.service';
 import { NotificationTrackingService } from './notification-tracking.service';
@@ -82,6 +84,34 @@ export class NotificationService {
     private readonly configurationService: NotificationConfigurationService,
     private readonly preferenceService: NotificationPreferenceService,
   ) {}
+
+  /**
+   * SECURITY (audit B13, decision 11): notifications/seen-notifications are
+   * self-scoped at the service layer; admin-wide operations require ADMIN.
+   * Returns true when the actor's sector has ADMIN privileges.
+   */
+  private async isActorAdmin(actorUserId?: string): Promise<boolean> {
+    if (!actorUserId) return false;
+    const actor = await this.prisma.user.findUnique({
+      where: { id: actorUserId },
+      select: { sector: { select: { privileges: true } } },
+    });
+    return actor?.sector?.privileges === SECTOR_PRIVILEGES.ADMIN;
+  }
+
+  /**
+   * Throws ForbiddenException unless the record belongs to the actor or the actor is ADMIN.
+   * No actor (internal/system call) passes. A null recordUserId (broadcast) passes.
+   */
+  private async enforceOwnership(
+    recordUserId: string | null | undefined,
+    actorUserId?: string,
+  ): Promise<void> {
+    if (!actorUserId) return;
+    if (!recordUserId || recordUserId === actorUserId) return;
+    if (await this.isActorAdmin(actorUserId)) return;
+    throw new ForbiddenException('Você não tem permissão para acessar este registro.');
+  }
 
   /**
    * Validar notificação completa
@@ -196,6 +226,7 @@ export class NotificationService {
   async getNotificationById(
     id: string,
     include?: NotificationInclude,
+    actorUserId?: string,
   ): Promise<NotificationGetUniqueResponse> {
     try {
       const notification = await this.notificationRepository.findById(id, { include });
@@ -204,13 +235,16 @@ export class NotificationService {
         throw new NotFoundException('Notificação não encontrada. Verifique se o ID está correto.');
       }
 
+      // SECURITY (audit B13): only the recipient (or ADMIN) may read by id.
+      await this.enforceOwnership(notification.userId, actorUserId);
+
       return {
         success: true,
         data: notification,
         message: 'Notificação carregada com sucesso.',
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
         throw error;
       }
       this.logger.error('Erro ao buscar notificação:', error);
@@ -348,6 +382,9 @@ export class NotificationService {
           );
         }
 
+        // SECURITY (audit B13): ownership backstop — only the recipient or ADMIN may update.
+        await this.enforceOwnership(existing.userId, userId);
+
         // Validate update data
         await this.validateNotification(data, id, tx);
 
@@ -402,7 +439,11 @@ export class NotificationService {
         message: 'Notificação atualizada com sucesso.',
       };
     } catch (error) {
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
+      ) {
         throw error;
       }
       this.logger.error('Erro ao atualizar notificação:', error);
@@ -423,6 +464,9 @@ export class NotificationService {
             'Notificação não encontrada. Verifique se o ID está correto.',
           );
         }
+
+        // SECURITY (audit B13): ownership backstop — only the recipient or ADMIN may delete.
+        await this.enforceOwnership(existing.userId, userId);
 
         // Store userId for real-time notification
         deletedNotificationUserId = existing.userId;
@@ -460,7 +504,7 @@ export class NotificationService {
         message: 'Notificação excluída com sucesso.',
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
         throw error;
       }
       this.logger.error('Erro ao excluir notificação:', error);
@@ -587,6 +631,20 @@ export class NotificationService {
     include?: NotificationInclude,
   ): Promise<NotificationBatchUpdateResponse<NotificationUpdateFormData>> {
     try {
+      // SECURITY (audit B13): non-ADMIN actors may only batch-update their OWN notifications.
+      if (userId && !(await this.isActorAdmin(userId))) {
+        const targetIds = (data.notifications as Array<{ id: string }>).map(n => n.id);
+        const targets = await this.prisma.notification.findMany({
+          where: { id: { in: targetIds } },
+          select: { id: true, userId: true },
+        });
+        if (targets.some(n => n.userId !== userId)) {
+          throw new ForbiddenException(
+            'Você não tem permissão para alterar notificações de outros usuários.',
+          );
+        }
+      }
+
       const result = await this.prisma.$transaction(async tx => {
         const batchResult = await this.notificationRepository.updateManyWithTransaction(
           tx,
@@ -635,6 +693,9 @@ export class NotificationService {
         message: `${result.totalUpdated} notificações atualizadas com sucesso.`,
       };
     } catch (error) {
+      if (error instanceof ForbiddenException) {
+        throw error;
+      }
       this.logger.error('Erro ao atualizar notificações em lote:', error);
       throw new InternalServerErrorException(
         'Erro ao atualizar notificações em lote. Tente novamente.',
@@ -647,6 +708,19 @@ export class NotificationService {
     userId?: string,
   ): Promise<NotificationBatchDeleteResponse> {
     try {
+      // SECURITY (audit B13): non-ADMIN actors may only batch-delete their OWN notifications.
+      if (userId && !(await this.isActorAdmin(userId))) {
+        const targets = await this.prisma.notification.findMany({
+          where: { id: { in: data.notificationIds } },
+          select: { id: true, userId: true },
+        });
+        if (targets.some(n => n.userId !== userId)) {
+          throw new ForbiddenException(
+            'Você não tem permissão para excluir notificações de outros usuários.',
+          );
+        }
+      }
+
       const result = await this.prisma.$transaction(async tx => {
         const batchResult = await this.notificationRepository.deleteManyWithTransaction(
           tx,
@@ -691,6 +765,9 @@ export class NotificationService {
         message: `${result.totalDeleted} notificações excluídas com sucesso.`,
       };
     } catch (error) {
+      if (error instanceof ForbiddenException) {
+        throw error;
+      }
       this.logger.error('Erro ao excluir notificações em lote:', error);
       throw new InternalServerErrorException(
         'Erro ao excluir notificações em lote. Tente novamente.',
@@ -1023,10 +1100,17 @@ export class NotificationService {
 
   async getSeenNotifications(
     params: SeenNotificationGetManyFormData,
+    actorUserId?: string,
   ): Promise<SeenNotificationGetManyResponse> {
     try {
+      // SECURITY (audit B13): non-ADMIN actors only see their OWN seen-notification records.
+      const scopedWhere =
+        actorUserId && !(await this.isActorAdmin(actorUserId))
+          ? { ...params.where, userId: actorUserId }
+          : params.where;
+
       const result = await this.seenNotificationRepository.findMany({
-        where: params.where,
+        where: scopedWhere,
         orderBy: params.orderBy || { seenAt: 'desc' },
         page: params.page,
         take: params.limit,
@@ -1055,6 +1139,7 @@ export class NotificationService {
   async getSeenNotificationById(
     id: string,
     include?: SeenNotificationInclude,
+    actorUserId?: string,
   ): Promise<SeenNotificationGetUniqueResponse> {
     try {
       const seenNotification = await this.seenNotificationRepository.findById(id, { include });
@@ -1063,13 +1148,16 @@ export class NotificationService {
         throw new NotFoundException('Visualização não encontrada. Verifique se o ID está correto.');
       }
 
+      // SECURITY (audit B13): only the owner (or ADMIN) may read by id.
+      await this.enforceOwnership(seenNotification.userId, actorUserId);
+
       return {
         success: true,
         data: seenNotification,
         message: 'Visualização carregada com sucesso.',
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
         throw error;
       }
       this.logger.error('Erro ao buscar visualização:', error);
@@ -1083,6 +1171,11 @@ export class NotificationService {
     userId?: string,
   ): Promise<SeenNotificationCreateResponse> {
     try {
+      // SECURITY (audit B13): non-ADMIN actors can only mark notifications as seen for THEMSELVES.
+      if (userId && data.userId !== userId && !(await this.isActorAdmin(userId))) {
+        data = { ...data, userId };
+      }
+
       const seenNotification = await this.prisma.$transaction(async tx => {
         const created = await this.seenNotificationRepository.createWithTransaction(tx, data, {
           include,
@@ -1130,6 +1223,9 @@ export class NotificationService {
           );
         }
 
+        // SECURITY (audit B13): only the owner (or ADMIN) may update.
+        await this.enforceOwnership(existing.userId, userId);
+
         const updated = await this.seenNotificationRepository.updateWithTransaction(tx, id, data, {
           include,
         });
@@ -1172,7 +1268,7 @@ export class NotificationService {
         message: 'Visualização atualizada com sucesso.',
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
         throw error;
       }
       this.logger.error('Erro ao atualizar visualização:', error);
@@ -1194,6 +1290,9 @@ export class NotificationService {
           );
         }
 
+        // SECURITY (audit B13): only the owner (or ADMIN) may delete.
+        await this.enforceOwnership(existing.userId, userId);
+
         await this.seenNotificationRepository.deleteWithTransaction(tx, id);
 
         // Log the deletion
@@ -1214,7 +1313,7 @@ export class NotificationService {
         message: 'Visualização excluída com sucesso.',
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
         throw error;
       }
       this.logger.error('Erro ao excluir visualização:', error);
@@ -1232,10 +1331,18 @@ export class NotificationService {
     userId?: string,
   ): Promise<SeenNotificationBatchCreateResponse<SeenNotificationCreateFormData>> {
     try {
+      // SECURITY (audit B13): non-ADMIN actors can only mark notifications as seen for THEMSELVES.
+      let seenNotifications = data.seenNotifications;
+      if (userId && !(await this.isActorAdmin(userId))) {
+        seenNotifications = seenNotifications.map(item =>
+          item.userId === userId ? item : { ...item, userId },
+        );
+      }
+
       const result = await this.prisma.$transaction(async tx => {
         const batchResult = await this.seenNotificationRepository.createManyWithTransaction(
           tx,
-          data.seenNotifications,
+          seenNotifications,
           { include },
         );
 
@@ -1290,6 +1397,20 @@ export class NotificationService {
     include?: SeenNotificationInclude,
   ): Promise<SeenNotificationBatchUpdateResponse<SeenNotificationUpdateFormData>> {
     try {
+      // SECURITY (audit B13): non-ADMIN actors may only batch-update their OWN records.
+      if (userId && !(await this.isActorAdmin(userId))) {
+        const targetIds = (data.seenNotifications as Array<{ id: string }>).map(s => s.id);
+        const targets = await this.prisma.seenNotification.findMany({
+          where: { id: { in: targetIds } },
+          select: { id: true, userId: true },
+        });
+        if (targets.some(s => s.userId !== userId)) {
+          throw new ForbiddenException(
+            'Você não tem permissão para alterar visualizações de outros usuários.',
+          );
+        }
+      }
+
       const result = await this.prisma.$transaction(async tx => {
         const batchResult = await this.seenNotificationRepository.updateManyWithTransaction(
           tx,
@@ -1338,6 +1459,9 @@ export class NotificationService {
         message: `${result.totalUpdated} visualizações atualizadas com sucesso.`,
       };
     } catch (error) {
+      if (error instanceof ForbiddenException) {
+        throw error;
+      }
       this.logger.error('Erro ao atualizar visualizações em lote:', error);
       throw new InternalServerErrorException(
         'Erro ao atualizar visualizações em lote. Tente novamente.',
@@ -1350,6 +1474,19 @@ export class NotificationService {
     userId?: string,
   ): Promise<SeenNotificationBatchDeleteResponse> {
     try {
+      // SECURITY (audit B13): non-ADMIN actors may only batch-delete their OWN records.
+      if (userId && !(await this.isActorAdmin(userId))) {
+        const targets = await this.prisma.seenNotification.findMany({
+          where: { id: { in: data.seenNotificationIds } },
+          select: { id: true, userId: true },
+        });
+        if (targets.some(s => s.userId !== userId)) {
+          throw new ForbiddenException(
+            'Você não tem permissão para excluir visualizações de outros usuários.',
+          );
+        }
+      }
+
       const result = await this.prisma.$transaction(async tx => {
         const batchResult = await this.seenNotificationRepository.deleteManyWithTransaction(
           tx,
@@ -1394,6 +1531,9 @@ export class NotificationService {
         message: `${result.totalDeleted} visualizações excluídas com sucesso.`,
       };
     } catch (error) {
+      if (error instanceof ForbiddenException) {
+        throw error;
+      }
       this.logger.error('Erro ao excluir visualizações em lote:', error);
       throw new InternalServerErrorException(
         'Erro ao excluir visualizações em lote. Tente novamente.',

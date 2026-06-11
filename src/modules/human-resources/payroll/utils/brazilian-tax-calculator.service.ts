@@ -61,8 +61,8 @@ export interface IRRFCalculationDetails {
 }
 
 export interface DSRCalculationDetails {
-  workType: 'MONTHLY' | 'HOURLY' | 'COMMISSION' | 'OVERTIME';
-  baseValue: number; // Total commissions, hourly pay, or overtime in the month
+  workType: 'MONTHLY' | 'HOURLY' | 'BONIFICATION' | 'OVERTIME';
+  baseValue: number; // Total bonifications, hourly pay, or overtime in the month
   workingDaysInMonth: number;
   sundays: number;
   holidays: number;
@@ -408,11 +408,11 @@ export class BrazilianTaxCalculatorService {
    * Rules:
    * - MONTHLY WORKERS: DSR is already included in monthly salary
    * - HOURLY WORKERS: (Total hours in month / Working days) × (Sundays + Holidays)
-   * - COMMISSION WORKERS: (Total commissions / Working days) × (Sundays + Holidays)
+   * - BONIFICATION WORKERS: (Total bonifications / Working days) × (Sundays + Holidays)
    * - OVERTIME: (Total overtime / Working days) × (Sundays + Holidays)
    */
   calculateDSR(params: {
-    workType: 'MONTHLY' | 'HOURLY' | 'COMMISSION' | 'OVERTIME';
+    workType: 'MONTHLY' | 'HOURLY' | 'BONIFICATION' | 'OVERTIME';
     baseValue: number; // Total amount for the month
     workingDaysInMonth: number; // Mon-Sat (Saturdays count as working days)
     sundaysInMonth: number;
@@ -438,15 +438,15 @@ export class BrazilianTaxCalculatorService {
       };
     }
 
-    // For hourly, commission, and overtime: calculate DSR
+    // For hourly, bonification, and overtime: calculate DSR
     const dsrDays = sundaysInMonth + holidaysInMonth;
     const dsrAmount = workingDaysInMonth > 0 ? (baseValue / workingDaysInMonth) * dsrDays : 0;
 
     const formula =
       workType === 'HOURLY'
         ? `(Total horas × Valor hora / Dias úteis) × (Domingos + Feriados)`
-        : workType === 'COMMISSION'
-          ? `(Total comissões / Dias úteis) × (Domingos + Feriados)`
+        : workType === 'BONIFICATION'
+          ? `(Total bonificações / Dias úteis) × (Domingos + Feriados)`
           : `(Total HE / Dias úteis) × (Domingos + Feriados)`;
 
     return {

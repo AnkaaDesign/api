@@ -46,20 +46,27 @@ export class InvoiceService {
         include: {
           customer: { select: { fantasyName: true } },
           task: { select: { id: true, name: true, serialNumber: true } },
+          externalOperation: { select: { id: true } },
         },
       });
       if (!invoice) return;
 
       const customerName = invoice.customer?.fantasyName || 'N/A';
-      const taskName = invoice.task?.name || 'N/A';
       const taskId = invoice.task?.id ?? invoice.taskId ?? null;
+      const withdrawalId = invoice.externalOperation?.id ?? invoice.externalOperationId ?? null;
+      const taskName = withdrawalId ? 'Operação Externa' : invoice.task?.name || 'N/A';
+      const refLabel = withdrawalId ? 'da operação externa' : `da tarefa ${taskName}`;
 
-      const webUrl = taskId ? `/financeiro/faturamento/detalhes/${taskId}` : undefined;
-      const mobileUrl = taskId ? `financial/${taskId}` : undefined;
+      const webUrl = withdrawalId
+        ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : taskId
+          ? `/financeiro/faturamento/detalhes/${taskId}`
+          : undefined;
+      const mobileUrl = !withdrawalId && taskId ? `financial/${taskId}` : undefined;
 
       await this.dispatchService.dispatchByConfiguration('invoice.cancelled', 'system', {
         entityType: 'Invoice',
-        entityId: taskId ?? invoice.id,
+        entityId: taskId ?? withdrawalId ?? invoice.id,
         action: 'cancelled',
         data: {
           customerName,
@@ -67,10 +74,11 @@ export class InvoiceService {
           reason: reason || 'Não especificado',
           invoiceId: invoice.id,
           taskId: taskId || undefined,
+          externalOperationId: withdrawalId || undefined,
         },
         overrides: {
           title: 'Fatura Cancelada',
-          body: `A fatura da tarefa ${taskName} (${customerName}) foi cancelada.${reason ? `\nMotivo: ${reason}` : ''}`,
+          body: `A fatura ${refLabel} (${customerName}) foi cancelada.${reason ? `\nMotivo: ${reason}` : ''}`,
           relatedEntityType: 'INVOICE',
           ...(webUrl ? { webUrl } : {}),
           ...(mobileUrl ? { mobileUrl } : {}),

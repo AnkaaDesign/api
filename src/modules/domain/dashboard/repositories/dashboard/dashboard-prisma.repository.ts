@@ -25,7 +25,6 @@ import {
 import {
   ACTIVITY_OPERATION,
   ACTIVITY_REASON,
-  ITEM_CATEGORY_TYPE,
   ORDER_STATUS,
   STOCK_LEVEL,
   TASK_STATUS,
@@ -114,6 +113,9 @@ export class DashboardPrismaRepository implements DashboardRepository {
         quantity: true,
         maxQuantity: true,
         reorderPoint: true,
+        isBorrowable: true,
+        stockModel: true,
+        fixedTargetQuantity: true,
         category: { select: { type: true } },
         prices: {
           orderBy: { createdAt: 'desc' },
@@ -165,7 +167,8 @@ export class DashboardPrismaRepository implements DashboardRepository {
         reorderPoint: item.reorderPoint,
         maxQuantity: item.maxQuantity,
         hasActiveOrder,
-        categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+        stockModel: item.stockModel ?? null,
+        fixedTargetQuantity: item.fixedTargetQuantity ?? null,
       });
 
       // Count items by stock level

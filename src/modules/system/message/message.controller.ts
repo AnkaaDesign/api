@@ -93,14 +93,17 @@ export class MessageController {
   })
   async findAll(@Query() filters: FilterMessageDto) {
     const result = await this.messageService.findAll(filters);
+    const totalPages = Math.ceil(result.total / result.limit);
     return {
       success: true,
       data: result.data,
       meta: {
-        total: result.total,
+        totalRecords: result.total,
         page: result.page,
-        limit: result.limit,
-        totalPages: Math.ceil(result.total / result.limit),
+        take: result.limit,
+        totalPages,
+        hasNextPage: result.page < totalPages,
+        hasPreviousPage: result.page > 1,
       },
       message: 'Mensagens recuperadas com sucesso',
     };

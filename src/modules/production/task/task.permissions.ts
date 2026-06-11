@@ -6,30 +6,32 @@ import { SECTOR_PRIVILEGES } from '../../../constants/enums';
  * When adding a new task field, add it to the appropriate domain.
  */
 export const TASK_FIELD_DOMAINS = {
-  /** Task identity: name, customer, vehicle info */
-  identity: ['name', 'details', 'customerId', 'serialNumber', 'chassis'],
+  /** Task identity: name, customer, vehicle info (incl. create-only serial range helpers) */
+  identity: ['name', 'details', 'customerId', 'serialNumber', 'chassis', 'serialNumberFrom', 'serialNumberTo'],
   /** Scheduling dates */
   dates: ['entryDate', 'term', 'forecastDate', 'forecastReason', 'cleared'],
   /** Task lifecycle status */
   status: ['status', 'startedAt', 'finishedAt'],
   /** Free-text observation */
   observation: ['observation'],
-  /** Sales commission */
-  commission: ['commission'],
+  /** Task bonification status */
+  bonification: ['bonification'],
   /** Truck/vehicle info (plate, chassis, category, spot, layouts) */
   truck: ['truck'],
-  /** Responsible users */
-  responsibles: ['responsibleIds', 'responsibles'],
+  /** Responsible users (incl. inline-created responsibles on create) */
+  responsibles: ['responsibleIds', 'responsibles', 'newResponsibles'],
   /** Artwork files and approval statuses */
   artworks: ['artworkIds', 'artworkStatuses'],
   /** Paint selection */
   paint: ['paintId', 'paintIds'],
   /** Cutting plans */
-  cuts: ['cuts'],
+  cuts: ['cuts', 'cut'],
+  /** Airbrushings (nested create through the task form) */
+  airbrushings: ['airbrushings'],
   /** Service orders */
   serviceOrders: ['serviceOrders'],
   /** Quote configuration */
-  quote: ['quote'],
+  quote: ['quote', 'quoteId'],
   /** Base reference files */
   baseFiles: ['baseFileIds'],
   /** Project files */
@@ -77,7 +79,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'identity',
     'dates',
     'status',
-    'commission',
+    'bonification',
     'truck',
     'responsibles',
     'artworks',
@@ -90,7 +92,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'meta',
   ],
 
-  [SECTOR_PRIVILEGES.PRODUCTION]: ['status', 'observation', 'cuts', 'commission', 'meta'],
+  [SECTOR_PRIVILEGES.PRODUCTION]: ['status', 'meta'],
 
   [SECTOR_PRIVILEGES.DESIGNER]: ['artworks', 'paint', 'cuts', 'serviceOrders', 'baseFiles', 'meta'],
 
@@ -99,7 +101,6 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'dates',
     'status',
     'truck',
-    'serviceOrders',
     'responsibles',
     'baseFiles',
     'projectFiles',
@@ -131,7 +132,105 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'meta',
   ],
 
-  [SECTOR_PRIVILEGES.WAREHOUSE]: ['cuts', 'meta'],
+  [SECTOR_PRIVILEGES.WAREHOUSE]: ['meta'],
+};
+
+/**
+ * Defines which field domains each sector may provide when CREATING a task
+ * (POST /tasks, POST /tasks/batch, serial-range create).
+ *
+ * Creation is broader than update on purpose: the create form submits the full
+ * task snapshot (dates, status default, sector, default "Em Negociação" SO,
+ * truck, files...), so every creator role needs the structural domains.
+ * What stays restricted at create:
+ * - bonification: COMMERCIAL only (payroll-adjacent)
+ * - quote/airbrushings (money): COMMERCIAL + FINANCIAL only
+ * - financialDocs/reimbursements: FINANCIAL only
+ * - cuts: nobody below ADMIN (cut creation is DESIGNER/ADMIN via /cuts, and
+ *   DESIGNER cannot create tasks)
+ * - ADMIN is omitted — unrestricted.
+ */
+export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldDomain[]>> = {
+  [SECTOR_PRIVILEGES.COMMERCIAL]: [
+    'identity',
+    'dates',
+    'status',
+    'bonification',
+    'truck',
+    'responsibles',
+    'artworks',
+    'paint',
+    'serviceOrders',
+    'quote',
+    'airbrushings',
+    'baseFiles',
+    'projectFiles',
+    'checkinFiles',
+    'checkoutFiles',
+    'observation',
+    'sector',
+    'meta',
+  ],
+
+  [SECTOR_PRIVILEGES.FINANCIAL]: [
+    'identity',
+    'dates',
+    'status',
+    'truck',
+    'responsibles',
+    'artworks',
+    'paint',
+    'serviceOrders',
+    'quote',
+    'airbrushings',
+    'financialDocs',
+    'reimbursements',
+    'baseFiles',
+    'projectFiles',
+    'checkinFiles',
+    'checkoutFiles',
+    'observation',
+    'sector',
+    'meta',
+  ],
+
+  [SECTOR_PRIVILEGES.LOGISTIC]: [
+    'identity',
+    'dates',
+    'status',
+    'truck',
+    'responsibles',
+    'artworks',
+    'paint',
+    'serviceOrders',
+    'baseFiles',
+    'projectFiles',
+    'checkinFiles',
+    'checkoutFiles',
+    'serviceOrderFiles',
+    'observation',
+    'sector',
+    'meta',
+  ],
+
+  [SECTOR_PRIVILEGES.PRODUCTION_MANAGER]: [
+    'identity',
+    'dates',
+    'status',
+    'truck',
+    'responsibles',
+    'artworks',
+    'paint',
+    'serviceOrders',
+    'baseFiles',
+    'projectFiles',
+    'checkinFiles',
+    'checkoutFiles',
+    'serviceOrderFiles',
+    'observation',
+    'sector',
+    'meta',
+  ],
 };
 
 /** Portuguese labels for error messages */
@@ -140,12 +239,13 @@ const FIELD_DOMAIN_LABELS: Record<FieldDomain, string> = {
   dates: 'datas',
   status: 'status',
   observation: 'observação',
-  commission: 'comissão',
+  bonification: 'bonificação',
   truck: 'caminhão',
   responsibles: 'responsáveis',
   artworks: 'artes',
   paint: 'tintas',
   cuts: 'plano de corte',
+  airbrushings: 'aerografias',
   serviceOrders: 'ordens de serviço',
   quote: 'orçamento/precificação',
   baseFiles: 'arquivos base',
@@ -162,24 +262,30 @@ const FIELD_DOMAIN_LABELS: Record<FieldDomain, string> = {
 /**
  * Returns the flat list of allowed field names for a sector, or null for ADMIN (no restrictions).
  */
-export function getAllowedTaskUpdateFields(privilege: SECTOR_PRIVILEGES): string[] | null {
+export function getAllowedTaskUpdateFields(
+  privilege: SECTOR_PRIVILEGES,
+  mode: 'update' | 'create' = 'update',
+): string[] | null {
   if (privilege === SECTOR_PRIVILEGES.ADMIN) return null;
 
-  const domains = SECTOR_TASK_UPDATE_ACCESS[privilege];
+  const accessMap = mode === 'create' ? SECTOR_TASK_CREATE_ACCESS : SECTOR_TASK_UPDATE_ACCESS;
+  const domains = accessMap[privilege];
   if (!domains) return [];
 
   return domains.flatMap(domain => [...TASK_FIELD_DOMAINS[domain]]);
 }
 
 /**
- * Validates that the sector only updates fields it has access to.
+ * Validates that the sector only writes fields it has access to
+ * (mode 'update' = PUT /tasks paths, mode 'create' = POST /tasks paths).
  * Throws BadRequestException with a clear Portuguese message on violation.
  */
 export function validateSectorFieldAccess(
   userPrivilege: SECTOR_PRIVILEGES,
   data: Record<string, unknown>,
+  mode: 'update' | 'create' = 'update',
 ): void {
-  const allowedFields = getAllowedTaskUpdateFields(userPrivilege);
+  const allowedFields = getAllowedTaskUpdateFields(userPrivilege, mode);
 
   // ADMIN — no restrictions
   if (allowedFields === null) return;
@@ -195,7 +301,8 @@ export function validateSectorFieldAccess(
   const disallowedFields = attemptedFields.filter(f => !allowedFields.includes(f));
 
   if (disallowedFields.length > 0) {
-    const domains = SECTOR_TASK_UPDATE_ACCESS[userPrivilege] || [];
+    const accessMap = mode === 'create' ? SECTOR_TASK_CREATE_ACCESS : SECTOR_TASK_UPDATE_ACCESS;
+    const domains = accessMap[userPrivilege] || [];
     const allowedDescription = domains
       .filter(d => d !== 'meta')
       .map(d => FIELD_DOMAIN_LABELS[d])

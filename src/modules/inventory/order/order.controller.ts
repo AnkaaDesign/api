@@ -484,6 +484,14 @@ export class OrderItemController {
   // Dynamic routes (must come after static routes)
   // =====================
 
+  // Linhas temporárias não vinculadas + candidatos do catálogo para conversão.
+  // Declarado ANTES de @Get(':id') para não ser capturado pela rota dinâmica.
+  @Get('temporary/suggestions')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  async findTemporaryItemSuggestions() {
+    return this.orderItemService.findTemporaryItemSuggestions();
+  }
+
   @Get(':id')
   @Roles(
     SECTOR_PRIVILEGES.MAINTENANCE,

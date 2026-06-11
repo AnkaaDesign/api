@@ -227,8 +227,16 @@ export class NotificationQueueProcessor implements OnModuleInit {
     try {
       const parsed = JSON.parse(actionUrl);
       if (parsed && typeof parsed === 'object' && parsed.web) {
+        // Some emit sites hand-build RELATIVE web paths inside the JSON payload
+        // (ppe listener, invoice controller, boleto scheduler). Emails need an
+        // absolute URL, so prefix the web app base URL here — same treatment the
+        // non-JSON relative-path branch below already gets.
+        const web =
+          typeof parsed.web === 'string' && !/^https?:\/\//.test(parsed.web)
+            ? `${this.webAppUrl}${parsed.web.startsWith('/') ? '' : '/'}${parsed.web}`
+            : parsed.web;
         return {
-          web: parsed.web,
+          web,
           mobile: parsed.mobile,
           universalLink: parsed.universalLink,
         };

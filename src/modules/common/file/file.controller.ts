@@ -28,6 +28,8 @@ import { FileMigrationService } from './services/file-migration.service';
 import { multerConfig } from './config/upload.config';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Public } from '@modules/common/auth/decorators/public.decorator';
+import { Roles } from '@modules/common/auth/decorators/roles.decorator';
+import { SECTOR_PRIVILEGES } from '../../../constants';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
@@ -71,6 +73,23 @@ import type {
   FileBatchUpdateResponse,
   FileBatchDeleteResponse,
 } from '../../../types';
+
+// File model has no uploader/owner field, so per-record ownership cannot be enforced.
+// Mutations are gated to every internal role EXCEPT BASIC and EXTERNAL.
+const FILE_WRITE_ROLES = [
+  SECTOR_PRIVILEGES.PRODUCTION,
+  SECTOR_PRIVILEGES.MAINTENANCE,
+  SECTOR_PRIVILEGES.WAREHOUSE,
+  SECTOR_PRIVILEGES.PLOTTING,
+  SECTOR_PRIVILEGES.ADMIN,
+  SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+  SECTOR_PRIVILEGES.DESIGNER,
+  SECTOR_PRIVILEGES.FINANCIAL,
+  SECTOR_PRIVILEGES.LOGISTIC,
+  SECTOR_PRIVILEGES.COMMERCIAL,
+  SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+  SECTOR_PRIVILEGES.AIRBRUSHING,
+] as const;
 
 @Controller('files')
 @UseGuards(AuthGuard)
@@ -310,6 +329,7 @@ export class FileController {
   }
 
   @Put('batch')
+  @Roles(...FILE_WRITE_ROLES)
   @WriteRateLimit()
   async batchUpdate(
     @Body(new ZodValidationPipe(fileBatchUpdateSchema)) data: FileBatchUpdateFormData,
@@ -320,6 +340,7 @@ export class FileController {
   }
 
   @Delete('batch')
+  @Roles(...FILE_WRITE_ROLES)
   @HttpCode(HttpStatus.OK)
   @WriteRateLimit()
   async batchDelete(
@@ -331,6 +352,7 @@ export class FileController {
 
   // File Organization Endpoints
   @Get('organization/status')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
   async getOrganizationStatus(): Promise<{
     success: boolean;
@@ -346,6 +368,7 @@ export class FileController {
   }
 
   @Post('organization/trigger')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   @WriteRateLimit()
   async triggerOrganization(): Promise<{
@@ -363,6 +386,7 @@ export class FileController {
 
   // File Migration Endpoints
   @Get('migration/analysis')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
   async getMigrationAnalysis(): Promise<{
     success: boolean;
@@ -378,6 +402,7 @@ export class FileController {
   }
 
   @Get('migration/root-files')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
   async getRootFiles(): Promise<{
     success: boolean;
@@ -393,6 +418,7 @@ export class FileController {
   }
 
   @Get('migration/duplicates')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
   async getDuplicateCustomers(): Promise<{
     success: boolean;
@@ -408,6 +434,7 @@ export class FileController {
   }
 
   @Post('migration/run')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   @WriteRateLimit()
   async runMigration(@Query('dryRun') dryRun?: string): Promise<{
@@ -427,6 +454,7 @@ export class FileController {
   }
 
   @Post('migration/consolidate')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   @WriteRateLimit()
   async consolidateCustomers(
@@ -501,6 +529,7 @@ export class FileController {
   }
 
   @Put(':id')
+  @Roles(...FILE_WRITE_ROLES)
   @WriteRateLimit()
   async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -512,6 +541,7 @@ export class FileController {
   }
 
   @Delete(':id')
+  @Roles(...FILE_WRITE_ROLES)
   @WriteRateLimit()
   async delete(
     @Param('id', ParseUUIDPipe) id: string,

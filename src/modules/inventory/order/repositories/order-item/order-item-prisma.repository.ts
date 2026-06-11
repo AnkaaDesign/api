@@ -118,7 +118,11 @@ export class OrderItemPrismaRepository
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: OrderItemUpdateFormData,
   ): Prisma.OrderItemUpdateInput {
-    const updateData = { ...formData };
+    // Linking a temporary line to a catalog item: scalar itemId → relation
+    // connect (mirrors mapCreateFormDataToDatabaseCreateInput). Destructured
+    // out so the spread below stays a pure scalar update input.
+    const { itemId, ...scalarFormData } = formData;
+    const updateData = { ...scalarFormData } as typeof formData;
 
     // Auto-set fulfilledAt when receivedQuantity > 0 and fulfilledAt is not already set
     // (Items must be fulfilled before they can be received)
@@ -144,6 +148,9 @@ export class OrderItemPrismaRepository
       updateData.receivedAt = undefined;
     }
 
+    if (itemId) {
+      return { ...updateData, item: { connect: { id: itemId } } };
+    }
     return updateData;
   }
 

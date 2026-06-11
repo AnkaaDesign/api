@@ -2,6 +2,7 @@
 
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   InternalServerErrorException,
@@ -44,15 +45,15 @@ import {
   ENTITY_TYPE,
   CHANGE_ACTION,
   ORDER_STATUS,
-  EXTERNAL_WITHDRAWAL_STATUS,
+  EXTERNAL_OPERATION_STATUS,
   ACTIVE_USER_STATUSES,
-  ITEM_CATEGORY_TYPE,
+  SECTOR_PRIVILEGES,
 } from '../../../constants/enums';
 import {
   REGULAR_CONSUMPTION_REASONS,
 } from '../../../constants/inventory-config';
 import { getStatusOrder } from '../../../utils/order';
-import { EXTERNAL_WITHDRAWAL_STATUS_ORDER } from '../../../constants/sortOrders';
+import { EXTERNAL_OPERATION_STATUS_ORDER } from '../../../constants/sortOrders';
 import { OrderItemEnteredInventoryEvent } from '../order/order.events';
 import { ItemRecomputeService } from '../services/item-recompute.service';
 import { StockNotificationService } from '../services/stock-notification.service';
@@ -69,7 +70,8 @@ interface StockNotificationSnapshot {
   newQuantity: number;
   reorderPoint: number | null;
   maxQuantity: number | null;
-  categoryType: ITEM_CATEGORY_TYPE | null;
+  stockModel: string | null;
+  fixedTargetQuantity: number | null;
 }
 
 @Injectable()
@@ -131,7 +133,8 @@ export class ActivityService {
       reorderPoint: snap.reorderPoint,
       maxQuantity: snap.maxQuantity,
       hasActiveOrder: false,
-      categoryType: snap.categoryType,
+      stockModel: snap.stockModel,
+      fixedTargetQuantity: snap.fixedTargetQuantity,
     });
 
     // Shape mirrors AtomicStockCalculatorService output so we can reuse
@@ -284,25 +287,25 @@ export class ActivityService {
   /**
    * Check if an item has pending external withdrawal returns
    */
-  private async hasExternalWithdrawalItemsToReturn(
+  private async hasExternalOperationItemsToReturn(
     tx: PrismaTransaction,
     itemId: string,
   ): Promise<boolean> {
-    const externalWithdrawalItems = await tx.externalWithdrawalItem.findMany({
+    const externalOperationItems = await tx.externalOperationItem.findMany({
       where: {
         itemId,
-        externalWithdrawal: {
+        externalOperation: {
           status: {
             in: [
-              EXTERNAL_WITHDRAWAL_STATUS.PENDING as any,
-              EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED as any,
+              EXTERNAL_OPERATION_STATUS.PENDING as any,
+              EXTERNAL_OPERATION_STATUS.PARTIALLY_RETURNED as any,
             ],
           },
         },
       },
     });
 
-    return externalWithdrawalItems.some(item => item.returnedQuantity < item.withdrawedQuantity);
+    return externalOperationItems.some(item => item.returnedQuantity < item.withdrawedQuantity);
   }
 
   /**
@@ -310,7 +313,7 @@ export class ActivityService {
    * Business Rules:
    * - If operation is OUTBOUND → reason should be PRODUCTION_USAGE
    * - If operation is INBOUND:
-   *   - If there are external withdrawal items to return → EXTERNAL_WITHDRAWAL_RETURN
+   *   - If there are external withdrawal items to return → EXTERNAL_OPERATION_RETURN
    *   - If user is assigned → reason should be RETURN
    *   - If no user assigned → reason should be ORDER_RECEIVED
    *   - User assignment is optional for INBOUND operations
@@ -334,10 +337,10 @@ export class ActivityService {
 
     if (operation === ACTIVITY_OPERATION.INBOUND) {
       // Check if this item has external withdrawal items that need to be returned
-      const hasExternalWithdrawals = await this.hasExternalWithdrawalItemsToReturn(tx, itemId);
+      const hasExternalOperations = await this.hasExternalOperationItemsToReturn(tx, itemId);
 
-      if (hasExternalWithdrawals) {
-        return ACTIVITY_REASON.EXTERNAL_WITHDRAWAL_RETURN;
+      if (hasExternalOperations) {
+        return ACTIVITY_REASON.EXTERNAL_OPERATION_RETURN;
       }
 
       // User assignment is optional for INBOUND operations
@@ -352,6 +355,29 @@ export class ActivityService {
   }
 
   /**
+   * Side-door gate: activities with reason EXTERNAL_OPERATION_RETURN mutate
+   * ExternalOperationItem.returnedQuantity and the operation status (via
+   * syncExternalOperationItemReturned). ExternalOperation is ADMIN-only, so only
+   * ADMIN actors may use this reason from the HTTP-originated paths.
+   * Internal/system calls don't thread a privilege (userPrivilege === undefined)
+   * and are not gated.
+   */
+  private assertExternalOperationReturnReasonAllowed(
+    reason: string | null | undefined,
+    userPrivilege?: string,
+  ): void {
+    if (
+      userPrivilege !== undefined &&
+      userPrivilege !== SECTOR_PRIVILEGES.ADMIN &&
+      reason === ACTIVITY_REASON.EXTERNAL_OPERATION_RETURN
+    ) {
+      throw new ForbiddenException(
+        'Apenas administradores podem registrar movimentações com o motivo "Devolução de Operação Externa"',
+      );
+    }
+  }
+
+  /**
    * Criar uma nova atividade
    */
   async create(
@@ -359,8 +385,10 @@ export class ActivityService {
     include?: ActivityInclude,
     userId?: string,
     options?: { skipSync?: boolean },
+    userPrivilege?: string,
   ): Promise<ActivityCreateResponse> {
     try {
+      this.assertExternalOperationReturnReasonAllowed(data.reason, userPrivilege);
       const stockSnapshots: StockNotificationSnapshot[] = [];
       const activity = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Determine reason based on business rules if not provided
@@ -424,8 +452,8 @@ export class ActivityService {
         // Only sync with external withdrawals if this activity is specifically for external withdrawal returns
         // This avoids unnecessary database queries for unrelated activities
         // Skip sync if explicitly requested (e.g., from batch operations that already handle sync)
-        if (data.reason === ACTIVITY_REASON.EXTERNAL_WITHDRAWAL_RETURN && !options?.skipSync) {
-          await this.syncExternalWithdrawalItemReturned(
+        if (data.reason === ACTIVITY_REASON.EXTERNAL_OPERATION_RETURN && !options?.skipSync) {
+          await this.syncExternalOperationItemReturned(
             tx,
             data.itemId,
             data.operation,
@@ -485,7 +513,11 @@ export class ActivityService {
       };
     } catch (error: any) {
       this.logger.error('Erro ao criar atividade:', error);
-      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException
+      ) {
         throw error;
       }
       throw new InternalServerErrorException('Erro ao criar atividade. Por favor, tente novamente');
@@ -500,8 +532,10 @@ export class ActivityService {
     data: ActivityUpdateFormData,
     include?: ActivityInclude,
     userId?: string,
+    userPrivilege?: string,
   ): Promise<ActivityUpdateResponse> {
     try {
+      this.assertExternalOperationReturnReasonAllowed(data.reason, userPrivilege);
       const stockSnapshots: StockNotificationSnapshot[] = [];
       const updatedActivity = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar atividade existente
@@ -648,18 +682,18 @@ export class ActivityService {
 
         // Only sync with external withdrawals if this activity is related to external withdrawal returns
         // Check both old and new reasons to handle updates properly
-        const isExternalWithdrawalRelated =
-          existingActivity.reason === ACTIVITY_REASON.EXTERNAL_WITHDRAWAL_RETURN ||
-          data.reason === ACTIVITY_REASON.EXTERNAL_WITHDRAWAL_RETURN;
+        const isExternalOperationRelated =
+          existingActivity.reason === ACTIVITY_REASON.EXTERNAL_OPERATION_RETURN ||
+          data.reason === ACTIVITY_REASON.EXTERNAL_OPERATION_RETURN;
 
-        if (isExternalWithdrawalRelated) {
+        if (isExternalOperationRelated) {
           // Sync with external withdrawals - handle the old state first
           if (
             oldOperation === ACTIVITY_OPERATION.INBOUND &&
-            existingActivity.reason === ACTIVITY_REASON.EXTERNAL_WITHDRAWAL_RETURN
+            existingActivity.reason === ACTIVITY_REASON.EXTERNAL_OPERATION_RETURN
           ) {
             // Reverse the old return
-            await this.syncExternalWithdrawalItemReturned(
+            await this.syncExternalOperationItemReturned(
               tx,
               existingActivity.itemId,
               ACTIVITY_OPERATION.OUTBOUND,
@@ -670,8 +704,8 @@ export class ActivityService {
           }
 
           // Apply new sync for external withdrawals if the new reason is external withdrawal return
-          if (data.reason === ACTIVITY_REASON.EXTERNAL_WITHDRAWAL_RETURN) {
-            await this.syncExternalWithdrawalItemReturned(
+          if (data.reason === ACTIVITY_REASON.EXTERNAL_OPERATION_RETURN) {
+            await this.syncExternalOperationItemReturned(
               tx,
               itemId,
               newOperation,
@@ -718,7 +752,11 @@ export class ActivityService {
       };
     } catch (error: any) {
       this.logger.error('Erro ao atualizar atividade:', error);
-      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException
+      ) {
         throw error;
       }
       throw new InternalServerErrorException(
@@ -924,11 +962,11 @@ export class ActivityService {
         }
 
         // Only sync with external withdrawals if this activity was related to external withdrawal returns
-        if (activityInTransaction.reason === ACTIVITY_REASON.EXTERNAL_WITHDRAWAL_RETURN) {
+        if (activityInTransaction.reason === ACTIVITY_REASON.EXTERNAL_OPERATION_RETURN) {
           // Sync with external withdrawals - reverse the operation
           if (activityInTransaction.operation === ACTIVITY_OPERATION.INBOUND) {
             // If it was a return (INBOUND), reverse it by treating as OUTBOUND
-            await this.syncExternalWithdrawalItemReturned(
+            await this.syncExternalOperationItemReturned(
               tx,
               activityInTransaction.itemId,
               ACTIVITY_OPERATION.OUTBOUND,
@@ -980,7 +1018,11 @@ export class ActivityService {
     data: ActivityBatchCreateFormData,
     include?: ActivityInclude,
     userId?: string,
+    userPrivilege?: string,
   ): Promise<ActivityBatchCreateResponse<ActivityCreateFormData>> {
+    for (const activity of data.activities) {
+      this.assertExternalOperationReturnReasonAllowed(activity.reason, userPrivilege);
+    }
     try {
       const stockSnapshots: StockNotificationSnapshot[] = [];
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -1253,7 +1295,11 @@ export class ActivityService {
     data: ActivityBatchUpdateFormData,
     include?: ActivityInclude,
     userId?: string,
+    userPrivilege?: string,
   ): Promise<ActivityBatchUpdateResponse<ActivityUpdateFormData>> {
+    for (const activity of data.activities) {
+      this.assertExternalOperationReturnReasonAllowed(activity.data.reason, userPrivilege);
+    }
     try {
       const stockSnapshots: StockNotificationSnapshot[] = [];
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -1682,10 +1728,10 @@ export class ActivityService {
           }
           break;
 
-        case ACTIVITY_REASON.EXTERNAL_WITHDRAWAL_RETURN:
+        case ACTIVITY_REASON.EXTERNAL_OPERATION_RETURN:
           if (operation !== ACTIVITY_OPERATION.INBOUND) {
             throw new BadRequestException(
-              'Devolução de retirada externa deve ser uma operação de entrada',
+              'Devolução de operação externa deve ser uma operação de entrada',
             );
           }
           break;
@@ -1728,7 +1774,8 @@ export class ActivityService {
         quantity: true,
         maxQuantity: true,
         reorderPoint: true,
-        category: { select: { type: true } },
+        stockModel: true,
+        fixedTargetQuantity: true,
         prices: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -1795,7 +1842,8 @@ export class ActivityService {
         newQuantity,
         reorderPoint: item.reorderPoint ?? null,
         maxQuantity: item.maxQuantity ?? null,
-        categoryType: (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null,
+        stockModel: item.stockModel ?? null,
+        fixedTargetQuantity: item.fixedTargetQuantity ?? null,
       });
     }
 
@@ -1993,7 +2041,7 @@ export class ActivityService {
   /**
    * Sync external withdrawal item returned quantity when activities are created/updated/deleted
    */
-  private async syncExternalWithdrawalItemReturned(
+  private async syncExternalOperationItemReturned(
     tx: PrismaTransaction,
     itemId: string,
     operation: ACTIVITY_OPERATION,
@@ -2004,42 +2052,42 @@ export class ActivityService {
     // Handle both INBOUND (returns) and OUTBOUND (reverse returns) operations
     if (operation === ACTIVITY_OPERATION.OUTBOUND) {
       // This is a reversal of a return - we need to decrease returnedQuantity
-      const externalWithdrawalItems = await tx.externalWithdrawalItem.findMany({
+      const externalOperationItems = await tx.externalOperationItem.findMany({
         where: {
           itemId,
           returnedQuantity: { gt: 0 },
-          externalWithdrawal: {
+          externalOperation: {
             status: {
               in: [
-                EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED,
-                EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED,
+                EXTERNAL_OPERATION_STATUS.PARTIALLY_RETURNED,
+                EXTERNAL_OPERATION_STATUS.FULLY_RETURNED,
               ],
             },
           },
         },
         include: {
-          externalWithdrawal: true,
+          externalOperation: true,
         },
         orderBy: {
           createdAt: 'desc', // Process newest returns first when reversing
         },
       });
 
-      if (externalWithdrawalItems.length === 0) {
+      if (externalOperationItems.length === 0) {
         return;
       }
 
       // Distribute the reversed quantity across withdrawal items
       let remainingQuantity = quantity;
 
-      for (const withdrawalItem of externalWithdrawalItems) {
+      for (const withdrawalItem of externalOperationItems) {
         if (remainingQuantity <= 0) break;
 
         const quantityToReverse = Math.min(remainingQuantity, withdrawalItem.returnedQuantity);
         const newReturnedQuantity = withdrawalItem.returnedQuantity - quantityToReverse;
 
         // Update the withdrawal item
-        await tx.externalWithdrawalItem.update({
+        await tx.externalOperationItem.update({
           where: { id: withdrawalItem.id },
           data: {
             returnedQuantity: newReturnedQuantity,
@@ -2048,14 +2096,14 @@ export class ActivityService {
 
         // Log the change
         await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL_ITEM,
+          entityType: ENTITY_TYPE.EXTERNAL_OPERATION_ITEM,
           entityId: withdrawalItem.id,
           action: CHANGE_ACTION.UPDATE,
           field: 'returnedQuantity',
           oldValue: withdrawalItem.returnedQuantity,
           newValue: newReturnedQuantity,
           reason: `Quantidade devolvida revertida por exclusão/atualização de atividade ${activityId}`,
-          triggeredBy: CHANGE_TRIGGERED_BY.EXTERNAL_WITHDRAWAL_SYNC,
+          triggeredBy: CHANGE_TRIGGERED_BY.EXTERNAL_OPERATION_SYNC,
           triggeredById: activityId,
           userId: userId || null,
           transaction: tx,
@@ -2064,9 +2112,9 @@ export class ActivityService {
         remainingQuantity -= quantityToReverse;
 
         // Check if this withdrawal status needs update
-        await this.checkAndUpdateExternalWithdrawalStatus(
+        await this.checkAndUpdateExternalOperationStatus(
           tx,
-          withdrawalItem.externalWithdrawalId,
+          withdrawalItem.externalOperationId,
           userId,
         );
       }
@@ -2080,34 +2128,34 @@ export class ActivityService {
     }
 
     // Find active external withdrawals with this item
-    const externalWithdrawalItems = await tx.externalWithdrawalItem.findMany({
+    const externalOperationItems = await tx.externalOperationItem.findMany({
       where: {
         itemId,
-        externalWithdrawal: {
+        externalOperation: {
           status: {
             in: [
-              EXTERNAL_WITHDRAWAL_STATUS.PENDING as any,
-              EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED as any,
+              EXTERNAL_OPERATION_STATUS.PENDING as any,
+              EXTERNAL_OPERATION_STATUS.PARTIALLY_RETURNED as any,
             ],
           },
         },
       },
       include: {
-        externalWithdrawal: true,
+        externalOperation: true,
       },
       orderBy: {
         createdAt: 'asc', // Process oldest withdrawals first
       },
     });
 
-    if (externalWithdrawalItems.length === 0) {
+    if (externalOperationItems.length === 0) {
       return;
     }
 
     // Distribute the returned quantity across withdrawal items
     let remainingQuantity = quantity;
 
-    for (const withdrawalItem of externalWithdrawalItems) {
+    for (const withdrawalItem of externalOperationItems) {
       if (remainingQuantity <= 0) break;
 
       const pendingReturn = withdrawalItem.withdrawedQuantity - withdrawalItem.returnedQuantity;
@@ -2117,7 +2165,7 @@ export class ActivityService {
       const newReturnedQuantity = withdrawalItem.returnedQuantity + quantityToReturn;
 
       // Update the withdrawal item
-      await tx.externalWithdrawalItem.update({
+      await tx.externalOperationItem.update({
         where: { id: withdrawalItem.id },
         data: {
           returnedQuantity: newReturnedQuantity,
@@ -2126,14 +2174,14 @@ export class ActivityService {
 
       // Log the change
       await this.changeLogService.logChange({
-        entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL_ITEM,
+        entityType: ENTITY_TYPE.EXTERNAL_OPERATION_ITEM,
         entityId: withdrawalItem.id,
         action: CHANGE_ACTION.UPDATE,
         field: 'returnedQuantity',
         oldValue: withdrawalItem.returnedQuantity,
         newValue: newReturnedQuantity,
         reason: `Quantidade devolvida atualizada por atividade ${activityId}`,
-        triggeredBy: CHANGE_TRIGGERED_BY.EXTERNAL_WITHDRAWAL_SYNC,
+        triggeredBy: CHANGE_TRIGGERED_BY.EXTERNAL_OPERATION_SYNC,
         triggeredById: activityId,
         userId: userId || null,
         transaction: tx,
@@ -2142,9 +2190,9 @@ export class ActivityService {
       remainingQuantity -= quantityToReturn;
 
       // Check if this withdrawal is now fully returned
-      await this.checkAndUpdateExternalWithdrawalStatus(
+      await this.checkAndUpdateExternalOperationStatus(
         tx,
-        withdrawalItem.externalWithdrawalId,
+        withdrawalItem.externalOperationId,
         userId,
       );
     }
@@ -2153,22 +2201,22 @@ export class ActivityService {
   /**
    * Check and update external withdrawal status based on returned quantities
    */
-  private async checkAndUpdateExternalWithdrawalStatus(
+  private async checkAndUpdateExternalOperationStatus(
     tx: PrismaTransaction,
-    externalWithdrawalId: string,
+    externalOperationId: string,
     userId?: string,
   ): Promise<void> {
     // Get all items for this withdrawal
-    const withdrawalItems = await tx.externalWithdrawalItem.findMany({
-      where: { externalWithdrawalId },
+    const withdrawalItems = await tx.externalOperationItem.findMany({
+      where: { externalOperationId },
     });
 
-    const withdrawal = await tx.externalWithdrawal.findUnique({
-      where: { id: externalWithdrawalId },
+    const withdrawal = await tx.externalOperation.findUnique({
+      where: { id: externalOperationId },
     });
 
     if (!withdrawal) {
-      throw new NotFoundException('Retirada externa não encontrada');
+      throw new NotFoundException('Operação externa não encontrada');
     }
 
     // Calculate the status based on returned quantities
@@ -2181,40 +2229,40 @@ export class ActivityService {
     let newStatus = withdrawal.status;
 
     if (allReturned) {
-      newStatus = EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED;
+      newStatus = EXTERNAL_OPERATION_STATUS.FULLY_RETURNED;
     } else if (someReturned) {
-      newStatus = EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED;
+      newStatus = EXTERNAL_OPERATION_STATUS.PARTIALLY_RETURNED;
     } else if (
       noneReturned &&
-      withdrawal.status === EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED
+      withdrawal.status === EXTERNAL_OPERATION_STATUS.PARTIALLY_RETURNED
     ) {
       // If was partially returned and now nothing is returned, go back to active
-      newStatus = EXTERNAL_WITHDRAWAL_STATUS.PENDING as any;
+      newStatus = EXTERNAL_OPERATION_STATUS.PENDING as any;
     }
 
     // Update status if changed
     if (newStatus !== withdrawal.status) {
       const oldStatus = withdrawal.status;
 
-      await tx.externalWithdrawal.update({
-        where: { id: externalWithdrawalId },
+      await tx.externalOperation.update({
+        where: { id: externalOperationId },
         data: {
           status: newStatus as any,
-          statusOrder: EXTERNAL_WITHDRAWAL_STATUS_ORDER[newStatus as string],
+          statusOrder: EXTERNAL_OPERATION_STATUS_ORDER[newStatus as string],
         },
       });
 
       // Log the status change
       await this.changeLogService.logChange({
-        entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL,
-        entityId: externalWithdrawalId,
+        entityType: ENTITY_TYPE.EXTERNAL_OPERATION,
+        entityId: externalOperationId,
         action: CHANGE_ACTION.UPDATE,
         field: 'status',
         oldValue: oldStatus,
         newValue: newStatus,
         reason: 'Status atualizado automaticamente baseado nas quantidades devolvidas',
-        triggeredBy: CHANGE_TRIGGERED_BY.EXTERNAL_WITHDRAWAL_SYNC,
-        triggeredById: externalWithdrawalId,
+        triggeredBy: CHANGE_TRIGGERED_BY.EXTERNAL_OPERATION_SYNC,
+        triggeredById: externalOperationId,
         userId: userId || null,
         transaction: tx,
       });

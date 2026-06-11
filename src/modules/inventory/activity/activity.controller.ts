@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { ActivityService } from './activity.service';
 import { ConsumptionAnalyticsService } from './consumption-analytics.service';
-import { UserId } from '@modules/common/auth/decorators/user.decorator';
+import { User, UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import {
@@ -92,8 +92,9 @@ export class ActivityController {
     @Body(new ZodValidationPipe(activityCreateSchema)) data: ActivityCreateFormData,
     @Query(new ZodQueryValidationPipe(activityQuerySchema)) query: ActivityQueryFormData,
     @UserId() userId: string,
+    @User('role') userPrivilege: string,
   ): Promise<ActivityCreateResponse> {
-    return this.activityService.create(data, query.include, userId);
+    return this.activityService.create(data, query.include, userId, undefined, userPrivilege);
   }
 
   // Batch Operations (must come before dynamic routes)
@@ -104,8 +105,9 @@ export class ActivityController {
     @Body(new ZodValidationPipe(activityBatchCreateSchema)) data: ActivityBatchCreateFormData,
     @Query(new ZodQueryValidationPipe(activityQuerySchema)) query: ActivityQueryFormData,
     @UserId() userId: string,
+    @User('role') userPrivilege: string,
   ): Promise<ActivityBatchCreateResponse<ActivityCreateFormData>> {
-    return this.activityService.batchCreate(data, query.include, userId);
+    return this.activityService.batchCreate(data, query.include, userId, userPrivilege);
   }
 
   @Put('batch')
@@ -114,8 +116,9 @@ export class ActivityController {
     @Body(new ZodValidationPipe(activityBatchUpdateSchema)) data: ActivityBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(activityQuerySchema)) query: ActivityQueryFormData,
     @UserId() userId: string,
+    @User('role') userPrivilege: string,
   ): Promise<ActivityBatchUpdateResponse<ActivityUpdateFormData>> {
-    return this.activityService.batchUpdate(data, query.include, userId);
+    return this.activityService.batchUpdate(data, query.include, userId, userPrivilege);
   }
 
   @Delete('batch')
@@ -181,8 +184,9 @@ export class ActivityController {
     @Body(new ZodValidationPipe(activityUpdateSchema)) data: ActivityUpdateFormData,
     @Query(new ZodQueryValidationPipe(activityQuerySchema)) query: ActivityQueryFormData,
     @UserId() userId: string,
+    @User('role') userPrivilege: string,
   ): Promise<ActivityUpdateResponse> {
-    return this.activityService.update(id, data, query.include, userId);
+    return this.activityService.update(id, data, query.include, userId, userPrivilege);
   }
 
   @Delete(':id')

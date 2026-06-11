@@ -11,7 +11,7 @@ export * from './changelog';
 export * from './customer';
 export * from './cut';
 export * from './epi';
-export * from './externalWithdrawal';
+export * from './externalOperation';
 export * from './file';
 export * from './goal';
 // export * from "./garage"; // TODO: Create garage schemas if needed

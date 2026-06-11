@@ -69,3 +69,6 @@ config/firebase*.json
 # Published OTA (Expo Updates) bundles — build artifacts, keep the folder only
 /updates/*
 !/updates/.gitkeep
+
+# Stock-correction / data-correction CSV reports (local artifacts)
+scripts/output/

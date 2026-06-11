@@ -133,7 +133,7 @@ export class OrderListener {
         },
         overrides: {
           actionUrl: JSON.stringify(deepLinks),
-          webUrl: `/estoque/pedidos/${order.id}`,
+          webUrl: `/estoque/pedidos/detalhes/${order.id}`,
           relatedEntityType: 'ORDER',
           title: 'Novo Pedido Criado',
           body: `Pedido "${order.description || 'Sem descrição'}" criado para ${supplierName}.${itemsSummary}`,
@@ -218,7 +218,7 @@ export class OrderListener {
           },
           overrides: {
             actionUrl: JSON.stringify(deepLinks),
-            webUrl: `/estoque/pedidos/${order.id}`,
+            webUrl: `/estoque/pedidos/detalhes/${order.id}`,
             relatedEntityType: 'ORDER',
             title: 'Status do Pedido Alterado',
             body: `Pedido "${order.description || 'Sem descrição'}" (${supplierName}) mudou de "${oldStatusLabel}" para "${newStatusLabel}".${itemsSummary}`,
@@ -305,7 +305,7 @@ export class OrderListener {
           },
           overrides: {
             actionUrl: JSON.stringify(deepLinks),
-            webUrl: `/estoque/pedidos/${order.id}`,
+            webUrl: `/estoque/pedidos/detalhes/${order.id}`,
             relatedEntityType: 'ORDER',
             title,
             body,
@@ -377,7 +377,7 @@ export class OrderListener {
         },
         overrides: {
           actionUrl: JSON.stringify(deepLinks),
-          webUrl: `/estoque/pedidos/${order.id}`,
+          webUrl: `/estoque/pedidos/detalhes/${order.id}`,
           relatedEntityType: 'ORDER',
           title: 'Item Recebido',
           body: `Item "${itemName}" recebido do pedido "${order.description || 'Sem descrição'}" (${supplierName}).\n\nQuantidade recebida: ${event.quantity}${itemsSummary}`,
@@ -442,10 +442,10 @@ export class OrderListener {
         },
         overrides: {
           actionUrl: JSON.stringify(deepLinks),
-          webUrl: `/estoque/pedidos/${order.id}`,
+          webUrl: `/estoque/pedidos/detalhes/${order.id}`,
           relatedEntityType: 'ORDER',
           title: 'Pedido Cancelado',
-          body: `Pedido "${order.description || 'Sem descrição'}" (${supplierName}) foi cancelado.\n\nCancelado por: ${cancelledByName}\nMotivo: ${event.reason || 'Não especificado'}${itemsSummary}`,
+          body: `Pedido "${order.description || 'Sem descrição'}" (${supplierName}) foi cancelado.\n\nMotivo: ${event.reason || 'Não especificado'}${itemsSummary}`,
         },
       });
     } catch (error) {
@@ -534,7 +534,7 @@ export class OrderListener {
           },
           overrides: {
             actionUrl: JSON.stringify(deepLinks),
-            webUrl: `/estoque/pedidos/${order.id}`,
+            webUrl: `/estoque/pedidos/detalhes/${order.id}`,
             relatedEntityType: 'ORDER',
             title: 'Item Entrou no Estoque',
             body: `O item "${itemName}"${itemCode ? ` (${itemCode})` : ''} do pedido "${order.description || 'Sem descrição'}" (${supplierName}) entrou no estoque.\n\nQuantidade adicionada: ${event.quantity} unidades${categoryName ? `\nCategoria: ${categoryName}` : ''}\nEstoque atual: ${item.quantity} unidades`,
@@ -591,7 +591,7 @@ export class OrderListener {
           },
           overrides: {
             actionUrl: JSON.stringify(deepLinks),
-            webUrl: `/estoque/pedidos/${order.id}`,
+            webUrl: `/estoque/pedidos/detalhes/${order.id}`,
             relatedEntityType: 'ORDER',
             title: 'Pagamento Atribuído',
             body: `Você foi designado como responsável pelo pagamento do pedido "${orderDescription}" (${supplierName}).`,
@@ -649,7 +649,7 @@ export class OrderListener {
           },
           overrides: {
             actionUrl: JSON.stringify(deepLinks),
-            webUrl: `/estoque/pedidos/${order.id}`,
+            webUrl: `/estoque/pedidos/detalhes/${order.id}`,
             relatedEntityType: 'ORDER',
             title: 'Pagamento Realizado',
             body: `O pedido "${orderDescription}" (${supplierName}) que você atribuiu a ${paymentResponsibleName} foi marcado como atendido.`,

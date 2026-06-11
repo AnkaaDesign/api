@@ -5,6 +5,7 @@ import {
   CHANGE_TRIGGERED_BY,
   TRUCK_CATEGORY_LABELS,
   IMPLEMENT_TYPE_LABELS,
+  STOCK_MODEL_LABELS,
 } from '@constants';
 import { formatDateTime } from './date';
 import { formatCurrency } from './number';
@@ -64,6 +65,9 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     monthlyConsumptionTrendPercent: 'Tendência de Consumo (%)',
     shouldAssignToUser: 'Deve ser Atribuído a Usuário',
     isForEpi: 'É EPI',
+    isBorrowable: 'Emprestável',
+    stockModel: 'Modelo de Estoque',
+    fixedTargetQuantity: 'Quantidade Alvo',
     boxQuantity: 'Quantidade por Caixa',
     reorderPoint: 'Ponto de Reposição',
     reorderQuantity: 'Quantidade de Reposição',
@@ -194,7 +198,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     entryDate: 'Data de Entrada',
     term: 'Prazo',
     forecastDate: 'Previsão de Liberação',
-    commission: 'Comissão',
+    bonification: 'Bonificação',
     price: 'Preço',
     statusOrder: 'Ordem do Status',
     customerId: 'Cliente',
@@ -222,7 +226,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     baseFiles: 'Arquivos Base',
     logoPaints: 'Tintas da Logomarca',
     paints: 'Tintas da Logomarca',
-    commissions: 'Comissões',
+    bonifications: 'Bonificações',
     services: 'Serviços', // Legacy - for historical changelog records
     serviceOrders: 'Ordens de Serviço',
     airbrushings: 'Aerografias',
@@ -368,7 +372,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'user.name': 'Nome do Usuário',
     'order.description': 'Descrição do Pedido',
   },
-  [CHANGE_LOG_ENTITY_TYPE.EXTERNAL_WITHDRAWAL]: {
+  [CHANGE_LOG_ENTITY_TYPE.EXTERNAL_OPERATION]: {
     withdrawerName: 'Nome do Retirador',
     withdrawerDocument: 'Documento do Retirador',
     withdrawerContact: 'Contato do Retirador',
@@ -395,8 +399,8 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'budget.filename': 'Nome do Orçamento',
     'responsibleUser.name': 'Nome do Responsável',
   },
-  [CHANGE_LOG_ENTITY_TYPE.EXTERNAL_WITHDRAWAL_ITEM]: {
-    externalWithdrawalId: 'Retirada Externa',
+  [CHANGE_LOG_ENTITY_TYPE.EXTERNAL_OPERATION_ITEM]: {
+    externalOperationId: 'Operação Externa',
     itemId: 'Item',
     withdrawedQuantity: 'Quantidade Retirada',
     returnedQuantity: 'Quantidade Devolvida',
@@ -418,14 +422,14 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'item.barcode': 'Código de Barras do Item',
     'item.unicode': 'Código Único do Item',
     'item.uniCode': 'Código Único do Item',
-    'externalWithdrawal.withdrawerName': 'Nome do Retirador',
+    'externalOperation.withdrawerName': 'Nome do Retirador',
   },
   [CHANGE_LOG_ENTITY_TYPE.POSITION]: {
     name: 'Nome',
     level: 'Nível',
     sectorId: 'Setor',
     privileges: 'Privilégios',
-    commissionEligible: 'Elegível para Comissão',
+    bonificationEligible: 'Elegível para Bonificação',
     remuneration: 'Remuneração',
     sector: 'Setor',
     'sector.name': 'Nome do Setor',
@@ -632,8 +636,8 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     orderReceipts: 'Recibos de Pedidos',
     airbrushingReceipts: 'Recibos de Aerografia',
     airbrushingNfes: 'Notas Fiscais de Aerografia',
-    externalWithdrawalNfes: 'Notas Fiscais de Retirada Externa',
-    externalWithdrawalReceipts: 'Recibos de Retirada Externa',
+    externalOperationNfes: 'Notas Fiscais de Operação Externa',
+    externalOperationReceipts: 'Recibos de Operação Externa',
   },
   [CHANGE_LOG_ENTITY_TYPE.NOTIFICATION]: {
     title: 'Título',
@@ -808,10 +812,10 @@ export function formatFieldValue(
   entityType?: CHANGE_LOG_ENTITY_TYPE,
   metadata?: FieldMetadata,
 ): string {
-  // Handle null/undefined commission field specifically
+  // Handle null/undefined bonification field specifically
   if (
     (value === null || value === undefined) &&
-    field === 'commission' &&
+    field === 'bonification' &&
     entityType === CHANGE_LOG_ENTITY_TYPE.TASK
   ) {
     return 'Não Definida';
@@ -935,8 +939,8 @@ export function formatFieldValue(
       if (field === 'services') {
         return `${value.length} ${value.length === 1 ? 'serviço' : 'serviços'}`;
       }
-      if (field === 'commissions') {
-        return `${value.length} ${value.length === 1 ? 'comissão' : 'comissões'}`;
+      if (field === 'bonifications') {
+        return `${value.length} ${value.length === 1 ? 'bonificação' : 'bonificações'}`;
       }
       if (field === 'airbrushings') {
         return `${value.length} ${value.length === 1 ? 'aerografia' : 'aerografias'}`;
@@ -995,17 +999,17 @@ export function formatFieldValue(
   // Handle external withdrawal status
   if (
     (field === 'status' || field === 'status_transition') &&
-    entityType === CHANGE_LOG_ENTITY_TYPE.EXTERNAL_WITHDRAWAL &&
+    entityType === CHANGE_LOG_ENTITY_TYPE.EXTERNAL_OPERATION &&
     typeof value === 'string'
   ) {
-    const externalWithdrawalStatusLabels: Record<string, string> = {
+    const externalOperationStatusLabels: Record<string, string> = {
       PENDING: 'Pendente',
       PARTIALLY_RETURNED: 'Parcialmente Devolvido',
       FULLY_RETURNED: 'Totalmente Devolvido',
       CHARGED: 'Cobrado',
       CANCELLED: 'Cancelado',
     };
-    return externalWithdrawalStatusLabels[value] || value;
+    return externalOperationStatusLabels[value] || value;
   }
 
   // Handle task status
@@ -1157,19 +1161,19 @@ export function formatFieldValue(
     return cutReasonLabels[value] || value;
   }
 
-  // Handle commission status
+  // Handle bonification status
   if (
-    field === 'commission' &&
+    field === 'bonification' &&
     entityType === CHANGE_LOG_ENTITY_TYPE.TASK &&
     typeof value === 'string'
   ) {
-    const commissionStatusLabels: Record<string, string> = {
-      NO_COMMISSION: 'Sem Comissão',
-      PARTIAL_COMMISSION: 'Comissão Parcial',
-      FULL_COMMISSION: 'Comissão Integral',
-      SUSPENDED_COMMISSION: 'Comissão Suspensa',
+    const bonificationStatusLabels: Record<string, string> = {
+      NO_BONIFICATION: 'Sem Bonificação',
+      PARTIAL_BONIFICATION: 'Bonificação Parcial',
+      FULL_BONIFICATION: 'Bonificação Integral',
+      SUSPENDED_BONIFICATION: 'Bonificação Suspensa',
     };
-    return commissionStatusLabels[value] || value;
+    return bonificationStatusLabels[value] || value;
   }
 
   // Handle maintenance type
@@ -1234,6 +1238,11 @@ export function formatFieldValue(
     return paintFinishLabels[value] || value;
   }
 
+  // Handle stock model
+  if (field === 'stockModel' && typeof value === 'string') {
+    return STOCK_MODEL_LABELS[value as keyof typeof STOCK_MODEL_LABELS] || value;
+  }
+
   // Handle ABC/XYZ categories
   if (field === 'abcCategory' && typeof value === 'string') {
     const abcLabels: Record<string, string> = {
@@ -1281,8 +1290,8 @@ export function formatFieldValue(
       PPE_DELIVERY: 'Entrega de EPI',
       BORROW: 'Empréstimo',
       RETURN: 'Devolução',
-      EXTERNAL_WITHDRAWAL: 'Retirada Externa',
-      EXTERNAL_WITHDRAWAL_RETURN: 'Devolução de Retirada Externa',
+      EXTERNAL_OPERATION: 'Operação Externa',
+      EXTERNAL_OPERATION_RETURN: 'Devolução de Operação Externa',
       INVENTORY_COUNT: 'Contagem de Inventário',
       MANUAL_ADJUSTMENT: 'Ajuste Manual',
       MAINTENANCE: 'Manutenção',
@@ -1311,8 +1320,8 @@ export function formatFieldValue(
       PPE_EXPIRATION_WARNING: 'Aviso de Vencimento de EPI',
       MAINTENANCE_SCHEDULED: 'Manutenção Agendada',
       MAINTENANCE_OVERDUE: 'Manutenção Atrasada',
-      EXTERNAL_WITHDRAWAL_CREATED: 'Retirada Externa Criada',
-      EXTERNAL_WITHDRAWAL_OVERDUE: 'Retirada Externa Atrasada',
+      EXTERNAL_OPERATION_CREATED: 'Operação Externa Criada',
+      EXTERNAL_OPERATION_OVERDUE: 'Operação Externa Atrasada',
       SYSTEM_UPDATE: 'Atualização do Sistema',
       SYSTEM_MAINTENANCE: 'Manutenção do Sistema',
       GENERAL_ANNOUNCEMENT: 'Comunicado Geral',

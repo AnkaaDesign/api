@@ -1,0 +1,162 @@
+ (item excluído)                          | B7-flag-underbooked • medida lixo removida
+ Abraçadeira Nylon Preta 200x2,5mm        | renomeado: Abraçadeira Nylon Preta → Abraçadeira Nylon Preta 200x2,5mm
+ Abraçadeira Nylon Preta 200x4,6mm        | renomeado: Abraçadeira Nylon Preta → Abraçadeira Nylon Preta 200x4,6mm
+ Abraçadeira Nylon Preta 300x7,2mm        | renomeado: Abraçadeira Nylon Preta → Abraçadeira Nylon Preta 300x7,2mm
+ Acrilico Preto Cadillac                  | renomeado:  Acrilico Preto Cadillac → Acrilico Preto Cadillac
+ Adaptador Boina Polimento                | renomeado: Adapitador Boina Polimento → Adaptador Boina Polimento
+ Adesivo Selante Cinza                    | ativ. duplicada excluída
+ Adesivo Vinil 1,06m                      | renomeado: Adesivo  → Adesivo • renomeado: Adesivo → Adesivo Vinil 1,06m
+ Adesivo Vinil 1,27m                      | renomeado: Adesivo → Adesivo Vinil 1,27m
+ Adesivo Vinil 1,52m                      | renomeado: Adesivo → Adesivo Vinil 1,52m
+ Arruela zincada 10mm                     | pedido texto-livre vinculado
+ Azul                                     | recebim. duplicado excluído
+ Bateria 2.0ah                            | duplicata mesclada
+ Bobina Papel Ondulado                    | duplicata mesclada
+ Bobina Papel TKV                         | ativ. duplicada excluída ×2 • pico → INVENTORY_COUNT ×2 • renomeado: Bobina Papel Tk → Bobina Papel TKV
+ Bobina Papel Tkv                         | duplicata mesclada
+ Broca P/ Martelet                        | medida corrigida ×4 • medida lixo removida ×4
+ Broca Sds P/ Concreto                    | medida corrigida • medida lixo removida
+ Caixa Luva Nitrílica G                   | duplicata mesclada
+ Caixa Luva Nitrílica M                   | duplicata mesclada
+ Caixa Luva Nitrílica P                   | duplicata mesclada
+ Calça - 36                               | renomeado: Calça → Calça - 36
+ Calça - 38                               | renomeado: Calça → Calça - 38
+ Calça - 40                               | renomeado: Calça → Calça - 40
+ Calça - 42                               | renomeado: Calça → Calça - 42
+ Calça - 44                               | renomeado: Calça → Calça - 44
+ Calça - 46                               | renomeado: Calça → Calça - 46
+ Calça - 48                               | renomeado: Calça → Calça - 48
+ Camiseta - G                             | renomeado: Camiseta → Camiseta - G
+ Camiseta - GG                            | renomeado: Camiseta → Camiseta - GG
+ Camiseta - M                             | renomeado: Camiseta → Camiseta - M
+ Camiseta - P                             | renomeado: Camiseta → Camiseta - P
+ Camiseta - XG                            | renomeado: Camiseta → Camiseta - XG
+ Caneta                                   | criado
+ Catalisador Wash Primer                  | ativ. duplicada excluída
+ Chave Catraca Grande                     | medida corrigida • medida lixo removida
+ Chave Catraca Media                      | medida corrigida • medida lixo removida
+ Chave Catraca Pequena                    | medida corrigida • medida lixo removida
+ Condulete Pvc Preto                      | medida corrigida ×2
+ Conexão Te Galv                          | medida adicionada • medida lixo removida ×2
+ Desengraxante                            | ativ. duplicada excluída ×14 • medida corrigida • pico → INVENTORY_COUNT ×9
+ Desengripante                            | pedido texto-livre vinculado
+ Diluente                                 | ativ. duplicada excluída ×5 • pico → INVENTORY_COUNT ×2
+ Disco Trizact P1000                      | pedido texto-livre vinculado
+ Disco de polir Trizact P3000             | pedido texto-livre vinculado
+ Endurecedor Pu 573.009                   | ativ. duplicada excluída • medida corrigida • pico → INVENTORY_COUNT • renomeado: Endurecedor Pu → Endurecedor Pu 573.009
+ Endurecedor Pu 573.950                   | ativ. duplicada excluída ×4 • medida corrigida • pico → INVENTORY_COUNT • renomeado: Endurecedor Pu → Endurecedor Pu 573.950
+ Escada de Alumínio 16 Degraus            | renomeado: Escada de Aluminio → Escada de Alumínio 16 Degraus
+ Escada de Alumínio 30 Degraus            | renomeado: Escada de Aluminio → Escada de Alumínio 30 Degraus
+ Escada de Alumínio 7 Degraus             | renomeado: Escada de Alumínio → Escada de Alumínio 7 Degraus
+ Escova Aço Motoesmeril                   | medida corrigida ×2
+ Esmerilhadeira GA5010                    | medida adicionada ×2 • renomeado: Esmerilhadeira → Esmerilhadeira GA5010
+ Esmerilhadeira GWS-9                     | medida adicionada ×2 • renomeado: Esmerilhadeira → Esmerilhadeira GWS-9
+ Espaguete Termoretratil                  | medida corrigida
+ Espatula Inox/12cm Cab Pvc               | desativado
+ Espatula Rigida Adesivo                  | ativ. duplicada excluída ×2
+ Estopa Algodão                           | ativ. duplicada excluída
+ Faixa Refletiva 3M Direita               | renomeado: Faixa Refletiva 3M → Faixa Refletiva 3M Direita
+ Faixa Refletiva 3M Esquerda              | renomeado: Faixa Refletiva 3M . → Faixa Refletiva 3M • renomeado: Faixa Refletiva 3M → Faixa Refletiva 3M Esquerda
+ Faixa Refletiva Direita                  | renomeado: Faixa Refletiva → Faixa Refletiva Direita
+ Faixa Refletiva Esquerda                 | renomeado: Faixa Refletiva → Faixa Refletiva Esquerda
+ Faixa Refletiva Lateral Direita          | ativ. duplicada excluída • medida adicionada ×2 • pico → INVENTORY_COUNT
+ Faixa Refletiva Lateral Esquerda         | ativ. duplicada excluída ×2 • medida adicionada ×2 • medida lixo removida ×2 • pico → INVENTORY_COUNT
+ Faixa Refletiva Para Choque              | ativ. duplicada excluída • pico → INVENTORY_COUNT
+ Fita Crepe Amarela                       | ativ. duplicada excluída ×3 • pico → INVENTORY_COUNT ×4
+ Fita Crepe Automotiva                    | ativ. duplicada excluída ×2 • pico → INVENTORY_COUNT ×3
+ Fita Dupla Face                          | medida corrigida
+ Fita Filete Pvc                          | medida corrigida ×2 • medida lixo removida
+ Galocha - 46                             | renomeado: Galocha - 46  → Galocha - 46
+ Garrafa Quadrada 1L                      | medida corrigida • renomeado: Garrafa Quadrada → Garrafa Quadrada 1L
+ Garrafa Quadrada 300ml                   | renomeado: Garrafa Quadrada → Garrafa Quadrada 300ml
+ Garrafa Quadrada 500ml                   | renomeado: Garrafa Quadrada → Garrafa Quadrada 500ml
+ Kit Bateria 4,0ah                        | duplicata mesclada
+ Lanterna Side Marker Led Âmbar           | duplicata mesclada
+ Laranja                                  | ativ. qty=0 excluída
+ Lixadeira Orbital                        | duplicata mesclada • medida corrigida
+ Luva Látex G                             | renomeado: Caixa Luva Látex-G → Luva Látex G
+ Luva Látex M                             | renomeado: Caixa Luva Látex-M → Luva Látex M
+ Luva Neoprene - G                        | pico → INVENTORY_COUNT ×2
+ Luva Neoprene - M                        | ativ. duplicada excluída • pico → INVENTORY_COUNT
+ Luva Química                             | duplicata mesclada
+ Luva Redução                             | medida corrigida ×3 • medida lixo removida ×5
+ Luva de Vaqueta                          | duplicata mesclada
+ Macacão de Segurança - M                 | ppeType → Macacão • renomeado: Macacão de Segurança → Macacão de Segurança - M
+ Macacão de Segurança - XG                | ppeType → Macacão • renomeado: Macacão de Segurança → Macacão de Segurança - XG
+ Macacão de Segurança - XXG               | ppeType → Macacão • renomeado: Macacão de Segurança → Macacão de Segurança - XXG
+ Macho 3/8                                | medida adicionada • medida lixo removida ×2
+ Mandril P/ Martelet                      | medida adicionada • medida lixo removida ×2
+ Mangueira Irrigação                      | medida adicionada • medida lixo removida ×2
+ Mangueira de Ar                          | medida corrigida • medida lixo removida
+ Mangueira de Água                        | medida corrigida • medida lixo removida
+ Marreta Pequena                          | medida corrigida
+ Máscara Semi Facial Pequena              | duplicata mesclada
+ Máscara de Transferência 321             | renomeado: Máscara → Máscara de Transferência 321 • saídas ÷2 ×12
+ Máscara de Transferência 328             | renomeado: Máscara → Máscara de Transferência 328 • saídas ÷2 ×147
+ Niple Duplo Galv                         | medida adicionada • medida corrigida • medida lixo removida ×3
+ Nivel de Mão                             | medida lixo removida
+ Pacote Pincel de Retoque                 | contagem reescalada
+ Palha de Aço                             | ativ. duplicada excluída ×10
+ Parafusadeira DHP482                     | medida adicionada ×2 • renomeado: Parafusadeira → Parafusadeira DHP482
+ Parafusadeira GSB-50                     | medida adicionada • renomeado: Parafusadeira → Parafusadeira GSB-50
+ Parafuso Allen Inox 10x25                | medida corrigida
+ Parafuso Allen M06 X 0,40                | medida corrigida ×2
+ Parafuso Sextavado Inox                  | medida corrigida • medida lixo removida ×3
+ Parafuso Sextavado Inox 5/16 X 7/8       | medida adicionada ×2 • medida lixo removida ×6
+ Parafuso Sextavado Inox 5/16x1           | medida adicionada ×2 • medida lixo removida ×4
+ Parafuso Sextavado Zincado               | medida lixo removida ×5
+ Parafuso Sextavado Zincado UNC           | medida adicionada ×2 • medida lixo removida ×4
+ Parafuso Sextavado Zincado UNC 3/8       | renomeado: Parafuso Sextavado Zincado UNC → Parafuso Sextavado Zincado UNC 3/8 • renomeado: Parafuso Sextavado Zincado → Parafuso Sextavado Zincado UNC
+ Pincel                                   | ativ. duplicada excluída • pico → INVENTORY_COUNT
+ Pistola Pintura K3                       | duplicata mesclada
+ Pistola de Pintura K3                    | renomeado: Pistola Pintura K3 → Pistola de Pintura K3
+ Pistola de Pintura PR 0.7m               | medida lixo removida
+ Pistola de Pintura PR 1.7mm              | medida corrigida ×2 • renomeado: Pistola de Pintura PR 0.7m → Pistola de Pintura PR 1.7mm • renomeado: Pistola de Pintura → Pistola de Pintura PR 0.7m
+ Pistola de Pintura PRO-534               | medida adicionada ×2 • renomeado: Pistola de Pintura → Pistola de Pintura PRO-534
+ Pote Redondo                             | renomeado: Caixa Pote Redondo → Pote Redondo
+ Preto                                    | ativ. qty=0 excluída ×12
+ Primer Pu Cinza                          | ativ. duplicada excluída
+ Primer Spectra 2k P30 Branco             | renomeado: Primer Spectra 2k → Primer Spectra 2k P30 Branco
+ Primer Spectra 2k P30 Cinza              | renomeado: Primer Spectra 2k → Primer Spectra 2k P30 Cinza
+ Pulverizador de Pressão                  | desativado
+ Rebite Rosca Lisa M10                    | renomeado: Rebite Rosca Lisa → Rebite Rosca Lisa M10
+ Rebite de Repuxo 416                     | medida corrigida
+ Rebite de Repuxo 516                     | histórico de consumo semeado ×6 • medida corrigida • pedido texto-livre vinculado
+ Rebite de Repuxo 525                     | histórico de consumo semeado ×8 • pedido texto-livre vinculado
+ Rebite de Repuxo 640                     | histórico de consumo semeado ×4
+ Regulador de Pressão                     | medida corrigida • medida lixo removida
+ Rodo 1m                                  | criado
+ Rolo Anti Respingo 15cm                  | renomeado: Rolo Antirespingo → Rolo Anti Respingo 15cm
+ Rolo Anti Respingo 23cm                  | renomeado: Rolo Anti Respingo → Rolo Anti Respingo 23cm
+ Rolo Anti Respingo 9cm                   | renomeado: Rolo anti respingo → Rolo Anti Respingo 9cm
+ Rolo Etiqueta                            | medida corrigida
+ Sacola Plástica                          | medida corrigida ×2
+ Soldador de Plástico                     | renomeado: Soldador de Plástico  → Soldador de Plástico
+ Soprador Térmico Bateria                 | desativado
+ Soquete Hexagonal 4                      | medida corrigida • medida lixo removida ×2
+ Soquete Hexagonal 5                      | medida corrigida • medida lixo removida ×2
+ Soquete Hexagonal 6                      | medida corrigida • medida lixo removida ×2
+ Soquete Hexagonal 7                      | medida corrigida • medida lixo removida ×2
+ Soquete Sextavado 18                     | medida corrigida • medida lixo removida ×2
+ Soquete Sextavado 19                     | medida corrigida • medida lixo removida ×2
+ Soquete Sextavado 32                     | medida corrigida • medida lixo removida ×2
+ Soquete Sextavado 6                      | medida corrigida • medida lixo removida ×2
+ Soquete Sextavado 7                      | medida corrigida • medida lixo removida ×2
+ Soquete Sextavado 8                      | medida corrigida • medida lixo removida ×2
+ Soquete Sextavado 8 Longo                | medida corrigida • medida lixo removida
+ Soquete Sextavado 9                      | medida corrigida • medida lixo removida ×2
+ Soquete Sextavado 9 Longo                | medida corrigida • medida lixo removida
+ Soquete Torx T-40 Longo                  | medida corrigida • medida lixo removida
+ Thinner 7000                             | recebim. duplicado excluído
+ Tinta para Impressora Amarela            | criado
+ Tinta para Impressora Ciano              | criado
+ Tinta para Impressora Magenta            | criado
+ Tinta para Impressora Preta              | renomeado: Tinta para impressora → Tinta para Impressora Preta
+ Valvula Esferica Latão 1/2               | medida adicionada • medida lixo removida ×2
+ Valvula Esferica Latão 3/4               | medida adicionada • medida lixo removida ×2
+ Verniz                                   | ativ. duplicada excluída ×3 • pico → INVENTORY_COUNT
+ Verniz Pu Acrilico                       | ativ. duplicada excluída
+ Violeta                                  | ativ. qty=0 excluída ×2
+ Wash Primer 045                          | renomeado: Wash Primer → Wash Primer 045
+ Wash Primer 517.600                      | renomeado: Wash Primer → Wash Primer 517.600
+

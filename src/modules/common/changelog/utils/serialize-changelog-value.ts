@@ -96,10 +96,10 @@ function normalizeDateToString(date: Date): string {
  */
 function normalizeValue(value: any, field?: string): any {
   if (value === null || value === undefined) {
-    // For commission field, treat null/undefined as NO_COMMISSION
-    // This prevents false positive changelogs when both display as "Sem Comissão"
-    if (field === 'commission') {
-      return 'NO_COMMISSION';
+    // For bonification field, treat null/undefined as NO_BONIFICATION
+    // This prevents false positive changelogs when both display as "Sem Bonificação"
+    if (field === 'bonification') {
+      return 'NO_BONIFICATION';
     }
     return null;
   }
@@ -149,7 +149,7 @@ function normalizeValue(value: any, field?: string): any {
  * Returns true if values are different
  * @param oldValue - The old value
  * @param newValue - The new value
- * @param field - Optional field name for field-specific normalization (e.g., 'commission')
+ * @param field - Optional field name for field-specific normalization (e.g., 'bonification')
  */
 export function hasValueChanged(oldValue: any, newValue: any, field?: string): boolean {
   // Normalize both values before serialization to handle type coercion

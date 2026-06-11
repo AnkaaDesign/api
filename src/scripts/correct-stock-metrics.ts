@@ -18,7 +18,8 @@
  * anomaly assertion fails the transaction throws → all updates roll back.
  *
  * Anomaly assertions (script aborts the tx if either fails):
- *   - Item 197b3e61-88ee-4986-af4e-36955b0b360f (TOOL, qty=2) → mc=0, rp=0, max>=qty
+ *   - Item 197b3e61-88ee-4986-af4e-36955b0b360f (stockModel=FIXED_TARGET,
+ *     qty=2) → mc=0, rp = fixedTargetQuantity ?? 1, max >= target
  *   - Item 9446d4ee-3c43-4c2a-9e05-111d3d4d67c6              → mc recomputed
  *     (no specific value, just verifies it's not a poisoned/stale state).
  */
@@ -36,6 +37,7 @@ import { ItemRecomputeService } from '../modules/inventory/services/item-recompu
 import {
   ABC_CATEGORY,
   ITEM_CATEGORY_TYPE,
+  STOCK_MODEL,
   XYZ_CATEGORY,
 } from '../constants/enums';
 import {
@@ -63,7 +65,10 @@ interface ItemSnapshot {
   id: string;
   uniCode: string | null;
   name: string;
+  /** Display/grouping only — never used as a behavior gate. */
   categoryType: ITEM_CATEGORY_TYPE | null;
+  stockModel: STOCK_MODEL;
+  fixedTargetQuantity: number | null;
   quantity: number;
   monthlyConsumption: number;
   reorderPoint: number | null;
@@ -107,6 +112,8 @@ async function snapshotActiveItems(
       uniCode: true,
       name: true,
       quantity: true,
+      stockModel: true,
+      fixedTargetQuantity: true,
       monthlyConsumption: true,
       reorderPoint: true,
       maxQuantity: true,
@@ -124,6 +131,8 @@ async function snapshotActiveItems(
       uniCode: r.uniCode ?? null,
       name: r.name,
       categoryType: (r.category?.type as ITEM_CATEGORY_TYPE | null) ?? null,
+      stockModel: r.stockModel as STOCK_MODEL,
+      fixedTargetQuantity: r.fixedTargetQuantity ?? null,
       quantity: r.quantity,
       monthlyConsumption: decToNum(r.monthlyConsumption),
       reorderPoint: r.reorderPoint ?? null,
@@ -195,7 +204,7 @@ function csvEscape(value: string | null | undefined): string {
 interface AbcXyzInputs {
   items: Array<{
     id: string;
-    categoryType: ITEM_CATEGORY_TYPE | null;
+    stockModel: STOCK_MODEL;
     monthlyConsumption: number;
   }>;
   monthlyHistoryByItem: Map<string, number[]>;
@@ -214,7 +223,7 @@ async function gatherAbcXyzInputs(
     select: {
       id: true,
       monthlyConsumption: true,
-      category: { select: { type: true } },
+      stockModel: true,
     },
   });
   const itemIds = items.map((i) => i.id);
@@ -306,7 +315,7 @@ async function gatherAbcXyzInputs(
   return {
     items: items.map((i) => ({
       id: i.id,
-      categoryType: (i.category?.type as ITEM_CATEGORY_TYPE | null) ?? null,
+      stockModel: i.stockModel as STOCK_MODEL,
       monthlyConsumption: decToNum(i.monthlyConsumption),
     })),
     monthlyHistoryByItem,
@@ -325,17 +334,19 @@ async function runAbcXyzPass(
     return;
   }
 
+  // ABC/XYZ eligibility keys on the item's stock model (contract §2):
+  // only CONSUMPTION-model items are classified; FIXED_TARGET → null.
   const abcInputs: AbcInput[] = inputs.items.map((i) => ({
     itemId: i.id,
     monthlyConsumption: i.monthlyConsumption,
     unitPrice: inputs.latestPriceByItem.get(i.id) ?? 0,
     eligible:
-      i.categoryType !== ITEM_CATEGORY_TYPE.TOOL && i.monthlyConsumption > 0,
+      i.stockModel === STOCK_MODEL.CONSUMPTION && i.monthlyConsumption > 0,
   }));
   const xyzInputs: XyzInput[] = inputs.items.map((i) => ({
     itemId: i.id,
     trailingMonthlyConsumption: inputs.monthlyHistoryByItem.get(i.id) ?? [],
-    eligible: i.categoryType !== ITEM_CATEGORY_TYPE.TOOL,
+    eligible: i.stockModel === STOCK_MODEL.CONSUMPTION,
   }));
 
   const abcAssignments = new Map(
@@ -531,34 +542,37 @@ async function main(): Promise<number> {
             `Anomaly item ${ANOMALY_TOOL_ID} (TOOL) not found in active items — cannot validate.`,
           );
         }
-        if (toolAnomaly.categoryType !== ITEM_CATEGORY_TYPE.TOOL) {
+        if (toolAnomaly.stockModel !== STOCK_MODEL.FIXED_TARGET) {
           throw new AnomalyAssertionError(
-            `Anomaly item ${ANOMALY_TOOL_ID} expected category TOOL, got ${toolAnomaly.categoryType}.`,
+            `Anomaly item ${ANOMALY_TOOL_ID} expected stockModel FIXED_TARGET, got ${toolAnomaly.stockModel}.`,
           );
         }
         if (Math.abs(toolAnomaly.monthlyConsumption) > FLOAT_EPSILON) {
           throw new AnomalyAssertionError(
-            `Anomaly item ${ANOMALY_TOOL_ID} (TOOL) mc should be 0, got ${toolAnomaly.monthlyConsumption}.`,
+            `Anomaly item ${ANOMALY_TOOL_ID} (FIXED_TARGET) mc should be 0, got ${toolAnomaly.monthlyConsumption}.`,
           );
         }
+        // Target-based rules (spec §4/§12, contract §2): rp = maxQuantity =
+        // the item's own fixed target (fallback 1 when unset — never ||).
+        const toolTarget = toolAnomaly.fixedTargetQuantity ?? 1;
         if (
-          toolAnomaly.reorderPoint != null &&
-          Math.abs(toolAnomaly.reorderPoint) > FLOAT_EPSILON
+          toolAnomaly.reorderPoint == null ||
+          Math.abs(toolAnomaly.reorderPoint - toolTarget) > FLOAT_EPSILON
         ) {
           throw new AnomalyAssertionError(
-            `Anomaly item ${ANOMALY_TOOL_ID} (TOOL) rp should be 0, got ${toolAnomaly.reorderPoint}.`,
+            `Anomaly item ${ANOMALY_TOOL_ID} (FIXED_TARGET) rp should be the fixed target (${toolTarget}), got ${toolAnomaly.reorderPoint}.`,
           );
         }
         if (
           toolAnomaly.maxQuantity == null ||
-          toolAnomaly.maxQuantity < toolAnomaly.quantity - FLOAT_EPSILON
+          toolAnomaly.maxQuantity < toolTarget - FLOAT_EPSILON
         ) {
           throw new AnomalyAssertionError(
-            `Anomaly item ${ANOMALY_TOOL_ID} (TOOL) max=${toolAnomaly.maxQuantity} should be >= quantity=${toolAnomaly.quantity}.`,
+            `Anomaly item ${ANOMALY_TOOL_ID} (FIXED_TARGET) max=${toolAnomaly.maxQuantity} should be >= fixed target=${toolTarget}.`,
           );
         }
         logger.log(
-          `Anomaly TOOL ${ANOMALY_TOOL_ID} OK: mc=${toolAnomaly.monthlyConsumption}, rp=${toolAnomaly.reorderPoint}, max=${toolAnomaly.maxQuantity}, qty=${toolAnomaly.quantity}.`,
+          `Anomaly FIXED_TARGET ${ANOMALY_TOOL_ID} OK: mc=${toolAnomaly.monthlyConsumption}, rp=${toolAnomaly.reorderPoint}, max=${toolAnomaly.maxQuantity}, qty=${toolAnomaly.quantity}, target=${toolTarget}.`,
         );
 
         const rareAnomaly = after.get(ANOMALY_RARE_ID);

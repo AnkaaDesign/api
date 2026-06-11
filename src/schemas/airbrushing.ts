@@ -46,7 +46,7 @@ export const airbrushingIncludeSchema = z
               createdBy: z.boolean().optional(),
               files: z.boolean().optional(),
               logoPaints: z.boolean().optional(),
-              commissions: z.boolean().optional(),
+              bonifications: z.boolean().optional(),
               serviceOrders: z.boolean().optional(),
               truck: z.boolean().optional(),
               airbrushing: z.boolean().optional(),
@@ -86,9 +86,9 @@ export const airbrushingIncludeSchema = z
               observations: z.boolean().optional(),
               airbrushingReceipts: z.boolean().optional(),
               airbrushingInvoices: z.boolean().optional(),
-              externalWithdrawalBudget: z.boolean().optional(),
-              externalWithdrawalNfe: z.boolean().optional(),
-              externalWithdrawalReceipt: z.boolean().optional(),
+              externalOperationBudget: z.boolean().optional(),
+              externalOperationNfe: z.boolean().optional(),
+              externalOperationReceipt: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -111,9 +111,9 @@ export const airbrushingIncludeSchema = z
               observations: z.boolean().optional(),
               airbrushingReceipts: z.boolean().optional(),
               airbrushingInvoices: z.boolean().optional(),
-              externalWithdrawalBudget: z.boolean().optional(),
-              externalWithdrawalNfe: z.boolean().optional(),
-              externalWithdrawalReceipt: z.boolean().optional(),
+              externalOperationBudget: z.boolean().optional(),
+              externalOperationNfe: z.boolean().optional(),
+              externalOperationReceipt: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -136,9 +136,9 @@ export const airbrushingIncludeSchema = z
               observations: z.boolean().optional(),
               airbrushingReceipts: z.boolean().optional(),
               airbrushingInvoices: z.boolean().optional(),
-              externalWithdrawalBudget: z.boolean().optional(),
-              externalWithdrawalNfe: z.boolean().optional(),
-              externalWithdrawalReceipt: z.boolean().optional(),
+              externalOperationBudget: z.boolean().optional(),
+              externalOperationNfe: z.boolean().optional(),
+              externalOperationReceipt: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -161,9 +161,9 @@ export const airbrushingIncludeSchema = z
               observations: z.boolean().optional(),
               airbrushingReceipts: z.boolean().optional(),
               airbrushingInvoices: z.boolean().optional(),
-              externalWithdrawalBudget: z.boolean().optional(),
-              externalWithdrawalNfe: z.boolean().optional(),
-              externalWithdrawalReceipt: z.boolean().optional(),
+              externalOperationBudget: z.boolean().optional(),
+              externalOperationNfe: z.boolean().optional(),
+              externalOperationReceipt: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -186,9 +186,9 @@ export const airbrushingIncludeSchema = z
               observations: z.boolean().optional(),
               airbrushingReceipts: z.boolean().optional(),
               airbrushingInvoices: z.boolean().optional(),
-              externalWithdrawalBudget: z.boolean().optional(),
-              externalWithdrawalNfe: z.boolean().optional(),
-              externalWithdrawalReceipt: z.boolean().optional(),
+              externalOperationBudget: z.boolean().optional(),
+              externalOperationNfe: z.boolean().optional(),
+              externalOperationReceipt: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -212,9 +212,9 @@ export const airbrushingIncludeSchema = z
               airbrushingReceipts: z.boolean().optional(),
               airbrushingInvoices: z.boolean().optional(),
               airbrushingArtworks: z.boolean().optional(),
-              externalWithdrawalBudget: z.boolean().optional(),
-              externalWithdrawalNfe: z.boolean().optional(),
-              externalWithdrawalReceipt: z.boolean().optional(),
+              externalOperationBudget: z.boolean().optional(),
+              externalOperationNfe: z.boolean().optional(),
+              externalOperationReceipt: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -252,6 +252,14 @@ export const airbrushingOrderBySchema = z
             status: orderByDirectionSchema.optional(),
             createdAt: orderByDirectionSchema.optional(),
             updatedAt: orderByDirectionSchema.optional(),
+            customer: z
+              .object({
+                id: orderByDirectionSchema.optional(),
+                fantasyName: orderByDirectionSchema.optional(),
+                corporateName: orderByDirectionSchema.optional(),
+              })
+              .partial()
+              .optional(),
           })
           .partial()
           .optional(),
@@ -282,6 +290,31 @@ export const airbrushingOrderBySchema = z
           painterId: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
+          task: z
+            .object({
+              id: orderByDirectionSchema.optional(),
+              name: orderByDirectionSchema.optional(),
+              status: orderByDirectionSchema.optional(),
+              createdAt: orderByDirectionSchema.optional(),
+              updatedAt: orderByDirectionSchema.optional(),
+              customer: z
+                .object({
+                  id: orderByDirectionSchema.optional(),
+                  fantasyName: orderByDirectionSchema.optional(),
+                  corporateName: orderByDirectionSchema.optional(),
+                })
+                .partial()
+                .optional(),
+            })
+            .partial()
+            .optional(),
+          painter: z
+            .object({
+              id: orderByDirectionSchema.optional(),
+              name: orderByDirectionSchema.optional(),
+            })
+            .partial()
+            .optional(),
         })
         .partial(),
     ),

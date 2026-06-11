@@ -58,7 +58,7 @@ const TRACKED_FIELDS = [
   'term',
   'forecastDate',
   'sectorId',
-  'commission',
+  'bonification',
   'responsibles',
   'artworks', // array of files
   'budgets', // array of files
@@ -69,7 +69,6 @@ const TRACKED_FIELDS = [
   'logoPaints', // array of files/paints
   'reimbursements', // array of files
   'invoiceReimbursements', // array of files
-  'priority',
   'details',
   'observation',
   'entryDate',
@@ -267,13 +266,13 @@ export class TaskFieldTrackerService {
    * @returns true if values are different
    */
   private hasChanged(oldValue: any, newValue: any, fieldName?: string): boolean {
-    // Commission field normalization: treat null/undefined as NO_COMMISSION
-    // This prevents false positive changes when both display as "Sem Comissão"
-    if (fieldName === 'commission') {
+    // Bonification field normalization: treat null/undefined as NO_BONIFICATION
+    // This prevents false positive changes when both display as "Sem Bonificação"
+    if (fieldName === 'bonification') {
       const normalizedOld =
-        oldValue === null || oldValue === undefined ? 'NO_COMMISSION' : oldValue;
+        oldValue === null || oldValue === undefined ? 'NO_BONIFICATION' : oldValue;
       const normalizedNew =
-        newValue === null || newValue === undefined ? 'NO_COMMISSION' : newValue;
+        newValue === null || newValue === undefined ? 'NO_BONIFICATION' : newValue;
       return normalizedOld !== normalizedNew;
     }
 

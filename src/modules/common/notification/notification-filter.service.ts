@@ -117,6 +117,7 @@ export class NotificationFilterService {
     [SECTOR_PRIVILEGES.ADMIN]: 10,
     [SECTOR_PRIVILEGES.EXTERNAL]: 0, // External users have no privilege level
     [SECTOR_PRIVILEGES.PRODUCTION_MANAGER]: 8,
+    [SECTOR_PRIVILEGES.AIRBRUSHING]: 0, // Airbrushing painters are third parties - same level as EXTERNAL
   };
 
   /**

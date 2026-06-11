@@ -1,8 +1,8 @@
 // Stock-event notifications (algorithm-spec §9 + services-spec §A).
 // Aggregates threshold crossings per supplier into a single dispatch, with a
 // DB-backed 24h cooldown (NotificationCooldown table) so a single supplier
-// receives at most one notification per event-type per day. TOOL items are
-// excluded ENTIRELY (no LOW/CRITICAL/OUT_OF_STOCK/OVERSTOCKED — spec §11).
+// receives at most one notification per event-type per day. Fixed-target items
+// are excluded ENTIRELY (no LOW/CRITICAL/OUT_OF_STOCK/OVERSTOCKED — spec §11).
 // OVERSTOCKED is IN_APP only.
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -17,7 +17,7 @@ import {
 } from '../../../constants/enums';
 import { StockCalculationResult } from './atomic-stock-calculator.service';
 import { PrismaTransaction } from '../activity/repositories/activity.repository';
-import { isToolType } from '../../../constants/inventory-config';
+import { isFixedTarget } from '../../../constants/inventory-config';
 
 export enum STOCK_EVENT_TYPE {
   LOW = 'low',
@@ -25,6 +25,9 @@ export enum STOCK_EVENT_TYPE {
   OUT_OF_STOCK = 'out',
   OVERSTOCKED = 'overstocked',
   REPLENISHED = 'restock',
+  /** Derived event: fired ALONGSIDE low/critical/out when the item has a
+   *  reorderQuantity configured (config key item.reorder_required). */
+  REORDER = 'reorder',
 }
 
 const COOLDOWN_TTL_MS = 24 * 60 * 60 * 1000;
@@ -36,6 +39,7 @@ interface StockEventItem {
   quantity: number;
   previousQuantity: number;
   reorderPoint: number | null;
+  reorderQuantity: number | null;
   eventType: STOCK_EVENT_TYPE;
   categoryType: ITEM_CATEGORY_TYPE | null;
 }
@@ -103,6 +107,10 @@ export class StockNotificationService {
         name: true,
         uniCode: true,
         supplierId: true,
+        isBorrowable: true,
+        stockModel: true,
+        fixedTargetQuantity: true,
+        reorderQuantity: true,
         category: { select: { type: true } },
       },
     });
@@ -114,22 +122,38 @@ export class StockNotificationService {
       if (!item) continue;
       const categoryType = (item.category?.type ?? null) as ITEM_CATEGORY_TYPE | null;
 
-      // Tool carve-out (spec §11): tools (regular + electronic) are excluded
-      // ENTIRELY from stock notifications — no LOW, CRITICAL, OUT_OF_STOCK, or
-      // OVERSTOCKED. Tool replenishment surfaces only through the auto-order page.
-      if (isToolType(categoryType)) continue;
+      // Fixed-target carve-out (spec §11): fixed-target items (formerly the
+      // TOOL category gate) are excluded ENTIRELY from stock notifications —
+      // no LOW, CRITICAL, OUT_OF_STOCK, or OVERSTOCKED. Their replenishment
+      // surfaces only through the auto-order page.
+      if (isFixedTarget(item)) continue;
 
-      out.push({
+      const base = {
         itemId: calc.itemId,
         itemName: calc.itemName,
         itemCode: item.uniCode ?? null,
         quantity: calc.finalQuantity,
         previousQuantity: calc.currentQuantity,
         reorderPoint: calc.reorderPoint,
-        eventType,
+        reorderQuantity: item.reorderQuantity ?? null,
         categoryType,
         supplierId: item.supplierId ?? null,
-      });
+      };
+
+      out.push({ ...base, eventType });
+
+      // Derived REORDER event (audit F7): whenever an item drops to/below the
+      // reorder threshold (low/critical/out) AND has a reorderQuantity set,
+      // also fire item.reorder_required — regardless of whether the crossing
+      // came from an activity or a direct item edit. The per-supplier 24h
+      // cooldown (cooldownKey includes the event type) prevents storms.
+      const belowReorderThreshold =
+        eventType === STOCK_EVENT_TYPE.LOW ||
+        eventType === STOCK_EVENT_TYPE.CRITICAL ||
+        eventType === STOCK_EVENT_TYPE.OUT_OF_STOCK;
+      if (belowReorderThreshold && (item.reorderQuantity ?? 0) > 0) {
+        out.push({ ...base, eventType: STOCK_EVENT_TYPE.REORDER });
+      }
     }
     return out;
   }
@@ -201,6 +225,8 @@ export class StockNotificationService {
           quantity: firstItem?.quantity,
           reorderPoint: firstItem?.reorderPoint,
           minQuantity: firstItem?.reorderPoint,
+          suggestedOrderQuantity: firstItem?.reorderQuantity,
+          preferredSupplier: bucket.supplierId ? supplierName : '',
           items: bucket.items.map(i => ({
             itemId: i.itemId,
             itemName: i.itemName,
@@ -208,6 +234,7 @@ export class StockNotificationService {
             quantity: i.quantity,
             previousQuantity: i.previousQuantity,
             reorderPoint: i.reorderPoint,
+            reorderQuantity: i.reorderQuantity,
             categoryType: i.categoryType,
             deepLink: this.deepLinkService.generateNotificationActionUrl(
               DeepLinkEntity.Item,
@@ -248,8 +275,13 @@ export class StockNotificationService {
     switch (eventType) {
       case STOCK_EVENT_TYPE.OUT_OF_STOCK:
         return 'item.out_of_stock';
-      case STOCK_EVENT_TYPE.REPLENISHED:
+      case STOCK_EVENT_TYPE.REORDER:
         return 'item.reorder_required';
+      case STOCK_EVENT_TYPE.REPLENISHED:
+        // Dedicated key — previously collided with item.reorder_required
+        // (semantic opposite). The title/body overrides keep the correct
+        // pt-BR content even before the config seed lands.
+        return 'item.replenished';
       case STOCK_EVENT_TYPE.OVERSTOCKED:
         // Canonical key is item.overstock (matches ItemListener + item.service
         // single-item path). Previously diverged as item.overstocked.
@@ -263,6 +295,7 @@ export class StockNotificationService {
     switch (eventType) {
       case STOCK_EVENT_TYPE.OUT_OF_STOCK:
       case STOCK_EVENT_TYPE.CRITICAL:
+      case STOCK_EVENT_TYPE.REORDER:
         return NOTIFICATION_IMPORTANCE.HIGH;
       case STOCK_EVENT_TYPE.LOW:
       case STOCK_EVENT_TYPE.OVERSTOCKED:
@@ -310,6 +343,16 @@ export class StockNotificationService {
           title: 'Estoque reabastecido',
           body: `${supplierName}: ${summary} foi reabastecido.`,
         };
+      case STOCK_EVENT_TYPE.REORDER: {
+        const suggestion =
+          items.length === 1 && items[0].reorderQuantity
+            ? ` Sugestão de pedido: ${items[0].reorderQuantity} un.`
+            : '';
+        return {
+          title: 'Recompra necessária',
+          body: `${supplierName}: ${summary} atingiu o ponto de recompra.${suggestion} Realize o pedido de compra.`,
+        };
+      }
     }
   }
 

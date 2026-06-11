@@ -39,7 +39,9 @@ import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.servi
     NotificationModule,
     forwardRef(() => InvoiceModule),
     NfseModule,
-    SicrediModule,
+    // forwardRef: SicrediModule imports this module back (cascade service); a direct
+    // reference is undefined when the ESM cycle is entered from the Invoice/Sicredi side.
+    forwardRef(() => SicrediModule),
   ],
   controllers: [TaskQuoteController],
   providers: [

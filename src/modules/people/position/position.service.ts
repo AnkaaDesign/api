@@ -215,7 +215,7 @@ export class PositionService {
           'level',
           'sectorId',
           'privileges',
-          'commissionEligible',
+          'bonificationEligible',
           'hierarchy',
           'bonifiable',
         ];
@@ -556,7 +556,7 @@ export class PositionService {
             'level',
             'sectorId',
             'privileges',
-            'commissionEligible',
+            'bonificationEligible',
             'hierarchy',
             'bonifiable',
           ];

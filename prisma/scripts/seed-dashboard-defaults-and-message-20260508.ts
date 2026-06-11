@@ -111,7 +111,7 @@ const EMPTY_TASK_FILTERS = {
   entryRange: { to: null, from: null },
   termPreset: 'any',
   assigneeIds: [] as string[],
-  commissions: [] as string[],
+  bonifications: [] as string[],
   customerIds: [] as string[],
   hasArtworks: 'any',
   createdRange: { to: null, from: null },

@@ -46,17 +46,17 @@ export const FILE_RELATIONSHIP_MAP = {
   orderReceipts: { entityType: ENTITY_TYPE.ORDER, description: 'recibo do pedido' },
 
   // External withdrawal relationships
-  externalWithdrawalBudgets: {
-    entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL,
-    description: 'orçamento da retirada externa',
+  externalOperationBudgets: {
+    entityType: ENTITY_TYPE.EXTERNAL_OPERATION,
+    description: 'orçamento da operação externa',
   },
-  externalWithdrawalInvoices: {
-    entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL,
-    description: 'nota fiscal da retirada externa',
+  externalOperationInvoices: {
+    entityType: ENTITY_TYPE.EXTERNAL_OPERATION,
+    description: 'nota fiscal da operação externa',
   },
-  externalWithdrawalReceipts: {
-    entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL,
-    description: 'recibo da retirada externa',
+  externalOperationReceipts: {
+    entityType: ENTITY_TYPE.EXTERNAL_OPERATION,
+    description: 'recibo da operação externa',
   },
 } as const;
 

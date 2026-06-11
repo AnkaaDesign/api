@@ -4614,7 +4614,7 @@ export class SecullumService {
           },
           overrides: {
             title: 'Nova solicitação de justificativa de ausência',
-            body: `${requesterName} criou uma solicitação de justificativa de ausência para ${payload.date}.${
+            body: `Solicitação de justificativa de ausência de ${requesterName} para ${payload.date}.${
               payload.observacoes ? ` Justificativa: ${payload.observacoes}` : ''
             }`,
             webUrl: '/recursos-humanos/integracoes/secullum',
@@ -4714,7 +4714,7 @@ export class SecullumService {
         },
         overrides: {
           title: 'Nova solicitação de ajuste de ponto',
-          body: `${requesterName} criou uma solicitação de ajuste de ponto para ${payload.date}.${
+          body: `Solicitação de ajuste de ponto de ${requesterName} para ${payload.date}.${
             payload.observacoes ? ` Observação: ${payload.observacoes}` : ''
           }`,
           webUrl: '/recursos-humanos/integracoes/secullum',
@@ -5177,7 +5177,7 @@ export class SecullumService {
             },
             overrides: {
               title: 'Nova solicitação de justificativa de ausência',
-              body: `${requesterName} criou uma solicitação de justificativa de ausência para ${dateLabel}.${
+              body: `Solicitação de justificativa de ausência de ${requesterName} para ${dateLabel}.${
                 body.observacoes ? ` Justificativa: ${body.observacoes}` : ''
               }`,
               webUrl: '/recursos-humanos/integracoes/secullum',
@@ -5201,7 +5201,7 @@ export class SecullumService {
             },
             overrides: {
               title: 'Nova solicitação de ajuste de ponto',
-              body: `${requesterName} criou uma solicitação de ajuste de ponto para ${dateLabel}.${
+              body: `Solicitação de ajuste de ponto de ${requesterName} para ${dateLabel}.${
                 body.observacoes ? ` Observação: ${body.observacoes}` : ''
               }`,
               webUrl: '/recursos-humanos/integracoes/secullum',
@@ -5403,7 +5403,7 @@ export class SecullumService {
         },
         overrides: {
           title: 'Nova solicitação de inclusão de marcação',
-          body: `${requesterName} solicitou a inclusão de uma marcação de ponto.${
+          body: `Solicitação de inclusão de marcação de ponto de ${requesterName}.${
             payload.justificativa ? ` Justificativa: ${payload.justificativa}` : ''
           }`,
           webUrl: '/recursos-humanos/integracoes/secullum',

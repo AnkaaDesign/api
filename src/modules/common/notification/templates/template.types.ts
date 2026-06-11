@@ -10,7 +10,7 @@ import {
   NOTIFICATION_CHANNEL,
   TASK_STATUS,
   ORDER_STATUS,
-  COMMISSION_STATUS,
+  BONIFICATION_STATUS,
 } from '../../../../constants/enums';
 
 // =====================
@@ -137,7 +137,7 @@ export interface TaskNegotiationData {
   url?: string;
 }
 
-export interface TaskCommissionData {
+export interface TaskBonificationData {
   taskName: string;
   oldStatus: string;
   newStatus: string;
@@ -349,7 +349,7 @@ export type TaskTemplateKey =
   | 'task.invoice.added'
   | 'task.invoice.updated'
   | 'task.receipt.added'
-  | 'task.commission.updated'
+  | 'task.bonification.updated'
   | 'task.priority.changed'
   | 'task.completed'
   | 'task.cancelled'
@@ -426,7 +426,7 @@ export type TemplateData =
   | TaskInvoiceData
   | TaskReceiptData
   | TaskNegotiationData
-  | TaskCommissionData
+  | TaskBonificationData
   | TaskPriorityData
   | TaskCompletedData
   | TaskCancelledData

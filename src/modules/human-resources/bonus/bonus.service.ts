@@ -26,7 +26,7 @@ import {
   CHANGE_TRIGGERED_BY,
   ENTITY_TYPE,
   CHANGE_ACTION,
-  COMMISSION_STATUS,
+  BONIFICATION_STATUS,
   TASK_STATUS,
   USER_STATUS,
 } from '../../../constants/enums';
@@ -114,39 +114,39 @@ interface LiveBonusCalculationResult {
 
 /**
  * Calculate weighted task count from tasks array
- * FULL_COMMISSION = 1.0, PARTIAL_COMMISSION = 0.5, SUSPENDED_COMMISSION = 0.0
+ * FULL_BONIFICATION = 1.0, PARTIAL_BONIFICATION = 0.5, SUSPENDED_BONIFICATION = 0.0
  */
 function calculatePonderedTaskCount(tasks: any[]): number {
   if (!tasks || tasks.length === 0) return 0;
 
   return tasks.reduce((sum, task) => {
-    if (task.commission === COMMISSION_STATUS.FULL_COMMISSION) {
+    if (task.bonification === BONIFICATION_STATUS.FULL_BONIFICATION) {
       return sum + 1.0;
-    } else if (task.commission === COMMISSION_STATUS.PARTIAL_COMMISSION) {
+    } else if (task.bonification === BONIFICATION_STATUS.PARTIAL_BONIFICATION) {
       return sum + 0.5;
     }
-    // SUSPENDED_COMMISSION and NO_COMMISSION = 0.0
+    // SUSPENDED_BONIFICATION and NO_BONIFICATION = 0.0
     return sum;
   }, 0);
 }
 
 /**
  * Calculate raw task count for base bonus calculation
- * Treats SUSPENDED_COMMISSION as FULL_COMMISSION (1.0) for base value calculation
- * FULL_COMMISSION = 1.0, PARTIAL_COMMISSION = 0.5, SUSPENDED_COMMISSION = 1.0
+ * Treats SUSPENDED_BONIFICATION as FULL_BONIFICATION (1.0) for base value calculation
+ * FULL_BONIFICATION = 1.0, PARTIAL_BONIFICATION = 0.5, SUSPENDED_BONIFICATION = 1.0
  */
 function calculateRawTaskCount(tasks: any[]): number {
   if (!tasks || tasks.length === 0) return 0;
 
   return tasks.reduce((sum, task) => {
-    if (task.commission === COMMISSION_STATUS.FULL_COMMISSION) {
+    if (task.bonification === BONIFICATION_STATUS.FULL_BONIFICATION) {
       return sum + 1.0;
-    } else if (task.commission === COMMISSION_STATUS.PARTIAL_COMMISSION) {
+    } else if (task.bonification === BONIFICATION_STATUS.PARTIAL_BONIFICATION) {
       return sum + 0.5;
-    } else if (task.commission === COMMISSION_STATUS.SUSPENDED_COMMISSION) {
+    } else if (task.bonification === BONIFICATION_STATUS.SUSPENDED_BONIFICATION) {
       return sum + 1.0; // Suspended tasks count as full for base calculation
     }
-    // NO_COMMISSION = 0.0
+    // NO_BONIFICATION = 0.0
     return sum;
   }, 0);
 }
@@ -156,7 +156,7 @@ function calculateRawTaskCount(tasks: any[]): number {
  */
 function countSuspendedTasks(tasks: any[]): number {
   if (!tasks || tasks.length === 0) return 0;
-  return tasks.filter(task => task.commission === COMMISSION_STATUS.SUSPENDED_COMMISSION).length;
+  return tasks.filter(task => task.bonification === BONIFICATION_STATUS.SUSPENDED_BONIFICATION).length;
 }
 
 /**
@@ -283,7 +283,7 @@ export class BonusService {
             name: true,
             status: true,
             finishedAt: true,
-            commission: true,
+            bonification: true,
             customer: {
               select: {
                 id: true,
@@ -514,15 +514,15 @@ export class BonusService {
         },
       });
 
-      // Get ALL tasks in the period (including NO_COMMISSION for history)
+      // Get ALL tasks in the period (including NO_BONIFICATION for history)
       const allTasks = await this.prisma.task.findMany({
         where: {
-          commission: {
+          bonification: {
             in: [
-              COMMISSION_STATUS.FULL_COMMISSION,
-              COMMISSION_STATUS.PARTIAL_COMMISSION,
-              COMMISSION_STATUS.SUSPENDED_COMMISSION,
-              COMMISSION_STATUS.NO_COMMISSION,
+              BONIFICATION_STATUS.FULL_BONIFICATION,
+              BONIFICATION_STATUS.PARTIAL_BONIFICATION,
+              BONIFICATION_STATUS.SUSPENDED_BONIFICATION,
+              BONIFICATION_STATUS.NO_BONIFICATION,
             ],
           },
           finishedAt: { gte: startDate, lte: endDate },
@@ -531,7 +531,7 @@ export class BonusService {
         select: {
           id: true,
           name: true,
-          commission: true,
+          bonification: true,
           finishedAt: true,
           status: true,
           createdById: true,
@@ -717,7 +717,7 @@ export class BonusService {
           percentage: null,
           calculationOrder: 1,
           suspendedTasks: allTasks.filter(
-            (t: any) => t.commission === COMMISSION_STATUS.SUSPENDED_COMMISSION,
+            (t: any) => t.bonification === BONIFICATION_STATUS.SUSPENDED_BONIFICATION,
           ),
         });
       }
@@ -802,7 +802,7 @@ export class BonusService {
           name: task.name,
           status: task.status,
           finishedAt: task.finishedAt,
-          commission: task.commission,
+          bonification: task.bonification,
           customer: task.customer || null,
           sector: task.sector || null,
         })),
@@ -886,7 +886,7 @@ export class BonusService {
             name: true,
             status: true,
             finishedAt: true,
-            commission: true,
+            bonification: true,
           },
         },
         bonusDiscounts: {
@@ -987,7 +987,7 @@ export class BonusService {
             name: true,
             status: true,
             finishedAt: true,
-            commission: true,
+            bonification: true,
           },
         },
         bonusDiscounts: {
@@ -1866,7 +1866,7 @@ export class BonusService {
    * This is used when the current period is requested and we need real-time calculations.
    *
    * NEW WORKFLOW:
-   * 1. Get ALL tasks (including SUSPENDED_COMMISSION)
+   * 1. Get ALL tasks (including SUSPENDED_BONIFICATION)
    * 2. Calculate RAW task count (suspended = 1.0) for BASE bonus calculation
    * 3. Calculate WEIGHTED task count (suspended = 0.0) for NET bonus calculation
    * 4. BASE bonus = calculated with raw average
@@ -1895,21 +1895,21 @@ export class BonusService {
       },
     });
 
-    // Get tasks in period (including NO_COMMISSION for history)
+    // Get tasks in period (including NO_BONIFICATION for history)
     const allTasks = await this.prisma.task.findMany({
       where: {
-        commission: {
+        bonification: {
           in: [
-            COMMISSION_STATUS.FULL_COMMISSION,
-            COMMISSION_STATUS.PARTIAL_COMMISSION,
-            COMMISSION_STATUS.SUSPENDED_COMMISSION,
-            COMMISSION_STATUS.NO_COMMISSION,
+            BONIFICATION_STATUS.FULL_BONIFICATION,
+            BONIFICATION_STATUS.PARTIAL_BONIFICATION,
+            BONIFICATION_STATUS.SUSPENDED_BONIFICATION,
+            BONIFICATION_STATUS.NO_BONIFICATION,
           ],
         },
         finishedAt: { gte: startDate, lte: endDate },
         status: TASK_STATUS.COMPLETED,
       },
-      select: { id: true, commission: true },
+      select: { id: true, bonification: true },
     });
 
     const totalRawTaskCount = calculateRawTaskCount(allTasks);
@@ -2073,15 +2073,15 @@ export class BonusService {
         },
       });
 
-      // Get ALL tasks in the period (including NO_COMMISSION for history)
+      // Get ALL tasks in the period (including NO_BONIFICATION for history)
       const allTasks = await this.prisma.task.findMany({
         where: {
-          commission: {
+          bonification: {
             in: [
-              COMMISSION_STATUS.FULL_COMMISSION,
-              COMMISSION_STATUS.PARTIAL_COMMISSION,
-              COMMISSION_STATUS.SUSPENDED_COMMISSION,
-              COMMISSION_STATUS.NO_COMMISSION,
+              BONIFICATION_STATUS.FULL_BONIFICATION,
+              BONIFICATION_STATUS.PARTIAL_BONIFICATION,
+              BONIFICATION_STATUS.SUSPENDED_BONIFICATION,
+              BONIFICATION_STATUS.NO_BONIFICATION,
             ],
           },
           finishedAt: {
@@ -2093,7 +2093,7 @@ export class BonusService {
         select: {
           id: true,
           name: true,
-          commission: true,
+          bonification: true,
           finishedAt: true,
           createdById: true,
           customer: {
@@ -2718,7 +2718,7 @@ export class BonusService {
               name: task.name,
               status: task.status,
               finishedAt: task.finishedAt,
-              commission: task.commission,
+              bonification: task.bonification,
               customer: task.customer || null,
               sector: task.sector || null,
             })),
@@ -2794,7 +2794,7 @@ export class BonusService {
    * Non-eligible users get bonus value 0 and performance level 0.
    *
    * NEW WORKFLOW:
-   * 1. Get ALL tasks (including SUSPENDED_COMMISSION)
+   * 1. Get ALL tasks (including SUSPENDED_BONIFICATION)
    * 2. Calculate RAW task count (suspended = 1.0) for BASE bonus calculation
    * 3. Calculate WEIGHTED task count (suspended = 0.0) for NET bonus calculation
    * 4. BASE bonus = calculated with raw average
@@ -2863,15 +2863,15 @@ export class BonusService {
       const periodStart = getPeriodStart(yearNum, monthNum);
       const periodEnd = getPeriodEnd(yearNum, monthNum);
 
-      // Get all tasks for this period (including suspended and no commission) - ALL users share the same task pool
+      // Get all tasks for this period (including suspended and no bonification) - ALL users share the same task pool
       const allTasksForPeriod = await this.prisma.task.findMany({
         where: {
-          commission: {
+          bonification: {
             in: [
-              COMMISSION_STATUS.FULL_COMMISSION,
-              COMMISSION_STATUS.PARTIAL_COMMISSION,
-              COMMISSION_STATUS.SUSPENDED_COMMISSION,
-              COMMISSION_STATUS.NO_COMMISSION,
+              BONIFICATION_STATUS.FULL_BONIFICATION,
+              BONIFICATION_STATUS.PARTIAL_BONIFICATION,
+              BONIFICATION_STATUS.SUSPENDED_BONIFICATION,
+              BONIFICATION_STATUS.NO_BONIFICATION,
             ],
           },
           finishedAt: {
@@ -2880,12 +2880,12 @@ export class BonusService {
           },
           status: TASK_STATUS.COMPLETED,
         },
-        select: { id: true, commission: true },
+        select: { id: true, bonification: true },
       });
 
       // Get suspended task IDs for linking to discounts
       const suspendedTaskIds = allTasksForPeriod
-        .filter(t => t.commission === COMMISSION_STATUS.SUSPENDED_COMMISSION)
+        .filter(t => t.bonification === BONIFICATION_STATUS.SUSPENDED_BONIFICATION)
         .map(t => t.id);
 
       // All task IDs for connecting to bonuses (same for all users).
@@ -2901,12 +2901,12 @@ export class BonusService {
           id: { in: allTasksForPeriod.map(t => t.id) },
           status: TASK_STATUS.COMPLETED,
           finishedAt: { gte: periodStart, lte: periodEnd },
-          commission: {
+          bonification: {
             in: [
-              COMMISSION_STATUS.FULL_COMMISSION,
-              COMMISSION_STATUS.PARTIAL_COMMISSION,
-              COMMISSION_STATUS.SUSPENDED_COMMISSION,
-              COMMISSION_STATUS.NO_COMMISSION,
+              BONIFICATION_STATUS.FULL_BONIFICATION,
+              BONIFICATION_STATUS.PARTIAL_BONIFICATION,
+              BONIFICATION_STATUS.SUSPENDED_BONIFICATION,
+              BONIFICATION_STATUS.NO_BONIFICATION,
             ],
           },
         },
@@ -3494,17 +3494,17 @@ export class BonusService {
       where: {
         finishedAt: { gte: startDate, lte: endDate },
         status: TASK_STATUS.COMPLETED,
-        commission: {
+        bonification: {
           in: [
-            COMMISSION_STATUS.FULL_COMMISSION,
-            COMMISSION_STATUS.PARTIAL_COMMISSION,
-            COMMISSION_STATUS.SUSPENDED_COMMISSION,
-            COMMISSION_STATUS.NO_COMMISSION,
+            BONIFICATION_STATUS.FULL_BONIFICATION,
+            BONIFICATION_STATUS.PARTIAL_BONIFICATION,
+            BONIFICATION_STATUS.SUSPENDED_BONIFICATION,
+            BONIFICATION_STATUS.NO_BONIFICATION,
           ],
         },
         ...sectorFilter,
       },
-      select: { id: true, finishedAt: true, commission: true, sectorId: true },
+      select: { id: true, finishedAt: true, bonification: true, sectorId: true },
     });
 
     const calcContext = await this.bonusCalculationContextService.load();

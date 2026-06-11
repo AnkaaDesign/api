@@ -1,0 +1,82 @@
+{
+  "note": "Taxonomy v2 — APPLIED state (phase-a9-taxonomy-v2.sql, 2026-06-10). Restores the owner-preferred 14-top separation from merged-taxonomy.json, improved by live item data. Owner decisions 2026-06-10: primers STAY under Tintas (not Funilaria); compressed-air line moved to Manutenção as MANUTENCAO; item renames deferred (report only). The owner usage-stage rule from phase A8 is preserved: removedor/desengraxante/estopas live in Funilaria › Preparação de Superfície, NOT in Solventes/Higiene. 'A Revisar' is the triage bucket (acct null).",
+  "categories": [
+    { "top": "Tintas, Vernizes e Auxiliares Químicos", "acct": "MATERIA_PRIMA", "leaves": [
+      { "leaf": "Pigmento" },
+      { "leaf": "Base" },
+      { "leaf": "Bases Prontas / Tintas" },
+      { "leaf": "Linha Vinílica" },
+      { "leaf": "Vernizes", "dbName": "Verniz" },
+      { "leaf": "Endurecedores e Catalisadores" },
+      { "leaf": "Aditivos e Auxiliares" },
+      { "leaf": "Solventes e Thinners" },
+      { "leaf": "Fundos e Primers", "note": "owner decision: stays here, não em Funilaria" }
+    ]},
+    { "top": "Funilaria e Reparo de Carroceria", "acct": "PRODUTIVO", "leaves": [
+      { "leaf": "Massas e Laminação" },
+      { "leaf": "Selantes e Vedantes" },
+      { "leaf": "Preparação de Superfície", "note": "regra etapa-de-uso A8: removedor, desengraxante, desengripante, estopas" }
+    ]},
+    { "top": "Abrasivos e Polimento", "acct": "PRODUTIVO", "leaves": [
+      { "leaf": "Lixas", "note": "A16: de volta como folha (A14 tinha promovido a top) — só lixas" },
+      { "leaf": "Fibras Abrasivas", "note": "A16: Palha de Aço + Scotch Brite, separadas das lixas" },
+      { "leaf": "Discos de Corte e Desbaste" },
+      { "leaf": "Bases e Adaptadores", "note": "A14: Base Hookit, Hookit, Disco de Interface, Adaptador Boina — hardware de fixação, não mídia" },
+      { "leaf": "Polimento e Refino" }
+    ]},
+    { "top": "Mascaramento e Cobertura", "acct": "PRODUTIVO", "leaves": [
+      { "leaf": "Fitas de Mascaramento" },
+      { "leaf": "Papel de Cobertura", "note": "+Papel Kraft; lona plástica → Embalagem" }
+    ]},
+    { "top": "Plotagem e Adesivação", "acct": "PRODUTIVO", "leaves": [
+      { "leaf": "Vinil, Películas e Adesivos", "note": "+7 Faixas Refletivas (vinham de Reparo)" },
+      { "leaf": "Máscaras de Transferência", "note": "A14: +Papel Kraft (papel de transferência/aplicação — owner: kraft é da plotagem)" },
+      { "leaf": "Ferramentas e Equipamentos de Plotagem" }
+    ]},
+    { "top": "Aplicadores e Auxiliares de Mistura", "acct": "PRODUTIVO", "leaves": [
+      { "leaf": "Pincéis, Rolos e Espátulas" },
+      { "leaf": "Copos, Dosagem e Filtragem" }
+    ]},
+    { "top": "Peças, Fixação e Conexões", "acct": "PRODUTIVO", "leaves": [
+      { "leaf": "Fixadores" },
+      { "leaf": "Abraçadeiras e Presilhas", "note": "+cintas catraca, arames" },
+      { "leaf": "Conexões, Mangueiras e Suportes" },
+      { "leaf": "Peças de Reposição (Caminhões)", "note": "não existia na proposta; mantida do A4" }
+    ]},
+    { "top": "Ferramentas Manuais", "acct": "INVESTIMENTO", "type": "TOOL", "leaves": [
+      { "leaf": "Chaves, Alicates e Soquetes", "note": "+bits torx, soquete torx" },
+      { "leaf": "Corte, Impacto e Escovas", "note": "+brocas, mandril, lâminas" },
+      { "leaf": "Medição e Alinhamento", "note": "+nível a laser" }
+    ]},
+    { "top": "Ferramentas Elétricas/Pneumáticas e Equipamentos", "acct": "INVESTIMENTO", "type": "TOOL", "leaves": [
+      { "leaf": "Ferramentas Elétricas" },
+      { "leaf": "Ferramentas Pneumáticas" },
+      { "leaf": "Pistolas de Pintura e Aerografia", "note": "pistolas + aerógrafo + copo de pistola; alinha com setor Aerografia" },
+      { "leaf": "Equipamentos e Acesso", "note": "escadas, banqueta, cavalete, pulverizador, seladora" }
+    ]},
+    { "top": "Manutenção e Instalações", "acct": "MANUTENCAO", "leaves": [
+      { "leaf": "Instalação Elétrica" },
+      { "leaf": "Instalação Pneumática", "note": "ex 'Ar Comprimido e Conexões'; decisão owner 2026-06-10: PRODUTIVO→MANUTENCAO" },
+      { "leaf": "Peças de Manutenção de Equipamento", "note": "+filtro compressor, refis maçarico/gás, kit rodas" }
+    ]},
+    { "top": "EPI", "acct": "EPI", "type": "PPE", "leaves": [
+      { "leaf": "Calçados de Segurança" },
+      { "leaf": "Proteção das Mãos" },
+      { "leaf": "Proteção Respiratória" },
+      { "leaf": "Proteção Visual, Auditiva e Corporal", "note": "A14: +Macacões de Segurança Vicsa (são EPI, não uniforme — decisão owner)" }
+    ]},
+    { "top": "Uniforme", "acct": "EPI", "type": "PPE", "leaves": [
+      { "leaf": "Uniforme — Parte Superior", "note": "camisetas, camisas, manguitos" },
+      { "leaf": "Uniforme — Parte Inferior", "note": "calças, bermudas" }
+    ]},
+    { "top": "Escritório, Cozinha, Limpeza e Cortesia", "acct": "ESCRITORIO", "leaves": [
+      { "leaf": "Escritório e Administrativo" },
+      { "leaf": "Higiene, Limpeza e Zeladoria" },
+      { "leaf": "Copa e Alimentação", "note": "separada de limpeza por decisão do owner" },
+      { "leaf": "Cortesia" },
+      { "leaf": "Informática e Eletrônicos" },
+      { "leaf": "Embalagem e Expedição", "note": "+lona plástica, bobina papel ondulado" }
+    ]},
+    { "top": "A Revisar", "acct": null, "leaves": [], "note": "bucket de triagem; itens caem aqui com categoryReviewNeeded=true" }
+  ]
+}

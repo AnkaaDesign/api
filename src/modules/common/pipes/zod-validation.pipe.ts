@@ -230,7 +230,7 @@ export class ZodValidationPipe implements PipeTransform {
       term: 'Prazo',
       startedAt: 'Data de início',
       finishedAt: 'Data de finalização',
-      commission: 'Comissão',
+      bonification: 'Bonificação',
       services: 'Serviços',
       location: 'Localização',
       observation: 'Observação',
@@ -599,8 +599,8 @@ export class ZodValidationPipe implements PipeTransform {
       // EPI/PPE fields
       'deliveryQuantity',
       'requestedQuantity',
-      // Commission fields
-      'commission',
+      // Bonification fields
+      'bonification',
       'rate',
       // Payment fields
       'paymentDueDays',

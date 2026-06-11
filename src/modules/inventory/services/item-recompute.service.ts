@@ -25,8 +25,8 @@ import {
   CONSUMPTION_LOOKBACK_MONTHS,
   PPE_CONSUMPTION_REASONS,
   REGULAR_CONSUMPTION_REASONS,
-  getToolTarget,
-  isToolType,
+  getFixedTarget,
+  isFixedTarget,
 } from '@/constants/inventory-config';
 import { CORPUS_MONTHLY_INDEX } from '@/constants/seasonality-config';
 import {
@@ -34,9 +34,11 @@ import {
   calculateLeadTime,
   calculateMaxQuantity,
   calculateMonthlyConsumption,
+  calculatePeakWeekDemand,
   calculateReorderPoint,
   calculateReorderQuantity,
   isLegacyBulkReceipt,
+  leadTimeClockStart,
   resolveSafetyTargetCell,
   type ItemLike,
   type SeasonalContext,
@@ -68,8 +70,9 @@ export class ItemRecomputeService {
    * canonical stock-health engine. Returns the freshly computed numbers
    * together with the item's existing ABC/XYZ classifications.
    *
-   * TOOL items short-circuit per spec §4/§12: mc=0, rp=0, max=current quantity,
-   * reorderQty=0, leadTime preserved.
+   * FIXED_TARGET items short-circuit per spec §4/§12: mc=0,
+   * rp=max=fixedTargetQuantity (fallback 1), reorderQty=box-rounded shortfall,
+   * leadTime preserved.
    *
    * Safe to call inside a Prisma `$transaction`; pass the transaction client
    * via `tx` so all reads/writes participate in it.
@@ -89,14 +92,13 @@ export class ItemRecomputeService {
       throw new Error(`Item ${itemId} not found for recompute`);
     }
 
-    const categoryType = (item.category?.type as ITEM_CATEGORY_TYPE | null) ?? null;
-
-    // Tool short-circuit (spec §4/§12) — mirror stock-health.ts. Tools hold a
-    // fixed target on-hand quantity (regular=2, electronic=1); reorderPoint and
-    // maxQuantity = target, reorderQuantity = box-rounded shortfall to restore it.
-    if (isToolType(categoryType)) {
+    // Fixed-target short-circuit (spec §4/§12) — mirror stock-health.ts.
+    // These items hold a fixed target on-hand quantity
+    // (item.fixedTargetQuantity ?? 1); reorderPoint and maxQuantity = target,
+    // reorderQuantity = box-rounded shortfall to restore it.
+    if (isFixedTarget(item)) {
       const existingLeadTime = item.estimatedLeadTime ?? 0;
-      const target = getToolTarget(categoryType);
+      const target = getFixedTarget(item);
       const box = Math.max(1, item.boxQuantity ?? 1);
       const reorderQty = Math.max(0, Math.ceil((target - item.quantity) / box) * box);
       await client.item.update({
@@ -195,9 +197,10 @@ export class ItemRecomputeService {
 
     const seasonalCtx = this.buildSeasonalContext(snapshots);
 
-    // monthlyConsumption — routes by category inside the engine (PPE/REGULAR).
+    // monthlyConsumption — routes by capability fields inside the engine
+    // (stockModel / ppeType). PPE identity = ppeType != null.
     const itemLike = this.toItemLike(item);
-    const isPpeItem = categoryType === ITEM_CATEGORY_TYPE.PPE;
+    const isPpeItem = item.ppeType != null;
     const histTrailing12mo = isPpeItem
       ? activities
           .filter(
@@ -207,14 +210,15 @@ export class ItemRecomputeService {
           )
           .reduce((sum, a) => sum + a.quantity, 0)
       : undefined;
+    const activityLikes = activities.map(a => ({
+      operation: a.operation as ACTIVITY_OPERATION,
+      reason: a.reason as ACTIVITY_REASON,
+      quantity: a.quantity,
+      createdAt: a.createdAt,
+    }));
     const mcResult = calculateMonthlyConsumption({
       item: itemLike,
-      activities: activities.map(a => ({
-        operation: a.operation as ACTIVITY_OPERATION,
-        reason: a.reason as ACTIVITY_REASON,
-        quantity: a.quantity,
-        createdAt: a.createdAt,
-      })),
+      activities: activityLikes,
       now,
       seasonalCtx,
       ...(isPpeItem && { ppe: { histTrailing12mo } }),
@@ -239,13 +243,14 @@ export class ItemRecomputeService {
 
       if (oi.receivedAt) {
         if (!isLegacyBulkReceipt(oi.order.supplierId, oi.receivedAt)) {
-          // Lead-time clock starts at fulfilledAt (when the order was actually
-          // sent to the supplier). Falls back to order.createdAt when
-          // fulfilledAt is missing or invalid (after receivedAt).
-          const startDate =
-            oi.fulfilledAt && oi.fulfilledAt <= oi.receivedAt
-              ? oi.fulfilledAt
-              : oi.order.createdAt;
+          // Lead-time clock starts at fulfilledAt only when it's a real
+          // dispatch timestamp (>= 1 day before receipt); otherwise it's
+          // bookkeeping noise and order.createdAt is the honest clock start.
+          const startDate = leadTimeClockStart(
+            oi.fulfilledAt,
+            oi.receivedAt,
+            oi.order.createdAt,
+          );
           const days = Math.max(
             0,
             (oi.receivedAt.getTime() - startDate.getTime()) /
@@ -261,10 +266,11 @@ export class ItemRecomputeService {
       if (!oi.receivedAt) continue;
       const supplierId = oi.order.supplierId;
       if (isLegacyBulkReceipt(supplierId, oi.receivedAt)) continue;
-      const startDate =
-        oi.fulfilledAt && oi.fulfilledAt <= oi.receivedAt
-          ? oi.fulfilledAt
-          : oi.order.createdAt;
+      const startDate = leadTimeClockStart(
+        oi.fulfilledAt,
+        oi.receivedAt,
+        oi.order.createdAt,
+      );
       const days =
         (oi.receivedAt.getTime() - startDate.getTime()) /
         (1000 * 60 * 60 * 24);
@@ -305,6 +311,15 @@ export class ItemRecomputeService {
       trendPercent,
     });
 
+    // Conservative rp floor: never below the max single-week demand actually
+    // observed in the lookback (CONSUMPTION-model items only; the engine
+    // ignores the floor on the FIXED_TARGET/PPE-scheduled branches).
+    const peakWeekDemand = calculatePeakWeekDemand(
+      activityLikes,
+      item.createdAt,
+      now,
+    );
+
     const reorderPoint = calculateReorderPoint({
       item: itemLike,
       monthlyConsumption: mcResult.monthlyConsumption,
@@ -313,6 +328,7 @@ export class ItemRecomputeService {
       safetyStock: safetyResult.safetyStock,
       seasonalCtx,
       now,
+      peakWeekDemand,
     });
 
     const maxQuantity = calculateMaxQuantity({
@@ -379,6 +395,8 @@ export class ItemRecomputeService {
       category: (item as any).category
         ? { type: ((item as any).category.type as ITEM_CATEGORY_TYPE | null) ?? null }
         : null,
+      stockModel: (item.stockModel as string | null) ?? null,
+      fixedTargetQuantity: item.fixedTargetQuantity ?? null,
       abcCategory: (item.abcCategory as ABC_CATEGORY | null) ?? null,
       xyzCategory: (item.xyzCategory as XYZ_CATEGORY | null) ?? null,
       ppeType: (item.ppeType ?? null) as ItemLike['ppeType'],

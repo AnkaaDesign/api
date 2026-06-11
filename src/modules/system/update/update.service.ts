@@ -51,6 +51,27 @@ interface ExportMetadata {
   };
 }
 
+/**
+ * Cached, URL-independent portion of a built manifest. Asset URLs depend on the
+ * request's public origin, so they are assembled per request from the cached
+ * hashes (the expensive part: reading + hashing every exported file).
+ */
+interface CachedManifest {
+  /** metadata.json mtimeMs at build time — invalidates the entry on republish. */
+  mtimeMs: number;
+  id: string;
+  createdAt: string;
+  launchAsset: Omit<ManifestAsset, 'url'> & { path: string };
+  assets: (Omit<ManifestAsset, 'url'> & { path: string })[];
+}
+
+interface CachedContentTypes {
+  /** metadata.json mtimeMs at build time — invalidates the entry on republish. */
+  mtimeMs: number;
+  /** relative asset path -> content type */
+  types: Map<string, string>;
+}
+
 const MIME_TYPES: Record<string, string> = {
   js: 'application/javascript',
   hbc: 'application/javascript',
@@ -78,6 +99,15 @@ const MIME_TYPES: Record<string, string> = {
 @Injectable()
 export class UpdateService {
   private readonly logger = new Logger(UpdateService.name);
+
+  /**
+   * In-memory caches keyed per runtimeVersion (+platform for manifests) and
+   * validated against metadata.json's mtimeMs, so the endpoints stop re-reading
+   * and re-hashing every exported asset on each request while still picking up
+   * a republish immediately (publish rewrites the folder, changing the mtime).
+   */
+  private readonly manifestCache = new Map<string, CachedManifest>();
+  private readonly contentTypeCache = new Map<string, CachedContentTypes>();
 
   /**
    * Root folder that holds published exports, one sub-folder per runtimeVersion.
@@ -141,6 +171,46 @@ export class UpdateService {
     }
 
     const metadataPath = join(dir, 'metadata.json');
+    const mtimeMs = statSync(metadataPath).mtimeMs;
+
+    // Asset URLs depend on the request's public origin, so only the
+    // URL-independent (and expensive) part is cached.
+    const cacheKey = `${runtimeVersion}:${platform}`;
+    let cached = this.manifestCache.get(cacheKey);
+
+    if (!cached || cached.mtimeMs !== mtimeMs) {
+      cached = await this.computeManifest(dir, runtimeVersion, platform, mtimeMs);
+      this.manifestCache.set(cacheKey, cached);
+    }
+
+    const assetUrl = (relativePath: string): string =>
+      `${baseUrl}/updates/assets?runtimeVersion=${encodeURIComponent(runtimeVersion)}` +
+      `&platform=${platform}&asset=${encodeURIComponent(relativePath)}`;
+
+    const withUrl = ({ path, ...asset }: CachedManifest['launchAsset']): ManifestAsset => ({
+      ...asset,
+      url: assetUrl(path),
+    });
+
+    return {
+      id: cached.id,
+      createdAt: cached.createdAt,
+      runtimeVersion,
+      launchAsset: withUrl(cached.launchAsset),
+      assets: cached.assets.map(withUrl),
+      metadata: {},
+      extra: {},
+    };
+  }
+
+  /** Read + hash the export for a runtime version/platform (cache fill). */
+  private async computeManifest(
+    dir: string,
+    runtimeVersion: string,
+    platform: 'ios' | 'android',
+    mtimeMs: number,
+  ): Promise<CachedManifest> {
+    const metadataPath = join(dir, 'metadata.json');
     const metadataRaw = await fs.readFile(metadataPath, 'utf8');
     const metadata = JSON.parse(metadataRaw) as ExportMetadata;
 
@@ -165,15 +235,11 @@ export class UpdateService {
       createdAt = statSync(metadataPath).mtime.toISOString();
     }
 
-    const assetUrl = (relativePath: string): string =>
-      `${baseUrl}/updates/assets?runtimeVersion=${encodeURIComponent(runtimeVersion)}` +
-      `&platform=${platform}&asset=${encodeURIComponent(relativePath)}`;
-
     const buildAsset = async (
       relativePath: string,
       ext: string,
       contentType?: string,
-    ): Promise<ManifestAsset> => {
+    ): Promise<CachedManifest['launchAsset']> => {
       const filePath = join(dir, relativePath);
       const contents = await fs.readFile(filePath);
       return {
@@ -181,7 +247,7 @@ export class UpdateService {
         key: createHash('md5').update(contents).digest('hex'),
         contentType: contentType || this.getMimeType(ext),
         fileExtension: ext ? `.${ext.replace(/^\./, '')}` : undefined,
-        url: assetUrl(relativePath),
+        path: relativePath,
       };
     };
 
@@ -195,15 +261,7 @@ export class UpdateService {
       (platformMeta.assets || []).map((a) => buildAsset(a.path, a.ext)),
     );
 
-    return {
-      id,
-      createdAt,
-      runtimeVersion,
-      launchAsset,
-      assets,
-      metadata: {},
-      extra: {},
-    };
+    return { mtimeMs, id, createdAt, launchAsset, assets };
   }
 
   /** Read an asset/bundle file for serving, guarding against path traversal. */
@@ -228,21 +286,32 @@ export class UpdateService {
     return { contents, contentType };
   }
 
-  /** Look up an asset's content type from the export metadata. */
+  /** Look up an asset's content type from the export metadata (cached per export). */
   private async resolveAssetContentType(dir: string, relativePath: string): Promise<string> {
     try {
-      const metadata = JSON.parse(
-        await fs.readFile(join(dir, 'metadata.json'), 'utf8'),
-      ) as ExportMetadata;
-      for (const platform of Object.keys(metadata.fileMetadata || {})) {
-        const meta = metadata.fileMetadata[platform];
-        if (meta.bundle === relativePath) {
-          return 'application/javascript';
+      const metadataPath = join(dir, 'metadata.json');
+      const mtimeMs = statSync(metadataPath).mtimeMs;
+
+      let cached = this.contentTypeCache.get(dir);
+      if (!cached || cached.mtimeMs !== mtimeMs) {
+        const metadata = JSON.parse(await fs.readFile(metadataPath, 'utf8')) as ExportMetadata;
+        const types = new Map<string, string>();
+        for (const platform of Object.keys(metadata.fileMetadata || {})) {
+          const meta = metadata.fileMetadata[platform];
+          if (meta.bundle) {
+            types.set(meta.bundle, 'application/javascript');
+          }
+          for (const asset of meta.assets || []) {
+            types.set(asset.path, this.getMimeType(asset.ext));
+          }
         }
-        const asset = (meta.assets || []).find((a) => a.path === relativePath);
-        if (asset) {
-          return this.getMimeType(asset.ext);
-        }
+        cached = { mtimeMs, types };
+        this.contentTypeCache.set(dir, cached);
+      }
+
+      const contentType = cached.types.get(relativePath);
+      if (contentType) {
+        return contentType;
       }
     } catch {
       /* fall through to extension-based detection */

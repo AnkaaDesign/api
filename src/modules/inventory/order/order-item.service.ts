@@ -55,6 +55,7 @@ import {
   logEntityChange,
 } from '@modules/common/changelog/utils/changelog-helpers';
 import { ACTIVITY_OPERATION } from '../../../constants/enums';
+import { nameSimilarity } from '../../financial/reconciliation/text-normalization';
 
 @Injectable()
 export class OrderItemService {
@@ -85,6 +86,72 @@ export class OrderItemService {
       this.logger.error('Erro ao buscar itens de pedido:', error);
       throw new InternalServerErrorException(
         'Erro ao buscar itens de pedido. Por favor, tente novamente',
+      );
+    }
+  }
+
+  /**
+   * Linhas temporárias (texto livre) ainda não vinculadas a um item do
+   * catálogo, cada uma com os melhores candidatos por similaridade de tokens.
+   * Linhas recebidas sem vínculo NUNCA entram no estoque — esta lista alimenta
+   * a conversão via PUT /order-items/:id { itemId }.
+   */
+  async findTemporaryItemSuggestions(): Promise<{
+    success: boolean;
+    message: string;
+    data: Array<{
+      id: string;
+      temporaryItemDescription: string | null;
+      orderedQuantity: number;
+      receivedQuantity: number;
+      receivedAt: Date | null;
+      order: { id: string; description: string | null; status: string };
+      suggestions: Array<{ itemId: string; name: string; uniCode: string | null; score: number }>;
+    }>;
+  }> {
+    try {
+      const [tempLines, items] = await Promise.all([
+        this.prisma.orderItem.findMany({
+          where: { itemId: null, temporaryItemDescription: { not: null } },
+          select: {
+            id: true,
+            temporaryItemDescription: true,
+            orderedQuantity: true,
+            receivedQuantity: true,
+            receivedAt: true,
+            order: { select: { id: true, description: true, status: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+        this.prisma.item.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true, uniCode: true },
+        }),
+      ]);
+
+      const data = tempLines.map(line => ({
+        ...line,
+        suggestions: items
+          .map(it => ({
+            itemId: it.id,
+            name: it.name,
+            uniCode: it.uniCode,
+            score: Math.round(nameSimilarity(line.temporaryItemDescription, it.name) * 100) / 100,
+          }))
+          .filter(s => s.score >= 0.5)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 3),
+      }));
+
+      return {
+        success: true,
+        message: 'Sugestões de vinculação carregadas com sucesso',
+        data,
+      };
+    } catch (error) {
+      this.logger.error('Erro ao buscar sugestões de itens temporários:', error);
+      throw new InternalServerErrorException(
+        'Erro ao buscar sugestões de itens temporários. Por favor, tente novamente',
       );
     }
   }
@@ -170,6 +237,54 @@ export class OrderItemService {
           const existingOrderItem = await this.orderItemRepository.findByIdWithTransaction(tx, id);
           if (!existingOrderItem) {
             throw new NotFoundException('Item de pedido não encontrado');
+          }
+
+          // Quantidade recebida não pode exceder a quantidade pedida
+          if (data.receivedQuantity !== undefined && data.receivedQuantity !== null) {
+            const effectiveOrderedQuantity =
+              data.orderedQuantity ?? existingOrderItem.orderedQuantity;
+            if (data.receivedQuantity > effectiveOrderedQuantity) {
+              throw new BadRequestException(
+                `Quantidade recebida (${data.receivedQuantity}) não pode ser maior que a quantidade pedida (${effectiveOrderedQuantity})`,
+              );
+            }
+          }
+
+          // Conversão: vincular uma linha temporária (texto livre) a um item do
+          // catálogo. Só a transição null→itemId é aceita — repontar uma linha
+          // já vinculada (ou desvincular) é rejeitado. Vincular NÃO cria
+          // atividade retroativa para quantidades já recebidas: o estoque
+          // físico pode já tê-las absorvido via contagem; recebimentos FUTUROS
+          // da linha vinculada seguem o fluxo normal de atividades abaixo.
+          if (data.itemId !== undefined) {
+            if (data.itemId === existingOrderItem.itemId) {
+              delete data.itemId; // no-op
+            } else if (existingOrderItem.itemId) {
+              throw new BadRequestException(
+                'Item de pedido já está vinculado a um item do estoque e não pode ser repontado',
+              );
+            } else {
+              const targetItem = await tx.item.findUnique({
+                where: { id: data.itemId },
+                select: { id: true, name: true },
+              });
+              if (!targetItem) {
+                throw new NotFoundException('Item do estoque não encontrado para vinculação');
+              }
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.ORDER_ITEM,
+                entityId: id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'itemId',
+                oldValue: null,
+                newValue: data.itemId,
+                reason: `Item temporário "${existingOrderItem.temporaryItemDescription ?? '-'}" vinculado ao item "${targetItem.name}"`,
+                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                triggeredById: id,
+                userId: userId || null,
+                transaction: tx,
+              });
+            }
           }
 
           // Snapshot the parent order status BEFORE any auto-recompute so we can
@@ -260,11 +375,14 @@ export class OrderItemService {
 
           // Handle activity creation for received quantity changes INSIDE the transaction
           // Activities should be created whenever quantities change, regardless of order status
-          // Skip activity creation for temporary items (items without itemId)
+          // Skip activity creation for temporary items (items without itemId).
+          // A line linked in THIS call (data.itemId) counts — link+receive in a
+          // single update books stock for the delta like any normal receipt.
+          const effectiveItemId = data.itemId ?? existingOrderItem.itemId;
           if (
             data.receivedQuantity !== undefined &&
             data.receivedQuantity !== existingOrderItem.receivedQuantity &&
-            existingOrderItem.itemId
+            effectiveItemId
           ) {
             // Check existing activities to prevent duplicates
             const existingActivities = await tx.activity.findMany({
@@ -288,7 +406,7 @@ export class OrderItemService {
               // Create activity INSIDE the transaction
               await tx.activity.create({
                 data: {
-                  itemId: existingOrderItem.itemId,
+                  itemId: effectiveItemId,
                   quantity: Math.abs(stockAdjustment),
                   operation:
                     stockAdjustment > 0 ? ACTIVITY_OPERATION.INBOUND : ACTIVITY_OPERATION.OUTBOUND,
@@ -302,13 +420,13 @@ export class OrderItemService {
 
               // Update item stock INSIDE the transaction
               const currentItem = await tx.item.findUnique({
-                where: { id: existingOrderItem.itemId },
+                where: { id: effectiveItemId },
               });
 
               if (currentItem) {
                 const newQuantity = currentItem.quantity + stockAdjustment;
                 await tx.item.update({
-                  where: { id: existingOrderItem.itemId },
+                  where: { id: effectiveItemId },
                   data: { quantity: Math.max(0, newQuantity) },
                 });
               }
@@ -358,7 +476,7 @@ export class OrderItemService {
       return { success: true, data: result, message: 'Item de pedido atualizado com sucesso' };
     } catch (error) {
       this.logger.error('Erro ao atualizar item de pedido:', error);
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
       throw new InternalServerErrorException(
@@ -566,6 +684,22 @@ export class OrderItemService {
           const itemIds = data.orderItems.map(item => item.id);
           const oldItems = await this.orderItemRepository.findByIdsWithTransaction(tx, itemIds);
           const oldItemsMap = new Map(oldItems.map(item => [item.id, item]));
+
+          // Quantidade recebida não pode exceder a quantidade pedida (mesmo gate do update individual)
+          for (const item of data.orderItems) {
+            const incoming = item.data?.receivedQuantity;
+            if (incoming === undefined || incoming === null) continue;
+
+            const oldItem = oldItemsMap.get(item.id!);
+            if (!oldItem) continue;
+
+            const effectiveOrderedQuantity = item.data?.orderedQuantity ?? oldItem.orderedQuantity;
+            if (incoming > effectiveOrderedQuantity) {
+              throw new BadRequestException(
+                `Quantidade recebida (${incoming}) não pode ser maior que a quantidade pedida (${effectiveOrderedQuantity})`,
+              );
+            }
+          }
 
           // Snapshot parent order statuses BEFORE any auto-recompute so we can
           // detect status changes after the transaction commits.
@@ -845,6 +979,9 @@ export class OrderItemService {
       };
     } catch (error) {
       this.logger.error('Erro na atualização em lote de itens de pedido:', error);
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
       throw new InternalServerErrorException(
         'Erro ao atualizar itens de pedido em lote. Por favor, tente novamente',
       );

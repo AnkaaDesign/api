@@ -79,10 +79,10 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
   signedPpeDocuments: 'user',
 
   // No entity name required (root-level or non-entity)
-  externalWithdrawalInvoices: null,
-  externalWithdrawalReceipts: null,
-  externalWithdrawalReimbursements: null,
-  externalWithdrawalNfeReimbursements: null,
+  externalOperationInvoices: null,
+  externalOperationReceipts: null,
+  externalOperationReimbursements: null,
+  externalOperationNfeReimbursements: null,
   thumbnails: null,
   paintColor: null,
   messageImages: null,
@@ -141,11 +141,11 @@ const FOLDER_TO_CONTEXT_MAP: Array<{ pattern: RegExp; context: keyof FilesFolder
   // External withdrawal (root-level, not entity-based)
   {
     pattern: /\/Notas Fiscais Reembolso\/RetiradasExternas\//,
-    context: 'externalWithdrawalNfeReimbursements',
+    context: 'externalOperationNfeReimbursements',
   },
-  { pattern: /\/Notas Fiscais\/RetiradasExternas\//, context: 'externalWithdrawalInvoices' },
-  { pattern: /\/Comprovantes\/RetiradasExternas\//, context: 'externalWithdrawalReceipts' },
-  { pattern: /\/Reembolsos\/RetiradasExternas\//, context: 'externalWithdrawalReimbursements' },
+  { pattern: /\/Notas Fiscais\/RetiradasExternas\//, context: 'externalOperationInvoices' },
+  { pattern: /\/Comprovantes\/RetiradasExternas\//, context: 'externalOperationReceipts' },
+  { pattern: /\/Reembolsos\/RetiradasExternas\//, context: 'externalOperationReimbursements' },
 
   // User contexts (entity-first: Colaboradores/{userName}/{subfolder}/)
   { pattern: /\/Colaboradores\/[^/]+\/EPIs\//, context: 'signedPpeDocuments' },

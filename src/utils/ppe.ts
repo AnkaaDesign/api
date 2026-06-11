@@ -53,6 +53,7 @@ export function isValidSizeForPpeType(size: PPE_SIZE, ppeType: PPE_TYPE): boolea
     case PPE_TYPE.SHIRT:
     case PPE_TYPE.SLEEVES:
     case PPE_TYPE.MASK:
+    case PPE_TYPE.OVERALL:
       return CLOTHING_SIZES.includes(size);
 
     case PPE_TYPE.GLOVES:
@@ -99,6 +100,7 @@ export function getValidSizesForPpeType(ppeType: PPE_TYPE): PPE_SIZE[] {
     case PPE_TYPE.SHIRT:
     case PPE_TYPE.SLEEVES:
     case PPE_TYPE.MASK:
+    case PPE_TYPE.OVERALL:
       return [...CLOTHING_SIZES];
 
     case PPE_TYPE.GLOVES:

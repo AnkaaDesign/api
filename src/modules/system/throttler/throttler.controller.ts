@@ -8,11 +8,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ThrottlerService } from './throttler.service';
-import { UserId, Auth, NoRateLimit } from '@decorators';
+import { UserId, Auth, NoRateLimit, Roles } from '@decorators';
 import { SECTOR_PRIVILEGES } from '@constants';
 
 @Controller('system/throttler')
 @Auth()
+@Roles(SECTOR_PRIVILEGES.ADMIN)
 @NoRateLimit() // This controller manages rate limiting, so it shouldn't be rate limited
 export class ThrottlerController {
   constructor(private readonly throttlerService: ThrottlerService) {}

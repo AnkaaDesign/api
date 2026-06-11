@@ -62,7 +62,7 @@ export const taskProductionStatsSchema = z.object({
   bonusPeriodYear: z.number().int().optional(),
   bonusPeriodMonths: z.array(z.number().int().min(1).max(12)).optional(),
   sectorIds: z.array(z.string()).optional(),
-  commissionStatuses: z.array(z.string()).optional(),
+  bonificationStatuses: z.array(z.string()).optional(),
   userIds: z.array(z.string()).optional(),
   xAxisMode: z.enum(['day', 'month', 'year']).optional().default('month'),
   yAxisMode: z.enum(['count', 'avgPerUser', 'both']).optional().default('count'),

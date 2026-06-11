@@ -145,7 +145,7 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'name',
     'status',
     'statusOrder',
-    'commission',
+    'bonification',
     'serialNumber',
     'details',
     'entryDate',

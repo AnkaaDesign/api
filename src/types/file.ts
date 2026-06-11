@@ -15,7 +15,7 @@ import type { Customer, CustomerIncludes } from './customer';
 import type { Supplier, SupplierIncludes } from './supplier';
 import type { Warning, WarningIncludes } from './warning';
 import type { Order, OrderIncludes } from './order';
-import type { ExternalWithdrawal, ExternalWithdrawalIncludes } from './externalWithdrawal';
+import type { ExternalOperation, ExternalOperationIncludes } from './externalOperation';
 import type { Airbrushing, AirbrushingIncludes } from './airbrushing';
 import type { Observation, ObservationIncludes } from './observation';
 import type { ORDER_BY_DIRECTION } from '@constants';
@@ -49,9 +49,9 @@ export interface File extends BaseEntity {
   taskBudgets?: Task[];
   taskInvoices?: Task[];
   taskReceipts?: Task[];
-  externalWithdrawalBudgets?: ExternalWithdrawal[];
-  externalWithdrawalInvoices?: ExternalWithdrawal[];
-  externalWithdrawalReceipts?: ExternalWithdrawal[];
+  externalOperationBudgets?: ExternalOperation[];
+  externalOperationInvoices?: ExternalOperation[];
+  externalOperationReceipts?: ExternalOperation[];
 
   // Index signature for FileWithRelationships compatibility
   [key: string]: unknown;
@@ -132,20 +132,20 @@ export interface FileIncludes {
     | {
         include?: TaskIncludes;
       };
-  externalWithdrawalBudgets?:
+  externalOperationBudgets?:
     | boolean
     | {
-        include?: ExternalWithdrawalIncludes;
+        include?: ExternalOperationIncludes;
       };
-  externalWithdrawalInvoices?:
+  externalOperationInvoices?:
     | boolean
     | {
-        include?: ExternalWithdrawalIncludes;
+        include?: ExternalOperationIncludes;
       };
-  externalWithdrawalReceipts?:
+  externalOperationReceipts?:
     | boolean
     | {
-        include?: ExternalWithdrawalIncludes;
+        include?: ExternalOperationIncludes;
       };
 }
 

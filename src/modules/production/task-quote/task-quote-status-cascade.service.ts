@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
-import { TASK_QUOTE_STATUS, TASK_QUOTE_STATUS_ORDER } from '@constants';
+import {
+  TASK_QUOTE_STATUS,
+  TASK_QUOTE_STATUS_ORDER,
+  EXTERNAL_OPERATION_STATUS,
+  EXTERNAL_OPERATION_STATUS_ORDER,
+} from '@constants';
 import { Decimal } from '@prisma/client/runtime/library';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 
@@ -91,7 +96,7 @@ export class TaskQuoteStatusCascadeService {
    */
   async cascadeFromInvoice(invoiceId: string): Promise<void> {
     try {
-      // Find the invoice and trace back to the TaskQuote
+      // Find the invoice and trace back to the TaskQuote (or ExternalOperation)
       const invoice = await this.prisma.invoice.findUnique({
         where: { id: invoiceId },
         include: {
@@ -103,6 +108,12 @@ export class TaskQuoteStatusCascadeService {
         },
       });
 
+      // Withdrawal-backed invoices ("Operação Externa") cascade to the withdrawal status instead.
+      if (invoice?.externalOperationId) {
+        await this.cascadeFromExternalOperation(invoice.externalOperationId);
+        return;
+      }
+
       if (!invoice?.customerConfig?.quote) {
         this.logger.warn(`Cannot cascade status: invoice ${invoiceId} has no linked quote`);
         return;
@@ -112,6 +123,137 @@ export class TaskQuoteStatusCascadeService {
       await this.cascadeFromQuote(quoteId);
     } catch (error) {
       this.logger.error(`Error cascading status from invoice ${invoiceId}: ${error}`);
+    }
+  }
+
+  /**
+   * Cascade installment payment state up to an ExternalOperation ("Operação Externa").
+   *
+   * Only acts on withdrawals currently in CHARGED status: when every active
+   * (non-CANCELLED) installment is PAID, the withdrawal becomes LIQUIDATED.
+   * Partial payments / overdue states are reflected on the invoice level only —
+   * the withdrawal state machine has no intermediate payment statuses.
+   * Never throws — payment processing must not break on cascade failures.
+   */
+  async cascadeFromExternalOperation(externalOperationId: string): Promise<void> {
+    try {
+      const withdrawal = await this.prisma.externalOperation.findUnique({
+        where: { id: externalOperationId },
+        include: { installments: true },
+      });
+
+      if (!withdrawal) {
+        this.logger.warn(`External withdrawal ${externalOperationId} not found for cascade`);
+        return;
+      }
+
+      // Only CHARGED withdrawals can be auto-liquidated by payments.
+      if (withdrawal.status !== EXTERNAL_OPERATION_STATUS.CHARGED) {
+        return;
+      }
+
+      const activeInstallments = withdrawal.installments.filter(
+        inst => inst.status !== 'CANCELLED',
+      );
+
+      if (activeInstallments.length === 0) {
+        return; // Nothing to evaluate — keep current status
+      }
+
+      const allPaid = activeInstallments.every(inst => inst.status === 'PAID');
+      if (!allPaid) {
+        return;
+      }
+
+      // Idempotent claim (M3): only flip CHARGED → LIQUIDATED when the row is STILL
+      // CHARGED. Concurrent payment webhooks would otherwise both pass the read
+      // above and double-fire the settled notifications.
+      const claim = await this.prisma.externalOperation.updateMany({
+        where: { id: externalOperationId, status: EXTERNAL_OPERATION_STATUS.CHARGED as any },
+        data: {
+          status: EXTERNAL_OPERATION_STATUS.LIQUIDATED as any,
+          statusOrder:
+            EXTERNAL_OPERATION_STATUS_ORDER[EXTERNAL_OPERATION_STATUS.LIQUIDATED] || 1,
+        },
+      });
+
+      if (claim.count !== 1) {
+        this.logger.log(
+          `ExternalOperation ${externalOperationId} already cascaded by another process, skipping`,
+        );
+        return;
+      }
+
+      this.logger.log(
+        `Cascaded ExternalOperation ${externalOperationId} status: ${withdrawal.status} → ${EXTERNAL_OPERATION_STATUS.LIQUIDATED}`,
+      );
+
+      // Notify when the withdrawal becomes fully settled via cascade (mirrors the
+      // task_quote.settled key emitted for quote settlement). Only fired by the
+      // process that won the claim above.
+      await this.dispatchWithdrawalSettledNotification(externalOperationId);
+    } catch (error) {
+      this.logger.error(
+        `Error cascading status for external withdrawal ${externalOperationId}: ${error}`,
+      );
+    }
+  }
+
+  /**
+   * Emit a settled notification when a cascade lands an external withdrawal on LIQUIDATED.
+   * Best-effort — never breaks the cascade flow.
+   */
+  private async dispatchWithdrawalSettledNotification(withdrawalId: string): Promise<void> {
+    try {
+      let label = withdrawalId.slice(-8).toUpperCase();
+      try {
+        const withdrawal = await this.prisma.externalOperation.findUnique({
+          where: { id: withdrawalId },
+          select: { withdrawerName: true },
+        });
+        if (withdrawal?.withdrawerName) label = withdrawal.withdrawerName;
+      } catch {
+        // ignore — fall through to id fragment
+      }
+
+      await this.dispatchService.dispatchByConfiguration('task_quote.settled', 'system', {
+        entityType: 'ExternalOperation',
+        entityId: withdrawalId,
+        action: 'settled',
+        data: { quoteLabel: label, externalOperationId: withdrawalId },
+        overrides: {
+          title: 'Pagamento Liquidado',
+          body: `A operação externa ${label} foi totalmente liquidada. Todas as parcelas estão pagas.`,
+          relatedEntityType: 'EXTERNAL_OPERATION',
+          webUrl: `/estoque/operacoes-externas/detalhes/${withdrawalId}`,
+          mobileUrl: `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`,
+        },
+      });
+
+      // Also fire the dedicated external_operation.liquidated key so its own
+      // audience (ADMIN/FINANCIAL config) learns about the auto-liquidation.
+      await this.dispatchService.dispatchByConfiguration(
+        'external_operation.liquidated',
+        'system',
+        {
+          entityType: 'ExternalOperation',
+          entityId: withdrawalId,
+          action: 'liquidated',
+          data: { operationLabel: label, externalOperationId: withdrawalId },
+          overrides: {
+            title: 'Operação Externa Liquidada',
+            body: `Operação externa ${label} liquidada — pagamento quitado.`,
+            relatedEntityType: 'EXTERNAL_OPERATION',
+            webUrl: `/estoque/operacoes-externas/detalhes/${withdrawalId}`,
+            mobileUrl: `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`,
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error(
+        `Falha ao notificar liquidação de operação externa para ${withdrawalId}:`,
+        error,
+      );
     }
   }
 

@@ -12,7 +12,7 @@ export const COPYABLE_TASK_FIELDS = [
   'term',
   'entryDate',
   'forecastDate',
-  'commission',
+  'bonification',
   'responsibles',
   // Reference IDs
   'customerId',
@@ -131,8 +131,8 @@ export const COPYABLE_FIELD_PERMISSIONS: Record<
     SECTOR_PRIVILEGES.MAINTENANCE,
   ],
 
-  // Commission - disabled for Financial, Designer, Logistic, Warehouse
-  commission: [
+  // Bonification - disabled for Financial, Designer, Logistic, Warehouse
+  bonification: [
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.PLOTTING,

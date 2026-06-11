@@ -41,7 +41,7 @@ import {
   ACTIVITY_OPERATION,
   ACTIVE_USER_STATUSES,
 } from '../../../constants/enums';
-import { BORROW_STATUS_ORDER } from '../../../constants';
+import { BORROW_STATUS_ORDER, BORROW_STATUS_LABELS } from '../../../constants';
 import {
   trackAndLogFieldChanges,
   logEntityChange,
@@ -110,6 +110,9 @@ export class BorrowService {
         quantity: true,
         maxQuantity: true,
         reorderPoint: true,
+        isBorrowable: true,
+        stockModel: true,
+        fixedTargetQuantity: true,
         category: {
           select: {
             id: true,
@@ -132,7 +135,11 @@ export class BorrowService {
 
     // Note: Item entity doesn't have a status field
 
-    // Note: Category entity doesn't have an isBorrowable field
+    // Apenas itens emprestáveis podem ser emprestados (server-side enforcement).
+    // Devoluções/perdas NUNCA são bloqueadas — o gate aplica-se somente à criação.
+    if (!isUpdate && !item.isBorrowable) {
+      throw new BadRequestException('Apenas itens emprestáveis podem ser emprestados');
+    }
 
     // Verificar se o usuário existe e está ativo
     const user = await tx.user.findUnique({
@@ -327,6 +334,72 @@ export class BorrowService {
   }
 
   /**
+   * Máquina de estados do empréstimo:
+   *   ACTIVE  → RETURNED | LOST | OVERDUE
+   *   OVERDUE → RETURNED | LOST | ACTIVE
+   *   RETURNED → LOST (perda descoberta após a devolução)
+   *   LOST → (estado final)
+   * Qualquer outra transição (ex.: "desfazer" uma devolução) é rejeitada.
+   */
+  private validateBorrowStatusTransition(fromStatus: string, toStatus: string): void {
+    const allowedTransitions: Record<string, string[]> = {
+      [BORROW_STATUS.ACTIVE]: [BORROW_STATUS.RETURNED, BORROW_STATUS.LOST, BORROW_STATUS.OVERDUE],
+      [BORROW_STATUS.OVERDUE]: [BORROW_STATUS.RETURNED, BORROW_STATUS.LOST, BORROW_STATUS.ACTIVE],
+      [BORROW_STATUS.RETURNED]: [BORROW_STATUS.LOST],
+      [BORROW_STATUS.LOST]: [],
+    };
+
+    if (!allowedTransitions[fromStatus]?.includes(toStatus)) {
+      const fromLabel = BORROW_STATUS_LABELS[fromStatus as BORROW_STATUS] || fromStatus;
+      const toLabel = BORROW_STATUS_LABELS[toStatus as BORROW_STATUS] || toStatus;
+      throw new BadRequestException(
+        `Não é permitido alterar o status do empréstimo de "${fromLabel}" para "${toLabel}"`,
+      );
+    }
+  }
+
+  /**
+   * Aplica a máquina de estados e garante que returnedAt é controlado pelo servidor:
+   * - transição para RETURNED define returnedAt = agora (valor do cliente é ignorado);
+   * - transição para LOST zera returnedAt (consistente com markAsLost);
+   * - fora de uma transição, alterar returnedAt manualmente não é permitido.
+   */
+  private normalizeBorrowStatusUpdate(
+    existingBorrow: { status: string; returnedAt: Date | null },
+    data: BorrowUpdateFormData,
+  ): BorrowUpdateFormData {
+    const normalized = { ...data };
+    const isStatusChanging = data.status !== undefined && data.status !== existingBorrow.status;
+
+    if (isStatusChanging) {
+      this.validateBorrowStatusTransition(existingBorrow.status, data.status!);
+    }
+
+    if (isStatusChanging && data.status === BORROW_STATUS.RETURNED) {
+      // returnedAt é sempre definido pelo servidor no momento da devolução
+      normalized.returnedAt = new Date();
+    } else if (isStatusChanging && data.status === BORROW_STATUS.LOST) {
+      // Itens perdidos não têm data de devolução
+      normalized.returnedAt = null;
+    } else if ('returnedAt' in data && data.returnedAt !== undefined) {
+      const existingTime = existingBorrow.returnedAt
+        ? new Date(existingBorrow.returnedAt).getTime()
+        : null;
+      const incomingTime = data.returnedAt ? new Date(data.returnedAt).getTime() : null;
+
+      if (incomingTime !== existingTime) {
+        throw new BadRequestException(
+          'Não é permitido alterar manualmente a data de devolução — ela é definida automaticamente pelo sistema',
+        );
+      }
+
+      // Valor idêntico ao persistido (reenvio de formulário) — manter como está
+    }
+
+    return normalized;
+  }
+
+  /**
    * Buscar muitos empréstimos com filtros
    */
   async findMany(query: BorrowGetManyFormData): Promise<BorrowGetManyResponse> {
@@ -441,19 +514,11 @@ export class BorrowService {
           throw new NotFoundException('Empréstimo não encontrado');
         }
 
-        // Validar o empréstimo com as novas informações
-        await this.borrowValidation(data, tx, id);
+        // Aplicar máquina de estados + returnedAt controlado pelo servidor
+        const updateData = this.normalizeBorrowStatusUpdate(existingBorrow, data);
 
-        // Handle status changes from RETURNED to LOST
-        const updateData = { ...data };
-        if (
-          existingBorrow.status === BORROW_STATUS.RETURNED &&
-          data.status === BORROW_STATUS.LOST &&
-          existingBorrow.returnedAt
-        ) {
-          // When changing from RETURNED to LOST, set returnedAt to null
-          updateData.returnedAt = null;
-        }
+        // Validar o empréstimo com as novas informações
+        await this.borrowValidation(updateData, tx, id);
 
         // Atualizar o empréstimo
         const updatedBorrow = await this.borrowRepository.updateWithTransaction(
@@ -679,6 +744,7 @@ export class BorrowService {
         error.message?.includes('não encontrado') ||
         error.message?.includes('validation') ||
         error.message?.includes('já possui um empréstimo') ||
+        error.message?.includes('emprestáveis') ||
         error.message?.includes('limite')
       ) {
         // Return as successful response but with failed items
@@ -732,8 +798,13 @@ export class BorrowService {
           }
         }
 
-        // Validar cada atualização antes de aplicar
+        // Validar cada atualização antes de aplicar (mesmos gates do update individual)
         for (const update of updates) {
+          const oldBorrow = oldBorrows.get(update.id);
+          if (oldBorrow) {
+            // Aplicar máquina de estados + returnedAt controlado pelo servidor
+            update.data = this.normalizeBorrowStatusUpdate(oldBorrow, update.data);
+          }
           await this.borrowValidation(update.data, tx, update.id);
         }
 
@@ -809,6 +880,7 @@ export class BorrowService {
         error.message?.includes('já possui um empréstimo') ||
         error.message?.includes('limite') ||
         error.message?.includes('não é permitido') ||
+        error.message?.includes('permitido') ||
         error.message?.includes('Empréstimo não encontrado')
       ) {
         // Return as successful response but with failed items

@@ -180,7 +180,7 @@ export const userSelectSchema = z
         }),
       ])
       .optional(),
-    commissions: z
+    bonifications: z
       .union([
         z.boolean(),
         z.object({
@@ -436,7 +436,7 @@ export const userSelectForProfile = {
     select: {
       tasks: true,
       activities: true,
-      commissions: true,
+      bonifications: true,
     },
   },
 } as const;
@@ -597,7 +597,7 @@ export const userIncludeSchema = z
               createdBy: z.boolean().optional(),
               files: z.boolean().optional(),
               logoPaints: z.boolean().optional(),
-              commissions: z.boolean().optional(),
+              bonifications: z.boolean().optional(),
               serviceOrders: z.boolean().optional(),
               truck: z.boolean().optional(),
               airbrushing: z.boolean().optional(),
@@ -606,7 +606,7 @@ export const userIncludeSchema = z
         }),
       ])
       .optional(),
-    commissions: z
+    bonifications: z
       .union([
         z.boolean(),
         z.object({
@@ -1212,7 +1212,7 @@ export const userWhereSchema: z.ZodSchema = z.lazy(() =>
         })
         .optional(),
 
-      commissions: z
+      bonifications: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -1759,7 +1759,8 @@ export const userUpdateSchema = z
       .optional(),
     requirePasswordChange: z.boolean().optional(),
     lastLoginAt: z.date().optional(),
-    sessionToken: z.string().nullable().optional(),
+    // SECURITY (audit B8): sessionToken intentionally NOT accepted via update —
+    // it is managed exclusively by the auth flow.
     statusOrder: z.number().optional(),
     // Required for changelog tracking
     userId: z.string().optional(),
@@ -1895,7 +1896,12 @@ export type UserGetByIdFormData = z.infer<typeof userGetByIdSchema>;
 export type UserQueryFormData = z.infer<typeof userQuerySchema>;
 
 export type UserCreateFormData = z.infer<typeof userCreateSchema>;
-export type UserUpdateFormData = z.infer<typeof userUpdateSchema>;
+// SECURITY (audit B8): sessionToken is intentionally absent from the client-facing
+// update schema (zod strips it from request bodies), but internal auth flows still
+// set it through the repository — keep it on the inferred type for server-side use.
+export type UserUpdateFormData = z.infer<typeof userUpdateSchema> & {
+  sessionToken?: string | null;
+};
 
 export type UserBatchCreateFormData = z.infer<typeof userBatchCreateSchema>;
 export type UserBatchUpdateFormData = z.infer<typeof userBatchUpdateSchema>;
