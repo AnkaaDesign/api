@@ -589,10 +589,10 @@ export class NotificationPreferenceService {
         mandatoryChannels: [],
       },
 
-      // Comissão (Commission)
+      // Bonificação (Bonification)
       {
         type: NOTIFICATION_TYPE.PRODUCTION,
-        eventType: 'task_commission',
+        eventType: 'task_bonification',
         channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },

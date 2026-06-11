@@ -204,8 +204,9 @@ export class CampaignReminderScheduler {
             overrides: {
               title: 'Avaliação Pendente',
               body: `Você possui fichas pendentes na avaliação "${a.name}". Por favor, conclua antes do encerramento da campanha.`,
-              // Evaluator-facing (production) competency-assessment area.
-              webUrl: `/producao/avaliacao-competencias`,
+              // Evaluator-facing pending-assessments page (the /producao/
+              // avaliacao-competencias route is not mounted on web).
+              webUrl: `/meu-pessoal/avaliacoes-competencias`,
               relatedEntityType: 'ASSESSMENT',
             },
           },

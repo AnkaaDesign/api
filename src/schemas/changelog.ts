@@ -26,7 +26,7 @@ export const changeLogIncludeSchema = z
               borrows: z.boolean().optional(),
               notifications: z.boolean().optional(),
               tasks: z.boolean().optional(),
-              commissions: z.boolean().optional(),
+              bonifications: z.boolean().optional(),
             })
             .optional(),
         }),

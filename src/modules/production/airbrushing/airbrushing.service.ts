@@ -14,6 +14,8 @@ import {
   CHANGE_ACTION,
   ENTITY_TYPE,
   SECTOR_PRIVILEGES,
+  AIRBRUSHING_STATUS,
+  AIRBRUSHING_PAYMENT_STATUS,
 } from '../../../constants/enums';
 import type {
   AirbrushingBatchCreateResponse,
@@ -75,6 +77,51 @@ export class AirbrushingService {
       if (!painterExists) {
         throw new NotFoundException('Pintor não encontrado.');
       }
+    }
+
+    // Validar status de pagamento: só pode ser diferente de PENDING quando a aerografia estiver concluída
+    let existingAirbrushing: { status: string; paymentStatus: string } | null = null;
+    if (existingId) {
+      existingAirbrushing = await transaction.airbrushing.findUnique({
+        where: { id: existingId },
+        select: { status: true, paymentStatus: true },
+      });
+    }
+
+    // Security: the gate uses the PERSISTED status, not the incoming payload —
+    // otherwise a single request with { status: COMPLETED, paymentStatus: PAID }
+    // satisfies its own precondition. The airbrushing must already be COMPLETED
+    // in the database before the payment status can move away from PENDING.
+    const persistedStatus = existingAirbrushing?.status ?? null;
+    const persistedPaymentStatus =
+      existingAirbrushing?.paymentStatus ?? AIRBRUSHING_PAYMENT_STATUS.PENDING;
+
+    const paymentStatusChanging =
+      data.paymentStatus !== undefined && data.paymentStatus !== persistedPaymentStatus;
+
+    if (
+      paymentStatusChanging &&
+      data.paymentStatus !== AIRBRUSHING_PAYMENT_STATUS.PENDING &&
+      persistedStatus !== AIRBRUSHING_STATUS.COMPLETED
+    ) {
+      throw new BadRequestException(
+        'O status de pagamento só pode ser alterado quando a aerografia estiver concluída.',
+      );
+    }
+
+    // A non-PENDING payment status may never coexist with a non-COMPLETED
+    // airbrushing (blocks un-completing a paid airbrushing without first
+    // resetting the payment).
+    const effectiveStatus = data.status ?? persistedStatus ?? AIRBRUSHING_STATUS.PENDING;
+    const effectivePaymentStatus = data.paymentStatus ?? persistedPaymentStatus;
+
+    if (
+      effectivePaymentStatus !== AIRBRUSHING_PAYMENT_STATUS.PENDING &&
+      effectiveStatus !== AIRBRUSHING_STATUS.COMPLETED
+    ) {
+      throw new BadRequestException(
+        'O status de pagamento só pode ser alterado quando a aerografia estiver concluída.',
+      );
     }
 
     // Aerografia não tem campos únicos para validar

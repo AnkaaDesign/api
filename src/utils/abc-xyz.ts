@@ -1,7 +1,11 @@
-// ABC + XYZ classification (spec §7, §8). Run nightly across all REGULAR/PPE
-// items with monthlyConsumption > 0; TOOL items always classify as null.
+// ABC + XYZ classification (spec §7, §8). Run nightly across all
+// CONSUMPTION-model items with monthlyConsumption > 0; FIXED_TARGET items
+// always classify as null (callers set `eligible` from item.stockModel).
 
 import { ABC_CATEGORY, XYZ_CATEGORY } from '@/constants/enums';
+import { XYZ_MIN_MONTHS } from '@/constants/inventory-config';
+
+export { XYZ_MIN_MONTHS };
 
 export interface AbcInput {
   itemId: string;
@@ -72,10 +76,8 @@ export interface XyzAssignment {
 }
 
 /** Workshop-tuned thresholds X < 1.0 / Y 1.0–1.7 / Z > 1.7 (spec §8.2).
- *  Uses the MAX available window: ≥2 months gives a usable CV; below that
- *  there's not enough signal and we return null. */
-export const XYZ_MIN_MONTHS = 2;
-
+ *  Items with fewer than XYZ_MIN_MONTHS months of history return null
+ *  (→ UNCLASSIFIED matrix row) — see inventory-config.ts. */
 export function classifyXyz(items: ReadonlyArray<XyzInput>): XyzAssignment[] {
   const enriched = items.map(i => {
     if (!i.eligible || i.trailingMonthlyConsumption.length < XYZ_MIN_MONTHS) {

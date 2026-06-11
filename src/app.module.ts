@@ -22,7 +22,7 @@ import { DashboardModule } from './modules/domain/dashboard/dashboard.module';
 import { EconomicActivityModule } from './modules/production/economic-activity/economic-activity.module';
 import { PpeModule } from './modules/inventory/ppe/ppe.module';
 import { EventEmitterModule } from './modules/common/event-emitter/event-emitter.module';
-import { ExternalWithdrawalModule } from './modules/inventory/external-withdrawal/external-withdrawal.module';
+import { ExternalOperationModule } from './modules/inventory/external-operation/external-operation.module';
 import { FileModule } from './modules/common/file/file.module';
 import { ItemModule } from './modules/inventory/item/item.module';
 import { MailerModule } from './modules/common/mailer/mailer.module';
@@ -107,7 +107,7 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     EconomicActivityModule,
     PpeModule,
     EventEmitterModule,
-    ExternalWithdrawalModule,
+    ExternalOperationModule,
     FileModule,
     ItemModule,
     MailerModule,

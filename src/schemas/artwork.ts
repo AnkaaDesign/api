@@ -31,9 +31,9 @@ export const artworkIncludeSchema = z
               taskBudgets: z.boolean().optional(),
               taskInvoices: z.boolean().optional(),
               taskReceipts: z.boolean().optional(),
-              externalWithdrawalBudgets: z.boolean().optional(),
-              externalWithdrawalInvoices: z.boolean().optional(),
-              externalWithdrawalReceipts: z.boolean().optional(),
+              externalOperationBudgets: z.boolean().optional(),
+              externalOperationInvoices: z.boolean().optional(),
+              externalOperationReceipts: z.boolean().optional(),
             })
             .optional(),
         }),

@@ -31,6 +31,8 @@ export class UnreturnedBorrowEvent {
  * Config keys:
  * - borrow.unreturned_reminder          → targets the borrower user
  * - borrow.unreturned_manager_reminder  → targets the sector manager
+ * - borrow.unreturned.escalation        → sector-routed (config row carries
+ *   ADMIN + WAREHOUSE + PRODUCTION_MANAGER) for borrows out for more than 7 days
  *
  * Uses dispatchByConfigurationToUsers for targeted user dispatch
  * (checks config enablement + user notification preferences before sending).
@@ -129,6 +131,11 @@ export class BorrowNotificationScheduler {
 
       let notificationsCreated = 0;
 
+      // Escalation cutoff: borrows created more than 7 days ago.
+      // Dedup is the daily cron cadence itself (once per borrower per day).
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
       // Send notifications for each user with unreturned borrows
       for (const [userId, data] of Object.entries(borrowsByUser)) {
         try {
@@ -218,6 +225,63 @@ export class BorrowNotificationScheduler {
                 },
               },
               [sectorLeaderId],
+            );
+            notificationsCreated++;
+          }
+
+          // 3. Sector escalation for borrows unreturned for MORE THAN 7 days.
+          // Sector-routed via the config row's allowedSectors
+          // (ADMIN + WAREHOUSE + PRODUCTION_MANAGER); once per borrower per day
+          // (the daily cron cadence is the dedup).
+          const overdueBorrows = borrows.filter(b => b.borrowedAt < sevenDaysAgo);
+          if (overdueBorrows.length > 0) {
+            const overdueCount = overdueBorrows.length;
+            const overdueNames = overdueBorrows.map(b => b.itemName);
+            const overdueItemList =
+              overdueNames.length > 5
+                ? `${overdueNames.slice(0, 5).join(', ')}…`
+                : overdueNames.join(', ');
+            const oldestBorrowedAt = overdueBorrows.reduce(
+              (oldest, b) => (b.borrowedAt < oldest ? b.borrowedAt : oldest),
+              overdueBorrows[0].borrowedAt,
+            );
+            const days = Math.floor(
+              (Date.now() - oldestBorrowedAt.getTime()) / (24 * 60 * 60 * 1000),
+            );
+
+            await this.dispatchService.dispatchByConfiguration(
+              'borrow.unreturned.escalation',
+              'system', // Cron-triggered, no actor user
+              {
+                entityType: 'Borrow',
+                entityId: overdueBorrows[0].id,
+                action: 'unreturned_escalation',
+                data: {
+                  userName: user.name,
+                  borrowCount: overdueCount.toString(),
+                  days: days.toString(),
+                  itemList: overdueItemList,
+                },
+                metadata: {
+                  employeeId: userId,
+                  employeeName: user.name,
+                  borrowCount: overdueCount,
+                  days,
+                  items: overdueBorrows.map(b => ({
+                    id: b.id,
+                    name: b.itemName,
+                    quantity: b.quantity,
+                    borrowedAt: b.borrowedAt,
+                  })),
+                },
+                overrides: {
+                  actionUrl: '/estoque/emprestimos',
+                  webUrl: '/estoque/emprestimos',
+                  relatedEntityType: 'BORROW',
+                  title: `Empréstimo não devolvido — ${user.name}`,
+                  body: `${user.name} mantém ${overdueCount} item(ns) emprestado(s) há mais de 7 dias: ${overdueItemList}.`,
+                },
+              },
             );
             notificationsCreated++;
           }

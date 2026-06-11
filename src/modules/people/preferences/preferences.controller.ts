@@ -14,6 +14,8 @@ import {
 import { PreferencesService } from './preferences.service';
 import { NotificationPreferenceService } from './notification-preference.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
+import { Roles } from '@modules/common/auth/decorators/roles.decorator';
+import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
@@ -92,17 +94,19 @@ export class PreferencesController {
     @Query(new ZodQueryValidationPipe(preferencesQuerySchema)) query: PreferencesQueryFormData,
     @UserId() userId: string,
   ): Promise<PreferencesCreateResponse> {
-    return this.preferencesService.create(data, query.include);
+    return this.preferencesService.create(data, query.include, userId);
   }
 
   /**
    * Get many preferences with filters and pagination
+   * (non-ADMIN actors are scoped to their own records in the service)
    */
   @Get()
   async findMany(
     @Query(new ZodQueryValidationPipe(preferencesGetManySchema)) query: PreferencesGetManyFormData,
+    @UserId() userId: string,
   ): Promise<PreferencesGetManyResponse> {
-    return this.preferencesService.findMany(query);
+    return this.preferencesService.findMany(query, userId);
   }
 
   /**
@@ -112,8 +116,9 @@ export class PreferencesController {
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(preferencesQuerySchema)) query: PreferencesQueryFormData,
+    @UserId() userId: string,
   ): Promise<PreferencesGetUniqueResponse> {
-    return this.preferencesService.findById(id, query.include);
+    return this.preferencesService.findById(id, query.include, userId);
   }
 
   /**
@@ -126,7 +131,7 @@ export class PreferencesController {
     @Query(new ZodQueryValidationPipe(preferencesQuerySchema)) query: PreferencesQueryFormData,
     @UserId() userId: string,
   ): Promise<PreferencesUpdateResponse> {
-    return this.preferencesService.update(id, data, query.include);
+    return this.preferencesService.update(id, data, query.include, userId);
   }
 
   /**
@@ -137,7 +142,7 @@ export class PreferencesController {
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,
   ): Promise<PreferencesDeleteResponse> {
-    return this.preferencesService.delete(id);
+    return this.preferencesService.delete(id, undefined, userId);
   }
 
   // /**
@@ -184,8 +189,11 @@ export class PreferencesController {
 
   /**
    * Create a new notification preference
+   * SECURITY (audit A4/B10): the NotificationPreference table managed here is GLOBAL
+   * (no userId/preferencesId column), so all writes are ADMIN-only.
    */
   @Post('notification-preferences')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async createNotificationPreference(
     @Body(new ZodValidationPipe(notificationPreferenceCreateSchema))
@@ -292,9 +300,10 @@ export class PreferencesController {
   }
 
   /**
-   * Update a notification preference
+   * Update a notification preference (global table — ADMIN-only, audit A4/B10)
    */
   @Put('notification-preferences/:id')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async updateNotificationPreference(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(notificationPreferenceUpdateSchema))
@@ -317,9 +326,10 @@ export class PreferencesController {
   }
 
   /**
-   * Delete a notification preference
+   * Delete a notification preference (global table — ADMIN-only, audit A4/B10)
    */
   @Delete('notification-preferences/:id')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async deleteNotificationPreference(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,
@@ -333,8 +343,10 @@ export class PreferencesController {
 
   /**
    * Initialize default notification preferences for a user
+   * (creates records in the GLOBAL NotificationPreference table — ADMIN-only, audit A4/B10)
    */
   @Post(':id/notification-preferences/initialize')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async initializeNotificationPreferences(
     @Param('id', ParseUUIDPipe) preferencesId: string,
@@ -360,9 +372,10 @@ export class PreferencesController {
   }
 
   /**
-   * Batch create notification preferences
+   * Batch create notification preferences (global table — ADMIN-only, audit A4/B10)
    */
   @Post('notification-preferences/batch')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreateNotificationPreferences(
     @Body(new ZodValidationPipe(notificationPreferenceBatchCreateSchema))
@@ -387,9 +400,10 @@ export class PreferencesController {
   }
 
   /**
-   * Batch update notification preferences
+   * Batch update notification preferences (global table — ADMIN-only, audit A4/B10)
    */
   @Put('notification-preferences/batch')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async batchUpdateNotificationPreferences(
     @Body(new ZodValidationPipe(notificationPreferenceBatchUpdateSchema))
     data: NotificationPreferenceBatchUpdateFormData,
@@ -415,9 +429,10 @@ export class PreferencesController {
   }
 
   /**
-   * Batch delete notification preferences
+   * Batch delete notification preferences (global table — ADMIN-only, audit A4/B10)
    */
   @Delete('notification-preferences/batch')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDeleteNotificationPreferences(
     @Body(new ZodValidationPipe(notificationPreferenceBatchDeleteSchema))

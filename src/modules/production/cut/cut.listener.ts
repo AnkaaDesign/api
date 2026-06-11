@@ -62,14 +62,14 @@ export class CutListener {
 
   /**
    * Build action URL and metadata for cut notifications.
-   * Navigates to the task if available, otherwise to the plotter page.
+   * Navigates to the task if available, otherwise to the cutting list page.
    */
   private buildCutContext(cut: any, task: any | null) {
     const deepLinks = task
       ? this.deepLinkService.generateTaskLinks(task.id)
-      : { web: '/producao/plotter', mobile: '', universalLink: '', webPath: '/producao/plotter' };
+      : { web: '/producao/recorte', mobile: '', universalLink: '', webPath: '/producao/recorte' };
 
-    const webUrl = task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/plotter';
+    const webUrl = task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/recorte';
 
     return {
       actionUrl: JSON.stringify(deepLinks),
@@ -110,8 +110,8 @@ export class CutListener {
           actionUrl: ctx.actionUrl,
           webUrl: ctx.webUrl,
           relatedEntityType: 'CUT',
-          title: `Recorte de ${cutTypeLabel} adicionado para tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} por ${event.createdBy.name}`,
-          body: `Um recorte de ${cutTypeLabel} foi adicionado para a tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} por ${event.createdBy.name}.`,
+          title: `Recorte de ${cutTypeLabel} adicionado para tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''}`,
+          body: `Um recorte de ${cutTypeLabel} foi adicionado para a tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''}.`,
         },
       });
     } catch (error) {
@@ -151,8 +151,8 @@ export class CutListener {
           actionUrl: ctx.actionUrl,
           webUrl: ctx.webUrl,
           relatedEntityType: 'CUT',
-          title: `Recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} iniciado por ${event.startedBy.name}`,
-          body: `O recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} foi iniciado por ${event.startedBy.name}.`,
+          title: `Recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} iniciado`,
+          body: `O recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} foi iniciado.`,
         },
       });
     } catch (error) {
@@ -192,8 +192,8 @@ export class CutListener {
           actionUrl: ctx.actionUrl,
           webUrl: ctx.webUrl,
           relatedEntityType: 'CUT',
-          title: `Recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} concluído por ${event.completedBy.name}`,
-          body: `O recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} foi concluído por ${event.completedBy.name}.`,
+          title: `Recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} concluído`,
+          body: `O recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} foi concluído.`,
         },
       });
     } catch (error) {
@@ -239,8 +239,8 @@ export class CutListener {
             actionUrl: ctx.actionUrl,
             webUrl: ctx.webUrl,
             relatedEntityType: 'CUT',
-            title: `Novo recorte de ${cutTypeLabel} solicitado para tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} por ${event.createdBy.name} - Motivo: ${reasonLabel}`,
-            body: `Foi solicitado um novo recorte de ${cutTypeLabel} para a tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''}. Motivo: ${reasonLabel}. Solicitado por ${event.createdBy.name}.`,
+            title: `Novo recorte de ${cutTypeLabel} solicitado para tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''} - Motivo: ${reasonLabel}`,
+            body: `Foi solicitado um novo recorte de ${cutTypeLabel} para a tarefa "${taskName}"${serialNumber ? ` (${serialNumber})` : ''}. Motivo: ${reasonLabel}.`,
           },
         },
       );
@@ -262,13 +262,13 @@ export class CutListener {
 
       const detailedTitle =
         cutsCount === 1
-          ? `1 recorte adicionado à tarefa "${event.task.name}"${serialNumber ? ` (${serialNumber})` : ''} por ${event.addedBy.name}`
-          : `${cutsCount} recortes adicionados à tarefa "${event.task.name}"${serialNumber ? ` (${serialNumber})` : ''} por ${event.addedBy.name}`;
+          ? `1 recorte adicionado à tarefa "${event.task.name}"${serialNumber ? ` (${serialNumber})` : ''}`
+          : `${cutsCount} recortes adicionados à tarefa "${event.task.name}"${serialNumber ? ` (${serialNumber})` : ''}`;
 
       const detailedBody =
         cutsCount === 1
-          ? `1 recorte foi adicionado à tarefa "${event.task.name}"${serialNumber ? ` (${serialNumber})` : ''} por ${event.addedBy.name}.`
-          : `${cutsCount} recortes foram adicionados à tarefa "${event.task.name}"${serialNumber ? ` (${serialNumber})` : ''} por ${event.addedBy.name}.`;
+          ? `1 recorte foi adicionado à tarefa "${event.task.name}"${serialNumber ? ` (${serialNumber})` : ''}.`
+          : `${cutsCount} recortes foram adicionados à tarefa "${event.task.name}"${serialNumber ? ` (${serialNumber})` : ''}.`;
 
       await this.dispatchService.dispatchByConfiguration('cuts.added.to.task', event.addedBy.id, {
         entityType: 'Task',

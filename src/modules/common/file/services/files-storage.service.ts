@@ -46,10 +46,10 @@ export interface FilesFolderMapping {
   airbrushingNfeReimbursements: string;
 
   // Entity-specific folders - External Withdrawal
-  externalWithdrawalInvoices: string;
-  externalWithdrawalReceipts: string;
-  externalWithdrawalReimbursements: string;
-  externalWithdrawalNfeReimbursements: string;
+  externalOperationInvoices: string;
+  externalOperationReceipts: string;
+  externalOperationReimbursements: string;
+  externalOperationNfeReimbursements: string;
 
   // Entity-specific folders - Logos
   customerLogo: string;
@@ -149,10 +149,10 @@ export class FilesStorageService {
     airbrushingNfeReimbursements: 'Aerografias/Notas Fiscais Reembolso',
 
     // External Withdrawal folders (root-level, not entity-based)
-    externalWithdrawalInvoices: 'Notas Fiscais/RetiradasExternas',
-    externalWithdrawalReceipts: 'Comprovantes/RetiradasExternas',
-    externalWithdrawalReimbursements: 'Reembolsos/RetiradasExternas',
-    externalWithdrawalNfeReimbursements: 'Notas Fiscais Reembolso/RetiradasExternas',
+    externalOperationInvoices: 'Notas Fiscais/RetiradasExternas',
+    externalOperationReceipts: 'Comprovantes/RetiradasExternas',
+    externalOperationReimbursements: 'Reembolsos/RetiradasExternas',
+    externalOperationNfeReimbursements: 'Notas Fiscais Reembolso/RetiradasExternas',
 
     // Logo folders (under respective entity root)
     customerLogo: 'Logo',
@@ -695,11 +695,11 @@ export class FilesStorageService {
         'airbrushingReimbursements',
         'airbrushingNfeReimbursements',
       ],
-      externalWithdrawal: [
-        'externalWithdrawalInvoices',
-        'externalWithdrawalReceipts',
-        'externalWithdrawalReimbursements',
-        'externalWithdrawalNfeReimbursements',
+      externalOperation: [
+        'externalOperationInvoices',
+        'externalOperationReceipts',
+        'externalOperationReimbursements',
+        'externalOperationNfeReimbursements',
       ],
       cut: ['plotterEspovo', 'plotterAdesivo'],
       thumbnail: ['thumbnails'],

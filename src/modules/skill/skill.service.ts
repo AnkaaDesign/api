@@ -732,7 +732,7 @@ export class SkillService {
               title: 'Nova Avaliação Atribuída',
               body: `A avaliação de competências "${assessmentName}" foi atribuída a você. Acesse para realizá-la.`,
               webUrl: `/meu-pessoal/avaliacoes-competencias/${id}`,
-              mobileUrl: `/(tabs)/pessoal/avaliacoes-competencias`,
+              // No assessment screens exist on mobile — omit mobileUrl.
               relatedEntityType: 'ASSESSMENT',
             },
           },
@@ -790,7 +790,7 @@ export class SkillService {
           title: 'Avaliação Encerrada',
           body: `A campanha de avaliação "${assessmentName}" foi encerrada com ${submittedCount} ficha(s) enviada(s).`,
           webUrl: `/administracao/avaliacao-competencias/${id}`,
-          mobileUrl: `/(tabs)/producao/avaliacoes-competencias/${id}`,
+          // No assessment screens exist on mobile — omit mobileUrl.
           relatedEntityType: 'ASSESSMENT',
         },
       };
@@ -1065,7 +1065,7 @@ export class SkillService {
           title: 'Avaliação de Competência Enviada',
           body: `Uma ficha da avaliação "${assessmentName}" referente a ${evaluateeName} foi enviada.`,
           webUrl: `/administracao/avaliacao-competencias/${entry.assessmentId}`,
-          mobileUrl: `/(tabs)/producao/avaliacoes-competencias/${entry.assessmentId}`,
+          // No assessment screens exist on mobile — omit mobileUrl.
           relatedEntityType: 'ASSESSMENT',
         },
       };

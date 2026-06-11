@@ -33,7 +33,7 @@ export interface Activity extends BaseEntity {
   orderId: string | null;
   orderItemId: string | null;
   reason: ACTIVITY_REASON;
-  reasonOrder: number | null; // 1=Pedido Recebido, 2=Uso em Produção, 3=Entrega de PPE, 4=Empréstimo, 5=Devolução, 6=Retirada Externa, 7=Retorno de Retirada Externa, 8=Contagem de Inventário, 9=Ajuste Manual, 10=Manutenção, 11=Dano, 12=Perda, 13=Produção de Tinta, 14=Outro
+  reasonOrder: number | null; // 1=Pedido Recebido, 2=Uso em Produção, 3=Entrega de PPE, 4=Empréstimo, 5=Devolução, 6=Operação Externa, 7=Retorno de Operação Externa, 8=Contagem de Inventário, 9=Ajuste Manual, 10=Manutenção, 11=Dano, 12=Perda, 13=Produção de Tinta, 14=Outro
 
   // Relations
   item?: Item;

@@ -205,22 +205,44 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
       // Find installments that are PENDING, due within 5 days,
       // and either have no BankSlip or have a BankSlip with ERROR/CREATING status (< 3 retries).
-      // Exclude customer configs where generateBankSlip = false (customer pays via transfer/PIX).
+      // Exclude customer configs / external withdrawals where generateBankSlip = false
+      // (customer pays via transfer/PIX).
       // customPaymentText is a display-only label and does NOT affect boleto creation.
       const installments = await this.prisma.installment.findMany({
         where: {
           status: INSTALLMENT_STATUS.PENDING,
           dueDate: { lte: fiveDaysFromNow },
-          customerConfig: {
-            generateBankSlip: { not: false },
-          },
-          OR: [
-            { bankSlip: { is: null } },
+          AND: [
             {
-              bankSlip: {
-                status: { in: [BANK_SLIP_STATUS.ERROR, BANK_SLIP_STATUS.CREATING] },
-                errorCount: { lt: 3 },
-              },
+              // Either a quote customerConfig or an external withdrawal backs this
+              // installment — in both cases generateBankSlip must not be disabled.
+              OR: [
+                { customerConfig: { generateBankSlip: { not: false } } },
+                { externalOperation: { generateBankSlip: { not: false } } },
+              ],
+            },
+            {
+              // H3b: never register boletos before a required NFS-e is AUTHORIZED —
+              // boleto lines/seuNumero embed the NFS-e number (contract rule, mirrors
+              // the readyForBoleto gate in the billing pipelines). Allowed when the
+              // backer explicitly disabled NFS-e (generateInvoice=false) or when an
+              // AUTHORIZED NfseDocument exists for the invoice.
+              OR: [
+                { customerConfig: { generateInvoice: false } },
+                { externalOperation: { generateInvoice: false } },
+                { invoice: { nfseDocuments: { some: { status: 'AUTHORIZED' } } } },
+              ],
+            },
+            {
+              OR: [
+                { bankSlip: { is: null } },
+                {
+                  bankSlip: {
+                    status: { in: [BANK_SLIP_STATUS.ERROR, BANK_SLIP_STATUS.CREATING] },
+                    errorCount: { lt: 3 },
+                  },
+                },
+              ],
             },
           ],
         },
@@ -275,6 +297,22 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                         select: { description: true, invoiceToCustomerId: true },
                         orderBy: { position: 'asc' },
                       },
+                    },
+                  },
+                },
+              },
+              externalOperation: {
+                select: {
+                  id: true,
+                  generateInvoice: true,
+                  services: {
+                    select: { description: true },
+                    orderBy: { position: 'asc' },
+                  },
+                  items: {
+                    select: {
+                      withdrawedQuantity: true,
+                      item: { select: { name: true } },
                     },
                   },
                 },
@@ -633,7 +671,11 @@ export class SicrediBoletoScheduler implements OnModuleInit {
    * has a unique seuNumero even when they share the same NFSe or truck plate.
    */
   private buildSeuNumero(installment: any): string {
-    const generateInvoice = installment.invoice?.customerConfig?.generateInvoice !== false;
+    // Withdrawal-backed invoices carry the NFS-e flag on the withdrawal itself;
+    // task-backed invoices carry it on the customer config.
+    const generateInvoice = installment.invoice?.externalOperationId
+      ? installment.invoice?.externalOperation?.generateInvoice !== false
+      : installment.invoice?.customerConfig?.generateInvoice !== false;
     const authorizedNfse = installment.invoice?.nfseDocuments?.[0];
     const truckPlate = installment.invoice?.task?.truck?.plate;
     // Installment numbers are 1-7 (single digit) — always 1 char.
@@ -680,6 +722,35 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     const parts: string[] = [];
 
     const authorizedNfse = installment.invoice?.nfseDocuments?.[0];
+
+    // External-operation-backed invoice ("Operação Externa"): no truck/order — lines are
+    // the NF number (when authorized) followed by service descriptions and item lines.
+    const withdrawal = installment.invoice?.externalOperation;
+    if (installment.invoice?.externalOperationId && withdrawal) {
+      if (authorizedNfse?.nfseNumber) {
+        parts.push(`NF ${authorizedNfse.nfseNumber}`);
+      }
+
+      const descriptions: string[] = [
+        ...((withdrawal.services ?? []) as any[]).map((s: any) => s.description as string),
+        ...((withdrawal.items ?? []) as any[]).map(
+          (i: any) => `${i.item?.name ?? 'Item'} - ${i.withdrawedQuantity} un`,
+        ),
+      ];
+      if (descriptions.length > 0 && descriptions[0]) {
+        descriptions[0] = descriptions[0].charAt(0).toUpperCase() + descriptions[0].slice(1);
+      }
+      const remainingEw = 5 - parts.length;
+      if (descriptions.length > 0 && remainingEw > 0) {
+        parts.push(...this.buildServiceLines(descriptions, remainingEw, 80));
+      }
+
+      this.logger.log(
+        `[BOLETO_INFORMATIVO] (withdrawal) lines=${parts.length} content=${JSON.stringify(parts)}`,
+      );
+      return parts.length > 0 ? parts : undefined;
+    }
+
     const orderNumber = installment.invoice?.customerConfig?.orderNumber;
     const task = installment.invoice?.task;
     const truck = task?.truck;
@@ -1308,6 +1379,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                 include: {
                   customer: { select: { fantasyName: true } },
                   task: { select: { id: true, name: true, serialNumber: true } },
+                  externalOperation: { select: { id: true } },
                 },
               },
             },
@@ -1325,7 +1397,9 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           if (!invoice) continue;
 
           const customerName = invoice.customer?.fantasyName || 'N/A';
-          const taskName = invoice.task?.name || 'N/A';
+          const dueWithdrawalId =
+            (invoice as any).externalOperation?.id ?? invoice.externalOperationId ?? null;
+          const taskName = dueWithdrawalId ? 'Operação Externa' : invoice.task?.name || 'N/A';
           const serialNumber = invoice.task?.serialNumber || '';
           const formattedAmount = new Intl.NumberFormat('pt-BR', {
             style: 'currency',
@@ -1340,8 +1414,12 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             timeZone: 'America/Sao_Paulo',
           }).format(dueDate);
 
-          const webUrl = `/financeiro/faturamento/detalhes/${invoice.taskId}`;
-          const mobileUrl = `financial/${invoice.taskId}`;
+          const webUrl = dueWithdrawalId
+            ? `/estoque/operacoes-externas/detalhes/${dueWithdrawalId}`
+            : `/financeiro/faturamento/detalhes/${invoice.taskId}`;
+          const mobileUrl = dueWithdrawalId
+            ? `/(tabs)/estoque/operacoes-externas/detalhes/${dueWithdrawalId}`
+            : `financial/${invoice.taskId}`;
           const actionUrl = JSON.stringify({ web: webUrl, mobile: mobileUrl });
 
           await this.notificationDispatchService.dispatchByConfiguration(
@@ -1362,6 +1440,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                 invoiceId: invoice.id,
                 bankSlipId: bankSlip.id,
                 taskId: invoice.taskId,
+                externalOperationId: dueWithdrawalId || undefined,
               },
               overrides: {
                 actionUrl,
@@ -1449,6 +1528,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           select: {
             id: true,
             status: true,
+            externalOperationId: true,
             customerConfig: { select: { quoteId: true } },
           },
         },
@@ -1503,7 +1583,8 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     installment: {
       id: string;
       status: string;
-      customerConfig: { quoteId: string };
+      externalOperationId?: string | null;
+      customerConfig: { quoteId: string } | null;
     } | null;
   }): Promise<{ dueDateChanged: boolean; seuNumeroChanged: boolean; newDueDate?: Date }> {
     const sicrediData = await this.sicrediService.queryBoleto(bankSlip.nossoNumero);
@@ -1592,8 +1673,14 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         data: installmentUpdates,
       });
 
-      // Recalculate quote status — a future due date removes the overdue flag
-      await this.cascadeService.cascadeFromQuote(bankSlip.installment.customerConfig.quoteId);
+      // Recalculate quote/withdrawal status — a future due date removes the overdue flag
+      if (bankSlip.installment.customerConfig?.quoteId) {
+        await this.cascadeService.cascadeFromQuote(bankSlip.installment.customerConfig.quoteId);
+      } else if (bankSlip.installment.externalOperationId) {
+        await this.cascadeService.cascadeFromExternalOperation(
+          bankSlip.installment.externalOperationId,
+        );
+      }
     }
 
     return { dueDateChanged, seuNumeroChanged, newDueDate: newParsedDate };
@@ -1677,26 +1764,50 @@ export class SicrediBoletoScheduler implements OnModuleInit {
   }
 
   /**
-   * Resolve task context (taskId/name/customer) for a financial deep link from an invoice.
-   * Returns nulls if anything is missing. Never throws.
+   * Resolve task/withdrawal context (id/label/customer + deep-link URLs) from an invoice.
+   * Withdrawal-backed invoices ("Operação Externa") link to the withdrawal detail page;
+   * task-backed invoices link to the billing detail page. Returns null if the invoice
+   * is missing. Never throws.
    */
   private async resolveInvoiceContext(invoiceId: string): Promise<{
     taskId: string | null;
     taskName: string;
     customerName: string;
+    externalOperationId: string | null;
+    /** "da tarefa X" / "da operação externa" — for notification bodies */
+    refLabel: string;
+    webUrl: string | undefined;
+    mobileUrl: string | undefined;
   } | null> {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
       include: {
         customer: { select: { fantasyName: true } },
         task: { select: { id: true, name: true } },
+        externalOperation: { select: { id: true } },
       },
     });
     if (!invoice) return null;
+
+    const taskId = invoice.task?.id ?? invoice.taskId ?? null;
+    const externalOperationId =
+      invoice.externalOperation?.id ?? invoice.externalOperationId ?? null;
+    const isWithdrawal = !!externalOperationId;
+
     return {
-      taskId: invoice.task?.id ?? invoice.taskId ?? null,
-      taskName: invoice.task?.name || 'N/A',
+      taskId,
+      taskName: isWithdrawal ? 'Operação Externa' : invoice.task?.name || 'N/A',
       customerName: invoice.customer?.fantasyName || 'N/A',
+      externalOperationId,
+      refLabel: isWithdrawal
+        ? 'da operação externa'
+        : `da tarefa ${invoice.task?.name || 'N/A'}`,
+      webUrl: isWithdrawal
+        ? `/estoque/operacoes-externas/detalhes/${externalOperationId}`
+        : taskId
+          ? `/financeiro/faturamento/detalhes/${taskId}`
+          : undefined,
+      mobileUrl: !isWithdrawal && taskId ? `financial/${taskId}` : undefined,
     };
   }
 
@@ -1723,12 +1834,11 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         timeZone: 'America/Sao_Paulo',
       }).format(dueDate);
 
-      const webUrl = ctx.taskId ? `/financeiro/faturamento/detalhes/${ctx.taskId}` : undefined;
-      const mobileUrl = ctx.taskId ? `financial/${ctx.taskId}` : undefined;
+      const { webUrl, mobileUrl } = ctx;
 
       await this.notificationDispatchService.dispatchByConfiguration('bank_slip.overdue', 'system', {
         entityType: 'BankSlip',
-        entityId: ctx.taskId ?? invoiceId,
+        entityId: ctx.taskId ?? ctx.externalOperationId ?? invoiceId,
         action: 'overdue',
         data: {
           customerName: ctx.customerName,
@@ -1739,10 +1849,11 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           invoiceId,
           bankSlipId,
           taskId: ctx.taskId || undefined,
+          externalOperationId: ctx.externalOperationId || undefined,
         },
         overrides: {
           title: 'Boleto Vencido',
-          body: `O boleto ${nossoNumero || ''} da tarefa ${ctx.taskName} (${ctx.customerName}) venceu em ${formattedDueDate}. Valor: ${formattedAmount}.`,
+          body: `O boleto ${nossoNumero || ''} ${ctx.refLabel} (${ctx.customerName}) venceu em ${formattedDueDate}. Valor: ${formattedAmount}.`,
           relatedEntityType: 'BANK_SLIP',
           ...(webUrl ? { webUrl } : {}),
           ...(mobileUrl ? { mobileUrl } : {}),
@@ -1778,12 +1889,14 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         timeZone: 'America/Sao_Paulo',
       }).format(dueDate);
 
-      const webUrl = ctx.taskId ? `/financeiro/faturamento/detalhes/${ctx.taskId}` : undefined;
-      const mobileUrl = ctx.taskId ? `financial/${ctx.taskId}` : undefined;
+      const { webUrl, mobileUrl } = ctx;
+      const generatedFor = ctx.externalOperationId
+        ? 'a operação externa'
+        : `a tarefa ${ctx.taskName}`;
 
       await this.notificationDispatchService.dispatchByConfiguration('bank_slip.created', 'system', {
         entityType: 'BankSlip',
-        entityId: ctx.taskId ?? invoiceId,
+        entityId: ctx.taskId ?? ctx.externalOperationId ?? invoiceId,
         action: 'created',
         data: {
           customerName: ctx.customerName,
@@ -1793,10 +1906,11 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           dueDate: formattedDueDate,
           invoiceId,
           taskId: ctx.taskId || undefined,
+          externalOperationId: ctx.externalOperationId || undefined,
         },
         overrides: {
           title: 'Boleto Gerado',
-          body: `Boleto ${nossoNumero} gerado para a tarefa ${ctx.taskName} (${ctx.customerName}). Valor: ${formattedAmount}, vencimento ${formattedDueDate}.`,
+          body: `Boleto ${nossoNumero} gerado para ${generatedFor} (${ctx.customerName}). Valor: ${formattedAmount}, vencimento ${formattedDueDate}.`,
           relatedEntityType: 'BANK_SLIP',
           ...(webUrl ? { webUrl } : {}),
           ...(mobileUrl ? { mobileUrl } : {}),
@@ -1823,15 +1937,14 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       const ctx = await this.resolveInvoiceContext(invoiceId);
       if (!ctx) return;
 
-      const webUrl = ctx.taskId ? `/financeiro/faturamento/detalhes/${ctx.taskId}` : undefined;
-      const mobileUrl = ctx.taskId ? `financial/${ctx.taskId}` : undefined;
+      const { webUrl, mobileUrl } = ctx;
 
       await this.notificationDispatchService.dispatchByConfiguration(
         'bank_slip.registration_failed',
         'system',
         {
           entityType: 'BankSlip',
-          entityId: ctx.taskId ?? invoiceId,
+          entityId: ctx.taskId ?? ctx.externalOperationId ?? invoiceId,
           action: 'registration_failed',
           data: {
             customerName: ctx.customerName,
@@ -1840,10 +1953,11 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             invoiceId,
             bankSlipId,
             taskId: ctx.taskId || undefined,
+            externalOperationId: ctx.externalOperationId || undefined,
           },
           overrides: {
             title: 'Falha ao Registrar Boleto',
-            body: `Não foi possível registrar o boleto da tarefa ${ctx.taskName} (${ctx.customerName}) no Sicredi após várias tentativas. Intervenção manual necessária.${errorMessage ? `\nErro: ${errorMessage}` : ''}`,
+            body: `Não foi possível registrar o boleto ${ctx.refLabel} (${ctx.customerName}) no Sicredi após várias tentativas. Intervenção manual necessária.${errorMessage ? `\nErro: ${errorMessage}` : ''}`,
             relatedEntityType: 'BANK_SLIP',
             ...(webUrl ? { webUrl } : {}),
             ...(mobileUrl ? { mobileUrl } : {}),
@@ -1875,13 +1989,15 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         include: {
           customer: { select: { fantasyName: true } },
           task: { select: { id: true, name: true, serialNumber: true } },
+          externalOperation: { select: { id: true } },
         },
       });
 
       if (!invoice) return;
 
       const customerName = invoice.customer?.fantasyName || 'N/A';
-      const taskName = invoice.task?.name || 'N/A';
+      const withdrawalId = invoice.externalOperation?.id ?? invoice.externalOperationId ?? null;
+      const taskName = withdrawalId ? 'Operação Externa' : invoice.task?.name || 'N/A';
       const formattedAmount = new Intl.NumberFormat('pt-BR', {
         style: 'currency',
         currency: 'BRL',
@@ -1890,8 +2006,12 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         timeZone: 'America/Sao_Paulo',
       }).format(dueDate);
 
-      const webUrl = `/financeiro/faturamento/detalhes/${invoice.taskId}`;
-      const mobileUrl = `financial/${invoice.taskId}`;
+      const webUrl = withdrawalId
+        ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : `/financeiro/faturamento/detalhes/${invoice.taskId}`;
+      const mobileUrl = withdrawalId
+        ? `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : `financial/${invoice.taskId}`;
       const actionUrl = JSON.stringify({ web: webUrl, mobile: mobileUrl });
 
       await this.notificationDispatchService.dispatchByConfiguration('bank_slip.paid', 'system', {
@@ -1906,6 +2026,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           invoiceId: invoice.id,
           bankSlipId,
           taskId: invoice.taskId,
+          externalOperationId: withdrawalId || undefined,
         },
         overrides: {
           actionUrl,

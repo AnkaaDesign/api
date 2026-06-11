@@ -132,7 +132,7 @@ export class DeepLinkService {
     this.webAppUrl =
       this.configService.get<string>('WEB_APP_URL') ||
       this.configService.get<string>('CLIENT_HOST') ||
-      'https://ankaa.app';
+      'https://ankaadesign.com.br';
     this.mobileAppScheme = this.configService.get<string>('MOBILE_APP_SCHEME') || 'ankaadesign';
     this.universalLinkDomain =
       this.configService.get<string>('UNIVERSAL_LINK_DOMAIN') || this.webAppUrl;
@@ -468,6 +468,27 @@ export class DeepLinkService {
   }
 
   /**
+   * Generate links for an arbitrary (verified) web path with an optional mobile
+   * URL. Used for entity types that have a real web page but no entry in ROUTES
+   * (task quotes, schedules, billing). The universal link falls back to the web
+   * URL so channel link resolution (universalLink > webUrl) still lands on a
+   * real page even when there is no mobile alias route.
+   *
+   * @param webPath - Relative web path (e.g. "/financeiro/orcamento/detalhes/123")
+   * @param mobileUrl - Optional mobile URL/path, passed through verbatim
+   *                    (e.g. "/(tabs)/financeiro/orcamento/detalhes/123")
+   */
+  generatePathLinks(webPath: string, mobileUrl?: string): DeepLinkResult & { webPath: string } {
+    const web = `${this.webAppUrl}${webPath}`;
+    return {
+      web,
+      mobile: mobileUrl || '',
+      universalLink: web,
+      webPath,
+    };
+  }
+
+  /**
    * Generate action URL for notifications (includes both web and mobile)
    * This is the recommended format for storing in notification.actionUrl
    * @param entityType - The type of entity
@@ -515,8 +536,13 @@ export class DeepLinkService {
     // Mobile gets simple list page (no query param support)
     const mobileUrl = `${this.mobileAppScheme}://${route.mobile}`;
 
-    // Universal link for mobile with /app/ prefix
-    const universalLink = `${this.universalLinkDomain}/app/${route.mobile}`;
+    // Universal link: use the full FILTERED web URL. The /app/<list> universal
+    // paths (e.g. /app/items) 404 on the web app — entity universal links work
+    // because the web router aliases /app/<entity>/<id>, but the list aliases
+    // were never implemented (deep-link audit F14, API-side fix). Channels that
+    // prefer universalLink (push/whatsapp/email) now land on the filtered web
+    // list page; the mobile scheme URL still opens the native list.
+    const universalLink = webUrl;
 
     return {
       web: webUrl,

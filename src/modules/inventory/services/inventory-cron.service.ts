@@ -20,7 +20,6 @@ import {
   MAX_SIMILAR_ITEMS_TO_CHECK,
   PPE_CONSUMPTION_REASONS,
   REGULAR_CONSUMPTION_REASONS,
-  isToolType,
 } from '@/constants/inventory-config';
 import { CORPUS_MONTHLY_INDEX } from '@/constants/seasonality-config';
 import {
@@ -32,6 +31,7 @@ import {
   calculateReorderPoint,
   calculateReorderQuantity,
   isLegacyBulkReceipt,
+  leadTimeClockStart,
   resolveSafetyTargetCell,
   type ItemLike,
   type SeasonalContext,
@@ -383,7 +383,7 @@ export class InventoryCronService {
         const itemActivities = activitiesByItem.get(item.id) ?? [];
         const seasonalCtx = this.buildSeasonalContext(snapshotsByItem.get(item.id));
 
-        const isPpeItem = (item.category?.type as ITEM_CATEGORY_TYPE | null) === ITEM_CATEGORY_TYPE.PPE;
+        const isPpeItem = item.ppeType != null;
         const histTrailing12mo = isPpeItem
           ? itemActivities
               .filter(a => (PPE_CONSUMPTION_REASONS as string[]).includes(a.reason))
@@ -439,12 +439,12 @@ export class InventoryCronService {
       itemId: p.item.id,
       monthlyConsumption: p.mc,
       unitPrice: p.unitPrice,
-      eligible: !isToolType(p.item.category?.type) && p.mc > 0,
+      eligible: p.item.stockModel === 'CONSUMPTION' && p.mc > 0,
     }));
     const xyzInputs: XyzInput[] = partials.map(p => ({
       itemId: p.item.id,
       trailingMonthlyConsumption: p.monthlyHistory,
-      eligible: !isToolType(p.item.category?.type),
+      eligible: p.item.stockModel === 'CONSUMPTION',
     }));
 
     const abcAssignments = new Map(
@@ -588,13 +588,14 @@ export class InventoryCronService {
   // =====================
 
   /**
-   * Detects dormant REGULAR items and auto-disables them if a similar active
-   * replacement exists. Also reactivates previously-deactivated REGULAR items
-   * that show fresh consumption activity (bidirectional lifecycle, spec §12).
-   * Runs weekly on Sunday at 3 AM.
+   * Detects dormant consumption-model items and auto-disables them if a
+   * similar active replacement exists. Also reactivates previously-deactivated
+   * items that show fresh consumption activity (bidirectional lifecycle,
+   * spec §12). Runs weekly on Sunday at 3 AM.
    *
-   * TOOL and PPE category items are explicitly excluded — they are durable /
-   * lumpy goods and never auto-deactivate or reactivate (spec §16).
+   * Scope: `stockModel = CONSUMPTION AND ppeType IS NULL`. Fixed-target items
+   * (durable / lumpy goods) and PPE never auto-deactivate or reactivate
+   * (spec §16).
    */
   @Cron('0 3 * * 0', { timeZone: 'America/Sao_Paulo' })
   async detectAndDisableDormantItems(): Promise<{
@@ -610,7 +611,7 @@ export class InventoryCronService {
     cutoffDate.setMonth(cutoffDate.getMonth() - DORMANT_ITEM_MONTHS_THRESHOLD);
 
     const activeItems = await this.prisma.item.findMany({
-      where: { isActive: true },
+      where: { isActive: true, stockModel: 'CONSUMPTION', ppeType: null },
       select: {
         id: true,
         name: true,
@@ -618,7 +619,8 @@ export class InventoryCronService {
         supplierId: true,
         quantity: true,
         lastUsedAt: true,
-        category: { select: { type: true } },
+        stockModel: true,
+        ppeType: true,
       },
     });
 
@@ -628,9 +630,9 @@ export class InventoryCronService {
 
     for (const item of activeItems) {
       try {
-        // Skip tools (regular + electronic) / PPE — they never auto-deactivate (spec §16).
-        const categoryType = item.category?.type ?? null;
-        if (isToolType(categoryType) || categoryType === ITEM_CATEGORY_TYPE.PPE) {
+        // Defensive re-check of the where-clause scope: fixed-target items and
+        // PPE never auto-deactivate (spec §16).
+        if (item.stockModel !== 'CONSUMPTION' || item.ppeType != null) {
           continue;
         }
 
@@ -703,9 +705,10 @@ export class InventoryCronService {
 
     // ---------------------------------------------------------------------
     // Reactivation pass — bidirectional lifecycle (spec §12).
-    // Finds REGULAR items that are currently isActive=false but have shown
-    // genuine consumption inside the dormancy window. Excludes TOOL/PPE
-    // (never auto-managed) and items deactivated within the last 7 days
+    // Finds consumption-model, non-PPE items that are currently
+    // isActive=false but have shown genuine consumption inside the dormancy
+    // window. Excludes fixed-target items and PPE (never auto-managed) and
+    // items deactivated within the last 7 days
     // (anti-bounce buffer — avoids flapping when a stale activity backfill
     // races with the deactivation it triggered).
     // ---------------------------------------------------------------------
@@ -721,7 +724,7 @@ export class InventoryCronService {
       ACTIVITY_REASON.PRODUCTION_USAGE,
       ACTIVITY_REASON.PPE_DELIVERY,
       ACTIVITY_REASON.MAINTENANCE,
-      ACTIVITY_REASON.EXTERNAL_WITHDRAWAL,
+      ACTIVITY_REASON.EXTERNAL_OPERATION,
       ACTIVITY_REASON.DAMAGE,
       ACTIVITY_REASON.LOSS,
     ];
@@ -729,7 +732,8 @@ export class InventoryCronService {
     const inactiveCandidates = await this.prisma.item.findMany({
       where: {
         isActive: false,
-        category: { type: ITEM_CATEGORY_TYPE.REGULAR },
+        stockModel: 'CONSUMPTION',
+        ppeType: null,
         deactivatedAt: { lt: reactivationBufferDate },
       },
       select: {
@@ -818,7 +822,7 @@ export class InventoryCronService {
           SELECT "itemId", MAX("createdAt") as max_date
           FROM "Activity"
           WHERE "operation" = 'OUTBOUND'
-            AND "reason" IN ('PRODUCTION_USAGE', 'PPE_DELIVERY', 'MAINTENANCE', 'PAINT_PRODUCTION', 'EXTERNAL_WITHDRAWAL')
+            AND "reason" IN ('PRODUCTION_USAGE', 'PPE_DELIVERY', 'MAINTENANCE', 'PAINT_PRODUCTION', 'EXTERNAL_OPERATION')
           GROUP BY "itemId"
         ) sub
         WHERE i.id = sub."itemId"
@@ -1006,10 +1010,11 @@ export class InventoryCronService {
 
       if (oi.receivedAt) {
         if (!isLegacyBulkReceipt(oi.order.supplierId, oi.receivedAt)) {
-          const startDate =
-            oi.fulfilledAt && oi.fulfilledAt <= oi.receivedAt
-              ? oi.fulfilledAt
-              : oi.order.createdAt;
+          const startDate = leadTimeClockStart(
+            oi.fulfilledAt,
+            oi.receivedAt,
+            oi.order.createdAt,
+          );
           const days = Math.max(
             0,
             (oi.receivedAt.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24),
@@ -1064,10 +1069,11 @@ export class InventoryCronService {
       if (!supplierId) continue;
       if (!oi.receivedAt) continue;
       if (isLegacyBulkReceipt(supplierId, oi.receivedAt)) continue;
-      const startDate =
-        oi.fulfilledAt && oi.fulfilledAt <= oi.receivedAt
-          ? oi.fulfilledAt
-          : oi.order.createdAt;
+      const startDate = leadTimeClockStart(
+        oi.fulfilledAt,
+        oi.receivedAt,
+        oi.order.createdAt,
+      );
       const days =
         (oi.receivedAt.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
       if (days < 0) continue;
@@ -1094,6 +1100,8 @@ export class InventoryCronService {
       category: item.category
         ? { type: (item.category.type as ITEM_CATEGORY_TYPE | null) ?? null }
         : null,
+      stockModel: (item.stockModel as string | null) ?? null,
+      fixedTargetQuantity: item.fixedTargetQuantity ?? null,
       abcCategory: (item.abcCategory as ABC_CATEGORY | null) ?? null,
       xyzCategory: (item.xyzCategory as XYZ_CATEGORY | null) ?? null,
       ppeType: (item.ppeType ?? null) as ItemLike['ppeType'],

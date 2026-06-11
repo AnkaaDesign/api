@@ -25,8 +25,8 @@ const ARTWORK_STATUS_LABELS: Record<string, string> = {
  * using configuration-based dispatch (NotificationDispatchService).
  *
  * Config keys used:
- * - artwork.approved       → targets ADMIN, DESIGNER, PRODUCTION
- * - artwork.reproved       → targets ADMIN, DESIGNER
+ * - artwork.approved       → targets ADMIN, COMMERCIAL, DESIGNER, LOGISTIC
+ * - artwork.reproved       → targets ADMIN, COMMERCIAL, DESIGNER, LOGISTIC
  * - artwork.pending_approval_reminder → targets ADMIN, COMMERCIAL
  *
  * Self-notification prevention is handled by the dispatch service
@@ -72,7 +72,7 @@ export class ArtworkListener {
 
   /**
    * Handle artwork approved event
-   * Config key: artwork.approved (targets ADMIN, DESIGNER, PRODUCTION)
+   * Config key: artwork.approved (targets ADMIN, COMMERCIAL, DESIGNER, LOGISTIC)
    */
   private async handleArtworkApproved(event: ArtworkApprovedEvent): Promise<void> {
     this.logger.log('========================================');
@@ -91,7 +91,7 @@ export class ArtworkListener {
 
       const deepLinks = task
         ? this.deepLinkService.generateTaskLinks(task.id)
-        : { web: '/producao/tarefas', mobile: '', universalLink: '' };
+        : { web: '/producao/cronograma', mobile: '', universalLink: '' };
 
       await this.dispatchService.dispatchByConfiguration('artwork.approved', event.approvedBy.id, {
         entityType: 'Task',
@@ -108,10 +108,10 @@ export class ArtworkListener {
         },
         overrides: {
           actionUrl: JSON.stringify(deepLinks),
-          webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/tarefas',
+          webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/cronograma',
           relatedEntityType: task ? 'TASK' : 'ARTWORK',
           title: `Arte aprovada: "${taskName}" ${serialNumber}`,
-          body: `A arte da tarefa "${taskName}" ${serialNumber} foi aprovada por ${event.approvedBy.name}. Pronta para produção.`,
+          body: `A arte da tarefa "${taskName}" ${serialNumber} foi aprovada. Pronta para produção.`,
         },
       });
 
@@ -133,7 +133,7 @@ export class ArtworkListener {
 
   /**
    * Handle artwork reproved (rejected) event
-   * Config key: artwork.reproved (targets ADMIN, DESIGNER)
+   * Config key: artwork.reproved (targets ADMIN, COMMERCIAL, DESIGNER, LOGISTIC)
    */
   private async handleArtworkReproved(event: ArtworkReprovedEvent): Promise<void> {
     this.logger.log('========================================');
@@ -154,7 +154,7 @@ export class ArtworkListener {
 
       const deepLinks = task
         ? this.deepLinkService.generateTaskLinks(task.id)
-        : { web: '/producao/tarefas', mobile: '', universalLink: '' };
+        : { web: '/producao/cronograma', mobile: '', universalLink: '' };
 
       await this.dispatchService.dispatchByConfiguration('artwork.reproved', event.reprovedBy.id, {
         entityType: 'Task',
@@ -173,10 +173,10 @@ export class ArtworkListener {
         },
         overrides: {
           actionUrl: JSON.stringify(deepLinks),
-          webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/tarefas',
+          webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/cronograma',
           relatedEntityType: task ? 'TASK' : 'ARTWORK',
           title: `Arte reprovada: "${taskName}" ${serialNumber}`,
-          body: `A arte da tarefa "${taskName}" ${serialNumber} foi reprovada por ${event.reprovedBy.name}.${reasonText} Uma nova versão é necessária.`,
+          body: `A arte da tarefa "${taskName}" ${serialNumber} foi reprovada.${reasonText} Uma nova versão é necessária.`,
         },
       });
 
@@ -221,7 +221,7 @@ export class ArtworkListener {
 
       const deepLinks = task
         ? this.deepLinkService.generateTaskLinks(task.id)
-        : { web: '/producao/tarefas', mobile: '', universalLink: '' };
+        : { web: '/producao/cronograma', mobile: '', universalLink: '' };
 
       await this.dispatchService.dispatchByConfiguration(
         'artwork.pending_approval_reminder',
@@ -243,7 +243,7 @@ export class ArtworkListener {
           },
           overrides: {
             actionUrl: JSON.stringify(deepLinks),
-            webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/tarefas',
+            webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/cronograma',
             relatedEntityType: task ? 'TASK' : 'ARTWORK',
             title: `Lembrete: Arte aguardando aprovação há ${daysText}`,
             body: `A arte da tarefa "${taskName}" ${serialNumber} está aguardando aprovação há ${daysText}. Por favor, revise e aprove ou reprove a arte.`,

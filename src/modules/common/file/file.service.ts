@@ -1118,8 +1118,8 @@ export class FileService {
             orderReceipts: true,
             airbrushingReceipts: true,
             airbrushingInvoices: true,
-            externalWithdrawalInvoices: true,
-            externalWithdrawalReceipts: true,
+            externalOperationInvoices: true,
+            externalOperationReceipts: true,
           },
         });
 
@@ -1138,8 +1138,8 @@ export class FileService {
             (associations.orderReceipts?.length || 0) > 0 ||
             (associations.airbrushingReceipts?.length || 0) > 0 ||
             (associations.airbrushingInvoices?.length || 0) > 0 ||
-            (associations.externalWithdrawalInvoices?.length || 0) > 0 ||
-            (associations.externalWithdrawalReceipts?.length || 0) > 0;
+            (associations.externalOperationInvoices?.length || 0) > 0 ||
+            (associations.externalOperationReceipts?.length || 0) > 0;
 
           if (hasAssociations) {
             throw new BadRequestException(
@@ -1427,8 +1427,8 @@ export class FileService {
               orderReceipts: true,
               airbrushingReceipts: true,
               airbrushingInvoices: true,
-              externalWithdrawalInvoices: true,
-              externalWithdrawalReceipts: true,
+              externalOperationInvoices: true,
+              externalOperationReceipts: true,
             },
           });
 
@@ -1447,8 +1447,8 @@ export class FileService {
               (associations.orderReceipts?.length || 0) > 0 ||
               (associations.airbrushingReceipts?.length || 0) > 0 ||
               (associations.airbrushingInvoices?.length || 0) > 0 ||
-              (associations.externalWithdrawalInvoices?.length || 0) > 0 ||
-              (associations.externalWithdrawalReceipts?.length || 0) > 0;
+              (associations.externalOperationInvoices?.length || 0) > 0 ||
+              (associations.externalOperationReceipts?.length || 0) > 0;
 
             if (hasAssociations) {
               throw new BadRequestException(

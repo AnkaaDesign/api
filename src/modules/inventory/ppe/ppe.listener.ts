@@ -18,7 +18,7 @@ import {
  * database configuration-based approach (checks config enablement + user preferences).
  *
  * Config keys:
- * - ppe.requested  (sector-based: ADMIN + HUMAN_RESOURCES)
+ * - ppe.requested  (sector-based: ADMIN + HUMAN_RESOURCES + WAREHOUSE)
  * - ppe.approved   (targeted: the requester)
  * - ppe.rejected   (targeted: the requester)
  * - ppe.delivered   (targeted: the deliveredTo user)
@@ -63,7 +63,7 @@ export class PpeListener {
 
   /**
    * Handle PPE requested event
-   * Notify: ADMIN + HUMAN_RESOURCES users (sector-based via config)
+   * Notify: ADMIN + HUMAN_RESOURCES + WAREHOUSE users (sector-based via config)
    */
   private async handlePpeRequested(event: PpeRequestedEvent): Promise<void> {
     this.logger.log('========================================');
@@ -104,7 +104,7 @@ export class PpeListener {
           webUrl,
           relatedEntityType: 'PPE_DELIVERY',
           title: 'Nova Solicitacao de EPI',
-          body: `${event.requestedBy.name} solicitou ${quantityLabel}"${itemName}". Aguardando aprovacao.`,
+          body: `Nova solicitacao de ${quantityLabel}"${itemName}" recebida. Aguardando aprovacao.`,
         },
       });
 
@@ -170,7 +170,7 @@ export class PpeListener {
             webUrl,
             relatedEntityType: 'PPE_DELIVERY',
             title: 'Solicitacao de EPI Aprovada',
-            body: `Sua solicitacao de ${quantityLabel}"${itemName}" foi aprovada por ${event.approvedBy.name}. Aguarde a entrega pelo almoxarifado.`,
+            body: `Sua solicitacao de ${quantityLabel}"${itemName}" foi aprovada. Aguarde a entrega pelo almoxarifado.`,
           },
         },
         [event.requestedBy.id],
@@ -240,7 +240,7 @@ export class PpeListener {
             webUrl,
             relatedEntityType: 'PPE_DELIVERY',
             title: 'Solicitacao de EPI Reprovada',
-            body: `Sua solicitacao de "${itemName}" foi reprovada por ${event.rejectedBy.name}.`,
+            body: `Sua solicitacao de "${itemName}" foi reprovada.`,
           },
         },
         [event.requestedBy.id],
@@ -312,7 +312,7 @@ export class PpeListener {
             webUrl,
             relatedEntityType: 'PPE_DELIVERY',
             title: 'Confirme o Recebimento do EPI',
-            body: `${quantityLabel}"${itemName}" foi entregue a voce por ${event.deliveredBy.name}. Abra o app e confirme o recebimento com sua biometria.`,
+            body: `${quantityLabel}"${itemName}" foi entregue a voce. Abra o app e confirme o recebimento com sua biometria.`,
           },
         },
         [event.deliveredTo.id],
@@ -445,8 +445,8 @@ export class PpeListener {
               title: 'Confirme o Recebimento de EPI',
               body:
                 count > 1
-                  ? `${count} EPIs foram entregues a voce por ${deliveredBy.name}. Abra o app e confirme o recebimento.`
-                  : `"${itemNames}" foi entregue a voce por ${deliveredBy.name}. Abra o app e confirme o recebimento com sua biometria.`,
+                  ? `${count} EPIs foram entregues a voce. Abra o app e confirme o recebimento.`
+                  : `"${itemNames}" foi entregue a voce. Abra o app e confirme o recebimento com sua biometria.`,
             },
           },
           [userId],

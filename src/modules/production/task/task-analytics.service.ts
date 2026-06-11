@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { TASK_STATUS, CUT_ORIGIN, SECTOR_PRIVILEGES, COMMISSION_STATUS } from '../../../constants/enums';
+import { TASK_STATUS, CUT_ORIGIN, SECTOR_PRIVILEGES, BONIFICATION_STATUS } from '../../../constants/enums';
 import {
   businessMonthKey,
   businessPeriodEnd,
@@ -745,36 +745,36 @@ export class TaskAnalyticsService {
     xAxisMode?: 'day' | 'month' | 'year';
     yAxisMode?: 'count' | 'avgPerUser' | 'both';
     compareMode?: 'combined' | 'separated' | 'separatedWithTotal';
-    commissionStatuses?: string[];
+    bonificationStatuses?: string[];
     userIds?: string[];
   }) {
-    const { sectorIds, xAxisMode = 'month', yAxisMode = 'count', compareMode = 'combined', commissionStatuses, userIds } = filters;
+    const { sectorIds, xAxisMode = 'month', yAxisMode = 'count', compareMode = 'combined', bonificationStatuses, userIds } = filters;
     const isComparisonMode = (compareMode === 'separated' || compareMode === 'separatedWithTotal') && !!sectorIds && sectorIds.length >= 2;
 
     const dateRange = this.resolveDateRange(filters);
 
     // Tasks count is independent of who completed them — just count completed
     // tasks with finishedAt in the period (optionally narrowed by sector,
-    // commission status, or creating user).
+    // bonification status, or creating user).
     //
-    // Default commission whitelist matches `bonus.service.ts:getBonusTimeline`
-    // exactly: explicit IN [FULL, PARTIAL, SUSPENDED, NO_COMMISSION] excludes
-    // legacy commission=NULL tasks. This guarantees productivity returns the
+    // Default bonification whitelist matches `bonus.service.ts:getBonusTimeline`
+    // exactly: explicit IN [FULL, PARTIAL, SUSPENDED, NO_BONIFICATION] excludes
+    // legacy bonification=NULL tasks. This guarantees productivity returns the
     // same task count as the bonus pages for the same conceptual period.
-    const commissionWhitelist = (commissionStatuses?.length
-      ? commissionStatuses
+    const bonificationWhitelist = (bonificationStatuses?.length
+      ? bonificationStatuses
       : [
-          COMMISSION_STATUS.FULL_COMMISSION,
-          COMMISSION_STATUS.PARTIAL_COMMISSION,
-          COMMISSION_STATUS.SUSPENDED_COMMISSION,
-          COMMISSION_STATUS.NO_COMMISSION,
+          BONIFICATION_STATUS.FULL_BONIFICATION,
+          BONIFICATION_STATUS.PARTIAL_BONIFICATION,
+          BONIFICATION_STATUS.SUSPENDED_BONIFICATION,
+          BONIFICATION_STATUS.NO_BONIFICATION,
         ]) as any[];
 
     const completedTasks = await this.prisma.task.findMany({
       where: {
         status: TASK_STATUS.COMPLETED,
         finishedAt: { gte: dateRange.start, lte: dateRange.end },
-        commission: { in: commissionWhitelist },
+        bonification: { in: bonificationWhitelist },
         ...(sectorIds?.length ? { sectorId: { in: sectorIds } } : {}),
         ...(userIds?.length ? { createdById: { in: userIds } } : {}),
       },
@@ -1020,15 +1020,15 @@ export class TaskAnalyticsService {
       where: {
         status: TASK_STATUS.COMPLETED,
         finishedAt: { gte: dateRange.start, lte: dateRange.end },
-        // Match bonus's task query: explicit commission whitelist (excludes
-        // legacy NULL-commission tasks). Keeps performance counts aligned
+        // Match bonus's task query: explicit bonification whitelist (excludes
+        // legacy NULL-bonification tasks). Keeps performance counts aligned
         // with bonus and productivity for the same period.
-        commission: {
+        bonification: {
           in: [
-            COMMISSION_STATUS.FULL_COMMISSION,
-            COMMISSION_STATUS.PARTIAL_COMMISSION,
-            COMMISSION_STATUS.SUSPENDED_COMMISSION,
-            COMMISSION_STATUS.NO_COMMISSION,
+            BONIFICATION_STATUS.FULL_BONIFICATION,
+            BONIFICATION_STATUS.PARTIAL_BONIFICATION,
+            BONIFICATION_STATUS.SUSPENDED_BONIFICATION,
+            BONIFICATION_STATUS.NO_BONIFICATION,
           ],
         },
         ...(sectorIds?.length ? { sectorId: { in: sectorIds } } : {}),

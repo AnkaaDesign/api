@@ -1,14 +1,14 @@
 // Single source of truth for the stock-level band classifier (spec §15).
-// TOOL items short-circuit to OPTIMAL/OUT_OF_STOCK. Open orders projected to
-// arrive within the lead-time window count toward the effective quantity used
-// for classification — an item with rp=10, qty=2, and a 1-day-lead order in
-// flight is OPTIMAL/LOW, not CRITICAL.
+// FIXED_TARGET items short-circuit to OPTIMAL/CRITICAL/OUT_OF_STOCK. Open
+// orders projected to arrive within the lead-time window count toward the
+// effective quantity used for classification — an item with rp=10, qty=2, and
+// a 1-day-lead order in flight is OPTIMAL/LOW, not CRITICAL.
 
-import { ITEM_CATEGORY_TYPE, STOCK_LEVEL } from '@/constants/enums';
+import { STOCK_LEVEL } from '@/constants/enums';
 import {
   STOCK_LEVEL_LOW_MULTIPLIER,
-  getToolTarget,
-  isToolType,
+  getFixedTarget,
+  isFixedTarget,
 } from '@/constants/inventory-config';
 
 export interface DetermineStockLevelInput {
@@ -16,7 +16,8 @@ export interface DetermineStockLevelInput {
   reorderPoint: number | null;
   maxQuantity: number | null;
   hasActiveOrder: boolean;
-  categoryType: ITEM_CATEGORY_TYPE | null;
+  stockModel: string | null;
+  fixedTargetQuantity?: number | null;
   /** Units already ordered and projected to arrive within the lead-time
    *  window. When provided, classification uses `quantity + incomingOrderedQuantity`
    *  as the effective stock. Pre-filtered by the caller (typically: open
@@ -31,18 +32,18 @@ export interface DetermineStockLevelInput {
  *  use the physical `quantity` only — an empty shelf is empty regardless of
  *  what's in the pipeline. */
 export function determineStockLevel(input: DetermineStockLevelInput): STOCK_LEVEL {
-  const { quantity, reorderPoint, maxQuantity, categoryType } = input;
+  const { quantity, reorderPoint, maxQuantity } = input;
   const incoming = Math.max(0, input.incomingOrderedQuantity ?? 0);
 
   if (!Number.isFinite(quantity)) return STOCK_LEVEL.OPTIMAL;
 
-  // Tool short-circuit (spec §15.2). Tools don't use the consumption-driven
-  // rp/max model — they hold a fixed target minimum on the shelf and ignore
-  // incoming. A tool reorders only once it runs out (target 1):
-  //   qty>=1 OPTIMAL, qty<=0 OUT_OF_STOCK.
-  if (isToolType(categoryType)) {
+  // Fixed-target short-circuit (spec §15.2). These items don't use the
+  // consumption-driven rp/max model — they hold a fixed target on the shelf
+  // and ignore incoming. They reorder only once they run out:
+  //   qty>=target OPTIMAL, 0<qty<target CRITICAL, qty<=0 OUT_OF_STOCK.
+  if (isFixedTarget(input)) {
     if (quantity <= 0) return STOCK_LEVEL.OUT_OF_STOCK;
-    return quantity < getToolTarget(categoryType) ? STOCK_LEVEL.CRITICAL : STOCK_LEVEL.OPTIMAL;
+    return quantity < getFixedTarget(input) ? STOCK_LEVEL.CRITICAL : STOCK_LEVEL.OPTIMAL;
   }
 
   // Negative / out-of-stock are PHYSICAL — incoming doesn't fill an empty shelf.

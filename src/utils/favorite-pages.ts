@@ -33,7 +33,7 @@ const routeToFavoritePageMap: Record<string, FAVORITE_PAGES> = {
   '/estoque/pedidos/automaticos': FAVORITE_PAGES.ESTOQUE_PEDIDOS_AUTOMATICOS_LISTAR,
   '/estoque/manutencao/listar': FAVORITE_PAGES.ESTOQUE_MANUTENCAO_LISTAR,
   '/estoque/manutencao/agendamentos': FAVORITE_PAGES.ESTOQUE_MANUTENCAO_AGENDAMENTOS_LISTAR,
-  '/estoque/retiradas-externas': FAVORITE_PAGES.ESTOQUE_RETIRADAS_EXTERNAS_LISTAR,
+  '/estoque/operacoes-externas': FAVORITE_PAGES.ESTOQUE_RETIRADAS_EXTERNAS_LISTAR,
   '/estoque/fornecedores': FAVORITE_PAGES.ESTOQUE_FORNECEDORES_LISTAR,
   '/estoque/epi': FAVORITE_PAGES.ESTOQUE_EPI_LISTAR,
   '/estoque/epi/entregas': FAVORITE_PAGES.ESTOQUE_EPI_ENTREGAS_LISTAR,
@@ -50,7 +50,7 @@ const routeToFavoritePageMap: Record<string, FAVORITE_PAGES> = {
   '/estoque/manutencao/cadastrar': FAVORITE_PAGES.ESTOQUE_MANUTENCAO_CADASTRAR,
   '/estoque/manutencao/agendamentos/cadastrar':
     FAVORITE_PAGES.ESTOQUE_MANUTENCAO_AGENDAMENTOS_CADASTRAR,
-  '/estoque/retiradas-externas/cadastrar': FAVORITE_PAGES.ESTOQUE_RETIRADAS_EXTERNAS_CADASTRAR,
+  '/estoque/operacoes-externas/cadastrar': FAVORITE_PAGES.ESTOQUE_RETIRADAS_EXTERNAS_CADASTRAR,
   '/estoque/fornecedores/cadastrar': FAVORITE_PAGES.ESTOQUE_FORNECEDORES_CADASTRAR,
   '/estoque/epi/cadastrar': FAVORITE_PAGES.ESTOQUE_EPI_CADASTRAR,
   '/estoque/epi/entregas/cadastrar': FAVORITE_PAGES.ESTOQUE_EPI_ENTREGAS_CADASTRAR,
@@ -74,7 +74,6 @@ const routeToFavoritePageMap: Record<string, FAVORITE_PAGES> = {
   '/pintura/componentes/cadastrar': FAVORITE_PAGES.PINTURA_COMPONENTES_CADASTRAR,
 
   // Administration - List Pages
-  '/administracao/comissoes': FAVORITE_PAGES.ADMINISTRACAO_COMISSOES_LISTAR,
   '/administracao/clientes': FAVORITE_PAGES.ADMINISTRACAO_CLIENTES_LISTAR,
   '/administracao/colaboradores': FAVORITE_PAGES.ADMINISTRACAO_COLABORADORES_LISTAR,
   '/administracao/orcamentos': FAVORITE_PAGES.ADMINISTRACAO_ORCAMENTOS_LISTAR,
@@ -119,7 +118,6 @@ const routeToFavoritePageMap: Record<string, FAVORITE_PAGES> = {
   '/recursos-humanos/setores/cadastrar': FAVORITE_PAGES.RECURSOS_HUMANOS_SETORES_CADASTRAR,
 
   // Personal - List Pages
-  '/pessoal/minhas-comissoes': FAVORITE_PAGES.PESSOAL_MINHAS_COMISSOES_LISTAR,
   '/pessoal/minhas-ferias': FAVORITE_PAGES.PESSOAL_MINHAS_FERIAS_LISTAR,
   '/pessoal/meus-feriados': FAVORITE_PAGES.PESSOAL_MEUS_FERIADOS_LISTAR,
   '/pessoal/meus-emprestimos': FAVORITE_PAGES.PESSOAL_MEUS_EMPRESTIMOS_LISTAR,
@@ -184,7 +182,7 @@ export function getEntityDisplayName(entity: string): string {
     pedidos: 'Pedido',
     agendamentos: 'Agendamento',
     manutencao: 'Manutenção',
-    'retiradas-externas': 'Retirada Externa',
+    'operacoes-externas': 'Operação Externa',
     fornecedores: 'Fornecedor',
     epi: 'EPI',
     entregas: 'Entrega',
@@ -199,7 +197,6 @@ export function getEntityDisplayName(entity: string): string {
     componentes: 'Componente',
 
     // Administration
-    comissoes: 'Comissão',
     clientes: 'Cliente',
     colaboradores: 'Colaborador',
     orcamentos: 'Orçamento',
@@ -425,7 +422,6 @@ export function getFavoritePageIcon(favoritePage: FAVORITE_PAGES): string {
   if (favoritePage.includes('FORMULAS')) return '🧪';
 
   // Administration icons
-  if (favoritePage.includes('COMISSOES')) return '💰';
   if (favoritePage.includes('CLIENTES')) return '👥';
   if (favoritePage.includes('COLABORADORES')) return '👷';
   if (favoritePage.includes('ORCAMENTOS')) return '💵';

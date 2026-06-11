@@ -84,8 +84,8 @@ export class ObservationController {
   @Roles(
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.COMMERCIAL,
-    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @HttpCode(HttpStatus.CREATED)
@@ -108,8 +108,8 @@ export class ObservationController {
   @Roles(
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.COMMERCIAL,
-    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @HttpCode(HttpStatus.CREATED)
@@ -125,8 +125,8 @@ export class ObservationController {
   @Roles(
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.COMMERCIAL,
-    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async batchUpdate(
@@ -138,13 +138,7 @@ export class ObservationController {
   }
 
   @Delete('batch')
-  @Roles(
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.COMMERCIAL,
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.ADMIN,
-  )
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(observationBatchDeleteSchema)) data: ObservationBatchDeleteFormData,
@@ -179,8 +173,8 @@ export class ObservationController {
   @Roles(
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.COMMERCIAL,
-    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UseInterceptors(FileFieldsInterceptor([{ name: 'files', maxCount: 10 }], multerConfig))
@@ -199,7 +193,7 @@ export class ObservationController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,

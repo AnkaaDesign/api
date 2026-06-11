@@ -40,6 +40,7 @@ export const invoiceIncludeSchema = z
     task: z.boolean().optional(),
     createdBy: z.boolean().optional(),
     customerConfig: z.boolean().optional(),
+    externalOperation: z.boolean().optional(),
   })
   .optional();
 
@@ -63,6 +64,7 @@ export const invoiceOrderBySchema = z
 export const invoiceWhereSchema = z
   .object({
     taskId: z.string().uuid().optional(),
+    externalOperationId: z.string().uuid().optional(),
     customerId: z.string().uuid().optional(),
     status: z.union([invoiceStatusSchema, z.array(invoiceStatusSchema)]).optional(),
     createdById: z.string().uuid().optional(),

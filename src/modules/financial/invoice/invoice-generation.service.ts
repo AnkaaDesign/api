@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 import { SicrediAuthService } from '@modules/integrations/sicredi/sicredi-auth.service';
@@ -122,7 +122,22 @@ export class InvoiceGenerationService {
         });
         if (cancelledInvoiceIds.length > 0) {
           const ids = cancelledInvoiceIds.map(i => i.id);
-          await tx.installment.deleteMany({ where: { invoiceId: { in: ids } } });
+
+          // H3a: never hard-delete PAID installments (and their bank slips) during
+          // re-generation cleanup — they are real financial history. If any PAID
+          // installment hangs off a cancelled invoice, abort with a clear error.
+          const paidCount = await tx.installment.count({
+            where: { invoiceId: { in: ids }, status: 'PAID' },
+          });
+          if (paidCount > 0) {
+            throw new BadRequestException(
+              'Não é possível regenerar o faturamento: existem parcelas pagas vinculadas a faturas canceladas. Trate as parcelas pagas manualmente antes de regenerar.',
+            );
+          }
+
+          await tx.installment.deleteMany({
+            where: { invoiceId: { in: ids }, status: { not: 'PAID' } },
+          });
           await tx.invoice.deleteMany({ where: { id: { in: ids } } });
           this.logger.log(
             `[INVOICE_GEN] Cleaned up ${ids.length} cancelled invoice(s) for customerConfig ${config.id} before re-generation.`,
@@ -272,6 +287,257 @@ export class InvoiceGenerationService {
   }
 
   /**
+   * Generate the billing invoice for a CHARGEABLE external withdrawal ("Operação Externa").
+   *
+   * Mirrors generateInvoicesForTask's per-config body, but the billing config lives on
+   * the withdrawal itself (single invoice — no customer configs):
+   * 1. Creates an Invoice {externalOperationId, customerId} with status ACTIVE
+   * 2. Calculates installments from paymentConfig ?? paymentCondition anchored at approvalDate
+   * 3. Creates Installment records keyed by externalOperationId (NO customerConfigId)
+   * 4. If generateBankSlip, creates BankSlip records with CREATING status
+   * 5. If generateInvoice (NFS-e), creates NfseDocument with PENDING status
+   *
+   * All operations are wrapped in a Prisma transaction for atomicity.
+   *
+   * @param externalOperationId - UUID of the external withdrawal to bill
+   * @param userId - UUID of the user triggering the generation
+   * @param approvalDate - Anchor date for installment due dates (defaults to now)
+   * @returns Array of created invoice IDs (or the existing active invoice id)
+   */
+  async generateInvoicesForExternalOperation(
+    externalOperationId: string,
+    userId: string,
+    approvalDate?: Date,
+  ): Promise<string[]> {
+    this.logger.log(
+      `[INVOICE_GEN_EW] ====== Starting invoice generation for external withdrawal ${externalOperationId} ======`,
+    );
+
+    const withdrawal = await this.prisma.externalOperation.findUnique({
+      where: { id: externalOperationId },
+      include: {
+        items: { include: { item: { select: { name: true } } } },
+        services: { orderBy: { position: 'asc' } },
+        customer: {
+          select: {
+            id: true,
+            fantasyName: true,
+            cnpj: true,
+          },
+        },
+      },
+    });
+
+    if (!withdrawal) {
+      this.logger.error(
+        `[INVOICE_GEN_EW] External withdrawal ${externalOperationId} NOT FOUND in database`,
+      );
+      throw new NotFoundException(
+        `Operação externa com ID ${externalOperationId} não encontrada.`,
+      );
+    }
+
+    if (!withdrawal.customerId || !withdrawal.customer) {
+      this.logger.warn(
+        `[INVOICE_GEN_EW] Withdrawal ${externalOperationId} has no customer, skipping invoice generation.`,
+      );
+      return [];
+    }
+
+    if (!withdrawal.generateInvoice && !withdrawal.generateBankSlip) {
+      this.logger.warn(
+        `[INVOICE_GEN_EW] Withdrawal ${externalOperationId} has no billing flags enabled (generateInvoice=false, generateBankSlip=false), skipping.`,
+      );
+      return [];
+    }
+
+    // totalAmount = Σ(items: unit price × withdrawedQuantity) + Σ(services: amount)
+    const itemsTotal = withdrawal.items.reduce(
+      (sum, it) => sum + Number(it.price ?? 0) * it.withdrawedQuantity,
+      0,
+    );
+    const servicesTotal = withdrawal.services.reduce((sum, s) => sum + Number(s.amount), 0);
+    const totalAmount = Number((itemsTotal + servicesTotal).toFixed(2));
+
+    this.logger.log(
+      `[INVOICE_GEN_EW] Withdrawal ${externalOperationId}: customer=${withdrawal.customer.fantasyName} (${withdrawal.customer.cnpj}), ` +
+        `items=${withdrawal.items.length} (${itemsTotal}), services=${withdrawal.services.length} (${servicesTotal}), total=${totalAmount}`,
+    );
+
+    // Due dates are anchored at the billing approval moment (CHARGED transition).
+    const anchor = approvalDate ?? new Date();
+    const paymentConfig = (withdrawal.paymentConfig as any) ?? null;
+    const generatedInstallments = paymentConfig
+      ? this.generateInstallmentsFromPaymentConfig(paymentConfig, anchor, totalAmount, anchor)
+      : this.generateInstallmentsFromCondition(
+          withdrawal.paymentCondition || null,
+          anchor,
+          totalAmount,
+          anchor,
+        );
+
+    if (generatedInstallments.length === 0) {
+      this.logger.warn(
+        `[INVOICE_GEN_EW] No installments generated for withdrawal ${externalOperationId} (condition=${withdrawal.paymentCondition}, paymentConfig=${JSON.stringify(paymentConfig)}), skipping invoice generation.`,
+      );
+      return [];
+    }
+
+    this.logger.log(
+      `[INVOICE_GEN_EW] Generated ${generatedInstallments.length} installment(s) for withdrawal ${externalOperationId}`,
+    );
+
+    const invoiceIds: string[] = [];
+
+    await this.prisma.$transaction(async tx => {
+      // Skip if an active (non-cancelled) invoice already exists for this withdrawal.
+      // Cancelled invoices are intentionally excluded so re-billing after cancellation
+      // creates fresh documents instead of reusing stale ones.
+      const existingInvoice = await tx.invoice.findFirst({
+        where: { externalOperationId, status: { not: 'CANCELLED' } },
+      });
+
+      if (existingInvoice) {
+        this.logger.warn(
+          `[INVOICE_GEN_EW] Active invoice already exists for withdrawal ${externalOperationId} (invoice ${existingInvoice.id}), skipping.`,
+        );
+        invoiceIds.push(existingInvoice.id);
+        return;
+      }
+
+      // Clean up any cancelled invoices for this withdrawal before creating new ones.
+      // Cancelled invoices leave behind installments with the same (externalOperationId, number)
+      // which would cause a unique-constraint violation when we create fresh installments below.
+      const cancelledInvoices = await tx.invoice.findMany({
+        where: { externalOperationId, status: 'CANCELLED' },
+        select: { id: true },
+      });
+      if (cancelledInvoices.length > 0) {
+        const ids = cancelledInvoices.map(i => i.id);
+
+        // H3a: never hard-delete PAID installments (and their bank slips) during
+        // re-generation cleanup — they are real financial history. If any PAID
+        // installment exists, abort with a clear error.
+        const paidCount = await tx.installment.count({
+          where: {
+            status: 'PAID',
+            OR: [{ invoiceId: { in: ids } }, { externalOperationId, invoiceId: null }],
+          },
+        });
+        if (paidCount > 0) {
+          throw new BadRequestException(
+            'Não é possível regenerar o faturamento: existem parcelas pagas vinculadas a faturas canceladas desta operação externa. Trate as parcelas pagas manualmente antes de regenerar.',
+          );
+        }
+
+        await tx.installment.deleteMany({
+          where: {
+            status: { not: 'PAID' },
+            OR: [{ invoiceId: { in: ids } }, { externalOperationId, invoiceId: null }],
+          },
+        });
+        await tx.invoice.deleteMany({ where: { id: { in: ids } } });
+        this.logger.log(
+          `[INVOICE_GEN_EW] Cleaned up ${ids.length} cancelled invoice(s) for withdrawal ${externalOperationId} before re-generation.`,
+        );
+      }
+
+      // Create the Invoice
+      const invoice = await tx.invoice.create({
+        data: {
+          externalOperationId,
+          customerId: withdrawal.customerId!,
+          totalAmount: totalAmount,
+          paidAmount: 0,
+          status: 'ACTIVE',
+          createdById: userId,
+        },
+      });
+
+      invoiceIds.push(invoice.id);
+
+      this.logger.log(
+        `[INVOICE_GEN_EW] Invoice ${invoice.id} created (status=ACTIVE, total=${totalAmount})`,
+      );
+
+      // generateBankSlip=false means the customer pays via direct transfer/PIX — no boleto needed.
+      const shouldCreateBankSlips = withdrawal.generateBankSlip !== false;
+
+      if (!shouldCreateBankSlips) {
+        this.logger.log(
+          `[INVOICE_GEN_EW] Skipping BankSlip creation for withdrawal ${externalOperationId}: generateBankSlip=false`,
+        );
+      }
+
+      // Create installments and optionally create BankSlips
+      for (const instData of generatedInstallments) {
+        const inst = await tx.installment.create({
+          data: {
+            externalOperationId,
+            invoiceId: invoice.id,
+            number: instData.number,
+            dueDate: instData.dueDate,
+            amount: instData.amount,
+            paidAmount: 0,
+            status: 'PENDING',
+          },
+        });
+
+        if (shouldCreateBankSlips) {
+          const nossoNumero = this.generateTemporaryNossoNumero(inst.id);
+
+          await tx.bankSlip.create({
+            data: {
+              installmentId: inst.id,
+              nossoNumero: nossoNumero,
+              type: 'NORMAL',
+              amount: Number(inst.amount),
+              dueDate: inst.dueDate,
+              status: 'CREATING',
+            },
+          });
+
+          this.logger.log(
+            `[INVOICE_GEN_EW]   Installment #${instData.number}: id=${inst.id}, amount=${instData.amount}, dueDate=${instData.dueDate}, bankSlip nossoNumero=${nossoNumero}, status=CREATING`,
+          );
+        } else {
+          this.logger.log(
+            `[INVOICE_GEN_EW]   Installment #${instData.number}: id=${inst.id}, amount=${instData.amount}, dueDate=${instData.dueDate}, no BankSlip (custom payment)`,
+          );
+        }
+      }
+
+      // Create NfseDocument for municipal emission (Elotech OXY) only if generateInvoice is true
+      if (withdrawal.generateInvoice !== false) {
+        await tx.nfseDocument.create({
+          data: {
+            invoiceId: invoice.id,
+            status: 'PENDING',
+          },
+        });
+        this.logger.log(
+          `[INVOICE_GEN_EW] NfseDocument created for invoice ${invoice.id} (status=PENDING)`,
+        );
+      } else {
+        this.logger.log(
+          `[INVOICE_GEN_EW] Skipping NfseDocument for invoice ${invoice.id}: generateInvoice=false`,
+        );
+      }
+
+      this.logger.log(
+        `[INVOICE_GEN_EW] Invoice ${invoice.id} fully created for customer ${withdrawal.customer?.fantasyName} (${withdrawal.customerId}): ` +
+          `${generatedInstallments.length} installment(s), total: ${totalAmount}`,
+      );
+    });
+
+    this.logger.log(
+      `[INVOICE_GEN_EW] ====== Invoice generation complete for withdrawal ${externalOperationId}: ${invoiceIds.length} invoice(s) [${invoiceIds.join(', ')}] ======`,
+    );
+
+    return invoiceIds;
+  }
+
+  /**
    * After invoices are created, immediately register all CREATING bank slips at Sicredi.
    * This is called right after generateInvoicesForTask so bank slips go active immediately.
    * The scheduler serves as a fallback for any that fail here.
@@ -336,6 +602,22 @@ export class InvoiceGenerationService {
                       select: { description: true, invoiceToCustomerId: true },
                       orderBy: { position: 'asc' },
                     },
+                  },
+                },
+              },
+            },
+            externalOperation: {
+              select: {
+                id: true,
+                generateInvoice: true,
+                services: {
+                  select: { description: true },
+                  orderBy: { position: 'asc' },
+                },
+                items: {
+                  select: {
+                    withdrawedQuantity: true,
+                    item: { select: { name: true } },
                   },
                 },
               },
@@ -474,7 +756,11 @@ export class InvoiceGenerationService {
    * Max 10 alphanumeric chars per API spec.
    */
   private buildSeuNumero(installment: any): string {
-    const generateInvoice = installment.invoice?.customerConfig?.generateInvoice !== false;
+    // Withdrawal-backed invoices carry the NFS-e flag on the withdrawal itself;
+    // task-backed invoices carry it on the customer config.
+    const generateInvoice = installment.invoice?.externalOperationId
+      ? installment.invoice?.externalOperation?.generateInvoice !== false
+      : installment.invoice?.customerConfig?.generateInvoice !== false;
     const authorizedNfse = installment.invoice?.nfseDocuments?.[0];
     const truckPlate = installment.invoice?.task?.truck?.plate;
     // Installment numbers are 1-7 (single digit) — always 1 char.
@@ -518,6 +804,35 @@ export class InvoiceGenerationService {
     const parts: string[] = [];
 
     const authorizedNfse = installment.invoice?.nfseDocuments?.[0];
+
+    // External-operation-backed invoice ("Operação Externa"): no truck/order — lines are
+    // the NF number (when authorized) followed by service descriptions and item lines.
+    const withdrawal = installment.invoice?.externalOperation;
+    if (installment.invoice?.externalOperationId && withdrawal) {
+      if (authorizedNfse?.nfseNumber) {
+        parts.push(`NF ${authorizedNfse.nfseNumber}`);
+      }
+
+      const descriptions: string[] = [
+        ...((withdrawal.services ?? []) as any[]).map((s: any) => s.description as string),
+        ...((withdrawal.items ?? []) as any[]).map(
+          (i: any) => `${i.item?.name ?? 'Item'} - ${i.withdrawedQuantity} un`,
+        ),
+      ];
+      if (descriptions.length > 0 && descriptions[0]) {
+        descriptions[0] = descriptions[0].charAt(0).toUpperCase() + descriptions[0].slice(1);
+      }
+      const remainingEw = 5 - parts.length;
+      if (descriptions.length > 0 && remainingEw > 0) {
+        parts.push(...this.buildServiceLines(descriptions, remainingEw, 80));
+      }
+
+      this.logger.log(
+        `[BOLETO_INFORMATIVO] (withdrawal) lines=${parts.length} content=${JSON.stringify(parts)}`,
+      );
+      return parts.length > 0 ? parts : undefined;
+    }
+
     const orderNumber = installment.invoice?.customerConfig?.orderNumber;
     const task = installment.invoice?.task;
     const truck = task?.truck;

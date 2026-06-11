@@ -64,13 +64,13 @@ export class SicrediWebhookController {
 
   private verifySignature(req: any): void {
     const secret = this.configService.get<string>('SICREDI_WEBHOOK_SECRET');
-    const isProduction = process.env.NODE_ENV === 'production';
 
     if (!secret) {
-      this.logger.warn(
-        'SICREDI_WEBHOOK_SECRET not set — bypassing signature verification',
+      // Missing secret = reject, never process unverifiable payloads (decision 9)
+      this.logger.error(
+        'SICREDI_WEBHOOK_SECRET not set — rejecting webhook (signature cannot be verified)',
       );
-      return;
+      throw new UnauthorizedException('Webhook signature verification is not configured');
     }
 
     const signature: string | undefined =

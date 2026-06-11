@@ -38,7 +38,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.status': {
     title: data => `Status da Tarefa Atualizado`,
     body: data =>
-      `Tarefa "${data.taskName}" mudou de "${data.oldStatus}" para "${data.newStatus}"${data.changedBy ? ` por ${data.changedBy}` : ''}.`,
+      `Tarefa "${data.taskName}" mudou de "${data.oldStatus}" para "${data.newStatus}".`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -74,7 +74,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.term': {
     title: data => `Prazo da Tarefa Alterado`,
     body: data =>
-      `Prazo da tarefa "${data.taskName}" foi alterado de ${data.oldValue} para ${data.newValue}${data.changedBy ? ` por ${data.changedBy}` : ''}.`,
+      `Prazo da tarefa "${data.taskName}" foi alterado de ${data.oldValue} para ${data.newValue}.`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
     channels: [NOTIFICATION_CHANNEL.IN_APP],
@@ -83,7 +83,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.forecastDate': {
     title: data => `Data de Previsão Atualizada`,
     body: data =>
-      `Data de previsão da tarefa "${data.taskName}" foi alterada de ${data.oldValue} para ${data.newValue}${data.changedBy ? ` por ${data.changedBy}` : ''}.`,
+      `Data de previsão da tarefa "${data.taskName}" foi alterada de ${data.oldValue} para ${data.newValue}.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
     channels: [NOTIFICATION_CHANNEL.IN_APP],
@@ -92,7 +92,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.sector': {
     title: data => `Tarefa Transferida de Setor`,
     body: data =>
-      `Tarefa "${data.taskName}" foi transferida de ${data.oldSector} para ${data.newSector}${data.changedBy ? ` por ${data.changedBy}` : ''}.`,
+      `Tarefa "${data.taskName}" foi transferida de ${data.oldSector} para ${data.newSector}.`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -110,7 +110,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.artwork.updated': {
     title: data => `Arte da Tarefa Atualizada`,
     body: data =>
-      `Arquivos de arte da tarefa "${data.taskName}" foram atualizados${data.changedBy ? ` por ${data.changedBy}` : ''}.`,
+      `Arquivos de arte da tarefa "${data.taskName}" foram atualizados.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP],
@@ -119,7 +119,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.artwork.removed': {
     title: data => `Arte Removida da Tarefa`,
     body: data =>
-      `Arquivos de arte foram removidos da tarefa "${data.taskName}"${data.changedBy ? ` por ${data.changedBy}` : ''}.`,
+      `Arquivos de arte foram removidos da tarefa "${data.taskName}".`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP],
@@ -137,7 +137,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.budget.updated': {
     title: data => `Orçamento Atualizado`,
     body: data =>
-      `Orçamento da tarefa "${data.taskName}" foi atualizado${data.changedBy ? ` por ${data.changedBy}` : ''}.`,
+      `Orçamento da tarefa "${data.taskName}" foi atualizado.`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP],
@@ -146,7 +146,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.budget.approved': {
     title: data => `Orçamento Aprovado`,
     body: data =>
-      `Orçamento da tarefa "${data.taskName}" foi aprovado${data.approvedBy ? ` por ${data.approvedBy}` : ''}.`,
+      `Orçamento da tarefa "${data.taskName}" foi aprovado.`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -164,7 +164,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.invoice.updated': {
     title: data => `Nota Fiscal Atualizada`,
     body: data =>
-      `Nota fiscal da tarefa "${data.taskName}" foi atualizada${data.changedBy ? ` por ${data.changedBy}` : ''}.`,
+      `Nota fiscal da tarefa "${data.taskName}" foi atualizada.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP],
@@ -179,10 +179,10 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
     channels: [NOTIFICATION_CHANNEL.IN_APP],
   },
 
-  'task.commission.updated': {
-    title: data => `Status da Comissão Atualizado`,
+  'task.bonification.updated': {
+    title: data => `Status da Bonificação Atualizado`,
     body: data =>
-      `Status da comissão da tarefa "${data.taskName}" foi alterado de "${data.oldStatus}" para "${data.newStatus}".`,
+      `Status da bonificação da tarefa "${data.taskName}" foi alterado de "${data.oldStatus}" para "${data.newStatus}".`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP],
@@ -191,7 +191,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.priority.changed': {
     title: data => `Prioridade da Tarefa Alterada`,
     body: data =>
-      `Prioridade da tarefa "${data.taskName}" foi alterada de "${data.oldPriority}" para "${data.newPriority}"${data.changedBy ? ` por ${data.changedBy}` : ''}.`,
+      `Prioridade da tarefa "${data.taskName}" foi alterada de "${data.oldPriority}" para "${data.newPriority}".`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -200,7 +200,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.completed': {
     title: data => `Tarefa Concluída`,
     body: data =>
-      `Tarefa "${data.taskName}" foi concluída com sucesso${data.completedBy ? ` por ${data.completedBy}` : ''}.`,
+      `Tarefa "${data.taskName}" foi concluída com sucesso.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -209,7 +209,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.cancelled': {
     title: data => `Tarefa Cancelada`,
     body: data =>
-      `Tarefa "${data.taskName}" foi cancelada${data.cancelledBy ? ` por ${data.cancelledBy}` : ''}${data.reason ? `. Motivo: ${data.reason}` : ''}.`,
+      `Tarefa "${data.taskName}" foi cancelada${data.reason ? `. Motivo: ${data.reason}` : ''}.`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -218,7 +218,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.comment.added': {
     title: data => `Novo Comentário na Tarefa`,
     body: data =>
-      `${data.userName} adicionou um comentário na tarefa "${data.taskName}": "${data.commentPreview}"`,
+      `Novo comentário na tarefa "${data.taskName}": "${data.commentPreview}"`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP],
@@ -231,7 +231,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'order.created': {
     title: data => `Novo Pedido Criado`,
     body: data =>
-      `Pedido #${data.orderNumber} para ${data.supplierName} foi criado${data.createdBy ? ` por ${data.createdBy}` : ''}${data.totalValue ? ` no valor de ${data.totalValue}` : ''}.`,
+      `Pedido #${data.orderNumber} para ${data.supplierName} foi criado${data.totalValue ? ` no valor de ${data.totalValue}` : ''}.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_ORDER,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -240,7 +240,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'order.status': {
     title: data => `Status do Pedido Atualizado`,
     body: data =>
-      `Pedido #${data.orderNumber} mudou de "${data.oldStatus}" para "${data.newStatus}"${data.changedBy ? ` por ${data.changedBy}` : ''}.`,
+      `Pedido #${data.orderNumber} mudou de "${data.oldStatus}" para "${data.newStatus}".`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_ORDER,
     channels: [NOTIFICATION_CHANNEL.IN_APP],
@@ -258,7 +258,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'order.received': {
     title: data => `Pedido Recebido`,
     body: data =>
-      `Pedido #${data.orderNumber} foi recebido completamente${data.receivedBy ? ` por ${data.receivedBy}` : ''}.`,
+      `Pedido #${data.orderNumber} foi recebido completamente.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_ORDER,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -267,7 +267,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'order.partially_received': {
     title: data => `Pedido Parcialmente Recebido`,
     body: data =>
-      `Pedido #${data.orderNumber} foi parcialmente recebido${data.percentage ? ` (${data.percentage}%)` : ''}${data.receivedBy ? ` por ${data.receivedBy}` : ''}.`,
+      `Pedido #${data.orderNumber} foi parcialmente recebido${data.percentage ? ` (${data.percentage}%)` : ''}.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_ORDER,
     channels: [NOTIFICATION_CHANNEL.IN_APP],
@@ -285,7 +285,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'order.cancelled': {
     title: data => `Pedido Cancelado`,
     body: data =>
-      `Pedido #${data.orderNumber} foi cancelado${data.cancelledBy ? ` por ${data.cancelledBy}` : ''}${data.reason ? `. Motivo: ${data.reason}` : ''}.`,
+      `Pedido #${data.orderNumber} foi cancelado${data.reason ? `. Motivo: ${data.reason}` : ''}.`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_ORDER,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -307,7 +307,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'service-order.created': {
     title: data => `Nova Ordem de Serviço Criada`,
     body: data =>
-      `Ordem de serviço "${data.serviceOrderDescription}" foi criada para a tarefa "${data.taskName}"${data.creatorName ? ` por ${data.creatorName}` : ''} (Tipo: ${data.serviceOrderType}).`,
+      `Ordem de serviço "${data.serviceOrderDescription}" foi criada para a tarefa "${data.taskName}" (Tipo: ${data.serviceOrderType}).`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [
@@ -320,7 +320,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'service-order.status.changed': {
     title: data => `Ordem de Serviço Atualizada`,
     body: data =>
-      `Ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" mudou de "${data.oldStatus}" para "${data.newStatus}"${data.changedByName ? ` por ${data.changedByName}` : ''}.`,
+      `Ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" mudou de "${data.oldStatus}" para "${data.newStatus}".`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [
@@ -333,7 +333,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'service-order.completed': {
     title: data => `Ordem de Serviço Concluída`,
     body: data =>
-      `Ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" foi concluída${data.completedBy ? ` por ${data.completedBy}` : ''}.`,
+      `Ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" foi concluída.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -368,7 +368,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'service-order.assigned-user-updated': {
     title: data => `Ordem de Serviço Atualizada`,
     body: data =>
-      `A ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" teve ${data.changesText} alterados por ${data.changedByName}.`,
+      `A ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" teve ${data.changesText} alterados.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [
@@ -439,7 +439,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'stock.movement.large': {
     title: data => `Movimentação Significativa de Estoque`,
     body: data =>
-      `Movimentação significativa detectada: ${data.itemName} teve ${data.operation} de ${data.quantity} unidades${data.userName ? ` por ${data.userName}` : ''}.`,
+      `Movimentação significativa detectada: ${data.itemName} teve ${data.operation} de ${data.quantity} unidades.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP],
@@ -452,7 +452,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'ppe.request.created': {
     title: data => `Nova Solicitação de EPI`,
     body: data =>
-      `${data.userName} solicitou EPIs${data.itemCount ? ` (${data.itemCount} ${data.itemCount === 1 ? 'item' : 'itens'})` : ''}.`,
+      `Nova solicitação de EPIs recebida${data.itemCount ? ` (${data.itemCount} ${data.itemCount === 1 ? 'item' : 'itens'})` : ''}.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.APPROVE_REQUEST,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -461,7 +461,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'ppe.request.approved': {
     title: data => `Solicitação de EPI Aprovada`,
     body: data =>
-      `Sua solicitação de EPI foi aprovada${data.approvedBy ? ` por ${data.approvedBy}` : ''}.`,
+      `Sua solicitação de EPI foi aprovada.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -470,7 +470,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'ppe.request.rejected': {
     title: data => `Solicitação de EPI Rejeitada`,
     body: data =>
-      `Sua solicitação de EPI foi rejeitada${data.rejectedBy ? ` por ${data.rejectedBy}` : ''}${data.reason ? `. Motivo: ${data.reason}` : ''}.`,
+      `Sua solicitação de EPI foi rejeitada${data.reason ? `. Motivo: ${data.reason}` : ''}.`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -488,7 +488,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'ppe.delivery.completed': {
     title: data => `EPI Entregue`,
     body: data =>
-      `EPI foi entregue para ${data.userName}${data.deliveredBy ? ` por ${data.deliveredBy}` : ''}.`,
+      `EPI foi entregue para ${data.userName}.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP],
@@ -616,7 +616,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'user.role.changed': {
     title: data => `Função Alterada`,
     body: data =>
-      `Sua função foi alterada de "${data.oldRole}" para "${data.newRole}"${data.changedBy ? ` por ${data.changedBy}` : ''}.`,
+      `Sua função foi alterada de "${data.oldRole}" para "${data.newRole}".`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -667,7 +667,6 @@ Ver detalhes: ${data.url}
 
 Tarefa: ${data.taskName}
 Status: ${data.oldStatus} → ${data.newStatus}
-${data.changedBy ? `Alterado por: ${data.changedBy}` : ''}
 
 Ver detalhes: ${data.url}
   `.trim(),
@@ -744,8 +743,6 @@ Ver detalhes: ${data.url}
   'ppe.request.approved': data =>
     `
 ✅ *Solicitação de EPI Aprovada*
-
-${data.approvedBy ? `Aprovado por: ${data.approvedBy}` : ''}
 
 Aguarde instruções para retirada.
 

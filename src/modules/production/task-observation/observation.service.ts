@@ -13,9 +13,9 @@ import {
   CHANGE_TRIGGERED_BY,
   ENTITY_TYPE,
   CHANGE_ACTION,
-  COMMISSION_STATUS,
+  BONIFICATION_STATUS,
 } from '../../../constants/enums';
-import { getCommissionStatusOrder } from '../../../utils';
+import { getBonificationStatusOrder } from '../../../utils';
 import {
   trackFieldChanges,
   trackAndLogFieldChanges,
@@ -159,25 +159,25 @@ export class ObservationService {
           include,
         });
 
-        // Atualizar a tarefa para suspender a comissão
+        // Atualizar a tarefa para suspender a bonificação
         if (data.taskId) {
           await tx.task.update({
             where: { id: data.taskId },
             data: {
-              commission: COMMISSION_STATUS.SUSPENDED_COMMISSION,
-              commissionOrder: getCommissionStatusOrder(COMMISSION_STATUS.SUSPENDED_COMMISSION),
+              bonification: BONIFICATION_STATUS.SUSPENDED_BONIFICATION,
+              bonificationOrder: getBonificationStatusOrder(BONIFICATION_STATUS.SUSPENDED_BONIFICATION),
             },
           });
 
-          // Registrar mudança na comissão
+          // Registrar mudança na bonificação
           await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.TASK,
             entityId: data.taskId,
             action: CHANGE_ACTION.UPDATE,
-            field: 'commission',
+            field: 'bonification',
             oldValue: null,
-            newValue: COMMISSION_STATUS.SUSPENDED_COMMISSION,
-            reason: 'Comissão suspensa devido à criação de observação',
+            newValue: BONIFICATION_STATUS.SUSPENDED_BONIFICATION,
+            reason: 'Bonificação suspensa devido à criação de observação',
             triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
             triggeredById: newObservation.id,
             userId: userId || null,
@@ -370,25 +370,25 @@ export class ObservationService {
           throw new NotFoundException('Observação não encontrada.');
         }
 
-        // Restaurar a comissão da tarefa para FULL_COMMISSION
+        // Restaurar a bonificação da tarefa para FULL_BONIFICATION
         if (observation.taskId) {
           await tx.task.update({
             where: { id: observation.taskId },
             data: {
-              commission: COMMISSION_STATUS.FULL_COMMISSION,
-              commissionOrder: getCommissionStatusOrder(COMMISSION_STATUS.FULL_COMMISSION),
+              bonification: BONIFICATION_STATUS.FULL_BONIFICATION,
+              bonificationOrder: getBonificationStatusOrder(BONIFICATION_STATUS.FULL_BONIFICATION),
             },
           });
 
-          // Registrar mudança na comissão
+          // Registrar mudança na bonificação
           await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.TASK,
             entityId: observation.taskId,
             action: CHANGE_ACTION.UPDATE,
-            field: 'commission',
-            oldValue: COMMISSION_STATUS.SUSPENDED_COMMISSION,
-            newValue: COMMISSION_STATUS.FULL_COMMISSION,
-            reason: 'Comissão restaurada devido à exclusão de observação',
+            field: 'bonification',
+            oldValue: BONIFICATION_STATUS.SUSPENDED_BONIFICATION,
+            newValue: BONIFICATION_STATUS.FULL_BONIFICATION,
+            reason: 'Bonificação restaurada devido à exclusão de observação',
             triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
             triggeredById: id,
             userId: userId || null,
@@ -695,26 +695,26 @@ export class ObservationService {
           data.observationIds,
         );
 
-        // Restaurar comissões das tarefas
+        // Restaurar bonificações das tarefas
         const taskIds = [...new Set(observations.map(obs => obs.taskId).filter(Boolean))];
         for (const taskId of taskIds) {
           await tx.task.update({
             where: { id: taskId as string },
             data: {
-              commission: COMMISSION_STATUS.FULL_COMMISSION,
-              commissionOrder: getCommissionStatusOrder(COMMISSION_STATUS.FULL_COMMISSION),
+              bonification: BONIFICATION_STATUS.FULL_BONIFICATION,
+              bonificationOrder: getBonificationStatusOrder(BONIFICATION_STATUS.FULL_BONIFICATION),
             },
           });
 
-          // Registrar mudança na comissão
+          // Registrar mudança na bonificação
           await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.TASK,
             entityId: taskId as string,
             action: CHANGE_ACTION.UPDATE,
-            field: 'commission',
-            oldValue: COMMISSION_STATUS.SUSPENDED_COMMISSION,
-            newValue: COMMISSION_STATUS.FULL_COMMISSION,
-            reason: 'Comissão restaurada devido à exclusão em lote de observação',
+            field: 'bonification',
+            oldValue: BONIFICATION_STATUS.SUSPENDED_BONIFICATION,
+            newValue: BONIFICATION_STATUS.FULL_BONIFICATION,
+            reason: 'Bonificação restaurada devido à exclusão em lote de observação',
             triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
             triggeredById: null,
             userId: userId || null,

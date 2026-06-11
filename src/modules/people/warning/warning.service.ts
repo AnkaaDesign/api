@@ -79,16 +79,21 @@ export class WarningService {
 
   /**
    * Notify the warned collaborator that a warning (advertência) was issued for
-   * them. NEW key warning.issued, targeted to the collaborator. Never throws —
-   * notification failures must not break the warning creation flow.
+   * them (key warning.issued, targeted to the collaborator), then escalate to
+   * the responsible sectors (key warning.issued.escalation, sector-routed via
+   * the config row's allowedSectors). Never throws — notification failures must
+   * not break the warning creation flow.
    */
-  private async notifyWarningIssued(warning: {
-    id: string;
-    collaboratorId: string;
-    category?: string | null;
-    severity?: string | null;
-    reason?: string | null;
-  }): Promise<void> {
+  private async notifyWarningIssued(
+    warning: {
+      id: string;
+      collaboratorId: string;
+      category?: string | null;
+      severity?: string | null;
+      reason?: string | null;
+    },
+    actorId?: string | null,
+  ): Promise<void> {
     try {
       if (!warning.collaboratorId) return;
       const categoryLabel = warning.category
@@ -114,7 +119,8 @@ export class WarningService {
           overrides: {
             title: `Você recebeu uma advertência${severityLabel ? ` (${severityLabel})` : ''}`,
             body: `Foi registrada uma advertência referente a ${categoryLabel}.${reasonText}`,
-            webUrl: `/pessoal/minhas-advertencias/detalhes/${warning.id}`,
+            // Web has no mounted minhas-advertencias detail route — point at the list.
+            webUrl: '/pessoal/minhas-advertencias',
             mobileUrl: `/(tabs)/pessoal/minhas-advertencias/detalhes/${warning.id}`,
             relatedEntityType: 'WARNING',
           },
@@ -124,6 +130,49 @@ export class WarningService {
     } catch (err) {
       this.logger.error(
         `Falha ao notificar advertência ${warning.id} ao colaborador`,
+        err as Error,
+      );
+    }
+
+    // Sector escalation (HR-facing copy). Independent try/catch so a failure
+    // here never suppresses (nor is suppressed by) the collaborator copy.
+    try {
+      const collaborator = await this.prisma.user.findUnique({
+        where: { id: warning.collaboratorId },
+        select: { name: true },
+      });
+      const userName = collaborator?.name || 'Colaborador';
+      const categoryLabel = warning.category
+        ? WarningService.CATEGORY_LABELS_PT[warning.category] ?? warning.category
+        : 'Advertência';
+      const severityLabel = warning.severity
+        ? WarningService.SEVERITY_LABELS_PT[warning.severity] ?? warning.severity
+        : '';
+      await this.dispatchService.dispatchByConfiguration(
+        'warning.issued.escalation',
+        actorId || 'system',
+        {
+          entityType: 'Warning',
+          entityId: warning.id,
+          action: 'created',
+          data: {
+            userName,
+            severityLabel,
+            categoryLabel,
+          },
+          overrides: {
+            title: `Advertência registrada — ${userName}`,
+            body: severityLabel
+              ? `${userName} recebeu advertência (${severityLabel}) — ${categoryLabel}.`
+              : `${userName} recebeu advertência — ${categoryLabel}.`,
+            webUrl: `/recursos-humanos/avisos/detalhes/${warning.id}`,
+            relatedEntityType: 'WARNING',
+          },
+        },
+      );
+    } catch (err) {
+      this.logger.error(
+        `Falha ao escalar advertência ${warning.id} aos setores responsáveis`,
         err as Error,
       );
     }
@@ -329,14 +378,18 @@ export class WarningService {
         return newWarning;
       });
 
-      // Notify the warned collaborator (NEW key warning.issued).
-      await this.notifyWarningIssued({
-        id: warning.id,
-        collaboratorId: (warning as any).collaboratorId ?? data.collaboratorId,
-        category: (warning as any).category ?? data.category,
-        severity: (warning as any).severity ?? data.severity,
-        reason: (warning as any).reason ?? data.reason,
-      });
+      // Notify the warned collaborator (warning.issued) + sector escalation
+      // (warning.issued.escalation).
+      await this.notifyWarningIssued(
+        {
+          id: warning.id,
+          collaboratorId: (warning as any).collaboratorId ?? data.collaboratorId,
+          category: (warning as any).category ?? data.category,
+          severity: (warning as any).severity ?? data.severity,
+          reason: (warning as any).reason ?? data.reason,
+        },
+        userId,
+      );
 
       return {
         success: true,
@@ -568,16 +621,20 @@ export class WarningService {
         return result;
       });
 
-      // Notify each warned collaborator (NEW key warning.issued), mirroring the
-      // single-item create path. After the transaction commits.
+      // Notify each warned collaborator (warning.issued) + sector escalation
+      // (warning.issued.escalation), mirroring the single-item create path.
+      // After the transaction commits.
       for (const warning of result.success) {
-        await this.notifyWarningIssued({
-          id: warning.id,
-          collaboratorId: (warning as any).collaboratorId,
-          category: (warning as any).category,
-          severity: (warning as any).severity,
-          reason: (warning as any).reason,
-        });
+        await this.notifyWarningIssued(
+          {
+            id: warning.id,
+            collaboratorId: (warning as any).collaboratorId,
+            category: (warning as any).category,
+            severity: (warning as any).severity,
+            reason: (warning as any).reason,
+          },
+          userId,
+        );
       }
 
       const successMessage =

@@ -1293,8 +1293,8 @@ export class PayrollService {
             performanceLevel: user.performanceLevel,
             bonusAmount: bonus.baseBonus,
             weightedTaskCount: bonus.tasks.reduce((sum: number, t: any) => {
-              if (t.commission === 'FULL_COMMISSION') return sum + 1.0;
-              if (t.commission === 'PARTIAL_COMMISSION') return sum + 0.5;
+              if (t.bonification === 'FULL_BONIFICATION') return sum + 1.0;
+              if (t.bonification === 'PARTIAL_BONIFICATION') return sum + 0.5;
               return sum;
             }, 0),
           };

@@ -397,6 +397,7 @@ model Customer {
   quoteCustomerConfigs TaskQuoteCustomerConfig[] @relation("QuoteCustomerConfigCustomer")
   responsibles         Responsible[]             @relation("CompanyResponsibles")
   invoiceEntities      Invoice[]                 @relation("CustomerInvoiceEntities")
+  externalOperations  ExternalOperation[]      @relation("CustomerExternalOperations")
 
   @@index([fantasyName])
   @@index([cpf])
@@ -633,10 +634,10 @@ model File {
   airbrushingInvoiceReimbursements        Airbrushing[]             @relation("AIRBRUSHING_INVOICE_REIMBURSEMENTS")
   airbrushingReceipts                     Airbrushing[]             @relation("AIRBRUSHING_RECEIPTS")
   airbrushingReimbursements               Airbrushing[]             @relation("AIRBRUSHING_REIMBURSEMENTS")
-  externalWithdrawalInvoices              ExternalWithdrawal[]      @relation("EXTERNAL_WITHDRAWAL_INVOICES")
-  externalWithdrawalInvoiceReimbursements ExternalWithdrawal[]      @relation("EXTERNAL_WITHDRAWAL_INVOICE_REIMBURSEMENTS")
-  externalWithdrawalReceipts              ExternalWithdrawal[]      @relation("EXTERNAL_WITHDRAWAL_RECEIPTS")
-  externalWithdrawalReimbursements        ExternalWithdrawal[]      @relation("EXTERNAL_WITHDRAWAL_REIMBURSEMENTS")
+  externalOperationInvoices              ExternalOperation[]      @relation("EXTERNAL_OPERATION_INVOICES")
+  externalOperationInvoiceReimbursements ExternalOperation[]      @relation("EXTERNAL_OPERATION_INVOICE_REIMBURSEMENTS")
+  externalOperationReceipts              ExternalOperation[]      @relation("EXTERNAL_OPERATION_RECEIPTS")
+  externalOperationReimbursements        ExternalOperation[]      @relation("EXTERNAL_OPERATION_REIMBURSEMENTS")
   warning                                 Warning[]                 @relation("FileToWarning")
   observations                            Observation[]             @relation("OBSERVATIONS_FILES")
   orderBudgets                            Order[]                   @relation("ORDER_BUDGETS")
@@ -726,6 +727,12 @@ model Item {
   supplierId                     String?
   estimatedLeadTime              Int?                     @default(30)
   isActive                       Boolean                  @default(true)
+  // Capability fields — behavior gates live on the item, not the category.
+  // ItemCategory.type is UI grouping + a default-provider at item creation only.
+  isBorrowable                   Boolean                  @default(false)
+  stockModel                     StockModel               @default(CONSUMPTION)
+  // Target on-hand quantity when stockModel = FIXED_TARGET (engine falls back to 1).
+  fixedTargetQuantity            Float?
   ppeType                        PpeType?
   ppeCA                          String?
   ppeDeliveryMode                PpeDeliveryMode?
@@ -741,7 +748,7 @@ model Item {
   deactivationReason             String?
   activities                     Activity[]               @relation("ACTIVITY_ITEM")
   borrows                        Borrow[]
-  externalWithdrawalItems        ExternalWithdrawalItem[]
+  externalOperationItems        ExternalOperationItem[]
   brands                         ItemBrand[]              @relation("ITEM_BRANDS")
   category                       ItemCategory?            @relation("ITEM_CATEGORY", fields: [categoryId], references: [id])
   supplier                       Supplier?                @relation("ITEM_SUPPLIER", fields: [supplierId], references: [id])
@@ -850,7 +857,7 @@ model ItemBrand {
 // ItemCategoryType (physical nature). Used directly on transactions, and as a
 // rollup ("ponte") on item categories so a purchase lands in the right cost group.
 enum AccountingType {
-  SALARIOS // wages, pró-labore, commission, aerografia labor, bonus
+  SALARIOS // wages, pró-labore, aerografia labor, bonus
   DESPESAS_FIXAS // fuel, water, energy, telephony, internet, rent
   PRODUTIVO // production consumables (adesivos, fita, máscara, papel, peças, massas)
   IMPOSTO_TARIFAS // taxes, bank fees, charges
@@ -906,40 +913,64 @@ model Observation {
   @@index([createdAt])
 }
 
-model ExternalWithdrawal {
-  id                    String                   @id @default(uuid())
-  withdrawerName        String
-  type                  ExternalWithdrawalType   @default(RETURNABLE)
-  status                ExternalWithdrawalStatus @default(PENDING)
-  statusOrder           Int                      @default(1)
+model ExternalOperation {
+  id                    String                          @id @default(uuid())
+  withdrawerName        String?
+  type                  ExternalOperationType          @default(RETURNABLE)
+  status                ExternalOperationStatus        @default(PENDING)
+  statusOrder           Int                             @default(1)
   notes                 String?
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
-  items                 ExternalWithdrawalItem[]
-  invoices              File[]                   @relation("EXTERNAL_WITHDRAWAL_INVOICES")
-  invoiceReimbursements File[]                   @relation("EXTERNAL_WITHDRAWAL_INVOICE_REIMBURSEMENTS")
-  receipts              File[]                   @relation("EXTERNAL_WITHDRAWAL_RECEIPTS")
-  reimbursements        File[]                   @relation("EXTERNAL_WITHDRAWAL_REIMBURSEMENTS")
+  customerId            String?
+  generateInvoice       Boolean                         @default(true)
+  generateBankSlip      Boolean                         @default(true)
+  paymentCondition      String?
+  paymentConfig         Json?
+  billedAt              DateTime?
+  createdAt             DateTime                        @default(now())
+  updatedAt             DateTime                        @updatedAt
+  customer              Customer?                       @relation("CustomerExternalOperations", fields: [customerId], references: [id], onDelete: SetNull)
+  items                 ExternalOperationItem[]
+  services              ExternalOperationServiceItem[]
+  billingInvoice        Invoice?                        @relation("ExternalOperationInvoice")
+  installments          Installment[]                   @relation("ExternalOperationInstallments")
+  invoices              File[]                          @relation("EXTERNAL_OPERATION_INVOICES")
+  invoiceReimbursements File[]                          @relation("EXTERNAL_OPERATION_INVOICE_REIMBURSEMENTS")
+  receipts              File[]                          @relation("EXTERNAL_OPERATION_RECEIPTS")
+  reimbursements        File[]                          @relation("EXTERNAL_OPERATION_REIMBURSEMENTS")
 
   @@index([withdrawerName])
   @@index([type])
   @@index([status, statusOrder])
   @@index([createdAt])
+  @@index([customerId])
 }
 
-model ExternalWithdrawalItem {
+model ExternalOperationServiceItem {
   id                   String             @id @default(uuid())
-  externalWithdrawalId String
+  externalOperationId String
+  description          String
+  amount               Decimal            @db.Decimal(10, 2)
+  position             Int                @default(0)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  externalOperation   ExternalOperation @relation(fields: [externalOperationId], references: [id], onDelete: Cascade)
+
+  @@index([externalOperationId])
+}
+
+model ExternalOperationItem {
+  id                   String             @id @default(uuid())
+  externalOperationId String
   itemId               String
   withdrawedQuantity   Float
   returnedQuantity     Float              @default(0)
   price                Float?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
-  externalWithdrawal   ExternalWithdrawal @relation(fields: [externalWithdrawalId], references: [id], onDelete: Cascade)
+  externalOperation   ExternalOperation @relation(fields: [externalOperationId], references: [id], onDelete: Cascade)
   item                 Item               @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
-  @@index([externalWithdrawalId])
+  @@index([externalOperationId])
   @@index([itemId])
 }
 
@@ -1475,8 +1506,8 @@ model Task {
   paintId               String?
   customerId            String?
   sectorId              String?
-  commission            CommissionStatus?
-  commissionOrder       Int                   @default(3)
+  bonification          BonificationStatus?
+  bonificationOrder     Int                   @default(3)
   createdById           String?
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
@@ -1515,7 +1546,7 @@ model Task {
 
   @@index([status, sectorId])
   @@index([statusOrder])
-  @@index([commissionOrder])
+  @@index([bonificationOrder])
   @@index([term])
   @@index([forecastDate])
   @@index([createdAt])
@@ -2412,6 +2443,7 @@ enum PpeType {
   RAIN_BOOTS
   OTHERS
   SHORT
+  OVERALL
 }
 
 enum PpeDeliveryMode {
@@ -2546,8 +2578,8 @@ enum ActivityReason {
   PPE_DELIVERY
   BORROW
   RETURN
-  EXTERNAL_WITHDRAWAL
-  EXTERNAL_WITHDRAWAL_RETURN
+  EXTERNAL_OPERATION
+  EXTERNAL_OPERATION_RETURN
   INVENTORY_COUNT
   MANUAL_ADJUSTMENT
   MAINTENANCE
@@ -2659,13 +2691,13 @@ enum BorrowStatus {
   OVERDUE
 }
 
-enum ExternalWithdrawalType {
+enum ExternalOperationType {
   RETURNABLE
   CHARGEABLE
   COMPLIMENTARY
 }
 
-enum ExternalWithdrawalStatus {
+enum ExternalOperationStatus {
   PENDING
   CANCELLED
   PARTIALLY_RETURNED
@@ -2966,13 +2998,13 @@ enum ChangeLogTriggeredByType {
   SYSTEM
   SYSTEM_GENERATED
   USER
-  EXTERNAL_WITHDRAWAL
-  EXTERNAL_WITHDRAWAL_DELETE
-  EXTERNAL_WITHDRAWAL_RETURN
-  EXTERNAL_WITHDRAWAL_SYNC
-  EXTERNAL_WITHDRAWAL_ITEM
-  EXTERNAL_WITHDRAWAL_ITEM_UPDATE
-  EXTERNAL_WITHDRAWAL_ITEM_DELETE
+  EXTERNAL_OPERATION
+  EXTERNAL_OPERATION_DELETE
+  EXTERNAL_OPERATION_RETURN
+  EXTERNAL_OPERATION_SYNC
+  EXTERNAL_OPERATION_ITEM
+  EXTERNAL_OPERATION_ITEM_UPDATE
+  EXTERNAL_OPERATION_ITEM_DELETE
   PAINT_FORMULA_COMPONENT_CREATE
   PAINT_FORMULA_COMPONENT_UPDATE
   PAINT_FORMULA_COMPONENT_DELETE
@@ -3057,6 +3089,7 @@ enum ChangeLogEntityType {
   ABSENCE
   ACTIVITY
   AIRBRUSHING
+  BONIFICATION
   BONUS
   BORROW
   CALCULATION
@@ -3064,7 +3097,6 @@ enum ChangeLogEntityType {
   CALCULATION_DETAIL
   CATEGORY
   COLLECTION
-  COMMISSION
   CUSTOMER
   CUT
   CUT_ITEM
@@ -3075,8 +3107,8 @@ enum ChangeLogEntityType {
   DISCOUNT
   ECONOMIC_ACTIVITY
   EXPENSE
-  EXTERNAL_WITHDRAWAL
-  EXTERNAL_WITHDRAWAL_ITEM
+  EXTERNAL_OPERATION
+  EXTERNAL_OPERATION_ITEM
   FILE
   HOLIDAY
   ITEM
@@ -3188,7 +3220,13 @@ enum ItemCategoryType {
   REGULAR
   TOOL
   PPE
-  ELECTRONIC_TOOL
+}
+
+// How stock math treats an item: CONSUMPTION = demand-forecast replenishment
+// (mc/rp/ABC/XYZ); FIXED_TARGET = hold fixedTargetQuantity on hand (tools).
+enum StockModel {
+  CONSUMPTION
+  FIXED_TARGET
 }
 
 enum BonusStatus {
@@ -3196,11 +3234,11 @@ enum BonusStatus {
   CONFIRMED
 }
 
-enum CommissionStatus {
-  PARTIAL_COMMISSION
-  NO_COMMISSION
-  FULL_COMMISSION
-  SUSPENDED_COMMISSION
+enum BonificationStatus {
+  PARTIAL_BONIFICATION
+  NO_BONIFICATION
+  FULL_BONIFICATION
+  SUSPENDED_BONIFICATION
 }
 
 enum TaskQuoteStatus {
@@ -3451,23 +3489,25 @@ enum GDriveDeleteStatus {
 // =====================
 
 model Invoice {
-  id               String                  @id @default(uuid())
-  customerConfigId String                  @unique
-  taskId           String
-  customerId       String
-  totalAmount      Decimal                 @db.Decimal(10, 2)
-  paidAmount       Decimal                 @default(0) @db.Decimal(10, 2)
-  status           InvoiceStatus           @default(DRAFT)
-  notes            String?
-  createdById      String?
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
-  customerConfig   TaskQuoteCustomerConfig @relation("InvoiceCustomerConfig", fields: [customerConfigId], references: [id], onDelete: Cascade)
-  task             Task                    @relation("TaskInvoiceEntities", fields: [taskId], references: [id], onDelete: Cascade)
-  customer         Customer                @relation("CustomerInvoiceEntities", fields: [customerId], references: [id])
-  createdBy        User?                   @relation("InvoicesCreated", fields: [createdById], references: [id])
-  installments     Installment[]           @relation("InvoiceInstallments")
-  nfseDocuments    NfseDocument[]          @relation("InvoiceNfse")
+  id                   String                   @id @default(uuid())
+  customerConfigId     String?                  @unique
+  taskId               String?
+  externalOperationId String?                  @unique
+  customerId           String
+  totalAmount          Decimal                  @db.Decimal(10, 2)
+  paidAmount           Decimal                  @default(0) @db.Decimal(10, 2)
+  status               InvoiceStatus            @default(DRAFT)
+  notes                String?
+  createdById          String?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  customerConfig       TaskQuoteCustomerConfig? @relation("InvoiceCustomerConfig", fields: [customerConfigId], references: [id], onDelete: Cascade)
+  task                 Task?                    @relation("TaskInvoiceEntities", fields: [taskId], references: [id], onDelete: Cascade)
+  externalOperation   ExternalOperation?      @relation("ExternalOperationInvoice", fields: [externalOperationId], references: [id], onDelete: Cascade)
+  customer             Customer                 @relation("CustomerInvoiceEntities", fields: [customerId], references: [id])
+  createdBy            User?                    @relation("InvoicesCreated", fields: [createdById], references: [id])
+  installments         Installment[]            @relation("InvoiceInstallments")
+  nfseDocuments        NfseDocument[]           @relation("InvoiceNfse")
 
   @@index([taskId])
   @@index([customerId])
@@ -3476,26 +3516,30 @@ model Invoice {
 }
 
 model Installment {
-  id               String                  @id @default(uuid())
-  customerConfigId String
-  invoiceId        String?
-  number           Int
-  dueDate          DateTime
-  amount           Decimal                 @db.Decimal(10, 2)
-  paidAmount       Decimal                 @default(0) @db.Decimal(10, 2)
-  paidAt           DateTime?
-  status           InstallmentStatus       @default(PENDING)
-  paymentMethod    String?
-  observations     String?
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
-  customerConfig   TaskQuoteCustomerConfig @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Cascade)
-  invoice          Invoice?                @relation("InvoiceInstallments", fields: [invoiceId], references: [id], onDelete: SetNull)
-  bankSlip         BankSlip?               @relation("InstallmentBankSlip")
-  receiptFiles     File[]                  @relation("InstallmentReceipts")
+  id                   String                   @id @default(uuid())
+  customerConfigId     String?
+  externalOperationId String?
+  invoiceId            String?
+  number               Int
+  dueDate              DateTime
+  amount               Decimal                  @db.Decimal(10, 2)
+  paidAmount           Decimal                  @default(0) @db.Decimal(10, 2)
+  paidAt               DateTime?
+  status               InstallmentStatus        @default(PENDING)
+  paymentMethod        String?
+  observations         String?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  customerConfig       TaskQuoteCustomerConfig? @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Cascade)
+  externalOperation   ExternalOperation?      @relation("ExternalOperationInstallments", fields: [externalOperationId], references: [id], onDelete: Cascade)
+  invoice              Invoice?                 @relation("InvoiceInstallments", fields: [invoiceId], references: [id], onDelete: SetNull)
+  bankSlip             BankSlip?                @relation("InstallmentBankSlip")
+  receiptFiles         File[]                   @relation("InstallmentReceipts")
 
   @@unique([customerConfigId, number])
+  @@unique([externalOperationId, number])
   @@index([customerConfigId])
+  @@index([externalOperationId])
   @@index([invoiceId])
   @@index([dueDate])
   @@index([status])

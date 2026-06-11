@@ -19,7 +19,7 @@ import { roundCurrency } from '@utils/currency-precision.util';
  * - Overtime 50% (Mon-Sat)
  * - Overtime 100% (Sundays/Holidays)
  * - Night shift differential (20%)
- * - DSR on overtime and commissions
+ * - DSR on overtime and bonifications
  * - Bonuses
  *
  * DEDUCTIONS:
@@ -60,7 +60,7 @@ export interface CompletePayrollCalculation {
   };
   dsrEarnings: {
     dsrOnOvertime: number;
-    dsrOnCommissions: number;
+    dsrOnBonifications: number;
     totalDSR: number;
     dsrDays: number;
   };
@@ -251,9 +251,9 @@ export class CompletePayrollCalculatorService {
         ? roundCurrency((totalOvertimeAmount / workingDaysInMonth) * dsrDays)
         : 0;
 
-    // DSR on commissions (if applicable - future feature)
-    const dsrOnCommissions = 0;
-    const totalDSR = dsrOnOvertime + dsrOnCommissions;
+    // DSR on bonifications (if applicable - future feature)
+    const dsrOnBonifications = 0;
+    const totalDSR = dsrOnOvertime + dsrOnBonifications;
 
     // Bonus (from bonus calculation)
     const bonus = bonusAmount;
@@ -431,7 +431,7 @@ export class CompletePayrollCalculatorService {
       },
       dsrEarnings: {
         dsrOnOvertime,
-        dsrOnCommissions,
+        dsrOnBonifications,
         totalDSR,
         dsrDays,
       },

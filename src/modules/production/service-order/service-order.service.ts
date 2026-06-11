@@ -54,7 +54,10 @@ import {
   getServiceOrderToQuoteSync,
   type SyncQuoteItem,
 } from '../../../utils/task-quote-service-order-sync';
-import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
+import {
+  syncEmNegociacaoForTask,
+  registerEmNegociacaoEventEmitter,
+} from '../../../utils/em-negociacao-sync';
 import {
   getServiceDescriptionsByType,
   SERVICE_DESCRIPTIONS_BY_TYPE,
@@ -70,7 +73,11 @@ export class ServiceOrderService {
     private readonly serviceOrderRepository: ServiceOrderRepository,
     private readonly changeLogService: ChangeLogService,
     private readonly eventEmitter: EventEmitter2,
-  ) {}
+  ) {
+    // Let the Em Negociação sync util (plain function, no DI) emit
+    // service_order.status.changed for its automatic transitions.
+    registerEmNegociacaoEventEmitter(this.eventEmitter);
+  }
 
   /**
    * Convert a string to Title Case (first letter of each word capitalized)
@@ -1323,28 +1330,8 @@ export class ServiceOrderService {
         }
       }
 
-      // Notify assigned user when their service order is updated by someone else
-      // Only notify if: service order is assigned, updater is not the assignee, and there were changes
-      if (
-        serviceOrder.assignedToId &&
-        serviceOrder.assignedToId !== userId &&
-        serviceOrderExists.status === serviceOrder.status // Status changes already send notifications
-      ) {
-        // Check if there were any actual changes (other than status which is already handled)
-        const hasOtherChanges =
-          serviceOrderExists.description !== serviceOrder.description ||
-          serviceOrderExists.observation !== serviceOrder.observation ||
-          serviceOrderExists.type !== serviceOrder.type;
-
-        if (hasOtherChanges) {
-          this.eventEmitter.emit('service_order.assigned_user_updated', {
-            serviceOrder,
-            oldServiceOrder: serviceOrderExists,
-            userId,
-            assignedToId: serviceOrder.assignedToId,
-          });
-        }
-      }
+      // NOTE: the legacy 'service_order.assigned_user_updated' emit was removed
+      // (2026-06-11 audit) — the event had no listener and no notification config.
 
       // Emit observation change event if observation changed
       if (serviceOrderExists.observation !== serviceOrder.observation) {
@@ -2912,23 +2899,18 @@ export class ServiceOrderService {
           }
         }
 
-        // Emit assigned event if assignedToId changed
+        // Emit assigned event if assignedToId changed (skip unassignment —
+        // mirrors the truthiness guard in the single-update path)
         if (oldData.assignedToId !== serviceOrder.assignedToId) {
-          this.eventEmitter.emit('service_order.assigned', {
-            serviceOrder,
-            userId,
-            assignedToId: serviceOrder.assignedToId,
-            previousAssignedToId: oldData.assignedToId,
-          });
-
-          // Also emit assigned-user-updated if not a status change
-          if (oldData.status === serviceOrder.status) {
-            this.eventEmitter.emit('service_order.assigned_user_updated', {
+          if (serviceOrder.assignedToId) {
+            this.eventEmitter.emit('service_order.assigned', {
               serviceOrder,
-              oldServiceOrder: oldData,
               userId,
               assignedToId: serviceOrder.assignedToId,
+              previousAssignedToId: oldData.assignedToId,
             });
+            // NOTE: the legacy 'service_order.assigned_user_updated' emit was removed
+            // (2026-06-11 audit) — the event had no listener and no notification config.
           }
         }
 

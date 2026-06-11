@@ -1,10 +1,12 @@
 // Stock-health calculation engine — single source of truth for every
 // monthlyConsumption / leadTime / reorderPoint / maxQuantity / reorderQuantity
-// formula in the system. Routes per Item.category.type AND ppeDeliveryMode:
-//   REGULAR / NULL             → §2, §5, §10, §13
-//   PPE (SCHEDULED / BOTH)     → §3, §11  (headcount formula)
-//   PPE (ON_DEMAND)            → §2, §5   (same as REGULAR — consumption-driven)
-//   TOOL                       → §4, §12
+// formula in the system. Routes per Item capability fields (stockModel /
+// ppeType / ppeDeliveryMode) — NEVER per ItemCategory.type, which is UI
+// grouping only (see TYPE_SYSTEM_CONTRACT.md §2):
+//   stockModel=FIXED_TARGET            → §4, §12 (fixed target, short-circuits first)
+//   ppeType!=null (SCHEDULED / BOTH)   → §3, §11 (headcount formula)
+//   ppeType!=null (ON_DEMAND)          → §2, §5  (same as regular — consumption-driven)
+//   stockModel=CONSUMPTION (default)   → §2, §5, §10, §13
 //
 // Helpers are split into smaller pure modules:
 //   working-days.ts                  — workday math
@@ -30,10 +32,14 @@ import {
   LEAD_TIME_LEGACY_BULK_RECEIVED_AT,
   CONSUMPTION_MIN_DISTINCT_MONTHS,
   DEFAULT_LEAD_TIME_DAYS,
+  INVENTORY_COUNT_SHARE_CAP,
   LEAD_TIME_MAX_DAYS,
   LEAD_TIME_MIN_DAYS,
   LEAD_TIME_TIER_MIN_CLEAN_RECEIPTS,
   REGULAR_CONSUMPTION_REASONS,
+  RP_PEAK_WEEK_FLOOR_FACTOR,
+  WINSORIZE_FACTOR,
+  WINSORIZE_MIN_NONZERO_MONTHS,
   SAFETY_FACTOR_MAX,
   SAFETY_FACTOR_MIN,
   SafetyTargetCell,
@@ -41,13 +47,14 @@ import {
   TREND_ADJUSTMENT_DELTA,
   TREND_ADJUSTMENT_THRESHOLD_PERCENT,
   TREND_PERCENT_CAP,
-  getToolTarget,
-  isToolType,
+  getFixedTarget,
+  isFixedTarget,
   targetStockDaysForOrderFrequency,
 } from '@/constants/inventory-config';
 import {
   distributeBulkAdjustments,
   type ActivityLike,
+  type DistributedActivity,
 } from './bulk-adjustment-distributor';
 import { calculatePpeReorderPoint, predictPpeMonthlyConsumption, type PpeItemLike } from './ppe-formula';
 import {
@@ -77,6 +84,8 @@ export interface ItemLike extends PpeItemLike {
   boxQuantity: number | null;
   monthlyConsumption?: number | null;
   category?: { type?: ITEM_CATEGORY_TYPE | null } | null;
+  stockModel?: string | null;
+  fixedTargetQuantity?: number | null;
   abcCategory?: ABC_CATEGORY | null;
   xyzCategory?: XYZ_CATEGORY | null;
 }
@@ -126,12 +135,12 @@ export function calculateMonthlyConsumption(
   const type = input.item.category?.type ?? null;
   const flags: DataQualityFlag[] = type === null ? ['UNCATEGORIZED'] : [];
 
-  // Tools (regular + electronic) are replenished by a fixed-minimum rule, not
-  // by consumption — monthly consumption is always 0.
-  if (isToolType(type)) {
+  // Fixed-target items are replenished by a fixed-minimum rule, not by
+  // consumption — monthly consumption is always 0.
+  if (isFixedTarget(input.item)) {
     return { monthlyConsumption: 0, lowData: false, flags };
   }
-  if (type === ITEM_CATEGORY_TYPE.PPE) {
+  if (input.item.ppeType != null) {
     // ON_DEMAND PPE items are reactive consumables: stock health is driven
     // entirely by observed activity history — same pipeline as REGULAR items.
     // SCHEDULED and BOTH retain the headcount-based prediction formula because
@@ -169,9 +178,12 @@ function calculateMonthlyConsumptionRegular(
     return { monthlyConsumption: 0, lowData: true, flags: [...flags, 'SUSPECT_PHANTOM_MC'] };
   }
 
-  // Distribute bulk adjustments across their windows, then clip to lookback.
-  const distributed = distributeBulkAdjustments(input.activities, itemCreatedAt).filter(
-    a => a.createdAt >= lookbackStart && a.createdAt <= now,
+  // Distribute bulk adjustments across their windows, clip to lookback, then
+  // cap the INVENTORY_COUNT contribution (balance corrections, not demand).
+  const distributed = applyInventoryCountShareCap(
+    distributeBulkAdjustments(input.activities, itemCreatedAt).filter(
+      a => a.createdAt >= lookbackStart && a.createdAt <= now,
+    ),
   );
 
   // Saturday-shift detection runs on the raw (non-distributed) activities so
@@ -202,6 +214,20 @@ function calculateMonthlyConsumptionRegular(
       lowData: true,
       flags: byMonth.size === 0 ? [...flags, 'NEVER_USED'] : [...flags, 'LOW_DATA'],
     };
+  }
+
+  // Winsorize the monthly buckets: cap each month at WINSORIZE_FACTOR × the
+  // median of the item's non-zero months, so a residual stock-balance spike
+  // can't dominate the average. Requires enough non-zero months for the
+  // median to define "normal"; below that the buckets pass through raw.
+  const nonZeroQtys = [...byMonth.values()].map(b => b.qty).filter(q => q > 0);
+  if (nonZeroQtys.length >= WINSORIZE_MIN_NONZERO_MONTHS) {
+    const cap = WINSORIZE_FACTOR * median(nonZeroQtys);
+    if (cap > 0) {
+      for (const entry of byMonth.values()) {
+        if (entry.qty > cap) entry.qty = cap;
+      }
+    }
   }
 
   // Weighted average per spec §2.7.
@@ -253,6 +279,29 @@ export function calculateLeadTime(input: LeadTimeInput): number {
   return DEFAULT_LEAD_TIME_DAYS;
 }
 
+/** Resolves where the lead-time clock starts for a receipt. fulfilledAt is
+ *  trusted only when it is valid (<= receivedAt) AND at least one day before
+ *  receivedAt — warehouse practice is to mark "fulfilled" at the moment of
+ *  receipt, which would otherwise collapse lead time to ~0 (62 items were
+ *  stuck at lt=1d while their real order→receipt cycle was 11–15d). When
+ *  fulfilledAt is bookkeeping noise, the order's creation date is the honest
+ *  clock start. */
+export function leadTimeClockStart(
+  fulfilledAt: Date | null,
+  receivedAt: Date,
+  orderCreatedAt: Date,
+): Date {
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+  if (
+    fulfilledAt &&
+    fulfilledAt <= receivedAt &&
+    receivedAt.getTime() - fulfilledAt.getTime() >= ONE_DAY_MS
+  ) {
+    return fulfilledAt;
+  }
+  return orderCreatedAt;
+}
+
 /** True iff the receipt should be EXCLUDED from lead-time stats. Mirrors
  *  spec §5.2. Callers should fold this into their initial filter. */
 export function isLegacyBulkReceipt(_orderSupplierId: string | null, receivedAt: Date): boolean {
@@ -283,15 +332,19 @@ export interface ReorderPointInput {
   now?: Date;
   /** PPE-only — see ppe-formula.ts. */
   ppe?: { matchingSizeUserCount?: number; totalSizedUserCount?: number };
+  /** Max observed single-week demand in the lookback window (output of
+   *  `calculatePeakWeekDemand`). Used as a conservative floor on rp for
+   *  CONSUMPTION-model items — rp never sits below a demonstrated weekly
+   *  draw. Omitting it skips the floor (back-compat). */
+  peakWeekDemand?: number;
 }
 
 export function calculateReorderPoint(input: ReorderPointInput): number {
-  const type = input.item.category?.type ?? null;
-  // Tools maintain a fixed target on-hand quantity. We persist the target as
-  // both reorderPoint and maxQuantity so the shortfall-based reorderQuantity
-  // (max − stock − incoming) naturally restores the target.
-  if (isToolType(type)) return getToolTarget(type);
-  if (type === ITEM_CATEGORY_TYPE.PPE &&
+  // Fixed-target items maintain a fixed target on-hand quantity. We persist
+  // the target as both reorderPoint and maxQuantity so the shortfall-based
+  // reorderQuantity (max − stock − incoming) naturally restores the target.
+  if (isFixedTarget(input.item)) return getFixedTarget(input.item);
+  if (input.item.ppeType != null &&
       input.item.ppeDeliveryMode !== PPE_DELIVERY_MODE.ON_DEMAND) {
     // SCHEDULED / BOTH / null — use delivery-mode-aware PPE reorder point.
     // ON_DEMAND falls through to the regular cycle-stock + safety-stock formula.
@@ -323,7 +376,40 @@ export function calculateReorderPoint(input: ReorderPointInput): number {
   const raw = (cycleStock + safety) * CONSERVATIVE_RP_UPLIFT;
   const rp = Math.ceil(raw);
   if (rp > 0 && rp < 1) return 1;
-  return rp;
+  // Peak-week floor: rp must cover the max single-week demand actually
+  // observed in the lookback (× tunable factor; 0 disables the floor).
+  const peakFloor =
+    RP_PEAK_WEEK_FLOOR_FACTOR > 0 && input.peakWeekDemand != null
+      ? Math.ceil(input.peakWeekDemand * RP_PEAK_WEEK_FLOOR_FACTOR)
+      : 0;
+  return Math.max(rp, peakFloor);
+}
+
+/** Max observed single-week (7-day bucket, anchored at `now`) demand in the
+ *  consumption lookback window. Uses the SAME demand series as
+ *  monthlyConsumption (bulk-distributed, INVENTORY_COUNT-capped) so a stock
+ *  count can't fake a peak week. Feed the result into
+ *  `ReorderPointInput.peakWeekDemand`. */
+export function calculatePeakWeekDemand(
+  activities: ReadonlyArray<ActivityLike>,
+  itemCreatedAt: Date | string,
+  now: Date = new Date(),
+): number {
+  const lookbackStart = subMonths(now, CONSUMPTION_LOOKBACK_MONTHS);
+  const events = applyInventoryCountShareCap(
+    distributeBulkAdjustments(activities, new Date(itemCreatedAt)).filter(
+      a => a.createdAt >= lookbackStart && a.createdAt <= now,
+    ),
+  );
+  if (events.length === 0) return 0;
+
+  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  const byWeek = new Map<number, number>();
+  for (const ev of events) {
+    const idx = Math.floor((now.getTime() - ev.createdAt.getTime()) / WEEK_MS);
+    byWeek.set(idx, (byWeek.get(idx) ?? 0) + ev.quantity);
+  }
+  return Math.max(...byWeek.values());
 }
 
 export interface MaxQuantityInput {
@@ -337,9 +423,8 @@ export interface MaxQuantityInput {
 }
 
 export function calculateMaxQuantity(input: MaxQuantityInput): number {
-  const type = input.item.category?.type ?? null;
-  // Tools top up to their fixed target (no consumption-based buffer).
-  if (isToolType(type)) return getToolTarget(type);
+  // Fixed-target items top up to their target (no consumption-based buffer).
+  if (isFixedTarget(input.item)) return getFixedTarget(input.item);
   if (input.monthlyConsumption === 0) return 0;
 
   const avgDaily = input.monthlyConsumption / 30;
@@ -487,6 +572,37 @@ export function hasActiveOrder(
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function median(values: ReadonlyArray<number>): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+/** Caps the INVENTORY_COUNT contribution to the demand series at
+ *  INVENTORY_COUNT_SHARE_CAP (fraction of the series total). Stock counts are
+ *  balance corrections, not demand — cap 0 excludes them entirely; a cap
+ *  c > 0 scales their quantities so invCount / total ≤ c. The events still
+ *  anchored the bulk-distribution windows upstream; only quantity is capped. */
+function applyInventoryCountShareCap(
+  events: ReadonlyArray<DistributedActivity>,
+): DistributedActivity[] {
+  const isInvCount = (e: DistributedActivity) =>
+    e.reason === ACTIVITY_REASON.INVENTORY_COUNT;
+
+  const invTotal = events.reduce((s, e) => (isInvCount(e) ? s + e.quantity : s), 0);
+  if (invTotal <= 0) return [...events];
+  if (INVENTORY_COUNT_SHARE_CAP <= 0) return events.filter(e => !isInvCount(e));
+  if (INVENTORY_COUNT_SHARE_CAP >= 1) return [...events];
+
+  const otherTotal = events.reduce((s, e) => (isInvCount(e) ? s : s + e.quantity), 0);
+  // inv / (inv + other) ≤ cap  →  inv_allowed = cap / (1 − cap) × other
+  const allowed = (INVENTORY_COUNT_SHARE_CAP / (1 - INVENTORY_COUNT_SHARE_CAP)) * otherTotal;
+  if (invTotal <= allowed) return [...events];
+  const scale = allowed / invTotal;
+  return events.map(e => (isInvCount(e) ? { ...e, quantity: e.quantity * scale } : e));
 }
 
 function clampLeadTime(days: number): number {

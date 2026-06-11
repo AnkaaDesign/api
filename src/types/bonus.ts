@@ -1,7 +1,7 @@
 // packages/types/src/bonus.ts
 // Simplified Bonus entity - redundant fields removed
 // Period dates are computed from year/month (26th of prev month to 25th of current month)
-// ponderedTasks is computed from tasks array (FULL_COMMISSION=1.0, PARTIAL_COMMISSION=0.5)
+// ponderedTasks is computed from tasks array (FULL_BONIFICATION=1.0, PARTIAL_BONIFICATION=0.5)
 
 import type {
   BaseEntity,
@@ -276,7 +276,7 @@ export interface LiveBonusGetManyResponse {
  * These values are NOT stored in the database but computed on-demand
  */
 export interface BonusComputedFields {
-  /** Weighted task count: FULL_COMMISSION = 1.0, PARTIAL_COMMISSION = 0.5 */
+  /** Weighted task count: FULL_BONIFICATION = 1.0, PARTIAL_BONIFICATION = 0.5 */
   ponderedTaskCount: number;
   /** Period start date (26th of previous month) */
   periodStart: Date;

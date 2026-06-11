@@ -130,6 +130,12 @@ export class ServiceOrderListener {
         return;
       }
 
+      // Unassignment (assignedToId cleared) — nobody to notify
+      if (!event.assignedToId) {
+        this.logger.log('[SERVICE ORDER EVENT] No assignee (unassignment), skipping notification');
+        return;
+      }
+
       // Get task information for context
       const task = await this.prisma.task.findUnique({
         where: { id: event.serviceOrder.taskId },
@@ -155,25 +161,32 @@ export class ServiceOrderListener {
       const configKey = getTypedConfigKey('service_order.assigned', event.serviceOrder.type);
       this.logger.log(`[SERVICE ORDER EVENT] Using config key: ${configKey}`);
 
-      await this.dispatchService.dispatchByConfiguration(configKey, event.userId, {
-        entityType: 'SERVICE_ORDER',
-        entityId: event.serviceOrder.id,
-        action: 'assigned',
-        data: {
-          serviceOrderId: event.serviceOrder.id,
-          description: event.serviceOrder.description,
-          taskId: event.serviceOrder.taskId,
-          assignedTo: assignedUser?.name || event.assignedTo?.name,
-          assignedBy: assignedByUser?.name || event.user?.name,
-          taskName: task?.name || event.task?.name,
+      // Targeted dispatch: the "Você foi atribuído" message goes only to the
+      // assignee, not to the whole sector.
+      await this.dispatchService.dispatchByConfigurationToUsers(
+        configKey,
+        event.userId,
+        {
+          entityType: 'SERVICE_ORDER',
+          entityId: event.serviceOrder.id,
+          action: 'assigned',
+          data: {
+            serviceOrderId: event.serviceOrder.id,
+            description: event.serviceOrder.description,
+            taskId: event.serviceOrder.taskId,
+            assignedTo: assignedUser?.name || event.assignedTo?.name,
+            assignedBy: assignedByUser?.name || event.user?.name,
+            taskName: task?.name || event.task?.name,
+          },
+          // Override to navigate to the task, not the service order
+          overrides: {
+            webUrl: `/producao/cronograma/detalhes/${event.serviceOrder.taskId}`,
+            relatedEntityType: 'Task',
+            relatedEntityId: event.serviceOrder.taskId,
+          },
         },
-        // Override to navigate to the task, not the service order
-        overrides: {
-          webUrl: `/producao/cronograma/detalhes/${event.serviceOrder.taskId}`,
-          relatedEntityType: 'Task',
-          relatedEntityId: event.serviceOrder.taskId,
-        },
-      });
+        [event.assignedToId],
+      );
 
       this.logger.log(
         '[SERVICE ORDER EVENT] ✅ Assignment notification dispatched via configuration',
@@ -218,10 +231,11 @@ export class ServiceOrderListener {
       const configKey = getTypedConfigKey(baseConfigKey, serviceOrder.type);
       this.logger.log(`[SERVICE ORDER EVENT] Using configuration key: ${configKey}`);
 
-      // Get task information for context
+      // Get task information for context (sectorId feeds the dispatcher's
+      // sector-aware filter so PRODUCTION users from other sectors are excluded)
       const task = await this.prisma.task.findUnique({
         where: { id: serviceOrder.taskId },
-        select: { name: true },
+        select: { name: true, sectorId: true },
       });
 
       // Get service order with user relations
@@ -254,6 +268,7 @@ export class ServiceOrderListener {
           type: serviceOrder.type,
           taskId: serviceOrder.taskId,
           taskName: task?.name,
+          taskSectorId: task?.sectorId || null,
           oldStatus,
           newStatus,
           changedBy: changedByUser?.name || 'Sistema',

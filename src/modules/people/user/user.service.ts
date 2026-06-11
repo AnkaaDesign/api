@@ -2,6 +2,7 @@
 
 import {
   BadRequestException,
+  ForbiddenException,
   forwardRef,
   Inject,
   Injectable,
@@ -55,6 +56,7 @@ import {
   USER_STATUS,
   ENTITY_TYPE,
   CHANGE_ACTION,
+  SECTOR_PRIVILEGES,
 } from '../../../constants/enums';
 import { USER_STATUS_ORDER } from '../../../constants/sortOrders';
 import { isValidCPF, isValidPIS, isValidPhone } from '../../../utils';
@@ -175,6 +177,82 @@ export class UserService {
   /**
    * Validar usuário completo
    */
+  /**
+   * Security guards for user writes (audit B1/B8, decision 12).
+   * - Non-ADMIN actors cannot change their OWN sectorId/positionId/status/performanceLevel.
+   * - Non-ADMIN actors cannot assign a sector with ADMIN privileges (blocks HR→ADMIN escalation).
+   * - Non-ADMIN actors cannot set account-takeover fields on updates
+   *   (verificationCode/Type/ExpiresAt, requirePasswordChange, sessionToken — silently stripped),
+   *   nor another user's password (stripped; self password change via profile keeps working).
+   * Mutates `data` in place (strips) and throws ForbiddenException on escalation attempts.
+   */
+  private async enforceUserWriteGuards(
+    actorId: string | undefined,
+    data: Partial<UserCreateFormData & UserUpdateFormData>,
+    existingUser: {
+      id: string;
+      sectorId: string | null;
+      positionId: string | null;
+      status: string;
+      performanceLevel: number;
+    } | null,
+    tx?: PrismaTransaction,
+  ): Promise<void> {
+    // No actor = internal/system call (controllers always pass the JWT userId).
+    if (!actorId) return;
+
+    const client = tx ?? this.prisma;
+    const actor = await client.user.findUnique({
+      where: { id: actorId },
+      select: { sector: { select: { privileges: true } } },
+    });
+    if (actor?.sector?.privileges === SECTOR_PRIVILEGES.ADMIN) return;
+
+    const anyData = data as Record<string, any>;
+
+    if (existingUser) {
+      // B8/H3: account-takeover fields are ADMIN-only on updates.
+      for (const field of [
+        'verificationCode',
+        'verificationType',
+        'verificationExpiresAt',
+        'requirePasswordChange',
+        'sessionToken',
+      ]) {
+        if (anyData[field] !== undefined) delete anyData[field];
+      }
+      // Non-ADMIN may only change their OWN password (profile flow), never someone else's.
+      if (existingUser.id !== actorId && anyData.password !== undefined) {
+        delete anyData.password;
+      }
+
+      // B1(a): non-ADMIN cannot change own privileged fields.
+      if (existingUser.id === actorId) {
+        for (const field of ['sectorId', 'positionId', 'status', 'performanceLevel'] as const) {
+          if (anyData[field] !== undefined && anyData[field] !== (existingUser as any)[field]) {
+            throw new ForbiddenException(
+              'Você não pode alterar seu próprio setor, cargo, status ou nível de desempenho.',
+            );
+          }
+        }
+      }
+    }
+
+    // B1(b): non-ADMIN cannot assign a sector whose privileges include ADMIN.
+    const newSectorId = anyData.sectorId;
+    if (newSectorId && (!existingUser || newSectorId !== existingUser.sectorId)) {
+      const sector = await client.sector.findUnique({
+        where: { id: newSectorId },
+        select: { privileges: true },
+      });
+      if (sector?.privileges === SECTOR_PRIVILEGES.ADMIN) {
+        throw new ForbiddenException(
+          'Apenas administradores podem atribuir um setor com privilégios de administrador.',
+        );
+      }
+    }
+  }
+
   private async userValidation(
     data: Partial<UserCreateFormData | UserUpdateFormData>,
     existingId?: string,
@@ -730,6 +808,9 @@ export class UserService {
   ): Promise<UserCreateResponse> {
     try {
       const user = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        // Security: privilege-escalation guards (audit B1, decision 12)
+        await this.enforceUserWriteGuards(userId, data, null, tx);
+
         // Validar usuário completo
         await this.userValidation(data, undefined, tx);
 
@@ -901,6 +982,20 @@ export class UserService {
         if (!existingUser) {
           throw new NotFoundException('Usuário não encontrado.');
         }
+
+        // Security: privilege-escalation/account-takeover guards (audit B1/B8, decision 12)
+        await this.enforceUserWriteGuards(
+          userId,
+          data,
+          existingUser as unknown as {
+            id: string;
+            sectorId: string | null;
+            positionId: string | null;
+            status: string;
+            performanceLevel: number;
+          },
+          tx,
+        );
 
         // If the update will leave (or put) the user in secullumSyncEnabled=true,
         // re-validate Secullum prerequisites against the merged shape (existing
@@ -1374,13 +1469,17 @@ export class UserService {
         for (let i = 0; i < users.length; i++) {
           try {
             const user = users[i];
+            // Security: privilege-escalation guards (audit B1, decision 12)
+            await this.enforceUserWriteGuards(userId, user, null, tx);
             await this.userValidation(user, undefined, tx);
             validUsers.push({ index: i, data: user });
           } catch (error) {
             errors.push({
               index: i,
               error:
-                error instanceof BadRequestException || error instanceof NotFoundException
+                error instanceof BadRequestException ||
+                error instanceof NotFoundException ||
+                error instanceof ForbiddenException
                   ? error.message
                   : 'Erro ao validar usuário.',
             });
@@ -1562,6 +1661,20 @@ export class UserService {
               throw new NotFoundException('Usuário não encontrado.');
             }
 
+            // Security: privilege-escalation/account-takeover guards (audit B1/B8, decision 12)
+            await this.enforceUserWriteGuards(
+              userId,
+              updateData,
+              existing as unknown as {
+                id: string;
+                sectorId: string | null;
+                positionId: string | null;
+                status: string;
+                performanceLevel: number;
+              },
+              tx,
+            );
+
             // Validar dados da atualização
             await this.userValidation(updateData, id, tx);
             validUpdates.push({ index: i, id, data: updateData });
@@ -1570,7 +1683,9 @@ export class UserService {
               index: i,
               id: updates[i].id,
               error:
-                error instanceof BadRequestException || error instanceof NotFoundException
+                error instanceof BadRequestException ||
+                error instanceof NotFoundException ||
+                error instanceof ForbiddenException
                   ? error.message
                   : 'Erro ao validar atualização.',
             });

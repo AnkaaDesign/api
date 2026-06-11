@@ -4,7 +4,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from './notification.service';
 import { NotificationDispatchService } from './notification-dispatch.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { differenceInDays } from 'date-fns';
 
 /**
  * Notification Scheduler Service
@@ -93,148 +92,11 @@ export class NotificationSchedulerService {
     }
   }
 
-  /**
-   * Check task deadlines daily at 8 AM
-   * Sends notifications for tasks due in 7, 3, or 1 day(s)
-   */
-  @Cron('0 8 * * *', { timeZone: 'America/Sao_Paulo' })
-  async checkTaskDeadlines(): Promise<void> {
-    const startTime = Date.now();
-    let notificationCount = 0;
-
-    try {
-      this.logger.log('Starting task deadline check...');
-
-      // Find tasks with upcoming deadlines
-      const tasks = await this.findUpcomingDeadlineTasks();
-
-      this.logger.log(`Found ${tasks.length} tasks with upcoming deadlines`);
-
-      for (const task of tasks) {
-        try {
-          const daysRemaining = differenceInDays(new Date(task.term), new Date());
-
-          // Only notify for 7, 3, and 1 day milestones
-          if ([7, 3, 1].includes(daysRemaining)) {
-            this.eventEmitter.emit('task.deadline.approaching', {
-              task,
-              daysRemaining,
-            });
-            notificationCount++;
-            this.logger.log(
-              `Emitted deadline approaching event for task ${task.id}: ${daysRemaining} days remaining`,
-            );
-          }
-        } catch (error) {
-          this.logger.error(
-            `Failed to process deadline for task ${task.id}: ${error.message}`,
-            error.stack,
-          );
-        }
-      }
-
-      const duration = Date.now() - startTime;
-      this.logger.log(
-        `Task deadline check completed in ${duration}ms. Notifications sent: ${notificationCount}`,
-      );
-    } catch (error) {
-      this.logger.error(`Error during task deadline check: ${error.message}`, error.stack);
-    }
-  }
-
-  /**
-   * Check overdue tasks daily at 9 AM
-   * Sends notifications for tasks that are past their deadline
-   */
-  @Cron('0 9 * * *', { timeZone: 'America/Sao_Paulo' })
-  async checkOverdueTasks(): Promise<void> {
-    const startTime = Date.now();
-    let notificationCount = 0;
-
-    try {
-      this.logger.log('Starting overdue task check...');
-
-      // Find overdue tasks
-      const tasks = await this.findOverdueTasks();
-
-      this.logger.log(`Found ${tasks.length} overdue tasks`);
-
-      for (const task of tasks) {
-        try {
-          const daysOverdue = differenceInDays(new Date(), new Date(task.term));
-
-          // Only emit for positive days overdue
-          if (daysOverdue > 0) {
-            this.eventEmitter.emit('task.overdue', {
-              task,
-              daysOverdue,
-            });
-            notificationCount++;
-            this.logger.log(
-              `Emitted overdue event for task ${task.id}: ${daysOverdue} days overdue`,
-            );
-          }
-        } catch (error) {
-          this.logger.error(
-            `Failed to process overdue task ${task.id}: ${error.message}`,
-            error.stack,
-          );
-        }
-      }
-
-      const duration = Date.now() - startTime;
-      this.logger.log(
-        `Overdue task check completed in ${duration}ms. Notifications sent: ${notificationCount}`,
-      );
-    } catch (error) {
-      this.logger.error(`Error during overdue task check: ${error.message}`, error.stack);
-    }
-  }
-
-  /**
-   * Check stock levels daily at 10 AM
-   * Sends notifications for items with low stock
-   */
-  @Cron('0 10 * * *', { timeZone: 'America/Sao_Paulo' })
-  async checkStockLevels(): Promise<void> {
-    const startTime = Date.now();
-    let notificationCount = 0;
-
-    try {
-      this.logger.log('Starting stock level check...');
-
-      // Find items with low stock
-      const items = await this.findLowStockItems();
-
-      this.logger.log(`Found ${items.length} items with low stock`);
-
-      for (const item of items) {
-        try {
-          this.eventEmitter.emit('item.low-stock', {
-            item,
-            currentQuantity: item.quantity,
-            reorderPoint: item.reorderPoint ?? 0,
-          });
-          notificationCount++;
-          this.logger.log(
-            `Emitted low stock event for item ${item.id}: ${item.name} (${item.quantity} units)`,
-          );
-        } catch (error) {
-          this.logger.error(
-            `Failed to process low stock for item ${item.id}: ${error.message}`,
-            error.stack,
-          );
-        }
-      }
-
-      const duration = Date.now() - startTime;
-      this.logger.log(
-        `Stock level check completed in ${duration}ms. Notifications sent: ${notificationCount}`,
-      );
-    } catch (error) {
-      this.logger.error(`Error during stock level check: ${error.message}`, error.stack);
-    }
-  }
+  // NOTE (2026-06-11 audit, F2): the legacy 8AM task.deadline.approaching,
+  // 9AM task.overdue and 10AM item.low-stock crons were REMOVED from this file.
+  // They duplicated task-notification.scheduler.ts (canonical task deadline/overdue
+  // pipeline) and the activity-driven stock notification pipeline
+  // (stock-notification.service.ts), causing double notifications.
 
   /**
    * Process reminders every 5 minutes
@@ -383,94 +245,6 @@ export class NotificationSchedulerService {
       );
     } catch (error) {
       this.logger.error(`Error during old notification cleanup: ${error.message}`, error.stack);
-    }
-  }
-
-  /**
-   * Find tasks with upcoming deadlines (within 7 days)
-   */
-  private async findUpcomingDeadlineTasks(): Promise<any[]> {
-    try {
-      const now = new Date();
-      const sevenDaysFromNow = new Date();
-      sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
-
-      return await this.prisma.task.findMany({
-        where: {
-          term: {
-            gte: now,
-            lte: sevenDaysFromNow,
-          },
-          status: {
-            not: 'COMPLETED', // Don't notify for completed tasks
-          },
-        },
-        include: {
-          customer: true,
-          sector: true,
-        },
-      });
-    } catch (error) {
-      this.logger.error(`Error finding upcoming deadline tasks: ${error.message}`, error.stack);
-      return [];
-    }
-  }
-
-  /**
-   * Find overdue tasks
-   */
-  private async findOverdueTasks(): Promise<any[]> {
-    try {
-      const now = new Date();
-
-      return await this.prisma.task.findMany({
-        where: {
-          term: {
-            lt: now,
-          },
-          status: {
-            not: 'COMPLETED', // Don't notify for completed tasks
-          },
-        },
-        include: {
-          customer: true,
-          sector: true,
-        },
-      });
-    } catch (error) {
-      this.logger.error(`Error finding overdue tasks: ${error.message}`, error.stack);
-      return [];
-    }
-  }
-
-  /**
-   * Find items with low stock
-   */
-  private async findLowStockItems(): Promise<any[]> {
-    try {
-      return await this.prisma.item.findMany({
-        where: {
-          AND: [
-            {
-              quantity: {
-                lte: this.prisma.item.fields.reorderPoint,
-              },
-            },
-            {
-              reorderPoint: {
-                not: null,
-              },
-            },
-          ],
-        },
-        include: {
-          category: true,
-          brands: true,
-        },
-      });
-    } catch (error) {
-      this.logger.error(`Error finding low stock items: ${error.message}`, error.stack);
-      return [];
     }
   }
 
@@ -673,18 +447,8 @@ export class NotificationSchedulerService {
     scheduledNotifications: number;
     dueReminders: number;
     failedDeliveries: number;
-    upcomingDeadlines: number;
-    overdueTasks: number;
-    lowStockItems: number;
   }> {
-    const [
-      scheduledNotifications,
-      dueReminders,
-      failedDeliveries,
-      upcomingDeadlines,
-      overdueTasks,
-      lowStockItems,
-    ] = await Promise.all([
+    const [scheduledNotifications, dueReminders, failedDeliveries] = await Promise.all([
       this.prisma.notification.count({
         where: {
           scheduledAt: { not: null },
@@ -704,18 +468,12 @@ export class NotificationSchedulerService {
           status: 'FAILED',
         },
       }),
-      (await this.findUpcomingDeadlineTasks()).length,
-      (await this.findOverdueTasks()).length,
-      (await this.findLowStockItems()).length,
     ]);
 
     return {
       scheduledNotifications,
       dueReminders,
       failedDeliveries,
-      upcomingDeadlines,
-      overdueTasks,
-      lowStockItems,
     };
   }
 }

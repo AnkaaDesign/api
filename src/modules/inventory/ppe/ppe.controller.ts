@@ -341,7 +341,7 @@ export class PpeController {
   }
 
   @Post('deliveries')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async createPpeDelivery(
     @Body(new ZodValidationPipe(ppeDeliveryCreateSchema)) data: PpeDeliveryCreateFormData,
@@ -352,7 +352,7 @@ export class PpeController {
   }
 
   @Post('deliveries/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreatePpeDeliveries(
     @Body(new ZodValidationPipe(ppeDeliveryBatchCreateSchema)) data: PpeDeliveryBatchCreateFormData,
@@ -363,7 +363,7 @@ export class PpeController {
   }
 
   @Put('deliveries/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async batchUpdatePpeDeliveries(
     @Body(new ZodValidationPipe(ppeDeliveryBatchUpdateSchema)) data: PpeDeliveryBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(ppeDeliveryQuerySchema)) query: PpeDeliveryQueryFormData,
@@ -719,7 +719,8 @@ export class PpeController {
   }
 
   @Post('deliveries/request')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.ADMIN)
+  // Self-service: open to ALL authenticated users — userId is forced to the
+  // requester below, so nobody can request PPEs on behalf of someone else.
   @HttpCode(HttpStatus.CREATED)
   async requestPpeDelivery(
     @Body(new ZodValidationPipe(ppeDeliveryCreateSchema))
@@ -764,7 +765,7 @@ export class PpeController {
   }
 
   @Put('deliveries/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async updatePpeDelivery(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(ppeDeliveryUpdateSchema)) data: PpeDeliveryUpdateFormData,
@@ -1054,7 +1055,7 @@ export class PpeController {
   }
 
   @Post('schedules')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async createPpeDeliverySchedule(
     @Body(new ZodValidationPipe(ppeDeliveryScheduleCreateSchema))
@@ -1067,7 +1068,7 @@ export class PpeController {
   }
 
   @Post('schedules/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreatePpeDeliverySchedules(
     @Body(new ZodValidationPipe(ppeDeliveryScheduleBatchCreateSchema))
@@ -1080,7 +1081,7 @@ export class PpeController {
   }
 
   @Put('schedules/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async batchUpdatePpeDeliverySchedules(
     @Body(new ZodValidationPipe(ppeDeliveryScheduleBatchUpdateSchema))
     data: PpeDeliveryScheduleBatchUpdateFormData,
@@ -1125,7 +1126,7 @@ export class PpeController {
   }
 
   @Put('schedules/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async updatePpeDeliverySchedule(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(ppeDeliveryScheduleUpdateSchema))

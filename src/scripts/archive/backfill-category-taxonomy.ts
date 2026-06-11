@@ -59,8 +59,12 @@ function grupoToAccounting(grupo: string): AccountingType | null {
 function categoriaToPhysicalType(cat: string): ItemCategoryType {
   const n = norm(cat);
   if (n.includes('epi') || n.includes('uniforme')) return ItemCategoryType.PPE;
+  // Historical note: elétricas/pneumáticas/equipamentos originally mapped to
+  // ItemCategoryType.ELECTRONIC_TOOL. That enum value was dropped on
+  // 2026-06-09 (0 rows; behavior gates moved to Item.stockModel/isBorrowable
+  // — see TYPE_SYSTEM_CONTRACT.md), so they now fold into TOOL.
   if (n.includes('eletricas') || n.includes('pneumaticas') || n.includes('equipamentos'))
-    return ItemCategoryType.ELECTRONIC_TOOL;
+    return ItemCategoryType.TOOL;
   if (n.includes('ferramentas manuais')) return ItemCategoryType.TOOL;
   return ItemCategoryType.REGULAR;
 }
@@ -68,7 +72,7 @@ function categoriaToPhysicalType(cat: string): ItemCategoryType {
 /** Existing transaction-category name → AccountingType (resolving + item-ish). */
 function txNameToAccounting(name: string): AccountingType | null {
   const n = norm(name);
-  if (/(folha|pro-?labore|comiss|salario|aerograf|bonific)/.test(n)) return AccountingType.SALARIOS;
+  if (/(folha|pro-?labore|salario|aerograf|bonific)/.test(n)) return AccountingType.SALARIOS;
   if (/(tributo|imposto|tarifa|taxa|darf)/.test(n)) return AccountingType.IMPOSTO_TARIFAS;
   if (/(aluguel|convenio|energia|agua|combustivel|telefonia|internet)/.test(n)) return AccountingType.DESPESAS_FIXAS;
   if (/estorno|devoluc/.test(n)) return AccountingType.ESTORNO;

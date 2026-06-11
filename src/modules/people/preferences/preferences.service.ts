@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
   Logger,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
@@ -23,7 +24,12 @@ import {
   PreferencesInclude,
 } from '../../../schemas/preferences';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
-import { CHANGE_TRIGGERED_BY, ENTITY_TYPE, CHANGE_ACTION } from '../../../constants/enums';
+import {
+  CHANGE_TRIGGERED_BY,
+  ENTITY_TYPE,
+  CHANGE_ACTION,
+  SECTOR_PRIVILEGES,
+} from '../../../constants/enums';
 @Injectable()
 export class PreferencesService {
   private readonly logger = new Logger(PreferencesService.name);
@@ -33,6 +39,30 @@ export class PreferencesService {
     private readonly preferencesRepository: PreferencesRepository,
     private readonly changeLogService: ChangeLogService,
   ) {}
+
+  /**
+   * SECURITY (audit A4/B10, decision 11): preferences are self-scoped.
+   * Returns true when the actor's sector has ADMIN privileges.
+   */
+  private async isActorAdmin(actorUserId?: string): Promise<boolean> {
+    if (!actorUserId) return false;
+    const actor = await this.prisma.user.findUnique({
+      where: { id: actorUserId },
+      select: { sector: { select: { privileges: true } } },
+    });
+    return actor?.sector?.privileges === SECTOR_PRIVILEGES.ADMIN;
+  }
+
+  /** Throws ForbiddenException unless the record belongs to the actor or the actor is ADMIN. */
+  private async enforceOwnership(
+    recordUserId: string | null | undefined,
+    actorUserId?: string,
+  ): Promise<void> {
+    if (!actorUserId) return; // internal/system call
+    if (recordUserId === actorUserId) return;
+    if (await this.isActorAdmin(actorUserId)) return;
+    throw new ForbiddenException('Você não tem permissão para acessar esta preferência.');
+  }
 
   /**
    * Validate unique constraints for preferences
@@ -64,8 +94,13 @@ export class PreferencesService {
   async create(
     data: PreferencesCreateFormData,
     include?: PreferencesInclude,
+    actorUserId?: string,
   ): Promise<PreferencesCreateResponse> {
     try {
+      // SECURITY (audit A4/B10): non-ADMIN actors can only create their OWN preferences.
+      if (actorUserId && data.userId !== actorUserId && !(await this.isActorAdmin(actorUserId))) {
+        data = { ...data, userId: actorUserId };
+      }
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         if (data.userId) {
           const existing = await tx.preferences.findFirst({ where: { userId: data.userId } });
@@ -127,6 +162,7 @@ export class PreferencesService {
     id: string,
     data: PreferencesUpdateFormData,
     include?: PreferencesInclude,
+    actorUserId?: string,
   ): Promise<PreferencesUpdateResponse> {
     try {
       const preference = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -137,6 +173,10 @@ export class PreferencesService {
             'Preferência não encontrada. Verifique se o ID está correto.',
           );
         }
+
+        // SECURITY (audit A4/B10): only the owner or an ADMIN may update.
+        // (the update schema does not accept userId, so re-assignment is impossible)
+        await this.enforceOwnership(existingPreference.userId, actorUserId);
 
         // Validate unique constraints
         await this.validateUniqueConstraints(tx, data, id);
@@ -172,7 +212,11 @@ export class PreferencesService {
         data: preference,
       };
     } catch (error) {
-      if (error instanceof NotFoundException || error instanceof ConflictException) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ConflictException ||
+        error instanceof ForbiddenException
+      ) {
         throw error;
       }
       this.logger.error(`Erro ao atualizar preferência ${id}:`, error);
@@ -183,7 +227,11 @@ export class PreferencesService {
   /**
    * Delete a preference
    */
-  async delete(id: string, include?: PreferencesInclude): Promise<PreferencesDeleteResponse> {
+  async delete(
+    id: string,
+    include?: PreferencesInclude,
+    actorUserId?: string,
+  ): Promise<PreferencesDeleteResponse> {
     try {
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const preference = await this.preferencesRepository.findByIdWithTransaction(tx, id);
@@ -192,6 +240,9 @@ export class PreferencesService {
             'Preferência não encontrada. Verifique se o ID está correto.',
           );
         }
+
+        // SECURITY (audit A4/B10): only the owner or an ADMIN may delete.
+        await this.enforceOwnership(preference.userId, actorUserId);
 
         // Registrar exclusão
         await this.changeLogService.logChange({
@@ -216,7 +267,7 @@ export class PreferencesService {
         message: 'Preferência deletada com sucesso.',
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
         throw error;
       }
       this.logger.error(`Erro ao deletar preferência ${id}:`, error);
@@ -227,12 +278,19 @@ export class PreferencesService {
   /**
    * Find preference by ID
    */
-  async findById(id: string, include?: PreferencesInclude): Promise<PreferencesGetUniqueResponse> {
+  async findById(
+    id: string,
+    include?: PreferencesInclude,
+    actorUserId?: string,
+  ): Promise<PreferencesGetUniqueResponse> {
     try {
       const preference = await this.preferencesRepository.findById(id);
       if (!preference) {
         throw new NotFoundException('Preferência não encontrada. Verifique se o ID está correto.');
       }
+
+      // SECURITY (audit A4/B10): only the owner or an ADMIN may read by id.
+      await this.enforceOwnership(preference.userId, actorUserId);
 
       return {
         success: true,
@@ -240,7 +298,7 @@ export class PreferencesService {
         data: preference,
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
         throw error;
       }
       this.logger.error(`Erro ao buscar preferência ${id}:`, error);
@@ -251,16 +309,25 @@ export class PreferencesService {
   /**
    * Find many preferences with filters and pagination
    */
-  async findMany(query: PreferencesGetManyFormData = {}): Promise<PreferencesGetManyResponse> {
+  async findMany(
+    query: PreferencesGetManyFormData = {},
+    actorUserId?: string,
+  ): Promise<PreferencesGetManyResponse> {
     try {
       const { page, limit: take, orderBy, where, ...filters } = query;
+
+      // SECURITY (audit A4/B10): non-ADMIN actors only see their OWN preferences.
+      const scopedWhere =
+        actorUserId && !(await this.isActorAdmin(actorUserId))
+          ? { ...(where || filters), userId: actorUserId }
+          : where || filters;
 
       // Convert query to FindManyOptions format
       const options = {
         page,
         take,
         orderBy,
-        where: where || filters,
+        where: scopedWhere,
       };
 
       const result = await this.preferencesRepository.findMany(options);

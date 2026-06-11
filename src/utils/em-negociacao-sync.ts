@@ -12,6 +12,21 @@ type PrismaContext = Prisma.TransactionClient | { artwork: any; serviceOrder: an
 
 const logger = new Logger('EmNegociacaoSync');
 
+/**
+ * Event emitter registered once at bootstrap (ServiceOrderService constructor).
+ * This util is a plain function called from many layers (task-quote, invoice,
+ * artwork listeners, …) that mostly lack an EventEmitter2 — registering the
+ * shared instance here lets every auto-transition emit the same
+ * 'service_order.status.changed' event the manual SO update path emits, so
+ * service_order.waiting_artwork/completed/pending notifications actually fire.
+ */
+type EmitterLike = { emit: (event: string, payload: unknown) => unknown };
+let registeredEventEmitter: EmitterLike | null = null;
+
+export function registerEmNegociacaoEventEmitter(emitter: EmitterLike): void {
+  registeredEventEmitter = emitter;
+}
+
 const EM_NEGOCIACAO_DESC = 'em negociação';
 
 const STATUSES_AT_OR_ABOVE_BUDGET_APPROVED: TASK_QUOTE_STATUS[] = [
@@ -164,7 +179,7 @@ export async function syncEmNegociacaoForTask(
       patch.lastStartedAt = now;
     }
 
-    await (prisma as any).serviceOrder.update({
+    const updatedServiceOrder = await (prisma as any).serviceOrder.update({
       where: { id: emNegociacao.id },
       data: patch,
     });
@@ -172,6 +187,25 @@ export async function syncEmNegociacaoForTask(
     logger.log(
       `[Em Negociação Sync] Task ${taskId} — SO ${emNegociacao.id}: ${emNegociacao.status} → ${target} (quote=${quoteStatus}, hasAnyArtwork=${hasAnyArtwork}, needsArtwork=${needsArtwork})`,
     );
+
+    // Emit the same status-change event the manual SO update path emits
+    // (service-order.service.ts) so the ServiceOrderListener dispatches
+    // service_order.waiting_artwork/completed/started .commercial notifications
+    // for these automatic transitions. Best-effort.
+    if (registeredEventEmitter) {
+      try {
+        registeredEventEmitter.emit('service_order.status.changed', {
+          serviceOrder: updatedServiceOrder,
+          oldStatus: emNegociacao.status,
+          newStatus: target,
+          userId: userId ?? null,
+        });
+      } catch (emitError) {
+        logger.error(
+          `[Em Negociação Sync] Failed to emit service_order.status.changed for SO ${emNegociacao.id}: ${(emitError as Error).message}`,
+        );
+      }
+    }
   } catch (error) {
     logger.error(
       `[Em Negociação Sync] Error reconciling task ${taskId}: ${(error as Error).message}`,

@@ -291,6 +291,7 @@ export class SicrediWebhookService {
         include: {
           customer: { select: { fantasyName: true } },
           task: { select: { id: true, name: true, serialNumber: true } },
+          externalOperation: { select: { id: true } },
         },
       });
 
@@ -302,7 +303,8 @@ export class SicrediWebhookService {
       }
 
       const customerName = invoice.customer?.fantasyName || 'N/A';
-      const taskName = invoice.task?.name || 'N/A';
+      const withdrawalId = invoice.externalOperation?.id ?? invoice.externalOperationId ?? null;
+      const taskName = withdrawalId ? 'Operação Externa' : invoice.task?.name || 'N/A';
       const formattedAmount = new Intl.NumberFormat('pt-BR', {
         style: 'currency',
         currency: 'BRL',
@@ -311,9 +313,14 @@ export class SicrediWebhookService {
         timeZone: 'America/Sao_Paulo',
       }).format(bankSlip.dueDate);
 
-      // Build deep link URLs (faturamento page expects task ID)
-      const webUrl = `/financeiro/faturamento/detalhes/${invoice.taskId}`;
-      const mobileUrl = `financial/${invoice.taskId}`;
+      // Build deep link URLs (faturamento page expects task ID; withdrawal-backed
+      // invoices link to the "Operação Externa" detail page instead)
+      const webUrl = withdrawalId
+        ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : `/financeiro/faturamento/detalhes/${invoice.taskId}`;
+      const mobileUrl = withdrawalId
+        ? `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : `financial/${invoice.taskId}`;
       const actionUrl = JSON.stringify({
         web: webUrl,
         mobile: mobileUrl,
@@ -331,6 +338,7 @@ export class SicrediWebhookService {
           invoiceId: invoice.id,
           bankSlipId: bankSlip.id,
           taskId: invoice.taskId,
+          externalOperationId: withdrawalId || undefined,
         },
         overrides: {
           actionUrl,
@@ -424,6 +432,7 @@ export class SicrediWebhookService {
         include: {
           customer: { select: { fantasyName: true } },
           task: { select: { id: true, name: true } },
+          externalOperation: { select: { id: true } },
         },
       });
       if (!invoice) {
@@ -434,18 +443,24 @@ export class SicrediWebhookService {
       }
 
       const customerName = invoice.customer?.fantasyName || 'N/A';
-      const taskName = invoice.task?.name || 'N/A';
       const taskId = invoice.task?.id ?? invoice.taskId ?? null;
+      const withdrawalId = invoice.externalOperation?.id ?? invoice.externalOperationId ?? null;
+      const taskName = withdrawalId ? 'Operação Externa' : invoice.task?.name || 'N/A';
+      const refLabel = withdrawalId ? 'da operação externa' : `da tarefa ${taskName}`;
 
-      const webUrl = taskId ? `/financeiro/faturamento/detalhes/${taskId}` : undefined;
-      const mobileUrl = taskId ? `financial/${taskId}` : undefined;
+      const webUrl = withdrawalId
+        ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : taskId
+          ? `/financeiro/faturamento/detalhes/${taskId}`
+          : undefined;
+      const mobileUrl = !withdrawalId && taskId ? `financial/${taskId}` : undefined;
 
       await this.notificationDispatchService.dispatchByConfiguration(
         'bank_slip.reversed',
         'system',
         {
           entityType: 'BankSlip',
-          entityId: taskId ?? invoice.id,
+          entityId: taskId ?? withdrawalId ?? invoice.id,
           action: 'reversed',
           data: {
             customerName,
@@ -454,10 +469,11 @@ export class SicrediWebhookService {
             invoiceId: invoice.id,
             bankSlipId,
             taskId: taskId || undefined,
+            externalOperationId: withdrawalId || undefined,
           },
           overrides: {
             title: 'Pagamento de Boleto Estornado',
-            body: `O pagamento do boleto ${nossoNumero} da tarefa ${taskName} (${customerName}) foi estornado pelo Sicredi.`,
+            body: `O pagamento do boleto ${nossoNumero} ${refLabel} (${customerName}) foi estornado pelo Sicredi.`,
             relatedEntityType: 'BANK_SLIP',
             ...(webUrl ? { webUrl } : {}),
             ...(mobileUrl ? { mobileUrl } : {}),

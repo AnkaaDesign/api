@@ -64,7 +64,7 @@ export class DeploymentController {
 
   // Basic CRUD Operations
   @Get()
-  @Public()
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @ReadRateLimit()
   async findMany(
     @Query(new ZodQueryValidationPipe(deploymentGetManySchema)) query: DeploymentGetManyFormData,
@@ -74,7 +74,7 @@ export class DeploymentController {
   }
 
   @Post()
-  @Public()
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @NoRateLimit()
   @HttpCode(HttpStatus.CREATED)
   async create(
@@ -82,9 +82,7 @@ export class DeploymentController {
     @Query(new ZodQueryValidationPipe(deploymentQuerySchema)) query: DeploymentQueryFormData,
     @UserId() userId: string,
   ): Promise<DeploymentCreateResponse> {
-    // Use a system user ID if not authenticated
-    const effectiveUserId = userId || 'system-deployment';
-    return this.deploymentService.create(data, effectiveUserId, query.include);
+    return this.deploymentService.create(data, userId, query.include);
   }
 
   // Batch Operations (must come before dynamic routes)
@@ -125,7 +123,7 @@ export class DeploymentController {
    * Get available commits for deployment
    */
   @Get('commits/list')
-  @Public()
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @ReadRateLimit()
   async getAvailableCommits(
     @Query('limit') limit?: string,
@@ -139,7 +137,7 @@ export class DeploymentController {
    * Get current deployment for app and environment
    */
   @Get('current/:appName/:environment')
-  @Public()
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @NoRateLimit()
   async getCurrentDeployment(
     @Param('appName') appName: string,
@@ -157,7 +155,7 @@ export class DeploymentController {
    * Create and trigger deployment
    */
   @Post('deploy/:application/:environment/:commitHash')
-  @Public()
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @NoRateLimit()
   @HttpCode(HttpStatus.CREATED)
   async createDeployment(
@@ -167,7 +165,6 @@ export class DeploymentController {
     @Query(new ZodQueryValidationPipe(deploymentQuerySchema)) query: DeploymentQueryFormData,
     @UserId() userId: string,
   ): Promise<DeploymentCreateResponse> {
-    // Pass userId as-is (can be null/undefined for public deployments)
     return this.deploymentService.createDeployment(
       application,
       commitHash,
@@ -179,7 +176,7 @@ export class DeploymentController {
 
   // Dynamic routes (must come after static routes)
   @Get(':id')
-  @Public()
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @ReadRateLimit()
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -190,7 +187,7 @@ export class DeploymentController {
   }
 
   @Put(':id')
-  @Public()
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @NoRateLimit()
   async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -198,9 +195,7 @@ export class DeploymentController {
     @Query(new ZodQueryValidationPipe(deploymentQuerySchema)) query: DeploymentQueryFormData,
     @UserId() userId: string,
   ): Promise<DeploymentUpdateResponse> {
-    // Use a system user ID if not authenticated
-    const effectiveUserId = userId || 'system-deployment';
-    return this.deploymentService.update(id, data, effectiveUserId, query.include);
+    return this.deploymentService.update(id, data, userId, query.include);
   }
 
   @Delete(':id')
@@ -231,6 +226,7 @@ export class DeploymentController {
    * Stream deployment logs (Server-Sent Events)
    */
   @Sse(':id/logs')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @ReadRateLimit()
   streamLogs(@Param('id', ParseUUIDPipe) id: string): Observable<MessageEvent> {
     // Note: This is a simplified implementation
@@ -255,16 +251,19 @@ export class DeploymentController {
   async handleWebhook(@Req() req: RawBodyRequest<Request>) {
     const webhookSecret = process.env.WEBHOOK_SECRET;
 
-    if (webhookSecret) {
-      const signature = req.headers['x-hub-signature-256'] as string;
-      if (!signature) {
-        throw new UnauthorizedException('Missing signature');
-      }
-      const rawBody = req.rawBody?.toString() || JSON.stringify(req.body);
-      const isValid = this.deploymentService.verifyWebhookSignature(rawBody, signature, webhookSecret);
-      if (!isValid) {
-        throw new UnauthorizedException('Invalid signature');
-      }
+    if (!webhookSecret) {
+      // Never process unverifiable webhooks: missing secret = reject (decision 9)
+      throw new UnauthorizedException('Webhook secret not configured');
+    }
+
+    const signature = req.headers['x-hub-signature-256'] as string;
+    if (!signature) {
+      throw new UnauthorizedException('Missing signature');
+    }
+    const rawBody = req.rawBody?.toString() || JSON.stringify(req.body);
+    const isValid = this.deploymentService.verifyWebhookSignature(rawBody, signature, webhookSecret);
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid signature');
     }
 
     return this.deploymentService.handleWebhook(req.body);

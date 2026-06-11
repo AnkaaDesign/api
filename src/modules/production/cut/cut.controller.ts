@@ -108,7 +108,7 @@ export class CutController {
 
   // Batch operations (must come before dynamic routes)
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(cutBatchCreateSchema)) data: CutBatchCreateFormData,
@@ -119,7 +119,7 @@ export class CutController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.PLOTTING, SECTOR_PRIVILEGES.ADMIN)
   async batchUpdate(
     @Body(new ZodValidationPipe(cutBatchUpdateSchema)) data: CutBatchUpdateFormData,
     @UserId() userId: string,
@@ -129,7 +129,7 @@ export class CutController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(cutBatchDeleteSchema)) data: CutBatchDeleteFormData,

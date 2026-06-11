@@ -1,7 +1,7 @@
 // repositories/task-prisma.repository.ts
 
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Task } from '../../../../types';
 import {
   TaskCreateFormData,
@@ -20,7 +20,7 @@ import { TASK_QUOTE_STATUS_ORDER } from '../../../../constants/sortOrders';
 import { TASK_QUOTE_STATUS } from '../../../../constants';
 import {
   getTaskStatusOrder,
-  getCommissionStatusOrder,
+  getBonificationStatusOrder,
   getServiceOrderStatusOrder,
   getCutStatusOrder,
   mapTaskStatusToPrisma,
@@ -69,8 +69,8 @@ const TASK_SELECT_CARD: Prisma.TaskSelect = {
   entryDate: true,
   startedAt: true,
   finishedAt: true,
-  commission: true,
-  commissionOrder: true,
+  bonification: true,
+  bonificationOrder: true,
   createdById: true,
   // Additional relations
   createdBy: {
@@ -152,8 +152,8 @@ const TASK_SELECT_SCHEDULE: Prisma.TaskSelect = {
 const TASK_SELECT_PREPARATION: Prisma.TaskSelect = {
   ...TASK_SELECT_MINIMAL,
   details: true,
-  commission: true,
-  commissionOrder: true,
+  bonification: true,
+  bonificationOrder: true,
   paintId: true,
   // Paint info without formulas
   generalPainting: {
@@ -730,7 +730,7 @@ export class TaskPrismaRepository
       paintId,
       customerId,
       sectorId,
-      commission,
+      bonification,
       budgetIds,
       invoiceIds,
       receiptIds,
@@ -755,8 +755,8 @@ export class TaskPrismaRepository
       name,
       status: mapTaskStatusToPrisma(status || TASK_STATUS.PREPARATION),
       statusOrder: getTaskStatusOrder(status || TASK_STATUS.PREPARATION),
-      commission: (commission as any) || 'FULL_COMMISSION',
-      commissionOrder: getCommissionStatusOrder((commission as string) || 'FULL_COMMISSION'),
+      bonification: (bonification as any) || 'FULL_BONIFICATION',
+      bonificationOrder: getBonificationStatusOrder((bonification as string) || 'FULL_BONIFICATION'),
     };
 
     if (serialNumber !== undefined) taskData.serialNumber = serialNumber;
@@ -916,6 +916,20 @@ export class TaskPrismaRepository
     // Handle airbrushings
     const airbrushings = (extendedData as any).airbrushings;
     if (airbrushings && Array.isArray(airbrushings) && airbrushings.length > 0) {
+      // Security (B7): a newly created airbrushing can never start with a
+      // non-PENDING payment status — the payment gate requires the PERSISTED
+      // status to be COMPLETED, which a new record cannot be.
+      for (const item of airbrushings) {
+        if (
+          item?.paymentStatus !== undefined &&
+          item?.paymentStatus !== null &&
+          item.paymentStatus !== 'PENDING'
+        ) {
+          throw new BadRequestException(
+            'O status de pagamento só pode ser definido após a conclusão da aerografia.',
+          );
+        }
+      }
       taskData.airbrushings = {
         create: airbrushings.map((item: any) => ({
           status: item.status || 'PENDING',
@@ -1016,7 +1030,7 @@ export class TaskPrismaRepository
       paintId,
       customerId,
       sectorId,
-      commission,
+      bonification,
       budgetIds,
       invoiceIds,
       receiptIds,
@@ -1061,9 +1075,9 @@ export class TaskPrismaRepository
     }
     if (cleared !== undefined) updateData.cleared = cleared;
 
-    if (commission !== undefined) {
-      updateData.commission = commission as any;
-      updateData.commissionOrder = getCommissionStatusOrder(commission as string);
+    if (bonification !== undefined) {
+      updateData.bonification = bonification as any;
+      updateData.bonificationOrder = getBonificationStatusOrder(bonification as string);
     }
 
     if (status !== undefined) {

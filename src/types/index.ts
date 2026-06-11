@@ -12,7 +12,7 @@ export * from './economic-activity';
 export * from './cut';
 export * from './dashboard';
 export * from './deployment';
-export * from './externalWithdrawal';
+export * from './externalOperation';
 export * from './express.types';
 export * from './file';
 export * from './garage';

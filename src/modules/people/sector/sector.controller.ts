@@ -15,6 +15,8 @@ import {
 } from '@nestjs/common';
 import { SectorService } from './sector.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
+import { Roles } from '@modules/common/auth/decorators/roles.decorator';
+import { SECTOR_PRIVILEGES } from '../../../constants';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
@@ -62,6 +64,7 @@ export class SectorController {
   }
 
   @Post()
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body(new ZodValidationPipe(sectorCreateSchema)) data: SectorCreateFormData,
@@ -73,6 +76,7 @@ export class SectorController {
 
   // Batch Operations (must come before dynamic routes)
   @Post('batch')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(sectorBatchCreateSchema)) data: SectorBatchCreateFormData,
@@ -83,6 +87,7 @@ export class SectorController {
   }
 
   @Put('batch')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async batchUpdate(
     @Body(new ZodValidationPipe(sectorBatchUpdateSchema)) data: SectorBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(sectorQuerySchema)) query: SectorQueryFormData,
@@ -92,6 +97,7 @@ export class SectorController {
   }
 
   @Delete('batch')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(sectorBatchDeleteSchema)) data: SectorBatchDeleteFormData,
@@ -110,6 +116,7 @@ export class SectorController {
   }
 
   @Put(':id')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(sectorUpdateSchema)) data: SectorUpdateFormData,
@@ -120,6 +127,7 @@ export class SectorController {
   }
 
   @Delete(':id')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,

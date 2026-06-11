@@ -2,7 +2,7 @@
 
 import {
   TASK_STATUS_ORDER,
-  COMMISSION_STATUS_ORDER,
+  BONIFICATION_STATUS_ORDER,
   TASK_QUOTE_STATUS_ORDER,
   ORDER_STATUS_ORDER,
   SERVICE_ORDER_STATUS_ORDER,
@@ -79,8 +79,8 @@ export function getTaskStatusOrder(status: string): number {
   return getSortOrder(status, TASK_STATUS_ORDER);
 }
 
-export function getCommissionStatusOrder(commission: string): number {
-  return getSortOrder(commission, COMMISSION_STATUS_ORDER);
+export function getBonificationStatusOrder(bonification: string): number {
+  return getSortOrder(bonification, BONIFICATION_STATUS_ORDER);
 }
 
 export function getTaskQuoteStatusOrder(status: string): number {
@@ -124,7 +124,7 @@ export function getCutStatusOrder(status: string): number {
 // Export all order maps for direct access if needed
 export {
   TASK_STATUS_ORDER,
-  COMMISSION_STATUS_ORDER,
+  BONIFICATION_STATUS_ORDER,
   TASK_QUOTE_STATUS_ORDER,
   ORDER_STATUS_ORDER,
   SERVICE_ORDER_STATUS_ORDER,

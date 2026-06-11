@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as Handlebars from 'handlebars';
 import {
   TASK_STATUS,
-  COMMISSION_STATUS,
+  BONIFICATION_STATUS,
   SERVICE_ORDER_STATUS,
   SERVICE_ORDER_TYPE,
 } from '../../../constants/enums';
@@ -127,7 +127,7 @@ export type FormatterType =
   | 'formatPaint'
   | 'formatServiceOrderStatus'
   | 'formatServiceOrderType'
-  | 'formatCommissionStatus';
+  | 'formatBonificationStatus';
 
 // =====================
 // Status Translation Maps
@@ -141,11 +141,11 @@ const TASK_STATUS_LABELS: Record<TASK_STATUS, string> = {
   [TASK_STATUS.CANCELLED]: 'Cancelado',
 };
 
-const COMMISSION_STATUS_LABELS: Record<COMMISSION_STATUS, string> = {
-  [COMMISSION_STATUS.NO_COMMISSION]: 'Sem Comissão',
-  [COMMISSION_STATUS.PARTIAL_COMMISSION]: 'Comissão Parcial',
-  [COMMISSION_STATUS.FULL_COMMISSION]: 'Comissão Total',
-  [COMMISSION_STATUS.SUSPENDED_COMMISSION]: 'Comissão Suspensa',
+const BONIFICATION_STATUS_LABELS: Record<BONIFICATION_STATUS, string> = {
+  [BONIFICATION_STATUS.NO_BONIFICATION]: 'Sem Bonificação',
+  [BONIFICATION_STATUS.PARTIAL_BONIFICATION]: 'Bonificação Parcial',
+  [BONIFICATION_STATUS.FULL_BONIFICATION]: 'Bonificação Integral',
+  [BONIFICATION_STATUS.SUSPENDED_BONIFICATION]: 'Bonificação Suspensa',
 };
 
 const SERVICE_ORDER_STATUS_LABELS: Record<SERVICE_ORDER_STATUS, string> = {
@@ -395,9 +395,13 @@ export class NotificationTemplateRendererService {
       oldValue: this.formatContextValue(context.oldValue),
       newValue: this.formatContextValue(context.newValue),
 
-      // User information
+      // User information.
+      // changedBy stays available as data for routing/audit-style templates,
+      // but {{userName}} must NEVER fall back to the actor: userName is the
+      // SUBJECT of a notification (e.g. who missed a punch), not who made the
+      // change — rendered notification text never names the actor.
       changedBy: context.changedBy || context.changedByName || '',
-      userName: context.userName || context.changedBy || '',
+      userName: context.userName || '',
 
       // File/count information
       count: context.count ?? context.fileCount ?? context.files?.length ?? 0,
@@ -467,8 +471,8 @@ export class NotificationTemplateRendererService {
         case 'formatStatus':
           return this.formatTaskStatus(value);
 
-        case 'formatCommissionStatus':
-          return this.formatCommissionStatus(value);
+        case 'formatBonificationStatus':
+          return this.formatBonificationStatus(value);
 
         case 'formatServiceOrderStatus':
           return this.formatServiceOrderStatus(value);
@@ -699,11 +703,11 @@ export class NotificationTemplateRendererService {
   }
 
   /**
-   * Format commission status enum to Portuguese label
+   * Format bonification status enum to Portuguese label
    */
-  private formatCommissionStatus(value: any): string {
-    const status = String(value) as COMMISSION_STATUS;
-    return COMMISSION_STATUS_LABELS[status] || String(value);
+  private formatBonificationStatus(value: any): string {
+    const status = String(value) as BONIFICATION_STATUS;
+    return BONIFICATION_STATUS_LABELS[status] || String(value);
   }
 
   /**

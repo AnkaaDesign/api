@@ -26,9 +26,9 @@ export const fileIncludeSchema = z
     taskBudgets: z.boolean().optional(),
     taskInvoices: z.boolean().optional(),
     taskReceipts: z.boolean().optional(),
-    externalWithdrawalBudgets: z.boolean().optional(),
-    externalWithdrawalInvoices: z.boolean().optional(),
-    externalWithdrawalReceipts: z.boolean().optional(),
+    externalOperationBudgets: z.boolean().optional(),
+    externalOperationInvoices: z.boolean().optional(),
+    externalOperationReceipts: z.boolean().optional(),
   })
   .strict();
 
@@ -311,7 +311,7 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
         })
         .optional(),
 
-      externalWithdrawalBudgets: z
+      externalOperationBudgets: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -319,7 +319,7 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
         })
         .optional(),
 
-      externalWithdrawalInvoices: z
+      externalOperationInvoices: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -327,7 +327,7 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
         })
         .optional(),
 
-      externalWithdrawalReceipts: z
+      externalOperationReceipts: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -483,9 +483,9 @@ const fileTransform = (data: any) => {
           { taskBudgets: { none: {} } },
           { taskInvoices: { none: {} } },
           { taskReceipts: { none: {} } },
-          { externalWithdrawalBudgets: { none: {} } },
-          { externalWithdrawalInvoices: { none: {} } },
-          { externalWithdrawalReceipts: { none: {} } },
+          { externalOperationBudgets: { none: {} } },
+          { externalOperationInvoices: { none: {} } },
+          { externalOperationReceipts: { none: {} } },
         ],
       });
     } else {
@@ -505,9 +505,9 @@ const fileTransform = (data: any) => {
           { taskBudgets: { some: {} } },
           { taskInvoices: { some: {} } },
           { taskReceipts: { some: {} } },
-          { externalWithdrawalBudgets: { some: {} } },
-          { externalWithdrawalInvoices: { some: {} } },
-          { externalWithdrawalReceipts: { some: {} } },
+          { externalOperationBudgets: { some: {} } },
+          { externalOperationInvoices: { some: {} } },
+          { externalOperationReceipts: { some: {} } },
         ],
       });
     }
@@ -531,9 +531,9 @@ const fileTransform = (data: any) => {
           { taskBudgets: { some: {} } },
           { taskInvoices: { some: {} } },
           { taskReceipts: { some: {} } },
-          { externalWithdrawalBudgets: { some: {} } },
-          { externalWithdrawalInvoices: { some: {} } },
-          { externalWithdrawalReceipts: { some: {} } },
+          { externalOperationBudgets: { some: {} } },
+          { externalOperationInvoices: { some: {} } },
+          { externalOperationReceipts: { some: {} } },
         ],
       });
     } else {
@@ -552,9 +552,9 @@ const fileTransform = (data: any) => {
           { taskBudgets: { none: {} } },
           { taskInvoices: { none: {} } },
           { taskReceipts: { none: {} } },
-          { externalWithdrawalBudgets: { none: {} } },
-          { externalWithdrawalInvoices: { none: {} } },
-          { externalWithdrawalReceipts: { none: {} } },
+          { externalOperationBudgets: { none: {} } },
+          { externalOperationInvoices: { none: {} } },
+          { externalOperationReceipts: { none: {} } },
         ],
       });
     }

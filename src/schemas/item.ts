@@ -20,6 +20,7 @@ import {
   PPE_SIZE,
   PPE_DELIVERY_MODE,
   STOCK_LEVEL,
+  STOCK_MODEL,
   ITEM_CATEGORY_TYPE,
 } from '@constants';
 import { activityIncludeSchema, activityWhereSchema, activityOrderBySchema } from './activity';
@@ -203,7 +204,7 @@ export const itemSelectSchema = z
     orderItems: z.boolean().optional(),
     ppeDeliveries: z.boolean().optional(),
     orderRules: z.boolean().optional(),
-    externalWithdrawalItems: z.boolean().optional(),
+    externalOperationItems: z.boolean().optional(),
     relatedItems: z.boolean().optional(),
     relatedTo: z.boolean().optional(),
     maintenance: z.boolean().optional(),
@@ -536,7 +537,7 @@ export const itemDetailSelectSchema = z.object({
               orderItems: z.literal(true).optional(),
               ppeDeliveries: z.literal(true).optional(),
               orderRules: z.literal(true).optional(),
-              externalWithdrawalItems: z.literal(true).optional(),
+              externalOperationItems: z.literal(true).optional(),
               relatedItems: z.literal(true).optional(),
               relatedTo: z.literal(true).optional(),
               maintenanceItemsNeeded: z.literal(true).optional(),
@@ -1144,7 +1145,7 @@ export const itemIncludeSchema = z
       ])
       .optional(),
     orderRules: z.boolean().optional(),
-    externalWithdrawalItems: z.boolean().optional(),
+    externalOperationItems: z.boolean().optional(),
     relatedItems: z
       .union([
         z.boolean(),
@@ -1228,7 +1229,7 @@ export const itemIncludeSchema = z
               orderItems: z.boolean().optional(),
               ppeDeliveries: z.boolean().optional(),
               orderRules: z.boolean().optional(),
-              externalWithdrawalItems: z.boolean().optional(),
+              externalOperationItems: z.boolean().optional(),
               relatedItems: z.boolean().optional(),
               relatedTo: z.boolean().optional(),
               maintenanceItemsNeeded: z.boolean().optional(),
@@ -1580,6 +1581,16 @@ export const itemWhereSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
+      isBorrowable: z
+        .union([
+          z.boolean(),
+          z.object({
+            equals: z.boolean().optional(),
+            not: z.boolean().optional(),
+          }),
+        ])
+        .optional(),
+
       isActive: z
         .union([
           z.boolean(),
@@ -1610,6 +1621,34 @@ export const itemWhereSchema: z.ZodSchema = z.lazy(() =>
             not: z.union([z.nativeEnum(PPE_TYPE), z.null()]).optional(),
             in: z.array(z.nativeEnum(PPE_TYPE)).optional(),
             notIn: z.array(z.nativeEnum(PPE_TYPE)).optional(),
+          }),
+        ])
+        .optional(),
+
+      // Stock model fields
+      stockModel: z
+        .union([
+          z.nativeEnum(STOCK_MODEL),
+          z.object({
+            equals: z.nativeEnum(STOCK_MODEL).optional(),
+            not: z.nativeEnum(STOCK_MODEL).optional(),
+            in: z.array(z.nativeEnum(STOCK_MODEL)).optional(),
+            notIn: z.array(z.nativeEnum(STOCK_MODEL)).optional(),
+          }),
+        ])
+        .optional(),
+
+      fixedTargetQuantity: z
+        .union([
+          z.number(),
+          z.null(),
+          z.object({
+            equals: z.union([z.number(), z.null()]).optional(),
+            not: z.union([z.number(), z.null()]).optional(),
+            gt: z.number().optional(),
+            gte: z.number().optional(),
+            lt: z.number().optional(),
+            lte: z.number().optional(),
           }),
         ])
         .optional(),
@@ -1756,7 +1795,7 @@ export const itemWhereSchema: z.ZodSchema = z.lazy(() =>
           none: z.any().optional(),
         })
         .optional(),
-      externalWithdrawalItems: z
+      externalOperationItems: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -1829,6 +1868,7 @@ const itemFilters = {
   isActive: z.boolean().optional(),
   isPpe: z.boolean().optional(), // Backwards compatibility
   shouldAssignToUser: z.boolean().optional(),
+  isBorrowable: z.boolean().optional(),
 
   // PPE type filter
   ppeType: z.nativeEnum(PPE_TYPE).optional(),
@@ -1981,18 +2021,18 @@ const itemTransform = (data: any) => {
     delete data.where.categoryReviewNeeded;
   }
 
-  // isPpe filter (backwards compatibility - converts to type filter)
+  // isPpe filter (backwards compatibility - converts to ppeType filter)
   if (data.isPpe === true) {
-    andConditions.push({ category: { type: ITEM_CATEGORY_TYPE.PPE } });
+    andConditions.push({ ppeType: { not: null } });
     delete data.isPpe;
   } else if (data.isPpe === false) {
-    andConditions.push({ category: { type: { not: ITEM_CATEGORY_TYPE.PPE } } });
+    andConditions.push({ ppeType: null });
     delete data.isPpe;
   } else if (data.where && data.where.isPpe === true) {
-    andConditions.push({ category: { type: ITEM_CATEGORY_TYPE.PPE } });
+    andConditions.push({ ppeType: { not: null } });
     delete data.where.isPpe;
   } else if (data.where && data.where.isPpe === false) {
-    andConditions.push({ category: { type: { not: ITEM_CATEGORY_TYPE.PPE } } });
+    andConditions.push({ ppeType: null });
     delete data.where.isPpe;
   }
 
@@ -2012,6 +2052,15 @@ const itemTransform = (data: any) => {
   } else if (data.where && typeof data.where.shouldAssignToUser === 'boolean') {
     andConditions.push({ shouldAssignToUser: data.where.shouldAssignToUser });
     delete data.where.shouldAssignToUser;
+  }
+
+  // isBorrowable filter
+  if (typeof data.isBorrowable === 'boolean') {
+    andConditions.push({ isBorrowable: data.isBorrowable });
+    delete data.isBorrowable;
+  } else if (data.where && typeof data.where.isBorrowable === 'boolean') {
+    andConditions.push({ isBorrowable: data.where.isBorrowable });
+    delete data.where.isBorrowable;
   }
 
   // hasBarcode filter
@@ -2673,6 +2722,13 @@ export const itemCreateSchemaBase = z.object({
   barcodes: z.array(z.string().min(1, 'Código de barras não pode ser vazio')).default([]),
 
   shouldAssignToUser: z.boolean().default(true),
+  isBorrowable: z.boolean().optional(),
+  stockModel: z.nativeEnum(STOCK_MODEL).optional(),
+  fixedTargetQuantity: z
+    .number()
+    .positive('Quantidade alvo deve ser positiva')
+    .nullable()
+    .optional(),
   abcCategory: z.nativeEnum(ABC_CATEGORY).nullable().optional(),
   xyzCategory: z.nativeEnum(XYZ_CATEGORY).nullable().optional(),
   brandIds: z.array(z.string().uuid({ message: 'Marca inválida' })).optional(),
@@ -2765,6 +2821,13 @@ export const itemUpdateSchemaBase = z.object({
   barcodes: z.array(z.string().min(1, 'Código de barras não pode ser vazio')).optional(),
 
   shouldAssignToUser: z.boolean().optional(),
+  isBorrowable: z.boolean().optional(),
+  stockModel: z.nativeEnum(STOCK_MODEL).optional(),
+  fixedTargetQuantity: z
+    .number()
+    .positive('Quantidade alvo deve ser positiva')
+    .nullable()
+    .optional(),
   abcCategory: z.nativeEnum(ABC_CATEGORY).nullable().optional(),
   xyzCategory: z.nativeEnum(XYZ_CATEGORY).nullable().optional(),
   brandIds: z.array(z.string().uuid({ message: 'Marca inválida' })).optional(),
@@ -2832,8 +2895,30 @@ export const itemUpdateSchemaBase = z.object({
 // Apply transforms
 const toFormData = <T>(data: T) => data;
 
-export const itemCreateSchema = itemCreateSchemaBase.transform(toFormData);
-export const itemUpdateSchema = itemUpdateSchemaBase.transform(toFormData);
+// Cross-field validation: fixedTargetQuantity only makes sense for FIXED_TARGET items
+const validateStockModelTarget = (
+  data: { stockModel?: STOCK_MODEL; fixedTargetQuantity?: number | null },
+  ctx: z.RefinementCtx,
+) => {
+  if (
+    data.stockModel === STOCK_MODEL.CONSUMPTION &&
+    data.fixedTargetQuantity !== undefined &&
+    data.fixedTargetQuantity !== null
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['fixedTargetQuantity'],
+      message: 'Quantidade alvo só pode ser definida quando o modelo de estoque é "Alvo fixo"',
+    });
+  }
+};
+
+export const itemCreateSchema = itemCreateSchemaBase
+  .superRefine(validateStockModelTarget)
+  .transform(toFormData);
+export const itemUpdateSchema = itemUpdateSchemaBase
+  .superRefine(validateStockModelTarget)
+  .transform(toFormData);
 
 // ItemBrand CRUD
 export const itemBrandCreateSchema = z
@@ -3087,6 +3172,9 @@ export const mapItemToFormData = createMapToFormDataHelper<Item, ItemUpdateFormD
   monthlyConsumptionTrendPercent: item.monthlyConsumptionTrendPercent,
   barcodes: item.barcodes,
   shouldAssignToUser: item.shouldAssignToUser,
+  isBorrowable: item.isBorrowable ?? undefined,
+  stockModel: item.stockModel ?? undefined,
+  fixedTargetQuantity: item.fixedTargetQuantity ?? undefined,
   brandIds: item.brands?.map(b => b.id) ?? [],
   categoryId: item.categoryId || undefined,
   supplierId: item.supplierId || undefined,

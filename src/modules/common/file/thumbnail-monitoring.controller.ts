@@ -1,5 +1,7 @@
 import { Controller, Get, Post, Param, Query, UseGuards, Logger } from '@nestjs/common';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
+import { Roles } from '@modules/common/auth/decorators/roles.decorator';
+import { SECTOR_PRIVILEGES } from '../../../constants';
 import {
   ThumbnailQueueService,
   ThumbnailJobStatus,
@@ -92,6 +94,7 @@ export class ThumbnailMonitoringController {
    * Pause queue processing
    */
   @Post('queue/pause')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async pauseQueue() {
     try {
       await this.thumbnailQueueService.pauseQueue();
@@ -109,6 +112,7 @@ export class ThumbnailMonitoringController {
    * Resume queue processing
    */
   @Post('queue/resume')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async resumeQueue() {
     try {
       await this.thumbnailQueueService.resumeQueue();
@@ -126,6 +130,7 @@ export class ThumbnailMonitoringController {
    * Clean old jobs from queue
    */
   @Post('queue/clean')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async cleanQueue(
     @Query('type') type?: JobStatusCleanInput,
     @Query('olderThan') olderThan?: string,

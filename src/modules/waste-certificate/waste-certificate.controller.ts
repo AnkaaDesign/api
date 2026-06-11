@@ -59,7 +59,7 @@ export class WasteCertificateController {
   }
 
   @Post()
-  @Roles(...ALLOWED)
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('file', multerConfig))
   async create(
@@ -74,7 +74,7 @@ export class WasteCertificateController {
   }
 
   @Delete(':id')
-  @Roles(...ALLOWED)
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async delete(@Param('id', ParseUUIDPipe) id: string) {
     return this.wasteCertificateService.delete(id);
   }

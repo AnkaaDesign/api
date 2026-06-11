@@ -231,6 +231,29 @@ export class WhatsAppNotificationService {
       // Get the action URL
       const url = this.extractActionUrl(notification, metadata);
 
+      // CHANNEL TEMPLATE WINS: when dispatch rendered a WhatsApp-specific template
+      // (NotificationConfiguration.templates.whatsapp.body → metadata.channelTemplates.whatsapp.body),
+      // deliver THAT body instead of routing to a hardcoded formatter. Layout keeps
+      // the one-emoji policy: lone importance emoji on the bold title line, blank
+      // line, template body, then the standard link block (same URL resolution as
+      // the generic path — universalLink > webUrl). The formatters below remain
+      // the fallback for configs without a WhatsApp template.
+      const whatsappTemplateBody = metadata?.channelTemplates?.whatsapp?.body;
+      if (typeof whatsappTemplateBody === 'string' && whatsappTemplateBody.trim().length > 0) {
+        const emoji = this.formatter.getImportanceEmoji(notification.importance);
+        const lines: string[] = [];
+        lines.push(`${emoji} *${notification.title || 'Notificação'}*`);
+        lines.push('');
+        lines.push(whatsappTemplateBody.trim());
+        if (url) {
+          lines.push('');
+          lines.push('*Ver detalhes:*');
+          lines.push(url);
+        }
+        const text = lines.join('\n');
+        return { text, fallbackText: text };
+      }
+
       // Build data object for formatter
       // For specific formatters, include all metadata plus url. Importance is
       // set last so notification.importance always wins — it drives the single
@@ -267,19 +290,23 @@ export class WhatsAppNotificationService {
         }
         // Unknown service-order event: fall through to generic
       }
-      // Task notifications
-      else if (key.startsWith('task')) {
+      // Task notifications. task_quote.* keys are financial (quote/installment)
+      // events, NOT task events — let them fall through to the generic formatter
+      // instead of misrendering quote payloads as task overdue/deadline messages.
+      else if (key.startsWith('task') && !key.startsWith('task_quote')) {
         if (key.includes('created')) {
           return this.formatter.formatTaskCreated(data);
         }
         if (key.includes('status')) {
           return this.formatter.formatTaskStatusChanged(data);
         }
-        if (key.includes('deadline') || key.includes('forecast')) {
-          return this.formatter.formatTaskDeadlineApproaching(data);
-        }
+        // Check 'overdue' BEFORE 'forecast'/'deadline': task.forecast_overdue
+        // contains both and must render as overdue, not "deadline approaching".
         if (key.includes('overdue')) {
           return this.formatter.formatTaskOverdue(data);
+        }
+        if (key.includes('deadline') || key.includes('forecast')) {
+          return this.formatter.formatTaskDeadlineApproaching(data);
         }
       }
       // Order notifications
@@ -374,7 +401,8 @@ export class WhatsAppNotificationService {
     // Build full URL if it's a relative path
     if (actionUrlToUse) {
       // Use WEB_APP_URL as the canonical base URL
-      const baseUrl = process.env.WEB_APP_URL || process.env.CLIENT_HOST || 'https://ankaa.app';
+      const baseUrl =
+        process.env.WEB_APP_URL || process.env.CLIENT_HOST || 'https://ankaadesign.com.br';
 
       // Check if URL is already complete (has protocol)
       if (!actionUrlToUse.startsWith('http://') && !actionUrlToUse.startsWith('https://')) {

@@ -22,6 +22,8 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { UserId } from '../auth/decorators/user.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { NotificationService } from './notification.service';
 import { NotificationDispatchService } from './notification-dispatch.service';
 import { ZodValidationPipe, ZodQueryValidationPipe } from '../pipes/zod-validation.pipe';
@@ -124,10 +126,11 @@ export class NotificationController {
   }
 
   @Post()
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Create a new notification',
-    description: 'Create a new notification for a specific user',
+    description: 'Create a new notification for a specific user (ADMIN only)',
   })
   @ApiResponse({
     status: 201,
@@ -150,10 +153,11 @@ export class NotificationController {
   // =====================
 
   @Post('send')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Send a notification',
-    description: 'Create and send a notification to the authenticated user',
+    description: 'Create and send a notification (ADMIN only)',
   })
   @ApiResponse({
     status: 201,
@@ -187,6 +191,7 @@ export class NotificationController {
   // =====================
 
   @Post('batch')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Batch create notifications',
@@ -206,6 +211,7 @@ export class NotificationController {
   }
 
   @Put('batch')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @ApiOperation({
     summary: 'Batch update notifications',
     description: 'Update multiple notifications in a single request',
@@ -224,6 +230,7 @@ export class NotificationController {
   }
 
   @Delete('batch')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Batch delete notifications',
@@ -266,11 +273,13 @@ export class NotificationController {
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(notificationQuerySchema)) query: NotificationQueryFormData,
+    @UserId() userId: string,
   ): Promise<NotificationGetUniqueResponse> {
-    return this.notificationService.getNotificationById(id, query.include);
+    return this.notificationService.getNotificationById(id, query.include, userId);
   }
 
   @Put(':id')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @ApiOperation({
     summary: 'Update notification',
     description: 'Update an existing notification by its ID',
@@ -298,6 +307,7 @@ export class NotificationController {
   }
 
   @Delete(':id')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @ApiOperation({
     summary: 'Delete notification',
     description: 'Delete a notification by its ID',
@@ -551,8 +561,10 @@ export class SeenNotificationController {
   async findMany(
     @Query(new ZodQueryValidationPipe(seenNotificationGetManySchema))
     query: SeenNotificationGetManyFormData,
+    @UserId() userId: string,
   ): Promise<SeenNotificationGetManyResponse> {
-    return this.notificationService.getSeenNotifications(query);
+    // SECURITY (audit B13): non-ADMIN actors are scoped to their own records in the service
+    return this.notificationService.getSeenNotifications(query, userId);
   }
 
   @Post()
@@ -612,8 +624,9 @@ export class SeenNotificationController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(seenNotificationQuerySchema))
     query: SeenNotificationQueryFormData,
+    @UserId() userId: string,
   ): Promise<SeenNotificationGetUniqueResponse> {
-    return this.notificationService.getSeenNotificationById(id, query.include);
+    return this.notificationService.getSeenNotificationById(id, query.include, userId);
   }
 
   @Put(':id')

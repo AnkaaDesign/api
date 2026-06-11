@@ -17,7 +17,7 @@ import type {
 import type { Task, TaskIncludes, TaskOrderBy } from './task';
 import type { File, FileIncludes } from './file';
 import type { Artwork, ArtworkIncludes } from './artwork';
-import type { User, UserIncludes } from './user';
+import type { User, UserIncludes, UserOrderBy } from './user';
 
 // =====================
 // Main Entity Interface
@@ -121,6 +121,7 @@ export interface AirbrushingOrderBy {
   updatedAt?: ORDER_BY_DIRECTION;
   task?: TaskOrderBy;
   painterId?: ORDER_BY_DIRECTION;
+  painter?: UserOrderBy;
 }
 
 // =====================

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   InternalServerErrorException,
@@ -49,6 +50,12 @@ import {
 } from '../../../constants/enums';
 import { TASK_QUOTE_STATUS_ORDER } from '@constants';
 import { validateSectorFieldAccess } from './task.permissions';
+import {
+  QUOTE_STATUS_LOCKED,
+  QUOTE_VALUE_REVERTABLE_STATUSES,
+  QUOTE_SAFE_AFTER_BILLING_FIELDS,
+  validateQuoteStatusChangeRole,
+} from '../task-quote/task-quote.guards';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 import { TaskRepository, PrismaTransaction } from './repositories/task.repository';
 import {
@@ -67,7 +74,7 @@ import {
   isValidTaskStatusTransition,
   getTaskStatusLabel,
   getTaskStatusOrder,
-  getCommissionStatusOrder,
+  getBonificationStatusOrder,
   generateBaseFileName,
 } from '../../../utils';
 import {
@@ -115,9 +122,9 @@ function formatLayoutForChangelog(layout: any) {
 /**
  * Task Service
  *
- * Handles task operations. Commission creation logic has been removed.
- * The task's commission status field is maintained for reference but
- * no commission entries are automatically created.
+ * Handles task operations. Bonification creation logic has been removed.
+ * The task's bonification status field is maintained for reference but
+ * no bonification entries are automatically created.
  */
 @Injectable()
 export class TaskService {
@@ -237,6 +244,120 @@ export class TaskService {
       }
     }
     return Object.keys(filtered).length === 0 ? null : filtered;
+  }
+
+  /**
+   * Resolves the acting user's sector privilege from the database.
+   * Least-privilege: when the user (or their sector) cannot be resolved,
+   * the operation is denied instead of assuming any privilege.
+   */
+  private async getActingUserPrivilege(
+    userId: string | undefined,
+    tx?: PrismaTransaction,
+  ): Promise<SECTOR_PRIVILEGES> {
+    if (!userId) {
+      throw new ForbiddenException(
+        'Usuário não identificado. Não é possível validar as permissões da operação.',
+      );
+    }
+    const client: any = tx || this.prisma;
+    const user = await client.user.findUnique({
+      where: { id: userId },
+      select: { sector: { select: { privileges: true } } },
+    });
+    const privilege = user?.sector?.privileges;
+    if (!privilege) {
+      throw new ForbiddenException(
+        'Não foi possível determinar o setor do usuário. Operação negada.',
+      );
+    }
+    return privilege as SECTOR_PRIVILEGES;
+  }
+
+  /**
+   * Enforces TaskQuoteService.update guards on a NESTED quote write coming
+   * through the task update paths (single + batch), so PUT /tasks cannot be
+   * used to bypass quote status locks, per-stage role gates, or the
+   * approved→PENDING auto-revert.
+   *
+   * `quoteData` must already be filtered by filterNoOpQuoteFields (only
+   * material changes present). `clientProvidedStatus` must be captured BEFORE
+   * that filter: pinning the current status (even as a no-op) is the designed
+   * signal to KEEP the approval while editing values (user decision — do not
+   * change).
+   */
+  private enforceNestedQuoteGuards(
+    existingQuote: any,
+    quoteData: any,
+    userPrivilege: SECTOR_PRIVILEGES | string | undefined,
+    clientProvidedStatus: boolean,
+  ): void {
+    const currentStatus = existingQuote.status as TASK_QUOTE_STATUS;
+
+    // BILLING_APPROVED only via internalApprove() — never a nested task write.
+    if (quoteData.status === TASK_QUOTE_STATUS.BILLING_APPROVED) {
+      throw new BadRequestException(
+        'A aprovação de faturamento deve ser realizada pelo endpoint dedicado.',
+      );
+    }
+
+    // Locked quotes (BILLING_APPROVED+): only safe metadata fields may change;
+    // status changes must use the dedicated status endpoints.
+    if (QUOTE_STATUS_LOCKED.includes(currentStatus)) {
+      for (const key of Object.keys(quoteData)) {
+        if (quoteData[key] === undefined) continue;
+        if (!QUOTE_SAFE_AFTER_BILLING_FIELDS.has(key)) {
+          throw new BadRequestException(
+            'Após aprovação para faturamento, este campo não pode ser alterado. Solicite o cancelamento do orçamento para editá-lo.',
+          );
+        }
+        if (key === 'status') {
+          throw new BadRequestException(
+            'Use o endpoint de atualização de status para alterar o status do orçamento.',
+          );
+        }
+      }
+    }
+
+    // Explicit status changes mirror the per-stage roles of the dedicated
+    // /task-quotes status endpoints.
+    if (quoteData.status !== undefined && quoteData.status !== currentStatus) {
+      validateQuoteStatusChangeRole(quoteData.status as TASK_QUOTE_STATUS, userPrivilege);
+    }
+
+    // Auto-revert approved → PENDING when values change, unless the client
+    // pinned a status (same semantics as TaskQuoteService.update).
+    if (
+      !clientProvidedStatus &&
+      QUOTE_VALUE_REVERTABLE_STATUSES.includes(currentStatus) &&
+      (quoteData.services !== undefined || quoteData.customerConfigs !== undefined)
+    ) {
+      this.logger.log(
+        `[Task Update] Auto-reverting nested quote from ${currentStatus} → PENDING due to value-affecting edits`,
+      );
+      quoteData.status = TASK_QUOTE_STATUS.PENDING;
+    }
+  }
+
+  /**
+   * Guards for a nested quote CREATE (POST /tasks with a `quote` block):
+   * a brand-new quote cannot be born in a billing-lifecycle status, and
+   * starting it directly at an approval stage requires the same roles as the
+   * dedicated approval endpoints.
+   */
+  private enforceNestedQuoteCreateGuards(
+    quoteData: any,
+    userPrivilege: SECTOR_PRIVILEGES | string | undefined,
+  ): void {
+    if (!quoteData?.status || quoteData.status === TASK_QUOTE_STATUS.PENDING) return;
+    if (QUOTE_STATUS_LOCKED.includes(quoteData.status as TASK_QUOTE_STATUS)) {
+      throw new BadRequestException(
+        'Um orçamento não pode ser criado já em estágio de faturamento.',
+      );
+    }
+    if (userPrivilege !== SECTOR_PRIVILEGES.ADMIN) {
+      validateQuoteStatusChangeRole(quoteData.status as TASK_QUOTE_STATUS, userPrivilege);
+    }
   }
 
   /**
@@ -452,6 +573,20 @@ export class TaskService {
     },
   ): Promise<TaskCreateResponse> {
     try {
+      // Field-level access control per sector also applies on CREATE (B6) —
+      // the create payload admits the same sensitive nested entities (quote,
+      // financial docs, bonification...) as update. ADMIN bypasses inside the
+      // validator; the privilege is resolved from the database (deny when
+      // unresolvable). Covers the serial-range path too (it branches below).
+      const creatorPrivilege = await this.getActingUserPrivilege(userId);
+      validateSectorFieldAccess(creatorPrivilege, data as Record<string, unknown>, 'create');
+
+      // A nested quote may not be born in a billing-lifecycle status, and
+      // starting it at an approval stage requires the matching approval roles.
+      if ((data as any).quote) {
+        this.enforceNestedQuoteCreateGuards((data as any).quote, creatorPrivilege);
+      }
+
       // Capture pre-uploaded file IDs before any processing
       // These come from the web form when files are pre-uploaded (e.g., serial range creation)
       const preUploadedArtworkFileIds = data.artworkIds ? [...(data.artworkIds as string[])] : [];
@@ -1178,6 +1313,10 @@ export class TaskService {
     userId?: string,
   ): Promise<TaskBatchCreateResponse<TaskCreateFormData>> {
     try {
+      // Field-level access control per sector also applies on CREATE (B6).
+      // Resolved once — enforced per item inside the loop below.
+      const creatorPrivilege = await this.getActingUserPrivilege(userId);
+
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Process each task individually - "best effort" approach
         const successfulTasks: Task[] = [];
@@ -1264,6 +1403,12 @@ export class TaskService {
 
         for (const [index, task] of data.tasks.entries()) {
           try {
+            // Field-level access control per sector (B6) + nested quote create guards
+            validateSectorFieldAccess(creatorPrivilege, task as Record<string, unknown>, 'create');
+            if ((task as any).quote) {
+              this.enforceNestedQuoteCreateGuards((task as any).quote, creatorPrivilege);
+            }
+
             // Validate task
             await this.validateTask(task, undefined, tx);
 
@@ -1330,7 +1475,9 @@ export class TaskService {
           } catch (error) {
             // Collect validation/creation errors but continue processing
             const errorMessage =
-              error instanceof BadRequestException || error instanceof NotFoundException
+              error instanceof BadRequestException ||
+              error instanceof NotFoundException ||
+              error instanceof ForbiddenException
                 ? error.message
                 : 'Erro desconhecido ao criar tarefa';
 
@@ -1504,6 +1651,10 @@ export class TaskService {
         // the same protection.
         // ───────────────────────────────────────────────────────────────────
         if ((data as any).quote && existingTask.quote) {
+          // Captured BEFORE the no-op filter: pinning the current status (even
+          // as a no-op) signals "keep this status" and must suppress the
+          // auto-revert inside enforceNestedQuoteGuards.
+          const quoteStatusPinned = (data as any).quote.status !== undefined;
           const filteredQuote = this.filterNoOpQuoteFields(
             existingTask.quote,
             (data as any).quote,
@@ -1512,7 +1663,20 @@ export class TaskService {
             delete (data as any).quote;
           } else {
             (data as any).quote = filteredQuote;
+            // Nested quote writes must honor the same guards as
+            // TaskQuoteService.update (status locks, role gates, auto-revert).
+            this.enforceNestedQuoteGuards(
+              existingTask.quote,
+              filteredQuote,
+              userPrivilege,
+              quoteStatusPinned,
+            );
           }
+        } else if ((data as any).quote && !existingTask.quote) {
+          // Task has no quote yet — the repository will CREATE one from this
+          // block, so the nested-create guards apply (no billing-stage births,
+          // approval stages role-gated).
+          this.enforceNestedQuoteCreateGuards((data as any).quote, userPrivilege);
         }
 
         // Field-level access control per sector (centralized in task.permissions.ts)
@@ -1963,14 +2127,23 @@ export class TaskService {
             );
           }
 
-          // Only PRODUCTION_MANAGER and ADMIN can set task status to COMPLETED
-          if (
-            toStatus === TASK_STATUS.COMPLETED &&
-            userPrivilege &&
-            userPrivilege !== SECTOR_PRIVILEGES.PRODUCTION_MANAGER &&
-            userPrivilege !== SECTOR_PRIVILEGES.ADMIN
-          ) {
-            throw new BadRequestException('Apenas o gerente de produção pode finalizar tarefas.');
+          // Only PRODUCTION_MANAGER and ADMIN can set a task to COMPLETED or
+          // move it away from COMPLETED (COMPLETED feeds bonus/payroll).
+          // When the caller didn't thread a privilege (internal endpoints like
+          // /prepare), resolve it from the database — never assume.
+          if (toStatus === TASK_STATUS.COMPLETED || fromStatus === TASK_STATUS.COMPLETED) {
+            let effectivePrivilege: string | undefined = userPrivilege as string | undefined;
+            if (!effectivePrivilege) {
+              effectivePrivilege = await this.getActingUserPrivilege(userId, tx);
+            }
+            if (
+              effectivePrivilege !== SECTOR_PRIVILEGES.PRODUCTION_MANAGER &&
+              effectivePrivilege !== SECTOR_PRIVILEGES.ADMIN
+            ) {
+              throw new BadRequestException(
+                'Apenas o gerente de produção ou administrador pode finalizar tarefas ou reverter tarefas concluídas.',
+              );
+            }
           }
 
           // Additional validation for PREPARATION → IN_PRODUCTION
@@ -2236,12 +2409,12 @@ export class TaskService {
         const observationChangedSOs: Array<{ serviceOrder: any; oldObservation: string | null }> =
           [];
 
-        // Ensure statusOrder and commissionOrder are updated when status/commission changes
+        // Ensure statusOrder and bonificationOrder are updated when status/bonification changes
         const updateData = {
           ...data,
           ...(data.status && { statusOrder: getTaskStatusOrder(data.status as TASK_STATUS) }),
-          ...((data as any).commission && {
-            commissionOrder: getCommissionStatusOrder((data as any).commission),
+          ...((data as any).bonification && {
+            bonificationOrder: getBonificationStatusOrder((data as any).bonification),
           }),
         };
 
@@ -3454,6 +3627,7 @@ export class TaskService {
                 (so: any) => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
               );
 
+              // Intentionally NO per-SO notification emits here: task.cancelled covers it and avoids an N-notification storm.
               for (const otherSO of otherServiceOrders) {
                 await tx.serviceOrder.update({
                   where: { id: otherSO.id },
@@ -4228,6 +4402,12 @@ export class TaskService {
             `[Task Update] Processing ${airbrushingsData.length} airbrushings for task ${id}`,
           );
 
+          // Fetch existing airbrushings of this task for ownership validation and changelog
+          const taskAirbrushings = await tx.airbrushing.findMany({
+            where: { taskId: id },
+          });
+          const taskAirbrushingsById = new Map(taskAirbrushings.map(a => [a.id, a]));
+
           for (const airbrushingData of airbrushingsData) {
             // Check if this is an existing airbrushing (valid UUID) or a new one (temp ID)
             const isExisting =
@@ -4235,7 +4415,73 @@ export class TaskService {
               typeof airbrushingData.id === 'string' &&
               !airbrushingData.id.startsWith('airbrushing-');
 
+            // Validar se o pintor existe antes de gravar (evita erro genérico do Prisma)
+            if (airbrushingData.painterId !== undefined && airbrushingData.painterId !== null) {
+              const painterExists = await tx.user.findUnique({
+                where: { id: airbrushingData.painterId },
+              });
+              if (!painterExists) {
+                throw new NotFoundException('Pintor não encontrado.');
+              }
+            }
+
             if (isExisting) {
+              // Validar que a aerografia pertence à tarefa sendo atualizada
+              const existingAirbrushing = taskAirbrushingsById.get(airbrushingData.id);
+              if (!existingAirbrushing) {
+                throw new NotFoundException('Aerografia não encontrada nesta tarefa.');
+              }
+
+              // Security (B7): payment fields are gated on the PERSISTED status —
+              // mirrors AirbrushingService. A nested write through the task
+              // endpoint may not change paymentStatus/painterId/price unless the
+              // airbrushing is already COMPLETED in the database (the dedicated
+              // /airbrushings endpoints remain the path for other edits).
+              const persistedCompleted = existingAirbrushing.status === 'COMPLETED';
+              if (!persistedCompleted) {
+                if (
+                  airbrushingData.paymentStatus !== undefined &&
+                  airbrushingData.paymentStatus !== existingAirbrushing.paymentStatus
+                ) {
+                  throw new BadRequestException(
+                    'O status de pagamento só pode ser alterado quando a aerografia estiver concluída.',
+                  );
+                }
+                if (
+                  airbrushingData.painterId !== undefined &&
+                  (airbrushingData.painterId || null) !== (existingAirbrushing.painterId || null)
+                ) {
+                  throw new BadRequestException(
+                    'O pintor só pode ser alterado através da tarefa quando a aerografia estiver concluída.',
+                  );
+                }
+                const incomingPrice =
+                  airbrushingData.price !== undefined && airbrushingData.price !== null
+                    ? Number(airbrushingData.price)
+                    : null;
+                const persistedPrice =
+                  existingAirbrushing.price !== undefined && existingAirbrushing.price !== null
+                    ? Number(existingAirbrushing.price)
+                    : null;
+                if (incomingPrice !== persistedPrice) {
+                  throw new BadRequestException(
+                    'O preço só pode ser alterado através da tarefa quando a aerografia estiver concluída.',
+                  );
+                }
+              }
+              // Un-completing a paid airbrushing is blocked (mirror of
+              // AirbrushingService.validateAirbrushing).
+              const targetAirbrushingStatus = airbrushingData.status || 'PENDING';
+              const targetPaymentStatus =
+                airbrushingData.paymentStatus !== undefined
+                  ? airbrushingData.paymentStatus
+                  : existingAirbrushing.paymentStatus;
+              if (targetPaymentStatus !== 'PENDING' && targetAirbrushingStatus !== 'COMPLETED') {
+                throw new BadRequestException(
+                  'O status de pagamento só pode ser alterado quando a aerografia estiver concluída.',
+                );
+              }
+
               // UPDATE existing airbrushing - preserves artworks (no deletion)
               this.logger.log(`[Task Update] Updating existing airbrushing ${airbrushingData.id}`);
 
@@ -4247,9 +4493,15 @@ export class TaskService {
                     : null,
                 startDate: airbrushingData.startDate || null,
                 finishDate: airbrushingData.finishDate || null,
-                startedAt: airbrushingData.startedAt || null,
-                finishedAt: airbrushingData.finishedAt || null,
               };
+
+              if (airbrushingData.startedAt !== undefined) {
+                updatePayload.startedAt = airbrushingData.startedAt || null;
+              }
+
+              if (airbrushingData.finishedAt !== undefined) {
+                updatePayload.finishedAt = airbrushingData.finishedAt || null;
+              }
 
               // Handle painter (User ID)
               if (airbrushingData.painterId !== undefined) {
@@ -4303,15 +4555,42 @@ export class TaskService {
                 }
               }
 
-              await tx.airbrushing.update({
+              const updatedAirbrushing = await tx.airbrushing.update({
                 where: { id: airbrushingData.id },
                 data: updatePayload,
+              });
+
+              // Registrar mudanças no changelog
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.AIRBRUSHING,
+                entityId: airbrushingData.id,
+                action: CHANGE_ACTION.UPDATE,
+                field: null,
+                oldValue: existingAirbrushing,
+                newValue: updatedAirbrushing,
+                reason: 'Aerografia atualizada através da tarefa',
+                triggeredBy: CHANGE_TRIGGERED_BY.TASK_UPDATE,
+                triggeredById: id,
+                userId: userId || null,
+                transaction: tx,
               });
 
               this.logger.log(`[Task Update] Updated airbrushing ${airbrushingData.id}`);
             } else {
               // CREATE new airbrushing
               this.logger.log(`[Task Update] Creating new airbrushing for task ${id}`);
+
+              // Security (B7): a brand-new airbrushing can never start with a
+              // non-PENDING payment status (it cannot be persisted-COMPLETED yet).
+              if (
+                airbrushingData.paymentStatus !== undefined &&
+                airbrushingData.paymentStatus !== null &&
+                airbrushingData.paymentStatus !== 'PENDING'
+              ) {
+                throw new BadRequestException(
+                  'O status de pagamento só pode ser definido após a conclusão da aerografia.',
+                );
+              }
 
               const newAirbrushing = await tx.airbrushing.create({
                 data: {
@@ -4336,6 +4615,21 @@ export class TaskService {
                       ? { connect: airbrushingData.invoiceIds.map((fid: string) => ({ id: fid })) }
                       : undefined,
                 },
+              });
+
+              // Registrar criação no changelog
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.AIRBRUSHING,
+                entityId: newAirbrushing.id,
+                action: CHANGE_ACTION.CREATE,
+                field: null,
+                oldValue: null,
+                newValue: newAirbrushing,
+                reason: 'Aerografia criada através da tarefa',
+                triggeredBy: CHANGE_TRIGGERED_BY.TASK_UPDATE,
+                triggeredById: id,
+                userId: userId || null,
+                transaction: tx,
               });
 
               this.logger.log(`[Task Update] Created airbrushing ${newAirbrushing.id}`);
@@ -5152,7 +5446,7 @@ export class TaskService {
           'status',
           'startedAt',
           'finishedAt',
-          'commission',
+          'bonification',
           'customerId',
           'sectorId',
           'paintId',
@@ -6084,30 +6378,33 @@ export class TaskService {
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         this.logger.log('[batchUpdate] Inside transaction');
 
-        // Look up user's sector privilege for artwork status permission checks
-        // Note: batchUpdate endpoint requires @Roles(ADMIN), so the user already has ADMIN access.
-        // We still fetch the privilege for logging, but fall back to ADMIN since the endpoint guard
-        // already validated the user's permission level.
-        let userPrivilege: string | undefined;
+        // Look up the acting user's sector privilege for field-level access
+        // control and artwork status permission checks.
+        // NOTE: the batch endpoint admits 8 privileges (task.controller.ts),
+        // so the privilege MUST be resolved and enforced here. Least-privilege:
+        // if the user or their sector cannot be resolved, the batch is denied —
+        // never assume ADMIN.
         // Acting user (id/name/email) for artwork.approved/reproved event context — so the
         // batch artwork-status path emits the SAME notifications as the single-update path.
         let artworkEventUser: { id: string; name: string | null; email: string | null } | null =
           null;
-        if (userId) {
-          const user = await tx.user.findUnique({
-            where: { id: userId },
-            select: { id: true, name: true, email: true, sector: { select: { privileges: true } } },
-          });
-          userPrivilege = user?.sector?.privileges || SECTOR_PRIVILEGES.ADMIN;
-          if (user) {
-            artworkEventUser = { id: user.id, name: user.name, email: user.email };
-          }
-          this.logger.log(
-            `[batchUpdate] User ${userId} privilege: ${userPrivilege} (sector: ${user?.sector?.privileges || 'none'})`,
+        if (!userId) {
+          throw new ForbiddenException(
+            'Usuário não identificado. Não é possível validar as permissões da operação em lote.',
           );
-        } else {
-          userPrivilege = SECTOR_PRIVILEGES.ADMIN;
         }
+        const actingUser = await tx.user.findUnique({
+          where: { id: userId },
+          select: { id: true, name: true, email: true, sector: { select: { privileges: true } } },
+        });
+        const userPrivilege: string | undefined = actingUser?.sector?.privileges || undefined;
+        if (!userPrivilege) {
+          throw new ForbiddenException(
+            'Não foi possível determinar o setor do usuário. Operação em lote negada.',
+          );
+        }
+        artworkEventUser = { id: actingUser!.id, name: actingUser!.name, email: actingUser!.email };
+        this.logger.log(`[batchUpdate] User ${userId} privilege: ${userPrivilege}`);
 
         // Prepare updates with change tracking and validation
         const updatesWithChangeTracking: { id: string; data: TaskUpdateFormData }[] = [];
@@ -6168,6 +6465,56 @@ export class TaskService {
 
             this.logger.log(`[batchUpdate] Found existing task ${update.id}, validating...`);
             try {
+              // Field-level access control per sector — same rule as the
+              // single-update path (task.permissions.ts). Without this, the
+              // batch endpoint lets any of its 8 admitted privileges edit ANY
+              // task field.
+              validateSectorFieldAccess(
+                userPrivilege as SECTOR_PRIVILEGES,
+                update.data as Record<string, unknown>,
+              );
+
+              // Nested quote writes must honor the same guards as
+              // TaskQuoteService.update (status locks, role gates, auto-revert).
+              if ((update.data as any).quote) {
+                const taskQuoteRef = await tx.task.findUnique({
+                  where: { id: update.id },
+                  select: { quoteId: true },
+                });
+                if (!taskQuoteRef?.quoteId) {
+                  // No quote yet — the repository will CREATE one from this
+                  // block; apply the nested-create guards.
+                  this.enforceNestedQuoteCreateGuards((update.data as any).quote, userPrivilege);
+                }
+                if (taskQuoteRef?.quoteId) {
+                  const existingQuote = await tx.taskQuote.findUnique({
+                    where: { id: taskQuoteRef.quoteId },
+                    include: {
+                      services: { orderBy: { position: 'asc' } },
+                      customerConfigs: true,
+                    },
+                  });
+                  if (existingQuote) {
+                    const quoteStatusPinned = (update.data as any).quote.status !== undefined;
+                    const filteredQuote = this.filterNoOpQuoteFields(
+                      existingQuote,
+                      (update.data as any).quote,
+                    );
+                    if (filteredQuote === null) {
+                      delete (update.data as any).quote;
+                    } else {
+                      (update.data as any).quote = filteredQuote;
+                      this.enforceNestedQuoteGuards(
+                        existingQuote,
+                        filteredQuote,
+                        userPrivilege,
+                        quoteStatusPinned,
+                      );
+                    }
+                  }
+                }
+              }
+
               await this.validateTask(update.data, update.id, tx);
 
               // Validate status transition if status is being updated
@@ -6186,18 +6533,32 @@ export class TaskService {
                   );
                 }
 
+                // Only PRODUCTION_MANAGER and ADMIN can set a task to COMPLETED
+                // or move it away from COMPLETED (mirrors the single-update
+                // path and the dedicated /finish endpoint).
+                if (
+                  ((update.data.status as TASK_STATUS) === TASK_STATUS.COMPLETED ||
+                    (existingTask.status as TASK_STATUS) === TASK_STATUS.COMPLETED) &&
+                  userPrivilege !== SECTOR_PRIVILEGES.PRODUCTION_MANAGER &&
+                  userPrivilege !== SECTOR_PRIVILEGES.ADMIN
+                ) {
+                  throw new BadRequestException(
+                    'Apenas o gerente de produção ou administrador pode finalizar tarefas ou reverter tarefas concluídas.',
+                  );
+                }
+
                 // Note: startedAt and finishedAt are no longer required as they are auto-filled
                 // when task status changes to IN_PRODUCTION or COMPLETED respectively
               }
 
-              // Ensure statusOrder and commissionOrder are updated when status/commission changes
+              // Ensure statusOrder and bonificationOrder are updated when status/bonification changes
               const updateData = {
                 ...update.data,
                 ...(update.data.status && {
                   statusOrder: getTaskStatusOrder(update.data.status as TASK_STATUS),
                 }),
-                ...((update.data as any).commission && {
-                  commissionOrder: getCommissionStatusOrder((update.data as any).commission),
+                ...((update.data as any).bonification && {
+                  bonificationOrder: getBonificationStatusOrder((update.data as any).bonification),
                 }),
               };
 
@@ -8602,6 +8963,21 @@ export class TaskService {
       }
     }
 
+    // Validate painters of nested airbrushings exist (avoids generic Prisma FK errors)
+    const nestedAirbrushings = (data as any).airbrushings;
+    if (nestedAirbrushings && Array.isArray(nestedAirbrushings)) {
+      for (const airbrushing of nestedAirbrushings) {
+        if (airbrushing?.painterId) {
+          const painter = await transaction.user.findUnique({
+            where: { id: airbrushing.painterId },
+          });
+          if (!painter) {
+            throw new NotFoundException('Pintor não encontrado.');
+          }
+        }
+      }
+    }
+
     // Validate status-specific requirements
     if (data.status) {
       // For update, we need to check the existing task
@@ -9081,8 +9457,8 @@ export class TaskService {
       else if (['statusOrder'].includes(fieldToRevert)) {
         convertedValue = typeof oldValue === 'number' ? oldValue : parseInt(oldValue as string, 10);
       }
-      // Handle enum fields (status, commission) - must not be empty string
-      else if (['status', 'commission', 'priority'].includes(fieldToRevert)) {
+      // Handle enum fields (status, bonification) - must not be empty string
+      else if (['status', 'bonification', 'priority'].includes(fieldToRevert)) {
         convertedValue = oldValue as string;
       }
       // Handle UUID/string fields - convert empty strings to null for optional fields
@@ -9862,9 +10238,9 @@ export class TaskService {
         }
       }
 
-      // Update commissionOrder when commission changes
-      if (fieldToRevert === 'commission' && convertedValue) {
-        updateData.commissionOrder = getCommissionStatusOrder(convertedValue as string);
+      // Update bonificationOrder when bonification changes
+      if (fieldToRevert === 'bonification' && convertedValue) {
+        updateData.bonificationOrder = getBonificationStatusOrder(convertedValue as string);
       }
 
       // 7. Update the task with relations included for proper response
@@ -11354,7 +11730,7 @@ export class TaskService {
           term: destinationTask.term,
           entryDate: destinationTask.entryDate,
           forecastDate: destinationTask.forecastDate,
-          commission: destinationTask.commission,
+          bonification: destinationTask.bonification,
           responsibles: destinationTask.responsibles?.map(r => r.id) || [],
           customerId: destinationTask.customerId,
           // Store enriched quote data for changelog display (not just UUID)
@@ -11483,12 +11859,12 @@ export class TaskService {
               }
               break;
 
-            case 'commission':
-              if (hasData(sourceTask.commission)) {
-                updateData.commission = sourceTask.commission;
-                updateData.commissionOrder = getCommissionStatusOrder(sourceTask.commission);
+            case 'bonification':
+              if (hasData(sourceTask.bonification)) {
+                updateData.bonification = sourceTask.bonification;
+                updateData.bonificationOrder = getBonificationStatusOrder(sourceTask.bonification);
                 copiedFields.push(field);
-                details.commission = sourceTask.commission;
+                details.bonification = sourceTask.bonification;
               }
               break;
 

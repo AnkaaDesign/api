@@ -42,21 +42,34 @@ export class NfseEmissionScheduler {
         include: {
           customer: { select: { fantasyName: true } },
           task: { select: { id: true, name: true } },
+          externalOperation: { select: { id: true } },
         },
       });
       if (!invoice) return;
 
       const customerName = invoice.customer?.fantasyName || 'N/A';
-      const taskName = invoice.task?.name || 'N/A';
       const taskId = invoice.task?.id ?? invoice.taskId ?? null;
+      const withdrawalId = invoice.externalOperation?.id ?? invoice.externalOperationId ?? null;
+      const isWithdrawal = !!withdrawalId;
+      const taskName = isWithdrawal ? 'Operação Externa' : invoice.task?.name || 'N/A';
+      // "da tarefa X" for task-backed invoices, "da operação externa" for withdrawal-backed.
+      const refLabel = isWithdrawal ? 'da operação externa' : `da tarefa ${taskName}`;
 
-      const webUrl = taskId ? `/financeiro/faturamento/detalhes/${taskId}` : undefined;
-      const mobileUrl = taskId ? `financial/${taskId}` : undefined;
+      const webUrl = isWithdrawal
+        ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : taskId
+          ? `/financeiro/faturamento/detalhes/${taskId}`
+          : undefined;
+      // Mobile billing detail screen is keyed by the TASK id
+      // (src/app/(tabs)/financeiro/faturamento/detalhes/[id].tsx). Omit when
+      // there is no task (withdrawal-backed invoices have no mobile screen).
+      const mobileUrl =
+        !isWithdrawal && taskId ? `/(tabs)/financeiro/faturamento/detalhes/${taskId}` : undefined;
 
       if (outcome === 'AUTHORIZED') {
         await this.dispatchService.dispatchByConfiguration('nfse.issued', 'system', {
           entityType: 'NfseDocument',
-          entityId: taskId ?? invoiceId,
+          entityId: taskId ?? withdrawalId ?? invoiceId,
           action: 'issued',
           data: {
             customerName,
@@ -64,10 +77,11 @@ export class NfseEmissionScheduler {
             nfseNumber: detail?.nfseNumber ?? 'N/A',
             invoiceId,
             taskId: taskId || undefined,
+            externalOperationId: withdrawalId || undefined,
           },
           overrides: {
             title: 'NFS-e Emitida',
-            body: `A NFS-e${detail?.nfseNumber ? ` Nº ${detail.nfseNumber}` : ''} da tarefa ${taskName} (${customerName}) foi autorizada.`,
+            body: `A NFS-e${detail?.nfseNumber ? ` Nº ${detail.nfseNumber}` : ''} ${refLabel} (${customerName}) foi autorizada.`,
             relatedEntityType: 'NFSE',
             ...(webUrl ? { webUrl } : {}),
             ...(mobileUrl ? { mobileUrl } : {}),
@@ -76,7 +90,7 @@ export class NfseEmissionScheduler {
       } else {
         await this.dispatchService.dispatchByConfiguration('nfse.rejected', 'system', {
           entityType: 'NfseDocument',
-          entityId: taskId ?? invoiceId,
+          entityId: taskId ?? withdrawalId ?? invoiceId,
           action: 'rejected',
           data: {
             customerName,
@@ -84,10 +98,11 @@ export class NfseEmissionScheduler {
             errorMessage: detail?.errorMessage || 'N/A',
             invoiceId,
             taskId: taskId || undefined,
+            externalOperationId: withdrawalId || undefined,
           },
           overrides: {
             title: 'NFS-e Rejeitada',
-            body: `A emissão da NFS-e da tarefa ${taskName} (${customerName}) foi rejeitada.${detail?.errorMessage ? `\nMotivo: ${detail.errorMessage}` : ''}`,
+            body: `A emissão da NFS-e ${refLabel} (${customerName}) foi rejeitada.${detail?.errorMessage ? `\nMotivo: ${detail.errorMessage}` : ''}`,
             relatedEntityType: 'NFSE',
             ...(webUrl ? { webUrl } : {}),
             ...(mobileUrl ? { mobileUrl } : {}),
@@ -203,6 +218,12 @@ export class NfseEmissionScheduler {
               customerConfig: {
                 select: { orderNumber: true, discountType: true, discountValue: true },
               },
+              externalOperation: {
+                include: {
+                  services: { orderBy: { position: 'asc' as const } },
+                  items: { include: { item: { select: { name: true } } } },
+                },
+              },
             },
           },
         },
@@ -215,28 +236,14 @@ export class NfseEmissionScheduler {
 
       for (const doc of pendingDocs) {
         try {
-          // Atomically claim the document: PENDING/ERROR → PROCESSING
-          // This prevents concurrent scheduler instances or manual triggers from processing the same document
-          const claimed = await this.prisma.nfseDocument.updateMany({
-            where: {
-              id: doc.id,
-              status: { in: [NfseStatus.PENDING, NfseStatus.ERROR] },
-            },
-            data: {
-              status: NfseStatus.PROCESSING,
-              errorMessage: null,
-            },
-          });
-
-          if (claimed.count === 0) {
-            this.logger.warn(`NfseDocument ${doc.id} already claimed by another process, skipping`);
-            continue;
-          }
+          // H3c: the atomic claim (PENDING/ERROR → PROCESSING, proceed only when
+          // count === 1) lives INSIDE municipalNfseService.emitNfse() — the single
+          // claim authority for both this sweep and the targeted emission path.
+          // A doc claimed by another process comes back as { skipped: true }.
 
           const invoice = doc.invoice;
           if (!invoice) {
             this.logger.warn(`NfseDocument ${doc.id} has no invoice, skipping`);
-            // Revert status since we can't process it
             await this.prisma.nfseDocument.update({
               where: { id: doc.id },
               data: { status: NfseStatus.ERROR, errorMessage: 'No invoice linked' },
@@ -255,7 +262,10 @@ export class NfseEmissionScheduler {
           }
 
           const task = invoice.task;
-          if (!task) {
+          const withdrawal = (invoice as any).externalOperation;
+          const isWithdrawal = !!invoice.externalOperationId;
+          // Withdrawal-backed invoices ("Operação Externa") have no task — that's expected.
+          if (!task && !isWithdrawal) {
             this.logger.warn(`NfseDocument ${doc.id} has no task, skipping`);
             await this.prisma.nfseDocument.update({
               where: { id: doc.id },
@@ -264,32 +274,82 @@ export class NfseEmissionScheduler {
             continue;
           }
 
-          // Build services list from task quote, filtered by customer
-          const allServices = (task as any).quote?.services as
-            | Array<{
-                description: string;
-                amount: any;
-                invoiceToCustomerId: string | null;
-              }>
+          let emitTask: { id: string; name: string; serialNumber?: string };
+          let emitTruck:
+            | {
+                plate?: string;
+                chassisNumber?: string;
+                category?: string;
+                implementType?: string;
+              }
             | undefined;
+          let services: { description: string; amount: number }[] | undefined;
+          let orderNumber: string | undefined;
+          let globalDiscount: { type: string; value: number } | undefined;
 
-          const services = allServices
-            ?.filter(s => !s.invoiceToCustomerId || s.invoiceToCustomerId === customer.id)
-            .map(s => ({
-              description: s.description,
-              amount: Number(s.amount),
-            }));
+          if (isWithdrawal) {
+            // Operação Externa: discriminate services + withdrawn items; no truck/order/discount.
+            emitTask = { id: invoice.externalOperationId!, name: 'Operação Externa' };
+            emitTruck = undefined;
+            orderNumber = undefined;
+            globalDiscount = undefined;
+            services = [
+              ...((withdrawal?.services ?? []) as any[]).map((s: any) => ({
+                description: s.description as string,
+                amount: Number(s.amount),
+              })),
+              ...((withdrawal?.items ?? []) as any[]).map((i: any) => ({
+                description: `${i.item?.name ?? 'Item'} - ${i.withdrawedQuantity} un`,
+                amount: Number(i.price ?? 0) * i.withdrawedQuantity,
+              })),
+            ];
+          } else {
+            // Build services list from task quote, filtered by customer
+            const allServices = (task as any).quote?.services as
+              | Array<{
+                  description: string;
+                  amount: any;
+                  invoiceToCustomerId: string | null;
+                }>
+              | undefined;
 
-          // Get customer config discount (global discount for this customer)
-          const customerConfig = (invoice as any).customerConfig;
-          const configDiscountType = customerConfig?.discountType || undefined;
-          const configDiscountValue =
-            customerConfig?.discountValue != null
-              ? Number(customerConfig.discountValue)
+            services = allServices
+              ?.filter(s => !s.invoiceToCustomerId || s.invoiceToCustomerId === customer.id)
+              .map(s => ({
+                description: s.description,
+                amount: Number(s.amount),
+              }));
+
+            // Get customer config discount (global discount for this customer)
+            const customerConfig = (invoice as any).customerConfig;
+            const configDiscountType = customerConfig?.discountType || undefined;
+            const configDiscountValue =
+              customerConfig?.discountValue != null
+                ? Number(customerConfig.discountValue)
+                : undefined;
+
+            const truck = (task as any).truck;
+            emitTask = {
+              id: task!.id,
+              name: task!.name,
+              serialNumber: (task as any).serialNumber || undefined,
+            };
+            emitTruck = truck
+              ? {
+                  plate: truck.plate || undefined,
+                  chassisNumber: truck.chassisNumber || undefined,
+                  category: truck.category || undefined,
+                  implementType: truck.implementType || undefined,
+                }
               : undefined;
+            orderNumber = (invoice as any).customerConfig?.orderNumber || undefined;
+            globalDiscount =
+              configDiscountType && configDiscountType !== 'NONE' && configDiscountValue
+                ? { type: configDiscountType, value: configDiscountValue }
+                : undefined;
+          }
 
           // Build the input for municipal NFSe emission (Elotech OXY)
-          const truck = (task as any).truck;
           const emitInput = {
             id: invoice.id,
             totalAmount: Number(invoice.totalAmount),
@@ -312,31 +372,26 @@ export class NfseEmissionScheduler {
                   }
                 : undefined,
             },
-            task: {
-              id: task.id,
-              name: task.name,
-              serialNumber: (task as any).serialNumber || undefined,
-            },
-            truck: truck
-              ? {
-                  plate: truck.plate || undefined,
-                  chassisNumber: truck.chassisNumber || undefined,
-                  category: truck.category || undefined,
-                  implementType: truck.implementType || undefined,
-                }
-              : undefined,
-            orderNumber: (invoice as any).customerConfig?.orderNumber || undefined,
+            task: emitTask,
+            truck: emitTruck,
+            orderNumber,
             services,
-            globalDiscount:
-              configDiscountType && configDiscountType !== 'NONE' && configDiscountValue
-                ? { type: configDiscountType, value: configDiscountValue }
-                : undefined,
+            globalDiscount,
           };
 
           const result = await this.municipalNfseService.emitNfse(emitInput);
+
+          if ((result as any)?.skipped) {
+            this.logger.warn(
+              `NfseDocument ${doc.id} skipped (${(result as any)?.reason ?? 'claimed by another process'})`,
+            );
+            continue;
+          }
           emitted++;
 
-          this.logger.log(`NFS-e emitted for invoice ${invoice.id} (task: ${task.name})`);
+          this.logger.log(
+            `NFS-e emitted for invoice ${invoice.id} (${isWithdrawal ? 'operação externa' : `task: ${task?.name}`})`,
+          );
 
           // Notify FINANCIAL/ADMIN of the emission outcome. emitNfse returns
           // { status: 'AUTHORIZED' | 'ERROR' | skipped }. Skip notifying on no-op skips.
@@ -442,6 +497,12 @@ export class NfseEmissionScheduler {
             customerConfig: {
               select: { orderNumber: true, discountType: true, discountValue: true },
             },
+            externalOperation: {
+              include: {
+                services: { orderBy: { position: 'asc' as const } },
+                items: { include: { item: { select: { name: true } } } },
+              },
+            },
           },
         },
       },
@@ -457,36 +518,90 @@ export class NfseEmissionScheduler {
         const invoice = doc.invoice;
         const customer = invoice?.customer;
         const task = invoice?.task;
+        const withdrawal = (invoice as any)?.externalOperation;
+        const isWithdrawal = !!invoice?.externalOperationId;
 
-        if (!invoice || !customer || !task) {
+        // Withdrawal-backed invoices ("Operação Externa") have no task — that's expected.
+        if (!invoice || !customer || (!task && !isWithdrawal)) {
           this.logger.warn(
             `[NFSE_TARGETED] NfseDocument ${doc.id} missing invoice/customer/task — skipping`,
           );
           continue;
         }
 
-        const allServices = (task as any).quote?.services as
-          | Array<{
-              description: string;
-              amount: any;
-              invoiceToCustomerId: string | null;
-            }>
+        let emitTask: { id: string; name: string; serialNumber?: string };
+        let emitTruck:
+          | {
+              plate?: string;
+              chassisNumber?: string;
+              category?: string;
+              implementType?: string;
+            }
           | undefined;
+        let services: { description: string; amount: number }[] | undefined;
+        let orderNumber: string | undefined;
+        let globalDiscount: { type: string; value: number } | undefined;
 
-        const services = allServices
-          ?.filter(s => !s.invoiceToCustomerId || s.invoiceToCustomerId === customer.id)
-          .map(s => ({
-            description: s.description,
-            amount: Number(s.amount),
-          }));
+        if (isWithdrawal) {
+          // Operação Externa: discriminate services + withdrawn items; no truck/order/discount.
+          emitTask = { id: invoice.externalOperationId!, name: 'Operação Externa' };
+          emitTruck = undefined;
+          orderNumber = undefined;
+          globalDiscount = undefined;
+          services = [
+            ...((withdrawal?.services ?? []) as any[]).map((s: any) => ({
+              description: s.description as string,
+              amount: Number(s.amount),
+            })),
+            ...((withdrawal?.items ?? []) as any[]).map((i: any) => ({
+              description: `${i.item?.name ?? 'Item'} - ${i.withdrawedQuantity} un`,
+              amount: Number(i.price ?? 0) * i.withdrawedQuantity,
+            })),
+          ];
+        } else {
+          const allServices = (task as any).quote?.services as
+            | Array<{
+                description: string;
+                amount: any;
+                invoiceToCustomerId: string | null;
+              }>
+            | undefined;
 
-        // Get customer config discount (global discount for this customer)
-        const customerConfig = (invoice as any).customerConfig;
-        const configDiscountType = customerConfig?.discountType || undefined;
-        const configDiscountValue =
-          customerConfig?.discountValue != null ? Number(customerConfig.discountValue) : undefined;
+          services = allServices
+            ?.filter(s => !s.invoiceToCustomerId || s.invoiceToCustomerId === customer.id)
+            .map(s => ({
+              description: s.description,
+              amount: Number(s.amount),
+            }));
 
-        const truck = (task as any).truck;
+          // Get customer config discount (global discount for this customer)
+          const customerConfig = (invoice as any).customerConfig;
+          const configDiscountType = customerConfig?.discountType || undefined;
+          const configDiscountValue =
+            customerConfig?.discountValue != null
+              ? Number(customerConfig.discountValue)
+              : undefined;
+
+          const truck = (task as any).truck;
+          emitTask = {
+            id: task!.id,
+            name: task!.name,
+            serialNumber: (task as any).serialNumber || undefined,
+          };
+          emitTruck = truck
+            ? {
+                plate: truck.plate || undefined,
+                chassisNumber: truck.chassisNumber || undefined,
+                category: truck.category || undefined,
+                implementType: truck.implementType || undefined,
+              }
+            : undefined;
+          orderNumber = customerConfig?.orderNumber || undefined;
+          globalDiscount =
+            configDiscountType && configDiscountType !== 'NONE' && configDiscountValue
+              ? { type: configDiscountType, value: configDiscountValue }
+              : undefined;
+        }
 
         const targetedResult = await this.municipalNfseService.emitNfse({
           id: invoice.id,
@@ -510,30 +625,26 @@ export class NfseEmissionScheduler {
                 }
               : undefined,
           },
-          task: {
-            id: task.id,
-            name: task.name,
-            serialNumber: (task as any).serialNumber || undefined,
-          },
-          truck: truck
-            ? {
-                plate: truck.plate || undefined,
-                chassisNumber: truck.chassisNumber || undefined,
-                category: truck.category || undefined,
-                implementType: truck.implementType || undefined,
-              }
-            : undefined,
-          orderNumber: customerConfig?.orderNumber || undefined,
+          task: emitTask,
+          truck: emitTruck,
+          orderNumber,
           services,
-          globalDiscount:
-            configDiscountType && configDiscountType !== 'NONE' && configDiscountValue
-              ? { type: configDiscountType, value: configDiscountValue }
-              : undefined,
+          globalDiscount,
         });
+
+        // H3c: emitNfse() owns the atomic PENDING/ERROR → PROCESSING claim and
+        // returns { skipped: true } when another process (e.g. the 9AM sweep)
+        // already claimed this document — never double-emit.
+        if ((targetedResult as any)?.skipped) {
+          this.logger.warn(
+            `[NFSE_TARGETED] NfseDocument ${doc.id} skipped (${(targetedResult as any)?.reason ?? 'claimed by another process'})`,
+          );
+          continue;
+        }
 
         emitted++;
         this.logger.log(
-          `[NFSE_TARGETED] NfSe emitted for invoice ${invoice.id} (task: ${task.name})`,
+          `[NFSE_TARGETED] NfSe emitted for invoice ${invoice.id} (${isWithdrawal ? 'operação externa' : `task: ${task?.name}`})`,
         );
 
         // Notify FINANCIAL/ADMIN of the emission outcome.

@@ -52,7 +52,7 @@ export async function trackAndLogFieldChanges({
     const newValue = newEntity[field];
 
     // Only log if the value actually changed
-    // Pass field name for field-specific normalization (e.g., commission: null vs NO_COMMISSION)
+    // Pass field name for field-specific normalization (e.g., bonification: null vs NO_BONIFICATION)
     if (hasValueChanged(oldValue, newValue, field)) {
       const fieldNamePt = translateFieldName(field);
 
@@ -205,7 +205,7 @@ export function trackFieldChanges(
     const newValue = newEntity?.[field];
 
     // Only track if the value actually changed
-    // Pass field name for field-specific normalization (e.g., commission: null vs NO_COMMISSION)
+    // Pass field name for field-specific normalization (e.g., bonification: null vs NO_BONIFICATION)
     if (hasValueChanged(oldValue, newValue, field)) {
       changes[field] = {
         from: oldValue,
@@ -437,7 +437,7 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   level: 'nível',
   sectorId: 'setor',
   privileges: 'privilégios',
-  commissionEligible: 'elegível para comissão',
+  bonificationEligible: 'elegível para bonificação',
   remuneration: 'remuneração',
 
   // Sector fields
@@ -447,7 +447,7 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   term: 'prazo',
   entryDate: 'data de entrada',
   forecastDate: 'previsão de liberação',
-  commission: 'comissão',
+  bonification: 'bonificação',
   responsibles: 'responsáveis',
   responsibleIds: 'responsáveis',
   customerId: 'cliente',
@@ -550,7 +550,7 @@ export const ENTITY_ESSENTIAL_FIELDS: Partial<Record<ENTITY_TYPE, string[]>> = {
     'price',
     'startedAt',
     'finishedAt',
-    'commission',
+    'bonification',
     'serialNumber',
     'plate',
   ],
@@ -597,14 +597,14 @@ export const ENTITY_ESSENTIAL_FIELDS: Partial<Record<ENTITY_TYPE, string[]>> = {
     'observations',
     'logoId',
   ],
-  [ENTITY_TYPE.COMMISSION]: ['id', 'taskId', 'userId', 'value', 'status'],
+  [ENTITY_TYPE.BONIFICATION]: ['id', 'taskId', 'userId', 'value', 'status'],
   [ENTITY_TYPE.POSITION]: [
     'id',
     'name',
     'level',
     'sectorId',
     'privileges',
-    'commissionEligible',
+    'bonificationEligible',
     'remuneration',
   ],
   [ENTITY_TYPE.SECTOR]: ['id', 'name', 'privileges'],
@@ -693,7 +693,7 @@ export const ENTITY_ESSENTIAL_FIELDS: Partial<Record<ENTITY_TYPE, string[]>> = {
   ],
   [ENTITY_TYPE.PAINT_PRODUCTION]: ['id', 'volumeLiters', 'formulaId', 'createdAt', 'updatedAt'],
   [ENTITY_TYPE.PAINT_GROUND]: ['id', 'paintId', 'groundPaintId', 'createdAt', 'updatedAt'],
-  [ENTITY_TYPE.EXTERNAL_WITHDRAWAL]: [
+  [ENTITY_TYPE.EXTERNAL_OPERATION]: [
     'id',
     'withdrawerName',
     'status',
@@ -711,9 +711,9 @@ export const ENTITY_ESSENTIAL_FIELDS: Partial<Record<ENTITY_TYPE, string[]>> = {
     'createdAt',
     'updatedAt',
   ],
-  [ENTITY_TYPE.EXTERNAL_WITHDRAWAL_ITEM]: [
+  [ENTITY_TYPE.EXTERNAL_OPERATION_ITEM]: [
     'id',
-    'externalWithdrawalId',
+    'externalOperationId',
     'itemId',
     'withdrawedQuantity',
     'returnedQuantity',

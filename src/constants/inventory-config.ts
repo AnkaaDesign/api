@@ -5,7 +5,7 @@
 //   - seasonality-config.ts  (decay, curve, corpus)
 //   - ppe-config.ts          (PPE intervals, headcount, blend)
 
-import { ABC_CATEGORY, ACTIVITY_REASON, ITEM_CATEGORY_TYPE } from './enums';
+import { ABC_CATEGORY, ACTIVITY_REASON, STOCK_MODEL } from './enums';
 
 // =====================
 // Activity reason classification (spec §2.1, §3.5)
@@ -17,7 +17,7 @@ import { ABC_CATEGORY, ACTIVITY_REASON, ITEM_CATEGORY_TYPE } from './enums';
 export const REGULAR_CONSUMPTION_REASONS: ACTIVITY_REASON[] = [
   ACTIVITY_REASON.PRODUCTION_USAGE,
   ACTIVITY_REASON.PAINT_PRODUCTION,
-  ACTIVITY_REASON.EXTERNAL_WITHDRAWAL,
+  ACTIVITY_REASON.EXTERNAL_OPERATION,
   ACTIVITY_REASON.MAINTENANCE,
   ACTIVITY_REASON.DAMAGE,
   ACTIVITY_REASON.LOSS,
@@ -44,7 +44,7 @@ export const PPE_CONSUMPTION_REASONS: ACTIVITY_REASON[] = [
 export const NON_CONSUMPTION_REASONS: ACTIVITY_REASON[] = [
   ACTIVITY_REASON.BORROW,
   ACTIVITY_REASON.RETURN,
-  ACTIVITY_REASON.EXTERNAL_WITHDRAWAL_RETURN,
+  ACTIVITY_REASON.EXTERNAL_OPERATION_RETURN,
   ACTIVITY_REASON.ORDER_RECEIVED,
 ];
 
@@ -232,29 +232,58 @@ export function targetStockDaysForOrderFrequency(ordersLast12Months: number): nu
 export const STOCK_LEVEL_LOW_MULTIPLIER = 1.2;
 
 // =====================
-// Tool replenishment (target-based, not consumption-based)
+// Fixed-target replenishment (target-based, not consumption-based)
 // =====================
 
-/** Target on-hand quantity for tool-type items. Tools don't use the
- *  consumption-driven rp/max model — they hold a fixed minimum on the shelf.
- *  A tool is recommended for reorder only once it runs out (qty drops to 0),
- *  and the recommended quantity restores it back up to the target of 1.
- *  PPE is intentionally absent here — PPE is excluded from the auto-order
- *  workflow for now. */
-export const TOOL_TARGET_MIN: Readonly<Record<string, number>> = {
-  [ITEM_CATEGORY_TYPE.TOOL]: 1,
-};
-
-/** True for any tool-type category. */
-export function isToolType(type: ITEM_CATEGORY_TYPE | string | null | undefined): boolean {
-  return type === ITEM_CATEGORY_TYPE.TOOL;
+/** True when the item holds a fixed target on the shelf instead of using the
+ *  consumption-driven rp/max model. Such items are recommended for reorder
+ *  only once they run out, and the recommended quantity restores the target. */
+export function isFixedTarget(item: { stockModel?: string | null }): boolean {
+  return item.stockModel === STOCK_MODEL.FIXED_TARGET;
 }
 
-/** Target on-hand quantity for a tool-type item; 0 for non-tool categories. */
-export function getToolTarget(type: ITEM_CATEGORY_TYPE | string | null | undefined): number {
-  if (type == null) return 0;
-  return TOOL_TARGET_MIN[type as string] ?? 0;
+/** Target on-hand quantity for a fixed-target item (fallback 1 when unset);
+ *  0 for consumption-model items. */
+export function getFixedTarget(item: {
+  stockModel?: string | null;
+  fixedTargetQuantity?: number | null;
+}): number {
+  if (!isFixedTarget(item)) return 0;
+  return item.fixedTargetQuantity ?? 1;
 }
+
+// =====================
+// Conservative demand-signal guards (tunable)
+// =====================
+
+/** Winsorization of the monthly consumption buckets: each month's quantity is
+ *  capped at WINSORIZE_FACTOR × median(non-zero months) before the weighted
+ *  average, so a single contaminated month (residual stock-balance spike)
+ *  cannot dominate mc while normal seasonality (≤3× median) passes through
+ *  untouched. */
+export const WINSORIZE_FACTOR = 3.0;
+
+/** Winsorization needs minimum signal: below this many non-zero months the
+ *  median is too unstable to define "normal", so buckets pass through raw. */
+export const WINSORIZE_MIN_NONZERO_MONTHS = 3;
+
+/** Maximum share of an item's demand total that INVENTORY_COUNT activities
+ *  may contribute to monthlyConsumption. INVENTORY_COUNT rows are balance
+ *  corrections, not demand — 0 excludes them entirely (the events still
+ *  anchor the bulk-distribution windows; only their quantity contribution is
+ *  capped). MANUAL_ADJUSTMENT is unaffected. */
+export const INVENTORY_COUNT_SHARE_CAP = 0;
+
+/** Minimum months of consumption history before an XYZ class is assigned.
+ *  A CV computed from 2–5 points is statistically meaningless and flips the
+ *  class nightly; below the minimum the item stays unclassified (null →
+ *  UNCLASSIFIED matrix row, the existing fallback). */
+export const XYZ_MIN_MONTHS = 6;
+
+/** Reorder-point floor = this factor × the max observed single-week demand
+ *  in the lookback window (CONSUMPTION-model items only). Guarantees rp
+ *  never sits below a demonstrated weekly draw. Set to 0 to disable. */
+export const RP_PEAK_WEEK_FLOOR_FACTOR = 1.0;
 
 // =====================
 // Trend adjustment (spec §13.2)

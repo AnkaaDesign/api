@@ -36,6 +36,7 @@ import {
   INSTALLMENT_STATUS,
   TASK_QUOTE_STATUS,
   TASK_QUOTE_STATUS_ORDER,
+  EXTERNAL_OPERATION_STATUS_ORDER,
 } from '@constants';
 import type { InvoiceGetManyFormData } from '@types';
 
@@ -135,12 +136,14 @@ export class InvoiceController {
         include: {
           customer: { select: { fantasyName: true } },
           task: { select: { id: true, name: true, serialNumber: true } },
+          externalOperation: { select: { id: true } },
         },
       });
       if (!invoice) return;
 
       const customerName = invoice.customer?.fantasyName || 'N/A';
-      const taskName = invoice.task?.name || 'N/A';
+      const withdrawalId = invoice.externalOperation?.id ?? invoice.externalOperationId ?? null;
+      const taskName = withdrawalId ? 'Operação Externa' : invoice.task?.name || 'N/A';
       const formattedAmount = new Intl.NumberFormat('pt-BR', {
         style: 'currency',
         currency: 'BRL',
@@ -149,8 +152,12 @@ export class InvoiceController {
         timeZone: 'America/Sao_Paulo',
       }).format(dueDate);
 
-      const webUrl = `/financeiro/faturamento/detalhes/${invoice.taskId}`;
-      const mobileUrl = `financial/${invoice.taskId}`;
+      const webUrl = withdrawalId
+        ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : `/financeiro/faturamento/detalhes/${invoice.taskId}`;
+      const mobileUrl = withdrawalId
+        ? `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : `financial/${invoice.taskId}`;
       const actionUrl = JSON.stringify({ web: webUrl, mobile: mobileUrl });
 
       await this.dispatchService.dispatchByConfiguration('bank_slip.paid', 'system', {
@@ -165,6 +172,7 @@ export class InvoiceController {
           invoiceId: invoice.id,
           bankSlipId,
           taskId: invoice.taskId,
+          externalOperationId: withdrawalId || undefined,
         },
         overrides: {
           actionUrl,
@@ -189,6 +197,7 @@ export class InvoiceController {
   ): Promise<void> {
     try {
       let taskId: string | null = null;
+      let withdrawalId: string | null = null;
       let customerName = 'N/A';
       let taskName = 'N/A';
       if (invoiceId) {
@@ -197,19 +206,26 @@ export class InvoiceController {
           include: {
             customer: { select: { fantasyName: true } },
             task: { select: { id: true, name: true } },
+            externalOperation: { select: { id: true } },
           },
         });
         taskId = invoice?.task?.id ?? invoice?.taskId ?? null;
+        withdrawalId = invoice?.externalOperation?.id ?? invoice?.externalOperationId ?? null;
         customerName = invoice?.customer?.fantasyName || 'N/A';
-        taskName = invoice?.task?.name || 'N/A';
+        taskName = withdrawalId ? 'Operação Externa' : invoice?.task?.name || 'N/A';
       }
 
-      const webUrl = taskId ? `/financeiro/faturamento/detalhes/${taskId}` : undefined;
-      const mobileUrl = taskId ? `financial/${taskId}` : undefined;
+      const refLabel = withdrawalId ? 'da operação externa' : `da tarefa ${taskName}`;
+      const webUrl = withdrawalId
+        ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : taskId
+          ? `/financeiro/faturamento/detalhes/${taskId}`
+          : undefined;
+      const mobileUrl = !withdrawalId && taskId ? `financial/${taskId}` : undefined;
 
       await this.dispatchService.dispatchByConfiguration('bank_slip.cancelled', 'system', {
         entityType: 'BankSlip',
-        entityId: taskId ?? invoiceId ?? (nossoNumero || 'unknown'),
+        entityId: taskId ?? withdrawalId ?? invoiceId ?? (nossoNumero || 'unknown'),
         action: 'cancelled',
         data: {
           customerName,
@@ -217,10 +233,11 @@ export class InvoiceController {
           nossoNumero: nossoNumero || 'N/A',
           invoiceId: invoiceId || undefined,
           taskId: taskId || undefined,
+          externalOperationId: withdrawalId || undefined,
         },
         overrides: {
           title: 'Boleto Cancelado',
-          body: `O boleto ${nossoNumero ? nossoNumero + ' ' : ''}da tarefa ${taskName} (${customerName}) foi cancelado.`,
+          body: `O boleto ${nossoNumero ? nossoNumero + ' ' : ''}${refLabel} (${customerName}) foi cancelado.`,
           relatedEntityType: 'BANK_SLIP',
           ...(webUrl ? { webUrl } : {}),
           ...(mobileUrl ? { mobileUrl } : {}),
@@ -486,19 +503,28 @@ export class InvoiceController {
           timeZone: 'America/Sao_Paulo',
         });
 
-        // Resolve taskId for the deep link (billing detail route is keyed by taskId).
+        // Resolve the deep link — task-backed invoices link to the billing detail page
+        // (keyed by taskId); withdrawal-backed invoices link to the withdrawal detail page.
         let taskIdForLink: string | null = null;
+        let withdrawalIdForLink: string | null = null;
         if (invoiceId) {
           const invoiceForLink = await this.prisma.invoice.findUnique({
             where: { id: invoiceId },
             select: {
+              externalOperationId: true,
               customerConfig: {
                 select: { quote: { select: { task: { select: { id: true } } } } },
               },
             },
           });
           taskIdForLink = invoiceForLink?.customerConfig?.quote?.task?.id ?? null;
+          withdrawalIdForLink = invoiceForLink?.externalOperationId ?? null;
         }
+        const webUrlForLink = withdrawalIdForLink
+          ? `/estoque/operacoes-externas/detalhes/${withdrawalIdForLink}`
+          : taskIdForLink
+            ? `/financeiro/faturamento/detalhes/${taskIdForLink}`
+            : undefined;
 
         const nossoNumeroLabel = bankSlip?.nossoNumero ?? 'novo boleto';
 
@@ -507,7 +533,7 @@ export class InvoiceController {
           'system',
           {
             entityType: 'BankSlip',
-            entityId: taskIdForLink ?? installmentId,
+            entityId: taskIdForLink ?? withdrawalIdForLink ?? installmentId,
             action: 'due_date_changed',
             data: {
               nossoNumero: nossoNumeroLabel,
@@ -518,9 +544,7 @@ export class InvoiceController {
               title: 'Vencimento de Boleto Alterado',
               body: `A data de vencimento do boleto ${nossoNumeroLabel}${oldDueDate ? ` foi alterada de ${oldDueDate}` : ' foi alterada'} para ${newDueDateLabel}.`,
               relatedEntityType: 'BANK_SLIP',
-              ...(taskIdForLink
-                ? { webUrl: `/financeiro/faturamento/detalhes/${taskIdForLink}` }
-                : {}),
+              ...(webUrlForLink ? { webUrl: webUrlForLink } : {}),
             },
           },
         );
@@ -615,6 +639,7 @@ export class InvoiceController {
           select: {
             id: true,
             status: true,
+            externalOperationId: true,
             customerConfig: { select: { quoteId: true } },
           },
         },
@@ -790,11 +815,112 @@ export class InvoiceController {
       );
 
       // Cascade: recalculate task quote status (SETTLED / PARTIAL / DUE / UPCOMING)
+      // or, for withdrawal-backed invoices, liquidate the external withdrawal.
       const invoice = await this.prisma.invoice.findUnique({
         where: { id: installment.invoiceId },
-        select: { customerConfig: { select: { quoteId: true } } },
+        select: {
+          externalOperationId: true,
+          customerConfig: { select: { quoteId: true } },
+        },
       });
-      if (invoice?.customerConfig?.quoteId) {
+
+      if (invoice?.externalOperationId) {
+        // External withdrawal ("Operação Externa"): when every active installment is paid,
+        // a CHARGED withdrawal becomes LIQUIDATED. Best-effort — never breaks the request.
+        try {
+          const withdrawalId = invoice.externalOperationId;
+          const withdrawal = await this.prisma.externalOperation.findUnique({
+            where: { id: withdrawalId },
+            select: { id: true, status: true, withdrawerName: true },
+          });
+          if (withdrawal?.status === 'CHARGED') {
+            const withdrawalInstallments = await this.prisma.installment.findMany({
+              where: { externalOperationId: withdrawalId },
+              select: { id: true, status: true },
+            });
+            const activeWithdrawalInsts = withdrawalInstallments.filter(
+              i => i.status !== 'CANCELLED',
+            );
+            const allWithdrawalPaid =
+              activeWithdrawalInsts.length > 0 &&
+              activeWithdrawalInsts.every(
+                i => i.id === installmentId || i.status === INSTALLMENT_STATUS.PAID,
+              );
+            if (allWithdrawalPaid) {
+              await this.prisma.externalOperation.update({
+                where: { id: withdrawalId },
+                data: {
+                  status: 'LIQUIDATED' as any,
+                  statusOrder: EXTERNAL_OPERATION_STATUS_ORDER['LIQUIDATED'] || 1,
+                },
+              });
+              this.logger.log(
+                `[BOLETO] Cascaded ExternalOperation ${withdrawalId} status: CHARGED → LIQUIDATED (manual installment payment)`,
+              );
+
+              // Notify settlement — mirrors the task_quote.settled key emitted by the
+              // cascade/webhook paths, keyed to the withdrawal detail page.
+              try {
+                const label = withdrawal.withdrawerName || withdrawalId.slice(-8).toUpperCase();
+                await this.dispatchService.dispatchByConfiguration(
+                  'task_quote.settled',
+                  'system',
+                  {
+                    entityType: 'ExternalOperation',
+                    entityId: withdrawalId,
+                    action: 'settled',
+                    data: { quoteLabel: label, externalOperationId: withdrawalId },
+                    overrides: {
+                      title: 'Pagamento Liquidado',
+                      body: `A operação externa ${label} foi totalmente liquidada. Todas as parcelas estão pagas.`,
+                      relatedEntityType: 'EXTERNAL_OPERATION',
+                      webUrl: `/estoque/operacoes-externas/detalhes/${withdrawalId}`,
+                      mobileUrl: `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`,
+                    },
+                  },
+                );
+              } catch (notifyErr) {
+                this.logger.error(
+                  'Falha ao notificar liquidação de operação externa (task_quote.settled):',
+                  notifyErr,
+                );
+              }
+
+              // Also fire the dedicated external_operation.liquidated key so its
+              // own audience (ADMIN/FINANCIAL config) learns about the auto-liquidation.
+              try {
+                const label = withdrawal.withdrawerName || withdrawalId.slice(-8).toUpperCase();
+                await this.dispatchService.dispatchByConfiguration(
+                  'external_operation.liquidated',
+                  'system',
+                  {
+                    entityType: 'ExternalOperation',
+                    entityId: withdrawalId,
+                    action: 'liquidated',
+                    data: { operationLabel: label, externalOperationId: withdrawalId },
+                    overrides: {
+                      title: 'Operação Externa Liquidada',
+                      body: `Operação externa ${label} liquidada — pagamento quitado.`,
+                      relatedEntityType: 'EXTERNAL_OPERATION',
+                      webUrl: `/estoque/operacoes-externas/detalhes/${withdrawalId}`,
+                      mobileUrl: `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`,
+                    },
+                  },
+                );
+              } catch (notifyErr) {
+                this.logger.error(
+                  'Falha ao notificar liquidação de operação externa (external_operation.liquidated):',
+                  notifyErr,
+                );
+              }
+            }
+          }
+        } catch (cascadeErr) {
+          this.logger.error(
+            `[BOLETO] Failed to cascade external withdrawal status for invoice ${installment.invoiceId}: ${cascadeErr}`,
+          );
+        }
+      } else if (invoice?.customerConfig?.quoteId) {
         const quoteId = invoice.customerConfig.quoteId;
         const now = new Date();
         const allQuoteInstallments = await this.prisma.installment.findMany({
@@ -1153,27 +1279,36 @@ export class InvoiceController {
           timeZone: 'America/Sao_Paulo',
         });
 
-        // Resolve the TASK id for the deep link — the billing detail route is
-        // keyed by taskId (/financeiro/faturamento/detalhes/:taskId).
+        // Resolve the deep link — the billing detail route is keyed by taskId
+        // (/financeiro/faturamento/detalhes/:taskId); withdrawal-backed invoices
+        // link to the "Operação Externa" detail page instead.
         let taskIdForLink: string | null = null;
+        let withdrawalIdForLink: string | null = null;
         if (invoiceLink?.invoiceId) {
           const invoiceForLink = await this.prisma.invoice.findUnique({
             where: { id: invoiceLink.invoiceId },
             select: {
+              externalOperationId: true,
               customerConfig: {
                 select: { quote: { select: { task: { select: { id: true } } } } },
               },
             },
           });
           taskIdForLink = invoiceForLink?.customerConfig?.quote?.task?.id ?? null;
+          withdrawalIdForLink = invoiceForLink?.externalOperationId ?? null;
         }
+        const webUrlForLink = withdrawalIdForLink
+          ? `/estoque/operacoes-externas/detalhes/${withdrawalIdForLink}`
+          : taskIdForLink
+            ? `/financeiro/faturamento/detalhes/${taskIdForLink}`
+            : undefined;
 
         await this.dispatchService.dispatchByConfiguration(
           'bank_slip.due_date_changed',
           userId ?? 'system',
           {
             entityType: 'BankSlip',
-            entityId: taskIdForLink ?? bankSlip.id,
+            entityId: taskIdForLink ?? withdrawalIdForLink ?? bankSlip.id,
             action: 'due_date_changed',
             data: {
               nossoNumero: bankSlip.nossoNumero,
@@ -1184,9 +1319,7 @@ export class InvoiceController {
               title: 'Vencimento de Boleto Alterado',
               body: `A data de vencimento do boleto ${bankSlip.nossoNumero}${oldDueDate ? ` foi alterada de ${oldDueDate}` : ' foi alterada'} para ${newDueDateLabel}.`,
               relatedEntityType: 'BANK_SLIP',
-              ...(taskIdForLink
-                ? { webUrl: `/financeiro/faturamento/detalhes/${taskIdForLink}` }
-                : {}),
+              ...(webUrlForLink ? { webUrl: webUrlForLink } : {}),
             },
           },
         );
@@ -1348,12 +1481,18 @@ export class InvoiceController {
       );
     }
 
-    // PENDING or ERROR: reset the existing record instead of creating a new one
+    // PENDING or ERROR: reset the existing record instead of creating a new one.
+    // H3c: the reset is ATOMIC (guarded by the current status) so a concurrent
+    // request/sweep that already claimed the document to PROCESSING can never be
+    // flipped back to PENDING mid-emission (which would allow a double emission).
     if (existingNfse && (existingNfse.status === 'PENDING' || existingNfse.status === 'ERROR')) {
-      await this.prisma.nfseDocument.update({
-        where: { id: existingNfse.id },
+      const reset = await this.prisma.nfseDocument.updateMany({
+        where: { id: existingNfse.id, status: { in: ['PENDING', 'ERROR'] } },
         data: { status: 'PENDING', errorCount: 0, retryAfter: null },
       });
+      if (reset.count !== 1) {
+        throw new BadRequestException('Emissão de NFS-e já está em andamento para esta fatura.');
+      }
 
       // Use targeted emission (bypasses NFSE_SCHEDULER_ENABLED guard) — fire-and-forget
       this.nfseEmissionScheduler.emitNfseForInvoices([invoiceId]).catch(err => {

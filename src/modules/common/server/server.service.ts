@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { exec } from 'child_process';
+import { exec, execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 import * as os from 'os';
 import * as fs from 'fs';
@@ -7,6 +7,10 @@ import * as path from 'path';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 
 const execPromise = promisify(exec);
+const execFilePromise = promisify(execFile);
+
+// Valid Linux usernames only — prevents shell/argument injection in user management commands
+const SAFE_USERNAME_REGEX = /^[a-z_][a-z0-9_-]{0,31}$/;
 
 import { env } from '../../../common/config/env.validation';
 
@@ -934,12 +938,16 @@ export class ServerService {
   }
 
   async createUser(username: string, fullName?: string): Promise<void> {
+    if (!SAFE_USERNAME_REGEX.test(username)) {
+      throw new Error('Nome de usuário inválido');
+    }
     try {
-      const cmd = fullName
-        ? `sudo useradd -m -s /bin/bash -c "${fullName}" ${username}`
-        : `sudo useradd -m -s /bin/bash ${username}`;
+      // execFile with an argument array — values are never interpreted by a shell
+      const args = fullName
+        ? ['useradd', '-m', '-s', '/bin/bash', '-c', fullName, username]
+        : ['useradd', '-m', '-s', '/bin/bash', username];
 
-      await execPromise(cmd);
+      await execFilePromise('sudo', args);
       this.logger.log(`User ${username} created successfully`);
     } catch (error) {
       this.logger.error(`Failed to create user ${username}`, error);
@@ -948,8 +956,31 @@ export class ServerService {
   }
 
   async setUserPassword(username: string, password: string): Promise<void> {
+    if (!SAFE_USERNAME_REGEX.test(username)) {
+      throw new Error('Nome de usuário inválido');
+    }
+    if (/[\r\n]/.test(password)) {
+      throw new Error('Senha inválida');
+    }
     try {
-      await execPromise(`echo '${username}:${password}' | sudo chpasswd`);
+      // Feed credentials to chpasswd via stdin (no shell, nothing interpolated into a command)
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn('sudo', ['chpasswd'], { stdio: ['pipe', 'ignore', 'pipe'] });
+        let stderr = '';
+        child.stderr.on('data', chunk => {
+          stderr += chunk.toString();
+        });
+        child.on('error', reject);
+        child.on('close', code => {
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(new Error(stderr.trim() || `chpasswd exited with code ${code}`));
+          }
+        });
+        child.stdin.write(`${username}:${password}\n`);
+        child.stdin.end();
+      });
       this.logger.log(`Password set for user ${username}`);
     } catch (error) {
       this.logger.error(`Failed to set password for user ${username}`, error);
