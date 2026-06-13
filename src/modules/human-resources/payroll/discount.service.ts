@@ -9,6 +9,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { DiscountRepository } from './repositories/discount/discount.repository';
+import { roundCurrency } from '@utils/currency-precision.util';
 import { CHANGE_TRIGGERED_BY, ENTITY_TYPE, CHANGE_ACTION } from '../../../constants/enums';
 import {
   trackFieldChanges,
@@ -45,6 +46,72 @@ export class DiscountService {
     private readonly discountRepository: DiscountRepository,
     private readonly changeLogService: ChangeLogService,
   ) {}
+
+  /**
+   * Recalcula totalDiscounts/netSalary da folha a partir das linhas de
+   * desconto persistidas. Necessário porque o CRUD de descontos roda APÓS a
+   * geração da folha (ex.: registrar um empréstimo consignado pela tela de
+   * detalhe) — sem isso os totais salvos ficam defasados em relação às linhas.
+   *
+   * Regras (espelham CompletePayrollCalculatorService):
+   * - Apenas linhas ativas (isActive) contam;
+   * - FGTS é contribuição do EMPREGADOR — nunca entra em totalDiscounts;
+   * - Linhas percentuais sem valor materializado incidem sobre o salário
+   *   bruto da folha (ex.: pensão alimentícia 30% do bruto);
+   * - netSalary = grossSalary − totalDiscounts.
+   *
+   * Nunca lança: uma falha aqui não pode derrubar o CRUD do desconto — mas o
+   * erro é logado para investigação.
+   */
+  async recalculatePayrollTotals(payrollId: string): Promise<void> {
+    try {
+      const payroll = await this.prisma.payroll.findUnique({
+        where: { id: payrollId },
+        include: { discounts: true },
+      });
+
+      if (!payroll || payroll.grossSalary === null || payroll.grossSalary === undefined) {
+        return;
+      }
+
+      const grossSalary = Number(payroll.grossSalary);
+
+      let totalDiscounts = 0;
+      for (const discount of payroll.discounts) {
+        if (!discount.isActive) continue;
+        if (discount.discountType === 'FGTS') continue; // employer-side, never deducted
+
+        const value = discount.value !== null && discount.value !== undefined
+          ? Number(discount.value)
+          : null;
+        const percentage = discount.percentage !== null && discount.percentage !== undefined
+          ? Number(discount.percentage)
+          : null;
+
+        if (value !== null && value > 0) {
+          totalDiscounts += value;
+        } else if (percentage !== null && percentage > 0) {
+          totalDiscounts += (grossSalary * percentage) / 100;
+        }
+      }
+
+      totalDiscounts = roundCurrency(totalDiscounts);
+      const netSalary = roundCurrency(grossSalary - totalDiscounts);
+
+      await this.prisma.payroll.update({
+        where: { id: payrollId },
+        data: { totalDiscounts, netSalary },
+      });
+
+      this.logger.log(
+        `Recalculated payroll ${payrollId} totals after discount change: totalDiscounts=${totalDiscounts.toFixed(2)}, netSalary=${netSalary.toFixed(2)}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to recalculate payroll totals for ${payrollId}: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
 
   async findMany(
     params: DiscountGetManyFormData,
@@ -127,6 +194,11 @@ export class DiscountService {
 
       const discount = await this.discountRepository.create(data);
 
+      // Keep the saved payroll's totalDiscounts/netSalary in sync with its rows
+      if (discount.payrollId) {
+        await this.recalculatePayrollTotals(discount.payrollId);
+      }
+
       if (userId) {
         await logEntityChange({
           changeLogService: this.changeLogService,
@@ -175,6 +247,16 @@ export class DiscountService {
       await this.validateUpdateDiscount(id, data);
 
       const updatedDiscount = await this.discountRepository.update(id, data);
+
+      // Keep the saved payroll's totalDiscounts/netSalary in sync with its rows
+      // (covers value/percentage edits and isActive toggles; also handles a
+      // hypothetical payroll move by recalculating both sides)
+      if (existingDiscount.payrollId) {
+        await this.recalculatePayrollTotals(existingDiscount.payrollId);
+      }
+      if (updatedDiscount.payrollId && updatedDiscount.payrollId !== existingDiscount.payrollId) {
+        await this.recalculatePayrollTotals(updatedDiscount.payrollId);
+      }
 
       if (userId) {
         const changes = trackFieldChanges(existingDiscount, updatedDiscount, [
@@ -229,6 +311,11 @@ export class DiscountService {
       await this.validateDeleteDiscount(existingDiscount);
 
       await this.discountRepository.delete(id);
+
+      // Keep the saved payroll's totalDiscounts/netSalary in sync with its rows
+      if (existingDiscount.payrollId) {
+        await this.recalculatePayrollTotals(existingDiscount.payrollId);
+      }
 
       if (userId) {
         await logEntityChange({

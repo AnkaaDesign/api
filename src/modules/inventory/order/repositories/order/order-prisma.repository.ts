@@ -601,6 +601,10 @@ export class OrderPrismaRepository
       paymentAssignedById: databaseOrder.paymentAssignedById as any,
       paymentResponsible: databaseOrder.paymentResponsible as any,
       paymentAssignedBy: databaseOrder.paymentAssignedBy as any,
+      paymentStatus: (databaseOrder as any).paymentStatus,
+      paymentStatusOrder: (databaseOrder as any).paymentStatusOrder ?? 1,
+      paymentRequestedAt: (databaseOrder as any).paymentRequestedAt ?? null,
+      paidAt: (databaseOrder as any).paidAt ?? null,
     };
   }
 

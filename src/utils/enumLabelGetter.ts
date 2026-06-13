@@ -46,7 +46,9 @@ import {
   ORDER_TRIGGER_TYPE_LABELS,
   ACTIVITY_REASON_LABELS,
   ACTIVITY_LEVEL_LABELS,
-  USER_STATUS_LABELS,
+  CONTRACT_TYPE_LABELS,
+  CONTRACT_STATUS_LABELS,
+  EMPLOYEE_TYPE_LABELS,
   CHANGE_LOG_ENTITY_TYPE_LABELS,
   CHANGE_LOG_ACTION_LABELS,
   NOTIFICATION_ACTION_TYPE_LABELS,
@@ -65,7 +67,9 @@ import {
   ORDER_TRIGGER_TYPE,
   ACTIVITY_REASON,
   ACTIVITY_LEVEL,
-  USER_STATUS,
+  CONTRACT_TYPE,
+  CONTRACT_STATUS,
+  EMPLOYEE_TYPE,
   CHANGE_LOG_ENTITY_TYPE,
   CHANGE_LOG_ACTION,
   NOTIFICATION_ACTION_TYPE,
@@ -104,12 +108,40 @@ export function getActivityLevelLabel(level: ACTIVITY_LEVEL): string {
 }
 
 /**
- * Get the display label for a user status
- * @param status - The user status enum value
+ * Get the display label for a contract type (vínculo)
+ * @param type - The contract type enum value
+ * @returns The localized label for the contract type
+ */
+export function getContractTypeLabel(type: CONTRACT_TYPE): string {
+  return CONTRACT_TYPE_LABELS[type] || type;
+}
+
+/**
+ * Get the display label for a contract type (vínculo).
+ * @deprecated Kept for backwards compatibility — use getContractTypeLabel.
+ * @param status - The contract type enum value
+ * @returns The localized label for the contract type
+ */
+export function getUserStatusLabel(status: CONTRACT_TYPE): string {
+  return CONTRACT_TYPE_LABELS[status] || status;
+}
+
+/**
+ * Get the display label for a contract status (situação)
+ * @param status - The contract status enum value
  * @returns The localized label for the status
  */
-export function getUserStatusLabel(status: USER_STATUS): string {
-  return USER_STATUS_LABELS[status] || status;
+export function getContractStatusLabel(status: CONTRACT_STATUS): string {
+  return CONTRACT_STATUS_LABELS[status] || status;
+}
+
+/**
+ * Get the display label for an employee type (categoria do colaborador)
+ * @param type - The employee type enum value
+ * @returns The localized label for the employee type
+ */
+export function getEmployeeTypeLabel(type: EMPLOYEE_TYPE): string {
+  return EMPLOYEE_TYPE_LABELS[type] || type;
 }
 
 /**

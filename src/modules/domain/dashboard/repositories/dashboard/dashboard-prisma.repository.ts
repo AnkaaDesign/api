@@ -28,14 +28,14 @@ import {
   ORDER_STATUS,
   STOCK_LEVEL,
   TASK_STATUS,
-  USER_STATUS,
+  CONTRACT_STATUS,
+  CONTRACT_TYPE,
   NOTIFICATION_IMPORTANCE,
   NOTIFICATION_TYPE,
   DASHBOARD_TIME_PERIOD,
   PAINT_FINISH,
   PAINT_BRAND,
   TRUCK_MANUFACTURER,
-  ACTIVE_USER_STATUSES,
 } from '../../../../../constants/enums';
 import {
   ACTIVITY_REASON_LABELS,
@@ -644,19 +644,19 @@ export class DashboardPrismaRepository implements DashboardRepository {
       this.prisma.user.count({
         where: {
           ...where,
-          status: { in: [...ACTIVE_USER_STATUSES] },
+          currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
         },
       }),
       this.prisma.user.count({
         where: {
           ...where,
-          status: USER_STATUS.DISMISSED,
+          currentContractStatus: CONTRACT_STATUS.DISMISSED,
         },
       }),
       this.prisma.user.count({
         where: {
           ...where,
-          exp1StartAt: dateFilter || last30DaysRange,
+          currentContract: { is: { admissionDate: dateFilter || last30DaysRange } },
         },
       }),
     ]);
@@ -2721,7 +2721,9 @@ export class DashboardPrismaRepository implements DashboardRepository {
           createdBy: true,
         },
       }),
-      this.prisma.user.count({ where: { status: { in: [...ACTIVE_USER_STATUSES] } } }),
+      this.prisma.user.count({
+        where: { currentContractStatus: { not: CONTRACT_STATUS.DISMISSED } },
+      }),
       this.prisma.task.findMany({
         where,
         include: {
@@ -2924,12 +2926,24 @@ export class DashboardPrismaRepository implements DashboardRepository {
       newUsersToday,
     ] = await Promise.all([
       this.prisma.user.count({ where }),
-      this.prisma.user.count({ where: { ...where, status: { in: [...ACTIVE_USER_STATUSES] } } }),
-      this.prisma.user.count({ where: { ...where, status: USER_STATUS.DISMISSED } }),
-      this.prisma.user.count({ where: { ...where, status: USER_STATUS.EXPERIENCE_PERIOD_1 } }),
-      this.prisma.user.count({ where: { ...where, status: USER_STATUS.EXPERIENCE_PERIOD_2 } }),
-      this.prisma.user.count({ where: { ...where, status: USER_STATUS.EFFECTED } }),
-      this.prisma.user.count({ where: { ...where, status: USER_STATUS.DISMISSED } }),
+      this.prisma.user.count({
+        where: { ...where, currentContractStatus: { not: CONTRACT_STATUS.DISMISSED } },
+      }),
+      this.prisma.user.count({
+        where: { ...where, currentContractStatus: CONTRACT_STATUS.DISMISSED },
+      }),
+      this.prisma.user.count({
+        where: { ...where, currentContractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_1 },
+      }),
+      this.prisma.user.count({
+        where: { ...where, currentContractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_2 },
+      }),
+      this.prisma.user.count({
+        where: { ...where, currentContractType: CONTRACT_TYPE.EFFECTED },
+      }),
+      this.prisma.user.count({
+        where: { ...where, currentContractStatus: CONTRACT_STATUS.DISMISSED },
+      }),
       this.prisma.user.count({ where: { ...where, createdAt: { gte: startOfMonth } } }),
       this.prisma.user.count({ where: { ...where, createdAt: { gte: startOfWeek } } }),
       this.prisma.user.count({ where: { ...where, createdAt: { gte: startOfDay } } }),
@@ -3128,7 +3142,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
   }> {
     const positionGroups = await this.prisma.user.groupBy({
       by: ['positionId'],
-      where: this.sanitizeWhereForGroupBy({ status: { in: [...ACTIVE_USER_STATUSES] } }),
+      where: this.sanitizeWhereForGroupBy({ currentContractStatus: { not: CONTRACT_STATUS.DISMISSED } }),
       _count: { id: true },
     });
 
@@ -3300,7 +3314,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         _count: {
           select: {
             users: {
-              where: { status: { in: [...ACTIVE_USER_STATUSES] } },
+              where: { currentContractStatus: { not: CONTRACT_STATUS.DISMISSED } },
             },
           },
         },
@@ -3313,7 +3327,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         id: true,
         name: true,
         users: {
-          where: { status: { in: [...ACTIVE_USER_STATUSES] } },
+          where: { currentContractStatus: { not: CONTRACT_STATUS.DISMISSED } },
           select: { id: true },
         },
       },

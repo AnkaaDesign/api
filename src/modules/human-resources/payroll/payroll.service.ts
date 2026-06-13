@@ -14,12 +14,20 @@ import {
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { PayrollRepository } from './repositories/payroll/payroll.repository';
+import { DiscountService } from './discount.service';
 import { BonusService } from '../bonus/bonus.service';
 import { UserService } from '@modules/people/user/user.service';
 import { CompletePayrollCalculatorService } from './utils/complete-payroll-calculator.service';
 import { AutoDiscountCreationService } from './services/auto-discount-creation.service';
 import { PersistentDiscountService } from './services/persistent-discount.service';
-import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY, USER_STATUS } from '../../../constants';
+import {
+  ENTITY_TYPE,
+  CHANGE_ACTION,
+  CHANGE_TRIGGERED_BY,
+  CONTRACT_STATUS,
+  CONTRACT_TYPE,
+  PAYROLL_EMPLOYEE_TYPES,
+} from '../../../constants';
 import { logEntityChange } from '@modules/common/changelog/utils/changelog-helpers';
 import {
   calculateNetSalary,
@@ -64,6 +72,7 @@ export class PayrollService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly payrollRepository: PayrollRepository,
+    private readonly discountService: DiscountService,
     private readonly bonusService: BonusService,
     private readonly userService: UserService,
     private readonly changeLogService: ChangeLogService,
@@ -71,6 +80,41 @@ export class PayrollService {
     private readonly autoDiscountService: AutoDiscountCreationService,
     private readonly persistentDiscountService: PersistentDiscountService,
   ) {}
+
+  // =====================
+  // Helpers
+  // =====================
+
+  /**
+   * Número de dependentes para a dedução de IRRF.
+   *
+   * Quando o colaborador possui dependentes cadastrados (tabela Dependent),
+   * conta apenas os marcados como elegíveis (irrfDeduction = true). Caso não
+   * haja nenhum registro, recua para User.dependentsCount (transição até todos
+   * os dependentes serem cadastrados).
+   */
+  private async getIrrfDependentsCount(
+    userId: string,
+    fallbackCount: number = 0,
+  ): Promise<number> {
+    try {
+      const [totalDependents, irrfEligible] = await Promise.all([
+        this.prisma.dependent.count({ where: { userId } }),
+        this.prisma.dependent.count({ where: { userId, irrfDeduction: true } }),
+      ]);
+
+      if (totalDependents > 0) {
+        return irrfEligible;
+      }
+      return fallbackCount;
+    } catch (error) {
+      this.logger.warn(
+        `Erro ao contar dependentes do usuário ${userId}; usando dependentsCount=${fallbackCount}`,
+        error as any,
+      );
+      return fallbackCount;
+    }
+  }
 
   // =====================
   // Regular CRUD Operations (like any other entity)
@@ -263,8 +307,16 @@ export class PayrollService {
   async create(data: PayrollCreateFormData, userId: string): Promise<Payroll> {
     try {
       const userResponse = await this.userService.findById(data.userId);
-      if (!userResponse.data || userResponse.data.status === USER_STATUS.DISMISSED) {
+      if (
+        !userResponse.data ||
+        userResponse.data.currentContractStatus === CONTRACT_STATUS.DISMISSED
+      ) {
         throw new BadRequestException('Usuário não encontrado ou desligado.');
+      }
+      if (
+        !PAYROLL_EMPLOYEE_TYPES.includes(userResponse.data.currentEmployeeType as any)
+      ) {
+        throw new BadRequestException('Usuário não pertence à folha de pagamento (CLT).');
       }
 
       const existingPayroll = await this.payrollRepository.findByUserAndPeriod(
@@ -353,6 +405,23 @@ export class PayrollService {
           transaction: tx,
         });
       });
+
+      // PUT /payroll/:id with `discounts` replaces ALL discount rows
+      // (deleteMany + create) — keep the stored totals in sync with the new
+      // rows, same invariant enforced by the discount CRUD.
+      if (data.discounts !== undefined) {
+        await this.discountService.recalculatePayrollTotals(id);
+        const refreshed = await this.payrollRepository.findById(id, {
+          include: {
+            user: true,
+            discounts: true,
+            bonus: true,
+          },
+        });
+        if (refreshed) {
+          updatedPayroll = refreshed;
+        }
+      }
 
       return updatedPayroll!;
     } catch (error) {
@@ -486,7 +555,8 @@ export class PayrollService {
       // Get all active users with payroll number
       const activeUsers = await this.prisma.user.findMany({
         where: {
-          status: { not: USER_STATUS.DISMISSED },
+          currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
+          currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
           payrollNumber: { not: null },
         },
         include: {
@@ -540,6 +610,16 @@ export class PayrollService {
 
           const bonusAmount = savedBonus ? Number(savedBonus.netBonus) : 0;
 
+          // Persistent discounts from previous month (loans, health insurance,
+          // alimony, ...) — included in the calculation so totalDiscounts and
+          // netSalary stored on the payroll match the discount rows copied below.
+          const persistentDiscountsForCalc =
+            await this.persistentDiscountService.getPersistentDiscountsForLivePayroll({
+              employeeId: user.id,
+              currentYear: year,
+              currentMonth: month,
+            });
+
           const calculation = await this.completeCalculator.calculateCompletePayroll({
             employeeId: user.id,
             year,
@@ -547,10 +627,20 @@ export class PayrollService {
             baseSalary,
             bonusAmount,
             secullumEmployeeId: user.secullumEmployeeId ?? null,
-            dependentsCount: (user as any).dependentsCount || 0,
+            dependentsCount: await this.getIrrfDependentsCount(
+              user.id,
+              (user as any).dependentsCount || 0,
+            ),
             useSimplifiedDeduction: (user as any).hasSimplifiedDeduction ?? true,
             unionMember: (user as any).unionMember || false,
-            isApprentice: false, // TODO: Add apprentice flag to User model if needed
+            isApprentice:
+              (user as any).currentContractType === CONTRACT_TYPE.APPRENTICE, // FGTS 2%
+            persistentDiscounts: persistentDiscountsForCalc.map(d => ({
+              type: d.discountType,
+              value: d.value ?? undefined,
+              percentage: d.percentage ?? undefined,
+              reference: d.reference,
+            })),
           });
 
           // Create payroll with calculated values
@@ -719,7 +809,10 @@ export class PayrollService {
         sector: true,
       });
 
-      if (!userResponse.data || userResponse.data.status === USER_STATUS.DISMISSED) {
+      if (
+        !userResponse.data ||
+        userResponse.data.currentContractStatus === CONTRACT_STATUS.DISMISSED
+      ) {
         throw new NotFoundException('Usuário não encontrado ou inativo.');
       }
 
@@ -772,6 +865,20 @@ export class PayrollService {
       }
 
       const userAny = user as any;
+
+      // Persistent discounts from previous month (loans, alimony, manual
+      // benefit rows...) are fetched BEFORE the calculation and passed INTO
+      // it — same path as generateForMonth. This makes percentage-based
+      // persistent discounts (e.g. pensão 30% do bruto) count correctly in
+      // live mode and lets the calculator's benefit co-pay logic skip
+      // UserBenefit enrollments already covered by a manual persistent row.
+      const persistentDiscounts =
+        await this.persistentDiscountService.getPersistentDiscountsForLivePayroll({
+          employeeId: userId,
+          currentYear: year,
+          currentMonth: month,
+        });
+
       const calculation = await this.completeCalculator.calculateCompletePayroll({
         employeeId: userId,
         year,
@@ -779,13 +886,23 @@ export class PayrollService {
         baseSalary,
         bonusAmount,
         secullumEmployeeId: userAny.secullumEmployeeId ?? null,
-        dependentsCount: userAny.dependentsCount || 0,
+        dependentsCount: await this.getIrrfDependentsCount(
+          userId,
+          userAny.dependentsCount || 0,
+        ),
         useSimplifiedDeduction: userAny.hasSimplifiedDeduction ?? true,
         unionMember: userAny.unionMember || false,
-        isApprentice: false,
+        isApprentice: userAny.currentContractType === CONTRACT_TYPE.APPRENTICE, // FGTS 2%
+        persistentDiscounts: persistentDiscounts.map(d => ({
+          type: d.discountType,
+          value: d.value ?? undefined,
+          percentage: d.percentage ?? undefined,
+          reference: d.reference,
+        })),
       });
 
-      // Generate auto-discounts (INSS, IRRF, Union, Absences, Late arrivals)
+      // Generate auto-discounts (INSS, IRRF, Union, Absences, Late arrivals,
+      // benefit co-pays)
       const autoDiscounts =
         await this.autoDiscountService.generateAutoDiscountObjectsForLivePayroll({
           employeeId: userId,
@@ -794,26 +911,12 @@ export class PayrollService {
           calculation,
         });
 
-      // Get persistent discounts from previous month (loans, health insurance, etc.)
-      const persistentDiscounts =
-        await this.persistentDiscountService.getPersistentDiscountsForLivePayroll({
-          employeeId: userId,
-          currentYear: year,
-          currentMonth: month,
-        });
-
-      // Combine all discounts
+      // Combine all discounts (persistent rows are display copies; their
+      // amounts are already inside calculation.totalDeductions)
       const allDiscounts = [...autoDiscounts, ...persistentDiscounts];
 
-      // Calculate total of persistent discounts to include in netSalary
-      const persistentDiscountsTotal = persistentDiscounts.reduce((sum, discount) => {
-        const value = discount.value ? Number(discount.value) : 0;
-        return sum + value;
-      }, 0);
-
-      // Recalculate totals including persistent discounts
-      const totalDiscountsWithPersistent = calculation.totalDeductions + persistentDiscountsTotal;
-      const netSalaryWithPersistent = calculation.grossSalary - totalDiscountsWithPersistent;
+      const totalDiscountsWithPersistent = calculation.totalDeductions;
+      const netSalaryWithPersistent = calculation.netSalary;
 
       // Format current date for createdAt/updatedAt (same as saved payroll)
       const now = new Date();
@@ -902,6 +1005,10 @@ export class PayrollService {
           taxTableId: 'taxTableId' in d ? d.taxTableId || null : null,
           expirationDate: 'expirationDate' in d ? d.expirationDate || null : null,
           baseValue: d.baseValue ? String(d.baseValue) : null,
+          // Parcelamento (empréstimo consignado): exibir "Parcela X/Y" também
+          // na folha ao vivo
+          totalInstallments: 'totalInstallments' in d ? (d.totalInstallments ?? null) : null,
+          currentInstallment: 'currentInstallment' in d ? (d.currentInstallment ?? null) : null,
           createdAt: now,
           updatedAt: now,
         })),
@@ -997,7 +1104,8 @@ export class PayrollService {
       // For current period, generate live payrolls for all active users with payroll number
       const allActiveUsers = await this.prisma.user.findMany({
         where: {
-          status: { not: USER_STATUS.DISMISSED },
+          currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
+          currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
           payrollNumber: { not: null }, // Only users with payroll number
         },
         include: {

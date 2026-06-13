@@ -1,9 +1,9 @@
 import type { User } from '@types';
-import { USER_STATUS, SECTOR_PRIVILEGES, VERIFICATION_TYPE } from '@constants';
+import { CONTRACT_TYPE, CONTRACT_STATUS, SECTOR_PRIVILEGES, VERIFICATION_TYPE } from '@constants';
 import { getSectorPrivilegeSortOrder } from './privilege';
 import { dateUtils } from './date';
 import type {
-  UserStatus,
+  ContractType,
   VerificationType,
   ShirtSize,
   BootSize,
@@ -15,11 +15,11 @@ import type {
 } from '@prisma/client';
 
 /**
- * Map USER_STATUS enum to Prisma UserStatus enum
+ * Map CONTRACT_TYPE enum to Prisma ContractType enum
  * This is needed because TypeScript doesn't recognize that the string values are compatible
  */
-export function mapUserStatusToPrisma(status: USER_STATUS | string): UserStatus {
-  return status as UserStatus;
+export function mapContractKindToPrisma(contractType: CONTRACT_TYPE | string): ContractType {
+  return contractType as ContractType;
 }
 
 /**
@@ -77,35 +77,42 @@ export function mapRainBootsSizeToPrisma(
 /**
  * Get user status color
  */
-export function getUserStatusColor(status: USER_STATUS): string {
-  const colors: Record<USER_STATUS, string> = {
-    [USER_STATUS.EXPERIENCE_PERIOD_1]: 'orange',
-    [USER_STATUS.EXPERIENCE_PERIOD_2]: 'orange',
-    [USER_STATUS.EFFECTED]: 'green',
-    [USER_STATUS.DISMISSED]: 'gray',
+export function getUserStatusColor(contractType: CONTRACT_TYPE): string {
+  const colors: Record<CONTRACT_TYPE, string> = {
+    [CONTRACT_TYPE.EXPERIENCE_PERIOD_1]: 'orange',
+    [CONTRACT_TYPE.EXPERIENCE_PERIOD_2]: 'orange',
+    [CONTRACT_TYPE.EFFECTED]: 'green',
+    [CONTRACT_TYPE.FIXED_TERM]: 'green',
+    [CONTRACT_TYPE.INTERMITTENT]: 'green',
+    [CONTRACT_TYPE.APPRENTICE]: 'green',
+    [CONTRACT_TYPE.TEMPORARY]: 'green',
   };
-  return colors[status] || 'default';
+  return colors[contractType] || 'default';
 }
 
 /**
  * Check if user is active (not dismissed)
  */
 export function isUserActive(user: User): boolean {
-  return user.status !== USER_STATUS.DISMISSED && user.verified === true && user.password !== null;
+  return (
+    user.currentContractStatus !== CONTRACT_STATUS.DISMISSED &&
+    user.verified === true &&
+    user.password !== null
+  );
 }
 
 /**
  * Check if user is dismissed
  */
 export function isUserInactive(user: User): boolean {
-  return user.status === USER_STATUS.DISMISSED;
+  return user.currentContractStatus === CONTRACT_STATUS.DISMISSED;
 }
 
 /**
  * Check if user is blocked
  */
 export function isUserBlocked(user: User): boolean {
-  return user.status === USER_STATUS.DISMISSED;
+  return user.currentContractStatus === CONTRACT_STATUS.DISMISSED;
 }
 
 /**
@@ -215,17 +222,20 @@ export function isNewUser(user: User, daysThreshold: number = 30): boolean {
 /**
  * Group users by status
  */
-export function groupUsersByStatus(users: User[]): Record<USER_STATUS, User[]> {
+export function groupUsersByStatus(users: User[]): Record<CONTRACT_TYPE, User[]> {
   const groups = {
-    [USER_STATUS.EXPERIENCE_PERIOD_1]: [],
-    [USER_STATUS.EXPERIENCE_PERIOD_2]: [],
-    [USER_STATUS.EFFECTED]: [],
-    [USER_STATUS.DISMISSED]: [],
-  } as Record<USER_STATUS, User[]>;
+    [CONTRACT_TYPE.EXPERIENCE_PERIOD_1]: [],
+    [CONTRACT_TYPE.EXPERIENCE_PERIOD_2]: [],
+    [CONTRACT_TYPE.EFFECTED]: [],
+    [CONTRACT_TYPE.FIXED_TERM]: [],
+    [CONTRACT_TYPE.INTERMITTENT]: [],
+    [CONTRACT_TYPE.APPRENTICE]: [],
+    [CONTRACT_TYPE.TEMPORARY]: [],
+  } as Record<CONTRACT_TYPE, User[]>;
 
   users.forEach(user => {
-    if (groups[user.status]) {
-      groups[user.status].push(user);
+    if (user.currentContractType && groups[user.currentContractType]) {
+      groups[user.currentContractType].push(user);
     }
   });
 
@@ -381,14 +391,14 @@ export function canAccessTeamManagement(user: User): boolean {
 /**
  * Check if user is eligible for bonus calculation. This is the SINGLE
  * canonical definition (must match the API live calc) — all four predicates:
- * 1. user.status === EFFECTED (not in experience period or dismissed)
+ * 1. user.currentContractType === EFFECTED (not in experience period or dismissed)
  * 2. position.bonifiable === true
  * 3. user.performanceLevel > 0
  * 4. user.secullumEmployeeId != null (registered in the time-clock system)
  */
 export function isUserEligibleForBonus(user: User): boolean {
   // Check if user is EFFECTED (not in experience period or dismissed)
-  if (user.status !== USER_STATUS.EFFECTED) {
+  if (user.currentContractType !== CONTRACT_TYPE.EFFECTED) {
     return false;
   }
 
@@ -416,7 +426,7 @@ export function isUserEligibleForBonus(user: User): boolean {
  * Returns null if user is eligible, or a reason string if not eligible
  */
 export function getBonusIneligibilityReason(user: User): string | null {
-  if (user.status === USER_STATUS.DISMISSED) {
+  if (user.currentContractStatus === CONTRACT_STATUS.DISMISSED) {
     return 'Usuário está desligado';
   }
 

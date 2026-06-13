@@ -44,6 +44,7 @@ import {
   orderScheduleCreateSchema,
   orderScheduleUpdateSchema,
   orderGetByIdSchema,
+  orderBatchPaymentSchema,
   orderScheduleBatchCreateSchema,
   orderScheduleBatchUpdateSchema,
   orderScheduleBatchDeleteSchema,
@@ -67,6 +68,7 @@ import type {
   OrderBatchCreateFormData,
   OrderBatchUpdateFormData,
   OrderBatchDeleteFormData,
+  OrderBatchPaymentFormData,
   OrderQueryFormData,
   OrderItemGetManyFormData,
   OrderItemCreateFormData,
@@ -109,6 +111,7 @@ import {
   OrderScheduleBatchCreateResponse,
   OrderScheduleBatchUpdateResponse,
   OrderScheduleBatchDeleteResponse,
+  OrderPaymentSummaryResponse,
 } from '../../../types';
 
 @Controller('orders')
@@ -163,6 +166,7 @@ export class OrderController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async findMany(
     @Query(new ZodQueryValidationPipe(orderGetManySchema)) query: OrderGetManyFormData,
@@ -175,10 +179,24 @@ export class OrderController {
   // in the create form's PDF before the order is saved. Declared before @Get(':id')
   // so "next-number" isn't captured as an :id param.
   @Get('next-number')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.LOGISTIC)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.ACCOUNTING)
   async getNextNumber(): Promise<{ success: boolean; data: { nextOrderNumber: number } }> {
     const nextOrderNumber = await this.orderService.getNextOrderNumber();
     return { success: true, data: { nextOrderNumber } };
+  }
+
+  // Per-paymentStatus aggregates for the Contas a Pagar summary cards (count +
+  // payable total per bucket; PAID windowed to the last 90 days). Declared
+  // before @Get(':id') so "payment-summary" isn't captured as an :id param.
+  @Get('payment-summary')
+  @Roles(
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async getPaymentSummary(): Promise<OrderPaymentSummaryResponse> {
+    return this.orderService.getPaymentSummary();
   }
 
   // =====================
@@ -254,6 +272,99 @@ export class OrderController {
   }
 
   // =====================
+  // Payment workflow — batch (contas a pagar)
+  // Declared BEFORE the :id routes so "batch" isn't captured as an :id param.
+  // =====================
+
+  @Put('batch/request-payment')
+  @Roles(
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async batchRequestPayment(
+    @Body(new ZodValidationPipe(orderBatchPaymentSchema)) data: OrderBatchPaymentFormData,
+    @UserId() userId: string,
+  ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
+    return this.orderService.batchRequestPayment(data.orderIds, userId);
+  }
+
+  @Put('batch/mark-awaiting-payment')
+  @Roles(
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async batchMarkAwaitingPayment(
+    @Body(new ZodValidationPipe(orderBatchPaymentSchema)) data: OrderBatchPaymentFormData,
+    @UserId() userId: string,
+  ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
+    return this.orderService.batchMarkAwaitingPayment(data.orderIds, userId);
+  }
+
+  @Put('batch/mark-paid')
+  @Roles(
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async batchMarkPaid(
+    @Body(new ZodValidationPipe(orderBatchPaymentSchema)) data: OrderBatchPaymentFormData,
+    @UserId() userId: string,
+  ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
+    return this.orderService.batchMarkPaid(data.orderIds, userId);
+  }
+
+  // =====================
+  // Payment workflow — single order (contas a pagar)
+  // =====================
+
+  @Put(':id/request-payment')
+  @Roles(
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async requestPayment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+  ): Promise<OrderUpdateResponse> {
+    return this.orderService.requestPayment(id, userId);
+  }
+
+  @Put(':id/mark-awaiting-payment')
+  @Roles(
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async markAwaitingPayment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+  ): Promise<OrderUpdateResponse> {
+    return this.orderService.markAwaitingPayment(id, userId);
+  }
+
+  @Put(':id/mark-paid')
+  @Roles(
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async markPaid(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+  ): Promise<OrderUpdateResponse> {
+    return this.orderService.markPaid(id, userId);
+  }
+
+  // =====================
   // Dynamic routes (must come after static routes)
   // =====================
 
@@ -270,6 +381,7 @@ export class OrderController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -391,6 +503,7 @@ export class OrderItemController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async findMany(
     @Query(new ZodQueryValidationPipe(orderItemGetManySchema)) query: OrderItemGetManyFormData,
@@ -487,7 +600,7 @@ export class OrderItemController {
   // Linhas temporárias não vinculadas + candidatos do catálogo para conversão.
   // Declarado ANTES de @Get(':id') para não ser capturado pela rota dinâmica.
   @Get('temporary/suggestions')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async findTemporaryItemSuggestions() {
     return this.orderItemService.findTemporaryItemSuggestions();
   }
@@ -505,6 +618,7 @@ export class OrderItemController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -563,6 +677,7 @@ export class OrderScheduleController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async findMany(
     @Query(new ZodQueryValidationPipe(orderScheduleGetManySchema))
@@ -644,6 +759,7 @@ export class OrderScheduleController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -691,6 +807,7 @@ export class OrderScheduleController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getCalculatedQuantities(
     @Param('id', ParseUUIDPipe) id: string,
@@ -766,6 +883,7 @@ export class OrderScheduleController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getProjection(
     @Param('id', ParseUUIDPipe) id: string,

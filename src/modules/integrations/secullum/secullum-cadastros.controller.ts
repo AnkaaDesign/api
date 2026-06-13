@@ -47,7 +47,7 @@ export class SecullumCadastrosController {
 
   @Get('departamentos')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   listDepartamentos(): Promise<SecullumDepartamento[]> {
     return this.cadastros.listDepartamentos();
   }
@@ -81,7 +81,7 @@ export class SecullumCadastrosController {
 
   @Get('funcoes')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   listFuncoes(): Promise<SecullumFuncao[]> {
     return this.cadastros.listFuncoes();
   }
@@ -115,7 +115,7 @@ export class SecullumCadastrosController {
 
   @Get('atividades')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   listAtividades(): Promise<SecullumAtividade[]> {
     return this.cadastros.listAtividades();
   }
@@ -181,21 +181,21 @@ export class SecullumCadastrosController {
 
   @Get('empresas')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   listEmpresas(): Promise<SecullumEmpresa[]> {
     return this.cadastros.listEmpresas();
   }
 
   @Get('motivos-demissao')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   listMotivosDemissao() {
     return this.cadastros.listMotivosDemissao();
   }
 
   @Get('estruturas')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   listEstruturas() {
     return this.cadastros.listEstruturas();
   }
@@ -204,21 +204,21 @@ export class SecullumCadastrosController {
 
   @Get('funcionarios/lista')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   listFuncionarios(): Promise<SecullumFuncionarioListItem[]> {
     return this.cadastros.listFuncionarios();
   }
 
   @Get('funcionarios-demitidos')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   listFuncionariosDemitidos(): Promise<SecullumFuncionarioListItem[]> {
     return this.cadastros.listFuncionariosDemitidos();
   }
 
   @Get('funcionarios/:id/detalhe')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   getFuncionarioFull(
     @Param('id', ParseIntPipe) id: number,
   ): Promise<SecullumFuncionarioFull> {
@@ -287,7 +287,7 @@ export class SecullumCadastrosController {
 
   @Get('mapping/departamentos')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async previewDepartamentoMapping() {
     // The actual sector list comes from the SectorService; the controller would
     // normally inject it. Returning the Secullum side only for the matching UI
@@ -297,7 +297,7 @@ export class SecullumCadastrosController {
 
   @Get('mapping/funcoes')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async previewFuncaoMapping() {
     return { funcoes: await this.cadastros.listFuncoes() };
   }
@@ -306,7 +306,7 @@ export class SecullumCadastrosController {
 
   @Get('horarios')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   listHorarios() {
     return this.cadastros.listHorarios(false);
   }
@@ -315,7 +315,7 @@ export class SecullumCadastrosController {
 
   @Get('encerramentos')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ACCOUNTING)
   listEncerramentos() {
     return this.cadastros.listEncerramentos();
   }

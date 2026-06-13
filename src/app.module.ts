@@ -36,6 +36,7 @@ import { StatisticsPreferencesModule } from './modules/people/statistics-prefere
 import { ResponsibleModule } from './modules/people/responsible/responsible.module';
 import { PrismaModule } from './modules/common/prisma/prisma.module';
 import { WarningModule } from './modules/people/warning/warning.module';
+import { DependentModule } from './modules/people/dependent/dependent.module';
 import { SectorModule } from './modules/people/sector/sector.module';
 import { GoalModule } from './modules/people/goal/goal.module';
 import { ServiceOrderModule } from './modules/production/service-order/service-order.module';
@@ -122,6 +123,7 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     ResponsibleModule,
     PrismaModule,
     WarningModule,
+    DependentModule,
     SectorModule,
     GoalModule,
     ServiceOrderModule,

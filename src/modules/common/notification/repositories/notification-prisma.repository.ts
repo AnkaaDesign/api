@@ -139,6 +139,17 @@ export class NotificationPrismaRepository
       actionUrl: formData.actionUrl || null,
       scheduledAt: formData.scheduledAt || null,
       sentAt: formData.sentAt || null,
+      // Campos de vínculo/contexto — eram descartados aqui, o que quebrava
+      // (entre outros) a idempotência do cron de aniversários, que consulta
+      // por relatedEntityType/relatedEntityId.
+      metadata:
+        formData.metadata !== undefined && formData.metadata !== null
+          ? (formData.metadata as Prisma.JsonObject)
+          : undefined,
+      relatedEntityType: formData.relatedEntityType ?? undefined,
+      relatedEntityId: formData.relatedEntityId ?? undefined,
+      isMandatory: formData.isMandatory ?? undefined,
+      targetSectors: (formData.targetSectors as any) ?? undefined,
     };
   }
 

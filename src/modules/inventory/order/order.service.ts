@@ -26,16 +26,20 @@ import {
   OrderItemCreateResponse,
   OrderItemUpdateResponse,
   OrderItemDeleteResponse,
+  OrderPaymentSummaryResponse,
+  OrderPaymentSummaryData,
 } from '../../../types';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import {
   ORDER_STATUS,
+  ORDER_PAYMENT_STATUS,
   ENTITY_TYPE,
   CHANGE_TRIGGERED_BY,
   ACTIVITY_REASON,
   ACTIVITY_OPERATION,
   CHANGE_ACTION,
 } from '../../../constants/enums';
+import { ORDER_PAYMENT_STATUS_ORDER } from '../../../constants/sortOrders';
 import { OrderRepository } from './repositories/order/order.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import {
@@ -2530,4 +2534,313 @@ export class OrderService {
     }
   }
 
+  // =====================
+  // Payment workflow (contas a pagar)
+  // =====================
+
+  // Allowed source statuses per target payment status:
+  // REQUESTED ← NOT_REQUESTED; AWAITING_PAYMENT ← REQUESTED|NOT_REQUESTED;
+  // PAID ← REQUESTED|AWAITING_PAYMENT|NOT_REQUESTED.
+  private static readonly PAYMENT_STATUS_ALLOWED_FROM: Record<string, string[]> = {
+    [ORDER_PAYMENT_STATUS.REQUESTED]: [ORDER_PAYMENT_STATUS.NOT_REQUESTED],
+    [ORDER_PAYMENT_STATUS.AWAITING_PAYMENT]: [
+      ORDER_PAYMENT_STATUS.REQUESTED,
+      ORDER_PAYMENT_STATUS.NOT_REQUESTED,
+    ],
+    [ORDER_PAYMENT_STATUS.PAID]: [
+      ORDER_PAYMENT_STATUS.REQUESTED,
+      ORDER_PAYMENT_STATUS.AWAITING_PAYMENT,
+      ORDER_PAYMENT_STATUS.NOT_REQUESTED,
+    ],
+  };
+
+  private static readonly PAYMENT_STATUS_LABELS_PT: Record<string, string> = {
+    [ORDER_PAYMENT_STATUS.NOT_REQUESTED]: 'Não solicitado',
+    [ORDER_PAYMENT_STATUS.REQUESTED]: 'Solicitado',
+    [ORDER_PAYMENT_STATUS.AWAITING_PAYMENT]: 'Aguardando pagamento',
+    [ORDER_PAYMENT_STATUS.PAID]: 'Pago',
+  };
+
+  /**
+   * Core payment-status transition (single order, inside an existing transaction).
+   * Validates the transition, updates paymentStatus/paymentStatusOrder and the
+   * paymentRequestedAt/paidAt timestamps, and logs the change.
+   */
+  private async updatePaymentStatusWithTransaction(
+    tx: PrismaTransaction,
+    orderId: string,
+    targetStatus: ORDER_PAYMENT_STATUS,
+    userId?: string,
+    triggeredBy: CHANGE_TRIGGERED_BY = CHANGE_TRIGGERED_BY.USER_ACTION,
+  ): Promise<Order> {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, paymentStatus: true },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Pedido não encontrado.');
+    }
+
+    const allowedFrom = OrderService.PAYMENT_STATUS_ALLOWED_FROM[targetStatus] || [];
+    if (!allowedFrom.includes(order.paymentStatus)) {
+      const fromLabel =
+        OrderService.PAYMENT_STATUS_LABELS_PT[order.paymentStatus] || order.paymentStatus;
+      const toLabel = OrderService.PAYMENT_STATUS_LABELS_PT[targetStatus] || targetStatus;
+      throw new BadRequestException(
+        `Transição de status de pagamento inválida: ${fromLabel} → ${toLabel}.`,
+      );
+    }
+
+    const now = new Date();
+    const updated = await tx.order.update({
+      where: { id: orderId },
+      data: {
+        paymentStatus: targetStatus as any,
+        paymentStatusOrder: ORDER_PAYMENT_STATUS_ORDER[targetStatus] ?? 1,
+        ...(targetStatus === ORDER_PAYMENT_STATUS.REQUESTED ? { paymentRequestedAt: now } : {}),
+        ...(targetStatus === ORDER_PAYMENT_STATUS.PAID ? { paidAt: now } : {}),
+      },
+    });
+
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.ORDER,
+      entityId: orderId,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'paymentStatus',
+      oldValue: order.paymentStatus,
+      newValue: targetStatus,
+      reason: `Status de pagamento alterado para ${
+        OrderService.PAYMENT_STATUS_LABELS_PT[targetStatus] || targetStatus
+      }`,
+      triggeredBy,
+      triggeredById: orderId,
+      userId: userId || null,
+      transaction: tx,
+    });
+
+    return updated as unknown as Order;
+  }
+
+  private async changePaymentStatus(
+    orderId: string,
+    targetStatus: ORDER_PAYMENT_STATUS,
+    successMessage: string,
+    userId?: string,
+  ): Promise<OrderUpdateResponse> {
+    try {
+      const order = await this.prisma.$transaction(async (tx: PrismaTransaction) =>
+        this.updatePaymentStatusWithTransaction(tx, orderId, targetStatus, userId),
+      );
+
+      return {
+        success: true,
+        message: successMessage,
+        data: order,
+      };
+    } catch (error: any) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error('Erro ao alterar status de pagamento do pedido:', error);
+      throw new InternalServerErrorException(
+        'Erro ao alterar status de pagamento. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  private async batchChangePaymentStatus(
+    orderIds: string[],
+    targetStatus: ORDER_PAYMENT_STATUS,
+    entityLabel: { singular: string; plural: string },
+    userId?: string,
+  ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
+    try {
+      const success: Order[] = [];
+      const failed: Array<{ index: number; id?: string; error: string; data: { id: string } }> = [];
+
+      await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        for (const [index, orderId] of orderIds.entries()) {
+          try {
+            const updated = await this.updatePaymentStatusWithTransaction(
+              tx,
+              orderId,
+              targetStatus,
+              userId,
+              CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+            );
+            success.push(updated);
+          } catch (error: any) {
+            failed.push({
+              index,
+              id: orderId,
+              error: error?.message || 'Erro ao alterar status de pagamento.',
+              data: { id: orderId },
+            });
+          }
+        }
+      });
+
+      const successMessage =
+        success.length === 1
+          ? `1 pedido ${entityLabel.singular}`
+          : `${success.length} pedidos ${entityLabel.plural}`;
+      const failureMessage = failed.length > 0 ? `, ${failed.length} falharam` : '';
+
+      return {
+        success: true,
+        message: `${successMessage}${failureMessage}`,
+        data: {
+          success,
+          failed,
+          totalProcessed: success.length + failed.length,
+          totalSuccess: success.length,
+          totalFailed: failed.length,
+        },
+      };
+    } catch (error: any) {
+      this.logger.error('Erro na alteração de status de pagamento em lote:', error);
+      throw new InternalServerErrorException(
+        'Erro ao alterar status de pagamento em lote. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  /**
+   * Lightweight per-paymentStatus aggregates for the Contas a Pagar summary
+   * cards. Avoids shipping every payable order to the client: totals are
+   * computed server-side with the same payable convention used by the web
+   * (items price×qty + ICMS/IPI − discount% on goods subtotal + freight).
+   * The PAID bucket is windowed to the last 90 days (unbounded otherwise).
+   */
+  async getPaymentSummary(): Promise<OrderPaymentSummaryResponse> {
+    try {
+      const paidWindowStart = new Date();
+      paidWindowStart.setDate(paidWindowStart.getDate() - 90);
+      paidWindowStart.setHours(0, 0, 0, 0);
+
+      const orders = await this.prisma.order.findMany({
+        where: {
+          OR: [
+            { paymentStatus: { not: ORDER_PAYMENT_STATUS.PAID } },
+            { paymentStatus: ORDER_PAYMENT_STATUS.PAID, paidAt: { gte: paidWindowStart } },
+          ],
+        },
+        select: {
+          paymentStatus: true,
+          freight: true,
+          discount: true,
+          items: {
+            select: { orderedQuantity: true, price: true, icms: true, ipi: true },
+          },
+        },
+      });
+
+      const emptyBucket = () => ({ count: 0, total: 0 });
+      const summary: OrderPaymentSummaryData = {
+        NOT_REQUESTED: emptyBucket(),
+        REQUESTED: emptyBucket(),
+        AWAITING_PAYMENT: emptyBucket(),
+        PAID_LAST_90_DAYS: emptyBucket(),
+      };
+
+      for (const order of orders) {
+        let itemsTotal = 0;
+        let goodsSubtotal = 0;
+        for (const item of order.items) {
+          const subtotal = item.orderedQuantity * item.price;
+          goodsSubtotal += subtotal;
+          itemsTotal += subtotal * (1 + (item.icms || 0) / 100 + (item.ipi || 0) / 100);
+        }
+        const discountAmount =
+          order.discount > 0 ? goodsSubtotal * (order.discount / 100) : 0;
+        const payableTotal = itemsTotal - discountAmount + (order.freight || 0);
+
+        const bucket =
+          order.paymentStatus === ORDER_PAYMENT_STATUS.PAID
+            ? summary.PAID_LAST_90_DAYS
+            : summary[order.paymentStatus as keyof Omit<OrderPaymentSummaryData, 'PAID_LAST_90_DAYS'>];
+        if (!bucket) continue;
+        bucket.count += 1;
+        bucket.total += payableTotal;
+      }
+
+      return {
+        success: true,
+        message: 'Resumo de pagamentos carregado com sucesso.',
+        data: summary,
+      };
+    } catch (error: any) {
+      this.logger.error('Erro ao carregar resumo de pagamentos:', error);
+      throw new InternalServerErrorException(
+        'Erro ao carregar resumo de pagamentos. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  /** NOT_REQUESTED → REQUESTED (stamps paymentRequestedAt). */
+  async requestPayment(orderId: string, userId?: string): Promise<OrderUpdateResponse> {
+    return this.changePaymentStatus(
+      orderId,
+      ORDER_PAYMENT_STATUS.REQUESTED,
+      'Pagamento solicitado com sucesso.',
+      userId,
+    );
+  }
+
+  /** REQUESTED|NOT_REQUESTED → AWAITING_PAYMENT. */
+  async markAwaitingPayment(orderId: string, userId?: string): Promise<OrderUpdateResponse> {
+    return this.changePaymentStatus(
+      orderId,
+      ORDER_PAYMENT_STATUS.AWAITING_PAYMENT,
+      'Pedido marcado como aguardando pagamento.',
+      userId,
+    );
+  }
+
+  /** REQUESTED|AWAITING_PAYMENT|NOT_REQUESTED → PAID (stamps paidAt). */
+  async markPaid(orderId: string, userId?: string): Promise<OrderUpdateResponse> {
+    return this.changePaymentStatus(
+      orderId,
+      ORDER_PAYMENT_STATUS.PAID,
+      'Pedido marcado como pago.',
+      userId,
+    );
+  }
+
+  async batchRequestPayment(
+    orderIds: string[],
+    userId?: string,
+  ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
+    return this.batchChangePaymentStatus(
+      orderIds,
+      ORDER_PAYMENT_STATUS.REQUESTED,
+      { singular: 'com pagamento solicitado', plural: 'com pagamento solicitado' },
+      userId,
+    );
+  }
+
+  async batchMarkAwaitingPayment(
+    orderIds: string[],
+    userId?: string,
+  ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
+    return this.batchChangePaymentStatus(
+      orderIds,
+      ORDER_PAYMENT_STATUS.AWAITING_PAYMENT,
+      { singular: 'marcado como aguardando pagamento', plural: 'marcados como aguardando pagamento' },
+      userId,
+    );
+  }
+
+  async batchMarkPaid(
+    orderIds: string[],
+    userId?: string,
+  ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
+    return this.batchChangePaymentStatus(
+      orderIds,
+      ORDER_PAYMENT_STATUS.PAID,
+      { singular: 'marcado como pago', plural: 'marcados como pagos' },
+      userId,
+    );
+  }
 }

@@ -142,3 +142,16 @@ export {
 export * from "./statistics-preferences";
 export * from './deployment';
 export * from './skill';
+// ACCOUNTING area — Departamento Pessoal & Medicina do Trabalho (W1 stubs)
+export * from './salary-adjustment';
+export * from './user-position-history';
+export * from './benefit';
+export * from './admission';
+export * from './employment-contract';
+export * from './termination';
+export * from './medical-exam';
+export * from './leave';
+export * from './dependent';
+// Calendário/agenda + post-its (a5-calendar)
+export * from './agenda-event';
+export * from './postit';

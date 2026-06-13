@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
 import { SiegModule } from '@modules/integrations/sieg/sieg.module';
+import { PayrollModule } from '@modules/human-resources/payroll/payroll.module';
 import { ReconciliationController } from './reconciliation.controller';
 import { ReconciliationService } from './reconciliation.service';
 import { ReconciliationImportService } from './reconciliation-import.service';
@@ -23,6 +24,7 @@ import { FiscalDerivedLearnerService } from './fiscal-derived-learner.service';
 import { RecurrenceLearnerService } from './recurrence-learner.service';
 import { LadderLearner } from './learning/ladder.learner';
 import { CategoryFusionService } from './learning/category-fusion.service';
+import { OutflowForecastService } from './outflow-forecast.service';
 import { CATEGORY_LEARNERS } from './learning/category-signal';
 
 // Order matters only for display tie-breaks; fusion is order-independent. The
@@ -45,7 +47,15 @@ const categoryLearnersProvider = {
 };
 
 @Module({
-  imports: [ConfigModule, PrismaModule, NotificationModule, forwardRef(() => SiegModule)],
+  imports: [
+    ConfigModule,
+    PrismaModule,
+    NotificationModule,
+    forwardRef(() => SiegModule),
+    // Payroll aggregate for the "Previsão de Saídas" composite (folha com
+    // bonificação). One-directional: nothing payroll-side imports this module.
+    PayrollModule,
+  ],
   controllers: [ReconciliationController],
   providers: [
     ReconciliationService,
@@ -67,6 +77,7 @@ const categoryLearnersProvider = {
     RecurrenceLearnerService,
     LadderLearner,
     CategoryFusionService,
+    OutflowForecastService,
     categoryLearnersProvider,
   ],
   exports: [

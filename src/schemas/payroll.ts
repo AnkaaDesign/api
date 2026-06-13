@@ -21,6 +21,12 @@ export const discountCreateSchema = z
     percentage: percentageSchema.nullable().optional(),
     value: moneySchema.nullable().optional(),
     reference: createNameSchema(1, 200, 'Referência'),
+    discountType: z.string().optional(),
+    isPersistent: z.boolean().optional(),
+    expirationDate: z.coerce.date().nullable().optional(),
+    // Parcelamento (ex.: empréstimo CLT)
+    totalInstallments: z.number().int().min(1).max(120).nullable().optional(),
+    currentInstallment: z.number().int().min(1).nullable().optional(),
   })
   .refine(
     data =>
@@ -279,31 +285,35 @@ export const payrollWhereSchema: z.ZodType<any> = z.lazy(() =>
       NOT: z.union([payrollWhereSchema, z.array(payrollWhereSchema)]).optional(),
 
       // Field conditions
+      // year/month use z.coerce.number(): the web client serializes the flat
+      // where (no nested objects) as dot-notation query params
+      // (where.year=2026&where.month=6), which arrive as STRINGS — plain
+      // z.number() rejected the payroll list page's own base query.
       year: z
         .union([
-          z.number(),
+          z.coerce.number(),
           z.object({
-            equals: z.number().optional(),
-            not: z.number().optional(),
-            lt: z.number().optional(),
-            lte: z.number().optional(),
-            gt: z.number().optional(),
-            gte: z.number().optional(),
-            in: z.array(z.number()).optional(),
+            equals: z.coerce.number().optional(),
+            not: z.coerce.number().optional(),
+            lt: z.coerce.number().optional(),
+            lte: z.coerce.number().optional(),
+            gt: z.coerce.number().optional(),
+            gte: z.coerce.number().optional(),
+            in: z.array(z.coerce.number()).optional(),
           }),
         ])
         .optional(),
       month: z
         .union([
-          z.number(),
+          z.coerce.number(),
           z.object({
-            equals: z.number().optional(),
-            not: z.number().optional(),
-            lt: z.number().optional(),
-            lte: z.number().optional(),
-            gt: z.number().optional(),
-            gte: z.number().optional(),
-            in: z.array(z.number()).optional(),
+            equals: z.coerce.number().optional(),
+            not: z.coerce.number().optional(),
+            lt: z.coerce.number().optional(),
+            lte: z.coerce.number().optional(),
+            gt: z.coerce.number().optional(),
+            gte: z.coerce.number().optional(),
+            in: z.array(z.coerce.number()).optional(),
           }),
         ])
         .optional(),

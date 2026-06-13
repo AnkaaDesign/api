@@ -169,8 +169,19 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     performanceLevel: 'Nível de Desempenho',
     sector: 'Setor',
     sectorId: 'Setor',
-    status: 'Status',
-    statusOrder: 'Ordem do Status',
+    currentContractType: 'Tipo de Contrato',
+    currentContractStatus: 'Situação do Contrato',
+    currentEmployeeType: 'Categoria do Colaborador',
+    contractType: 'Tipo de Contrato',
+    status: 'Situação do Contrato',
+    employeeType: 'Categoria do Colaborador',
+    sequence: 'Sequência do Vínculo',
+    matricula: 'Matrícula',
+    providerName: 'Nome do Prestador',
+    providerCnpj: 'CNPJ do Prestador',
+    admissionDate: 'Data de Admissão',
+    terminationDate: 'Data de Demissão',
+    terminationType: 'Tipo de Demissão',
     verified: 'Verificado',
     requirePasswordChange: 'Requer Mudança de Senha',
     exp1StartAt: 'Data de Admissão',
@@ -1816,7 +1827,9 @@ export function formatFieldValue(
     field === 'exp1EndAt' ||
     field === 'exp2StartAt' ||
     field === 'exp2EndAt' ||
-    field === 'dismissedAt'
+    field === 'dismissedAt' ||
+    field === 'admissionDate' ||
+    field === 'terminationDate'
   ) {
     const date = new Date(value as any);
     if (!isNaN(date.getTime())) {

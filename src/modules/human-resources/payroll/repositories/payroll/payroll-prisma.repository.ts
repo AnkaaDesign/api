@@ -21,7 +21,7 @@ import {
 import { PayrollRepository } from './payroll.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
-import { Prisma, Payroll as PrismaPayroll, UserStatus } from '@prisma/client';
+import { Prisma, Payroll as PrismaPayroll } from '@prisma/client';
 import {
   getBonusPeriodStart,
   getBonusPeriodEnd,
@@ -29,7 +29,7 @@ import {
   calculateNetSalary,
   getPayrollCalculationBreakdown,
 } from '../../../../../utils';
-import { ACTIVE_USER_STATUSES } from '../../../../../constants';
+import { CONTRACT_STATUS, PAYROLL_EMPLOYEE_TYPES } from '../../../../../constants';
 
 @Injectable()
 export class PayrollPrismaRepository
@@ -116,6 +116,19 @@ export class PayrollPrismaRepository
           percentage: discount.percentage,
           value: discount.value,
           reference: discount.reference,
+          ...(discount.discountType !== undefined && {
+            discountType: discount.discountType as any,
+          }),
+          ...(discount.isPersistent !== undefined && { isPersistent: discount.isPersistent }),
+          ...(discount.expirationDate !== undefined && {
+            expirationDate: discount.expirationDate,
+          }),
+          ...(discount.totalInstallments !== undefined && {
+            totalInstallments: discount.totalInstallments,
+          }),
+          ...(discount.currentInstallment !== undefined && {
+            currentInstallment: discount.currentInstallment,
+          }),
         })),
       };
     }
@@ -147,6 +160,19 @@ export class PayrollPrismaRepository
           percentage: discount.percentage,
           value: discount.value,
           reference: discount.reference,
+          ...(discount.discountType !== undefined && {
+            discountType: discount.discountType as any,
+          }),
+          ...(discount.isPersistent !== undefined && { isPersistent: discount.isPersistent }),
+          ...(discount.expirationDate !== undefined && {
+            expirationDate: discount.expirationDate,
+          }),
+          ...(discount.totalInstallments !== undefined && {
+            totalInstallments: discount.totalInstallments,
+          }),
+          ...(discount.currentInstallment !== undefined && {
+            currentInstallment: discount.currentInstallment,
+          }),
         })),
       };
     }
@@ -349,8 +375,14 @@ export class PayrollPrismaRepository
         throw new NotFoundException('Usuário não encontrado');
       }
 
-      if (!ACTIVE_USER_STATUSES.includes(user.status as any)) {
+      if (user.currentContractStatus === CONTRACT_STATUS.DISMISSED) {
         throw new BadRequestException('Usuário deve estar ativo para criar folha de pagamento');
+      }
+
+      if (!PAYROLL_EMPLOYEE_TYPES.includes(user.currentEmployeeType as any)) {
+        throw new BadRequestException(
+          'Usuário não pertence à folha de pagamento (somente CLT)',
+        );
       }
 
       // Use current position if not provided
@@ -567,10 +599,19 @@ export class PayrollPrismaRepository
               continue;
             }
 
-            if (!ACTIVE_USER_STATUSES.includes(user.status as any)) {
+            if (user.currentContractStatus === CONTRACT_STATUS.DISMISSED) {
               errors.push({
                 index: i,
                 error: `Usuário ${payrollData.userId} não está ativo`,
+                data: data.payrolls[i],
+              });
+              continue;
+            }
+
+            if (!PAYROLL_EMPLOYEE_TYPES.includes(user.currentEmployeeType as any)) {
+              errors.push({
+                index: i,
+                error: `Usuário ${payrollData.userId} não pertence à folha de pagamento (somente CLT)`,
                 data: data.payrolls[i],
               });
               continue;
@@ -860,7 +901,8 @@ export class PayrollPrismaRepository
     try {
       const users = await this.prisma.user.findMany({
         where: {
-          status: { in: ACTIVE_USER_STATUSES as any },
+          currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
+          currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
           payrollNumber: { not: null }, // Only users with payroll number
           payrolls: {
             none: {

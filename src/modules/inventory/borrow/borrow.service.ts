@@ -33,13 +33,11 @@ import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { ActivityService } from '@modules/inventory/activity/activity.service';
 import {
   CHANGE_TRIGGERED_BY,
-  USER_STATUS,
   ENTITY_TYPE,
   CHANGE_ACTION,
   BORROW_STATUS,
   ACTIVITY_REASON,
   ACTIVITY_OPERATION,
-  ACTIVE_USER_STATUSES,
 } from '../../../constants/enums';
 import { BORROW_STATUS_ORDER, BORROW_STATUS_LABELS } from '../../../constants';
 import {

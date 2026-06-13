@@ -28,7 +28,8 @@ import {
   CHANGE_ACTION,
   BONIFICATION_STATUS,
   TASK_STATUS,
-  USER_STATUS,
+  CONTRACT_TYPE,
+  PAYROLL_EMPLOYEE_TYPES,
 } from '../../../constants/enums';
 import { logEntityChange } from '@modules/common/changelog/utils/changelog-helpers';
 import { roundAverage, roundCurrency } from '../../../utils/currency-precision.util';
@@ -500,7 +501,8 @@ export class BonusService {
       // Get all bonifiable users (for user count + eligible users list)
       const allBonifiableUsers = await this.prisma.user.findMany({
         where: {
-          status: USER_STATUS.EFFECTED,
+          currentContractType: CONTRACT_TYPE.EFFECTED,
+          currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
           position: { bonifiable: true },
           secullumEmployeeId: { not: null },
         },
@@ -1888,7 +1890,8 @@ export class BonusService {
     // Count eligible users (bonifiable + performanceLevel > 0)
     const eligibleUsers = await this.prisma.user.count({
       where: {
-        status: USER_STATUS.EFFECTED,
+        currentContractType: CONTRACT_TYPE.EFFECTED,
+        currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
         position: { bonifiable: true },
         performanceLevel: { gt: 0 },
         secullumEmployeeId: { not: null },
@@ -2046,7 +2049,8 @@ export class BonusService {
       // We need all of them for display, but only those with performanceLevel > 0 count for the average
       const allBonifiableUsers = await this.prisma.user.findMany({
         where: {
-          status: USER_STATUS.EFFECTED,
+          currentContractType: CONTRACT_TYPE.EFFECTED,
+          currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
           position: {
             bonifiable: true,
           },
@@ -2453,7 +2457,8 @@ export class BonusService {
       // This ensures we show data even for users with performanceLevel = 0
       const allBonifiableUsers = await this.prisma.user.findMany({
         where: {
-          status: USER_STATUS.EFFECTED,
+          currentContractType: CONTRACT_TYPE.EFFECTED,
+          currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
           position: { bonifiable: true },
           secullumEmployeeId: { not: null },
         },
@@ -2832,7 +2837,8 @@ export class BonusService {
       // Get ALL active users with payroll numbers (not just eligible ones)
       const allActiveUsers = await this.prisma.user.findMany({
         where: {
-          status: USER_STATUS.EFFECTED,
+          currentContractType: CONTRACT_TYPE.EFFECTED,
+          currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
           payrollNumber: { not: null },
           secullumEmployeeId: { not: null },
         },
@@ -3469,7 +3475,8 @@ export class BonusService {
 
     const allBonifiableUsers = await this.prisma.user.findMany({
       where: {
-        status: USER_STATUS.EFFECTED,
+        currentContractType: CONTRACT_TYPE.EFFECTED,
+        currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
         position: { bonifiable: true },
         secullumEmployeeId: { not: null },
         // Eligible user count is always company-wide — it's the denominator of

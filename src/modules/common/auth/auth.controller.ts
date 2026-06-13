@@ -30,7 +30,7 @@ import {
 } from '../throttler/throttler.decorators';
 import { VerificationThrottle } from '../throttler/verification-throttler.guard';
 import { ZodValidationPipe } from '../pipes/zod-validation.pipe';
-import { SECTOR_PRIVILEGES, USER_STATUS } from '../../../constants';
+import { SECTOR_PRIVILEGES, CONTRACT_STATUS } from '../../../constants';
 import type {
   SignInFormData,
   SignUpFormData,
@@ -215,7 +215,7 @@ export class AuthController {
   ) {
     const result = await this.authService.toggleUserStatus(
       data.userId,
-      data.status as USER_STATUS,
+      data.status as CONTRACT_STATUS,
       data.reason,
       adminUserId,
     );

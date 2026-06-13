@@ -109,7 +109,7 @@ export class PayrollController {
    * Returns data from database, automatically includes live calculations for current period
    */
   @Get()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @ReadRateLimit()
   async findMany(
     @Query(new ZodQueryValidationPipe(payrollGetManyFormDataSchema)) query: PayrollGetManyFormData,
@@ -129,7 +129,7 @@ export class PayrollController {
    * Supports both database UUIDs and composite live IDs (live-{userId}-{year}-{month})
    */
   @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @ReadRateLimit()
   async findById(
     @Param('id') id: string,
@@ -176,7 +176,7 @@ export class PayrollController {
    * between the period end (25th) and payment date (5th).
    */
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @WriteRateLimit()
   async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -215,7 +215,7 @@ export class PayrollController {
    * Batch update payrolls
    */
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @WriteRateLimit()
   async batchUpdate(
     @Body(new ZodValidationPipe(payrollBatchUpdateSchema)) data: PayrollBatchUpdateFormData,
@@ -309,7 +309,7 @@ export class PayrollController {
    * Returns payroll in the SAME structure as saved payroll (with bonus as relation)
    */
   @Get('live')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @ReadRateLimit()
   async getLiveCalculations(
     @Query(new ZodQueryValidationPipe(payrollLiveCalculationSchema))
@@ -335,7 +335,7 @@ export class PayrollController {
    * Returns payroll in the SAME structure as saved payroll (with bonus as relation)
    */
   @Get('live/:userId/:year/:month')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @ReadRateLimit()
   async getLiveCalculation(
     @Param('userId', ParseUUIDPipe) targetUserId: string,
@@ -368,7 +368,7 @@ export class PayrollController {
    * Get payrolls by user
    */
   @Get('user/:userId')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @ReadRateLimit()
   async findByUser(
     @Param('userId', ParseUUIDPipe) targetUserId: string,
@@ -390,7 +390,7 @@ export class PayrollController {
    * Get payrolls by month
    */
   @Get('month/:year/:month')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @ReadRateLimit()
   async findByMonth(
     @Param('year', ParseIntPipe) year: number,
@@ -422,7 +422,7 @@ export class PayrollController {
    * Get payroll by user and month
    */
   @Get('user/:userId/month/:year/:month')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @ReadRateLimit()
   async findByUserAndMonth(
     @Param('userId', ParseUUIDPipe) targetUserId: string,
@@ -550,7 +550,7 @@ export class PayrollController {
    * Simulate bonuses for all users with optional filters (GET)
    */
   @Get('bonuses/simulate')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @ReadRateLimit()
   async simulateBonusesGet(
     @Query('year', ParseIntPipe) year: number,
@@ -574,7 +574,7 @@ export class PayrollController {
    * Simulate bonuses for all users with optional filters (POST)
    */
   @Post('simulate-bonuses')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @ReadRateLimit()
   async simulateBonuses(
     @Body()
@@ -595,7 +595,7 @@ export class PayrollController {
   // =====================
 
   @Post('analytics/trends')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getPayrollTrends(@Body() filters: any) {
     const data = await this.payrollAnalyticsService.getPayrollTrends(filters);

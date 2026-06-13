@@ -245,11 +245,34 @@ export const discountCreateSchema = z
     discountType: z.string().optional(),
     isPersistent: z.boolean().default(false),
     expirationDate: nullableDate.optional(),
+    // Parcelamento (ex.: empréstimo CLT): total de parcelas e parcela corrente
+    totalInstallments: z
+      .number()
+      .int('O total de parcelas deve ser um número inteiro')
+      .min(1, 'O total de parcelas deve ser pelo menos 1')
+      .max(120, 'O total de parcelas deve ser no máximo 120')
+      .nullable()
+      .optional(),
+    currentInstallment: z
+      .number()
+      .int('A parcela atual deve ser um número inteiro')
+      .min(1, 'A parcela atual deve ser pelo menos 1')
+      .nullable()
+      .optional(),
   })
   .refine(data => data.percentage !== undefined || data.value !== undefined, {
     message: "Pelo menos um dos campos 'percentual' ou 'valor fixo' deve ser fornecido",
     path: ['percentage', 'value'],
-  });
+  })
+  .refine(
+    data =>
+      !data.currentInstallment ||
+      (data.totalInstallments != null && data.currentInstallment <= data.totalInstallments),
+    {
+      message: 'A parcela atual não pode exceder o total de parcelas',
+      path: ['currentInstallment'],
+    },
+  );
 
 export const discountUpdateSchema = z
   .object({
@@ -269,6 +292,20 @@ export const discountUpdateSchema = z
     isPersistent: z.boolean().optional(),
     isActive: z.boolean().optional(),
     expirationDate: nullableDate.optional(),
+    // Parcelamento (ex.: empréstimo CLT)
+    totalInstallments: z
+      .number()
+      .int('O total de parcelas deve ser um número inteiro')
+      .min(1, 'O total de parcelas deve ser pelo menos 1')
+      .max(120, 'O total de parcelas deve ser no máximo 120')
+      .nullable()
+      .optional(),
+    currentInstallment: z
+      .number()
+      .int('A parcela atual deve ser um número inteiro')
+      .min(1, 'A parcela atual deve ser pelo menos 1')
+      .nullable()
+      .optional(),
   })
   .refine(
     data => {
@@ -328,7 +365,9 @@ export const discountGetManySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(10),
   include: discountIncludeSchema.optional(),
   where: discountWhereSchema.optional(),
-  orderBy: discountOrderBySchema.optional().default({ discountType: 'asc', createdAt: 'desc' }),
+  orderBy: discountOrderBySchema
+    .optional()
+    .default([{ discountType: 'asc' }, { createdAt: 'desc' }]),
   searchingFor: z.string().optional(),
 
   // Specific discount filters
@@ -410,5 +449,7 @@ export const mapToDiscountFormData = createMapToFormDataHelper<Discount, Discoun
     discountType: discount.discountType,
     isPersistent: discount.isPersistent,
     isActive: discount.isActive,
+    totalInstallments: discount.totalInstallments ?? undefined,
+    currentInstallment: discount.currentInstallment ?? undefined,
   }),
 );

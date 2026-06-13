@@ -11,7 +11,7 @@ import { Request } from 'express';
 import { ROLES_KEY } from './decorators/roles.decorator';
 import { IS_PUBLIC_KEY } from './decorators/public.decorator';
 import { UserRepository } from '@modules/people/user/repositories/user.repository';
-import { USER_STATUS, SECTOR_PRIVILEGES, TEAM_LEADER } from '../../../constants';
+import { SECTOR_PRIVILEGES, TEAM_LEADER } from '../../../constants';
 import { canAccessAnyPrivilege } from '../../../utils/privilege';
 import { isTeamLeader } from '../../../utils/user';
 

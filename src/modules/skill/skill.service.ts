@@ -34,7 +34,7 @@ import type {
   AssessmentEntryResponsesUpsertFormData,
   AssessmentEntryUpdateFormData,
 } from '../../types/skill';
-import { USER_STATUS } from '../../constants';
+import { CONTRACT_STATUS } from '../../constants';
 import type {
   SkillStatsOverviewFilters,
   SkillStatsComparisonFilters,
@@ -1413,7 +1413,7 @@ export class SkillService {
     // same rule every Secullum/HR-derived screen follows. Applied
     // unconditionally below, so this where is always non-empty.
     const evaluateeWhere: Prisma.UserWhereInput = {
-      status: { not: USER_STATUS.DISMISSED },
+      currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
       ...(filters.sectorIds?.length ? { sectorId: { in: filters.sectorIds } } : {}),
     };
 

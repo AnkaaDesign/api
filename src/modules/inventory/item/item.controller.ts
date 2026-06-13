@@ -138,6 +138,7 @@ export class ItemUnifiedController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getItems(
     @Query(new ZodQueryValidationPipe(itemGetManySchema)) query: ItemGetManyFormData,
@@ -220,6 +221,7 @@ export class ItemUnifiedController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getItemBrands(
     @Query(new ZodQueryValidationPipe(itemBrandGetManySchema)) query: ItemBrandGetManyFormData,
@@ -240,6 +242,7 @@ export class ItemUnifiedController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getItemBrandById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -328,6 +331,7 @@ export class ItemUnifiedController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getItemCategories(
     @Query(new ZodQueryValidationPipe(itemCategoryGetManySchema))
@@ -351,6 +355,7 @@ export class ItemUnifiedController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getItemCategoryTree(
     @Query(new ZodQueryValidationPipe(itemCategoryGetManySchema))
@@ -372,6 +377,7 @@ export class ItemUnifiedController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getItemCategoryById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -394,6 +400,7 @@ export class ItemUnifiedController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getItemCategoryDescendants(
     @Param('id', ParseUUIDPipe) id: string,
@@ -586,6 +593,7 @@ export class ItemUnifiedController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getItemById(
     @Param('id', ParseUUIDPipe) id: string,

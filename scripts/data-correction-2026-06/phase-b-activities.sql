@@ -95,11 +95,11 @@ WHERE a1.operation = 'OUTBOUND'
 -- than 50 rows on prod, the detectors are matching post-backup drift — abort
 -- (single transaction: the B1 deletions above roll back too).
 DO $$
-DECLARE n int;
+DECLARE total_del int;
 BEGIN
-  SELECT (SELECT n FROM _b1_count) + count(*) INTO n FROM _b2_del;
-  IF n > 50 THEN
-    RAISE EXCEPTION 'B1+B2 detectors matched % delete rows (> 50; baseline 41): thresholds too loose for current data, aborting', n;
+  SELECT (SELECT c.n FROM _b1_count c) + count(*) INTO total_del FROM _b2_del;
+  IF total_del > 50 THEN
+    RAISE EXCEPTION 'B1+B2 detectors matched % delete rows (> 50; baseline 41): thresholds too loose for current data, aborting', total_del;
   END IF;
 END $$;
 

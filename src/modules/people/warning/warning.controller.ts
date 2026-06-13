@@ -66,7 +66,7 @@ export class WarningController {
 
   // Basic CRUD Operations
   @Get()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async findMany(
     @Query(new ZodQueryValidationPipe(warningGetManySchema)) query: WarningGetManyFormData,
   ): Promise<WarningGetManyResponse> {
@@ -82,6 +82,7 @@ export class WarningController {
     SECTOR_PRIVILEGES.MAINTENANCE,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyWarnings(
     @Query(new ZodQueryValidationPipe(warningGetManySchema)) query: WarningGetManyFormData,
@@ -100,7 +101,7 @@ export class WarningController {
 
   // Team warnings endpoint for team leaders (must be before dynamic :id route)
   @Get('team-warnings')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ACCOUNTING)
   async getTeamWarnings(
     @Query(new ZodQueryValidationPipe(warningGetManySchema)) query: WarningGetManyFormData,
     @UserId() userId: string,
@@ -139,7 +140,7 @@ export class WarningController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FilesInterceptor('attachments', 10, multerConfig))
   async create(
@@ -154,7 +155,7 @@ export class WarningController {
 
   // Batch Operations (must come before dynamic routes)
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(warningBatchCreateSchema)) data: WarningBatchCreateFormData,
@@ -165,7 +166,7 @@ export class WarningController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async batchUpdate(
     @Body(new ZodValidationPipe(warningBatchUpdateSchema)) data: WarningBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(warningBatchQuerySchema)) query: WarningBatchQueryFormData,
@@ -175,7 +176,7 @@ export class WarningController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(warningBatchDeleteSchema)) data: WarningBatchDeleteFormData,
@@ -187,7 +188,7 @@ export class WarningController {
 
   // Dynamic routes (must come after static routes)
   @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(warningQuerySchema)) query: WarningQueryFormData,
@@ -196,7 +197,7 @@ export class WarningController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @UseInterceptors(FilesInterceptor('attachments', 10, multerConfig))
   async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -210,7 +211,7 @@ export class WarningController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,

@@ -99,7 +99,10 @@ export class AutoDiscountCreationService {
         month,
         amount: calculation.employerContributions.fgtsAmount,
         rate: calculation.employerContributions.fgtsRate,
-        grossSalary: calculation.grossSalary,
+        // FGTS incide sobre a remuneração devida (mesma base do INSS, já
+        // líquida de faltas/atrasos) — guardar essa base na linha para que
+        // percentage × baseValue == value na exibição.
+        grossSalary: calculation.taxDeductions.inssBase,
       });
       createdDiscountIds.push(fgtsDiscount.id);
     }
@@ -148,6 +151,26 @@ export class AutoDiscountCreationService {
         lateMinutes: calculation.absenceDeductions.lateArrivalMinutes,
       });
       createdDiscountIds.push(lateDiscount.id);
+    }
+
+    // ========================================================================
+    // 7. BENEFIT CO-PAYS (UserBenefit ACTIVE enrollments — canonical rule)
+    // ========================================================================
+    for (const copay of calculation.benefitCopayItems || []) {
+      if (copay.amount <= 0) continue;
+      const copayDiscount = await prisma.payrollDiscount.create({
+        data: {
+          payrollId,
+          discountType: copay.discountType,
+          value: roundCurrency(copay.amount),
+          percentage: null,
+          reference: copay.benefitName,
+          isPersistent: false, // re-derived monthly from the active enrollment
+          isActive: true,
+          baseValue: roundCurrency(copay.monthlyValue),
+        },
+      });
+      createdDiscountIds.push(copayDiscount.id);
     }
 
     this.logger.log(`Created ${createdDiscountIds.length} auto-discounts for payroll ${payrollId}`);
@@ -397,6 +420,13 @@ export class AutoDiscountCreationService {
       PayrollDiscountType.UNION,
       PayrollDiscountType.PARTIAL_ABSENCE,
       PayrollDiscountType.DSR_ABSENCE,
+      // Benefit co-pays re-derived monthly from UserBenefit (non-persistent
+      // rows only; manual persistent rows of the same types are preserved)
+      PayrollDiscountType.MEAL_VOUCHER,
+      PayrollDiscountType.TRANSPORT_VOUCHER,
+      PayrollDiscountType.HEALTH_INSURANCE,
+      PayrollDiscountType.DENTAL_INSURANCE,
+      PayrollDiscountType.AUTHORIZED_DISCOUNT,
     ];
 
     const result = await this.prisma.payrollDiscount.deleteMany({
@@ -573,6 +603,23 @@ export class AutoDiscountCreationService {
         isPersistent: false,
         isActive: true,
         baseValue: calculation.absenceDeductions.lateArrivalMinutes / 60, // Store as decimal hours for consistent formatting
+      });
+    }
+
+    // ========================================================================
+    // 7. BENEFIT CO-PAYS (UserBenefit ACTIVE enrollments — canonical rule)
+    // ========================================================================
+    for (const copay of calculation.benefitCopayItems || []) {
+      if (copay.amount <= 0) continue;
+      discountObjects.push({
+        id: `live-benefit-${copay.userBenefitId}-${year}-${month}`,
+        discountType: copay.discountType,
+        value: roundCurrency(copay.amount),
+        percentage: null,
+        reference: copay.benefitName,
+        isPersistent: false,
+        isActive: true,
+        baseValue: roundCurrency(copay.monthlyValue),
       });
     }
 

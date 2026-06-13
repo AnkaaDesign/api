@@ -28,6 +28,11 @@ export abstract class UserRepository extends BaseStringRepository<
   // User-specific methods
   abstract findByCpf(cpf: string, tx?: PrismaTransaction): Promise<User | null>;
   abstract findByEmail(email: string, tx?: PrismaTransaction): Promise<User | null>;
+  /**
+   * findById variant for AUTH flows only: re-enables the globally omitted
+   * credential fields (password, sessionToken) on the returned row.
+   */
+  abstract findByIdWithCredentials(id: string, include?: UserInclude): Promise<User | null>;
   abstract findByPhone(phone: string, tx?: PrismaTransaction): Promise<User | null>;
   abstract findByPayrollNumber(payrollNumber: number, tx?: PrismaTransaction): Promise<User | null>;
 
@@ -72,7 +77,8 @@ export abstract class UserRepository extends BaseStringRepository<
       name: string;
       email: string | null;
       phone: string | null;
-      status: string;
+      currentContractType: string | null;
+      currentContractStatus: string | null;
       isActive: boolean;
       avatarId: string | null;
       payrollNumber: number | null;

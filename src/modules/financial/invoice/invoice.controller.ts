@@ -258,7 +258,7 @@ export class InvoiceController {
    * List invoices with filters (taskId, customerId, status) and pagination.
    */
   @Get()
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async findMany(@Query() query: InvoiceGetManyFormData) {
     return this.invoiceService.findMany(query);
   }
@@ -268,7 +268,7 @@ export class InvoiceController {
    * Get a single invoice with installments, bank slips, and NFS-e.
    */
   @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async findById(@Param('id', ParseUUIDPipe) id: string) {
     return this.invoiceService.findById(id, {
       installments: { include: { bankSlip: { include: { pdfFile: true } } } },
@@ -284,7 +284,7 @@ export class InvoiceController {
    * Get all invoices for a specific task.
    */
   @Get('task/:taskId')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async findByTaskId(@Param('taskId', ParseUUIDPipe) taskId: string) {
     return this.invoiceService.findByTaskId(taskId);
   }
@@ -294,7 +294,7 @@ export class InvoiceController {
    * Get all invoices for a specific customer.
    */
   @Get('customer/:customerId')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async findByCustomerId(@Param('customerId', ParseUUIDPipe) customerId: string) {
     return this.invoiceService.findByCustomerId(customerId);
   }
@@ -309,7 +309,7 @@ export class InvoiceController {
    */
   @Put(':id/cancel')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async cancelInvoice(@Param('id', ParseUUIDPipe) id: string, @Body() body: { reason?: string }) {
     // Collect bank slips that are live at Sicredi BEFORE we touch the DB.
     const eligibleStatuses = [BANK_SLIP_STATUS.ACTIVE, BANK_SLIP_STATUS.OVERDUE, BANK_SLIP_STATUS.REGISTERING];
@@ -388,7 +388,7 @@ export class InvoiceController {
    */
   @Post(':installmentId/boleto/regenerate')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async regenerateBoleto(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Body() body: { newDueDate?: string },
@@ -565,7 +565,7 @@ export class InvoiceController {
    */
   @Put(':installmentId/boleto/cancel')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async cancelBoleto(@Param('installmentId', ParseUUIDPipe) installmentId: string) {
     const bankSlip = await this.prisma.bankSlip.findUnique({
       where: { installmentId },
@@ -625,7 +625,7 @@ export class InvoiceController {
    */
   @Put(':installmentId/boleto/sync-from-sicredi')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async syncBoletoFromSicredi(@Param('installmentId', ParseUUIDPipe) installmentId: string) {
     const bankSlip = await this.prisma.bankSlip.findUnique({
       where: { installmentId },
@@ -693,7 +693,7 @@ export class InvoiceController {
    */
   @Put(':installmentId/boleto/mark-paid')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async markBoletoAsPaid(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Body()
@@ -1002,7 +1002,7 @@ export class InvoiceController {
    */
   @Put(':installmentId/receipts')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async updateInstallmentReceipts(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Body() body: { receiptFileIds?: string[]; observations?: string | null },
@@ -1069,7 +1069,7 @@ export class InvoiceController {
    */
   @Put(':installmentId/receipt')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async updateInstallmentReceiptLegacy(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Body() body: { receiptFileId?: string; receiptFileIds?: string[]; observations?: string | null },
@@ -1084,7 +1084,7 @@ export class InvoiceController {
    */
   @Get(':installmentId/receipts/:fileId/download')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async downloadReceipt(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Param('fileId', ParseUUIDPipe) fileId: string,
@@ -1123,7 +1123,7 @@ export class InvoiceController {
    */
   @Put(':installmentId/boleto/due-date')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async changeBankSlipDueDate(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Body() body: { newDueDate: string },
@@ -1376,7 +1376,7 @@ export class InvoiceController {
    * If no local PDF exists, fetches directly from Sicredi using linhaDigitavel.
    */
   @Get(':installmentId/boleto/pdf')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async downloadBoletoPdf(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Res() res: Response,
@@ -1446,7 +1446,7 @@ export class InvoiceController {
    */
   @Post(':invoiceId/nfse/emit')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async emitNfse(@Param('invoiceId', ParseUUIDPipe) invoiceId: string) {
     // Verify the invoice exists and is not cancelled
     const invoice = await this.prisma.invoice.findUnique({
@@ -1532,7 +1532,7 @@ export class InvoiceController {
    */
   @Put(':invoiceId/nfse/cancel')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async cancelNfse(
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
     @Body() body: { reason?: string; reasonCode?: number; nfseDocumentId?: string; force?: boolean },
@@ -1617,7 +1617,7 @@ export class InvoiceController {
    * Fetches directly from Elotech OXY using elotechNfseId.
    */
   @Get(':invoiceId/nfse/pdf')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async downloadNfsePdf(
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
     @Res() res: Response,
@@ -1652,7 +1652,7 @@ export class InvoiceController {
   // =====================
 
   @Post('analytics/collection')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getCollectionAnalytics(@Body() filters: any) {
     const data = await this.invoiceAnalyticsService.getCollectionAnalytics(filters);
@@ -1660,7 +1660,7 @@ export class InvoiceController {
   }
 
   @Post('analytics/bank-slips')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getBankSlipPerformance(@Body() filters: any) {
     const data = await this.invoiceAnalyticsService.getBankSlipPerformance(filters);
@@ -1668,7 +1668,7 @@ export class InvoiceController {
   }
 
   @Post('analytics/quote-funnel')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getQuoteFunnelAnalytics(@Body() filters: any) {
     const data = await this.invoiceAnalyticsService.getQuoteFunnelAnalytics(filters);
@@ -1676,7 +1676,7 @@ export class InvoiceController {
   }
 
   @Post('analytics/receivables')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getReceivablesAnalytics(@Body() filters: any) {
     const data = await this.invoiceAnalyticsService.getReceivablesAnalytics(filters);
@@ -1684,7 +1684,7 @@ export class InvoiceController {
   }
 
   @Post('analytics/sicredi-webhooks')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getSicrediWebhookAnalytics(@Body() filters: any) {
     const data = await this.invoiceAnalyticsService.getSicrediWebhookAnalytics(filters);
@@ -1692,7 +1692,7 @@ export class InvoiceController {
   }
 
   @Post('analytics/nfse')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getNfseAnalytics(@Body() filters: any) {
     const data = await this.invoiceAnalyticsService.getNfseAnalytics(filters);

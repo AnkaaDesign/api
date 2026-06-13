@@ -7,7 +7,9 @@ import {
   ORDER_STATUS_ORDER,
   SERVICE_ORDER_STATUS_ORDER,
   AIRBRUSHING_STATUS_ORDER,
-  USER_STATUS_ORDER,
+  CONTRACT_TYPE_ORDER,
+  CONTRACT_STATUS_ORDER,
+  EMPLOYEE_TYPE_ORDER,
   WARNING_SEVERITY_ORDER,
   WARNING_CATEGORY_ORDER,
   MAINTENANCE_STATUS_ORDER,
@@ -100,7 +102,19 @@ export function getAirbrushingStatusOrder(status: string): number {
 }
 
 export function getUserStatusOrder(status: string): number {
-  return getSortOrder(status, USER_STATUS_ORDER);
+  return getSortOrder(status, CONTRACT_TYPE_ORDER);
+}
+
+export function getContractTypeOrder(type: string): number {
+  return getSortOrder(type, CONTRACT_TYPE_ORDER);
+}
+
+export function getContractStatusOrder(status: string): number {
+  return getSortOrder(status, CONTRACT_STATUS_ORDER);
+}
+
+export function getEmployeeTypeOrder(type: string): number {
+  return getSortOrder(type, EMPLOYEE_TYPE_ORDER);
 }
 
 export function getWarningSeverityOrder(severity: string): number {
@@ -129,7 +143,9 @@ export {
   ORDER_STATUS_ORDER,
   SERVICE_ORDER_STATUS_ORDER,
   AIRBRUSHING_STATUS_ORDER,
-  USER_STATUS_ORDER,
+  CONTRACT_TYPE_ORDER,
+  CONTRACT_STATUS_ORDER,
+  EMPLOYEE_TYPE_ORDER,
   WARNING_SEVERITY_ORDER,
   WARNING_CATEGORY_ORDER,
   MAINTENANCE_STATUS_ORDER,

@@ -44,6 +44,7 @@ import type {
   UserOrderBy,
   UserWhere,
 } from '../../../schemas/user';
+import { isValidStatusTransition, getStatusTransitionError } from '../../../schemas/user';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import {
   trackFieldChanges,
@@ -53,12 +54,17 @@ import {
 } from '@modules/common/changelog/utils/changelog-helpers';
 import {
   CHANGE_TRIGGERED_BY,
-  USER_STATUS,
+  CONTRACT_TYPE,
+  CONTRACT_STATUS,
+  EMPLOYEE_TYPE,
   ENTITY_TYPE,
   CHANGE_ACTION,
   SECTOR_PRIVILEGES,
+  POSITION_CHANGE_REASON,
 } from '../../../constants/enums';
-import { USER_STATUS_ORDER } from '../../../constants/sortOrders';
+import { POSITION_CHANGE_REASON_LABELS } from '../../../constants/enum-labels';
+import { CONTRACT_TYPE_ORDER } from '../../../constants/sortOrders';
+import { EmploymentContractService } from '@modules/human-resources/employment-contract/employment-contract.service';
 import { isValidCPF, isValidPIS, isValidPhone } from '../../../utils';
 import { FileService } from '@modules/common/file/file.service';
 import { FolderRenameService } from '@modules/common/file/services/folder-rename.service';
@@ -77,6 +83,7 @@ export class UserService {
     private readonly fileService: FileService,
     private readonly folderRenameService: FolderRenameService,
     private readonly notificationPreferenceInitService: NotificationPreferenceInitService,
+    private readonly employmentContractService: EmploymentContractService,
     /**
      * Global Node EventEmitter (registered as @Global() in
      * `apps/api/src/modules/common/event-emitter`). Used to fire
@@ -94,85 +101,59 @@ export class UserService {
   ) {}
 
   /**
-   * Calculate status-specific dates based on exp1StartAt
-   * First experience period is 30 days, second is 50 days
+   * Registrar histórico de cargo (UserPositionHistory) dentro da transação atual:
+   * fecha o registro aberto (endedAt = agora) e adiciona o novo registro.
+   * Usado pelos hooks de create/update/batch/merge e pela efetivação automática.
    */
-  private calculateStatusDates(data: Partial<UserCreateFormData | UserUpdateFormData>): void {
-    // If exp1StartAt is provided, calculate the experience period dates
-    if (data.exp1StartAt) {
-      const exp1Start = new Date(data.exp1StartAt);
-
-      // Calculate exp1EndAt (30 days after start) if not provided
-      if (!data.exp1EndAt) {
-        const exp1End = new Date(exp1Start);
-        exp1End.setDate(exp1End.getDate() + 30);
-        (data as any).exp1EndAt = exp1End;
-      }
-
-      // Calculate exp2StartAt (day after exp1 ends) if not provided
-      if (!data.exp2StartAt) {
-        const exp2Start = new Date(exp1Start);
-        exp2Start.setDate(exp2Start.getDate() + 31); // Day after exp1 ends
-        (data as any).exp2StartAt = exp2Start;
-      }
-
-      // Calculate exp2EndAt (50 days after exp2 starts) if not provided
-      if (!data.exp2EndAt) {
-        const exp2End = new Date(exp1Start);
-        exp2End.setDate(exp2End.getDate() + 80); // 30 days for exp1 + 50 for exp2
-        (data as any).exp2EndAt = exp2End;
-      }
-    }
-  }
-
-  /**
-   * Set initial status timestamps for new users
-   */
-  private setInitialStatusTimestamps(
-    data: Partial<UserCreateFormData | UserUpdateFormData>,
-    status: USER_STATUS,
-  ): void {
+  private async recordPositionHistory(
+    tx: PrismaTransaction,
+    params: {
+      userId: string;
+      newPositionId: string | null;
+      previousPositionId: string | null;
+      reason: POSITION_CHANGE_REASON;
+      changedById?: string | null;
+      note?: string | null;
+      triggeredBy?: CHANGE_TRIGGERED_BY;
+    },
+  ): Promise<void> {
     const now = new Date();
 
-    switch (status) {
-      case USER_STATUS.EXPERIENCE_PERIOD_1:
-        // Set exp1StartAt if not provided
-        if (!data.exp1StartAt) {
-          (data as any).exp1StartAt = now;
-        }
-        // Calculate all experience dates based on exp1StartAt
-        this.calculateStatusDates(data);
-        break;
+    // Fechar o registro de histórico aberto
+    await tx.userPositionHistory.updateMany({
+      where: { userId: params.userId, endedAt: null },
+      data: { endedAt: now },
+    });
 
-      case USER_STATUS.EXPERIENCE_PERIOD_2:
-        // If exp2StartAt is not provided, set it to now
-        if (!data.exp2StartAt) {
-          (data as any).exp2StartAt = now;
-        }
-        // If exp2EndAt is not provided, calculate it (50 days from exp2StartAt)
-        if (!data.exp2EndAt) {
-          const exp2End = new Date(data.exp2StartAt || now);
-          exp2End.setDate(exp2End.getDate() + 50);
-          (data as any).exp2EndAt = exp2End;
-        }
-        break;
+    // Adicionar o novo registro
+    const created = await tx.userPositionHistory.create({
+      data: {
+        userId: params.userId,
+        positionId: params.newPositionId,
+        previousPositionId: params.previousPositionId,
+        reason: params.reason as any,
+        startedAt: now,
+        note: params.note ?? null,
+        changedById: params.changedById ?? null,
+      },
+    });
 
-      case USER_STATUS.EFFECTED:
-        // Set effectedAt (exp1StartAt) if not provided
-        // Note: effectedAt field will be kept for now but represents the actual contract date (exp1StartAt)
-        if (!data.effectedAt) {
-          (data as any).effectedAt = now;
-        }
-        break;
-
-      case USER_STATUS.DISMISSED:
-        // Set dismissedAt if not provided
-        if (!data.dismissedAt) {
-          (data as any).dismissedAt = now;
-        }
-        break;
-    }
+    await logEntityChange({
+      changeLogService: this.changeLogService,
+      entityType: ENTITY_TYPE.USER_POSITION_HISTORY,
+      entityId: created.id,
+      action: CHANGE_ACTION.CREATE,
+      entity: created,
+      reason: `Histórico de cargo registrado (${POSITION_CHANGE_REASON_LABELS[params.reason]})`,
+      triggeredBy: params.triggeredBy ?? CHANGE_TRIGGERED_BY.USER_ACTION,
+      userId: params.changedById ?? null,
+      transaction: tx,
+    });
   }
+
+  // Experience-period date auto-calculation moved to the EmploymentContract
+  // (EmploymentContractService.computeContractDates). User no longer carries
+  // these dates — they live on the current vínculo.
 
   /**
    * Validar usuário completo
@@ -193,7 +174,7 @@ export class UserService {
       id: string;
       sectorId: string | null;
       positionId: string | null;
-      status: string;
+      currentContractType: string | null;
       performanceLevel: number;
     } | null,
     tx?: PrismaTransaction,
@@ -228,7 +209,14 @@ export class UserService {
 
       // B1(a): non-ADMIN cannot change own privileged fields.
       if (existingUser.id === actorId) {
-        for (const field of ['sectorId', 'positionId', 'status', 'performanceLevel'] as const) {
+        for (const field of [
+          'sectorId',
+          'positionId',
+          'contractType',
+          'contractStatus',
+          'employeeType',
+          'performanceLevel',
+        ] as const) {
           if (anyData[field] !== undefined && anyData[field] !== (existingUser as any)[field]) {
             throw new ForbiddenException(
               'Você não pode alterar seu próprio setor, cargo, status ou nível de desempenho.',
@@ -420,8 +408,8 @@ export class UserService {
     // Note: ledSector is now handled via Sector.leaderId relation
     // The business logic for sector leadership should be handled in the Sector service
 
-    // Validar que ao atualizar status para DISMISSED, o usuário não tenha pendências
-    if (isUpdate && (data.status as USER_STATUS) === USER_STATUS.DISMISSED) {
+    // Validar que ao demitir (status do vínculo → DISMISSED), o usuário não tenha pendências
+    if (isUpdate && (data as any).contractStatus === CONTRACT_STATUS.DISMISSED) {
       // Verificar empréstimos não devolvidos
       const unreturnedBorrows = await transaction.borrow.count({
         where: {
@@ -492,14 +480,15 @@ export class UserService {
       if (filters.cpf !== undefined) finalWhere.cpf = filters.cpf;
       if (filters.payrollNumber !== undefined) finalWhere.payrollNumber = filters.payrollNumber;
 
-      // Handle status - check if it's an array or single value
-      if (filters.status !== undefined) {
-        if (Array.isArray(filters.status)) {
+      // Handle contractKind - now mapped to the current-vínculo type cache
+      if (filters.contractKind !== undefined) {
+        if (Array.isArray(filters.contractKind)) {
           // If it's an array, use 'in' operator
-          finalWhere.status = filters.status.length > 0 ? { in: filters.status } : undefined;
+          finalWhere.currentContractType =
+            filters.contractKind.length > 0 ? { in: filters.contractKind } : undefined;
         } else {
           // If it's a single value, assign directly
-          finalWhere.status = filters.status;
+          finalWhere.currentContractType = filters.contractKind;
         }
       }
 
@@ -535,8 +524,8 @@ export class UserService {
       if (filters.positionIds && filters.positionIds.length > 0) {
         finalWhere.positionId = { in: filters.positionIds };
       }
-      if (filters.statuses && filters.statuses.length > 0) {
-        finalWhere.status = { in: filters.statuses };
+      if (filters.contractKinds && filters.contractKinds.length > 0) {
+        finalWhere.currentContractType = { in: filters.contractKinds };
       }
 
       // Handle boolean filters
@@ -645,56 +634,20 @@ export class UserService {
   }
 
   /**
-   * Validar transição de status do usuário
-   * Baseado nas regras da CLT (Consolidação das Leis do Trabalho) brasileira
+   * Valida a transição de TIPO de contrato dentro do vínculo atual
+   * (experiência → efetivado, etc.). Delega ao helper compartilhado do schema.
+   * A demissão é uma mudança de STATUS (não de tipo) e é tratada à parte.
    */
   private validateUserStatusTransition(
-    currentStatus: USER_STATUS,
-    newStatus: USER_STATUS,
+    currentType: CONTRACT_TYPE,
+    newType: CONTRACT_TYPE,
   ): { valid: boolean; error?: string } {
-    // Define valid transitions according to Brazilian employment law (CLT)
-    const validTransitions: Record<USER_STATUS, USER_STATUS[]> = {
-      // Primeiro período de experiência (30 dias)
-      [USER_STATUS.EXPERIENCE_PERIOD_1]: [
-        USER_STATUS.EXPERIENCE_PERIOD_2, // Progride para segundo período
-        USER_STATUS.EFFECTED, // Pode ser efetivado diretamente
-        USER_STATUS.DISMISSED, // Pode ser demitido
-      ],
-      // Segundo período de experiência (50 dias)
-      [USER_STATUS.EXPERIENCE_PERIOD_2]: [
-        USER_STATUS.EFFECTED, // Progride para efetivado
-        USER_STATUS.DISMISSED, // Pode ser demitido
-      ],
-      // Efetivado (contratado permanente)
-      [USER_STATUS.EFFECTED]: [
-        USER_STATUS.DISMISSED, // Pode ser demitido
-        // Note: CANNOT go back to experience periods per Brazilian law
-      ],
-      // Demitido — operators frequently dismiss by mistake and need to
-      // undo it. Allow transition back to any active status. The Secullum
-      // bridge clears Demissao on the funcionario when User.dismissedAt
-      // becomes null again, so the un-dismissal propagates symmetrically.
-      [USER_STATUS.DISMISSED]: [
-        USER_STATUS.EXPERIENCE_PERIOD_1,
-        USER_STATUS.EXPERIENCE_PERIOD_2,
-        USER_STATUS.EFFECTED,
-      ],
-    };
-
-    // Allow staying in same status
-    if (currentStatus === newStatus) {
+    if (currentType === newType) {
       return { valid: true };
     }
-
-    const allowedTransitions = validTransitions[currentStatus] || [];
-
-    if (!allowedTransitions.includes(newStatus)) {
-      return {
-        valid: false,
-        error: `Transição de status inválida: não é possível mudar de ${currentStatus} para ${newStatus} de acordo com a CLT`,
-      };
+    if (!isValidStatusTransition(currentType, newType)) {
+      return { valid: false, error: getStatusTransitionError(currentType, newType) };
     }
-
     return { valid: true };
   }
 
@@ -748,7 +701,7 @@ export class UserService {
     effective: {
       cpf?: string | null;
       payrollNumber?: number | null;
-      exp1StartAt?: Date | string | null;
+      admissionDate?: Date | string | null;
       sectorId?: string | null;
       positionId?: string | null;
     },
@@ -758,8 +711,7 @@ export class UserService {
 
     if (!effective.cpf) missing.push('CPF');
     if (effective.payrollNumber == null) missing.push('Número da folha');
-    if (!effective.exp1StartAt)
-      missing.push('Data de admissão (início do período de experiência)');
+    if (!effective.admissionDate) missing.push('Data de admissão (início do período de experiência)');
     if (!effective.sectorId) missing.push('Setor');
     if (!effective.positionId) missing.push('Cargo');
 
@@ -798,6 +750,206 @@ export class UserService {
   }
 
   /**
+   * Núcleo da criação de usuário, executado DENTRO de uma transação aberta.
+   *
+   * Usado pelo POST /users (via create()) e pelo processo de admissão
+   * (AdmissionService), que cria o colaborador e a admissão na MESMA
+   * transação. Executa guards, validação, defaults, criação no repositório,
+   * vínculo de líder de setor, histórico de cargo inicial e o changelog de
+   * CREATE. Efeitos pós-commit (preferências de notificação, Secullum) ficam
+   * em runPostCreateSideEffects().
+   */
+  async createWithinTransaction(
+    tx: PrismaTransaction,
+    data: UserCreateFormData,
+    options?: {
+      include?: UserInclude;
+      userId?: string;
+      avatarFile?: Express.Multer.File;
+      changelogReason?: string;
+    },
+  ): Promise<any> {
+    const { include, userId, avatarFile, changelogReason } = options ?? {};
+
+    // Security: privilege-escalation guards (audit B1, decision 12)
+    await this.enforceUserWriteGuards(userId, data, null, tx);
+
+    // Validar usuário completo
+    await this.userValidation(data, undefined, tx);
+
+    // If the user is opting in to Secullum sync at create time, every
+    // prerequisite the bridge needs MUST be present and the sector/position
+    // mappings MUST exist. Otherwise we'd commit an Ankaa user that we
+    // can't create on the Secullum side, leaving the operator confused.
+    if ((data as any).secullumSyncEnabled === true) {
+      await this.validateSecullumPrerequisites(data, tx);
+    }
+
+    // Hash da senha se fornecida
+    if (data.password) {
+      data.password = await bcrypt.hash(data.password, 10);
+    }
+
+    // Process avatar file if provided
+    let avatarId: string | null = data.avatarId || null;
+    if (avatarFile) {
+      try {
+        avatarId = await this.processAvatarFile(avatarFile, '', data.name, tx, userId);
+      } catch (fileError: any) {
+        this.logger.error(`Avatar file processing failed: ${fileError.message}`);
+        if (existsSync(avatarFile.path)) {
+          unlinkSync(avatarFile.path);
+        }
+        throw new BadRequestException('Erro ao processar arquivo de avatar.');
+      }
+    }
+
+    // Extract non-column inputs before creating the user: the nested `contract`
+    // block and the top-level admissionDate feed the first EmploymentContract,
+    // not the User row. isSectorLeader is a flag, not a column.
+    const isSectorLeader = (data as any).isSectorLeader;
+    const contractInput = (data as any).contract;
+    const admissionDate = (data as any).admissionDate;
+    const {
+      isSectorLeader: _isSectorLeader,
+      contract: _contract,
+      admissionDate: _admissionDate,
+      ...createData
+    } = data as any;
+
+    // Criar o usuário
+    const newUser = await this.userRepository.createWithTransaction(
+      tx,
+      { ...createData, avatarId },
+      { include },
+    );
+
+    // Handle isSectorLeader flag - update Sector.leaderId relationship
+    if (isSectorLeader && createData.sectorId) {
+      await tx.sector.update({
+        where: { id: createData.sectorId },
+        data: { leaderId: newUser.id },
+      });
+      this.logger.log(`New user ${newUser.id} set as leader of sector ${createData.sectorId}`);
+    }
+
+    // Criar o PRIMEIRO vínculo (sequence 1, isCurrent true) e sincronizar o
+    // cache do User (currentContract*). Defaults: employeeType=CLT,
+    // contractType=EXPERIENCE_PERIOD_1; datas calculadas automaticamente.
+    const employeeType = (contractInput?.employeeType as EMPLOYEE_TYPE) ?? EMPLOYEE_TYPE.CLT;
+    const contractType =
+      contractInput?.contractType === undefined
+        ? employeeType === EMPLOYEE_TYPE.CLT
+          ? CONTRACT_TYPE.EXPERIENCE_PERIOD_1
+          : null
+        : (contractInput.contractType as CONTRACT_TYPE | null);
+    const contractDates = this.employmentContractService.computeContractDates({
+      contractType,
+      admissionDate: contractInput?.admissionDate ?? admissionDate ?? null,
+      exp1StartAt: null,
+      exp1EndAt: null,
+      exp2StartAt: null,
+      exp2EndAt: null,
+      effectedAt: null,
+    });
+
+    await tx.employmentContract.create({
+      data: {
+        userId: newUser.id,
+        sequence: 1,
+        isCurrent: true,
+        employeeType: employeeType as any,
+        contractType: (contractType as any) ?? null,
+        status: CONTRACT_STATUS.ACTIVE as any,
+        statusOrder: 1,
+        payrollNumber: contractInput?.payrollNumber ?? newUser.payrollNumber ?? null,
+        positionId: contractInput?.positionId ?? newUser.positionId ?? null,
+        sectorId: contractInput?.sectorId ?? newUser.sectorId ?? null,
+        ...contractDates,
+        providerName: contractInput?.providerName ?? null,
+        providerCnpj: contractInput?.providerCnpj ?? null,
+      },
+    });
+
+    await this.employmentContractService.syncUserCurrentContract(tx, newUser.id, { userId });
+
+    // Registrar histórico de cargo inicial (admissão)
+    if (newUser.positionId) {
+      await this.recordPositionHistory(tx, {
+        userId: newUser.id,
+        newPositionId: newUser.positionId,
+        previousPositionId: null,
+        reason: POSITION_CHANGE_REASON.ADMISSION,
+        changedById: userId || null,
+      });
+    }
+
+    // Registrar no changelog
+    await logEntityChange({
+      changeLogService: this.changeLogService,
+      entityType: ENTITY_TYPE.USER,
+      entityId: newUser.id,
+      action: CHANGE_ACTION.CREATE,
+      entity: newUser,
+      reason: changelogReason ?? 'Novo usuário criado no sistema',
+      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+      userId: userId || null,
+      transaction: tx,
+    });
+
+    // Refresh the returned user so the synced currentContract* cache is visible.
+    const refreshed = await this.userRepository.findByIdWithTransaction(tx, newUser.id, {
+      include,
+    });
+    return refreshed ?? newUser;
+  }
+
+  /**
+   * Efeitos pós-commit da criação de usuário (preferências de notificação +
+   * ponte Secullum). Chamado por create() e pelo AdmissionService DEPOIS que
+   * a transação que criou o usuário foi confirmada. Nunca lança erro.
+   */
+  async runPostCreateSideEffects(user: {
+    id: string;
+    secullumSyncEnabled?: boolean | null;
+  }): Promise<SecullumSyncResult | undefined> {
+    // Initialize notification preferences (non-blocking)
+    this.notificationPreferenceInitService
+      .initializeForNewUser(user.id)
+      .catch(err => this.logger.error('Failed to init notification preferences:', err));
+
+    // Secullum bridge.
+    //
+    // For users with `secullumSyncEnabled = true` we `await` the bridge so
+    // the result of the Secullum POST is visible to the web UI (toast).
+    // The bridge is guaranteed never to throw — it always returns a
+    // `SecullumSyncResult`. We still emit the event for any other listeners
+    // (and to keep the contract consistent with the UPDATE path).
+    let secullumSync: SecullumSyncResult | undefined;
+    if (user.secullumSyncEnabled) {
+      try {
+        secullumSync = await this.userSecullumSyncService.onUserCreated({
+          userId: user.id,
+        });
+      } catch (err) {
+        // Defensive — onUserCreated already swallows everything, but if the
+        // contract is ever violated we don't want user creation to fail.
+        this.logger.error('Unexpected secullum sync throw:', err);
+        secullumSync = {
+          status: 'error',
+          reason: (err as Error).message,
+        };
+      }
+    }
+    try {
+      this.eventEmitter.emit(SECULLUM_USER_CREATED_EVENT, { userId: user.id });
+    } catch (err) {
+      this.logger.error('Failed to emit secullum.user.created:', err);
+    }
+    return secullumSync;
+  }
+
+  /**
    * Criar novo usuário
    */
   async create(
@@ -807,121 +959,11 @@ export class UserService {
     avatarFile?: Express.Multer.File,
   ): Promise<UserCreateResponse> {
     try {
-      const user = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // Security: privilege-escalation guards (audit B1, decision 12)
-        await this.enforceUserWriteGuards(userId, data, null, tx);
+      const user = await this.prisma.$transaction(async (tx: PrismaTransaction) =>
+        this.createWithinTransaction(tx, data, { include, userId, avatarFile }),
+      );
 
-        // Validar usuário completo
-        await this.userValidation(data, undefined, tx);
-
-        // If the user is opting in to Secullum sync at create time, every
-        // prerequisite the bridge needs MUST be present and the sector/position
-        // mappings MUST exist. Otherwise we'd commit an Ankaa user that we
-        // can't create on the Secullum side, leaving the operator confused.
-        if ((data as any).secullumSyncEnabled === true) {
-          await this.validateSecullumPrerequisites(data, tx);
-        }
-
-        // Set default status to EXPERIENCE_PERIOD_1 if not provided (Brazilian CLT standard)
-        if (!data.status) {
-          (data as any).status = USER_STATUS.EXPERIENCE_PERIOD_1;
-        }
-
-        // Hash da senha se fornecida
-        if (data.password) {
-          data.password = await bcrypt.hash(data.password, 10);
-        }
-
-        // Set statusOrder based on status
-        const status = (data.status as USER_STATUS) || USER_STATUS.EXPERIENCE_PERIOD_1;
-        (data as any).statusOrder = USER_STATUS_ORDER[status];
-
-        // Set initial status timestamps and calculate dates
-        this.setInitialStatusTimestamps(data, status);
-
-        // Process avatar file if provided
-        let avatarId: string | null = data.avatarId || null;
-        if (avatarFile) {
-          try {
-            avatarId = await this.processAvatarFile(avatarFile, '', data.name, tx, userId);
-          } catch (fileError: any) {
-            this.logger.error(`Avatar file processing failed: ${fileError.message}`);
-            if (existsSync(avatarFile.path)) {
-              unlinkSync(avatarFile.path);
-            }
-            throw new BadRequestException('Erro ao processar arquivo de avatar.');
-          }
-        }
-
-        // Extract isSectorLeader before creating user (it's not a database field on User)
-        const isSectorLeader = (data as any).isSectorLeader;
-        const { isSectorLeader: _isSectorLeader, ...createData } = data as any;
-
-        // Criar o usuário
-        const newUser = await this.userRepository.createWithTransaction(
-          tx,
-          { ...createData, avatarId },
-          { include },
-        );
-
-        // Handle isSectorLeader flag - update Sector.leaderId relationship
-        if (isSectorLeader && createData.sectorId) {
-          await tx.sector.update({
-            where: { id: createData.sectorId },
-            data: { leaderId: newUser.id },
-          });
-          this.logger.log(`New user ${newUser.id} set as leader of sector ${createData.sectorId}`);
-        }
-
-        // Registrar no changelog
-        await logEntityChange({
-          changeLogService: this.changeLogService,
-          entityType: ENTITY_TYPE.USER,
-          entityId: newUser.id,
-          action: CHANGE_ACTION.CREATE,
-          entity: newUser,
-          reason: 'Novo usuário criado no sistema',
-          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-          userId: userId || null,
-          transaction: tx,
-        });
-
-        return newUser;
-      });
-
-      // Initialize notification preferences (non-blocking)
-      this.notificationPreferenceInitService
-        .initializeForNewUser(user.id)
-        .catch(err => this.logger.error('Failed to init notification preferences:', err));
-
-      // Secullum bridge.
-      //
-      // For users with `secullumSyncEnabled = true` we `await` the bridge so
-      // the result of the Secullum POST is visible to the web UI (toast).
-      // The bridge is guaranteed never to throw — it always returns a
-      // `SecullumSyncResult`. We still emit the event for any other listeners
-      // (and to keep the contract consistent with the UPDATE path).
-      let secullumSync: SecullumSyncResult | undefined;
-      if ((user as { secullumSyncEnabled?: boolean }).secullumSyncEnabled) {
-        try {
-          secullumSync = await this.userSecullumSyncService.onUserCreated({
-            userId: user.id,
-          });
-        } catch (err) {
-          // Defensive — onUserCreated already swallows everything, but if the
-          // contract is ever violated we don't want user creation to fail.
-          this.logger.error('Unexpected secullum sync throw:', err);
-          secullumSync = {
-            status: 'error',
-            reason: (err as Error).message,
-          };
-        }
-      }
-      try {
-        this.eventEmitter.emit(SECULLUM_USER_CREATED_EVENT, { userId: user.id });
-      } catch (err) {
-        this.logger.error('Failed to emit secullum.user.created:', err);
-      }
+      const secullumSync = await this.runPostCreateSideEffects(user);
 
       // Remove password from response
       const { password, ...userWithoutPassword } = user;
@@ -976,7 +1018,7 @@ export class UserService {
       const updatedUser = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar usuário existente com relações para o tracking
         const existingUser = await this.userRepository.findByIdWithTransaction(tx, id, {
-          include: { position: true, sector: true, ppeSize: true },
+          include: { position: true, sector: true, ppeSize: true, currentContract: true },
         });
 
         if (!existingUser) {
@@ -991,7 +1033,7 @@ export class UserService {
             id: string;
             sectorId: string | null;
             positionId: string | null;
-            status: string;
+            currentContractType: string | null;
             performanceLevel: number;
           },
           tx,
@@ -1004,16 +1046,14 @@ export class UserService {
         const willSyncAfter =
           (data as any).secullumSyncEnabled === true ||
           ((data as any).secullumSyncEnabled !== false &&
-            (existingUser as { secullumSyncEnabled?: boolean })
-              .secullumSyncEnabled === true);
+            (existingUser as { secullumSyncEnabled?: boolean }).secullumSyncEnabled === true);
         if (willSyncAfter) {
           await this.validateSecullumPrerequisites(
             {
               cpf: (data as any).cpf ?? existingUser.cpf,
-              payrollNumber:
-                (data as any).payrollNumber ?? existingUser.payrollNumber,
-              exp1StartAt:
-                (data as any).exp1StartAt ?? existingUser.exp1StartAt,
+              payrollNumber: (data as any).payrollNumber ?? existingUser.payrollNumber,
+              admissionDate:
+                (data as any).admissionDate ?? (existingUser as any).currentContract?.admissionDate,
               sectorId: (data as any).sectorId ?? existingUser.sectorId,
               positionId: (data as any).positionId ?? existingUser.positionId,
             },
@@ -1021,49 +1061,23 @@ export class UserService {
           );
         }
 
-        // Business logic BEFORE saving: Handle dismissedAt date and status relationship
-        // If dismissedAt date is provided and status is not DISMISSED, automatically set status to DISMISSED
-        if (data.dismissedAt && (!data.status || data.status !== USER_STATUS.DISMISSED)) {
-          this.logger.log(
-            `Dismissal date provided for user ${id}. Automatically setting status to DISMISSED.`,
-          );
-          (data as any).status = USER_STATUS.DISMISSED;
-        }
+        const existingContractType = (existingUser as any).currentContractType as
+          | CONTRACT_TYPE
+          | null;
 
-        // If status is being set to DISMISSED and dismissedAt is null, automatically set dismissedAt
+        // A termination date implies the contract status becomes DISMISSED.
         if (
-          data.status === USER_STATUS.DISMISSED &&
-          !data.dismissedAt &&
-          !existingUser.dismissedAt
+          (data as any).terminationDate &&
+          (data as any).contractStatus !== CONTRACT_STATUS.DISMISSED
         ) {
-          this.logger.log(
-            `Status being set to DISMISSED for user ${id}. Automatically setting dismissedAt to now.`,
-          );
-          (data as any).dismissedAt = new Date();
+          (data as any).contractStatus = CONTRACT_STATUS.DISMISSED;
         }
 
-        // Inverse: un-dismissal. If status is being changed AWAY from
-        // DISMISSED and the caller didn't explicitly set dismissedAt,
-        // clear it so we don't leave an active user with a stale
-        // dismissal timestamp. The Secullum bridge will then clear
-        // Demissao on the funcionario as well (idempotent).
-        if (
-          existingUser.status === USER_STATUS.DISMISSED &&
-          data.status &&
-          data.status !== USER_STATUS.DISMISSED &&
-          (data as any).dismissedAt === undefined
-        ) {
-          this.logger.log(
-            `User ${id} un-dismissed (DISMISSED → ${data.status}). Clearing dismissedAt.`,
-          );
-          (data as any).dismissedAt = null;
-        }
-
-        // Validate status transition
-        if (data.status && data.status !== existingUser.status) {
+        // Validate the contract-type transition within the current vínculo.
+        if (data.contractType && existingContractType && data.contractType !== existingContractType) {
           const transitionValidation = this.validateUserStatusTransition(
-            existingUser.status as USER_STATUS,
-            data.status as USER_STATUS,
+            existingContractType,
+            data.contractType as CONTRACT_TYPE,
           );
 
           if (!transitionValidation.valid) {
@@ -1071,12 +1085,12 @@ export class UserService {
           }
         }
 
-        // Prevent EFFECTED users from being set to experience periods (additional check)
+        // Prevent EFFECTED contracts from being reverted to experience periods.
         if (
-          existingUser.status === USER_STATUS.EFFECTED &&
-          data.status &&
-          (data.status === USER_STATUS.EXPERIENCE_PERIOD_1 ||
-            data.status === USER_STATUS.EXPERIENCE_PERIOD_2)
+          existingContractType === CONTRACT_TYPE.EFFECTED &&
+          data.contractType &&
+          (data.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_1 ||
+            data.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2)
         ) {
           throw new BadRequestException(
             'Colaboradores efetivados não podem ser alterados para períodos de experiência conforme a CLT.',
@@ -1118,25 +1132,15 @@ export class UserService {
           data.password = await bcrypt.hash(data.password, 10);
         }
 
-        // Set statusOrder when status changes
-        if (data.status && data.status !== existingUser.status) {
-          (data as any).statusOrder = USER_STATUS_ORDER[data.status as USER_STATUS];
-          // Track status timestamps when status changes
-          this.setInitialStatusTimestamps(data, data.status as USER_STATUS);
-        } else if (data.exp1StartAt) {
-          // If exp1StartAt is being updated without status change, recalculate dates
-          this.calculateStatusDates(data);
-        }
-
         // Clear sessionToken when sectorId changes to force re-authentication with new privileges
         if (data.hasOwnProperty('sectorId') && existingUser.sectorId !== data.sectorId) {
           (data as any).sessionToken = null;
         }
 
-        // Clear sessionToken when user is dismissed
+        // Clear sessionToken when the collaborator is being dismissed (vínculo → DISMISSED)
         if (
-          data.status === USER_STATUS.DISMISSED &&
-          existingUser.status !== USER_STATUS.DISMISSED
+          (data as any).contractStatus === CONTRACT_STATUS.DISMISSED &&
+          (existingUser as any).currentContractStatus !== CONTRACT_STATUS.DISMISSED
         ) {
           (data as any).sessionToken = null;
         }
@@ -1193,9 +1197,27 @@ export class UserService {
           }
         }
 
-        // Prepare data for database update
-        // Remove currentStatus, isSectorLeader (validation-only fields) and other non-database fields
-        const { currentStatus, isSectorLeader: _isSectorLeader, ...dataForDb } = data as any;
+        // Prepare data for database update. Strip validation-only fields and
+        // every CONTRACT-scoped field — those are applied to the current vínculo
+        // (EmploymentContract), then mirrored back into the User cache by the sync.
+        const {
+          currentContractType: _ignoredCurrentContractType,
+          isSectorLeader: _isSectorLeader,
+          contractType: _contractType,
+          contractStatus: _contractStatus,
+          employeeType: _employeeType,
+          admissionDate: _admissionDate,
+          effectedAt: _effectedAt,
+          exp1StartAt: _exp1StartAt,
+          exp1EndAt: _exp1EndAt,
+          exp2StartAt: _exp2StartAt,
+          exp2EndAt: _exp2EndAt,
+          terminationDate: _terminationDate,
+          terminationType: _terminationType,
+          // positionId/sectorId/payrollNumber stay on the User row (current
+          // pointers) AND are propagated to the current contract below.
+          ...dataForDb
+        } = data as any;
         const dbUpdateData = avatarFile ? { ...dataForDb, avatarId } : dataForDb;
 
         // Prepare update data for tracking
@@ -1214,6 +1236,78 @@ export class UserService {
           include,
         });
 
+        // Histórico de cargo: fechar registro aberto + adicionar novo quando positionId muda
+        if (
+          data.hasOwnProperty('positionId') &&
+          existingUser.positionId !== (updatedUser as any).positionId
+        ) {
+          await this.recordPositionHistory(tx, {
+            userId: id,
+            newPositionId: (updatedUser as any).positionId ?? null,
+            previousPositionId: existingUser.positionId ?? null,
+            reason: POSITION_CHANGE_REASON.ADJUSTMENT,
+            changedById: userId || null,
+          });
+        }
+
+        // Edita o vínculo (EmploymentContract) ATUAL quando algum campo de
+        // contrato muda, e re-sincroniza o cache do User. Também propaga
+        // position/sector/payrollNumber para o contrato atual.
+        const currentContractId = (existingUser as any).currentContractId as string | null;
+        const contractFieldsTouched =
+          data.contractType !== undefined ||
+          (data as any).contractStatus !== undefined ||
+          data.employeeType !== undefined ||
+          (data as any).admissionDate !== undefined ||
+          (data as any).effectedAt !== undefined ||
+          (data as any).exp1StartAt !== undefined ||
+          (data as any).exp1EndAt !== undefined ||
+          (data as any).exp2StartAt !== undefined ||
+          (data as any).exp2EndAt !== undefined ||
+          (data as any).terminationDate !== undefined ||
+          (data as any).terminationType !== undefined ||
+          data.hasOwnProperty('positionId') ||
+          data.hasOwnProperty('sectorId') ||
+          data.hasOwnProperty('payrollNumber');
+
+        if (currentContractId && contractFieldsTouched) {
+          const contractUpdate: any = {};
+          if (data.contractType !== undefined) contractUpdate.contractType = data.contractType;
+          if ((data as any).contractStatus !== undefined)
+            contractUpdate.status = (data as any).contractStatus;
+          if (data.employeeType !== undefined) contractUpdate.employeeType = data.employeeType;
+          if ((data as any).admissionDate !== undefined)
+            contractUpdate.admissionDate = (data as any).admissionDate;
+          if ((data as any).effectedAt !== undefined)
+            contractUpdate.effectedAt = (data as any).effectedAt;
+          if ((data as any).exp1StartAt !== undefined)
+            contractUpdate.exp1StartAt = (data as any).exp1StartAt;
+          if ((data as any).exp1EndAt !== undefined)
+            contractUpdate.exp1EndAt = (data as any).exp1EndAt;
+          if ((data as any).exp2StartAt !== undefined)
+            contractUpdate.exp2StartAt = (data as any).exp2StartAt;
+          if ((data as any).exp2EndAt !== undefined)
+            contractUpdate.exp2EndAt = (data as any).exp2EndAt;
+          if ((data as any).terminationDate !== undefined)
+            contractUpdate.terminationDate = (data as any).terminationDate;
+          if ((data as any).terminationType !== undefined)
+            contractUpdate.terminationType = (data as any).terminationType;
+          if (data.hasOwnProperty('positionId'))
+            contractUpdate.positionId = (updatedUser as any).positionId ?? null;
+          if (data.hasOwnProperty('sectorId'))
+            contractUpdate.sectorId = (updatedUser as any).sectorId ?? null;
+          if (data.hasOwnProperty('payrollNumber'))
+            contractUpdate.payrollNumber = (updatedUser as any).payrollNumber ?? null;
+
+          await this.employmentContractService.updateWithTransaction(
+            tx,
+            currentContractId,
+            contractUpdate,
+            undefined,
+            userId,
+          );
+        }
+
         // Track individual field changes
         const fieldsToTrack = [
           'name',
@@ -1222,8 +1316,6 @@ export class UserService {
           'cpf',
           'pis',
           'payrollNumber',
-          'status',
-          'statusOrder',
           'positionId',
           'performanceLevel',
           'sectorId',
@@ -1231,7 +1323,6 @@ export class UserService {
           'isActive',
           'requirePasswordChange',
           'birth',
-          'dismissedAt', // Track dismissal date changes
           'verificationCode',
           'verificationExpiresAt',
           'verificationType',
@@ -1322,7 +1413,10 @@ export class UserService {
           }
         }
 
-        return updatedUser;
+        // Re-fetch so the synced currentContract* cache + mirrors are reflected
+        // in the returned user (the contract update above changes them).
+        const refreshed = await this.userRepository.findByIdWithTransaction(tx, id, { include });
+        return refreshed ?? updatedUser;
       });
 
       // Secullum bridge for the UPDATE path.
@@ -1334,9 +1428,9 @@ export class UserService {
       // updatedUser's scalar fields here because the controller may pass
       // an `include` shape that omits or restricts what Prisma returns —
       // letting the bridge re-fetch is the robust path.
-      const dismissalJustHappened = !!(
-        updatedUser as { dismissedAt?: Date | null }
-      ).dismissedAt;
+      const dismissalJustHappened =
+        (updatedUser as { currentContractStatus?: string | null }).currentContractStatus ===
+        CONTRACT_STATUS.DISMISSED;
       this.logger.log(
         `[secullum-update] invoking bridge for user ${id} (dismissalJustHappened=${dismissalJustHappened})`,
       );
@@ -1501,71 +1595,37 @@ export class UserService {
           };
         }
 
-        // Hash das senhas e configurar timestamps de status para todos os usuários válidos
-        const usersWithHashedPasswords = await Promise.all(
-          validUsers.map(async ({ index, data }) => {
-            // Hash password if provided
-            const hashedPassword = data.password ? await bcrypt.hash(data.password, 10) : undefined;
-
-            // Set default status to EXPERIENCE_PERIOD_1 if not provided (Brazilian CLT standard)
-            const status = (data.status as USER_STATUS) || USER_STATUS.EXPERIENCE_PERIOD_1;
-
-            // Set statusOrder based on status
-            const statusOrder = USER_STATUS_ORDER[status];
-
-            // Set initial status timestamps
-            const now = new Date();
-            const statusTimestamps: any = {};
-
-            switch (status) {
-              case USER_STATUS.EXPERIENCE_PERIOD_1:
-                statusTimestamps.exp1StartAt = now;
-                // Set exp1EndAt to 30 days from now
-                const exp1End = new Date(now);
-                exp1End.setDate(exp1End.getDate() + 30);
-                statusTimestamps.exp1EndAt = exp1End;
-                break;
-
-              case USER_STATUS.EXPERIENCE_PERIOD_2:
-                statusTimestamps.exp2StartAt = now;
-                // Set exp2EndAt to 50 days from now
-                const exp2End = new Date(now);
-                exp2End.setDate(exp2End.getDate() + 50);
-                statusTimestamps.exp2EndAt = exp2End;
-                break;
-
-              case USER_STATUS.EFFECTED:
-                statusTimestamps.effectedAt = now;
-                break;
-
-              case USER_STATUS.DISMISSED:
-                statusTimestamps.dismissedAt = now;
-                break;
-            }
-
-            return {
+        // Cria cada usuário válido pelo MESMO caminho do POST /users
+        // (createWithinTransaction): cria o primeiro vínculo, sincroniza o cache,
+        // registra histórico de cargo e changelog. Tudo dentro desta transação.
+        const created: any[] = [];
+        const createFailed: any[] = [];
+        for (const { index, data } of validUsers) {
+          try {
+            const newUser = await this.createWithinTransaction(tx, data, {
+              include,
+              userId,
+              changelogReason: 'Usuário criado em lote',
+            });
+            created.push(newUser);
+          } catch (error: any) {
+            createFailed.push({
               index,
-              data: {
-                ...data,
-                password: hashedPassword,
-                status,
-                statusOrder,
-                ...statusTimestamps,
-              },
-            };
-          }),
-        );
+              id: undefined,
+              error:
+                error instanceof BadRequestException ||
+                error instanceof NotFoundException ||
+                error instanceof ForbiddenException
+                  ? error.message
+                  : error.message || 'Erro ao criar usuário.',
+              errorCode: 'CREATE_ERROR',
+              data: users[index],
+            });
+          }
+        }
 
-        // Criar usuários com mapeamento de índices
-        const createResult = await this.userRepository.createManyWithTransaction(
-          tx,
-          usersWithHashedPasswords.map(u => u.data),
-          { include },
-        );
-
-        // Mapear resultados de volta aos índices originais
         const finalResult = {
-          success: createResult.success,
+          success: created,
           failed: [
             ...errors.map(e => ({
               index: e.index,
@@ -1574,26 +1634,11 @@ export class UserService {
               errorCode: 'VALIDATION_ERROR',
               data: users[e.index],
             })),
-            ...createResult.failed,
+            ...createFailed,
           ],
-          totalCreated: createResult.totalCreated,
-          totalFailed: errors.length + createResult.totalFailed,
+          totalCreated: created.length,
+          totalFailed: errors.length + createFailed.length,
         };
-
-        // Registrar criações bem-sucedidas
-        for (const user of finalResult.success) {
-          await logEntityChange({
-            changeLogService: this.changeLogService,
-            entityType: ENTITY_TYPE.USER,
-            entityId: user.id,
-            action: CHANGE_ACTION.CREATE,
-            entity: user,
-            reason: 'Usuário criado em lote',
-            triggeredBy: CHANGE_TRIGGERED_BY.BATCH_CREATE,
-            userId: userId || null,
-            transaction: tx,
-          });
-        }
 
         return finalResult;
       });
@@ -1643,293 +1688,51 @@ export class UserService {
     include?: UserInclude,
     userId?: string,
   ): Promise<UserBatchUpdateResponse<UserUpdateFormData>> {
-    try {
-      const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        const { users: updates } = data;
+    // Each update goes through the single-user update() path so the current
+    // vínculo (EmploymentContract) edit + cache sync + changelog all happen
+    // consistently per user (each in its own transaction).
+    const success: any[] = [];
+    const failed: any[] = [];
 
-        // Validar cada atualização individualmente
-        const errors: Array<{ index: number; id: string; error: string }> = [];
-        const validUpdates: Array<{ index: number; id: string; data: UserUpdateFormData }> = [];
-
-        for (let i = 0; i < updates.length; i++) {
-          try {
-            const { id, data: updateData } = updates[i];
-
-            // Verificar se o usuário existe
-            const existing = await tx.user.findUnique({ where: { id } });
-            if (!existing) {
-              throw new NotFoundException('Usuário não encontrado.');
-            }
-
-            // Security: privilege-escalation/account-takeover guards (audit B1/B8, decision 12)
-            await this.enforceUserWriteGuards(
-              userId,
-              updateData,
-              existing as unknown as {
-                id: string;
-                sectorId: string | null;
-                positionId: string | null;
-                status: string;
-                performanceLevel: number;
-              },
-              tx,
-            );
-
-            // Validar dados da atualização
-            await this.userValidation(updateData, id, tx);
-            validUpdates.push({ index: i, id, data: updateData });
-          } catch (error) {
-            errors.push({
-              index: i,
-              id: updates[i].id,
-              error:
-                error instanceof BadRequestException ||
-                error instanceof NotFoundException ||
-                error instanceof ForbiddenException
-                  ? error.message
-                  : 'Erro ao validar atualização.',
-            });
-          }
-        }
-
-        // Se todos falharam na validação, retornar erro
-        if (validUpdates.length === 0) {
-          return {
-            success: [],
-            failed: errors.map(e => ({
-              ...e,
-              errorCode: 'VALIDATION_ERROR',
-              data: { id: e.id, ...updates[e.index].data },
-            })),
-            totalUpdated: 0,
-            totalFailed: errors.length,
-          };
-        }
-
-        // Processar atualizações válidas com hash de senha e tracking de status se necessário
-        const updateData: Array<{ id: string; data: UserUpdateFormData }> = await Promise.all(
-          validUpdates.map(async ({ id, data }) => {
-            // Hash password if provided
-            const hashedPassword = data.password ? await bcrypt.hash(data.password, 10) : undefined;
-
-            // Get existing user to check for status changes
-            const existingUser = await tx.user.findUnique({ where: { id } });
-
-            const processedData: any = {
-              ...data,
-              password: hashedPassword,
-            };
-
-            // Track status timestamps when status changes
-            if (data.status && existingUser && data.status !== existingUser.status) {
-              // Set statusOrder when status changes
-              processedData.statusOrder = USER_STATUS_ORDER[data.status as USER_STATUS];
-
-              const now = new Date();
-
-              switch (data.status) {
-                case USER_STATUS.EXPERIENCE_PERIOD_1:
-                  processedData.exp1StartAt = now;
-                  // Set exp1EndAt to 30 days from now
-                  const exp1End = new Date(now);
-                  exp1End.setDate(exp1End.getDate() + 30);
-                  processedData.exp1EndAt = exp1End;
-                  break;
-
-                case USER_STATUS.EXPERIENCE_PERIOD_2:
-                  processedData.exp2StartAt = now;
-                  // Set exp2EndAt to 50 days from now
-                  const exp2End = new Date(now);
-                  exp2End.setDate(exp2End.getDate() + 50);
-                  processedData.exp2EndAt = exp2End;
-                  break;
-
-                case USER_STATUS.EFFECTED:
-                  processedData.effectedAt = now;
-                  break;
-
-                case USER_STATUS.DISMISSED:
-                  processedData.dismissedAt = now;
-                  break;
-              }
-            }
-
-            return {
-              id,
-              data: processedData,
-            };
-          }),
-        );
-
-        // Handle isSectorLeader flag for each user - update Sector.leaderId relationship
-        for (const item of updateData) {
-          const isSectorLeader = (item.data as any).isSectorLeader;
-
-          if (typeof isSectorLeader === 'boolean') {
-            const existingUser = await tx.user.findUnique({ where: { id: item.id } });
-            const targetSectorId = (item.data as any).sectorId ?? existingUser?.sectorId;
-
-            if (isSectorLeader && targetSectorId) {
-              // Set this user as the leader of their sector
-              await tx.sector.update({
-                where: { id: targetSectorId },
-                data: { leaderId: item.id },
-              });
-              this.logger.log(`Batch: User ${item.id} set as leader of sector ${targetSectorId}`);
-            } else if (!isSectorLeader) {
-              // Check if user was the leader of any sector and remove them
-              const ledSector = await tx.sector.findFirst({
-                where: { leaderId: item.id },
-              });
-              if (ledSector) {
-                await tx.sector.update({
-                  where: { id: ledSector.id },
-                  data: { leaderId: null },
-                });
-                this.logger.log(
-                  `Batch: User ${item.id} removed as leader of sector ${ledSector.id}`,
-                );
-              }
-            }
-          }
-
-          // Remove non-database fields before sending to repository
-          const { currentStatus, isSectorLeader: _isSectorLeader, ...dbData } = item.data as any;
-          item.data = dbData;
-        }
-
-        const updateResult = await this.userRepository.updateManyWithTransaction(tx, updateData, {
-          include,
+    for (const [index, update] of data.users.entries()) {
+      try {
+        const res = await this.update(update.id, update.data, include, userId);
+        if (res.data) success.push(res.data);
+      } catch (error: any) {
+        failed.push({
+          index,
+          id: update.id,
+          error: error.message || 'Erro ao atualizar usuário',
+          errorCode:
+            error instanceof BadRequestException ||
+            error instanceof NotFoundException ||
+            error instanceof ForbiddenException
+              ? 'VALIDATION_ERROR'
+              : 'UPDATE_ERROR',
+          data: { ...update.data, id: update.id },
         });
-
-        // Mapear resultados finais
-        const finalResult = {
-          success: updateResult.success,
-          failed: [
-            ...errors.map(e => ({
-              index: e.index,
-              id: e.id,
-              error: e.error,
-              errorCode: 'VALIDATION_ERROR',
-              data: { id: e.id, ...updates[e.index].data },
-            })),
-            ...updateResult.failed,
-          ],
-          totalUpdated: updateResult.totalUpdated,
-          totalFailed: errors.length + updateResult.totalFailed,
-        };
-
-        // For batch updates, we need to track field changes for each user
-        for (const user of finalResult.success) {
-          // Find the original update data for this user
-          const updateIndex = validUpdates.findIndex(u => u.id === user.id);
-          if (updateIndex !== -1) {
-            const originalData = validUpdates[updateIndex].data;
-
-            // Find the existing user data from before the update
-            const existingUser = await this.userRepository.findByIdWithTransaction(tx, user.id, {
-              include: { position: true, sector: true },
-            });
-
-            if (existingUser) {
-              // Track field changes
-              const fieldsToTrack = [
-                'name',
-                'email',
-                'phone',
-                'cpf',
-                'pis',
-                'payrollNumber',
-                'status',
-                'statusOrder',
-                'positionId',
-                'performanceLevel',
-                'sectorId',
-                'verified',
-                'requirePasswordChange',
-                'birth',
-                'dismissedAt',
-                'address',
-                'addressNumber',
-                'addressComplement',
-                'neighborhood',
-                'city',
-                'state',
-                'zipCode',
-                'site',
-              ];
-
-              await trackAndLogFieldChanges({
-                changeLogService: this.changeLogService,
-                entityType: ENTITY_TYPE.USER,
-                entityId: user.id,
-                oldEntity: existingUser,
-                newEntity: user,
-                fieldsToTrack: fieldsToTrack.filter(field => originalData.hasOwnProperty(field)),
-                userId: userId || null,
-                triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-                transaction: tx,
-              });
-
-              // Handle password changes
-              if (originalData.password) {
-                await this.changeLogService.logChange({
-                  entityType: ENTITY_TYPE.USER,
-                  entityId: user.id,
-                  action: CHANGE_ACTION.UPDATE,
-                  field: 'password',
-                  oldValue: '[REDACTED]',
-                  newValue: '[REDACTED]',
-                  reason: 'Senha atualizada em lote',
-                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-                  triggeredById: user.id,
-                  userId: userId || null,
-                  transaction: tx,
-                });
-              }
-            }
-          }
-        }
-
-        return finalResult;
-      });
-
-      const successMessage =
-        result.totalUpdated === 1
-          ? '1 usuário atualizado com sucesso'
-          : `${result.totalUpdated} usuários atualizados com sucesso`;
-      const failureMessage = result.totalFailed > 0 ? `, ${result.totalFailed} falharam` : '';
-
-      // Convert BatchUpdateResult to BatchOperationResult format and remove passwords
-      const batchOperationResult = {
-        success: result.success.map(({ password, ...user }) => user as User),
-        failed: result.failed.map((error: any, index: number) => ({
-          index: error.index || index,
-          id: error.id,
-          error: error.error,
-          errorCode: error.errorCode,
-          data: {
-            ...error.data,
-            id: error.id || '',
-          },
-        })),
-        totalProcessed: result.totalUpdated + result.totalFailed,
-        totalSuccess: result.totalUpdated,
-        totalFailed: result.totalFailed,
-      };
-
-      return {
-        success: true,
-        message: `${successMessage}${failureMessage}`,
-        data: batchOperationResult,
-      };
-    } catch (error: any) {
-      this.logger.error('Erro na atualização em lote:', error);
-      throw new InternalServerErrorException(
-        'Erro ao atualizar usuários em lote. Por favor, tente novamente.',
-      );
+      }
     }
+
+    const successMessage =
+      success.length === 1
+        ? '1 usuário atualizado com sucesso'
+        : `${success.length} usuários atualizados com sucesso`;
+    const failureMessage = failed.length > 0 ? `, ${failed.length} falharam` : '';
+
+    return {
+      success: true,
+      message: `${successMessage}${failureMessage}`,
+      data: {
+        success: success.map(({ password, ...user }) => user as User),
+        failed,
+        totalProcessed: success.length + failed.length,
+        totalSuccess: success.length,
+        totalFailed: failed.length,
+      },
+    };
   }
+
 
   /**
    * Excluir múltiplos usuários
@@ -2155,6 +1958,21 @@ export class UserService {
             where: { id: data.targetUserId },
             data: updateData,
           });
+
+          // Histórico de cargo quando a mesclagem altera o positionId do usuário alvo
+          if (
+            updateData.positionId !== undefined &&
+            updateData.positionId !== targetUser.positionId
+          ) {
+            await this.recordPositionHistory(tx, {
+              userId: data.targetUserId,
+              newPositionId: updateData.positionId ?? null,
+              previousPositionId: targetUser.positionId ?? null,
+              reason: POSITION_CHANGE_REASON.ADJUSTMENT,
+              changedById: userId || null,
+              note: 'Cargo definido durante mesclagem de usuários',
+            });
+          }
         }
 
         // 12. Log the merge operation
@@ -2229,90 +2047,99 @@ export class UserService {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
-      // Find users where exp1EndAt has passed (today or earlier) and status is still EXPERIENCE_PERIOD_1
-      const usersEndingExp1 = await this.prisma.user.findMany({
+      // Find CURRENT, ACTIVE contracts whose exp1 ended today or earlier, still EXP1.
+      const contractsEndingExp1 = await this.prisma.employmentContract.findMany({
         where: {
-          status: USER_STATUS.EXPERIENCE_PERIOD_1,
-          exp1EndAt: {
-            lt: tomorrow, // Catches all users whose exp1 ended today or earlier
-          },
+          isCurrent: true,
+          status: CONTRACT_STATUS.ACTIVE,
+          contractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
+          exp1EndAt: { lt: tomorrow },
+          ...(userId ? { userId } : {}),
         },
-        include: {
-          position: true,
-          sector: true,
-        },
+        include: { user: { select: { id: true, name: true } } },
       });
 
       this.logger.log(
-        `Found ${usersEndingExp1.length} users with Experience Period 1 ended (pending transition)`,
+        `Found ${contractsEndingExp1.length} contracts with Experience Period 1 ended (pending transition)`,
       );
 
-      // Transition users from exp1 to exp2
-      for (const user of usersEndingExp1) {
+      // Transition contracts from exp1 to exp2
+      for (const contract of contractsEndingExp1) {
         try {
           await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-            const existingUser = user;
-
-            // Update user status to EXPERIENCE_PERIOD_2
-            const updatedUser = await tx.user.update({
-              where: { id: user.id },
+            await tx.employmentContract.update({
+              where: { id: contract.id },
               data: {
-                status: USER_STATUS.EXPERIENCE_PERIOD_2,
-                // exp2StartAt and exp2EndAt should already be set, but we can update them if needed
-                exp2StartAt: user.exp2StartAt || today,
-                updatedAt: new Date(),
+                contractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
+                exp2StartAt: contract.exp2StartAt || today,
               },
             });
 
-            // Log the status change
+            await this.employmentContractService.syncUserCurrentContract(tx, contract.userId, {
+              userId: userId ?? undefined,
+            });
+
             await this.changeLogService.logChange({
               entityType: ENTITY_TYPE.USER,
-              entityId: user.id,
+              entityId: contract.userId,
               action: CHANGE_ACTION.UPDATE,
-              field: 'status',
-              oldValue: USER_STATUS.EXPERIENCE_PERIOD_1,
-              newValue: USER_STATUS.EXPERIENCE_PERIOD_2,
+              field: 'contractType',
+              oldValue: CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
+              newValue: CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
               reason: 'Transição automática: Período de Experiência 1 finalizado',
               triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
-              triggeredById: user.id,
+              triggeredById: contract.userId,
               userId: userId,
               transaction: tx,
             });
 
-            this.logger.log(`User ${user.name} (${user.id}) transitioned from EXP1 to EXP2`);
+            this.logger.log(
+              `Contract for ${contract.user?.name} (${contract.userId}) transitioned from EXP1 to EXP2`,
+            );
           });
 
           result.exp1ToExp2++;
           result.totalProcessed++;
         } catch (error: any) {
-          this.logger.error(`Failed to transition user ${user.id} from EXP1 to EXP2:`, error);
+          this.logger.error(
+            `Failed to transition contract ${contract.id} from EXP1 to EXP2:`,
+            error,
+          );
           result.errors.push({
-            userId: user.id,
+            userId: contract.userId,
             error: error.message || 'Unknown error during exp1->exp2 transition',
           });
         }
       }
 
-      // Find users where exp2EndAt has passed (today or earlier) and status is still EXPERIENCE_PERIOD_2
-      const usersEndingExp2 = await this.prisma.user.findMany({
+      // Find CURRENT, ACTIVE contracts whose exp2 ended today or earlier, still EXP2.
+      const contractsEndingExp2 = await this.prisma.employmentContract.findMany({
         where: {
-          status: USER_STATUS.EXPERIENCE_PERIOD_2,
-          exp2EndAt: {
-            lt: tomorrow, // Catches all users whose exp2 ended today or earlier
-          },
+          isCurrent: true,
+          status: CONTRACT_STATUS.ACTIVE,
+          contractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
+          exp2EndAt: { lt: tomorrow },
+          ...(userId ? { userId } : {}),
         },
         include: {
+          user: { select: { id: true, name: true, positionId: true, performanceLevel: true } },
           position: true,
-          sector: true,
         },
       });
 
       this.logger.log(
-        `Found ${usersEndingExp2.length} users with Experience Period 2 ended (pending transition)`,
+        `Found ${contractsEndingExp2.length} contracts with Experience Period 2 ended (pending transition)`,
       );
 
-      // Transition users from exp2 to effected
-      for (const user of usersEndingExp2) {
+      // Transition contracts from exp2 to effected
+      for (const contract of contractsEndingExp2) {
+        const user = {
+          id: contract.userId,
+          name: contract.user?.name,
+          position: (contract as any).position,
+          positionId: contract.positionId,
+          performanceLevel: contract.user?.performanceLevel,
+        };
         try {
           await this.prisma.$transaction(async (tx: PrismaTransaction) => {
             // Find the next position in the hierarchy (lowest hierarchy value greater than current).
@@ -2334,16 +2161,28 @@ export class UserService {
 
             const shouldPromote = nextPosition !== null;
 
-            // Update user status to EFFECTED (and promote position if a higher hierarchy exists)
+            // Effect the contract (and promote position if a higher hierarchy exists).
+            await tx.employmentContract.update({
+              where: { id: contract.id },
+              data: {
+                contractType: CONTRACT_TYPE.EFFECTED,
+                effectedAt: today,
+                ...(shouldPromote && { positionId: nextPosition!.id }),
+              },
+            });
+
+            // Performance level + position promotion live on the User.
             await tx.user.update({
               where: { id: user.id },
               data: {
-                status: USER_STATUS.EFFECTED,
-                effectedAt: today,
                 performanceLevel: 3,
                 ...(shouldPromote && { positionId: nextPosition!.id }),
                 updatedAt: new Date(),
               },
+            });
+
+            await this.employmentContractService.syncUserCurrentContract(tx, user.id, {
+              userId: userId ?? undefined,
             });
 
             // Log the status change
@@ -2351,9 +2190,9 @@ export class UserService {
               entityType: ENTITY_TYPE.USER,
               entityId: user.id,
               action: CHANGE_ACTION.UPDATE,
-              field: 'status',
-              oldValue: USER_STATUS.EXPERIENCE_PERIOD_2,
-              newValue: USER_STATUS.EFFECTED,
+              field: 'contractType',
+              oldValue: CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
+              newValue: CONTRACT_TYPE.EFFECTED,
               reason: 'Transição automática: Período de Experiência 2 finalizado',
               triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
               triggeredById: user.id,
@@ -2376,6 +2215,17 @@ export class UserService {
             });
 
             if (shouldPromote) {
+              // Histórico de cargo: promoção automática na efetivação
+              await this.recordPositionHistory(tx, {
+                userId: user.id,
+                newPositionId: nextPosition!.id,
+                previousPositionId: user.positionId ?? null,
+                reason: POSITION_CHANGE_REASON.PROMOTION,
+                changedById: userId,
+                note: 'Promoção automática: efetivação após período de experiência',
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+              });
+
               await this.changeLogService.logChange({
                 entityType: ENTITY_TYPE.USER,
                 entityId: user.id,

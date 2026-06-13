@@ -47,6 +47,10 @@ export interface IRRFCalculationDetails {
   inssDeduction: number;
   dependentsDeduction: number;
   simplifiedDeduction?: number;
+  /** Imposto pela tabela progressiva antes do redutor (Lei 15.270/2025). */
+  taxBeforeRedutor?: number;
+  /** Redução aplicada pela Lei 15.270/2025 (2026+). */
+  redutorAmount?: number;
   taxableIncome: number;
   brackets: Array<{
     bracketOrder: number;
@@ -79,38 +83,26 @@ export interface AbsenceCalculationDetails {
 }
 
 // ============================================================================
-// HARDCODED FALLBACK TAX TABLES (2025)
-// Used when database doesn't have tax tables seeded
+// LEGAL CONSTANTS & STATUTORY TABLES
 // ============================================================================
+// As tabelas oficiais (INSS/IRRF/salário-família) vivem em ./tax-tables.ts,
+// versionadas por vigência. Quando existir TaxTable ativa no banco para o
+// ano, os brackets do banco têm precedência; o REDUTOR da Lei 15.270/2025
+// vem SEMPRE das constantes estatutárias (o modelo TaxBracket não o
+// representa), salvo override em taxTable.settings.redutor.
 
-const FALLBACK_INSS_2025 = {
-  brackets: [
-    { bracketOrder: 1, minValue: 0.0, maxValue: 1518.0, rate: 7.5 },
-    { bracketOrder: 2, minValue: 1518.01, maxValue: 2793.88, rate: 9.0 },
-    { bracketOrder: 3, minValue: 2793.89, maxValue: 4190.83, rate: 12.0 },
-    { bracketOrder: 4, minValue: 4190.84, maxValue: 8157.41, rate: 14.0 },
-  ],
-  settings: {
-    salarioMinimo: 1518.0,
-    teto: 8157.41,
-    descontoMaximo: 951.62,
-  },
-};
+import {
+  getInssTableForYear,
+  getIrrfTableForYear,
+  computeProgressiveINSS,
+  computeIRRF,
+  IRRF_DEPENDENT_DEDUCTION,
+  IRRF_SIMPLIFIED_DEDUCTION,
+  type IrrfRedutor,
+  type ProgressiveBracket,
+} from './tax-tables';
 
-const FALLBACK_IRRF_2025 = {
-  brackets: [
-    { bracketOrder: 1, minValue: 0.0, maxValue: 2428.8, rate: 0.0, deduction: 0.0 },
-    { bracketOrder: 2, minValue: 2428.81, maxValue: 2826.65, rate: 7.5, deduction: 182.16 },
-    { bracketOrder: 3, minValue: 2826.66, maxValue: 3751.05, rate: 15.0, deduction: 394.16 },
-    { bracketOrder: 4, minValue: 3751.06, maxValue: 4664.68, rate: 22.5, deduction: 675.49 },
-    { bracketOrder: 5, minValue: 4664.69, maxValue: null, rate: 27.5, deduction: 908.73 },
-  ],
-  settings: {
-    deducaoPorDependente: 189.59,
-    descontoSimplificado: 607.2,
-    descontoSimplificadoPercentual: 25.0,
-  },
-};
+export { IRRF_DEPENDENT_DEDUCTION, IRRF_SIMPLIFIED_DEDUCTION } from './tax-tables';
 
 @Injectable()
 export class BrazilianTaxCalculatorService {
@@ -131,90 +123,46 @@ export class BrazilianTaxCalculatorService {
    * - Bracket 3 (2.793,89 - 3.000,00): 206,12 × 12% = R$ 24,73
    * Total: R$ 253,41 (8,45% effective rate)
    */
-  async calculateINSS(grossSalary: number, year: number = 2025): Promise<TaxCalculationResult> {
+  async calculateINSS(
+    grossSalary: number,
+    year: number = new Date().getFullYear(),
+  ): Promise<TaxCalculationResult> {
     try {
-      // Get active INSS tax table for the year
+      // Get active INSS tax table for the year (database has precedence)
       const taxTable = await this.getActiveTaxTable(TaxType.INSS, year);
 
-      // Use fallback brackets if database table not found
-      let brackets: Array<{
-        bracketOrder: number;
-        minValue: number;
-        maxValue: number | null;
-        rate: number;
-      }>;
-
+      let brackets: ProgressiveBracket[];
       if (taxTable && taxTable.brackets && taxTable.brackets.length > 0) {
         brackets = taxTable.brackets.map(b => ({
-          bracketOrder: b.bracketOrder,
           minValue: b.minValue.toNumber(),
-          maxValue: b.maxValue?.toNumber() || null,
+          maxValue: b.maxValue?.toNumber() ?? null,
           rate: b.rate.toNumber(),
         }));
         this.logger.debug(`Using database INSS table for year ${year}`);
       } else {
-        // Use hardcoded fallback for 2025
-        this.logger.warn(`No INSS tax table found for year ${year}, using 2025 fallback`);
-        brackets = FALLBACK_INSS_2025.brackets.map(b => ({
-          bracketOrder: b.bracketOrder,
-          minValue: b.minValue,
-          maxValue: b.maxValue,
-          rate: b.rate,
-        }));
-      }
-
-      // Calculate INSS progressively
-      let totalTax = 0;
-      const bracketDetails: INSSCalculationDetails['brackets'] = [];
-
-      for (const bracket of brackets) {
-        const minValue = bracket.minValue;
-        const maxValue = bracket.maxValue || Infinity;
-        const rate = bracket.rate;
-
-        // Calculate how much income falls in this bracket
-        // CRITICAL: Progressive calculation - each bracket only taxes the portion within its range
-        // Example: For R$ 3000 in bracket 2 (1518.01 to 2793.88):
-        //   Income in bracket = min(3000, 2793.88) - max(0, 1518.01 - 0.01) = 2793.88 - 1518.00 = 1275.88
-        const incomeInBracket = Math.max(
-          0,
-          Math.min(grossSalary, maxValue) - Math.max(0, minValue - 0.01),
-        );
-
-        const taxOnBracket = (incomeInBracket * rate) / 100;
-        totalTax += taxOnBracket;
-
-        bracketDetails.push({
-          bracketOrder: bracket.bracketOrder,
-          minValue,
-          maxValue: bracket.maxValue || null,
-          rate,
-          incomeInBracket,
-          taxOnBracket,
-        });
-
+        // Statutory table for the year (e.g. Portaria MPS/MF 13/2026 for 2026)
+        const statutory = getInssTableForYear(year);
         this.logger.debug(
-          `INSS Bracket ${bracket.bracketOrder}: R$ ${incomeInBracket.toFixed(2)} × ${rate}% = R$ ${taxOnBracket.toFixed(2)}`,
+          `No INSS tax table in DB for year ${year}; using statutory table ${statutory.year} (${statutory.legalReference})`,
         );
-
-        // Stop if we've reached the salary limit
-        if (grossSalary <= maxValue) break;
+        brackets = statutory.brackets;
       }
 
-      const effectiveRate = grossSalary > 0 ? (totalTax / grossSalary) * 100 : 0;
+      // Progressive calculation by cumulative caps (ceiling-capped)
+      const computation = computeProgressiveINSS(grossSalary, brackets);
 
       const details: INSSCalculationDetails = {
-        brackets: bracketDetails,
-        totalTax,
-        effectiveRate,
+        brackets: computation.perBracket,
+        totalTax: computation.total,
+        effectiveRate: computation.effectiveRate,
         baseValue: grossSalary,
       };
 
       return {
         taxType: PayrollDiscountType.INSS,
         base: grossSalary,
-        rate: effectiveRate,
-        amount: totalTax,
+        rate: computation.effectiveRate,
+        amount: computation.total,
         details,
       };
     } catch (error) {
@@ -247,115 +195,96 @@ export class BrazilianTaxCalculatorService {
     inssAmount: number,
     dependentsCount: number = 0,
     useSimplifiedDeduction: boolean = true,
-    year: number = 2025,
+    year: number = new Date().getFullYear(),
   ): Promise<TaxCalculationResult> {
     try {
-      // Get active IRRF tax table for the year
+      // Statutory table for the year — also the source of the Lei 15.270/2025
+      // redutor, which the DB TaxBracket model cannot represent.
+      const statutory = getIrrfTableForYear(year);
+
+      // Database table (brackets/settings) has precedence when present
       const taxTable = await this.getActiveTaxTable(TaxType.IRRF, year);
 
-      // Use fallback brackets and settings if database table not found
-      let brackets: Array<{
-        bracketOrder: number;
-        minValue: number;
-        maxValue: number | null;
-        rate: number;
-        deduction: number;
-      }>;
-      let settings: { deducaoPorDependente: number; descontoSimplificado: number };
+      let brackets: ProgressiveBracket[];
+      let dependentDeduction = statutory.dependentDeduction;
+      let simplifiedDeductionMax = statutory.simplifiedDeduction;
+      let redutor: IrrfRedutor | null = statutory.redutor;
 
       if (taxTable && taxTable.brackets && taxTable.brackets.length > 0) {
         brackets = taxTable.brackets.map(b => ({
-          bracketOrder: b.bracketOrder,
           minValue: b.minValue.toNumber(),
-          maxValue: b.maxValue?.toNumber() || null,
+          maxValue: b.maxValue?.toNumber() ?? null,
           rate: b.rate.toNumber(),
           deduction: b.deduction?.toNumber() || 0,
         }));
         const tableSettings = taxTable.settings as any;
-        settings = {
-          deducaoPorDependente: tableSettings?.deducaoPorDependente || 189.59,
-          descontoSimplificado: tableSettings?.descontoSimplificado || 607.2,
-        };
+        dependentDeduction = tableSettings?.deducaoPorDependente || dependentDeduction;
+        simplifiedDeductionMax = tableSettings?.descontoSimplificado || simplifiedDeductionMax;
+        // Optional settings override for the statutory redutor
+        if (tableSettings?.redutor?.coefA != null) {
+          redutor = tableSettings.redutor as IrrfRedutor;
+        }
         this.logger.debug(`Using database IRRF table for year ${year}`);
       } else {
-        // Use hardcoded fallback for 2025
-        this.logger.warn(`No IRRF tax table found for year ${year}, using 2025 fallback`);
-        brackets = FALLBACK_IRRF_2025.brackets.map(b => ({
-          bracketOrder: b.bracketOrder,
-          minValue: b.minValue,
-          maxValue: b.maxValue,
-          rate: b.rate,
-          deduction: b.deduction,
-        }));
-        settings = FALLBACK_IRRF_2025.settings;
-      }
-
-      // Extract settings
-      const dependentDeduction = settings.deducaoPorDependente;
-      const simplifiedDeductionMax = settings.descontoSimplificado;
-
-      // Calculate deductions
-      const inssDeduction = inssAmount;
-      const dependentsDeduction = dependentsCount * dependentDeduction;
-
-      let simplifiedDeduction = 0;
-      if (useSimplifiedDeduction) {
-        // 25% of (gross - INSS), limited to R$ 607,20
-        simplifiedDeduction = Math.min(
-          (grossSalary - inssDeduction) * 0.25,
-          simplifiedDeductionMax,
+        this.logger.debug(
+          `No IRRF tax table in DB for year ${year}; using statutory table ${statutory.year} (${statutory.legalReference})`,
         );
+        brackets = statutory.brackets;
       }
 
-      // Taxable income
-      const taxableIncome = Math.max(
-        0,
-        grossSalary - inssDeduction - dependentsDeduction - simplifiedDeduction,
-      );
+      // Pure computation: maior dedução entre legais (INSS + dependentes) e
+      // desconto simplificado; tabela progressiva; redutor Lei 15.270/2025
+      // sobre os rendimentos tributáveis (2026+).
+      const computation = computeIRRF({
+        taxableGross: grossSalary,
+        inssAmount,
+        dependentsCount,
+        allowSimplifiedDeduction: useSimplifiedDeduction,
+        table: {
+          year,
+          effectiveFrom: statutory.effectiveFrom,
+          legalReference: statutory.legalReference,
+          brackets,
+          dependentDeduction,
+          simplifiedDeduction: simplifiedDeductionMax,
+          redutor,
+        },
+      });
 
-      // Find applicable bracket
-      let totalTax = 0;
-      const bracketDetails: IRRFCalculationDetails['brackets'] = [];
-
-      for (const bracket of brackets) {
-        const minValue = bracket.minValue;
-        const maxValue = bracket.maxValue || Infinity;
-        const rate = bracket.rate;
-        const deduction = bracket.deduction;
-
-        if (taxableIncome >= minValue && taxableIncome <= maxValue) {
-          // Apply simplified formula: (Taxable Income × Rate) - Deduction
-          totalTax = Math.max(0, (taxableIncome * rate) / 100 - deduction);
-
-          bracketDetails.push({
-            bracketOrder: bracket.bracketOrder,
-            minValue,
-            maxValue: bracket.maxValue || null,
-            rate,
-            deduction,
-            applicableTax: totalTax,
-          });
-
-          break;
-        }
-      }
-
+      const totalTax = computation.tax;
       const effectiveRate = grossSalary > 0 ? (totalTax / grossSalary) * 100 : 0;
 
       const details: IRRFCalculationDetails = {
         grossIncome: grossSalary,
-        inssDeduction,
-        dependentsDeduction,
-        simplifiedDeduction: useSimplifiedDeduction ? simplifiedDeduction : undefined,
-        taxableIncome,
-        brackets: bracketDetails,
+        inssDeduction: computation.usedSimplifiedDeduction ? 0 : inssAmount,
+        dependentsDeduction: computation.usedSimplifiedDeduction
+          ? 0
+          : computation.dependentsDeduction,
+        simplifiedDeduction: computation.usedSimplifiedDeduction
+          ? computation.simplifiedDeduction
+          : undefined,
+        taxBeforeRedutor: computation.taxBeforeRedutor,
+        redutorAmount: computation.redutorAmount,
+        taxableIncome: computation.taxableIncome,
+        brackets: computation.appliedBracket
+          ? [
+              {
+                bracketOrder: 1,
+                minValue: computation.appliedBracket.minValue,
+                maxValue: computation.appliedBracket.maxValue,
+                rate: computation.appliedBracket.rate,
+                deduction: computation.appliedBracket.deduction,
+                applicableTax: totalTax,
+              },
+            ]
+          : [],
         totalTax,
         effectiveRate,
       };
 
       return {
         taxType: PayrollDiscountType.IRRF,
-        base: taxableIncome,
+        base: computation.taxableIncome,
         rate: effectiveRate,
         amount: totalTax,
         details,

@@ -27,6 +27,10 @@ export interface Discount extends BaseEntity {
   taxTableId?: string | null;
   expirationDate?: Date | null;
   baseValue?: number | null;
+  /** Parcelamento (ex.: empréstimo CLT): total de parcelas contratadas */
+  totalInstallments?: number | null;
+  /** Parcela corrente (1-based); avança a cada folha mensal */
+  currentInstallment?: number | null;
   payrollId: string;
 
   // Relations (optional, populated based on query)

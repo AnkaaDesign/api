@@ -10,11 +10,13 @@ import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { FileModule } from '@modules/common/file/file.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
 import { SecullumModule } from '@modules/integrations/secullum/secullum.module';
+import { EmploymentContractModule } from '@modules/human-resources/employment-contract/employment-contract.module';
 
 @Module({
   imports: [
     PrismaModule,
     ChangeLogModule,
+    EmploymentContractModule,
     forwardRef(() => FileModule),
     forwardRef(() => NotificationModule),
     // forwardRef breaks the cycle: SecullumModule imports UserModule, and we

@@ -10,7 +10,7 @@ import type {
   BaseBatchResponse,
   BaseMergeResponse,
 } from './common';
-import type { ORDER_BY_DIRECTION, USER_STATUS } from '@constants';
+import type { ORDER_BY_DIRECTION, CONTRACT_TYPE, CONTRACT_STATUS, EMPLOYEE_TYPE } from '@constants';
 import type {
   PpeSize,
   PpeDelivery,
@@ -35,6 +35,7 @@ import type { Borrow, BorrowIncludes } from './borrow';
 import type { ChangeLog, ChangeLogIncludes } from './changelog';
 import type { Bonus, BonusIncludes } from './bonus';
 import type { File } from './file';
+import type { Dependent } from './dependent';
 
 // =====================
 // Main Entity Interface
@@ -44,8 +45,10 @@ export interface User extends BaseEntity {
   email: string | null;
   name: string;
   avatarId: string | null;
-  status: USER_STATUS;
-  statusOrder: number; // 1=Ativo, 2=Inativo, 3=Suspenso
+  currentContractId: string | null;
+  currentContractType: CONTRACT_TYPE | null;
+  currentContractStatus: CONTRACT_STATUS | null;
+  currentEmployeeType: EMPLOYEE_TYPE | null;
   isActive: boolean;
   phone: string | null;
   password?: string | null;
@@ -79,14 +82,6 @@ export interface User extends BaseEntity {
   dependentsCount?: number;
   hasSimplifiedDeduction?: boolean;
 
-  // Status timestamp tracking
-  effectedAt: Date | null; // When user became permanently effected
-  exp1StartAt: Date | null; // Start of first experience period (30 days)
-  exp1EndAt: Date | null; // End of first experience period
-  exp2StartAt: Date | null; // Start of second experience period (50 days)
-  exp2EndAt: Date | null; // End of second experience period
-  dismissedAt: Date | null; // When user was dismissed/terminated
-
   // Relations
   avatar?: File;
   ppeSize?: PpeSize;
@@ -102,6 +97,7 @@ export interface User extends BaseEntity {
   warningsCollaborator?: Warning[];
   warningsSupervisor?: Warning[];
   warningsWitness?: Warning[];
+  dependents?: Dependent[];
   ppeDeliveries?: PpeDelivery[];
   ppeDeliveriesApproved?: PpeDelivery[];
   ppeSchedules?: PpeDeliverySchedule[];
@@ -149,8 +145,10 @@ export interface UserSelect {
   phone?: boolean;
 
   // Status fields
-  status?: boolean;
-  statusOrder?: boolean;
+  currentContractId?: boolean;
+  currentContractType?: boolean;
+  currentContractStatus?: boolean;
+  currentEmployeeType?: boolean;
   isActive?: boolean;
   verified?: boolean;
 
@@ -180,14 +178,6 @@ export interface UserSelect {
   state?: boolean;
   zipCode?: boolean;
   site?: boolean;
-
-  // Status timestamps
-  effectedAt?: boolean;
-  exp1StartAt?: boolean;
-  exp1EndAt?: boolean;
-  exp2StartAt?: boolean;
-  exp2EndAt?: boolean;
-  dismissedAt?: boolean;
 
   // Authentication fields
   password?: boolean;
@@ -250,6 +240,12 @@ export interface UserSelect {
 
 export interface UserIncludes {
   avatar?: boolean;
+  dependents?:
+    | boolean
+    | {
+        where?: any;
+        orderBy?: any;
+      };
   ppeSize?:
     | boolean
     | {
@@ -380,7 +376,9 @@ export interface UserMinimal {
   name: string;
   email?: string | null;
   avatarId?: string | null;
-  status?: USER_STATUS;
+  currentContractType?: CONTRACT_TYPE | null;
+  currentContractStatus?: CONTRACT_STATUS | null;
+  currentEmployeeType?: EMPLOYEE_TYPE | null;
   isActive?: boolean;
 }
 
@@ -423,7 +421,9 @@ export interface UserWithEmployment extends UserMinimal {
   positionId?: string | null;
   sectorId?: string | null;
   payrollNumber?: number | null;
-  status: USER_STATUS;
+  currentContractType?: CONTRACT_TYPE | null;
+  currentContractStatus?: CONTRACT_STATUS | null;
+  currentEmployeeType?: EMPLOYEE_TYPE | null;
   isActive: boolean;
 }
 
@@ -454,7 +454,9 @@ export const UserSelectPresets = {
     name: true,
     email: true,
     avatarId: true,
-    status: true,
+    currentContractType: true,
+    currentContractStatus: true,
+    currentEmployeeType: true,
     isActive: true,
   } as const,
 
@@ -466,7 +468,9 @@ export const UserSelectPresets = {
     name: true,
     email: true,
     avatarId: true,
-    status: true,
+    currentContractType: true,
+    currentContractStatus: true,
+    currentEmployeeType: true,
     isActive: true,
     positionId: true,
     position: true,
@@ -480,7 +484,9 @@ export const UserSelectPresets = {
     name: true,
     email: true,
     avatarId: true,
-    status: true,
+    currentContractType: true,
+    currentContractStatus: true,
+    currentEmployeeType: true,
     isActive: true,
     sectorId: true,
     sector: true,
@@ -494,7 +500,9 @@ export const UserSelectPresets = {
     name: true,
     email: true,
     avatarId: true,
-    status: true,
+    currentContractType: true,
+    currentContractStatus: true,
+    currentEmployeeType: true,
     isActive: true,
     positionId: true,
     sectorId: true,
@@ -513,8 +521,10 @@ export const UserSelectPresets = {
     email: true,
     name: true,
     avatarId: true,
-    status: true,
-    statusOrder: true,
+    currentContractId: true,
+    currentContractType: true,
+    currentContractStatus: true,
+    currentEmployeeType: true,
     isActive: true,
     phone: true,
     positionId: true,
@@ -526,12 +536,6 @@ export const UserSelectPresets = {
     performanceLevel: true,
     sectorId: true,
     payrollNumber: true,
-    effectedAt: true,
-    exp1StartAt: true,
-    exp1EndAt: true,
-    exp2StartAt: true,
-    exp2EndAt: true,
-    dismissedAt: true,
   } as const,
 } as const;
 
@@ -550,8 +554,10 @@ export interface UserOrderBy {
   name?: ORDER_BY_DIRECTION;
   avatarId?: ORDER_BY_DIRECTION;
   token?: ORDER_BY_DIRECTION;
-  status?: ORDER_BY_DIRECTION;
-  statusOrder?: ORDER_BY_DIRECTION;
+  currentContractId?: ORDER_BY_DIRECTION;
+  currentContractType?: ORDER_BY_DIRECTION;
+  currentContractStatus?: ORDER_BY_DIRECTION;
+  currentEmployeeType?: ORDER_BY_DIRECTION;
   isActive?: ORDER_BY_DIRECTION;
   phone?: ORDER_BY_DIRECTION;
   password?: ORDER_BY_DIRECTION;
@@ -564,12 +570,6 @@ export interface UserOrderBy {
   unionAuthorizationDate?: ORDER_BY_DIRECTION;
   dependentsCount?: ORDER_BY_DIRECTION;
   hasSimplifiedDeduction?: ORDER_BY_DIRECTION;
-  effectedAt?: ORDER_BY_DIRECTION;
-  exp1StartAt?: ORDER_BY_DIRECTION;
-  exp1EndAt?: ORDER_BY_DIRECTION;
-  exp2StartAt?: ORDER_BY_DIRECTION;
-  exp2EndAt?: ORDER_BY_DIRECTION;
-  dismissedAt?: ORDER_BY_DIRECTION;
   performanceLevel?: ORDER_BY_DIRECTION;
   address?: ORDER_BY_DIRECTION;
   addressNumber?: ORDER_BY_DIRECTION;

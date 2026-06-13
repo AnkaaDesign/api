@@ -17,7 +17,7 @@ export class SiegController {
   ) {}
 
   @Get('status')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   getStatus() {
     return {
       enabled: this.siegService.isEnabled(),
@@ -26,7 +26,9 @@ export class SiegController {
   }
 
   @Post('fetch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  // FINANCIAL/ACCOUNTING trigger this from the reconciliation Notas Fiscais page
+  // ("Buscar SIEG") — same workflow tier as the XML/OFX import endpoints.
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   @UsePipes(new ZodValidationPipe(siegFetchSchema))
   async fetch(@Body() body: SiegFetchDto) {
     const companyCnpj =

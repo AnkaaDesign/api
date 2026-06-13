@@ -362,7 +362,7 @@ export class StockNotificationService {
     return tx.user.findMany({
       where: {
         isActive: true,
-        status: { not: 'DISMISSED' },
+        currentContractStatus: { not: 'DISMISSED' },
         sector: {
           privileges: { in: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.WAREHOUSE] },
         },

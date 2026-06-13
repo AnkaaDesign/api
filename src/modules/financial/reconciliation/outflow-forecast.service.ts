@@ -1,0 +1,381 @@
+import { Injectable, Logger } from '@nestjs/common';
+import {
+  AccountingType,
+  BankTransactionType,
+  OrderPaymentStatus,
+  ReconciliationStatus,
+} from '@prisma/client';
+import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { PayrollService } from '@modules/human-resources/payroll/payroll.service';
+import { TransactionCategoryService } from './transaction-category.service';
+import { RecurrenceLearnerService } from './recurrence-learner.service';
+
+// Order payment pipeline statuses considered "open" (still going to leave the
+// bank account). Mirrors the Contas a Pagar convention.
+const OPEN_PAYMENT_STATUSES: OrderPaymentStatus[] = [
+  OrderPaymentStatus.NOT_REQUESTED,
+  OrderPaymentStatus.REQUESTED,
+  OrderPaymentStatus.AWAITING_PAYMENT,
+];
+
+// Recurring categories already covered by a dedicated forecast section are
+// excluded from the "Recorrentes" slice so the month total never counts the
+// same money twice:
+//  - accountingType IMPOSTO_TARIFAS → the Impostos section;
+//  - slug 'folha' (the wage-payment category — a stable classifier key, see
+//    ladder.learner.ts) → the payroll aggregate. Other SALARIOS-typed
+//    recurrents (Vale Transporte/Alimentação) are provider payments NOT inside
+//    payroll grossSalary, so they stay in Recorrentes.
+const RECURRING_EXCLUDED_TYPES: AccountingType[] = [AccountingType.IMPOSTO_TARIFAS];
+const RECURRING_EXCLUDED_SLUGS = new Set(['folha']);
+
+// How many full calendar months of history back the tax approximation reads.
+const TAX_LOOKBACK_MONTHS = 3;
+
+export interface OutflowForecastOrderRow {
+  id: string;
+  orderNumber: number | null;
+  description: string;
+  supplierName: string | null;
+  paymentStatus: OrderPaymentStatus;
+  forecast: Date | null;
+  total: number;
+}
+
+export interface OutflowForecastScheduleRow {
+  id: string;
+  name: string | null;
+  supplierName: string | null;
+  nextRun: Date | null;
+  itemCount: number;
+}
+
+export interface OutflowForecastTaxRow {
+  category: { id: string; name: string; slug: string; color: string | null };
+  /** Average of the per-month totals over the lookback window (the basis). */
+  monthlyAverage: number;
+  /** Per-lookback-month totals, oldest first — shown so the basis is auditable. */
+  perMonth: { month: string; amount: number }[];
+  /** Already paid inside the reference month. */
+  paidThisMonth: number;
+  lastAmount: number | null;
+  lastPaidAt: Date | null;
+}
+
+/**
+ * Composes the "Previsão de Saídas" (spec §4.3) server-side from four existing
+ * domains:
+ *  - Pedidos: open purchase orders by paymentStatus + order schedules due in
+ *    the month (payable convention identical to Contas a Pagar);
+ *  - Impostos: transparent approximation — per-category average of the last 3
+ *    months of DEBIT outflows tagged with IMPOSTO_TARIFAS categories;
+ *  - Folha: payroll month aggregate (gross incl. bonus). AGGREGATE ONLY — this
+ *    endpoint never exposes per-user payroll rows;
+ *  - Recorrentes: the static isRecurring category forecast, minus categories
+ *    whose accountingType is already covered above (no double counting), plus
+ *    the learned counterparty-cadence forecast as an informational comparison.
+ */
+@Injectable()
+export class OutflowForecastService {
+  private readonly logger = new Logger(OutflowForecastService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly categories: TransactionCategoryService,
+    private readonly recurrence: RecurrenceLearnerService,
+    private readonly payrollService: PayrollService,
+  ) {}
+
+  async forecast(reference?: string) {
+    const now = new Date();
+    const [year, month] = reference
+      ? reference.split('-').map(Number)
+      : [now.getFullYear(), now.getMonth() + 1];
+    const from = new Date(year, month - 1, 1, 0, 0, 0, 0);
+    const to = new Date(year, month, 0, 23, 59, 59, 999);
+
+    const [pedidos, impostos, folha, recorrentes, learned] = await Promise.all([
+      this.buildOrdersSection(from, to),
+      this.buildTaxSection(from, to),
+      this.buildPayrollSection(year, month),
+      this.buildRecurringSection(from, to),
+      this.buildLearnedSection(from, to, now),
+    ]);
+
+    return {
+      reference: `${year}-${String(month).padStart(2, '0')}`,
+      from,
+      to,
+      // Composite month total. The learned forecast is informational only (it
+      // overlaps the static recurring slice by construction).
+      total:
+        pedidos.totalOpen + impostos.totalForecast + folha.total + recorrentes.totalForecast,
+      pedidos,
+      impostos,
+      folha,
+      recorrentes,
+      learned,
+    };
+  }
+
+  // ----- (a) Pedidos ---------------------------------------------------------
+
+  private async buildOrdersSection(from: Date, to: Date) {
+    const [orders, schedules] = await Promise.all([
+      this.prisma.order.findMany({
+        where: { paymentStatus: { in: OPEN_PAYMENT_STATUSES } },
+        select: {
+          id: true,
+          orderNumber: true,
+          description: true,
+          paymentStatus: true,
+          forecast: true,
+          freight: true,
+          discount: true,
+          supplier: { select: { fantasyName: true } },
+          items: { select: { orderedQuantity: true, price: true, icms: true, ipi: true } },
+        },
+        orderBy: [{ paymentStatusOrder: 'asc' }, { createdAt: 'desc' }],
+      }),
+      this.prisma.orderSchedule.findMany({
+        where: { isActive: true, finishedAt: null, nextRun: { gte: from, lte: to } },
+        select: {
+          id: true,
+          name: true,
+          nextRun: true,
+          items: true,
+          supplier: { select: { fantasyName: true } },
+        },
+        orderBy: { nextRun: 'asc' },
+      }),
+    ]);
+
+    const emptyBucket = () => ({ count: 0, total: 0 });
+    const byStatus: Record<
+      'NOT_REQUESTED' | 'REQUESTED' | 'AWAITING_PAYMENT',
+      { count: number; total: number }
+    > = {
+      NOT_REQUESTED: emptyBucket(),
+      REQUESTED: emptyBucket(),
+      AWAITING_PAYMENT: emptyBucket(),
+    };
+
+    const rows: OutflowForecastOrderRow[] = orders.map(order => {
+      // Same payable convention as Contas a Pagar / getPaymentSummary:
+      // items price×qty (+ICMS/IPI) − discount% on goods subtotal + freight.
+      let itemsTotal = 0;
+      let goodsSubtotal = 0;
+      for (const item of order.items) {
+        const subtotal = item.orderedQuantity * item.price;
+        goodsSubtotal += subtotal;
+        itemsTotal += subtotal * (1 + (item.icms || 0) / 100 + (item.ipi || 0) / 100);
+      }
+      const discountAmount = order.discount > 0 ? goodsSubtotal * (order.discount / 100) : 0;
+      const total = itemsTotal - discountAmount + (order.freight || 0);
+
+      const bucket = byStatus[order.paymentStatus as keyof typeof byStatus];
+      if (bucket) {
+        bucket.count += 1;
+        bucket.total += total;
+      }
+
+      return {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        description: order.description,
+        supplierName: order.supplier?.fantasyName ?? null,
+        paymentStatus: order.paymentStatus,
+        forecast: order.forecast,
+        total,
+      };
+    });
+
+    const scheduleRows: OutflowForecastScheduleRow[] = schedules.map(s => ({
+      id: s.id,
+      name: s.name,
+      supplierName: s.supplier?.fantasyName ?? null,
+      nextRun: s.nextRun,
+      itemCount: s.items.length,
+    }));
+
+    return {
+      totalOpen: byStatus.NOT_REQUESTED.total + byStatus.REQUESTED.total + byStatus.AWAITING_PAYMENT.total,
+      byStatus,
+      orders: rows,
+      schedules: scheduleRows,
+    };
+  }
+
+  // ----- (b) Impostos (aproximado) ------------------------------------------
+
+  private async buildTaxSection(from: Date, to: Date) {
+    const taxCategories = await this.prisma.transactionCategory.findMany({
+      where: { accountingType: AccountingType.IMPOSTO_TARIFAS, isActive: true },
+      select: { id: true, name: true, slug: true, color: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    });
+    const ids = taxCategories.map(c => c.id);
+
+    // Lookback window: the N full calendar months immediately before `from`.
+    const lookbackStart = new Date(from);
+    lookbackStart.setMonth(lookbackStart.getMonth() - TAX_LOOKBACK_MONTHS);
+    const lookbackMonths: string[] = [];
+    for (let i = TAX_LOOKBACK_MONTHS; i >= 1; i--) {
+      const d = new Date(from);
+      d.setMonth(d.getMonth() - i);
+      lookbackMonths.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+
+    const txs = ids.length
+      ? await this.prisma.bankTransaction.findMany({
+          where: {
+            type: BankTransactionType.DEBIT,
+            reconciliationStatus: { not: ReconciliationStatus.IGNORED },
+            postedAt: { gte: lookbackStart, lte: to },
+            categories: { some: { categoryId: { in: ids } } },
+          },
+          select: {
+            postedAt: true,
+            amount: true,
+            categories: {
+              where: { categoryId: { in: ids } },
+              select: { categoryId: true, allocatedAmount: true },
+            },
+          },
+        })
+      : [];
+
+    type Entry = { date: Date; amount: number };
+    const byCategory = new Map<string, { history: Entry[]; current: Entry[] }>();
+    for (const id of ids) byCategory.set(id, { history: [], current: [] });
+    for (const tx of txs) {
+      const txAmount = Math.abs(Number(tx.amount));
+      for (const link of tx.categories) {
+        const bucket = byCategory.get(link.categoryId);
+        if (!bucket) continue;
+        // Split-allocation aware: fall back to the full amount for plain tags.
+        const allocated = link.allocatedAmount != null ? Number(link.allocatedAmount) : 0;
+        const amount = allocated !== 0 ? Math.abs(allocated) : txAmount;
+        const entry: Entry = { date: tx.postedAt, amount };
+        if (tx.postedAt >= from) bucket.current.push(entry);
+        else bucket.history.push(entry);
+      }
+    }
+
+    const items: OutflowForecastTaxRow[] = [];
+    for (const category of taxCategories) {
+      const { history, current } = byCategory.get(category.id)!;
+      const monthly = new Map<string, number>(lookbackMonths.map(m => [m, 0]));
+      for (const e of history) {
+        const key = `${e.date.getFullYear()}-${String(e.date.getMonth() + 1).padStart(2, '0')}`;
+        if (monthly.has(key)) monthly.set(key, (monthly.get(key) ?? 0) + e.amount);
+      }
+      const perMonth = lookbackMonths.map(m => ({ month: m, amount: monthly.get(m) ?? 0 }));
+      // Fixed denominator (÷3) keeps the basis honest: a tax that only fires in
+      // 1 of the 3 months still averages down rather than projecting its peak.
+      const monthlyAverage =
+        perMonth.reduce((a, b) => a + b.amount, 0) / TAX_LOOKBACK_MONTHS;
+      const paidThisMonth = current.reduce((a, e) => a + e.amount, 0);
+      const all = [...history, ...current].sort((a, b) => a.date.getTime() - b.date.getTime());
+      const last = all.length ? all[all.length - 1] : null;
+      // Skip categories with no signal at all to keep the table readable.
+      if (monthlyAverage === 0 && paidThisMonth === 0) continue;
+      items.push({
+        category,
+        monthlyAverage,
+        perMonth,
+        paidThisMonth,
+        lastAmount: last?.amount ?? null,
+        lastPaidAt: last?.date ?? null,
+      });
+    }
+    items.sort((a, b) => b.monthlyAverage - a.monthlyAverage);
+
+    return {
+      basis: `media-${TAX_LOOKBACK_MONTHS}-meses` as const,
+      lookbackMonths,
+      totalForecast: items.reduce((a, b) => a + b.monthlyAverage, 0),
+      totalPaidThisMonth: items.reduce((a, b) => a + b.paidThisMonth, 0),
+      items,
+    };
+  }
+
+  // ----- (c) Folha (com bonificação) ----------------------------------------
+
+  /**
+   * Month payroll AGGREGATE. grossSalary already includes the bonus (see
+   * CompletePayrollCalculatorService STEP 2), so `total` is "folha com
+   * bonificação"; `bonusTotal` is broken out for display only. Per-user rows
+   * never leave this method — payroll data is sensitive.
+   */
+  private async buildPayrollSection(year: number, month: number) {
+    try {
+      const response = await this.payrollService.getPayrollsWithLiveCalculation({
+        where: { year, month },
+        page: 1,
+        limit: 1000,
+      });
+      const payrolls = (response.data ?? []) as any[];
+      let total = 0;
+      let bonusTotal = 0;
+      let netTotal = 0;
+      for (const p of payrolls) {
+        const gross = Number(p.grossSalary ?? p.baseRemuneration ?? 0) || 0;
+        total += gross;
+        netTotal += Number(p.netSalary ?? 0) || Number(p.grossSalary ?? 0) || 0;
+        bonusTotal += Number(p.bonus?.netBonus ?? 0) || 0;
+      }
+      return {
+        available: true,
+        total,
+        bonusTotal,
+        netTotal,
+        employeeCount: payrolls.length,
+      };
+    } catch (error) {
+      // Live payroll composition can fail on integration hiccups (e.g.
+      // Secullum); the forecast page should degrade, not 500.
+      this.logger.warn(
+        `Falha ao agregar a folha para previsão de saídas: ${(error as Error)?.message ?? error}`,
+      );
+      return { available: false, total: 0, bonusTotal: 0, netTotal: 0, employeeCount: 0 };
+    }
+  }
+
+  // ----- (d) Recorrentes ------------------------------------------------------
+
+  private async buildRecurringSection(from: Date, to: Date) {
+    const full = await this.categories.forecast(from, to);
+    const items = full.items.filter(
+      item =>
+        !RECURRING_EXCLUDED_SLUGS.has(item.category.slug) &&
+        (!item.category.accountingType ||
+          !RECURRING_EXCLUDED_TYPES.includes(item.category.accountingType)),
+    );
+    return {
+      totalPaid: items.reduce((a, b) => a + b.paidAmount, 0),
+      totalForecast: items.reduce((a, b) => a + b.forecastAmount, 0),
+      // How many recurring categories were folded into Impostos/Folha instead.
+      excludedCount: full.items.length - items.length,
+      items,
+    };
+  }
+
+  /** Learned counterparty-cadence forecast — informational comparison only. */
+  private async buildLearnedSection(from: Date, to: Date, now: Date) {
+    try {
+      const reference = now >= from && now <= to ? now : from;
+      const learned = await this.recurrence.forecast(reference);
+      return {
+        expectedMonthlyTotal: learned.expectedMonthlyTotal,
+        itemCount: learned.items.length,
+        overdueCount: learned.items.filter((i: any) => i.overdue).length,
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Falha ao computar a previsão aprendida: ${(error as Error)?.message ?? error}`,
+      );
+      return { expectedMonthlyTotal: 0, itemCount: 0, overdueCount: 0 };
+    }
+  }
+}

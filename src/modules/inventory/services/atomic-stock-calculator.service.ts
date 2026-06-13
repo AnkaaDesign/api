@@ -526,7 +526,7 @@ export class AtomicStockCalculatorService {
 
     const user = await tx.user.findUnique({
       where: { id: operation.userId },
-      select: { id: true, status: true, name: true },
+      select: { id: true, currentContractStatus: true, name: true },
     });
 
     if (!user) {
@@ -535,7 +535,7 @@ export class AtomicStockCalculatorService {
       return;
     }
 
-    if (user.status === 'DISMISSED') {
+    if (user.currentContractStatus === 'DISMISSED') {
       result.errors.push(`Usuário "${user.name}" não está ativo`);
       result.isValid = false;
     }
@@ -624,14 +624,14 @@ export class AtomicStockCalculatorService {
       const inactiveUsers = await tx.user.findMany({
         where: {
           id: { in: userIds as string[] },
-          status: 'DISMISSED',
+          currentContractStatus: 'DISMISSED',
         },
-        select: { id: true, name: true, status: true },
+        select: { id: true, name: true, currentContractStatus: true },
       });
 
       if (inactiveUsers.length > 0) {
         plan.globalErrors.push(
-          `Usuários inativos detectados: ${inactiveUsers.map(u => `${u.name} (${u.status})`).join(', ')}`,
+          `Usuários inativos detectados: ${inactiveUsers.map(u => `${u.name} (${u.currentContractStatus})`).join(', ')}`,
         );
       }
     }

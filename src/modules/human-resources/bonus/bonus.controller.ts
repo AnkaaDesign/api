@@ -113,7 +113,7 @@ export class BonusController {
    * Get many bonuses - Standard entity list
    * Returns data from database, automatically includes live calculations for current period
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Get()
   @ReadRateLimit()
   async findMany(
@@ -134,7 +134,7 @@ export class BonusController {
    * Get bonus by ID - Standard entity retrieval
    * Supports both database UUIDs and composite live IDs (live-{userId}-{year}-{month})
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Get(':id')
   @ReadRateLimit()
   async findById(
@@ -153,7 +153,7 @@ export class BonusController {
   /**
    * Create bonus - Standard entity creation
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Post()
   @WriteRateLimit()
   @HttpCode(HttpStatus.CREATED)
@@ -170,7 +170,7 @@ export class BonusController {
   /**
    * Update bonus - Standard entity update
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Put(':id')
   @WriteRateLimit()
   @UsePipes(new ZodValidationPipe(bonusUpdateSchema))
@@ -190,7 +190,7 @@ export class BonusController {
   /**
    * Delete bonus - Standard entity deletion
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Delete(':id')
   @WriteRateLimit()
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -205,7 +205,7 @@ export class BonusController {
   /**
    * Batch create bonuses
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Post('batch')
   @WriteRateLimit()
   @HttpCode(HttpStatus.CREATED)
@@ -222,7 +222,7 @@ export class BonusController {
   /**
    * Batch update bonuses
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Put('batch')
   @WriteRateLimit()
   @UsePipes(new ZodValidationPipe(bonusBatchUpdateSchema))
@@ -241,7 +241,7 @@ export class BonusController {
   /**
    * Batch delete bonuses
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Delete('batch')
   @WriteRateLimit()
   @UsePipes(new ZodValidationPipe(bonusBatchDeleteSchema))
@@ -260,7 +260,7 @@ export class BonusController {
    * Both the web and mobile simulators POST here on every input change so the
    * algorithm lives in exactly one place (this server).
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Post('simulate')
   @ReadRateLimit()
   @HttpCode(HttpStatus.OK)
@@ -311,6 +311,7 @@ export class BonusController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @Post('timeline')
   @ReadRateLimit()
@@ -337,7 +338,7 @@ export class BonusController {
    * Get lightweight period task stats for the bonus simulation.
    * Returns only task counts and averages WITHOUT Secullum integration.
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Get('period-stats/:year/:month')
   async getPeriodTaskStats(
     @Param('year', ParseIntPipe) year: number,
@@ -358,7 +359,7 @@ export class BonusController {
    * Get live bonus calculations for a specific period
    * Calculates bonuses in real-time without saving to database
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Get('live/:year/:month')
   @ReadRateLimit()
   async getLiveCalculations(
@@ -385,7 +386,7 @@ export class BonusController {
   /**
    * Get live bonus calculation for a specific user in a period
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Get('live/:userId/:year/:month')
   @ReadRateLimit()
   async getLiveCalculationForUser(
@@ -459,7 +460,7 @@ export class BonusController {
   /**
    * Read the period reajuste percentage (0 if not set).
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Get('period-adjustment/:year/:month')
   @ReadRateLimit()
   async getPeriodAdjustment(
@@ -476,7 +477,7 @@ export class BonusController {
    * Set the period reajuste percentage. Recomputes every saved bonus in the
    * period with the new adjustment baked into the algorithm.
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Post('period-adjustment/:year/:month')
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
@@ -497,7 +498,7 @@ export class BonusController {
    * Use when an admin has made a Secullum-side change or wants an on-demand fresh read
    * without waiting for the pre-warm cron tick.
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Post('cache/invalidate/:year/:month')
   @WriteRateLimit()
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -539,7 +540,7 @@ export class BonusController {
   /**
    * Get bonuses by user
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Get('user/:userId')
   @ReadRateLimit()
   async findByUser(
@@ -562,7 +563,7 @@ export class BonusController {
   /**
    * Get bonuses by month
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Get('month/:year/:month')
   @ReadRateLimit()
   async findByMonth(
@@ -595,7 +596,7 @@ export class BonusController {
   /**
    * Get bonus by user and month
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Get('user/:userId/month/:year/:month')
   @ReadRateLimit()
   async findByUserAndMonth(
@@ -628,7 +629,7 @@ export class BonusController {
   /**
    * Create bonus discount
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Post(':id/discounts')
   @WriteRateLimit()
   @HttpCode(HttpStatus.CREATED)
@@ -648,7 +649,7 @@ export class BonusController {
   /**
    * Delete bonus discount
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Delete('discounts/:discountId')
   @WriteRateLimit()
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -666,7 +667,7 @@ export class BonusController {
   /**
    * Get bonus calculation details for a given performance level
    */
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Get('calculation-details/:performanceLevel')
   @ReadRateLimit()
   async getCalculationDetails(

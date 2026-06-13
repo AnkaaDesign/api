@@ -12,6 +12,7 @@ import type {
 } from './common';
 import {
   ORDER_STATUS,
+  ORDER_PAYMENT_STATUS,
   PAYMENT_METHOD,
   SCHEDULE_FREQUENCY,
   SCHEDULE_RUN_STATUS,
@@ -162,6 +163,12 @@ export interface Order extends BaseEntity {
   paymentDueDays: number | null;
   paymentResponsibleId: string | null;
   paymentAssignedById: string | null;
+
+  // Payment workflow (contas a pagar)
+  paymentStatus: ORDER_PAYMENT_STATUS;
+  paymentStatusOrder: number; // 1=NotRequested, 2=Requested, 3=AwaitingPayment, 4=Paid
+  paymentRequestedAt: Date | null;
+  paidAt: Date | null;
 
   // Relations (optional, populated based on query)
   budgets?: File[];
@@ -508,6 +515,28 @@ export interface OrderRuleOrderBy {
 // Order responses
 export interface OrderGetUniqueResponse extends BaseGetUniqueResponse<Order> {}
 export interface OrderGetManyResponse extends BaseGetManyResponse<Order> {}
+
+// Payment summary (contas a pagar) — lightweight per-paymentStatus aggregates.
+// Totals follow the payable amount convention: items (price×qty + ICMS/IPI)
+// − discount% on goods subtotal + freight.
+export interface OrderPaymentSummaryBucket {
+  count: number;
+  total: number;
+}
+
+export interface OrderPaymentSummaryData {
+  NOT_REQUESTED: OrderPaymentSummaryBucket;
+  REQUESTED: OrderPaymentSummaryBucket;
+  AWAITING_PAYMENT: OrderPaymentSummaryBucket;
+  /** PAID universe is unbounded, so it is windowed to the last 90 days. */
+  PAID_LAST_90_DAYS: OrderPaymentSummaryBucket;
+}
+
+export interface OrderPaymentSummaryResponse {
+  success: boolean;
+  message: string;
+  data: OrderPaymentSummaryData;
+}
 export interface OrderCreateResponse extends BaseCreateResponse<Order> {}
 export interface OrderUpdateResponse extends BaseUpdateResponse<Order> {}
 export interface OrderDeleteResponse extends BaseDeleteResponse {}
