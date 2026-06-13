@@ -84,6 +84,7 @@ export class UserController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @ReadRateLimit()
   async findMany(
@@ -121,7 +122,7 @@ export class UserController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @WriteRateLimit()
   async batchUpdate(
     @Body(new ZodValidationPipe(userBatchUpdateSchema)) data: UserBatchUpdateFormData,
@@ -166,6 +167,7 @@ export class UserController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @ReadRateLimit()
   async findById(
@@ -177,7 +179,7 @@ export class UserController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @WriteRateLimit()
   @UseInterceptors(FileInterceptor('avatar', multerConfig))
   async update(

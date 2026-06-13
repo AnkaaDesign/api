@@ -42,20 +42,20 @@ model Airbrushing {
   finishedAt            DateTime?
   price                 Float?
   paymentStatus         AirbrushingPaymentStatus @default(PENDING)
-  status                AirbrushingStatus @default(PENDING)
-  statusOrder           Int               @default(1)
+  status                AirbrushingStatus        @default(PENDING)
+  statusOrder           Int                      @default(1)
   taskId                String
   painterId             String?
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
-  task                  Task              @relation("AIRBRUSHING", fields: [taskId], references: [id], onDelete: Cascade)
-  painter               User?             @relation("AIRBRUSHING_PAINTER", fields: [painterId], references: [id], onDelete: SetNull)
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  task                  Task                     @relation("AIRBRUSHING", fields: [taskId], references: [id], onDelete: Cascade)
+  painter               User?                    @relation("AIRBRUSHING_PAINTER", fields: [painterId], references: [id], onDelete: SetNull)
   artworks              Artwork[]
-  budgets               File[]            @relation("AIRBRUSHING_BUDGETS")
-  invoices              File[]            @relation("AIRBRUSHING_INVOICES")
-  invoiceReimbursements File[]            @relation("AIRBRUSHING_INVOICE_REIMBURSEMENTS")
-  receipts              File[]            @relation("AIRBRUSHING_RECEIPTS")
-  reimbursements        File[]            @relation("AIRBRUSHING_REIMBURSEMENTS")
+  budgets               File[]                   @relation("AIRBRUSHING_BUDGETS")
+  invoices              File[]                   @relation("AIRBRUSHING_INVOICES")
+  invoiceReimbursements File[]                   @relation("AIRBRUSHING_INVOICE_REIMBURSEMENTS")
+  receipts              File[]                   @relation("AIRBRUSHING_RECEIPTS")
+  reimbursements        File[]                   @relation("AIRBRUSHING_REIMBURSEMENTS")
 
   @@index([statusOrder])
   @@index([painterId])
@@ -225,6 +225,7 @@ model Payroll {
   year                    Int
   month                   Int
   userId                  String
+  contractId              String?
   positionId              String?
   workingDaysInMonth      Int?
   workedDaysInMonth       Int?
@@ -248,12 +249,14 @@ model Payroll {
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
   bonus                   Bonus?
-  position                Position?         @relation(fields: [positionId], references: [id])
-  user                    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  position                Position?           @relation(fields: [positionId], references: [id])
+  user                    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contract                EmploymentContract? @relation("PAYROLL_CONTRACT", fields: [contractId], references: [id])
   discounts               PayrollDiscount[]
 
   @@unique([userId, year, month])
   @@index([userId])
+  @@index([contractId])
   @@index([year, month])
   @@index([positionId])
 }
@@ -290,22 +293,26 @@ model BonusExtra {
 }
 
 model PayrollDiscount {
-  id             String              @id @default(uuid())
-  percentage     Decimal?            @db.Decimal(5, 2)
-  value          Decimal?            @db.Decimal(10, 2)
-  reference      String
-  discountType   PayrollDiscountType @default(CUSTOM)
-  isPersistent   Boolean             @default(false)
-  isActive       Boolean             @default(true)
-  taxYear        Int?
-  taxTableId     String?
-  expirationDate DateTime?
-  baseValue      Decimal?            @db.Decimal(10, 2)
-  payrollId      String
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-  payroll        Payroll             @relation(fields: [payrollId], references: [id], onDelete: Cascade)
-  taxTable       TaxTable?           @relation(fields: [taxTableId], references: [id])
+  id                 String              @id @default(uuid())
+  percentage         Decimal?            @db.Decimal(5, 2)
+  value              Decimal?            @db.Decimal(10, 2)
+  reference          String
+  discountType       PayrollDiscountType @default(CUSTOM)
+  isPersistent       Boolean             @default(false)
+  isActive           Boolean             @default(true)
+  taxYear            Int?
+  taxTableId         String?
+  expirationDate     DateTime?
+  baseValue          Decimal?            @db.Decimal(10, 2)
+  /// Parcelamento (ex.: empréstimo CLT): total de parcelas contratadas
+  totalInstallments  Int?
+  /// Parcela corrente (1-based); avança a cada folha mensal e desativa ao exceder totalInstallments
+  currentInstallment Int?
+  payrollId          String
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  payroll            Payroll             @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  taxTable           TaxTable?           @relation(fields: [taxTableId], references: [id])
 
   @@index([payrollId])
   @@index([discountType])
@@ -397,7 +404,7 @@ model Customer {
   quoteCustomerConfigs TaskQuoteCustomerConfig[] @relation("QuoteCustomerConfigCustomer")
   responsibles         Responsible[]             @relation("CompanyResponsibles")
   invoiceEntities      Invoice[]                 @relation("CustomerInvoiceEntities")
-  externalOperations  ExternalOperation[]      @relation("CustomerExternalOperations")
+  externalOperations   ExternalOperation[]       @relation("CustomerExternalOperations")
 
   @@index([fantasyName])
   @@index([cpf])
@@ -609,60 +616,65 @@ model PpeScheduleItem {
 }
 
 model File {
-  id                                      String                    @id @default(uuid())
-  filename                                String
-  originalName                            String
-  mimetype                                String
-  path                                    String
-  size                                    Int
-  thumbnailUrl                            String?
-  createdAt                               DateTime                  @default(now())
-  updatedAt                               DateTime                  @updatedAt
-  artworks                                Artwork?
-  customerLogo                            Customer[]                @relation("CUSTOMER_LOGO")
-  taskCuts                                Cut[]                     @relation("TASK_CUTS")
-  layoutPhotos                            Layout[]                  @relation("LAYOUT_PHOTO")
-  ppeDeliveryDocuments                    PpeDelivery[]             @relation("PPE_DELIVERY_DOCUMENT")
-  ppeSignatureDocuments                   PpeDeliverySignature[]    @relation("PPE_SIGNATURE_DOCUMENT")
-  supplierLogo                            Supplier[]                @relation("SUPPLIER_LOGO")
-  configCustomerSignatures                TaskQuoteCustomerConfig[] @relation("CONFIG_CUSTOMER_SIGNATURE")
-  quoteLayouts                            TaskQuote[]               @relation("QUOTE_LAYOUT")
-  userAvatar                              User[]                    @relation("USER_AVATAR")
-  thumbnailJob                            ThumbnailJob?
-  airbrushingBudgets                      Airbrushing[]             @relation("AIRBRUSHING_BUDGETS")
-  airbrushingInvoices                     Airbrushing[]             @relation("AIRBRUSHING_INVOICES")
-  airbrushingInvoiceReimbursements        Airbrushing[]             @relation("AIRBRUSHING_INVOICE_REIMBURSEMENTS")
-  airbrushingReceipts                     Airbrushing[]             @relation("AIRBRUSHING_RECEIPTS")
-  airbrushingReimbursements               Airbrushing[]             @relation("AIRBRUSHING_REIMBURSEMENTS")
-  externalOperationInvoices              ExternalOperation[]      @relation("EXTERNAL_OPERATION_INVOICES")
-  externalOperationInvoiceReimbursements ExternalOperation[]      @relation("EXTERNAL_OPERATION_INVOICE_REIMBURSEMENTS")
-  externalOperationReceipts              ExternalOperation[]      @relation("EXTERNAL_OPERATION_RECEIPTS")
-  externalOperationReimbursements        ExternalOperation[]      @relation("EXTERNAL_OPERATION_REIMBURSEMENTS")
-  warning                                 Warning[]                 @relation("FileToWarning")
-  observations                            Observation[]             @relation("OBSERVATIONS_FILES")
-  orderBudgets                            Order[]                   @relation("ORDER_BUDGETS")
-  orderInvoices                           Order[]                   @relation("ORDER_INVOICES")
-  orderInvoiceReimbursements              Order[]                   @relation("ORDER_INVOICE_REIMBURSEMENTS")
-  orderReceipts                           Order[]                   @relation("ORDER_RECEIPTS")
-  orderReimbursements                     Order[]                   @relation("ORDER_REIMBURSEMENTS")
-  taskBaseFiles                           Task[]                    @relation("TASK_BASE_FILES")
-  taskBudgets                             Task[]                    @relation("TASK_BUDGETS")
-  taskInvoices                            Task[]                    @relation("TASK_INVOICES")
-  taskInvoiceReimbursements               Task[]                    @relation("TASK_INVOICE_REIMBURSEMENTS")
-  taskReceipts                            Task[]                    @relation("TASK_RECEIPTS")
-  taskReimbursements                      Task[]                    @relation("TASK_REIMBURSEMENTS")
-  taskBankSlips                           Task[]                    @relation("TASK_BANK_SLIPS")
-  taskProjectFiles                        Task[]                    @relation("TASK_PROJECT_FILES")
-  taskCheckinFiles                        Task[]                    @relation("TASK_CHECKIN_FILES")
-  taskCheckoutFiles                       Task[]                    @relation("TASK_CHECKOUT_FILES")
-  serviceOrderCheckinFiles                ServiceOrder[]            @relation("SERVICE_ORDER_CHECKIN_FILES")
-  serviceOrderCheckoutFiles               ServiceOrder[]            @relation("SERVICE_ORDER_CHECKOUT_FILES")
-  bankSlipPdfs                            BankSlip[]                @relation("BankSlipPdf")
-  installmentReceipts                     Installment[]             @relation("InstallmentReceipts")
-  bankTransactionImports                  BankTransaction[]         @relation("BankTransactionFile")
-  fiscalDocumentXmls                      FiscalDocument[]          @relation("FiscalDocXml")
-  wasteCertificatePdfs                    WasteCertificate[]        @relation("WASTE_CERTIFICATE_PDF")
-  wasteCertificateSigned                  WasteCertificate[]        @relation("WASTE_CERTIFICATE_SIGNED")
+  id                                     String                    @id @default(uuid())
+  filename                               String
+  originalName                           String
+  mimetype                               String
+  path                                   String
+  size                                   Int
+  thumbnailUrl                           String?
+  createdAt                              DateTime                  @default(now())
+  updatedAt                              DateTime                  @updatedAt
+  artworks                               Artwork?
+  customerLogo                           Customer[]                @relation("CUSTOMER_LOGO")
+  taskCuts                               Cut[]                     @relation("TASK_CUTS")
+  layoutPhotos                           Layout[]                  @relation("LAYOUT_PHOTO")
+  ppeDeliveryDocuments                   PpeDelivery[]             @relation("PPE_DELIVERY_DOCUMENT")
+  ppeSignatureDocuments                  PpeDeliverySignature[]    @relation("PPE_SIGNATURE_DOCUMENT")
+  supplierLogo                           Supplier[]                @relation("SUPPLIER_LOGO")
+  configCustomerSignatures               TaskQuoteCustomerConfig[] @relation("CONFIG_CUSTOMER_SIGNATURE")
+  quoteLayouts                           TaskQuote[]               @relation("QUOTE_LAYOUT")
+  userAvatar                             User[]                    @relation("USER_AVATAR")
+  thumbnailJob                           ThumbnailJob?
+  airbrushingBudgets                     Airbrushing[]             @relation("AIRBRUSHING_BUDGETS")
+  airbrushingInvoices                    Airbrushing[]             @relation("AIRBRUSHING_INVOICES")
+  airbrushingInvoiceReimbursements       Airbrushing[]             @relation("AIRBRUSHING_INVOICE_REIMBURSEMENTS")
+  airbrushingReceipts                    Airbrushing[]             @relation("AIRBRUSHING_RECEIPTS")
+  airbrushingReimbursements              Airbrushing[]             @relation("AIRBRUSHING_REIMBURSEMENTS")
+  externalOperationInvoices              ExternalOperation[]       @relation("EXTERNAL_OPERATION_INVOICES")
+  externalOperationInvoiceReimbursements ExternalOperation[]       @relation("EXTERNAL_OPERATION_INVOICE_REIMBURSEMENTS")
+  externalOperationReceipts              ExternalOperation[]       @relation("EXTERNAL_OPERATION_RECEIPTS")
+  externalOperationReimbursements        ExternalOperation[]       @relation("EXTERNAL_OPERATION_REIMBURSEMENTS")
+  warning                                Warning[]                 @relation("FileToWarning")
+  observations                           Observation[]             @relation("OBSERVATIONS_FILES")
+  orderBudgets                           Order[]                   @relation("ORDER_BUDGETS")
+  orderInvoices                          Order[]                   @relation("ORDER_INVOICES")
+  orderInvoiceReimbursements             Order[]                   @relation("ORDER_INVOICE_REIMBURSEMENTS")
+  orderReceipts                          Order[]                   @relation("ORDER_RECEIPTS")
+  orderReimbursements                    Order[]                   @relation("ORDER_REIMBURSEMENTS")
+  taskBaseFiles                          Task[]                    @relation("TASK_BASE_FILES")
+  taskBudgets                            Task[]                    @relation("TASK_BUDGETS")
+  taskInvoices                           Task[]                    @relation("TASK_INVOICES")
+  taskInvoiceReimbursements              Task[]                    @relation("TASK_INVOICE_REIMBURSEMENTS")
+  taskReceipts                           Task[]                    @relation("TASK_RECEIPTS")
+  taskReimbursements                     Task[]                    @relation("TASK_REIMBURSEMENTS")
+  taskBankSlips                          Task[]                    @relation("TASK_BANK_SLIPS")
+  taskProjectFiles                       Task[]                    @relation("TASK_PROJECT_FILES")
+  taskCheckinFiles                       Task[]                    @relation("TASK_CHECKIN_FILES")
+  taskCheckoutFiles                      Task[]                    @relation("TASK_CHECKOUT_FILES")
+  serviceOrderCheckinFiles               ServiceOrder[]            @relation("SERVICE_ORDER_CHECKIN_FILES")
+  serviceOrderCheckoutFiles              ServiceOrder[]            @relation("SERVICE_ORDER_CHECKOUT_FILES")
+  bankSlipPdfs                           BankSlip[]                @relation("BankSlipPdf")
+  installmentReceipts                    Installment[]             @relation("InstallmentReceipts")
+  bankTransactionImports                 BankTransaction[]         @relation("BankTransactionFile")
+  fiscalDocumentXmls                     FiscalDocument[]          @relation("FiscalDocXml")
+  wasteCertificatePdfs                   WasteCertificate[]        @relation("WASTE_CERTIFICATE_PDF")
+  wasteCertificateSigned                 WasteCertificate[]        @relation("WASTE_CERTIFICATE_SIGNED")
+  userBenefitDeclaration                 UserBenefit?              @relation("USER_BENEFIT_DECLARATION")
+  admissionDocuments                     AdmissionDocument[]       @relation("ADMISSION_DOCUMENT_FILE")
+  terminationDocuments                   TerminationDocument[]     @relation("TERMINATION_DOCUMENT_FILE")
+  medicalExamAsos                        MedicalExam[]             @relation("MEDICAL_EXAM_ASO")
+  leaves                                 Leave[]                   @relation("FileToLeave")
 
   @@index([filename])
   @@index([originalName])
@@ -703,19 +715,19 @@ model Measure {
 }
 
 model Item {
-  id                             String                   @id @default(uuid())
+  id                             String                  @id @default(uuid())
   name                           String
   uniCode                        String?
-  quantity                       Float                    @default(0)
+  quantity                       Float                   @default(0)
   maxQuantity                    Float?
   reorderPoint                   Float?
   reorderQuantity                Float?
   boxQuantity                    Int?
   totalPrice                     Float?
-  monthlyConsumption             Decimal                  @default(0) @db.Decimal(10, 2)
-  monthlyConsumptionTrendPercent Decimal?                 @db.Decimal(5, 2)
-  barcodes                       String[]                 @default([])
-  shouldAssignToUser             Boolean                  @default(true)
+  monthlyConsumption             Decimal                 @default(0) @db.Decimal(10, 2)
+  monthlyConsumptionTrendPercent Decimal?                @db.Decimal(5, 2)
+  barcodes                       String[]                @default([])
+  shouldAssignToUser             Boolean                 @default(true)
   abcCategory                    AbcCategory?
   abcCategoryOrder               Int?
   xyzCategory                    XyzCategory?
@@ -723,49 +735,49 @@ model Item {
   categoryId                     String?
   // True when the item's category was auto-assigned with low confidence during
   // the taxonomy migration and still needs human confirmation ("a revisar").
-  categoryReviewNeeded           Boolean                  @default(false)
+  categoryReviewNeeded           Boolean                 @default(false)
   supplierId                     String?
-  estimatedLeadTime              Int?                     @default(30)
-  isActive                       Boolean                  @default(true)
+  estimatedLeadTime              Int?                    @default(30)
+  isActive                       Boolean                 @default(true)
   // Capability fields — behavior gates live on the item, not the category.
   // ItemCategory.type is UI grouping + a default-provider at item creation only.
-  isBorrowable                   Boolean                  @default(false)
-  stockModel                     StockModel               @default(CONSUMPTION)
+  isBorrowable                   Boolean                 @default(false)
+  stockModel                     StockModel              @default(CONSUMPTION)
   // Target on-hand quantity when stockModel = FIXED_TARGET (engine falls back to 1).
   fixedTargetQuantity            Float?
   ppeType                        PpeType?
   ppeCA                          String?
   ppeDeliveryMode                PpeDeliveryMode?
   ppeStandardQuantity            Int?
-  createdAt                      DateTime                 @default(now())
-  updatedAt                      DateTime                 @updatedAt
-  icms                           Float                    @default(0)
-  ipi                            Float                    @default(0)
+  createdAt                      DateTime                @default(now())
+  updatedAt                      DateTime                @updatedAt
+  icms                           Float                   @default(0)
+  ipi                            Float                   @default(0)
   ordersLast12Months             Int?
   lastAutoOrderDate              DateTime?
   lastUsedAt                     DateTime?
   deactivatedAt                  DateTime?
   deactivationReason             String?
-  activities                     Activity[]               @relation("ACTIVITY_ITEM")
+  activities                     Activity[]              @relation("ACTIVITY_ITEM")
   borrows                        Borrow[]
-  externalOperationItems        ExternalOperationItem[]
-  brands                         ItemBrand[]              @relation("ITEM_BRANDS")
-  category                       ItemCategory?            @relation("ITEM_CATEGORY", fields: [categoryId], references: [id])
-  supplier                       Supplier?                @relation("ITEM_SUPPLIER", fields: [supplierId], references: [id])
-  maintenance                    Maintenance[]            @relation("MAINTENANCE_ITEM")
-  maintenanceItemsNeeded         MaintenanceItem[]        @relation("MAINTENANCE_ITEM_NEEDED")
-  maintenanceSchedules           MaintenanceSchedule[]    @relation("MAINTENANCE_SCHEDULE_ITEM")
-  measures                       Measure[]                @relation("ITEM_MEASURES")
+  externalOperationItems         ExternalOperationItem[]
+  brands                         ItemBrand[]             @relation("ITEM_BRANDS")
+  category                       ItemCategory?           @relation("ITEM_CATEGORY", fields: [categoryId], references: [id])
+  supplier                       Supplier?               @relation("ITEM_SUPPLIER", fields: [supplierId], references: [id])
+  maintenance                    Maintenance[]           @relation("MAINTENANCE_ITEM")
+  maintenanceItemsNeeded         MaintenanceItem[]       @relation("MAINTENANCE_ITEM_NEEDED")
+  maintenanceSchedules           MaintenanceSchedule[]   @relation("MAINTENANCE_SCHEDULE_ITEM")
+  measures                       Measure[]               @relation("ITEM_MEASURES")
   prices                         MonetaryValue[]
-  orderItems                     OrderItem[]              @relation("ORDER_ITEM_ITEM")
+  orderItems                     OrderItem[]             @relation("ORDER_ITEM_ITEM")
   orderRules                     OrderRule[]
   formulaComponents              PaintFormulaComponent[]
-  ppeDelivery                    PpeDelivery[]            @relation("PPE_DELIVERY_ITEM")
-  ppeScheduleItems               PpeScheduleItem[]        @relation("PPE_SCHEDULE_ITEM_ITEM")
-  paintBrands                    PaintBrand[]             @relation("PAINT_BRAND_COMPONENT_ITEMS")
-  paintTypes                     PaintType[]              @relation("PAINT_TYPE_COMPONENT_ITEMS")
-  relatedTo                      Item[]                   @relation("RelatedItems")
-  relatedItems                   Item[]                   @relation("RelatedItems")
+  ppeDelivery                    PpeDelivery[]           @relation("PPE_DELIVERY_ITEM")
+  ppeScheduleItems               PpeScheduleItem[]       @relation("PPE_SCHEDULE_ITEM_ITEM")
+  paintBrands                    PaintBrand[]            @relation("PAINT_BRAND_COMPONENT_ITEMS")
+  paintTypes                     PaintType[]             @relation("PAINT_TYPE_COMPONENT_ITEMS")
+  relatedTo                      Item[]                  @relation("RelatedItems")
+  relatedItems                   Item[]                  @relation("RelatedItems")
 
   @@index([shouldAssignToUser])
   @@index([categoryId])
@@ -873,24 +885,24 @@ enum AccountingType {
 }
 
 model ItemCategory {
-  id        String           @id @default(uuid())
-  name      String           @unique
-  type      ItemCategoryType @default(REGULAR)
-  typeOrder Int              @default(1)
+  id                    String                @id @default(uuid())
+  name                  String                @unique
+  type                  ItemCategoryType      @default(REGULAR)
+  typeOrder             Int                   @default(1)
   // Operational taxonomy tree (production flow): a top category has parentId null
   // and its subcategories point back to it. Items attach to the LEAF (subcategory)
   // when one exists, otherwise to the top category. categoryLevel: 1=category, 2=subcategory.
-  parentId      String?
-  categoryLevel Int           @default(1)
+  parentId              String?
+  categoryLevel         Int                   @default(1)
   // Rollup to the chart of accounts (the "ponte"/grupoContabil). Inherited down the
   // tree; set on subcategories so per-item splits (e.g. Peças → PRODUTIVO vs
   // MANUTENCAO, Uniforme → EPI) land in the correct cost group.
-  accountingType AccountingType?
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
-  parent    ItemCategory?    @relation("CATEGORY_TREE", fields: [parentId], references: [id], onDelete: SetNull)
-  children  ItemCategory[]   @relation("CATEGORY_TREE")
-  items     Item[]           @relation("ITEM_CATEGORY")
+  accountingType        AccountingType?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  parent                ItemCategory?         @relation("CATEGORY_TREE", fields: [parentId], references: [id], onDelete: SetNull)
+  children              ItemCategory[]        @relation("CATEGORY_TREE")
+  items                 Item[]                @relation("ITEM_CATEGORY")
   // Item-derived reconciliation categories mirror these rows (1:1) so a fiscal
   // document line tagged "Verniz" maps back to this inventory category.
   transactionCategories TransactionCategory[] @relation("ITEM_CATEGORY_TO_TX_CATEGORY")
@@ -914,29 +926,29 @@ model Observation {
 }
 
 model ExternalOperation {
-  id                    String                          @id @default(uuid())
+  id                    String                         @id @default(uuid())
   withdrawerName        String?
   type                  ExternalOperationType          @default(RETURNABLE)
   status                ExternalOperationStatus        @default(PENDING)
-  statusOrder           Int                             @default(1)
+  statusOrder           Int                            @default(1)
   notes                 String?
   customerId            String?
-  generateInvoice       Boolean                         @default(true)
-  generateBankSlip      Boolean                         @default(true)
+  generateInvoice       Boolean                        @default(true)
+  generateBankSlip      Boolean                        @default(true)
   paymentCondition      String?
   paymentConfig         Json?
   billedAt              DateTime?
-  createdAt             DateTime                        @default(now())
-  updatedAt             DateTime                        @updatedAt
-  customer              Customer?                       @relation("CustomerExternalOperations", fields: [customerId], references: [id], onDelete: SetNull)
+  createdAt             DateTime                       @default(now())
+  updatedAt             DateTime                       @updatedAt
+  customer              Customer?                      @relation("CustomerExternalOperations", fields: [customerId], references: [id], onDelete: SetNull)
   items                 ExternalOperationItem[]
   services              ExternalOperationServiceItem[]
-  billingInvoice        Invoice?                        @relation("ExternalOperationInvoice")
-  installments          Installment[]                   @relation("ExternalOperationInstallments")
-  invoices              File[]                          @relation("EXTERNAL_OPERATION_INVOICES")
-  invoiceReimbursements File[]                          @relation("EXTERNAL_OPERATION_INVOICE_REIMBURSEMENTS")
-  receipts              File[]                          @relation("EXTERNAL_OPERATION_RECEIPTS")
-  reimbursements        File[]                          @relation("EXTERNAL_OPERATION_REIMBURSEMENTS")
+  billingInvoice        Invoice?                       @relation("ExternalOperationInvoice")
+  installments          Installment[]                  @relation("ExternalOperationInstallments")
+  invoices              File[]                         @relation("EXTERNAL_OPERATION_INVOICES")
+  invoiceReimbursements File[]                         @relation("EXTERNAL_OPERATION_INVOICE_REIMBURSEMENTS")
+  receipts              File[]                         @relation("EXTERNAL_OPERATION_RECEIPTS")
+  reimbursements        File[]                         @relation("EXTERNAL_OPERATION_REIMBURSEMENTS")
 
   @@index([withdrawerName])
   @@index([type])
@@ -946,29 +958,29 @@ model ExternalOperation {
 }
 
 model ExternalOperationServiceItem {
-  id                   String             @id @default(uuid())
+  id                  String            @id @default(uuid())
   externalOperationId String
-  description          String
-  amount               Decimal            @db.Decimal(10, 2)
-  position             Int                @default(0)
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
+  description         String
+  amount              Decimal           @db.Decimal(10, 2)
+  position            Int               @default(0)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
   externalOperation   ExternalOperation @relation(fields: [externalOperationId], references: [id], onDelete: Cascade)
 
   @@index([externalOperationId])
 }
 
 model ExternalOperationItem {
-  id                   String             @id @default(uuid())
+  id                  String            @id @default(uuid())
   externalOperationId String
-  itemId               String
-  withdrawedQuantity   Float
-  returnedQuantity     Float              @default(0)
-  price                Float?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
+  itemId              String
+  withdrawedQuantity  Float
+  returnedQuantity    Float             @default(0)
+  price               Float?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
   externalOperation   ExternalOperation @relation(fields: [externalOperationId], references: [id], onDelete: Cascade)
-  item                 Item               @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item                Item              @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@index([externalOperationId])
   @@index([itemId])
@@ -1071,6 +1083,10 @@ model Order {
   paymentDueDays        Int?
   paymentResponsibleId  String?
   paymentAssignedById   String?
+  paymentStatus         OrderPaymentStatus   @default(NOT_REQUESTED)
+  paymentStatusOrder    Int                  @default(1)
+  paymentRequestedAt    DateTime?
+  paidAt                DateTime?
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   activities            Activity[]           @relation("ACTIVITY_ORDER")
@@ -1094,6 +1110,8 @@ model Order {
   @@index([ppeScheduleId])
   @@index([paymentResponsibleId])
   @@index([paymentAssignedById])
+  @@index([paymentStatus])
+  @@index([paymentStatusOrder])
 }
 
 model OrderItem {
@@ -1268,18 +1286,22 @@ model PaintFormulaComponent {
 }
 
 model Position {
-  id               String          @id @default(uuid())
-  name             String          @unique
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  bonifiable       Boolean         @default(true)
-  hierarchy        Int?
+  id                        String                 @id @default(uuid())
+  name                      String                 @unique
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+  bonifiable                Boolean                @default(true)
+  hierarchy                 Int?
   /// Secullum integration: Funcao.Id mapped to this Position. NULL = unmapped.
   /// Multiple positions may share the same Secullum função (N:1).
-  secullumFuncaoId Int?
-  remunerations    MonetaryValue[]
-  payrolls         Payroll[]
-  users            User[]          @relation("USER_POSITION")
+  secullumFuncaoId          Int?
+  remunerations             MonetaryValue[]
+  payrolls                  Payroll[]
+  users                     User[]                 @relation("USER_POSITION")
+  employmentContracts       EmploymentContract[]   @relation("EMPLOYMENT_CONTRACT_POSITION")
+  salaryAdjustmentItems     SalaryAdjustmentItem[] @relation("SALARY_ADJUSTMENT_ITEM_POSITION")
+  positionHistories         UserPositionHistory[]  @relation("USER_POSITION_HISTORY_POSITION")
+  positionHistoriesPrevious UserPositionHistory[]  @relation("USER_POSITION_HISTORY_PREVIOUS_POSITION")
 
   @@index([name])
   @@index([hierarchy])
@@ -1324,9 +1346,10 @@ model Sector {
   /// for users in this sector. Bridge falls back to this when the user has
   /// no per-user override. NULL = no default (bridge uses HorarioId=1).
   secullumHorarioId      Int?
-  leader                 User?              @relation("SECTOR_LEADER", fields: [leaderId], references: [id])
+  leader                 User?                @relation("SECTOR_LEADER", fields: [leaderId], references: [id])
   tasks                  Task[]
   users                  User[]
+  employmentContracts    EmploymentContract[] @relation("EMPLOYMENT_CONTRACT_SECTOR")
   goals                  Goal[]
   assessmentSectors      AssessmentSector[]
 
@@ -1457,10 +1480,10 @@ model TaskQuoteCustomerConfig {
 }
 
 model Supplier {
-  id                String      @id @default(uuid())
-  sequentialNumber  Int?        @unique @default(dbgenerated("nextval('supplier_number_seq'::regclass)"))
-  fantasyName       String      @unique
-  cnpj              String?     @unique
+  id                String          @id @default(uuid())
+  sequentialNumber  Int?            @unique @default(dbgenerated("nextval('supplier_number_seq'::regclass)"))
+  fantasyName       String          @unique
+  cnpj              String?         @unique
   corporateName     String?
   email             String?
   address           String?
@@ -1474,15 +1497,15 @@ model Supplier {
   phones            String[]
   pix               String?
   logoId            String?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
   streetType        StreetType?
-  tags              String[]    @default([])
-  items             Item[]      @relation("ITEM_SUPPLIER")
-  orders            Order[]     @relation("ORDER_SUPPLIER")
+  tags              String[]        @default([])
+  items             Item[]          @relation("ITEM_SUPPLIER")
+  orders            Order[]         @relation("ORDER_SUPPLIER")
   orderSchedules    OrderSchedule[] @relation("SCHEDULE_SUPPLIER")
   orderRules        OrderRule[]
-  logo              File?       @relation("SUPPLIER_LOGO", fields: [logoId], references: [id])
+  logo              File?           @relation("SUPPLIER_LOGO", fields: [logoId], references: [id])
 
   @@index([fantasyName])
   @@index([cnpj])
@@ -1694,8 +1717,13 @@ model User {
   email                          String?                      @unique
   payrollNumber                  Int?
   name                           String
-  status                         UserStatus                   @default(EXPERIENCE_PERIOD_1)
-  statusOrder                    Int                          @default(1)
+  // Current-vínculo cache — derived from `currentContract`; kept in sync by the
+  // EmploymentContractService. The EmploymentContract is the source of truth; these
+  // mirrors exist so the many existing list/filter/badge sites stay cheap to query.
+  currentContractId              String?                      @unique
+  currentContractType            ContractType?
+  currentContractStatus          ContractStatus?              @default(ACTIVE)
+  currentEmployeeType            EmployeeType?                @default(CLT)
   phone                          String?                      @unique
   password                       String?
   positionId                     String?
@@ -1731,12 +1759,6 @@ model User {
   createdAt                      DateTime                     @default(now())
   updatedAt                      DateTime                     @updatedAt
   performanceLevel               Int                          @default(0)
-  effectedAt                     DateTime?
-  exp1StartAt                    DateTime?
-  exp1EndAt                      DateTime?
-  exp2StartAt                    DateTime?
-  exp2EndAt                      DateTime?
-  dismissedAt                    DateTime?
   avatarId                       String?
   isActive                       Boolean                      @default(true)
   unionMember                    Boolean                      @default(false)
@@ -1801,16 +1823,26 @@ model User {
   statisticsPagePreferences      StatisticsPagePreference[]   @relation("USER_STATISTICS_PAGE_PREFERENCES")
   statisticsPresets              StatisticsPreset[]           @relation("USER_STATISTICS_PRESETS")
   airbrushingsAsPainter          Airbrushing[]                @relation("AIRBRUSHING_PAINTER")
+  salaryAdjustmentsApplied       SalaryAdjustment[]           @relation("SALARY_ADJUSTMENT_APPLIED_BY")
+  positionHistories              UserPositionHistory[]        @relation("USER_POSITION_HISTORY_USER")
+  positionHistoriesChanged       UserPositionHistory[]        @relation("USER_POSITION_HISTORY_CHANGED_BY")
+  userBenefits                   UserBenefit[]                @relation("USER_BENEFIT_USER")
+  admissions                     Admission[]                  @relation("ADMISSION_USER")
+  admissionsCreated              Admission[]                  @relation("ADMISSION_CREATED_BY")
+  contracts                      EmploymentContract[]         @relation("EMPLOYMENT_CONTRACT_USER")
+  currentContract                EmploymentContract?          @relation("USER_CURRENT_CONTRACT", fields: [currentContractId], references: [id])
+  terminations                   Termination[]                @relation("TERMINATION_USER")
+  terminationsInitiated          Termination[]                @relation("TERMINATION_INITIATED_BY")
+  medicalExams                   MedicalExam[]                @relation("MEDICAL_EXAM_USER")
+  leaves                         Leave[]                      @relation("LEAVE_USER")
+  dependents                     Dependent[]                  @relation("DEPENDENT_USER")
+  agendaEventsCreated            AgendaEvent[]                @relation("AGENDA_EVENT_CREATED_BY")
+  postits                        Postit[]                     @relation("POSTIT_USER")
 
-  @@index([status, sectorId])
-  @@index([statusOrder])
+  @@index([currentContractStatus, sectorId])
+  @@index([currentContractType])
+  @@index([currentEmployeeType])
   @@index([isActive])
-  @@index([exp1StartAt])
-  @@index([exp1EndAt])
-  @@index([exp2StartAt])
-  @@index([exp2EndAt])
-  @@index([effectedAt])
-  @@index([dismissedAt])
   @@index([email])
   @@index([phone])
   @@index([email, phone])
@@ -2410,11 +2442,33 @@ enum ResponsibleRole {
   @@map("RepresentativeRole")
 }
 
-enum UserStatus {
+// The legal KIND of an employment bond (only meaningful for on-folha CLT-family types).
+// For EXPERIENCE_PERIOD_* this also marks the experiência phase; it advances to EFFECTED
+// on efetivação within the SAME contract (same vínculo / admissionDate).
+enum ContractType {
   EXPERIENCE_PERIOD_1
   EXPERIENCE_PERIOD_2
   EFFECTED
+  FIXED_TERM
+  INTERMITTENT
+  APPRENTICE
+  TEMPORARY
+}
+
+// The LIFECYCLE status (situação) of an employment bond. Orthogonal to ContractType.
+enum ContractStatus {
+  ACTIVE
   DISMISSED
+}
+
+// Worker CATEGORY — gates payroll/folha inclusion (mirrors eSocial S-2200 vs S-2300 split).
+// Only CLT is on the folha; the rest are off-folha (invoiced / no vínculo).
+enum EmployeeType {
+  CLT
+  INTERN
+  TERCEIRIZADO
+  PJ
+  AUTONOMOUS
 }
 
 enum CutType {
@@ -2865,6 +2919,7 @@ enum SectorPrivileges {
   COMMERCIAL
   PRODUCTION_MANAGER
   AIRBRUSHING
+  ACCOUNTING
 }
 
 enum ScheduleFrequency {
@@ -3089,7 +3144,10 @@ enum ChangeLogTriggeredByType {
 enum ChangeLogEntityType {
   ABSENCE
   ACTIVITY
+  ADMISSION
+  AGENDA_EVENT
   AIRBRUSHING
+  BENEFIT
   BONIFICATION
   BONUS
   BORROW
@@ -3104,6 +3162,7 @@ enum ChangeLogEntityType {
   CUT_PLAN
   CUT_REQUEST
   DELIVERY
+  DEPENDENT
   DEPLOYMENT
   DISCOUNT
   ECONOMIC_ACTIVITY
@@ -3116,9 +3175,11 @@ enum ChangeLogEntityType {
   ITEM_BRAND
   ITEM_CATEGORY
   LAYOUT
+  LEAVE
   MAINTENANCE
   MAINTENANCE_ITEM
   MAINTENANCE_SCHEDULE
+  MEDICAL_EXAM
   NOTIFICATION
   NOTIFICATION_PREFERENCE
   OBSERVATION
@@ -3136,6 +3197,7 @@ enum ChangeLogEntityType {
   PAYROLL
   PIECE
   POSITION
+  POSTIT
   PPE_CONFIG
   PPE_DELIVERY
   PPE_DELIVERY_ITEM
@@ -3148,6 +3210,7 @@ enum ChangeLogEntityType {
   PURCHASE
   REPRESENTATIVE
   RESPONSIBLE
+  SALARY_ADJUSTMENT
   SECTOR
   SEEN_NOTIFICATION
   SERVICE
@@ -3158,9 +3221,12 @@ enum ChangeLogEntityType {
   TASK_QUOTE_ITEM
   TASK_QUOTE_SERVICE
   TASK_QUOTE_CUSTOMER_CONFIG
+  TERMINATION
   TIME_CLOCK_ENTRY
   TRUCK
   USER
+  USER_BENEFIT
+  USER_POSITION_HISTORY
   VACATION
   VERIFICATION
   WARNING
@@ -3490,25 +3556,25 @@ enum GDriveDeleteStatus {
 // =====================
 
 model Invoice {
-  id                   String                   @id @default(uuid())
-  customerConfigId     String?                  @unique
-  taskId               String?
+  id                  String                   @id @default(uuid())
+  customerConfigId    String?                  @unique
+  taskId              String?
   externalOperationId String?                  @unique
-  customerId           String
-  totalAmount          Decimal                  @db.Decimal(10, 2)
-  paidAmount           Decimal                  @default(0) @db.Decimal(10, 2)
-  status               InvoiceStatus            @default(DRAFT)
-  notes                String?
-  createdById          String?
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
-  customerConfig       TaskQuoteCustomerConfig? @relation("InvoiceCustomerConfig", fields: [customerConfigId], references: [id], onDelete: Cascade)
-  task                 Task?                    @relation("TaskInvoiceEntities", fields: [taskId], references: [id], onDelete: Cascade)
-  externalOperation   ExternalOperation?      @relation("ExternalOperationInvoice", fields: [externalOperationId], references: [id], onDelete: Cascade)
-  customer             Customer                 @relation("CustomerInvoiceEntities", fields: [customerId], references: [id])
-  createdBy            User?                    @relation("InvoicesCreated", fields: [createdById], references: [id])
-  installments         Installment[]            @relation("InvoiceInstallments")
-  nfseDocuments        NfseDocument[]           @relation("InvoiceNfse")
+  customerId          String
+  totalAmount         Decimal                  @db.Decimal(10, 2)
+  paidAmount          Decimal                  @default(0) @db.Decimal(10, 2)
+  status              InvoiceStatus            @default(DRAFT)
+  notes               String?
+  createdById         String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  customerConfig      TaskQuoteCustomerConfig? @relation("InvoiceCustomerConfig", fields: [customerConfigId], references: [id], onDelete: Cascade)
+  task                Task?                    @relation("TaskInvoiceEntities", fields: [taskId], references: [id], onDelete: Cascade)
+  externalOperation   ExternalOperation?       @relation("ExternalOperationInvoice", fields: [externalOperationId], references: [id], onDelete: Cascade)
+  customer            Customer                 @relation("CustomerInvoiceEntities", fields: [customerId], references: [id])
+  createdBy           User?                    @relation("InvoicesCreated", fields: [createdById], references: [id])
+  installments        Installment[]            @relation("InvoiceInstallments")
+  nfseDocuments       NfseDocument[]           @relation("InvoiceNfse")
 
   @@index([taskId])
   @@index([customerId])
@@ -3517,25 +3583,25 @@ model Invoice {
 }
 
 model Installment {
-  id                   String                   @id @default(uuid())
-  customerConfigId     String?
+  id                  String                   @id @default(uuid())
+  customerConfigId    String?
   externalOperationId String?
-  invoiceId            String?
-  number               Int
-  dueDate              DateTime
-  amount               Decimal                  @db.Decimal(10, 2)
-  paidAmount           Decimal                  @default(0) @db.Decimal(10, 2)
-  paidAt               DateTime?
-  status               InstallmentStatus        @default(PENDING)
-  paymentMethod        String?
-  observations         String?
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
-  customerConfig       TaskQuoteCustomerConfig? @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Cascade)
-  externalOperation   ExternalOperation?      @relation("ExternalOperationInstallments", fields: [externalOperationId], references: [id], onDelete: Cascade)
-  invoice              Invoice?                 @relation("InvoiceInstallments", fields: [invoiceId], references: [id], onDelete: SetNull)
-  bankSlip             BankSlip?                @relation("InstallmentBankSlip")
-  receiptFiles         File[]                   @relation("InstallmentReceipts")
+  invoiceId           String?
+  number              Int
+  dueDate             DateTime
+  amount              Decimal                  @db.Decimal(10, 2)
+  paidAmount          Decimal                  @default(0) @db.Decimal(10, 2)
+  paidAt              DateTime?
+  status              InstallmentStatus        @default(PENDING)
+  paymentMethod       String?
+  observations        String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  customerConfig      TaskQuoteCustomerConfig? @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Cascade)
+  externalOperation   ExternalOperation?       @relation("ExternalOperationInstallments", fields: [externalOperationId], references: [id], onDelete: Cascade)
+  invoice             Invoice?                 @relation("InvoiceInstallments", fields: [invoiceId], references: [id], onDelete: SetNull)
+  bankSlip            BankSlip?                @relation("InstallmentBankSlip")
+  receiptFiles        File[]                   @relation("InstallmentReceipts")
 
   @@unique([customerConfigId, number])
   @@unique([externalOperationId, number])
@@ -3785,65 +3851,65 @@ enum CategoryDecisionTier {
 }
 
 model BankTransaction {
-  id                   String                 @id @default(uuid())
+  id                    String                    @id @default(uuid())
   // Denormalized bank-account identifier columns. Together with fitId they form
   // the natural OFX dedup key — re-importing the same OFX (or overlapping ones)
   // never creates duplicate rows.
-  bankCode             String
-  bankName             String
-  agency               String
-  accountNumber        String
-  ownerCnpj            String?
-  fitId                String
-  postedAt             DateTime
-  amount               Decimal                @db.Decimal(14, 2)
-  type                 BankTransactionType
-  subtype              BankTransactionSubtype @default(OUTROS)
-  rawTrnType           String?
-  memo                 String?
-  counterpartyCnpjCpf  String?
-  counterpartyName     String?
-  runningBalance       Decimal?               @db.Decimal(14, 2)
+  bankCode              String
+  bankName              String
+  agency                String
+  accountNumber         String
+  ownerCnpj             String?
+  fitId                 String
+  postedAt              DateTime
+  amount                Decimal                   @db.Decimal(14, 2)
+  type                  BankTransactionType
+  subtype               BankTransactionSubtype    @default(OUTROS)
+  rawTrnType            String?
+  memo                  String?
+  counterpartyCnpjCpf   String?
+  counterpartyName      String?
+  runningBalance        Decimal?                  @db.Decimal(14, 2)
   // Three orthogonal axes (was a single matchStatus enum).
-  reconciliationStatus ReconciliationStatus   @default(PENDING)
+  reconciliationStatus  ReconciliationStatus      @default(PENDING)
   // null until the classifier has run or the user has acted.
-  reconciliationSource ReconciliationSource?
+  reconciliationSource  ReconciliationSource?
   // Whether this transaction is expected to be backed by a FiscalDocument
   // (replaces the old `category == NF` gate). The scoring matcher only runs on
   // rows with this true; everything else is resolved by its assigned
   // transaction categories. Set by the classifier.
-  expectsFiscalDocument Boolean               @default(false)
+  expectsFiscalDocument Boolean                   @default(false)
   // AUTO when the classifier or alias set the categories; MANUAL when a user did.
-  categorySource       ReconciliationSource?
-  classifiedAt         DateTime?
-  ignoredReason        String?
+  categorySource        ReconciliationSource?
+  classifiedAt          DateTime?
+  ignoredReason         String?
   // Best candidate confidence (0-100) computed by the matcher when an auto-match
   // did NOT succeed — lets the list show "Pendente · 40%" for quick triage.
-  topMatchScore        Int?
+  topMatchScore         Int?
   // --- Fusion spine: SUGGEST-tier output (medium confidence, awaiting one-click
   // confirm). Non-null ⇒ the learning layer proposed this category but did NOT
   // apply it. Cleared on AUTO_APPLY or when the user categorizes by hand.
-  suggestedCategoryId  String?
-  suggestionConfidence Int?                   // 0-100 fused confidence
-  suggestionProvenance Json?                  // CategorySignal[] breakdown snapshot
-  bankSlipId           String?
+  suggestedCategoryId   String?
+  suggestionConfidence  Int? // 0-100 fused confidence
+  suggestionProvenance  Json? // CategorySignal[] breakdown snapshot
+  bankSlipId            String?
   // Audit trail of the OFX import that created this row.
-  rawFileId            String?
-  uploadedById         String?
-  importedAt           DateTime               @default(now())
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
-  rawFile              File?                  @relation("BankTransactionFile", fields: [rawFileId], references: [id])
-  uploadedBy           User?                  @relation("BankTransactionUploader", fields: [uploadedById], references: [id])
-  bankSlip             BankSlip?              @relation("BankSlipTransaction", fields: [bankSlipId], references: [id])
-  matches              ReconciliationMatch[]  @relation("TransactionMatches")
+  rawFileId             String?
+  uploadedById          String?
+  importedAt            DateTime                  @default(now())
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+  rawFile               File?                     @relation("BankTransactionFile", fields: [rawFileId], references: [id])
+  uploadedBy            User?                     @relation("BankTransactionUploader", fields: [uploadedById], references: [id])
+  bankSlip              BankSlip?                 @relation("BankSlipTransaction", fields: [bankSlipId], references: [id])
+  matches               ReconciliationMatch[]     @relation("TransactionMatches")
   // Zero-to-many category tags. Item-derived tags (Verniz, Endurecedor) come
   // from the matched NF's line items; transaction-only tags (Aluguel) are set
   // by the classifier or by a user.
-  categories           BankTransactionCategory[] @relation("TransactionCategoryTags")
-  suggestedCategory    TransactionCategory?   @relation("TxSuggestedCategory", fields: [suggestedCategoryId], references: [id])
-  decisionLogs         CategoryDecisionLog[]  @relation("TxDecisionLog")
-  cadenceObservations  CadenceObservation[]   @relation("TxCadenceObservation")
+  categories            BankTransactionCategory[] @relation("TransactionCategoryTags")
+  suggestedCategory     TransactionCategory?      @relation("TxSuggestedCategory", fields: [suggestedCategoryId], references: [id])
+  decisionLogs          CategoryDecisionLog[]     @relation("TxDecisionLog")
+  cadenceObservations   CadenceObservation[]      @relation("TxCadenceObservation")
 
   @@unique([bankCode, agency, accountNumber, fitId])
   @@index([postedAt])
@@ -3885,43 +3951,43 @@ model FiscalDocument {
 
   // --- Rich data extracted from the source XML (backfilled from rawXmlFile) ---
   // Document identification (NFe ide block / NFSe header)
-  series            String? // ide.serie
-  model             String? // ide.mod (55=NFe, 65=NFCe, 57=CTe)
-  naturezaOperacao  String? // ide.natOp
+  series                    String? // ide.serie
+  model                     String? // ide.mod (55=NFe, 65=NFCe, 57=CTe)
+  naturezaOperacao          String? // ide.natOp
   // infNFe/infAdic/infCpl — Informações Complementares de Interesse do Contribuinte
-  infCpl            String? @db.Text
+  infCpl                    String?   @db.Text
   // Authorization protocol (protNFe.infProt / NFSe protocol)
-  protocolNumber    String? // nProt
-  authorizationDate DateTime? // dhRecbto — when SEFAZ authorized
-  cStat             String? // protocol status code (100=authorized, 101=cancelled, ...)
-  xMotivo           String? // protocol status reason
+  protocolNumber            String? // nProt
+  authorizationDate         DateTime? // dhRecbto — when SEFAZ authorized
+  cStat                     String? // protocol status code (100=authorized, 101=cancelled, ...)
+  xMotivo                   String? // protocol status reason
   // True when issueDate could not be parsed from the XML and was inferred.
-  dateInferred      Boolean @default(false)
+  dateInferred              Boolean   @default(false)
   // Emitente / Destinatário extra data (addresses/IE/email stored as JSON blobs:
   // { logradouro, numero, complemento, bairro, municipio, uf, cep, fone })
-  emitIE         String?
-  emitAddress    Json?
-  destIE         String?
-  destEmail      String?
-  destAddress    Json?
+  emitIE                    String?
+  emitAddress               Json?
+  destIE                    String?
+  destEmail                 String?
+  destAddress               Json?
   // NFe ICMSTot totals breakdown: { vBC, vICMS, vICMSDeson, vProd, vFrete,
   // vSeg, vDesc, vOutro, vST, vIPI, vPIS, vCOFINS, vNF, vTotTrib }
-  totals         Json?
+  totals                    Json?
   // NFSe service-specific fields (null for NFe/NFCe/CTe)
-  issValue                   Decimal? @db.Decimal(14, 2)
-  issRetained                Boolean?
-  issRate                    Decimal? @db.Decimal(7, 4) // aliquota %
-  baseCalculo                Decimal? @db.Decimal(14, 2)
-  valorLiquido               Decimal? @db.Decimal(14, 2)
-  valorServicos              Decimal? @db.Decimal(14, 2) // gross (before retenções)
-  codigoTributacaoMunicipio  String?
-  municipioPrestacao         String? // IBGE code or name
-  itemListaServico           String? // ABRASF service list code
+  issValue                  Decimal?  @db.Decimal(14, 2)
+  issRetained               Boolean?
+  issRate                   Decimal?  @db.Decimal(7, 4) // aliquota %
+  baseCalculo               Decimal?  @db.Decimal(14, 2)
+  valorLiquido              Decimal?  @db.Decimal(14, 2)
+  valorServicos             Decimal?  @db.Decimal(14, 2) // gross (before retenções)
+  codigoTributacaoMunicipio String?
+  municipioPrestacao        String? // IBGE code or name
+  itemListaServico          String? // ABRASF service list code
 
-  rawXmlFile     File?                   @relation("FiscalDocXml", fields: [rawXmlFileId], references: [id])
-  matches        ReconciliationMatch[]   @relation("DocumentMatches")
-  items          FiscalDocumentItem[]
-  orderCodes     FiscalDocumentOrderCode[]
+  rawXmlFile File?                     @relation("FiscalDocXml", fields: [rawXmlFileId], references: [id])
+  matches    ReconciliationMatch[]     @relation("DocumentMatches")
+  items      FiscalDocumentItem[]
+  orderCodes FiscalDocumentOrderCode[]
 
   @@index([docType])
   @@index([operationType])
@@ -3937,34 +4003,34 @@ model FiscalDocument {
 // raw XML on every request. Re-imports of the same XML replace existing items
 // (delete-then-create) so the list stays consistent with the source.
 model FiscalDocumentItem {
-  id               String         @id @default(uuid())
-  fiscalDocumentId String
-  code             String? // NFe: cProd; NFSe: ItemListaServico / cServ
-  description      String         @db.Text
-  quantity         Decimal?       @db.Decimal(15, 4)
-  unit             String?
-  unitValue        Decimal?       @db.Decimal(15, 4)
-  totalValue       Decimal        @db.Decimal(15, 2)
+  id                 String                @id @default(uuid())
+  fiscalDocumentId   String
+  code               String? // NFe: cProd; NFSe: ItemListaServico / cServ
+  description        String                @db.Text
+  quantity           Decimal?              @db.Decimal(15, 4)
+  unit               String?
+  unitValue          Decimal?              @db.Decimal(15, 4)
+  totalValue         Decimal               @db.Decimal(15, 2)
   // Fiscal classification extracted from the source XML (NFe det/prod + imposto)
-  ncm              String? // prod.NCM
-  cfop             String? // prod.CFOP
-  cest             String? // prod.CEST
-  ean              String? // prod.cEAN
-  cst              String? // ICMS CST / CSOSN
-  discount         Decimal?       @db.Decimal(15, 2) // prod.vDesc
-  freight          Decimal?       @db.Decimal(15, 2) // prod.vFrete
+  ncm                String? // prod.NCM
+  cfop               String? // prod.CFOP
+  cest               String? // prod.CEST
+  ean                String? // prod.cEAN
+  cst                String? // ICMS CST / CSOSN
+  discount           Decimal?              @db.Decimal(15, 2) // prod.vDesc
+  freight            Decimal?              @db.Decimal(15, 2) // prod.vFrete
   // Per-item tax breakdown: { icms:{vBC,pICMS,vICMS,cst}, ipi:{...},
   // pis:{...}, cofins:{...} } — null for NFSe service lines.
-  taxes            Json?
+  taxes              Json?
   // Cached result of the fuzzy item-category classifier (description/code →
   // ItemCategory-backed TransactionCategory). Null until the classifier runs
   // or when no category clears the confidence threshold.
   categoryId         String?
   categoryConfidence Int? // 0-100, fuzzy match score
   categorySource     ReconciliationSource?
-  createdAt        DateTime       @default(now())
-  fiscalDocument   FiscalDocument @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
-  category         TransactionCategory? @relation("FiscalItemCategory", fields: [categoryId], references: [id])
+  createdAt          DateTime              @default(now())
+  fiscalDocument     FiscalDocument        @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
+  category           TransactionCategory?  @relation("FiscalItemCategory", fields: [categoryId], references: [id])
 
   @@index([fiscalDocumentId])
   @@index([categoryId])
@@ -3977,12 +4043,12 @@ model FiscalDocumentItem {
 // as an indexed `code` seek when summing an order's NFs into a single payment.
 // Refreshed delete-then-create on re-import, mirroring FiscalDocumentItem.
 model FiscalDocumentOrderCode {
-  id               String         @id @default(uuid())
+  id               String   @id @default(uuid())
   fiscalDocumentId String
   code             String // raw "#Ped:" code from infCpl (e.g. "C34673")
-  createdAt        DateTime       @default(now())
+  createdAt        DateTime @default(now())
 
-  fiscalDocument   FiscalDocument @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
+  fiscalDocument FiscalDocument @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
 
   @@unique([fiscalDocumentId, code])
   @@index([code])
@@ -4093,16 +4159,16 @@ model TransactionCategory {
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
 
-  itemCategory       ItemCategory?             @relation("ITEM_CATEGORY_TO_TX_CATEGORY", fields: [itemCategoryId], references: [id])
-  transactionTags    BankTransactionCategory[] @relation("CategoryToTransactionTags")
-  fiscalDocumentItems FiscalDocumentItem[]     @relation("FiscalItemCategory")
-  aliases            ReconciliationAlias[]     @relation("AliasCategory")
-  itemCategoryAliases ItemCategoryAlias[]      @relation("ItemCategoryAliasCategory")
-  counterpartyRules  CounterpartyCategoryRule[] @relation("CounterpartyRuleCategory")
-  memoTokenWeights   MemoTokenWeight[]         @relation("MemoTokenCategory")
-  emitterPriors      EmitterCategoryPrior[]    @relation("EmitterPriorCategory")
-  cadences           CounterpartyCadence[]     @relation("CadenceCategory")
-  suggestedTransactions BankTransaction[]      @relation("TxSuggestedCategory")
+  itemCategory          ItemCategory?              @relation("ITEM_CATEGORY_TO_TX_CATEGORY", fields: [itemCategoryId], references: [id])
+  transactionTags       BankTransactionCategory[]  @relation("CategoryToTransactionTags")
+  fiscalDocumentItems   FiscalDocumentItem[]       @relation("FiscalItemCategory")
+  aliases               ReconciliationAlias[]      @relation("AliasCategory")
+  itemCategoryAliases   ItemCategoryAlias[]        @relation("ItemCategoryAliasCategory")
+  counterpartyRules     CounterpartyCategoryRule[] @relation("CounterpartyRuleCategory")
+  memoTokenWeights      MemoTokenWeight[]          @relation("MemoTokenCategory")
+  emitterPriors         EmitterCategoryPrior[]     @relation("EmitterPriorCategory")
+  cadences              CounterpartyCadence[]      @relation("CadenceCategory")
+  suggestedTransactions BankTransaction[]          @relation("TxSuggestedCategory")
 
   @@index([kind])
   @@index([itemCategoryId])
@@ -4141,22 +4207,22 @@ model ItemCategoryAlias {
 // transaction can carry several item-derived categories (Verniz + Endurecedor),
 // each with its own provenance, confidence and proportional amount split.
 model BankTransactionCategory {
-  id                   String              @id @default(uuid())
-  transactionId        String
-  categoryId           String
+  id                      String               @id @default(uuid())
+  transactionId           String
+  categoryId              String
   // AUTO when the fuzzy classifier set it; MANUAL when a user did.
-  source               ReconciliationSource @default(AUTO)
+  source                  ReconciliationSource @default(AUTO)
   // 0-100 fuzzy confidence for AUTO item-derived tags; null for MANUAL.
-  confidence           Int?
+  confidence              Int?
   // Proportional share of the transaction amount attributed to this category
   // (sum of the matched NF line items' totalValue for this category, scaled to
   // the transaction). Null for transaction-only tags.
-  allocatedAmount      Decimal?            @db.Decimal(14, 2)
+  allocatedAmount         Decimal?             @db.Decimal(14, 2)
   // The NF line item this tag was derived from (provenance for AUTO tags).
   derivedFromFiscalItemId String?
-  assignedById         String?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
+  assignedById            String?
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
 
   transaction BankTransaction     @relation("TransactionCategoryTags", fields: [transactionId], references: [id], onDelete: Cascade)
   category    TransactionCategory @relation("CategoryToTransactionTags", fields: [categoryId], references: [id], onDelete: Restrict)
@@ -4211,8 +4277,8 @@ model CounterpartyProfile {
   id                  String            @id @default(uuid())
   // nameFingerprint(counterpartyName): sorted, stoplisted token key.
   nameFingerprint     String
-  counterpartyCnpjCpf String            // digits-only resolved identity
-  displayName         String?           // last-seen raw name, for the admin UI
+  counterpartyCnpjCpf String // digits-only resolved identity
+  displayName         String? // last-seen raw name, for the admin UI
   source              LearnedRuleSource
   confirmedCount      Int               @default(1)
   rejectedCount       Int               @default(0)
@@ -4236,7 +4302,7 @@ model CounterpartyProfile {
 // Generalizes where exact-fingerprint aliases can't (one DARF teaches all DARFs).
 model MemoTokenWeight {
   id              String              @id @default(uuid())
-  token           String              // normalized memo token (memoLearnTokens())
+  token           String // normalized memo token (memoLearnTokens())
   categoryId      String
   category        TransactionCategory @relation("MemoTokenCategory", fields: [categoryId], references: [id], onDelete: Cascade)
   source          LearnedRuleSource   @default(AUTO)
@@ -4273,8 +4339,8 @@ model MemoTokenStat {
 // classification. Purity is derived across sibling rows sharing an emitterCnpj.
 model EmitterCategoryPrior {
   id              String                  @id @default(uuid())
-  emitterCnpj     String                  // full digits-only CNPJ
-  emitterRoot     String                  // first 8 digits — root fallback
+  emitterCnpj     String // full digits-only CNPJ
+  emitterRoot     String // first 8 digits — root fallback
   categoryId      String
   category        TransactionCategory     @relation("EmitterPriorCategory", fields: [categoryId], references: [id], onDelete: Cascade)
   categoryKind    TransactionCategoryKind // weight ITEM_DERIVED/SERVICE vs TRANSACTION_ONLY
@@ -4305,7 +4371,7 @@ model CounterpartyCadence {
   categoryId         String
   category           TransactionCategory  @relation("CadenceCategory", fields: [categoryId], references: [id], onDelete: Cascade)
   sampleCount        Int                  @default(0)
-  meanPeriodDays     Float?               // EWMA inter-arrival gap
+  meanPeriodDays     Float? // EWMA inter-arrival gap
   periodVarianceDays Float?
   expectedAmount     Decimal?             @db.Decimal(14, 2) // EWMA abs amount
   amountVariance     Float?
@@ -4314,7 +4380,7 @@ model CounterpartyCadence {
   // Learned recurring flag — distinct from TransactionCategory.isRecurring
   // (which stays the manual/global flag).
   isLearnedRecurring Boolean              @default(false)
-  periodCv           Float?               // coefficient of variation of the period
+  periodCv           Float? // coefficient of variation of the period
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   observations       CadenceObservation[] @relation("CadenceObservations")
@@ -4354,7 +4420,7 @@ model CategoryDecisionLog {
   transaction   BankTransaction      @relation("TxDecisionLog", fields: [transactionId], references: [id], onDelete: Cascade)
   tier          CategoryDecisionTier
   categoryId    String?
-  confidence    Int                  // 0-100
+  confidence    Int // 0-100
   // Full CategorySignal[] at decision time (winners + conflicts + losers).
   breakdown     Json
   // Winning signals only, denormalized for fast reversal fan-out.
@@ -4749,8 +4815,8 @@ model QuestionnaireEntry {
   createdAt       DateTime                 @default(now())
   updatedAt       DateTime                 @updatedAt
 
-  questionnaire Questionnaire        @relation(fields: [questionnaireId], references: [id])
-  respondent    User                 @relation("QUESTIONNAIRE_ENTRY_RESPONDENT", fields: [respondentId], references: [id])
+  questionnaire Questionnaire         @relation(fields: [questionnaireId], references: [id])
+  respondent    User                  @relation("QUESTIONNAIRE_ENTRY_RESPONDENT", fields: [respondentId], references: [id])
   answers       QuestionnaireAnswer[]
 
   @@unique([questionnaireId, respondentId])
@@ -4805,4 +4871,590 @@ model WasteCertificate {
 enum WasteCertificateStatus {
   GENERATED // PDF generated, awaiting signed upload
   SIGNED // signed PDF uploaded
+}
+
+// =====================
+// ACCOUNTING Area — Departamento Pessoal & Medicina do Trabalho
+// =====================
+
+enum SalaryAdjustmentType {
+  DISSIDIO_CCT
+  MERIT
+  PROMOTION
+  EQUALIZATION
+  REFRAME
+  OTHER
+}
+
+model SalaryAdjustment {
+  id            String                 @id @default(uuid())
+  type          SalaryAdjustmentType   @default(OTHER)
+  percentage    Float?
+  effectiveDate DateTime               @default(now())
+  note          String?
+  appliedById   String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  appliedBy     User?                  @relation("SALARY_ADJUSTMENT_APPLIED_BY", fields: [appliedById], references: [id])
+  items         SalaryAdjustmentItem[]
+
+  @@index([appliedById])
+  @@index([effectiveDate])
+}
+
+model SalaryAdjustmentItem {
+  id                 String           @id @default(uuid())
+  salaryAdjustmentId String
+  positionId         String
+  previousValue      Float
+  newValue           Float
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  salaryAdjustment   SalaryAdjustment @relation(fields: [salaryAdjustmentId], references: [id], onDelete: Cascade)
+  position           Position         @relation("SALARY_ADJUSTMENT_ITEM_POSITION", fields: [positionId], references: [id])
+
+  @@index([salaryAdjustmentId])
+  @@index([positionId])
+}
+
+enum PositionChangeReason {
+  ADMISSION
+  PROMOTION
+  TRANSFER
+  DEMOTION
+  ADJUSTMENT
+  CORRECTION
+}
+
+model UserPositionHistory {
+  id                 String               @id @default(uuid())
+  userId             String
+  positionId         String?
+  previousPositionId String?
+  reason             PositionChangeReason @default(ADJUSTMENT)
+  startedAt          DateTime             @default(now())
+  endedAt            DateTime?
+  note               String?
+  changedById        String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  user               User                 @relation("USER_POSITION_HISTORY_USER", fields: [userId], references: [id], onDelete: Cascade)
+  position           Position?            @relation("USER_POSITION_HISTORY_POSITION", fields: [positionId], references: [id])
+  previousPosition   Position?            @relation("USER_POSITION_HISTORY_PREVIOUS_POSITION", fields: [previousPositionId], references: [id])
+  changedBy          User?                @relation("USER_POSITION_HISTORY_CHANGED_BY", fields: [changedById], references: [id])
+
+  @@index([userId])
+  @@index([positionId])
+  @@index([previousPositionId])
+  @@index([changedById])
+  @@index([endedAt])
+}
+
+enum BenefitKind {
+  TRANSPORT_VOUCHER
+  MEAL_VOUCHER
+  FOOD_VOUCHER
+  HEALTH_PLAN
+  DENTAL_PLAN
+  PHARMACY_AGREEMENT
+  PARTNERSHIP
+  LIFE_INSURANCE
+  OTHER
+}
+
+enum BenefitEnrollmentStatus {
+  ACTIVE
+  SUSPENDED
+  OPTED_OUT
+  TERMINATED
+}
+
+model Benefit {
+  id                             String        @id @default(uuid())
+  kind                           BenefitKind
+  name                           String        @unique
+  provider                       String?
+  defaultValue                   Float?
+  defaultEmployeeDiscountPercent Float?
+  isActive                       Boolean       @default(true)
+  notes                          String?
+  createdAt                      DateTime      @default(now())
+  updatedAt                      DateTime      @updatedAt
+  enrollments                    UserBenefit[]
+
+  @@index([kind])
+  @@index([isActive])
+}
+
+model UserBenefit {
+  id                      String                  @id @default(uuid())
+  userId                  String
+  benefitId               String
+  status                  BenefitEnrollmentStatus @default(ACTIVE)
+  statusOrder             Int                     @default(1)
+  startDate               DateTime                @default(now())
+  endDate                 DateTime?
+  monthlyValue            Float
+  employeeDiscountValue   Float?
+  employeeDiscountPercent Float?
+  dailyTickets            Int?
+  declarationFileId       String?                 @unique
+  notes                   String?
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+  user                    User                    @relation("USER_BENEFIT_USER", fields: [userId], references: [id], onDelete: Cascade)
+  benefit                 Benefit                 @relation(fields: [benefitId], references: [id])
+  declarationFile         File?                   @relation("USER_BENEFIT_DECLARATION", fields: [declarationFileId], references: [id])
+
+  @@index([userId])
+  @@index([benefitId])
+  @@index([statusOrder])
+}
+
+enum AdmissionStatus {
+  DOCS_PENDING
+  MEDICAL_EXAM
+  CONTRACT
+  REGISTRATION
+  COMPLETED
+  CANCELLED
+}
+
+enum AdmissionDocumentType {
+  CPF
+  RG
+  CTPS
+  PROOF_OF_RESIDENCE
+  VOTER_ID
+  MILITARY_CERTIFICATE
+  BIRTH_MARRIAGE_CERTIFICATE
+  PHOTO
+  PIS
+  ADMISSION_EXAM
+  TRANSPORT_VOUCHER_DECLARATION
+  FAMILY_SALARY_FORM
+  EMPLOYMENT_CONTRACT
+  TIME_BANK_AGREEMENT
+  LGPD_TERM
+  DRIVER_LICENSE
+  OTHER
+}
+
+enum AdmissionDocumentStatus {
+  PENDING
+  RECEIVED
+  SIGNED
+  WAIVED
+}
+
+// A single employment bond (vínculo) between a person (User) and the company.
+// One person can hold many over time: a rehire (readmissão) is a NEW contract while the
+// prior closed one is preserved; a CLT employee who becomes terceirizado gets a new
+// contract of a different employeeType. This is the source of truth for the employment
+// relationship; User mirrors the current one via currentContract* fields.
+model EmploymentContract {
+  id              String           @id @default(uuid())
+  userId          String
+  sequence        Int              // ordinal vínculo for this person (1,2,3…)
+  matricula       Int?             // per-vínculo registration number (eSocial matrícula)
+  payrollNumber   Int?             // folha number (CLT only)
+  employeeType    EmployeeType     @default(CLT)
+  contractType    ContractType?    // CLT-family kind/phase; NULL for terceirizado/PJ/autônomo
+  status          ContractStatus   @default(ACTIVE)
+  statusOrder     Int              @default(1)
+  positionId      String?
+  sectorId        String?
+  // Phase dates (CLT experiência → efetivação) — moved off User
+  admissionDate   DateTime?        // vínculo start (was User.exp1StartAt / Admission.hireDate)
+  exp1StartAt     DateTime?
+  exp1EndAt       DateTime?
+  exp2StartAt     DateTime?
+  exp2EndAt       DateTime?
+  effectedAt      DateTime?
+  // Termination
+  terminationDate DateTime?        // (was User.dismissedAt)
+  terminationType TerminationType?
+  // Terceirizado / PJ (off-folha) — the real employer / counterparty
+  providerName    String?
+  providerCnpj    String?
+  notes           String?
+  isCurrent       Boolean          @default(true) // the latest/open vínculo for this user
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  user            User             @relation("EMPLOYMENT_CONTRACT_USER", fields: [userId], references: [id], onDelete: Cascade)
+  currentOfUser   User?            @relation("USER_CURRENT_CONTRACT")
+  position        Position?        @relation("EMPLOYMENT_CONTRACT_POSITION", fields: [positionId], references: [id])
+  sector          Sector?          @relation("EMPLOYMENT_CONTRACT_SECTOR", fields: [sectorId], references: [id])
+  admission       Admission?       @relation("ADMISSION_CONTRACT")
+  terminations    Termination[]    @relation("TERMINATION_CONTRACT")
+  payrolls        Payroll[]        @relation("PAYROLL_CONTRACT")
+
+  @@unique([userId, sequence])
+  @@index([userId])
+  @@index([userId, isCurrent])
+  @@index([status])
+  @@index([employeeType])
+  @@index([positionId])
+  @@index([sectorId])
+}
+
+model Admission {
+  id          String              @id @default(uuid())
+  userId      String
+  contractId  String?             @unique
+  status      AdmissionStatus     @default(DOCS_PENDING)
+  statusOrder Int                 @default(1)
+  hireDate    DateTime?
+  notes       String?
+  createdById String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  user        User                @relation("ADMISSION_USER", fields: [userId], references: [id], onDelete: Cascade)
+  contract    EmploymentContract? @relation("ADMISSION_CONTRACT", fields: [contractId], references: [id], onDelete: Cascade)
+  createdBy   User?               @relation("ADMISSION_CREATED_BY", fields: [createdById], references: [id])
+  documents   AdmissionDocument[]
+
+  @@index([userId])
+  @@index([statusOrder])
+  @@index([createdById])
+}
+
+model AdmissionDocument {
+  id          String                  @id @default(uuid())
+  admissionId String
+  type        AdmissionDocumentType
+  required    Boolean                 @default(true)
+  status      AdmissionDocumentStatus @default(PENDING)
+  fileId      String?
+  expiresAt   DateTime?
+  note        String?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  admission   Admission               @relation(fields: [admissionId], references: [id], onDelete: Cascade)
+  file        File?                   @relation("ADMISSION_DOCUMENT_FILE", fields: [fileId], references: [id])
+
+  @@index([admissionId])
+  @@index([fileId])
+  @@index([status])
+}
+
+enum TerminationType {
+  WITHOUT_CAUSE
+  WITH_CAUSE
+  RESIGNATION
+  MUTUAL_AGREEMENT
+  EXPERIENCE_END
+  EXPERIENCE_EARLY_EMPLOYER
+  EXPERIENCE_EARLY_EMPLOYEE
+  INDIRECT
+  DEATH
+}
+
+enum TerminationStatus {
+  INITIATED
+  NOTICE_PERIOD
+  DOCUMENTS
+  MEDICAL_EXAM
+  CALCULATION
+  PAYMENT
+  COMPLETED
+  CANCELLED
+}
+
+enum NoticeType {
+  WORKED
+  INDEMNIFIED
+  WAIVED
+}
+
+enum NoticeReduction {
+  NONE
+  TWO_HOURS_PER_DAY
+  SEVEN_DAYS_OFF
+}
+
+enum TerminationItemType {
+  SALARY_BALANCE
+  NOTICE_INDEMNIFIED
+  NOTICE_DISCOUNT
+  THIRTEENTH_PROPORTIONAL
+  ACCRUED_VACATION
+  PROPORTIONAL_VACATION
+  ART479_INDEMNITY
+  FGTS_FINE
+  ART477_FINE
+  INSS_DISCOUNT
+  IRRF_DISCOUNT
+  ADVANCE_DISCOUNT
+  BENEFIT_DISCOUNT
+  OTHER_EARNING
+  OTHER_DISCOUNT
+}
+
+enum TerminationDocumentType {
+  NOTICE_LETTER
+  TRCT
+  FGTS_GUIDE
+  FGTS_STATEMENT
+  UNEMPLOYMENT_INSURANCE_FORM
+  DISMISSAL_EXAM
+  PAYMENT_RECEIPT
+  DOCUMENT_DELIVERY_RECEIPT
+  MUTUAL_AGREEMENT_TERM
+  OTHER
+}
+
+enum TerminationDocumentStatus {
+  PENDING
+  GENERATED
+  SIGNED
+  DELIVERED
+}
+
+model Termination {
+  id                     String                @id @default(uuid())
+  userId                 String
+  contractId             String?
+  type                   TerminationType
+  status                 TerminationStatus     @default(INITIATED)
+  statusOrder            Int                   @default(1)
+  noticeType             NoticeType?
+  noticeReduction        NoticeReduction       @default(NONE)
+  noticeDays             Int?
+  noticeStartDate        DateTime?
+  lastWorkingDate        DateTime?
+  terminationDate        DateTime?
+  projectedEndDate       DateTime?
+  paymentDueDate         DateTime?
+  paymentDate            DateTime?
+  paidAmount             Float?
+  baseRemuneration       Float?
+  fgtsBalance            Float?
+  accruedVacationPeriods Int                   @default(0)
+  reason                 String?
+  justCauseArticle       String?
+  initiatedById          String?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  user                   User                  @relation("TERMINATION_USER", fields: [userId], references: [id])
+  contract               EmploymentContract?   @relation("TERMINATION_CONTRACT", fields: [contractId], references: [id])
+  initiatedBy            User?                 @relation("TERMINATION_INITIATED_BY", fields: [initiatedById], references: [id])
+  items                  TerminationItem[]
+  documents              TerminationDocument[]
+
+  @@index([userId])
+  @@index([contractId])
+  @@index([statusOrder])
+  @@index([initiatedById])
+  @@index([terminationDate])
+}
+
+model TerminationItem {
+  id                String              @id @default(uuid())
+  terminationId     String
+  type              TerminationItemType
+  description       String?
+  referenceQuantity Float?
+  baseValue         Float?
+  amount            Float
+  isCustom          Boolean             @default(false)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  termination       Termination         @relation(fields: [terminationId], references: [id], onDelete: Cascade)
+
+  @@index([terminationId])
+}
+
+model TerminationDocument {
+  id            String                    @id @default(uuid())
+  terminationId String
+  type          TerminationDocumentType
+  status        TerminationDocumentStatus @default(PENDING)
+  fileId        String?
+  note          String?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  termination   Termination               @relation(fields: [terminationId], references: [id], onDelete: Cascade)
+  file          File?                     @relation("TERMINATION_DOCUMENT_FILE", fields: [fileId], references: [id])
+
+  @@index([terminationId])
+  @@index([fileId])
+}
+
+enum MedicalExamType {
+  ADMISSION
+  PERIODIC
+  RETURN_TO_WORK
+  RISK_CHANGE
+  DISMISSAL
+}
+
+enum MedicalExamResult {
+  PENDING
+  FIT
+  UNFIT
+}
+
+enum MedicalExamStatus {
+  SCHEDULED
+  COMPLETED
+  EXPIRED
+  CANCELLED
+}
+
+model MedicalExam {
+  id            String            @id @default(uuid())
+  userId        String
+  type          MedicalExamType
+  status        MedicalExamStatus @default(SCHEDULED)
+  statusOrder   Int               @default(1)
+  result        MedicalExamResult @default(PENDING)
+  scheduledAt   DateTime?
+  examDate      DateTime?
+  expiresAt     DateTime?
+  physicianName String?
+  crm           String?
+  clinic        String?
+  notes         String?
+  fileId        String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  user          User              @relation("MEDICAL_EXAM_USER", fields: [userId], references: [id], onDelete: Cascade)
+  file          File?             @relation("MEDICAL_EXAM_ASO", fields: [fileId], references: [id])
+
+  @@index([userId])
+  @@index([statusOrder])
+  @@index([expiresAt])
+  @@index([fileId])
+}
+
+enum LeaveType {
+  ILLNESS_UP_TO_15
+  ILLNESS_INSS
+  WORK_ACCIDENT
+  MATERNITY
+  PATERNITY
+  MARRIAGE
+  BEREAVEMENT
+  BLOOD_DONATION
+  MILITARY
+  COURT_ATTENDANCE
+  UNPAID
+  SUSPENSION
+  OTHER
+}
+
+enum LeaveStatus {
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+model Leave {
+  id                 String      @id @default(uuid())
+  userId             String
+  type               LeaveType
+  status             LeaveStatus @default(SCHEDULED)
+  statusOrder        Int         @default(1)
+  startDate          DateTime
+  expectedEndDate    DateTime?
+  actualEndDate      DateTime?
+  cid                String?
+  inssBenefitNumber  String?
+  returnExamRequired Boolean     @default(false)
+  notes              String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  user               User        @relation("LEAVE_USER", fields: [userId], references: [id], onDelete: Cascade)
+  files              File[]      @relation("FileToLeave")
+
+  @@index([userId])
+  @@index([statusOrder])
+  @@index([startDate])
+}
+
+// Dependentes do colaborador (IRRF / salário-família)
+enum DependentRelationship {
+  CHILD
+  STEPCHILD
+  SPOUSE
+  PARTNER
+  PARENT
+  WARD
+  DISABLED_ANY_AGE
+  OTHER
+}
+
+model Dependent {
+  id             String                @id @default(uuid())
+  userId         String
+  name           String
+  cpf            String?
+  birthDate      DateTime
+  relationship   DependentRelationship
+  /// Elegível à dedução de IRRF (R$ 189,59/mês por dependente)
+  irrfDeduction  Boolean               @default(true)
+  /// Elegível ao salário-família (filho <= 14 anos ou inválido; teto de remuneração aplica)
+  salarioFamilia Boolean               @default(false)
+  notes          String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  user           User                  @relation("DEPENDENT_USER", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cpf])
+  @@index([userId])
+  @@index([relationship])
+  @@index([irrfDeduction])
+  @@index([salarioFamilia])
+}
+
+// Agenda com avisos (eventos com notificação antecipada) — módulo na fase 2
+model AgendaEvent {
+  id               String                @id @default(uuid())
+  title            String
+  description      String?
+  eventDate        DateTime
+  /// Dias de antecedência para notificar (ex.: [7, 1])
+  notifyDaysBefore Int[]                 @default([])
+  notifyOnDay      Boolean               @default(true)
+  channels         NotificationChannel[] @default([])
+  /// Setores-alvo das notificações (vazio + targetUserIds vazio = somente o criador)
+  targetSectorIds  String[]              @default([])
+  targetUserIds    String[]              @default([])
+  createdById      String
+  isActive         Boolean               @default(true)
+  lastNotifiedAt   DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  createdBy        User                  @relation("AGENDA_EVENT_CREATED_BY", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([createdById])
+  @@index([eventDate])
+  @@index([isActive])
+}
+
+// Post-its pessoais (mural de lembretes) — módulo na fase 2
+model Postit {
+  id         String   @id @default(uuid())
+  userId     String
+  content    String
+  color      String   @default("yellow")
+  position   Int      @default(0)
+  isArchived Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation("POSTIT_USER", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isArchived])
+  @@index([position])
+}
+
+// Order payment (contas a pagar)
+enum OrderPaymentStatus {
+  NOT_REQUESTED
+  REQUESTED
+  AWAITING_PAYMENT
+  PAID
 }

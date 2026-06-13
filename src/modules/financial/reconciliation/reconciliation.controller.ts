@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   Post,
   Query,
@@ -28,6 +29,7 @@ import { ReconciliationAliasService } from './reconciliation-alias.service';
 import { TransactionCategoryService } from './transaction-category.service';
 import { CategoryFusionService } from './learning/category-fusion.service';
 import { RecurrenceLearnerService } from './recurrence-learner.service';
+import { OutflowForecastService } from './outflow-forecast.service';
 import {
   listCategoriesQuerySchema,
   ListCategoriesQueryDto,
@@ -42,6 +44,10 @@ import {
   forecastQuerySchema,
   ForecastQueryDto,
 } from './dto/categorize.dto';
+import {
+  outflowForecastQuerySchema,
+  OutflowForecastQueryDto,
+} from './dto/outflow-forecast.dto';
 import { transactionsFilterSchema, TransactionsFilterDto } from './dto/transactions-filter.dto';
 import {
   fiscalDocumentsFilterSchema,
@@ -56,7 +62,7 @@ import { changeItemCategorySchema, ChangeItemCategoryDto } from './dto/change-it
 import { classifyBatchSchema, ClassifyBatchDto } from './dto/classify-batch.dto';
 
 @Controller('financial/reconciliation')
-@Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+@Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
 export class ReconciliationController {
   constructor(
     private readonly service: ReconciliationService,
@@ -68,6 +74,7 @@ export class ReconciliationController {
     private readonly categories: TransactionCategoryService,
     private readonly fusion: CategoryFusionService,
     private readonly recurrence: RecurrenceLearnerService,
+    private readonly outflowForecast: OutflowForecastService,
   ) {}
 
   @Post('import')
@@ -224,6 +231,15 @@ export class ReconciliationController {
     return this.service.categorize(payload);
   }
 
+  // Composite "Previsão de Saídas" (spec §4.3): open orders + scheduled orders,
+  // approximate taxes (3-month average), payroll aggregate (with bonus) and the
+  // recurring forecast — composed server-side so payroll stays aggregate-only.
+  @Get('outflow-forecast')
+  @UsePipes(new ZodValidationPipe(outflowForecastQuerySchema))
+  getOutflowForecast(@Query() query: OutflowForecastQueryDto) {
+    return this.outflowForecast.forecast(query.reference);
+  }
+
   // Recurring monthly payables view.
   @Get('recurring/forecast')
   @UsePipes(new ZodValidationPipe(forecastQuerySchema))
@@ -272,7 +288,17 @@ export class ReconciliationController {
   @Get('fiscal-documents/:accessKey/xml')
   async downloadXml(@Param('accessKey') accessKey: string, @Res() res: Response) {
     const file = await this.service.getFiscalDocumentXml(accessKey);
-    const xml = await fs.readFile(file.path);
+    let xml: Buffer;
+    try {
+      xml = await fs.readFile(file.path);
+    } catch (error: any) {
+      // The File row may reference a path that no longer exists on disk
+      // (e.g. restored DB without the uploads volume). Surface as 404, not 500.
+      if (error?.code === 'ENOENT') {
+        throw new NotFoundException('Arquivo XML não encontrado no armazenamento.');
+      }
+      throw error;
+    }
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${accessKey}.xml"`);
     res.send(xml);

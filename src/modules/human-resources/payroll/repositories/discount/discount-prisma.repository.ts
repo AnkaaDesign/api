@@ -26,6 +26,16 @@ export class DiscountPrismaRepository extends DiscountRepository {
           value: data.value,
           reference: data.reference,
           payrollId: data.payrollId,
+          ...(data.discountType !== undefined && { discountType: data.discountType as any }),
+          ...(data.isPersistent !== undefined && { isPersistent: data.isPersistent }),
+          ...(data.expirationDate !== undefined && { expirationDate: data.expirationDate }),
+          // Parcelamento (ex.: empréstimo CLT)
+          ...(data.totalInstallments !== undefined && {
+            totalInstallments: data.totalInstallments,
+          }),
+          ...(data.totalInstallments !== undefined && {
+            currentInstallment: data.currentInstallment ?? 1,
+          }),
         },
       });
 
@@ -50,6 +60,16 @@ export class DiscountPrismaRepository extends DiscountRepository {
           ...(data.percentage !== undefined && { percentage: data.percentage }),
           ...(data.value !== undefined && { value: data.value }),
           ...(data.reference !== undefined && { reference: data.reference }),
+          ...(data.discountType !== undefined && { discountType: data.discountType as any }),
+          ...(data.isPersistent !== undefined && { isPersistent: data.isPersistent }),
+          ...(data.isActive !== undefined && { isActive: data.isActive }),
+          ...(data.expirationDate !== undefined && { expirationDate: data.expirationDate }),
+          ...(data.totalInstallments !== undefined && {
+            totalInstallments: data.totalInstallments,
+          }),
+          ...(data.currentInstallment !== undefined && {
+            currentInstallment: data.currentInstallment,
+          }),
         },
       });
 

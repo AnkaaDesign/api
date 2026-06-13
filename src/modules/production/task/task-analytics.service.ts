@@ -784,23 +784,30 @@ export class TaskAnalyticsService {
     // Effective production colaboradores — fetch once for the whole date
     // range, then filter per-period with wasEffectedDuring(). Filter at the
     // DB level too so we don't haul in obviously-irrelevant users.
-    const productionUsers = await this.prisma.user.findMany({
+    const productionUsersRaw = await this.prisma.user.findMany({
       where: {
         sector: { privileges: SECTOR_PRIVILEGES.PRODUCTION },
-        exp2EndAt: { not: null, lte: dateRange.end },
-        OR: [
-          { dismissedAt: null },
-          { dismissedAt: { gt: dateRange.start } },
-        ],
+        currentContract: {
+          exp2EndAt: { not: null, lte: dateRange.end },
+          OR: [
+            { terminationDate: null },
+            { terminationDate: { gt: dateRange.start } },
+          ],
+        },
         ...(sectorIds?.length ? { sectorId: { in: sectorIds } } : {}),
       },
       select: {
         id: true,
         sectorId: true,
-        exp2EndAt: true,
-        dismissedAt: true,
+        currentContract: { select: { exp2EndAt: true, terminationDate: true } },
       },
     });
+    // Flatten the current vínculo's dates back to the shape wasEffectedDuring() expects.
+    const productionUsers = productionUsersRaw.map(u => ({
+      ...u,
+      exp2EndAt: u.currentContract?.exp2EndAt ?? null,
+      dismissedAt: u.currentContract?.terminationDate ?? null,
+    }));
 
     let sectorMap = new Map<string, string>();
     if (sectorIds?.length) {
@@ -1040,11 +1047,13 @@ export class TaskAnalyticsService {
     // Position.bonifiable = false, so they're naturally excluded from both
     // ranking and per-user attribution. The lowest bonifiable position
     // (Junior I) becomes rank 0 = weight 1.0 baseline.
-    const productionUsers = await this.prisma.user.findMany({
+    const productionUsersRaw = await this.prisma.user.findMany({
       where: {
         sector: { privileges: SECTOR_PRIVILEGES.PRODUCTION },
-        exp2EndAt: { not: null, lte: dateRange.end },
-        OR: [{ dismissedAt: null }, { dismissedAt: { gt: dateRange.start } }],
+        currentContract: {
+          exp2EndAt: { not: null, lte: dateRange.end },
+          OR: [{ terminationDate: null }, { terminationDate: { gt: dateRange.start } }],
+        },
         position: { bonifiable: true },
         ...(sectorIds?.length ? { sectorId: { in: sectorIds } } : {}),
       },
@@ -1053,12 +1062,16 @@ export class TaskAnalyticsService {
         name: true,
         sectorId: true,
         positionId: true,
-        exp2EndAt: true,
-        dismissedAt: true,
+        currentContract: { select: { exp2EndAt: true, terminationDate: true } },
         sector: { select: { id: true, name: true } },
         position: { select: { id: true, name: true, hierarchy: true } },
       },
     });
+    const productionUsers = productionUsersRaw.map(u => ({
+      ...u,
+      exp2EndAt: u.currentContract?.exp2EndAt ?? null,
+      dismissedAt: u.currentContract?.terminationDate ?? null,
+    }));
 
     // Rank ALL bonifiable positions globally by hierarchy ascending — not
     // just the ones with active users in this filter. Otherwise gaps in the

@@ -296,6 +296,12 @@ export interface UserBirthdayData {
   userName: string;
 }
 
+// Parabenização temática: anúncio do aniversário para TODOS os usuários
+// ativos da empresa (a "sacanagem de avisar todo mundo" do spec).
+export interface UserBirthdayAnnouncementData {
+  userName: string;
+}
+
 export interface UserAnniversaryData {
   userName: string;
   years: number;
@@ -394,6 +400,7 @@ export type SystemTemplateKey =
 
 export type UserTemplateKey =
   | 'user.birthday'
+  | 'user.birthday.announcement'
   | 'user.anniversary'
   | 'user.profile.updated'
   | 'user.password.changed'
@@ -449,6 +456,7 @@ export type TemplateData =
   | SystemAnnouncementData
   | SystemUpdateData
   | UserBirthdayData
+  | UserBirthdayAnnouncementData
   | UserAnniversaryData
   | UserProfileData
   | UserPasswordData

@@ -180,6 +180,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getPpeSizes(
     @Query(new ZodQueryValidationPipe(ppeSizeGetManySchema)) query: PpeSizeGetManyFormData,
@@ -242,6 +243,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getPpeSizesByMask(
     @Param('maskSize') maskSize: string,
@@ -264,6 +266,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getPpeSizeByUserId(
     @Param('userId', ParseUUIDPipe) targetUserId: string,
@@ -286,6 +289,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getPpeSizeById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -332,6 +336,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getPpeDeliveries(
     @Query(new ZodQueryValidationPipe(ppeDeliveryGetManySchema)) query: PpeDeliveryGetManyFormData,
@@ -341,7 +346,7 @@ export class PpeController {
   }
 
   @Post('deliveries')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.CREATED)
   async createPpeDelivery(
     @Body(new ZodValidationPipe(ppeDeliveryCreateSchema)) data: PpeDeliveryCreateFormData,
@@ -352,7 +357,7 @@ export class PpeController {
   }
 
   @Post('deliveries/batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.CREATED)
   async batchCreatePpeDeliveries(
     @Body(new ZodValidationPipe(ppeDeliveryBatchCreateSchema)) data: PpeDeliveryBatchCreateFormData,
@@ -363,7 +368,7 @@ export class PpeController {
   }
 
   @Put('deliveries/batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async batchUpdatePpeDeliveries(
     @Body(new ZodValidationPipe(ppeDeliveryBatchUpdateSchema)) data: PpeDeliveryBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(ppeDeliveryQuerySchema)) query: PpeDeliveryQueryFormData,
@@ -412,7 +417,7 @@ export class PpeController {
   }
 
   @Post('deliveries/batch-approve')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async batchApprovePpeDeliveries(
     @Body() data: { deliveryIds: string[]; reviewedBy?: string },
@@ -426,7 +431,7 @@ export class PpeController {
   }
 
   @Post('deliveries/batch-reject')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async batchRejectPpeDeliveries(
     @Body() data: { deliveryIds: string[]; reviewedBy?: string; reason?: string },
@@ -468,6 +473,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getScheduledDeliveries(
     @Query(new ZodQueryValidationPipe(ppeDeliveryGetManySchema)) query: PpeDeliveryGetManyFormData,
@@ -500,6 +506,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getPendingDeliveriesForSchedule(
     @Param('scheduleId', ParseUUIDPipe) scheduleId: string,
@@ -522,6 +529,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getAvailablePpeForUser(
     @Param('userId', ParseUUIDPipe) targetUserId: string,
@@ -545,6 +553,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getPpeDeliveryStatistics(@UserId() userId: string, @Query('userId') targetUserId?: string) {
     return this.ppeDeliveryService.getDeliveryStatistics(targetUserId);
@@ -563,6 +572,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getOverdueDeliveries(
     @Query(new ZodQueryValidationPipe(ppeDeliveryQuerySchema)) query: PpeDeliveryQueryFormData,
@@ -584,6 +594,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getUpcomingDeliveries(
     @Query('days') days: string = '7',
@@ -621,6 +632,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyPpeDeliveries(
     @Query(new ZodQueryValidationPipe(ppeDeliveryGetManySchema)) query: PpeDeliveryGetManyFormData,
@@ -649,6 +661,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyTeamPpeDeliveries(
     @Query(new ZodQueryValidationPipe(ppeDeliveryGetManySchema)) query: PpeDeliveryGetManyFormData,
@@ -672,6 +685,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyAvailablePpe(
     @Query(new ZodQueryValidationPipe(ppeDeliveryQuerySchema)) query: PpeDeliveryQueryFormData,
@@ -698,6 +712,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getAvailablePpeItems(
     @UserId() userId: string,
@@ -755,6 +770,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getPpeDeliveryById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -765,7 +781,7 @@ export class PpeController {
   }
 
   @Put('deliveries/:id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async updatePpeDelivery(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(ppeDeliveryUpdateSchema)) data: PpeDeliveryUpdateFormData,
@@ -804,6 +820,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @HttpCode(HttpStatus.OK)
   async signDeliveryInApp(
@@ -833,6 +850,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @HttpCode(HttpStatus.NO_CONTENT)
   async trackDeliveryEvent(
@@ -867,6 +885,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getDeliveryAuditTrail(
     @Param('id', ParseUUIDPipe) id: string,
@@ -887,6 +906,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getSignatureDetails(
     @Param('id', ParseUUIDPipe) id: string,
@@ -907,6 +927,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @HttpCode(HttpStatus.OK)
   async verifyInAppSignature(
@@ -1045,6 +1066,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getPpeDeliverySchedules(
     @Query(new ZodQueryValidationPipe(ppeDeliveryScheduleGetManySchema))
@@ -1055,7 +1077,7 @@ export class PpeController {
   }
 
   @Post('schedules')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.CREATED)
   async createPpeDeliverySchedule(
     @Body(new ZodValidationPipe(ppeDeliveryScheduleCreateSchema))
@@ -1068,7 +1090,7 @@ export class PpeController {
   }
 
   @Post('schedules/batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.CREATED)
   async batchCreatePpeDeliverySchedules(
     @Body(new ZodValidationPipe(ppeDeliveryScheduleBatchCreateSchema))
@@ -1081,7 +1103,7 @@ export class PpeController {
   }
 
   @Put('schedules/batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async batchUpdatePpeDeliverySchedules(
     @Body(new ZodValidationPipe(ppeDeliveryScheduleBatchUpdateSchema))
     data: PpeDeliveryScheduleBatchUpdateFormData,
@@ -1115,6 +1137,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getPpeDeliveryScheduleById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -1126,7 +1149,7 @@ export class PpeController {
   }
 
   @Put('schedules/:id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async updatePpeDeliverySchedule(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(ppeDeliveryScheduleUpdateSchema))
@@ -1179,6 +1202,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getScheduleExecutionStats(
     @Param('id', ParseUUIDPipe) id: string,
@@ -1234,6 +1258,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getActiveSchedules(
     @Query(new ZodQueryValidationPipe(ppeDeliveryScheduleQuerySchema))
@@ -1256,6 +1281,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getSchedulesByUser(
     @Param('userId', ParseUUIDPipe) targetUserId: string,
@@ -1279,6 +1305,7 @@ export class PpeController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getDueSchedules(
     @Query(new ZodQueryValidationPipe(ppeDeliveryScheduleQuerySchema))

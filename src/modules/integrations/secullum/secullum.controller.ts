@@ -103,7 +103,7 @@ export class SecullumController {
    */
   @Get('time-entries')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getTimeEntries(
     @UserId() userId: string,
@@ -175,6 +175,7 @@ export class SecullumController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @HttpCode(HttpStatus.OK)
   async getTimeEntriesByDay(
@@ -228,6 +229,7 @@ export class SecullumController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @HttpCode(HttpStatus.OK)
   async getDailySummary(@UserId() userId: string): Promise<{
@@ -262,7 +264,7 @@ export class SecullumController {
    */
   @Put('time-entries/:id')
   @WriteRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async updateTimeEntry(
     @UserId() userId: string,
@@ -280,7 +282,7 @@ export class SecullumController {
    */
   @Get('justifications')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getJustifications(@UserId() userId: string): Promise<SecullumJustificationsResponse> {
     this.logger.log(`User ${userId} fetching Secullum justifications`);
@@ -296,7 +298,7 @@ export class SecullumController {
    */
   @Get('batidas/foto/:employeeId/:fonteDadosId')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getTimeEntryPhoto(
     @UserId() userId: string,
@@ -319,7 +321,7 @@ export class SecullumController {
    */
   @Get('solicitacoes/foto/:solicitacaoId')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getRequestAttachmentPhoto(
     @UserId() userId: string,
@@ -337,7 +339,7 @@ export class SecullumController {
    */
   @Post('time-entries/batch-update')
   @WriteRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async batchUpdateTimeEntries(
     @UserId() userId: string,
@@ -361,6 +363,7 @@ export class SecullumController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @HttpCode(HttpStatus.OK)
   async getCalculations(
@@ -420,7 +423,7 @@ export class SecullumController {
    */
   @Get('pendencias')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getPendencias(
     @UserId() userId: string,
@@ -455,6 +458,7 @@ export class SecullumController {
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   ) // All authenticated users can see holidays
   @HttpCode(HttpStatus.OK)
   async getHolidays(
@@ -485,7 +489,7 @@ export class SecullumController {
    */
   @Post('holidays')
   @WriteRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.CREATED)
   async createHoliday(
     @UserId() userId: string,
@@ -502,7 +506,7 @@ export class SecullumController {
    */
   @Delete('holidays/:id')
   @WriteRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async deleteHoliday(
     @UserId() userId: string,
@@ -530,6 +534,7 @@ export class SecullumController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @HttpCode(HttpStatus.OK)
   async getAbsenceDays(
@@ -562,6 +567,7 @@ export class SecullumController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @HttpCode(HttpStatus.OK)
   async getUnjustifiedAbsences(
@@ -587,6 +593,7 @@ export class SecullumController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @HttpCode(HttpStatus.OK)
   async getAbsencesByEmployee(
@@ -612,6 +619,7 @@ export class SecullumController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @HttpCode(HttpStatus.OK)
   async getAggregatedAbsences(
@@ -636,7 +644,7 @@ export class SecullumController {
    */
   @Post('absences')
   @WriteRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.CREATED)
   async createAbsence(
     @UserId() userId: string,
@@ -656,7 +664,7 @@ export class SecullumController {
    */
   @Post('absences/by-users')
   @WriteRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.CREATED)
   async createAbsenceForUsers(
     @UserId() userId: string,
@@ -674,7 +682,7 @@ export class SecullumController {
    */
   @Delete('absences/:id')
   @WriteRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async deleteAbsence(
     @UserId() userId: string,
@@ -691,7 +699,7 @@ export class SecullumController {
    */
   @Put('absences/:id')
   @WriteRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async updateAbsence(
     @UserId() userId: string,
@@ -733,6 +741,7 @@ export class SecullumController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @HttpCode(HttpStatus.OK)
   async getHorarios(
@@ -756,6 +765,7 @@ export class SecullumController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @HttpCode(HttpStatus.OK)
   async getHorarioById(
@@ -846,7 +856,7 @@ export class SecullumController {
    */
   @Get('configuration')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getConfiguration(@UserId() userId: string): Promise<any> {
     this.logger.log(`User ${userId} fetching Secullum configuration`);
@@ -859,7 +869,7 @@ export class SecullumController {
    */
   @Get('employees')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getEmployees(@UserId() userId: string): Promise<any> {
     this.logger.log(`User ${userId} fetching Secullum employees`);
@@ -874,7 +884,7 @@ export class SecullumController {
    */
   @Get('check-user-mapping')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async checkUserMapping(@UserId() userId: string): Promise<any> {
     this.logger.log(`User ${userId} checking user mappings with Secullum`);
@@ -1010,7 +1020,7 @@ export class SecullumController {
    */
   @Get('requests')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getRequests(
     @UserId() userId: string,
@@ -1030,7 +1040,7 @@ export class SecullumController {
    */
   @Post('requests/:id/approve')
   @WriteRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async approveRequest(
     @UserId() userId: string,
@@ -1057,7 +1067,7 @@ export class SecullumController {
    */
   @Post('requests/:id/reject')
   @WriteRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async rejectRequest(
     @UserId() userId: string,
@@ -1116,7 +1126,7 @@ export class SecullumController {
    */
   @Get('assinatura-digital/progress/:jobId')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getAssinaturaProgress(@Param('jobId') jobId: string) {
     const job = this.secullumService.getAssinaturaJob(jobId);
@@ -1135,7 +1145,7 @@ export class SecullumController {
    */
   @Get('assinatura-digital')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getAssinaturaList(
     @UserId() userId: string,
@@ -1153,7 +1163,7 @@ export class SecullumController {
    */
   @Get('assinatura-digital/eligible-users')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getAssinaturaEligibleUsers(
     @Query('search') search?: string,
@@ -1173,7 +1183,7 @@ export class SecullumController {
    */
   @Get('assinatura-digital/:id')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getAssinaturaDetail(
     @UserId() userId: string,
@@ -1195,7 +1205,7 @@ export class SecullumController {
    */
   @Get('assinatura-digital/:apuracaoId/funcionarios/:funcionarioId/pdf')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async getAssinaturaItemPdf(
     @UserId() userId: string,

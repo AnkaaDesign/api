@@ -7,6 +7,7 @@ export * from './statistics/export-formatters';
 export * from './analyticsEnumGetters';
 export * from './auth';
 // export * from "./batch-toast"; // Frontend-only utility, uses sonner
+export * from './benefit-discount';
 export * from './bonus';
 export * from './borrow';
 export * from './changelog';

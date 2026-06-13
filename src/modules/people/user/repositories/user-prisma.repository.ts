@@ -14,7 +14,6 @@ import { BaseStringPrismaRepository } from '@modules/common/base/base-string-pri
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { Prisma } from '@prisma/client';
 import {
-  mapUserStatusToPrisma,
   mapVerificationTypeToPrisma,
   mapWhereClause,
   mapShirtSizeToPrisma,
@@ -95,7 +94,6 @@ export class UserPrismaRepository
       // unique constraint ("já está em uso") even though none was provided.
       email: formData.email || null,
       phone: formData.phone || null,
-      status: mapUserStatusToPrisma(formData.status),
       verified: formData.verified ?? false,
       performanceLevel: formData.performanceLevel ?? 0,
       // Map date fields to Prisma model field names
@@ -147,7 +145,6 @@ export class UserPrismaRepository
       avatarId,
       preferences,
       userId,
-      status,
       verificationType,
       verificationCode,
       verificationExpiresAt,
@@ -160,7 +157,6 @@ export class UserPrismaRepository
       ...rest,
       ...(formData.email !== undefined && { email: formData.email }),
       ...(formData.phone !== undefined && { phone: formData.phone }),
-      ...(status && { status: mapUserStatusToPrisma(status) }),
       ...(verificationType !== undefined && {
         verificationType: mapVerificationTypeToPrisma(verificationType),
       }),
@@ -489,6 +485,22 @@ export class UserPrismaRepository
   }
 
   // User-specific methods
+  async findByIdWithCredentials(id: string, include?: UserInclude): Promise<User | null> {
+    try {
+      const result = await this.prisma.user.findUnique({
+        where: { id },
+        include: (include as any) ?? this.getDefaultInclude(),
+        // Auth-only: undo the global credential omit configured in PrismaService.
+        omit: { password: false, sessionToken: false },
+      });
+
+      return result ? this.mapDatabaseEntityToEntity(result) : null;
+    } catch (error) {
+      this.logError(`buscar usuário (com credenciais) ${id}`, error);
+      throw error;
+    }
+  }
+
   async findByCpf(cpf: string, tx?: PrismaTransaction): Promise<User | null> {
     try {
       const transaction = tx || this.prisma;
@@ -801,7 +813,8 @@ export class UserPrismaRepository
       name: string;
       email: string | null;
       phone: string | null;
-      status: string;
+      currentContractType: string | null;
+      currentContractStatus: string | null;
       isActive: boolean;
       avatarId: string | null;
       payrollNumber: number | null;
@@ -839,7 +852,9 @@ export class UserPrismaRepository
             name: true,
             email: true,
             phone: true,
-            status: true,
+            currentContractType: true,
+            currentContractStatus: true,
+            currentEmployeeType: true,
             isActive: true,
             avatarId: true,
             payrollNumber: true,

@@ -58,7 +58,7 @@ export class DiscountController {
 
   // Basic CRUD Operations
   @Get()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @ReadRateLimit()
   async findMany(
     @Query(new ZodQueryValidationPipe(discountGetManySchema)) query: DiscountGetManyFormData,
@@ -68,7 +68,7 @@ export class DiscountController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @WriteRateLimit()
   @HttpCode(HttpStatus.CREATED)
   async create(
@@ -80,7 +80,7 @@ export class DiscountController {
 
   // Batch Operations (must come before dynamic routes)
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @WriteRateLimit()
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
@@ -91,7 +91,7 @@ export class DiscountController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @WriteRateLimit()
   async batchUpdate(
     @Body(new ZodValidationPipe(discountBatchUpdateSchema)) data: DiscountBatchUpdateFormData,
@@ -101,7 +101,7 @@ export class DiscountController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
   async batchDelete(
@@ -113,7 +113,7 @@ export class DiscountController {
 
   // Special operations (before dynamic routes)
   @Get('by-payroll/:payrollId')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @ReadRateLimit()
   async findByPayroll(
     @Param('payrollId', ParseUUIDPipe) payrollId: string,
@@ -130,7 +130,7 @@ export class DiscountController {
 
   // Dynamic routes (must come after static routes)
   @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @ReadRateLimit()
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -140,7 +140,7 @@ export class DiscountController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @WriteRateLimit()
   async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -151,7 +151,7 @@ export class DiscountController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
   async delete(

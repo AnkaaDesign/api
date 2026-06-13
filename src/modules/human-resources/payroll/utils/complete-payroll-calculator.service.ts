@@ -7,6 +7,7 @@ import {
 } from '../services/secullum-payroll-integration.service';
 import { PayrollDiscountType, Prisma } from '@prisma/client';
 import { roundCurrency } from '@utils/currency-precision.util';
+import { calculateEmployeeShare } from '@utils/benefit-discount';
 
 /**
  * ============================================================================
@@ -89,7 +90,22 @@ export interface CompletePayrollCalculation {
     transportVoucher: number;
     healthInsurance: number;
     dentalInsurance: number;
+    /** Coparticipações de outros benefícios (farmácia, convênios, seguro de vida…). */
+    otherBenefits: number;
   };
+  /**
+   * Coparticipações derivadas das adesões ATIVAS (UserBenefit) via regra
+   * canônica de @utils/benefit-discount — uma linha por adesão, para que a
+   * folha salva/ao vivo materialize cada desconto individualmente.
+   */
+  benefitCopayItems: Array<{
+    userBenefitId: string;
+    benefitKind: string;
+    benefitName: string;
+    discountType: PayrollDiscountType;
+    amount: number;
+    monthlyValue: number;
+  }>;
   legalDeductions: {
     unionContribution: number;
     alimony: number;
@@ -273,29 +289,8 @@ export class CompletePayrollCalculatorService {
     );
 
     // ========================================================================
-    // STEP 3: CALCULATE TAX DEDUCTIONS
-    // ========================================================================
-
-    // INSS (Progressive)
-    const inssResult = await this.taxCalculator.calculateINSS(grossSalary, year);
-    const inssAmount = roundCurrency(inssResult.amount);
-    const inssBase = grossSalary;
-    const inssEffectiveRate = inssResult.rate || 0;
-
-    // IRRF (Progressive, after INSS)
-    const irrfResult = await this.taxCalculator.calculateIRRF(
-      grossSalary,
-      inssAmount,
-      dependentsCount,
-      useSimplifiedDeduction,
-      year,
-    );
-    const irrfAmount = roundCurrency(irrfResult.amount);
-    const irrfBase = irrfResult.base;
-    const irrfEffectiveRate = irrfResult.rate || 0;
-
-    // ========================================================================
-    // STEP 4: CALCULATE ABSENCE DEDUCTIONS
+    // STEP 3: CALCULATE ABSENCE DEDUCTIONS (before taxes — they reduce the
+    // remuneration due, which is the legal base for INSS/IRRF)
     // ========================================================================
 
     const absenceHours = secullumData?.unjustifiedAbsenceHours || 0;
@@ -307,30 +302,141 @@ export class CompletePayrollCalculatorService {
     const lateArrivalAmount = roundCurrency((lateMinutes / 60) * hourlyRate);
 
     // ========================================================================
+    // STEP 4: CALCULATE TAX DEDUCTIONS
+    // ========================================================================
+
+    // Salário de contribuição / rendimentos tributáveis do mês: remuneração
+    // efetivamente devida (bruto MENOS faltas injustificadas e atrasos).
+    const taxableEarnings = roundCurrency(
+      Math.max(0, grossSalary - absenceAmount - lateArrivalAmount),
+    );
+
+    // INSS (Progressive)
+    const inssResult = await this.taxCalculator.calculateINSS(taxableEarnings, year);
+    const inssAmount = roundCurrency(inssResult.amount);
+    const inssBase = taxableEarnings;
+    const inssEffectiveRate = inssResult.rate || 0;
+
+    // IRRF (Progressive, after INSS)
+    const irrfResult = await this.taxCalculator.calculateIRRF(
+      taxableEarnings,
+      inssAmount,
+      dependentsCount,
+      useSimplifiedDeduction,
+      year,
+    );
+    const irrfAmount = roundCurrency(irrfResult.amount);
+    const irrfBase = irrfResult.base;
+    const irrfEffectiveRate = irrfResult.rate || 0;
+
+    // ========================================================================
     // STEP 5: CALCULATE BENEFIT DEDUCTIONS
     // ========================================================================
 
-    // These come from persistent discounts or defaults
-    const mealVoucher = this.getDiscountAmount(
+    // Manual/persistent rows first (copied month-to-month on the payroll)
+    let mealVoucher = this.getDiscountAmount(
       persistentDiscounts,
       PayrollDiscountType.MEAL_VOUCHER,
       0,
     );
-    const transportVoucher = this.getDiscountAmount(
+    let transportVoucher = this.getDiscountAmount(
       persistentDiscounts,
       PayrollDiscountType.TRANSPORT_VOUCHER,
       0,
     );
-    const healthInsurance = this.getDiscountAmount(
+    let healthInsurance = this.getDiscountAmount(
       persistentDiscounts,
       PayrollDiscountType.HEALTH_INSURANCE,
       0,
     );
-    const dentalInsurance = this.getDiscountAmount(
+    let dentalInsurance = this.getDiscountAmount(
       persistentDiscounts,
       PayrollDiscountType.DENTAL_INSURANCE,
       0,
     );
+    let otherBenefits = 0;
+
+    // Coparticipações das adesões ATIVAS (UserBenefit) — regra canônica em
+    // @utils/benefit-discount (VT: % do salário-base limitado ao custo;
+    // demais: % do custo do benefício; valor fixo limitado ao custo).
+    // Para evitar dupla contagem, uma adesão só entra quando NÃO existe
+    // desconto persistente manual do mesmo PayrollDiscountType.
+    const benefitCopayItems: CompletePayrollCalculation['benefitCopayItems'] = [];
+    try {
+      const activeBenefits = await this.prisma.userBenefit.findMany({
+        where: { userId: employeeId, status: 'ACTIVE' },
+        include: { benefit: true },
+      });
+
+      const persistentTypes = new Set(persistentDiscounts.map(d => d.type));
+      const mapKindToDiscountType = (kind: string): PayrollDiscountType => {
+        switch (kind) {
+          case 'TRANSPORT_VOUCHER':
+            return PayrollDiscountType.TRANSPORT_VOUCHER;
+          case 'MEAL_VOUCHER':
+          case 'FOOD_VOUCHER':
+            return PayrollDiscountType.MEAL_VOUCHER;
+          case 'HEALTH_PLAN':
+            return PayrollDiscountType.HEALTH_INSURANCE;
+          case 'DENTAL_PLAN':
+            return PayrollDiscountType.DENTAL_INSURANCE;
+          default:
+            return PayrollDiscountType.AUTHORIZED_DISCOUNT;
+        }
+      };
+
+      for (const enrollment of activeBenefits) {
+        const kind = enrollment.benefit?.kind as string;
+        const discountType = mapKindToDiscountType(kind);
+
+        // Persistent manual row of the same type takes precedence
+        if (persistentTypes.has(discountType)) continue;
+
+        const share = roundCurrency(
+          calculateEmployeeShare(
+            {
+              monthlyValue: enrollment.monthlyValue,
+              employeeDiscountValue: enrollment.employeeDiscountValue,
+              employeeDiscountPercent: enrollment.employeeDiscountPercent,
+              benefitKind: kind,
+            },
+            baseSalary,
+          ),
+        );
+        if (share <= 0) continue;
+
+        switch (discountType) {
+          case PayrollDiscountType.TRANSPORT_VOUCHER:
+            transportVoucher = roundCurrency(transportVoucher + share);
+            break;
+          case PayrollDiscountType.MEAL_VOUCHER:
+            mealVoucher = roundCurrency(mealVoucher + share);
+            break;
+          case PayrollDiscountType.HEALTH_INSURANCE:
+            healthInsurance = roundCurrency(healthInsurance + share);
+            break;
+          case PayrollDiscountType.DENTAL_INSURANCE:
+            dentalInsurance = roundCurrency(dentalInsurance + share);
+            break;
+          default:
+            otherBenefits = roundCurrency(otherBenefits + share);
+            break;
+        }
+
+        benefitCopayItems.push({
+          userBenefitId: enrollment.id,
+          benefitKind: kind,
+          benefitName: enrollment.benefit?.name || 'Benefício',
+          discountType,
+          amount: share,
+          monthlyValue: enrollment.monthlyValue,
+        });
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Could not load active benefit enrollments for ${employeeId}: ${error instanceof Error ? error.message : error}`,
+      );
+    }
 
     // ========================================================================
     // STEP 6: CALCULATE LEGAL DEDUCTIONS
@@ -390,6 +496,7 @@ export class CompletePayrollCalculatorService {
         transportVoucher +
         healthInsurance +
         dentalInsurance +
+        otherBenefits +
         unionContribution +
         alimony +
         garnishment +
@@ -408,7 +515,8 @@ export class CompletePayrollCalculatorService {
     // STEP 11: EMPLOYER CONTRIBUTIONS (for tracking)
     // ========================================================================
 
-    const fgtsResult = this.taxCalculator.calculateFGTS(grossSalary, isApprentice);
+    // FGTS incide sobre a remuneração devida (mesma base de INSS)
+    const fgtsResult = this.taxCalculator.calculateFGTS(taxableEarnings, isApprentice);
     const fgtsAmount = roundCurrency(fgtsResult.amount);
     const fgtsRate = fgtsResult.rate || 8.0;
 
@@ -458,7 +566,9 @@ export class CompletePayrollCalculatorService {
         transportVoucher,
         healthInsurance,
         dentalInsurance,
+        otherBenefits,
       },
+      benefitCopayItems,
       legalDeductions: {
         unionContribution,
         alimony,
@@ -494,19 +604,20 @@ export class CompletePayrollCalculatorService {
     defaultValue: number = 0,
     baseValueForPercentage?: number,
   ): number {
-    const discount = discounts.find(d => d.type === type);
-    if (!discount) return defaultValue;
+    // Sum ALL discounts of the given type (an employee can have e.g. two
+    // active loans at once); previously only the first match was counted.
+    const matching = discounts.filter(d => d.type === type);
+    if (matching.length === 0) return defaultValue;
 
-    // If discount has a fixed value, use it
-    if (discount.value && discount.value > 0) {
-      return discount.value;
+    let total = 0;
+    for (const discount of matching) {
+      if (discount.value && discount.value > 0) {
+        total += discount.value;
+      } else if (discount.percentage && discount.percentage > 0 && baseValueForPercentage) {
+        total += (baseValueForPercentage * discount.percentage) / 100;
+      }
     }
 
-    // If discount has a percentage and we have a base value, calculate it
-    if (discount.percentage && discount.percentage > 0 && baseValueForPercentage) {
-      return roundCurrency((baseValueForPercentage * discount.percentage) / 100);
-    }
-
-    return defaultValue;
+    return total > 0 ? roundCurrency(total) : defaultValue;
   }
 }

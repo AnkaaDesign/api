@@ -22,7 +22,9 @@ export interface DashboardOrderWhere {
 export interface DashboardUserWhere {
   sectorId?: string;
   positionId?: string;
-  status?: any;
+  currentContractStatus?: any;
+  currentContractType?: any;
+  currentEmployeeType?: any;
 }
 
 export interface DashboardTaskWhere {
@@ -179,7 +181,7 @@ export interface HRDashboardData {
     totalEmployees: DashboardMetric;
     activeEmployees: DashboardMetric; // status = ACTIVE
     inactiveEmployees: DashboardMetric; // status = INACTIVE
-    newHires: DashboardMetric; // exp1StartAt in last 30 days
+    newHires: DashboardMetric; // currentContract.admissionDate in last 30 days
     employeesByPerformanceLevel: DashboardChartData; // grouped by performanceLevel
   };
   sectorAnalysis: {

@@ -31,7 +31,7 @@ import {
   CHANGE_ACTION,
   ASSIGNMENT_TYPE,
   PPE_TYPE,
-  USER_STATUS,
+  CONTRACT_STATUS,
   PPE_DELIVERY_STATUS,
 } from '../../../constants';
 import { PPE_DELIVERY_STATUS_ORDER } from '../../../constants';
@@ -176,7 +176,7 @@ export class PpeDeliveryScheduleService {
         // Get all non-dismissed users, optionally filtered by category (if PPE category has user restrictions)
         const allUsers = await tx.user.findMany({
           where: {
-            status: { not: USER_STATUS.DISMISSED },
+            currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
           },
           select: { id: true },
         });
@@ -186,7 +186,7 @@ export class PpeDeliveryScheduleService {
         // Get all non-dismissed users except the excluded ones
         const allExceptUsers = await tx.user.findMany({
           where: {
-            status: { not: USER_STATUS.DISMISSED },
+            currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
             id: { notIn: excludedUserIds },
           },
           select: { id: true },

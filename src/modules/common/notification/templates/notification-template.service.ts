@@ -587,6 +587,17 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
   },
 
+  // Parabenização temática — anunciada a TODOS os usuários ativos no dia do
+  // aniversário do colaborador (o aniversariante recebe 'user.birthday').
+  'user.birthday.announcement': {
+    title: data => `🎉 Hoje é aniversário de ${data.userName}!`,
+    body: data =>
+      `🎂 Hoje é o dia de ${data.userName}! Não deixe de dar os parabéns e desejar um ótimo dia!`,
+    importance: NOTIFICATION_IMPORTANCE.NORMAL,
+    actionType: NOTIFICATION_ACTION_TYPE.ACKNOWLEDGE,
+    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+  },
+
   'user.anniversary': {
     title: data => `Aniversário de Empresa`,
     body: data =>

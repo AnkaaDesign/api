@@ -572,6 +572,7 @@ export class ZodValidationPipe implements PipeTransform {
       'performanceLevel',
       'payrollNumber',
       'statusOrder',
+      'sequence',
       // Measure fields
       'value',
       // Task fields
@@ -630,6 +631,7 @@ export class ZodValidationPipe implements PipeTransform {
     const enumFields = [
       'state',
       'status',
+      'currentContractStatus',
       'role',
       'sector',
       'priority',

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { USER_STATUS, WARNING_CATEGORY } from '../../../constants/enums';
+import { CONTRACT_STATUS, WARNING_CATEGORY } from '../../../constants/enums';
 import type {
   TeamPerformanceItem,
   TeamPerformanceSummary,
@@ -72,12 +72,18 @@ export class UserAnalyticsService {
       },
       select: {
         id: true,
-        status: true,
+        currentContractStatus: true,
+        currentContractType: true,
         performanceLevel: true,
         sectorId: true,
-        effectedAt: true,
-        dismissedAt: true,
         createdAt: true,
+        currentContract: {
+          select: {
+            effectedAt: true,
+            admissionDate: true,
+            terminationDate: true,
+          },
+        },
       },
     });
 
@@ -114,22 +120,30 @@ export class UserAnalyticsService {
 
       // Headcount: users who were active during this period
       const activeUsers = allUsers.filter(u => {
-        const joined = u.effectedAt || u.createdAt;
+        const joined = u.currentContract?.effectedAt || u.currentContract?.admissionDate || u.createdAt;
         if (joined > periodEnd) return false;
-        if (u.status === USER_STATUS.DISMISSED && u.dismissedAt && u.dismissedAt < periodStart)
+        if (
+          u.currentContractStatus === CONTRACT_STATUS.DISMISSED &&
+          u.currentContract?.terminationDate &&
+          u.currentContract.terminationDate < periodStart
+        )
           return false;
         return true;
       });
 
       // New hires this month
       const newHires = allUsers.filter(u => {
-        const joined = u.effectedAt || u.createdAt;
+        const joined = u.currentContract?.effectedAt || u.currentContract?.admissionDate || u.createdAt;
         return joined >= periodStart && joined <= periodEnd;
       }).length;
 
       // Dismissals this month
       const dismissals = allUsers.filter(u => {
-        return u.dismissedAt && u.dismissedAt >= periodStart && u.dismissedAt <= periodEnd;
+        return (
+          u.currentContract?.terminationDate &&
+          u.currentContract.terminationDate >= periodStart &&
+          u.currentContract.terminationDate <= periodEnd
+        );
       }).length;
 
       const headcount = activeUsers.length;
@@ -170,7 +184,7 @@ export class UserAnalyticsService {
 
     // Summary: current state
     const activeNow = allUsers.filter(u => {
-      return u.status !== USER_STATUS.DISMISSED;
+      return u.currentContractStatus !== CONTRACT_STATUS.DISMISSED;
     });
 
     const performanceLevels = activeNow
@@ -188,7 +202,11 @@ export class UserAnalyticsService {
 
     // Total turnover for the period
     const totalDismissals = allUsers.filter(u => {
-      return u.dismissedAt && u.dismissedAt >= dateRange.start && u.dismissedAt <= dateRange.end;
+      return (
+        u.currentContract?.terminationDate &&
+        u.currentContract.terminationDate >= dateRange.start &&
+        u.currentContract.terminationDate <= dateRange.end
+      );
     }).length;
     const avgHeadcount =
       items.length > 0 ? items.reduce((sum, i) => sum + i.headcount, 0) / items.length : 0;

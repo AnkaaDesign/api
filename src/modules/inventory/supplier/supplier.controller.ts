@@ -75,6 +75,7 @@ export class SupplierController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async findMany(
     @Query(new ZodQueryValidationPipe(supplierGetManySchema)) query: SupplierGetManyFormData,
@@ -144,6 +145,7 @@ export class SupplierController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async findById(
     @Param('id', ParseUUIDPipe) id: string,

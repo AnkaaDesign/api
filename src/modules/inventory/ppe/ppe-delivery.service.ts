@@ -34,11 +34,9 @@ import {
   ACTIVITY_OPERATION,
   ENTITY_TYPE,
   CHANGE_ACTION,
-  USER_STATUS,
   SCHEDULE_FREQUENCY,
   PPE_DELIVERY_STATUS,
   PPE_TYPE,
-  ACTIVE_USER_STATUSES,
 } from '@constants';
 import { PPE_DELIVERY_STATUS_ORDER } from '@constants';
 import { PrismaService } from '@modules/common/prisma/prisma.service';

@@ -118,6 +118,7 @@ export class NotificationFilterService {
     [SECTOR_PRIVILEGES.EXTERNAL]: 0, // External users have no privilege level
     [SECTOR_PRIVILEGES.PRODUCTION_MANAGER]: 8,
     [SECTOR_PRIVILEGES.AIRBRUSHING]: 0, // Airbrushing painters are third parties - same level as EXTERNAL
+    [SECTOR_PRIVILEGES.ACCOUNTING]: 6, // Same tier as FINANCIAL
   };
 
   /**
@@ -199,7 +200,11 @@ export class NotificationFilterService {
           if (serviceOrderType === 'ARTWORK' && userPrivilege === SECTOR_PRIVILEGES.DESIGNER) {
             return true;
           }
-          if (serviceOrderType === 'FINANCIAL' && userPrivilege === SECTOR_PRIVILEGES.FINANCIAL) {
+          if (
+            serviceOrderType === 'FINANCIAL' &&
+            (userPrivilege === SECTOR_PRIVILEGES.FINANCIAL ||
+              userPrivilege === SECTOR_PRIVILEGES.ACCOUNTING)
+          ) {
             return true;
           }
           if (
@@ -260,6 +265,7 @@ export class NotificationFilterService {
       requiredSectors: [
         SECTOR_PRIVILEGES.ADMIN,
         SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+        SECTOR_PRIVILEGES.ACCOUNTING,
         SECTOR_PRIVILEGES.WAREHOUSE,
       ],
       customFilter: (user: User, notification: Notification) => {
@@ -797,7 +803,11 @@ export class NotificationFilterService {
    * @returns Promise resolving to array of users
    */
   async getUsersForFinancialNotification(): Promise<User[]> {
-    return this.getUsersForSectors([SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL]);
+    return this.getUsersForSectors([
+      SECTOR_PRIVILEGES.ADMIN,
+      SECTOR_PRIVILEGES.FINANCIAL,
+      SECTOR_PRIVILEGES.ACCOUNTING,
+    ]);
   }
 
   /**
@@ -847,6 +857,7 @@ export class NotificationFilterService {
     const sectorUsers = await this.getUsersForSectors([
       SECTOR_PRIVILEGES.ADMIN,
       SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+      SECTOR_PRIVILEGES.ACCOUNTING,
       SECTOR_PRIVILEGES.WAREHOUSE,
     ]);
 
@@ -886,6 +897,7 @@ export class NotificationFilterService {
     const sectorUsers = await this.getUsersForSectors([
       SECTOR_PRIVILEGES.ADMIN,
       SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+      SECTOR_PRIVILEGES.ACCOUNTING,
     ]);
 
     if (userId) {
@@ -965,6 +977,7 @@ export class NotificationFilterService {
         return this.getUsersForSectors([
           SECTOR_PRIVILEGES.ADMIN,
           SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+          SECTOR_PRIVILEGES.ACCOUNTING,
         ]);
 
       case NOTIFICATION_TYPE.SYSTEM:

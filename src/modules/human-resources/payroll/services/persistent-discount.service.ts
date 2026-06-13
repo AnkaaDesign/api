@@ -29,6 +29,24 @@ export interface PersistentDiscountTemplate {
   percentage?: number;
   reference: string;
   expirationDate?: Date;
+  /** Parcelamento (ex.: empréstimo CLT): total de parcelas contratadas */
+  totalInstallments?: number;
+  /** Parcela corrente (1-based). Avança a cada folha mensal. */
+  currentInstallment?: number;
+}
+
+/**
+ * Próxima parcela ao copiar um desconto parcelado para a folha do mês seguinte.
+ * Retorna null quando o parcelamento foi quitado (não copiar mais).
+ */
+function nextInstallment(discount: {
+  totalInstallments?: number | null;
+  currentInstallment?: number | null;
+}): { totalInstallments: number; currentInstallment: number } | null {
+  if (!discount.totalInstallments) return null; // não parcelado — chamador deve guardar
+  const next = (discount.currentInstallment ?? 1) + 1;
+  if (next > discount.totalInstallments) return null;
+  return { totalInstallments: discount.totalInstallments, currentInstallment: next };
 }
 
 @Injectable()
@@ -100,12 +118,31 @@ export class PersistentDiscountService {
         continue;
       }
 
+      // Installment-tracked discounts (loans): advance the installment and
+      // auto-deactivate when the contracted installments are exhausted.
+      let installmentFields: { totalInstallments: number; currentInstallment: number } | null =
+        null;
+      if (discount.totalInstallments) {
+        installmentFields = nextInstallment(discount);
+        if (!installmentFields) {
+          this.logger.log(
+            `Persistent discount fully paid (${discount.currentInstallment}/${discount.totalInstallments}), deactivating: ${discount.reference}`,
+          );
+          await this.prisma.payrollDiscount.update({
+            where: { id: discount.id },
+            data: { isActive: false },
+          });
+          continue;
+        }
+      }
+
       // Copy persistent discount
       const copiedDiscount = await this.copyDiscountToNewPayroll({
         originalDiscount: discount,
         newPayrollId,
         currentMonth,
         currentYear,
+        installmentFields,
       });
 
       createdDiscountIds.push(copiedDiscount.id);
@@ -129,8 +166,9 @@ export class PersistentDiscountService {
     currentMonth: number;
     currentYear: number;
     overrides?: Partial<Prisma.PayrollDiscountCreateInput>;
+    installmentFields?: { totalInstallments: number; currentInstallment: number } | null;
   }) {
-    const { originalDiscount, newPayrollId, overrides } = params;
+    const { originalDiscount, newPayrollId, overrides, installmentFields } = params;
 
     return this.prisma.payrollDiscount.create({
       data: {
@@ -143,6 +181,8 @@ export class PersistentDiscountService {
         isActive: true,
         expirationDate: originalDiscount.expirationDate,
         baseValue: originalDiscount.baseValue,
+        totalInstallments: installmentFields?.totalInstallments ?? originalDiscount.totalInstallments ?? null,
+        currentInstallment: installmentFields?.currentInstallment ?? originalDiscount.currentInstallment ?? null,
       },
     });
   }
@@ -170,6 +210,14 @@ export class PersistentDiscountService {
       throw new Error('Either value or percentage must be provided for persistent discount');
     }
 
+    if (
+      template.totalInstallments &&
+      template.currentInstallment &&
+      template.currentInstallment > template.totalInstallments
+    ) {
+      throw new Error('Current installment cannot exceed total installments');
+    }
+
     const discount = await this.prisma.payrollDiscount.create({
       data: {
         payrollId,
@@ -180,6 +228,10 @@ export class PersistentDiscountService {
         isPersistent: true,
         isActive: true,
         expirationDate: template.expirationDate,
+        totalInstallments: template.totalInstallments ?? null,
+        currentInstallment: template.totalInstallments
+          ? (template.currentInstallment ?? 1)
+          : null,
       },
     });
 
@@ -209,6 +261,8 @@ export class PersistentDiscountService {
         percentage: updates.percentage,
         reference: updates.reference,
         expirationDate: updates.expirationDate,
+        totalInstallments: updates.totalInstallments,
+        currentInstallment: updates.currentInstallment,
       },
     });
 
@@ -277,6 +331,8 @@ export class PersistentDiscountService {
       isActive: boolean;
       expirationDate?: Date | null;
       baseValue?: number | null;
+      totalInstallments?: number | null;
+      currentInstallment?: number | null;
     }>
   > {
     const { employeeId, currentYear, currentMonth } = params;
@@ -329,6 +385,8 @@ export class PersistentDiscountService {
       isActive: boolean;
       expirationDate?: Date | null;
       baseValue?: number | null;
+      totalInstallments?: number | null;
+      currentInstallment?: number | null;
     }> = [];
 
     // Convert database discounts to discount objects
@@ -337,6 +395,20 @@ export class PersistentDiscountService {
       if (discount.expirationDate && discount.expirationDate < currentDate) {
         this.logger.log(`Skipping expired persistent discount: ${discount.reference}`);
         continue;
+      }
+
+      // Installment-tracked discounts (loans): skip when fully paid; otherwise
+      // expose the installment this month would correspond to.
+      let installmentFields: { totalInstallments: number; currentInstallment: number } | null =
+        null;
+      if (discount.totalInstallments) {
+        installmentFields = nextInstallment(discount);
+        if (!installmentFields) {
+          this.logger.log(
+            `Skipping fully paid persistent discount (${discount.currentInstallment}/${discount.totalInstallments}): ${discount.reference}`,
+          );
+          continue;
+        }
       }
 
       // Clean up reference - remove value from reference if it's duplicated there
@@ -359,6 +431,8 @@ export class PersistentDiscountService {
         isActive: true,
         expirationDate: discount.expirationDate,
         baseValue: discount.baseValue ? Number(discount.baseValue) : null,
+        totalInstallments: installmentFields?.totalInstallments ?? discount.totalInstallments ?? null,
+        currentInstallment: installmentFields?.currentInstallment ?? discount.currentInstallment ?? null,
       });
     }
 
@@ -379,8 +453,9 @@ export class PersistentDiscountService {
     totalAmount: number;
     installments: number;
     reference: string;
+    expirationDate?: Date;
   }) {
-    const { employeeId, payrollId, totalAmount, installments, reference } = params;
+    const { employeeId, payrollId, totalAmount, installments, reference, expirationDate } = params;
 
     const installmentAmount = roundCurrency(totalAmount / installments);
 
@@ -391,6 +466,9 @@ export class PersistentDiscountService {
         type: PayrollDiscountType.LOAN,
         value: installmentAmount,
         reference: `${reference} - Total: R$ ${totalAmount.toFixed(2)} (${installments}x)`,
+        totalInstallments: installments,
+        currentInstallment: 1,
+        expirationDate,
       },
     });
   }

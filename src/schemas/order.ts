@@ -11,6 +11,7 @@ import {
 import type { Order, OrderItem, OrderSchedule } from '@types';
 import {
   ORDER_STATUS,
+  ORDER_PAYMENT_STATUS,
   PAYMENT_METHOD,
   BANK_SLIP_DUE_DAYS_OPTIONS,
   SCHEDULE_FREQUENCY,
@@ -258,6 +259,10 @@ export const orderOrderBySchema = z.union([
       forecast: orderByDirectionSchema.optional(),
       status: orderByDirectionSchema.optional(),
       statusOrder: orderByDirectionSchema.optional(),
+      paymentStatus: orderByDirectionSchema.optional(),
+      paymentStatusOrder: orderByDirectionSchema.optional(),
+      paymentRequestedAt: orderByDirectionSchema.optional(),
+      paidAt: orderByDirectionSchema.optional(),
       createdAt: orderByDirectionSchema.optional(),
       updatedAt: orderByDirectionSchema.optional(),
     })
@@ -273,6 +278,10 @@ export const orderOrderBySchema = z.union([
         forecast: orderByDirectionSchema.optional(),
         status: orderByDirectionSchema.optional(),
         statusOrder: orderByDirectionSchema.optional(),
+        paymentStatus: orderByDirectionSchema.optional(),
+        paymentStatusOrder: orderByDirectionSchema.optional(),
+        paymentRequestedAt: orderByDirectionSchema.optional(),
+        paidAt: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
       })
@@ -434,6 +443,18 @@ export const orderWhereSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
+      paymentStatus: z
+        .union([
+          z.string(),
+          z.object({
+            equals: z.string().optional(),
+            not: z.string().optional(),
+            in: z.array(z.string()).optional(),
+            notIn: z.array(z.string()).optional(),
+          }),
+        ])
+        .optional(),
+
       // Number fields
       statusOrder: z
         .union([
@@ -445,6 +466,50 @@ export const orderWhereSchema: z.ZodSchema = z.lazy(() =>
             lte: z.number().optional(),
             gt: z.number().optional(),
             gte: z.number().optional(),
+          }),
+        ])
+        .optional(),
+
+      paymentStatusOrder: z
+        .union([
+          z.number(),
+          z.object({
+            equals: z.number().optional(),
+            not: z.number().optional(),
+            lt: z.number().optional(),
+            lte: z.number().optional(),
+            gt: z.number().optional(),
+            gte: z.number().optional(),
+          }),
+        ])
+        .optional(),
+
+      paymentRequestedAt: z
+        .union([
+          z.coerce.date(),
+          z.null(),
+          z.object({
+            equals: z.union([z.coerce.date(), z.null()]).optional(),
+            not: z.union([z.coerce.date(), z.null()]).optional(),
+            lt: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
+            gt: z.coerce.date().optional(),
+            gte: z.coerce.date().optional(),
+          }),
+        ])
+        .optional(),
+
+      paidAt: z
+        .union([
+          z.coerce.date(),
+          z.null(),
+          z.object({
+            equals: z.union([z.coerce.date(), z.null()]).optional(),
+            not: z.union([z.coerce.date(), z.null()]).optional(),
+            lt: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
+            gt: z.coerce.date().optional(),
+            gte: z.coerce.date().optional(),
           }),
         ])
         .optional(),
@@ -757,6 +822,13 @@ const orderFilters = {
       }),
     )
     .optional(),
+  paymentStatuses: z
+    .array(
+      z.enum(Object.values(ORDER_PAYMENT_STATUS) as [string, ...string[]], {
+        errorMap: () => ({ message: 'status de pagamento inválido' }),
+      }),
+    )
+    .optional(),
   supplierIds: z.array(z.string()).optional(),
   itemIds: z.array(z.string()).optional(),
   forecastRange: z
@@ -908,6 +980,12 @@ const orderTransform = (data: any) => {
   if (data.status && Array.isArray(data.status) && data.status.length > 0) {
     andConditions.push({ status: { in: data.status } });
     delete data.status;
+  }
+
+  // Handle paymentStatuses filter (contas a pagar)
+  if (data.paymentStatuses && Array.isArray(data.paymentStatuses) && data.paymentStatuses.length > 0) {
+    andConditions.push({ paymentStatus: { in: data.paymentStatuses } });
+    delete data.paymentStatuses;
   }
 
   // Handle supplierIds filter
@@ -1865,6 +1943,15 @@ export const orderBatchDeleteSchema = z.object({
     .max(100, 'Limite máximo de 100 pedidos por vez'),
 });
 
+// Batch payment-status operations (contas a pagar):
+// PUT /orders/batch/request-payment, /batch/mark-awaiting-payment, /batch/mark-paid
+export const orderBatchPaymentSchema = z.object({
+  orderIds: z
+    .array(z.string().uuid({ message: 'Pedido inválido' }))
+    .min(1, 'Pelo menos um ID deve ser fornecido')
+    .max(100, 'Limite máximo de 100 pedidos por vez'),
+});
+
 // Query schema for include parameter
 export const orderQuerySchema = z.object({
   include: orderIncludeSchema.optional(),
@@ -1963,6 +2050,7 @@ export type OrderUpdateFormData = z.infer<typeof orderUpdateSchema>;
 export type OrderBatchCreateFormData = z.infer<typeof orderBatchCreateSchema>;
 export type OrderBatchUpdateFormData = z.infer<typeof orderBatchUpdateSchema>;
 export type OrderBatchDeleteFormData = z.infer<typeof orderBatchDeleteSchema>;
+export type OrderBatchPaymentFormData = z.infer<typeof orderBatchPaymentSchema>;
 
 export type OrderInclude = z.infer<typeof orderIncludeSchema>;
 export type OrderOrderBy = z.infer<typeof orderOrderBySchema>;

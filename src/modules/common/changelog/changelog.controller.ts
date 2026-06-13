@@ -23,6 +23,7 @@ export class ChangeLogController {
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ACCOUNTING,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodQueryValidationPipe(changeLogGetManySchema))
@@ -46,6 +47,7 @@ export class ChangeLogController {
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ACCOUNTING,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async findOne(@Param('id') id: string, @Query('include') include?: any) {
@@ -68,6 +70,7 @@ export class ChangeLogController {
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ACCOUNTING,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getEntityHistory(

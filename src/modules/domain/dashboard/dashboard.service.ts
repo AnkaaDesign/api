@@ -25,7 +25,7 @@ import {
   HomeDashboardQueryFormData,
   FinancialDashboardQueryFormData,
 } from '../../../schemas';
-import { DASHBOARD_TIME_PERIOD, ACTIVE_USER_STATUSES, SECTOR_PRIVILEGES } from '../../../constants';
+import { DASHBOARD_TIME_PERIOD, CONTRACT_STATUS, SECTOR_PRIVILEGES } from '../../../constants';
 import {
   createTodayRange,
   createThisWeekRange,
@@ -128,7 +128,9 @@ export class DashboardService {
       const userWhere: DashboardUserWhere = {
         ...(query.sectorId && { sectorId: query.sectorId }),
         ...(query.positionId && { positionId: query.positionId }),
-        ...(!query.includeInactive && { status: { in: [...ACTIVE_USER_STATUSES] } }),
+        ...(!query.includeInactive && {
+          currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
+        }),
       };
 
       const [
@@ -1104,7 +1106,7 @@ export class DashboardService {
   private async getHRHighlights(query: UnifiedDashboardQueryFormData) {
     const [employeeStats, tasksInProgress] = await Promise.all([
       this.dashboardRepository.getEmployeeStatistics(
-        { status: { in: [...ACTIVE_USER_STATUSES] } },
+        { currentContractStatus: { not: CONTRACT_STATUS.DISMISSED } },
         {},
       ),
       this.dashboardRepository.countTasksInProgress(),

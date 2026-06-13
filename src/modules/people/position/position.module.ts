@@ -7,9 +7,10 @@ import { PositionRepository } from './repositories/position/position.repository'
 import { PositionPrismaRepository } from './repositories/position/position-prisma.repository';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
+import { SalaryAdjustmentModule } from '@modules/human-resources/salary-adjustment/salary-adjustment.module';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule],
+  imports: [PrismaModule, ChangeLogModule, SalaryAdjustmentModule],
   controllers: [PositionController],
   providers: [
     PositionService,

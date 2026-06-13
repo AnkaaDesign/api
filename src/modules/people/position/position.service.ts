@@ -34,12 +34,18 @@ import type {
   PositionInclude,
 } from '../../../schemas/position';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
-import { CHANGE_TRIGGERED_BY, ENTITY_TYPE, CHANGE_ACTION } from '../../../constants/enums';
+import {
+  CHANGE_TRIGGERED_BY,
+  ENTITY_TYPE,
+  CHANGE_ACTION,
+  SALARY_ADJUSTMENT_TYPE,
+} from '../../../constants/enums';
 import {
   trackFieldChanges,
   trackAndLogFieldChanges,
   logEntityChange,
 } from '@modules/common/changelog/utils/changelog-helpers';
+import { SalaryAdjustmentService } from '@modules/human-resources/salary-adjustment/salary-adjustment.service';
 @Injectable()
 export class PositionService {
   private readonly logger = new Logger(PositionService.name);
@@ -48,6 +54,7 @@ export class PositionService {
     private readonly prisma: PrismaService,
     private readonly positionRepository: PositionRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly salaryAdjustmentService: SalaryAdjustmentService,
   ) {}
 
   /**
@@ -612,11 +619,17 @@ export class PositionService {
 
   /**
    * Aplicar reajuste percentual de remuneração em lote
+   *
+   * Delegado ao SalaryAdjustmentService.applyCore para que todo reajuste feito
+   * por aqui também gere um registro SalaryAdjustment (+ itens) no histórico
+   * unificado de reajustes. A resposta mantém o formato legado
+   * (`{totalSuccess, totalFailed, results[]}` com oldSalary/newSalary).
    */
   async adjustPositionSalaries(
     positionIds: string[],
     percentage: number,
     userId: string,
+    type?: SALARY_ADJUSTMENT_TYPE,
   ): Promise<{
     success: boolean;
     message: string;
@@ -638,18 +651,16 @@ export class PositionService {
       };
     }
 
-    const positions = await this.prisma.position.findMany({
-      where: { id: { in: positionIds } },
-      include: {
-        remunerations: {
-          where: { current: true },
-          orderBy: { createdAt: 'desc' as const },
-          take: 1,
-        },
+    const coreResult = await this.salaryAdjustmentService.applyCore(
+      {
+        type: type || SALARY_ADJUSTMENT_TYPE.OTHER,
+        percentage,
+        positionIds,
       },
-    });
+      userId,
+    );
 
-    if (positions.length === 0) {
+    if (coreResult.foundCount === 0) {
       return {
         success: false,
         message: 'Nenhum cargo encontrado para ajuste',
@@ -657,96 +668,28 @@ export class PositionService {
       };
     }
 
-    const processedResults = await this.prisma.$transaction(async tx => {
-      const batchResults: any[] = [];
-
-      for (const position of positions) {
-        try {
-          const currentSalary = position.remunerations?.[0]?.value ?? 0;
-
-          if (currentSalary === 0) {
-            batchResults.push({
-              positionId: position.id,
-              positionName: position.name,
-              success: false,
-              error: 'Cargo não possui remuneração definida',
-            });
-            continue;
-          }
-
-          const adjustment = currentSalary * (percentage / 100);
-          const newSalary = currentSalary + adjustment;
-
-          if (newSalary < 0) {
-            batchResults.push({
-              positionId: position.id,
-              positionName: position.name,
-              success: false,
-              error: 'Remuneração não pode ser negativa',
-            });
-            continue;
-          }
-
-          await tx.monetaryValue.updateMany({
-            where: { positionId: position.id, current: true },
-            data: { current: false },
-          });
-
-          await tx.monetaryValue.create({
-            data: {
-              positionId: position.id,
-              value: newSalary,
-              current: true,
-            },
-          });
-
-          try {
-            await this.changeLogService.logChange({
-              entityType: ENTITY_TYPE.POSITION,
-              entityId: position.id,
-              action: CHANGE_ACTION.UPDATE,
-              field: 'remuneration',
-              oldValue: currentSalary.toFixed(2),
-              newValue: newSalary.toFixed(2),
-              reason: `Reajuste de ${percentage}%`,
-              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-              triggeredById: null,
-              userId: userId || null,
-              transaction: tx,
-            });
-          } catch (logError) {
-            this.logger.error(`Erro ao logar reajuste para cargo ${position.id}:`, logError);
-          }
-
-          batchResults.push({
-            positionId: position.id,
-            positionName: position.name,
+    // Mapear para o formato legado de resultados
+    const processedResults = coreResult.results.map(r =>
+      r.success
+        ? {
+            positionId: r.positionId,
+            positionName: r.positionName,
             success: true,
-            oldSalary: currentSalary,
-            newSalary,
-            adjustment,
-            percentageApplied: percentage,
-          });
-        } catch (error: any) {
-          this.logger.error(`Erro ao reajustar cargo ${position.id}:`, error);
-          batchResults.push({
-            positionId: position.id,
-            positionName: position.name,
+            oldSalary: r.previousValue,
+            newSalary: r.newValue,
+            adjustment: r.adjustment,
+            percentageApplied: r.percentageApplied,
+          }
+        : {
+            positionId: r.positionId,
+            positionName: r.positionName,
             success: false,
-            error: error.message || 'Erro ao reajustar remuneração',
-          });
-        }
-      }
+            error: r.error,
+          },
+    );
 
-      return batchResults;
-    });
-
-    let successCount = 0;
-    let failCount = 0;
-    processedResults.forEach(r => {
-      if (r.success) successCount++;
-      else failCount++;
-    });
+    const successCount = coreResult.totalSuccess;
+    const failCount = coreResult.totalFailed;
 
     const successMessage =
       successCount === 1

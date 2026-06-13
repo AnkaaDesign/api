@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { USER_STATUS } from '../../../constants/enums';
+import { CONTRACT_TYPE } from '../../../constants/enums';
 import {
   businessMonthKey,
   businessPeriodEnd,
@@ -32,7 +32,7 @@ const UNASSIGNED_POSITION_LABEL = 'Sem cargo';
 
 type UserRow = {
   id: string;
-  status: string;
+  contractType: string | null;
   sectorId: string | null;
   positionId: string | null;
   createdAt: Date;
@@ -41,6 +41,53 @@ type UserRow = {
   exp2EndAt: Date | null;
   dismissedAt: Date | null;
 };
+
+// Prisma select pulling the employment fields from the current contract (vínculo).
+const USER_ROW_SELECT = {
+  id: true,
+  sectorId: true,
+  positionId: true,
+  createdAt: true,
+  currentContractType: true,
+  currentContract: {
+    select: {
+      contractType: true,
+      effectedAt: true,
+      exp1EndAt: true,
+      exp2EndAt: true,
+      terminationDate: true,
+    },
+  },
+} as const;
+
+// Flatten the prisma row (current-contract relation) into the legacy UserRow
+// shape so the downstream aggregation logic stays untouched.
+function toUserRow(u: {
+  id: string;
+  sectorId: string | null;
+  positionId: string | null;
+  createdAt: Date;
+  currentContractType: string | null;
+  currentContract: {
+    contractType: string | null;
+    effectedAt: Date | null;
+    exp1EndAt: Date | null;
+    exp2EndAt: Date | null;
+    terminationDate: Date | null;
+  } | null;
+}): UserRow {
+  return {
+    id: u.id,
+    contractType: u.currentContract?.contractType ?? u.currentContractType ?? null,
+    sectorId: u.sectorId,
+    positionId: u.positionId,
+    createdAt: u.createdAt,
+    effectedAt: u.currentContract?.effectedAt ?? null,
+    exp1EndAt: u.currentContract?.exp1EndAt ?? null,
+    exp2EndAt: u.currentContract?.exp2EndAt ?? null,
+    dismissedAt: u.currentContract?.terminationDate ?? null,
+  };
+}
 
 type PeriodBucket = {
   key: string;
@@ -70,20 +117,12 @@ export class HrStatisticsService {
     if (filters.sectorIds?.length) userWhere.sectorId = { in: filters.sectorIds };
     if (filters.positionIds?.length) userWhere.positionId = { in: filters.positionIds };
 
-    const users = await this.prisma.user.findMany({
-      where: userWhere,
-      select: {
-        id: true,
-        status: true,
-        sectorId: true,
-        positionId: true,
-        createdAt: true,
-        effectedAt: true,
-        exp1EndAt: true,
-        exp2EndAt: true,
-        dismissedAt: true,
-      },
-    });
+    const users = (
+      await this.prisma.user.findMany({
+        where: userWhere,
+        select: USER_ROW_SELECT,
+      })
+    ).map(toUserRow);
 
     const [sectors, positions] = await Promise.all([
       this.prisma.sector.findMany({ select: { id: true, name: true } }),
@@ -216,7 +255,7 @@ export class HrStatisticsService {
     const timeseries: HeadcountTimeseriesItem[] = buckets.map(b => {
       const activeUsers = users.filter(u => this.isActiveDuring(u, b.start, b.end));
       const inExperience = activeUsers.filter(
-        u => u.status === USER_STATUS.EXPERIENCE_PERIOD_1 || u.status === USER_STATUS.EXPERIENCE_PERIOD_2,
+        u => u.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_1 || u.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
       ).length;
       const newHires = users.filter(u => {
         const j = this.joinDate(u);
@@ -263,9 +302,9 @@ export class HrStatisticsService {
     ).length;
 
     const inExperience = snapshotActive.filter(
-      u => u.status === USER_STATUS.EXPERIENCE_PERIOD_1 || u.status === USER_STATUS.EXPERIENCE_PERIOD_2,
+      u => u.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_1 || u.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
     ).length;
-    const effected = snapshotActive.filter(u => u.status === USER_STATUS.EFFECTED).length;
+    const effected = snapshotActive.filter(u => u.contractType === CONTRACT_TYPE.EFFECTED).length;
 
     const summary: HeadcountSummary = {
       totalActive,
@@ -305,20 +344,12 @@ export class HrStatisticsService {
     if (filters.sectorIds?.length) userWhere.sectorId = { in: filters.sectorIds };
     if (filters.positionIds?.length) userWhere.positionId = { in: filters.positionIds };
 
-    const users = await this.prisma.user.findMany({
-      where: userWhere,
-      select: {
-        id: true,
-        status: true,
-        sectorId: true,
-        positionId: true,
-        createdAt: true,
-        effectedAt: true,
-        exp1EndAt: true,
-        exp2EndAt: true,
-        dismissedAt: true,
-      },
-    });
+    const users = (
+      await this.prisma.user.findMany({
+        where: userWhere,
+        select: USER_ROW_SELECT,
+      })
+    ).map(toUserRow);
 
     const sectors = isComparisonBySector
       ? await this.prisma.sector.findMany({

@@ -60,7 +60,7 @@ export class PositionController {
 
   // Basic CRUD Operations
   @Get()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async findMany(
     @Query(new ZodQueryValidationPipe(positionGetManySchema)) query: PositionGetManyFormData,
   ): Promise<PositionGetManyResponse> {
@@ -69,7 +69,7 @@ export class PositionController {
 
   // Batch Operations (before dynamic routes)
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(positionBatchCreateSchema)) data: PositionBatchCreateFormData,
@@ -80,7 +80,7 @@ export class PositionController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async batchUpdate(
     @Body(new ZodValidationPipe(positionBatchUpdateSchema)) data: PositionBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(positionQuerySchema)) query: PositionQueryFormData,
@@ -90,7 +90,7 @@ export class PositionController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(positionBatchDeleteSchema)) data: PositionBatchDeleteFormData,
@@ -100,7 +100,7 @@ export class PositionController {
   }
 
   @Post('batch-adjust-salaries')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.OK)
   async adjustPositionSalaries(
     @Body() data: { positionIds: string[]; percentage: number },
@@ -118,7 +118,7 @@ export class PositionController {
   }
 
   @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(positionQuerySchema)) query: PositionQueryFormData,
@@ -127,7 +127,7 @@ export class PositionController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body(new ZodValidationPipe(positionCreateSchema)) data: PositionCreateFormData,
@@ -138,7 +138,7 @@ export class PositionController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(positionUpdateSchema)) data: PositionUpdateFormData,
@@ -149,7 +149,7 @@ export class PositionController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,

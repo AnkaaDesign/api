@@ -15,9 +15,9 @@ import { VerificationService } from '../verification/verification.service';
 import { SmsService } from '../sms/sms.service';
 import { EmailService } from '../mailer/services/email.service';
 import {
-  USER_STATUS,
-  USER_STATUS_LABELS,
-  USER_STATUS_ORDER,
+  CONTRACT_TYPE,
+  CONTRACT_STATUS,
+  CONTRACT_STATUS_LABELS,
   CHANGE_ACTION,
   ENTITY_TYPE,
   CHANGE_TRIGGERED_BY,
@@ -92,8 +92,9 @@ export class AuthService {
       throw new NotFoundException('Email ou número não cadastrado.');
     }
 
-    const user = await this.usersRepository.findById(foundUser.id, {
-      include: { sector: true, ledSector: true },
+    const user = await this.usersRepository.findByIdWithCredentials(foundUser.id, {
+      sector: true,
+      ledSector: true,
     });
 
     if (!user) {
@@ -182,7 +183,9 @@ export class AuthService {
           email: user.email,
           phone: user.phone,
           name: user.name,
-          status: user.status,
+          currentContractType: user.currentContractType,
+          currentContractStatus: user.currentContractStatus,
+          currentEmployeeType: user.currentEmployeeType,
           requirePasswordChange: user.requirePasswordChange,
           verified: user.verified,
           sectorId: user.sectorId,
@@ -250,11 +253,14 @@ export class AuthService {
       email: email || null,
       phone: phone || null,
       password: hashedPassword,
-      status: USER_STATUS.EXPERIENCE_PERIOD_1,
+      // Guest (Convidado) self-signup: no real vínculo yet — seed the current
+      // contract-type cache so the experiência phase is reflected until HR
+      // formalises an EmploymentContract.
+      currentContractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
       verified: false, // Requires verification
       performanceLevel: 0,
       sectorId: guestSector.id, // Assign to Convidado sector
-    });
+    } as any);
 
     if (!user) {
       throw new BadRequestException(
@@ -302,7 +308,9 @@ export class AuthService {
           email: user.email,
           phone: user.phone,
           name: user.name,
-          status: user.status,
+          currentContractType: user.currentContractType,
+          currentContractStatus: user.currentContractStatus,
+          currentEmployeeType: user.currentEmployeeType,
           requirePasswordChange: false,
           verified: user.verified,
         },
@@ -315,7 +323,7 @@ export class AuthService {
       throw new BadRequestException('ID do usuário é obrigatório.');
     }
 
-    const user = await this.usersRepository.findById(userId);
+    const user = await this.usersRepository.findByIdWithCredentials(userId);
     if (!user) {
       throw new NotFoundException('Usuário não encontrado.');
     }
@@ -670,7 +678,7 @@ export class AuthService {
       throw new BadRequestException('ID do usuário, senha atual e nova senha são obrigatórios.');
     }
 
-    const user = await this.usersRepository.findById(userId);
+    const user = await this.usersRepository.findByIdWithCredentials(userId);
     if (!user) {
       throw new NotFoundException('Usuário não encontrado.');
     }
@@ -733,7 +741,7 @@ export class AuthService {
   // Admin methods
   async toggleUserStatus(
     targetUserId: string,
-    status: USER_STATUS,
+    status: CONTRACT_STATUS,
     reason: string | undefined,
     adminUserId: string,
   ): Promise<{ message: string }> {
@@ -746,20 +754,18 @@ export class AuthService {
       throw new NotFoundException('Usuário não encontrado.');
     }
 
-    const oldStatus = user.status;
-    const oldStatusOrder = user.statusOrder;
+    const oldStatus = user.currentContractStatus;
 
     // Prevent changing status to the same value
     if (oldStatus === status) {
-      throw new BadRequestException(`Usuário já está com status ${USER_STATUS_LABELS[status]}.`);
+      throw new BadRequestException(`Usuário já está com status ${CONTRACT_STATUS_LABELS[status]}.`);
     }
 
-    const newStatusOrder = USER_STATUS_ORDER[status];
-
-    // Update user status
+    // Flip the current contract's status (the user-update path writes the contract
+    // row and re-syncs the User cache + isActive flag).
     await this.usersRepository.update(targetUserId, {
-      status,
-      statusOrder: newStatusOrder,
+      contractStatus: status,
+      isActive: status !== CONTRACT_STATUS.DISMISSED,
     });
 
     // Track status change
@@ -767,54 +773,24 @@ export class AuthService {
       entityType: ENTITY_TYPE.USER,
       entityId: targetUserId,
       action: CHANGE_ACTION.UPDATE,
-      field: 'status',
+      field: 'currentContractStatus',
       oldValue: oldStatus,
       newValue: status,
-      reason: reason || `Status alterado para ${USER_STATUS_LABELS[status]}`,
+      reason: reason || `Status alterado para ${CONTRACT_STATUS_LABELS[status]}`,
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
       triggeredById: adminUserId,
       userId: adminUserId,
     });
 
-    // Track statusOrder change
-    if (oldStatusOrder !== newStatusOrder) {
-      await this.changeLogService.logChange({
-        entityType: ENTITY_TYPE.USER,
-        entityId: targetUserId,
-        action: CHANGE_ACTION.UPDATE,
-        field: 'statusOrder',
-        oldValue: oldStatusOrder,
-        newValue: newStatusOrder,
-        reason: 'Ordem de status atualizada',
-        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-        triggeredById: adminUserId,
-        userId: adminUserId,
-      });
-    }
-
     // If dismissing, clear the logged in token
-    if (status === USER_STATUS.DISMISSED) {
+    if (status === CONTRACT_STATUS.DISMISSED) {
       await this.usersRepository.update(targetUserId, {
         sessionToken: null,
       });
     }
 
-    // Log status change
-    await this.changeLogService.logChange({
-      entityType: ENTITY_TYPE.USER,
-      entityId: targetUserId,
-      action: CHANGE_ACTION.UPDATE,
-      field: 'status',
-      oldValue: oldStatus,
-      newValue: status,
-      reason: reason || `Status changed by admin`,
-      triggeredBy: CHANGE_TRIGGERED_BY.USER,
-      triggeredById: adminUserId,
-      userId: adminUserId,
-    });
-
     return {
-      message: `Status do usuário alterado para ${USER_STATUS_LABELS[status]}.`,
+      message: `Status do usuário alterado para ${CONTRACT_STATUS_LABELS[status]}.`,
     };
   }
 
@@ -894,7 +870,7 @@ export class AuthService {
       throw new BadRequestException('ID do usuário, motivo e ID do admin são obrigatórios.');
     }
 
-    const user = await this.usersRepository.findById(targetUserId);
+    const user = await this.usersRepository.findByIdWithCredentials(targetUserId);
     if (!user) {
       throw new NotFoundException('Usuário não encontrado.');
     }
@@ -1073,7 +1049,9 @@ export class AuthService {
           email: user.email,
           phone: user.phone,
           name: user.name,
-          status: user.status,
+          currentContractType: user.currentContractType,
+          currentContractStatus: user.currentContractStatus,
+          currentEmployeeType: user.currentEmployeeType,
           requirePasswordChange: user.requirePasswordChange,
           verified: user.verified,
           sectorId: user.sectorId,

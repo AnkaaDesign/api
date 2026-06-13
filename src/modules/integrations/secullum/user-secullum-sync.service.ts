@@ -156,7 +156,7 @@ export class UserSecullumSyncService implements OnModuleInit {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
-        include: { sector: true, position: true },
+        include: { sector: true, position: true, currentContract: true },
       });
       if (!user) {
         return { status: 'skipped', reason: 'usuário não encontrado' };
@@ -227,7 +227,9 @@ export class UserSecullumSyncService implements OnModuleInit {
         Uf: user.state ?? undefined,
         Nascimento: this.toSecullumDate(user.birth),
         Admissao:
-          this.toSecullumDate(user.exp1StartAt) ??
+          this.toSecullumDate(
+            user.currentContract?.admissionDate ?? user.currentContract?.exp1StartAt,
+          ) ??
           new Date().toISOString().slice(0, 10) + 'T00:00:00',
         EmpresaId: empresaId,
         HorarioId: horarioId,
@@ -295,7 +297,7 @@ export class UserSecullumSyncService implements OnModuleInit {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
-        include: { sector: true, position: true },
+        include: { sector: true, position: true, currentContract: true },
       });
       if (!user) {
         return { status: 'skipped', reason: 'usuário não encontrado' };
@@ -316,7 +318,7 @@ export class UserSecullumSyncService implements OnModuleInit {
           user.secullumEmployeeId,
         );
 
-        const dismissedAt = (user as { dismissedAt?: Date | null }).dismissedAt;
+        const dismissedAt = user.currentContract?.terminationDate ?? null;
         const demissaoIso = dismissedAt
           ? (dismissedAt instanceof Date
               ? dismissedAt.toISOString().slice(0, 10)

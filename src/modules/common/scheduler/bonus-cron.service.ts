@@ -63,7 +63,8 @@ export class BonusCronService {
         this.prisma.payroll.count({ where: { year: periodYear, month: periodMonth } }),
         this.prisma.user.count({
           where: {
-            status: 'EFFECTED',
+            currentContractType: 'EFFECTED',
+            currentEmployeeType: 'CLT',
             payrollNumber: { not: null },
             secullumEmployeeId: { not: null },
           },

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { phoneSchema, emailSchema, contactMethodSchema, smsCodeSchema } from './common';
-import { USER_STATUS } from '@constants';
+import { CONTRACT_STATUS } from '@constants';
 
 // Enhanced helper using the new contact method validation
 const contactStringSchema = contactMethodSchema;
@@ -107,7 +107,7 @@ export type PasswordResetFormData = z.infer<typeof passwordResetSchema>;
 // Admin toggle user status schema
 export const adminToggleUserStatusSchema = z.object({
   userId: z.string().uuid('Usuário inválido'),
-  status: z.enum(Object.values(USER_STATUS) as [string, ...string[]], {
+  status: z.enum(Object.values(CONTRACT_STATUS) as [string, ...string[]], {
     errorMap: () => ({ message: 'Status inválido' }),
   }),
   reason: z.string().min(3, 'Motivo deve ter pelo menos 3 caracteres').optional(),

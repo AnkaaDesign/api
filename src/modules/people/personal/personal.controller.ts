@@ -90,6 +90,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyLoans(
     @Query(new ZodQueryValidationPipe(borrowGetManySchema)) query: BorrowGetManyFormData,
@@ -120,6 +121,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyEpis(
     @Query(new ZodQueryValidationPipe(ppeDeliveryGetManySchema)) query: PpeDeliveryGetManyFormData,
@@ -147,6 +149,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async requestEpi(
     @Body(new ZodValidationPipe(ppeDeliveryPersonalRequestSchema))
@@ -190,6 +193,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyActivities(
     @Query(new ZodQueryValidationPipe(activityGetManySchema)) query: ActivityGetManyFormData,
@@ -220,6 +224,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyWarnings(
     @Query(new ZodQueryValidationPipe(warningGetManySchema)) query: WarningGetManyFormData,
@@ -251,6 +256,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyHolidays(
     @Query('year') year?: string,
@@ -286,6 +292,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMySecullumCalculations(
     @Query('startDate') startDate: string,
@@ -329,6 +336,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyMissingDays(
     @Query('startDate') startDate: string,
@@ -355,6 +363,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyJustificativas(@UserId() userId: string) {
     return this.personalService.getMyJustificativas(userId);
@@ -377,6 +386,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMySolicitacaoByDate(
     @Param('date') date: string,
@@ -403,6 +413,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async createMyJustifyAbsence(
     @Body()
@@ -441,6 +452,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyBatidasForDate(
     @Param('date') date: string,
@@ -467,6 +479,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async createMyAjustePonto(
     @Body()
@@ -514,6 +527,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyInclusaoPontoConfig(@UserId() userId: string) {
     return this.personalService.getMyInclusaoPontoConfig(userId);
@@ -538,6 +552,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyInclusaoPontoPendencias(@UserId() userId: string) {
     return this.personalService.getMyInclusaoPontoPendencias(userId);
@@ -563,6 +578,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async createMyInclusaoPonto(
     @Body()
@@ -602,6 +618,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async reverseGeocode(
     @Query('latitude') latitude: string,
@@ -629,6 +646,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyInclusaoPontoComprovante(
     @Param('registroPendenciaId') registroPendenciaId: string,
@@ -668,6 +686,7 @@ export class PersonalController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async getMyInclusaoPontoComprovanteUrl(
     @Param('registroPendenciaId') registroPendenciaId: string,
