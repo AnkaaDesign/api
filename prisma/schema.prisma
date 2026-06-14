@@ -2773,13 +2773,6 @@ enum MaintenanceStatus {
   OVERDUE
 }
 
-enum AbsenceStatus {
-  PENDING_JUSTIFICATION
-  JUSTIFICATION_SUBMITTED
-  APPROVED
-  REJECTED
-}
-
 enum PpeRequestStatus {
   PENDING
   APPROVED
@@ -5214,6 +5207,7 @@ model Admission {
   contract    EmploymentContract? @relation("ADMISSION_CONTRACT", fields: [contractId], references: [id], onDelete: Cascade)
   createdBy   User?               @relation("ADMISSION_CREATED_BY", fields: [createdById], references: [id])
   documents   AdmissionDocument[]
+  admissionExam MedicalExam?      @relation("ADMISSION_EXAM")
 
   @@index([userId])
   @@index([statusOrder])
@@ -5378,6 +5372,7 @@ model Termination {
   initiatedBy            User?                 @relation("TERMINATION_INITIATED_BY", fields: [initiatedById], references: [id])
   items                  TerminationItem[]
   documents              TerminationDocument[]
+  dismissalExam          MedicalExam?          @relation("TERMINATION_EXAM")
   warnings               Warning[]             @relation("WARNING_TERMINATION")
 
   @@index([userId])
@@ -5460,15 +5455,23 @@ model MedicalExam {
   clinic        String?
   notes         String?
   fileId        String?
+  // Optional FK links to the employment-lifecycle event that requires this exam,
+  // replacing the fragile userId+type heuristic (one user has many vínculos).
+  admissionId   String?           @unique
+  terminationId String?           @unique
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
   user          User              @relation("MEDICAL_EXAM_USER", fields: [userId], references: [id], onDelete: Cascade)
   file          File?             @relation("MEDICAL_EXAM_ASO", fields: [fileId], references: [id])
+  admission     Admission?        @relation("ADMISSION_EXAM", fields: [admissionId], references: [id], onDelete: SetNull)
+  termination   Termination?      @relation("TERMINATION_EXAM", fields: [terminationId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([statusOrder])
   @@index([expiresAt])
   @@index([fileId])
+  @@index([admissionId])
+  @@index([terminationId])
 }
 
 enum LeaveType {

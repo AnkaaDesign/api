@@ -100,14 +100,23 @@ export class CronService {
     try {
       const now = new Date();
 
-      // Get all active orders with overdue forecasts
+      // Get all active orders with overdue forecasts. Exclude any order that has
+      // already been fulfilled or (partially) received — OVERDUE means "past the
+      // expected date and NOT yet handled". Flipping a fulfilled order to OVERDUE
+      // would mask the fulfillment and wrongly resurrect it in Contas a Pagar.
       const overdueOrders = await this.orderService.findMany({
         where: {
           forecast: {
             lte: now,
           },
           status: {
-            notIn: [ORDER_STATUS.RECEIVED, ORDER_STATUS.CANCELLED, ORDER_STATUS.OVERDUE],
+            notIn: [
+              ORDER_STATUS.FULFILLED,
+              ORDER_STATUS.PARTIALLY_RECEIVED,
+              ORDER_STATUS.RECEIVED,
+              ORDER_STATUS.CANCELLED,
+              ORDER_STATUS.OVERDUE,
+            ],
           },
         },
       });

@@ -28,6 +28,9 @@ import {
   OrderItemDeleteResponse,
   OrderPaymentSummaryResponse,
   OrderPaymentSummaryData,
+  PayableRow,
+  PayablesResponse,
+  PayablesSummary,
 } from '../../../types';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import {
@@ -1023,6 +1026,14 @@ export class OrderService {
             userId: userId || null,
             transaction: tx,
           });
+
+          // "Pago = Recebido": settle payment when the order reaches a settled status.
+          await this.autoSettlePaymentForStatus(
+            tx,
+            id,
+            actualUpdateData.status as ORDER_STATUS,
+            userId,
+          );
         }
 
         // Track field-level changes (excluding status which is handled separately)
@@ -2412,6 +2423,14 @@ export class OrderService {
           userId: null,
           transaction,
         });
+
+        // "Pago = Recebido": settle payment when the order reaches a settled status.
+        await this.autoSettlePaymentForStatus(
+          transaction as PrismaTransaction,
+          orderId,
+          newStatus,
+          null,
+        );
       }
     } catch (error) {
       this.logger.error(`Error checking order fulfillment status for order ${orderId}:`, error);
@@ -2527,6 +2546,14 @@ export class OrderService {
           userId: null,
           transaction,
         });
+
+        // "Pago = Recebido": settle payment when the order reaches a settled status.
+        await this.autoSettlePaymentForStatus(
+          transaction as PrismaTransaction,
+          orderId,
+          newStatus,
+          null,
+        );
       }
     } catch (error) {
       this.logger.error(`Error checking order received status for order ${orderId}:`, error);
@@ -2560,6 +2587,67 @@ export class OrderService {
     [ORDER_PAYMENT_STATUS.AWAITING_PAYMENT]: 'Aguardando pagamento',
     [ORDER_PAYMENT_STATUS.PAID]: 'Pago',
   };
+
+  // Canonical payables convention (see ANDRESSA_WIRING_CONTRACT.md).
+  // An order's payment obligation is OPEN iff it is not cancelled, not paid, and still
+  // has at least one unfulfilled item (`items: { some: { fulfilledAt: null } }`). Keying
+  // on item fulfillment — not the status label — means a fulfilled order that the cron
+  // later flips to OVERDUE still counts as settled ("Pago = Recebido"). Reaching a
+  // SETTLED status also auto-marks the payment PAID (see autoSettlePaymentForStatus).
+  static readonly SETTLED_ORDER_STATUSES: ORDER_STATUS[] = [
+    ORDER_STATUS.FULFILLED,
+    ORDER_STATUS.PARTIALLY_RECEIVED,
+    ORDER_STATUS.RECEIVED,
+  ];
+
+  /**
+   * "Pago = Recebido": when an order reaches a settled fulfillment status, mark its
+   * payment as PAID (stamping paidAt) so it drops out of the open payables and shows
+   * in the "Pago" view. No-op if already PAID or not a settled status. Best-effort —
+   * never throws into the caller's status flow.
+   */
+  private async autoSettlePaymentForStatus(
+    tx: PrismaTransaction,
+    orderId: string,
+    newStatus: ORDER_STATUS,
+    userId?: string | null,
+  ): Promise<void> {
+    if (!OrderService.SETTLED_ORDER_STATUSES.includes(newStatus)) return;
+    try {
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        select: { paymentStatus: true },
+      });
+      if (!order || order.paymentStatus === ORDER_PAYMENT_STATUS.PAID) return;
+
+      const now = new Date();
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          paymentStatus: ORDER_PAYMENT_STATUS.PAID as any,
+          paymentStatusOrder: ORDER_PAYMENT_STATUS_ORDER[ORDER_PAYMENT_STATUS.PAID] ?? 4,
+          paidAt: now,
+        },
+      });
+
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.ORDER,
+        entityId: orderId,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'paymentStatus',
+        oldValue: order.paymentStatus,
+        newValue: ORDER_PAYMENT_STATUS.PAID,
+        reason: 'Pagamento liquidado automaticamente (pedido recebido/cumprido)',
+        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+        triggeredById: orderId,
+        userId: userId || null,
+        transaction: tx,
+      });
+    } catch (error) {
+      this.logger.error(`Error auto-settling payment for order ${orderId}:`, error);
+      // Don't throw - this is a side-effect of the status flow.
+    }
+  }
 
   /**
    * Core payment-status transition (single order, inside an existing transaction).
@@ -2722,7 +2810,13 @@ export class OrderService {
       const orders = await this.prisma.order.findMany({
         where: {
           OR: [
-            { paymentStatus: { not: ORDER_PAYMENT_STATUS.PAID } },
+            // Open obligations: not settled/cancelled, not paid, still has an unfulfilled item.
+            {
+              status: { notIn: [...OrderService.SETTLED_ORDER_STATUSES, ORDER_STATUS.CANCELLED] },
+              paymentStatus: { not: ORDER_PAYMENT_STATUS.PAID },
+              items: { some: { fulfilledAt: null } },
+            },
+            // Recently settled (paid or fulfilled→auto-paid) within the window.
             { paymentStatus: ORDER_PAYMENT_STATUS.PAID, paidAt: { gte: paidWindowStart } },
           ],
         },
@@ -2774,6 +2868,168 @@ export class OrderService {
       this.logger.error('Erro ao carregar resumo de pagamentos:', error);
       throw new InternalServerErrorException(
         'Erro ao carregar resumo de pagamentos. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  /**
+   * Unified payables list (Contas a Pagar). Unions three sources into normalized rows
+   * grouped by payee, each carrying its own payment state:
+   *   - open ORDERS (status ∈ PAYABLE_OPEN_STATUSES, not yet PAID)
+   *   - AIRBRUSHING painter payments (price set, paymentStatus ≠ PAID)
+   *   - SCHEDULED/expected recurring outflows (active OrderSchedule due, via expected totals)
+   */
+  async getPayables(): Promise<PayablesResponse> {
+    try {
+      const [orders, airbrushings, schedules] = await Promise.all([
+        this.prisma.order.findMany({
+          where: {
+            // Open obligation = not in a settled/cancelled status AND not paid AND still
+            // has at least one unfulfilled item. The status guard catches historical
+            // RECEIVED orders whose items lack a fulfilledAt stamp; the item guard catches
+            // fulfilled orders the cron flipped to OVERDUE ("Pago = Recebido").
+            status: { notIn: [...OrderService.SETTLED_ORDER_STATUSES, ORDER_STATUS.CANCELLED] },
+            paymentStatus: { not: ORDER_PAYMENT_STATUS.PAID },
+            items: { some: { fulfilledAt: null } },
+          },
+          select: {
+            id: true,
+            description: true,
+            forecast: true,
+            paymentMethod: true,
+            paymentStatus: true,
+            paymentRequestedAt: true,
+            freight: true,
+            discount: true,
+            supplierId: true,
+            supplier: { select: { id: true, fantasyName: true } },
+            items: { select: { orderedQuantity: true, price: true, icms: true, ipi: true } },
+          },
+        }),
+        this.prisma.airbrushing.findMany({
+          where: {
+            // Only owed once the work is COMPLETED (and not already fully paid).
+            status: 'COMPLETED',
+            paymentStatus: { not: 'PAID' },
+            price: { not: null, gt: 0 },
+          },
+          select: {
+            id: true,
+            price: true,
+            paymentStatus: true,
+            finishDate: true,
+            taskId: true,
+            painterId: true,
+            painter: { select: { id: true, name: true } },
+            task: { select: { name: true } },
+          },
+        }),
+        this.prisma.orderSchedule.findMany({
+          where: { isActive: true, finishedAt: null, nextRun: { not: null } },
+          select: {
+            id: true,
+            nextRun: true,
+            supplierId: true,
+            supplier: { select: { id: true, fantasyName: true } },
+          },
+        }),
+      ]);
+
+      const rows: PayableRow[] = [];
+
+      // --- ORDER rows ---
+      for (const order of orders) {
+        let itemsTotal = 0;
+        let goodsSubtotal = 0;
+        for (const item of order.items) {
+          const subtotal = item.orderedQuantity * item.price;
+          goodsSubtotal += subtotal;
+          itemsTotal += subtotal * (1 + (item.icms || 0) / 100 + (item.ipi || 0) / 100);
+        }
+        const discountAmount = order.discount > 0 ? goodsSubtotal * (order.discount / 100) : 0;
+        const amount = itemsTotal - discountAmount + (order.freight || 0);
+
+        rows.push({
+          source: 'ORDER',
+          id: order.id,
+          payeeId: order.supplierId ?? null,
+          payeeName: order.supplier?.fantasyName ?? 'Sem fornecedor',
+          description: order.description,
+          amount,
+          paymentState: order.paymentStatus as PayableRow['paymentState'],
+          dueDate: order.forecast ?? null,
+          method: order.paymentMethod ?? null,
+          requestedAt: order.paymentRequestedAt ?? null,
+        });
+      }
+
+      // --- AIRBRUSHING rows ---
+      for (const ab of airbrushings) {
+        rows.push({
+          source: 'AIRBRUSHING',
+          id: ab.id,
+          payeeId: ab.painterId ?? null,
+          payeeName: ab.painter?.name ?? 'Aerografia (sem pintor)',
+          description: ab.task?.name ? `Aerografia — ${ab.task.name}` : 'Aerografia',
+          amount: ab.price ?? 0,
+          paymentState: ab.paymentStatus === 'PARTIALLY_PAID' ? 'PARTIALLY_PAID' : 'NOT_REQUESTED',
+          dueDate: ab.finishDate ?? null,
+          method: null,
+          requestedAt: null,
+          taskId: ab.taskId,
+        });
+      }
+
+      // --- SCHEDULED/expected rows ---
+      if (schedules.length > 0) {
+        const expected = await this.orderScheduleService.getExpectedTotals(
+          schedules.map(s => s.id),
+        );
+        const expectedById = new Map(expected.map(e => [e.id, e]));
+        for (const schedule of schedules) {
+          const exp = expectedById.get(schedule.id);
+          const amount = exp?.expectedTotal ?? 0;
+          if (amount <= 0) continue;
+          rows.push({
+            source: 'SCHEDULED',
+            id: schedule.id,
+            payeeId: schedule.supplierId ?? null,
+            payeeName: schedule.supplier?.fantasyName ?? 'Sem fornecedor',
+            description: 'Pedido programado (recorrente)',
+            amount,
+            paymentState: 'EXPECTED',
+            dueDate: exp?.nextRun ?? schedule.nextRun ?? null,
+            method: null,
+            requestedAt: null,
+          });
+        }
+      }
+
+      // --- summary buckets ---
+      const emptyBucket = () => ({ count: 0, total: 0 });
+      const summary: PayablesSummary = {
+        NOT_REQUESTED: emptyBucket(),
+        REQUESTED: emptyBucket(),
+        AWAITING_PAYMENT: emptyBucket(),
+        PARTIALLY_PAID: emptyBucket(),
+        EXPECTED: emptyBucket(),
+      };
+      for (const row of rows) {
+        const bucket = summary[row.paymentState];
+        if (!bucket) continue;
+        bucket.count += 1;
+        bucket.total += row.amount;
+      }
+
+      return {
+        success: true,
+        message: 'Contas a pagar carregadas com sucesso.',
+        data: { rows, summary },
+      };
+    } catch (error: any) {
+      this.logger.error('Erro ao carregar contas a pagar:', error);
+      throw new InternalServerErrorException(
+        'Erro ao carregar contas a pagar. Por favor, tente novamente.',
       );
     }
   }

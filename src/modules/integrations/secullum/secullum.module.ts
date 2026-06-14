@@ -8,6 +8,7 @@ import { SecullumCadastrosController } from './secullum-cadastros.controller';
 import { SecullumStatisticsService } from './secullum-statistics.service';
 import { UserSecullumSyncService } from './user-secullum-sync.service';
 import { SecullumVacationSyncService } from './secullum-vacation-sync.service';
+import { SecullumLeaveSyncService } from './secullum-leave-sync.service';
 import { CacheModule } from '@modules/common/cache/cache.module';
 import { UserModule } from '@modules/people/user/user.module';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
@@ -34,6 +35,7 @@ import { HOLIDAY_PROVIDER } from '@modules/common/notification/work-schedule.ser
     SecullumStatisticsService,
     UserSecullumSyncService,
     SecullumVacationSyncService,
+    SecullumLeaveSyncService,
     TimeEntryReminderService,
     TimeEntryReminderScheduler,
     {
@@ -48,6 +50,7 @@ import { HOLIDAY_PROVIDER } from '@modules/common/notification/work-schedule.ser
     SecullumStatisticsService,
     UserSecullumSyncService,
     SecullumVacationSyncService,
+    SecullumLeaveSyncService,
     TimeEntryReminderService,
     TimeEntryReminderScheduler,
   ],

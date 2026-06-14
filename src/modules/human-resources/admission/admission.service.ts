@@ -588,14 +588,25 @@ export class AdmissionService {
           currentStatus === ADMISSION_STATUS.MEDICAL_EXAM &&
           targetStatus !== ADMISSION_STATUS.CANCELLED
         ) {
-          const admissionExam = await tx.medicalExam.findFirst({
+          // Prefer the FK link (this admission's own ASO); fall back to the
+          // legacy userId+type lookup for rows created before the FK existed.
+          let admissionExam = await tx.medicalExam.findFirst({
             where: {
-              userId: existing.userId,
-              type: MEDICAL_EXAM_TYPE.ADMISSION as any,
+              admissionId: existing.id,
               status: { not: MEDICAL_EXAM_STATUS.CANCELLED as any },
             },
             orderBy: { createdAt: 'desc' },
           });
+          if (!admissionExam) {
+            admissionExam = await tx.medicalExam.findFirst({
+              where: {
+                userId: existing.userId,
+                type: MEDICAL_EXAM_TYPE.ADMISSION as any,
+                status: { not: MEDICAL_EXAM_STATUS.CANCELLED as any },
+              },
+              orderBy: { createdAt: 'desc' },
+            });
+          }
           if (!admissionExam) {
             throw new BadRequestException(
               'Não é possível avançar: nenhum exame admissional (ASO) foi encontrado para o colaborador. Agende e conclua o exame admissional antes de prosseguir.',
@@ -620,9 +631,11 @@ export class AdmissionService {
         if (targetStatus === ADMISSION_STATUS.MEDICAL_EXAM) {
           const existingExam = await tx.medicalExam.findFirst({
             where: {
-              userId: existing.userId,
-              type: MEDICAL_EXAM_TYPE.ADMISSION as any,
               status: { not: MEDICAL_EXAM_STATUS.CANCELLED as any },
+              OR: [
+                { admissionId: existing.id },
+                { userId: existing.userId, type: MEDICAL_EXAM_TYPE.ADMISSION as any },
+              ],
             },
             select: { id: true },
           });
@@ -633,6 +646,9 @@ export class AdmissionService {
                 type: MEDICAL_EXAM_TYPE.ADMISSION as any,
                 status: MEDICAL_EXAM_STATUS.SCHEDULED as any,
                 statusOrder: MEDICAL_EXAM_STATUS_ORDER[MEDICAL_EXAM_STATUS.SCHEDULED],
+                // Link the ASO to THIS admission so the advance-guard and the
+                // doc-sync use the FK instead of the fragile userId+type heuristic.
+                admissionId: existing.id,
               },
             });
 
