@@ -112,6 +112,7 @@ import {
   OrderScheduleBatchUpdateResponse,
   OrderScheduleBatchDeleteResponse,
   OrderPaymentSummaryResponse,
+  PayablesResponse,
 } from '../../../types';
 
 @Controller('orders')
@@ -197,6 +198,19 @@ export class OrderController {
   )
   async getPaymentSummary(): Promise<OrderPaymentSummaryResponse> {
     return this.orderService.getPaymentSummary();
+  }
+
+  // Unified payables list (orders + airbrushing painter payments + scheduled/expected).
+  // Declared before @Get(':id') so "payables" isn't captured as an :id param.
+  @Get('payables')
+  @Roles(
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async getPayables(): Promise<PayablesResponse> {
+    return this.orderService.getPayables();
   }
 
   // =====================
@@ -906,6 +920,7 @@ export class OrderScheduleController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,

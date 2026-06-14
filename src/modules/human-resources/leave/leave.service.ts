@@ -14,6 +14,7 @@ import { existsSync, unlinkSync } from 'fs';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { FileService } from '@modules/common/file/file.service';
+import { SecullumLeaveSyncService } from '@modules/integrations/secullum/secullum-leave-sync.service';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import {
   trackAndLogFieldChanges,
@@ -89,7 +90,38 @@ export class LeaveService {
     private readonly prisma: PrismaService,
     private readonly changeLogService: ChangeLogService,
     private readonly fileService: FileService,
+    // Mirrors the afastamento's date range into Secullum (ponto). Every method on
+    // it is self-contained and never throws, so the leave write is never affected
+    // by a Secullum outage. See secullum-leave-sync.service.ts.
+    private readonly secullumLeaveSync: SecullumLeaveSyncService,
   ) {}
+
+  // Fire-and-forget Secullum ponto sync. Awaited so logs/order are deterministic
+  // within the request, but its result NEVER changes the leave outcome.
+  private async syncLeaveToSecullum(leaveId: string): Promise<void> {
+    try {
+      await this.secullumLeaveSync.syncLeave(leaveId);
+    } catch (err: any) {
+      // syncLeave already swallows its own errors; this is belt-and-braces.
+      this.logger.warn(
+        `Secullum leave sync raised unexpectedly for ${leaveId}: ${err?.message ?? err}`,
+      );
+    }
+  }
+
+  // Fire-and-forget Secullum ponto un-push (delete). Never affects the leave write.
+  private async removeLeaveFromSecullum(
+    leaveId: string,
+    secullumEmployeeId?: number | null,
+  ): Promise<void> {
+    try {
+      await this.secullumLeaveSync.removeLeave(leaveId, secullumEmployeeId);
+    } catch (err: any) {
+      this.logger.warn(
+        `Secullum leave removal raised unexpectedly for ${leaveId}: ${err?.message ?? err}`,
+      );
+    }
+  }
 
   private getStatusOrder(status: string): number {
     return LEAVE_STATUS_ORDER[status] ?? 1;
@@ -558,6 +590,10 @@ export class LeaveService {
         return newLeave;
       });
 
+      // Mirror into Secullum (ponto) so the absence isn't flagged as falta
+      // injustificada. Best-effort, after the DB write — never blocks the leave.
+      await this.syncLeaveToSecullum(leave.id);
+
       return {
         success: true,
         message: 'Afastamento criado com sucesso.',
@@ -678,6 +714,10 @@ export class LeaveService {
         return updated;
       });
 
+      // Re-sync the ponto record: syncLeave is idempotent and handles period
+      // changes (re-push), CANCELLED (remove), and missing end dates (defer).
+      await this.syncLeaveToSecullum(id);
+
       return {
         success: true,
         message: 'Afastamento atualizado com sucesso.',
@@ -779,6 +819,10 @@ export class LeaveService {
 
         return { updated, examCreated };
       });
+
+      // Finishing sets actualEndDate ⇒ the ponto record is now fully bounded;
+      // (re-)push it. Idempotent.
+      await this.syncLeaveToSecullum(id);
 
       return {
         success: true,
@@ -892,12 +936,21 @@ export class LeaveService {
 
   async delete(id: string, userId?: string): Promise<LeaveDeleteResponse> {
     try {
+      // Capture the Secullum link BEFORE the row is gone so we can un-push the
+      // ponto record afterwards (the Leave no longer exists post-transaction).
+      let secullumEmployeeId: number | null = null;
+
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        const leave = await tx.leave.findUnique({ where: { id } });
+        const leave = await tx.leave.findUnique({
+          where: { id },
+          include: { user: { select: { secullumEmployeeId: true } } },
+        });
 
         if (!leave) {
           throw new NotFoundException('Afastamento não encontrado.');
         }
+
+        secullumEmployeeId = leave.user?.secullumEmployeeId ?? null;
 
         await logEntityChange({
           changeLogService: this.changeLogService,
@@ -913,6 +966,9 @@ export class LeaveService {
 
         await tx.leave.delete({ where: { id } });
       });
+
+      // Remove the ponto record (best-effort, never blocks the delete).
+      await this.removeLeaveFromSecullum(id, secullumEmployeeId);
 
       return {
         success: true,

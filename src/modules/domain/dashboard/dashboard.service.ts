@@ -1547,6 +1547,10 @@ export class DashboardService {
         config.completedTasks = true;
         config.tasksAwaitingQuoteApproval = true;
         break;
+      case SECTOR_PRIVILEGES.ACCOUNTING:
+        config.completedTasks = true;
+        config.tasksAwaitingQuoteApproval = true;
+        break;
       default:
         break;
     }

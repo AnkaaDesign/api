@@ -18,6 +18,8 @@ import type {
 } from '@constants';
 import type { User, UserIncludes } from './user';
 import type { File } from './file';
+import type { Admission } from './admission';
+import type { Termination } from './termination';
 
 // =====================
 // Main Entity Interface
@@ -39,10 +41,15 @@ export interface MedicalExam extends BaseEntity {
   clinic: string | null;
   notes: string | null;
   fileId: string | null;
+  // FKs to the originating admission / termination process (auto-created ASOs).
+  admissionId: string | null;
+  terminationId: string | null;
 
   // Relations (optional, populated based on query)
   user?: User;
   file?: File;
+  admission?: Admission;
+  termination?: Termination;
 }
 
 // =====================

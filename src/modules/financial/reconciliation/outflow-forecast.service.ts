@@ -3,6 +3,7 @@ import {
   AccountingType,
   BankTransactionType,
   OrderPaymentStatus,
+  OrderStatus,
   ReconciliationStatus,
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
@@ -12,13 +13,10 @@ import { VacationService } from '@modules/human-resources/vacation/vacation.serv
 import { TransactionCategoryService } from './transaction-category.service';
 import { RecurrenceLearnerService } from './recurrence-learner.service';
 
-// Order payment pipeline statuses considered "open" (still going to leave the
-// bank account). Mirrors the Contas a Pagar convention.
-const OPEN_PAYMENT_STATUSES: OrderPaymentStatus[] = [
-  OrderPaymentStatus.NOT_REQUESTED,
-  OrderPaymentStatus.REQUESTED,
-  OrderPaymentStatus.AWAITING_PAYMENT,
-];
+// Canonical payables convention (see ANDRESSA_WIRING_CONTRACT.md): an order is an OPEN
+// obligation iff it is not cancelled, not paid, and still has at least one unfulfilled
+// item. Keyed on item fulfillment (not the status label) so fulfilled orders the overdue
+// cron flips to OVERDUE still drop out of "Pedidos em aberto".
 
 // Recurring categories already covered by a dedicated forecast section are
 // excluded from the "Recorrentes" slice so the month total never counts the
@@ -111,13 +109,16 @@ export class OutflowForecastService {
       reference: `${year}-${String(month).padStart(2, '0')}`,
       from,
       to,
-      // Composite month total. The learned forecast is informational only (it
-      // overlaps the static recurring slice by construction). folhaProgramada
-      // (13º + férias) is a DISTINCT additive section — it does NOT overlap the
-      // monthly folha base, which only covers the current month's wages.
+      // Composite month total. The TAX slice is now driven by this month's
+      // faturamento (taxes estimated from the task quotes invoiced this month —
+      // invoicedServices.totalEstimated), NOT the historical 3-month average (which
+      // is kept below only as realized context). The learned forecast is
+      // informational only (overlaps the static recurring slice by construction).
+      // folhaProgramada (13º + férias) is a DISTINCT additive section — it does NOT
+      // overlap the monthly folha base, which only covers the current month's wages.
       total:
         pedidos.totalOpen +
-        impostos.totalForecast +
+        impostos.invoicedServices.totalEstimated +
         folha.total +
         folhaProgramada.total +
         recorrentes.totalForecast,
@@ -135,7 +136,22 @@ export class OutflowForecastService {
   private async buildOrdersSection(from: Date, to: Date) {
     const [orders, schedules] = await Promise.all([
       this.prisma.order.findMany({
-        where: { paymentStatus: { in: OPEN_PAYMENT_STATUSES } },
+        where: {
+          // Open obligation = NOT in a settled/cancelled status AND not paid AND still
+          // has an unfulfilled item. Both guards are needed: the status guard drops
+          // historical RECEIVED orders whose items lack a fulfilledAt stamp; the item
+          // guard drops fulfilled orders the overdue cron flipped to OVERDUE.
+          status: {
+            notIn: [
+              OrderStatus.FULFILLED,
+              OrderStatus.PARTIALLY_RECEIVED,
+              OrderStatus.RECEIVED,
+              OrderStatus.CANCELLED,
+            ],
+          },
+          paymentStatus: { not: OrderPaymentStatus.PAID },
+          items: { some: { fulfilledAt: null } },
+        },
         select: {
           id: true,
           orderNumber: true,
@@ -303,12 +319,84 @@ export class OutflowForecastService {
     }
     items.sort((a, b) => b.monthlyAverage - a.monthlyAverage);
 
+    // Forward-looking companion: taxes on the SERVICES invoiced this month,
+    // derived from the task-quote → invoice → NFS-e workflow. Informational —
+    // NOT added to totalForecast (would double-count the historical ISS debits
+    // already inside the 3-month average above). Surfaced on the Impostos card.
+    const invoicedServices = await this.buildInvoicedServiceTaxForecast(from, to);
+
     return {
-      basis: `media-${TAX_LOOKBACK_MONTHS}-meses` as const,
+      // The forward forecast is now faturamento-based (invoicedServices); the
+      // 3-month category breakdown below is realized context only.
+      basis: 'faturamento-do-mes' as const,
       lookbackMonths,
-      totalForecast: items.reduce((a, b) => a + b.monthlyAverage, 0),
+      // Headline forecast used in the month total = taxes on this month's faturamento.
+      headlineForecast: invoicedServices.totalEstimated,
+      // Realized taxes/fees averaged over the lookback window — shown as context, NOT
+      // the forecast driver. (Was the old `totalForecast`.)
+      historicalMonthlyAverage: items.reduce((a, b) => a + b.monthlyAverage, 0),
       totalPaidThisMonth: items.reduce((a, b) => a + b.paidThisMonth, 0),
       items,
+      invoicedServices,
+    };
+  }
+
+  /**
+   * Estimate the taxes owed on services INVOICED this month, from the task-quote
+   * workflow: every Invoice created in the window that emits an NFS-e
+   * (nfseDocuments present) is taxable service revenue. ISS = base × the same
+   * municipal aliquota used at emission (ELOTECH_OXY_SERVICO_LC_ALIQUOTA, default
+   * 2%). Optional federal retention aliquotas (IR/INSS/CSLL/PIS/COFINS) are read
+   * from env and default to 0 — most service NFS-e under Simples are not retained,
+   * so they only count when explicitly configured.
+   */
+  private async buildInvoicedServiceTaxForecast(from: Date, to: Date) {
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        createdAt: { gte: from, lte: to },
+        status: { notIn: ['DRAFT', 'CANCELLED'] as any },
+        nfseDocuments: { some: {} },
+      },
+      select: { totalAmount: true },
+    });
+
+    const invoiceCount = invoices.length;
+    const invoicedBase = invoices.reduce((sum, inv) => sum + Number(inv.totalAmount), 0);
+
+    const num = (key: string, def: number) => {
+      const v = Number(process.env[key]);
+      return Number.isFinite(v) ? v : def;
+    };
+    const issRatePercent = num('ELOTECH_OXY_SERVICO_LC_ALIQUOTA', 2);
+    const federalRates = {
+      ir: num('ELOTECH_OXY_ALIQUOTA_IR', 0),
+      inss: num('ELOTECH_OXY_ALIQUOTA_INSS', 0),
+      csll: num('ELOTECH_OXY_ALIQUOTA_CSLL', 0),
+      pis: num('ELOTECH_OXY_ALIQUOTA_PIS', 0),
+      cofins: num('ELOTECH_OXY_ALIQUOTA_COFINS', 0),
+    };
+
+    const iss = invoicedBase * (issRatePercent / 100);
+    const federalRetentions = {
+      ir: invoicedBase * (federalRates.ir / 100),
+      inss: invoicedBase * (federalRates.inss / 100),
+      csll: invoicedBase * (federalRates.csll / 100),
+      pis: invoicedBase * (federalRates.pis / 100),
+      cofins: invoicedBase * (federalRates.cofins / 100),
+    };
+    const federalTotal = Object.values(federalRetentions).reduce((a, b) => a + b, 0);
+
+    return {
+      basis: 'faturamento-do-mes' as const,
+      invoiceCount,
+      invoicedBase,
+      issRatePercent,
+      iss,
+      federalRates,
+      federalRetentions,
+      federalTotal,
+      // Total estimated taxes on this month's service faturamento.
+      totalEstimated: iss + federalTotal,
     };
   }
 

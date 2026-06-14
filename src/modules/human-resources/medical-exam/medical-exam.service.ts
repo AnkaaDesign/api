@@ -29,6 +29,8 @@ import {
   TERMINATION_DOCUMENT_STATUS,
   TERMINATION_DOCUMENT_TYPE,
   TERMINATION_STATUS,
+  ADMISSION_DOCUMENT_STATUS,
+  ADMISSION_DOCUMENT_TYPE,
 } from '../../../constants';
 import type {
   MedicalExam,
@@ -491,20 +493,37 @@ export class MedicalExamService {
     examUserId: string,
     fileId: string,
     userId?: string,
+    examTerminationId?: string | null,
   ): Promise<void> {
-    const terminationDocument = await tx.terminationDocument.findFirst({
-      where: {
-        type: TERMINATION_DOCUMENT_TYPE.DISMISSAL_EXAM as any,
-        status: TERMINATION_DOCUMENT_STATUS.PENDING as any,
-        termination: {
-          userId: examUserId,
-          status: {
-            notIn: [TERMINATION_STATUS.COMPLETED, TERMINATION_STATUS.CANCELLED] as any[],
+    // Prefer the FK link (exam.terminationId) to locate the exact termination's
+    // PENDING DISMISSAL_EXAM document; fall back to the legacy userId heuristic
+    // for exams created before the FK existed.
+    let terminationDocument = examTerminationId
+      ? await tx.terminationDocument.findFirst({
+          where: {
+            terminationId: examTerminationId,
+            type: TERMINATION_DOCUMENT_TYPE.DISMISSAL_EXAM as any,
+            status: TERMINATION_DOCUMENT_STATUS.PENDING as any,
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+      : null;
+
+    if (!terminationDocument) {
+      terminationDocument = await tx.terminationDocument.findFirst({
+        where: {
+          type: TERMINATION_DOCUMENT_TYPE.DISMISSAL_EXAM as any,
+          status: TERMINATION_DOCUMENT_STATUS.PENDING as any,
+          termination: {
+            userId: examUserId,
+            status: {
+              notIn: [TERMINATION_STATUS.COMPLETED, TERMINATION_STATUS.CANCELLED] as any[],
+            },
           },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+      });
+    }
 
     if (!terminationDocument) return;
 
@@ -531,6 +550,64 @@ export class MedicalExamService {
       },
       reason:
         'Documento ASO demissional marcado como gerado automaticamente pela conclusão do exame demissional',
+      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+      triggeredById: examId,
+      userId: userId || null,
+      transaction: tx,
+    });
+  }
+
+  /**
+   * Exame admissional com arquivo ASO ⇒ marca o documento ADMISSION_EXAM da
+   * admissão de origem como RECEIVED, vinculando o arquivo. Usa o FK
+   * (exam.admissionId) para localizar a admissão — NUNCA uma heurística de
+   * userId — pois um colaborador pode ter mais de uma admissão (readmissão).
+   *
+   * (O enum AdmissionDocumentStatus não possui o valor GENERATED usado no lado da
+   * rescisão; RECEIVED é o estado "documento satisfeito" equivalente na admissão,
+   * espelhando o fluxo de recebimento de documentos da admissão.)
+   */
+  private async syncAdmissionExamDocument(
+    tx: PrismaTransaction,
+    examId: string,
+    admissionId: string,
+    fileId: string,
+    userId?: string,
+  ): Promise<void> {
+    const admissionDocument = await tx.admissionDocument.findFirst({
+      where: {
+        admissionId,
+        type: ADMISSION_DOCUMENT_TYPE.ADMISSION_EXAM as any,
+        status: ADMISSION_DOCUMENT_STATUS.PENDING as any,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!admissionDocument) return;
+
+    await tx.admissionDocument.update({
+      where: { id: admissionDocument.id },
+      data: {
+        status: ADMISSION_DOCUMENT_STATUS.RECEIVED as any,
+        fileId,
+      },
+    });
+
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.ADMISSION,
+      entityId: admissionDocument.admissionId,
+      action: CHANGE_ACTION.UPDATE,
+      field: `document_${ADMISSION_DOCUMENT_TYPE.ADMISSION_EXAM}`,
+      oldValue: {
+        status: admissionDocument.status,
+        fileId: admissionDocument.fileId,
+      },
+      newValue: {
+        status: ADMISSION_DOCUMENT_STATUS.RECEIVED,
+        fileId,
+      },
+      reason:
+        'Documento ASO admissional marcado como recebido automaticamente pela conclusão do exame admissional',
       triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
       triggeredById: examId,
       userId: userId || null,
@@ -616,6 +693,24 @@ export class MedicalExamService {
             tx,
             id,
             existing.userId,
+            updated.fileId,
+            userId,
+            (updated as any).terminationId,
+          );
+        }
+
+        // ADMISSION exam completed with an ASO file AND linked to an admission:
+        // mark that admission's ADMISSION_EXAM document as RECEIVED, linking the
+        // file (FK-based mirror of the dismissal sync above).
+        if (
+          updated.type === MEDICAL_EXAM_TYPE.ADMISSION &&
+          updated.fileId &&
+          (updated as any).admissionId
+        ) {
+          await this.syncAdmissionExamDocument(
+            tx,
+            id,
+            (updated as any).admissionId,
             updated.fileId,
             userId,
           );
@@ -715,6 +810,23 @@ export class MedicalExamService {
             tx,
             id,
             existing.userId,
+            newFile.id,
+            userId,
+            (updated as any).terminationId,
+          );
+        }
+
+        // ASO file attached to an already-completed ADMISSION exam linked to an
+        // admission: wire the admission's ADMISSION_EXAM document (FK-based).
+        if (
+          updated.type === MEDICAL_EXAM_TYPE.ADMISSION &&
+          updated.status === MEDICAL_EXAM_STATUS.COMPLETED &&
+          (updated as any).admissionId
+        ) {
+          await this.syncAdmissionExamDocument(
+            tx,
+            id,
+            (updated as any).admissionId,
             newFile.id,
             userId,
           );

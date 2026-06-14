@@ -189,6 +189,7 @@ export class DashboardController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   @UsePipes(new ZodQueryValidationPipe(homeDashboardQuerySchema))
   async getHomeDashboard(

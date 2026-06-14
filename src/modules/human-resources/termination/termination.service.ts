@@ -964,15 +964,26 @@ export class TerminationService {
           currentStatus === TERMINATION_STATUS.MEDICAL_EXAM &&
           targetStatus === TERMINATION_STATUS.CALCULATION
         ) {
-          const dismissalExam = await tx.medicalExam.findFirst({
+          // Prefer the FK link (this termination's own ASO); fall back to the
+          // legacy userId+type+createdAt lookup for rows created before the FK.
+          let dismissalExam = await tx.medicalExam.findFirst({
             where: {
-              userId: existing.userId,
-              type: MEDICAL_EXAM_TYPE.DISMISSAL as any,
+              terminationId: existing.id,
               status: { not: MEDICAL_EXAM_STATUS.CANCELLED as any },
-              createdAt: { gte: existing.createdAt },
             },
             orderBy: { createdAt: 'desc' },
           });
+          if (!dismissalExam) {
+            dismissalExam = await tx.medicalExam.findFirst({
+              where: {
+                userId: existing.userId,
+                type: MEDICAL_EXAM_TYPE.DISMISSAL as any,
+                status: { not: MEDICAL_EXAM_STATUS.CANCELLED as any },
+                createdAt: { gte: existing.createdAt },
+              },
+              orderBy: { createdAt: 'desc' },
+            });
+          }
           if (!dismissalExam) {
             throw new BadRequestException(
               'Não é possível avançar para Cálculo: aguardando ASO demissional. Nenhum exame demissional foi encontrado para o colaborador neste processo de rescisão.',
@@ -996,10 +1007,15 @@ export class TerminationService {
         if (targetStatus === TERMINATION_STATUS.MEDICAL_EXAM) {
           const existingExam = await tx.medicalExam.findFirst({
             where: {
-              userId: existing.userId,
-              type: MEDICAL_EXAM_TYPE.DISMISSAL as any,
               status: { not: MEDICAL_EXAM_STATUS.CANCELLED as any },
-              createdAt: { gte: existing.createdAt },
+              OR: [
+                { terminationId: existing.id },
+                {
+                  userId: existing.userId,
+                  type: MEDICAL_EXAM_TYPE.DISMISSAL as any,
+                  createdAt: { gte: existing.createdAt },
+                },
+              ],
             },
             select: { id: true },
           });
@@ -1010,6 +1026,10 @@ export class TerminationService {
                 type: MEDICAL_EXAM_TYPE.DISMISSAL as any,
                 status: MEDICAL_EXAM_STATUS.SCHEDULED as any,
                 statusOrder: MEDICAL_EXAM_STATUS_ORDER[MEDICAL_EXAM_STATUS.SCHEDULED],
+                // Link the ASO to THIS termination so the advance-guard and the
+                // doc-sync use the FK instead of the fragile userId+type+createdAt
+                // heuristic.
+                terminationId: existing.id,
               },
             });
 
