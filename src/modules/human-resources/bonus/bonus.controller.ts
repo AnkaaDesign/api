@@ -474,8 +474,12 @@ export class BonusController {
   }
 
   /**
-   * Set the period reajuste percentage. Recomputes every saved bonus in the
-   * period with the new adjustment baked into the algorithm.
+   * Set the period reajuste percentage (a DELTA added to the existing/inherited
+   * adjustment). It takes effect immediately for LIVE/preview bonuses and for
+   * future "Calcular e Salvar" runs, and via carry-forward applies to this
+   * period and every later period until a newer adjustment overrides it.
+   * It does NOT recompute already-saved bonuses — those stay as their
+   * point-in-time snapshot until "Calcular e Salvar" is re-run.
    */
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @Post('period-adjustment/:year/:month')

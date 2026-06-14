@@ -7,7 +7,7 @@ import type {
   BaseDeleteResponse,
   BaseBatchResponse,
 } from './common';
-import type { ORDER_BY_DIRECTION, BONUS_STATUS } from '@constants';
+import type { ORDER_BY_DIRECTION, BONUS_STATUS, PAYROLL_DISCOUNT_TYPE } from '@constants';
 import type { Bonus, BonusIncludes } from './bonus';
 import type { User, UserIncludes } from './user';
 import type { Position, PositionIncludes } from './position';
@@ -401,6 +401,127 @@ export interface LivePayroll {
   position?: Position;
   bonus?: Bonus;
   discounts?: Discount[];
+}
+
+// =====================
+// Complete Payroll Calculation (full holerite result — mirrors
+// payroll/utils/complete-payroll-calculator.service.ts CompletePayrollCalculation)
+// =====================
+
+export interface CompletePayrollCalculation {
+  // Employee info
+  employeeId: string;
+  year: number;
+  month: number;
+
+  // ========== EARNINGS ==========
+  baseSalary: number;
+  overtimeEarnings: {
+    overtime50Hours: number;
+    overtime50Amount: number;
+    overtime100Hours: number;
+    overtime100Amount: number;
+    nightHours: number;
+    nightDifferentialAmount: number;
+  };
+  dsrEarnings: {
+    dsrOnOvertime: number;
+    dsrOnBonifications: number;
+    totalDSR: number;
+    dsrDays: number;
+  };
+  bonusAmount: number;
+  /**
+   * Proventos legais adicionais (adicionais de insalubridade/periculosidade,
+   * salário-família, gratificação habitual).
+   */
+  additionalEarnings: {
+    /** Salário-família (R$/cota × filhos elegíveis), pró-rata por dias no mês. */
+    familyAllowance: number;
+    familyAllowanceQuota: number;
+    eligibleChildren: number;
+    /** Adicional de insalubridade (% × salário-mínimo), pró-rata. */
+    insalubrity: number;
+    insalubrityPercent: number;
+    /** Adicional de periculosidade (30% × salário-base), pró-rata. */
+    hazardPay: number;
+  };
+  otherEarnings: number;
+  grossSalary: number;
+
+  // ========== DEDUCTIONS ==========
+  taxDeductions: {
+    inssBase: number;
+    inssAmount: number;
+    inssEffectiveRate: number;
+    irrfBase: number;
+    irrfAmount: number;
+    irrfEffectiveRate: number;
+  };
+  absenceDeductions: {
+    absenceHours: number;
+    absenceDays: number;
+    /** Apenas as faltas INJUSTIFICADAS (dias) que efetivamente descontam. */
+    unjustifiedAbsenceDays: number;
+    justifiedAbsenceDays: number;
+    absenceAmount: number;
+    /** Parcela do desconto referente à perda proporcional do DSR. */
+    absenceDsrLoss: number;
+    lateArrivalMinutes: number;
+    lateArrivalAmount: number;
+  };
+  benefitDeductions: {
+    mealVoucher: number;
+    transportVoucher: number;
+    healthInsurance: number;
+    dentalInsurance: number;
+    otherBenefits: number;
+  };
+  benefitCopayItems: Array<{
+    userBenefitId: string;
+    benefitKind: string;
+    benefitName: string;
+    discountType: PAYROLL_DISCOUNT_TYPE;
+    amount: number;
+    monthlyValue: number;
+  }>;
+  legalDeductions: {
+    unionContribution: number;
+    alimony: number;
+    garnishment: number;
+  };
+  loanDeductions: {
+    loans: number;
+    advances: number;
+  };
+  customDeductions: number;
+  totalDeductions: number;
+
+  // ========== NET SALARY ==========
+  netSalary: number;
+
+  // ========== EMPLOYER CONTRIBUTIONS ==========
+  employerContributions: {
+    fgtsAmount: number;
+    fgtsRate: number;
+  };
+
+  // ========== SECULLUM DATA ==========
+  secullumData?: any; // SecullumPayrollData (module-internal)
+
+  // ========== CALCULATION METADATA ==========
+  calculationDate: Date;
+  workingDaysInMonth: number;
+  workedDays: number;
+  /**
+   * Avos / proration factor (0..1) aplicado ao salário-base, salário-família e
+   * adicionais no mês de admissão/desligamento (dias trabalhados ÷ dias do mês).
+   * 1 = mês cheio.
+   */
+  prorationFactor: number;
+  isLive: boolean;
+  /** Avisos não-fatais exibidos no holerite (ex.: descontos limitados ao bruto). */
+  warnings: string[];
 }
 
 // =====================

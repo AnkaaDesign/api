@@ -41,6 +41,29 @@ const DEFAULT_INCLUDE = {
   changedBy: true,
 } as const;
 
+/**
+ * Resultado da resolução histórica de salário de um colaborador numa data.
+ * (Part F — getUserSalaryAt). NÃO há campo de salário em User: o valor é sempre
+ * composto por UserPositionHistory (qual cargo) × MonetaryValue do cargo (qual
+ * valor então).
+ */
+export interface UserSalaryAtResult {
+  userId: string;
+  /** Data de competência consultada. */
+  date: Date;
+  /** Cargo que o colaborador ocupava na data (null se indeterminado). */
+  positionId: string | null;
+  positionName: string | null;
+  /** Remuneração vigente do cargo NA DATA (null se não houver valor aplicável). */
+  salary: number | null;
+  /** effectiveDate do MonetaryValue usado (para auditoria). */
+  effectiveDate: Date | null;
+  /** Como o cargo foi resolvido: histórico, cargo atual (fallback) ou nenhum. */
+  source: 'HISTORY' | 'CURRENT_POSITION' | 'NONE';
+  /** Motivo quando salary é null (sem cargo, sem remuneração, data anterior...). */
+  reason?: string;
+}
+
 @Injectable()
 export class UserPositionHistoryService {
   private readonly logger = new Logger(UserPositionHistoryService.name);
@@ -231,7 +254,12 @@ export class UserPositionHistoryService {
       const messageByReason: Record<string, string> = {
         [POSITION_CHANGE_REASON.PROMOTION]: 'Colaborador promovido com sucesso.',
         [POSITION_CHANGE_REASON.TRANSFER]: 'Colaborador transferido de cargo com sucesso.',
-        [POSITION_CHANGE_REASON.DEMOTION]: 'Cargo do colaborador alterado com sucesso.',
+        // DEMOTION = Reversão (cargo de confiança → cargo efetivo, CLT art.468 §único)
+        [POSITION_CHANGE_REASON.DEMOTION]: 'Colaborador revertido ao cargo efetivo com sucesso.',
+        // ADJUSTMENT = Readaptação (restrição médica/INSS, CLT art.461 §4º)
+        [POSITION_CHANGE_REASON.ADJUSTMENT]: 'Colaborador readaptado de cargo com sucesso.',
+        // CORRECTION = Reenquadramento (plano de cargos)
+        [POSITION_CHANGE_REASON.CORRECTION]: 'Colaborador reenquadrado com sucesso.',
       };
 
       return {
@@ -248,5 +276,203 @@ export class UserPositionHistoryService {
         'Erro ao alterar cargo do colaborador. Por favor, tente novamente.',
       );
     }
+  }
+
+  // =========================================================================
+  // Historical salary resolution (Part F — o pedido explícito do dono)
+  //
+  //   salário(user, data) = cargo ocupado em `data` (UserPositionHistory)
+  //                         × MonetaryValue do cargo vigente em `data`
+  //                           (max effectiveDate ≤ data)
+  //
+  // Sem campo de salário em User. Resolve a janela [startedAt, endedAt) do
+  // histórico; se o usuário nunca trocou de cargo (histórico vazio) cai para o
+  // cargo atual; trata data anterior ao primeiro registro, cargo sem
+  // remuneração e usuário sem cargo.
+  // =========================================================================
+
+  /**
+   * Resolve a remuneração que UM colaborador tinha numa data específica.
+   * @param userId colaborador
+   * @param date   data de competência
+   */
+  async getUserSalaryAt(userId: string, date: Date): Promise<UserSalaryAtResult> {
+    const map = await this.getUsersSalaryAt([userId], date);
+    return (
+      map.get(userId) ?? {
+        userId,
+        date,
+        positionId: null,
+        positionName: null,
+        salary: null,
+        effectiveDate: null,
+        source: 'NONE',
+        reason: 'Colaborador não encontrado.',
+      }
+    );
+  }
+
+  /**
+   * Variante em lote (performance para estatísticas). Faz no máximo 3 queries
+   * independentemente da quantidade de usuários:
+   *   1) janelas de histórico que cobrem `date` para todos os userIds
+   *   2) cargo atual dos usuários sem janela de histórico (fallback)
+   *   3) MonetaryValue vigente (≤ date) dos cargos envolvidos
+   * Devolve um Map<userId, UserSalaryAtResult>.
+   */
+  async getUsersSalaryAt(
+    userIds: string[],
+    date: Date,
+  ): Promise<Map<string, UserSalaryAtResult>> {
+    const result = new Map<string, UserSalaryAtResult>();
+    const uniqueIds = [...new Set(userIds)];
+    if (uniqueIds.length === 0) return result;
+
+    // 1) Janela de histórico cobrindo a data: startedAt ≤ date < endedAt
+    //    (endedAt null = ainda aberta). Ordena por startedAt desc e pega a
+    //    primeira por usuário (mais recente que ainda cobre a data).
+    const historyRows = await this.prisma.userPositionHistory.findMany({
+      where: {
+        userId: { in: uniqueIds },
+        startedAt: { lte: date },
+        OR: [{ endedAt: null }, { endedAt: { gt: date } }],
+      },
+      orderBy: { startedAt: 'desc' },
+      select: { userId: true, positionId: true, startedAt: true },
+    });
+
+    const positionByUser = new Map<string, { positionId: string | null; source: UserSalaryAtResult['source'] }>();
+    for (const row of historyRows) {
+      // primeira ocorrência (startedAt mais recente) vence
+      if (!positionByUser.has(row.userId)) {
+        positionByUser.set(row.userId, { positionId: row.positionId, source: 'HISTORY' });
+      }
+    }
+
+    // 2) Fallback: usuários sem janela de histórico cobrindo a data.
+    //    Se o usuário tem QUALQUER histórico mas nenhum cobre a data, a data é
+    //    anterior ao primeiro vínculo de cargo → sem cargo na data (NONE).
+    //    Se o usuário não tem NENHUM histórico, usamos o cargo atual (muitos
+    //    colaboradores nunca trocaram de cargo e não têm linha de histórico).
+    const missing = uniqueIds.filter(id => !positionByUser.has(id));
+    if (missing.length > 0) {
+      const anyHistory = await this.prisma.userPositionHistory.groupBy({
+        by: ['userId'],
+        where: { userId: { in: missing } },
+        _count: { _all: true },
+      });
+      const hasHistory = new Set(anyHistory.map(h => h.userId));
+
+      const fallbackUsers = await this.prisma.user.findMany({
+        where: { id: { in: missing } },
+        select: { id: true, positionId: true, createdAt: true },
+      });
+      const userById = new Map(fallbackUsers.map(u => [u.id, u]));
+
+      for (const id of missing) {
+        const u = userById.get(id);
+        if (!u) {
+          result.set(id, {
+            userId: id,
+            date,
+            positionId: null,
+            positionName: null,
+            salary: null,
+            effectiveDate: null,
+            source: 'NONE',
+            reason: 'Colaborador não encontrado.',
+          });
+          continue;
+        }
+        if (hasHistory.has(id)) {
+          // Tem histórico, mas nenhuma janela cobre a data → data anterior ao
+          // primeiro cargo registrado.
+          result.set(id, {
+            userId: id,
+            date,
+            positionId: null,
+            positionName: null,
+            salary: null,
+            effectiveDate: null,
+            source: 'NONE',
+            reason: 'Data anterior ao primeiro registro de cargo do colaborador.',
+          });
+        } else {
+          // Sem histórico: usa o cargo atual como melhor aproximação.
+          positionByUser.set(id, { positionId: u.positionId, source: 'CURRENT_POSITION' });
+        }
+      }
+    }
+
+    // 3) MonetaryValue vigente em `date` para cada cargo envolvido.
+    const positionIds = [
+      ...new Set(
+        Array.from(positionByUser.values())
+          .map(v => v.positionId)
+          .filter((p): p is string => !!p),
+      ),
+    ];
+
+    const valueByPosition = new Map<string, { value: number; effectiveDate: Date }>();
+    const nameByPosition = new Map<string, string>();
+
+    if (positionIds.length > 0) {
+      const [monetaryValues, positions] = await Promise.all([
+        this.prisma.monetaryValue.findMany({
+          where: { positionId: { in: positionIds }, effectiveDate: { lte: date } },
+          orderBy: { effectiveDate: 'desc' },
+          select: { positionId: true, value: true, effectiveDate: true },
+        }),
+        this.prisma.position.findMany({
+          where: { id: { in: positionIds } },
+          select: { id: true, name: true },
+        }),
+      ]);
+
+      for (const p of positions) nameByPosition.set(p.id, p.name);
+
+      // primeira por cargo (effectiveDate mais recente ≤ date) vence
+      for (const mv of monetaryValues) {
+        if (mv.positionId && !valueByPosition.has(mv.positionId)) {
+          valueByPosition.set(mv.positionId, {
+            value: mv.value,
+            effectiveDate: mv.effectiveDate,
+          });
+        }
+      }
+    }
+
+    // Montagem final
+    for (const id of uniqueIds) {
+      if (result.has(id)) continue; // já resolvido como NONE/erro acima
+      const resolved = positionByUser.get(id);
+      if (!resolved || !resolved.positionId) {
+        result.set(id, {
+          userId: id,
+          date,
+          positionId: null,
+          positionName: null,
+          salary: null,
+          effectiveDate: null,
+          source: resolved?.source ?? 'NONE',
+          reason: 'Colaborador sem cargo definido na data.',
+        });
+        continue;
+      }
+      const positionId = resolved.positionId;
+      const mv = valueByPosition.get(positionId);
+      result.set(id, {
+        userId: id,
+        date,
+        positionId,
+        positionName: nameByPosition.get(positionId) ?? null,
+        salary: mv ? mv.value : null,
+        effectiveDate: mv ? mv.effectiveDate : null,
+        source: resolved.source,
+        reason: mv ? undefined : 'Cargo sem remuneração vigente na data.',
+      });
+    }
+
+    return result;
   }
 }

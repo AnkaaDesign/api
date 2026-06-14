@@ -57,6 +57,7 @@ import {
   PpeDeliveredEvent,
   PpeBatchDeliveredEvent,
 } from './ppe.events';
+import { isPpeCaExpired } from './ppe-ca-expiry.util';
 
 @Injectable()
 export class PpeDeliveryService {
@@ -171,6 +172,16 @@ export class PpeDeliveryService {
       if (!item.ppeType) {
         throw new BadRequestException(
           'O item selecionado não está configurado como EPI (tipo de EPI não definido). Configure o tipo de EPI do item antes de criar entregas',
+        );
+      }
+
+      // NR-6: an EPI whose Certificado de Aprovação (CA) is expired cannot be
+      // delivered. The CA is valid through the whole expiry day (isPpeCaExpired).
+      if (isPpeCaExpired(item.ppeCAExpiry)) {
+        throw new BadRequestException(
+          `O CA (Certificado de Aprovação) do EPI "${item.name}" está vencido${
+            item.ppeCA ? ` (CA ${item.ppeCA})` : ''
+          }. A entrega é bloqueada pela NR-6. Atualize o CA do item antes de entregar.`,
         );
       }
 

@@ -4,6 +4,8 @@ import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
 import { SiegModule } from '@modules/integrations/sieg/sieg.module';
 import { PayrollModule } from '@modules/human-resources/payroll/payroll.module';
+import { ThirteenthModule } from '@modules/human-resources/thirteenth/thirteenth.module';
+import { VacationModule } from '@modules/human-resources/vacation/vacation.module';
 import { ReconciliationController } from './reconciliation.controller';
 import { ReconciliationService } from './reconciliation.service';
 import { ReconciliationImportService } from './reconciliation-import.service';
@@ -55,6 +57,11 @@ const categoryLearnersProvider = {
     // Payroll aggregate for the "Previsão de Saídas" composite (folha com
     // bonificação). One-directional: nothing payroll-side imports this module.
     PayrollModule,
+    // 13º + férias: consumed READ-ONLY via getForecastProjection() for the
+    // scheduled-payroll section (13º em Nov/Dez + recibos de férias). One-
+    // directional: neither HR module imports this one.
+    ThirteenthModule,
+    VacationModule,
   ],
   controllers: [ReconciliationController],
   providers: [

@@ -134,6 +134,7 @@ type Sector =
   | 'FINANCIAL'
   | 'LOGISTIC'
   | 'COMMERCIAL'
+  | 'ACCOUNTING'
   | 'PRODUCTION_MANAGER';
 
 interface ChannelTemplate {
@@ -7908,6 +7909,237 @@ const CONFIGS: ConfigDef[] = [
     metadata: {
       registry: "seed-notification-configs",
       trigger: "warning.service.ts (emissão de advertência — escalonamento ATIVO, create e batchCreate)",
+      targeted: false,
+    },
+  },
+  // ─── medical-exam (medicina do trabalho — @Cron MedicalExamAlertScheduler) ──
+  {
+    key: "medical_exam.expiring",
+    name: "Exames Ocupacionais a Vencer",
+    notificationType: "USER",
+    eventType: "medical_exam.expiring",
+    description: "Exames ocupacionais (ASO) prestes a vencer dentro da janela de antecedência — alerta diário do DP/Medicina do Trabalho.",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: true,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "HUMAN_RESOURCES", "ACCOUNTING"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: true, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Exames ocupacionais a vencer",
+        body: "{{count}} exame(s) ocupacional(is) vencem nos próximos {{advanceDays}} dias{{#if employees}}: {{employees}}{{/if}}.",
+      },
+      push: {
+        title: "Exames ocupacionais a vencer",
+        body: "{{count}} exame(s) vencem em {{advanceDays}} dias{{#if employees}}: {{employees}}{{/if}}",
+      },
+      whatsapp: {
+        body: "{{count}} exame(s) ocupacional(is) vencem nos próximos {{advanceDays}} dias{{#if employees}}: {{employees}}{{/if}}. Agende a renovação.",
+      },
+    },
+    metadata: {
+      registry: "seed-notification-configs",
+      trigger: "medical-exam-alert.scheduler.ts dispatchByConfiguration(\"medical_exam.expiring\")",
+      targeted: false,
+    },
+  },
+  {
+    key: "medical_exam.return_due",
+    name: "Exame de Retorno ao Trabalho Pendente",
+    notificationType: "USER",
+    eventType: "medical_exam.return_due",
+    description: "Exame de retorno ao trabalho (ASO de retorno) com data prevista vencida ou no prazo — alerta diário do DP/Medicina do Trabalho.",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: true,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "HUMAN_RESOURCES", "ACCOUNTING"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: true, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Exame de retorno ao trabalho pendente",
+        body: "{{count}} exame(s) de retorno ao trabalho pendente(s){{#if employees}}: {{employees}}{{/if}}. Agende o ASO de retorno.",
+      },
+      push: {
+        title: "Exame de retorno pendente",
+        body: "{{count}} ASO de retorno pendente(s){{#if employees}}: {{employees}}{{/if}}",
+      },
+      whatsapp: {
+        body: "{{count}} exame(s) de retorno ao trabalho pendente(s){{#if employees}}: {{employees}}{{/if}}. Agende o ASO de retorno.",
+      },
+    },
+    metadata: {
+      registry: "seed-notification-configs",
+      trigger: "medical-exam-alert.scheduler.ts dispatchByConfiguration(\"medical_exam.return_due\")",
+      targeted: false,
+    },
+  },
+  // ─── ppe (EPI — @Cron PpeCaExpiryScheduler, NR-6) ──────────────────────────
+  {
+    key: "ppe.ca_expiry",
+    name: "CA de EPI Vencido / a Vencer (NR-6)",
+    notificationType: "STOCK",
+    eventType: "ppe.ca_expiry",
+    description: "Certificado de Aprovação (CA) de EPI vencido ou a vencer dentro da janela de antecedência — a entrega de EPI com CA vencido é bloqueada (NR-6).",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: true,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "HUMAN_RESOURCES", "WAREHOUSE"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: true, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "CA de EPI vencido / a vencer (NR-6)",
+        body: "{{expiredCount}} EPI(s) com CA vencido e {{expiringCount}} a vencer em {{advanceDays}} dias{{#if items}}: {{items}}{{/if}}. A entrega de EPI com CA vencido está bloqueada.",
+      },
+      push: {
+        title: "CA de EPI vencido / a vencer",
+        body: "{{expiredCount}} vencido(s), {{expiringCount}} a vencer{{#if items}}: {{items}}{{/if}}",
+      },
+      whatsapp: {
+        body: "{{expiredCount}} EPI(s) com CA vencido e {{expiringCount}} a vencer em {{advanceDays}} dias{{#if items}}: {{items}}{{/if}}. Renove o CA — a entrega com CA vencido está bloqueada (NR-6).",
+      },
+    },
+    metadata: {
+      registry: "seed-notification-configs",
+      trigger: "ppe-ca-expiry.scheduler.ts dispatchByConfiguration(\"ppe.ca_expiry\")",
+      targeted: false,
+    },
+  },
+  // ─── vacation (férias — @Cron VacationNotificationScheduler, CLT art. 137) ──
+  {
+    key: "vacation.concessive_expired",
+    name: "Férias Vencidas (Dobro)",
+    notificationType: "USER",
+    eventType: "vacation.concessive_expired",
+    description: "Período concessivo de férias venceu sem gozo — as férias passam a ser devidas EM DOBRO (CLT art. 137). Providenciar pagamento.",
+    enabled: true,
+    importance: "URGENT",
+    workHoursOnly: true,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "HUMAN_RESOURCES", "ACCOUNTING"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: true, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Férias vencidas (dobro)",
+        body: "As férias de {{userName}} venceram o período concessivo sem gozo e agora são devidas EM DOBRO (CLT art. 137). Providencie o pagamento.",
+      },
+      push: {
+        title: "Férias vencidas (dobro)",
+        body: "Férias de {{userName}} vencidas — devidas em dobro (CLT 137).",
+      },
+      whatsapp: {
+        body: "As férias de {{userName}} venceram o período concessivo sem gozo e agora são devidas EM DOBRO (CLT art. 137). Providencie o pagamento.",
+      },
+    },
+    metadata: {
+      registry: "seed-notification-configs",
+      trigger: "vacation-notification.scheduler.ts dispatchByConfiguration(\"vacation.concessive_expired\")",
+      targeted: false,
+    },
+  },
+  {
+    key: "vacation.concessive_expiring",
+    name: "Período Concessivo de Férias Expirando",
+    notificationType: "USER",
+    eventType: "vacation.concessive_expiring",
+    description: "Período concessivo de férias expirando dentro de 60 dias — conceder o gozo sob pena de pagamento em dobro (CLT art. 137).",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: true,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "HUMAN_RESOURCES", "ACCOUNTING"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: true, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Período concessivo de férias expirando",
+        body: "As férias de {{userName}} devem ser concedidas em até {{daysLeft}} dia(s), sob pena de pagamento em dobro (CLT art. 137). Agende o gozo.",
+      },
+      push: {
+        title: "Concessivo de férias expirando",
+        body: "Férias de {{userName}}: conceder em {{daysLeft}} dia(s) (CLT 137).",
+      },
+      whatsapp: {
+        body: "As férias de {{userName}} devem ser concedidas em até {{daysLeft}} dia(s), sob pena de pagamento em dobro (CLT art. 137). Agende o gozo.",
+      },
+    },
+    metadata: {
+      registry: "seed-notification-configs",
+      trigger: "vacation-notification.scheduler.ts dispatchByConfiguration(\"vacation.concessive_expiring\")",
+      targeted: false,
+    },
+  },
+  {
+    key: "vacation.planning_conflict",
+    name: "Conflito no Planejamento de Férias",
+    notificationType: "USER",
+    eventType: "vacation.planning_conflict",
+    description: "Gozo de férias agendado ultrapassa o fim do período concessivo — reagendar para evitar pagamento em dobro (CLT art. 137).",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: true,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "HUMAN_RESOURCES", "ACCOUNTING"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: true, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Conflito no planejamento de férias",
+        body: "O gozo agendado das férias de {{userName}} ultrapassa o fim do período concessivo. Reagende para evitar pagamento em dobro (CLT art. 137).",
+      },
+      push: {
+        title: "Conflito no planejamento de férias",
+        body: "Gozo de {{userName}} excede o concessivo — reagende (CLT 137).",
+      },
+      whatsapp: {
+        body: "O gozo agendado das férias de {{userName}} ultrapassa o fim do período concessivo. Reagende para evitar pagamento em dobro (CLT art. 137).",
+      },
+    },
+    metadata: {
+      registry: "seed-notification-configs",
+      trigger: "vacation-notification.scheduler.ts dispatchByConfiguration(\"vacation.planning_conflict\")",
       targeted: false,
     },
   },

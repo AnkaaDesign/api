@@ -29,7 +29,6 @@ import {
   STOCK_LEVEL,
   TASK_STATUS,
   CONTRACT_STATUS,
-  CONTRACT_TYPE,
   NOTIFICATION_IMPORTANCE,
   NOTIFICATION_TYPE,
   DASHBOARD_TIME_PERIOD,
@@ -644,13 +643,13 @@ export class DashboardPrismaRepository implements DashboardRepository {
       this.prisma.user.count({
         where: {
           ...where,
-          currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
+          currentContractStatus: { not: CONTRACT_STATUS.TERMINATED },
         },
       }),
       this.prisma.user.count({
         where: {
           ...where,
-          currentContractStatus: CONTRACT_STATUS.DISMISSED,
+          currentContractStatus: CONTRACT_STATUS.TERMINATED,
         },
       }),
       this.prisma.user.count({
@@ -2722,7 +2721,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         },
       }),
       this.prisma.user.count({
-        where: { currentContractStatus: { not: CONTRACT_STATUS.DISMISSED } },
+        where: { currentContractStatus: { not: CONTRACT_STATUS.TERMINATED } },
       }),
       this.prisma.task.findMany({
         where,
@@ -2927,22 +2926,23 @@ export class DashboardPrismaRepository implements DashboardRepository {
     ] = await Promise.all([
       this.prisma.user.count({ where }),
       this.prisma.user.count({
-        where: { ...where, currentContractStatus: { not: CONTRACT_STATUS.DISMISSED } },
+        where: { ...where, currentContractStatus: { not: CONTRACT_STATUS.TERMINATED } },
       }),
       this.prisma.user.count({
-        where: { ...where, currentContractStatus: CONTRACT_STATUS.DISMISSED },
+        where: { ...where, currentContractStatus: CONTRACT_STATUS.TERMINATED },
+      }),
+      // experiencePeriod1 = em experiência (situação EXPERIENCE). A fase 1/2 não
+      // é espelhada no cache do User, portanto experiencePeriod2 fica 0 aqui.
+      this.prisma.user.count({
+        where: { ...where, currentContractStatus: CONTRACT_STATUS.EXPERIENCE },
+      }),
+      Promise.resolve(0),
+      // effected = efetivado/regular (situação ACTIVE).
+      this.prisma.user.count({
+        where: { ...where, currentContractStatus: CONTRACT_STATUS.ACTIVE },
       }),
       this.prisma.user.count({
-        where: { ...where, currentContractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_1 },
-      }),
-      this.prisma.user.count({
-        where: { ...where, currentContractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_2 },
-      }),
-      this.prisma.user.count({
-        where: { ...where, currentContractType: CONTRACT_TYPE.EFFECTED },
-      }),
-      this.prisma.user.count({
-        where: { ...where, currentContractStatus: CONTRACT_STATUS.DISMISSED },
+        where: { ...where, currentContractStatus: CONTRACT_STATUS.TERMINATED },
       }),
       this.prisma.user.count({ where: { ...where, createdAt: { gte: startOfMonth } } }),
       this.prisma.user.count({ where: { ...where, createdAt: { gte: startOfWeek } } }),
@@ -3142,7 +3142,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
   }> {
     const positionGroups = await this.prisma.user.groupBy({
       by: ['positionId'],
-      where: this.sanitizeWhereForGroupBy({ currentContractStatus: { not: CONTRACT_STATUS.DISMISSED } }),
+      where: this.sanitizeWhereForGroupBy({ currentContractStatus: { not: CONTRACT_STATUS.TERMINATED } }),
       _count: { id: true },
     });
 
@@ -3314,7 +3314,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         _count: {
           select: {
             users: {
-              where: { currentContractStatus: { not: CONTRACT_STATUS.DISMISSED } },
+              where: { currentContractStatus: { not: CONTRACT_STATUS.TERMINATED } },
             },
           },
         },
@@ -3327,7 +3327,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         id: true,
         name: true,
         users: {
-          where: { currentContractStatus: { not: CONTRACT_STATUS.DISMISSED } },
+          where: { currentContractStatus: { not: CONTRACT_STATUS.TERMINATED } },
           select: { id: true },
         },
       },

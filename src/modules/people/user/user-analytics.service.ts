@@ -123,7 +123,7 @@ export class UserAnalyticsService {
         const joined = u.currentContract?.effectedAt || u.currentContract?.admissionDate || u.createdAt;
         if (joined > periodEnd) return false;
         if (
-          u.currentContractStatus === CONTRACT_STATUS.DISMISSED &&
+          u.currentContractStatus === CONTRACT_STATUS.TERMINATED &&
           u.currentContract?.terminationDate &&
           u.currentContract.terminationDate < periodStart
         )
@@ -184,7 +184,7 @@ export class UserAnalyticsService {
 
     // Summary: current state
     const activeNow = allUsers.filter(u => {
-      return u.currentContractStatus !== CONTRACT_STATUS.DISMISSED;
+      return u.currentContractStatus !== CONTRACT_STATUS.TERMINATED;
     });
 
     const performanceLevels = activeNow

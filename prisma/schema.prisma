@@ -308,13 +308,28 @@ model PayrollDiscount {
   totalInstallments  Int?
   /// Parcela corrente (1-based); avança a cada folha mensal e desativa ao exceder totalInstallments
   currentInstallment Int?
-  payrollId          String
+  /// Folha à qual este desconto está atrelado. NULL = desconto-mestre ancorado no colaborador
+  /// (ex.: empréstimo registrado uma vez e aplicado às folhas futuras automaticamente).
+  payrollId          String?
+  /// Colaborador dono do desconto-mestre (quando payrollId é NULL). Permite registrar um
+  /// empréstimo/desconto recorrente sem depender de uma folha pré-existente.
+  userId             String?
+  /// Competência inicial (YYYY-MM) a partir da qual o desconto-mestre passa a valer.
+  startCompetence    String?
+  /// Modalidade do empréstimo (apenas para LOAN/ADVANCE): COMPANY = empréstimo/adiantamento
+  /// concedido pela própria empresa; PAYROLL_CONSIGNED = consignado em folha (banco/credor externo,
+  /// descontado da folha respeitando a margem de 35%). NULL para descontos que não são empréstimo.
+  loanKind           LoanKind?
+  /// Banco/credor do consignado (livre). Usado quando loanKind = PAYROLL_CONSIGNED.
+  lenderName         String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
-  payroll            Payroll             @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  payroll            Payroll?            @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  user               User?               @relation("PAYROLL_DISCOUNT_USER", fields: [userId], references: [id], onDelete: Cascade)
   taxTable           TaxTable?           @relation(fields: [taxTableId], references: [id])
 
   @@index([payrollId])
+  @@index([userId])
   @@index([discountType])
   @@index([isPersistent])
   @@index([isActive])
@@ -672,9 +687,11 @@ model File {
   wasteCertificateSigned                 WasteCertificate[]        @relation("WASTE_CERTIFICATE_SIGNED")
   userBenefitDeclaration                 UserBenefit?              @relation("USER_BENEFIT_DECLARATION")
   admissionDocuments                     AdmissionDocument[]       @relation("ADMISSION_DOCUMENT_FILE")
+  admissionDocumentsSigned               AdmissionDocument[]       @relation("ADMISSION_DOCUMENT_SIGNED_FILE")
   terminationDocuments                   TerminationDocument[]     @relation("TERMINATION_DOCUMENT_FILE")
   medicalExamAsos                        MedicalExam[]             @relation("MEDICAL_EXAM_ASO")
   leaves                                 Leave[]                   @relation("FileToLeave")
+  workAccidentReports                    WorkAccidentReport[]      @relation("WORK_ACCIDENT_REPORT_FILE")
 
   @@index([filename])
   @@index([originalName])
@@ -686,6 +703,9 @@ model MonetaryValue {
   id         String    @id @default(uuid())
   value      Float
   current    Boolean   @default(false)
+  // Data de vigência do valor (para resolução histórica de salário: getUserSalaryAt).
+  // Backfill = createdAt; novas linhas devem informar a data efetiva do reajuste.
+  effectiveDate DateTime @default(now())
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   itemId     String?
@@ -698,6 +718,7 @@ model MonetaryValue {
   @@index([positionId])
   @@index([itemId, current])
   @@index([positionId, current])
+  @@index([positionId, effectiveDate])
 }
 
 model Measure {
@@ -747,6 +768,10 @@ model Item {
   fixedTargetQuantity            Float?
   ppeType                        PpeType?
   ppeCA                          String?
+  // Validade do Certificado de Aprovação (CA) do EPI. Entrega de EPI com CA vencido
+  // é bloqueada (Part E); alertas de vencimento usam ppeCAExpiry.
+  ppeCAIssueDate                 DateTime?
+  ppeCAExpiry                    DateTime?
   ppeDeliveryMode                PpeDeliveryMode?
   ppeStandardQuantity            Int?
   createdAt                      DateTime                @default(now())
@@ -1292,6 +1317,18 @@ model Position {
   updatedAt                 DateTime               @updatedAt
   bonifiable                Boolean                @default(true)
   hierarchy                 Int?
+  /// Insalubridade (NR-15): grau que define o adicional (% sobre salário-mínimo).
+  /// NONE = sem insalubridade. Mutuamente exclusivo com periculosidade.
+  insalubrityDegree         InsalubrityDegree      @default(NONE)
+  /// Periculosidade (NR-16): adicional de 30% sobre o salário-base.
+  /// Mutuamente exclusivo com insalubridade.
+  hazardPay                 Boolean                @default(false)
+  /// Piso salarial da categoria/sindicato (Decimal). NULL = usa o salário-mínimo nacional.
+  /// Reajustes são validados contra max(piso, salário-mínimo nacional).
+  salaryFloor               Decimal?               @db.Decimal(10, 2)
+  /// Periodicidade padrão do exame médico periódico para este cargo (meses).
+  /// NULL = usa a cadência legal padrão por idade/risco.
+  examPeriodicityMonths     Int?
   /// Secullum integration: Funcao.Id mapped to this Position. NULL = unmapped.
   /// Multiple positions may share the same Secullum função (N:1).
   secullumFuncaoId          Int?
@@ -1318,6 +1355,10 @@ model Warning {
   severityOrder  Int             @default(1)
   reason         String
   isActive       Boolean         @default(true)
+  // Dias de suspensão (severity = SUSPENSION). CLT art. 474 limita a 30 dias corridos.
+  suspensionDays Int?
+  // Vínculo a uma rescisão por justa causa quando esta advertência fundamenta o desligamento.
+  terminationId  String?
   hrNotes        String?
   followUpDate   DateTime
   resolvedAt     DateTime?
@@ -1325,11 +1366,13 @@ model Warning {
   updatedAt      DateTime        @updatedAt
   collaborator   User            @relation("COLLABORATOR_WARNING", fields: [collaboratorId], references: [id])
   supervisor     User            @relation("SUPERVISOR_WARNING", fields: [supervisorId], references: [id])
+  termination    Termination?    @relation("WARNING_TERMINATION", fields: [terminationId], references: [id])
   attachments    File[]          @relation("FileToWarning")
   witness        User[]          @relation("WITNESS_WARNING")
 
   @@index([collaboratorId])
   @@index([severityOrder])
+  @@index([terminationId])
 }
 
 model Sector {
@@ -1829,6 +1872,7 @@ model User {
   userBenefits                   UserBenefit[]                @relation("USER_BENEFIT_USER")
   admissions                     Admission[]                  @relation("ADMISSION_USER")
   admissionsCreated              Admission[]                  @relation("ADMISSION_CREATED_BY")
+  admissionDocumentsSigned       AdmissionDocument[]          @relation("ADMISSION_DOCUMENT_SIGNED_BY")
   contracts                      EmploymentContract[]         @relation("EMPLOYMENT_CONTRACT_USER")
   currentContract                EmploymentContract?          @relation("USER_CURRENT_CONTRACT", fields: [currentContractId], references: [id])
   terminations                   Termination[]                @relation("TERMINATION_USER")
@@ -1836,6 +1880,10 @@ model User {
   medicalExams                   MedicalExam[]                @relation("MEDICAL_EXAM_USER")
   leaves                         Leave[]                      @relation("LEAVE_USER")
   dependents                     Dependent[]                  @relation("DEPENDENT_USER")
+  vacations                      Vacation[]                   @relation("VACATION_USER")
+  thirteenths                    Thirteenth[]                 @relation("THIRTEENTH_USER")
+  payrollDiscounts               PayrollDiscount[]            @relation("PAYROLL_DISCOUNT_USER")
+  workAccidentReports            WorkAccidentReport[]         @relation("WORK_ACCIDENT_REPORT_USER")
   agendaEventsCreated            AgendaEvent[]                @relation("AGENDA_EVENT_CREATED_BY")
   postits                        Postit[]                     @relation("POSTIT_USER")
 
@@ -2442,13 +2490,12 @@ enum ResponsibleRole {
   @@map("RepresentativeRole")
 }
 
-// The legal KIND of an employment bond (only meaningful for on-folha CLT-family types).
-// For EXPERIENCE_PERIOD_* this also marks the experiência phase; it advances to EFFECTED
-// on efetivação within the SAME contract (same vínculo / admissionDate).
+// The legal MODALITY of an employment bond (only meaningful for on-folha CLT-family types).
+// Experiência phase (1 vs 2) is DERIVED from exp1*/exp2* date fields, not from this enum;
+// while in experiência the modality is FIXED_TERM with status EXPERIENCE, advancing to
+// INDETERMINATE + status ACTIVE on efetivação (CLT art. 451) within the SAME vínculo.
 enum ContractType {
-  EXPERIENCE_PERIOD_1
-  EXPERIENCE_PERIOD_2
-  EFFECTED
+  INDETERMINATE
   FIXED_TERM
   INTERMITTENT
   APPRENTICE
@@ -2457,8 +2504,11 @@ enum ContractType {
 
 // The LIFECYCLE status (situação) of an employment bond. Orthogonal to ContractType.
 enum ContractStatus {
+  EXPERIENCE
   ACTIVE
-  DISMISSED
+  NOTICE_PERIOD
+  ON_LEAVE
+  TERMINATED
 }
 
 // Worker CATEGORY — gates payroll/folha inclusion (mirrors eSocial S-2200 vs S-2300 split).
@@ -3372,6 +3422,12 @@ enum WebhookEventStatus {
   FAILED
 }
 
+/// Modalidade de empréstimo descontado em folha (PayrollDiscount.loanKind).
+enum LoanKind {
+  COMPANY            // Empréstimo/adiantamento concedido pela própria empresa
+  PAYROLL_CONSIGNED  // Consignado em folha (banco/credor externo)
+}
+
 enum PayrollDiscountType {
   INSS
   IRRF
@@ -3392,6 +3448,12 @@ enum PayrollDiscountType {
   ADVANCE
   AUTHORIZED_DISCOUNT
   CUSTOM
+  // Earnings (proventos) — modeled in the same enum since PayrollDiscount carries both
+  // sides of the holerite via signed/typed lines; these are NON-negative earnings.
+  FAMILY_ALLOWANCE   // salário-família
+  INSALUBRIDADE      // adicional de insalubridade
+  PERICULOSIDADE     // adicional de periculosidade
+  HABITUAL_GRATIFICATION // gratificação habitual (reflexos)
 }
 
 enum TaxType {
@@ -4998,6 +5060,10 @@ model UserBenefit {
   employeeDiscountValue   Float?
   employeeDiscountPercent Float?
   dailyTickets            Int?
+  /// Parcelamento de convênio (espelha LOAN/ADVANCE): total de parcelas contratadas.
+  totalInstallments       Int?
+  /// Parcela corrente (1-based); avança a cada folha e encerra ao exceder totalInstallments.
+  currentInstallment      Int?
   declarationFileId       String?                 @unique
   notes                   String?
   createdAt               DateTime                @default(now())
@@ -5005,6 +5071,7 @@ model UserBenefit {
   user                    User                    @relation("USER_BENEFIT_USER", fields: [userId], references: [id], onDelete: Cascade)
   benefit                 Benefit                 @relation(fields: [benefitId], references: [id])
   declarationFile         File?                   @relation("USER_BENEFIT_DECLARATION", fields: [declarationFileId], references: [id])
+  dependents              Dependent[]             @relation("DEPENDENT_HEALTH_PLAN")
 
   @@index([userId])
   @@index([benefitId])
@@ -5064,6 +5131,10 @@ model EmploymentContract {
   statusOrder     Int              @default(1)
   positionId      String?
   sectorId        String?
+  // Per-vínculo overrides for the position's insalubridade/periculosidade config.
+  // NULL = inherit from the Position. Mutually exclusive when set (service-enforced).
+  insalubrityDegreeOverride InsalubrityDegree?
+  hazardPayOverride         Boolean?
   // Phase dates (CLT experiência → efetivação) — moved off User
   admissionDate   DateTime?        // vínculo start (was User.exp1StartAt / Admission.hireDate)
   exp1StartAt     DateTime?
@@ -5071,9 +5142,20 @@ model EmploymentContract {
   exp2StartAt     DateTime?
   exp2EndAt       DateTime?
   effectedAt      DateTime?
+  // Experiência phase (1 or 2). Normally DERIVED from exp1*/exp2* dates; this optional
+  // explicit marker is for cases where date-derivation is awkward. NULL = derive from dates.
+  experiencePhase Int?             // 1 | 2 | null
+  // Art. 481 CLT — cláusula assecuratória do direito recíproco de rescisão; when a fixed-term
+  // contract carries it, early termination follows the indeterminate regime (aviso prévio).
+  hasArt481Clause Boolean          @default(false)
   // Termination
   terminationDate DateTime?        // (was User.dismissedAt)
   terminationType TerminationType?
+  // Estabilidade (job-stability window) — set on return from a qualifying leave/event.
+  // Blocks dismissal between stabilityStart and stabilityEnd (Part G guard).
+  stabilityType   StabilityType?
+  stabilityStart  DateTime?
+  stabilityEnd    DateTime?
   // Terceirizado / PJ (off-folha) — the real employer / counterparty
   providerName    String?
   providerCnpj    String?
@@ -5088,6 +5170,8 @@ model EmploymentContract {
   admission       Admission?       @relation("ADMISSION_CONTRACT")
   terminations    Termination[]    @relation("TERMINATION_CONTRACT")
   payrolls        Payroll[]        @relation("PAYROLL_CONTRACT")
+  vacations       Vacation[]       @relation("VACATION_CONTRACT")
+  thirteenths     Thirteenth[]     @relation("THIRTEENTH_CONTRACT")
 
   @@unique([userId, sequence])
   @@index([userId])
@@ -5096,6 +5180,23 @@ model EmploymentContract {
   @@index([employeeType])
   @@index([positionId])
   @@index([sectorId])
+}
+
+// Grau de insalubridade (NR-15) → percentual do adicional sobre o salário-mínimo.
+enum InsalubrityDegree {
+  NONE  // 0%
+  MIN   // 10%
+  MED   // 20%
+  MAX   // 40%
+}
+
+// Type of job-stability (estabilidade) window protecting against dismissal.
+enum StabilityType {
+  ACCIDENT    // acidentária — 12 meses após retorno (art. 118 Lei 8.213/91)
+  PREGNANCY   // gestante — confirmação até 5 meses após o parto (ADCT art. 10, II, b)
+  UNION       // dirigente sindical
+  CIPA        // membro da CIPA
+  OTHER
 }
 
 model Admission {
@@ -5128,13 +5229,39 @@ model AdmissionDocument {
   fileId      String?
   expiresAt   DateTime?
   note        String?
+  // ---- Assinatura eletrônica in-app (reusa o pipeline de assinatura de EPI) ----
+  // Preenchidos quando um documento assinável (ex.: LGPD_TERM) é assinado no app.
+  // PDF final assinado/selado (≠ fileId, que é o documento original enviado).
+  signedFileId      String?
+  // Quem assinou e quando (timestamps duplos cliente/servidor mantidos no JSON de evidência).
+  signedByUserId    String?
+  signedAt          DateTime?
+  // Evidência criptográfica reusando o formato do PpeDeliverySignature.
+  signatureEvidence Json?
+  evidenceHash      String?
+  hmacSignature     String?
+  documentSha256    String?
+  // Selo PAdES (ICP-Brasil) aplicado no servidor sobre o PDF assinado.
+  padesSealed       Boolean   @default(false)
+  padesSealedAt     DateTime?
+  certSubject       String?
+  certIssuer        String?
+  certSerialNumber  String?
+  certCnpj          String?
+  certNotAfter      DateTime?
+  legalBasis        String?
+  consentGiven      Boolean   @default(false)
   createdAt   DateTime                @default(now())
   updatedAt   DateTime                @updatedAt
   admission   Admission               @relation(fields: [admissionId], references: [id], onDelete: Cascade)
   file        File?                   @relation("ADMISSION_DOCUMENT_FILE", fields: [fileId], references: [id])
+  signedFile  File?                   @relation("ADMISSION_DOCUMENT_SIGNED_FILE", fields: [signedFileId], references: [id])
+  signedBy    User?                   @relation("ADMISSION_DOCUMENT_SIGNED_BY", fields: [signedByUserId], references: [id])
 
   @@index([admissionId])
   @@index([fileId])
+  @@index([signedFileId])
+  @@index([signedByUserId])
   @@index([status])
 }
 
@@ -5148,6 +5275,11 @@ enum TerminationType {
   EXPERIENCE_EARLY_EMPLOYEE
   INDIRECT
   DEATH
+  // Art. 480 CLT — rescisão antecipada de contrato a prazo PELO EMPREGADO (indenização
+  // devida pelo empregado, ≤ metade da remuneração do período restante).
+  FIXED_TERM_EARLY_EMPLOYEE
+  // Encerramento de contrato intermitente.
+  INTERMITTENT_END
 }
 
 enum TerminationStatus {
@@ -5157,6 +5289,8 @@ enum TerminationStatus {
   MEDICAL_EXAM
   CALCULATION
   PAYMENT
+  // Homologação (sindicato/MTE quando aplicável) antes da conclusão.
+  HOMOLOGATION
   COMPLETED
   CANCELLED
 }
@@ -5193,7 +5327,10 @@ enum TerminationItemType {
 
 enum TerminationDocumentType {
   NOTICE_LETTER
-  TRCT
+  WARNING_LETTER          // carta de aviso (justa causa / advertência formal)
+  TRCT                    // Termo de Rescisão do Contrato de Trabalho
+  TERM_484A               // termo de acordo mútuo art. 484-A CLT
+  HOMOLOGATION_TERM       // termo de homologação
   FGTS_GUIDE
   FGTS_STATEMENT
   UNEMPLOYMENT_INSURANCE_FORM
@@ -5241,6 +5378,7 @@ model Termination {
   initiatedBy            User?                 @relation("TERMINATION_INITIATED_BY", fields: [initiatedById], references: [id])
   items                  TerminationItem[]
   documents              TerminationDocument[]
+  warnings               Warning[]             @relation("WARNING_TERMINATION")
 
   @@index([userId])
   @@index([contractId])
@@ -5292,6 +5430,7 @@ enum MedicalExamType {
 enum MedicalExamResult {
   PENDING
   FIT
+  FIT_WITH_RESTRICTIONS
   UNFIT
 }
 
@@ -5309,6 +5448,10 @@ model MedicalExam {
   status        MedicalExamStatus @default(SCHEDULED)
   statusOrder   Int               @default(1)
   result        MedicalExamResult @default(PENDING)
+  // Restrições laborais quando result = FIT_WITH_RESTRICTIONS (apto com restrições).
+  restrictions  String?
+  // Periodicidade do próximo exame periódico (meses). NULL = usa Position/legal default.
+  periodicityMonths Int?
   scheduledAt   DateTime?
   examDate      DateTime?
   expiresAt     DateTime?
@@ -5351,23 +5494,37 @@ enum LeaveStatus {
   CANCELLED
 }
 
+// Espécie de benefício INSS (substitui o número livre como dado estruturado).
+enum InssBenefitSpecies {
+  B31  // auxílio-doença previdenciário (comum)
+  B91  // auxílio-doença acidentário (gera estabilidade acidentária)
+  B32  // aposentadoria por invalidez previdenciária
+  B92  // aposentadoria por invalidez acidentária
+  B80  // salário-maternidade
+  B36  // auxílio-acidente
+  OTHER
+}
+
 model Leave {
-  id                 String      @id @default(uuid())
+  id                 String               @id @default(uuid())
   userId             String
   type               LeaveType
-  status             LeaveStatus @default(SCHEDULED)
-  statusOrder        Int         @default(1)
+  status             LeaveStatus          @default(SCHEDULED)
+  statusOrder        Int                  @default(1)
   startDate          DateTime
   expectedEndDate    DateTime?
   actualEndDate      DateTime?
   cid                String?
+  // Espécie estruturada do benefício INSS (preferir sobre o número livre).
+  inssBenefitSpecies InssBenefitSpecies?
   inssBenefitNumber  String?
-  returnExamRequired Boolean     @default(false)
+  returnExamRequired Boolean              @default(false)
   notes              String?
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
-  user               User        @relation("LEAVE_USER", fields: [userId], references: [id], onDelete: Cascade)
-  files              File[]      @relation("FileToLeave")
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  user               User                 @relation("LEAVE_USER", fields: [userId], references: [id], onDelete: Cascade)
+  files              File[]               @relation("FileToLeave")
+  workAccidentReports WorkAccidentReport[] @relation("WORK_ACCIDENT_REPORT_LEAVE")
 
   @@index([userId])
   @@index([statusOrder])
@@ -5397,16 +5554,169 @@ model Dependent {
   irrfDeduction  Boolean               @default(true)
   /// Elegível ao salário-família (filho <= 14 anos ou inválido; teto de remuneração aplica)
   salarioFamilia Boolean               @default(false)
+  /// Plano de saúde/odontológico (UserBenefit) ao qual este dependente está vinculado.
+  /// O custo do plano escala por dependente inscrito (Part H). NULL = não inscrito.
+  healthPlanBenefitId String?
+  /// Valor mensal atribuído a este dependente no plano (titular+dependentes deduzem IRRF).
+  healthPlanValue Decimal?             @db.Decimal(10, 2)
   notes          String?
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
   user           User                  @relation("DEPENDENT_USER", fields: [userId], references: [id], onDelete: Cascade)
+  healthPlanBenefit UserBenefit?       @relation("DEPENDENT_HEALTH_PLAN", fields: [healthPlanBenefitId], references: [id])
 
   @@unique([userId, cpf])
   @@index([userId])
   @@index([relationship])
   @@index([irrfDeduction])
   @@index([salarioFamilia])
+  @@index([healthPlanBenefitId])
+}
+
+// ============================================================================
+// FÉRIAS (Part C)
+// ============================================================================
+enum VacationStatus {
+  OPEN         // período aquisitivo em curso / não agendado
+  SCHEDULED    // agendado (gozo futuro)
+  IN_PROGRESS  // em gozo
+  PAID         // pago / encerrado
+  EXPIRED      // período concessivo expirou sem gozo (art. 137 — dobro)
+}
+
+// Um período aquisitivo/concessivo de férias de um vínculo. As férias são pagas
+// num recibo próprio (NÃO embutidas na folha mensal).
+model Vacation {
+  id                          String              @id @default(uuid())
+  userId                      String
+  contractId                  String?
+  // Período aquisitivo (12 meses de trabalho que geram direito).
+  acquisitiveStart            DateTime
+  acquisitiveEnd              DateTime
+  // Fim do período concessivo (limite legal para gozo; após isso → dobro art. 137).
+  concessiveEnd               DateTime?
+  // Faltas injustificadas no período aquisitivo (escala art. 130).
+  unjustifiedAbsencesInPeriod Int                 @default(0)
+  // Dias de direito conforme a escala (0-5→30, 6-14→24, 15-23→18, 24-32→12, >32→0).
+  entitledDays                Int                 @default(30)
+  status                      VacationStatus      @default(OPEN)
+  statusOrder                 Int                 @default(1)
+  // Abono pecuniário (venda de até 10 dias) e venda de 1/3 (abono).
+  abonoPecuniarioDays         Int                 @default(0)
+  soldThird                   Boolean             @default(false)
+  // Base de cálculo incl. média de variáveis (HE/adicionais/bonif.) no aquisitivo.
+  baseRemuneration            Decimal?            @db.Decimal(10, 2)
+  oneThird                    Decimal?            @db.Decimal(10, 2)
+  abonoAmount                 Decimal?            @db.Decimal(10, 2)
+  inss                        Decimal?            @db.Decimal(10, 2)
+  irrf                        Decimal?            @db.Decimal(10, 2)
+  // Férias em dobro (gozadas após expiração do concessivo — art. 137).
+  isDouble                    Boolean             @default(false)
+  paymentDueDate              DateTime?
+  paymentDate                 DateTime?
+  notes                       String?
+  createdAt                   DateTime            @default(now())
+  updatedAt                   DateTime            @updatedAt
+  user                        User                @relation("VACATION_USER", fields: [userId], references: [id], onDelete: Cascade)
+  contract                    EmploymentContract? @relation("VACATION_CONTRACT", fields: [contractId], references: [id])
+  periods                     VacationPeriod[]    @relation("VACATION_PERIOD_VACATION")
+
+  @@index([userId])
+  @@index([contractId])
+  @@index([status])
+  @@index([statusOrder])
+  @@index([acquisitiveEnd])
+  @@index([concessiveEnd])
+}
+
+// Fracionamento das férias (Reforma 2017): até 3 períodos, um ≥ 14 dias.
+model VacationPeriod {
+  id         String   @id @default(uuid())
+  vacationId String
+  startDate  DateTime
+  days       Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  vacation   Vacation @relation("VACATION_PERIOD_VACATION", fields: [vacationId], references: [id], onDelete: Cascade)
+
+  @@index([vacationId])
+  @@index([startDate])
+}
+
+// ============================================================================
+// 13º SALÁRIO (Part D)
+// ============================================================================
+enum ThirteenthStatus {
+  OPEN                 // avos acumulando
+  FIRST_PAID           // 1ª parcela paga
+  SECOND_PAID          // 2ª parcela paga (sem encerramento total ainda)
+  PAID                 // ambas as parcelas pagas / encerrado
+  CANCELLED
+}
+
+// 13º salário (gratificação natalina) de um ano para um vínculo.
+model Thirteenth {
+  id                    String              @id @default(uuid())
+  userId                String
+  contractId            String?
+  year                  Int
+  // Avos (≥15 dias trabalhados no mês = 1 avo; reusa a lógica de thirteenthMonths).
+  avos                  Int                 @default(0)
+  // Base incl. média de variáveis.
+  baseRemuneration      Decimal?            @db.Decimal(10, 2)
+  // 1ª parcela (50%, até 30/Nov, SEM descontos).
+  firstInstallment      Decimal?            @db.Decimal(10, 2)
+  firstInstallmentDate  DateTime?
+  // 2ª parcela (até 20/Dez, com INSS+IRRF sobre a base EXCLUSIVA do 13º).
+  secondInstallment     Decimal?            @db.Decimal(10, 2)
+  secondInstallmentDate DateTime?
+  inss                  Decimal?            @db.Decimal(10, 2)
+  irrf                  Decimal?            @db.Decimal(10, 2)
+  status                ThirteenthStatus    @default(OPEN)
+  statusOrder           Int                 @default(1)
+  notes                 String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  user                  User                @relation("THIRTEENTH_USER", fields: [userId], references: [id], onDelete: Cascade)
+  contract              EmploymentContract? @relation("THIRTEENTH_CONTRACT", fields: [contractId], references: [id])
+
+  @@unique([userId, year, contractId])
+  @@index([userId])
+  @@index([contractId])
+  @@index([year])
+  @@index([status])
+  @@index([statusOrder])
+}
+
+// ============================================================================
+// CAT — Comunicação de Acidente de Trabalho (Part E)
+// ============================================================================
+enum WorkAccidentReportType {
+  INITIAL       // CAT inicial
+  REOPENING     // CAT de reabertura
+  DEATH         // CAT de óbito
+}
+
+model WorkAccidentReport {
+  id           String                 @id @default(uuid())
+  userId       String
+  leaveId      String?                // vínculo ao afastamento (LeaveType.WORK_ACCIDENT)
+  type         WorkAccidentReportType @default(INITIAL)
+  catNumber    String?                // número da CAT
+  emissionDate DateTime?
+  accidentDate DateTime?
+  description  String?
+  fileId       String?                // documento da CAT
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  user         User                   @relation("WORK_ACCIDENT_REPORT_USER", fields: [userId], references: [id], onDelete: Cascade)
+  leave        Leave?                 @relation("WORK_ACCIDENT_REPORT_LEAVE", fields: [leaveId], references: [id])
+  file         File?                  @relation("WORK_ACCIDENT_REPORT_FILE", fields: [fileId], references: [id])
+
+  @@index([userId])
+  @@index([leaveId])
+  @@index([fileId])
+  @@index([emissionDate])
 }
 
 // Agenda com avisos (eventos com notificação antecipada) — módulo na fase 2
@@ -5441,6 +5751,11 @@ model Postit {
   content    String
   color      String   @default("yellow")
   position   Int      @default(0)
+  // Free-canvas placement + size (nullable; legacy/un-placed notes fall back to a grid layout)
+  positionX  Float?
+  positionY  Float?
+  width      Float?
+  height     Float?
   isArchived Boolean  @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt

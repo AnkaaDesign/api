@@ -26,6 +26,10 @@ export interface Warning extends BaseEntity {
   isActive: boolean;
   collaboratorId: string;
   supervisorId: string;
+  // Dias de suspensão (severity = SUSPENSION). CLT art. 474 limita a 30 dias.
+  suspensionDays: number | null;
+  // Rescisão por justa causa que esta advertência fundamenta (opcional).
+  terminationId: string | null;
   followUpDate: Date;
   hrNotes: string | null;
   resolvedAt: Date | null;
@@ -35,6 +39,7 @@ export interface Warning extends BaseEntity {
   supervisor?: User;
   witness?: User[];
   attachments?: File[];
+  termination?: unknown;
 }
 
 // =====================

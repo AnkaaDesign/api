@@ -25,6 +25,7 @@ import {
   MEDICAL_EXAM_STATUS,
   MEDICAL_EXAM_STATUS_ORDER,
   MEDICAL_EXAM_TYPE,
+  MEDICAL_EXAM_RESULT,
   TERMINATION_DOCUMENT_STATUS,
   TERMINATION_DOCUMENT_TYPE,
   TERMINATION_STATUS,
@@ -56,6 +57,8 @@ const MEDICAL_EXAM_TRACKED_FIELDS = [
   'type',
   'status',
   'result',
+  'restrictions',
+  'periodicityMonths',
   'scheduledAt',
   'examDate',
   'expiresAt',
@@ -65,6 +68,18 @@ const MEDICAL_EXAM_TRACKED_FIELDS = [
   'notes',
   'fileId',
 ];
+
+// Default occupational-exam periodicity (months) when neither the exam nor the
+// position specifies one. NR-7 baseline for periodic exams is 12 months.
+const DEFAULT_PERIODIC_MONTHS = 12;
+
+/**
+ * An exam result is "apto" (apt) for admission/return gating unless it is UNFIT.
+ * FIT_WITH_RESTRICTIONS counts as conditionally apt (apto com restrições).
+ */
+export function isExamResultApt(result: string | null | undefined): boolean {
+  return result !== MEDICAL_EXAM_RESULT.UNFIT;
+}
 
 // SCHEDULED → COMPLETED | CANCELLED; COMPLETED → EXPIRED (derived once the
 // validity lapses — settable via update); EXPIRED/CANCELLED are terminal.
@@ -109,6 +124,102 @@ export class MedicalExamService {
         throw new NotFoundException('Colaborador não encontrado.');
       }
     }
+
+    // "Apto com restrições" exige a descrição das restrições laborais.
+    if (
+      data.result === MEDICAL_EXAM_RESULT.FIT_WITH_RESTRICTIONS &&
+      data.restrictions !== undefined &&
+      (data.restrictions === null || data.restrictions.trim() === '')
+    ) {
+      throw new BadRequestException(
+        'Informe as restrições laborais quando o resultado for "Apto com restrições".',
+      );
+    }
+  }
+
+  /**
+   * Resolve the periodicity (months) for the NEXT periodic exam of a user:
+   * explicit exam value → user's current Position.examPeriodicityMonths → legal default.
+   */
+  private async resolvePeriodicityMonths(
+    tx: PrismaTransaction,
+    userId: string,
+    examPeriodicityMonths: number | null | undefined,
+  ): Promise<number> {
+    if (examPeriodicityMonths && examPeriodicityMonths > 0) {
+      return examPeriodicityMonths;
+    }
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { position: { select: { examPeriodicityMonths: true } } },
+    });
+    const positionMonths = user?.position?.examPeriodicityMonths;
+    if (positionMonths && positionMonths > 0) {
+      return positionMonths;
+    }
+    return DEFAULT_PERIODIC_MONTHS;
+  }
+
+  /**
+   * Completing a PERIODIC exam schedules the next one automatically using the
+   * resolved periodicity (exam → Position → legal default). The new exam is
+   * SCHEDULED for examDate + periodicityMonths. Idempotent: skips if a
+   * non-cancelled future PERIODIC exam already exists for the user.
+   */
+  private async scheduleNextPeriodicExam(
+    tx: PrismaTransaction,
+    completed: { id: string; userId: string; examDate: Date | null; periodicityMonths: number | null },
+    actorUserId?: string,
+  ): Promise<boolean> {
+    const base = completed.examDate ?? new Date();
+    const months = await this.resolvePeriodicityMonths(
+      tx,
+      completed.userId,
+      completed.periodicityMonths,
+    );
+
+    const nextScheduledAt = new Date(base);
+    nextScheduledAt.setMonth(nextScheduledAt.getMonth() + months);
+
+    // Dedup: do not schedule if a non-cancelled PERIODIC exam is already pending
+    // in the future (avoids stacking on repeated completions/edits).
+    const existing = await tx.medicalExam.findFirst({
+      where: {
+        userId: completed.userId,
+        type: MEDICAL_EXAM_TYPE.PERIODIC as any,
+        status: MEDICAL_EXAM_STATUS.SCHEDULED as any,
+        scheduledAt: { gt: base },
+        id: { not: completed.id },
+      },
+      select: { id: true },
+    });
+    if (existing) return false;
+
+    const created = await tx.medicalExam.create({
+      data: {
+        userId: completed.userId,
+        type: MEDICAL_EXAM_TYPE.PERIODIC as any,
+        status: MEDICAL_EXAM_STATUS.SCHEDULED as any,
+        statusOrder: this.getStatusOrder(MEDICAL_EXAM_STATUS.SCHEDULED),
+        result: MEDICAL_EXAM_RESULT.PENDING as any,
+        scheduledAt: nextScheduledAt,
+        periodicityMonths: months,
+      },
+    });
+
+    await logEntityChange({
+      changeLogService: this.changeLogService,
+      entityType: ENTITY_TYPE.MEDICAL_EXAM,
+      entityId: created.id,
+      action: CHANGE_ACTION.CREATE,
+      entity: created,
+      reason: `Próximo exame periódico agendado automaticamente (${months} meses)`,
+      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+      userId: actorUserId || null,
+      transaction: tx,
+    });
+
+    return true;
   }
 
   async findMany(query: MedicalExamGetManyFormData): Promise<MedicalExamGetManyResponse> {
@@ -182,6 +293,53 @@ export class MedicalExamService {
         'Erro ao buscar exames a vencer. Por favor, tente novamente.',
       );
     }
+  }
+
+  /**
+   * Flip COMPLETED exams whose validity has lapsed (expiresAt < now) to EXPIRED.
+   * Idempotent — safe to run repeatedly (the cron calls it daily). Returns the
+   * number of exams transitioned.
+   */
+  async autoExpireOverdue(now: Date = new Date()): Promise<number> {
+    const overdue = await this.prisma.medicalExam.findMany({
+      where: {
+        status: MEDICAL_EXAM_STATUS.COMPLETED as any,
+        expiresAt: { not: null, lt: now },
+      },
+      select: { id: true, status: true },
+    });
+
+    let transitioned = 0;
+    for (const exam of overdue) {
+      try {
+        await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+          await tx.medicalExam.update({
+            where: { id: exam.id },
+            data: {
+              status: MEDICAL_EXAM_STATUS.EXPIRED as any,
+              statusOrder: this.getStatusOrder(MEDICAL_EXAM_STATUS.EXPIRED),
+            },
+          });
+          await this.changeLogService.logChange({
+            entityType: ENTITY_TYPE.MEDICAL_EXAM,
+            entityId: exam.id,
+            action: CHANGE_ACTION.UPDATE,
+            field: 'status',
+            oldValue: exam.status,
+            newValue: MEDICAL_EXAM_STATUS.EXPIRED,
+            reason: 'Exame vencido — validade expirada (transição automática)',
+            triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+            triggeredById: exam.id,
+            userId: null,
+            transaction: tx,
+          });
+        });
+        transitioned++;
+      } catch (error: any) {
+        this.logger.error(`Erro ao expirar exame ${exam.id}:`, error);
+      }
+    }
+    return transitioned;
   }
 
   async findById(id: string, include?: MedicalExamInclude): Promise<MedicalExamGetUniqueResponse> {
@@ -277,6 +435,17 @@ export class MedicalExamService {
         const updateData: any = { ...data };
         if (data.status) {
           updateData.statusOrder = this.getStatusOrder(data.status);
+        }
+
+        // Restrições só se aplicam a "apto com restrições". Se o resultado for
+        // alterado para outro valor, limpa o campo para não deixar texto órfão.
+        const mergedResult = data.result ?? existing.result;
+        if (mergedResult !== MEDICAL_EXAM_RESULT.FIT_WITH_RESTRICTIONS) {
+          updateData.restrictions = null;
+        } else if (data.restrictions === undefined && !existing.restrictions) {
+          throw new BadRequestException(
+            'Informe as restrições laborais quando o resultado for "Apto com restrições".',
+          );
         }
 
         const updated = await tx.medicalExam.update({ where: { id }, data: updateData, include });
@@ -390,6 +559,16 @@ export class MedicalExamService {
           throw new BadRequestException('Apenas exames agendados podem ser concluídos.');
         }
 
+        // "Apto com restrições" exige a descrição das restrições laborais.
+        if (data.result === MEDICAL_EXAM_RESULT.FIT_WITH_RESTRICTIONS) {
+          const restrictions = data.restrictions ?? existing.restrictions;
+          if (!restrictions || restrictions.trim() === '') {
+            throw new BadRequestException(
+              'Informe as restrições laborais quando o resultado for "Apto com restrições".',
+            );
+          }
+        }
+
         const updated = await tx.medicalExam.update({
           where: { id },
           data: {
@@ -397,6 +576,15 @@ export class MedicalExamService {
             statusOrder: this.getStatusOrder(MEDICAL_EXAM_STATUS.COMPLETED),
             examDate: data.examDate,
             result: data.result as any,
+            // Restrições só fazem sentido em "apto com restrições"; limpa caso contrário.
+            ...(data.result === MEDICAL_EXAM_RESULT.FIT_WITH_RESTRICTIONS
+              ? data.restrictions !== undefined
+                ? { restrictions: data.restrictions }
+                : {}
+              : { restrictions: null }),
+            ...(data.periodicityMonths !== undefined
+              ? { periodicityMonths: data.periodicityMonths }
+              : {}),
             ...(data.expiresAt !== undefined ? { expiresAt: data.expiresAt } : {}),
             ...(data.physicianName !== undefined ? { physicianName: data.physicianName } : {}),
             ...(data.crm !== undefined ? { crm: data.crm } : {}),
@@ -433,13 +621,28 @@ export class MedicalExamService {
           );
         }
 
-        return updated;
+        // Periodic auto-followup: completing a PERIODIC exam schedules the next one.
+        let nextScheduled = false;
+        if (updated.type === MEDICAL_EXAM_TYPE.PERIODIC) {
+          nextScheduled = await this.scheduleNextPeriodicExam(
+            tx,
+            {
+              id: updated.id,
+              userId: existing.userId,
+              examDate: updated.examDate,
+              periodicityMonths: updated.periodicityMonths,
+            },
+            userId,
+          );
+        }
+
+        return { updated, nextScheduled };
       });
 
       return {
         success: true,
-        message: 'Exame concluído com sucesso.',
-        data: exam as unknown as MedicalExam,
+        message: `Exame concluído com sucesso.${exam.nextScheduled ? ' Próximo exame periódico agendado automaticamente.' : ''}`,
+        data: exam.updated as unknown as MedicalExam,
       };
     } catch (error: any) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) {

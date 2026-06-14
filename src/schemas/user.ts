@@ -16,6 +16,7 @@ import {
 } from './common';
 import { cleanCPF } from '../utils/cleaners';
 import { isValidCPF } from '../utils/validators';
+import { validateEmployeeContractTypeIntegrity } from '../utils/contract';
 import type { User } from '@types';
 import {
   CONTRACT_TYPE,
@@ -24,6 +25,8 @@ import {
   TERMINATION_TYPE,
   VERIFICATION_TYPE,
   SECTOR_PRIVILEGES,
+  INSALUBRITY_DEGREE,
+  STABILITY_TYPE,
 } from '@constants';
 
 // =====================
@@ -1328,17 +1331,17 @@ const userTransform = (data: any) => {
   if (typeof data.isActive === 'boolean') {
     andConditions.push({
       currentContractStatus: data.isActive
-        ? { not: CONTRACT_STATUS.DISMISSED } // Active = current vínculo not dismissed
-        : CONTRACT_STATUS.DISMISSED, // Inactive = current vínculo dismissed
+        ? { not: CONTRACT_STATUS.TERMINATED } // Active = current vínculo not terminated
+        : CONTRACT_STATUS.TERMINATED, // Inactive = current vínculo terminated
     });
     delete data.isActive;
   }
 
-  // Handle showDismissed filter — when not explicitly true, hide dismissed
+  // Handle showDismissed filter — when not explicitly true, hide terminated
   // collaborators (default list behavior). Skip when isActive already scoped it.
   if (typeof data.showDismissed === 'boolean') {
     if (!data.showDismissed) {
-      andConditions.push({ currentContractStatus: { not: CONTRACT_STATUS.DISMISSED } });
+      andConditions.push({ currentContractStatus: { not: CONTRACT_STATUS.TERMINATED } });
     }
     delete data.showDismissed;
   }
@@ -1544,8 +1547,9 @@ const notificationPreferenceCreateNestedSchema = z.object({
 });
 
 // First employment contract (vínculo) created together with the collaborator.
-// When omitted, the service defaults employeeType=CLT, contractType=EXPERIENCE_PERIOD_1
-// and uses the user's admissionDate (positionId/sectorId mirror the user).
+// When omitted, the service defaults CLT to contractType=FIXED_TERM + status=EXPERIENCE
+// (efetivação later flips status→ACTIVE + modality→INDETERMINATE) and uses the user's
+// admissionDate (positionId/sectorId mirror the user).
 export const userContractCreateNestedSchema = z.object({
   employeeType: z
     .enum(Object.values(EMPLOYEE_TYPE) as [string, ...string[]], {
@@ -1564,7 +1568,32 @@ export const userContractCreateNestedSchema = z.object({
   payrollNumber: z.number().int().positive('Número da folha deve ser positivo').nullable().optional(),
   providerName: z.string().nullable().optional(),
   providerCnpj: z.string().nullable().optional(),
-});
+  // Art. 481 CLT — cláusula assecuratória do direito recíproco de rescisão.
+  hasArt481Clause: z.boolean().optional(),
+  // Overrides per-vínculo da insalubridade/periculosidade do cargo (NULL = herda).
+  insalubrityDegreeOverride: z.nativeEnum(INSALUBRITY_DEGREE).nullable().optional(),
+  hazardPayOverride: z.boolean().nullable().optional(),
+  // Estabilidade — janela que bloqueia o desligamento.
+  stabilityType: z.nativeEnum(STABILITY_TYPE).nullable().optional(),
+  stabilityStart: nullableDate.optional(),
+  stabilityEnd: nullableDate.optional(),
+}).refine(
+  data => {
+    // Only validate when a modality is explicitly provided (omitted = service default).
+    if (data.contractType == null) return true;
+    return (
+      validateEmployeeContractTypeIntegrity({
+        employeeType: data.employeeType as EMPLOYEE_TYPE,
+        contractType: data.contractType as CONTRACT_TYPE,
+      }) === null
+    );
+  },
+  {
+    message:
+      'Categoria e modalidade incompatíveis: CLT exige uma modalidade CLT; terceirizado/PJ/autônomo/estagiário não devem ter modalidade. Aprendiz só com CLT.',
+    path: ['contractType'],
+  },
+);
 
 export const userCreateSchema = z
   .object({
@@ -1572,7 +1601,7 @@ export const userCreateSchema = z
     name: createNameSchema(2, 200, 'Nome'),
     avatarId: z.string().uuid('ID de avatar inválido').nullable().optional(),
     // First vínculo (EmploymentContract) created with the collaborator. Optional;
-    // the service defaults employeeType=CLT, contractType=EXPERIENCE_PERIOD_1.
+    // the service defaults CLT to contractType=FIXED_TERM + status=EXPERIENCE.
     contract: userContractCreateNestedSchema.optional(),
     phone: phoneSchema.nullable().optional(),
     // Cargo (position) — required at create time. The bound Secullum função is
@@ -1786,6 +1815,17 @@ export const userUpdateSchema = z
     exp1EndAt: nullableDate.optional(),
     exp2StartAt: nullableDate.optional(),
     exp2EndAt: nullableDate.optional(),
+    // Fase de experiência (1|2) do vínculo atual. NULL = derivar das datas.
+    experiencePhase: z.number().int().min(1).max(2).nullable().optional(),
+    // Art. 481 CLT — cláusula assecuratória do direito recíproco de rescisão.
+    hasArt481Clause: z.boolean().optional(),
+    // Overrides per-vínculo da insalubridade/periculosidade do cargo (NULL = herda).
+    insalubrityDegreeOverride: z.nativeEnum(INSALUBRITY_DEGREE).nullable().optional(),
+    hazardPayOverride: z.boolean().nullable().optional(),
+    // Estabilidade — janela que bloqueia o desligamento do vínculo atual.
+    stabilityType: z.nativeEnum(STABILITY_TYPE).nullable().optional(),
+    stabilityStart: nullableDate.optional(),
+    stabilityEnd: nullableDate.optional(),
     terminationDate: nullableDate.optional(),
     terminationType: z
       .enum(Object.values(TERMINATION_TYPE) as [string, ...string[]])
@@ -1828,38 +1868,63 @@ export const userUpdateSchema = z
   })
   .refine(
     data => {
-      // If a termination date is provided, the contract status must be DISMISSED.
-      if (data.terminationDate && data.contractStatus && data.contractStatus !== CONTRACT_STATUS.DISMISSED) {
+      // If a termination date is provided, the contract status must be TERMINATED.
+      if (data.terminationDate && data.contractStatus && data.contractStatus !== CONTRACT_STATUS.TERMINATED) {
         return false;
       }
       return true;
     },
     {
-      message: 'Quando a data de demissão é fornecida, a situação do contrato deve ser DISMISSED',
+      message: 'Quando a data de demissão é fornecida, a situação do contrato deve ser TERMINATED',
       path: ['contractStatus'],
     },
   )
   .refine(
     data => {
-      // EFFECTED contracts cannot be reverted to an experience period.
+      // EmployeeType ↔ ContractType integrity: CLT requires a CLT modality;
+      // off-folha (terceirizado/PJ/autônomo/estagiário) must NOT carry a modality.
+      // Only validated when both are present in this update (partial edits OK —
+      // the service re-validates against the merged resulting state).
+      if (data.employeeType === undefined && data.contractType === undefined) return true;
+      if (data.employeeType === undefined) return true; // can't decide without category
+      return (
+        validateEmployeeContractTypeIntegrity({
+          employeeType: data.employeeType as EMPLOYEE_TYPE,
+          contractType:
+            data.contractType === undefined
+              ? undefined
+              : (data.contractType as CONTRACT_TYPE | null),
+        }) === null ||
+        // when contractType not in this payload we cannot assert NULL-ness; defer to service
+        data.contractType === undefined
+      );
+    },
+    {
+      message:
+        'Categoria e modalidade incompatíveis: CLT exige uma modalidade CLT; terceirizado/PJ/autônomo/estagiário não devem ter modalidade. Aprendiz só com CLT.',
+      path: ['contractType'],
+    },
+  )
+  .refine(
+    data => {
+      // An efetivado vínculo (INDETERMINATE) cannot have its modality changed.
       if (
-        data.currentContractType === CONTRACT_TYPE.EFFECTED &&
+        data.currentContractType === CONTRACT_TYPE.INDETERMINATE &&
         data.contractType &&
-        (data.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_1 ||
-          data.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2)
+        data.contractType !== CONTRACT_TYPE.INDETERMINATE
       ) {
         return false;
       }
       return true;
     },
     {
-      message: 'Colaboradores efetivados não podem retornar ao período de experiência',
+      message: 'A modalidade de um vínculo já efetivado (prazo indeterminado) não pode ser alterada.',
       path: ['contractType'],
     },
   )
   .refine(
     data => {
-      // Validate the contract-type transition within the current vínculo.
+      // Validate the contract-modality transition within the current vínculo.
       if (data.currentContractType && data.contractType && data.currentContractType !== data.contractType) {
         return isValidStatusTransition(data.currentContractType, data.contractType);
       }
@@ -1951,35 +2016,35 @@ export type UserWhere = z.infer<typeof userWhereSchema>;
 // =====================
 
 /**
- * Contract-type transition rules WITHIN a single vínculo (EmploymentContract).
- * The experiência phases advance to efetivado (or to other CLT kinds) inside the
- * SAME contract. Dismissal is a STATUS change (CONTRACT_STATUS.DISMISSED), not a
- * type transition, so it is NOT modeled here — terminations close the contract.
+ * Contract-type (MODALITY) transition rules WITHIN a single vínculo
+ * (EmploymentContract). With the Part-A taxonomy, the lifecycle is driven by
+ * CONTRACT_STATUS (EXPERIENCE → ACTIVE → … → TERMINATED), NOT by the modality.
+ * The modality is largely stable; the one canonical change is efetivação (CLT
+ * art. 451), which converts FIXED_TERM → INDETERMINATE while the status flips
+ * EXPERIENCE → ACTIVE. Administrative modality corrections among CLT modalities
+ * are allowed; the real gating is the status machine in `@utils/contract`.
  */
 export const CONTRACT_TYPE_TRANSITIONS: Record<CONTRACT_TYPE, CONTRACT_TYPE[]> = {
-  [CONTRACT_TYPE.EXPERIENCE_PERIOD_1]: [
-    CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
-    CONTRACT_TYPE.EFFECTED,
-    CONTRACT_TYPE.APPRENTICE,
+  // INDETERMINATE (efetivo) is terminal as a modality.
+  [CONTRACT_TYPE.INDETERMINATE]: [],
+  // The other CLT modalities can be efetivadas (→ INDETERMINATE) or corrected
+  // between one another administratively.
+  [CONTRACT_TYPE.FIXED_TERM]: [
+    CONTRACT_TYPE.INDETERMINATE,
     CONTRACT_TYPE.INTERMITTENT,
-  ],
-  [CONTRACT_TYPE.EXPERIENCE_PERIOD_2]: [
-    CONTRACT_TYPE.EFFECTED,
     CONTRACT_TYPE.APPRENTICE,
-    CONTRACT_TYPE.INTERMITTENT,
+    CONTRACT_TYPE.TEMPORARY,
   ],
-  // EFFECTED is terminal as a type (only dismissal closes it).
-  [CONTRACT_TYPE.EFFECTED]: [],
-  [CONTRACT_TYPE.APPRENTICE]: [CONTRACT_TYPE.EFFECTED],
-  [CONTRACT_TYPE.INTERMITTENT]: [CONTRACT_TYPE.EFFECTED],
-  [CONTRACT_TYPE.FIXED_TERM]: [CONTRACT_TYPE.EFFECTED],
-  [CONTRACT_TYPE.TEMPORARY]: [CONTRACT_TYPE.EFFECTED],
+  [CONTRACT_TYPE.INTERMITTENT]: [CONTRACT_TYPE.INDETERMINATE, CONTRACT_TYPE.FIXED_TERM],
+  [CONTRACT_TYPE.APPRENTICE]: [CONTRACT_TYPE.INDETERMINATE, CONTRACT_TYPE.FIXED_TERM],
+  [CONTRACT_TYPE.TEMPORARY]: [CONTRACT_TYPE.INDETERMINATE, CONTRACT_TYPE.FIXED_TERM],
 };
 
 /**
- * Validates whether a contract-type transition is allowed within a vínculo.
- * @param currentType - The current contract type
- * @param newType - The desired new contract type
+ * Validates whether a contract MODALITY transition is allowed within a vínculo.
+ * Lifecycle/efetivação gating lives in the CONTRACT_STATUS machine, not here.
+ * @param currentType - The current contract modality
+ * @param newType - The desired new contract modality
  * @returns true if the transition is allowed, false otherwise
  */
 export function isValidStatusTransition(
@@ -1999,9 +2064,9 @@ export function isValidStatusTransition(
 }
 
 /**
- * Gets a human-readable error message for an invalid contract-type transition.
- * @param currentType - The current contract type
- * @param newType - The attempted new contract type
+ * Gets a human-readable error message for an invalid contract-modality transition.
+ * @param currentType - The current contract modality
+ * @param newType - The attempted new contract modality
  * @returns Error message in Portuguese
  */
 export function getStatusTransitionError(
@@ -2009,20 +2074,15 @@ export function getStatusTransitionError(
   newType: CONTRACT_TYPE | string,
 ): string {
   const typeLabels: Record<string, string> = {
-    [CONTRACT_TYPE.EXPERIENCE_PERIOD_1]: 'Experiência 1',
-    [CONTRACT_TYPE.EXPERIENCE_PERIOD_2]: 'Experiência 2',
-    [CONTRACT_TYPE.EFFECTED]: 'Efetivado',
+    [CONTRACT_TYPE.INDETERMINATE]: 'Prazo indeterminado (efetivo)',
     [CONTRACT_TYPE.FIXED_TERM]: 'Prazo determinado',
     [CONTRACT_TYPE.INTERMITTENT]: 'Intermitente',
     [CONTRACT_TYPE.APPRENTICE]: 'Aprendiz',
     [CONTRACT_TYPE.TEMPORARY]: 'Temporário',
   };
 
-  if (
-    currentType === CONTRACT_TYPE.EFFECTED &&
-    (newType === CONTRACT_TYPE.EXPERIENCE_PERIOD_1 || newType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2)
-  ) {
-    return 'Colaboradores efetivados não podem retornar ao período de experiência';
+  if (currentType === CONTRACT_TYPE.INDETERMINATE) {
+    return 'A modalidade de um vínculo já efetivado (prazo indeterminado) não pode ser alterada.';
   }
 
   const allowedTransitions = CONTRACT_TYPE_TRANSITIONS[currentType as CONTRACT_TYPE] || [];

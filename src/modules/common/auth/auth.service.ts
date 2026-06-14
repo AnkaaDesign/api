@@ -254,9 +254,10 @@ export class AuthService {
       phone: phone || null,
       password: hashedPassword,
       // Guest (Convidado) self-signup: no real vínculo yet — seed the current
-      // contract-type cache so the experiência phase is reflected until HR
+      // contract cache so the experiência situação is reflected until HR
       // formalises an EmploymentContract.
-      currentContractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
+      currentContractType: CONTRACT_TYPE.FIXED_TERM,
+      currentContractStatus: CONTRACT_STATUS.EXPERIENCE,
       verified: false, // Requires verification
       performanceLevel: 0,
       sectorId: guestSector.id, // Assign to Convidado sector
@@ -765,7 +766,7 @@ export class AuthService {
     // row and re-syncs the User cache + isActive flag).
     await this.usersRepository.update(targetUserId, {
       contractStatus: status,
-      isActive: status !== CONTRACT_STATUS.DISMISSED,
+      isActive: status !== CONTRACT_STATUS.TERMINATED,
     });
 
     // Track status change
@@ -783,7 +784,7 @@ export class AuthService {
     });
 
     // If dismissing, clear the logged in token
-    if (status === CONTRACT_STATUS.DISMISSED) {
+    if (status === CONTRACT_STATUS.TERMINATED) {
       await this.usersRepository.update(targetUserId, {
         sessionToken: null,
       });

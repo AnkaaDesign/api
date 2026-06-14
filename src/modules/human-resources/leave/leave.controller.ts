@@ -152,6 +152,15 @@ export class LeaveController {
     return this.service.uploadFiles(id, files, query.include, userId);
   }
 
+  // Divisão de folha do afastamento (15 dias empregador / 16º dia INSS) — dado
+  // de leitura consumido pelo cálculo da folha (Part B). Rota estática-por-sufixo,
+  // antes do @Put(':id'); precede @Get(':id') por especificidade de path.
+  @Get(':id/payroll-split')
+  @ReadRateLimit()
+  async getPayrollSplit(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.getPayrollSplit(id);
+  }
+
   // Dynamic routes (must come after static routes)
   @Get(':id')
   @ReadRateLimit()

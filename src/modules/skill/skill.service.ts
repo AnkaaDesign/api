@@ -1413,7 +1413,7 @@ export class SkillService {
     // same rule every Secullum/HR-derived screen follows. Applied
     // unconditionally below, so this where is always non-empty.
     const evaluateeWhere: Prisma.UserWhereInput = {
-      currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
+      currentContractStatus: { not: CONTRACT_STATUS.TERMINATED },
       ...(filters.sectorIds?.length ? { sectorId: { in: filters.sectorIds } } : {}),
     };
 

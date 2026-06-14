@@ -57,6 +57,8 @@ const USER_BENEFIT_TRACKED_FIELDS = [
   'employeeDiscountValue',
   'employeeDiscountPercent',
   'dailyTickets',
+  'totalInstallments',
+  'currentInstallment',
   'declarationFileId',
   'notes',
 ];
@@ -518,6 +520,136 @@ export class UserBenefitService {
       include,
       userId,
     );
+  }
+
+  /**
+   * Avança a parcela corrente de um convênio parcelado (semântica de desconto
+   * persistente, espelhando LOAN/ADVANCE). Quando a parcela avançada excede
+   * `totalInstallments`, a adesão é encerrada (TERMINATED) — a última parcela
+   * já foi descontada na folha anterior. Idempotência mensal fica a cargo do
+   * chamador (a folha mensal — Part B — invoca uma vez por competência).
+   *
+   * No-op (returns the row unchanged) quando a adesão não é parcelada
+   * (`totalInstallments` nulo) ou já está encerrada.
+   */
+  async advanceInstallment(
+    id: string,
+    userId?: string,
+    tx?: PrismaTransaction,
+  ): Promise<UserBenefit> {
+    const run = async (transaction: PrismaTransaction): Promise<UserBenefit> => {
+      const existing = await transaction.userBenefit.findUnique({ where: { id } });
+      if (!existing) {
+        throw new NotFoundException('Adesão não encontrada.');
+      }
+
+      // Not an installment plan, or already terminated → nothing to advance.
+      if (existing.totalInstallments == null) {
+        return existing as unknown as UserBenefit;
+      }
+      if (existing.status === BENEFIT_ENROLLMENT_STATUS.TERMINATED) {
+        return existing as unknown as UserBenefit;
+      }
+
+      const current = existing.currentInstallment ?? 1;
+      const next = current + 1;
+
+      // Reached the end: the final installment was charged this period; close it.
+      if (next > existing.totalInstallments) {
+        const updated = await transaction.userBenefit.update({
+          where: { id },
+          data: {
+            status: BENEFIT_ENROLLMENT_STATUS.TERMINATED,
+            statusOrder: this.getStatusOrder(BENEFIT_ENROLLMENT_STATUS.TERMINATED),
+            currentInstallment: existing.totalInstallments,
+            ...(existing.endDate ? {} : { endDate: new Date() }),
+          },
+        });
+
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.USER_BENEFIT,
+          entityId: id,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'status',
+          oldValue: existing.status,
+          newValue: BENEFIT_ENROLLMENT_STATUS.TERMINATED,
+          reason: 'Convênio parcelado quitado (última parcela atingida)',
+          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+          triggeredById: id,
+          userId: userId || null,
+          transaction,
+        });
+
+        return updated as unknown as UserBenefit;
+      }
+
+      const updated = await transaction.userBenefit.update({
+        where: { id },
+        data: { currentInstallment: next },
+      });
+
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.USER_BENEFIT,
+        entityId: id,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'currentInstallment',
+        oldValue: current,
+        newValue: next,
+        reason: 'Parcela de convênio avançada',
+        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+        triggeredById: id,
+        userId: userId || null,
+        transaction,
+      });
+
+      return updated as unknown as UserBenefit;
+    };
+
+    if (tx) return run(tx);
+    return this.prisma.$transaction(run);
+  }
+
+  /**
+   * Avança todas as parcelas em aberto (status não-TERMINATED, parceladas) de
+   * todos os colaboradores — uma vez por competência. Consumido pela folha
+   * mensal (Part B) após o fechamento. Retorna a contagem de avanços e de
+   * convênios quitados.
+   */
+  async advanceInstallmentsForMonth(
+    userId?: string,
+  ): Promise<{ advanced: number; settled: number }> {
+    const pending = await this.prisma.userBenefit.findMany({
+      where: {
+        totalInstallments: { not: null },
+        status: { not: BENEFIT_ENROLLMENT_STATUS.TERMINATED },
+      },
+      select: { id: true },
+    });
+
+    let advanced = 0;
+    let settled = 0;
+
+    for (const { id } of pending) {
+      try {
+        const before = await this.prisma.userBenefit.findUnique({
+          where: { id },
+          select: { status: true },
+        });
+        const result = await this.advanceInstallment(id, userId);
+        if (
+          result.status === BENEFIT_ENROLLMENT_STATUS.TERMINATED &&
+          before?.status !== BENEFIT_ENROLLMENT_STATUS.TERMINATED
+        ) {
+          settled += 1;
+        } else {
+          advanced += 1;
+        }
+      } catch (error: any) {
+        this.logger.warn(`Falha ao avançar parcela da adesão ${id}: ${error?.message}`);
+      }
+    }
+
+    return { advanced, settled };
   }
 
   /**

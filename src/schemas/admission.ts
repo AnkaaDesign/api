@@ -325,6 +325,48 @@ export const admissionDocumentUpdateSchema = z.object({
 });
 
 // =====================
+// In-app electronic signature (reuses the PPE delivery sign payload shape).
+// Lei 14.063/2020 (assinatura eletrônica avançada) + LGPD: no raw biometric
+// data is persisted — only the assertion result + a cryptographic evidence hash.
+// =====================
+
+export const admissionDocumentSignSchema = z.object({
+  biometricMethod: z.enum(['FINGERPRINT', 'FACE_ID', 'IRIS', 'DEVICE_PIN', 'NONE'], {
+    errorMap: () => ({ message: 'Método biométrico inválido' }),
+  }),
+  biometricSuccess: z.boolean(),
+
+  // Device info
+  deviceBrand: z.string().max(100).nullable().optional(),
+  deviceModel: z.string().max(100).nullable().optional(),
+  deviceOs: z.string().max(50).nullable().optional(),
+  deviceOsVersion: z.string().max(50).nullable().optional(),
+  appVersion: z.string().max(50).nullable().optional(),
+
+  // Location (optional — signing works without it)
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
+  locationAccuracy: z.number().min(0).nullable().optional(),
+  networkType: z.enum(['WIFI', 'CELLULAR', 'ETHERNET', 'UNKNOWN']).default('UNKNOWN'),
+
+  // Client timestamp (ISO 8601)
+  clientTimestamp: z.string().datetime({ message: 'Timestamp deve ser ISO 8601' }),
+
+  // Evidence hash (SHA-256 hex = 64 chars)
+  evidenceHash: z
+    .string()
+    .length(64, 'Hash SHA-256 deve ter 64 caracteres')
+    .regex(/^[a-f0-9]{64}$/, 'Hash deve ser hexadecimal válido'),
+
+  // LGPD consent (mandatory)
+  consentGiven: z.boolean().refine(val => val === true, {
+    message: 'Consentimento LGPD é obrigatório para assinatura eletrônica',
+  }),
+});
+
+export type AdmissionDocumentSignFormData = z.infer<typeof admissionDocumentSignSchema>;
+
+// =====================
 // Inferred Types
 // =====================
 

@@ -29,8 +29,8 @@ export class CronService {
    * Runs daily at 1 AM (01:00)
    *
    * This cron job:
-   * - Finds users where exp1EndAt has passed and transitions them from EXPERIENCE_PERIOD_1 to EXPERIENCE_PERIOD_2
-   * - Finds users where exp2EndAt has passed and transitions them from EXPERIENCE_PERIOD_2 to EFFECTED
+   * - Finds contracts in status EXPERIENCE where exp1EndAt has passed and advances them from fase 1 to fase 2
+   * - Finds contracts in status EXPERIENCE where exp2EndAt has passed and efetiva them (status EXPERIENCE → ACTIVE, modalidade → INDETERMINATE)
    * - Logs all changes to the changelog system
    * - Catches users even if they were missed on previous days (e.g., server downtime, user created after cron ran)
    */

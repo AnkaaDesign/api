@@ -35,6 +35,7 @@ import type {
   TerminationBatchDeleteResponse,
   TerminationBatchUpdateResponse,
   TerminationCalculateResponse,
+  TerminationComputeTaxesResponse,
   TerminationCreateResponse,
   TerminationDeleteResponse,
   TerminationDocumentUpdateResponse,
@@ -204,6 +205,17 @@ export class TerminationController {
     @UserId() userId: string,
   ): Promise<TerminationCalculateResponse> {
     return this.terminationService.calculate(id, userId);
+  }
+
+  // Tax/FGTS assist — auto-compute INSS/IRRF on taxable verbas + FGTS-multa base
+  @Post(':id/compute-taxes')
+  @WriteRateLimit()
+  @HttpCode(HttpStatus.OK)
+  async computeTaxes(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+  ): Promise<TerminationComputeTaxesResponse> {
+    return this.terminationService.computeTaxes(id, userId);
   }
 
   // Status machine

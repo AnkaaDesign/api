@@ -1,5 +1,6 @@
 import type { User } from '@types';
-import { CONTRACT_TYPE, CONTRACT_STATUS, SECTOR_PRIVILEGES, VERIFICATION_TYPE } from '@constants';
+import { CONTRACT_TYPE, CONTRACT_STATUS, EMPLOYEE_TYPE, SECTOR_PRIVILEGES, VERIFICATION_TYPE } from '@constants';
+import { isBonifiable } from './contract';
 import { getSectorPrivilegeSortOrder } from './privilege';
 import { dateUtils } from './date';
 import type {
@@ -79,10 +80,8 @@ export function mapRainBootsSizeToPrisma(
  */
 export function getUserStatusColor(contractType: CONTRACT_TYPE): string {
   const colors: Record<CONTRACT_TYPE, string> = {
-    [CONTRACT_TYPE.EXPERIENCE_PERIOD_1]: 'orange',
-    [CONTRACT_TYPE.EXPERIENCE_PERIOD_2]: 'orange',
-    [CONTRACT_TYPE.EFFECTED]: 'green',
-    [CONTRACT_TYPE.FIXED_TERM]: 'green',
+    [CONTRACT_TYPE.INDETERMINATE]: 'green',
+    [CONTRACT_TYPE.FIXED_TERM]: 'orange',
     [CONTRACT_TYPE.INTERMITTENT]: 'green',
     [CONTRACT_TYPE.APPRENTICE]: 'green',
     [CONTRACT_TYPE.TEMPORARY]: 'green',
@@ -91,28 +90,28 @@ export function getUserStatusColor(contractType: CONTRACT_TYPE): string {
 }
 
 /**
- * Check if user is active (not dismissed)
+ * Check if user is active (current vínculo not terminated)
  */
 export function isUserActive(user: User): boolean {
   return (
-    user.currentContractStatus !== CONTRACT_STATUS.DISMISSED &&
+    user.currentContractStatus !== CONTRACT_STATUS.TERMINATED &&
     user.verified === true &&
     user.password !== null
   );
 }
 
 /**
- * Check if user is dismissed
+ * Check if user is inactive (current vínculo terminated)
  */
 export function isUserInactive(user: User): boolean {
-  return user.currentContractStatus === CONTRACT_STATUS.DISMISSED;
+  return user.currentContractStatus === CONTRACT_STATUS.TERMINATED;
 }
 
 /**
- * Check if user is blocked
+ * Check if user is blocked (current vínculo terminated)
  */
 export function isUserBlocked(user: User): boolean {
-  return user.currentContractStatus === CONTRACT_STATUS.DISMISSED;
+  return user.currentContractStatus === CONTRACT_STATUS.TERMINATED;
 }
 
 /**
@@ -224,9 +223,7 @@ export function isNewUser(user: User, daysThreshold: number = 30): boolean {
  */
 export function groupUsersByStatus(users: User[]): Record<CONTRACT_TYPE, User[]> {
   const groups = {
-    [CONTRACT_TYPE.EXPERIENCE_PERIOD_1]: [],
-    [CONTRACT_TYPE.EXPERIENCE_PERIOD_2]: [],
-    [CONTRACT_TYPE.EFFECTED]: [],
+    [CONTRACT_TYPE.INDETERMINATE]: [],
     [CONTRACT_TYPE.FIXED_TERM]: [],
     [CONTRACT_TYPE.INTERMITTENT]: [],
     [CONTRACT_TYPE.APPRENTICE]: [],
@@ -391,14 +388,19 @@ export function canAccessTeamManagement(user: User): boolean {
 /**
  * Check if user is eligible for bonus calculation. This is the SINGLE
  * canonical definition (must match the API live calc) — all four predicates:
- * 1. user.currentContractType === EFFECTED (not in experience period or dismissed)
+ * 1. isBonifiable(currentContract) — CLT && status ACTIVE (the former EFFECTED gate)
  * 2. position.bonifiable === true
  * 3. user.performanceLevel > 0
  * 4. user.secullumEmployeeId != null (registered in the time-clock system)
  */
 export function isUserEligibleForBonus(user: User): boolean {
-  // Check if user is EFFECTED (not in experience period or dismissed)
-  if (user.currentContractType !== CONTRACT_TYPE.EFFECTED) {
+  // Check confirmed-CLT eligibility (CLT && ACTIVE) against the User cache.
+  if (
+    !isBonifiable({
+      employeeType: user.currentEmployeeType as EMPLOYEE_TYPE | null | undefined,
+      status: user.currentContractStatus as any,
+    })
+  ) {
     return false;
   }
 
@@ -426,8 +428,16 @@ export function isUserEligibleForBonus(user: User): boolean {
  * Returns null if user is eligible, or a reason string if not eligible
  */
 export function getBonusIneligibilityReason(user: User): string | null {
-  if (user.currentContractStatus === CONTRACT_STATUS.DISMISSED) {
+  if (user.currentContractStatus === CONTRACT_STATUS.TERMINATED) {
     return 'Usuário está desligado';
+  }
+
+  if (user.currentEmployeeType !== EMPLOYEE_TYPE.CLT) {
+    return 'Colaborador não é CLT (fora da folha)';
+  }
+
+  if (user.currentContractStatus !== CONTRACT_STATUS.ACTIVE) {
+    return 'Vínculo não está ativo (efetivado)';
   }
 
   if (!user.performanceLevel || user.performanceLevel <= 0) {

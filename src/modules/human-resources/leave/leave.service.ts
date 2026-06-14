@@ -1,7 +1,7 @@
 // leave.service.ts
 // Afastamentos (Medicina do Trabalho).
 // Máquina de status: SCHEDULED → ACTIVE → COMPLETED; qualquer → CANCELLED.
-// Regra: ILLNESS_INSS/WORK_ACCIDENT com duração ≥ 30 dias ⇒ returnExamRequired = true.
+// Regra (NR-7): ILLNESS_INSS/WORK_ACCIDENT com duração > 30 dias ⇒ returnExamRequired = true.
 
 import {
   BadRequestException,
@@ -29,7 +29,10 @@ import {
   MEDICAL_EXAM_STATUS,
   MEDICAL_EXAM_STATUS_ORDER,
   MEDICAL_EXAM_TYPE,
+  CONTRACT_STATUS,
 } from '../../../constants';
+import { computeAccidentStabilityWindow } from '../../../utils';
+import { nextBrazilianBusinessDay } from '../../../utils/brazilian-holidays.util';
 import type {
   Leave,
   LeaveGetManyResponse,
@@ -59,6 +62,7 @@ const LEAVE_TRACKED_FIELDS = [
   'expectedEndDate',
   'actualEndDate',
   'cid',
+  'inssBenefitSpecies',
   'inssBenefitNumber',
   'returnExamRequired',
   'notes',
@@ -100,8 +104,31 @@ export class LeaveService {
   }
 
   /**
-   * ILLNESS_INSS/WORK_ACCIDENT com duração (fim efetivo ou previsto − início)
-   * ≥ 30 dias exige exame de retorno ao trabalho.
+   * Whether the legal rule (NR-7) mandates a return-to-work exam:
+   * ILLNESS_INSS/WORK_ACCIDENT with a duration (effective or expected end − start)
+   * STRICTLY GREATER THAN 30 days. (Was `>= 30`; the legal threshold is "more than
+   * 30 days" — a leave of exactly 30 days does not trigger it.)
+   */
+  private ruleRequiresReturnExam(
+    type: string,
+    startDate: Date | null | undefined,
+    expectedEndDate: Date | null | undefined,
+    actualEndDate: Date | null | undefined,
+  ): boolean {
+    const endDate = actualEndDate ?? expectedEndDate;
+    return (
+      RETURN_EXAM_TYPES.includes(type) &&
+      !!startDate &&
+      !!endDate &&
+      endDate.getTime() - startDate.getTime() > THIRTY_DAYS_MS
+    );
+  }
+
+  /**
+   * Resolve the effective returnExamRequired without silently overwriting a manual
+   * value. The legal rule is a compliance FLOOR: it can only RAISE the flag to true,
+   * never lower a manually-set true to false. So the result is:
+   *   ruleRequires OR (the existing/provided manual value).
    */
   private computeReturnExamRequired(
     type: string,
@@ -110,16 +137,13 @@ export class LeaveService {
     actualEndDate: Date | null | undefined,
     provided?: boolean,
   ): boolean {
-    const endDate = actualEndDate ?? expectedEndDate;
-    if (
-      RETURN_EXAM_TYPES.includes(type) &&
-      startDate &&
-      endDate &&
-      endDate.getTime() - startDate.getTime() >= THIRTY_DAYS_MS
-    ) {
-      return true;
-    }
-    return provided ?? false;
+    const ruleRequires = this.ruleRequiresReturnExam(
+      type,
+      startDate,
+      expectedEndDate,
+      actualEndDate,
+    );
+    return ruleRequires || (provided ?? false);
   }
 
   /**
@@ -133,15 +157,25 @@ export class LeaveService {
     leave: { id: string; userId: string; startDate: Date; actualEndDate?: Date | null },
     userId?: string,
   ): Promise<boolean> {
+    // First working day AFTER the return. actualEndDate is the leave's last covered
+    // day; the employee resumes work the next business day, which is when the ASO de
+    // retorno must occur (NR-7). Falls back to startDate when no end is known.
+    const dayAfterReturn = new Date(leave.actualEndDate ?? leave.startDate);
+    dayAfterReturn.setDate(dayAfterReturn.getDate() + 1);
+    const scheduledAt = nextBrazilianBusinessDay(dayAfterReturn);
+
+    // Tightened dedup: only suppress when a non-cancelled RETURN_TO_WORK exam is
+    // already SCHEDULED for (or after) this leave's start. Keying on scheduledAt
+    // (not createdAt) avoids matching unrelated historical exams; a COMPLETED ASO de
+    // retorno for the *same* return is also treated as already-handled.
     const existingExam = await tx.medicalExam.findFirst({
       where: {
         userId: leave.userId,
         type: MEDICAL_EXAM_TYPE.RETURN_TO_WORK as any,
-        status: { not: MEDICAL_EXAM_STATUS.CANCELLED as any },
-        OR: [
-          { createdAt: { gte: leave.startDate } },
-          { scheduledAt: { gte: leave.startDate } },
-        ],
+        status: {
+          in: [MEDICAL_EXAM_STATUS.SCHEDULED, MEDICAL_EXAM_STATUS.COMPLETED] as any[],
+        },
+        scheduledAt: { gte: leave.startDate },
       },
       select: { id: true },
     });
@@ -153,7 +187,7 @@ export class LeaveService {
         type: MEDICAL_EXAM_TYPE.RETURN_TO_WORK as any,
         status: MEDICAL_EXAM_STATUS.SCHEDULED as any,
         statusOrder: MEDICAL_EXAM_STATUS_ORDER[MEDICAL_EXAM_STATUS.SCHEDULED],
-        scheduledAt: leave.actualEndDate ?? null,
+        scheduledAt,
       },
     });
 
@@ -170,6 +204,175 @@ export class LeaveService {
     });
 
     return true;
+  }
+
+  /**
+   * Sync the worker's CURRENT EmploymentContract status with the afastamento
+   * lifecycle (Part A status machine: ACTIVE ↔ ON_LEAVE).
+   *
+   * Written directly via prisma here (not through Part A's EmploymentContractService)
+   * per the ownership rules: we only touch the `status` field + the User cache mirror,
+   * and only between ACTIVE and ON_LEAVE. EXPERIENCE / NOTICE_PERIOD / TERMINATED bonds
+   * are left untouched (an afastamento does not regress those).
+   *
+   * @param targetStatus ON_LEAVE (afastamento started) or ACTIVE (returned)
+   */
+  private async syncContractLeaveStatus(
+    tx: PrismaTransaction,
+    leaveUserId: string,
+    targetStatus: string,
+    actorUserId?: string,
+  ): Promise<void> {
+    const user = await tx.user.findUnique({
+      where: { id: leaveUserId },
+      select: { currentContractId: true },
+    });
+    if (!user?.currentContractId) return;
+
+    const contract = await tx.employmentContract.findUnique({
+      where: { id: user.currentContractId },
+      select: { id: true, status: true },
+    });
+    if (!contract) return;
+
+    // Only the ACTIVE ↔ ON_LEAVE transitions are valid here.
+    const allowed =
+      (targetStatus === CONTRACT_STATUS.ON_LEAVE && contract.status === CONTRACT_STATUS.ACTIVE) ||
+      (targetStatus === CONTRACT_STATUS.ACTIVE && contract.status === CONTRACT_STATUS.ON_LEAVE);
+    if (!allowed) return;
+
+    await tx.employmentContract.update({
+      where: { id: contract.id },
+      data: { status: targetStatus as any },
+    });
+    // Keep the denormalized User cache mirror consistent.
+    await tx.user.update({
+      where: { id: leaveUserId },
+      data: { currentContractStatus: targetStatus as any },
+    });
+
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.USER,
+      entityId: leaveUserId,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'currentContractStatus',
+      oldValue: contract.status,
+      newValue: targetStatus,
+      reason:
+        targetStatus === CONTRACT_STATUS.ON_LEAVE
+          ? 'Vínculo marcado como afastado (ON_LEAVE) pelo afastamento ativo'
+          : 'Vínculo retornado para ativo (ACTIVE) pelo encerramento do afastamento',
+      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+      triggeredById: null,
+      userId: actorUserId || null,
+      transaction: tx,
+    });
+  }
+
+  /**
+   * Set the acidentária estabilidade window (art. 118 Lei 8.213/91 — 12 months from
+   * return) on the worker's current vínculo. Used when a WORK_ACCIDENT leave is
+   * finished and when a CAT is confirmed (see WorkAccidentService). Idempotent and
+   * "extend-only": never shortens an already-set ACCIDENT window.
+   */
+  async applyAccidentStability(
+    tx: PrismaTransaction,
+    leaveUserId: string,
+    returnDate: Date,
+    actorUserId?: string,
+  ): Promise<boolean> {
+    const user = await tx.user.findUnique({
+      where: { id: leaveUserId },
+      select: { currentContractId: true },
+    });
+    if (!user?.currentContractId) return false;
+
+    const contract = await tx.employmentContract.findUnique({
+      where: { id: user.currentContractId },
+      select: { id: true, stabilityType: true, stabilityStart: true, stabilityEnd: true },
+    });
+    if (!contract) return false;
+
+    const window = computeAccidentStabilityWindow(returnDate);
+
+    // Extend-only: keep the later end date when a window already exists.
+    const newEnd =
+      contract.stabilityEnd && contract.stabilityEnd > window.stabilityEnd
+        ? contract.stabilityEnd
+        : window.stabilityEnd;
+    const newStart =
+      contract.stabilityStart && contract.stabilityStart < window.stabilityStart
+        ? contract.stabilityStart
+        : window.stabilityStart;
+
+    await tx.employmentContract.update({
+      where: { id: contract.id },
+      data: {
+        stabilityType: window.stabilityType as any,
+        stabilityStart: newStart,
+        stabilityEnd: newEnd,
+      },
+    });
+
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.USER,
+      entityId: leaveUserId,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'stability',
+      oldValue: {
+        stabilityType: contract.stabilityType,
+        stabilityStart: contract.stabilityStart,
+        stabilityEnd: contract.stabilityEnd,
+      },
+      newValue: {
+        stabilityType: window.stabilityType,
+        stabilityStart: newStart,
+        stabilityEnd: newEnd,
+      },
+      reason:
+        'Estabilidade acidentária (12 meses a partir do retorno — art. 118 Lei 8.213/91) registrada no vínculo',
+      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+      triggeredById: null,
+      userId: actorUserId || null,
+      transaction: tx,
+    });
+
+    return true;
+  }
+
+  /**
+   * Compute the leave-derived payroll split for an afastamento (data only — Part B's
+   * calculator consumes this; this service does NOT edit payroll files).
+   *
+   * Brazilian rule for ILLNESS_INSS / WORK_ACCIDENT: the first 15 days of absence are
+   * paid by the EMPLOYER; from the 16th day the INSS pays the benefit. Other leave
+   * types have no such split (employerPaidDays = total, inssDays = 0) unless they are
+   * INSS-bearing.
+   *
+   * @returns total absence days, employer-paid days (≤15 for INSS-bearing), INSS days
+   */
+  computeLeavePayrollSplit(leave: {
+    type: string;
+    startDate: Date;
+    expectedEndDate?: Date | null;
+    actualEndDate?: Date | null;
+  }): { totalDays: number; employerPaidDays: number; inssDays: number } {
+    const end = leave.actualEndDate ?? leave.expectedEndDate ?? leave.startDate;
+    // Inclusive day count (both endpoints counted).
+    const totalDays =
+      Math.max(0, Math.floor((end.getTime() - leave.startDate.getTime()) / (24 * 60 * 60 * 1000))) +
+      1;
+
+    const isInssBearing =
+      leave.type === LEAVE_TYPE.ILLNESS_INSS || leave.type === LEAVE_TYPE.WORK_ACCIDENT;
+
+    if (!isInssBearing) {
+      return { totalDays, employerPaidDays: totalDays, inssDays: 0 };
+    }
+
+    const employerPaidDays = Math.min(15, totalDays);
+    const inssDays = Math.max(0, totalDays - 15);
+    return { totalDays, employerPaidDays, inssDays };
   }
 
   private async leaveValidation(
@@ -226,6 +429,51 @@ export class LeaveService {
         'Erro ao buscar afastamentos. Por favor, tente novamente.',
       );
     }
+  }
+
+  /**
+   * Expose the leave-derived payroll split (15-day employer / 16th-day INSS) for an
+   * afastamento. Read-only data for Part B's payroll calculator (this service does
+   * not edit payroll). Returns the day breakdown + the structured INSS species.
+   */
+  async getPayrollSplit(id: string): Promise<{
+    success: boolean;
+    message: string;
+    data: {
+      leaveId: string;
+      type: string;
+      startDate: Date;
+      endDate: Date;
+      totalDays: number;
+      employerPaidDays: number;
+      inssDays: number;
+      inssBenefitSpecies: string | null;
+    };
+  }> {
+    const leave = await this.prisma.leave.findUnique({ where: { id } });
+    if (!leave) {
+      throw new NotFoundException('Afastamento não encontrado.');
+    }
+
+    const split = this.computeLeavePayrollSplit({
+      type: leave.type,
+      startDate: leave.startDate,
+      expectedEndDate: leave.expectedEndDate,
+      actualEndDate: leave.actualEndDate,
+    });
+
+    return {
+      success: true,
+      message: 'Divisão de folha do afastamento calculada com sucesso.',
+      data: {
+        leaveId: leave.id,
+        type: leave.type,
+        startDate: leave.startDate,
+        endDate: leave.actualEndDate ?? leave.expectedEndDate ?? leave.startDate,
+        ...split,
+        inssBenefitSpecies: (leave as any).inssBenefitSpecies ?? null,
+      },
+    };
   }
 
   async findById(id: string, include?: LeaveInclude): Promise<LeaveGetUniqueResponse> {
@@ -296,6 +544,16 @@ export class LeaveService {
           userId: userId || null,
           transaction: tx,
         });
+
+        // A leave created already ACTIVE flips the current vínculo to ON_LEAVE.
+        if (newLeave.status === LEAVE_STATUS.ACTIVE) {
+          await this.syncContractLeaveStatus(
+            tx,
+            newLeave.userId,
+            CONTRACT_STATUS.ON_LEAVE,
+            userId,
+          );
+        }
 
         return newLeave;
       });
@@ -383,6 +641,28 @@ export class LeaveService {
           );
         }
 
+        // Sync the current vínculo's ON_LEAVE status with the afastamento lifecycle.
+        if (data.status && data.status !== existing.status) {
+          if (data.status === LEAVE_STATUS.ACTIVE) {
+            await this.syncContractLeaveStatus(
+              tx,
+              existing.userId,
+              CONTRACT_STATUS.ON_LEAVE,
+              userId,
+            );
+          } else if (
+            data.status === LEAVE_STATUS.COMPLETED ||
+            data.status === LEAVE_STATUS.CANCELLED
+          ) {
+            await this.syncContractLeaveStatus(
+              tx,
+              existing.userId,
+              CONTRACT_STATUS.ACTIVE,
+              userId,
+            );
+          }
+        }
+
         await trackAndLogFieldChanges({
           changeLogService: this.changeLogService,
           entityType: ENTITY_TYPE.LEAVE,
@@ -468,6 +748,19 @@ export class LeaveService {
             { id, userId: existing.userId, startDate: existing.startDate, actualEndDate },
             userId,
           );
+        }
+
+        // Return from afastamento ⇒ vínculo volta a ACTIVE.
+        await this.syncContractLeaveStatus(
+          tx,
+          existing.userId,
+          CONTRACT_STATUS.ACTIVE,
+          userId,
+        );
+
+        // Work-accident return ⇒ estabilidade acidentária de 12 meses a partir do retorno.
+        if (existing.type === LEAVE_TYPE.WORK_ACCIDENT) {
+          await this.applyAccidentStability(tx, existing.userId, actualEndDate, userId);
         }
 
         await this.changeLogService.logChange({

@@ -114,14 +114,27 @@ export const postitQuerySchema = z.object({
 export const postitCreateSchema = z.object({
   content: z.string().max(2000, 'Máximo de 2000 caracteres').default(''),
   color: z.enum(POSTIT_COLORS as unknown as [string, ...string[]]).optional(),
-  position: z.number().int().min(0).optional(),
+  // No canvas livre, `position` funciona como z-index (ordem de empilhamento) e
+  // pode ser negativo (enviar para trás). Sem piso em 0.
+  position: z.number().int().optional(),
+  // Canvas livre: coordenadas e tamanho (px / unidades do board). Nuláveis.
+  positionX: z.number().nullable().optional(),
+  positionY: z.number().nullable().optional(),
+  width: z.number().positive().nullable().optional(),
+  height: z.number().positive().nullable().optional(),
 });
 
 export const postitUpdateSchema = z.object({
   content: z.string().max(2000, 'Máximo de 2000 caracteres').optional(),
   color: z.enum(POSTIT_COLORS as unknown as [string, ...string[]]).optional(),
-  position: z.number().int().min(0).optional(),
+  // z-index do canvas — pode ser negativo (enviar para trás).
+  position: z.number().int().optional(),
   isArchived: z.boolean().optional(),
+  // Canvas livre: coordenadas e tamanho (px / unidades do board). Nuláveis.
+  positionX: z.number().nullable().optional(),
+  positionY: z.number().nullable().optional(),
+  width: z.number().positive().nullable().optional(),
+  height: z.number().positive().nullable().optional(),
 });
 
 // Reordenação por arrastar-e-soltar: lista completa de IDs na nova ordem.

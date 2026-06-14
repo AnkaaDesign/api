@@ -10,7 +10,12 @@ import type {
   BaseDeleteResponse,
   BaseBatchResponse,
 } from './common';
-import type { LEAVE_TYPE, LEAVE_STATUS, ORDER_BY_DIRECTION } from '@constants';
+import type {
+  LEAVE_TYPE,
+  LEAVE_STATUS,
+  INSS_BENEFIT_SPECIES,
+  ORDER_BY_DIRECTION,
+} from '@constants';
 import type { User, UserIncludes } from './user';
 import type { File } from './file';
 
@@ -29,6 +34,7 @@ export interface Leave extends BaseEntity {
   // Restricted field: only ACCOUNTING/HUMAN_RESOURCES/ADMIN routes expose it
   // (the whole leaves controller is gated to those roles).
   cid: string | null;
+  inssBenefitSpecies: INSS_BENEFIT_SPECIES | null;
   inssBenefitNumber: string | null;
   returnExamRequired: boolean;
   notes: string | null;

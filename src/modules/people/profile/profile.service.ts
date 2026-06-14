@@ -39,7 +39,7 @@ export class ProfileService {
     return {
       success: true,
       message: 'Perfil obtido com sucesso',
-      data: user as User,
+      data: user as unknown as User,
     };
   }
 
@@ -129,7 +129,7 @@ export class ProfileService {
       return {
         success: true,
         message: 'Foto de perfil atualizada com sucesso',
-        data: updatedUser as User,
+        data: updatedUser as unknown as User,
       };
     } catch (error) {
       this.logger.error(`Error uploading avatar for user ${userId}:`, error);
@@ -179,7 +179,7 @@ export class ProfileService {
       return {
         success: true,
         message: 'Foto de perfil removida com sucesso',
-        data: updatedUser as User,
+        data: updatedUser as unknown as User,
       };
     } catch (error) {
       this.logger.error(`Error deleting avatar for user ${userId}:`, error);

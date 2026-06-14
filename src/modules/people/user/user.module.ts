@@ -16,7 +16,7 @@ import { EmploymentContractModule } from '@modules/human-resources/employment-co
   imports: [
     PrismaModule,
     ChangeLogModule,
-    EmploymentContractModule,
+    forwardRef(() => EmploymentContractModule),
     forwardRef(() => FileModule),
     forwardRef(() => NotificationModule),
     // forwardRef breaks the cycle: SecullumModule imports UserModule, and we

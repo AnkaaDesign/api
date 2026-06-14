@@ -40,6 +40,7 @@ import type {
   DiscountBatchCreateFormData,
   DiscountBatchUpdateFormData,
   DiscountBatchDeleteFormData,
+  LoanMasterCreateFormData,
 } from '../../../schemas/discount';
 import {
   discountCreateSchema,
@@ -49,6 +50,7 @@ import {
   discountBatchCreateSchema,
   discountBatchUpdateSchema,
   discountBatchDeleteSchema,
+  loanMasterCreateSchema,
 } from '../../../schemas/discount';
 
 @Controller('discount')
@@ -76,6 +78,19 @@ export class DiscountController {
     @UserId() userId: string,
   ): Promise<DiscountCreateResponse> {
     return this.discountService.create(data, undefined, userId);
+  }
+
+  // Employee-anchored MASTER loan: registered once, auto-applied to future folhas
+  // (must come before dynamic :id routes)
+  @Post('loan')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
+  @WriteRateLimit()
+  @HttpCode(HttpStatus.CREATED)
+  async createLoanMaster(
+    @Body(new ZodValidationPipe(loanMasterCreateSchema)) data: LoanMasterCreateFormData,
+    @UserId() userId: string,
+  ): Promise<DiscountCreateResponse> {
+    return this.discountService.createLoanMaster(data, userId);
   }
 
   // Batch Operations (must come before dynamic routes)

@@ -173,9 +173,83 @@ export class AutoDiscountCreationService {
       createdDiscountIds.push(copayDiscount.id);
     }
 
+    // ========================================================================
+    // 8. ADDITIONAL EARNINGS (proventos: salário-família, insalubridade,
+    //    periculosidade, gratificação habitual). Re-derived monthly.
+    // ========================================================================
+    for (const earning of this.buildAdditionalEarningRows(calculation)) {
+      const row = await prisma.payrollDiscount.create({
+        data: {
+          payrollId,
+          discountType: earning.discountType,
+          value: roundCurrency(earning.value),
+          percentage: earning.percentage,
+          reference: earning.reference,
+          isPersistent: false,
+          isActive: true,
+          baseValue: earning.baseValue != null ? roundCurrency(earning.baseValue) : null,
+        },
+      });
+      createdDiscountIds.push(row.id);
+    }
+
     this.logger.log(`Created ${createdDiscountIds.length} auto-discounts for payroll ${payrollId}`);
 
     return createdDiscountIds;
+  }
+
+  /**
+   * ========================================================================
+   * BUILD ADDITIONAL EARNING ROWS (proventos)
+   * ========================================================================
+   * Salário-família (isento), insalubridade, periculosidade e gratificação
+   * habitual. Linhas de PROVENTO no holerite (valor positivo, lado dos ganhos).
+   */
+  private buildAdditionalEarningRows(calculation: CompletePayrollCalculation): Array<{
+    discountType: PayrollDiscountType;
+    value: number;
+    percentage: number | null;
+    reference: string;
+    baseValue: number | null;
+  }> {
+    const add = calculation.additionalEarnings;
+    if (!add) return [];
+    const rows: Array<{
+      discountType: PayrollDiscountType;
+      value: number;
+      percentage: number | null;
+      reference: string;
+      baseValue: number | null;
+    }> = [];
+
+    if (add.familyAllowance > 0) {
+      rows.push({
+        discountType: PayrollDiscountType.FAMILY_ALLOWANCE,
+        value: add.familyAllowance,
+        percentage: null,
+        reference: `Salário-família (${add.eligibleChildren}× R$ ${add.familyAllowanceQuota.toFixed(2)})`,
+        baseValue: null,
+      });
+    }
+    if (add.insalubrity > 0) {
+      rows.push({
+        discountType: PayrollDiscountType.INSALUBRIDADE,
+        value: add.insalubrity,
+        percentage: add.insalubrityPercent,
+        reference: `Adicional de Insalubridade (${add.insalubrityPercent.toFixed(0)}%)`,
+        baseValue: null,
+      });
+    }
+    if (add.hazardPay > 0) {
+      rows.push({
+        discountType: PayrollDiscountType.PERICULOSIDADE,
+        value: add.hazardPay,
+        percentage: 30,
+        reference: 'Adicional de Periculosidade (30%)',
+        baseValue: null,
+      });
+    }
+    return rows;
   }
 
   /**
@@ -427,6 +501,10 @@ export class AutoDiscountCreationService {
       PayrollDiscountType.HEALTH_INSURANCE,
       PayrollDiscountType.DENTAL_INSURANCE,
       PayrollDiscountType.AUTHORIZED_DISCOUNT,
+      // Additional earnings re-derived monthly (proventos)
+      PayrollDiscountType.FAMILY_ALLOWANCE,
+      PayrollDiscountType.INSALUBRIDADE,
+      PayrollDiscountType.PERICULOSIDADE,
     ];
 
     const result = await this.prisma.payrollDiscount.deleteMany({
@@ -620,6 +698,22 @@ export class AutoDiscountCreationService {
         isPersistent: false,
         isActive: true,
         baseValue: roundCurrency(copay.monthlyValue),
+      });
+    }
+
+    // ========================================================================
+    // 8. ADDITIONAL EARNINGS (proventos)
+    // ========================================================================
+    for (const earning of this.buildAdditionalEarningRows(calculation)) {
+      discountObjects.push({
+        id: `live-earning-${earning.discountType}-${employeeId}-${year}-${month}`,
+        discountType: earning.discountType,
+        value: roundCurrency(earning.value),
+        percentage: earning.percentage,
+        reference: earning.reference,
+        isPersistent: false,
+        isActive: true,
+        baseValue: earning.baseValue != null ? roundCurrency(earning.baseValue) : null,
       });
     }
 

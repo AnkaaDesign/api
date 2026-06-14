@@ -32,6 +32,19 @@ export const dependentIncludeSchema = z
         }),
       ])
       .optional(),
+    healthPlanBenefit: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z
+            .object({
+              benefit: z.boolean().optional(),
+              user: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
   })
   .partial();
 
@@ -72,6 +85,7 @@ export const dependentWhereSchema: z.ZodSchema = z.lazy(() =>
 
       id: createUuidWhereSchema().optional(),
       userId: createUuidWhereSchema().optional(),
+      healthPlanBenefitId: z.union([createUuidWhereSchema(), z.null()]).optional(),
 
       name: createStringWhereSchema().optional(),
       cpf: z.union([createStringWhereSchema(), z.null()]).optional(),
@@ -109,6 +123,7 @@ const dependentFilters = {
     )
     .optional(),
   userIds: z.array(z.string()).optional(),
+  healthPlanBenefitIds: z.array(z.string()).optional(),
   irrfDeduction: z.coerce.boolean().optional(),
   salarioFamilia: z.coerce.boolean().optional(),
 };
@@ -145,6 +160,15 @@ const dependentTransform = (data: any) => {
   if (data.userIds && Array.isArray(data.userIds) && data.userIds.length > 0) {
     andConditions.push({ userId: { in: data.userIds } });
     delete data.userIds;
+  }
+
+  if (
+    data.healthPlanBenefitIds &&
+    Array.isArray(data.healthPlanBenefitIds) &&
+    data.healthPlanBenefitIds.length > 0
+  ) {
+    andConditions.push({ healthPlanBenefitId: { in: data.healthPlanBenefitIds } });
+    delete data.healthPlanBenefitIds;
   }
 
   if (typeof data.irrfDeduction === 'boolean') {
@@ -203,6 +227,15 @@ export const dependentCreateSchema = z.object({
   }),
   irrfDeduction: z.boolean().default(true),
   salarioFamilia: z.boolean().default(false),
+  // Plano de saúde/odontológico (UserBenefit) ao qual o dependente está vinculado.
+  // O custo do plano escala por dependente inscrito (Part H). NULL = não inscrito.
+  healthPlanBenefitId: z.string().uuid({ message: 'Plano inválido' }).nullable().optional(),
+  // Valor mensal atribuído a este dependente no plano (titular+dependentes deduzem IRRF).
+  healthPlanValue: z
+    .number({ invalid_type_error: 'Valor inválido' })
+    .min(0, 'O valor do plano não pode ser negativo')
+    .nullable()
+    .optional(),
   notes: z.string().max(1000).nullable().optional(),
 });
 
@@ -222,6 +255,12 @@ export const dependentUpdateSchema = z.object({
     .optional(),
   irrfDeduction: z.boolean().optional(),
   salarioFamilia: z.boolean().optional(),
+  healthPlanBenefitId: z.string().uuid({ message: 'Plano inválido' }).nullable().optional(),
+  healthPlanValue: z
+    .number({ invalid_type_error: 'Valor inválido' })
+    .min(0, 'O valor do plano não pode ser negativo')
+    .nullable()
+    .optional(),
   notes: z.string().max(1000).nullable().optional(),
 });
 

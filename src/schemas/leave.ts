@@ -12,7 +12,7 @@ import {
   createDateWhereSchema,
   mergeAndConditions,
 } from './common';
-import { LEAVE_TYPE, LEAVE_STATUS } from '@constants';
+import { LEAVE_TYPE, LEAVE_STATUS, INSS_BENEFIT_SPECIES } from '@constants';
 
 // =====================
 // Leave Include Schema (Second Level Only)
@@ -77,6 +77,7 @@ export const leaveWhereSchema: z.ZodSchema = z.lazy(() =>
       status: createStringWhereSchema().optional(),
       cid: z.union([createStringWhereSchema(), z.null()]).optional(),
       inssBenefitNumber: z.union([createStringWhereSchema(), z.null()]).optional(),
+      inssBenefitSpecies: z.union([createStringWhereSchema(), z.null()]).optional(),
       notes: z.union([createStringWhereSchema(), z.null()]).optional(),
 
       returnExamRequired: createBooleanWhereSchema().optional(),
@@ -229,6 +230,13 @@ export const leaveCreateSchema = z.object({
   expectedEndDate: z.coerce.date().nullable().optional(),
   actualEndDate: z.coerce.date().nullable().optional(),
   cid: z.string().max(20).nullable().optional(),
+  // Espécie estruturada do benefício INSS (preferir sobre o número livre).
+  inssBenefitSpecies: z
+    .enum(Object.values(INSS_BENEFIT_SPECIES) as [string, ...string[]], {
+      errorMap: () => ({ message: 'espécie de benefício INSS inválida' }),
+    })
+    .nullable()
+    .optional(),
   inssBenefitNumber: z.string().max(50).nullable().optional(),
   returnExamRequired: z.boolean().optional(),
   notes: z.string().max(1000).nullable().optional(),
@@ -251,6 +259,12 @@ export const leaveUpdateSchema = z.object({
   expectedEndDate: z.coerce.date().nullable().optional(),
   actualEndDate: z.coerce.date().nullable().optional(),
   cid: z.string().max(20).nullable().optional(),
+  inssBenefitSpecies: z
+    .enum(Object.values(INSS_BENEFIT_SPECIES) as [string, ...string[]], {
+      errorMap: () => ({ message: 'espécie de benefício INSS inválida' }),
+    })
+    .nullable()
+    .optional(),
   inssBenefitNumber: z.string().max(50).nullable().optional(),
   returnExamRequired: z.boolean().optional(),
   notes: z.string().max(1000).nullable().optional(),

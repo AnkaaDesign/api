@@ -267,11 +267,16 @@ export const userPositionHistoryPromoteSchema = z
   .object({
     userId: z.string().uuid({ message: 'Colaborador inválido' }),
     toPositionId: z.string().uuid({ message: 'Cargo inválido' }),
+    // Motivos lícitos de mudança de cargo (CLT). "Rebaixamento" não é ofertado —
+    // é ilegal (CF art.7º VI + CLT art.468). DEMOTION=Reversão (art.468 §único),
+    // ADJUSTMENT=Readaptação (art.461 §4º), CORRECTION=Reenquadramento.
     reason: z.enum(
       [
         POSITION_CHANGE_REASON.PROMOTION,
         POSITION_CHANGE_REASON.TRANSFER,
         POSITION_CHANGE_REASON.DEMOTION,
+        POSITION_CHANGE_REASON.ADJUSTMENT,
+        POSITION_CHANGE_REASON.CORRECTION,
       ] as [string, ...string[]],
       {
         errorMap: () => ({ message: 'motivo inválido' }),

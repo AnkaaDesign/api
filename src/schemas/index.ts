@@ -151,6 +151,7 @@ export * from './employment-contract';
 export * from './termination';
 export * from './medical-exam';
 export * from './leave';
+export * from './work-accident-report';
 export * from './dependent';
 // Calendário/agenda + post-its (a5-calendar)
 export * from './agenda-event';

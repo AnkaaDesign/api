@@ -3561,7 +3561,7 @@ export class SecullumService {
       const activeUsers = await this.prismaService.user.findMany({
         where: {
           secullumEmployeeId: { not: null },
-          currentContractStatus: { not: 'DISMISSED' },
+          currentContractStatus: { not: 'TERMINATED' },
         },
         select: { id: true, name: true },
       });

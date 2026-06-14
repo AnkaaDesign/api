@@ -1085,6 +1085,18 @@ export function formatFieldValue(
     typeof value === 'string'
   ) {
     const userStatusLabels: Record<string, string> = {
+      // Current taxonomy — CONTRACT_STATUS (situação) + CONTRACT_TYPE (modalidade)
+      EXPERIENCE: 'Em experiência',
+      ACTIVE: 'Ativo (efetivado)',
+      NOTICE_PERIOD: 'Aviso prévio',
+      ON_LEAVE: 'Afastado',
+      TERMINATED: 'Desligado',
+      INDETERMINATE: 'Prazo indeterminado (efetivo)',
+      FIXED_TERM: 'Prazo determinado',
+      INTERMITTENT: 'Intermitente',
+      APPRENTICE: 'Aprendiz',
+      TEMPORARY: 'Temporário',
+      // Legacy values (kept so historical changelog entries still render)
       EXPERIENCE_PERIOD_1: 'Experiência - 1º Período',
       EXPERIENCE_PERIOD_2: 'Experiência - 2º Período',
       EFFECTED: 'Efetivado',

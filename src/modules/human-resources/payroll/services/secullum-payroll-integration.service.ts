@@ -2,6 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SecullumService } from '@modules/integrations/secullum/secullum.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { SecullumCalculationData } from '@modules/integrations/secullum/dto';
+import { getBrazilianHolidays } from '@utils/brazilian-holidays.util';
+
+/** Round a quantity (days/hours) to 2 decimals for display/conversion. */
+function roundToTwo(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
 
 /**
  * ============================================================================
@@ -244,6 +250,17 @@ export class SecullumPayrollIntegrationService {
     const absenceIdx = findColumnIndex(['faltas', 'ausências', 'horas falta']);
     const dsrIdx = findColumnIndex(['dsr', 'descanso semanal']);
     const lateIdx = findColumnIndex(['atras', 'atrasos', 'atraso']);
+    // Justified absences / abono: Secullum carries these in a separate column
+    // ("Abono", "Faltas Abonadas", "Faltas Justificadas", "Atestado"). Hours in
+    // this column do NOT cause pay loss (atestado/abono ≠ desconto). When the
+    // column is absent we conservatively treat ALL faltas as unjustified.
+    const justifiedIdx = findColumnIndex([
+      'abono',
+      'abonad',
+      'justificad',
+      'atestad',
+      'faltas just',
+    ]);
 
     // Extract totals from the last row
     const normalHours = normalHoursIdx >= 0 ? parseTimeToDecimalHours(totals[normalHoursIdx]) : 0;
@@ -251,17 +268,23 @@ export class SecullumPayrollIntegrationService {
     const overtime50 = overtime50Idx >= 0 ? parseTimeToDecimalHours(totals[overtime50Idx]) : 0;
     const overtime100 = overtime100Idx >= 0 ? parseTimeToDecimalHours(totals[overtime100Idx]) : 0;
     const absenceHours = absenceIdx >= 0 ? parseTimeToDecimalHours(totals[absenceIdx]) : 0;
+    const justifiedAbsenceHours =
+      justifiedIdx >= 0 ? parseTimeToDecimalHours(totals[justifiedIdx]) : 0;
+    // Unjustified = total faltas menos as justificadas/abonadas (nunca negativo).
+    const unjustifiedAbsenceHours = Math.max(0, absenceHours - justifiedAbsenceHours);
     const dsrHours = dsrIdx >= 0 ? parseTimeToDecimalHours(totals[dsrIdx]) : 0;
     const lateMinutes = lateIdx >= 0 ? parseTimeToDecimalHours(totals[lateIdx]) * 60 : 0;
 
-    // Calculate days
-    const absenceDays = absenceHours > 0 ? Math.ceil(absenceHours / 8) : 0; // Assuming 8h workday
-    const workedDays = this.countWorkedDays(calcData);
-
-    // Get working days in month
+    // Get working days in month (real holidays fed in below).
     const { workingDays, sundays, holidays } = this.getWorkingDaysInMonth(year, month);
 
-    // DSR days (usually Sundays)
+    // Daily hours from the real working-day count (not a fixed 8h). Converte
+    // horas de falta em dias-falta — substitui o ceil(/8) hardcode antigo.
+    const dailyHours = workingDays > 0 ? 220 / workingDays : 8;
+    const absenceDays = absenceHours > 0 ? roundToTwo(absenceHours / dailyHours) : 0;
+    const workedDays = this.countWorkedDays(calcData);
+
+    // DSR days (usually Sundays + holidays falling on what would be working days)
     const dsrDays = sundays;
 
     return {
@@ -278,8 +301,8 @@ export class SecullumPayrollIntegrationService {
       overtime100,
       absenceHours,
       absenceDays,
-      justifiedAbsenceHours: 0, // Secullum might have this in details, default 0
-      unjustifiedAbsenceHours: absenceHours, // Assume all unjustified unless specified
+      justifiedAbsenceHours,
+      unjustifiedAbsenceHours,
       dsrDays,
       dsrHours,
       lateArrivalMinutes: lateMinutes,
@@ -351,24 +374,35 @@ export class SecullumPayrollIntegrationService {
     year: number,
     month: number,
   ): { workingDays: number; sundays: number; holidays: number } {
-    const firstDay = new Date(year, month - 1, 1);
     const lastDay = new Date(year, month, 0);
+
+    // Real Brazilian national holidays for the calendar year (fixed + Easter-based).
+    const holidayDates = getBrazilianHolidays(year);
+    const isHoliday = (m0: number, d: number): boolean =>
+      holidayDates.some(
+        h => h.getUTCFullYear() === year && h.getUTCMonth() === m0 && h.getUTCDate() === d,
+      );
 
     let workingDays = 0;
     let sundays = 0;
+    let holidays = 0; // holidays falling on a would-be working day (Mon-Sat)
 
     for (let day = 1; day <= lastDay.getDate(); day++) {
       const date = new Date(year, month - 1, day);
       const dayOfWeek = date.getDay();
+      const holiday = isHoliday(month - 1, day);
 
       if (dayOfWeek === 0) {
-        sundays++;
+        sundays++; // Sundays are always DSR days
+      } else if (holiday) {
+        // Holiday on a working day: counts toward DSR days, not working days.
+        holidays++;
       } else {
         workingDays++; // Mon-Sat count as working days
       }
     }
 
-    return { workingDays, sundays, holidays: 0 }; // TODO: Get actual holidays from Secullum
+    return { workingDays, sundays, holidays };
   }
 
   /**

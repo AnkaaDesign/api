@@ -27,6 +27,7 @@ import {
   NOTICE_TYPE,
   TERMINATION_DOCUMENT_STATUS,
   TERMINATION_DOCUMENT_TYPE,
+  TERMINATION_ITEM_TYPE,
   TERMINATION_STATUS,
   TERMINATION_TYPE,
   CONTRACT_STATUS,
@@ -39,13 +40,16 @@ import {
 import {
   EMPLOYER_NOTICE_TYPES,
   TerminationCalculationService,
+  isUnderStability,
 } from './termination-calculation.service';
+import { TerminationDocumentService } from './termination-document.service';
 import { EmploymentContractService } from '../employment-contract/employment-contract.service';
 import type {
   TerminationBatchCreateResponse,
   TerminationBatchDeleteResponse,
   TerminationBatchUpdateResponse,
   TerminationCalculateResponse,
+  TerminationComputeTaxesResponse,
   TerminationCreateResponse,
   TerminationDeleteResponse,
   TerminationDocumentUpdateResponse,
@@ -78,11 +82,14 @@ const STATUS_LABELS_PT: Record<string, string> = {
   [TERMINATION_STATUS.MEDICAL_EXAM]: 'Exame demissional',
   [TERMINATION_STATUS.CALCULATION]: 'Cálculo',
   [TERMINATION_STATUS.PAYMENT]: 'Pagamento',
+  [TERMINATION_STATUS.HOMOLOGATION]: 'Homologação',
   [TERMINATION_STATUS.COMPLETED]: 'Concluída',
   [TERMINATION_STATUS.CANCELLED]: 'Cancelada',
 };
 
 // Forward chain of the termination status machine (CANCELLED handled separately).
+// HOMOLOGATION (Part G) sits between PAYMENT and COMPLETED: the TRCT/homologação
+// documents are generated and (when applicable) homologated before closing.
 const STATUS_CHAIN: TERMINATION_STATUS[] = [
   TERMINATION_STATUS.INITIATED,
   TERMINATION_STATUS.NOTICE_PERIOD,
@@ -90,6 +97,7 @@ const STATUS_CHAIN: TERMINATION_STATUS[] = [
   TERMINATION_STATUS.MEDICAL_EXAM,
   TERMINATION_STATUS.CALCULATION,
   TERMINATION_STATUS.PAYMENT,
+  TERMINATION_STATUS.HOMOLOGATION,
   TERMINATION_STATUS.COMPLETED,
 ];
 
@@ -130,6 +138,7 @@ export class TerminationService {
     private readonly changeLogService: ChangeLogService,
     private readonly fileService: FileService,
     private readonly calculationService: TerminationCalculationService,
+    private readonly documentService: TerminationDocumentService,
     private readonly employmentContractService: EmploymentContractService,
   ) {}
 
@@ -166,11 +175,13 @@ export class TerminationService {
   }
 
   /**
-   * Document checklist per contract §2: DISMISSAL_EXAM, TRCT, FGTS_GUIDE,
-   * FGTS_STATEMENT, PAYMENT_RECEIPT and DOCUMENT_DELIVERY_RECEIPT always;
-   * NOTICE_LETTER only when notice applies; MUTUAL_AGREEMENT_TERM only for
-   * MUTUAL_AGREEMENT (484-A); UNEMPLOYMENT_INSURANCE_FORM only for
-   * WITHOUT_CAUSE/INDIRECT.
+   * Document checklist per contract §2 / Part G: DISMISSAL_EXAM, TRCT, FGTS_GUIDE,
+   * FGTS_STATEMENT, HOMOLOGATION_TERM, PAYMENT_RECEIPT and
+   * DOCUMENT_DELIVERY_RECEIPT always; NOTICE_LETTER (carta de aviso /
+   * WARNING_LETTER) only when notice applies; TERM_484A + MUTUAL_AGREEMENT_TERM
+   * only for MUTUAL_AGREEMENT (484-A); UNEMPLOYMENT_INSURANCE_FORM only for
+   * WITHOUT_CAUSE/INDIRECT. The TRCT, NOTICE_LETTER (WARNING_LETTER), TERM_484A
+   * and HOMOLOGATION_TERM are auto-generatable as real PDFs (Part G).
    */
   private buildDocumentChecklist(
     type: TERMINATION_TYPE,
@@ -182,13 +193,15 @@ export class TerminationService {
       TERMINATION_DOCUMENT_TYPE.TRCT,
       TERMINATION_DOCUMENT_TYPE.FGTS_GUIDE,
       TERMINATION_DOCUMENT_TYPE.FGTS_STATEMENT,
+      TERMINATION_DOCUMENT_TYPE.HOMOLOGATION_TERM,
       TERMINATION_DOCUMENT_TYPE.PAYMENT_RECEIPT,
       TERMINATION_DOCUMENT_TYPE.DOCUMENT_DELIVERY_RECEIPT,
     ];
     if (noticeDays !== null && noticeDays > 0) {
-      checklist.unshift(TERMINATION_DOCUMENT_TYPE.NOTICE_LETTER);
+      checklist.unshift(TERMINATION_DOCUMENT_TYPE.WARNING_LETTER);
     }
     if (type === TERMINATION_TYPE.MUTUAL_AGREEMENT) {
+      checklist.push(TERMINATION_DOCUMENT_TYPE.TERM_484A);
       checklist.push(TERMINATION_DOCUMENT_TYPE.MUTUAL_AGREEMENT_TERM);
     }
     if (type === TERMINATION_TYPE.WITHOUT_CAUSE || type === TERMINATION_TYPE.INDIRECT) {
@@ -283,14 +296,39 @@ export class TerminationService {
         name: true,
         currentContractStatus: true,
         currentContractId: true,
-        currentContract: { select: { admissionDate: true } },
+        currentContract: {
+          select: {
+            admissionDate: true,
+            stabilityType: true,
+            stabilityStart: true,
+            stabilityEnd: true,
+          },
+        },
       },
     });
     if (!user) {
       throw new NotFoundException('Colaborador não encontrado.');
     }
-    if (user.currentContractStatus === CONTRACT_STATUS.DISMISSED) {
+    if (user.currentContractStatus === CONTRACT_STATUS.TERMINATED) {
       throw new BadRequestException('Este colaborador já está demitido.');
+    }
+
+    const type = data.type as TERMINATION_TYPE;
+
+    // Estabilidade guard (Part G): block a termination — especially a dispensa
+    // SEM justa causa — while the worker is inside a job-stability window
+    // (acidentária/gestante/etc.). WITH_CAUSE (justa causa) and DEATH are the
+    // legal exceptions and may proceed.
+    const stabilityExempt =
+      type === TERMINATION_TYPE.WITH_CAUSE || type === TERMINATION_TYPE.DEATH;
+    if (
+      !stabilityExempt &&
+      data.terminationDate &&
+      isUnderStability(user.currentContract, data.terminationDate)
+    ) {
+      throw new BadRequestException(
+        'Não é possível registrar a rescisão: o colaborador está em período de estabilidade no trabalho. Apenas demissão por justa causa ou por falecimento é permitida nesse período.',
+      );
     }
 
     const openTermination = await tx.termination.findFirst({
@@ -306,7 +344,6 @@ export class TerminationService {
       );
     }
 
-    const type = data.type as TERMINATION_TYPE;
     const terminationDate = data.terminationDate ?? null;
     const noticeDays = this.calculationService.computeNoticeDays(
       type,
@@ -577,10 +614,23 @@ export class TerminationService {
         const termination = await tx.termination.findUnique({
           where: { id },
           include: {
+            contract: {
+              select: {
+                admissionDate: true,
+                exp1EndAt: true,
+                exp2EndAt: true,
+                hasArt481Clause: true,
+              },
+            },
             user: {
               select: {
                 currentContract: {
-                  select: { admissionDate: true, exp1EndAt: true, exp2EndAt: true },
+                  select: {
+                    admissionDate: true,
+                    exp1EndAt: true,
+                    exp2EndAt: true,
+                    hasArt481Clause: true,
+                  },
                 },
               },
             },
@@ -598,7 +648,10 @@ export class TerminationService {
           );
         }
 
-        const contract = (termination as any).user?.currentContract;
+        // Prefer the contract pinned on the termination; fall back to the user's
+        // current contract (legacy rows created before contractId was wired).
+        const contract =
+          (termination as any).contract ?? (termination as any).user?.currentContract;
         const computedItems = this.calculationService.calculate({
           type: termination.type as TERMINATION_TYPE,
           noticeType: termination.noticeType as NOTICE_TYPE | null,
@@ -610,6 +663,7 @@ export class TerminationService {
           accruedVacationPeriods: termination.accruedVacationPeriods,
           exp1StartAt: contract?.admissionDate ?? null,
           experienceEndAt: contract?.exp2EndAt ?? contract?.exp1EndAt ?? null,
+          hasArt481Clause: contract?.hasArt481Clause ?? false,
         });
 
         // Replace every auto-calculated item; custom items (isCustom) are kept
@@ -669,6 +723,157 @@ export class TerminationService {
       this.logger.error('Erro ao calcular verbas rescisórias:', error);
       throw new InternalServerErrorException(
         'Erro ao calcular verbas rescisórias. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  // =====================
+  // Tax/FGTS assist — POST /terminations/:id/compute-taxes
+  // =====================
+
+  /**
+   * Auto-computes INSS/IRRF on the TAXABLE verbas only (saldo de salário, aviso
+   * prévio TRABALHADO, 13º proporcional) and the FGTS-multa base, persisting the
+   * INSS_DISCOUNT/IRRF_DISCOUNT as CUSTOM items so they survive a verbas recalc
+   * and remain editable (manual override). EXEMPT verbas — férias indenizadas
+   * (vencidas/proporcionais + 1/3), aviso prévio INDENIZADO and the multa do
+   * FGTS — are never taxed; the taxable set is derived from the computed item
+   * types, which structurally prevents taxing the exempt verbas.
+   */
+  async computeTaxes(id: string, userId?: string): Promise<TerminationComputeTaxesResponse> {
+    try {
+      const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        const termination = await tx.termination.findUnique({
+          where: { id },
+          include: {
+            items: true,
+            user: { select: { dependentsCount: true } },
+          },
+        });
+        if (!termination) {
+          throw new NotFoundException('Rescisão não encontrada.');
+        }
+        if (
+          termination.status === TERMINATION_STATUS.COMPLETED ||
+          termination.status === TERMINATION_STATUS.CANCELLED
+        ) {
+          throw new BadRequestException(
+            `Não é possível calcular impostos de uma rescisão ${STATUS_LABELS_PT[termination.status].toLowerCase()}.`,
+          );
+        }
+
+        const items = (termination as any).items as Array<{
+          type: TERMINATION_ITEM_TYPE;
+          amount: number;
+          description: string | null;
+        }>;
+        const sumOf = (type: TERMINATION_ITEM_TYPE) =>
+          items.filter(i => i.type === type).reduce((s, i) => s + i.amount, 0);
+
+        // TAXABLE verbas only. NOTE: NOTICE_INDEMNIFIED, ACCRUED_VACATION and
+        // PROPORTIONAL_VACATION (férias indenizadas) and FGTS_FINE are EXEMPT
+        // and intentionally NOT read here.
+        const salaryBalance = sumOf(TERMINATION_ITEM_TYPE.SALARY_BALANCE);
+        const thirteenth = sumOf(TERMINATION_ITEM_TYPE.THIRTEENTH_PROPORTIONAL);
+        // The WORKED notice is not modelled as a verba line (it is paid in the
+        // normal folha when worked); only the INDEMNIFIED notice produces an item
+        // (which is exempt). So the monthly taxable base is the saldo de salário.
+        const workedNotice = 0;
+
+        const indemnifiedNotice = sumOf(TERMINATION_ITEM_TYPE.NOTICE_INDEMNIFIED);
+        const fgtsBalance = termination.fgtsBalance ?? null;
+        const year = (termination.terminationDate ?? new Date()).getFullYear();
+
+        const assist = this.calculationService.computeTaxAssist({
+          taxable: { salaryBalance, workedNotice, thirteenth },
+          fgtsBalance,
+          indemnifiedNotice,
+          dependentsCount: (termination as any).user?.dependentsCount ?? 0,
+          year,
+        });
+
+        // Defensive validation: the monthly taxable base must equal exactly the
+        // taxable verbas (saldo + aviso trabalhado) and never include any exempt
+        // verba (aviso indenizado, férias indenizadas, multa FGTS). Structurally
+        // guaranteed by the taxable-set derivation above; asserted to fail loudly
+        // on regression.
+        const round2 = (v: number) => Math.round(v * 100) / 100;
+        if (round2(assist.monthlyInssBase) !== round2(salaryBalance + workedNotice)) {
+          throw new InternalServerErrorException(
+            'Erro de incidência tributária: a base de cálculo mensal não corresponde às verbas tributáveis.',
+          );
+        }
+
+        // Upsert INSS/IRRF discount items as CUSTOM (editable, survive recalc).
+        const upsertDiscount = async (
+          type: TERMINATION_ITEM_TYPE,
+          amount: number,
+          description: string,
+        ) => {
+          const existing = await tx.terminationItem.findFirst({
+            where: { terminationId: id, type: type as any },
+          });
+          if (existing) {
+            await tx.terminationItem.update({
+              where: { id: existing.id },
+              data: { amount: -Math.abs(amount), description, isCustom: true },
+            });
+          } else if (amount > 0) {
+            await tx.terminationItem.create({
+              data: {
+                terminationId: id,
+                type: type as any,
+                description,
+                amount: -Math.abs(amount),
+                isCustom: true,
+              },
+            });
+          }
+        };
+
+        await upsertDiscount(
+          TERMINATION_ITEM_TYPE.INSS_DISCOUNT,
+          assist.totalInss,
+          `INSS rescisório (mensal ${assist.monthlyInss.toFixed(2)} + 13º ${assist.thirteenthInss.toFixed(2)})`,
+        );
+        await upsertDiscount(
+          TERMINATION_ITEM_TYPE.IRRF_DISCOUNT,
+          assist.totalIrrf,
+          `IRRF rescisório (mensal ${assist.monthlyIrrf.toFixed(2)} + 13º ${assist.thirteenthIrrf.toFixed(2)})`,
+        );
+
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TERMINATION,
+          entityId: id,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'items',
+          oldValue: null,
+          newValue: {
+            inss: assist.totalInss,
+            irrf: assist.totalIrrf,
+            fgtsFineBase: assist.fgtsFineBase,
+          },
+          reason: 'INSS/IRRF/FGTS auto-calculados (assistente de impostos da rescisão)',
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: id,
+          userId: userId || null,
+          transaction: tx,
+        });
+
+        return assist;
+      });
+
+      return {
+        success: true,
+        message:
+          'Impostos da rescisão calculados com sucesso. Os valores de INSS/IRRF foram lançados como verbas personalizadas e podem ser ajustados manualmente.',
+        data: result,
+      };
+    } catch (error: any) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
+      this.logger.error('Erro ao calcular impostos da rescisão:', error);
+      throw new InternalServerErrorException(
+        'Erro ao calcular impostos da rescisão. Por favor, tente novamente.',
       );
     }
   }
@@ -833,6 +1038,54 @@ export class TerminationService {
           include: include ?? { items: true, documents: true, user: true },
         });
 
+        // Entering HOMOLOGATION: auto-generate the real-PDF documents (TRCT,
+        // carta de aviso, termo 484-A, termo de homologação) for the checklist
+        // entries that exist on this termination and aren't yet generated.
+        let docCrossReference = '';
+        if (targetStatus === TERMINATION_STATUS.HOMOLOGATION) {
+          const pending = await tx.terminationDocument.findMany({
+            where: {
+              terminationId: id,
+              type: {
+                in: TerminationDocumentService.GENERATABLE_TYPES as any[],
+              },
+              status: TERMINATION_DOCUMENT_STATUS.PENDING,
+            },
+            select: { type: true },
+          });
+          const generated: string[] = [];
+          for (const doc of pending) {
+            try {
+              const fileId = await this.documentService.generateAndPersist(
+                tx,
+                id,
+                doc.type as TERMINATION_DOCUMENT_TYPE,
+              );
+              if (fileId) generated.push(doc.type);
+            } catch (genError: any) {
+              this.logger.warn(
+                `Falha ao gerar documento ${doc.type} da rescisão ${id}: ${genError?.message ?? genError}`,
+              );
+            }
+          }
+          if (generated.length > 0) {
+            docCrossReference = ` — documentos gerados automaticamente: ${generated.join(', ')}`;
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TERMINATION,
+              entityId: id,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'documents',
+              oldValue: null,
+              newValue: { generated },
+              reason: `Documentos de rescisão gerados automaticamente na homologação: ${generated.join(', ')}`,
+              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+              triggeredById: id,
+              userId: userId || null,
+              transaction: tx,
+            });
+          }
+        }
+
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.TERMINATION,
           entityId: id,
@@ -840,16 +1093,17 @@ export class TerminationService {
           field: 'status',
           oldValue: currentStatus,
           newValue: targetStatus,
-          reason: `Status da rescisão alterado: ${STATUS_LABELS_PT[currentStatus]} → ${STATUS_LABELS_PT[targetStatus]}${examCrossReference}`,
+          reason: `Status da rescisão alterado: ${STATUS_LABELS_PT[currentStatus]} → ${STATUS_LABELS_PT[targetStatus]}${examCrossReference}${docCrossReference}`,
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           triggeredById: id,
           userId: userId || null,
           transaction: tx,
         });
 
-        // On COMPLETED: close the user's CURRENT vínculo (status=DISMISSED,
+        // On COMPLETED: close the user's CURRENT vínculo (status=TERMINATED,
         // terminationDate, terminationType) and re-sync the User cache
-        // (isActive=false) via the EmploymentContractService.
+        // (isActive=false) via the EmploymentContractService. The termination
+        // itself closes the contract (Part G: DISMISSED → TERMINATED).
         if (targetStatus === TERMINATION_STATUS.COMPLETED) {
           const user = (existing as any).user;
           const terminationDate = existing.terminationDate ?? new Date();
@@ -857,14 +1111,14 @@ export class TerminationService {
 
           if (
             user &&
-            user.currentContractStatus !== CONTRACT_STATUS.DISMISSED &&
+            user.currentContractStatus !== CONTRACT_STATUS.TERMINATED &&
             contractId
           ) {
             await tx.employmentContract.update({
               where: { id: contractId },
               data: {
-                status: CONTRACT_STATUS.DISMISSED as any,
-                statusOrder: CONTRACT_STATUS_ORDER[CONTRACT_STATUS.DISMISSED],
+                status: CONTRACT_STATUS.TERMINATED as any,
+                statusOrder: CONTRACT_STATUS_ORDER[CONTRACT_STATUS.TERMINATED],
                 terminationDate,
                 terminationType: existing.type as any,
               },
@@ -880,7 +1134,7 @@ export class TerminationService {
               action: CHANGE_ACTION.UPDATE,
               field: 'currentContractStatus',
               oldValue: user.currentContractStatus,
-              newValue: CONTRACT_STATUS.DISMISSED,
+              newValue: CONTRACT_STATUS.TERMINATED,
               reason: 'Colaborador demitido pela conclusão do processo de rescisão',
               triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
               triggeredById: id,

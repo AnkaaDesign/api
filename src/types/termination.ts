@@ -96,6 +96,29 @@ export interface TerminationCalculationResult {
   totals: TerminationCalculationTotals;
 }
 
+// Tax/FGTS assist (Part G) — POST :id/compute-taxes.
+// Mirrors TerminationCalculationService.computeTaxAssist's TaxAssistResult.
+export interface TaxAssistResult {
+  /** Base de INSS do mês (saldo + aviso trabalhado), tributável. */
+  monthlyInssBase: number;
+  /** INSS sobre a base mensal tributável. */
+  monthlyInss: number;
+  /** IRRF sobre a base mensal tributável (já deduzido o INSS). */
+  monthlyIrrf: number;
+  /** Base exclusiva de INSS do 13º. */
+  thirteenthInssBase: number;
+  /** INSS sobre o 13º (base exclusiva). */
+  thirteenthInss: number;
+  /** IRRF sobre o 13º (base exclusiva). */
+  thirteenthIrrf: number;
+  /** INSS total a descontar (mensal + 13º). */
+  totalInss: number;
+  /** IRRF total a descontar (mensal + 13º). */
+  totalIrrf: number;
+  /** Base da multa do FGTS (saldo informado + 8% sobre aviso indenizado + 13º). */
+  fgtsFineBase: number;
+}
+
 // =====================
 // Include Types
 // =====================
@@ -152,6 +175,9 @@ export interface TerminationDeleteResponse extends BaseDeleteResponse {}
 
 export interface TerminationCalculateResponse
   extends BaseCreateResponse<TerminationCalculationResult> {}
+
+export interface TerminationComputeTaxesResponse
+  extends BaseGetUniqueResponse<TaxAssistResult> {}
 
 export interface TerminationDocumentUpdateResponse
   extends BaseUpdateResponse<TerminationDocument> {}

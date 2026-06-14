@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { CONTRACT_TYPE } from '../../../constants/enums';
+import { CONTRACT_STATUS } from '../../../constants/enums';
 import {
   businessMonthKey,
   businessPeriodEnd,
@@ -32,7 +32,9 @@ const UNASSIGNED_POSITION_LABEL = 'Sem cargo';
 
 type UserRow = {
   id: string;
-  contractType: string | null;
+  // contractStatus = situação do vínculo (EXPERIENCE/ACTIVE/...): substitui o uso
+  // antigo de contractType para distinguir experiência vs efetivado.
+  contractStatus: string | null;
   sectorId: string | null;
   positionId: string | null;
   createdAt: Date;
@@ -48,10 +50,10 @@ const USER_ROW_SELECT = {
   sectorId: true,
   positionId: true,
   createdAt: true,
-  currentContractType: true,
+  currentContractStatus: true,
   currentContract: {
     select: {
-      contractType: true,
+      status: true,
       effectedAt: true,
       exp1EndAt: true,
       exp2EndAt: true,
@@ -67,9 +69,9 @@ function toUserRow(u: {
   sectorId: string | null;
   positionId: string | null;
   createdAt: Date;
-  currentContractType: string | null;
+  currentContractStatus: string | null;
   currentContract: {
-    contractType: string | null;
+    status: string | null;
     effectedAt: Date | null;
     exp1EndAt: Date | null;
     exp2EndAt: Date | null;
@@ -78,7 +80,7 @@ function toUserRow(u: {
 }): UserRow {
   return {
     id: u.id,
-    contractType: u.currentContract?.contractType ?? u.currentContractType ?? null,
+    contractStatus: u.currentContract?.status ?? u.currentContractStatus ?? null,
     sectorId: u.sectorId,
     positionId: u.positionId,
     createdAt: u.createdAt,
@@ -255,7 +257,7 @@ export class HrStatisticsService {
     const timeseries: HeadcountTimeseriesItem[] = buckets.map(b => {
       const activeUsers = users.filter(u => this.isActiveDuring(u, b.start, b.end));
       const inExperience = activeUsers.filter(
-        u => u.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_1 || u.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
+        u => u.contractStatus === CONTRACT_STATUS.EXPERIENCE,
       ).length;
       const newHires = users.filter(u => {
         const j = this.joinDate(u);
@@ -302,9 +304,10 @@ export class HrStatisticsService {
     ).length;
 
     const inExperience = snapshotActive.filter(
-      u => u.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_1 || u.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
+      u => u.contractStatus === CONTRACT_STATUS.EXPERIENCE,
     ).length;
-    const effected = snapshotActive.filter(u => u.contractType === CONTRACT_TYPE.EFFECTED).length;
+    // "Efetivado" = vínculo em situação regular (ACTIVE) e fora da experiência.
+    const effected = snapshotActive.filter(u => u.contractStatus === CONTRACT_STATUS.ACTIVE).length;
 
     const summary: HeadcountSummary = {
       totalActive,
@@ -496,6 +499,164 @@ export class HrStatisticsService {
     };
 
     return { summary, items, sectorBreakdown };
+  }
+
+  // =========================================================================
+  // SALARY COST OVER TIME (Custo de folha — histórico)
+  //
+  // Reflete o salário que cada colaborador TINHA no período (não o valor atual
+  // do cargo). Para cada bucket usa o cargo ocupado no fim do período
+  // (UserPositionHistory) × MonetaryValue vigente naquela data (max
+  // effectiveDate ≤ data). É a mesma resolução de getUserSalaryAt do
+  // UserPositionHistoryService, aplicada em lote por período para performance.
+  // =========================================================================
+
+  async getSalaryCostOverTime(filters: HeadcountFilters): Promise<{
+    summary: { currentMonthlyCost: number; averageMonthlyCost: number; periodCount: number };
+    timeseries: Array<{
+      period: string;
+      label: string;
+      monthlyCost: number;
+      headcount: number;
+      averageSalary: number;
+      resolvedCount: number;
+      unresolvedCount: number;
+    }>;
+  }> {
+    const dateRange = this.resolveDateRange(filters);
+    const useBusinessPeriod = filters.useBusinessPeriod ?? true;
+
+    const userWhere: any = {};
+    if (filters.sectorIds?.length) userWhere.sectorId = { in: filters.sectorIds };
+    if (filters.positionIds?.length) userWhere.positionId = { in: filters.positionIds };
+
+    const users = (
+      await this.prisma.user.findMany({ where: userWhere, select: USER_ROW_SELECT })
+    ).map(toUserRow);
+
+    const buckets = this.buildPeriodBuckets(dateRange.start, dateRange.end, useBusinessPeriod);
+
+    const timeseries = [] as Array<{
+      period: string;
+      label: string;
+      monthlyCost: number;
+      headcount: number;
+      averageSalary: number;
+      resolvedCount: number;
+      unresolvedCount: number;
+    }>;
+
+    for (const b of buckets) {
+      // Quem estava ativo ao fim do período conta para o custo do período.
+      const activeIds = users.filter(u => this.isActiveAt(u, b.end)).map(u => u.id);
+      const salaryMap = await this.resolveSalariesAt(activeIds, b.end);
+
+      let monthlyCost = 0;
+      let resolvedCount = 0;
+      for (const id of activeIds) {
+        const salary = salaryMap.get(id) ?? null;
+        if (salary != null) {
+          monthlyCost += salary;
+          resolvedCount += 1;
+        }
+      }
+      const unresolvedCount = activeIds.length - resolvedCount;
+      timeseries.push({
+        period: b.key,
+        label: b.label,
+        monthlyCost: Math.round(monthlyCost * 100) / 100,
+        headcount: activeIds.length,
+        averageSalary: resolvedCount > 0 ? Math.round((monthlyCost / resolvedCount) * 100) / 100 : 0,
+        resolvedCount,
+        unresolvedCount,
+      });
+    }
+
+    const currentMonthlyCost = timeseries.length > 0 ? timeseries[timeseries.length - 1].monthlyCost : 0;
+    const averageMonthlyCost =
+      timeseries.length > 0
+        ? Math.round((timeseries.reduce((s, t) => s + t.monthlyCost, 0) / timeseries.length) * 100) / 100
+        : 0;
+
+    return {
+      summary: { currentMonthlyCost, averageMonthlyCost, periodCount: timeseries.length },
+      timeseries,
+    };
+  }
+
+  /**
+   * Resolve, em lote, a remuneração que cada colaborador tinha em `date`:
+   * cargo na data (UserPositionHistory) × MonetaryValue vigente (≤ date).
+   * Espelha UserPositionHistoryService.getUsersSalaryAt; mantido aqui para que
+   * o módulo de estatística não dependa do módulo de histórico (evita ciclos).
+   * Devolve Map<userId, salário|null>.
+   */
+  private async resolveSalariesAt(userIds: string[], date: Date): Promise<Map<string, number | null>> {
+    const out = new Map<string, number | null>();
+    const ids = [...new Set(userIds)];
+    if (ids.length === 0) return out;
+
+    // Cargo na data via janela de histórico (startedAt ≤ date < endedAt).
+    const historyRows = await this.prisma.userPositionHistory.findMany({
+      where: {
+        userId: { in: ids },
+        startedAt: { lte: date },
+        OR: [{ endedAt: null }, { endedAt: { gt: date } }],
+      },
+      orderBy: { startedAt: 'desc' },
+      select: { userId: true, positionId: true },
+    });
+    const positionByUser = new Map<string, string | null>();
+    for (const row of historyRows) {
+      if (!positionByUser.has(row.userId)) positionByUser.set(row.userId, row.positionId);
+    }
+
+    // Fallback: sem janela cobrindo a data.
+    const missing = ids.filter(id => !positionByUser.has(id));
+    if (missing.length > 0) {
+      const anyHistory = await this.prisma.userPositionHistory.groupBy({
+        by: ['userId'],
+        where: { userId: { in: missing } },
+        _count: { _all: true },
+      });
+      const hasHistory = new Set(anyHistory.map(h => h.userId));
+      const fallbackUsers = await this.prisma.user.findMany({
+        where: { id: { in: missing } },
+        select: { id: true, positionId: true },
+      });
+      const userById = new Map(fallbackUsers.map(u => [u.id, u]));
+      for (const id of missing) {
+        if (hasHistory.has(id)) {
+          out.set(id, null); // data anterior ao primeiro cargo
+        } else {
+          positionByUser.set(id, userById.get(id)?.positionId ?? null);
+        }
+      }
+    }
+
+    const positionIds = [
+      ...new Set(Array.from(positionByUser.values()).filter((p): p is string => !!p)),
+    ];
+    const valueByPosition = new Map<string, number>();
+    if (positionIds.length > 0) {
+      const monetaryValues = await this.prisma.monetaryValue.findMany({
+        where: { positionId: { in: positionIds }, effectiveDate: { lte: date } },
+        orderBy: { effectiveDate: 'desc' },
+        select: { positionId: true, value: true },
+      });
+      for (const mv of monetaryValues) {
+        if (mv.positionId && !valueByPosition.has(mv.positionId)) {
+          valueByPosition.set(mv.positionId, mv.value);
+        }
+      }
+    }
+
+    for (const id of ids) {
+      if (out.has(id)) continue;
+      const positionId = positionByUser.get(id);
+      out.set(id, positionId ? valueByPosition.get(positionId) ?? null : null);
+    }
+    return out;
   }
 
   // =========================================================================

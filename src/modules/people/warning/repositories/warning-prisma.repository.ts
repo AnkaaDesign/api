@@ -54,6 +54,8 @@ export class WarningPrismaRepository
       isActive: databaseEntity.isActive,
       collaboratorId: databaseEntity.collaboratorId,
       supervisorId: databaseEntity.supervisorId,
+      suspensionDays: databaseEntity.suspensionDays ?? null,
+      terminationId: databaseEntity.terminationId ?? null,
       followUpDate: databaseEntity.followUpDate,
       hrNotes: databaseEntity.hrNotes,
       resolvedAt: databaseEntity.resolvedAt,
@@ -64,6 +66,7 @@ export class WarningPrismaRepository
       supervisor: databaseEntity.supervisor,
       witness: databaseEntity.witness,
       attachments: databaseEntity.attachments,
+      termination: databaseEntity.termination,
     };
   }
 
@@ -83,8 +86,10 @@ export class WarningPrismaRepository
       reason,
       witnessIds,
       attachmentIds,
+      // terminationId is a relation FK — connected below, never spread.
+      terminationId,
       ...rest
-    } = formData;
+    } = formData as WarningCreateFormData & { terminationId?: string | null };
 
     // Validate required fields
     if (!supervisorId) {
@@ -118,6 +123,11 @@ export class WarningPrismaRepository
       createInput.attachments = { connect: attachmentIds.map(id => ({ id })) };
     }
 
+    // Link to a termination (justa-causa) when provided.
+    if (terminationId) {
+      createInput.termination = { connect: { id: terminationId } };
+    }
+
     return { ...createInput, ...rest };
   }
 
@@ -128,8 +138,21 @@ export class WarningPrismaRepository
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: WarningUpdateFormData,
   ): Prisma.WarningUpdateInput {
-    const { collaboratorId, supervisorId, witnessIds, attachmentIds, category, severity, ...rest } =
-      formData;
+    const fd = formData as WarningUpdateFormData & {
+      suspensionDays?: number | null;
+      terminationId?: string | null;
+    };
+    const {
+      collaboratorId,
+      supervisorId,
+      witnessIds,
+      attachmentIds,
+      category,
+      severity,
+      // terminationId is a relation FK — handled below, never spread.
+      terminationId,
+      ...rest
+    } = fd;
 
     const updateInput: Prisma.WarningUpdateInput = {};
 
@@ -140,6 +163,14 @@ export class WarningPrismaRepository
     if (formData.hrNotes !== undefined) updateInput.hrNotes = formData.hrNotes;
     if (formData.followUpDate !== undefined) updateInput.followUpDate = formData.followUpDate;
     if (formData.resolvedAt !== undefined) updateInput.resolvedAt = formData.resolvedAt;
+    if (fd.suspensionDays !== undefined) updateInput.suspensionDays = fd.suspensionDays;
+
+    // Termination link: connect when an id is given, disconnect when explicitly null.
+    if (terminationId !== undefined) {
+      updateInput.termination = terminationId
+        ? { connect: { id: terminationId } }
+        : { disconnect: true };
+    }
 
     // Handle enums
     if (category !== undefined) {
