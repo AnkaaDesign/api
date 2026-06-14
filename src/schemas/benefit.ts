@@ -521,6 +521,20 @@ export const userBenefitCreateSchema = z.object({
     .min(0)
     .nullable()
     .optional(),
+  // Parcelamento de convênio (espelha LOAN/ADVANCE): total de parcelas contratadas.
+  totalInstallments: z
+    .number()
+    .int('O número de parcelas deve ser inteiro')
+    .min(1, 'O número de parcelas deve ser ao menos 1')
+    .nullable()
+    .optional(),
+  // Parcela corrente (1-based); avança a cada folha e encerra ao exceder totalInstallments.
+  currentInstallment: z
+    .number()
+    .int('A parcela corrente deve ser inteira')
+    .min(1, 'A parcela corrente deve ser ao menos 1')
+    .nullable()
+    .optional(),
   declarationFileId: z.string().uuid({ message: 'Arquivo inválido' }).nullable().optional(),
   notes: z.string().max(1000).nullable().optional(),
 });
@@ -551,6 +565,18 @@ export const userBenefitUpdateSchema = z.object({
     .number()
     .int('A quantidade de passagens diárias deve ser um número inteiro')
     .min(0)
+    .nullable()
+    .optional(),
+  totalInstallments: z
+    .number()
+    .int('O número de parcelas deve ser inteiro')
+    .min(1, 'O número de parcelas deve ser ao menos 1')
+    .nullable()
+    .optional(),
+  currentInstallment: z
+    .number()
+    .int('A parcela corrente deve ser inteira')
+    .min(1, 'A parcela corrente deve ser ao menos 1')
     .nullable()
     .optional(),
   declarationFileId: z.string().uuid({ message: 'Arquivo inválido' }).nullable().optional(),

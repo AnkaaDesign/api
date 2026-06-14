@@ -1,0 +1,25 @@
+# pnpm 11 moved settings out of the package.json "pnpm" field into this file.
+# https://pnpm.io/settings
+
+# baileys resolves `libsignal` from a git tarball (see pnpm-lock.yaml); pnpm 11
+# blocks git/exotic subdeps by default. Allow it so installs match the lockfile.
+blockExoticSubdeps: false
+
+# Migrated from the (now-ignored) package.json "pnpm".overrides field.
+overrides:
+  cron: 4.3.3
+
+# pnpm 11 ignores dependency build scripts unless explicitly approved. These are
+# the native/codegen packages this project needs built to run.
+allowBuilds:
+  '@firebase/util': true
+  '@nestjs/core': true
+  '@prisma/client': true
+  '@prisma/engines': true
+  '@whiskeysockets/baileys': true
+  bcrypt: true
+  esbuild: true
+  msgpackr-extract: true
+  prisma: true
+  protobufjs: true
+  sharp: true

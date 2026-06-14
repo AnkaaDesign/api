@@ -15,6 +15,8 @@ import type {
   CONTRACT_STATUS,
   EMPLOYEE_TYPE,
   TERMINATION_TYPE,
+  INSALUBRITY_DEGREE,
+  STABILITY_TYPE,
   ORDER_BY_DIRECTION,
 } from '@constants';
 import type { User, UserIncludes } from './user';
@@ -34,14 +36,26 @@ export interface EmploymentContract extends BaseEntity {
   statusOrder: number;
   positionId: string | null;
   sectorId: string | null;
+  /** Per-vínculo override do grau de insalubridade do cargo. NULL = herda do Position. */
+  insalubrityDegreeOverride: INSALUBRITY_DEGREE | null;
+  /** Per-vínculo override da periculosidade do cargo. NULL = herda do Position. */
+  hazardPayOverride: boolean | null;
   admissionDate: Date | null;
   exp1StartAt: Date | null;
   exp1EndAt: Date | null;
   exp2StartAt: Date | null;
   exp2EndAt: Date | null;
   effectedAt: Date | null;
+  /** Fase de experiência (1 ou 2). Normalmente DERIVADA das datas de experiência. NULL = derivar. */
+  experiencePhase: number | null;
+  /** Art. 481 CLT — cláusula assecuratória do direito recíproco de rescisão. */
+  hasArt481Clause: boolean;
   terminationDate: Date | null;
   terminationType: TERMINATION_TYPE | null;
+  /** Tipo de estabilidade (estabilidade) que bloqueia o desligamento. NULL = sem estabilidade. */
+  stabilityType: STABILITY_TYPE | null;
+  stabilityStart: Date | null;
+  stabilityEnd: Date | null;
   providerName: string | null;
   providerCnpj: string | null;
   notes: string | null;

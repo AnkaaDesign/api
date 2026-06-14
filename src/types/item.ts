@@ -99,6 +99,9 @@ export interface Item extends BaseEntity {
   // PPE-specific fields (when item is a PPE)
   ppeType: PPE_TYPE | null;
   ppeCA: string | null;
+  // CA (Certificado de Aprovação) dates — delivery blocked once ppeCAExpiry passes (NR-6).
+  ppeCAIssueDate: Date | null;
+  ppeCAExpiry: Date | null;
   ppeDeliveryMode: PPE_DELIVERY_MODE | null;
   ppeStandardQuantity: number | null;
 

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { PayrollDiscountType, Prisma } from '@prisma/client';
+import { LoanKind, PayrollDiscountType, Prisma } from '@prisma/client';
 import { roundCurrency } from '@utils/currency-precision.util';
 
 /**
@@ -48,6 +48,31 @@ function nextInstallment(discount: {
   if (next > discount.totalInstallments) return null;
   return { totalInstallments: discount.totalInstallments, currentInstallment: next };
 }
+
+/** Competência "YYYY-MM" a partir de ano/mês (mês 1-based). */
+function toCompetence(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+/**
+ * Diferença em meses entre duas competências "YYYY-MM" (b − a).
+ * Ex.: ('2026-01', '2026-03') => 2. Negativo quando b é anterior a a.
+ * Retorna null para entradas malformadas.
+ */
+function monthsBetweenCompetences(a: string, b: string): number | null {
+  const ma = /^(\d{4})-(\d{2})$/.exec(a);
+  const mb = /^(\d{4})-(\d{2})$/.exec(b);
+  if (!ma || !mb) return null;
+  const ai = Number(ma[1]) * 12 + (Number(ma[2]) - 1);
+  const bi = Number(mb[1]) * 12 + (Number(mb[2]) - 1);
+  return bi - ai;
+}
+
+/** Tipos de desconto que representam empréstimos/adiantamentos parcelados. */
+const LOAN_DISCOUNT_TYPES: PayrollDiscountType[] = [
+  PayrollDiscountType.LOAN,
+  PayrollDiscountType.ADVANCE,
+];
 
 @Injectable()
 export class PersistentDiscountService {
@@ -115,6 +140,20 @@ export class PersistentDiscountService {
       // Check if discount has expired
       if (discount.expirationDate && discount.expirationDate < currentDate) {
         this.logger.log(`Skipping expired persistent discount: ${discount.reference}`);
+        continue;
+      }
+
+      // DEDUP: loan/advance lines that originate from an employee-anchored MASTER
+      // discount (they carry a startCompetence) are materialized exclusively by
+      // materializeMasterLoans(). Skipping them here prevents double-application
+      // when both paths run during payroll generation.
+      if (
+        (discount as any).startCompetence &&
+        LOAN_DISCOUNT_TYPES.includes(discount.discountType)
+      ) {
+        this.logger.log(
+          `Skipping master-anchored loan in previous-month copy (handled by master path): ${discount.reference}`,
+        );
         continue;
       }
 
@@ -471,6 +510,304 @@ export class PersistentDiscountService {
         expirationDate,
       },
     });
+  }
+
+  /**
+   * ========================================================================
+   * CREATE EMPLOYEE-ANCHORED MASTER LOAN
+   * ========================================================================
+   * Registers a loan/advance ONCE per employee (payrollId=null, userId set).
+   * The master row is the single source of truth: it is materialized into each
+   * future folha by materializeMasterLoans() during payroll generation, with
+   * installment advancement driven by competência math (gap-tolerant).
+   *
+   * `value` é o VALOR DA PARCELA mensal. `totalInstallments` é o número de
+   * parcelas. A primeira parcela vale a partir de `startCompetence` (YYYY-MM).
+   */
+  async createMasterLoan(params: {
+    userId: string;
+    value: number;
+    totalInstallments: number;
+    startCompetence: string;
+    discountType?: PayrollDiscountType;
+    loanKind?: LoanKind;
+    lenderName?: string;
+    description?: string;
+  }) {
+    const {
+      userId,
+      value,
+      totalInstallments,
+      startCompetence,
+      discountType = PayrollDiscountType.LOAN,
+      loanKind = LoanKind.COMPANY,
+      lenderName,
+      description,
+    } = params;
+
+    if (!LOAN_DISCOUNT_TYPES.includes(discountType)) {
+      throw new Error('Tipo de desconto deve ser LOAN ou ADVANCE para empréstimo-mestre');
+    }
+    if (!/^\d{4}-\d{2}$/.test(startCompetence)) {
+      throw new Error('Competência inicial inválida (esperado YYYY-MM)');
+    }
+    if (!(totalInstallments >= 1)) {
+      throw new Error('Total de parcelas deve ser pelo menos 1');
+    }
+    if (!(value > 0)) {
+      throw new Error('Valor da parcela deve ser maior que zero');
+    }
+
+    const baseLabel =
+      description && description.trim().length > 0
+        ? description.trim()
+        : loanKind === LoanKind.PAYROLL_CONSIGNED
+          ? lenderName && lenderName.trim().length > 0
+            ? `Consignado - ${lenderName.trim()}`
+            : 'Consignado'
+          : discountType === PayrollDiscountType.ADVANCE
+            ? 'Adiantamento'
+            : 'Empréstimo';
+
+    const master = await this.prisma.payrollDiscount.create({
+      data: {
+        payrollId: null,
+        userId,
+        discountType,
+        loanKind,
+        lenderName: lenderName && lenderName.trim().length > 0 ? lenderName.trim() : null,
+        value: roundCurrency(value),
+        reference: `${baseLabel} - Parcela de R$ ${roundCurrency(value).toFixed(2)} (${totalInstallments}x)`,
+        isPersistent: true,
+        isActive: true,
+        totalInstallments,
+        currentInstallment: 1,
+        startCompetence,
+      },
+    });
+
+    this.logger.log(
+      `Created master loan ${master.id} for user ${userId}: ${totalInstallments}x R$ ${value.toFixed(2)} from ${startCompetence}`,
+    );
+
+    return master;
+  }
+
+  /**
+   * ========================================================================
+   * GET ACTIVE MASTER LOANS
+   * ========================================================================
+   * Active employee-anchored loans (payrollId=null) whose start competence is
+   * already due for the given competência.
+   */
+  async getActiveMasterLoans(params: {
+    userId: string;
+    currentCompetence: string;
+  }) {
+    const { userId, currentCompetence } = params;
+
+    const masters = await this.prisma.payrollDiscount.findMany({
+      where: {
+        payrollId: null,
+        userId,
+        isPersistent: true,
+        isActive: true,
+        discountType: { in: LOAN_DISCOUNT_TYPES },
+        startCompetence: { not: null, lte: currentCompetence },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return masters;
+  }
+
+  /**
+   * Resolve, for a master loan and a target competência, which installment
+   * number applies and whether it is still within the contracted installments.
+   *
+   * Gap-tolerant: the installment is derived purely from competência math
+   * (monthsBetween(startCompetence, current) + 1), NOT from "previous month
+   * exists". A skipped month therefore does not desync the schedule.
+   */
+  private resolveMasterInstallment(
+    master: { startCompetence?: string | null; totalInstallments?: number | null },
+    currentCompetence: string,
+  ): { installment: number; totalInstallments: number } | null {
+    if (!master.startCompetence || !master.totalInstallments) return null;
+    const offset = monthsBetweenCompetences(master.startCompetence, currentCompetence);
+    if (offset === null || offset < 0) return null; // not yet due / malformed
+    const installment = offset + 1; // 1-based
+    if (installment > master.totalInstallments) return null; // fully paid
+    return { installment, totalInstallments: master.totalInstallments };
+  }
+
+  /**
+   * ========================================================================
+   * MATERIALIZE MASTER LOANS INTO A FOLHA
+   * ========================================================================
+   * For each active master loan due at `currentCompetence`, creates a per-folha
+   * copy (payrollId set) carrying the right type/installment so the calculator's
+   * 35% margem consignável clamp applies, then advances the master's
+   * currentInstallment. Auto-deactivates the master once installments are
+   * exhausted. Idempotent per folha: if a copy for this competência already
+   * exists on the folha, it is skipped.
+   */
+  async materializeMasterLoans(params: {
+    employeeId: string;
+    newPayrollId: string;
+    currentYear: number;
+    currentMonth: number;
+  }): Promise<string[]> {
+    const { employeeId, newPayrollId, currentYear, currentMonth } = params;
+    const currentCompetence = toCompetence(currentYear, currentMonth);
+
+    const masters = await this.getActiveMasterLoans({ userId: employeeId, currentCompetence });
+    if (masters.length === 0) return [];
+
+    const createdIds: string[] = [];
+
+    for (const master of masters) {
+      const resolved = this.resolveMasterInstallment(master, currentCompetence);
+
+      if (!resolved) {
+        // Fully paid (or not yet due, but getActiveMasterLoans already filtered
+        // start <= current). Deactivate exhausted masters so they stop matching.
+        const offset = monthsBetweenCompetences(master.startCompetence ?? '', currentCompetence);
+        if (
+          master.totalInstallments &&
+          offset !== null &&
+          offset + 1 > master.totalInstallments
+        ) {
+          await this.prisma.payrollDiscount.update({
+            where: { id: master.id },
+            data: { isActive: false },
+          });
+          this.logger.log(`Master loan ${master.id} fully paid — deactivated`);
+        }
+        continue;
+      }
+
+      // Idempotency: avoid a second copy on the same folha for this master.
+      const existingCopy = await this.prisma.payrollDiscount.findFirst({
+        where: {
+          payrollId: newPayrollId,
+          userId: employeeId,
+          discountType: master.discountType,
+          startCompetence: master.startCompetence,
+        },
+      });
+      if (existingCopy) {
+        this.logger.log(
+          `Master loan ${master.id} already materialized on folha ${newPayrollId} — skipping`,
+        );
+        continue;
+      }
+
+      const copy = await this.prisma.payrollDiscount.create({
+        data: {
+          payrollId: newPayrollId,
+          userId: employeeId,
+          discountType: master.discountType,
+          value: master.value,
+          percentage: master.percentage,
+          reference: master.reference,
+          isPersistent: true,
+          isActive: true,
+          baseValue: master.baseValue,
+          totalInstallments: master.totalInstallments,
+          currentInstallment: resolved.installment,
+          // Carry the master's startCompetence so the previous-month copy path
+          // recognizes this line as master-anchored and does NOT re-copy it.
+          startCompetence: master.startCompetence,
+        },
+      });
+      createdIds.push(copy.id);
+
+      // Advance the master so its currentInstallment tracks the latest folha and
+      // auto-deactivate when the contracted installments are exhausted.
+      const isLast = resolved.installment >= resolved.totalInstallments;
+      await this.prisma.payrollDiscount.update({
+        where: { id: master.id },
+        data: {
+          currentInstallment: resolved.installment,
+          ...(isLast ? { isActive: false } : {}),
+        },
+      });
+      if (isLast) {
+        this.logger.log(
+          `Master loan ${master.id} reached final installment ${resolved.installment}/${resolved.totalInstallments} — deactivated`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `Materialized ${createdIds.length} master loans onto folha ${newPayrollId} (${currentCompetence})`,
+    );
+    return createdIds;
+  }
+
+  /**
+   * ========================================================================
+   * GET MASTER LOANS FOR LIVE CALCULATION
+   * ========================================================================
+   * Returns the loan installments due at the given competência (from MASTER
+   * rows) as plain discount objects for the live calculator — mirrors
+   * getPersistentDiscountsForLivePayroll but sourced from the master, not the
+   * previous month. Does NOT mutate any row.
+   */
+  async getMasterLoansForLivePayroll(params: {
+    employeeId: string;
+    currentYear: number;
+    currentMonth: number;
+  }): Promise<
+    Array<{
+      id: string;
+      discountType: PayrollDiscountType;
+      value: number | null;
+      percentage: number | null;
+      reference: string;
+      isPersistent: boolean;
+      isActive: boolean;
+      totalInstallments: number | null;
+      currentInstallment: number | null;
+    }>
+  > {
+    const { employeeId, currentYear, currentMonth } = params;
+    const currentCompetence = toCompetence(currentYear, currentMonth);
+
+    const masters = await this.getActiveMasterLoans({ userId: employeeId, currentCompetence });
+    const result: Array<{
+      id: string;
+      discountType: PayrollDiscountType;
+      value: number | null;
+      percentage: number | null;
+      reference: string;
+      isPersistent: boolean;
+      isActive: boolean;
+      totalInstallments: number | null;
+      currentInstallment: number | null;
+    }> = [];
+
+    for (const master of masters) {
+      const resolved = this.resolveMasterInstallment(master, currentCompetence);
+      if (!resolved) continue;
+      result.push({
+        id: `live-master-${master.id}`,
+        discountType: master.discountType,
+        value: master.value !== null && master.value !== undefined ? Number(master.value) : null,
+        percentage:
+          master.percentage !== null && master.percentage !== undefined
+            ? Number(master.percentage)
+            : null,
+        reference: master.reference,
+        isPersistent: true,
+        isActive: true,
+        totalInstallments: resolved.totalInstallments,
+        currentInstallment: resolved.installment,
+      });
+    }
+
+    return result;
   }
 
   /**

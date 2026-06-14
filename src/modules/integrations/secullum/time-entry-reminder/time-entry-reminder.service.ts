@@ -204,7 +204,7 @@ export class TimeEntryReminderService {
     const users = await this.prisma.user.findMany({
       where: {
         isActive: true,
-        currentContractStatus: { not: 'DISMISSED' },
+        currentContractStatus: { not: 'TERMINATED' },
       },
       select: {
         id: true,

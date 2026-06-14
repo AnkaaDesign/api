@@ -28,9 +28,8 @@ import { BonusCalculationContextService } from '../../bonus-calculation-context.
 import {
   BONIFICATION_STATUS,
   TASK_STATUS,
-  CONTRACT_STATUS,
-  PAYROLL_EMPLOYEE_TYPES,
 } from '../../../../../constants/enums';
+import { BONIFIABLE_USER_WHERE } from '../../../../../utils/contract';
 
 interface BonusPeriodFilter {
   year?: number;
@@ -792,8 +791,7 @@ export class BonusPrismaRepository
     const eligibleUsersCount = await model.user.count({
       where: {
         performanceLevel: { gt: 0 },
-        currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
-        currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
+        ...BONIFIABLE_USER_WHERE,
       },
     });
 

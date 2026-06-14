@@ -399,3 +399,130 @@ export function computeSalarioFamilia(
   if (remuneration > table.remunerationLimit) return 0;
   return roundCurrency(table.quota * eligibleDependentsCount);
 }
+
+// ============================================================================
+// FÉRIAS — base de cálculo própria (Part C)
+// ============================================================================
+
+export interface VacationTaxInput {
+  /** Remuneração-base das férias incl. média de variáveis (sem o 1/3). */
+  baseRemuneration: number;
+  /** Terço constitucional (geralmente baseRemuneration/3). */
+  oneThird: number;
+  /**
+   * Abono pecuniário (venda de dias) — NÃO integra a base de INSS/IRRF
+   * (verba indenizatória). Informe apenas para devolução no resultado.
+   */
+  abonoAmount?: number;
+  /** Dependentes elegíveis à dedução de IRRF. */
+  dependentsCount: number;
+  /** Permitir desconto simplificado de IRRF quando mais benéfico. */
+  allowSimplifiedDeduction: boolean;
+  /** Ano de vigência das tabelas. */
+  year: number;
+}
+
+export interface VacationTaxResult {
+  /** Base tributável de INSS/IRRF = férias + 1/3 (abono é isento). */
+  taxableBase: number;
+  inss: number;
+  irrf: number;
+  /** Detalhamento completo do INSS (faixas) e do IRRF para auditoria. */
+  inssDetail: InssComputation;
+  irrfDetail: IrrfComputation;
+}
+
+/**
+ * INSS/IRRF das FÉRIAS sobre base PRÓPRIA (férias + 1/3), separada da folha
+ * mensal. O abono pecuniário (venda de até 10 dias) e o respectivo 1/3 são
+ * verbas indenizatórias — NÃO entram na base tributável.
+ *
+ * Função pura — não persiste nada e não conhece consumidores (Phase 2 liga os callers).
+ */
+export function computeVacationTaxes(input: VacationTaxInput): VacationTaxResult {
+  const { baseRemuneration, oneThird, dependentsCount, allowSimplifiedDeduction, year } = input;
+
+  const taxableBase = roundCurrency(baseRemuneration + oneThird);
+
+  const inssTable = getInssTableForYear(year);
+  const irrfTable = getIrrfTableForYear(year);
+
+  const inssDetail = computeProgressiveINSS(taxableBase, inssTable.brackets);
+  const irrfDetail = computeIRRF({
+    taxableGross: taxableBase,
+    inssAmount: inssDetail.total,
+    dependentsCount,
+    allowSimplifiedDeduction,
+    table: irrfTable,
+  });
+
+  return {
+    taxableBase,
+    inss: inssDetail.total,
+    irrf: irrfDetail.tax,
+    inssDetail,
+    irrfDetail,
+  };
+}
+
+// ============================================================================
+// 13º SALÁRIO — base EXCLUSIVA (Part D)
+// ============================================================================
+
+export interface ThirteenthTaxInput {
+  /**
+   * Base do 13º (valor cheio devido no ano — proporcional aos avos já calculado
+   * pelo caller), incl. média de variáveis. É a base sobre a qual incidem INSS
+   * e IRRF na SEGUNDA parcela.
+   */
+  baseRemuneration: number;
+  /** Dependentes elegíveis à dedução de IRRF. */
+  dependentsCount: number;
+  /** Permitir desconto simplificado de IRRF quando mais benéfico. */
+  allowSimplifiedDeduction: boolean;
+  /** Ano de vigência das tabelas. */
+  year: number;
+}
+
+export interface ThirteenthTaxResult {
+  /** Base tributável (= baseRemuneration do 13º). */
+  taxableBase: number;
+  inss: number;
+  irrf: number;
+  inssDetail: InssComputation;
+  irrfDetail: IrrfComputation;
+}
+
+/**
+ * INSS/IRRF do 13º salário sobre base EXCLUSIVA — tributado SEPARADAMENTE do
+ * salário do mês (não se soma à folha de dezembro). A 1ª parcela é paga sem
+ * descontos; INSS e IRRF incidem integralmente na 2ª parcela, calculados sobre
+ * a base própria do 13º conforme esta função.
+ *
+ * Função pura — não persiste nada e não conhece consumidores (Phase 2 liga os callers).
+ */
+export function computeThirteenthTaxes(input: ThirteenthTaxInput): ThirteenthTaxResult {
+  const { baseRemuneration, dependentsCount, allowSimplifiedDeduction, year } = input;
+
+  const taxableBase = roundCurrency(baseRemuneration);
+
+  const inssTable = getInssTableForYear(year);
+  const irrfTable = getIrrfTableForYear(year);
+
+  const inssDetail = computeProgressiveINSS(taxableBase, inssTable.brackets);
+  const irrfDetail = computeIRRF({
+    taxableGross: taxableBase,
+    inssAmount: inssDetail.total,
+    dependentsCount,
+    allowSimplifiedDeduction,
+    table: irrfTable,
+  });
+
+  return {
+    taxableBase,
+    inss: inssDetail.total,
+    irrf: irrfDetail.tax,
+    inssDetail,
+    irrfDetail,
+  };
+}

@@ -36,6 +36,10 @@ import type {
   SalaryAdjustmentInclude,
   SalaryAdjustmentUpdateFormData,
 } from '../../../schemas';
+import {
+  checkSalaryFloor,
+  toNumberOrNull,
+} from '@modules/people/position/utils/salary-floor.util';
 
 const DEFAULT_INCLUDE = {
   appliedBy: { include: { position: true, sector: true } },
@@ -172,6 +176,9 @@ export class SalaryAdjustmentService {
     const customMap = new Map<string, number>(
       (data.customValues || []).map(cv => [cv.positionId, cv.newValue]),
     );
+    const allowBelowFloor = (data as any).allowBelowFloor === true;
+    // Data de competência usada para escolher o salário-mínimo do ano correto.
+    const effectiveDate = data.effectiveDate ? new Date(data.effectiveDate) : new Date();
 
     const positions = await this.prisma.position.findMany({
       where: { id: { in: positionIds } },
@@ -257,6 +264,25 @@ export class SalaryAdjustmentService {
             continue;
           }
 
+          // Piso / salário-mínimo (Part F): bloqueia quando abaixo do piso
+          // efetivo (max(salário-mínimo nacional, Position.salaryFloor)) salvo
+          // confirmação explícita (allowBelowFloor). Aviso "guardado": o erro
+          // por item permite ao front reapresentar com allowBelowFloor=true.
+          const floorCheck = checkSalaryFloor(
+            newValue,
+            toNumberOrNull((position as any).salaryFloor),
+            effectiveDate,
+          );
+          if (floorCheck.belowFloor && !allowBelowFloor) {
+            results.push({
+              positionId: position.id,
+              positionName: position.name,
+              success: false,
+              error: `${floorCheck.message} Confirme para aplicar mesmo assim.`,
+            });
+            continue;
+          }
+
           // Padrão MonetaryValue current-flag (position.service.ts batchAdjustSalaries)
           await tx.monetaryValue.updateMany({
             where: { positionId: position.id, current: true },
@@ -268,6 +294,8 @@ export class SalaryAdjustmentService {
               positionId: position.id,
               value: newValue,
               current: true,
+              // Vigência do reajuste — base da resolução histórica getUserSalaryAt.
+              effectiveDate,
             },
           });
 

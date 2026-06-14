@@ -5,6 +5,13 @@ import {
   PAYMENT_METHOD,
   CONTRACT_TYPE,
   CONTRACT_STATUS,
+  INSALUBRITY_DEGREE,
+  STABILITY_TYPE,
+  INSS_BENEFIT_SPECIES,
+  VACATION_STATUS,
+  THIRTEENTH_STATUS,
+  WORK_ACCIDENT_REPORT_TYPE,
+  PAYROLL_DISCOUNT_TYPE,
   EMPLOYEE_TYPE,
   ASSIGNMENT_TYPE,
   REGISTRATION_STATUS,
@@ -181,9 +188,7 @@ export const PAYMENT_METHOD_LABELS: Record<PAYMENT_METHOD, string> = {
 };
 
 export const CONTRACT_TYPE_LABELS: Record<CONTRACT_TYPE, string> = {
-  [CONTRACT_TYPE.EXPERIENCE_PERIOD_1]: 'Experiência 1/2 (30 dias)',
-  [CONTRACT_TYPE.EXPERIENCE_PERIOD_2]: 'Experiência 2/2 (prorrogação)',
-  [CONTRACT_TYPE.EFFECTED]: 'Efetivado (prazo indeterminado)',
+  [CONTRACT_TYPE.INDETERMINATE]: 'Prazo indeterminado',
   [CONTRACT_TYPE.FIXED_TERM]: 'Prazo determinado',
   [CONTRACT_TYPE.INTERMITTENT]: 'Intermitente',
   [CONTRACT_TYPE.APPRENTICE]: 'Aprendiz',
@@ -191,8 +196,11 @@ export const CONTRACT_TYPE_LABELS: Record<CONTRACT_TYPE, string> = {
 };
 
 export const CONTRACT_STATUS_LABELS: Record<CONTRACT_STATUS, string> = {
+  [CONTRACT_STATUS.EXPERIENCE]: 'Em experiência',
   [CONTRACT_STATUS.ACTIVE]: 'Ativo',
-  [CONTRACT_STATUS.DISMISSED]: 'Desligado',
+  [CONTRACT_STATUS.NOTICE_PERIOD]: 'Aviso prévio',
+  [CONTRACT_STATUS.ON_LEAVE]: 'Afastado',
+  [CONTRACT_STATUS.TERMINATED]: 'Desligado',
 };
 
 export const EMPLOYEE_TYPE_LABELS: Record<EMPLOYEE_TYPE, string> = {
@@ -1131,6 +1139,7 @@ export const ENTITY_TYPE_LABELS: Record<ENTITY_TYPE, string> = {
   [ENTITY_TYPE.TRUCK]: 'Caminhão',
   [ENTITY_TYPE.USER]: 'Usuário',
   [ENTITY_TYPE.VACATION]: 'Férias',
+  [ENTITY_TYPE.THIRTEENTH]: 'Décimo Terceiro',
   [ENTITY_TYPE.VERIFICATION]: 'Verificação',
   [ENTITY_TYPE.SALARY_ADJUSTMENT]: 'Reajuste Salarial',
   [ENTITY_TYPE.USER_POSITION_HISTORY]: 'Histórico de Cargo',
@@ -1528,6 +1537,7 @@ export const CHANGE_LOG_ENTITY_TYPE_LABELS: Record<CHANGE_LOG_ENTITY_TYPE, strin
   [CHANGE_LOG_ENTITY_TYPE.TIME_CLOCK_ENTRY]: 'Registro de Ponto',
   [CHANGE_LOG_ENTITY_TYPE.USER]: 'Usuário',
   [CHANGE_LOG_ENTITY_TYPE.VACATION]: 'Férias',
+  [CHANGE_LOG_ENTITY_TYPE.THIRTEENTH]: 'Décimo Terceiro',
   [CHANGE_LOG_ENTITY_TYPE.MAINTENANCE_ITEM]: 'Item de Manutenção',
   [CHANGE_LOG_ENTITY_TYPE.PPE_CONFIG]: 'Configuração de EPI',
   [CHANGE_LOG_ENTITY_TYPE.PRICE]: 'Preço',
@@ -2123,13 +2133,17 @@ export const SALARY_ADJUSTMENT_TYPE_LABELS: Record<SALARY_ADJUSTMENT_TYPE, strin
   [SALARY_ADJUSTMENT_TYPE.OTHER]: 'Outro',
 };
 
+// Rótulos CLT-corretos. Ver base legal em POSITION_CHANGE_REASON (enums.ts):
+// rebaixamento unilateral é ilegal (CF art.7º VI + CLT art.468); expomos apenas
+// movimentos lícitos. DEMOTION→Reversão (art.468 §único), ADJUSTMENT→Readaptação
+// (art.461 §4º), CORRECTION→Reenquadramento (plano de cargos).
 export const POSITION_CHANGE_REASON_LABELS: Record<POSITION_CHANGE_REASON, string> = {
   [POSITION_CHANGE_REASON.ADMISSION]: 'Admissão',
   [POSITION_CHANGE_REASON.PROMOTION]: 'Promoção',
   [POSITION_CHANGE_REASON.TRANSFER]: 'Transferência',
-  [POSITION_CHANGE_REASON.DEMOTION]: 'Rebaixamento',
-  [POSITION_CHANGE_REASON.ADJUSTMENT]: 'Ajuste',
-  [POSITION_CHANGE_REASON.CORRECTION]: 'Correção',
+  [POSITION_CHANGE_REASON.DEMOTION]: 'Reversão',
+  [POSITION_CHANGE_REASON.ADJUSTMENT]: 'Readaptação',
+  [POSITION_CHANGE_REASON.CORRECTION]: 'Reenquadramento',
 };
 
 export const BENEFIT_KIND_LABELS: Record<BENEFIT_KIND, string> = {
@@ -2197,6 +2211,8 @@ export const TERMINATION_TYPE_LABELS: Record<TERMINATION_TYPE, string> = {
   [TERMINATION_TYPE.EXPERIENCE_EARLY_EMPLOYEE]: 'Rescisão antecipada da experiência (empregado)',
   [TERMINATION_TYPE.INDIRECT]: 'Rescisão indireta',
   [TERMINATION_TYPE.DEATH]: 'Falecimento',
+  [TERMINATION_TYPE.FIXED_TERM_EARLY_EMPLOYEE]: 'Rescisão antecipada de contrato a prazo (empregado, art. 480)',
+  [TERMINATION_TYPE.INTERMITTENT_END]: 'Encerramento de contrato intermitente',
 };
 
 export const TERMINATION_STATUS_LABELS: Record<TERMINATION_STATUS, string> = {
@@ -2206,6 +2222,7 @@ export const TERMINATION_STATUS_LABELS: Record<TERMINATION_STATUS, string> = {
   [TERMINATION_STATUS.MEDICAL_EXAM]: 'Exame Demissional',
   [TERMINATION_STATUS.CALCULATION]: 'Cálculo',
   [TERMINATION_STATUS.PAYMENT]: 'Pagamento',
+  [TERMINATION_STATUS.HOMOLOGATION]: 'Homologação',
   [TERMINATION_STATUS.COMPLETED]: 'Concluída',
   [TERMINATION_STATUS.CANCELLED]: 'Cancelada',
 };
@@ -2242,7 +2259,10 @@ export const TERMINATION_ITEM_TYPE_LABELS: Record<TERMINATION_ITEM_TYPE, string>
 
 export const TERMINATION_DOCUMENT_TYPE_LABELS: Record<TERMINATION_DOCUMENT_TYPE, string> = {
   [TERMINATION_DOCUMENT_TYPE.NOTICE_LETTER]: 'Carta de Aviso Prévio',
+  [TERMINATION_DOCUMENT_TYPE.WARNING_LETTER]: 'Carta de Aviso (Justa Causa)',
   [TERMINATION_DOCUMENT_TYPE.TRCT]: 'TRCT',
+  [TERMINATION_DOCUMENT_TYPE.TERM_484A]: 'Termo de Acordo Mútuo (484-A)',
+  [TERMINATION_DOCUMENT_TYPE.HOMOLOGATION_TERM]: 'Termo de Homologação',
   [TERMINATION_DOCUMENT_TYPE.FGTS_GUIDE]: 'Guia do FGTS',
   [TERMINATION_DOCUMENT_TYPE.FGTS_STATEMENT]: 'Extrato do FGTS',
   [TERMINATION_DOCUMENT_TYPE.UNEMPLOYMENT_INSURANCE_FORM]: 'Requerimento do Seguro-Desemprego',
@@ -2278,6 +2298,7 @@ export const MEDICAL_EXAM_STATUS_LABELS: Record<MEDICAL_EXAM_STATUS, string> = {
 export const MEDICAL_EXAM_RESULT_LABELS: Record<MEDICAL_EXAM_RESULT, string> = {
   [MEDICAL_EXAM_RESULT.PENDING]: 'Pendente',
   [MEDICAL_EXAM_RESULT.FIT]: 'Apto',
+  [MEDICAL_EXAM_RESULT.FIT_WITH_RESTRICTIONS]: 'Apto com restrições',
   [MEDICAL_EXAM_RESULT.UNFIT]: 'Inapto',
 };
 
@@ -2295,6 +2316,83 @@ export const LEAVE_TYPE_LABELS: Record<LEAVE_TYPE, string> = {
   [LEAVE_TYPE.UNPAID]: 'Licença Não Remunerada',
   [LEAVE_TYPE.SUSPENSION]: 'Suspensão',
   [LEAVE_TYPE.OTHER]: 'Outro',
+};
+
+// ============================================================================
+// Área Andressa — Phase 1 new labels
+// ============================================================================
+
+export const INSALUBRITY_DEGREE_LABELS: Record<INSALUBRITY_DEGREE, string> = {
+  [INSALUBRITY_DEGREE.NONE]: 'Sem insalubridade',
+  [INSALUBRITY_DEGREE.MIN]: 'Grau mínimo (10%)',
+  [INSALUBRITY_DEGREE.MED]: 'Grau médio (20%)',
+  [INSALUBRITY_DEGREE.MAX]: 'Grau máximo (40%)',
+};
+
+export const STABILITY_TYPE_LABELS: Record<STABILITY_TYPE, string> = {
+  [STABILITY_TYPE.ACCIDENT]: 'Acidentária (12 meses)',
+  [STABILITY_TYPE.PREGNANCY]: 'Gestante',
+  [STABILITY_TYPE.UNION]: 'Dirigente sindical',
+  [STABILITY_TYPE.CIPA]: 'Membro da CIPA',
+  [STABILITY_TYPE.OTHER]: 'Outra',
+};
+
+export const INSS_BENEFIT_SPECIES_LABELS: Record<INSS_BENEFIT_SPECIES, string> = {
+  [INSS_BENEFIT_SPECIES.B31]: 'B31 — Auxílio-doença previdenciário',
+  [INSS_BENEFIT_SPECIES.B91]: 'B91 — Auxílio-doença acidentário',
+  [INSS_BENEFIT_SPECIES.B32]: 'B32 — Aposentadoria por invalidez previdenciária',
+  [INSS_BENEFIT_SPECIES.B92]: 'B92 — Aposentadoria por invalidez acidentária',
+  [INSS_BENEFIT_SPECIES.B80]: 'B80 — Salário-maternidade',
+  [INSS_BENEFIT_SPECIES.B36]: 'B36 — Auxílio-acidente',
+  [INSS_BENEFIT_SPECIES.OTHER]: 'Outra espécie',
+};
+
+export const VACATION_STATUS_LABELS: Record<VACATION_STATUS, string> = {
+  [VACATION_STATUS.OPEN]: 'Aberto',
+  [VACATION_STATUS.SCHEDULED]: 'Agendado',
+  [VACATION_STATUS.IN_PROGRESS]: 'Em gozo',
+  [VACATION_STATUS.PAID]: 'Pago',
+  [VACATION_STATUS.EXPIRED]: 'Vencido',
+};
+
+export const THIRTEENTH_STATUS_LABELS: Record<THIRTEENTH_STATUS, string> = {
+  [THIRTEENTH_STATUS.OPEN]: 'Aberto',
+  [THIRTEENTH_STATUS.FIRST_PAID]: '1ª parcela paga',
+  [THIRTEENTH_STATUS.SECOND_PAID]: '2ª parcela paga',
+  [THIRTEENTH_STATUS.PAID]: 'Pago',
+  [THIRTEENTH_STATUS.CANCELLED]: 'Cancelado',
+};
+
+export const WORK_ACCIDENT_REPORT_TYPE_LABELS: Record<WORK_ACCIDENT_REPORT_TYPE, string> = {
+  [WORK_ACCIDENT_REPORT_TYPE.INITIAL]: 'CAT inicial',
+  [WORK_ACCIDENT_REPORT_TYPE.REOPENING]: 'CAT de reabertura',
+  [WORK_ACCIDENT_REPORT_TYPE.DEATH]: 'CAT de óbito',
+};
+
+export const PAYROLL_DISCOUNT_TYPE_LABELS: Record<PAYROLL_DISCOUNT_TYPE, string> = {
+  [PAYROLL_DISCOUNT_TYPE.INSS]: 'INSS',
+  [PAYROLL_DISCOUNT_TYPE.IRRF]: 'IRRF',
+  [PAYROLL_DISCOUNT_TYPE.FGTS]: 'FGTS',
+  [PAYROLL_DISCOUNT_TYPE.ABSENCE]: 'Falta',
+  [PAYROLL_DISCOUNT_TYPE.PARTIAL_ABSENCE]: 'Falta parcial',
+  [PAYROLL_DISCOUNT_TYPE.DSR_ABSENCE]: 'DSR sobre faltas',
+  [PAYROLL_DISCOUNT_TYPE.LATE_ARRIVAL]: 'Atraso',
+  [PAYROLL_DISCOUNT_TYPE.SICK_LEAVE]: 'Afastamento por doença',
+  [PAYROLL_DISCOUNT_TYPE.UNION]: 'Contribuição sindical',
+  [PAYROLL_DISCOUNT_TYPE.ALIMONY]: 'Pensão alimentícia',
+  [PAYROLL_DISCOUNT_TYPE.GARNISHMENT]: 'Penhora/Consignação',
+  [PAYROLL_DISCOUNT_TYPE.HEALTH_INSURANCE]: 'Plano de saúde',
+  [PAYROLL_DISCOUNT_TYPE.DENTAL_INSURANCE]: 'Plano odontológico',
+  [PAYROLL_DISCOUNT_TYPE.MEAL_VOUCHER]: 'Vale-refeição/alimentação',
+  [PAYROLL_DISCOUNT_TYPE.TRANSPORT_VOUCHER]: 'Vale-transporte',
+  [PAYROLL_DISCOUNT_TYPE.LOAN]: 'Empréstimo consignado',
+  [PAYROLL_DISCOUNT_TYPE.ADVANCE]: 'Adiantamento',
+  [PAYROLL_DISCOUNT_TYPE.AUTHORIZED_DISCOUNT]: 'Desconto autorizado',
+  [PAYROLL_DISCOUNT_TYPE.CUSTOM]: 'Personalizado',
+  [PAYROLL_DISCOUNT_TYPE.FAMILY_ALLOWANCE]: 'Salário-família',
+  [PAYROLL_DISCOUNT_TYPE.INSALUBRIDADE]: 'Adicional de insalubridade',
+  [PAYROLL_DISCOUNT_TYPE.PERICULOSIDADE]: 'Adicional de periculosidade',
+  [PAYROLL_DISCOUNT_TYPE.HABITUAL_GRATIFICATION]: 'Gratificação habitual',
 };
 
 export const LEAVE_STATUS_LABELS: Record<LEAVE_STATUS, string> = {

@@ -19,7 +19,7 @@ import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { ReadRateLimit, WriteRateLimit } from '@modules/common/throttler/throttler.decorators';
-import { SECTOR_PRIVILEGES } from '../../../constants/enums';
+import { CONTRACT_STATUS, SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { SecullumService } from './secullum.service';
 import {
   UserSecullumSyncService,
@@ -199,13 +199,18 @@ export class SecullumController {
     // this set populated.
     const usersResponse = await this.userService.findMany({
       where: {
-        status: { in: ['EXPERIENCE_PERIOD_1', 'EXPERIENCE_PERIOD_2', 'EFFECTED'] },
+        // All non-terminated users. User has no `status` field — the active
+        // workforce is gated by currentContractStatus (the removed
+        // EXPERIENCE_PERIOD_*/EFFECTED enum values previously here silently
+        // matched nothing, leaving "Ponto do Dia" empty). Typed via the
+        // CONTRACT_STATUS enum so future enum drift is caught at compile time.
+        currentContractStatus: { not: CONTRACT_STATUS.TERMINATED },
         secullumEmployeeId: { not: null },
       },
       include: { sector: true },
       orderBy: { name: 'asc' },
       take: 1000,
-    } as any);
+    });
     const activeUsers: any[] = ((usersResponse as any)?.data as any[]) || [];
 
     return this.secullumService.getTimeEntriesByDay(date, activeUsers);

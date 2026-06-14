@@ -85,6 +85,7 @@ export const medicalExamWhereSchema: z.ZodSchema = z.lazy(() =>
       crm: z.union([createStringWhereSchema(), z.null()]).optional(),
       clinic: z.union([createStringWhereSchema(), z.null()]).optional(),
       notes: z.union([createStringWhereSchema(), z.null()]).optional(),
+      restrictions: z.union([createStringWhereSchema(), z.null()]).optional(),
 
       statusOrder: z
         .union([
@@ -245,6 +246,10 @@ export const medicalExamCreateSchema = z.object({
       errorMap: () => ({ message: 'resultado de exame inválido' }),
     })
     .default(MEDICAL_EXAM_RESULT.PENDING),
+  // Restrições laborais — preenchidas quando result = FIT_WITH_RESTRICTIONS.
+  restrictions: z.string().max(2000).nullable().optional(),
+  // Periodicidade (meses) do próximo exame periódico. NULL = usa Position/legal default.
+  periodicityMonths: z.coerce.number().int().min(1).max(120).nullable().optional(),
   scheduledAt: z.coerce.date().nullable().optional(),
   examDate: z.coerce.date().nullable().optional(),
   expiresAt: z.coerce.date().nullable().optional(),
@@ -272,6 +277,8 @@ export const medicalExamUpdateSchema = z.object({
       errorMap: () => ({ message: 'resultado de exame inválido' }),
     })
     .optional(),
+  restrictions: z.string().max(2000).nullable().optional(),
+  periodicityMonths: z.coerce.number().int().min(1).max(120).nullable().optional(),
   scheduledAt: z.coerce.date().nullable().optional(),
   examDate: z.coerce.date().nullable().optional(),
   expiresAt: z.coerce.date().nullable().optional(),
@@ -287,6 +294,10 @@ export const medicalExamCompleteSchema = z.object({
   result: z.enum(Object.values(MEDICAL_EXAM_RESULT) as [string, ...string[]], {
     errorMap: () => ({ message: 'resultado de exame inválido' }),
   }),
+  // Obrigatório (via service) quando result = FIT_WITH_RESTRICTIONS.
+  restrictions: z.string().max(2000).nullable().optional(),
+  // Periodicidade do próximo periódico (meses). Só usada quando type = PERIODIC.
+  periodicityMonths: z.coerce.number().int().min(1).max(120).nullable().optional(),
   expiresAt: z.coerce.date().nullable().optional(),
   physicianName: z.string().max(200).nullable().optional(),
   crm: z.string().max(50).nullable().optional(),

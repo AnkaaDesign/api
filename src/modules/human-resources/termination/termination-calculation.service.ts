@@ -1,8 +1,11 @@
 // termination-calculation.service.ts
-// Motor de cálculo das verbas rescisórias (contract §2).
+// Motor de cálculo das verbas rescisórias (contract §2 / Part G).
 //
 // Implements (BR = baseRemuneration):
-//   SALARY_BALANCE          = BR/30 × daysWorkedInMonth(terminationDate)
+//   SALARY_BALANCE          = BR/30 × daysWorkedInMonth(terminationDate); the day
+//                             count is the ACTUAL days worked in the termination
+//                             month (1 on the admission day for a mid-month
+//                             admission, otherwise from the 1st), NOT getDate().
 //   NOTICE_INDEMNIFIED      = BR/30 × noticeDays (noticeType INDEMNIFIED; halved for
 //                             MUTUAL_AGREEMENT per CLT 484-A)
 //   NOTICE_DISCOUNT         = −BR/30 × noticeDays (RESIGNATION with noticeType
@@ -14,18 +17,46 @@
 //                             projection crosses a year boundary)
 //   ACCRUED_VACATION        = BR × accruedVacationPeriods × 4/3
 //   PROPORTIONAL_VACATION   = BR/12 × monthsInCurrentAcquisitivePeriod × 4/3
-//                             (period anniversary from User.exp1StartAt; skipped for WITH_CAUSE)
-//   FGTS_FINE               = 40% × fgtsBalance (WITHOUT_CAUSE/INDIRECT/EXPERIENCE_EARLY_EMPLOYER);
-//                             20% for MUTUAL_AGREEMENT (CLT 484-A)
-//   ART479_INDEMNITY        = 50% × BR/30 × remaining experience-contract days
-//                             (EXPERIENCE_EARLY_EMPLOYER only)
+//                             (period anniversary from the contract admission date;
+//                             skipped for WITH_CAUSE)
+//   FGTS_FINE               = 40% × fgtsFineBase (WITHOUT_CAUSE/INDIRECT/EXPERIENCE_EARLY_EMPLOYER);
+//                             20% for MUTUAL_AGREEMENT (CLT 484-A); also 40% for an
+//                             art. 481 early fixed-term termination (indeterminate regime).
+//                             fgtsFineBase = fgtsBalance + 8% × (aviso indenizado + 13º
+//                             proporcional) — Súmula TST 305 / Lei 8.036 art. 15 §1º.
+//   ART479_INDEMNITY        = 50% × BR/30 × remaining experience/fixed-term days
+//                             (EXPERIENCE_EARLY_EMPLOYER — owed BY THE EMPLOYER)
+//   ART480_INDEMNITY        = −(½ × BR/30 × remaining fixed-term/experience days),
+//                             capped at ½ of the remaining-contract salary — the
+//                             indemnity owed BY THE EMPLOYEE who breaks a fixed-term/
+//                             experiência contract early (FIXED_TERM_EARLY_EMPLOYEE /
+//                             EXPERIENCE_EARLY_EMPLOYEE). Lanced as a DISCOUNT line.
 //
-// INSS/IRRF (and any other discounts) are intentionally NOT auto-calculated —
-// they are added by the user as custom items (isCustom = true), which this
-// engine never touches.
+// Art. 481 CLT — cláusula assecuratória: when the fixed-term/experiência contract
+// carries the reciprocal-rescission clause (hasArt481Clause), an early termination
+// follows the INDETERMINATE regime: aviso prévio + 40% FGTS and NO art. 479/480
+// indemnity. The caller maps such a termination onto the WITHOUT_CAUSE/RESIGNATION
+// rules and sets `art481` so this engine suppresses the 479/480 branch.
+//
+// INTERMITTENT_END — encerramento de contrato intermitente: saldo + 13º/férias
+// proporcionais sobre as verbas já apuradas; no aviso (each convocação is autonomous)
+// and no FGTS fine.
+//
+// Tax incidence (computeTaxAssist): INSS/IRRF auto-computed on the TAXABLE verbas
+// only — saldo de salário, 13º proporcional and the WORKED notice. Férias
+// indenizadas (vencidas/proporcionais + 1/3), aviso prévio INDENIZADO and the multa
+// do FGTS are EXEMPT (Súmula 215 STF / art. 28 §9º Lei 8.212/91 / art. 6º Lei 7.713/88)
+// and are never taxed. The FGTS-multa base includes the projeção do aviso indenizado
+// and the rescisão 13º.
 
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { NOTICE_TYPE, TERMINATION_ITEM_TYPE, TERMINATION_TYPE } from '../../../constants';
+import {
+  computeIRRF,
+  computeProgressiveINSS,
+  getInssTableForYear,
+  getIrrfTableForYear,
+} from '../payroll/utils/tax-tables';
 
 export interface TerminationCalculationInput {
   type: TERMINATION_TYPE;
@@ -36,9 +67,12 @@ export interface TerminationCalculationInput {
   baseRemuneration: number | null;
   fgtsBalance: number | null;
   accruedVacationPeriods: number;
-  // From the User record
-  exp1StartAt: Date | null;
-  experienceEndAt: Date | null; // exp2EndAt ?? exp1EndAt
+  // From the current EmploymentContract record
+  exp1StartAt: Date | null; // admission date of the current contract
+  experienceEndAt: Date | null; // exp2EndAt ?? exp1EndAt (or fixed-term end)
+  // Art. 481 CLT cláusula assecuratória — early fixed-term follows the
+  // indeterminate regime (set by the caller from EmploymentContract.hasArt481Clause).
+  hasArt481Clause?: boolean;
 }
 
 export interface ComputedTerminationItem {
@@ -83,6 +117,45 @@ export const EMPLOYER_NOTICE_TYPES: TERMINATION_TYPE[] = [
   TERMINATION_TYPE.MUTUAL_AGREEMENT,
 ];
 
+/**
+ * Fixed-term / experiência early-termination types BY THE EMPLOYEE: the worker
+ * owes the art. 480 indemnity (≤ ½ of the remaining-contract salary).
+ */
+export const ART480_EMPLOYEE_TYPES: TERMINATION_TYPE[] = [
+  TERMINATION_TYPE.EXPERIENCE_EARLY_EMPLOYEE,
+  TERMINATION_TYPE.FIXED_TERM_EARLY_EMPLOYEE,
+];
+
+export interface TaxableVerbas {
+  /** Saldo de salário (tributável). */
+  salaryBalance: number;
+  /** Aviso prévio TRABALHADO (tributável). Indenizado é isento. */
+  workedNotice: number;
+  /** 13º proporcional/rescisório (base exclusiva de INSS/IRRF). */
+  thirteenth: number;
+}
+
+export interface TaxAssistResult {
+  /** Base de INSS do mês (saldo + aviso trabalhado), tributável. */
+  monthlyInssBase: number;
+  /** INSS sobre a base mensal tributável. */
+  monthlyInss: number;
+  /** IRRF sobre a base mensal tributável (já deduzido o INSS). */
+  monthlyIrrf: number;
+  /** Base exclusiva de INSS do 13º. */
+  thirteenthInssBase: number;
+  /** INSS sobre o 13º (base exclusiva). */
+  thirteenthInss: number;
+  /** IRRF sobre o 13º (base exclusiva). */
+  thirteenthIrrf: number;
+  /** INSS total a descontar (mensal + 13º). */
+  totalInss: number;
+  /** IRRF total a descontar (mensal + 13º). */
+  totalIrrf: number;
+  /** Base da multa do FGTS (saldo informado + 8% sobre aviso indenizado + 13º). */
+  fgtsFineBase: number;
+}
+
 @Injectable()
 export class TerminationCalculationService {
   /**
@@ -94,6 +167,26 @@ export class TerminationCalculationService {
     anniversary.setFullYear(from.getFullYear() + years);
     if (anniversary > to) years--;
     return Math.max(0, years);
+  }
+
+  /**
+   * Actual days worked in the termination month. For a mid-month admission, the
+   * count starts at the admission day (so an employee admitted on the 12th and
+   * terminated on the 20th of the same month worked 9 days, not 20). Otherwise
+   * the count runs from the 1st to the termination day inclusive.
+   */
+  daysWorkedInTerminationMonth(terminationDate: Date, admissionDate: Date | null): number {
+    const end = startOfDay(terminationDate);
+    let from = new Date(end.getFullYear(), end.getMonth(), 1);
+    if (
+      admissionDate &&
+      startOfDay(admissionDate).getFullYear() === end.getFullYear() &&
+      startOfDay(admissionDate).getMonth() === end.getMonth()
+    ) {
+      from = startOfDay(admissionDate);
+    }
+    if (from > end) return 0;
+    return diffDaysInclusive(from, end);
   }
 
   /**
@@ -173,11 +266,30 @@ export class TerminationCalculationService {
   }
 
   /**
+   * Effective termination type after applying the art. 481 cláusula
+   * assecuratória: an early fixed-term/experiência termination carrying the
+   * clause follows the INDETERMINATE regime. Employer-side early termination →
+   * WITHOUT_CAUSE; employee-side → RESIGNATION. Other types are unchanged.
+   */
+  private resolveType(input: TerminationCalculationInput): TERMINATION_TYPE {
+    if (!input.hasArt481Clause) return input.type;
+    switch (input.type) {
+      case TERMINATION_TYPE.EXPERIENCE_EARLY_EMPLOYER:
+        return TERMINATION_TYPE.WITHOUT_CAUSE;
+      case TERMINATION_TYPE.EXPERIENCE_EARLY_EMPLOYEE:
+      case TERMINATION_TYPE.FIXED_TERM_EARLY_EMPLOYEE:
+        return TERMINATION_TYPE.RESIGNATION;
+      default:
+        return input.type;
+    }
+  }
+
+  /**
    * Computes the auto-calculated verbas for a termination, applying the
    * verbas-per-type matrix. Custom items (isCustom) are never produced here.
    */
   calculate(input: TerminationCalculationInput): ComputedTerminationItem[] {
-    const { type, baseRemuneration, terminationDate } = input;
+    const { baseRemuneration, terminationDate } = input;
 
     if (!terminationDate) {
       throw new BadRequestException(
@@ -189,6 +301,11 @@ export class TerminationCalculationService {
         'A remuneração base é obrigatória para calcular as verbas rescisórias.',
       );
     }
+
+    // Art. 481 cláusula assecuratória — early fixed-term/experiência follows the
+    // indeterminate regime (aviso + 40% FGTS, no art. 479/480).
+    const type = this.resolveType(input);
+    const isArt481 = input.hasArt481Clause === true && type !== input.type;
 
     const br = baseRemuneration;
     const dailyRate = br / 30;
@@ -205,8 +322,8 @@ export class TerminationCalculationService {
 
     const items: ComputedTerminationItem[] = [];
 
-    // --- SALARY_BALANCE (all types) ---
-    const daysWorked = end.getDate();
+    // --- SALARY_BALANCE (all types) — actual days worked this month ---
+    const daysWorked = this.daysWorkedInTerminationMonth(terminationDate, input.exp1StartAt);
     items.push({
       type: TERMINATION_ITEM_TYPE.SALARY_BALANCE,
       description: `Saldo de salário (${daysWorked} dia${daysWorked === 1 ? '' : 's'})`,
@@ -308,7 +425,10 @@ export class TerminationCalculationService {
       }
     }
 
-    // --- FGTS_FINE: 40% (WITHOUT_CAUSE/INDIRECT/EXPERIENCE_EARLY_EMPLOYER), 20% (MUTUAL_AGREEMENT) ---
+    // --- FGTS_FINE: 40% (WITHOUT_CAUSE/INDIRECT/EXPERIENCE_EARLY_EMPLOYER),
+    //     20% (MUTUAL_AGREEMENT). An art. 481 early termination already maps to
+    //     WITHOUT_CAUSE above, so it picks up the 40% fine here. INTERMITTENT_END
+    //     and resignation/just-cause/death pay no fine. ---
     const fgtsFinePercent =
       type === TERMINATION_TYPE.WITHOUT_CAUSE ||
       type === TERMINATION_TYPE.INDIRECT ||
@@ -318,33 +438,173 @@ export class TerminationCalculationService {
           ? 0.2
           : null;
     if (fgtsFinePercent !== null && input.fgtsBalance && input.fgtsBalance > 0) {
+      // The multa incides over the FGTS base, not the raw informed balance:
+      // saldo + 8% over the projeção do aviso indenizado + 8% over the rescisão
+      // 13º (Súmula TST 305 / Lei 8.036 art. 15 §1º). These verbas were already
+      // pushed above, so read them back from `items` to keep the base in sync
+      // with computeTaxAssist's fgtsFineBase (single source of truth for the
+      // formula).
+      const sumOf = (t: TERMINATION_ITEM_TYPE) =>
+        items.filter(i => i.type === t).reduce((s, i) => s + i.amount, 0);
+      const indemnifiedNotice = Math.max(
+        0,
+        sumOf(TERMINATION_ITEM_TYPE.NOTICE_INDEMNIFIED),
+      );
+      const thirteenth = Math.max(
+        0,
+        sumOf(TERMINATION_ITEM_TYPE.THIRTEENTH_PROPORTIONAL),
+      );
+      const fgtsFineBase = round2(
+        input.fgtsBalance + 0.08 * (indemnifiedNotice + thirteenth),
+      );
       items.push({
         type: TERMINATION_ITEM_TYPE.FGTS_FINE,
-        description: `Multa do FGTS (${fgtsFinePercent * 100}% sobre o saldo)`,
+        description: `Multa do FGTS (${fgtsFinePercent * 100}% sobre a base de ${fgtsFineBase.toFixed(2)})`,
         referenceQuantity: fgtsFinePercent * 100,
-        baseValue: input.fgtsBalance,
-        amount: round2(input.fgtsBalance * fgtsFinePercent),
+        baseValue: fgtsFineBase,
+        amount: round2(fgtsFineBase * fgtsFinePercent),
         isCustom: false,
       });
     }
 
-    // --- ART479_INDEMNITY (EXPERIENCE_EARLY_EMPLOYER only) ---
-    if (type === TERMINATION_TYPE.EXPERIENCE_EARLY_EMPLOYER && input.experienceEndAt) {
+    // Remaining days of the fixed-term/experiência contract after termination.
+    const remainingFixedTermDays = ((): number => {
+      if (!input.experienceEndAt) return 0;
       const expEnd = startOfDay(input.experienceEndAt);
-      const remainingDays =
-        expEnd > end ? Math.floor((expEnd.getTime() - end.getTime()) / DAY_MS) : 0;
-      if (remainingDays > 0) {
-        items.push({
-          type: TERMINATION_ITEM_TYPE.ART479_INDEMNITY,
-          description: `Indenização art. 479 CLT (50% dos ${remainingDays} dias restantes da experiência)`,
-          referenceQuantity: remainingDays,
-          baseValue: br,
-          amount: round2(0.5 * dailyRate * remainingDays),
-          isCustom: false,
-        });
-      }
+      return expEnd > end ? Math.floor((expEnd.getTime() - end.getTime()) / DAY_MS) : 0;
+    })();
+
+    // --- ART479_INDEMNITY (EXPERIENCE_EARLY_EMPLOYER only; suppressed under art. 481) ---
+    if (
+      !isArt481 &&
+      input.type === TERMINATION_TYPE.EXPERIENCE_EARLY_EMPLOYER &&
+      remainingFixedTermDays > 0
+    ) {
+      items.push({
+        type: TERMINATION_ITEM_TYPE.ART479_INDEMNITY,
+        description: `Indenização art. 479 CLT (50% dos ${remainingFixedTermDays} dias restantes da experiência)`,
+        referenceQuantity: remainingFixedTermDays,
+        baseValue: br,
+        amount: round2(0.5 * dailyRate * remainingFixedTermDays),
+        isCustom: false,
+      });
+    }
+
+    // --- ART480_INDEMNITY (employee breaks the fixed-term/experiência early) ---
+    // Owed BY THE EMPLOYEE: ≤ ½ of the remaining-contract salary (CLT 480 §1º).
+    // Lanced as a DISCOUNT line. Suppressed when art. 481 maps to the
+    // indeterminate regime (then the unworked-notice discount applies instead).
+    if (
+      !isArt481 &&
+      ART480_EMPLOYEE_TYPES.includes(input.type) &&
+      remainingFixedTermDays > 0
+    ) {
+      items.push({
+        type: TERMINATION_ITEM_TYPE.ART479_INDEMNITY,
+        description: `Indenização art. 480 CLT devida pelo empregado (50% dos ${remainingFixedTermDays} dias restantes do contrato)`,
+        referenceQuantity: remainingFixedTermDays,
+        baseValue: br,
+        amount: -round2(0.5 * dailyRate * remainingFixedTermDays),
+        isCustom: false,
+      });
     }
 
     return items;
   }
+
+  /**
+   * Tax/FGTS assist (CLT / Lei 8.212 / Lei 7.713). Auto-computes INSS/IRRF on the
+   * TAXABLE verbas only and the FGTS-multa base. EXEMPT verbas — férias
+   * indenizadas (vencidas/proporcionais + 1/3), aviso prévio INDENIZADO and the
+   * multa do FGTS — must NEVER be passed in here; the caller derives the taxable
+   * set from the computed items. INSS/IRRF on the monthly verbas (saldo + aviso
+   * trabalhado) and on the 13º are computed on SEPARATE bases (13º has its own
+   * exclusive base, Súmula TST 688 / RFB).
+   *
+   * FGTS-multa base = informed FGTS balance + 8% over the projeção do aviso
+   * indenizado + 8% over the rescisão 13º (both integrate the FGTS base, Súmula
+   * TST 305 / Lei 8.036 art. 15 §1º).
+   */
+  computeTaxAssist(input: {
+    taxable: TaxableVerbas;
+    fgtsBalance: number | null;
+    /** Aviso prévio indenizado (projeção) — integra a base da multa do FGTS. */
+    indemnifiedNotice: number;
+    dependentsCount?: number;
+    year?: number;
+  }): TaxAssistResult {
+    const year = input.year ?? new Date().getFullYear();
+    const dependentsCount = Math.max(0, input.dependentsCount ?? 0);
+    const inssTable = getInssTableForYear(year);
+    const irrfTable = getIrrfTableForYear(year);
+
+    const salaryBalance = Math.max(0, round2(input.taxable.salaryBalance));
+    const workedNotice = Math.max(0, round2(input.taxable.workedNotice));
+    const thirteenth = Math.max(0, round2(input.taxable.thirteenth));
+
+    // --- Monthly taxable base: saldo + aviso TRABALHADO ---
+    const monthlyInssBase = round2(salaryBalance + workedNotice);
+    const monthlyInss = computeProgressiveINSS(monthlyInssBase, inssTable.brackets).total;
+    const monthlyIrrf = computeIRRF({
+      taxableGross: monthlyInssBase,
+      inssAmount: monthlyInss,
+      dependentsCount,
+      allowSimplifiedDeduction: true,
+      table: irrfTable,
+    }).tax;
+
+    // --- 13º exclusive base ---
+    const thirteenthInssBase = thirteenth;
+    const thirteenthInss =
+      thirteenthInssBase > 0
+        ? computeProgressiveINSS(thirteenthInssBase, inssTable.brackets).total
+        : 0;
+    const thirteenthIrrf =
+      thirteenthInssBase > 0
+        ? computeIRRF({
+            taxableGross: thirteenthInssBase,
+            inssAmount: thirteenthInss,
+            dependentsCount,
+            allowSimplifiedDeduction: true,
+            table: irrfTable,
+          }).tax
+        : 0;
+
+    // --- FGTS-multa base: saldo informado + 8% (aviso indenizado + 13º) ---
+    const indemnifiedNotice = Math.max(0, round2(input.indemnifiedNotice));
+    const fgtsOnProjections = round2(0.08 * (indemnifiedNotice + thirteenth));
+    const fgtsFineBase = round2((input.fgtsBalance ?? 0) + fgtsOnProjections);
+
+    return {
+      monthlyInssBase,
+      monthlyInss,
+      monthlyIrrf,
+      thirteenthInssBase,
+      thirteenthInss,
+      thirteenthIrrf,
+      totalInss: round2(monthlyInss + thirteenthInss),
+      totalIrrf: round2(monthlyIrrf + thirteenthIrrf),
+      fgtsFineBase,
+    };
+  }
 }
+
+/**
+ * Estabilidade guard predicate. Part E exports an equivalent
+ * `isUnderStability(contract, date)` from src/utils/contract-stability.ts; until
+ * that util lands at integration time, this inline check on
+ * stabilityStart/stabilityEnd is used. A dismissal WITHOUT cause must be blocked
+ * when the worker is inside a stability window (acidentária/gestante/etc.).
+ */
+export const isUnderStability = (
+  contract: { stabilityStart?: Date | null; stabilityEnd?: Date | null } | null | undefined,
+  date: Date,
+): boolean => {
+  if (!contract) return false;
+  const { stabilityStart, stabilityEnd } = contract;
+  if (!stabilityStart && !stabilityEnd) return false;
+  const ref = startOfDay(date).getTime();
+  const start = stabilityStart ? startOfDay(stabilityStart).getTime() : -Infinity;
+  const end = stabilityEnd ? startOfDay(stabilityEnd).getTime() : Infinity;
+  return ref >= start && ref <= end;
+};

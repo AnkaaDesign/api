@@ -16,7 +16,13 @@ import {
   trackAndLogFieldChanges,
   logEntityChange,
 } from '@modules/common/changelog/utils/changelog-helpers';
-import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../constants';
+import {
+  ENTITY_TYPE,
+  CHANGE_ACTION,
+  CHANGE_TRIGGERED_BY,
+  BENEFIT_KIND,
+  BENEFIT_ENROLLMENT_STATUS,
+} from '../../../constants';
 import type {
   Dependent,
   DependentGetManyResponse,
@@ -46,8 +52,28 @@ const DEPENDENT_TRACKED_FIELDS = [
   'relationship',
   'irrfDeduction',
   'salarioFamilia',
+  'healthPlanBenefitId',
+  'healthPlanValue',
   'notes',
 ];
+
+/**
+ * Custo do plano de saúde de um colaborador, decomposto em titular + dependentes.
+ * Consumido (read-only) pela folha (Part B) para a base de IRRF (dedução do
+ * plano, Lei 9.250/95) e para o desconto HEALTH_INSURANCE.
+ */
+export interface HealthPlanCost {
+  /** UserBenefit do plano de saúde (titular). NULL quando não há plano ativo. */
+  healthPlanBenefitId: string | null;
+  /** Parcela do titular (monthlyValue da adesão do plano). */
+  titularValue: number;
+  /** Soma de Dependent.healthPlanValue dos dependentes inscritos neste plano. */
+  dependentsValue: number;
+  /** Quantidade de dependentes inscritos. */
+  dependentsCount: number;
+  /** Custo efetivo do plano = titularValue + dependentsValue. */
+  totalValue: number;
+}
 
 @Injectable()
 export class DependentService {
@@ -68,6 +94,7 @@ export class DependentService {
 
   private async dependentValidation(
     data: Partial<DependentCreateFormData | DependentUpdateFormData>,
+    existing?: { userId: string } | null,
     tx?: PrismaTransaction,
   ): Promise<void> {
     const transaction = tx || this.prisma;
@@ -78,6 +105,86 @@ export class DependentService {
         throw new NotFoundException('Colaborador não encontrado.');
       }
     }
+
+    // Health-plan link: the linked UserBenefit must exist, be a HEALTH/DENTAL
+    // plan and belong to the same collaborator (it scales that plan's cost).
+    if (data.healthPlanBenefitId) {
+      const enrollment = await transaction.userBenefit.findUnique({
+        where: { id: data.healthPlanBenefitId },
+        include: { benefit: { select: { kind: true } } },
+      });
+      if (!enrollment) {
+        throw new NotFoundException('Plano de saúde (adesão) não encontrado.');
+      }
+      const ownerId = data.userId ?? existing?.userId;
+      if (ownerId && enrollment.userId !== ownerId) {
+        throw new BadRequestException(
+          'O plano de saúde informado pertence a outro colaborador.',
+        );
+      }
+      const kind = enrollment.benefit?.kind;
+      if (kind !== BENEFIT_KIND.HEALTH_PLAN && kind !== BENEFIT_KIND.DENTAL_PLAN) {
+        throw new BadRequestException(
+          'A adesão informada não é um plano de saúde/odontológico.',
+        );
+      }
+    }
+  }
+
+  /**
+   * ACCESSOR (read-only) consumed by payroll (Part B). Resolves the effective
+   * health-plan cost of a collaborator = titular enrollment value + Σ enrolled
+   * dependents' healthPlanValue. Feeds the IRRF deduction base and the
+   * HEALTH_INSURANCE discount line. Returns zeros (with null id) when the user
+   * has no active health/dental plan.
+   *
+   * @param userId    Collaborator id.
+   * @param benefitKind Which plan to resolve (HEALTH_PLAN default; DENTAL_PLAN
+   *                    for the dental line). Picks the ACTIVE enrollment of that kind.
+   */
+  async getHealthPlanCostForUser(
+    userId: string,
+    benefitKind: BENEFIT_KIND = BENEFIT_KIND.HEALTH_PLAN,
+  ): Promise<HealthPlanCost> {
+    // The active titular enrollment of the requested plan kind.
+    const enrollment = await this.prisma.userBenefit.findFirst({
+      where: {
+        userId,
+        status: BENEFIT_ENROLLMENT_STATUS.ACTIVE,
+        benefit: { kind: benefitKind },
+      },
+      orderBy: { startDate: 'desc' },
+    });
+
+    if (!enrollment) {
+      return {
+        healthPlanBenefitId: null,
+        titularValue: 0,
+        dependentsValue: 0,
+        dependentsCount: 0,
+        totalValue: 0,
+      };
+    }
+
+    const titularValue = Math.max(Number(enrollment.monthlyValue) || 0, 0);
+
+    const dependents = await this.prisma.dependent.findMany({
+      where: { healthPlanBenefitId: enrollment.id },
+      select: { healthPlanValue: true },
+    });
+
+    const dependentsValue = dependents.reduce(
+      (sum, dep) => sum + Math.max(Number(dep.healthPlanValue) || 0, 0),
+      0,
+    );
+
+    return {
+      healthPlanBenefitId: enrollment.id,
+      titularValue,
+      dependentsValue,
+      dependentsCount: dependents.length,
+      totalValue: titularValue + dependentsValue,
+    };
   }
 
   async findMany(query: DependentGetManyFormData): Promise<DependentGetManyResponse> {
@@ -153,7 +260,7 @@ export class DependentService {
   ): Promise<DependentCreateResponse> {
     try {
       const dependent = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        await this.dependentValidation(data, tx);
+        await this.dependentValidation(data, null, tx);
 
         const newDependent = await tx.dependent.create({
           data: data as any,
@@ -210,7 +317,7 @@ export class DependentService {
           throw new NotFoundException('Dependente não encontrado.');
         }
 
-        await this.dependentValidation(data, tx);
+        await this.dependentValidation(data, existing, tx);
 
         const updated = await tx.dependent.update({
           where: { id },
@@ -310,7 +417,7 @@ export class DependentService {
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         for (const [index, itemData] of data.dependents.entries()) {
           try {
-            await this.dependentValidation(itemData, tx);
+            await this.dependentValidation(itemData, null, tx);
 
             const created = await tx.dependent.create({
               data: itemData as any,
@@ -389,7 +496,7 @@ export class DependentService {
               throw new NotFoundException('Dependente não encontrado.');
             }
 
-            await this.dependentValidation(update.data, tx);
+            await this.dependentValidation(update.data, existing, tx);
 
             const updated = await tx.dependent.update({
               where: { id: update.id },

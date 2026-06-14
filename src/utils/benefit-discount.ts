@@ -25,6 +25,11 @@
 //   - Vale Refeição/Alimentação: desconto máximo de 20% do custo (PAT).
 //   - O arquivo é puro (sem dependências) e mantido IDÊNTICO em
 //     api/src/utils/benefit-discount.ts e web/src/utils/benefit-discount.ts.
+//
+// SYNC PENDENTE (Phase 3): a cópia web/src/utils/benefit-discount.ts precisa
+// receber as adições de Part H — isSalaryUnknownForShare(), o campo
+// salaryUnknownWarning em BenefitShareSplit e o guard de VT salário-desconhecido
+// — para permanecer byte-idêntica a esta cópia (api).
 
 /** BenefitKind cujo percentual incide sobre o salário (Vale Transporte). */
 export const SALARY_BASED_DISCOUNT_KIND = 'TRANSPORT_VOUCHER';
@@ -50,6 +55,12 @@ export interface BenefitShareSplit {
   companyShare: number;
   /** true quando a regra é percentual de VT (depende do salário-base). */
   dependsOnSalary: boolean;
+  /**
+   * true quando a regra depende do salário-base (VT %) mas o salário é
+   * desconhecido/zero — o desconto NÃO deve ser silenciosamente zerado; o
+   * chamador (folha/telas) deve sinalizar a pendência ao usuário.
+   */
+  salaryUnknownWarning: boolean;
 }
 
 /**
@@ -63,6 +74,20 @@ export function employeeShareDependsOnSalary(rule: BenefitShareRule): boolean {
     rule.employeeDiscountPercent !== null &&
     rule.employeeDiscountPercent !== undefined
   );
+}
+
+/**
+ * Indica se o desconto deveria depender do salário-base (regra percentual de
+ * VT) mas o salário-base informado é desconhecido/zero. Nesse caso a parte do
+ * colaborador calcula 0 — mas NÃO porque o desconto é zero, e sim porque falta
+ * o salário; o chamador deve avisar o usuário em vez de cobrar a menos.
+ */
+export function isSalaryUnknownForShare(
+  rule: BenefitShareRule,
+  baseSalary?: number | null,
+): boolean {
+  if (!employeeShareDependsOnSalary(rule)) return false;
+  return baseSalary === null || baseSalary === undefined || baseSalary <= 0;
 }
 
 /**
@@ -114,5 +139,6 @@ export function calculateBenefitSplit(
     employeeShare,
     companyShare: monthlyValue - employeeShare,
     dependsOnSalary: employeeShareDependsOnSalary(rule),
+    salaryUnknownWarning: isSalaryUnknownForShare(rule, baseSalary),
   };
 }

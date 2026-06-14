@@ -29,6 +29,8 @@ export interface MedicalExam extends BaseEntity {
   status: MEDICAL_EXAM_STATUS;
   statusOrder: number;
   result: MEDICAL_EXAM_RESULT;
+  restrictions: string | null;
+  periodicityMonths: number | null;
   scheduledAt: Date | null;
   examDate: Date | null;
   expiresAt: Date | null;

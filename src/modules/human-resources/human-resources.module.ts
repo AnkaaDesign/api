@@ -13,8 +13,11 @@ import { EmploymentContractModule } from './employment-contract/employment-contr
 import { TerminationModule } from './termination/termination.module';
 import { MedicalExamModule } from './medical-exam/medical-exam.module';
 import { LeaveModule } from './leave/leave.module';
+import { WorkAccidentModule } from './work-accident/work-accident.module';
 import { AgendaEventModule } from './agenda-event/agenda-event.module';
 import { PostitModule } from './postit/postit.module';
+import { ThirteenthModule } from './thirteenth/thirteenth.module';
+import { VacationModule } from './vacation/vacation.module';
 
 @Module({
   imports: [
@@ -30,8 +33,11 @@ import { PostitModule } from './postit/postit.module';
     TerminationModule,
     MedicalExamModule,
     LeaveModule,
+    WorkAccidentModule,
     AgendaEventModule,
     PostitModule,
+    ThirteenthModule,
+    VacationModule,
   ],
   exports: [
     BonusModule,
@@ -48,6 +54,8 @@ import { PostitModule } from './postit/postit.module';
     DependentModule,
     AgendaEventModule,
     PostitModule,
+    ThirteenthModule,
+    VacationModule,
   ],
 })
 export class HumanResourcesModule {}

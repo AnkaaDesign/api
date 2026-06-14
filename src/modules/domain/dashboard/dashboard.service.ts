@@ -129,7 +129,7 @@ export class DashboardService {
         ...(query.sectorId && { sectorId: query.sectorId }),
         ...(query.positionId && { positionId: query.positionId }),
         ...(!query.includeInactive && {
-          currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
+          currentContractStatus: { not: CONTRACT_STATUS.TERMINATED },
         }),
       };
 
@@ -1106,7 +1106,7 @@ export class DashboardService {
   private async getHRHighlights(query: UnifiedDashboardQueryFormData) {
     const [employeeStats, tasksInProgress] = await Promise.all([
       this.dashboardRepository.getEmployeeStatistics(
-        { currentContractStatus: { not: CONTRACT_STATUS.DISMISSED } },
+        { currentContractStatus: { not: CONTRACT_STATUS.TERMINATED } },
         {},
       ),
       this.dashboardRepository.countTasksInProgress(),

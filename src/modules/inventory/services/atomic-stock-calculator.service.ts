@@ -535,7 +535,7 @@ export class AtomicStockCalculatorService {
       return;
     }
 
-    if (user.currentContractStatus === 'DISMISSED') {
+    if (user.currentContractStatus === 'TERMINATED') {
       result.errors.push(`Usuário "${user.name}" não está ativo`);
       result.isValid = false;
     }
@@ -624,7 +624,7 @@ export class AtomicStockCalculatorService {
       const inactiveUsers = await tx.user.findMany({
         where: {
           id: { in: userIds as string[] },
-          currentContractStatus: 'DISMISSED',
+          currentContractStatus: 'TERMINATED',
         },
         select: { id: true, name: true, currentContractStatus: true },
       });

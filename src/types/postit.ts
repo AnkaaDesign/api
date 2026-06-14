@@ -22,6 +22,13 @@ export interface Postit extends BaseEntity {
   position: number;
   isArchived: boolean;
 
+  // Canvas livre: coordenadas e tamanho (px / unidades do board). Nuláveis
+  // (notas legadas/sem posição caem num grid de fallback no front).
+  positionX: number | null;
+  positionY: number | null;
+  width: number | null;
+  height: number | null;
+
   // Relations (optional, populated based on query)
   user?: User;
 }

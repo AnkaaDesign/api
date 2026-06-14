@@ -159,6 +159,18 @@ export class UserBenefitController {
     return this.service.terminate(id, data.endDate, query.include, userId);
   }
 
+  // Avança a parcela corrente de um convênio parcelado (uso administrativo;
+  // a folha mensal — Part B — avança automaticamente via accessor do service).
+  @Put(':id/advance-installment')
+  @WriteRateLimit()
+  async advanceInstallment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+  ): Promise<UserBenefitUpdateResponse> {
+    const data = await this.service.advanceInstallment(id, userId);
+    return { success: true, message: 'Parcela avançada com sucesso.', data };
+  }
+
   // Declaração assinada (renúncia VT / autorização de desconto de convênio — CLT 462)
   @Post(':id/declaration')
   @WriteRateLimit()

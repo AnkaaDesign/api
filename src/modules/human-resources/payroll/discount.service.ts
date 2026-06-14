@@ -9,8 +9,16 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { DiscountRepository } from './repositories/discount/discount.repository';
+import { PersistentDiscountService } from './services/persistent-discount.service';
 import { roundCurrency } from '@utils/currency-precision.util';
-import { CHANGE_TRIGGERED_BY, ENTITY_TYPE, CHANGE_ACTION } from '../../../constants/enums';
+import { LoanKind, PayrollDiscountType } from '@prisma/client';
+import {
+  CHANGE_TRIGGERED_BY,
+  ENTITY_TYPE,
+  CHANGE_ACTION,
+  CONTRACT_STATUS,
+  PAYROLL_EMPLOYEE_TYPES,
+} from '../../../constants';
 import {
   trackFieldChanges,
   trackAndLogFieldChanges,
@@ -35,6 +43,7 @@ import type {
   DiscountBatchCreateFormData,
   DiscountBatchUpdateFormData,
   DiscountBatchDeleteFormData,
+  LoanMasterCreateFormData,
 } from '../../../schemas/discount';
 
 @Injectable()
@@ -45,7 +54,88 @@ export class DiscountService {
     private readonly prisma: PrismaService,
     private readonly discountRepository: DiscountRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly persistentDiscountService: PersistentDiscountService,
   ) {}
+
+  /**
+   * ========================================================================
+   * REGISTER EMPLOYEE-ANCHORED MASTER LOAN
+   * ========================================================================
+   * Cria um empréstimo/adiantamento ancorado no colaborador (PayrollDiscount
+   * com payrollId=null). Ele é materializado automaticamente em cada folha
+   * futura pela geração da folha — sem fluxo manual por competência.
+   *
+   * Valida que o colaborador é elegível à folha (CLT, não desligado).
+   */
+  async createLoanMaster(
+    data: LoanMasterCreateFormData,
+    userId?: string,
+  ): Promise<DiscountCreateResponse> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: data.userId },
+        select: {
+          id: true,
+          currentContractStatus: true,
+          currentEmployeeType: true,
+        },
+      });
+
+      if (!user) {
+        throw new NotFoundException('Colaborador não encontrado');
+      }
+      if (user.currentContractStatus === CONTRACT_STATUS.TERMINATED) {
+        throw new BadRequestException('Colaborador desligado — não é possível registrar empréstimo');
+      }
+      if (!PAYROLL_EMPLOYEE_TYPES.includes(user.currentEmployeeType as any)) {
+        throw new BadRequestException('Colaborador não pertence à folha de pagamento (CLT)');
+      }
+
+      const master = await this.persistentDiscountService.createMasterLoan({
+        userId: data.userId,
+        value: data.value,
+        totalInstallments: data.totalInstallments,
+        startCompetence: data.startCompetence,
+        discountType:
+          data.discountType === 'ADVANCE'
+            ? PayrollDiscountType.ADVANCE
+            : PayrollDiscountType.LOAN,
+        loanKind:
+          data.loanKind === 'PAYROLL_CONSIGNED'
+            ? LoanKind.PAYROLL_CONSIGNED
+            : LoanKind.COMPANY,
+        lenderName: data.lenderName,
+        description: data.description,
+      });
+
+      if (userId) {
+        await logEntityChange({
+          changeLogService: this.changeLogService,
+          entityType: ENTITY_TYPE.DISCOUNT,
+          entityId: master.id,
+          action: CHANGE_ACTION.CREATE,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER,
+          userId,
+          newData: master,
+          reason: `Empréstimo registrado para colaborador (${data.totalInstallments}x)`,
+        });
+      }
+
+      const response = await this.discountRepository.findById(master.id);
+
+      return {
+        success: true,
+        message: 'Empréstimo registrado com sucesso',
+        data: response!,
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Error creating master loan: ${error.message}`, error.stack);
+      throw new InternalServerErrorException('Erro ao registrar empréstimo');
+    }
+  }
 
   /**
    * Recalcula totalDiscounts/netSalary da folha a partir das linhas de

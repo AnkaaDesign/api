@@ -593,12 +593,12 @@ export class NotificationDispatchService {
         }
 
         // Check if user is eligible
-        if (!this.isUserEligible(user as User, notification)) {
+        if (!this.isUserEligible(user as unknown as User, notification)) {
           this.logger.log(`User ${user.id} is not eligible for notification ${notification.id}`);
           return [];
         }
 
-        return [user as User];
+        return [user as unknown as User];
       }
 
       // Case 2: Broadcast notification - determine targets based on metadata
@@ -618,8 +618,8 @@ export class NotificationDispatchService {
 
       // Filter users based on eligibility
       let eligibleUsers = users.filter(user =>
-        this.isUserEligible(user as User, notification),
-      ) as User[];
+        this.isUserEligible(user as unknown as User, notification),
+      ) as unknown as User[];
 
       // ✅ CRITICAL: Filter out the actor (user who performed the action)
       // Users should NEVER receive notifications for their own actions
@@ -1618,7 +1618,7 @@ export class NotificationDispatchService {
         // Resolve channels for this user based on their preferences and config
         const channels = await this.configurationService.resolveChannelsForUser(
           configKey,
-          user as User,
+          user as unknown as User,
         );
 
         if (channels.length === 0) {
@@ -1778,7 +1778,7 @@ export class NotificationDispatchService {
         targetUsers = (await this.getTargetUsersByRoles(
           allowedSectors,
           triggeringUserId === 'system' ? undefined : triggeringUserId,
-        )) as typeof targetUsers;
+        )) as unknown as typeof targetUsers;
 
         if (targetUsers.length === 0) {
           this.logger.warn(
@@ -1860,7 +1860,7 @@ export class NotificationDispatchService {
       for (const user of targetUsers) {
         const channels = await this.configurationService.resolveChannelsForUser(
           configKey,
-          user as User,
+          user as unknown as User,
         );
 
         if (channels.length === 0) {
@@ -2020,7 +2020,7 @@ export class NotificationDispatchService {
 
     const filteredUsers = excludeUserId ? users.filter(user => user.id !== excludeUserId) : users;
 
-    return filteredUsers as User[];
+    return filteredUsers as unknown as User[];
   }
 
   /**

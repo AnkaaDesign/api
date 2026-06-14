@@ -9,6 +9,7 @@ import {
   EMPLOYER_NOTICE_TYPES,
   TerminationCalculationService,
   TerminationCalculationInput,
+  isUnderStability,
 } from './termination-calculation.service';
 import { NOTICE_TYPE, TERMINATION_ITEM_TYPE, TERMINATION_TYPE } from '../../../constants';
 
@@ -249,22 +250,58 @@ describe('TerminationCalculationService', () => {
   });
 
   describe('FGTS_FINE', () => {
-    it('40% for WITHOUT_CAUSE / INDIRECT / EXPERIENCE_EARLY_EMPLOYER', () => {
+    // The multa incides over the FGTS base = fgtsBalance + 8% × (aviso indenizado
+    // + 13º proporcional), NOT the raw informed balance (Súmula TST 305 / Lei
+    // 8.036 art. 15 §1º). baseInput (WITHOUT_CAUSE, no notice, exp1 2020-01-02,
+    // termination 2026-06-10, BR 3000) produces a 13º of 5/12 avos = 1250 (June
+    // has < 15 worked days, so it does not count) and no indemnified notice, so
+    // base = 10000 + 0.08×1250 = 10100.
+    it('40% over the FGTS base for WITHOUT_CAUSE / INDIRECT / EXPERIENCE_EARLY_EMPLOYER', () => {
       for (const type of [
         TERMINATION_TYPE.WITHOUT_CAUSE,
         TERMINATION_TYPE.INDIRECT,
         TERMINATION_TYPE.EXPERIENCE_EARLY_EMPLOYER,
       ]) {
         const items = itemsOf(baseInput({ type, fgtsBalance: 10000 }));
-        expect(find(items, TERMINATION_ITEM_TYPE.FGTS_FINE)?.amount).toBe(4000);
+        const fine = find(items, TERMINATION_ITEM_TYPE.FGTS_FINE);
+        // base 10000 + 8% × 1250 (13º) = 10100 → 40% = 4040
+        expect(fine?.baseValue).toBe(10100);
+        expect(fine?.amount).toBe(4040);
       }
     });
 
-    it('20% for MUTUAL_AGREEMENT (CLT 484-A I b)', () => {
+    it('20% over the FGTS base for MUTUAL_AGREEMENT (CLT 484-A I b)', () => {
       const items = itemsOf(
         baseInput({ type: TERMINATION_TYPE.MUTUAL_AGREEMENT, fgtsBalance: 10000 }),
       );
-      expect(find(items, TERMINATION_ITEM_TYPE.FGTS_FINE)?.amount).toBe(2000);
+      const fine = find(items, TERMINATION_ITEM_TYPE.FGTS_FINE);
+      // base 10000 + 8% × 1250 (13º) = 10100 → 20% = 2020
+      expect(fine?.baseValue).toBe(10100);
+      expect(fine?.amount).toBe(2020);
+    });
+
+    it('the base projects the aviso indenizado + 13º (Súmula TST 305)', () => {
+      // Hand-check (contract): fgtsBalance 10000 + aviso 3000 + 13º 1500
+      //   → base 10000 + 0.08 × (3000 + 1500) = 10360 → 40% = 4144.
+      // The notice projection (projectedEndDate 2026-07-10) extends the 13º to
+      // 6/12 avos = 1500 (July's anniversary day clears the ≥15-day fraction).
+      const items = itemsOf(
+        baseInput({
+          type: TERMINATION_TYPE.WITHOUT_CAUSE,
+          fgtsBalance: 10000,
+          noticeType: NOTICE_TYPE.INDEMNIFIED,
+          noticeDays: 30, // BR/30 × 30 = 3000 aviso indenizado
+          projectedEndDate: new Date(2026, 6, 10), // 2026-07-10
+        }),
+      );
+      const notice = find(items, TERMINATION_ITEM_TYPE.NOTICE_INDEMNIFIED);
+      const thirteenths = findAll(items, TERMINATION_ITEM_TYPE.THIRTEENTH_PROPORTIONAL);
+      const thirteenthTotal = thirteenths.reduce((s, i) => s + i.amount, 0);
+      expect(notice?.amount).toBe(3000);
+      expect(thirteenthTotal).toBe(1500);
+      const fine = find(items, TERMINATION_ITEM_TYPE.FGTS_FINE);
+      expect(fine?.baseValue).toBe(10360);
+      expect(fine?.amount).toBe(4144);
     });
 
     it('no fine for resignation, just cause, experience end or death', () => {
@@ -334,6 +371,212 @@ describe('TerminationCalculationService', () => {
       expect(() => itemsOf(baseInput({ terminationDate: null }))).toThrow();
       expect(() => itemsOf(baseInput({ baseRemuneration: null }))).toThrow();
       expect(() => itemsOf(baseInput({ baseRemuneration: 0 }))).toThrow();
+    });
+  });
+
+  describe('SALARY_BALANCE mid-month admission (Part G)', () => {
+    it('counts from the 1st when admission is in a previous month', () => {
+      // Admission 2020-01-02, termination 2026-06-20 → 20 days (1st–20th)
+      const items = itemsOf(
+        baseInput({ terminationDate: new Date(2026, 5, 20), exp1StartAt: new Date(2020, 0, 2) }),
+      );
+      const salary = find(items, TERMINATION_ITEM_TYPE.SALARY_BALANCE);
+      expect(salary?.referenceQuantity).toBe(20);
+      expect(salary?.amount).toBe(2000); // 3000/30 × 20
+    });
+
+    it('counts only the days worked when admission is mid-month (same month as termination)', () => {
+      // Admitted 2026-06-12, terminated 2026-06-20 → 9 days inclusive, NOT 20
+      const items = itemsOf(
+        baseInput({
+          type: TERMINATION_TYPE.EXPERIENCE_END,
+          terminationDate: new Date(2026, 5, 20),
+          exp1StartAt: new Date(2026, 5, 12),
+        }),
+      );
+      const salary = find(items, TERMINATION_ITEM_TYPE.SALARY_BALANCE);
+      expect(salary?.referenceQuantity).toBe(9);
+      expect(salary?.amount).toBe(900); // 3000/30 × 9
+    });
+
+    it('exposes daysWorkedInTerminationMonth directly', () => {
+      expect(
+        service.daysWorkedInTerminationMonth(new Date(2026, 5, 20), new Date(2026, 5, 12)),
+      ).toBe(9);
+      expect(
+        service.daysWorkedInTerminationMonth(new Date(2026, 5, 20), new Date(2020, 0, 2)),
+      ).toBe(20);
+      expect(service.daysWorkedInTerminationMonth(new Date(2026, 5, 20), null)).toBe(20);
+    });
+  });
+
+  describe('ART480_INDEMNITY (employee breaks the fixed-term/experiência early — CLT 480)', () => {
+    it('lances a DISCOUNT of 50% of the remaining fixed-term days (FIXED_TERM_EARLY_EMPLOYEE)', () => {
+      // 30 remaining days → 0.5 × (3000/30) × 30 = 1500, owed BY the employee
+      const items = itemsOf(
+        baseInput({
+          type: TERMINATION_TYPE.FIXED_TERM_EARLY_EMPLOYEE,
+          experienceEndAt: new Date(2026, 6, 10), // 30 days after 2026-06-10
+        }),
+      );
+      const indemnity = find(items, TERMINATION_ITEM_TYPE.ART479_INDEMNITY);
+      expect(indemnity?.amount).toBe(-1500); // negative = discount owed by employee
+      expect(indemnity?.description).toContain('art. 480');
+    });
+
+    it('also applies to EXPERIENCE_EARLY_EMPLOYEE', () => {
+      const items = itemsOf(
+        baseInput({
+          type: TERMINATION_TYPE.EXPERIENCE_EARLY_EMPLOYEE,
+          experienceEndAt: new Date(2026, 6, 10),
+        }),
+      );
+      expect(find(items, TERMINATION_ITEM_TYPE.ART479_INDEMNITY)?.amount).toBe(-1500);
+    });
+
+    it('employer art. 479 stays positive (owed BY the employer)', () => {
+      const items = itemsOf(
+        baseInput({
+          type: TERMINATION_TYPE.EXPERIENCE_EARLY_EMPLOYER,
+          experienceEndAt: new Date(2026, 6, 10),
+        }),
+      );
+      const indemnity = find(items, TERMINATION_ITEM_TYPE.ART479_INDEMNITY);
+      expect(indemnity?.amount).toBe(1500);
+      expect(indemnity?.description).toContain('art. 479');
+    });
+
+    it('no FGTS fine for an employee-side early fixed-term termination', () => {
+      const items = itemsOf(
+        baseInput({
+          type: TERMINATION_TYPE.FIXED_TERM_EARLY_EMPLOYEE,
+          fgtsBalance: 10000,
+          experienceEndAt: new Date(2026, 6, 10),
+        }),
+      );
+      expect(find(items, TERMINATION_ITEM_TYPE.FGTS_FINE)).toBeUndefined();
+    });
+  });
+
+  describe('ART481 cláusula assecuratória (early fixed-term → indeterminate regime)', () => {
+    it('employer-side early termination with the clause gets 40% FGTS and NO art. 479', () => {
+      const items = itemsOf(
+        baseInput({
+          type: TERMINATION_TYPE.EXPERIENCE_EARLY_EMPLOYER,
+          hasArt481Clause: true,
+          fgtsBalance: 10000,
+          experienceEndAt: new Date(2026, 6, 10),
+          noticeType: NOTICE_TYPE.INDEMNIFIED,
+          noticeDays: 30,
+          projectedEndDate: new Date(2026, 6, 10),
+        }),
+      );
+      // 40% FGTS fine (indeterminate regime) over the projected base.
+      // refEnd projects to 2026-07-10 → 13º = 6/12 avos = 1500, aviso = 3000.
+      // base = 10000 + 0.08 × (3000 + 1500) = 10360 → 40% = 4144.
+      expect(find(items, TERMINATION_ITEM_TYPE.FGTS_FINE)?.baseValue).toBe(10360);
+      expect(find(items, TERMINATION_ITEM_TYPE.FGTS_FINE)?.amount).toBe(4144);
+      // no art. 479/480 indemnity
+      expect(find(items, TERMINATION_ITEM_TYPE.ART479_INDEMNITY)).toBeUndefined();
+      // employer pays the indemnified notice (mapped to WITHOUT_CAUSE)
+      expect(find(items, TERMINATION_ITEM_TYPE.NOTICE_INDEMNIFIED)?.amount).toBe(3000);
+    });
+
+    it('employee-side early termination with the clause follows resignation (no art. 480, no fine)', () => {
+      const items = itemsOf(
+        baseInput({
+          type: TERMINATION_TYPE.FIXED_TERM_EARLY_EMPLOYEE,
+          hasArt481Clause: true,
+          fgtsBalance: 10000,
+          experienceEndAt: new Date(2026, 6, 10),
+        }),
+      );
+      expect(find(items, TERMINATION_ITEM_TYPE.ART479_INDEMNITY)).toBeUndefined();
+      expect(find(items, TERMINATION_ITEM_TYPE.FGTS_FINE)).toBeUndefined();
+    });
+  });
+
+  describe('INTERMITTENT_END', () => {
+    it('pays saldo + 13º/férias proporcionais but no notice and no FGTS fine', () => {
+      const items = itemsOf(
+        baseInput({
+          type: TERMINATION_TYPE.INTERMITTENT_END,
+          fgtsBalance: 10000,
+          exp1StartAt: new Date(2025, 0, 10),
+        }),
+      );
+      const types = items.map(i => i.type);
+      expect(types).toContain(TERMINATION_ITEM_TYPE.SALARY_BALANCE);
+      expect(types).toContain(TERMINATION_ITEM_TYPE.THIRTEENTH_PROPORTIONAL);
+      expect(types).toContain(TERMINATION_ITEM_TYPE.PROPORTIONAL_VACATION);
+      expect(types).not.toContain(TERMINATION_ITEM_TYPE.NOTICE_INDEMNIFIED);
+      expect(types).not.toContain(TERMINATION_ITEM_TYPE.FGTS_FINE);
+      expect(types).not.toContain(TERMINATION_ITEM_TYPE.ART479_INDEMNITY);
+    });
+  });
+
+  describe('computeTaxAssist (tax/FGTS incidence — Part G)', () => {
+    it('taxes saldo + worked notice; exempts férias/aviso indenizado/multa FGTS', () => {
+      const assist = service.computeTaxAssist({
+        taxable: { salaryBalance: 3000, workedNotice: 0, thirteenth: 3000 },
+        fgtsBalance: 10000,
+        indemnifiedNotice: 0,
+        dependentsCount: 0,
+        year: 2026,
+      });
+      // monthly base = saldo only (no exempt verba mixed in)
+      expect(assist.monthlyInssBase).toBe(3000);
+      expect(assist.monthlyInss).toBeGreaterThan(0);
+      // 13º taxed on its own exclusive base
+      expect(assist.thirteenthInssBase).toBe(3000);
+      expect(assist.thirteenthInss).toBeGreaterThan(0);
+      expect(assist.totalInss).toBe(
+        Math.round((assist.monthlyInss + assist.thirteenthInss) * 100) / 100,
+      );
+    });
+
+    it('FGTS-multa base includes 8% of the aviso indenizado projeção + 8% of the 13º', () => {
+      const assist = service.computeTaxAssist({
+        taxable: { salaryBalance: 3000, workedNotice: 0, thirteenth: 1500 },
+        fgtsBalance: 10000,
+        indemnifiedNotice: 3000,
+        dependentsCount: 0,
+        year: 2026,
+      });
+      // 10000 + 0.08 × (3000 + 1500) = 10000 + 360 = 10360
+      expect(assist.fgtsFineBase).toBe(10360);
+    });
+
+    it('zero thirteenth produces zero 13º taxes', () => {
+      const assist = service.computeTaxAssist({
+        taxable: { salaryBalance: 1000, workedNotice: 0, thirteenth: 0 },
+        fgtsBalance: null,
+        indemnifiedNotice: 0,
+        year: 2026,
+      });
+      expect(assist.thirteenthInss).toBe(0);
+      expect(assist.thirteenthIrrf).toBe(0);
+      expect(assist.fgtsFineBase).toBe(0);
+    });
+  });
+
+  describe('isUnderStability (estabilidade guard predicate)', () => {
+    it('true when the date is within [stabilityStart, stabilityEnd]', () => {
+      const contract = {
+        stabilityStart: new Date(2026, 0, 1),
+        stabilityEnd: new Date(2026, 11, 31),
+      };
+      expect(isUnderStability(contract, new Date(2026, 5, 10))).toBe(true);
+    });
+
+    it('false outside the window or when no window is set', () => {
+      const contract = {
+        stabilityStart: new Date(2026, 0, 1),
+        stabilityEnd: new Date(2026, 2, 31),
+      };
+      expect(isUnderStability(contract, new Date(2026, 5, 10))).toBe(false);
+      expect(isUnderStability({ stabilityStart: null, stabilityEnd: null }, new Date())).toBe(false);
+      expect(isUnderStability(null, new Date())).toBe(false);
     });
   });
 

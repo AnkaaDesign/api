@@ -80,11 +80,34 @@ export const discountWhereSchema: z.ZodType<any> = z.lazy(() =>
       payrollId: z
         .union([
           z.string(),
+          z.null(),
+          z.object({
+            equals: z.string().nullable().optional(),
+            not: z.string().nullable().optional(),
+            in: z.array(z.string()).optional(),
+            notIn: z.array(z.string()).optional(),
+          }),
+        ])
+        .optional(),
+      userId: z
+        .union([
+          z.string(),
           z.object({
             equals: z.string().optional(),
             not: z.string().optional(),
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
+          }),
+        ])
+        .optional(),
+      startCompetence: z
+        .union([
+          z.string(),
+          z.object({
+            equals: z.string().optional(),
+            not: z.string().optional(),
+            lte: z.string().optional(),
+            gte: z.string().optional(),
           }),
         ])
         .optional(),
@@ -325,6 +348,34 @@ export const discountUpdateSchema = z
       path: ['percentage', 'value'],
     },
   );
+
+// =====================
+// Employee-anchored MASTER loan (registered once, applied to future folhas)
+// =====================
+
+export const loanMasterCreateSchema = z.object({
+  userId: z.string().uuid('Colaborador inválido'),
+  value: z
+    .number()
+    .positive('O valor da parcela deve ser maior que zero')
+    .transform(val => Math.round(val * 100) / 100),
+  totalInstallments: z
+    .number()
+    .int('O total de parcelas deve ser um número inteiro')
+    .min(1, 'O total de parcelas deve ser pelo menos 1')
+    .max(120, 'O total de parcelas deve ser no máximo 120'),
+  startCompetence: z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Competência inválida (formato esperado: YYYY-MM)'),
+  discountType: z.enum(['LOAN', 'ADVANCE']).default('LOAN'),
+  // Modalidade: COMPANY = empréstimo/adiantamento da própria empresa; PAYROLL_CONSIGNED = consignado (banco).
+  loanKind: z.enum(['COMPANY', 'PAYROLL_CONSIGNED']).default('COMPANY'),
+  // Banco/credor — usado quando loanKind = PAYROLL_CONSIGNED.
+  lenderName: z.string().max(200, 'Nome do credor muito longo').optional(),
+  description: z.string().max(200, 'Descrição muito longa').optional(),
+});
+
+export type LoanMasterCreateFormData = z.infer<typeof loanMasterCreateSchema>;
 
 // =====================
 // Batch Operations

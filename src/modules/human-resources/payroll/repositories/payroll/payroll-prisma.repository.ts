@@ -375,7 +375,7 @@ export class PayrollPrismaRepository
         throw new NotFoundException('Usuário não encontrado');
       }
 
-      if (user.currentContractStatus === CONTRACT_STATUS.DISMISSED) {
+      if (user.currentContractStatus === CONTRACT_STATUS.TERMINATED) {
         throw new BadRequestException('Usuário deve estar ativo para criar folha de pagamento');
       }
 
@@ -599,7 +599,7 @@ export class PayrollPrismaRepository
               continue;
             }
 
-            if (user.currentContractStatus === CONTRACT_STATUS.DISMISSED) {
+            if (user.currentContractStatus === CONTRACT_STATUS.TERMINATED) {
               errors.push({
                 index: i,
                 error: `Usuário ${payrollData.userId} não está ativo`,
@@ -901,7 +901,7 @@ export class PayrollPrismaRepository
     try {
       const users = await this.prisma.user.findMany({
         where: {
-          currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
+          currentContractStatus: { not: CONTRACT_STATUS.TERMINATED },
           currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
           payrollNumber: { not: null }, // Only users with payroll number
           payrolls: {

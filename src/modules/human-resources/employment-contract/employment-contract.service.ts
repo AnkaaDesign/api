@@ -24,7 +24,13 @@ import {
   EMPLOYEE_TYPE,
   ENTITY_TYPE,
 } from '../../../constants';
-import { CONTRACT_STATUS_ORDER, CONTRACT_TYPE_ORDER } from '../../../constants/sortOrders';
+import { CONTRACT_STATUS_ORDER } from '../../../constants/sortOrders';
+import {
+  canTransitionContractStatus,
+  invalidContractStatusTransitionMessage,
+  isOpenStatus,
+  validateEmployeeContractTypeIntegrity,
+} from '../../../utils/contract';
 import type {
   EmploymentContractBatchCreateResponse,
   EmploymentContractBatchDeleteResponse,
@@ -64,22 +70,28 @@ export class EmploymentContractService {
    * Recalcula qual vínculo do colaborador é o atual (isCurrent) e atualiza o cache
    * no User: currentContractId/currentContractType/currentContractStatus/
    * currentEmployeeType + espelha positionId/sectorId/payrollNumber e define
-   * isActive (false sse o status atual for DISMISSED). Sempre executado dentro da
-   * transação que alterou o(s) vínculo(s) do colaborador.
+   * isActive (true sse o vínculo atual estiver ABERTO, i.e. status != TERMINATED).
+   * Sempre executado dentro da transação que alterou o(s) vínculo(s) do colaborador.
+   *
+   * REGRA do vínculo atual (corrige o bug que pegava o maior sequence ignorando
+   * a situação): preferimos o vínculo ABERTO (status ∈ {EXPERIENCE, ACTIVE,
+   * NOTICE_PERIOD, ON_LEAVE}) de MAIOR sequence. Só caímos para um vínculo
+   * TERMINATED se NÃO houver nenhum aberto (mantém histórico coerente p/ readmissão).
    */
   async syncUserCurrentContract(
     tx: PrismaTransaction,
     userId: string,
     options?: { userId?: string },
   ): Promise<void> {
-    // O vínculo atual é o de MAIOR sequence (o mais recente). Garante exatamente
-    // um isCurrent=true por colaborador.
     const contracts = await tx.employmentContract.findMany({
       where: { userId },
       orderBy: { sequence: 'desc' },
     });
 
-    const current = contracts[0] ?? null;
+    // 1) Maior sequence ENTRE OS ABERTOS (não-TERMINATED). 2) fallback: maior
+    // sequence geral (todos encerrados — pessoa desligada).
+    const openContracts = contracts.filter(c => isOpenStatus(c.status));
+    const current = openContracts[0] ?? contracts[0] ?? null;
 
     // Garante o flag isCurrent coerente em todos os vínculos.
     for (const contract of contracts) {
@@ -106,7 +118,7 @@ export class EmploymentContractService {
       return;
     }
 
-    const isDismissed = current.status === CONTRACT_STATUS.DISMISSED;
+    const isOpen = isOpenStatus(current.status);
 
     await tx.user.update({
       where: { id: userId },
@@ -119,7 +131,7 @@ export class EmploymentContractService {
         positionId: current.positionId,
         sectorId: current.sectorId,
         payrollNumber: current.payrollNumber,
-        isActive: !isDismissed,
+        isActive: isOpen,
       },
     });
   }
@@ -143,27 +155,54 @@ export class EmploymentContractService {
       throw new NotFoundException('Colaborador não encontrado.');
     }
 
+    // ── Guarda de sobreposição (readmissão): só é possível abrir um novo vínculo
+    //    se o vínculo atual anterior estiver ENCERRADO (TERMINATED). Caso contrário
+    //    haveria dois vínculos abertos simultâneos para a mesma pessoa.
+    const currentOpen = await tx.employmentContract.findFirst({
+      where: { userId, isCurrent: true, status: { not: CONTRACT_STATUS.TERMINATED } },
+      select: { id: true, status: true, sequence: true },
+    });
+    if (currentOpen) {
+      throw new BadRequestException(
+        `Não é possível criar um novo vínculo para ${user.name}: o vínculo atual (sequência ${currentOpen.sequence}) ainda está aberto (${currentOpen.status}). Encerre-o (rescisão) antes de readmitir.`,
+      );
+    }
+
     const maxSequence = await tx.employmentContract.aggregate({
       where: { userId },
       _max: { sequence: true },
     });
     const sequence = (maxSequence._max.sequence ?? 0) + 1;
 
-    // Derruba o vínculo atual anterior.
+    const employeeType = (data.employeeType as EMPLOYEE_TYPE) ?? EMPLOYEE_TYPE.CLT;
+    // Default de modalidade: CLT inicia em experiência → modalidade FIXED_TERM
+    // (a fase de experiência é a SITUAÇÃO EXPERIENCE, não uma modalidade). Off-folha → null.
+    const contractType =
+      data.contractType === undefined
+        ? employeeType === EMPLOYEE_TYPE.CLT
+          ? CONTRACT_TYPE.FIXED_TERM
+          : null
+        : (data.contractType as CONTRACT_TYPE | null);
+
+    // Default de situação: CLT entra em EXPERIENCE; off-folha entra ACTIVE.
+    const status =
+      ((data as any).status as CONTRACT_STATUS | undefined) ??
+      (employeeType === EMPLOYEE_TYPE.CLT ? CONTRACT_STATUS.EXPERIENCE : CONTRACT_STATUS.ACTIVE);
+
+    // Integridade categoria × modalidade.
+    const integrityError = validateEmployeeContractTypeIntegrity({ employeeType, contractType });
+    if (integrityError) {
+      throw new BadRequestException(integrityError);
+    }
+
+    // Derruba o vínculo atual anterior (já garantido TERMINATED pela guarda acima).
     await tx.employmentContract.updateMany({
       where: { userId, isCurrent: true },
       data: { isCurrent: false },
     });
 
-    const employeeType = (data.employeeType as EMPLOYEE_TYPE) ?? EMPLOYEE_TYPE.CLT;
-    const contractType =
-      data.contractType === undefined
-        ? employeeType === EMPLOYEE_TYPE.CLT
-          ? CONTRACT_TYPE.EXPERIENCE_PERIOD_1
-          : null
-        : (data.contractType as CONTRACT_TYPE | null);
-
     const dates = this.computeContractDates({
+      status,
       contractType,
       admissionDate: data.admissionDate ?? null,
       exp1StartAt: data.exp1StartAt ?? null,
@@ -180,8 +219,8 @@ export class EmploymentContractService {
         isCurrent: true,
         employeeType: employeeType as any,
         contractType: (contractType as any) ?? null,
-        status: CONTRACT_STATUS.ACTIVE as any,
-        statusOrder: CONTRACT_STATUS_ORDER[CONTRACT_STATUS.ACTIVE],
+        status: status as any,
+        statusOrder: CONTRACT_STATUS_ORDER[status],
         matricula: data.matricula ?? null,
         payrollNumber: data.payrollNumber ?? null,
         positionId: data.positionId ?? user.positionId ?? null,
@@ -212,11 +251,18 @@ export class EmploymentContractService {
   }
 
   /**
-   * Auto-cálculo das datas de experiência (CLT): 1º período = 30 dias,
-   * 2º período = 50 dias. Aplica-se apenas a vínculos em fase de experiência;
-   * EFETIVADO grava effectedAt. Retorna apenas os campos a serem persistidos.
+   * Auto-cálculo das datas de experiência (CLT). A experiência é a SITUAÇÃO
+   * `EXPERIENCE` (não mais uma modalidade): split padrão 1º período = 30 dias,
+   * 2º período = 50 dias (teto legal de 90 dias). Vínculo já ACTIVE (efetivado)
+   * grava effectedAt. Retorna apenas os campos a serem persistidos.
+   *
+   * O split é configurável via EXPERIENCE_PHASE_1_DAYS / EXPERIENCE_PHASE_2_DAYS.
    */
+  static readonly EXPERIENCE_PHASE_1_DAYS = 30;
+  static readonly EXPERIENCE_PHASE_2_DAYS = 50;
+
   computeContractDates(input: {
+    status: CONTRACT_STATUS;
     contractType: CONTRACT_TYPE | null;
     admissionDate: Date | null;
     exp1StartAt: Date | null;
@@ -235,30 +281,30 @@ export class EmploymentContractService {
     const now = new Date();
     let { admissionDate, exp1StartAt, exp1EndAt, exp2StartAt, exp2EndAt, effectedAt } = input;
 
-    if (
-      input.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_1 ||
-      input.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2
-    ) {
+    const p1 = EmploymentContractService.EXPERIENCE_PHASE_1_DAYS;
+    const p2 = EmploymentContractService.EXPERIENCE_PHASE_2_DAYS;
+
+    if (input.status === CONTRACT_STATUS.EXPERIENCE) {
       const start = exp1StartAt || admissionDate || now;
       exp1StartAt = exp1StartAt || start;
       admissionDate = admissionDate || start;
 
       if (!exp1EndAt) {
         const e = new Date(start);
-        e.setDate(e.getDate() + 30);
+        e.setDate(e.getDate() + p1);
         exp1EndAt = e;
       }
       if (!exp2StartAt) {
         const s = new Date(start);
-        s.setDate(s.getDate() + 31);
+        s.setDate(s.getDate() + p1 + 1);
         exp2StartAt = s;
       }
       if (!exp2EndAt) {
         const e = new Date(start);
-        e.setDate(e.getDate() + 80); // 30 (exp1) + 50 (exp2)
+        e.setDate(e.getDate() + p1 + p2);
         exp2EndAt = e;
       }
-    } else if (input.contractType === CONTRACT_TYPE.EFFECTED) {
+    } else if (input.status === CONTRACT_STATUS.ACTIVE) {
       effectedAt = effectedAt || admissionDate || now;
       admissionDate = admissionDate || effectedAt;
     } else {
@@ -381,6 +427,28 @@ export class EmploymentContractService {
       throw new NotFoundException('Vínculo não encontrado.');
     }
 
+    // ── Máquina de transição de situação: bloqueia regressões ilegais.
+    if (data.status !== undefined && data.status !== existing.status) {
+      if (!canTransitionContractStatus(existing.status, data.status as CONTRACT_STATUS)) {
+        throw new BadRequestException(
+          invalidContractStatusTransitionMessage(existing.status, data.status as string),
+        );
+      }
+    }
+
+    // ── Integridade categoria × modalidade (sobre o estado RESULTANTE).
+    const resultingEmployeeType = (data.employeeType ?? existing.employeeType) as EMPLOYEE_TYPE;
+    const resultingContractType = (
+      data.contractType !== undefined ? data.contractType : existing.contractType
+    ) as CONTRACT_TYPE | null;
+    const integrityError = validateEmployeeContractTypeIntegrity({
+      employeeType: resultingEmployeeType,
+      contractType: resultingContractType,
+    });
+    if (integrityError) {
+      throw new BadRequestException(integrityError);
+    }
+
     const updateData: any = {};
     if (data.employeeType !== undefined) updateData.employeeType = data.employeeType;
     if (data.contractType !== undefined) updateData.contractType = data.contractType;
@@ -404,20 +472,24 @@ export class EmploymentContractService {
     if (data.providerCnpj !== undefined) updateData.providerCnpj = data.providerCnpj;
     if (data.notes !== undefined) updateData.notes = data.notes;
 
-    // Efetivação: ao mudar o tipo para EFETIVADO sem effectedAt, registra agora.
+    // Efetivação (CLT art. 451): status EXPERIENCE → ACTIVE converte a modalidade
+    // para INDETERMINATE (salvo override explícito) e grava effectedAt.
     if (
-      data.contractType === CONTRACT_TYPE.EFFECTED &&
-      existing.contractType !== CONTRACT_TYPE.EFFECTED &&
-      data.effectedAt === undefined &&
-      !existing.effectedAt
+      data.status === CONTRACT_STATUS.ACTIVE &&
+      existing.status === CONTRACT_STATUS.EXPERIENCE
     ) {
-      updateData.effectedAt = new Date();
+      if (data.contractType === undefined && existing.contractType !== CONTRACT_TYPE.INDETERMINATE) {
+        updateData.contractType = CONTRACT_TYPE.INDETERMINATE;
+      }
+      if (data.effectedAt === undefined && !existing.effectedAt) {
+        updateData.effectedAt = new Date();
+      }
     }
 
-    // Demissão: status=DISMISSED sem data → grava agora.
+    // Encerramento: status=TERMINATED sem data → grava agora.
     if (
-      data.status === CONTRACT_STATUS.DISMISSED &&
-      existing.status !== CONTRACT_STATUS.DISMISSED &&
+      data.status === CONTRACT_STATUS.TERMINATED &&
+      existing.status !== CONTRACT_STATUS.TERMINATED &&
       data.terminationDate === undefined &&
       !existing.terminationDate
     ) {

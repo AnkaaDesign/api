@@ -63,9 +63,14 @@ import {
   POSITION_CHANGE_REASON,
 } from '../../../constants/enums';
 import { POSITION_CHANGE_REASON_LABELS } from '../../../constants/enum-labels';
-import { CONTRACT_TYPE_ORDER } from '../../../constants/sortOrders';
+import { CONTRACT_STATUS_ORDER } from '../../../constants/sortOrders';
 import { EmploymentContractService } from '@modules/human-resources/employment-contract/employment-contract.service';
 import { isValidCPF, isValidPIS, isValidPhone } from '../../../utils';
+import {
+  canTransitionContractStatus,
+  invalidContractStatusTransitionMessage,
+  validateEmployeeContractTypeIntegrity,
+} from '../../../utils/contract';
 import { FileService } from '@modules/common/file/file.service';
 import { FolderRenameService } from '@modules/common/file/services/folder-rename.service';
 import { NotificationPreferenceInitService } from '@modules/common/notification/notification-preference-init.service';
@@ -408,8 +413,8 @@ export class UserService {
     // Note: ledSector is now handled via Sector.leaderId relation
     // The business logic for sector leadership should be handled in the Sector service
 
-    // Validar que ao demitir (status do vínculo → DISMISSED), o usuário não tenha pendências
-    if (isUpdate && (data as any).contractStatus === CONTRACT_STATUS.DISMISSED) {
+    // Validar que ao demitir (status do vínculo → TERMINATED), o usuário não tenha pendências
+    if (isUpdate && (data as any).contractStatus === CONTRACT_STATUS.TERMINATED) {
       // Verificar empréstimos não devolvidos
       const unreturnedBorrows = await transaction.borrow.count({
         where: {
@@ -834,16 +839,24 @@ export class UserService {
     }
 
     // Criar o PRIMEIRO vínculo (sequence 1, isCurrent true) e sincronizar o
-    // cache do User (currentContract*). Defaults: employeeType=CLT,
-    // contractType=EXPERIENCE_PERIOD_1; datas calculadas automaticamente.
+    // cache do User (currentContract*). Defaults CLT: contractType=FIXED_TERM,
+    // status=EXPERIENCE (a experiência é a SITUAÇÃO, não uma modalidade);
+    // off-folha: contractType=null, status=ACTIVE. Datas calculadas automaticamente.
     const employeeType = (contractInput?.employeeType as EMPLOYEE_TYPE) ?? EMPLOYEE_TYPE.CLT;
     const contractType =
       contractInput?.contractType === undefined
         ? employeeType === EMPLOYEE_TYPE.CLT
-          ? CONTRACT_TYPE.EXPERIENCE_PERIOD_1
+          ? CONTRACT_TYPE.FIXED_TERM
           : null
         : (contractInput.contractType as CONTRACT_TYPE | null);
+    const status =
+      employeeType === EMPLOYEE_TYPE.CLT ? CONTRACT_STATUS.EXPERIENCE : CONTRACT_STATUS.ACTIVE;
+    const integrityError = validateEmployeeContractTypeIntegrity({ employeeType, contractType });
+    if (integrityError) {
+      throw new BadRequestException(integrityError);
+    }
     const contractDates = this.employmentContractService.computeContractDates({
+      status,
       contractType,
       admissionDate: contractInput?.admissionDate ?? admissionDate ?? null,
       exp1StartAt: null,
@@ -860,8 +873,8 @@ export class UserService {
         isCurrent: true,
         employeeType: employeeType as any,
         contractType: (contractType as any) ?? null,
-        status: CONTRACT_STATUS.ACTIVE as any,
-        statusOrder: 1,
+        status: status as any,
+        statusOrder: CONTRACT_STATUS_ORDER[status],
         payrollNumber: contractInput?.payrollNumber ?? newUser.payrollNumber ?? null,
         positionId: contractInput?.positionId ?? newUser.positionId ?? null,
         sectorId: contractInput?.sectorId ?? newUser.sectorId ?? null,
@@ -1064,16 +1077,41 @@ export class UserService {
         const existingContractType = (existingUser as any).currentContractType as
           | CONTRACT_TYPE
           | null;
+        const existingContractStatus = (existingUser as any).currentContractStatus as
+          | CONTRACT_STATUS
+          | null;
 
-        // A termination date implies the contract status becomes DISMISSED.
+        // A termination date implies the contract status becomes TERMINATED.
         if (
           (data as any).terminationDate &&
-          (data as any).contractStatus !== CONTRACT_STATUS.DISMISSED
+          (data as any).contractStatus !== CONTRACT_STATUS.TERMINATED
         ) {
-          (data as any).contractStatus = CONTRACT_STATUS.DISMISSED;
+          (data as any).contractStatus = CONTRACT_STATUS.TERMINATED;
         }
 
-        // Validate the contract-type transition within the current vínculo.
+        // Validate the contract STATUS transition (lifecycle machine) within the
+        // current vínculo. Blocks illegal regressions (e.g. ACTIVE→EXPERIENCE).
+        if (
+          (data as any).contractStatus &&
+          existingContractStatus &&
+          (data as any).contractStatus !== existingContractStatus
+        ) {
+          if (
+            !canTransitionContractStatus(
+              existingContractStatus,
+              (data as any).contractStatus as CONTRACT_STATUS,
+            )
+          ) {
+            throw new BadRequestException(
+              invalidContractStatusTransitionMessage(
+                existingContractStatus,
+                (data as any).contractStatus,
+              ),
+            );
+          }
+        }
+
+        // Validate the contract MODALITY transition within the current vínculo.
         if (data.contractType && existingContractType && data.contractType !== existingContractType) {
           const transitionValidation = this.validateUserStatusTransition(
             existingContractType,
@@ -1085,16 +1123,20 @@ export class UserService {
           }
         }
 
-        // Prevent EFFECTED contracts from being reverted to experience periods.
-        if (
-          existingContractType === CONTRACT_TYPE.EFFECTED &&
-          data.contractType &&
-          (data.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_1 ||
-            data.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2)
-        ) {
-          throw new BadRequestException(
-            'Colaboradores efetivados não podem ser alterados para períodos de experiência conforme a CLT.',
-          );
+        // EmployeeType ↔ ContractType integrity over the resulting merged state.
+        const resultingEmployeeType = ((data as any).employeeType ??
+          (existingUser as any).currentEmployeeType) as EMPLOYEE_TYPE | null | undefined;
+        const resultingContractType = (
+          data.contractType !== undefined ? data.contractType : existingContractType
+        ) as CONTRACT_TYPE | null;
+        if (resultingEmployeeType) {
+          const integrityError = validateEmployeeContractTypeIntegrity({
+            employeeType: resultingEmployeeType,
+            contractType: resultingContractType,
+          });
+          if (integrityError) {
+            throw new BadRequestException(integrityError);
+          }
         }
 
         // Validar usuário completo
@@ -1137,10 +1179,10 @@ export class UserService {
           (data as any).sessionToken = null;
         }
 
-        // Clear sessionToken when the collaborator is being dismissed (vínculo → DISMISSED)
+        // Clear sessionToken when the collaborator is being dismissed (vínculo → TERMINATED)
         if (
-          (data as any).contractStatus === CONTRACT_STATUS.DISMISSED &&
-          (existingUser as any).currentContractStatus !== CONTRACT_STATUS.DISMISSED
+          (data as any).contractStatus === CONTRACT_STATUS.TERMINATED &&
+          (existingUser as any).currentContractStatus !== CONTRACT_STATUS.TERMINATED
         ) {
           (data as any).sessionToken = null;
         }
@@ -1430,7 +1472,7 @@ export class UserService {
       // letting the bridge re-fetch is the robust path.
       const dismissalJustHappened =
         (updatedUser as { currentContractStatus?: string | null }).currentContractStatus ===
-        CONTRACT_STATUS.DISMISSED;
+        CONTRACT_STATUS.TERMINATED;
       this.logger.log(
         `[secullum-update] invoking bridge for user ${id} (dismissalJustHappened=${dismissalJustHappened})`,
       );
@@ -2016,12 +2058,15 @@ export class UserService {
   }
 
   /**
-   * Automatically transition users to the next status when their experience periods end
-   * This method should be called by a cron job daily at midnight
+   * Automatically advance experiência by DATES when phases end. Called daily.
    *
-   * Status transitions:
-   * - EXPERIENCE_PERIOD_1 -> EXPERIENCE_PERIOD_2 (when exp1EndAt is today)
-   * - EXPERIENCE_PERIOD_2 -> EFFECTED (when exp2EndAt is today)
+   * With the Part-A taxonomy, experiência is the SITUAÇÃO `status=EXPERIENCE`
+   * (modality stays e.g. FIXED_TERM); phase 1 vs 2 is tracked by the optional
+   * `experiencePhase` marker and the exp1/exp2 phase dates. Transitions:
+   * - phase 1 → phase 2 (when exp1EndAt passed): set experiencePhase=2,
+   *   exp2StartAt; status stays EXPERIENCE.
+   * - efetivação (when exp2EndAt passed): status EXPERIENCE → ACTIVE,
+   *   contractType → INDETERMINATE, set effectedAt.
    */
   async processExperiencePeriodTransitions(userId: string | null = null): Promise<{
     totalProcessed: number;
@@ -2047,13 +2092,15 @@ export class UserService {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
-      // Find CURRENT, ACTIVE contracts whose exp1 ended today or earlier, still EXP1.
+      // Find CURRENT contracts in EXPERIENCE still in phase 1 (experiencePhase=1
+      // or unset/derived) whose exp1 ended today or earlier, and which have NOT
+      // yet reached exp2EndAt (otherwise they go straight to efetivação below).
       const contractsEndingExp1 = await this.prisma.employmentContract.findMany({
         where: {
           isCurrent: true,
-          status: CONTRACT_STATUS.ACTIVE,
-          contractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
+          status: CONTRACT_STATUS.EXPERIENCE,
           exp1EndAt: { lt: tomorrow },
+          OR: [{ experiencePhase: { not: 2 } }, { experiencePhase: null }],
           ...(userId ? { userId } : {}),
         },
         include: { user: { select: { id: true, name: true } } },
@@ -2063,14 +2110,14 @@ export class UserService {
         `Found ${contractsEndingExp1.length} contracts with Experience Period 1 ended (pending transition)`,
       );
 
-      // Transition contracts from exp1 to exp2
+      // Advance phase 1 → phase 2 (status stays EXPERIENCE).
       for (const contract of contractsEndingExp1) {
         try {
           await this.prisma.$transaction(async (tx: PrismaTransaction) => {
             await tx.employmentContract.update({
               where: { id: contract.id },
               data: {
-                contractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
+                experiencePhase: 2,
                 exp2StartAt: contract.exp2StartAt || today,
               },
             });
@@ -2083,9 +2130,9 @@ export class UserService {
               entityType: ENTITY_TYPE.USER,
               entityId: contract.userId,
               action: CHANGE_ACTION.UPDATE,
-              field: 'contractType',
-              oldValue: CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
-              newValue: CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
+              field: 'experiencePhase',
+              oldValue: contract.experiencePhase?.toString() ?? '1',
+              newValue: '2',
               reason: 'Transição automática: Período de Experiência 1 finalizado',
               triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
               triggeredById: contract.userId,
@@ -2094,7 +2141,7 @@ export class UserService {
             });
 
             this.logger.log(
-              `Contract for ${contract.user?.name} (${contract.userId}) transitioned from EXP1 to EXP2`,
+              `Contract for ${contract.user?.name} (${contract.userId}) advanced from experiência fase 1 to fase 2`,
             );
           });
 
@@ -2102,7 +2149,7 @@ export class UserService {
           result.totalProcessed++;
         } catch (error: any) {
           this.logger.error(
-            `Failed to transition contract ${contract.id} from EXP1 to EXP2:`,
+            `Failed to advance contract ${contract.id} from experiência fase 1 to fase 2:`,
             error,
           );
           result.errors.push({
@@ -2112,12 +2159,12 @@ export class UserService {
         }
       }
 
-      // Find CURRENT, ACTIVE contracts whose exp2 ended today or earlier, still EXP2.
+      // Find CURRENT contracts in EXPERIENCE whose exp2 ended today or earlier
+      // → efetivação (status EXPERIENCE → ACTIVE, modality → INDETERMINATE).
       const contractsEndingExp2 = await this.prisma.employmentContract.findMany({
         where: {
           isCurrent: true,
-          status: CONTRACT_STATUS.ACTIVE,
-          contractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
+          status: CONTRACT_STATUS.EXPERIENCE,
           exp2EndAt: { lt: tomorrow },
           ...(userId ? { userId } : {}),
         },
@@ -2161,11 +2208,15 @@ export class UserService {
 
             const shouldPromote = nextPosition !== null;
 
-            // Effect the contract (and promote position if a higher hierarchy exists).
+            // Efetivação (CLT art. 451): status → ACTIVE, modalidade →
+            // INDETERMINATE, grava effectedAt (e promove o cargo se houver
+            // hierarquia superior).
             await tx.employmentContract.update({
               where: { id: contract.id },
               data: {
-                contractType: CONTRACT_TYPE.EFFECTED,
+                status: CONTRACT_STATUS.ACTIVE,
+                statusOrder: CONTRACT_STATUS_ORDER[CONTRACT_STATUS.ACTIVE],
+                contractType: CONTRACT_TYPE.INDETERMINATE,
                 effectedAt: today,
                 ...(shouldPromote && { positionId: nextPosition!.id }),
               },
@@ -2185,15 +2236,15 @@ export class UserService {
               userId: userId ?? undefined,
             });
 
-            // Log the status change
+            // Log the status change (efetivação)
             await this.changeLogService.logChange({
               entityType: ENTITY_TYPE.USER,
               entityId: user.id,
               action: CHANGE_ACTION.UPDATE,
-              field: 'contractType',
-              oldValue: CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
-              newValue: CONTRACT_TYPE.EFFECTED,
-              reason: 'Transição automática: Período de Experiência 2 finalizado',
+              field: 'currentContractStatus',
+              oldValue: CONTRACT_STATUS.EXPERIENCE,
+              newValue: CONTRACT_STATUS.ACTIVE,
+              reason: 'Transição automática: Período de Experiência 2 finalizado (efetivação)',
               triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
               triggeredById: user.id,
               userId: userId,

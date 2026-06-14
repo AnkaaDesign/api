@@ -40,6 +40,19 @@ export class HrStatisticsController {
     return { success: true, message: 'Análise de rotatividade carregada', data };
   }
 
+  // Custo de folha histórico (Part F): reflete o salário que cada colaborador
+  // TINHA no período (cargo-na-data × MonetaryValue-na-data), não o valor atual
+  // do cargo. Salário é dado sensível → restrito a ADMIN/HR/ACCOUNTING.
+  @Post('salary-cost')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ACCOUNTING)
+  @HttpCode(HttpStatus.OK)
+  async salaryCost(
+    @Body(new ZodValidationPipe(headcountFiltersSchema)) filters: HeadcountFilters,
+  ) {
+    const data = await this.hrStatistics.getSalaryCostOverTime(filters);
+    return { success: true, message: 'Custo de folha histórico carregado', data };
+  }
+
   @Post('absenteeism')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
   @HttpCode(HttpStatus.OK)

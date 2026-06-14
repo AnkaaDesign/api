@@ -45,6 +45,11 @@ import {
   ENTITY_TYPE,
   CHANGE_ACTION,
 } from '../../../constants';
+import { getWarningSeverityLevel, validateWarningEscalation } from '../../../utils/warning';
+
+// CLT art. 474: a suspensão disciplinar não pode exceder 30 dias corridos
+// (suspensão por prazo maior importa rescisão injusta do contrato).
+const MAX_SUSPENSION_DAYS = 30;
 
 @Injectable()
 export class WarningService {
@@ -290,6 +295,64 @@ export class WarningService {
     if (!existingId && !data.collaboratorId) {
       throw new BadRequestException('O colaborador é obrigatório.');
     }
+
+    // CLT art. 474 — dias de suspensão limitados a 30 e exigidos para SUSPENSION.
+    const suspensionDays = (data as any).suspensionDays as number | null | undefined;
+    if (suspensionDays !== undefined && suspensionDays !== null) {
+      if (suspensionDays > MAX_SUSPENSION_DAYS) {
+        throw new BadRequestException(
+          `CLT art. 474: a suspensão não pode exceder ${MAX_SUSPENSION_DAYS} dias.`,
+        );
+      }
+      if (suspensionDays < 1) {
+        throw new BadRequestException('Dias de suspensão deve ser ao menos 1.');
+      }
+      if (data.severity && data.severity !== WARNING_SEVERITY.SUSPENSION) {
+        throw new BadRequestException(
+          'Dias de suspensão só se aplicam a advertências de Suspensão.',
+        );
+      }
+    }
+
+    // Vínculo opcional a uma rescisão (justa causa) — deve existir.
+    const terminationId = (data as any).terminationId as string | null | undefined;
+    if (terminationId) {
+      const termination = await transaction.termination.findUnique({
+        where: { id: terminationId },
+        select: { id: true },
+      });
+      if (!termination) {
+        throw new NotFoundException('Rescisão vinculada não encontrada.');
+      }
+    }
+
+    // Ladder de advertências (CLT — progressão disciplinar): ao CRIAR uma nova
+    // advertência, a severidade não pode regredir abaixo da última advertência
+    // ATIVA do colaborador (porta o validateWarningEscalation antes morto). A
+    // mesma severidade é permitida (reincidência no mesmo grau); apenas regressão
+    // é bloqueada.
+    if (!existingId && data.collaboratorId && data.severity) {
+      const lastActive = await transaction.warning.findFirst({
+        where: { collaboratorId: data.collaboratorId, isActive: true },
+        orderBy: [{ severityOrder: 'desc' }, { createdAt: 'desc' }],
+        select: { severity: true },
+      });
+      if (lastActive?.severity) {
+        const newLevel = getWarningSeverityLevel(data.severity as WARNING_SEVERITY);
+        const lastLevel = getWarningSeverityLevel(lastActive.severity as WARNING_SEVERITY);
+        // Bloqueia regressão; permite mesmo grau ou escalonamento.
+        if (
+          newLevel < lastLevel &&
+          !validateWarningEscalation(lastActive.severity as WARNING_SEVERITY, data.severity as WARNING_SEVERITY)
+        ) {
+          throw new BadRequestException(
+            `Progressão disciplinar inválida: a advertência ativa mais recente é ` +
+              `"${WarningService.SEVERITY_LABELS_PT[lastActive.severity] ?? lastActive.severity}". ` +
+              `Uma nova advertência não pode ter severidade inferior.`,
+          );
+        }
+      }
+    }
   }
 
   /**
@@ -458,9 +521,15 @@ export class WarningService {
           newEntity: updatedWarning,
           fieldsToTrack: [
             'severity',
+            'category',
             'reason',
             'description',
-            'date',
+            'isActive',
+            'suspensionDays',
+            'terminationId',
+            'hrNotes',
+            'followUpDate',
+            'resolvedAt',
             'collaboratorId',
             'supervisorId',
           ],

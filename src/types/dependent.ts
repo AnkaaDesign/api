@@ -12,6 +12,7 @@ import type {
 } from './common';
 import type { DEPENDENT_RELATIONSHIP, ORDER_BY_DIRECTION } from '@constants';
 import type { User, UserIncludes } from './user';
+import type { UserBenefit, UserBenefitIncludes } from './benefit';
 
 // =====================
 // Main Entity Interface
@@ -27,10 +28,15 @@ export interface Dependent extends BaseEntity {
   irrfDeduction: boolean;
   /** Elegível ao salário-família (filho <= 14 anos ou inválido; teto de remuneração aplica) */
   salarioFamilia: boolean;
+  /** Plano de saúde (UserBenefit) ao qual o dependente está inscrito; NULL = não inscrito. */
+  healthPlanBenefitId: string | null;
+  /** Valor mensal atribuído a este dependente no plano (compõe a dedução de IRRF). */
+  healthPlanValue: number | null;
   notes: string | null;
 
   // Relations (optional, populated based on query)
   user?: User;
+  healthPlanBenefit?: UserBenefit;
 }
 
 // =====================
@@ -42,6 +48,11 @@ export interface DependentIncludes {
     | boolean
     | {
         include?: UserIncludes;
+      };
+  healthPlanBenefit?:
+    | boolean
+    | {
+        include?: UserBenefitIncludes;
       };
 }
 

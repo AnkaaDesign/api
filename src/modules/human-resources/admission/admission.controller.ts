@@ -13,15 +13,17 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
-import { UserId } from '@modules/common/auth/decorators/user.decorator';
+import { User, UserId } from '@modules/common/auth/decorators/user.decorator';
 import { ReadRateLimit, WriteRateLimit } from '@modules/common/throttler/throttler.decorators';
 import {
   ZodValidationPipe,
@@ -30,6 +32,9 @@ import {
 import { ArrayFixPipe } from '@modules/common/pipes/array-fix.pipe';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { AdmissionService } from './admission.service';
+import { AdmissionSignatureService } from './admission-signature.service';
+import { admissionDocumentSignSchema } from '../../../schemas';
+import type { AdmissionDocumentSignFormData } from '../../../schemas';
 import type {
   AdmissionBatchCreateResponse,
   AdmissionBatchDeleteResponse,
@@ -72,7 +77,10 @@ import {
 @UseGuards(AuthGuard)
 @Roles(SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
 export class AdmissionController {
-  constructor(private readonly admissionService: AdmissionService) {}
+  constructor(
+    private readonly admissionService: AdmissionService,
+    private readonly admissionSignatureService: AdmissionSignatureService,
+  ) {}
 
   // Basic CRUD Operations
   @Get()
@@ -138,6 +146,77 @@ export class AdmissionController {
     @UserId() userId: string,
   ): Promise<AdmissionDocumentUpdateResponse> {
     return this.admissionService.updateDocument(documentId, data, userId);
+  }
+
+  // In-app electronic signature of an admission document (e.g. LGPD_TERM).
+  // Method-level @Roles is MERGED with the class-level (getAllAndMerge), so we
+  // open it to every sector here and the service enforces owner-or-HR/ADMIN.
+  // Mirrors the PPE delivery sign endpoint.
+  @Post('documents/:documentId/sign')
+  @WriteRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.BASIC,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.PLOTTING,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.AIRBRUSHING,
+  )
+  @HttpCode(HttpStatus.OK)
+  async signDocument(
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @Body(new ZodValidationPipe(admissionDocumentSignSchema)) evidence: AdmissionDocumentSignFormData,
+    @UserId() userId: string,
+    @User('role') role: string,
+    @Req() req: Request,
+  ): Promise<{ success: boolean; message: string } & Record<string, any>> {
+    const ip =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.ip ||
+      req.socket?.remoteAddress ||
+      undefined;
+    const result = await this.admissionSignatureService.signDocument(
+      documentId,
+      evidence,
+      userId,
+      role,
+      ip,
+    );
+    return {
+      success: true,
+      message: 'Documento assinado eletronicamente com sucesso.',
+      ...result,
+    };
+  }
+
+  // Read path for web/mobile — signature evidence of a document.
+  @Get('documents/:documentId/signature')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.BASIC,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.PLOTTING,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.AIRBRUSHING,
+  )
+  async getDocumentSignature(
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+  ): Promise<{ success: boolean; message: string; data: any }> {
+    const data = await this.admissionSignatureService.getSignatureDetails(documentId);
+    return { success: true, message: 'Assinatura carregada com sucesso.', data };
   }
 
   // Documentação do colaborador — admission lookup by userId (static segment)

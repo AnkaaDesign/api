@@ -25,6 +25,9 @@ import { PpeSignatureAuditService } from './ppe-signature-audit.service';
 // Listeners
 import { PpeListener } from './ppe.listener';
 
+// Schedulers
+import { PpeCaExpiryScheduler } from './ppe-ca-expiry.scheduler';
+
 // Repositories
 import { PpeSizeRepository } from './repositories/ppe-size/ppe-size.repository';
 import { PpeSizePrismaRepository } from './repositories/ppe-size/ppe-size-prisma.repository';
@@ -58,6 +61,8 @@ import { PpeDeliverySchedulePrismaRepository } from './repositories/ppe-delivery
     PpeSignatureAuditService,
     // Listeners
     PpeListener,
+    // Schedulers
+    PpeCaExpiryScheduler,
     // Repositories
     {
       provide: PpeSizeRepository,

@@ -5,6 +5,7 @@ import { PayrollService } from '../../human-resources/payroll/payroll.service';
 import { CacheService } from '../cache/cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationDispatchService } from '../notification/notification-dispatch.service';
+import { BONIFIABLE_USER_WHERE } from '../../../utils/contract';
 
 @Injectable()
 export class BonusCronService {
@@ -63,8 +64,7 @@ export class BonusCronService {
         this.prisma.payroll.count({ where: { year: periodYear, month: periodMonth } }),
         this.prisma.user.count({
           where: {
-            currentContractType: 'EFFECTED',
-            currentEmployeeType: 'CLT',
+            ...BONIFIABLE_USER_WHERE,
             payrollNumber: { not: null },
             secullumEmployeeId: { not: null },
           },

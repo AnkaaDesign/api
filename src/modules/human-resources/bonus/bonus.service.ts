@@ -28,9 +28,8 @@ import {
   CHANGE_ACTION,
   BONIFICATION_STATUS,
   TASK_STATUS,
-  CONTRACT_TYPE,
-  PAYROLL_EMPLOYEE_TYPES,
 } from '../../../constants/enums';
+import { BONIFIABLE_USER_WHERE } from '../../../utils/contract';
 import { logEntityChange } from '@modules/common/changelog/utils/changelog-helpers';
 import { roundAverage, roundCurrency } from '../../../utils/currency-precision.util';
 import {
@@ -501,8 +500,7 @@ export class BonusService {
       // Get all bonifiable users (for user count + eligible users list)
       const allBonifiableUsers = await this.prisma.user.findMany({
         where: {
-          currentContractType: CONTRACT_TYPE.EFFECTED,
-          currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
+          ...BONIFIABLE_USER_WHERE,
           position: { bonifiable: true },
           secullumEmployeeId: { not: null },
         },
@@ -1670,11 +1668,15 @@ export class BonusService {
 
   /**
    * Internal helper: load the period adjustment as a fraction (0.05 = +5%).
-   * Reads from BonusPeriodConfig (the canonical source). Falls back to the
-   * snapshot stored on the most recent saved Bonus row only when no config
-   * row exists — that lets periods adjusted under the old "store on bonus
-   * row" scheme continue to report a non-zero value until the next apply
-   * upserts a config row.
+   * Resolution order:
+   *   1. Exact {year, month} BonusPeriodConfig row (canonical source).
+   *   2. Snapshot stored on the most recent same-period saved Bonus row
+   *      (backward-compat for periods adjusted under the old "store on bonus
+   *      row" scheme — reported until the next apply upserts a config row).
+   *   3. Carry-forward: the MOST RECENT PRIOR BonusPeriodConfig row, so a
+   *      vigência set in the past stays in force for every later period until
+   *      a newer row overrides it (dissídio semantics).
+   *   4. 0 when nothing exists.
    */
   async loadPeriodAdjustmentFraction(
     year: number,
@@ -1697,8 +1699,26 @@ export class BonusService {
       select: { calculationParams: true },
     });
     const params = (sample?.calculationParams ?? null) as any;
-    const f = Number(params?.config?.adjustment);
-    return Number.isFinite(f) ? f : 0;
+    const sampleFraction = Number(params?.config?.adjustment);
+    if (Number.isFinite(sampleFraction)) {
+      return sampleFraction;
+    }
+
+    // Carry-forward (dissídio semantics): when this exact period has neither a
+    // config row nor a same-period saved-bonus snapshot, inherit the MOST
+    // RECENT PRIOR BonusPeriodConfig row. This makes a single "Data de Vigência"
+    // write (one upserted row) apply to that period AND all later periods until
+    // a newer row overrides it — exactly like a salary dissídio that stays in
+    // force from its effective date onward.
+    const prior = await db.bonusPeriodConfig.findFirst({
+      where: {
+        OR: [{ year: { lt: year } }, { year, month: { lt: month } }],
+      },
+      orderBy: [{ year: 'desc' }, { month: 'desc' }],
+      select: { adjustment: true },
+    });
+    const priorFraction = Number(prior?.adjustment);
+    return Number.isFinite(priorFraction) ? priorFraction : 0;
   }
 
   /**
@@ -1750,6 +1770,12 @@ export class BonusService {
     let newFraction = 0;
 
     await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      // Read the baseline via loadPeriodAdjustmentFraction (which now applies
+      // carry-forward). This keeps both behaviors correct:
+      //   (a) Applying at a NEW vigência period with no row of its own seeds
+      //       from the inherited prior value + delta (carry-forward path).
+      //   (b) Re-applying on a period that already has its own row adds to
+      //       that exact row (exact-row path takes precedence over carry-forward).
       previousFraction = await this.loadPeriodAdjustmentFraction(year, month, tx);
       const proposed = previousFraction + deltaFraction;
       newFraction = Math.max(-0.99, proposed);
@@ -1890,8 +1916,7 @@ export class BonusService {
     // Count eligible users (bonifiable + performanceLevel > 0)
     const eligibleUsers = await this.prisma.user.count({
       where: {
-        currentContractType: CONTRACT_TYPE.EFFECTED,
-        currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
+        ...BONIFIABLE_USER_WHERE,
         position: { bonifiable: true },
         performanceLevel: { gt: 0 },
         secullumEmployeeId: { not: null },
@@ -2049,8 +2074,7 @@ export class BonusService {
       // We need all of them for display, but only those with performanceLevel > 0 count for the average
       const allBonifiableUsers = await this.prisma.user.findMany({
         where: {
-          currentContractType: CONTRACT_TYPE.EFFECTED,
-          currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
+          ...BONIFIABLE_USER_WHERE,
           position: {
             bonifiable: true,
           },
@@ -2457,8 +2481,7 @@ export class BonusService {
       // This ensures we show data even for users with performanceLevel = 0
       const allBonifiableUsers = await this.prisma.user.findMany({
         where: {
-          currentContractType: CONTRACT_TYPE.EFFECTED,
-          currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
+          ...BONIFIABLE_USER_WHERE,
           position: { bonifiable: true },
           secullumEmployeeId: { not: null },
         },
@@ -2837,8 +2860,7 @@ export class BonusService {
       // Get ALL active users with payroll numbers (not just eligible ones)
       const allActiveUsers = await this.prisma.user.findMany({
         where: {
-          currentContractType: CONTRACT_TYPE.EFFECTED,
-          currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
+          ...BONIFIABLE_USER_WHERE,
           payrollNumber: { not: null },
           secullumEmployeeId: { not: null },
         },
@@ -3475,8 +3497,7 @@ export class BonusService {
 
     const allBonifiableUsers = await this.prisma.user.findMany({
       where: {
-        currentContractType: CONTRACT_TYPE.EFFECTED,
-        currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
+        ...BONIFIABLE_USER_WHERE,
         position: { bonifiable: true },
         secullumEmployeeId: { not: null },
         // Eligible user count is always company-wide — it's the denominator of

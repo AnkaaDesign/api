@@ -35,7 +35,16 @@ import type {
   PostitInclude,
 } from '../../../schemas';
 
-const POSTIT_TRACKED_FIELDS = ['content', 'color', 'position', 'isArchived'];
+const POSTIT_TRACKED_FIELDS = [
+  'content',
+  'color',
+  'position',
+  'isArchived',
+  'positionX',
+  'positionY',
+  'width',
+  'height',
+];
 
 @Injectable()
 export class PostitService {
@@ -142,6 +151,11 @@ export class PostitService {
             color: data.color ?? 'yellow',
             position,
             userId,
+            // Canvas livre: posição/tamanho opcionais.
+            positionX: data.positionX ?? null,
+            positionY: data.positionY ?? null,
+            width: data.width ?? null,
+            height: data.height ?? null,
           },
           include,
         });

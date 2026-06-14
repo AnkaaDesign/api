@@ -44,6 +44,7 @@ import type {
   PayrollInclude,
 } from '../../../schemas';
 import type { Payroll, PayrollGetManyResponse } from '../../../types';
+import { calculateEmployeeShare } from '@utils/benefit-discount';
 
 // =====================
 // Types
@@ -113,6 +114,141 @@ export class PayrollService {
         error as any,
       );
       return fallbackCount;
+    }
+  }
+
+  /**
+   * Resolve os insumos novos da folha (Part B) para um usuário/período:
+   * - salário-família: filhos elegíveis (Dependent.salarioFamilia = true);
+   * - insalubridade/periculosidade: Position com override do EmploymentContract
+   *   (mutuamente exclusivos — insalubridade tem precedência);
+   * - plano de saúde dedutível de IRRF: titular (HEALTH_PLAN/DENTAL_PLAN ativos)
+   *   + Σ Dependent.healthPlanValue dos dependentes inscritos;
+   * - proporcionalidade (avos): dias cobertos pelo vínculo no mês quando há
+   *   admissão/desligamento no meio do mês.
+   */
+  private async resolvePayrollInputs(
+    userId: string,
+    year: number,
+    month: number,
+  ): Promise<{
+    salarioFamiliaChildren: number;
+    insalubrityDegree: any;
+    hazardPay: boolean;
+    healthPlanIrrfDeductible: number;
+    daysCoveredInMonth: number | null;
+    daysInMonth: number;
+  }> {
+    const daysInMonth = new Date(year, month, 0).getDate();
+
+    const defaults = {
+      salarioFamiliaChildren: 0,
+      insalubrityDegree: null as any,
+      hazardPay: false,
+      healthPlanIrrfDeductible: 0,
+      daysCoveredInMonth: null as number | null,
+      daysInMonth,
+    };
+
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          position: true,
+          currentContract: true,
+          dependents: true,
+        },
+      });
+      if (!user) return defaults;
+
+      // ----- Salário-família: filhos ≤14/inválidos elegíveis -----
+      const salarioFamiliaChildren = (user.dependents || []).filter(
+        d => d.salarioFamilia === true,
+      ).length;
+
+      // ----- Insalubridade / periculosidade (Position + contract override) -----
+      const contract = (user as any).currentContract;
+      const insalubrityDegree =
+        contract?.insalubrityDegreeOverride ?? user.position?.insalubrityDegree ?? null;
+      const hazardPay = contract?.hazardPayOverride ?? user.position?.hazardPay ?? false;
+      // Mutuamente exclusivos: insalubridade tem precedência se grau != NONE.
+      const effectiveInsalubrity =
+        insalubrityDegree && insalubrityDegree !== 'NONE' ? insalubrityDegree : null;
+      const effectiveHazard = effectiveInsalubrity ? false : hazardPay;
+
+      // ----- Plano de saúde dedutível de IRRF -----
+      // Σ Dependent.healthPlanValue (dependentes inscritos no plano).
+      const dependentsHealthPlan = (user.dependents || []).reduce(
+        (sum, d) => sum + (d.healthPlanValue != null ? Number(d.healthPlanValue) : 0),
+        0,
+      );
+      // Parcela do titular: coparticipação de adesões HEALTH_PLAN/DENTAL_PLAN ativas.
+      let titularHealthPlan = 0;
+      try {
+        const healthEnrollments = await this.prisma.userBenefit.findMany({
+          where: { userId, status: 'ACTIVE' },
+          include: { benefit: true },
+        });
+        titularHealthPlan = healthEnrollments
+          .filter(e => {
+            const kind = (e.benefit as any)?.kind as string;
+            return kind === 'HEALTH_PLAN' || kind === 'DENTAL_PLAN';
+          })
+          // Resolve a parcela do titular pela regra canônica (benefit-discount.ts):
+          // adesões percentuais (employeeDiscountPercent) também integram a dedução
+          // de IRRF, não só as de valor fixo. Para HEALTH_PLAN/DENTAL_PLAN o
+          // percentual incide sobre o custo do benefício (salário não é usado).
+          .reduce(
+            (sum, e) =>
+              sum +
+              calculateEmployeeShare({
+                monthlyValue: Number((e as any).monthlyValue || 0),
+                employeeDiscountValue: (e as any).employeeDiscountValue,
+                employeeDiscountPercent: (e as any).employeeDiscountPercent,
+                benefitKind: (e.benefit as any)?.kind as string,
+              }),
+            0,
+          );
+      } catch {
+        // best-effort; titular plan deduction stays 0 on error
+      }
+      const healthPlanIrrfDeductible = dependentsHealthPlan + titularHealthPlan;
+
+      // ----- Proporcionalidade (avos) por admissão/desligamento no mês -----
+      let daysCoveredInMonth: number | null = null;
+      const admission = contract?.admissionDate ? new Date(contract.admissionDate) : null;
+      const termination = contract?.terminationDate ? new Date(contract.terminationDate) : null;
+      const admittedMidMonth =
+        admission &&
+        admission.getFullYear() === year &&
+        admission.getMonth() === month - 1 &&
+        admission.getDate() > 1;
+      const terminatedMidMonth =
+        termination &&
+        termination.getFullYear() === year &&
+        termination.getMonth() === month - 1 &&
+        termination.getDate() < daysInMonth;
+      if (admittedMidMonth || terminatedMidMonth) {
+        const start = admittedMidMonth ? admission!.getDate() : 1;
+        const end = terminatedMidMonth ? termination!.getDate() : daysInMonth;
+        // Avos contam dias-calendário cobertos pelo vínculo (dias efetivos / dias do mês).
+        daysCoveredInMonth = Math.max(0, end - start + 1);
+      }
+
+      return {
+        salarioFamiliaChildren,
+        insalubrityDegree: effectiveInsalubrity,
+        hazardPay: effectiveHazard,
+        healthPlanIrrfDeductible,
+        daysCoveredInMonth,
+        daysInMonth,
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Erro ao resolver insumos da folha (Part B) para ${userId}; usando defaults`,
+        error as any,
+      );
+      return defaults;
     }
   }
 
@@ -309,7 +445,7 @@ export class PayrollService {
       const userResponse = await this.userService.findById(data.userId);
       if (
         !userResponse.data ||
-        userResponse.data.currentContractStatus === CONTRACT_STATUS.DISMISSED
+        userResponse.data.currentContractStatus === CONTRACT_STATUS.TERMINATED
       ) {
         throw new BadRequestException('Usuário não encontrado ou desligado.');
       }
@@ -555,7 +691,7 @@ export class PayrollService {
       // Get all active users with payroll number
       const activeUsers = await this.prisma.user.findMany({
         where: {
-          currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
+          currentContractStatus: { not: CONTRACT_STATUS.TERMINATED },
           currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
           payrollNumber: { not: null },
         },
@@ -620,6 +756,20 @@ export class PayrollService {
               currentMonth: month,
             });
 
+          // Employee-anchored MASTER loans due this competência. These are the
+          // single source of truth for loans/advances; the previous-month copy
+          // path skips master-anchored loan lines, so there is no double-count.
+          const masterLoansForCalc =
+            await this.persistentDiscountService.getMasterLoansForLivePayroll({
+              employeeId: user.id,
+              currentYear: year,
+              currentMonth: month,
+            });
+
+          const allPersistentForCalc = [...persistentDiscountsForCalc, ...masterLoansForCalc];
+
+          const payrollInputs = await this.resolvePayrollInputs(user.id, year, month);
+
           const calculation = await this.completeCalculator.calculateCompletePayroll({
             employeeId: user.id,
             year,
@@ -635,7 +785,13 @@ export class PayrollService {
             unionMember: (user as any).unionMember || false,
             isApprentice:
               (user as any).currentContractType === CONTRACT_TYPE.APPRENTICE, // FGTS 2%
-            persistentDiscounts: persistentDiscountsForCalc.map(d => ({
+            salarioFamiliaChildren: payrollInputs.salarioFamiliaChildren,
+            insalubrityDegree: payrollInputs.insalubrityDegree,
+            hazardPay: payrollInputs.hazardPay,
+            healthPlanIrrfDeductible: payrollInputs.healthPlanIrrfDeductible,
+            daysCoveredInMonth: payrollInputs.daysCoveredInMonth,
+            daysInMonth: payrollInputs.daysInMonth,
+            persistentDiscounts: allPersistentForCalc.map(d => ({
               type: d.discountType,
               value: d.value ?? undefined,
               percentage: d.percentage ?? undefined,
@@ -679,8 +835,20 @@ export class PayrollService {
               },
             });
 
-            // Copy persistent discounts from previous month
+            // Copy persistent discounts from previous month (alimony, health
+            // insurance, etc.). Master-anchored loans are intentionally skipped
+            // here and handled by materializeMasterLoans below.
             await this.persistentDiscountService.copyPersistentDiscountsFromPreviousMonth({
+              employeeId: user.id,
+              newPayrollId: newPayroll.id,
+              currentYear: year,
+              currentMonth: month,
+            });
+
+            // Materialize employee-anchored MASTER loans (payrollId=null) into
+            // this folha: installment driven by competência math (gap-tolerant),
+            // advances the master, auto-deactivates when exhausted.
+            await this.persistentDiscountService.materializeMasterLoans({
               employeeId: user.id,
               newPayrollId: newPayroll.id,
               currentYear: year,
@@ -811,7 +979,7 @@ export class PayrollService {
 
       if (
         !userResponse.data ||
-        userResponse.data.currentContractStatus === CONTRACT_STATUS.DISMISSED
+        userResponse.data.currentContractStatus === CONTRACT_STATUS.TERMINATED
       ) {
         throw new NotFoundException('Usuário não encontrado ou inativo.');
       }
@@ -879,6 +1047,19 @@ export class PayrollService {
           currentMonth: month,
         });
 
+      // Employee-anchored MASTER loans due this competência (single source of
+      // truth for loans/advances; previous-month copies skip them).
+      const masterLoans =
+        await this.persistentDiscountService.getMasterLoansForLivePayroll({
+          employeeId: userId,
+          currentYear: year,
+          currentMonth: month,
+        });
+
+      const persistentWithMasters = [...persistentDiscounts, ...masterLoans];
+
+      const payrollInputs = await this.resolvePayrollInputs(userId, year, month);
+
       const calculation = await this.completeCalculator.calculateCompletePayroll({
         employeeId: userId,
         year,
@@ -893,7 +1074,13 @@ export class PayrollService {
         useSimplifiedDeduction: userAny.hasSimplifiedDeduction ?? true,
         unionMember: userAny.unionMember || false,
         isApprentice: userAny.currentContractType === CONTRACT_TYPE.APPRENTICE, // FGTS 2%
-        persistentDiscounts: persistentDiscounts.map(d => ({
+        salarioFamiliaChildren: payrollInputs.salarioFamiliaChildren,
+        insalubrityDegree: payrollInputs.insalubrityDegree,
+        hazardPay: payrollInputs.hazardPay,
+        healthPlanIrrfDeductible: payrollInputs.healthPlanIrrfDeductible,
+        daysCoveredInMonth: payrollInputs.daysCoveredInMonth,
+        daysInMonth: payrollInputs.daysInMonth,
+        persistentDiscounts: persistentWithMasters.map(d => ({
           type: d.discountType,
           value: d.value ?? undefined,
           percentage: d.percentage ?? undefined,
@@ -913,7 +1100,7 @@ export class PayrollService {
 
       // Combine all discounts (persistent rows are display copies; their
       // amounts are already inside calculation.totalDeductions)
-      const allDiscounts = [...autoDiscounts, ...persistentDiscounts];
+      const allDiscounts = [...autoDiscounts, ...persistentWithMasters];
 
       const totalDiscountsWithPersistent = calculation.totalDeductions;
       const netSalaryWithPersistent = calculation.netSalary;
@@ -1004,7 +1191,7 @@ export class PayrollService {
           taxYear: 'taxYear' in d ? d.taxYear || null : null,
           taxTableId: 'taxTableId' in d ? d.taxTableId || null : null,
           expirationDate: 'expirationDate' in d ? d.expirationDate || null : null,
-          baseValue: d.baseValue ? String(d.baseValue) : null,
+          baseValue: 'baseValue' in d && d.baseValue ? String(d.baseValue) : null,
           // Parcelamento (empréstimo consignado): exibir "Parcela X/Y" também
           // na folha ao vivo
           totalInstallments: 'totalInstallments' in d ? (d.totalInstallments ?? null) : null,
@@ -1104,7 +1291,7 @@ export class PayrollService {
       // For current period, generate live payrolls for all active users with payroll number
       const allActiveUsers = await this.prisma.user.findMany({
         where: {
-          currentContractStatus: { not: CONTRACT_STATUS.DISMISSED },
+          currentContractStatus: { not: CONTRACT_STATUS.TERMINATED },
           currentEmployeeType: { in: [...PAYROLL_EMPLOYEE_TYPES] },
           payrollNumber: { not: null }, // Only users with payroll number
         },

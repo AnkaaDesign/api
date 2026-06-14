@@ -46,6 +46,7 @@ import {
   logEntityChange,
 } from '@modules/common/changelog/utils/changelog-helpers';
 import { SalaryAdjustmentService } from '@modules/human-resources/salary-adjustment/salary-adjustment.service';
+import { checkSalaryFloor, toNumberOrNull } from './utils/salary-floor.util';
 @Injectable()
 export class PositionService {
   private readonly logger = new Logger(PositionService.name);
@@ -86,6 +87,25 @@ export class PositionService {
     // Validar remuneração se fornecida
     if (data.remuneration !== undefined && data.remuneration <= 0) {
       throw new BadRequestException('Remuneração deve ser maior que zero.');
+    }
+  }
+
+  /**
+   * Piso / salário-mínimo (Part F): bloqueia uma remuneração abaixo do piso
+   * efetivo (max(salário-mínimo nacional, piso da categoria)) salvo confirmação
+   * explícita (allowBelowFloor). Aviso guardado consistente com a validação do
+   * app: o front reenvia com allowBelowFloor=true para aplicar mesmo assim.
+   */
+  private enforceSalaryFloor(
+    remuneration: number,
+    categoryFloor: number | null,
+    allowBelowFloor: boolean,
+  ): void {
+    const check = checkSalaryFloor(remuneration, categoryFloor);
+    if (check.belowFloor && !allowBelowFloor) {
+      throw new BadRequestException(
+        `${check.message} Confirme para salvar mesmo assim.`,
+      );
     }
   }
 
@@ -149,11 +169,19 @@ export class PositionService {
 
         // Criar registro de remuneração inicial usando MonetaryValue
         if (data.remuneration && data.remuneration > 0) {
+          // Piso/salário-mínimo: o piso da categoria do cargo recém-criado é o
+          // próprio salaryFloor informado (se houver).
+          this.enforceSalaryFloor(
+            data.remuneration,
+            toNumberOrNull((data as any).salaryFloor),
+            (data as any).allowBelowFloor === true,
+          );
           await tx.monetaryValue.create({
             data: {
               value: data.remuneration,
               current: true, // Mark as current value
               positionId: newPosition.id,
+              effectiveDate: new Date(),
             },
           });
         }
@@ -225,6 +253,7 @@ export class PositionService {
           'bonificationEligible',
           'hierarchy',
           'bonifiable',
+          'salaryFloor',
         ];
 
         // Track field-level changes (excluding remuneration which has special handling)
@@ -244,6 +273,18 @@ export class PositionService {
         const currentRemuneration = existingPosition.remuneration || 0;
 
         if (data.remuneration && data.remuneration !== currentRemuneration) {
+          // Piso/salário-mínimo: usa o piso informado no update ou, na ausência,
+          // o piso já gravado no cargo.
+          const effectiveFloor =
+            (data as any).salaryFloor !== undefined
+              ? toNumberOrNull((data as any).salaryFloor)
+              : toNumberOrNull((existingPosition as any).salaryFloor);
+          this.enforceSalaryFloor(
+            data.remuneration,
+            effectiveFloor,
+            (data as any).allowBelowFloor === true,
+          );
+
           // Mark all existing monetary values as not current
           await tx.monetaryValue.updateMany({
             where: { positionId: id, current: true },
@@ -256,6 +297,7 @@ export class PositionService {
               value: data.remuneration,
               current: true,
               positionId: id,
+              effectiveDate: new Date(),
             },
           });
 
@@ -392,11 +434,17 @@ export class PositionService {
           const position = batchResult.success[i];
           const originalData = data.positions.find(p => p.name === position.name);
           if (originalData && originalData.remuneration) {
+            this.enforceSalaryFloor(
+              originalData.remuneration,
+              toNumberOrNull((originalData as any).salaryFloor),
+              (originalData as any).allowBelowFloor === true,
+            );
             await tx.monetaryValue.create({
               data: {
                 value: originalData.remuneration,
                 current: true,
                 positionId: position.id,
+                effectiveDate: new Date(),
               },
             });
           }
@@ -525,6 +573,16 @@ export class PositionService {
                 : existing.remuneration || 0;
 
             if (updateData.data.remuneration !== currentRemuneration) {
+              const effectiveFloor =
+                (updateData.data as any).salaryFloor !== undefined
+                  ? toNumberOrNull((updateData.data as any).salaryFloor)
+                  : toNumberOrNull((existing as any).salaryFloor);
+              this.enforceSalaryFloor(
+                updateData.data.remuneration,
+                effectiveFloor,
+                (updateData.data as any).allowBelowFloor === true,
+              );
+
               // Mark existing monetary values as not current
               await tx.monetaryValue.updateMany({
                 where: { positionId: position.id, current: true },
@@ -537,6 +595,7 @@ export class PositionService {
                   value: updateData.data.remuneration,
                   current: true,
                   positionId: position.id,
+                  effectiveDate: new Date(),
                 },
               });
 
@@ -566,6 +625,7 @@ export class PositionService {
             'bonificationEligible',
             'hierarchy',
             'bonifiable',
+            'salaryFloor',
           ];
 
           await trackAndLogFieldChanges({

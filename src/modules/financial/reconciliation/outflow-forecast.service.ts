@@ -7,6 +7,8 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PayrollService } from '@modules/human-resources/payroll/payroll.service';
+import { ThirteenthService } from '@modules/human-resources/thirteenth/thirteenth.service';
+import { VacationService } from '@modules/human-resources/vacation/vacation.service';
 import { TransactionCategoryService } from './transaction-category.service';
 import { RecurrenceLearnerService } from './recurrence-learner.service';
 
@@ -84,6 +86,8 @@ export class OutflowForecastService {
     private readonly categories: TransactionCategoryService,
     private readonly recurrence: RecurrenceLearnerService,
     private readonly payrollService: PayrollService,
+    private readonly thirteenthService: ThirteenthService,
+    private readonly vacationService: VacationService,
   ) {}
 
   async forecast(reference?: string) {
@@ -94,10 +98,11 @@ export class OutflowForecastService {
     const from = new Date(year, month - 1, 1, 0, 0, 0, 0);
     const to = new Date(year, month, 0, 23, 59, 59, 999);
 
-    const [pedidos, impostos, folha, recorrentes, learned] = await Promise.all([
+    const [pedidos, impostos, folha, folhaProgramada, recorrentes, learned] = await Promise.all([
       this.buildOrdersSection(from, to),
       this.buildTaxSection(from, to),
       this.buildPayrollSection(year, month),
+      this.buildScheduledPayrollSection(year, month, from, to),
       this.buildRecurringSection(from, to),
       this.buildLearnedSection(from, to, now),
     ]);
@@ -107,12 +112,19 @@ export class OutflowForecastService {
       from,
       to,
       // Composite month total. The learned forecast is informational only (it
-      // overlaps the static recurring slice by construction).
+      // overlaps the static recurring slice by construction). folhaProgramada
+      // (13º + férias) is a DISTINCT additive section — it does NOT overlap the
+      // monthly folha base, which only covers the current month's wages.
       total:
-        pedidos.totalOpen + impostos.totalForecast + folha.total + recorrentes.totalForecast,
+        pedidos.totalOpen +
+        impostos.totalForecast +
+        folha.total +
+        folhaProgramada.total +
+        recorrentes.totalForecast,
       pedidos,
       impostos,
       folha,
+      folhaProgramada,
       recorrentes,
       learned,
     };
@@ -340,6 +352,91 @@ export class OutflowForecastService {
       );
       return { available: false, total: 0, bonusTotal: 0, netTotal: 0, employeeCount: 0 };
     }
+  }
+
+  // ----- (c2) Folha programada (13º + férias) -------------------------------
+
+  /**
+   * Folha PROGRAMADA AGGREGATE for the reference month: the 13º installment(s)
+   * and the férias recibos that fall due in this month. This is ADDITIVE and
+   * DISTINCT from the monthly folha section (which only covers the current
+   * month's base wages incl. bonus) — there is no overlap, so summing both into
+   * the month total never double-counts.
+   *
+   * Per-employee rows never leave this method; both HR services are consumed
+   * READ-ONLY via their getForecastProjection() projections (no writes, no
+   * change to their public contract).
+   *
+   * 13º mapping: 1ª parcela → Novembro (≤30/Nov), 2ª parcela → Dezembro
+   * (≤20/Dez). Already-paid installments are excluded by status inside the
+   * projection (no double count). Only the slice due in `month` is added to the
+   * month total; the full-year split is exposed for auditing.
+   *
+   * Férias mapping: recibo bruto (base + 1/3 + abono) of every non-PAID vacation
+   * whose paymentDueDate falls inside [from, to].
+   */
+  private async buildScheduledPayrollSection(
+    year: number,
+    month: number,
+    from: Date,
+    to: Date,
+  ) {
+    let thirteenth = {
+      year,
+      november: 0,
+      december: 0,
+      firstInstallmentTotal: 0,
+      secondInstallmentTotal: 0,
+      recordCount: 0,
+    };
+    let thirteenthAvailable = true;
+    try {
+      thirteenth = await this.thirteenthService.getForecastProjection(year);
+    } catch (error) {
+      thirteenthAvailable = false;
+      this.logger.warn(
+        `Falha ao projetar o 13º para previsão de saídas: ${(error as Error)?.message ?? error}`,
+      );
+    }
+
+    let vacation = { total: 0, recordCount: 0 };
+    let vacationAvailable = true;
+    try {
+      vacation = await this.vacationService.getForecastProjection(from, to);
+    } catch (error) {
+      vacationAvailable = false;
+      this.logger.warn(
+        `Falha ao projetar férias para previsão de saídas: ${(error as Error)?.message ?? error}`,
+      );
+    }
+
+    // Only the 13º installment due in THIS reference month contributes to the
+    // month total: 1ª parcela in November (month 11), 2ª in December (month 12).
+    let thirteenthThisMonth = 0;
+    if (month === 11) thirteenthThisMonth = thirteenth.november;
+    else if (month === 12) thirteenthThisMonth = thirteenth.december;
+
+    const total = thirteenthThisMonth + vacation.total;
+
+    return {
+      total,
+      // Auditable per-source breakdown (mirrors the other sections' discipline).
+      thirteenth: {
+        available: thirteenthAvailable,
+        year,
+        // The full-year split (always exposed so Nov/Dez are auditable), plus
+        // the slice that actually lands in the reference month total.
+        firstInstallmentNovember: thirteenth.november,
+        secondInstallmentDecember: thirteenth.december,
+        dueThisMonth: thirteenthThisMonth,
+        recordCount: thirteenth.recordCount,
+      },
+      vacation: {
+        available: vacationAvailable,
+        dueThisMonth: vacation.total,
+        recordCount: vacation.recordCount,
+      },
+    };
   }
 
   // ----- (d) Recorrentes ------------------------------------------------------

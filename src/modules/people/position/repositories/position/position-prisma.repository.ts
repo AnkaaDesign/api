@@ -58,10 +58,23 @@ export class PositionPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: PositionCreateFormData,
   ): Prisma.PositionCreateInput {
-    // Note: remuneration is handled separately in the service layer
-    return {
+    // Note: remuneration is handled separately in the service layer.
+    // allowBelowFloor is a transient validation flag, never persisted.
+    const createInput: Prisma.PositionCreateInput = {
       name: formData.name,
     };
+
+    if (formData.hierarchy !== undefined) {
+      createInput.hierarchy = formData.hierarchy;
+    }
+    if (formData.bonifiable !== undefined) {
+      createInput.bonifiable = formData.bonifiable;
+    }
+    if ((formData as any).salaryFloor !== undefined) {
+      createInput.salaryFloor = (formData as any).salaryFloor;
+    }
+
+    return createInput;
   }
 
   protected mapUpdateFormDataToDatabaseUpdateInput(
@@ -81,7 +94,12 @@ export class PositionPrismaRepository
       updateInput.bonifiable = formData.bonifiable;
     }
 
-    // Note: remuneration is handled separately in the service layer
+    if ((formData as any).salaryFloor !== undefined) {
+      updateInput.salaryFloor = (formData as any).salaryFloor;
+    }
+
+    // Note: remuneration is handled separately in the service layer.
+    // allowBelowFloor is a transient validation flag, never persisted.
 
     return updateInput;
   }
