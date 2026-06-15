@@ -79,14 +79,23 @@ const STATUS_CHAIN: ADMISSION_STATUS[] = [
 
 // Default required-document checklist: every type EXCEPT the optional ones
 // (OTHER / DRIVER_LICENSE / TIME_BANK_AGREEMENT — addable later as optional).
-const OPTIONAL_DOCUMENT_TYPES: ADMISSION_DOCUMENT_TYPE[] = [
-  ADMISSION_DOCUMENT_TYPE.OTHER,
-  ADMISSION_DOCUMENT_TYPE.DRIVER_LICENSE,
-  ADMISSION_DOCUMENT_TYPE.TIME_BANK_AGREEMENT,
+// Tipos exibidos/gerados no checklist da admissão. Tudo que não está aqui NÃO
+// pertence à admissão (LGPD, contrato, vale-transporte, reservista, título de
+// eleitor, PIS, salário-família…) — pode ser anexado depois no colaborador.
+// ADMISSION_EXAM também não é documento: é o ASO (MedicalExam), tratado inline.
+const DEFAULT_CHECKLIST: ADMISSION_DOCUMENT_TYPE[] = [
+  ADMISSION_DOCUMENT_TYPE.CPF,
+  ADMISSION_DOCUMENT_TYPE.RG,
+  ADMISSION_DOCUMENT_TYPE.DRIVER_LICENSE, // CNH — alternativa ao RG
+  ADMISSION_DOCUMENT_TYPE.CTPS,
+  ADMISSION_DOCUMENT_TYPE.PROOF_OF_RESIDENCE,
+  ADMISSION_DOCUMENT_TYPE.BIRTH_MARRIAGE_CERTIFICATE,
+  ADMISSION_DOCUMENT_TYPE.PHOTO,
 ];
-const DEFAULT_CHECKLIST: ADMISSION_DOCUMENT_TYPE[] = Object.values(ADMISSION_DOCUMENT_TYPE).filter(
-  type => !OPTIONAL_DOCUMENT_TYPES.includes(type),
-);
+// Sempre obrigatórios.
+const HARD_REQUIRED_DOCUMENT_TYPES: ADMISSION_DOCUMENT_TYPE[] = [ADMISSION_DOCUMENT_TYPE.CPF, ADMISSION_DOCUMENT_TYPE.CTPS];
+// Obrigatório "um destes": RG OU CNH.
+const EITHER_REQUIRED_DOCUMENT_TYPES: ADMISSION_DOCUMENT_TYPE[] = [ADMISSION_DOCUMENT_TYPE.RG, ADMISSION_DOCUMENT_TYPE.DRIVER_LICENSE];
 
 @Injectable()
 export class AdmissionService {
@@ -343,7 +352,8 @@ export class AdmissionService {
             inlineByType.delete(type);
             return {
               type: type as any,
-              required: true,
+              // Obrigatórios: CPF + CTPS (RG/CNH validados como grupo no avanço).
+              required: HARD_REQUIRED_DOCUMENT_TYPES.includes(type),
               fileId: fileId ?? null,
               status: fileId ? ADMISSION_DOCUMENT_STATUS.RECEIVED : ADMISSION_DOCUMENT_STATUS.PENDING,
             };
@@ -354,13 +364,15 @@ export class AdmissionService {
     });
 
     // Any remaining inline documents (optional types not in the default
-    // checklist) are added as extra rows.
+    // checklist) are added as extra rows. ADMISSION_EXAM is never a document
+    // (it is the real MedicalExam/ASO entity).
     for (const [type, fileId] of inlineByType.entries()) {
+      if (type === ADMISSION_DOCUMENT_TYPE.ADMISSION_EXAM) continue;
       await tx.admissionDocument.create({
         data: {
           admissionId: admission.id,
           type: type as any,
-          required: !OPTIONAL_DOCUMENT_TYPES.includes(type as ADMISSION_DOCUMENT_TYPE),
+          required: HARD_REQUIRED_DOCUMENT_TYPES.includes(type as ADMISSION_DOCUMENT_TYPE),
           fileId,
           status: ADMISSION_DOCUMENT_STATUS.RECEIVED,
         },
@@ -390,6 +402,14 @@ export class AdmissionService {
     userId?: string,
   ): Promise<AdmissionCreateResponse> {
     try {
+      // Pessoa EXISTENTE com dados alterados no formulário: atualiza o
+      // colaborador (apenas os campos enviados) ANTES de criar o novo vínculo +
+      // admissão, para que correções de cadastro persistam sem duplicar o usuário.
+      const userUpdate = (data as any).userUpdate as Record<string, unknown> | undefined;
+      if (data.userId && userUpdate && Object.keys(userUpdate).length > 0) {
+        await this.userService.update(data.userId, userUpdate as any, undefined, userId);
+      }
+
       const { admission, createdUser } = await this.prisma.$transaction(
         async (tx: PrismaTransaction) => this.createWithTransaction(tx, data, userId, include),
       );
@@ -557,11 +577,23 @@ export class AdmissionService {
 
         const currentIndex = STATUS_CHAIN.indexOf(currentStatus);
         const nextStatus = STATUS_CHAIN[currentIndex + 1];
+        const previousStatus = currentIndex > 0 ? STATUS_CHAIN[currentIndex - 1] : undefined;
         const targetStatus = (data.status as ADMISSION_STATUS) ?? nextStatus;
+        const isCancelling = targetStatus === ADMISSION_STATUS.CANCELLED;
+        const isGoingBack = previousStatus !== undefined && targetStatus === previousStatus;
 
-        if (targetStatus !== ADMISSION_STATUS.CANCELLED && targetStatus !== nextStatus) {
+        // Valid moves: forward one step, back one step, or cancel.
+        if (!isCancelling && targetStatus !== nextStatus && !isGoingBack) {
           throw new BadRequestException(
-            `Transição de status inválida: ${STATUS_LABELS_PT[currentStatus]} → ${STATUS_LABELS_PT[targetStatus]}. O próximo status válido é ${STATUS_LABELS_PT[nextStatus]} (ou Cancelada).`,
+            `Transição de status inválida: ${STATUS_LABELS_PT[currentStatus]} → ${STATUS_LABELS_PT[targetStatus]}. Avance para ${nextStatus ? STATUS_LABELS_PT[nextStatus] : '—'}${previousStatus ? `, retroceda para ${STATUS_LABELS_PT[previousStatus]}` : ''} ou cancele.`,
+          );
+        }
+
+        // Cancelar exige justificativa (por que a admissão não foi concluída).
+        const cancellationReason = (data.reason ?? '').toString().trim();
+        if (isCancelling && cancellationReason.length === 0) {
+          throw new BadRequestException(
+            'Informe o motivo do cancelamento (por que a admissão não foi concluída).',
           );
         }
 
@@ -569,14 +601,20 @@ export class AdmissionService {
         // is still PENDING (WAIVED/RECEIVED/SIGNED are all acceptable).
         if (
           currentStatus === ADMISSION_STATUS.DOCS_PENDING &&
-          targetStatus !== ADMISSION_STATUS.CANCELLED
+          !isCancelling &&
+          !isGoingBack
         ) {
-          const pendingRequired = (existing.documents || []).filter(
-            (doc: any) => doc.required && doc.status === ADMISSION_DOCUMENT_STATUS.PENDING,
+          const docs = existing.documents || [];
+          // Obrigatórios fixos: CPF + CTPS.
+          const hardPending = docs.filter(
+            (doc: any) => HARD_REQUIRED_DOCUMENT_TYPES.includes(doc.type) && doc.status === ADMISSION_DOCUMENT_STATUS.PENDING,
           );
-          if (pendingRequired.length > 0) {
+          // Obrigatório "um destes": RG ou CNH (satisfeito se pelo menos um não-pendente).
+          const eitherDocs = docs.filter((doc: any) => EITHER_REQUIRED_DOCUMENT_TYPES.includes(doc.type));
+          const eitherSatisfied = eitherDocs.length === 0 || eitherDocs.some((doc: any) => doc.status !== ADMISSION_DOCUMENT_STATUS.PENDING);
+          if (hardPending.length > 0 || !eitherSatisfied) {
             throw new BadRequestException(
-              `Não é possível avançar: ${pendingRequired.length} documento(s) obrigatório(s) ainda pendente(s).`,
+              'Não é possível avançar: são obrigatórios CPF, CTPS e RG ou CNH (recebidos, assinados ou dispensados).',
             );
           }
         }
@@ -586,7 +624,8 @@ export class AdmissionService {
         // (mirrors the required-documents guard above).
         if (
           currentStatus === ADMISSION_STATUS.MEDICAL_EXAM &&
-          targetStatus !== ADMISSION_STATUS.CANCELLED
+          !isCancelling &&
+          !isGoingBack
         ) {
           // Prefer the FK link (this admission's own ASO); fall back to the
           // legacy userId+type lookup for rows created before the FK existed.
@@ -673,6 +712,13 @@ export class AdmissionService {
           data: {
             status: targetStatus as any,
             statusOrder: ADMISSION_STATUS_ORDER[targetStatus],
+            // Ao cancelar: preserva a etapa em que estava + a justificativa.
+            // Ao retomar/avançar de volta de um cancelamento (não ocorre hoje,
+            // pois CANCELLED é final) os campos permaneceriam; limpamos quando
+            // a transição não é um cancelamento para manter consistência.
+            ...(isCancelling
+              ? { cancelledFromStatus: currentStatus as any, cancellationReason }
+              : { cancelledFromStatus: null, cancellationReason: null }),
           },
           include: include ?? { documents: true, user: true },
         });
@@ -680,11 +726,13 @@ export class AdmissionService {
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.ADMISSION,
           entityId: id,
-          action: CHANGE_ACTION.UPDATE,
+          action: isCancelling ? CHANGE_ACTION.CANCEL : CHANGE_ACTION.UPDATE,
           field: 'status',
           oldValue: currentStatus,
           newValue: targetStatus,
-          reason: `Status da admissão alterado: ${STATUS_LABELS_PT[currentStatus]} → ${STATUS_LABELS_PT[targetStatus]}${examCrossReference}`,
+          reason: isCancelling
+            ? `Admissão cancelada na etapa "${STATUS_LABELS_PT[currentStatus]}": ${cancellationReason}`
+            : `Status da admissão alterado: ${STATUS_LABELS_PT[currentStatus]} → ${STATUS_LABELS_PT[targetStatus]}${examCrossReference}`,
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           triggeredById: id,
           userId: userId || null,
@@ -785,7 +833,7 @@ export class AdmissionService {
         data: {
           admissionId: id,
           type: data.type as any,
-          required: !OPTIONAL_DOCUMENT_TYPES.includes(data.type as ADMISSION_DOCUMENT_TYPE),
+          required: HARD_REQUIRED_DOCUMENT_TYPES.includes(data.type as ADMISSION_DOCUMENT_TYPE),
           fileId: createdFile.id,
           status: ADMISSION_DOCUMENT_STATUS.RECEIVED,
           note: data.note ?? null,

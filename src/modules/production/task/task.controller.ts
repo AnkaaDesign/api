@@ -114,6 +114,8 @@ export class TaskController {
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
+    // ACCOUNTING reads tasks for the Faturamento (billing) page.
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async findMany(
     @Query(new ZodQueryValidationPipe(taskGetManySchema)) query: TaskGetManyFormData,
@@ -652,6 +654,8 @@ export class TaskController {
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
+    // ACCOUNTING reads a task for the Faturamento (billing) detail page.
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async findById(
     @Param('id', ParseUUIDPipe) id: string,

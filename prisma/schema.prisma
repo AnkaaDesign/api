@@ -5230,6 +5230,10 @@ model Admission {
   statusOrder Int                 @default(1)
   hireDate    DateTime?
   notes       String?
+  // Cancelamento: preserva a etapa em que o processo estava ao ser cancelado
+  // e a justificativa do porquê não foi concluído.
+  cancelledFromStatus AdmissionStatus?
+  cancellationReason  String?
   createdById String?
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
@@ -5394,6 +5398,11 @@ model Termination {
   accruedVacationPeriods Int                   @default(0)
   reason                 String?
   justCauseArticle       String?
+  // Cancelamento: preserva a etapa em que o processo estava ao ser cancelado
+  // e a justificativa do porquê não foi concluído (≠ `reason`, que é o motivo
+  // da rescisão em si).
+  cancelledFromStatus    TerminationStatus?
+  cancellationReason     String?
   initiatedById          String?
   createdAt              DateTime              @default(now())
   updatedAt              DateTime              @updatedAt

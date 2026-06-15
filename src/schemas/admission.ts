@@ -19,7 +19,7 @@ import {
   CONTRACT_TYPE,
   EMPLOYEE_TYPE,
 } from '@constants';
-import { userCreateSchema } from './user';
+import { userCreateSchema, userUpdateSchema } from './user';
 
 // =====================
 // Generic relation include (Prisma passthrough)
@@ -248,6 +248,10 @@ export const admissionCreateSchema = z
     // anexa um NOVO vínculo à pessoa existente em vez de duplicá-la.
     userId: z.string().uuid({ message: 'Colaborador inválido' }).optional(),
     user: userCreateSchema.optional(),
+    // Pessoa EXISTENTE: dados pessoais alterados no formulário de admissão. Quando
+    // `userId` é informado, o servidor atualiza o colaborador com este patch
+    // (apenas os campos enviados) antes de criar o novo vínculo + admissão.
+    userUpdate: userUpdateSchema.optional(),
     // Vínculo da admissão. Opcional; o serviço aplica defaults (CLT / experiência).
     contract: admissionContractSchema.optional(),
     // Documentos enviados inline (além do endpoint POST /admissions/:id/documents).
@@ -300,11 +304,14 @@ export const admissionBatchDeleteSchema = z.object({
 
 export const admissionAdvanceSchema = z.object({
   // Target status; when omitted, advances to the next status in the chain.
+  // Aceita também o status ANTERIOR (retroceder etapa) e CANCELLED.
   status: z
     .enum(Object.values(ADMISSION_STATUS) as [string, ...string[]], {
       errorMap: () => ({ message: 'status inválido' }),
     })
     .optional(),
+  // Justificativa obrigatória ao cancelar (por que a admissão não foi concluída).
+  reason: createDescriptionSchema(0, 2000).nullable().optional(),
 });
 
 export const admissionDocumentUploadSchema = z.object({

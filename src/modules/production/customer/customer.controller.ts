@@ -75,6 +75,8 @@ export class CustomerController {
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
+    // ACCOUNTING reads customers for the Faturamento (billing) filter.
+    SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async findMany(
     @Query(new ZodQueryValidationPipe(customerGetManySchema)) query: CustomerGetManyFormData,
