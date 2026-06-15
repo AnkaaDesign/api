@@ -2838,8 +2838,21 @@ export class SecullumService {
               return { user: userInfo, entry: null };
             }
             try {
-              const entries = await this.getTimeEntriesBySecullumIdCached(empId, date, date);
-              return { user: userInfo, entry: entries[0] || null };
+              // /Batidas carries punch times only; the aggregated hour columns
+              // (Faltas, Atraso, Normais, …) live in /Calculos. Fetch both in
+              // parallel and merge so the day view / widget can read them.
+              const [entries, calcHours] = await Promise.all([
+                this.getTimeEntriesBySecullumIdCached(empId, date, date),
+                this.getCalculatedHoursForDay(empId, date),
+              ]);
+              let entry = entries[0] || null;
+              if (calcHours && Object.keys(calcHours).length > 0) {
+                // When the employee has no punches but the day has computed
+                // hours (e.g. a falta), synthesize an entry so the row still
+                // renders the lateness/absence columns.
+                entry = { ...(entry ?? {}), ...calcHours };
+              }
+              return { user: userInfo, entry };
             } catch (err: any) {
               this.logger.warn(
                 `getTimeEntriesByDay user=${user.id} emp=${empId}: ${err?.message || err}`,
@@ -2885,6 +2898,98 @@ export class SecullumService {
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
+  }
+
+  // /Calculos column Nome → the entry field key the Controle de Ponto day view
+  // and the daily-ponto dashboard widget read (mirrors their SECULLUM_FIELD_MAP).
+  // Only the aggregated hour columns belong here; punch columns and boolean
+  // flags (Folga, etc.) come from /Batidas and must NOT be overwritten — in
+  // particular /Calculos "Folga" is an hours string while /Batidas "Folga" is a
+  // boolean the day view uses for the FOLGA label.
+  private static readonly CALC_COLUMN_TO_ENTRY_FIELD: Record<string, string> = {
+    Normais: 'Normais',
+    Faltas: 'Faltas',
+    'Ex50%': 'Ex50',
+    'Ex100%': 'Ex100',
+    'Ex150%': 'Ex150',
+    DSR: 'DSR',
+    'DSR.Deb': 'DSRDebito',
+    Ajuste: 'Ajuste',
+    'Atras.': 'Atraso',
+    'Adian.': 'Adiantamento',
+  };
+
+  /** Extract YYYY-MM-DD from a Secullum date string (ISO or DD/MM/YYYY). */
+  private normalizeCalcDay(raw: unknown): string | null {
+    if (!raw) return null;
+    const s = String(raw);
+    const iso = /(\d{4})-(\d{2})-(\d{2})/.exec(s);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const br = /(\d{2})\/(\d{2})\/(\d{4})/.exec(s);
+    if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+    return null;
+  }
+
+  /**
+   * Aggregated hour columns (Faltas, Atraso, Normais, …) for one employee on a
+   * single day, keyed by the entry field names the day view / widget expect.
+   * Sources /Calculos — the only endpoint that returns computed hours, since
+   * /Batidas carries punch times only — and caches per-day mirroring the
+   * Batidas cache TTLs. Returns {} when nothing is computed for the day.
+   */
+  private async getCalculatedHoursForDay(
+    secullumEmployeeId: number,
+    date: string,
+  ): Promise<Record<string, string>> {
+    const cacheKey = `secullum:calculos-hours:${secullumEmployeeId}:${date}`;
+    const cached = await this.cacheService.getObject<Record<string, string>>(cacheKey);
+    if (cached !== null) return cached;
+
+    const result: Record<string, string> = {};
+    try {
+      const calc = await this.getCalculationsBySecullumId(secullumEmployeeId, date, date);
+      const colunas: any[] = calc?.Colunas ?? [];
+      const linhas: any[][] = calc?.Linhas ?? [];
+      if (colunas.length && linhas.length) {
+        const colIndex = new Map<string, number>();
+        colunas.forEach((c: any, i: number) => colIndex.set(c?.Nome, i));
+        const dataIdx = colIndex.get('Data');
+        const row =
+          (dataIdx != null
+            ? linhas.find((r) => this.normalizeCalcDay(r?.[dataIdx]) === date)
+            : undefined) ?? linhas[0];
+        if (row) {
+          for (const [nome, field] of Object.entries(
+            SecullumService.CALC_COLUMN_TO_ENTRY_FIELD,
+          )) {
+            const idx = colIndex.get(nome);
+            if (idx == null) continue;
+            const val = row[idx];
+            if (val !== null && val !== undefined && String(val).trim() !== '') {
+              result[field] = String(val);
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(
+        `getCalculatedHoursForDay emp=${secullumEmployeeId} date=${date}: ${err?.message || err}`,
+      );
+      return {}; // don't cache transient failures
+    }
+
+    // Cache mirroring Batidas TTLs: past 24h, today 5min, future not cached.
+    // Empty results are only cached for 5min regardless of day, so a transient
+    // Secullum hiccup (or a day fetched before its punches were computed) can
+    // never poison the day's hour columns for a full 24h.
+    const dayDate = this.parseLocalDay(date);
+    const today = this.parseLocalDay(this.toISODay(new Date()));
+    if (dayDate && today && dayDate.getTime() <= today.getTime()) {
+      const isEmpty = Object.keys(result).length === 0;
+      const ttl = isEmpty || dayDate.getTime() === today.getTime() ? 300 : 86400;
+      await this.cacheService.setObject(cacheKey, result, ttl);
+    }
+    return result;
   }
 
   /**
@@ -2986,13 +3091,18 @@ export class SecullumService {
 
       this.logger.log(`Successfully approved request ID: ${requestData.SolicitacaoId}`);
 
-      // Invalidate the per-day Batidas cache so the day view immediately
-      // shows the approved punch without waiting for the 24h TTL to expire.
+      // Invalidate the per-day Batidas + calculated-hours caches so the day
+      // view immediately shows the approved punch (and its recomputed
+      // Faltas/Atraso/… columns) without waiting for the 24h TTL to expire.
       if (requestData.FuncionarioId && requestData.Data) {
         const ymd = String(requestData.Data).slice(0, 10);
-        const cacheKey = `secullum:batidas:${requestData.FuncionarioId}:${ymd}`;
-        await this.cacheService.del(cacheKey).catch(() => {});
-        this.logger.debug(`Invalidated Batidas cache: ${cacheKey}`);
+        const batidasKey = `secullum:batidas:${requestData.FuncionarioId}:${ymd}`;
+        const calcKey = `secullum:calculos-hours:${requestData.FuncionarioId}:${ymd}`;
+        await Promise.all([
+          this.cacheService.del(batidasKey).catch(() => {}),
+          this.cacheService.del(calcKey).catch(() => {}),
+        ]);
+        this.logger.debug(`Invalidated Batidas + calculos-hours cache: ${ymd}`);
       }
 
       // Notify the employee that their request was approved (targeted).

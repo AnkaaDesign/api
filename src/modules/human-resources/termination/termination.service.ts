@@ -939,6 +939,15 @@ export class TerminationService {
           );
         }
 
+        const isCancelling = targetStatus === TERMINATION_STATUS.CANCELLED;
+        // Cancelar exige justificativa (por que a rescisão não foi concluída).
+        const cancellationReason = (data.reason ?? '').toString().trim();
+        if (isCancelling && cancellationReason.length === 0) {
+          throw new BadRequestException(
+            'Informe o motivo do cancelamento (por que a rescisão não foi concluída).',
+          );
+        }
+
         // Guard: →PAYMENT requires calculated/registered items
         if (
           targetStatus === TERMINATION_STATUS.PAYMENT &&
@@ -1054,6 +1063,10 @@ export class TerminationService {
           data: {
             status: targetStatus as any,
             statusOrder: TERMINATION_STATUS_ORDER[targetStatus],
+            // Ao cancelar: preserva a etapa em que estava + a justificativa.
+            ...(isCancelling
+              ? { cancelledFromStatus: currentStatus as any, cancellationReason }
+              : { cancelledFromStatus: null, cancellationReason: null }),
           },
           include: include ?? { items: true, documents: true, user: true },
         });
@@ -1109,11 +1122,13 @@ export class TerminationService {
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.TERMINATION,
           entityId: id,
-          action: CHANGE_ACTION.UPDATE,
+          action: isCancelling ? CHANGE_ACTION.CANCEL : CHANGE_ACTION.UPDATE,
           field: 'status',
           oldValue: currentStatus,
           newValue: targetStatus,
-          reason: `Status da rescisão alterado: ${STATUS_LABELS_PT[currentStatus]} → ${STATUS_LABELS_PT[targetStatus]}${examCrossReference}${docCrossReference}`,
+          reason: isCancelling
+            ? `Rescisão cancelada na etapa "${STATUS_LABELS_PT[currentStatus]}": ${cancellationReason}`
+            : `Status da rescisão alterado: ${STATUS_LABELS_PT[currentStatus]} → ${STATUS_LABELS_PT[targetStatus]}${examCrossReference}${docCrossReference}`,
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           triggeredById: id,
           userId: userId || null,
