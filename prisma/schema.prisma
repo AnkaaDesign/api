@@ -42,6 +42,8 @@ model Airbrushing {
   finishedAt            DateTime?
   price                 Float?
   paymentStatus         AirbrushingPaymentStatus @default(PENDING)
+  /// Stamped when paymentStatus becomes PAID — windows "paid this month" on Contas a Pagar.
+  paidAt                DateTime?
   status                AirbrushingStatus        @default(PENDING)
   statusOrder           Int                      @default(1)
   taskId                String
@@ -4188,6 +4190,29 @@ model ReconciliationAlias {
 // ItemCategory, service categories for NFSe content, and pure transaction-only
 // categories the user creates (Aluguel etc.). Replaces the old
 // ReconciliationCategory enum so the list can grow at runtime.
+enum RecurrenceKind {
+  FIXED
+  VARIABLE
+}
+
+/// One settlement record per payroll competence month (year+month). Folha is
+/// paid as a single batch, so settlement is tracked at the month level (never
+/// per-employee, for privacy). Absence of a row = not yet paid.
+model PayrollMonthSettlement {
+  id        String    @id @default(uuid())
+  year      Int
+  month     Int
+  amount    Decimal?  @db.Decimal(12, 2)
+  paidAt    DateTime?
+  paidById  String?
+  notes     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([year, month])
+  @@index([year, month])
+}
+
 model TransactionCategory {
   id             String                  @id @default(uuid())
   name           String                  @unique
@@ -4204,6 +4229,11 @@ model TransactionCategory {
   // Marks a recurring monthly obligation (rent, payroll…). Drives the monthly
   // payables view. A flag only — amounts are read from the actual transactions.
   isRecurring    Boolean                 @default(false)
+  // For recurring categories: FIXED = known monthly amount (fixedAmount on the
+  // statutory dueDayOfMonth); VARIABLE = estimated from the 3-month average.
+  recurrenceKind RecurrenceKind          @default(VARIABLE)
+  fixedAmount    Decimal?                @db.Decimal(12, 2)
+  dueDayOfMonth  Int?
   color          String?
   sortOrder      Int                     @default(0)
   isActive       Boolean                 @default(true)
@@ -5591,8 +5621,12 @@ enum VacationStatus {
 // num recibo próprio (NÃO embutidas na folha mensal).
 model Vacation {
   id                          String              @id @default(uuid())
-  userId                      String
+  // Nullable: ao demitir o colaborador o vínculo é desfeito (SET NULL) preservando
+  // o passivo de férias para conciliação contábil (NÃO apagamos o registro).
+  userId                      String?
   contractId                  String?
+  // Férias coletivas: vínculo opcional ao grupo que originou este registro individual.
+  groupId                     String?
   // Período aquisitivo (12 meses de trabalho que geram direito).
   acquisitiveStart            DateTime
   acquisitiveEnd              DateTime
@@ -5618,18 +5652,27 @@ model Vacation {
   paymentDueDate              DateTime?
   paymentDate                 DateTime?
   notes                       String?
+  // Soft-delete: registros excluídos são marcados (não removidos) para preservar
+  // histórico/passivo. Todas as leituras filtram deletedAt = null.
+  deletedAt                   DateTime?
   createdAt                   DateTime            @default(now())
   updatedAt                   DateTime            @updatedAt
-  user                        User                @relation("VACATION_USER", fields: [userId], references: [id], onDelete: Cascade)
+  user                        User?               @relation("VACATION_USER", fields: [userId], references: [id], onDelete: SetNull)
   contract                    EmploymentContract? @relation("VACATION_CONTRACT", fields: [contractId], references: [id])
+  group                       VacationGroup?      @relation("VACATION_GROUP", fields: [groupId], references: [id], onDelete: SetNull)
   periods                     VacationPeriod[]    @relation("VACATION_PERIOD_VACATION")
 
+  // Unicidade do período aquisitivo por colaborador é garantida por índice ÚNICO
+  // PARCIAL (WHERE deleted_at IS NULL) criado na migração SQL — permite recriar
+  // após soft-delete e ignora linhas órfãs (userId NULL). Ver migration.
   @@index([userId])
   @@index([contractId])
+  @@index([groupId])
   @@index([status])
   @@index([statusOrder])
   @@index([acquisitiveEnd])
   @@index([concessiveEnd])
+  @@index([deletedAt])
 }
 
 // Fracionamento das férias (Reforma 2017): até 3 períodos, um ≥ 14 dias.
@@ -5644,6 +5687,55 @@ model VacationPeriod {
 
   @@index([vacationId])
   @@index([startDate])
+}
+
+// Alvo das férias coletivas (CLT art. 139): toda a empresa, setores ou cargos.
+enum VacationGroupType {
+  ALL      // todos os colaboradores ativos
+  SECTOR   // setores específicos (sectorIds)
+  POSITION // cargos específicos (positionIds)
+}
+
+// Férias COLETIVAS (CLT art. 139-141). Registra-se o período coletivo PRIMEIRO;
+// depois ele é "expandido" em um Vacation individual por colaborador alvo, cada
+// um com seu próprio período aquisitivo e fracionamento editável.
+model VacationGroup {
+  id               String                @id @default(uuid())
+  name             String
+  type             VacationGroupType
+  // Janela coletiva de referência (informativa; o aquisitivo real é por colaborador).
+  acquisitiveStart DateTime
+  acquisitiveEnd   DateTime
+  concessiveEnd    DateTime?
+  status           VacationStatus        @default(OPEN)
+  statusOrder      Int                   @default(1)
+  // Alvo: vazio salvo quando type=SECTOR/POSITION.
+  sectorIds        String[]              @default([])
+  positionIds      String[]              @default([])
+  notes            String?
+  deletedAt        DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  periods          VacationGroupPeriod[] @relation("VACATION_GROUP_PERIOD")
+  vacations        Vacation[]            @relation("VACATION_GROUP")
+
+  @@index([status, statusOrder])
+  @@index([acquisitiveEnd])
+  @@index([deletedAt])
+}
+
+// Períodos-modelo (template) compartilhados do grupo coletivo. Cada Vacation
+// individual gerado herda estes períodos em seu próprio VacationPeriod[].
+model VacationGroupPeriod {
+  id        String        @id @default(uuid())
+  groupId   String
+  startDate DateTime
+  days      Int
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  group     VacationGroup @relation("VACATION_GROUP_PERIOD", fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
 }
 
 // ============================================================================

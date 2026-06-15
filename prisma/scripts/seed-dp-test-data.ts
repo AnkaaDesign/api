@@ -142,11 +142,11 @@ async function main() {
   console.log('\n  Adesões (UserBenefit):');
 
   const users = await prisma.user.findMany({
-    where: { contractKind: { not: 'DISMISSED' as any } },
+    where: { isActive: true },
     select: { id: true, name: true },
     orderBy: { name: 'asc' },
   });
-  console.log(`  ${users.length} colaboradores ativos (contractKind != DISMISSED)`);
+  console.log(`  ${users.length} colaboradores ativos (isActive = true)`);
 
   // Existing ACTIVE enrollments → idempotency set "userId:benefitId"
   const existingActive = await prisma.userBenefit.findMany({
@@ -271,7 +271,7 @@ async function main() {
   const historySet = new Set(usersWithHistory.map(h => h.userId));
 
   const allUsers = await prisma.user.findMany({
-    select: { id: true, name: true, positionId: true, exp1StartAt: true, createdAt: true, updatedAt: true },
+    select: { id: true, name: true, positionId: true, createdAt: true, updatedAt: true },
     orderBy: { name: 'asc' },
   });
 
@@ -316,7 +316,7 @@ async function main() {
 
     // Admission row starts at exp1StartAt (createdAt fallback), clamped so it
     // never starts after the first recorded change.
-    let admissionAt = user.exp1StartAt ?? user.createdAt;
+    let admissionAt = user.createdAt;
     if (changes.length > 0 && admissionAt > changes[0].at) {
       admissionAt = changes[0].at;
     }

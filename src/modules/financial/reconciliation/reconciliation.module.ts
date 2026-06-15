@@ -27,6 +27,9 @@ import { RecurrenceLearnerService } from './recurrence-learner.service';
 import { LadderLearner } from './learning/ladder.learner';
 import { CategoryFusionService } from './learning/category-fusion.service';
 import { OutflowForecastService } from './outflow-forecast.service';
+import { PayablesService } from './payables.service';
+import { PayablesController } from './payables.controller';
+import { OrderModule } from '@modules/inventory/order/order.module';
 import { CATEGORY_LEARNERS } from './learning/category-signal';
 
 // Order matters only for display tie-breaks; fusion is order-independent. The
@@ -62,9 +65,13 @@ const categoryLearnersProvider = {
     // directional: neither HR module imports this one.
     ThirteenthModule,
     VacationModule,
+    // Orders + airbrushing + schedules payables, composed into the unified
+    // Contas a Pagar by PayablesService. financial → inventory direction.
+    OrderModule,
   ],
-  controllers: [ReconciliationController],
+  controllers: [ReconciliationController, PayablesController],
   providers: [
+    PayablesService,
     ReconciliationService,
     ReconciliationImportService,
     ReconciliationMatcherService,

@@ -137,20 +137,11 @@ export class OutflowForecastService {
     const [orders, schedules] = await Promise.all([
       this.prisma.order.findMany({
         where: {
-          // Open obligation = NOT in a settled/cancelled status AND not paid AND still
-          // has an unfulfilled item. Both guards are needed: the status guard drops
-          // historical RECEIVED orders whose items lack a fulfilledAt stamp; the item
-          // guard drops fulfilled orders the overdue cron flipped to OVERDUE.
-          status: {
-            notIn: [
-              OrderStatus.FULFILLED,
-              OrderStatus.PARTIALLY_RECEIVED,
-              OrderStatus.RECEIVED,
-              OrderStatus.CANCELLED,
-            ],
-          },
+          // Open obligation = money owed: not cancelled and not yet paid. Payability is
+          // decoupled from fulfillment — an order is an outflow obligation from creation
+          // until it is explicitly paid, regardless of receipt status.
+          status: { not: OrderStatus.CANCELLED },
           paymentStatus: { not: OrderPaymentStatus.PAID },
-          items: { some: { fulfilledAt: null } },
         },
         select: {
           id: true,
@@ -355,7 +346,9 @@ export class OutflowForecastService {
       where: {
         createdAt: { gte: from, lte: to },
         status: { notIn: ['DRAFT', 'CANCELLED'] as any },
-        nfseDocuments: { some: {} },
+        // Tax is owed on actually-issued service notes — count only invoices with
+        // an AUTHORIZED NFS-e (ignore drafts/rejected/cancelled NFS-e).
+        nfseDocuments: { some: { status: 'AUTHORIZED' as any } },
       },
       select: { totalAmount: true },
     });

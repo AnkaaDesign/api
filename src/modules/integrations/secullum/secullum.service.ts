@@ -2247,7 +2247,10 @@ export class SecullumService {
     params?: any,
     additionalHeaders?: Record<string, string>,
     retryOnAuth = true,
+    backoffAttempt = 0,
   ): Promise<T> {
+    const MAX_BACKOFF_ATTEMPTS = 3;
+    const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
     try {
       const token = await this.getValidToken();
       if (!token) {
@@ -2304,8 +2307,10 @@ export class SecullumService {
 
       return response.data;
     } catch (error) {
+      const status = error.response?.status;
+
       // If we get a 401 and haven't retried yet, try refreshing the token
-      if (error.response?.status === 401 && retryOnAuth) {
+      if (status === 401 && retryOnAuth) {
         this.logger.warn('Got 401 response, attempting to refresh token and retry');
 
         // Clear the cached token and try again
@@ -2319,6 +2324,51 @@ export class SecullumService {
           params,
           additionalHeaders,
           false,
+          backoffAttempt,
+        );
+      }
+
+      // Rate limit (429): the server rejected BEFORE processing, so retrying is
+      // safe for any method. Honor Retry-After when present, else exp. backoff.
+      if (status === 429 && backoffAttempt < MAX_BACKOFF_ATTEMPTS) {
+        const retryAfterHeader = error.response?.headers?.['retry-after'];
+        const retryAfterMs = retryAfterHeader
+          ? Number(retryAfterHeader) * 1000
+          : 500 * 2 ** backoffAttempt;
+        const waitMs = Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : 500;
+        this.logger.warn(
+          `Secullum 429 on ${method} ${endpoint}; backing off ${waitMs}ms (attempt ${backoffAttempt + 1}/${MAX_BACKOFF_ATTEMPTS}).`,
+        );
+        await sleep(waitMs);
+        return this.makeAuthenticatedRequest<T>(
+          method,
+          endpoint,
+          data,
+          params,
+          additionalHeaders,
+          retryOnAuth,
+          backoffAttempt + 1,
+        );
+      }
+
+      // Transient 5xx / network errors: auto-retry ONLY for idempotent reads
+      // (GET). Never auto-retry a POST/PUT/DELETE on 5xx — the write may have
+      // landed server-side and a blind retry could duplicate it.
+      const isTransient = (status != null && status >= 500) || error.response == null;
+      if (isTransient && method === 'GET' && backoffAttempt < MAX_BACKOFF_ATTEMPTS) {
+        const waitMs = 500 * 2 ** backoffAttempt;
+        this.logger.warn(
+          `Secullum transient error on GET ${endpoint} (status ${status ?? 'network'}); backing off ${waitMs}ms (attempt ${backoffAttempt + 1}/${MAX_BACKOFF_ATTEMPTS}).`,
+        );
+        await sleep(waitMs);
+        return this.makeAuthenticatedRequest<T>(
+          method,
+          endpoint,
+          data,
+          params,
+          additionalHeaders,
+          retryOnAuth,
+          backoffAttempt + 1,
         );
       }
 

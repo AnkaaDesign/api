@@ -78,6 +78,7 @@ export class VacationNotificationScheduler {
       where: {
         concessiveEnd: { lt: now },
         status: { in: [VACATION_STATUS.OPEN, VACATION_STATUS.SCHEDULED] as any[] },
+        deletedAt: null,
       },
       include: { user: { select: { name: true } } },
     });
@@ -142,6 +143,7 @@ export class VacationNotificationScheduler {
       where: {
         concessiveEnd: { gte: now, lte: threshold },
         status: { in: [VACATION_STATUS.OPEN, VACATION_STATUS.SCHEDULED] as any[] },
+        deletedAt: null,
       },
       include: { user: { select: { name: true } } },
     });
@@ -189,6 +191,7 @@ export class VacationNotificationScheduler {
       where: {
         status: VACATION_STATUS.SCHEDULED as any,
         concessiveEnd: { not: null },
+        deletedAt: null,
       },
       include: {
         user: { select: { name: true } },

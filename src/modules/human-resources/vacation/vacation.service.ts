@@ -151,6 +151,43 @@ export class VacationService {
     return { samples, baseSalary };
   }
 
+  // Garante que os períodos candidatos não se sobreponham aos de OUTRAS férias
+  // ativas do mesmo colaborador (não se pode estar em duas férias ao mesmo
+  // tempo). Exclui a própria férias e as do mesmo grupo coletivo de origem.
+  private async assertNoOverlap(
+    tx: PrismaTransaction,
+    userId: string,
+    candidate: Array<{ startDate: Date; days: number }>,
+    opts: { excludeVacationId?: string; excludeGroupId?: string | null } = {},
+  ): Promise<void> {
+    if (!candidate || candidate.length === 0) return;
+    const others = await tx.vacation.findMany({
+      where: {
+        userId,
+        deletedAt: null,
+        status: {
+          in: [
+            VACATION_STATUS.OPEN,
+            VACATION_STATUS.SCHEDULED,
+            VACATION_STATUS.IN_PROGRESS,
+          ],
+        },
+        ...(opts.excludeVacationId ? { id: { not: opts.excludeVacationId } } : {}),
+        ...(opts.excludeGroupId ? { groupId: { not: opts.excludeGroupId } } : {}),
+      },
+      select: { periods: { select: { startDate: true, days: true } } },
+    });
+    const existing = others.flatMap(v => v.periods as Array<{ startDate: Date; days: number }>);
+    const conflict = this.calc.detectPeriodOverlap(candidate, existing);
+    if (conflict.overlaps && conflict.candidate && conflict.existing) {
+      const fmt = (d: Date) => new Date(d).toISOString().slice(0, 10);
+      throw new BadRequestException(
+        `O período iniciando em ${fmt(conflict.candidate.startDate)} (${conflict.candidate.days} dia(s)) ` +
+          `sobrepõe outro período de férias do colaborador (${fmt(conflict.existing.startDate)}, ${conflict.existing.days} dia(s)).`,
+      );
+    }
+  }
+
   private monthsBetween(start: Date, end: Date): Array<{ year: number; month: number }> {
     const result: Array<{ year: number; month: number }> = [];
     const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
@@ -173,10 +210,13 @@ export class VacationService {
       const take = q.limit || 20;
       const skip = (page - 1) * take;
 
+      // Soft-delete: registros excluídos nunca aparecem nas listagens.
+      const where = { ...(q.where ?? {}), deletedAt: null };
+
       const [total, vacations] = await Promise.all([
-        this.prisma.vacation.count({ where: q.where }),
+        this.prisma.vacation.count({ where }),
         this.prisma.vacation.findMany({
-          where: q.where,
+          where,
           orderBy: q.orderBy || { acquisitiveEnd: 'desc' },
           include: q.include ?? { user: true, periods: true },
           skip,
@@ -210,7 +250,7 @@ export class VacationService {
         where: { id },
         include: (include as any) ?? { user: true, periods: true },
       });
-      if (!vacation) {
+      if (!vacation || (vacation as any).deletedAt) {
         throw new NotFoundException('Registro de férias não encontrado.');
       }
       return { success: true, message: 'Férias carregadas com sucesso.', data: vacation as any };
@@ -267,9 +307,11 @@ export class VacationService {
       concessiveEnd = this.calc.addYears(acquisitiveEnd, 1);
     }
 
-    // Impede aquisitivo duplicado para o mesmo vínculo/colaborador.
+    // Impede aquisitivo duplicado para o mesmo vínculo/colaborador (mensagem
+    // amigável; o índice único PARCIAL no banco é a garantia real contra corrida
+    // — ver tratamento de P2002 em create()/batchCreate()).
     const duplicate = await tx.vacation.findFirst({
-      where: { userId: data.userId, acquisitiveStart, acquisitiveEnd },
+      where: { userId: data.userId, acquisitiveStart, acquisitiveEnd, deletedAt: null },
       select: { id: true },
     });
     if (duplicate) {
@@ -281,11 +323,28 @@ export class VacationService {
     const absences = data.unjustifiedAbsencesInPeriod ?? 0;
     const entitledDays = this.calc.entitledDaysForAbsences(absences);
     const isDouble = this.calc.isDoubleOwed(concessiveEnd);
+    const groupId = (data as any).groupId ?? null;
+
+    // Valida fracionamento ANTES de inserir (evita round-trip + rollback).
+    if (data.periods && data.periods.length > 0) {
+      const validation = this.calc.validateFracionamento(data.periods, entitledDays);
+      if (!validation.valid) {
+        throw new BadRequestException(validation.errors.join(' '));
+      }
+      // Sem sobreposição com outras férias ativas do mesmo colaborador.
+      await this.assertNoOverlap(
+        tx,
+        data.userId,
+        data.periods.map(p => ({ startDate: p.startDate, days: p.days })),
+        { excludeGroupId: groupId },
+      );
+    }
 
     const vacation = await tx.vacation.create({
       data: {
         userId: data.userId,
         contractId,
+        groupId,
         acquisitiveStart,
         acquisitiveEnd,
         concessiveEnd,
@@ -307,14 +366,6 @@ export class VacationService {
       },
       include: (include as any) ?? { user: true, periods: true },
     });
-
-    // Valida fracionamento na criação (se houver períodos).
-    if (data.periods && data.periods.length > 0) {
-      const validation = this.calc.validateFracionamento(data.periods, entitledDays);
-      if (!validation.valid) {
-        throw new BadRequestException(validation.errors.join(' '));
-      }
-    }
 
     await logEntityChange({
       changeLogService: this.changeLogService,
@@ -343,6 +394,12 @@ export class VacationService {
       return { success: true, message: 'Férias criadas com sucesso.', data: vacation };
     } catch (error: any) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
+      // Índice único parcial (userId, acquisitiveStart, acquisitiveEnd) — corrida.
+      if (error?.code === 'P2002') {
+        throw new BadRequestException(
+          'Já existe um registro de férias para este período aquisitivo deste colaborador.',
+        );
+      }
       this.logger.error('Erro ao criar férias:', error);
       throw new InternalServerErrorException('Erro ao criar férias. Por favor, tente novamente.');
     }
@@ -361,7 +418,7 @@ export class VacationService {
     try {
       const vacation = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const existing = await tx.vacation.findUnique({ where: { id } });
-        if (!existing) {
+        if (!existing || existing.deletedAt) {
           throw new NotFoundException('Registro de férias não encontrado.');
         }
         if (existing.status === VACATION_STATUS.PAID) {
@@ -453,7 +510,7 @@ export class VacationService {
           where: { id },
           include: { user: { select: { secullumEmployeeId: true } } },
         });
-        if (!vacation) {
+        if (!vacation || (vacation as any).deletedAt) {
           throw new NotFoundException('Registro de férias não encontrado.');
         }
         if (vacation.status === VACATION_STATUS.PAID) {
@@ -478,7 +535,8 @@ export class VacationService {
           transaction: tx,
         });
 
-        await tx.vacation.delete({ where: { id } });
+        // Soft-delete: marca deletedAt preservando o passivo/histórico.
+        await tx.vacation.update({ where: { id }, data: { deletedAt: new Date() } });
       });
 
       // Reverse the ponto entry on cancel/delete. Non-fatal on failure (the
@@ -514,7 +572,7 @@ export class VacationService {
     try {
       const vacation = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const existing = await tx.vacation.findUnique({ where: { id } });
-        if (!existing) {
+        if (!existing || existing.deletedAt) {
           throw new NotFoundException('Registro de férias não encontrado.');
         }
         if (existing.status === VACATION_STATUS.PAID) {
@@ -524,6 +582,17 @@ export class VacationService {
         const validation = this.calc.validateFracionamento(data.periods, existing.entitledDays);
         if (!validation.valid) {
           throw new BadRequestException(validation.errors.join(' '));
+        }
+
+        // Sem sobreposição com outras férias ativas do mesmo colaborador
+        // (a própria férias e as do mesmo grupo coletivo são exemptas).
+        if (existing.userId) {
+          await this.assertNoOverlap(
+            tx,
+            existing.userId,
+            data.periods.map(p => ({ startDate: p.startDate, days: p.days })),
+            { excludeVacationId: id, excludeGroupId: existing.groupId },
+          );
         }
 
         await tx.vacationPeriod.deleteMany({ where: { vacationId: id } });
@@ -590,11 +659,16 @@ export class VacationService {
             },
           },
         });
-        if (!existing) {
+        if (!existing || existing.deletedAt) {
           throw new NotFoundException('Registro de férias não encontrado.');
         }
         if (existing.status === VACATION_STATUS.PAID) {
           throw new BadRequestException('Não é possível recalcular férias já pagas.');
+        }
+        if (!existing.userId) {
+          throw new BadRequestException(
+            'Não é possível calcular o recibo: as férias não estão vinculadas a um colaborador (vínculo desfeito).',
+          );
         }
 
         const { samples, baseSalary } = await this.loadVariableSamples(
@@ -614,6 +688,7 @@ export class VacationService {
             variableAverage,
             entitledDays: existing.entitledDays,
             abonoPecuniarioDays: existing.abonoPecuniarioDays,
+            soldThird: existing.soldThird,
             isDouble: existing.isDouble,
             dependentsCount,
             allowSimplifiedDeduction: true,
@@ -683,9 +758,9 @@ export class VacationService {
       const vacation = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const existing = await tx.vacation.findUnique({
           where: { id },
-          include: { periods: { select: { id: true } } },
+          include: { periods: { select: { id: true, startDate: true, days: true } } },
         });
-        if (!existing) {
+        if (!existing || existing.deletedAt) {
           throw new NotFoundException('Registro de férias não encontrado.');
         }
 
@@ -723,16 +798,48 @@ export class VacationService {
             'Não é possível concluir o pagamento: o recibo de férias ainda não foi calculado.',
           );
         }
+        // Guard: → PAID com período de gozo após o concessivo deve ser pago em
+        // DOBRO (art. 137). Bloqueia o pagamento simples e sinaliza para recálculo.
+        let mustDouble = false;
+        if (targetStatus === VACATION_STATUS.PAID && existing.concessiveEnd) {
+          const concessiveEnd = new Date(existing.concessiveEnd);
+          for (const p of existing.periods as Array<{ startDate: Date; days: number }>) {
+            const periodEnd = this.calc.periodEndDate(new Date(p.startDate), p.days);
+            if (periodEnd.getTime() > concessiveEnd.getTime()) {
+              mustDouble = true;
+              break;
+            }
+          }
+          if (mustDouble && !existing.isDouble) {
+            throw new BadRequestException(
+              'O gozo agendado ultrapassa o período concessivo (art. 137): as férias devem ser ' +
+                'pagas em dobro. Recalcule o recibo (será marcado em dobro) antes de concluir o pagamento.',
+            );
+          }
+        }
 
-        const updated = await tx.vacation.update({
-          where: { id },
+        // Transição ATÔMICA: só atualiza se o status ainda for o lido (evita
+        // pagamento duplicado por avanços concorrentes). updateMany permite o
+        // guard de status no WHERE; count===0 ⇒ alguém já mudou o status.
+        const guarded = await tx.vacation.updateMany({
+          where: { id, status: currentStatus as any },
           data: {
             status: targetStatus as any,
             statusOrder: VACATION_STATUS_ORDER[targetStatus],
+            ...(mustDouble ? { isDouble: true } : {}),
             ...(targetStatus === VACATION_STATUS.PAID && !existing.paymentDate
               ? { paymentDate: new Date() }
               : {}),
           },
+        });
+        if (guarded.count === 0) {
+          throw new BadRequestException(
+            'O status das férias foi alterado por outra operação. Atualize a página e tente novamente.',
+          );
+        }
+
+        const updated = await tx.vacation.findUnique({
+          where: { id },
           include: (include as any) ?? { user: true, periods: true },
         });
 
@@ -801,6 +908,7 @@ export class VacationService {
         status: { not: VACATION_STATUS.PAID },
         baseRemuneration: { not: null },
         paymentDueDate: { gte: from, lte: to },
+        deletedAt: null,
       },
       select: {
         baseRemuneration: true,
@@ -836,7 +944,11 @@ export class VacationService {
         );
         success.push(vacation);
       } catch (error: any) {
-        failed.push({ index, error: error.message || 'Erro ao criar férias', data: item });
+        const message =
+          error?.code === 'P2002'
+            ? 'Já existe um registro de férias para este período aquisitivo deste colaborador.'
+            : error.message || 'Erro ao criar férias';
+        failed.push({ index, error: message, data: item });
       }
     }
     return this.batchResult(success, failed, 'criada', 'criadas');

@@ -230,6 +230,16 @@ export class TerminationController {
     return this.terminationService.advance(id, data, query.include, userId);
   }
 
+  @Put(':id/regress')
+  @WriteRateLimit()
+  async regress(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query(new ZodQueryValidationPipe(terminationQuerySchema)) query: TerminationQueryFormData,
+    @UserId() userId: string,
+  ): Promise<TerminationUpdateResponse> {
+    return this.terminationService.regress(id, userId, query.include);
+  }
+
   // Dynamic routes (must come after static routes)
   @Get(':id')
   @ReadRateLimit()

@@ -166,6 +166,12 @@ export class AirbrushingPrismaRepository
       updateData.statusOrder = getAirbrushingStatusOrder(status);
     }
 
+    // Stamp/clear paidAt to mirror the payment status (PAID = settled now) so
+    // Contas a Pagar can window "paid this month".
+    if (formData.paymentStatus !== undefined) {
+      updateData.paidAt = formData.paymentStatus === "PAID" ? new Date() : null;
+    }
+
     // Handle optional relations with proper null handling
     if (taskId !== undefined) {
       updateData.task = { connect: { id: taskId } };

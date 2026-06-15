@@ -72,6 +72,23 @@ export class SecullumVacationSyncService {
     return `[ANKAA-VAC:${vacationId}]`;
   }
 
+  // Group sentinel — present ALONGSIDE the vacation tag on every afastamento that
+  // came from a collective (férias coletivas). Lets us find/remove a whole
+  // collective across all members in one pass, while the vacation tag still
+  // identifies the individual record. Non-collective vacations omit it.
+  private groupTag(groupId: string): string {
+    return `[GRP:${groupId}]`;
+  }
+
+  /** Drop the cached "Férias" JustificativaId (call after editing justificativas). */
+  async invalidateFeriasJustificativaCache(): Promise<void> {
+    try {
+      await this.cache.del(this.feriasJustificativaCacheKey);
+    } catch {
+      // best-effort
+    }
+  }
+
   /**
    * (Re)sync a vacation's gozo períodos into Secullum.
    *
@@ -89,6 +106,7 @@ export class SecullumVacationSyncService {
         select: {
           id: true,
           userId: true,
+          groupId: true,
           status: true,
           user: { select: { id: true, name: true, secullumEmployeeId: true } },
           periods: { select: { startDate: true, days: true } },
@@ -139,7 +157,12 @@ export class SecullumVacationSyncService {
       // doesn't leave duplicates.
       const removed = await this.removeTaggedAbsences(secullumEmployeeId, vacationId);
 
-      const motivo = `${this.vacationTag(vacationId)} Férias (Ankaa)`;
+      // Collective records carry BOTH the group tag and the vacation tag so a
+      // whole collective can be removed at once (removeCollective) while the
+      // individual record stays identifiable.
+      const motivo = vacation.groupId
+        ? `${this.groupTag(vacation.groupId)}${this.vacationTag(vacationId)} Férias coletivas (Ankaa)`
+        : `${this.vacationTag(vacationId)} Férias (Ankaa)`;
       let created = 0;
       const failures: string[] = [];
 
@@ -247,6 +270,104 @@ export class SecullumVacationSyncService {
   }
 
   // ---------------------------------------------------------------------------
+  // Férias coletivas (collective)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Sync every individual vacation that belongs to a collective group. Fans out
+   * the per-vacation syncVacation (which is itself idempotent). Only SCHEDULED /
+   * IN_PROGRESS members are pushed to the ponto. Never throws.
+   *
+   * NOTE: Secullum's calc engine excludes afastamento days (JustificativaId =
+   * Férias) from expected punches, so the apuração/assinatura flow handles
+   * vacation days automatically once these afastamentos exist — no extra step.
+   */
+  async syncGroup(groupId: string): Promise<VacationSyncResult> {
+    try {
+      const members = await this.prisma.vacation.findMany({
+        where: {
+          groupId,
+          deletedAt: null,
+          status: { in: ['SCHEDULED', 'IN_PROGRESS'] as any[] },
+        },
+        select: { id: true },
+      });
+      let created = 0;
+      let removed = 0;
+      const failures: string[] = [];
+      for (const m of members) {
+        const r = await this.syncVacation(m.id);
+        created += r.created ?? 0;
+        removed += r.removed ?? 0;
+        if (!r.success && !r.skipped) failures.push(`${m.id}: ${r.message}`);
+      }
+      this.logger.log(
+        `Group ${groupId}: synced ${members.length} member(s) to Secullum (created ${created}, removed ${removed}, ${failures.length} failed).`,
+      );
+      return {
+        success: failures.length === 0,
+        created,
+        removed,
+        message:
+          failures.length === 0
+            ? `Férias coletivas sincronizadas no ponto: ${members.length} colaborador(es).`
+            : `Sincronização parcial das férias coletivas: ${failures.length} falharam.`,
+      };
+    } catch (err: any) {
+      this.logger.error(
+        `Group ${groupId}: unexpected error during Secullum group sync: ${err?.message ?? err}`,
+      );
+      return {
+        success: false,
+        message: `Falha ao sincronizar férias coletivas com o ponto: ${err?.message ?? 'erro inesperado'}`,
+      };
+    }
+  }
+
+  /**
+   * Remove every afastamento pushed for a collective group, across all members.
+   * Used when a VacationGroup is deleted/unexpanded. Never throws.
+   */
+  async removeCollective(groupId: string): Promise<VacationSyncResult> {
+    try {
+      // Members may already be soft-deleted, so read regardless of deletedAt to
+      // capture the secullumEmployeeId of every colaborador in the group.
+      const members = await this.prisma.vacation.findMany({
+        where: { groupId },
+        select: { user: { select: { secullumEmployeeId: true } } },
+      });
+      const empIds = Array.from(
+        new Set(
+          members
+            .map((m) => m.user?.secullumEmployeeId)
+            .filter((v): v is number => v != null),
+        ),
+      );
+      const tag = this.groupTag(groupId);
+      let removed = 0;
+      for (const empId of empIds) {
+        removed += await this.removeAbsencesMatching(empId, tag);
+      }
+      this.logger.log(
+        `Group ${groupId}: removed ${removed} afastamento(s) from Secullum across ${empIds.length} colaborador(es).`,
+      );
+      return {
+        success: true,
+        removed,
+        message: removed > 0 ? `${removed} período(s) removido(s) do ponto.` : 'Nada a remover no ponto.',
+      };
+    } catch (err: any) {
+      this.logger.error(
+        `Group ${groupId}: error removing collective afastamentos: ${err?.message ?? err}`,
+      );
+      return {
+        success: false,
+        message: `Falha ao remover férias coletivas do ponto: ${err?.message ?? 'erro inesperado'}`,
+      };
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------
 
@@ -257,19 +378,28 @@ export class SecullumVacationSyncService {
     secullumEmployeeId: number,
     vacationId: string,
   ): Promise<number> {
-    const tag = this.vacationTag(vacationId);
+    return this.removeAbsencesMatching(secullumEmployeeId, this.vacationTag(vacationId));
+  }
+
+  // Delete every afastamento for an employee whose Motivo contains `marker`
+  // (a `[ANKAA-VAC:..]` or `[GRP:..]` sentinel). Returns the count removed.
+  // Tolerant of individual list/delete failures.
+  private async removeAbsencesMatching(
+    secullumEmployeeId: number,
+    marker: string,
+  ): Promise<number> {
     let list: SecullumAbsence[] = [];
     try {
       const res = await this.secullum.getAbsencesByEmployee(secullumEmployeeId);
       list = res.success && res.data ? res.data : [];
     } catch (err: any) {
       this.logger.warn(
-        `Vacation ${vacationId}: could not list afastamentos to clean up (funcionario ${secullumEmployeeId}): ${err?.message ?? err}`,
+        `Could not list afastamentos to clean up (funcionario ${secullumEmployeeId}, marker ${marker}): ${err?.message ?? err}`,
       );
       return 0;
     }
 
-    const ours = list.filter((a) => (a.Motivo ?? '').includes(tag));
+    const ours = list.filter((a) => (a.Motivo ?? '').includes(marker));
     let removed = 0;
     for (const a of ours) {
       try {
@@ -277,7 +407,7 @@ export class SecullumVacationSyncService {
         removed++;
       } catch (err: any) {
         this.logger.warn(
-          `Vacation ${vacationId}: failed to delete afastamento ${a.Id}: ${err?.message ?? err}`,
+          `Failed to delete afastamento ${a.Id} (marker ${marker}): ${err?.message ?? err}`,
         );
       }
     }

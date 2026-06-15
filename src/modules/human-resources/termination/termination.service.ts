@@ -1196,6 +1196,109 @@ export class TerminationService {
   }
 
   // =====================
+  // Status machine — PUT /terminations/:id/regress (step ONE step backward)
+  // =====================
+
+  async regress(
+    id: string,
+    userId?: string,
+    include?: TerminationInclude,
+  ): Promise<TerminationUpdateResponse> {
+    try {
+      const termination = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        const existing = await tx.termination.findUnique({
+          where: { id },
+          include: {
+            items: { select: { id: true } },
+            user: {
+              select: {
+                id: true,
+                name: true,
+                currentContractStatus: true,
+                currentContractId: true,
+                currentContract: { select: { terminationDate: true } },
+              },
+            },
+          },
+        });
+        if (!existing) {
+          throw new NotFoundException('Rescisão não encontrada.');
+        }
+
+        const currentStatus = existing.status as TERMINATION_STATUS;
+
+        // Guards (mirror advance's terminal-state protection, but split so the
+        // COMPLETED message can warn that the employee was already demitted).
+        if (currentStatus === TERMINATION_STATUS.CANCELLED) {
+          throw new BadRequestException(
+            'Não é possível retroceder uma rescisão cancelada.',
+          );
+        }
+        if (currentStatus === TERMINATION_STATUS.COMPLETED) {
+          // COMPLETED already demitted the employee; do NOT auto-un-demit here —
+          // keep it blocked (safest).
+          throw new BadRequestException(
+            'Não é possível retroceder uma rescisão concluída. Reabra o processo por outro meio.',
+          );
+        }
+
+        // Applicable chain skips NOTICE_PERIOD when the notice is not worked
+        // and MEDICAL_EXAM for DEATH. The previous status is the last applicable
+        // status before the current one in the full chain (robust even when
+        // the current status was later made inapplicable by an edit).
+        const applicableChain = terminationStatusChainFor(existing);
+        const currentIndex = STATUS_CHAIN.indexOf(currentStatus);
+        const previousStatus = [...applicableChain]
+          .reverse()
+          .find(status => STATUS_CHAIN.indexOf(status) < currentIndex) as
+          | TERMINATION_STATUS
+          | undefined;
+
+        if (!previousStatus) {
+          throw new BadRequestException('A rescisão já está na primeira etapa.');
+        }
+
+        const updated = await tx.termination.update({
+          where: { id },
+          data: {
+            status: previousStatus as any,
+            statusOrder: TERMINATION_STATUS_ORDER[previousStatus],
+          },
+          include: include ?? { items: true, documents: true, user: true },
+        });
+
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TERMINATION,
+          entityId: id,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'status',
+          oldValue: currentStatus,
+          newValue: previousStatus,
+          reason: `Retrocedeu etapa da rescisão: ${STATUS_LABELS_PT[currentStatus]} → ${STATUS_LABELS_PT[previousStatus]}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: id,
+          userId: userId || null,
+          transaction: tx,
+        });
+
+        return { updated };
+      });
+
+      return {
+        success: true,
+        message: 'Status da rescisão atualizado com sucesso.',
+        data: termination.updated as any,
+      };
+    } catch (error: any) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
+      this.logger.error('Erro ao retroceder status da rescisão:', error);
+      throw new InternalServerErrorException(
+        'Erro ao retroceder status da rescisão. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  // =====================
   // Documents — POST /terminations/:id/documents (multipart)
   // =====================
 
