@@ -18,6 +18,7 @@ import { AgendaEventModule } from './agenda-event/agenda-event.module';
 import { PostitModule } from './postit/postit.module';
 import { ThirteenthModule } from './thirteenth/thirteenth.module';
 import { VacationModule } from './vacation/vacation.module';
+import { VacationGroupModule } from './vacation-group/vacation-group.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { VacationModule } from './vacation/vacation.module';
     PostitModule,
     ThirteenthModule,
     VacationModule,
+    VacationGroupModule,
   ],
   exports: [
     BonusModule,
@@ -56,6 +58,7 @@ import { VacationModule } from './vacation/vacation.module';
     PostitModule,
     ThirteenthModule,
     VacationModule,
+    VacationGroupModule,
   ],
 })
 export class HumanResourcesModule {}

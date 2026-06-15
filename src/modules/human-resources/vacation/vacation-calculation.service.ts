@@ -54,6 +54,13 @@ export interface ReciboInput {
   entitledDays: number;
   /** Dias vendidos (abono pecuniário, art. 143; 0–10). */
   abonoPecuniarioDays: number;
+  /**
+   * Optou por vender 1/3 das férias (abono pecuniário, art. 143). Quando true e
+   * `abonoPecuniarioDays` não for informado (0), o abono assume o teto legal de
+   * 1/3 dos dias de direito (≤10). Se `abonoPecuniarioDays` vier explícito (>0),
+   * ele prevalece sobre este atalho.
+   */
+  soldThird?: boolean;
   /** Férias em dobro (art. 137). */
   isDouble: boolean;
   dependentsCount: number;
@@ -200,6 +207,7 @@ export class VacationCalculationService {
       variableAverage,
       entitledDays,
       abonoPecuniarioDays,
+      soldThird,
       isDouble,
       dependentsCount,
       allowSimplifiedDeduction,
@@ -210,7 +218,13 @@ export class VacationCalculationService {
     const monthlyBase = roundCurrency(baseSalary + variableAverage);
     const dailyRate = monthlyBase / 30;
 
-    const abonoDays = Math.max(0, Math.min(10, abonoPecuniarioDays));
+    // soldThird: atalho para "vender 1/3" (abono pecuniário, art. 143). Só atua
+    // quando nenhum dia de abono explícito foi informado, assumindo o teto legal
+    // de 1/3 dos dias de direito (≤10). Dias explícitos sempre prevalecem.
+    const legalThirdDays = Math.min(10, Math.floor(entitledDays / 3));
+    const requestedAbonoDays =
+      abonoPecuniarioDays > 0 ? abonoPecuniarioDays : soldThird ? legalThirdDays : 0;
+    const abonoDays = Math.max(0, Math.min(10, requestedAbonoDays));
     const vacationDays = Math.max(0, entitledDays - abonoDays);
 
     // Férias gozadas (proporcional aos dias).
@@ -290,5 +304,43 @@ export class VacationCalculationService {
     const result = new Date(date.getTime());
     result.setFullYear(result.getFullYear() + years);
     return result;
+  }
+
+  // =====================
+  // Sobreposição de períodos de gozo
+  // =====================
+
+  /** Data final (inclusiva) de um período de gozo: início + (dias − 1). */
+  periodEndDate(startDate: Date, days: number): Date {
+    return this.addDays(startDate, Math.max(0, Math.floor(days) - 1));
+  }
+
+  /** Dois períodos [aStart..aEnd] e [bStart..bEnd] (inclusivos) se sobrepõem? */
+  private rangesOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
+    return aStart.getTime() <= bEnd.getTime() && bStart.getTime() <= aEnd.getTime();
+  }
+
+  /**
+   * Detecta sobreposição entre os períodos candidatos e os períodos de OUTRAS
+   * férias do mesmo colaborador (um colaborador não pode estar em duas férias ao
+   * mesmo tempo). Retorna o primeiro conflito encontrado, se houver.
+   *
+   * Os chamadores devem excluir os períodos da própria férias e os do mesmo
+   * grupo coletivo de origem antes de passar `existing`.
+   */
+  detectPeriodOverlap(
+    candidate: Array<{ startDate: Date; days: number }>,
+    existing: Array<{ startDate: Date; days: number }>,
+  ): { overlaps: boolean; candidate?: { startDate: Date; days: number }; existing?: { startDate: Date; days: number } } {
+    for (const c of candidate) {
+      const cEnd = this.periodEndDate(c.startDate, c.days);
+      for (const e of existing) {
+        const eEnd = this.periodEndDate(e.startDate, e.days);
+        if (this.rangesOverlap(c.startDate, cEnd, e.startDate, eEnd)) {
+          return { overlaps: true, candidate: c, existing: e };
+        }
+      }
+    }
+    return { overlaps: false };
   }
 }

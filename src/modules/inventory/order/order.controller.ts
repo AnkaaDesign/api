@@ -942,7 +942,9 @@ export class OrderScheduleController {
    * GAP_ONLY (bridge) or GAP_PLUS_CYCLE (pull-forward).
    */
   @Post(':id/trigger')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // Finance can materialize a scheduled (recurrent) order from Contas a Pagar
+  // to then settle it — "Previsto/Recorrente → gerar pedido".
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   @HttpCode(HttpStatus.CREATED)
   async triggerNow(
     @Param('id', ParseUUIDPipe) id: string,

@@ -163,7 +163,9 @@ export class AirbrushingController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
+  // ACCOUNTING settles airbrushing painter payments from Contas a Pagar (sets
+  // paymentStatus) — same finance role that settles order payables.
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   @UseInterceptors(
     FileFieldsInterceptor(
       [

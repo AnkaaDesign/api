@@ -326,5 +326,109 @@ describe('VacationCalculationService', () => {
       // net = earnings(3000+1000) − inss − irrf
       expect(r.net).toBe(r.earnings - r.discounts);
     });
+
+    // soldThird: atalho para abono pecuniário de 1/3 (art. 143).
+    it('soldThird=true sem dias explícitos assume 1/3 (10 dias) como abono', () => {
+      const r = service.buildRecibo(
+        {
+          baseSalary: 3000,
+          variableAverage: 0,
+          entitledDays: 30,
+          abonoPecuniarioDays: 0,
+          soldThird: true,
+          isDouble: false,
+          dependentsCount: 0,
+          allowSimplifiedDeduction: true,
+          year: 2026,
+        },
+        ids,
+      );
+      expect(r.abonoPecuniarioDays).toBe(10); // floor(30/3) = 10
+      expect(r.vacationDays).toBe(20);
+      expect(r.abonoAmount).toBe(1000);
+    });
+
+    it('soldThird ignorado quando abonoPecuniarioDays explícito (>0) prevalece', () => {
+      const r = service.buildRecibo(
+        {
+          baseSalary: 3000,
+          variableAverage: 0,
+          entitledDays: 30,
+          abonoPecuniarioDays: 5,
+          soldThird: true,
+          isDouble: false,
+          dependentsCount: 0,
+          allowSimplifiedDeduction: true,
+          year: 2026,
+        },
+        ids,
+      );
+      expect(r.abonoPecuniarioDays).toBe(5);
+      expect(r.vacationDays).toBe(25);
+    });
+
+    it('soldThird respeita o teto de 1/3 para direito reduzido (art. 130)', () => {
+      const r = service.buildRecibo(
+        {
+          baseSalary: 3000,
+          variableAverage: 0,
+          entitledDays: 18, // 15–23 faltas
+          abonoPecuniarioDays: 0,
+          soldThird: true,
+          isDouble: false,
+          dependentsCount: 0,
+          allowSimplifiedDeduction: true,
+          year: 2026,
+        },
+        ids,
+      );
+      expect(r.abonoPecuniarioDays).toBe(6); // floor(18/3) = 6
+      expect(r.vacationDays).toBe(12);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Sobreposição de períodos de gozo
+  // -----------------------------------------------------------------------
+  describe('detectPeriodOverlap', () => {
+    const day = (m: number, d: number) => new Date(2026, m, d);
+
+    it('períodos disjuntos não se sobrepõem', () => {
+      const r = service.detectPeriodOverlap(
+        [{ startDate: day(0, 1), days: 10 }], // 01–10 jan
+        [{ startDate: day(0, 20), days: 10 }], // 20–29 jan
+      );
+      expect(r.overlaps).toBe(false);
+    });
+
+    it('detecta sobreposição parcial', () => {
+      const r = service.detectPeriodOverlap(
+        [{ startDate: day(0, 1), days: 15 }], // 01–15 jan
+        [{ startDate: day(0, 10), days: 10 }], // 10–19 jan
+      );
+      expect(r.overlaps).toBe(true);
+      expect(r.candidate?.days).toBe(15);
+    });
+
+    it('limites inclusivos: fim de um = início do outro sobrepõe', () => {
+      const r = service.detectPeriodOverlap(
+        [{ startDate: day(0, 1), days: 10 }], // 01–10 jan
+        [{ startDate: day(0, 10), days: 5 }], // 10–14 jan
+      );
+      expect(r.overlaps).toBe(true);
+    });
+
+    it('lista de existentes vazia nunca sobrepõe', () => {
+      const r = service.detectPeriodOverlap([{ startDate: day(0, 1), days: 10 }], []);
+      expect(r.overlaps).toBe(false);
+    });
+  });
+
+  describe('periodEndDate', () => {
+    it('fim inclusivo = início + (dias − 1)', () => {
+      const end = service.periodEndDate(new Date(2026, 0, 1), 30);
+      expect(end.getDate()).toBe(30);
+      expect(end.getMonth()).toBe(0);
+    });
   });
 });

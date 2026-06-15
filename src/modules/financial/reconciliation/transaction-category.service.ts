@@ -438,8 +438,12 @@ export class TransactionCategoryService {
         const key = `${e.date.getFullYear()}-${e.date.getMonth()}`;
         monthly.set(key, (monthly.get(key) ?? 0) + e.amount);
       }
-      const forecastAmount =
-        monthly.size > 0
+      // FIXED recurrents use their known monthly amount; VARIABLE use the
+      // 3-month average (falling back to the current paid amount).
+      const isFixed = category.recurrenceKind === 'FIXED' && category.fixedAmount != null;
+      const forecastAmount = isFixed
+        ? Number(category.fixedAmount)
+        : monthly.size > 0
           ? [...monthly.values()].reduce((a, b) => a + b, 0) / monthly.size
           : paidAmount;
 
@@ -452,6 +456,11 @@ export class TransactionCategoryService {
         ? paidDates[paidDates.length - 1]
         : null;
       let isPaymentDateForecast = false;
+      // FIXED recurrents have a statutory due day; predict from it when unpaid.
+      if (!paymentDate && isFixed && category.dueDayOfMonth) {
+        paymentDate = this.dateForDayInPeriod(category.dueDayOfMonth, from, to);
+        isPaymentDateForecast = paymentDate != null;
+      }
       if (!paymentDate) {
         const days = [...history, ...current]
           .map(e => e.date.getDate())
