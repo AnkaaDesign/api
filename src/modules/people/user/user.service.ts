@@ -88,6 +88,13 @@ export class UserService {
     private readonly fileService: FileService,
     private readonly folderRenameService: FolderRenameService,
     private readonly notificationPreferenceInitService: NotificationPreferenceInitService,
+    /**
+     * `forwardRef` is required at the injection site (not only on the module
+     * import) because UserModule ⇄ EmploymentContractModule form a true
+     * circular module dependency. Without it the provider can resolve to
+     * `undefined` depending on instantiation order.
+     */
+    @Inject(forwardRef(() => EmploymentContractService))
     private readonly employmentContractService: EmploymentContractService,
     /**
      * Global Node EventEmitter (registered as @Global() in

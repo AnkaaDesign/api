@@ -68,6 +68,8 @@ import {
   SecullumCreateInclusaoPontoDto,
   SecullumCreateInclusaoPontoResponse,
   SecullumReverseGeocodeResponse,
+  SecullumApuracao,
+  SecullumApuracaoNotificacao,
 } from './dto';
 
 @Injectable()
@@ -2900,24 +2902,31 @@ export class SecullumService {
     return `${y}-${m}-${d}`;
   }
 
-  // /Calculos column Nome → the entry field key the Controle de Ponto day view
-  // and the daily-ponto dashboard widget read (mirrors their SECULLUM_FIELD_MAP).
+  // /Calculos column → the entry field key the Controle de Ponto day view and
+  // the daily-ponto dashboard widget read (mirrors their SECULLUM_FIELD_MAP).
   // Only the aggregated hour columns belong here; punch columns and boolean
   // flags (Folga, etc.) come from /Batidas and must NOT be overwritten — in
   // particular /Calculos "Folga" is an hours string while /Batidas "Folga" is a
   // boolean the day view uses for the FOLGA label.
-  private static readonly CALC_COLUMN_TO_ENTRY_FIELD: Record<string, string> = {
-    Normais: 'Normais',
-    Faltas: 'Faltas',
-    'Ex50%': 'Ex50',
-    'Ex100%': 'Ex100',
-    'Ex150%': 'Ex150',
-    DSR: 'DSR',
-    'DSR.Deb': 'DSRDebito',
-    Ajuste: 'Ajuste',
-    'Atras.': 'Atraso',
-    'Adian.': 'Adiantamento',
-  };
+  //
+  // `names` are matched case-insensitively against BOTH `Nome` and
+  // `NomeExibicao`: Secullum's column naming varies (e.g. "Atras." vs
+  // "Atrasos") and the canonical label sometimes lives in NomeExibicao only —
+  // an exact, case-sensitive match silently dropped these columns, which is why
+  // absences/atraso never reached the day view. Mirrors the case-insensitive +
+  // synonym matching the bonus/payroll Secullum integrations already use.
+  private static readonly CALC_COLUMN_CANDIDATES: Array<{ field: string; names: string[] }> = [
+    { field: 'Normais', names: ['normais'] },
+    { field: 'Faltas', names: ['faltas', 'ausências', 'ausencias'] },
+    { field: 'Ex50', names: ['ex50%', 'ex50'] },
+    { field: 'Ex100', names: ['ex100%', 'ex100'] },
+    { field: 'Ex150', names: ['ex150%', 'ex150'] },
+    { field: 'DSR', names: ['dsr'] },
+    { field: 'DSRDebito', names: ['dsr.deb', 'dsrdebito'] },
+    { field: 'Ajuste', names: ['ajuste'] },
+    { field: 'Atraso', names: ['atras.', 'atrasos', 'atraso', 'atras'] },
+    { field: 'Adiantamento', names: ['adian.', 'adiantamento', 'adian'] },
+  ];
 
   /** Extract YYYY-MM-DD from a Secullum date string (ISO or DD/MM/YYYY). */
   private normalizeCalcDay(raw: unknown): string | null {
@@ -2951,18 +2960,29 @@ export class SecullumService {
       const colunas: any[] = calc?.Colunas ?? [];
       const linhas: any[][] = calc?.Linhas ?? [];
       if (colunas.length && linhas.length) {
+        // Index columns by normalized (lowercased/trimmed) Nome AND NomeExibicao
+        // so the candidate matching below tolerates Secullum's naming variants.
         const colIndex = new Map<string, number>();
-        colunas.forEach((c: any, i: number) => colIndex.set(c?.Nome, i));
-        const dataIdx = colIndex.get('Data');
+        colunas.forEach((c: any, i: number) => {
+          for (const key of [c?.Nome, c?.NomeExibicao]) {
+            if (key) {
+              const norm = String(key).toLowerCase().trim();
+              if (!colIndex.has(norm)) colIndex.set(norm, i);
+            }
+          }
+        });
+        const dataIdx = colIndex.get('data');
         const row =
           (dataIdx != null
             ? linhas.find((r) => this.normalizeCalcDay(r?.[dataIdx]) === date)
             : undefined) ?? linhas[0];
         if (row) {
-          for (const [nome, field] of Object.entries(
-            SecullumService.CALC_COLUMN_TO_ENTRY_FIELD,
-          )) {
-            const idx = colIndex.get(nome);
+          for (const { field, names } of SecullumService.CALC_COLUMN_CANDIDATES) {
+            let idx: number | undefined;
+            for (const n of names) {
+              idx = colIndex.get(n);
+              if (idx != null) break;
+            }
             if (idx == null) continue;
             const val = row[idx];
             if (val !== null && val !== undefined && String(val).trim() !== '') {
@@ -3011,14 +3031,19 @@ export class SecullumService {
   }
 
   // Secullum Requests Management - Solicitações de Ajuste de Ponto
-  async getRequests(pendingOnly: boolean = false): Promise<SecullumRequestsResponse> {
+  async getRequests(
+    pendingOnly: boolean = false,
+    options?: { startDate?: string; endDate?: string; quantidade?: number },
+  ): Promise<SecullumRequestsResponse> {
     try {
       this.logger.log(`Fetching Secullum time adjustment requests`);
 
-      // Secullum API expects this exact body structure for listing requests
+      // Secullum API expects this exact body structure for listing requests.
+      // DataInicio/DataFim + a higher Quantidade let callers (e.g. the bonus
+      // engine) scope the fetch to a payroll period instead of the most recent 100.
       const requestBody = {
-        DataInicio: null,
-        DataFim: null,
+        DataInicio: options?.startDate ?? null,
+        DataFim: options?.endDate ?? null,
         FuncionariosIds: [],
         EmpresaId: 0,
         DepartamentoId: 0,
@@ -3027,7 +3052,7 @@ export class SecullumService {
         Tipo: null,
         Ordem: 0,
         Decrescente: true,
-        Quantidade: 100,
+        Quantidade: options?.quantidade ?? 100,
       };
 
       const response = await this.makeAuthenticatedRequest<any[]>(
@@ -3264,17 +3289,30 @@ export class SecullumService {
   //   1 = Aprovado (Accept)   2 = Rejeitado (Reject)
   // Resposta is non-null only when employee left a comment (usually on reject).
 
-  async getAssinaturaList(): Promise<SecullumAssinaturaListResponse> {
+  // Apurações created by the health-check (Diagnóstico) carry this marker in their
+  // Descrição. They get signed/rejected and therefore cannot be deleted, so they
+  // are filtered out of all user-facing apuração lists by default.
+  static readonly DIAGNOSTIC_ASSINATURA_MARK = 'ANKAA-HC';
+
+  async getAssinaturaList(includeDiagnostic = false): Promise<SecullumAssinaturaListResponse> {
     try {
       this.logger.log('Fetching Secullum AssinaturaDigitalCartaoPonto list');
       const response = await this.makeAuthenticatedRequest<SecullumAssinaturaListItem[]>(
         'GET',
         '/AssinaturaDigitalCartaoPonto',
       );
+      const all = response || [];
+      // Hide diagnostic apurações from the application unless explicitly requested
+      // (the smoke test itself needs to see its own apurações to act on them).
+      const data = includeDiagnostic
+        ? all
+        : all.filter(
+            (a) => !String(a.Descricao ?? '').includes(SecullumService.DIAGNOSTIC_ASSINATURA_MARK),
+          );
       return {
         success: true,
         message: 'Apurações de assinatura digital obtidas com sucesso',
-        data: response || [],
+        data,
       };
     } catch (error) {
       this.logger.error('Error fetching assinatura list from Secullum', error);
@@ -3721,7 +3759,11 @@ export class SecullumService {
       const activeUsers = await this.prismaService.user.findMany({
         where: {
           secullumEmployeeId: { not: null },
-          currentContractStatus: { not: 'TERMINATED' },
+          // Reconciled to `isActive` to match the rest of the Secullum subsystem
+          // (createAbsenceForUsers / absence reads all use `isActive: true`).
+          // `isActive` is the cached `currentContractStatus != TERMINATED` flag —
+          // same intent, but using ONE field across siblings avoids cache drift.
+          isActive: true,
         },
         select: { id: true, name: true },
       });
@@ -3892,6 +3934,33 @@ export class SecullumService {
     }
   }
 
+  /**
+   * Creates a single-funcionário apuração (Assinatura Digital de Cartão Ponto) via
+   * the headless-Chrome WebSocket browser-signer — the ONLY path Secullum accepts
+   * for the "Apurar" write (the REST POST returns DbUpdateException). Operates on a
+   * RAW Secullum funcionarioId (no Ankaa User link required), so it also works for
+   * the health-check on accounts that aren't mapped. The cartão-ponto period is
+   * normalized from `dataFim` (cycle starting on the 26th of the preceding month).
+   * Throws on failure (including missing Chromium / login issues).
+   */
+  async createAssinaturaForFuncionarioId(
+    funcionarioId: number,
+    dataFim: string, // YYYY-MM-DD
+    descricao: string,
+  ): Promise<{ dataInicial: string; dataFinal: string; descricao: string }> {
+    const dataFinal = dataFim.split('T')[0];
+    const dataInicial = this.cartaoPontoStart(dataFinal).split('T')[0];
+    await this.preloadCalculo(funcionarioId, dataInicial, dataFinal);
+    await this.generateAssinaturaWithRetry({
+      funcionarioId,
+      imprimirTodos: false,
+      dataInicial,
+      dataFinal,
+      descricao,
+    });
+    return { dataInicial, dataFinal, descricao };
+  }
+
   // Starts a signature-generation job in the background and returns its id
   // immediately. The frontend polls getAssinaturaJob(jobId) for progress so it
   // can render an "X de N" bar while the (slow) WebSocket work runs.
@@ -3964,7 +4033,7 @@ export class SecullumService {
                   title: 'Cartão-ponto pronto para assinatura',
                   body: 'Seu cartão-ponto está disponível para assinatura digital. Acesse para revisar e assinar.',
                   webUrl: '/recursos-humanos/integracoes/secullum',
-                  mobileUrl: '/(tabs)/pessoal/meus-pontos',
+                  mobileUrl: '/(tabs)/pessoal/meus-pontos/assinaturas',
                   relatedEntityType: 'SECULLUM_SOLICITACAO',
                 },
               },
@@ -5442,6 +5511,147 @@ export class SecullumService {
       registroPendenciaId: String(registroPendenciaId),
     });
     return `${base}/${this.customerId}/Batidas/Comprovante?${params.toString()}`;
+  }
+
+  // ==========================================================================
+  // Apuração de Cartão Ponto — EMPLOYEE self-service (pontowebapp + Basic auth)
+  // The colaborador reviews their monthly cartão-ponto and approves (signs with
+  // senha) or rejects it (with a motivo). Discovery is Secullum's Notificacoes
+  // feed (tipo=3 carries the apuração record id). Captured 2026-06-15 — see
+  // docs/secullum-integration/11_assinatura_aprovar_descartar_live.md.
+  //   estado: 0=Pendente, 1=Aprovado, 2=Rejeitado
+  // ==========================================================================
+
+  /** GET /Notificacoes/{from}/{to} — the funcionário's own notification feed. */
+  async getApuracaoNotificacoesAsFuncionario(
+    auth: { usuario: string; senha: string },
+    from: string, // YYYY-MM-DD
+    to: string, // YYYY-MM-DD
+  ): Promise<SecullumApuracaoNotificacao[]> {
+    const data = await this.makePontowebappRequest<SecullumApuracaoNotificacao[]>(
+      'GET',
+      `/Notificacoes/${from}/${to}`,
+      auth,
+    );
+    return Array.isArray(data) ? data : [];
+  }
+
+  /** GET /AssinaturaDigitalCartaoPonto/CarregarAssinatura/{id} — full apuração object. */
+  async getApuracaoDetailAsFuncionario(
+    auth: { usuario: string; senha: string },
+    id: number,
+  ): Promise<SecullumApuracao> {
+    return this.makePontowebappRequest<SecullumApuracao>(
+      'GET',
+      `/AssinaturaDigitalCartaoPonto/CarregarAssinatura/${id}`,
+      auth,
+    );
+  }
+
+  /**
+   * Builds the absolute cartão-ponto PDF URL the mobile app opens in its PDF
+   * viewer / in-app browser. Mirrors buildComprovanteUrl — the `axpw` query
+   * carries the funcionário Basic-auth creds so no auth header is needed.
+   * NOTE: the PDF endpoint keys on the apuração's `assinaturaDigitalCartaoPontoId`
+   * (the "PDF id"), NOT the CarregarAssinatura record `id`.
+   */
+  buildApuracaoPdfUrl(
+    auth: { usuario: string; senha: string },
+    assinaturaDigitalCartaoPontoId: number,
+  ): string {
+    const raw = `${auth.usuario}:${auth.senha}:0`;
+    const axpw = Buffer.from(raw, 'utf-8').toString('base64');
+    const base = this.pontowebappBaseUrl.replace(/\/$/, '');
+    const params = new URLSearchParams({ axpw });
+    return `${base}/${this.customerId}/AssinaturaDigitalCartaoPonto/${assinaturaDigitalCartaoPontoId}?${params.toString()}`;
+  }
+
+  /**
+   * POST /AssinaturaDigitalCartaoPonto/Aprovar — the employee signs (approves)
+   * their cartão-ponto. We re-load the object, set the tenant-wide password
+   * ("123" via auth.senha), and echo it back. Secullum returns estado=1; HR is
+   * notified via secullum.signature.signed.
+   */
+  async approveApuracaoAsFuncionario(
+    auth: { usuario: string; senha: string },
+    id: number,
+  ): Promise<SecullumApuracao> {
+    const apuracao = await this.getApuracaoDetailAsFuncionario(auth, id);
+    const body: SecullumApuracao = {
+      ...apuracao,
+      estado: 0, // request always carries 0; server transitions it to 1
+      senha: auth.senha,
+      motivo: null,
+      geolocalizacao: null, // optional; CarregarAssinatura returns null too
+    };
+    const result = await this.makePontowebappRequest<SecullumApuracao>(
+      'POST',
+      '/AssinaturaDigitalCartaoPonto/Aprovar',
+      auth,
+      body,
+    );
+    await this.notifyHrApuracaoDecision('secullum.signature.signed', apuracao, null);
+    return result ?? { ...body, estado: 1 };
+  }
+
+  /**
+   * POST /AssinaturaDigitalCartaoPonto/Descartar — the employee rejects their
+   * cartão-ponto with a motivo. Secullum returns estado=2; HR is notified via
+   * secullum.signature.rejected (carrying the motivo as {{response}}).
+   */
+  async rejectApuracaoAsFuncionario(
+    auth: { usuario: string; senha: string },
+    id: number,
+    motivo: string,
+  ): Promise<SecullumApuracao> {
+    const apuracao = await this.getApuracaoDetailAsFuncionario(auth, id);
+    const body: SecullumApuracao = {
+      ...apuracao,
+      estado: 0,
+      senha: null,
+      motivo,
+      geolocalizacao: null,
+    };
+    const result = await this.makePontowebappRequest<SecullumApuracao>(
+      'POST',
+      '/AssinaturaDigitalCartaoPonto/Descartar',
+      auth,
+      body,
+    );
+    await this.notifyHrApuracaoDecision('secullum.signature.rejected', apuracao, motivo);
+    return result ?? { ...body, estado: 2 };
+  }
+
+  /**
+   * Notifies the HR sector that an employee signed/rejected their cartão-ponto.
+   * Wires the previously-deferred secullum.signature.signed / .rejected configs
+   * (sector-targeted, so safeDispatch — not the per-user variant). Failures are
+   * swallowed inside safeDispatch so they never block the Secullum write.
+   */
+  private async notifyHrApuracaoDecision(
+    configKey: 'secullum.signature.signed' | 'secullum.signature.rejected',
+    apuracao: SecullumApuracao,
+    motivo: string | null,
+  ): Promise<void> {
+    const period = this.formatApuracaoPeriod(apuracao.dataInicio, apuracao.dataFim);
+    const linked = await this.resolveUserIdBySecullumEmployeeId(apuracao.funcionarioId);
+    const employeeName =
+      linked?.name ?? apuracao.funcionarioNome ?? `Funcionário ${apuracao.funcionarioId}`;
+    await this.safeDispatch(configKey, linked?.id ?? 'system', {
+      entityType: 'SecullumAssinatura',
+      entityId: String(apuracao.id),
+      action: configKey === 'secullum.signature.signed' ? 'signed' : 'rejected',
+      data: { employeeName, period, ...(motivo ? { response: motivo } : {}) },
+    });
+  }
+
+  /** "26/04/2026 a 26/05/2026" from ISO date-times. */
+  private formatApuracaoPeriod(dataInicio: string, dataFim: string): string {
+    const fmt = (iso: string) => {
+      const parts = (iso || '').slice(0, 10).split('-'); // YYYY-MM-DD
+      return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : iso;
+    };
+    return `${fmt(dataInicio)} a ${fmt(dataFim)}`;
   }
 
   /**

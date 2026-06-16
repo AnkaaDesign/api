@@ -1757,6 +1757,69 @@ model SecullumToken {
   @@index([identifier])
 }
 
+// ===========================================================================
+// Secullum integration health-check (Diagnóstico)
+// A scheduled (06:00 / 12:00 BRT) + on-demand end-to-end smoke test that
+// exercises every implemented Secullum capability and records a per-check
+// ✓/✗ result so the web "Integração Secullum > Diagnóstico" tab can show
+// exactly which integration broke. See modules/integrations/secullum/smoke-test.
+// ===========================================================================
+
+enum SecullumSmokeTrigger {
+  SCHEDULED
+  MANUAL
+}
+
+enum SecullumSmokeRunStatus {
+  RUNNING
+  PASSED
+  FAILED
+  PARTIAL
+}
+
+enum SecullumSmokeCheckStatus {
+  PASS
+  FAIL
+  SKIP
+}
+
+model SecullumSmokeTestRun {
+  id            String                   @id @default(uuid())
+  trigger       SecullumSmokeTrigger
+  status        SecullumSmokeRunStatus   @default(RUNNING)
+  ranAt         DateTime                 @default(now()) @map("ran_at")
+  finishedAt    DateTime?                @map("finished_at")
+  durationMs    Int?                     @map("duration_ms")
+  passCount     Int                      @default(0) @map("pass_count")
+  failCount     Int                      @default(0) @map("fail_count")
+  skipCount     Int                      @default(0) @map("skip_count")
+  triggeredById String?                  @map("triggered_by_id")
+  triggeredBy   User?                    @relation("SecullumSmokeRuns", fields: [triggeredById], references: [id])
+  checks        SecullumSmokeTestCheck[]
+  createdAt     DateTime                 @default(now()) @map("created_at")
+
+  @@index([ranAt])
+  @@index([status])
+  @@map("secullum_smoke_test_runs")
+}
+
+model SecullumSmokeTestCheck {
+  id           String                   @id @default(uuid())
+  runId        String                   @map("run_id")
+  run          SecullumSmokeTestRun     @relation(fields: [runId], references: [id], onDelete: Cascade)
+  checkKey     String                   @map("check_key")
+  label        String
+  category     String
+  status       SecullumSmokeCheckStatus
+  errorMessage String?                  @map("error_message")
+  durationMs   Int?                     @map("duration_ms")
+  order        Int                      @default(0)
+  createdAt    DateTime                 @default(now()) @map("created_at")
+
+  @@index([runId])
+  @@map("secullum_smoke_test_checks")
+}
+
 model User {
   id                             String                       @id @default(uuid())
   email                          String?                      @unique
@@ -1888,6 +1951,7 @@ model User {
   workAccidentReports            WorkAccidentReport[]         @relation("WORK_ACCIDENT_REPORT_USER")
   agendaEventsCreated            AgendaEvent[]                @relation("AGENDA_EVENT_CREATED_BY")
   postits                        Postit[]                     @relation("POSTIT_USER")
+  secullumSmokeRuns              SecullumSmokeTestRun[]       @relation("SecullumSmokeRuns")
 
   @@index([currentContractStatus, sectorId])
   @@index([currentContractType])

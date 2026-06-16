@@ -134,4 +134,75 @@ describe('SecullumBonusIntegrationService', () => {
       expect(secullum.getTimeEntriesBySecullumIdCached).not.toHaveBeenCalled();
     });
   });
+
+  // Tier tables — bônus discount + graded assiduidade loss (hours-based).
+  // Mirrors the rule matrix shown in the bonus rules modal (web + mobile).
+  describe('absence tier tables', () => {
+    const svc = () =>
+      service as unknown as {
+        getUnjustifiedDiscountPercentage(h: number): number;
+        getAtestadoDiscountPercentage(h: number): number;
+        getUnjustifiedAssiduidadeLoss(h: number): string;
+        getAtestadoAssiduidadeLoss(h: number): string;
+      };
+
+    describe('sem justificativa — bônus discount', () => {
+      it.each([
+        [0, 0],
+        [2, 0],
+        [2.5, 25],
+        [4, 25],
+        [6, 50],
+        [8, 50],
+        [9, 100],
+        [40, 100],
+      ])('%ph → %s%%', (hours, expected) => {
+        expect(svc().getUnjustifiedDiscountPercentage(hours)).toBe(expected);
+      });
+    });
+
+    describe('sem justificativa — assiduidade loss', () => {
+      it.each([
+        [0, 'none'],
+        [1, 'perde-o-dia'],
+        [2, 'perde-o-dia'],
+        [3, 'half'],
+        [4, 'half'],
+        [5, 'full'],
+        [10, 'full'],
+      ])('%ph → %s', (hours, expected) => {
+        expect(svc().getUnjustifiedAssiduidadeLoss(hours)).toBe(expected);
+      });
+    });
+
+    describe('atestado — bônus discount', () => {
+      it.each([
+        [0, 0],
+        [2, 0],
+        [4, 0],
+        [5, 25],
+        [8, 25],
+        [16, 50],
+        [25, 50],
+        [26, 100],
+      ])('%ph → %s%%', (hours, expected) => {
+        expect(svc().getAtestadoDiscountPercentage(hours)).toBe(expected);
+      });
+    });
+
+    describe('atestado — assiduidade loss (até 2h keeps the +1%)', () => {
+      it.each([
+        [0, 'none'],
+        [2, 'none'],
+        [3, 'perde-o-dia'],
+        [4, 'perde-o-dia'],
+        [6, 'half'],
+        [8, 'half'],
+        [9, 'full'],
+        [30, 'full'],
+      ])('%ph → %s', (hours, expected) => {
+        expect(svc().getAtestadoAssiduidadeLoss(hours)).toBe(expected);
+      });
+    });
+  });
 });

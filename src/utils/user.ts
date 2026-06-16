@@ -1,7 +1,6 @@
 import type { User } from '@types';
-import { CONTRACT_TYPE, CONTRACT_STATUS, EMPLOYEE_TYPE, SECTOR_PRIVILEGES, VERIFICATION_TYPE } from '@constants';
+import { CONTRACT_TYPE, CONTRACT_STATUS, EMPLOYEE_TYPE, VERIFICATION_TYPE } from '@constants';
 import { isBonifiable } from './contract';
-import { getSectorPrivilegeSortOrder } from './privilege';
 import { dateUtils } from './date';
 import type {
   ContractType,
@@ -112,64 +111,6 @@ export function isUserInactive(user: User): boolean {
  */
 export function isUserBlocked(user: User): boolean {
   return user.currentContractStatus === CONTRACT_STATUS.TERMINATED;
-}
-
-/**
- * Check if user has specific privilege
- */
-export function hasPrivilege(user: User, requiredPrivilege: SECTOR_PRIVILEGES): boolean {
-  if (!user.sector?.privileges) return false;
-
-  const userPrivilegeLevel = getSectorPrivilegeSortOrder(user.sector.privileges);
-  const requiredPrivilegeLevel = getSectorPrivilegeSortOrder(requiredPrivilege);
-
-  return userPrivilegeLevel >= requiredPrivilegeLevel;
-}
-
-/**
- * Check if user has ANY of the specified privileges (OR logic)
- * Matches backend @Roles decorator behavior - user needs only one of the privileges
- */
-export function hasAnyPrivilege(user: User, requiredPrivileges: SECTOR_PRIVILEGES[]): boolean {
-  if (!user.sector?.privileges || !requiredPrivileges.length) return false;
-
-  return requiredPrivileges.some(privilege => hasPrivilege(user, privilege));
-}
-
-/**
- * Check if user has ALL of the specified privileges (AND logic)
- * User must have privilege level equal to or higher than ALL specified privileges
- */
-export function hasAllPrivileges(user: User, requiredPrivileges: SECTOR_PRIVILEGES[]): boolean {
-  if (!user.sector?.privileges || !requiredPrivileges.length) return false;
-
-  return requiredPrivileges.every(privilege => hasPrivilege(user, privilege));
-}
-
-/**
- * Check if user can access based on privilege array (same as hasAnyPrivilege)
- * Alias function that matches backend controller terminology
- */
-export function canAccessWithPrivileges(
-  user: User,
-  allowedPrivileges: SECTOR_PRIVILEGES[],
-): boolean {
-  return hasAnyPrivilege(user, allowedPrivileges);
-}
-
-/**
- * Check if user is administrator
- */
-export function isUserAdmin(user: User): boolean {
-  return hasPrivilege(user, SECTOR_PRIVILEGES.ADMIN);
-}
-
-/**
- * Check if user has HR-level privileges or higher
- * Note: LEADER privilege was removed - use isTeamLeader() to check if user manages a sector
- */
-export function isUserLeader(user: User): boolean {
-  return hasPrivilege(user, SECTOR_PRIVILEGES.HUMAN_RESOURCES);
 }
 
 /**
@@ -359,26 +300,11 @@ export function getUsersInSameSector(user: User, allUsers: User[]): User[] {
 }
 
 /**
- * Check if user has both sector membership and leadership privileges
- */
-export function isUserLeaderWithPrivileges(user: User): boolean {
-  return isUserLeader(user) && isTeamLeader(user);
-}
-
-/**
  * Get sector object that user leads (if any)
  * Note: This returns the full sector object from the ledSector relation
  */
 export function getLedSector(user: User): User['ledSector'] | null {
   return user.ledSector || null;
-}
-
-/**
- * Check if user can access team management features
- */
-export function canAccessTeamManagement(user: User): boolean {
-  // User must be a leader OR have sufficient privileges
-  return isUserLeader(user) || isTeamLeader(user);
 }
 
 // =====================

@@ -143,7 +143,6 @@ export class LayoutController {
 
   @Post()
   @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
@@ -162,7 +161,6 @@ export class LayoutController {
 
   @Put(':id')
   @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
@@ -184,7 +182,7 @@ export class LayoutController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.ADMIN)
   async delete(@Param('id') id: string, @UserId() userId: string) {
     await this.layoutService.delete(id, userId);
 
@@ -197,7 +195,6 @@ export class LayoutController {
   // NEW: Assign existing layout to truck
   @Post(':id/assign-to-truck')
   @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
@@ -219,7 +216,6 @@ export class LayoutController {
   // NEW: Batch-update multiple truck layout sides with a SINGLE consolidated notification
   @Post('truck/:truckId/batch')
   @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
@@ -254,7 +250,6 @@ export class LayoutController {
 
   @Post('truck/:truckId/:side')
   @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,

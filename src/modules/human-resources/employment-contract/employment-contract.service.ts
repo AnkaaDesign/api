@@ -105,7 +105,9 @@ export class EmploymentContractService {
     }
 
     if (!current) {
-      // Sem vínculos: limpa o cache.
+      // Sem vínculos: limpa o cache. isActive DEVE ir a false junto — manter o
+      // flag stale `true` divergiria do predicado `currentContractStatus != TERMINATED`
+      // (que os subsistemas — Secullum, etc. — esperam equivalente a isActive).
       await tx.user.update({
         where: { id: userId },
         data: {
@@ -113,6 +115,7 @@ export class EmploymentContractService {
           currentContractType: null,
           currentContractStatus: null,
           currentEmployeeType: null,
+          isActive: false,
         },
       });
       return;
