@@ -119,8 +119,8 @@ export class MedicalExamAlertScheduler {
             noReschedule: true,
           },
           overrides: {
-            actionUrl: '/recursos-humanos/medicina-do-trabalho/exames',
-            webUrl: '/recursos-humanos/medicina-do-trabalho/exames',
+            webUrl: '/medicina-do-trabalho/aso',
+            mobileUrl: '/(tabs)/recursos-humanos/medicina/aso',
             relatedEntityType: 'MEDICAL_EXAM',
             title: 'Exames ocupacionais a vencer',
             body: `${expiring.length} exame(s) vencem nos próximos ${this.advanceDays} dias${
@@ -153,8 +153,8 @@ export class MedicalExamAlertScheduler {
             noReschedule: true,
           },
           overrides: {
-            actionUrl: '/recursos-humanos/medicina-do-trabalho/exames',
-            webUrl: '/recursos-humanos/medicina-do-trabalho/exames',
+            webUrl: '/medicina-do-trabalho/aso',
+            mobileUrl: '/(tabs)/recursos-humanos/medicina/aso',
             relatedEntityType: 'MEDICAL_EXAM',
             title: 'Exames de retorno ao trabalho pendentes',
             body: `${returnDue.length} exame(s) de retorno ao trabalho (ASO) aguardam realização${

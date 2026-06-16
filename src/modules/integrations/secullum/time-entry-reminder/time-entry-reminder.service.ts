@@ -622,8 +622,8 @@ export class TimeEntryReminderService {
             allowExtendedHours: true, // Clock-out (SAIDA2) escalations may fire until 18:45
           },
           overrides: {
-            actionUrl: '/recursos-humanos/controle-ponto',
             webUrl: '/recursos-humanos/controle-ponto',
+            mobileUrl: '/(tabs)/recursos-humanos/controle-ponto',
             relatedEntityType: 'TIME_ENTRY',
             title: `Ponto não registrado — ${user.name}`,
             body: `${user.name} não registrou ${entryLabel} (horário esperado: ${expectedTime}) em ${today}.`,

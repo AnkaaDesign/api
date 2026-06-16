@@ -4062,7 +4062,7 @@ export class SecullumService {
                     title: 'Cartão-ponto pronto para assinatura',
                     body: 'Seu cartão-ponto está disponível para assinatura digital. Acesse para revisar e assinar.',
                     webUrl: '/recursos-humanos/integracoes/secullum',
-                    mobileUrl: '/(tabs)/pessoal/meus-pontos',
+                    mobileUrl: '/(tabs)/pessoal/meus-pontos/assinaturas',
                     relatedEntityType: 'SECULLUM_SOLICITACAO',
                   },
                 },
@@ -5642,6 +5642,11 @@ export class SecullumService {
       entityId: String(apuracao.id),
       action: configKey === 'secullum.signature.signed' ? 'signed' : 'rejected',
       data: { employeeName, period, ...(motivo ? { response: motivo } : {}) },
+      overrides: {
+        webUrl: '/recursos-humanos/integracoes/secullum',
+        mobileUrl: '/(tabs)/recursos-humanos/calculos',
+        relatedEntityType: 'SECULLUM_ASSINATURA',
+      },
     });
   }
 

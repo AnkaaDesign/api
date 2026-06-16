@@ -23,7 +23,7 @@ import { OrderItemService } from './order-item.service';
 import { OrderScheduleService } from './order-schedule.service';
 import { OrderScheduleScheduler } from './order-schedule.scheduler';
 import { OrderAnalyticsService } from './order-analytics.service';
-import { UserId } from '../../common/auth/decorators/user.decorator';
+import { UserId, User } from '../../common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { ZodValidationPipe, ZodQueryValidationPipe } from '../../common/pipes/zod-validation.pipe';
@@ -424,6 +424,7 @@ export class OrderController {
     @Body(new ZodValidationPipe(orderUpdateSchema)) data: OrderUpdateFormData,
     @Query(new ZodQueryValidationPipe(orderQuerySchema)) query: OrderQueryFormData,
     @UserId() userId: string,
+    @User('role') userRole: string,
     @UploadedFiles()
     files?: {
       budgets?: Express.Multer.File[];
@@ -433,7 +434,7 @@ export class OrderController {
       reimbursementInvoices?: Express.Multer.File[];
     },
   ): Promise<OrderUpdateResponse> {
-    return this.orderService.update(id, data, query.include, userId, files);
+    return this.orderService.update(id, data, query.include, userId, files, userRole);
   }
 
   @Delete(':id')
@@ -591,7 +592,7 @@ export class OrderItemController {
   }
 
   @Put('batch/mark-received')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async batchMarkReceived(
     @Body() data: { items: Array<{ id: string; receivedQuantity: number }> },
     @Query(new ZodQueryValidationPipe(orderItemQuerySchema)) query: OrderItemQueryFormData,

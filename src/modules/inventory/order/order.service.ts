@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   InternalServerErrorException,
@@ -41,6 +42,7 @@ import {
   ACTIVITY_REASON,
   ACTIVITY_OPERATION,
   CHANGE_ACTION,
+  SECTOR_PRIVILEGES,
 } from '../../../constants/enums';
 import { ORDER_PAYMENT_STATUS_ORDER } from '../../../constants/sortOrders';
 import { OrderRepository } from './repositories/order/order.repository';
@@ -674,6 +676,7 @@ export class OrderService {
       reimbursements?: Express.Multer.File[];
       reimbursementInvoices?: Express.Multer.File[];
     },
+    userSector?: string,
   ): Promise<OrderUpdateResponse> {
     try {
       // Declare variables outside transaction so they're accessible after
@@ -693,6 +696,13 @@ export class OrderService {
 
         if (!existingOrder) {
           throw new NotFoundException('Pedido não encontrado. Verifique se o ID está correto.');
+        }
+
+        // WAREHOUSE sector cannot mark orders as received — only ADMIN can close orders.
+        if (data.status === ORDER_STATUS.RECEIVED && userSector === SECTOR_PRIVILEGES.WAREHOUSE) {
+          throw new ForbiddenException(
+            'O setor de Almoxarifado não pode marcar pedidos como recebidos. Apenas administradores podem concluir pedidos.',
+          );
         }
 
         // Handle special case: CREATED → RECEIVED should go through FULFILLED first

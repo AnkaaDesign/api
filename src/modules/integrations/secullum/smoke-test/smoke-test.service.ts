@@ -170,6 +170,11 @@ export class SecullumSmokeTestService {
           skipCount: summary.skipCount,
           failedLabels: failed.length > 0 ? failedLabels : '',
         },
+        overrides: {
+          webUrl: '/recursos-humanos/integracoes/secullum',
+          mobileUrl: '/(tabs)/recursos-humanos/calculos',
+          relatedEntityType: 'SECULLUM_SOLICITACAO',
+        },
       });
     } catch (err) {
       this.logger.error('Failed to dispatch secullum.diagnostic.completed', err as Error);

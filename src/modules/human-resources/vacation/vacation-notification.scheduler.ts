@@ -66,7 +66,11 @@ export class VacationNotificationScheduler {
   }
 
   private vacationWebUrl(vacationId: string): string {
-    return `/pessoal/ferias/detalhes/${vacationId}`;
+    return `/recursos-humanos/ferias/detalhes/${vacationId}`;
+  }
+
+  private vacationMobileUrl(vacationId: string): string {
+    return `/(tabs)/recursos-humanos/ferias/detalhes/${vacationId}`;
   }
 
   // -------------------------------------------------------------------------
@@ -122,6 +126,7 @@ export class VacationNotificationScheduler {
             title: 'Férias vencidas (dobro)',
             body: `As férias de ${userName} venceram o período concessivo sem gozo e agora são devidas EM DOBRO (CLT art. 137). Providencie o pagamento.`,
             webUrl: this.vacationWebUrl(vacation.id),
+            mobileUrl: this.vacationMobileUrl(vacation.id),
             relatedEntityType: 'VACATION',
           },
         });
@@ -173,6 +178,7 @@ export class VacationNotificationScheduler {
               title: 'Período concessivo de férias expirando',
               body: `As férias de ${userName} devem ser concedidas em até ${daysText}, sob pena de pagamento em dobro (CLT art. 137). Agende o gozo.`,
               webUrl: this.vacationWebUrl(vacation.id),
+              mobileUrl: this.vacationMobileUrl(vacation.id),
               relatedEntityType: 'VACATION',
             },
           },
@@ -225,6 +231,7 @@ export class VacationNotificationScheduler {
               title: 'Conflito no planejamento de férias',
               body: `O gozo agendado das férias de ${userName} ultrapassa o fim do período concessivo. Reagende para evitar pagamento em dobro (CLT art. 137).`,
               webUrl: this.vacationWebUrl(vacation.id),
+              mobileUrl: this.vacationMobileUrl(vacation.id),
               relatedEntityType: 'VACATION',
             },
           },

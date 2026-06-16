@@ -12,6 +12,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
   ITEM_CATEGORY_TYPE,
   NOTIFICATION_IMPORTANCE,
+  ORDER_STATUS,
   SECTOR_PRIVILEGES,
   STOCK_LEVEL,
 } from '../../../constants/enums';
@@ -116,6 +117,30 @@ export class StockNotificationService {
     });
     const itemMap = new Map(items.map(i => [i.id, i]));
 
+    // For LOW/CRITICAL/OUT_OF_STOCK events, suppress notification when the item
+    // already has an open purchase order (any status except RECEIVED/CANCELLED),
+    // since the team is already aware and handling replenishment.
+    const thresholdCandidateIds = candidates
+      .filter(({ eventType }) =>
+        eventType === STOCK_EVENT_TYPE.LOW ||
+        eventType === STOCK_EVENT_TYPE.CRITICAL ||
+        eventType === STOCK_EVENT_TYPE.OUT_OF_STOCK,
+      )
+      .map(({ calc }) => calc.itemId);
+
+    const itemsWithOpenOrders = new Set<string>();
+    if (thresholdCandidateIds.length > 0) {
+      const rows = await tx.orderItem.findMany({
+        where: {
+          itemId: { in: thresholdCandidateIds },
+          order: { status: { notIn: [ORDER_STATUS.RECEIVED, ORDER_STATUS.CANCELLED] } },
+        },
+        select: { itemId: true },
+        distinct: ['itemId'],
+      });
+      rows.forEach(r => itemsWithOpenOrders.add(r.itemId));
+    }
+
     const out: Array<StockEventItem & { supplierId: string | null }> = [];
     for (const { calc, eventType } of candidates) {
       const item = itemMap.get(calc.itemId);
@@ -127,6 +152,12 @@ export class StockNotificationService {
       // no LOW, CRITICAL, OUT_OF_STOCK, or OVERSTOCKED. Their replenishment
       // surfaces only through the auto-order page.
       if (isFixedTarget(item)) continue;
+
+      const isThresholdEvent =
+        eventType === STOCK_EVENT_TYPE.LOW ||
+        eventType === STOCK_EVENT_TYPE.CRITICAL ||
+        eventType === STOCK_EVENT_TYPE.OUT_OF_STOCK;
+      if (isThresholdEvent && itemsWithOpenOrders.has(calc.itemId)) continue;
 
       const base = {
         itemId: calc.itemId,
@@ -314,7 +345,7 @@ export class StockNotificationService {
   ): { title: string; body: string } {
     const summary =
       items.length === 1
-        ? `${items[0].itemName} (${items[0].quantity} un)`
+        ? `${items[0].itemName} (${Math.round(items[0].quantity)} un)`
         : `${items.length} itens`;
 
     switch (eventType) {
