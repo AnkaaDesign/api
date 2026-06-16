@@ -196,6 +196,12 @@ export class BrazilianTaxCalculatorService {
     dependentsCount: number = 0,
     useSimplifiedDeduction: boolean = true,
     year: number = new Date().getFullYear(),
+    // Referência dos RENDIMENTOS brutos para o redutor da Lei 15.270/2025.
+    // Quando o chamador subtrai deduções itemizadas (pensão/plano) de
+    // grossSalary ANTES de chamar (path itemizado), deve passar aqui os
+    // rendimentos brutos não reduzidos, para o redutor não ser super-concedido.
+    // Omitido ⇒ usa grossSalary. PENDENTE sign-off contábil (Andressa).
+    redutorReference?: number,
   ): Promise<TaxCalculationResult> {
     try {
       // Statutory table for the year — also the source of the Lei 15.270/2025
@@ -237,6 +243,7 @@ export class BrazilianTaxCalculatorService {
       // sobre os rendimentos tributáveis (2026+).
       const computation = computeIRRF({
         taxableGross: grossSalary,
+        redutorReference: redutorReference ?? grossSalary,
         inssAmount,
         dependentsCount,
         allowSimplifiedDeduction: useSimplifiedDeduction,

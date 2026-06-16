@@ -1051,6 +1051,13 @@ export class LeaveService {
         }
       });
 
+      // Mirror each created leave into Secullum (ponto) AFTER the transaction commits,
+      // mirroring the single-record create path (~595). Best-effort; never blocks the
+      // batch outcome (syncLeaveToSecullum swallows+logs its own errors).
+      for (const created of success) {
+        await this.syncLeaveToSecullum(created.id);
+      }
+
       const successMessage =
         success.length === 1
           ? '1 afastamento criado com sucesso'
@@ -1162,6 +1169,13 @@ export class LeaveService {
         }
       });
 
+      // Re-sync each updated leave's ponto record AFTER the transaction commits,
+      // mirroring the single-record update/cancel path (~719). syncLeave is idempotent
+      // and handles period changes (re-push) and CANCELLED (remove). Best-effort.
+      for (const updated of success) {
+        await this.syncLeaveToSecullum(updated.id);
+      }
+
       const successMessage =
         success.length === 1
           ? '1 afastamento atualizado com sucesso'
@@ -1195,14 +1209,24 @@ export class LeaveService {
       const success: Array<{ id: string; deleted: boolean }> = [];
       const failed: Array<{ index: number; id?: string; error: string; data: { id: string } }> = [];
 
+      // Capture each Secullum link BEFORE the rows are deleted so we can un-push the
+      // ponto records afterwards (the Leaves no longer exist post-transaction).
+      // Mirrors the single-record delete path (~941/971).
+      const secullumLinks: Array<{ id: string; secullumEmployeeId: number | null }> = [];
+
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         for (const [index, id] of data.leaveIds.entries()) {
           try {
-            const leave = await tx.leave.findUnique({ where: { id } });
+            const leave = await tx.leave.findUnique({
+              where: { id },
+              include: { user: { select: { secullumEmployeeId: true } } },
+            });
 
             if (!leave) {
               throw new NotFoundException('Afastamento não encontrado.');
             }
+
+            const secullumEmployeeId = leave.user?.secullumEmployeeId ?? null;
 
             await logEntityChange({
               changeLogService: this.changeLogService,
@@ -1218,6 +1242,7 @@ export class LeaveService {
 
             await tx.leave.delete({ where: { id } });
             success.push({ id, deleted: true });
+            secullumLinks.push({ id, secullumEmployeeId });
           } catch (error: any) {
             failed.push({
               index,
@@ -1228,6 +1253,12 @@ export class LeaveService {
           }
         }
       });
+
+      // Remove each ponto record AFTER the transaction commits (best-effort, never
+      // blocks the delete). Mirrors the single-record delete path (~971).
+      for (const link of secullumLinks) {
+        await this.removeLeaveFromSecullum(link.id, link.secullumEmployeeId);
+      }
 
       const successMessage =
         success.length === 1

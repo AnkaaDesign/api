@@ -36,7 +36,6 @@ import { StatisticsPreferencesModule } from './modules/people/statistics-prefere
 import { ResponsibleModule } from './modules/people/responsible/responsible.module';
 import { PrismaModule } from './modules/common/prisma/prisma.module';
 import { WarningModule } from './modules/people/warning/warning.module';
-import { DependentModule } from './modules/people/dependent/dependent.module';
 import { SectorModule } from './modules/people/sector/sector.module';
 import { GoalModule } from './modules/people/goal/goal.module';
 import { ServiceOrderModule } from './modules/production/service-order/service-order.module';
@@ -53,6 +52,7 @@ import { TeamStaffModule } from './modules/people/team-staff/team-staff.module';
 import { ThrottlerModule } from './modules/common/throttler/throttler.module';
 import { SchedulerModule } from './modules/common/scheduler/scheduler.module';
 import { SecullumModule } from './modules/integrations/secullum/secullum.module';
+import { SecullumSmokeTestModule } from './modules/integrations/secullum/smoke-test/smoke-test.module';
 import { ServerModule } from './modules/common/server/server.module';
 import { BackupModule } from './modules/common/backup/backup.module';
 import { MonitoringModule } from './modules/common/monitoring/monitoring.module';
@@ -123,7 +123,6 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     ResponsibleModule,
     PrismaModule,
     WarningModule,
-    DependentModule,
     SectorModule,
     GoalModule,
     ServiceOrderModule,
@@ -138,6 +137,7 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     TeamStaffModule,
     SchedulerModule,
     SecullumModule,
+    SecullumSmokeTestModule,
     ServerModule,
     BackupModule,
     MonitoringModule,

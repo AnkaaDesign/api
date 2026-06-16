@@ -796,6 +796,7 @@ export class PayrollService {
               value: d.value ?? undefined,
               percentage: d.percentage ?? undefined,
               reference: d.reference,
+              loanKind: d.loanKind ?? undefined,
             })),
           });
 
@@ -843,6 +844,7 @@ export class PayrollService {
               newPayrollId: newPayroll.id,
               currentYear: year,
               currentMonth: month,
+              tx, // atomic: installment advancement rolls back with the payroll
             });
 
             // Materialize employee-anchored MASTER loans (payrollId=null) into
@@ -853,6 +855,7 @@ export class PayrollService {
               newPayrollId: newPayroll.id,
               currentYear: year,
               currentMonth: month,
+              tx, // atomic: master loan advancement rolls back with the payroll
             });
 
             // Create auto-generated discounts (INSS, IRRF, FGTS, Union, Absences, Late arrivals)
@@ -1085,6 +1088,7 @@ export class PayrollService {
           value: d.value ?? undefined,
           percentage: d.percentage ?? undefined,
           reference: d.reference,
+          loanKind: d.loanKind ?? undefined,
         })),
       });
 

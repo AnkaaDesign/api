@@ -280,8 +280,25 @@ export function computeProgressiveINSS(
 }
 
 export interface IrrfComputationInput {
-  /** Rendimentos tributáveis do mês (bruto tributável). */
+  /**
+   * Base de cálculo do IRRF (bruto tributável JÁ reduzido por deduções
+   * itemizadas que o chamador subtrai ANTES da tabela — p.ex. pensão
+   * alimentícia e plano de saúde). É sobre esta figura que incidem as
+   * deduções (INSS + dependentes / simplificado) e a tabela progressiva.
+   */
   taxableGross: number;
+  /**
+   * Rendimentos tributáveis BRUTOS de referência para o REDUTOR da Lei
+   * 15.270/2025 (faixa de elegibilidade e fórmula do redutor). Devem ser os
+   * rendimentos ANTES das deduções itemizadas (pensão/plano), pois o redutor
+   * é função dos rendimentos, não da base reduzida. Quando omitido, usa
+   * `taxableGross` (compatível com chamadores sem deduções itemizadas, p.ex.
+   * férias/13º). Ver Lei 15.270/2025. PENDENTE DE VALIDAÇÃO DA CONTADORA
+   * (Andressa): a separação base × referência-do-redutor segue a leitura mais
+   * defensável (o redutor é benefício sobre os rendimentos, não sobre a base
+   * itemizada), mas requer assinatura contábil.
+   */
+  redutorReference?: number;
   /** INSS retido no mês (dedução legal). */
   inssAmount: number;
   /** Dependentes elegíveis à dedução de IRRF. */
@@ -328,6 +345,11 @@ export interface IrrfComputation {
  */
 export function computeIRRF(input: IrrfComputationInput): IrrfComputation {
   const { taxableGross, inssAmount, dependentsCount, allowSimplifiedDeduction, table } = input;
+  // Referência do REDUTOR (Lei 15.270/2025): rendimentos tributáveis BRUTOS,
+  // ANTES das deduções itemizadas (pensão/plano). Sem itemização, é o próprio
+  // taxableGross. Mantém as deduções reduzindo a BASE (bracket), mas avalia o
+  // redutor sobre os rendimentos. PENDENTE sign-off contábil (Andressa).
+  const redutorReference = input.redutorReference ?? taxableGross;
 
   const dependentsDeduction = roundCurrency(dependentsCount * table.dependentDeduction);
   const legalDeductions = roundCurrency(inssAmount + dependentsDeduction);
@@ -357,16 +379,21 @@ export function computeIRRF(input: IrrfComputationInput): IrrfComputation {
   }
   taxBeforeRedutor = roundCurrency(taxBeforeRedutor);
 
-  // Redutor Lei 15.270/2025
+  // Redutor Lei 15.270/2025 — chaveado pelos RENDIMENTOS tributáveis brutos
+  // (redutorReference), NÃO pela base já reduzida por pensão/plano. Subtrair as
+  // deduções itemizadas antes do teste de faixa over-concedia o redutor na
+  // faixa R$ 5k–7,35k. As deduções itemizadas continuam reduzindo a BASE da
+  // tabela (taxableIncome/taxBeforeRedutor acima); apenas a referência do
+  // redutor passou a ser os rendimentos brutos. PENDENTE sign-off Andressa.
   let redutorAmount = 0;
   if (table.redutor && taxBeforeRedutor > 0) {
     const { fullExemptionUpTo, phaseOutEnd, coefA, coefB } = table.redutor;
-    if (taxableGross <= fullExemptionUpTo) {
+    if (redutorReference <= fullExemptionUpTo) {
       redutorAmount = taxBeforeRedutor;
-    } else if (taxableGross <= phaseOutEnd) {
+    } else if (redutorReference <= phaseOutEnd) {
       redutorAmount = Math.min(
         taxBeforeRedutor,
-        Math.max(0, roundCurrency(coefA - coefB * taxableGross)),
+        Math.max(0, roundCurrency(coefA - coefB * redutorReference)),
       );
     }
   }

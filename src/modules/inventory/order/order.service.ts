@@ -2805,8 +2805,10 @@ export class OrderService {
 
   /**
    * Unified payables list (Contas a Pagar). Unions three sources into normalized rows
-   * grouped by payee, each carrying its own payment state:
-   *   - open ORDERS (status ∈ PAYABLE_OPEN_STATUSES, not yet PAID)
+   * grouped by payee, each carrying its own payment state. Payment is DECOUPLED from
+   * fulfillment: an obligation is payable iff `status != CANCELLED && paymentStatus != PAID`
+   * (there is no auto-settle on fulfillment):
+   *   - open ORDERS (status ≠ CANCELLED, paymentStatus ≠ PAID)
    *   - AIRBRUSHING painter payments (price set, paymentStatus ≠ PAID)
    *   - SCHEDULED/expected recurring outflows (active OrderSchedule due, via expected totals)
    */

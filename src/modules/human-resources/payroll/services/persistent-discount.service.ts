@@ -92,8 +92,14 @@ export class PersistentDiscountService {
     newPayrollId: string;
     currentYear: number;
     currentMonth: number;
+    // Optional transaction client. When payroll generation runs inside a
+    // $transaction, installment advancement MUST be atomic with the payroll
+    // create — otherwise a rolled-back payroll still advances/deactivates
+    // discounts. Threaded from payroll.service.ts. Falls back to this.prisma.
+    tx?: Prisma.TransactionClient;
   }): Promise<string[]> {
-    const { employeeId, newPayrollId, currentYear, currentMonth } = params;
+    const { employeeId, newPayrollId, currentYear, currentMonth, tx } = params;
+    const db = tx ?? this.prisma;
 
     this.logger.log(
       `Copying persistent discounts for employee ${employeeId} - ${currentYear}/${currentMonth}`,
@@ -109,7 +115,7 @@ export class PersistentDiscountService {
     }
 
     // Find previous month's payroll
-    const previousPayroll = await this.prisma.payroll.findFirst({
+    const previousPayroll = await db.payroll.findFirst({
       where: {
         userId: employeeId,
         year: prevYear,
@@ -167,7 +173,7 @@ export class PersistentDiscountService {
           this.logger.log(
             `Persistent discount fully paid (${discount.currentInstallment}/${discount.totalInstallments}), deactivating: ${discount.reference}`,
           );
-          await this.prisma.payrollDiscount.update({
+          await db.payrollDiscount.update({
             where: { id: discount.id },
             data: { isActive: false },
           });
@@ -182,6 +188,7 @@ export class PersistentDiscountService {
         currentMonth,
         currentYear,
         installmentFields,
+        tx,
       });
 
       createdDiscountIds.push(copiedDiscount.id);
@@ -206,10 +213,12 @@ export class PersistentDiscountService {
     currentYear: number;
     overrides?: Partial<Prisma.PayrollDiscountCreateInput>;
     installmentFields?: { totalInstallments: number; currentInstallment: number } | null;
+    tx?: Prisma.TransactionClient;
   }) {
-    const { originalDiscount, newPayrollId, overrides, installmentFields } = params;
+    const { originalDiscount, newPayrollId, overrides, installmentFields, tx } = params;
+    const db = tx ?? this.prisma;
 
-    return this.prisma.payrollDiscount.create({
+    return db.payrollDiscount.create({
       data: {
         payrollId: newPayrollId,
         discountType: originalDiscount.discountType,
@@ -372,6 +381,7 @@ export class PersistentDiscountService {
       baseValue?: number | null;
       totalInstallments?: number | null;
       currentInstallment?: number | null;
+      loanKind?: LoanKind | null;
     }>
   > {
     const { employeeId, currentYear, currentMonth } = params;
@@ -426,6 +436,7 @@ export class PersistentDiscountService {
       baseValue?: number | null;
       totalInstallments?: number | null;
       currentInstallment?: number | null;
+      loanKind?: LoanKind | null;
     }> = [];
 
     // Convert database discounts to discount objects
@@ -472,6 +483,7 @@ export class PersistentDiscountService {
         baseValue: discount.baseValue ? Number(discount.baseValue) : null,
         totalInstallments: installmentFields?.totalInstallments ?? discount.totalInstallments ?? null,
         currentInstallment: installmentFields?.currentInstallment ?? discount.currentInstallment ?? null,
+        loanKind: discount.loanKind ?? null,
       });
     }
 
@@ -603,10 +615,12 @@ export class PersistentDiscountService {
   async getActiveMasterLoans(params: {
     userId: string;
     currentCompetence: string;
+    tx?: Prisma.TransactionClient;
   }) {
-    const { userId, currentCompetence } = params;
+    const { userId, currentCompetence, tx } = params;
+    const db = tx ?? this.prisma;
 
-    const masters = await this.prisma.payrollDiscount.findMany({
+    const masters = await db.payrollDiscount.findMany({
       where: {
         payrollId: null,
         userId,
@@ -657,11 +671,15 @@ export class PersistentDiscountService {
     newPayrollId: string;
     currentYear: number;
     currentMonth: number;
+    // Optional transaction client — see copyPersistentDiscountsFromPreviousMonth.
+    // Master loan installment advancement MUST be atomic with payroll creation.
+    tx?: Prisma.TransactionClient;
   }): Promise<string[]> {
-    const { employeeId, newPayrollId, currentYear, currentMonth } = params;
+    const { employeeId, newPayrollId, currentYear, currentMonth, tx } = params;
+    const db = tx ?? this.prisma;
     const currentCompetence = toCompetence(currentYear, currentMonth);
 
-    const masters = await this.getActiveMasterLoans({ userId: employeeId, currentCompetence });
+    const masters = await this.getActiveMasterLoans({ userId: employeeId, currentCompetence, tx });
     if (masters.length === 0) return [];
 
     const createdIds: string[] = [];
@@ -678,7 +696,7 @@ export class PersistentDiscountService {
           offset !== null &&
           offset + 1 > master.totalInstallments
         ) {
-          await this.prisma.payrollDiscount.update({
+          await db.payrollDiscount.update({
             where: { id: master.id },
             data: { isActive: false },
           });
@@ -688,7 +706,7 @@ export class PersistentDiscountService {
       }
 
       // Idempotency: avoid a second copy on the same folha for this master.
-      const existingCopy = await this.prisma.payrollDiscount.findFirst({
+      const existingCopy = await db.payrollDiscount.findFirst({
         where: {
           payrollId: newPayrollId,
           userId: employeeId,
@@ -703,7 +721,7 @@ export class PersistentDiscountService {
         continue;
       }
 
-      const copy = await this.prisma.payrollDiscount.create({
+      const copy = await db.payrollDiscount.create({
         data: {
           payrollId: newPayrollId,
           userId: employeeId,
@@ -719,6 +737,11 @@ export class PersistentDiscountService {
           // Carry the master's startCompetence so the previous-month copy path
           // recognizes this line as master-anchored and does NOT re-copy it.
           startCompetence: master.startCompetence,
+          // Carry the loan modality so the calculator applies the 35% margem
+          // consignável ONLY to PAYROLL_CONSIGNED loans (COMPANY loans deduct
+          // in full, still floored at net ≥ 0).
+          loanKind: master.loanKind,
+          lenderName: master.lenderName,
         },
       });
       createdIds.push(copy.id);
@@ -726,7 +749,7 @@ export class PersistentDiscountService {
       // Advance the master so its currentInstallment tracks the latest folha and
       // auto-deactivate when the contracted installments are exhausted.
       const isLast = resolved.installment >= resolved.totalInstallments;
-      await this.prisma.payrollDiscount.update({
+      await db.payrollDiscount.update({
         where: { id: master.id },
         data: {
           currentInstallment: resolved.installment,
@@ -770,6 +793,7 @@ export class PersistentDiscountService {
       isActive: boolean;
       totalInstallments: number | null;
       currentInstallment: number | null;
+      loanKind: LoanKind | null;
     }>
   > {
     const { employeeId, currentYear, currentMonth } = params;
@@ -786,6 +810,7 @@ export class PersistentDiscountService {
       isActive: boolean;
       totalInstallments: number | null;
       currentInstallment: number | null;
+      loanKind: LoanKind | null;
     }> = [];
 
     for (const master of masters) {
@@ -804,6 +829,7 @@ export class PersistentDiscountService {
         isActive: true,
         totalInstallments: resolved.totalInstallments,
         currentInstallment: resolved.installment,
+        loanKind: master.loanKind ?? null,
       });
     }
 

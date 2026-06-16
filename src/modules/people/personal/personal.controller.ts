@@ -697,4 +697,101 @@ export class PersonalController {
       Number(registroPendenciaId),
     );
   }
+
+  // =====================
+  // MY APURAÇÃO DE CARTÃO PONTO (Assinatura Digital — review / sign / reject)
+  // =====================
+  // Employee self-service: review the monthly cartão-ponto and approve (sign) or
+  // reject it. Sourced from Secullum's Notificacoes feed; acts via pontowebapp
+  // Basic auth. See docs/secullum-integration/11_assinatura_aprovar_descartar_live.md.
+
+  /** GET /personal/my-assinaturas — apurações the employee was asked to sign. */
+  @Get('my-assinaturas')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
+  async getMyAssinaturas(@UserId() userId: string) {
+    return this.personalService.getMyApuracoes(userId);
+  }
+
+  /** GET /personal/my-assinaturas/:id — full apuração detail + cartão-ponto PDF URL. */
+  @Get('my-assinaturas/:id')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
+  async getMyAssinaturaDetail(
+    @Param('id') id: string,
+    @UserId() userId: string,
+  ) {
+    return this.personalService.getMyApuracaoDetail(userId, Number(id));
+  }
+
+  /** POST /personal/my-assinaturas/:id/aprovar — employee signs the cartão-ponto. */
+  @Post('my-assinaturas/:id/aprovar')
+  @WriteRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
+  async approveMyAssinatura(
+    @Param('id') id: string,
+    @UserId() userId: string,
+  ) {
+    return this.personalService.approveMyApuracao(userId, Number(id));
+  }
+
+  /** POST /personal/my-assinaturas/:id/reprovar — employee rejects with a motivo. */
+  @Post('my-assinaturas/:id/reprovar')
+  @WriteRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
+  async rejectMyAssinatura(
+    @Param('id') id: string,
+    @Body() body: { motivo?: string },
+    @UserId() userId: string,
+  ) {
+    return this.personalService.rejectMyApuracao(userId, Number(id), body?.motivo ?? '');
+  }
 }

@@ -5,7 +5,7 @@ import {
   SecullumPayrollIntegrationService,
   SecullumPayrollData,
 } from '../services/secullum-payroll-integration.service';
-import { InsalubrityDegree, PayrollDiscountType } from '@prisma/client';
+import { InsalubrityDegree, LoanKind, PayrollDiscountType } from '@prisma/client';
 import { roundCurrency } from '@utils/currency-precision.util';
 import { calculateEmployeeShare, isSalaryUnknownForShare } from '@utils/benefit-discount';
 import { getSalarioFamiliaTableForYear, computeSalarioFamilia } from './tax-tables';
@@ -259,6 +259,8 @@ export interface CalculatePayrollParams {
     value?: number;
     percentage?: number;
     reference: string;
+    /** Loan modality — only PAYROLL_CONSIGNED is bound by the 35% margem consignável. */
+    loanKind?: LoanKind | null;
   }>;
 }
 
@@ -554,6 +556,12 @@ export class CompletePayrollCalculatorService {
       // forçamos o path itemizado para não perder essas deduções.
       irrfLegalExtraDeductions > 0 ? false : useSimplifiedDeduction,
       year,
+      // REDUTOR Lei 15.270/2025: a referência é os RENDIMENTOS tributáveis
+      // BRUTOS (taxableEarnings), ANTES de pensão/plano. As deduções itemizadas
+      // continuam reduzindo a BASE (1º argumento), mas o redutor é função dos
+      // rendimentos — keyá-lo na base reduzida super-concedia o redutor na faixa
+      // R$ 5k–7,35k. PENDENTE de validação da contadora (Andressa).
+      taxableEarnings,
     );
     const irrfAmount = roundCurrency(irrfResult.amount);
     const irrfBase = irrfResult.base;
@@ -703,8 +711,22 @@ export class CompletePayrollCalculatorService {
     // STEP 7: CALCULATE LOAN DEDUCTIONS
     // ========================================================================
 
-    let loans = this.getDiscountAmount(persistentDiscounts, PayrollDiscountType.LOAN, 0);
-    let advances = this.getDiscountAmount(persistentDiscounts, PayrollDiscountType.ADVANCE, 0);
+    const totalLoans = this.getDiscountAmount(persistentDiscounts, PayrollDiscountType.LOAN, 0);
+    const advances = this.getDiscountAmount(persistentDiscounts, PayrollDiscountType.ADVANCE, 0);
+
+    // Only PAYROLL_CONSIGNED loans are bound by the 35% margem consignável
+    // (Lei 10.820/2003 + Dec. 11.150/2022). COMPANY loans and salary advances
+    // are direct employer agreements — they deduct in full (still floored at
+    // net ≥ 0 in STEP 10). Loans with no kind are treated as COMPANY (direct).
+    const consignedLoans = roundCurrency(
+      persistentDiscounts
+        .filter(
+          d => d.type === PayrollDiscountType.LOAN && d.loanKind === LoanKind.PAYROLL_CONSIGNED,
+        )
+        .reduce((sum, d) => sum + (d.value && d.value > 0 ? d.value : 0), 0),
+    );
+    const companyLoans = roundCurrency(Math.max(0, totalLoans - consignedLoans));
+    let loans = totalLoans;
 
     // ========================================================================
     // STEP 8: CALCULATE CUSTOM DEDUCTIONS
@@ -723,8 +745,10 @@ export class CompletePayrollCalculatorService {
     // Calculamos o líquido em duas etapas:
     //  (a) líquido-base = bruto + salário-família − (descontos legais/benefícios
     //      NÃO-consignáveis); essa é a base da margem consignável.
-    //  (b) margem consignável = 35% do líquido-base limita LOAN+ADVANCE
-    //      (empréstimo/adiantamento consignado, Lei 10.820/2003 + Dec.11.150/2022).
+    //  (b) margem consignável = 35% do líquido-base limita SOMENTE o empréstimo
+    //      consignado (LOAN com loanKind = PAYROLL_CONSIGNED, Lei 10.820/2003 +
+    //      Dec.11.150/2022). Empréstimo da empresa (COMPANY) e adiantamento
+    //      (ADVANCE) são acordos diretos e descontam integralmente.
 
     const nonConsignableDeductions = roundCurrency(
       inssAmount +
@@ -748,22 +772,23 @@ export class CompletePayrollCalculatorService {
     // Margem consignável = 35% do líquido-base (nunca negativo).
     const CONSIGNABLE_MARGIN_RATE = 0.35;
     const consignableMargin = roundCurrency(Math.max(0, netBaseForMargin) * CONSIGNABLE_MARGIN_RATE);
-    const requestedConsignado = roundCurrency(loans + advances);
+    // A margem limita APENAS o empréstimo consignado (PAYROLL_CONSIGNED).
+    // Empréstimos da empresa (COMPANY) e adiantamentos não entram no teto.
+    const requestedConsignado = consignedLoans;
+    let cappedConsignedLoans = consignedLoans;
 
     if (requestedConsignado > consignableMargin) {
-      // Clamp: reduz primeiro ADVANCE, depois LOAN, até caber na margem.
+      // Clamp: reduz o empréstimo consignado até caber na margem de 35%.
       const excess = roundCurrency(requestedConsignado - consignableMargin);
       warnings.push(
-        `Descontos consignados (empréstimo+adiantamento) R$ ${requestedConsignado.toFixed(2)} excedem a margem consignável de 35% (R$ ${consignableMargin.toFixed(2)}). Limitados em R$ ${excess.toFixed(2)}.`,
+        `Empréstimo consignado R$ ${requestedConsignado.toFixed(2)} excede a margem consignável de 35% (R$ ${consignableMargin.toFixed(2)}). Limitado em R$ ${excess.toFixed(2)}.`,
       );
-      let remainingExcess = excess;
-      const advanceCut = Math.min(advances, remainingExcess);
-      advances = roundCurrency(advances - advanceCut);
-      remainingExcess = roundCurrency(remainingExcess - advanceCut);
-      if (remainingExcess > 0) {
-        loans = roundCurrency(Math.max(0, loans - remainingExcess));
-      }
+      cappedConsignedLoans = roundCurrency(Math.max(0, consignedLoans - excess));
     }
+
+    // Total de empréstimos efetivamente descontado = COMPANY (integral) +
+    // consignado (limitado pela margem). Adiantamentos seguem integrais.
+    loans = roundCurrency(companyLoans + cappedConsignedLoans);
 
     // ========================================================================
     // STEP 9b: TOTAL DEDUCTIONS (after consignável clamp)

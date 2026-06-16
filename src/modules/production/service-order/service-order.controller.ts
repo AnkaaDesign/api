@@ -18,7 +18,7 @@ import { ServiceOrderService } from './service-order.service';
 import { UserId, User, UserPayload } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UUIDPathGuard } from '@modules/common/guards/uuid-path.guard';
-import { SECTOR_PRIVILEGES, SERVICE_ORDER_STATUS } from '../../../constants/enums';
+import { SECTOR_PRIVILEGES, SERVICE_ORDER_STATUS, TEAM_LEADER } from '../../../constants/enums';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
@@ -112,7 +112,8 @@ export class ServiceOrderController {
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.PRODUCTION,
+    // Production leader (sector leader) may handle production service orders.
+    TEAM_LEADER,
   )
   @HttpCode(HttpStatus.CREATED)
   async create(
@@ -131,7 +132,8 @@ export class ServiceOrderController {
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.PRODUCTION,
+    // Production leader (sector leader) may handle production service orders.
+    TEAM_LEADER,
   )
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
@@ -228,10 +230,11 @@ export class ServiceOrderController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.COMMERCIAL,
-    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    // Production leader (sector leader) may handle production service orders.
+    TEAM_LEADER,
   )
   async update(
     @Param('id', ParseUUIDPipe) id: string,

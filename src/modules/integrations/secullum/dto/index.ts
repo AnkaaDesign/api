@@ -882,6 +882,102 @@ export interface SecullumAssinaturaDetailResponse {
   data?: SecullumAssinaturaDetail;
 }
 
+// ============================================================================
+// Apuração — EMPLOYEE self-service (pontowebapp.secullum.com.br + Basic auth)
+// The colaborador reviews their own cartão-ponto and approves (signs with senha)
+// or rejects (with motivo). This is a DIFFERENT API surface from the admin
+// endpoints above (those use pontoweb + Bearer). Captured 2026-06-15; see
+// docs/secullum-integration/11_assinatura_aprovar_descartar_live.md.
+//   estado: 0=Pendente, 1=Aprovado, 2=Rejeitado
+// ============================================================================
+
+export const SECULLUM_APURACAO_ESTADO = {
+  PENDENTE: 0,
+  APROVADO: 1,
+  REJEITADO: 2,
+} as const;
+
+export interface SecullumApuracaoGeolocalizacao {
+  latitude: number;
+  longitude: number;
+  precisao: number;
+  endereco: string;
+}
+
+/**
+ * The full apuração object returned by
+ * GET /AssinaturaDigitalCartaoPonto/CarregarAssinatura/{id} and echoed back
+ * (with senha/motivo set) to /Aprovar and /Descartar.
+ */
+export interface SecullumApuracao {
+  assinaturaDigitalCartaoPontoId: number; // PDF id (GET /AssinaturaDigitalCartaoPonto/{this})
+  estado: number; // 0=Pendente, 1=Aprovado, 2=Rejeitado
+  estadoGerente: number | null;
+  dataResposta: string | null;
+  dataRespostaGerente: string | null;
+  motivo: string | null; // rejection reason (Descartar)
+  motivoGerente: string | null;
+  senha: string | null; // employee password on approval (Aprovar)
+  versao: number;
+  idioma: string;
+  geolocalizacao: SecullumApuracaoGeolocalizacao | null;
+  funcionarioId: number;
+  funcionarioNome: string;
+  id: number; // apuração record id (CarregarAssinatura/{this})
+  descricao: string;
+  compactada: boolean;
+  dataInicio: string;
+  dataFim: string;
+  dataInclusao: string;
+}
+
+/**
+ * Raw notification (GET /Notificacoes/{from}/{to}). tipo=3 with
+ * assinaturaDigitalCartaoPontoId set marks an apuração awaiting the employee's
+ * signature; that field actually carries the apuração record `id`
+ * (the CarregarAssinatura argument), NOT the PDF id.
+ */
+export interface SecullumApuracaoNotificacao {
+  id: number;
+  mensagem: string;
+  detalheMensagem: string | null;
+  dataHora: string;
+  tipo: number;
+  visualizada: boolean;
+  funcionarioId: number;
+  assinaturaDigitalCartaoPontoId: number | null;
+}
+
+/** Flattened list item the mobile app consumes (enriched with current estado). */
+export interface SecullumApuracaoListItem {
+  id: number; // CarregarAssinatura id
+  assinaturaDigitalCartaoPontoId: number; // PDF id
+  descricao: string;
+  dataInicio: string;
+  dataFim: string;
+  dataInclusao: string;
+  estado: number; // 0=Pendente, 1=Aprovado, 2=Rejeitado
+  motivo: string | null;
+}
+
+export interface SecullumApuracaoListResponse {
+  success: boolean;
+  message: string;
+  data: SecullumApuracaoListItem[];
+}
+
+export interface SecullumApuracaoDetailResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumApuracao & { pdfUrl?: string };
+}
+
+export interface SecullumApuracaoActionResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumApuracao;
+}
+
 // Upstream POST /AssinaturaDigitalCartaoPonto — body shape inferred from
 // docs/secullum-integration/06_FINAL_LIVE_FINDINGS.md (the create POST itself
 // was never live-captured). Two native modes, mirroring Secullum's "Apurar"

@@ -567,7 +567,7 @@ export class TaskController {
   }
 
   @Put(':id/position')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION_MANAGER, SECTOR_PRIVILEGES.ADMIN)
   async updateTaskPosition(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(taskPositionUpdateSchema)) data: TaskPositionUpdateFormData,
@@ -578,7 +578,7 @@ export class TaskController {
   }
 
   @Post('bulk-position')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION_MANAGER, SECTOR_PRIVILEGES.ADMIN)
   async bulkUpdatePositions(
     @Body(new ZodValidationPipe(taskBulkPositionUpdateSchema)) data: TaskBulkPositionUpdateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
@@ -588,7 +588,7 @@ export class TaskController {
   }
 
   @Post(':id/swap')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION_MANAGER, SECTOR_PRIVILEGES.ADMIN)
   async swapTaskPositions(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(taskSwapPositionSchema)) data: TaskSwapPositionFormData,

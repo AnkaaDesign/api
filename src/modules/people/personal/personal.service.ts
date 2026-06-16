@@ -27,6 +27,13 @@ import type {
   BonusGetManyFormData,
   WarningGetManyFormData,
 } from '../../../schemas';
+import type {
+  SecullumApuracaoNotificacao,
+  SecullumApuracaoListItem,
+  SecullumApuracaoListResponse,
+  SecullumApuracaoDetailResponse,
+  SecullumApuracaoActionResponse,
+} from '@modules/integrations/secullum/dto';
 
 /**
  * Personal Service
@@ -927,5 +934,155 @@ export class PersonalService {
   async getPeriodTaskStats(year: number, month: number) {
     const stats = await this.bonusService.getPeriodTaskStats(year, month);
     return { success: true, data: stats };
+  }
+
+  // =====================
+  // MY APURAÇÃO DE CARTÃO PONTO (Assinatura Digital — review / sign / reject)
+  // =====================
+  // Employee self-service: the colaborador reviews their own monthly cartão-ponto
+  // and approves (signs) or rejects it. Discovery is Secullum's Notificacoes feed
+  // (tipo=3). pontowebapp + Basic auth (senha "123"). See
+  // docs/secullum-integration/11_assinatura_aprovar_descartar_live.md.
+
+  /**
+   * Lists the apurações the employee has been asked to sign (newest first).
+   * Sourced from the Notificacoes feed over the last 120 days and enriched with
+   * each apuração's current estado (0=Pendente, 1=Aprovado, 2=Rejeitado).
+   */
+  async getMyApuracoes(userId: string): Promise<SecullumApuracaoListResponse> {
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    const auth = { usuario: creds.usuario, senha: creds.senha };
+
+    const ymd = (d: Date) => d.toISOString().slice(0, 10);
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - 120);
+
+    let notificacoes: SecullumApuracaoNotificacao[] = [];
+    try {
+      notificacoes = await this.secullumService.getApuracaoNotificacoesAsFuncionario(
+        auth,
+        ymd(from),
+        ymd(to),
+      );
+    } catch (error) {
+      this.logger.error('Error fetching apuração notificações', error as Error);
+      return {
+        success: false,
+        message: `Falha ao carregar apurações: ${(error as Error)?.message ?? 'erro desconhecido'}`,
+        data: [],
+      };
+    }
+
+    // tipo=3 + assinaturaDigitalCartaoPontoId set marks an apuração awaiting the
+    // employee's signature. That field carries the CarregarAssinatura record id.
+    const ids = [
+      ...new Set(
+        notificacoes
+          .filter((n) => n.tipo === 3 && n.assinaturaDigitalCartaoPontoId != null)
+          .map((n) => n.assinaturaDigitalCartaoPontoId as number),
+      ),
+    ];
+
+    const items = await Promise.all(
+      ids.map(async (id): Promise<SecullumApuracaoListItem | null> => {
+        try {
+          const a = await this.secullumService.getApuracaoDetailAsFuncionario(auth, id);
+          return {
+            id: a.id,
+            assinaturaDigitalCartaoPontoId: a.assinaturaDigitalCartaoPontoId,
+            descricao: a.descricao,
+            dataInicio: a.dataInicio,
+            dataFim: a.dataFim,
+            dataInclusao: a.dataInclusao,
+            estado: a.estado,
+            motivo: a.motivo,
+          };
+        } catch (error) {
+          this.logger.warn(
+            `Apuração ${id} detail load failed: ${(error as Error)?.message ?? 'erro'}`,
+          );
+          return null;
+        }
+      }),
+    );
+
+    const data = items
+      .filter((x): x is SecullumApuracaoListItem => x != null)
+      // Hide health-check (Diagnóstico) apurações from the employee's list — they
+      // are signed/rejected test records that cannot be deleted.
+      .filter((x) => !String(x.descricao ?? '').includes(SecullumService.DIAGNOSTIC_ASSINATURA_MARK))
+      .sort((a, b) => (b.dataInclusao || '').localeCompare(a.dataInclusao || ''));
+
+    return { success: true, message: 'OK', data };
+  }
+
+  /** Full apuração detail + a ready-to-open cartão-ponto PDF URL. */
+  async getMyApuracaoDetail(
+    userId: string,
+    id: number,
+  ): Promise<SecullumApuracaoDetailResponse> {
+    if (!Number.isFinite(id)) throw new BadRequestException('id must be numeric');
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    const auth = { usuario: creds.usuario, senha: creds.senha };
+    try {
+      const apuracao = await this.secullumService.getApuracaoDetailAsFuncionario(auth, id);
+      const pdfUrl = this.secullumService.buildApuracaoPdfUrl(
+        auth,
+        apuracao.assinaturaDigitalCartaoPontoId,
+      );
+      return { success: true, message: 'OK', data: { ...apuracao, pdfUrl } };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Falha ao carregar apuração: ${(error as Error)?.message ?? 'erro desconhecido'}`,
+      };
+    }
+  }
+
+  /** Employee signs (approves) their cartão-ponto. */
+  async approveMyApuracao(
+    userId: string,
+    id: number,
+  ): Promise<SecullumApuracaoActionResponse> {
+    if (!Number.isFinite(id)) throw new BadRequestException('id must be numeric');
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    try {
+      const data = await this.secullumService.approveApuracaoAsFuncionario(
+        { usuario: creds.usuario, senha: creds.senha },
+        id,
+      );
+      return { success: true, message: 'Cartão-ponto assinado com sucesso', data };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Falha ao assinar cartão-ponto: ${(error as Error)?.message ?? 'erro desconhecido'}`,
+      };
+    }
+  }
+
+  /** Employee rejects their cartão-ponto with a mandatory motivo. */
+  async rejectMyApuracao(
+    userId: string,
+    id: number,
+    motivo: string,
+  ): Promise<SecullumApuracaoActionResponse> {
+    if (!Number.isFinite(id)) throw new BadRequestException('id must be numeric');
+    const trimmed = (motivo ?? '').trim();
+    if (!trimmed) throw new BadRequestException('Informe o motivo da reprovação.');
+    const creds = await this.resolveMyFuncionarioCredentials(userId);
+    try {
+      const data = await this.secullumService.rejectApuracaoAsFuncionario(
+        { usuario: creds.usuario, senha: creds.senha },
+        id,
+        trimmed,
+      );
+      return { success: true, message: 'Cartão-ponto rejeitado', data };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Falha ao rejeitar cartão-ponto: ${(error as Error)?.message ?? 'erro desconhecido'}`,
+      };
+    }
   }
 }

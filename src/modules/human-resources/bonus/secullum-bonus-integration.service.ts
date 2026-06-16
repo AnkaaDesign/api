@@ -16,6 +16,9 @@ interface DayAnalysis {
   isHoliday: boolean; // NEW: Track if day is a holiday
   hasAllFourStamps: boolean;
   allStampsElectronic: boolean;
+  // True when Entrada1 was punched more than 5 minutes after the scheduled start
+  // (Secullum Horário). Such a day does not earn its +1% assiduidade.
+  isLateEntry1: boolean;
   isAtestado: boolean;
   atestadoProportion: number; // 0, 0.5, or 1 (half-day or full-day atestado)
   isUnjustifiedAbsence: boolean;
@@ -83,6 +86,20 @@ export interface AnalyzeAllUsersResult {
 
 // Standard workday duration in hours
 const WORKDAY_HOURS = 8;
+
+// Graded assiduidade-loss tiers. The accumulated +1%/day assiduidade extra is
+// eroded by the worst absence in the period:
+//   'none'        → keep the full extra
+//   'perde-o-dia' → lose just that day's 1% (extra − 1)
+//   'half'        → lose 50% of the accumulated extra
+//   'full'        → lose all of it
+type AssiduidadeLoss = 'none' | 'perde-o-dia' | 'half' | 'full';
+const ASSIDUIDADE_LOSS_SEVERITY: Record<AssiduidadeLoss, number> = {
+  none: 0,
+  'perde-o-dia': 1,
+  half: 2,
+  full: 3,
+};
 
 @Injectable()
 export class SecullumBonusIntegrationService {
@@ -196,6 +213,7 @@ export class SecullumBonusIntegrationService {
     // Probe Secullum availability up front so callers can refuse to persist
     // payroll-affecting data when Secullum is down. A single cheap getEmployees()
     // call doubles as the breaker probe.
+    let employeesData: any[] = [];
     try {
       const probe = await this.secullumService.getEmployees();
       if (!probe.success) {
@@ -207,6 +225,7 @@ export class SecullumBonusIntegrationService {
           metadata: { secullumAvailable: false, failedUsers, totalUsers, error },
         };
       }
+      employeesData = Array.isArray(probe.data) ? probe.data : [];
     } catch (error) {
       const message = `Secullum unavailable (employees probe failed): ${error?.message || error}`;
       this.logger.error(message);
@@ -221,9 +240,28 @@ export class SecullumBonusIntegrationService {
     const holidays = await this.getHolidaysForPeriod(periodStart, periodEnd);
     this.logger.log(`Loaded ${holidays.length} holidays for period ${startDate} to ${endDate}`);
 
+    // Fetch the company-wide map of approved & justified time-adjustment requests
+    // once per period. Used so a day fixed by a justified correction still earns
+    // its +1% assiduidade. Fail-safe: an empty map (on error) grants no exemption.
+    const justifiedCorrectionDaysByEmployee = await this.getJustifiedCorrectionDaysMap(
+      startDate,
+      endDate,
+    );
+
+    // Resolve each employee's scheduled Entrada1 (per weekday) from Secullum Horários
+    // so we can detect an atraso on the first punch (> scheduled + 5 min).
+    const expectedEntry1ByEmployee = await this.getExpectedEntry1Map(employeesData, users);
+
     for (const user of users) {
       try {
-        const analysis = await this.analyzeUser(user, startDate, endDate, holidays);
+        const analysis = await this.analyzeUser(
+          user,
+          startDate,
+          endDate,
+          holidays,
+          justifiedCorrectionDaysByEmployee.get(user.secullumEmployeeId) ?? new Set(),
+          expectedEntry1ByEmployee.get(user.secullumEmployeeId) ?? new Map(),
+        );
         if (analysis) {
           results.set(user.id, analysis);
         }
@@ -289,6 +327,138 @@ export class SecullumBonusIntegrationService {
   }
 
   /**
+   * Build a per-employee set of calendar days (yyyy-MM-dd) that carry an
+   * APPROVED and JUSTIFIED time-adjustment request (a stamp correction backed by
+   * an atestado/foto or a written justificativa). Such a day, even though its
+   * stamps are manual (not electronic), should still earn its +1% assiduidade —
+   * the employee did the right thing and justified the correction.
+   *
+   * Fail-safe: any fetch error yields an EMPTY map so no exemption is granted
+   * (mirrors the conservative posture of hasAtestadoInPriorNinetyDays). We never
+   * silently hand out assiduidade for unjustified corrections on a Secullum
+   * outage.
+   */
+  private async getJustifiedCorrectionDaysMap(
+    startDate: string,
+    endDate: string,
+  ): Promise<Map<number, Set<string>>> {
+    const map = new Map<number, Set<string>>();
+    try {
+      const response = await this.secullumService.getRequests(false, {
+        startDate,
+        endDate,
+        quantidade: 1000,
+      });
+      if (!response.success || !Array.isArray(response.data)) {
+        this.logger.warn(
+          `Justified-correction fetch returned no usable data (${response.message ?? 'unknown'}) — no exemptions granted`,
+        );
+        return map;
+      }
+
+      for (const req of response.data) {
+        // Estado 1 = APROVADA. Only approved corrections count.
+        if (req?.Estado !== 1) continue;
+        // Justified = an atestado/photo is attached OR a written justificativa/obs exists.
+        const hasFoto = req?.SolicitacaoFotoId != null;
+        const hasJustificativa = !!(req?.Justificativa?.trim() || req?.Observacoes?.trim());
+        if (!hasFoto && !hasJustificativa) continue;
+
+        const employeeId = Number(req?.FuncionarioId);
+        const dayKey = this.normalizeDateKey(req?.Data);
+        if (!employeeId || !dayKey) continue;
+        // Only days inside the period.
+        if (dayKey < startDate || dayKey > endDate) continue;
+
+        let set = map.get(employeeId);
+        if (!set) {
+          set = new Set<string>();
+          map.set(employeeId, set);
+        }
+        set.add(dayKey);
+      }
+
+      this.logger.log(
+        `Loaded justified corrections for ${map.size} employees in period ${startDate}..${endDate}`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to load justified corrections — no exemptions granted: ${error?.message || error}`,
+      );
+    }
+    return map;
+  }
+
+  /**
+   * Build a per-employee map of scheduled Entrada1 (minutes since midnight) keyed
+   * by weekday (0=Sun..6=Sat), resolved from the employee's Secullum Horário. Used
+   * to detect an atraso on the first punch (Entrada1 > scheduled + 5 min), which
+   * costs that day's +1% assiduidade.
+   *
+   * `employeesData` is the already-fetched /Funcionarios probe payload (each item
+   * carries Id + HorarioId), so no extra employee fetch is needed — only one
+   * getHorarioRawById per DISTINCT schedule among the bonus users.
+   *
+   * Fail-safe: any error yields an empty inner map for the affected employees, so
+   * lateness is simply not detected (the day is treated as on-time) rather than
+   * wrongly penalized.
+   */
+  private async getExpectedEntry1Map(
+    employeesData: any[],
+    users: Array<{ secullumEmployeeId: number }>,
+  ): Promise<Map<number, Map<number, number>>> {
+    const result = new Map<number, Map<number, number>>();
+    try {
+      // empId → horarioId from the probe payload.
+      const empToHorario = new Map<number, number>();
+      for (const emp of Array.isArray(employeesData) ? employeesData : []) {
+        const empId = Number(emp?.Id);
+        const horarioId = Number(emp?.HorarioId);
+        if (empId && horarioId) empToHorario.set(empId, horarioId);
+      }
+
+      // Distinct schedules actually needed for this period's users.
+      const neededHorarioIds = new Set<number>();
+      for (const u of users) {
+        const hId = empToHorario.get(u.secullumEmployeeId);
+        if (hId) neededHorarioIds.add(hId);
+      }
+
+      // Fetch each distinct schedule once → weekday → Entrada1 minutes.
+      const horarioWeekday = new Map<number, Map<number, number>>();
+      for (const horarioId of neededHorarioIds) {
+        try {
+          const raw = await this.secullumService.getHorarioRawById(horarioId);
+          const byWeekday = new Map<number, number>();
+          for (const dia of raw?.Dias ?? []) {
+            const minutes = this.parseStampMinutes(dia?.Entrada1 ?? null);
+            if (dia && typeof dia.DiaSemana === 'number' && minutes != null) {
+              byWeekday.set(dia.DiaSemana, minutes);
+            }
+          }
+          horarioWeekday.set(horarioId, byWeekday);
+        } catch (err) {
+          this.logger.warn(
+            `Failed to load schedule ${horarioId} — entry-1 lateness not detected for it: ${err?.message || err}`,
+          );
+        }
+      }
+
+      // Project onto each employee.
+      for (const u of users) {
+        const hId = empToHorario.get(u.secullumEmployeeId);
+        const byWeekday = hId ? horarioWeekday.get(hId) : undefined;
+        if (byWeekday && byWeekday.size > 0) result.set(u.secullumEmployeeId, byWeekday);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to build expected Entrada1 map — entry-1 lateness not detected: ${error?.message || error}`,
+      );
+    }
+    return result;
+  }
+
+  /**
    * Analyze a single user's time entries.
    */
   private async analyzeUser(
@@ -300,6 +470,8 @@ export class SecullumBonusIntegrationService {
     startDate: string,
     endDate: string,
     holidays: Date[] = [],
+    justifiedCorrectionDays: Set<string> = new Set(),
+    expectedEntry1ByWeekday: Map<number, number> = new Map(),
   ): Promise<SecullumBonusAnalysis | null> {
     const secullumEmployeeId = user.secullumEmployeeId;
 
@@ -417,7 +589,42 @@ export class SecullumBonusIntegrationService {
       if (dayAnalysis.isWorkingDay && !isTodayOrFuture) {
         totalWorkingDays++;
 
-        if (dayAnalysis.hasAllFourStamps && dayAnalysis.allStampsElectronic) {
+        // Atraso on the first punch: Entrada1 punched > scheduled + 5 min. Resolved
+        // from Secullum's Horário (only Entrada1 counts — not the post-lunch return).
+        if (dayAnalysis.hasAllFourStamps && expectedEntry1ByWeekday.size > 0) {
+          const weekday = entryDate.getDay();
+          const expected = expectedEntry1ByWeekday.get(weekday);
+          const actual = this.parseStampMinutes(dayAnalysis.stamps.entrada1);
+          if (
+            expected != null &&
+            actual != null &&
+            actual > expected + SecullumBonusIntegrationService.ENTRY1_LATE_TOLERANCE_MIN
+          ) {
+            dayAnalysis.isLateEntry1 = true;
+          }
+        }
+
+        // A day earns its +1% when all 4 stamps are present, the first punch is on
+        // time, AND the stamps are either fully electronic or fixed by an approved &
+        // justified adjustment (atestado/justificative). A justified correction keeps
+        // the assiduidade — it must not be counted wrongly against the employee.
+        const dayKey = this.normalizeDateKey(dayAnalysis.date);
+        const isJustifiedCorrection = !!dayKey && justifiedCorrectionDays.has(dayKey);
+        // A day with a Secullum-reported atraso/falta (long lunch / early leave,
+        // captured by the per-day Atrasos+Faltas override above as
+        // `isUnjustifiedAbsence`) is NOT a clean day even when it carries 4
+        // on-time electronic stamps. Excluding it here keeps the +1%/day reward
+        // consistent with the `perde-o-dia` assiduidade tier — otherwise the day
+        // would earn +1% that `perde-o-dia` (which subtracts nothing by design)
+        // never removes, double-rewarding a day that actually had a delay. A
+        // justified correction (approved Secullum request) still keeps the day.
+        if (
+          dayAnalysis.hasAllFourStamps &&
+          ((dayAnalysis.allStampsElectronic &&
+            !dayAnalysis.isLateEntry1 &&
+            !dayAnalysis.isUnjustifiedAbsence) ||
+            isJustifiedCorrection)
+        ) {
           daysWithFullElectronicStamps++;
         }
 
@@ -451,9 +658,10 @@ export class SecullumBonusIntegrationService {
     const atestadoTierLabel = this.getAtestadoTierLabel(totalAtestadoHours);
     const unjustifiedTierLabel = this.getUnjustifiedTierLabel(totalUnjustifiedAbsenceHours);
 
-    // Determine if user loses extra
-    let losesExtraFromAtestado = this.doesAtestadoLoseExtra(totalAtestadoHours);
-    const losesExtraFromUnjustified = totalUnjustifiedAbsenceHours > 0;
+    // Graded assiduidade-loss tiers per source (none / perde-o-dia / half / full).
+    let atestadoAssiduidadeLoss = this.getAtestadoAssiduidadeLoss(totalAtestadoHours);
+    const unjustifiedAssiduidadeLoss =
+      this.getUnjustifiedAssiduidadeLoss(totalUnjustifiedAbsenceHours);
 
     // First-offense forgiveness — waive the atestado-derived penalty when the user had
     // no atestado in the rolling 90 days ending the day before periodStart. Unjustified
@@ -469,25 +677,31 @@ export class SecullumBonusIntegrationService {
       if (!hadPriorAtestado) {
         atestadoForgiven = true;
         atestadoDiscountPercentage = 0;
-        losesExtraFromAtestado = false;
+        atestadoAssiduidadeLoss = 'none';
         this.logger.log(
           `Atestado forgiveness applied for user ${user.name} (${user.id}) — no atestado in prior 90 days`,
         );
       }
     }
 
-    const losesExtra = losesExtraFromAtestado || losesExtraFromUnjustified;
+    // The worst of the two sources drives the assiduidade loss.
+    const assiduidadeLoss = this.worstAssiduidadeLoss(
+      atestadoAssiduidadeLoss,
+      unjustifiedAssiduidadeLoss,
+    );
+    const losesExtra = assiduidadeLoss !== 'none';
 
-    // NEW REVERSED LOGIC: Start with total working days %, subtract 1% for each incorrectly stamped day
-    // Incorrectly stamped days = working days without all 4 electronic stamps
+    // Assiduidade accrues +1% per closed working day with all 4 valid stamps —
+    // either fully electronic, or manually corrected via an approved & justified
+    // adjustment (atestado/justificative; see justifiedCorrectionDays). The graded
+    // loss tier then erodes the accumulated extra.
     const incorrectlyStampedDays = totalWorkingDays - daysWithFullElectronicStamps;
-
-    // Extra percentage: Start with working days %, lose 1% per incorrect day, but 0 if loses extra completely
-    const extraPercentage = losesExtra ? 0 : Math.max(0, totalWorkingDays - incorrectlyStampedDays);
+    const fullExtra = Math.max(0, totalWorkingDays - incorrectlyStampedDays);
+    const extraPercentage = this.applyAssiduidadeLoss(fullExtra, assiduidadeLoss);
 
     this.logger.log(
       `User ${user.name}: workingDays=${totalWorkingDays}, holidays=${holidays.length}, electronicDays=${daysWithFullElectronicStamps}, ` +
-        `incorrectDays=${incorrectlyStampedDays}, extraPct=${extraPercentage}% (reversed logic), ` +
+        `incorrectDays=${incorrectlyStampedDays}, fullExtra=${fullExtra}%, extraPct=${extraPercentage}% (loss=${assiduidadeLoss}), ` +
         `atestadoH=${totalAtestadoHours}, unjustifiedH=${totalUnjustifiedAbsenceHours}, ` +
         `atestadoDiscount=${atestadoDiscountPercentage}% (${atestadoTierLabel}), unjustifiedDiscount=${unjustifiedDiscountPercentage}% (${unjustifiedTierLabel}), losesExtra=${losesExtra}`,
     );
@@ -786,6 +1000,22 @@ export class SecullumBonusIntegrationService {
   }
 
   /**
+   * Extract the first "HH:MM" from a stamp/schedule string and return minutes
+   * since midnight. Returns null when no time is present (blank, "ATESTADO", …).
+   */
+  private parseStampMinutes(raw: string | null | undefined): number | null {
+    if (!raw || typeof raw !== 'string') return null;
+    const m = raw.match(/(\d{1,2}):(\d{2})/);
+    if (!m) return null;
+    const minutes = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    return Number.isFinite(minutes) ? minutes : null;
+  }
+
+  // Entrada1 is "late" only when punched more than this many minutes after the
+  // scheduled start. Sub-tolerance lateness does not cost the day's assiduidade.
+  private static readonly ENTRY1_LATE_TOLERANCE_MIN = 5;
+
+  /**
    * Analyze a single day's time entry from Secullum Batidas response.
    */
   private analyzeDay(entry: any, holidays: Date[] = []): DayAnalysis {
@@ -912,6 +1142,8 @@ export class SecullumBonusIntegrationService {
       isHoliday,
       hasAllFourStamps,
       allStampsElectronic,
+      // Resolved in analyzeUser once the day's scheduled start is known.
+      isLateEntry1: false,
       isAtestado,
       atestadoProportion,
       // A day is flagged when ANY shortfall exists — full absence or just late/early.
@@ -974,10 +1206,15 @@ export class SecullumBonusIntegrationService {
   // Tier tables with labels
   // =====================
 
+  // Two independent dimensions per absence source:
+  //   • Bônus discount  — how much of the monthly bonus is cut.
+  //   • Assiduidade loss — how much of the accumulated +1%/day extra is cut.
+  // A valid atestado/justificative is more lenient than "sem justificativa":
+  // every threshold shifts one band to the right.
+
   getAtestadoDiscountPercentage(hours: number): number {
-    if (hours <= 2) return 0;
-    if (hours <= 8) return 0;
-    if (hours <= 16) return 25;
+    if (hours <= 4) return 0;
+    if (hours <= 8) return 25;
     if (hours <= 25) return 50;
     return 100;
   }
@@ -987,13 +1224,9 @@ export class SecullumBonusIntegrationService {
     return this.formatHoursDisplay(hours);
   }
 
-  private doesAtestadoLoseExtra(hours: number): boolean {
-    return hours > 2;
-  }
-
   getUnjustifiedDiscountPercentage(hours: number): number {
-    if (hours <= 0) return 0;
-    if (hours <= 2) return 25;
+    if (hours <= 2) return 0;
+    if (hours <= 4) return 25;
     if (hours <= 8) return 50;
     return 100;
   }
@@ -1001,6 +1234,54 @@ export class SecullumBonusIntegrationService {
   getUnjustifiedTierLabel(hours: number): string {
     if (hours <= 0) return '';
     return this.formatHoursDisplay(hours);
+  }
+
+  /**
+   * Assiduidade-loss tier for an unjustified absence (sem justificativa).
+   *   0h → none · 0–2h → perde o dia · 2–4h → 50% · >4h → 100%
+   */
+  getUnjustifiedAssiduidadeLoss(hours: number): AssiduidadeLoss {
+    if (hours <= 0) return 'none';
+    if (hours <= 2) return 'perde-o-dia';
+    if (hours <= 4) return 'half';
+    return 'full';
+  }
+
+  /**
+   * Assiduidade-loss tier for an atestado. A short atestado (até 2h) keeps the
+   * full +1%/day — a valid justificative does not cost assiduidade there.
+   *   0–2h → none · 2–4h → perde o dia · 4–8h → 50% · >8h → 100%
+   */
+  getAtestadoAssiduidadeLoss(hours: number): AssiduidadeLoss {
+    if (hours <= 2) return 'none';
+    if (hours <= 4) return 'perde-o-dia';
+    if (hours <= 8) return 'half';
+    return 'full';
+  }
+
+  /** The more severe of two assiduidade-loss tiers wins. */
+  private worstAssiduidadeLoss(a: AssiduidadeLoss, b: AssiduidadeLoss): AssiduidadeLoss {
+    return ASSIDUIDADE_LOSS_SEVERITY[a] >= ASSIDUIDADE_LOSS_SEVERITY[b] ? a : b;
+  }
+
+  /**
+   * Apply a graded assiduidade-loss tier to the accumulated +1%/day extra.
+   *
+   * Note 'perde-o-dia' makes NO extra reduction here: the day that triggered it
+   * (a short absence/atraso) is already excluded from `fullExtra` by the per-day
+   * clean-count, so subtracting again would double-penalize. Only the heavier
+   * 'half'/'full' tiers scale the surviving total.
+   */
+  private applyAssiduidadeLoss(fullExtra: number, loss: AssiduidadeLoss): number {
+    switch (loss) {
+      case 'full':
+        return 0;
+      case 'half':
+        return Math.max(0, Math.round(fullExtra / 2));
+      case 'perde-o-dia':
+      default:
+        return Math.max(0, fullExtra);
+    }
   }
 
   /**

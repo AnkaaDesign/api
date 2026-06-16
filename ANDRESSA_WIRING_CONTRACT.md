@@ -5,12 +5,15 @@ Contas a Pagar / Previsão de Saídas redesign. Branch `andressa-wiring-2026-06-
 
 ## Locked decisions (from user)
 
-1. **Pago = Fulfilled.** An order's payment obligation is OPEN iff
-   `status NOT IN (FULFILLED, PARTIALLY_RECEIVED, RECEIVED, CANCELLED)`. Reaching FULFILLED (or
-   beyond) means the order is settled and leaves Contas a Pagar / "Pedidos em aberto". Keying on
-   `status` (not the stale `paymentStatus`) fixes all existing data with no backfill. `paymentStatus`
-   remains the request sub-pipeline (Não Solicitado → Solicitado → Aguardando) for OPEN orders, and
-   is auto-flipped to PAID when an order settles (record consistency + "Pago" view).
+1. **Pago = Recebido (payment DECOUPLED from fulfillment) — AS SHIPPED.**
+   > NOTE: the original plan ("Pago = Fulfilled", with an auto-settle hook flipping
+   > `paymentStatus=PAID` when an order reached FULFILLED/RECEIVED) was **deliberately reverted**
+   > during implementation. The shipped behavior is status-based on the PAYMENT pipeline only:
+   An order's payment obligation is OPEN (payable) iff
+   `status != CANCELLED AND paymentStatus != PAID`. Fulfillment/receipt no longer settles the
+   obligation and there is **no auto-settle hook** — `paymentStatus` advances only through the
+   explicit request/pay pipeline (Não Solicitado → Solicitado → Aguardando → Pago). CANCELLED
+   orders are never payable. This keeps "owed money" and "goods received" as independent states.
 2. **Unified payables list.** Contas a Pagar shows all payable sources in one list grouped by payee,
    each row carrying its own payment state:
    - Open **orders** (per rule above)
@@ -23,24 +26,27 @@ Contas a Pagar / Previsão de Saídas redesign. Branch `andressa-wiring-2026-06-
    (admin requests payment from the order itself).
 5. Full build across api + web + mobile, including the DB migration.
 
-## Canonical constants (api)
+## Canonical payable predicate (api) — AS SHIPPED
+
+> The earlier `SETTLED_ORDER_STATUSES` / `PAYABLE_OPEN_STATUSES` constants were **never shipped**
+> (payment was decoupled from fulfillment — see decision 1). There is no such constant in the code.
+> The payable predicate is inline on the PAYMENT fields:
 
 ```
-SETTLED_ORDER_STATUSES   = [FULFILLED, PARTIALLY_RECEIVED, RECEIVED]   // settled obligation
-PAYABLE_OPEN_STATUSES    = [CREATED, PARTIALLY_FULFILLED, OVERDUE]     // still owed
-// CANCELLED is neither — always excluded from payables.
+payable order  ⇔  status != CANCELLED  AND  paymentStatus != PAID
+// (order fulfillment status is irrelevant to whether it is owed.)
 ```
 
 ---
 
 ## Area 1 — Contas a Pagar (orders payment semantics)  [api: order.service.ts]
 
-- Open-list / summary / forecast filters key on **order `status`** (PAYABLE_OPEN_STATUSES), not paymentStatus.
-- Auto-settle hook: in `checkAndUpdateOrderFulfillmentStatus` (→FULFILLED) and
-  `checkAndUpdateOrderReceivedStatus` (→RECEIVED) and the manual receive path (~710-775), when the new
-  status is settled and `paymentStatus != PAID`, set `paymentStatus=PAID`, `paidAt = now`, log SYSTEM change.
-- `getPaymentSummary`: open buckets filtered to `status IN PAYABLE_OPEN_STATUSES`; PAID bucket = settled
-  orders in last 90 days (windowed by `paidAt`).
+- Open-list / summary / forecast filters key on **`status != CANCELLED && paymentStatus != PAID`**
+  (see `getPaymentSummary` ~2747 and `getPayables` ~2856) — NOT on fulfillment status.
+- **No auto-settle hook.** Payment is decoupled from fulfillment: reaching FULFILLED/RECEIVED does
+  NOT flip `paymentStatus`. `paymentStatus` moves only via the explicit request/pay endpoints.
+- `getPaymentSummary`: open buckets filtered to `status != CANCELLED && paymentStatus != PAID`;
+  PAID bucket = orders paid in last 90 days (windowed by `paidAt`).
 - `requestPayment` already exists (`PUT /orders/:id/request-payment`). Keep. Web moves the trigger to order detail.
 
 ## Area 2 — Unified payables aggregation  [api: new method on order.service or new financial service]
@@ -54,7 +60,7 @@ PayableRow {
   dueDate?, method?, requestedAt?
 }
 ```
-- ORDER rows: open orders (status rule), paymentState from `paymentStatus`.
+- ORDER rows: open orders (`status != CANCELLED && paymentStatus != PAID`), paymentState from `paymentStatus`.
 - AIRBRUSHING rows: `Airbrushing` where `paymentStatus != PAID` and `price != null`; payee = painter;
   paymentState maps PENDING→NOT_REQUESTED, PARTIALLY_PAID→PARTIALLY_PAID.
 - SCHEDULED rows: active `OrderSchedule` with `nextRun` in window → `getExpectedTotals`; paymentState='EXPECTED'.
@@ -62,8 +68,8 @@ PayableRow {
 
 ## Area 3 — Previsão de Saídas + tributos/quote integration  [api: outflow-forecast.service.ts]
 
-- `buildOrdersSection`: replace `OPEN_PAYMENT_STATUSES` filter with `status IN PAYABLE_OPEN_STATUSES`
-  (excludes done + CANCELLED). Fixes "displaying all the orders already done".
+- `buildOrdersSection` (AS SHIPPED, ~143): filters `status != CANCELLED && paymentStatus != PAID`
+  (excludes cancelled + already-paid). Fixes "displaying all the orders already done".
 - New `buildInvoicedServiceTaxForecast(from,to)`: sum `TaskQuote` billing-approved this month
   (`billingApprovedAt ∈ [from,to]`, customerConfig.generateInvoice=true) service base; derive
   ISS = base × `ELOTECH_OXY_SERVICO_LC_ALIQUOTA`% + federal retentions from contribuinte aliquotas

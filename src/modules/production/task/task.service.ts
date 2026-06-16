@@ -1679,13 +1679,18 @@ export class TaskService {
           this.enforceNestedQuoteCreateGuards((data as any).quote, userPrivilege);
         }
 
-        // Field-level access control per sector (centralized in task.permissions.ts)
-        if (userPrivilege) {
-          validateSectorFieldAccess(
-            userPrivilege as SECTOR_PRIVILEGES,
-            data as Record<string, unknown>,
-          );
-        }
+        // Field-level access control per sector (centralized in task.permissions.ts).
+        // Always enforce: if the caller didn't thread a privilege (internal
+        // endpoints like /prepare, /start, /finish), resolve it from the
+        // database — never skip the check (skipping would let an unresolved
+        // privilege bypass the per-sector field allowlist). getActingUserPrivilege
+        // throws when the privilege cannot be determined, so access is denied.
+        const effectiveFieldPrivilege: SECTOR_PRIVILEGES =
+          (userPrivilege as SECTOR_PRIVILEGES) || (await this.getActingUserPrivilege(userId, tx));
+        validateSectorFieldAccess(
+          effectiveFieldPrivilege,
+          data as Record<string, unknown>,
+        );
 
         // Validate task data
         await this.validateTask(data, id, tx);

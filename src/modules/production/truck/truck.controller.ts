@@ -143,7 +143,6 @@ export class TruckController {
    */
   @Post('batch-update-spots')
   @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
@@ -227,7 +226,6 @@ export class TruckController {
 
   @Put(':id')
   @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
