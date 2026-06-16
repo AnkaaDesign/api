@@ -30,6 +30,8 @@ export interface VacationPeriod extends BaseEntity {
 export interface Vacation extends BaseEntity {
   userId: string;
   contractId: string | null;
+  // Férias coletivas: vínculo opcional ao grupo que originou este registro individual.
+  groupId: string | null;
   acquisitiveStart: Date;
   acquisitiveEnd: Date;
   concessiveEnd: Date | null;
@@ -48,6 +50,9 @@ export interface Vacation extends BaseEntity {
   paymentDueDate: Date | null;
   paymentDate: Date | null;
   notes: string | null;
+  // Soft-delete: registros excluídos são marcados (não removidos) para preservar
+  // histórico/passivo. Todas as leituras filtram deletedAt = null.
+  deletedAt: Date | null;
 
   // Relations
   user?: User;

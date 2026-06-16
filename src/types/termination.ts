@@ -29,6 +29,7 @@ import type { File, FileIncludes } from './file';
 
 export interface Termination extends BaseEntity {
   userId: string;
+  contractId: string | null;
   type: TERMINATION_TYPE;
   status: TERMINATION_STATUS;
   statusOrder: number;
@@ -47,6 +48,10 @@ export interface Termination extends BaseEntity {
   accruedVacationPeriods: number;
   reason: string | null;
   justCauseArticle: string | null;
+  // Cancelamento: etapa em que o processo estava ao ser cancelado e a
+  // justificativa (≠ `reason`, que é o motivo da rescisão em si).
+  cancelledFromStatus: TERMINATION_STATUS | null;
+  cancellationReason: string | null;
   initiatedById: string | null;
 
   // Relations (optional, populated based on query)
