@@ -2117,6 +2117,8 @@ export const NFSE_STATUS_LABELS: Record<NFSE_STATUS, string> = {
   [NFSE_STATUS.PENDING]: 'Pendente',
   [NFSE_STATUS.PROCESSING]: 'Processando',
   [NFSE_STATUS.AUTHORIZED]: 'Autorizada',
+  [NFSE_STATUS.CANCEL_REQUESTED]: 'Cancelamento Solicitado',
+  [NFSE_STATUS.CANCEL_REJECTED]: 'Cancelamento Rejeitado',
   [NFSE_STATUS.CANCELLED]: 'Cancelada',
   [NFSE_STATUS.ERROR]: 'Erro',
 };

@@ -123,13 +123,27 @@ export interface BankSlip extends BaseEntity {
 // =====================
 
 export interface NfseDocument extends BaseEntity {
-  invoiceId: string;
+  // Nullable + SetNull: a note survives as task history even if its invoice is removed.
+  invoiceId: string | null;
+  // Durable link to the task so the full NFS-e history is always visible on the quote page.
+  taskId: string | null;
   elotechNfseId: number | null;
   nfseNumber: number | null;
   status: NFSE_STATUS;
   errorMessage: string | null;
   errorCount: number;
   retryAfter: Date | null;
+
+  // Cancellation request lifecycle (Elotech "solicitação de cancelamento")
+  cancelRequestId: number | null;
+  cancelRequestStatus: string | null; // AGUARDANDO_FISCAL | AUTORIZADO | REJEITADO
+  cancelReason: string | null;
+  cancelReasonCode: number | null; // 1=Erro na emissão, 2=Serviço não prestado, 4=Duplicidade
+  cancelRejectionMessage: string | null;
+  cancelSubstituteNfseNumber: number | null;
+  cancelRequestedAt: Date | null;
+  cancelResolvedAt: Date | null;
+
   invoice?: Invoice;
 }
 

@@ -18,6 +18,7 @@ import type {
 } from '@constants';
 import type { User, UserIncludes } from './user';
 import type { File, FileIncludes } from './file';
+import type { MedicalExam } from './medical-exam';
 
 // =====================
 // Main Entity Interfaces
@@ -30,12 +31,16 @@ export interface Admission extends BaseEntity {
   statusOrder: number;
   hireDate: Date | null;
   notes: string | null;
+  // Cancelamento: etapa em que o processo estava ao ser cancelado e a justificativa.
+  cancelledFromStatus: ADMISSION_STATUS | null;
+  cancellationReason: string | null;
   createdById: string | null;
 
   // Relations (optional, populated based on query)
   user?: User;
   createdBy?: User;
   documents?: AdmissionDocument[];
+  admissionExam?: MedicalExam | null;
 }
 
 export interface AdmissionDocument extends BaseEntity {
