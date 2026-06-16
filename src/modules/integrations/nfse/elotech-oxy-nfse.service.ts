@@ -49,6 +49,42 @@ export interface MunicipalEmitNfseInput {
   description?: string;
 }
 
+/** Live cancellation state of a note at Elotech (note situação + request lifecycle). */
+export interface ElotechCancellationState {
+  notaSituacao: string;
+  notaCancelada: boolean;
+  numeroNotaFiscal: number | null;
+  request: null | {
+    id: number | null;
+    /** AGUARDANDO_FISCAL | AUTORIZADO | REJEITADO */
+    ultimoStatus: string | null;
+    motivo: string | null;
+    data: string | null;
+    codigoMotivoSituacao: number | null;
+    historicos: Array<{
+      data: string | null;
+      status: string | null;
+      descricaoStatus: string | null;
+      motivo: string | null;
+    }>;
+  };
+}
+
+/** Outcome of a cancellation request, reflecting the REAL post-submit state at the prefeitura. */
+export interface CancelNfseResult {
+  /** note is confirmed CANCELADA at the prefeitura */
+  cancelled: boolean;
+  /** request is registered but awaiting fiscal approval (note still active) */
+  pending: boolean;
+  /** request was rejected by the fiscal (note still active) */
+  rejected: boolean;
+  status: NfseStatus;
+  elotechNfseId: number;
+  /** raw Elotech request status: AGUARDANDO_FISCAL | AUTORIZADO | REJEITADO | null */
+  requestStatus: string | null;
+  rejectionMessage: string | null;
+}
+
 @Injectable()
 export class ElotechOxyNfseService {
   private readonly logger = new Logger(ElotechOxyNfseService.name);
@@ -149,6 +185,23 @@ export class ElotechOxyNfseService {
           status: NfseStatus.PROCESSING,
         },
       });
+    }
+
+    // Durably link the note to its task (from the invoice) so it survives billing reverts
+    // and always shows in the task quote NFS-e history. Withdrawal-backed invoices have no
+    // task (invoice.taskId is null), so nothing is linked for those — that's expected.
+    if (nfseDoc && !nfseDoc.taskId) {
+      const inv = await this.prisma.invoice.findUnique({
+        where: { id: invoice.id },
+        select: { taskId: true },
+      });
+      if (inv?.taskId) {
+        await this.prisma.nfseDocument.update({
+          where: { id: nfseDoc.id },
+          data: { taskId: inv.taskId },
+        });
+        nfseDoc.taskId = inv.taskId;
+      }
     }
 
     // Pre-flight customer data validation — fail fast before wasting an API call.
@@ -359,21 +412,31 @@ export class ElotechOxyNfseService {
   }
 
   /**
-   * Cancel an authorized NFS-e via the Elotech OXY REST API.
+   * Submit a cancellation REQUEST for an authorized NFS-e via the Elotech OXY REST API.
    *
-   * Flow:
-   * 1. Load the NfseDocument for the invoice and validate it's AUTHORIZED
-   * 2. Authenticate with Elotech OXY
-   * 3. GET /solicitacoes-cancelamento/nota-fiscal/{elotechNfseId} to load cancel form data
-   * 4. POST /solicitacoes-cancelamento/salvar to submit the cancellation request
-   * 5. Update the NfseDocument status to CANCELLED
+   * IMPORTANT: Cancellation at Ibiporã/Elotech is asynchronous and fiscal-approved.
+   * POST /solicitacoes-cancelamento/salvar only REGISTERS a "solicitação de cancelamento";
+   * it does NOT cancel the note. The request goes:
+   *
+   *   salvar → AGUARDANDO_FISCAL → AUTORIZADO  (note becomes CANCELADA)
+   *                              ↘ REJEITADO   (note stays EMITIDA / active)
+   *
+   * Recent emissions are usually auto-AUTORIZADO immediately; older ones require a
+   * municipal fiscal to review and may be REJEITADO. This method therefore submits the
+   * request and then RE-QUERIES the real state, persisting it accurately so the local DB
+   * never lies about whether a note is actually cancelled at the prefeitura.
+   *
+   * @param substituteNfseNumber When cancelling due to duplicity/replacement, the number of
+   *   the NF that replaces this one. The municipality requires it in the request motivo;
+   *   omitting it is a common rejection cause.
    */
   async cancelNfse(
     nfseDocumentId: string,
     reason: string,
     reasonCode: number = 1,
-  ): Promise<{ cancelled: boolean; elotechNfseId: number }> {
-    this.logger.log(`[MUNICIPAL] Cancelling NFS-e document ${nfseDocumentId}`);
+    substituteNfseNumber?: number | null,
+  ): Promise<CancelNfseResult> {
+    this.logger.log(`[MUNICIPAL] Requesting cancellation for NFS-e document ${nfseDocumentId}`);
 
     if (!this.authService.isConfigured()) {
       throw new Error('Elotech OXY credentials not configured. Cannot cancel municipal NFS-e.');
@@ -387,22 +450,53 @@ export class ElotechOxyNfseService {
       throw new Error(`NfseDocument ${nfseDocumentId} not found`);
     }
 
-    if (nfseDoc.status === NfseStatus.CANCELLED) {
-      this.logger.warn(`[MUNICIPAL] NFS-e already cancelled: ${nfseDocumentId}`);
-      return { cancelled: true, elotechNfseId: nfseDoc.elotechNfseId || 0 };
-    }
-
-    if (nfseDoc.status !== NfseStatus.AUTHORIZED) {
-      throw new Error(
-        `Cannot cancel NFS-e with status ${nfseDoc.status}. Only AUTHORIZED NFS-e can be cancelled.`,
-      );
-    }
-
     if (!nfseDoc.elotechNfseId) {
       throw new Error(`NfseDocument ${nfseDoc.id} has no elotechNfseId. Cannot cancel.`);
     }
 
     const elotechNfseId = nfseDoc.elotechNfseId;
+
+    // Already confirmed cancelled at the prefeitura — nothing to do.
+    if (nfseDoc.status === NfseStatus.CANCELLED) {
+      this.logger.warn(`[MUNICIPAL] NFS-e already cancelled: ${nfseDocumentId}`);
+      return {
+        cancelled: true,
+        pending: false,
+        rejected: false,
+        status: NfseStatus.CANCELLED,
+        elotechNfseId,
+        requestStatus: nfseDoc.cancelRequestStatus,
+        rejectionMessage: null,
+      };
+    }
+
+    // A request is already in flight — don't double-submit. Re-sync the live state instead
+    // so the caller learns whether the fiscal has acted since.
+    if (nfseDoc.status === NfseStatus.CANCEL_REQUESTED) {
+      this.logger.warn(
+        `[MUNICIPAL] Cancellation already pending for ${nfseDocumentId}; re-syncing live state`,
+      );
+      return this.syncCancellationStatus(nfseDocumentId);
+    }
+
+    // AUTHORIZED → first request. CANCEL_REJECTED → a corrected re-submission (e.g. now
+    // including the substitute NF number the fiscal demanded). Anything else is invalid.
+    if (
+      nfseDoc.status !== NfseStatus.AUTHORIZED &&
+      nfseDoc.status !== NfseStatus.CANCEL_REJECTED
+    ) {
+      throw new Error(
+        `Cannot cancel NFS-e with status ${nfseDoc.status}. ` +
+          `Only AUTHORIZED or CANCEL_REJECTED NFS-e can have a cancellation requested.`,
+      );
+    }
+
+    // Compose the motivo. The municipality requires the substitute note number inside the
+    // free-text motivo (there is no structured field for it in Ibiporã's flow).
+    let motivo = (reason || '').trim();
+    if (substituteNfseNumber) {
+      motivo += `${motivo.endsWith('.') ? '' : '.'} Nota fiscal substituta: Nº ${substituteNfseNumber}.`;
+    }
 
     try {
       await this.authService.getToken();
@@ -434,7 +528,7 @@ export class ElotechOxyNfseService {
       const cancelPayload = {
         motivoSituacaoEntity: { codigo: reasonCode },
         arquivoSelecionado: '',
-        motivo: reason,
+        motivo,
         ultimoStatus: null,
         arquivos: [],
         idNotaFiscal: cancelFormData.id,
@@ -450,23 +544,26 @@ export class ElotechOxyNfseService {
       );
 
       this.logger.log(
-        `[MUNICIPAL] Cancel response: status=${cancelRes.status}, data=${JSON.stringify(cancelRes.data).slice(0, 500)}`,
+        `[MUNICIPAL] Cancel request submitted: status=${cancelRes.status}, data=${JSON.stringify(cancelRes.data).slice(0, 500)}`,
       );
 
-      // Step 3: Update NfseDocument status
-      await this.prisma.nfseDocument.update({
-        where: { id: nfseDoc.id },
-        data: {
-          status: NfseStatus.CANCELLED,
-          errorMessage: null,
-        },
+      // Step 3: Re-query the REAL resulting state and persist it accurately.
+      // This is the crucial difference from the old optimistic flow: we never assume the
+      // note is cancelled just because the request was accepted.
+      const state = await this.fetchCancellationState(elotechNfseId);
+      const result = await this.persistCancellationState(nfseDoc.id, state, {
+        reason,
+        reasonCode,
+        substituteNfseNumber: substituteNfseNumber ?? null,
+        requestedAt: new Date(),
       });
 
       this.logger.log(
-        `[MUNICIPAL] NFS-e ${elotechNfseId} cancelled successfully for nfseDocument ${nfseDocumentId}`,
+        `[MUNICIPAL] NFS-e ${elotechNfseId} cancellation outcome: localStatus=${result.status}, ` +
+          `requestStatus=${result.requestStatus ?? 'N/A'}, notaSituacao=${state.notaSituacao}`,
       );
 
-      return { cancelled: true, elotechNfseId };
+      return { ...result, elotechNfseId };
     } catch (error) {
       const errResponse = (error as any)?.response?.data;
       let errorMsg: string;
@@ -481,7 +578,7 @@ export class ElotechOxyNfseService {
       }
 
       this.logger.error(
-        `[MUNICIPAL] Failed to cancel NFS-e for nfseDocument ${nfseDocumentId}: ${errorMsg}`,
+        `[MUNICIPAL] Failed to request cancellation for nfseDocument ${nfseDocumentId}: ${errorMsg}`,
       );
       if (errResponse) {
         this.logger.error(
@@ -490,6 +587,146 @@ export class ElotechOxyNfseService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Fetch the live cancellation state of a note from Elotech: whether the note itself is
+   * cancelled, and the status/history of any cancellation request (solicitação) on it.
+   * Read-only — used both right after submitting a request and by the reconciler.
+   */
+  async fetchCancellationState(elotechNfseId: number): Promise<ElotechCancellationState> {
+    await this.authService.getToken();
+    const baseUrl = this.authService.baseUrl;
+    const contribuinte = this.authService.getContribuinteData();
+    const headers = {
+      ...this.authService.getAuthHeaders(),
+      active_view: '/solicitacao-cancelamento',
+      ...(contribuinte?.id ? { idCadastro: String(contribuinte.id) } : {}),
+    };
+
+    const res = await axios.get(
+      `${baseUrl}/solicitacoes-cancelamento/nota-fiscal/${elotechNfseId}`,
+      { headers, timeout: 15000 },
+    );
+    const d = res.data ?? {};
+    const s = d.solicitacaoCancelamento ?? null;
+
+    return {
+      notaSituacao: d.situacao ?? 'DESCONHECIDA',
+      notaCancelada: String(d.situacao ?? '').toUpperCase() === 'CANCELADA',
+      numeroNotaFiscal: d.numeroNotaFiscal ?? null,
+      request: s
+        ? {
+            id: s.id ?? null,
+            ultimoStatus: s.ultimoStatus ?? null,
+            motivo: s.motivo ?? null,
+            data: s.data ?? null,
+            codigoMotivoSituacao: s.codigoMotivoSituacao ?? null,
+            historicos: Array.isArray(s.historicos)
+              ? s.historicos.map((h: any) => ({
+                  data: h.data ?? null,
+                  status: h.status ?? null,
+                  descricaoStatus: h.descricaoStatus ?? null,
+                  motivo: h.motivo ?? null,
+                }))
+              : [],
+          }
+        : null,
+    };
+  }
+
+  /**
+   * Map an Elotech cancellation state onto our NfseDocument and persist it.
+   * Single source of truth for the AUTORIZADO/AGUARDANDO_FISCAL/REJEITADO → local-status
+   * mapping, reused by cancelNfse() and the reconciler.
+   */
+  private async persistCancellationState(
+    nfseDocId: string,
+    state: ElotechCancellationState,
+    submitted?: {
+      reason: string;
+      reasonCode: number;
+      substituteNfseNumber: number | null;
+      requestedAt: Date;
+    },
+  ): Promise<CancelNfseResult> {
+    const req = state.request;
+    const ultimoStatus = req?.ultimoStatus ?? null;
+
+    const data: Record<string, any> = {
+      cancelRequestId: req?.id ?? undefined,
+      cancelRequestStatus: ultimoStatus ?? undefined,
+    };
+    if (submitted) {
+      data.cancelReason = submitted.reason;
+      data.cancelReasonCode = submitted.reasonCode;
+      data.cancelSubstituteNfseNumber = submitted.substituteNfseNumber ?? undefined;
+      data.cancelRequestedAt = submitted.requestedAt;
+    }
+
+    let status: NfseStatus;
+    let rejectionMessage: string | null = null;
+
+    if (state.notaCancelada || ultimoStatus === 'AUTORIZADO') {
+      status = NfseStatus.CANCELLED;
+      data.errorMessage = null;
+      data.cancelRejectionMessage = null;
+      data.cancelResolvedAt = new Date();
+    } else if (ultimoStatus === 'REJEITADO') {
+      status = NfseStatus.CANCEL_REJECTED;
+      rejectionMessage = (
+        req?.motivo || 'Solicitação de cancelamento rejeitada pela prefeitura.'
+      ).trim();
+      data.cancelRejectionMessage = rejectionMessage;
+      data.cancelResolvedAt = new Date();
+    } else if (ultimoStatus === 'AGUARDANDO_FISCAL') {
+      status = NfseStatus.CANCEL_REQUESTED;
+      data.cancelResolvedAt = null;
+    } else {
+      // No request found (or an unknown status) and the note is not cancelled → it is
+      // still active. Fall back to AUTHORIZED so we never strand it as "cancelled".
+      status = NfseStatus.AUTHORIZED;
+    }
+
+    data.status = status;
+    await this.prisma.nfseDocument.update({ where: { id: nfseDocId }, data });
+
+    return {
+      cancelled: status === NfseStatus.CANCELLED,
+      pending: status === NfseStatus.CANCEL_REQUESTED,
+      rejected: status === NfseStatus.CANCEL_REJECTED,
+      status,
+      elotechNfseId: 0, // filled by caller when known
+      requestStatus: ultimoStatus,
+      rejectionMessage,
+    };
+  }
+
+  /**
+   * Re-query Elotech for a single NfseDocument's cancellation state and reconcile our local
+   * status to match reality. Returns the resolved result. Used by the reconciler scheduler
+   * and by the detail endpoint so users always see the true prefeitura state.
+   */
+  async syncCancellationStatus(nfseDocumentId: string): Promise<CancelNfseResult> {
+    const nfseDoc = await this.prisma.nfseDocument.findUnique({
+      where: { id: nfseDocumentId },
+    });
+    if (!nfseDoc) throw new Error(`NfseDocument ${nfseDocumentId} not found`);
+    if (!nfseDoc.elotechNfseId) {
+      throw new Error(`NfseDocument ${nfseDocumentId} has no elotechNfseId.`);
+    }
+
+    const state = await this.fetchCancellationState(nfseDoc.elotechNfseId);
+    const result = await this.persistCancellationState(nfseDoc.id, state);
+    return { ...result, elotechNfseId: nfseDoc.elotechNfseId };
+  }
+
+  /**
+   * Live cancellation status + full request history for a note, for display in the UI.
+   * Read-only; does not mutate local state.
+   */
+  async getCancellationStatus(elotechNfseId: number): Promise<ElotechCancellationState> {
+    return this.fetchCancellationState(elotechNfseId);
   }
 
   /**

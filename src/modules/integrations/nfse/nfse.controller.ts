@@ -1,12 +1,18 @@
 import {
   Controller,
   Get,
+  Put,
+  Body,
   Param,
   Query,
   Res,
   ParseIntPipe,
+  ParseUUIDPipe,
   Logger,
   HttpException,
+  HttpCode,
+  HttpStatus,
+  BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
 import { Response } from 'express';
@@ -144,6 +150,10 @@ export class NfseController {
         customerName: localRef?.invoice?.customer?.fantasyName || null,
         nfseDocumentId: localRef?.id || null,
         localStatus: effectiveStatus,
+        // Cancellation-request lifecycle (so the UI can show "Aguardando Fiscal" / "Rejeitado")
+        cancelRequestStatus: localRef?.cancelRequestStatus || null,
+        cancelRejectionMessage: localRef?.cancelRejectionMessage || null,
+        cancelSubstituteNfseNumber: localRef?.cancelSubstituteNfseNumber || null,
       };
     });
 
@@ -233,8 +243,98 @@ export class NfseController {
       customerName: localRef?.invoice?.customer?.fantasyName || null,
       nfseDocumentId: localRef?.id || null,
       localStatus: effectiveStatus,
+      cancelRequestStatus: localRef?.cancelRequestStatus || null,
+      cancelRejectionMessage: localRef?.cancelRejectionMessage || null,
+      cancelSubstituteNfseNumber: localRef?.cancelSubstituteNfseNumber || null,
       cancelada: elotechStatus.cancelada,
       emitida: elotechStatus.emitida,
+    };
+  }
+
+  /**
+   * PUT /nfse/document/:nfseDocumentId/cancel
+   * Request cancellation of ANY NFS-e by its document id — including invoice-less notes
+   * (orphans re-linked from Elotech). Cancellation is async + fiscal-approved, so the
+   * response reports the real outcome (cancelled / pending / rejected).
+   */
+  @Put('document/:nfseDocumentId/cancel')
+  @HttpCode(HttpStatus.OK)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  async cancelByDocument(
+    @Param('nfseDocumentId', ParseUUIDPipe) nfseDocumentId: string,
+    @Body() body: { reason?: string; reasonCode?: number; substituteNfseNumber?: number },
+  ) {
+    this.ensureConfigured();
+
+    const doc = await this.prisma.nfseDocument.findUnique({ where: { id: nfseDocumentId } });
+    if (!doc) throw new NotFoundException('NFS-e não encontrada.');
+    if (doc.status === 'CANCELLED') throw new BadRequestException('NFS-e já está cancelada.');
+    if (!['AUTHORIZED', 'CANCEL_REJECTED', 'CANCEL_REQUESTED'].includes(doc.status)) {
+      throw new BadRequestException(
+        'Somente NFS-e autorizadas ou com cancelamento rejeitado podem ter o cancelamento solicitado.',
+      );
+    }
+    if (!body.reason?.trim()) throw new BadRequestException('Motivo do cancelamento é obrigatório.');
+
+    try {
+      const result = await this.elotechService.cancelNfse(
+        nfseDocumentId,
+        body.reason.trim(),
+        body.reasonCode ?? 1,
+        body.substituteNfseNumber ?? null,
+      );
+      let message: string;
+      if (result.cancelled) message = 'NFS-e cancelada com sucesso na prefeitura.';
+      else if (result.pending)
+        message =
+          'Solicitação de cancelamento enviada. Aguardando aprovação do fiscal. A NFS-e permanece ATIVA até ser aprovada.';
+      else if (result.rejected)
+        message = `Cancelamento REJEITADO pela prefeitura: ${result.rejectionMessage ?? 'sem detalhes'}. Corrija e reenvie.`;
+      else message = 'Solicitação de cancelamento processada.';
+      return { message, ...result };
+    } catch (error) {
+      const errMsg =
+        (error as any)?.response?.data?.message ||
+        (error instanceof Error ? error.message : String(error));
+      this.logger.error(`Failed to cancel NFS-e document ${nfseDocumentId}: ${errMsg}`);
+      throw new BadRequestException(`Falha ao solicitar cancelamento da NFS-e: ${errMsg}`);
+    }
+  }
+
+  /**
+   * GET /nfse/:elotechNfseId/cancellation
+   * Live cancellation status + full request history for a note (read-only).
+   * Lets system-only users see exactly what is happening at the prefeitura: whether a
+   * cancellation request exists, its status (AGUARDANDO_FISCAL/AUTORIZADO/REJEITADO), the
+   * fiscal's rejection message, and the full timeline. Also reconciles our local record.
+   */
+  @Get(':elotechNfseId/cancellation')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  async cancellationStatus(@Param('elotechNfseId', ParseIntPipe) elotechNfseId: number) {
+    this.ensureConfigured();
+
+    const state = await this.elotechService.getCancellationStatus(elotechNfseId);
+
+    // Reconcile the local NfseDocument to the live state so the UI never drifts.
+    const localRef = await this.prisma.nfseDocument.findFirst({
+      where: { elotechNfseId },
+      select: { id: true, status: true, nfseNumber: true },
+    });
+    if (localRef) {
+      try {
+        await this.elotechService.syncCancellationStatus(localRef.id);
+      } catch (err) {
+        this.logger.warn(`Failed to reconcile cancellation status for ${localRef.id}`, err as any);
+      }
+    }
+
+    return {
+      elotechNfseId,
+      nfseNumber: state.numeroNotaFiscal ?? localRef?.nfseNumber ?? null,
+      notaSituacao: state.notaSituacao,
+      cancelada: state.notaCancelada,
+      request: state.request,
+      nfseDocumentId: localRef?.id ?? null,
     };
   }
 

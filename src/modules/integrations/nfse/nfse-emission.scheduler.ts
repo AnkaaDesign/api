@@ -19,6 +19,7 @@ import { NfseStatus } from '@prisma/client';
 export class NfseEmissionScheduler {
   private readonly logger = new Logger(NfseEmissionScheduler.name);
   private isProcessing = false;
+  private isReconcilingCancellations = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -673,5 +674,156 @@ export class NfseEmissionScheduler {
     }
 
     this.logger.log(`[NFSE_TARGETED] Done. Emitted: ${emitted}, Errors: ${errors}`);
+  }
+
+  // ─── Cancellation reconciliation ───────────────────────────────────────────
+  // Cancellation at Elotech is asynchronous + fiscal-approved. A submitted request sits in
+  // CANCEL_REQUESTED (AGUARDANDO_FISCAL) until a municipal fiscal approves (→ CANCELLED) or
+  // rejects it (→ CANCEL_REJECTED). This job re-checks pending requests against the live
+  // Elotech state so the system never lies about whether a note is actually cancelled, and
+  // so users who only use our system learn the moment the fiscal acts (incl. the rejection
+  // message). It also re-syncs AUTHORIZED notes that were cancelled directly at the portal.
+
+  /**
+   * Best-effort notification when a cancellation request is resolved by the fiscal.
+   * Reuses the configuration-driven dispatch; a no-op if the config key is absent.
+   */
+  private async dispatchCancellationOutcome(
+    invoiceId: string,
+    outcome: 'CANCELLED' | 'REJECTED',
+    detail: { nfseNumber?: number | null; rejectionMessage?: string | null },
+  ): Promise<void> {
+    try {
+      const invoice = await this.prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          customer: { select: { fantasyName: true } },
+          task: { select: { id: true, name: true } },
+          externalOperation: { select: { id: true } },
+        },
+      });
+      if (!invoice) return;
+
+      const customerName = invoice.customer?.fantasyName || 'N/A';
+      const taskId = invoice.task?.id ?? invoice.taskId ?? null;
+      const withdrawalId = invoice.externalOperation?.id ?? invoice.externalOperationId ?? null;
+      const isWithdrawal = !!withdrawalId;
+      const taskName = isWithdrawal ? 'Operação Externa' : invoice.task?.name || 'N/A';
+      const refLabel = isWithdrawal ? 'da operação externa' : `da tarefa ${taskName}`;
+      const webUrl = isWithdrawal
+        ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : taskId
+          ? `/financeiro/faturamento/detalhes/${taskId}`
+          : undefined;
+      const mobileUrl =
+        !isWithdrawal && taskId ? `/(tabs)/financeiro/faturamento/detalhes/${taskId}` : undefined;
+
+      const numero = detail.nfseNumber ? ` Nº ${detail.nfseNumber}` : '';
+      const isCancelled = outcome === 'CANCELLED';
+      await this.dispatchService.dispatchByConfiguration(
+        isCancelled ? 'nfse.cancelled' : 'nfse.cancel_rejected',
+        'system',
+        {
+          entityType: 'NfseDocument',
+          entityId: taskId ?? withdrawalId ?? invoiceId,
+          action: isCancelled ? 'cancelled' : 'cancel_rejected',
+          data: {
+            customerName,
+            taskName,
+            nfseNumber: detail.nfseNumber ?? 'N/A',
+            invoiceId,
+            taskId: taskId || undefined,
+            externalOperationId: withdrawalId || undefined,
+          },
+          overrides: {
+            title: isCancelled ? 'NFS-e Cancelada' : 'Cancelamento de NFS-e Rejeitado',
+            body: isCancelled
+              ? `A NFS-e${numero} ${refLabel} (${customerName}) foi cancelada na prefeitura.`
+              : `O cancelamento da NFS-e${numero} ${refLabel} (${customerName}) foi REJEITADO pela prefeitura.${
+                  detail.rejectionMessage ? `\nMotivo: ${detail.rejectionMessage}` : ''
+                }\nÉ necessário corrigir e reenviar a solicitação.`,
+            relatedEntityType: 'NFSE',
+            ...(webUrl ? { webUrl } : {}),
+            ...(mobileUrl ? { mobileUrl } : {}),
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error(
+        `Falha ao notificar resultado do cancelamento (${outcome}) para fatura ${invoiceId}:`,
+        error,
+      );
+    }
+  }
+
+  @Cron('*/20 * * * *', {
+    name: 'nfse-cancellation-reconcile',
+    timeZone: 'America/Sao_Paulo',
+  })
+  async reconcilePendingCancellations(): Promise<void> {
+    // Only runs where Elotech OXY is configured (production). No-ops in dev.
+    if (!process.env.ELOTECH_OXY_USERNAME || !process.env.ELOTECH_OXY_PASSWORD) {
+      return;
+    }
+    if (this.isReconcilingCancellations) {
+      this.logger.warn('[NFSE_CANCEL_RECON] Already running, skipping');
+      return;
+    }
+    this.isReconcilingCancellations = true;
+
+    try {
+      const pending = await this.prisma.nfseDocument.findMany({
+        where: {
+          status: NfseStatus.CANCEL_REQUESTED,
+          elotechNfseId: { not: null },
+        },
+        select: { id: true, invoiceId: true, nfseNumber: true },
+      });
+
+      if (pending.length === 0) return;
+      this.logger.log(`[NFSE_CANCEL_RECON] Checking ${pending.length} pending cancellation(s)`);
+
+      let resolved = 0;
+      for (const doc of pending) {
+        try {
+          const result = await this.municipalNfseService.syncCancellationStatus(doc.id);
+
+          // Still pending — nothing changed.
+          if (result.status === NfseStatus.CANCEL_REQUESTED) continue;
+
+          resolved++;
+          if (result.cancelled) {
+            this.logger.log(
+              `[NFSE_CANCEL_RECON] NFS-e #${doc.nfseNumber} cancellation APPROVED by fiscal`,
+            );
+            await this.dispatchCancellationOutcome(doc.invoiceId, 'CANCELLED', {
+              nfseNumber: doc.nfseNumber,
+            });
+          } else if (result.rejected) {
+            this.logger.warn(
+              `[NFSE_CANCEL_RECON] NFS-e #${doc.nfseNumber} cancellation REJECTED: ${result.rejectionMessage}`,
+            );
+            await this.dispatchCancellationOutcome(doc.invoiceId, 'REJECTED', {
+              nfseNumber: doc.nfseNumber,
+              rejectionMessage: result.rejectionMessage,
+            });
+          }
+        } catch (error) {
+          this.logger.error(
+            `[NFSE_CANCEL_RECON] Failed to reconcile NfseDocument ${doc.id}: ${
+              error instanceof Error ? error.message : error
+            }`,
+          );
+        }
+      }
+
+      this.logger.log(
+        `[NFSE_CANCEL_RECON] Done. Checked: ${pending.length}, Resolved: ${resolved}`,
+      );
+    } catch (error) {
+      this.logger.error('[NFSE_CANCEL_RECON] Error during cancellation reconciliation:', error);
+    } finally {
+      this.isReconcilingCancellations = false;
+    }
   }
 }

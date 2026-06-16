@@ -3571,15 +3571,11 @@ export class DashboardPrismaRepository implements DashboardRepository {
   }
 
   async getTasksAwaitingQuoteApproval(sector: string, limit = 50): Promise<HomeDashboardTask[]> {
-    // COMMERCIAL sees BUDGET_APPROVED tasks (waiting for their commercial approval)
-    // FINANCIAL sees COMMERCIAL_APPROVED tasks (waiting for their billing approval)
-    // ADMIN sees both
-    const quoteStatusFilter =
-      sector === 'COMMERCIAL'
-        ? { status: 'BUDGET_APPROVED' as any }
-        : sector === 'FINANCIAL'
-          ? { status: 'COMMERCIAL_APPROVED' as any }
-          : { status: { in: ['BUDGET_APPROVED', 'COMMERCIAL_APPROVED'] } as any };
+    // The separate commercial double-check step was removed: a completed task with
+    // an approved budget (BUDGET_APPROVED) is ready for billing approval. All sectors
+    // (COMMERCIAL/FINANCIAL/ADMIN) see the same single billing-ready queue.
+    void sector;
+    const quoteStatusFilter = { status: 'BUDGET_APPROVED' as any };
 
     const tasks = await this.prisma.task.findMany({
       where: {
@@ -3855,7 +3851,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
     const statusLabels: Record<string, string> = {
       PENDING: 'Pendente',
       BUDGET_APPROVED: 'Aprovado',
-      COMMERCIAL_APPROVED: 'Aprov. Comercial',
       BILLING_APPROVED: 'Fat. Aprovado',
       UPCOMING: 'A Vencer',
       DUE: 'Vencido',
@@ -3868,7 +3863,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
       pendingQuotes: statusMap['PENDING'] || 0,
       approvedQuotes:
         (statusMap['BUDGET_APPROVED'] || 0) +
-        (statusMap['COMMERCIAL_APPROVED'] || 0) +
         (statusMap['BILLING_APPROVED'] || 0),
       settledQuotes: statusMap['SETTLED'] || 0,
       byStatus: {
@@ -4106,7 +4100,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
     const quoteStatusLabels: Record<string, string> = {
       PENDING: 'Pendente',
       BUDGET_APPROVED: 'Orç. Aprovado',
-      COMMERCIAL_APPROVED: 'Ap. Comercial',
       BILLING_APPROVED: 'Ap. Faturamento',
       UPCOMING: 'A Vencer',
       DUE: 'Vencido',

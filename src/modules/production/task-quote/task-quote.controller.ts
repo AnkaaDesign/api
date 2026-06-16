@@ -198,7 +198,9 @@ export class TaskQuoteController {
 
   /**
    * PUT /task-quotes/:id/budget-approve
-   * Customer approved the budget (PENDING → BUDGET_APPROVED)
+   * Commercial approves the budget (PENDING → BUDGET_APPROVED).
+   * This is the single commercial approval gate — there is no separate
+   * second commercial double-check before billing.
    *
    * Access: COMMERCIAL, ADMIN
    */
@@ -209,20 +211,9 @@ export class TaskQuoteController {
   }
 
   /**
-   * PUT /task-quotes/:id/commercial-approve
-   * Commercial approves quote (BUDGET_APPROVED → COMMERCIAL_APPROVED)
-   *
-   * Access: COMMERCIAL, ADMIN
-   */
-  @Put(':id/commercial-approve')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
-  async commercialApprove(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
-    return this.taskQuoteService.commercialApprove(id, userId);
-  }
-
-  /**
    * PUT /task-quotes/:id/internal-approve
-   * Financial/admin final approval → triggers invoices + NFS-e (COMMERCIAL_APPROVED → BILLING_APPROVED)
+   * Financial/admin final approval → triggers invoices + NFS-e (BUDGET_APPROVED → BILLING_APPROVED).
+   * Requires the linked task to be COMPLETED.
    *
    * Access: FINANCIAL, ADMIN
    */
@@ -234,7 +225,7 @@ export class TaskQuoteController {
 
   /**
    * PUT /task-quotes/:id/revert-billing
-   * Revert billing approval back to COMMERCIAL_APPROVED — requires all bank slips and NFS-e cancelled.
+   * Revert billing approval back to BUDGET_APPROVED — requires all bank slips and NFS-e cancelled.
    *
    * Access: FINANCIAL, ADMIN
    */

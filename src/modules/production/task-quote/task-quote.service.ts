@@ -928,7 +928,6 @@ export class TaskQuoteService {
             // so financial can re-verify before regenerating invoices/boletos/NFS-e
             if (blockingInvoices.length > 0) {
               const billingStatuses = [
-                TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
                 TASK_QUOTE_STATUS.BILLING_APPROVED,
                 TASK_QUOTE_STATUS.UPCOMING,
                 TASK_QUOTE_STATUS.DUE,
@@ -1455,14 +1454,11 @@ export class TaskQuoteService {
         await syncEmNegociacaoForTask(this.prisma, task.id, userId);
       }
 
-      // Generic status route (PUT /:id/status) can advance a quote to an approval
-      // state directly (bypassing budgetApprove/commercialApprove). When that happens,
-      // notify the NEXT approver that an approval is pending. The dedicated approve
-      // methods emit their own *_approved keys; this covers the generic path.
-      if (
-        status === TASK_QUOTE_STATUS.BUDGET_APPROVED ||
-        status === TASK_QUOTE_STATUS.COMMERCIAL_APPROVED
-      ) {
+      // Generic status route (PUT /:id/status) can advance a quote to the approval
+      // state directly (bypassing budgetApprove). When that happens, notify the NEXT
+      // approver (financial) that billing approval is pending. The dedicated approve
+      // method emits its own *_approved key; this covers the generic path.
+      if (status === TASK_QUOTE_STATUS.BUDGET_APPROVED) {
         await this.dispatchApprovalPendingNotification(id, status, userId);
       } else if (status === TASK_QUOTE_STATUS.SETTLED) {
         // Manual SETTLED via the generic route — task_quote.settled + bank_slip.paid
@@ -1485,7 +1481,7 @@ export class TaskQuoteService {
    * Used when payment was received via PIX, cash, or other non-boleto means.
    */
   private async settleManually(quoteId: string, userId: string): Promise<void> {
-    // If this quote has no installments yet (e.g. COMMERCIAL_APPROVED → SETTLED, skipping
+    // If this quote has no installments yet (e.g. BUDGET_APPROVED → SETTLED, skipping
     // BILLING_APPROVED), generate invoices+installments now so the settlement has a financial record.
     const existingInstallmentCount = await this.prisma.installment.count({
       where: { customerConfig: { quoteId } },
@@ -1773,10 +1769,9 @@ export class TaskQuoteService {
     try {
       const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
 
-      const nextStep =
-        newStatus === TASK_QUOTE_STATUS.BUDGET_APPROVED
-          ? 'aprovação comercial'
-          : 'aprovação de faturamento';
+      // After the budget is approved the only remaining approval is billing
+      // (the separate commercial double-check step was removed).
+      const nextStep = 'aprovação de faturamento';
 
       await this.dispatchService.dispatchByConfiguration(
         'task_quote.approval_pending',
@@ -1840,12 +1835,17 @@ export class TaskQuoteService {
   }
 
   /**
-   * Customer approves the budget
+   * Commercial approves the budget.
+   *
+   * This is the single commercial approval gate. Once the budget is approved
+   * (blue "Orçamento Aprovado" badge) the commercial sector is done — there is
+   * no separate second commercial double-check. As soon as the linked task is
+   * COMPLETED, financial can approve billing directly from this state.
    */
   async budgetApprove(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
     const result = await this.updateStatus(id, TASK_QUOTE_STATUS.BUDGET_APPROVED, userId);
 
-    // Budget approved by customer -> notify the commercial team.
+    // Budget approved -> notify financial that, once the task is completed, billing can be approved.
     try {
       const { label: quoteLabel, taskId } = await this.buildQuoteLabel(id);
       await this.dispatchService.dispatchByConfiguration('task_quote.budget_approved', userId, {
@@ -1855,7 +1855,7 @@ export class TaskQuoteService {
         data: { quoteLabel },
         overrides: {
           title: 'Orçamento Aprovado',
-          body: `O orçamento ${quoteLabel} foi aprovado pelo cliente. Prossiga com a aprovação comercial.`,
+          body: `O orçamento ${quoteLabel} foi aprovado. Assim que a tarefa for concluída, o faturamento poderá ser aprovado.`,
           relatedEntityType: 'TASK_QUOTE',
           ...(taskId
             ? {
@@ -1867,39 +1867,6 @@ export class TaskQuoteService {
       });
     } catch (error) {
       this.logger.error('Falha ao notificar aprovação de orçamento (task_quote.budget_approved):', error);
-    }
-
-    return result;
-  }
-
-  /**
-   * Commercial approves the quote
-   */
-  async commercialApprove(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
-    const result = await this.updateStatus(id, TASK_QUOTE_STATUS.COMMERCIAL_APPROVED, userId);
-
-    // Commercial approval done -> notify the financial team to proceed with billing.
-    try {
-      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(id);
-      await this.dispatchService.dispatchByConfiguration('task_quote.commercial_approved', userId, {
-        entityType: 'TaskQuote',
-        entityId: taskId ?? id,
-        action: 'commercial_approved',
-        data: { quoteLabel },
-        overrides: {
-          title: 'Aprovação Comercial Concluída',
-          body: `O orçamento ${quoteLabel} recebeu aprovação comercial. O faturamento pode ser aprovado.`,
-          relatedEntityType: 'TASK_QUOTE',
-          ...(taskId
-            ? {
-                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
-                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
-              }
-            : {}),
-        },
-      });
-    } catch (error) {
-      this.logger.error('Falha ao notificar aprovação comercial (task_quote.commercial_approved):', error);
     }
 
     return result;
@@ -1977,9 +1944,11 @@ export class TaskQuoteService {
     const approvalDate = new Date();
 
     // 2. Atomically claim the status transition (prevents concurrent approvals)
-    // Only one request can win: the one that finds status=COMMERCIAL_APPROVED and sets it to BILLING_APPROVED
+    // Only one request can win: the one that finds status=BUDGET_APPROVED and sets it to BILLING_APPROVED.
+    // (The separate COMMERCIAL_APPROVED double-check step was removed — billing is approved directly
+    //  from the budget-approved state once the task is completed.)
     const claimed = await this.prisma.taskQuote.updateMany({
-      where: { id, status: TASK_QUOTE_STATUS.COMMERCIAL_APPROVED },
+      where: { id, status: TASK_QUOTE_STATUS.BUDGET_APPROVED },
       data: {
         status: TASK_QUOTE_STATUS.BILLING_APPROVED,
         statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.BILLING_APPROVED),
@@ -1990,7 +1959,7 @@ export class TaskQuoteService {
     });
     if (claimed.count === 0) {
       throw new BadRequestException(
-        'O orçamento não está mais no status Aprovado pelo Comercial. Pode ter sido aprovado por outra requisição simultânea.',
+        'O orçamento não está mais no status Orçamento Aprovado. Pode ter sido aprovado por outra requisição simultânea.',
       );
     }
 
@@ -1999,7 +1968,7 @@ export class TaskQuoteService {
     );
 
     // Trigger invoice generation and auto-transition to UPCOMING
-    // If anything fails, revert status back to COMMERCIAL_APPROVED so the user can retry
+    // If anything fails, revert status back to BUDGET_APPROVED so the user can retry
     try {
       const task = await this.prisma.task.findFirst({
         where: { quoteId: id },
@@ -2100,25 +2069,25 @@ export class TaskQuoteService {
         this.logger.error(`[INTERNAL_APPROVE] Stack trace: ${error.stack}`);
       }
 
-      // Revert status back to COMMERCIAL_APPROVED so the quote is not stuck at BILLING_APPROVED
-      // Uses direct prisma update to bypass status transition validation (BILLING_APPROVED → COMMERCIAL_APPROVED is not normally allowed)
+      // Revert status back to BUDGET_APPROVED so the quote is not stuck at BILLING_APPROVED
+      // Uses direct prisma update to bypass status transition validation (BILLING_APPROVED → BUDGET_APPROVED is not normally allowed)
       try {
         this.logger.warn(
-          `[INTERNAL_APPROVE] Rolling back quote ${id} status from BILLING_APPROVED to COMMERCIAL_APPROVED...`,
+          `[INTERNAL_APPROVE] Rolling back quote ${id} status from BILLING_APPROVED to BUDGET_APPROVED...`,
         );
         await this.prisma.taskQuote.update({
           where: { id },
           data: {
-            status: TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
-            statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.COMMERCIAL_APPROVED),
+            status: TASK_QUOTE_STATUS.BUDGET_APPROVED,
+            statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.BUDGET_APPROVED),
           },
         });
         this.logger.warn(
-          `[INTERNAL_APPROVE] Rollback successful — quote ${id} reverted to COMMERCIAL_APPROVED`,
+          `[INTERNAL_APPROVE] Rollback successful — quote ${id} reverted to BUDGET_APPROVED`,
         );
       } catch (rollbackError) {
         this.logger.error(
-          `[INTERNAL_APPROVE] CRITICAL: Failed to rollback quote ${id} status to COMMERCIAL_APPROVED: ${rollbackError}`,
+          `[INTERNAL_APPROVE] CRITICAL: Failed to rollback quote ${id} status to BUDGET_APPROVED: ${rollbackError}`,
         );
       }
 
@@ -2131,7 +2100,7 @@ export class TaskQuoteService {
         throw error;
       }
       throw new InternalServerErrorException(
-        `Falha ao gerar faturas para o orçamento. O status foi revertido para Aprovado pelo Comercial. Erro: ${error instanceof Error ? error.message : String(error)}`,
+        `Falha ao gerar faturas para o orçamento. O status foi revertido para Orçamento Aprovado. Erro: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
@@ -2171,7 +2140,7 @@ export class TaskQuoteService {
   /**
    * Revert billing approval — undo internalApprove when all bank slips and NFS-e are cancelled.
    * Deletes the invoices (cascading installments, bank slips, NFS-e docs) and reverts the
-   * quote status back to COMMERCIAL_APPROVED so the operator can re-approve after corrections.
+   * quote status back to BUDGET_APPROVED so the operator can re-approve after corrections.
    */
   async revertBillingApproval(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
     this.logger.log(`[REVERT_BILLING] Starting revert billing for quote ${id} by user ${userId}`);
@@ -2211,17 +2180,22 @@ export class TaskQuoteService {
       select: { id: true, nossoNumero: true, status: true },
     });
 
-    // Collect AUTHORIZED NFS-e to cancel at Elotech (best-effort, before deleting records)
+    // Collect NFS-e that are still ACTIVE at the prefeitura to cancel at Elotech before
+    // deleting records. AUTHORIZED and CANCEL_REJECTED notes are both live (a rejected
+    // cancellation means the note was NOT cancelled).
     const authorizedNfses = await this.prisma.nfseDocument.findMany({
       where: {
         invoice: { taskId: task.id },
-        status: 'AUTHORIZED',
+        status: { in: ['AUTHORIZED', 'CANCEL_REJECTED'] },
         elotechNfseId: { not: null },
       },
       select: { id: true, nfseNumber: true, elotechNfseId: true },
     });
 
-    // Block if any NFS-e is still PROCESSING or PENDING — they may become AUTHORIZED soon
+    // Block ONLY if an emission is genuinely in flight (PROCESSING/PENDING) — reverting mid-
+    // emission could race a note into existence after we delete its record. A CANCEL_REQUESTED
+    // note does NOT block: it survives the revert linked to the task (invoiceId→null) and the
+    // reconciler keeps tracking it, so there is no deadlock.
     const pendingNfses = await this.prisma.nfseDocument.findMany({
       where: {
         invoice: { taskId: task.id },
@@ -2231,8 +2205,8 @@ export class TaskQuoteService {
     });
     if (pendingNfses.length > 0) {
       throw new BadRequestException(
-        `Existem NFS-e(s) em processamento (${pendingNfses.map(n => n.status).join(', ')}). ` +
-          `Aguarde a conclusão ou cancele-as antes de reverter o faturamento.`,
+        `Existem NFS-e(s) em emissão (${pendingNfses.map(n => n.status).join(', ')}). ` +
+          `Aguarde a conclusão da emissão antes de reverter o faturamento.`,
       );
     }
 
@@ -2248,6 +2222,46 @@ export class TaskQuoteService {
       throw new BadRequestException(
         `Existem ${paidInstallments.length} parcela(s) paga(s). Não é possível reverter um faturamento com pagamentos registrados.`,
       );
+    }
+
+    // Attempt to cancel active NFS-e at Elotech (best-effort). We do NOT block the revert when a
+    // cancellation can't complete: the note survives the revert linked to the task (invoiceId is
+    // set null by FK SetNull, taskId is kept), so it is never lost or orphaned. This deliberately
+    // avoids the deadlock where the prefeitura rejects a duplicate-cancellation demanding the
+    // SUBSTITUTE NF number — which only exists after re-billing, which needs the revert to happen
+    // first. The flow becomes: revert → re-bill (new NF) → cancel the old note citing the new one
+    // as substituta. Any note left active is logged and stays visible/cancellable on the task.
+    if (authorizedNfses.length > 0) {
+      const nfseOutcomes = await Promise.allSettled(
+        authorizedNfses.map(n =>
+          this.elotechNfseService.cancelNfse(
+            n.id,
+            'Cancelamento automático por reversão de faturamento.',
+            1,
+          ),
+        ),
+      );
+      nfseOutcomes.forEach((outcome, i) => {
+        const nfse = authorizedNfses[i];
+        if (outcome.status === 'fulfilled' && outcome.value?.cancelled) {
+          this.logger.log(`[REVERT_BILLING] Cancelled NFS-e #${nfse.nfseNumber} at Elotech`);
+        } else {
+          const detail =
+            outcome.status === 'rejected'
+              ? outcome.reason instanceof Error
+                ? outcome.reason.message
+                : String(outcome.reason)
+              : outcome.value?.rejected
+                ? `rejeitada: ${outcome.value.rejectionMessage ?? 'sem detalhes'}`
+                : outcome.value?.pending
+                  ? 'aguardando aprovação do fiscal'
+                  : 'não confirmada';
+          this.logger.warn(
+            `[REVERT_BILLING] NFS-e #${nfse.nfseNumber} segue ATIVA (${detail}). ` +
+              `Permanece vinculada à tarefa; cancele-a citando a nova NF como substituta após refaturar.`,
+          );
+        }
+      });
     }
 
     // Best-effort baixa at Sicredi for all active/overdue bank slips
@@ -2270,48 +2284,26 @@ export class TaskQuoteService {
       });
     }
 
-    // Best-effort cancel at Elotech for all AUTHORIZED NFS-e
-    if (authorizedNfses.length > 0) {
-      const nfseOutcomes = await Promise.allSettled(
-        authorizedNfses.map(n =>
-          this.elotechNfseService.cancelNfse(
-            n.id,
-            'Cancelamento automático por reversão de faturamento.',
-            1,
-          ),
-        ),
-      );
-      nfseOutcomes.forEach((outcome, i) => {
-        const nfse = authorizedNfses[i];
-        if (outcome.status === 'rejected') {
-          this.logger.warn(
-            `[REVERT_BILLING] Failed to cancel NFS-e #${nfse.nfseNumber} (elotechId=${nfse.elotechNfseId}) at Elotech: ${outcome.reason}. Must be cancelled manually at Elotech OXY portal.`,
-          );
-        } else {
-          this.logger.log(
-            `[REVERT_BILLING] Cancelled NFS-e #${nfse.nfseNumber} at Elotech`,
-          );
-        }
-      });
-    }
-
     await this.prisma.$transaction(async tx => {
       // Delete installments (cascades bank slips via FK)
       await tx.installment.deleteMany({ where: { invoice: { taskId: task.id } } });
-      // Delete invoices (cascades NfseDocument via FK)
+      // Delete invoices. NfseDocuments are NOT cascaded — their invoiceId is set null (FK
+      // SetNull) and they remain linked to the task as permanent NFS-e history. Only notes
+      // confirmed CANCELLED at the prefeitura reach this point (the guard above blocks revert
+      // while any note is still active), so no active fiscal document is ever stranded.
       await tx.invoice.deleteMany({ where: { taskId: task.id } });
       // Revert quote status
       await tx.taskQuote.update({
         where: { id },
         data: {
-          status: TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
-          statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.COMMERCIAL_APPROVED),
+          status: TASK_QUOTE_STATUS.BUDGET_APPROVED,
+          statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.BUDGET_APPROVED),
         },
       });
     });
 
     this.logger.log(
-      `[REVERT_BILLING] Quote ${id} reverted to COMMERCIAL_APPROVED. Invoices/installments/bank slips deleted.`,
+      `[REVERT_BILLING] Quote ${id} reverted to BUDGET_APPROVED. Invoices/installments/bank slips deleted.`,
     );
 
     // Direct prisma write above bypasses updateStatus — reconcile explicitly.
@@ -2325,7 +2317,7 @@ export class TaskQuoteService {
       action: CHANGE_ACTION.ROLLBACK,
       field: 'status',
       oldValue: existing.status,
-      newValue: TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
+      newValue: TASK_QUOTE_STATUS.BUDGET_APPROVED,
       reason: 'Faturamento revertido pelo operador',
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
       triggeredById: userId,
@@ -2336,7 +2328,7 @@ export class TaskQuoteService {
     return {
       success: true,
       data: refreshed as any,
-      message: 'Faturamento revertido com sucesso. O orçamento retornou para Aprovado pelo Comercial.',
+      message: 'Faturamento revertido com sucesso. O orçamento retornou para Orçamento Aprovado.',
     };
   }
 
@@ -2627,7 +2619,7 @@ export class TaskQuoteService {
       // unguessable quote UUID is the capability), so the strongest available
       // server-side check is a STATUS gate — signatures are only accepted while
       // the quote is actually awaiting the customer's approval (PENDING) or
-      // re-signing right after it (BUDGET_APPROVED). From COMMERCIAL_APPROVED
+      // re-signing right after it (BUDGET_APPROVED). From BILLING_APPROVED
       // onward the deal is internally locked and an anonymous signature upload
       // must not alter it.
       const signatureAllowedStatuses: TASK_QUOTE_STATUS[] = [
@@ -2755,18 +2747,21 @@ export class TaskQuoteService {
     //
     // Mirrors web/src/utils/permissions/quote-permissions.ts VALID_TRANSITIONS
     // exactly — drift here breaks the UI (advertised transitions returning 400).
-    // Additional: COMMERCIAL_APPROVED → PENDING is allowed so the cancel/reject
+    // Additional: BUDGET_APPROVED → PENDING is allowed so the cancel/reject
     // button works for the most common cancellation point (customer cancels
     // before billing); from BILLING_APPROVED onward, operators must use
     // /revert-billing first (which gates on bank-slip + NFS-e cleanup).
+    //
+    // The separate COMMERCIAL_APPROVED double-check step was removed: the budget
+    // is approved once (blue "Orçamento Aprovado"), and once the task is COMPLETED
+    // billing is approved directly from BUDGET_APPROVED → BILLING_APPROVED.
+    // BUDGET_APPROVED → SETTLED covers "direct" quotes (orçamento direto) paid
+    // upfront with no billing/installment phase — the FINANCIAL sector settles
+    // them without generating invoices/boletos. settleManually has no installments
+    // to clean up in that case, so it's safe.
     const ALLOWED: Record<TASK_QUOTE_STATUS, TASK_QUOTE_STATUS[]> = {
       [TASK_QUOTE_STATUS.PENDING]:             [TASK_QUOTE_STATUS.BUDGET_APPROVED],
-      [TASK_QUOTE_STATUS.BUDGET_APPROVED]:     [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.COMMERCIAL_APPROVED],
-      // COMMERCIAL_APPROVED → SETTLED covers "direct" quotes (orçamento direto)
-      // paid upfront with no billing/installment phase — the FINANCIAL sector
-      // settles them without generating invoices/boletos via BILLING_APPROVED.
-      // settleManually has no installments to clean up in this case, so it's safe.
-      [TASK_QUOTE_STATUS.COMMERCIAL_APPROVED]: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.BILLING_APPROVED, TASK_QUOTE_STATUS.SETTLED],
+      [TASK_QUOTE_STATUS.BUDGET_APPROVED]:     [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.BILLING_APPROVED, TASK_QUOTE_STATUS.SETTLED],
       // BILLING_APPROVED → SETTLED covers prepayment edge cases (customer pays
       // before installments are tracked) and lets operators settle quotes that
       // got stuck at BILLING_APPROVED when internalApprove's auto-transition to
@@ -2804,8 +2799,7 @@ export class TaskQuoteService {
     const transition = `${currentStatus}->${newStatus}`;
 
     switch (transition) {
-      case `${TASK_QUOTE_STATUS.PENDING}->${TASK_QUOTE_STATUS.BUDGET_APPROVED}`:
-      case `${TASK_QUOTE_STATUS.BUDGET_APPROVED}->${TASK_QUOTE_STATUS.COMMERCIAL_APPROVED}`: {
+      case `${TASK_QUOTE_STATUS.PENDING}->${TASK_QUOTE_STATUS.BUDGET_APPROVED}`: {
         // Must have at least one customerConfig with total > 0
         const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
           where: { quoteId },
@@ -2827,7 +2821,7 @@ export class TaskQuoteService {
         break;
       }
 
-      case `${TASK_QUOTE_STATUS.COMMERCIAL_APPROVED}->${TASK_QUOTE_STATUS.BILLING_APPROVED}`: {
+      case `${TASK_QUOTE_STATUS.BUDGET_APPROVED}->${TASK_QUOTE_STATUS.BILLING_APPROVED}`: {
         // Each customerConfig must have valid paymentCondition or paymentConfig; task must be finished
         const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
           where: { quoteId },
@@ -3025,8 +3019,7 @@ export class TaskQuoteService {
   private getStatusLabel(status: TASK_QUOTE_STATUS): string {
     const labels: Record<string, string> = {
       [TASK_QUOTE_STATUS.PENDING]: 'salvo como pendente',
-      [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 'orçamento aprovado pelo cliente',
-      [TASK_QUOTE_STATUS.COMMERCIAL_APPROVED]: 'aprovado pelo comercial',
+      [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 'orçamento aprovado',
       [TASK_QUOTE_STATUS.BILLING_APPROVED]: 'faturamento aprovado',
       [TASK_QUOTE_STATUS.UPCOMING]: 'com parcelas a vencer',
       [TASK_QUOTE_STATUS.DUE]: 'com parcelas vencidas',

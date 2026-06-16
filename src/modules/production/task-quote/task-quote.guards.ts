@@ -31,7 +31,6 @@ export const QUOTE_STATUS_LOCKED: TASK_QUOTE_STATUS[] = [
  */
 export const QUOTE_VALUE_REVERTABLE_STATUSES: TASK_QUOTE_STATUS[] = [
   TASK_QUOTE_STATUS.BUDGET_APPROVED,
-  TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
 ];
 
 /** Fields that remain editable after the quote is locked (non-financial metadata). */
@@ -52,7 +51,6 @@ export const QUOTE_SAFE_AFTER_BILLING_FIELDS = new Set<string>([
  * (task-quote.controller.ts):
  * - BILLING_APPROVED      → never via generic update; only internalApprove (ADMIN/FINANCIAL).
  * - BUDGET_APPROVED       → ADMIN, COMMERCIAL  (PUT /:id/budget-approve)
- * - COMMERCIAL_APPROVED   → ADMIN, COMMERCIAL  (PUT /:id/commercial-approve)
  * - all other statuses    → ADMIN, FINANCIAL, COMMERCIAL (PUT /:id/status)
  *
  * Unknown/missing actor privilege = deny (least privilege).
@@ -69,7 +67,6 @@ export function validateQuoteStatusChangeRole(
 
   const commercialStages: TASK_QUOTE_STATUS[] = [
     TASK_QUOTE_STATUS.BUDGET_APPROVED,
-    TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
   ];
 
   const allowed: string[] = commercialStages.includes(targetStatus)

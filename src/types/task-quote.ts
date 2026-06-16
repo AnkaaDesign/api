@@ -22,7 +22,6 @@ import type { File } from './file';
 export type TASK_QUOTE_STATUS =
   | 'PENDING'
   | 'BUDGET_APPROVED'
-  | 'COMMERCIAL_APPROVED'
   | 'BILLING_APPROVED'
   | 'UPCOMING'
   | 'DUE'

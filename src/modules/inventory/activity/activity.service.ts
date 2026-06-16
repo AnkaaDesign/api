@@ -204,13 +204,17 @@ export class ActivityService {
       return { orderId: null, orderItemId: null };
     }
 
-    // Find orders that have this item and are not fully received
+    // Find orders that have this item and are not fully received.
+    // A receipt must always be allocated to an order that has already been
+    // placed/fulfilled — never a CREATED draft (e.g. a freshly auto-generated
+    // reposição). Otherwise the inbound silently lands on the wrong order and
+    // skips the FULFILLED step entirely.
     const orderItems = await tx.orderItem.findMany({
       where: {
         itemId,
         order: {
           status: {
-            notIn: [ORDER_STATUS.RECEIVED, ORDER_STATUS.CANCELLED],
+            notIn: [ORDER_STATUS.CREATED, ORDER_STATUS.RECEIVED, ORDER_STATUS.CANCELLED],
           },
         },
       },

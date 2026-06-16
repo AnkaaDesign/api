@@ -20,7 +20,7 @@ import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.servi
  *
  * Features:
  * - CRUD operations for task quotes
- * - Status management (PENDING → BUDGET_APPROVED → COMMERCIAL_APPROVED → BILLING_APPROVED → UPCOMING → DUE → PARTIAL → SETTLED)
+ * - Status management (PENDING → BUDGET_APPROVED → BILLING_APPROVED → UPCOMING → DUE → PARTIAL → SETTLED)
  * - Approval workflow with automatic invoice generation on BILLING_APPROVED
  * - Automated status cascade from payment events
  * - Change logging

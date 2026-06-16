@@ -510,7 +510,6 @@ export class TaskQuotePrismaRepository
           in: [
             TASK_QUOTE_STATUS.PENDING,
             TASK_QUOTE_STATUS.BUDGET_APPROVED,
-            TASK_QUOTE_STATUS.COMMERCIAL_APPROVED,
             TASK_QUOTE_STATUS.BILLING_APPROVED,
           ],
         },

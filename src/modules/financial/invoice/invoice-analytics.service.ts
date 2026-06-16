@@ -608,9 +608,8 @@ export class InvoiceAnalyticsService {
   // of current status — so SETTLED quotes count toward every prior stage):
   //
   //   1. PENDING (quote created)
-  //   2. BUDGET_APPROVED (customer accepted price)
-  //   3. COMMERCIAL_APPROVED (commercial approved)
-  //   4. BILLING_APPROVED+ (billing approved — invoices materialized; covers
+  //   2. BUDGET_APPROVED (commercial approved the budget)
+  //   3. BILLING_APPROVED+ (billing approved — invoices materialized; covers
   //      everything past internal approval: UPCOMING/DUE/PARTIAL/SETTLED)
   //
   // Quotes never abandoned still progress; cancelled quotes are excluded
@@ -627,12 +626,11 @@ export class InvoiceAnalyticsService {
     const STATUS_ORDER: Record<string, number> = {
       [TASK_QUOTE_STATUS.PENDING]: 1,
       [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 2,
-      [TASK_QUOTE_STATUS.COMMERCIAL_APPROVED]: 3,
-      [TASK_QUOTE_STATUS.BILLING_APPROVED]: 4,
-      [TASK_QUOTE_STATUS.UPCOMING]: 5,
-      [TASK_QUOTE_STATUS.DUE]: 6,
-      [TASK_QUOTE_STATUS.PARTIAL]: 7,
-      [TASK_QUOTE_STATUS.SETTLED]: 8,
+      [TASK_QUOTE_STATUS.BILLING_APPROVED]: 3,
+      [TASK_QUOTE_STATUS.UPCOMING]: 4,
+      [TASK_QUOTE_STATUS.DUE]: 5,
+      [TASK_QUOTE_STATUS.PARTIAL]: 6,
+      [TASK_QUOTE_STATUS.SETTLED]: 7,
     };
 
     // Build where clause for quotes (joining to Task for sector/customer filters)
@@ -673,8 +671,7 @@ export class InvoiceAnalyticsService {
     const stageDefs: Array<{ stage: string; orderThreshold: number }> = [
       { stage: TASK_QUOTE_STATUS.PENDING, orderThreshold: 1 },
       { stage: TASK_QUOTE_STATUS.BUDGET_APPROVED, orderThreshold: 2 },
-      { stage: TASK_QUOTE_STATUS.COMMERCIAL_APPROVED, orderThreshold: 3 },
-      { stage: TASK_QUOTE_STATUS.BILLING_APPROVED, orderThreshold: 4 },
+      { stage: TASK_QUOTE_STATUS.BILLING_APPROVED, orderThreshold: 3 },
     ];
 
     const totalEntries = quotes.length;
@@ -703,7 +700,7 @@ export class InvoiceAnalyticsService {
       // avg days from creation to reaching this stage (approximate: use createdAt vs now for not-yet-billing, billingApprovedAt for billing-approved)
       const ages = reached
         .map(q => {
-          if (def.orderThreshold >= 4 && q.billingApprovedAt) {
+          if (def.orderThreshold >= 3 && q.billingApprovedAt) {
             return diffDays(q.createdAt, q.billingApprovedAt);
           }
           // for upstream stages we don't have stage-transition timestamps,

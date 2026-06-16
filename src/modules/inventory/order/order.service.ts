@@ -2474,8 +2474,13 @@ export class OrderService {
 
       // Determine new status based on received quantities
       if (fullyReceivedItems === totalItems) {
-        // All items fully received
-        if (currentOrder.status !== ORDER_STATUS.RECEIVED) {
+        // All items fully received — but only auto-complete an order that has
+        // actually been placed/fulfilled. A CREATED draft must be fulfilled
+        // before it can be received (receiving never targets a draft).
+        if (
+          currentOrder.status !== ORDER_STATUS.RECEIVED &&
+          currentOrder.status !== ORDER_STATUS.CREATED
+        ) {
           newStatus = ORDER_STATUS.RECEIVED;
         }
       } else if (fullyReceivedItems > 0 || partiallyReceivedItems > 0) {
@@ -2484,10 +2489,10 @@ export class OrderService {
           currentOrder.status !== ORDER_STATUS.PARTIALLY_RECEIVED &&
           currentOrder.status !== ORDER_STATUS.RECEIVED
         ) {
-          // Make sure we're coming from a fulfilled state or lower
+          // Make sure we're coming from an already-fulfilled state. A CREATED
+          // draft is intentionally excluded so receipts can't land on a draft.
           if (
             [
-              ORDER_STATUS.CREATED,
               ORDER_STATUS.PARTIALLY_FULFILLED,
               ORDER_STATUS.FULFILLED,
               ORDER_STATUS.OVERDUE,
