@@ -603,7 +603,7 @@ function financialLayout(): WidgetItem[] {
         filters: {
           ...EMPTY_TASK_FILTERS,
           status: ['COMPLETED'],
-          quoteStatuses: ['COMMERCIAL_APPROVED'],
+          quoteStatuses: ['BUDGET_APPROVED'],
         },
         presets: [],
         behavior: { refetchIntervalMs: 0, viewAllRouteOverride: '' },

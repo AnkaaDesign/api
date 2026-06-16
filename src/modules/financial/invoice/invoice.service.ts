@@ -242,7 +242,7 @@ export class InvoiceService {
       });
     }
 
-    // After cancelling all invoice artifacts, revert the linked TaskQuote to COMMERCIAL_APPROVED
+    // After cancelling all invoice artifacts, revert the linked TaskQuote to BUDGET_APPROVED
     // if every invoice for that quote is now cancelled. This lets the user re-approve billing
     // (e.g., after correcting customer data) without the quote getting stuck in a post-billing
     // status with no live financial documents.
@@ -265,12 +265,12 @@ export class InvoiceService {
           await this.prisma.taskQuote.update({
             where: { id: quote.id },
             data: {
-              status: TASK_QUOTE_STATUS.COMMERCIAL_APPROVED as any,
-              statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.COMMERCIAL_APPROVED],
+              status: TASK_QUOTE_STATUS.BUDGET_APPROVED as any,
+              statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.BUDGET_APPROVED],
             },
           });
           this.logger.log(
-            `Reverted TaskQuote ${quote.id} to COMMERCIAL_APPROVED — all invoices cancelled`,
+            `Reverted TaskQuote ${quote.id} to BUDGET_APPROVED — all invoices cancelled`,
           );
 
           // Reconcile Em Negociação. Status stays ≥ BUDGET_APPROVED so this is

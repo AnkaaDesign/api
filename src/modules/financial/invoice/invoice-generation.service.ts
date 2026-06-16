@@ -585,10 +585,13 @@ export class InvoiceGenerationService {
                 },
               },
             },
+            // The boleto's seuNumero AND informativo must reference the SAME, CURRENT NF.
+            // Pick the LAST not-yet-cancelled emitted note (highest número): when a note was
+            // cancelled and re-emitted, the latest valid one wins — never a cancelled attempt.
             nfseDocuments: {
-              where: { status: 'AUTHORIZED' },
+              where: { nfseNumber: { not: null }, status: { not: 'CANCELLED' } },
               select: { elotechNfseId: true, nfseNumber: true },
-              orderBy: { createdAt: 'desc' },
+              orderBy: { nfseNumber: 'desc' },
               take: 1,
             },
             customerConfig: {
@@ -660,7 +663,7 @@ export class InvoiceGenerationService {
       const cleanCpf = (customer.cpf || '').replace(/\D/g, '');
       const customerDocument = cleanCnpj.length === 14 ? cleanCnpj : cleanCpf;
       const tipoPessoa = cleanCnpj.length === 14 ? 'PESSOA_JURIDICA' : 'PESSOA_FISICA';
-      const customerName = customer.fantasyName || customer.corporateName || '';
+      const customerName = customer.corporateName || customer.fantasyName || '';
 
       if ((customerDocument.length !== 14 && customerDocument.length !== 11) || !customerName) {
         this.logger.error(

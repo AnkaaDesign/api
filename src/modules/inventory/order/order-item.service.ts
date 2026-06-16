@@ -294,6 +294,24 @@ export class OrderItemService {
             select: { status: true },
           });
 
+          // Guard: a receipt must always target an order that has already been
+          // placed/fulfilled — never a CREATED draft. Receiving into a CREATED
+          // order (e.g. a freshly auto-generated reposição) skips the FULFILLED
+          // step and silently consumes the wrong order. The order has to be
+          // marked as fulfilled before any of its items can be received.
+          // Only blocks increases, so downward corrections/un-receiving still work.
+          if (
+            data.receivedQuantity !== undefined &&
+            data.receivedQuantity !== null &&
+            data.receivedQuantity > (existingOrderItem.receivedQuantity ?? 0) &&
+            orderBeforeUpdate?.status === ORDER_STATUS.CREATED
+          ) {
+            throw new BadRequestException(
+              'Não é possível receber itens de um pedido com status "Criado". ' +
+                'O pedido precisa ser marcado como cumprido (fulfilled) antes do recebimento.',
+            );
+          }
+
           // Atualizar o item de pedido
           const updatedOrderItem = await this.orderItemRepository.updateWithTransaction(
             tx,

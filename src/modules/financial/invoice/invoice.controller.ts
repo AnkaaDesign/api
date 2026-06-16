@@ -365,13 +365,20 @@ export class InvoiceController {
         ),
       );
       nfseOutcomes.forEach((outcome, idx) => {
+        const numero = authorizedNfseDocs[idx].nfseNumber;
         if (outcome.status === 'rejected') {
           this.logger.warn(
-            `[CANCEL_INVOICE] Failed to cancel NFS-e at Elotech (nfseNumber=${authorizedNfseDocs[idx].nfseNumber}): ${outcome.reason}`,
+            `[CANCEL_INVOICE] Failed to request NFS-e cancellation at Elotech (nfseNumber=${numero}): ${outcome.reason}`,
           );
-        } else {
-          this.logger.log(
-            `[CANCEL_INVOICE] Cancelled NFS-e at Elotech (nfseNumber=${authorizedNfseDocs[idx].nfseNumber})`,
+        } else if (outcome.value?.cancelled) {
+          this.logger.log(`[CANCEL_INVOICE] Cancelled NFS-e at Elotech (nfseNumber=${numero})`);
+        } else if (outcome.value?.pending) {
+          this.logger.warn(
+            `[CANCEL_INVOICE] NFS-e ${numero} cancellation PENDING fiscal approval — still active at prefeitura. Reconciler will track it.`,
+          );
+        } else if (outcome.value?.rejected) {
+          this.logger.warn(
+            `[CANCEL_INVOICE] NFS-e ${numero} cancellation REJECTED: ${outcome.value.rejectionMessage}. Needs correction/resubmit.`,
           );
         }
       });
@@ -1535,7 +1542,14 @@ export class InvoiceController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async cancelNfse(
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
-    @Body() body: { reason?: string; reasonCode?: number; nfseDocumentId?: string; force?: boolean },
+    @Body()
+    body: {
+      reason?: string;
+      reasonCode?: number;
+      nfseDocumentId?: string;
+      /** Number of the NF that replaces this one — required by the prefeitura for duplicity. */
+      substituteNfseNumber?: number;
+    },
   ) {
     // Find the specific NfseDocument to cancel
     let nfseDoc;
@@ -1544,9 +1558,9 @@ export class InvoiceController {
         where: { id: body.nfseDocumentId },
       });
     } else {
-      // Find the latest AUTHORIZED nfseDocument for this invoice
+      // Find the latest AUTHORIZED (or previously-rejected) nfseDocument for this invoice
       nfseDoc = await this.prisma.nfseDocument.findFirst({
-        where: { invoiceId, status: 'AUTHORIZED' },
+        where: { invoiceId, status: { in: ['AUTHORIZED', 'CANCEL_REJECTED'] } },
         orderBy: { createdAt: 'desc' },
       });
     }
@@ -1559,8 +1573,12 @@ export class InvoiceController {
       throw new BadRequestException('NFS-e já está cancelada.');
     }
 
-    if (nfseDoc.status !== 'AUTHORIZED') {
-      throw new BadRequestException('Somente NFS-e autorizadas podem ser canceladas.');
+    // AUTHORIZED → first request; CANCEL_REJECTED → corrected re-submission;
+    // CANCEL_REQUESTED → already pending (the service re-syncs and reports the live state).
+    if (!['AUTHORIZED', 'CANCEL_REJECTED', 'CANCEL_REQUESTED'].includes(nfseDoc.status)) {
+      throw new BadRequestException(
+        'Somente NFS-e autorizadas ou com cancelamento rejeitado podem ter o cancelamento solicitado.',
+      );
     }
 
     if (!body.reason?.trim()) {
@@ -1574,40 +1592,32 @@ export class InvoiceController {
         nfseDoc.id,
         body.reason.trim(),
         reasonCode,
+        body.substituteNfseNumber ?? null,
       );
-      return {
-        message: 'NFS-e cancelada com sucesso.',
-        ...result,
-      };
+
+      // Report the REAL outcome honestly — the note may NOT be cancelled yet (or at all).
+      let message: string;
+      if (result.cancelled) {
+        message = 'NFS-e cancelada com sucesso na prefeitura.';
+      } else if (result.pending) {
+        message =
+          'Solicitação de cancelamento enviada. Aguardando aprovação do fiscal da prefeitura. ' +
+          'A NFS-e permanece ATIVA até ser aprovada.';
+      } else if (result.rejected) {
+        message =
+          `Cancelamento REJEITADO pela prefeitura: ${result.rejectionMessage ?? 'sem detalhes'}. ` +
+          'Corrija o motivo (e informe a nota substituta, se aplicável) e reenvie.';
+      } else {
+        message = 'Solicitação de cancelamento processada.';
+      }
+
+      return { message, ...result };
     } catch (error) {
       const errMsg =
         (error as any)?.response?.data?.message ||
         (error instanceof Error ? error.message : String(error));
-      this.logger.error(`Failed to cancel NFS-e for invoice ${invoiceId}: ${errMsg}`);
-
-      // Force-cancel: mark the NFS-e as CANCELLED locally even though Elotech refused.
-      // This is offered when Elotech won't accept the cancellation (e.g. > 30 days after emission).
-      // The NFS-e number is preserved in errorMessage so the user knows to cancel it manually at Elotech.
-      if (body.force) {
-        await this.prisma.nfseDocument.update({
-          where: { id: nfseDoc.id },
-          data: {
-            status: 'CANCELLED',
-            errorMessage: `Cancelamento forçado localmente (Elotech recusou: ${errMsg.slice(0, 300)}). NFS-e #${nfseDoc.nfseNumber ?? nfseDoc.elotechNfseId} deve ser cancelada manualmente no portal Elotech OXY.`,
-          },
-        });
-        this.logger.warn(
-          `[NFS-e] Force-cancelled NFS-e ${nfseDoc.id} locally — NFS-e #${nfseDoc.nfseNumber} needs manual cancellation at Elotech OXY.`,
-        );
-        return {
-          message: `NFS-e cancelada localmente. A NFS-e #${nfseDoc.nfseNumber ?? nfseDoc.elotechNfseId} deve ser cancelada manualmente no portal Elotech OXY.`,
-          forceCancel: true,
-          nfseNumber: nfseDoc.nfseNumber,
-          elotechNfseId: nfseDoc.elotechNfseId,
-        };
-      }
-
-      throw new BadRequestException(`Falha ao cancelar NFS-e: ${errMsg}`);
+      this.logger.error(`Failed to request NFS-e cancellation for invoice ${invoiceId}: ${errMsg}`);
+      throw new BadRequestException(`Falha ao solicitar cancelamento da NFS-e: ${errMsg}`);
     }
   }
 
@@ -1645,6 +1655,79 @@ export class InvoiceController {
       this.logger.error(`Failed to fetch NFS-e PDF for invoice ${invoiceId}: ${error}`);
       throw new NotFoundException('Não foi possível obter o PDF da NFS-e.');
     }
+  }
+
+  /**
+   * GET /invoices/task/:taskId/nfse-history
+   * Full NFS-e history for a task — every note ever linked to it, regardless of status
+   * (authorized, cancellation-requested, rejected, cancelled) and including orphan notes
+   * re-linked from Elotech whose invoice was removed. This is what the task quote page shows
+   * so the NF is never "lost" from the task.
+   */
+  @Get('task/:taskId/nfse-history')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  async taskNfseHistory(@Param('taskId', ParseUUIDPipe) taskId: string) {
+    const docs = await this.prisma.nfseDocument.findMany({
+      where: { taskId },
+      // Latest first. nfseNumber nulls (PENDING/ERROR, not yet emitted) sort last.
+      orderBy: [{ nfseNumber: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
+      select: {
+        id: true,
+        invoiceId: true,
+        elotechNfseId: true,
+        nfseNumber: true,
+        status: true,
+        errorMessage: true,
+        cancelRequestStatus: true,
+        cancelReason: true,
+        cancelReasonCode: true,
+        cancelRejectionMessage: true,
+        cancelSubstituteNfseNumber: true,
+        cancelRequestedAt: true,
+        cancelResolvedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    // Enrich with live Elotech values (valor / emissão / ISS / situação) so the NFS-e section
+    // can render every note fully. One ranged query covers all of the task's notes.
+    const numbers = docs.map(d => d.nfseNumber).filter((n): n is number => n != null);
+    const elotechById = new Map<number, any>();
+    if (numbers.length > 0) {
+      try {
+        const res = await this.municipalNfseService.listNfses({
+          numeroDocumentoInicial: Math.min(...numbers),
+          numeroDocumentoFinal: Math.max(...numbers),
+          situacao: null,
+          cpfCnpj: null,
+          firstResult: 0,
+          maxResult: 50,
+        });
+        for (const n of res.data) elotechById.set(n.id, n);
+      } catch (err) {
+        this.logger.warn(`taskNfseHistory: Elotech enrichment failed for task ${taskId}: ${err}`);
+      }
+    }
+
+    return {
+      taskId,
+      total: docs.length,
+      nfses: docs.map(d => {
+        const e = d.elotechNfseId ? elotechById.get(d.elotechNfseId) : null;
+        return {
+          ...d,
+          // invoiceId null = the note outlived its invoice (billing reverted) or was re-linked
+          // from Elotech as an orphan. It is still real and active/cancelled at the prefeitura.
+          isOrphan: d.invoiceId === null,
+          dataEmissao: e?.dataEmissao ?? null,
+          valorDoc: e?.valorDoc ?? null,
+          valorISS: e?.valorISS ?? null,
+          tomadorRazaoNome: e?.tomadorRazaoNome ?? null,
+          cancelada: e?.cancelada ?? (d.status === 'CANCELLED'),
+        };
+      }),
+    };
   }
 
   // =====================

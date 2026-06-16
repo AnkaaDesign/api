@@ -1610,6 +1610,7 @@ model Task {
   checkoutFiles         File[]                @relation("TASK_CHECKOUT_FILES")
   responsibles          Responsible[]         @relation("TaskResponsibles")
   invoiceEntities       Invoice[]             @relation("TaskInvoiceEntities")
+  nfseDocuments         NfseDocument[]        @relation("TaskNfseDocuments")
   forecastHistory       TaskForecastHistory[] @relation("TASK_FORECAST_HISTORY")
 
   @@index([status, sectorId])
@@ -3420,7 +3421,6 @@ enum BonificationStatus {
 enum TaskQuoteStatus {
   PENDING
   BUDGET_APPROVED
-  COMMERCIAL_APPROVED
   BILLING_APPROVED
   UPCOMING
   DUE
@@ -3465,6 +3465,8 @@ enum NfseStatus {
   PENDING
   PROCESSING
   AUTHORIZED
+  CANCEL_REQUESTED
+  CANCEL_REJECTED
   CANCELLED
   ERROR
 }
@@ -3767,8 +3769,13 @@ model BankSlip {
 }
 
 model NfseDocument {
-  id            String     @id @default(uuid())
-  invoiceId     String
+  id String @id @default(uuid())
+  // invoiceId is nullable + SetNull: a note must NEVER be unlinked/deleted just because its
+  // invoice is removed (e.g. by a billing revert). It survives as task history instead.
+  invoiceId String?
+  // Durable link to the task so the full NFS-e history (incl. cancelled/rejected/orphan
+  // notes re-linked from Elotech) is always visible on the task quote page.
+  taskId        String?
   elotechNfseId Int?
   nfseNumber    Int?
   status        NfseStatus @default(PENDING)
@@ -3778,9 +3785,25 @@ model NfseDocument {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
-  invoice Invoice @relation("InvoiceNfse", fields: [invoiceId], references: [id], onDelete: Cascade)
+  // ── Cancellation request lifecycle (Elotech "solicitação de cancelamento") ──
+  // Cancellation at Ibiporã/Elotech is asynchronous and fiscal-approved: submitting a
+  // request does NOT cancel the note. It goes AGUARDANDO_FISCAL → AUTORIZADO (note
+  // becomes CANCELADA) or → REJEITADO (note stays EMITIDA). These fields track that
+  // request so system-only users can see exactly what is happening at the prefeitura.
+  cancelRequestId            Int? // Elotech solicitação id
+  cancelRequestStatus        String? // AGUARDANDO_FISCAL | AUTORIZADO | REJEITADO
+  cancelReason               String? // motivo submitted by us
+  cancelReasonCode           Int? // 1=Erro na emissão, 2=Serviço não prestado, 4=Duplicidade
+  cancelRejectionMessage     String? // fiscal's rejection message, when REJEITADO
+  cancelSubstituteNfseNumber Int? // substitute NF number (required for duplicidade)
+  cancelRequestedAt          DateTime?
+  cancelResolvedAt           DateTime? // when it reached AUTORIZADO or REJEITADO
+
+  invoice Invoice? @relation("InvoiceNfse", fields: [invoiceId], references: [id], onDelete: SetNull)
+  task    Task?    @relation("TaskNfseDocuments", fields: [taskId], references: [id], onDelete: SetNull)
 
   @@index([invoiceId])
+  @@index([taskId])
   @@index([elotechNfseId])
   @@index([status])
 }

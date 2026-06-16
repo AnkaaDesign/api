@@ -481,10 +481,11 @@ export class TimeEntryReminderService {
             );
           }
 
-          // Sector escalation: only after a larger grace window (expected + 30 min,
-          // vs 15 min for the employee reminder) so the employee gets a chance to
-          // self-correct. Own dedup key, independent of the employee reminder's.
-          if (this.isTimePastEntry(result.expectedTime, 30)) {
+          // Sector escalation: fires on the same 15-min grace window as the
+          // employee reminder, so HR/admin/production-manager are notified at the
+          // same tick the employee is. Own dedup key, independent of the employee
+          // reminder's.
+          if (this.isTimePastEntry(result.expectedTime, 15)) {
             const escalationKey = this.escalationDedupKey(today, user.id, entryType);
             const escalationSent = await this.cacheService.exists(escalationKey);
             if (!escalationSent) {
@@ -581,7 +582,7 @@ export class TimeEntryReminderService {
    * Escalate a still-missing punch to the responsible sectors.
    * Config key: timeentry.missing.escalation (sector-routed — the config row carries
    * ADMIN + HUMAN_RESOURCES + PRODUCTION_MANAGER in allowedSectors).
-   * Fired only after the 30-min grace window (vs 15 min for the employee reminder).
+   * Fired on the same 15-min grace window as the employee reminder.
    */
   async sendTimeEntryEscalation(
     user: { id: string; name: string },
