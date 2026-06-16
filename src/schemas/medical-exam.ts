@@ -33,6 +33,8 @@ export const medicalExamIncludeSchema = z
       ])
       .optional(),
     file: z.boolean().optional(),
+    admission: z.boolean().optional(),
+    termination: z.boolean().optional(),
   })
   .partial();
 

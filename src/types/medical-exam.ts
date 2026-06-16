@@ -63,6 +63,8 @@ export interface MedicalExamIncludes {
         include?: UserIncludes;
       };
   file?: boolean;
+  admission?: boolean;
+  termination?: boolean;
 }
 
 // =====================

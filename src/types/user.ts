@@ -36,6 +36,8 @@ import type { ChangeLog, ChangeLogIncludes } from './changelog';
 import type { Bonus, BonusIncludes } from './bonus';
 import type { File } from './file';
 import type { Dependent } from './dependent';
+import type { EmploymentContract } from './employment-contract';
+import type { Admission } from './admission';
 
 // =====================
 // Main Entity Interface
@@ -84,6 +86,10 @@ export interface User extends BaseEntity {
 
   // Relations
   avatar?: File;
+  // Vínculos empregatícios (EmploymentContract). `contracts` is the canonical list relation.
+  currentContract?: EmploymentContract | null;
+  contracts?: EmploymentContract[];
+  admissions?: Admission[];
   ppeSize?: PpeSize;
   preference?: Preferences;
   position?: Position;

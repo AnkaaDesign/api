@@ -30,6 +30,7 @@ export const vacationIncludeSchema = z
     user: relationIncludeSchema.optional(),
     contract: relationIncludeSchema.optional(),
     periods: relationIncludeSchema.optional(),
+    group: relationIncludeSchema.optional(),
   })
   .partial();
 

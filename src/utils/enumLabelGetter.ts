@@ -117,16 +117,6 @@ export function getContractTypeLabel(type: CONTRACT_TYPE): string {
 }
 
 /**
- * Get the display label for a contract type (vínculo).
- * @deprecated Kept for backwards compatibility — use getContractTypeLabel.
- * @param status - The contract type enum value
- * @returns The localized label for the contract type
- */
-export function getUserStatusLabel(status: CONTRACT_TYPE): string {
-  return CONTRACT_TYPE_LABELS[status] || status;
-}
-
-/**
  * Get the display label for a contract status (situação)
  * @param status - The contract status enum value
  * @returns The localized label for the status
