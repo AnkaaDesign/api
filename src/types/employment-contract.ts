@@ -68,6 +68,8 @@ export interface EmploymentContract extends BaseEntity {
   admission?: any;
   terminations?: any[];
   payrolls?: any[];
+  vacations?: any[];
+  thirteenths?: any[];
 }
 
 // =====================
@@ -81,6 +83,8 @@ export interface EmploymentContractIncludes {
   admission?: boolean | { include?: any };
   terminations?: boolean | { include?: any };
   payrolls?: boolean | { include?: any };
+  vacations?: boolean | { include?: any };
+  thirteenths?: boolean | { include?: any };
 }
 
 // =====================

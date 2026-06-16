@@ -198,6 +198,8 @@ export class VacationGroupService {
     userId?: string,
   ): Promise<VacationGroupUpdateResponse> {
     try {
+      const periodsChanged = !!data.periods;
+
       const group = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const existing = await tx.vacationGroup.findUnique({ where: { id } });
         if (!existing || existing.deletedAt) {
@@ -239,7 +241,57 @@ export class VacationGroupService {
         return updated;
       });
 
-      return { success: true, message: 'Férias coletivas atualizadas com sucesso.', data: group as any };
+      // Propagação dos períodos-modelo aos membros JÁ expandidos cujo gozo ainda
+      // NÃO começou (OPEN/SCHEDULED). Reusa o caminho individual setPeriods, que
+      // valida fracionamento + sobreposição (exemptando o próprio grupo), reescreve
+      // os VacationPeriod e re-sincroniza o afastamento no Secullum quando aplicável.
+      // CONSERVADOR: membros em gozo (IN_PROGRESS), pagos (PAID) ou expirados
+      // (EXPIRED) NÃO são tocados — para eles o grupo permanece apenas template.
+      // Falhas individuais não abortam o update do grupo.
+      let propagated = 0;
+      let propagationSkipped = 0;
+      const propagationFailed: Array<{ id: string; reason?: string }> = [];
+      if (periodsChanged && data.periods) {
+        const members = await this.prisma.vacation.findMany({
+          where: { groupId: id, deletedAt: null },
+          select: { id: true, status: true },
+        });
+        for (const member of members) {
+          const status = member.status as VACATION_STATUS;
+          if (status !== VACATION_STATUS.OPEN && status !== VACATION_STATUS.SCHEDULED) {
+            propagationSkipped++;
+            continue;
+          }
+          try {
+            await this.vacationService.setPeriods(
+              member.id,
+              { periods: data.periods.map(p => ({ startDate: p.startDate, days: p.days })) },
+              userId,
+            );
+            propagated++;
+          } catch (err: any) {
+            propagationFailed.push({ id: member.id, reason: err?.message });
+          }
+        }
+        if (propagationFailed.length > 0) {
+          this.logger.warn(
+            `Propagação de períodos do grupo ${id}: ${propagationFailed.length} membro(s) falharam: ` +
+              propagationFailed.map(f => `${f.id} (${f.reason ?? 'sem detalhe'})`).join('; '),
+          );
+        }
+      }
+
+      return {
+        success: true,
+        message:
+          'Férias coletivas atualizadas com sucesso.' +
+          (periodsChanged
+            ? ` Períodos propagados a ${propagated} colaborador(es)` +
+              `${propagationSkipped > 0 ? `, ${propagationSkipped} ignorado(s) (gozo iniciado/pago)` : ''}` +
+              `${propagationFailed.length > 0 ? `, ${propagationFailed.length} falha(s)` : ''}.`
+            : ''),
+        data: group as any,
+      };
     } catch (error: any) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
       this.logger.error('Erro ao atualizar férias coletivas:', error);
@@ -504,6 +556,47 @@ export class VacationGroupService {
         throw new BadRequestException('Transição de status das férias coletivas inválida.');
       }
 
+      // Fan-out: o grupo apenas agrupa — a transição de status (e o recibo /
+      // afastamento no Secullum que ela dispara) precisa ser propagada a cada
+      // Vacation individual que a expansão gerou. Reaproveitamos integralmente o
+      // caminho individual (vacationService.advance), que carrega todos os guards
+      // (recibo p/ PAID, período p/ SCHEDULED, dobro art. 137, transição atômica,
+      // changelog e push do ponto). Cada membro avança UM passo por chamada, de
+      // forma idempotente: quem já está no/depois do alvo é ignorado; falhas
+      // individuais não abortam o grupo (coletadas para o changelog).
+      const members = await this.prisma.vacation.findMany({
+        where: { groupId: id, deletedAt: null },
+        select: { id: true, status: true },
+      });
+      const targetIndex = STATUS_CHAIN.indexOf(targetStatus);
+      let advancedMembers = 0;
+      let skippedMembers = 0;
+      const failedMembers: Array<{ id: string; reason?: string }> = [];
+
+      for (const member of members) {
+        const memberIndex = STATUS_CHAIN.indexOf(member.status as VACATION_STATUS);
+        // Idempotência: ignora membros já no alvo, à frente dele, ou cujo status
+        // não está na cadeia (ex.: EXPIRED — exige tratamento individual).
+        if (memberIndex < 0 || memberIndex >= targetIndex) {
+          skippedMembers++;
+          continue;
+        }
+        try {
+          // Avança o membro passo-a-passo até alcançar o status-alvo do grupo.
+          for (let i = memberIndex; i < targetIndex; i++) {
+            await this.vacationService.advance(
+              member.id,
+              { status: STATUS_CHAIN[i + 1] },
+              undefined,
+              userId,
+            );
+          }
+          advancedMembers++;
+        } catch (err: any) {
+          failedMembers.push({ id: member.id, reason: err?.message });
+        }
+      }
+
       const updated = await this.prisma.vacationGroup.update({
         where: { id },
         data: { status: targetStatus as any, statusOrder: VACATION_STATUS_ORDER[targetStatus] },
@@ -517,13 +610,29 @@ export class VacationGroupService {
         field: 'status',
         oldValue: currentStatus,
         newValue: targetStatus,
-        reason: `Status das férias coletivas alterado: ${currentStatus} → ${targetStatus}`,
+        reason:
+          `Status das férias coletivas alterado: ${currentStatus} → ${targetStatus} ` +
+          `(${advancedMembers} avançada(s), ${skippedMembers} ignorada(s)` +
+          `${failedMembers.length > 0 ? `, ${failedMembers.length} falha(s)` : ''})`,
         triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
         triggeredById: id,
         userId: userId || null,
       });
 
-      return { success: true, message: 'Status das férias coletivas atualizado.', data: updated as any };
+      if (failedMembers.length > 0) {
+        this.logger.warn(
+          `Avanço de status do grupo ${id}: ${failedMembers.length} membro(s) não puderam avançar: ` +
+            failedMembers.map(f => `${f.id} (${f.reason ?? 'sem detalhe'})`).join('; '),
+        );
+      }
+
+      return {
+        success: true,
+        message:
+          `Status das férias coletivas atualizado` +
+          `${failedMembers.length > 0 ? ` (${failedMembers.length} colaborador(es) não puderam avançar e foram ignorados).` : '.'}`,
+        data: updated as any,
+      };
     } catch (error: any) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
       this.logger.error('Erro ao avançar status das férias coletivas:', error);

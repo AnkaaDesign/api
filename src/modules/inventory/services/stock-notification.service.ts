@@ -280,6 +280,15 @@ export class StockNotificationService {
         overrides: {
           title,
           body,
+          // 'Supplier' isn't in the deep-link switch — point the tap at the
+          // supplier detail page directly. Skip the link when the bucket has no
+          // real supplier ('unassigned') so we never emit /detalhes/unassigned.
+          ...(bucket.supplierId
+            ? {
+                webUrl: `/estoque/fornecedores/detalhes/${bucket.supplierId}`,
+                mobileUrl: `/(tabs)/estoque/fornecedores/detalhes/${bucket.supplierId}`,
+              }
+            : {}),
         },
       });
     } catch (error: any) {

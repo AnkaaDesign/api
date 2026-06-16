@@ -532,6 +532,14 @@ export class InvoiceController {
           : taskIdForLink
             ? `/financeiro/faturamento/detalhes/${taskIdForLink}`
             : undefined;
+        // 'BankSlip' (BANKSLIP) auto-link requires data.taskId — which this
+        // dispatch doesn't carry — so the deep link never fires. Supply both
+        // url overrides explicitly (mobile mirrors the web destination).
+        const mobileUrlForLink = withdrawalIdForLink
+          ? `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalIdForLink}`
+          : taskIdForLink
+            ? `/(tabs)/financeiro/faturamento/detalhes/${taskIdForLink}`
+            : undefined;
 
         const nossoNumeroLabel = bankSlip?.nossoNumero ?? 'novo boleto';
 
@@ -552,6 +560,7 @@ export class InvoiceController {
               body: `A data de vencimento do boleto ${nossoNumeroLabel}${oldDueDate ? ` foi alterada de ${oldDueDate}` : ' foi alterada'} para ${newDueDateLabel}.`,
               relatedEntityType: 'BANK_SLIP',
               ...(webUrlForLink ? { webUrl: webUrlForLink } : {}),
+              ...(mobileUrlForLink ? { mobileUrl: mobileUrlForLink } : {}),
             },
           },
         );
@@ -1309,6 +1318,14 @@ export class InvoiceController {
           : taskIdForLink
             ? `/financeiro/faturamento/detalhes/${taskIdForLink}`
             : undefined;
+        // 'BankSlip' (BANKSLIP) auto-link requires data.taskId — which this
+        // dispatch doesn't carry — so the deep link never fires. Supply both
+        // url overrides explicitly (mobile mirrors the web destination).
+        const mobileUrlForLink = withdrawalIdForLink
+          ? `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalIdForLink}`
+          : taskIdForLink
+            ? `/(tabs)/financeiro/faturamento/detalhes/${taskIdForLink}`
+            : undefined;
 
         await this.dispatchService.dispatchByConfiguration(
           'bank_slip.due_date_changed',
@@ -1327,6 +1344,7 @@ export class InvoiceController {
               body: `A data de vencimento do boleto ${bankSlip.nossoNumero}${oldDueDate ? ` foi alterada de ${oldDueDate}` : ' foi alterada'} para ${newDueDateLabel}.`,
               relatedEntityType: 'BANK_SLIP',
               ...(webUrlForLink ? { webUrl: webUrlForLink } : {}),
+              ...(mobileUrlForLink ? { mobileUrl: mobileUrlForLink } : {}),
             },
           },
         );

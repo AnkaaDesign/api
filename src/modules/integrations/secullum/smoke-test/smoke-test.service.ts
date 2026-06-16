@@ -273,6 +273,19 @@ export class SecullumSmokeTestService {
       for (const id of ids) await this.deleteFuncionario(id);
     });
 
+    // 2a-bis. Kennedy self-heal: a hard process kill between reactivation and
+    // teardown can leave Kennedy ACTIVE in PROD Secullum. He is normally dismissed
+    // (terceirizado), so if he is currently visible in the active list at run
+    // start, re-dismiss him with the SAME call teardown uses. Idempotent — a no-op
+    // when he is already dismissed; wrapped in check() so it never aborts the run.
+    if (ctx.kennedy) {
+      await this.check(checks, 'kennedy.self-heal', 'Auto-correção: re-demitir conta Kennedy residual', 'funcionario-crud', async () => {
+        if (await this.isFuncionarioActive(ctx.kennedy!.funcionarioId)) {
+          await api.post('/Funcionarios/AlterarVisibilidadeFuncionarios', [ctx.kennedy!.funcionarioId]);
+        }
+      });
+    }
+
     // 2b. Create.
     const created = await this.check(checks, 'funcionario.create', 'Criar funcionário (POST /Funcionarios)', 'funcionario-crud', async () => {
       const body = {
@@ -808,6 +821,21 @@ export class SecullumSmokeTestService {
       .replace(/[\u0300-\u036f]/g, '')
       .toUpperCase()
       .trim();
+  }
+
+  /**
+   * True when the funcionário id is currently visible in the ACTIVE list
+   * (/Funcionarios). Used by the Kennedy self-heal to decide whether a re-dismiss
+   * is needed. Best-effort: any read error is treated as "not active" so the
+   * self-heal never throws.
+   */
+  private async isFuncionarioActive(id: number): Promise<boolean> {
+    try {
+      const list = (await this.secullum.getApiClient().get('/Funcionarios')).data ?? [];
+      return list.some((f: any) => Number(f.Id ?? f.id) === id);
+    } catch {
+      return false;
+    }
   }
 
   private async findSentinelFuncionarioIds(): Promise<number[]> {

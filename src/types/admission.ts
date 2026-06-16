@@ -51,6 +51,13 @@ export interface AdmissionDocument extends BaseEntity {
   fileId: string | null;
   expiresAt: Date | null;
   note: string | null;
+  // Assinatura eletrônica in-app (reusa o pipeline de assinatura de EPI).
+  signedFileId: string | null;
+  signedByUserId: string | null;
+  signedAt: Date | null;
+  // Selo PAdES (ICP-Brasil) aplicado no servidor sobre o PDF assinado.
+  padesSealed: boolean;
+  padesSealedAt: Date | null;
 
   // Relations (optional, populated based on query)
   admission?: Admission;

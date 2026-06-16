@@ -92,6 +92,7 @@ export class BonusController {
           data: { period, year, month, stage: opts.stage, detail: opts.detail },
           overrides: {
             webUrl: '/recursos-humanos/folha-de-pagamento',
+            mobileUrl: '/(tabs)/recursos-humanos/folha-de-pagamento',
             relatedEntityType: 'PAYROLL',
             title: isFailure
               ? `Falha na finalização da folha (${period})`

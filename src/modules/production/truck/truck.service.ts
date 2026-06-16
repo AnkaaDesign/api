@@ -573,6 +573,12 @@ export class TruckService {
           fromSpot: fromLabel,
           toSpot: toLabel,
         },
+        // 'TRUCK' isn't in the deep-link switch — the caminhão lives on the TASK
+        // detail page, so point the tap there using the request's taskId.
+        overrides: {
+          webUrl: `/producao/cronograma/detalhes/${data.taskId}`,
+          mobileUrl: `/(tabs)/producao/cronograma/detalhes/${data.taskId}`,
+        },
       },
     );
 

@@ -46,6 +46,7 @@ export const terminationIncludeSchema = z
     initiatedBy: relationIncludeSchema.optional(),
     items: relationIncludeSchema.optional(),
     documents: relationIncludeSchema.optional(),
+    dismissalExam: relationIncludeSchema.optional(),
   })
   .partial();
 

@@ -49,6 +49,8 @@ export const employmentContractIncludeSchema = z
     admission: relationIncludeSchema.optional(),
     terminations: relationIncludeSchema.optional(),
     payrolls: relationIncludeSchema.optional(),
+    vacations: relationIncludeSchema.optional(),
+    thirteenths: relationIncludeSchema.optional(),
   })
   .partial();
 
