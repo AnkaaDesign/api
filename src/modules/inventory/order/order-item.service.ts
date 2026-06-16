@@ -312,6 +312,21 @@ export class OrderItemService {
             );
           }
 
+          // Guard: an item that was never marked as fulfilled (fulfilledAt is null) cannot
+          // be received. This prevents bypassing the fulfilled→received workflow on
+          // partially-fulfilled orders where some items are still in draft.
+          if (
+            data.receivedQuantity !== undefined &&
+            data.receivedQuantity !== null &&
+            data.receivedQuantity > (existingOrderItem.receivedQuantity ?? 0) &&
+            !existingOrderItem.fulfilledAt
+          ) {
+            throw new BadRequestException(
+              'Não é possível receber um item que ainda não foi marcado como feito. ' +
+                'Marque o item como feito antes de registrar o recebimento.',
+            );
+          }
+
           // Atualizar o item de pedido
           const updatedOrderItem = await this.orderItemRepository.updateWithTransaction(
             tx,
