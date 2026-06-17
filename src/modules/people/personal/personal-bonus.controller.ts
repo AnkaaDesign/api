@@ -226,4 +226,17 @@ export class PersonalBonusController {
 
     return this.personalService.getPeriodTaskStats(year, month);
   }
+
+  /**
+   * Get the authenticated user's position ladder for the bonus simulator
+   * (current position + next 2 by hierarchy). Returns ONLY id/name/hierarchy —
+   * no salary — so PRODUCTION (and every other sector) can populate the
+   * promotion selector without the HR-only GET /positions (which 403s them).
+   */
+  @Get('my-positions')
+  @ReadRateLimit()
+  @Roles(...ALL_ROLES)
+  async getMyPositions(@UserId() userId: string) {
+    return this.personalService.getMyPositions(userId);
+  }
 }
