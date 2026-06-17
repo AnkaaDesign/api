@@ -214,10 +214,6 @@ export class VacationCalculationService {
       year,
     } = input;
 
-    // Base mensal de cálculo das férias = salário-base + média de variáveis.
-    const monthlyBase = roundCurrency(baseSalary + variableAverage);
-    const dailyRate = monthlyBase / 30;
-
     // soldThird: atalho para "vender 1/3" (abono pecuniário, art. 143). Só atua
     // quando nenhum dia de abono explícito foi informado, assumindo o teto legal
     // de 1/3 dos dias de direito (≤10). Dias explícitos sempre prevalecem.
@@ -227,7 +223,75 @@ export class VacationCalculationService {
     const abonoDays = Math.max(0, Math.min(10, requestedAbonoDays));
     const vacationDays = Math.max(0, entitledDays - abonoDays);
 
-    // Férias gozadas (proporcional aos dias).
+    // Delega ao motor single-period: aqui os dias gozados são (entitled − abono)
+    // e o abono é embutido (modelo legado de uma tomada única por período).
+    return this.buildReciboForTaking(
+      {
+        baseSalary,
+        variableAverage,
+        days: vacationDays,
+        isDouble,
+        includeAbono: abonoDays > 0,
+        abonoDays,
+        soldThird,
+        dependentsCount,
+        allowSimplifiedDeduction,
+        year,
+      },
+      ids,
+    );
+  }
+
+  /**
+   * Constrói o recibo PAGÁVEL de uma TOMADA de férias (single-period, modelo
+   * flat). Diferente de `buildRecibo`, os dias gozados (`days`) já vêm
+   * resolvidos pelo chamador e o abono é controlado explicitamente por
+   * `includeAbono`/`abonoDays` (apenas a primeira tomada do período aquisitivo
+   * carrega abono — a service garante isso a montante).
+   *
+   *   - férias proporcionais aos `days` gozados desta tomada;
+   *   - 1/3 constitucional sobre as férias;
+   *   - abono pecuniário (dias vendidos) + seu 1/3 quando `includeAbono` —
+   *     verbas indenizatórias ISENTAS de INSS/IRRF;
+   *   - dobro (art. 137) quando aplicável: férias + 1/3 são duplicados;
+   *   - INSS/IRRF sobre a base própria desta tomada (férias + 1/3 tributável).
+   */
+  buildReciboForTaking(
+    input: {
+      baseSalary: number;
+      variableAverage: number;
+      days: number;
+      isDouble: boolean;
+      includeAbono: boolean;
+      abonoDays: number;
+      soldThird: boolean;
+      dependentsCount: number;
+      allowSimplifiedDeduction: boolean;
+      year: number;
+    },
+    ids: { vacationId: string; userId: string },
+  ): VacationRecibo {
+    const {
+      baseSalary,
+      variableAverage,
+      days,
+      isDouble,
+      includeAbono,
+      abonoDays: rawAbonoDays,
+      dependentsCount,
+      allowSimplifiedDeduction,
+      year,
+    } = input;
+
+    // Base mensal de cálculo das férias = salário-base + média de variáveis.
+    const monthlyBase = roundCurrency(baseSalary + variableAverage);
+    const dailyRate = monthlyBase / 30;
+
+    const vacationDays = Math.max(0, Math.floor(days));
+    // Abono só nesta tomada quando includeAbono (primeira tomada do período).
+    const abonoDays = includeAbono ? Math.max(0, Math.min(10, Math.floor(rawAbonoDays))) : 0;
+
+    // Férias gozadas (proporcional aos dias desta tomada).
     let vacationPay = roundCurrency(dailyRate * vacationDays);
     let oneThird = roundCurrency(vacationPay / 3);
 

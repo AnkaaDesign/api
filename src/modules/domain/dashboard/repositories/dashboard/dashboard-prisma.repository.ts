@@ -29,6 +29,7 @@ import {
   STOCK_LEVEL,
   TASK_STATUS,
   CONTRACT_STATUS,
+  CONTRACT_TYPE,
   NOTIFICATION_IMPORTANCE,
   NOTIFICATION_TYPE,
   DASHBOARD_TIME_PERIOD,
@@ -2931,15 +2932,17 @@ export class DashboardPrismaRepository implements DashboardRepository {
       this.prisma.user.count({
         where: { ...where, currentContractStatus: CONTRACT_STATUS.TERMINATED },
       }),
-      // experiencePeriod1 = em experiência (situação EXPERIENCE). A fase 1/2 não
-      // é espelhada no cache do User, portanto experiencePeriod2 fica 0 aqui.
+      // experiencePeriod1/2 = em experiência, fase agora encodada na modalidade
+      // (currentContractType EXPERIENCE_PERIOD_1 / EXPERIENCE_PERIOD_2).
       this.prisma.user.count({
-        where: { ...where, currentContractStatus: CONTRACT_STATUS.EXPERIENCE },
+        where: { ...where, currentContractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_1 },
       }),
-      Promise.resolve(0),
-      // effected = efetivado/regular (situação ACTIVE).
       this.prisma.user.count({
-        where: { ...where, currentContractStatus: CONTRACT_STATUS.ACTIVE },
+        where: { ...where, currentContractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_2 },
+      }),
+      // effected = efetivado/regular (modalidade INDETERMINATE).
+      this.prisma.user.count({
+        where: { ...where, currentContractType: CONTRACT_TYPE.INDETERMINATE },
       }),
       this.prisma.user.count({
         where: { ...where, currentContractStatus: CONTRACT_STATUS.TERMINATED },

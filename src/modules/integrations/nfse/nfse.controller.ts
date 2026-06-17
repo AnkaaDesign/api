@@ -166,6 +166,30 @@ export class NfseController {
   }
 
   /**
+   * GET /nfse/next-number
+   * Predicts the next NFS-e number that will be assigned on emission. NFS-e
+   * numbers are sequential per prestador, so the next one is (last authorized
+   * number) + 1. Used by the billing-approval preview to show the NF number
+   * that will appear on the document and on the boleto's seuNumero.
+   *
+   * NOTE: this MUST be declared before `@Get(':elotechNfseId')` or Nest would
+   * match "next-number" as the elotechNfseId param.
+   */
+  @Get('next-number')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  async nextNumber() {
+    const agg = await this.prisma.nfseDocument.aggregate({
+      where: { status: 'AUTHORIZED', nfseNumber: { not: null } },
+      _max: { nfseNumber: true },
+    });
+    const lastNumber = agg._max.nfseNumber ?? null;
+    return {
+      lastNumber,
+      nextNumber: lastNumber != null ? lastNumber + 1 : null,
+    };
+  }
+
+  /**
    * GET /nfse/:elotechNfseId
    * Get detailed NFSe data from Elotech, with live status from list endpoint.
    */

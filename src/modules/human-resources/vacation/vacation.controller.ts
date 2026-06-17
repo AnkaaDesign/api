@@ -33,8 +33,8 @@ import {
   vacationBatchUpdateSchema,
   vacationCreateSchema,
   vacationGetManySchema,
+  vacationPeriodBalanceSchema,
   vacationQuerySchema,
-  vacationSetPeriodsSchema,
   vacationUpdateSchema,
 } from './dto/vacation.schema';
 import type {
@@ -45,8 +45,8 @@ import type {
   VacationBatchUpdateFormData,
   VacationCreateFormData,
   VacationGetManyFormData,
+  VacationPeriodBalanceFormData,
   VacationQueryFormData,
-  VacationSetPeriodsFormData,
   VacationUpdateFormData,
 } from './dto/vacation.schema';
 import type {
@@ -58,6 +58,7 @@ import type {
   VacationDeleteResponse,
   VacationGetManyResponse,
   VacationGetUniqueResponse,
+  VacationPeriodBalanceResponse,
   VacationUpdateResponse,
 } from './types/vacation.types';
 
@@ -119,15 +120,13 @@ export class VacationController {
     return this.vacationService.batchDelete(data, userId);
   }
 
-  // Fracionamento
-  @Put(':id/periods')
-  @WriteRateLimit()
-  async setPeriods(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(vacationSetPeriodsSchema)) data: VacationSetPeriodsFormData,
-    @UserId() userId: string,
-  ): Promise<VacationUpdateResponse> {
-    return this.vacationService.setPeriods(id, data, userId);
+  // Saldo de gozo do período aquisitivo (tomadas-irmãs agrupadas). Keyed by the
+  // vacation id so the acquisitive dates come straight from the DB row — avoids
+  // any client date-serialization/timezone drift in the grouping match.
+  @Get(':id/period-balance')
+  @ReadRateLimit()
+  async periodBalance(@Param('id', ParseUUIDPipe) id: string): Promise<VacationPeriodBalanceResponse> {
+    return this.vacationService.getPeriodBalance(id);
   }
 
   // Recibo (verbas + INSS/IRRF)
@@ -151,6 +150,20 @@ export class VacationController {
     @UserId() userId: string,
   ): Promise<VacationUpdateResponse> {
     return this.vacationService.advance(id, data, query.include, userId);
+  }
+
+  // Secullum (ponto) integration — manual (re)sync + read-derived status
+  @Post(':id/sync')
+  @WriteRateLimit()
+  @HttpCode(HttpStatus.OK)
+  async syncSecullum(@Param('id', ParseUUIDPipe) id: string) {
+    return this.vacationService.syncSecullum(id);
+  }
+
+  @Get(':id/secullum-status')
+  @ReadRateLimit()
+  async secullumStatus(@Param('id', ParseUUIDPipe) id: string) {
+    return this.vacationService.getSecullumStatus(id);
   }
 
   // Dynamic routes (after static)

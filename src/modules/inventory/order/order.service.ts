@@ -37,6 +37,7 @@ import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import {
   ORDER_STATUS,
   ORDER_PAYMENT_STATUS,
+  ORDER_INSTALLMENT_STATUS,
   ENTITY_TYPE,
   CHANGE_TRIGGERED_BY,
   ACTIVITY_REASON,
@@ -362,6 +363,28 @@ export class OrderService {
 
         // Create the order with items
         const newOrder = await this.orderRepository.createWithTransaction(tx, orderData);
+
+        // Boleto installment schedule (2x/3x). Single-payment PIX / cartão settle at
+        // the order level, so no installment rows are generated for them.
+        const installmentCount = (orderData.installmentCount as number) || 1;
+        if (orderData.paymentMethod === 'BANK_SLIP' && installmentCount > 1) {
+          let goodsSubtotal = 0;
+          let itemsTotal = 0;
+          for (const item of (orderData.items || []) as any[]) {
+            const subtotal = (item.orderedQuantity || 0) * (item.price || 0);
+            goodsSubtotal += subtotal;
+            itemsTotal += subtotal * (1 + (item.icms || 0) / 100 + (item.ipi || 0) / 100);
+          }
+          const discountAmount =
+            orderData.discount > 0 ? goodsSubtotal * (orderData.discount / 100) : 0;
+          const total = itemsTotal - discountAmount + (orderData.freight || 0);
+          await this.generateInstallmentsForOrder(tx, newOrder.id, {
+            total,
+            count: installmentCount,
+            intervalDays: orderData.paymentDueDays ?? null,
+          });
+          await this.recomputeOrderPaymentRollup(tx, newOrder.id);
+        }
 
         // Purchase orders don't deduct stock when created as FULFILLED
         // Stock is only added when items are RECEIVED from the supplier
@@ -1076,6 +1099,53 @@ export class OrderService {
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           transaction: tx,
         });
+
+        // Boleto installment-schedule upkeep: regenerate parcelas when a boleto
+        // order's count/total/method changed — but only while nothing has been
+        // settled yet, so we never clobber paid parcelas. Single-payment PIX /
+        // cartão drop any stale schedule.
+        const postUpdate = await tx.order.findUnique({
+          where: { id },
+          select: {
+            paymentMethod: true,
+            installmentCount: true,
+            paymentDueDays: true,
+            freight: true,
+            discount: true,
+            items: { select: { orderedQuantity: true, price: true, icms: true, ipi: true } },
+            installments: { select: { status: true, paidAmount: true } },
+          },
+        });
+        if (postUpdate) {
+          const anySettled = (postUpdate.installments || []).some(
+            i => i.status === ORDER_INSTALLMENT_STATUS.PAID || (i.paidAmount || 0) > 0,
+          );
+          const wantCount = postUpdate.installmentCount || 1;
+          const isBoleto = postUpdate.paymentMethod === 'BANK_SLIP';
+          if (!anySettled) {
+            if (isBoleto && wantCount > 1) {
+              let goodsSubtotal = 0;
+              let itemsTotal = 0;
+              for (const item of postUpdate.items) {
+                const subtotal = item.orderedQuantity * item.price;
+                goodsSubtotal += subtotal;
+                itemsTotal += subtotal * (1 + (item.icms || 0) / 100 + (item.ipi || 0) / 100);
+              }
+              const discountAmount =
+                postUpdate.discount > 0 ? goodsSubtotal * (postUpdate.discount / 100) : 0;
+              const total = itemsTotal - discountAmount + (postUpdate.freight || 0);
+              await this.generateInstallmentsForOrder(tx, id, {
+                total,
+                count: wantCount,
+                intervalDays: postUpdate.paymentDueDays ?? null,
+              });
+              await this.recomputeOrderPaymentRollup(tx, id);
+            } else if ((postUpdate.installments || []).length > 0) {
+              // No longer an installment boleto — drop the stale schedule.
+              await tx.orderInstallment.deleteMany({ where: { orderId: id } });
+            }
+          }
+        }
 
         // If include is specified, fetch the order with included relations
         if (include) {
@@ -2564,41 +2634,30 @@ export class OrderService {
   // Payment workflow (contas a pagar)
   // =====================
 
-  // Allowed source statuses per target payment status:
-  // REQUESTED ← NOT_REQUESTED; AWAITING_PAYMENT ← REQUESTED|NOT_REQUESTED;
-  // PAID ← REQUESTED|AWAITING_PAYMENT|NOT_REQUESTED.
-  private static readonly PAYMENT_STATUS_ALLOWED_FROM: Record<string, string[]> = {
-    [ORDER_PAYMENT_STATUS.REQUESTED]: [ORDER_PAYMENT_STATUS.NOT_REQUESTED],
-    [ORDER_PAYMENT_STATUS.AWAITING_PAYMENT]: [
-      ORDER_PAYMENT_STATUS.REQUESTED,
-      ORDER_PAYMENT_STATUS.NOT_REQUESTED,
-    ],
-    [ORDER_PAYMENT_STATUS.PAID]: [
-      ORDER_PAYMENT_STATUS.REQUESTED,
-      ORDER_PAYMENT_STATUS.AWAITING_PAYMENT,
-      ORDER_PAYMENT_STATUS.NOT_REQUESTED,
-    ],
-  };
+  // Payment workflow is method-aware and decoupled from fulfillment along two flows:
+  //   - PIX / CREDIT_CARD → pay-first. A single obligation settled manually
+  //     ("Marcar como pago"), stamping paidAt + paidById. Fulfillment follows later
+  //     (after the comprovante is sent to the supplier) — no auto-fulfill on payment.
+  //   - BANK_SLIP (boleto) → fulfill-first. N installments (2x/3x...) that settle
+  //     over time, normally via reconciliation as each parcela's bank transaction is
+  //     matched to the order's fiscal document. The order's paymentStatus rolls up
+  //     from its installments.
+  //
+  // paymentStatus axis (no "request" step): AWAITING_PAYMENT → PARTIALLY_PAID → PAID.
+  // Contas a Pagar shows an order (or each open installment) until payment is settled;
+  // fulfillment no longer affects payable visibility.
 
   private static readonly PAYMENT_STATUS_LABELS_PT: Record<string, string> = {
-    [ORDER_PAYMENT_STATUS.NOT_REQUESTED]: 'Não solicitado',
-    [ORDER_PAYMENT_STATUS.REQUESTED]: 'Solicitado',
     [ORDER_PAYMENT_STATUS.AWAITING_PAYMENT]: 'Aguardando pagamento',
+    [ORDER_PAYMENT_STATUS.PARTIALLY_PAID]: 'Parcialmente pago',
     [ORDER_PAYMENT_STATUS.PAID]: 'Pago',
   };
 
-  // Canonical payables convention.
-  // Payability is DECOUPLED from fulfillment: an order's payment obligation is OPEN
-  // iff it is not cancelled and not yet paid (`status != CANCELLED && paymentStatus
-  // != PAID`). An order is payable the moment it is created and stays payable through
-  // FULFILLED/RECEIVED until it is explicitly settled via the contas a pagar workflow.
-  // Receiving goods no longer auto-marks payment PAID — fulfillment and payment are
-  // independent axes.
-
   /**
    * Core payment-status transition (single order, inside an existing transaction).
-   * Validates the transition, updates paymentStatus/paymentStatusOrder and the
-   * paymentRequestedAt/paidAt timestamps, and logs the change.
+   * Updates paymentStatus/paymentStatusOrder + paidAt/paidById, cascades to the
+   * order's installments (settle all on PAID, reopen on AWAITING_PAYMENT) and logs
+   * the change.
    */
   private async updatePaymentStatusWithTransaction(
     tx: PrismaTransaction,
@@ -2616,26 +2675,37 @@ export class OrderService {
       throw new NotFoundException('Pedido não encontrado.');
     }
 
-    const allowedFrom = OrderService.PAYMENT_STATUS_ALLOWED_FROM[targetStatus] || [];
-    if (!allowedFrom.includes(order.paymentStatus)) {
-      const fromLabel =
-        OrderService.PAYMENT_STATUS_LABELS_PT[order.paymentStatus] || order.paymentStatus;
-      const toLabel = OrderService.PAYMENT_STATUS_LABELS_PT[targetStatus] || targetStatus;
-      throw new BadRequestException(
-        `Transição de status de pagamento inválida: ${fromLabel} → ${toLabel}.`,
-      );
-    }
-
     const now = new Date();
+    const isPaid = targetStatus === ORDER_PAYMENT_STATUS.PAID;
+    const isReopen = targetStatus === ORDER_PAYMENT_STATUS.AWAITING_PAYMENT;
+
     const updated = await tx.order.update({
       where: { id: orderId },
       data: {
         paymentStatus: targetStatus as any,
         paymentStatusOrder: ORDER_PAYMENT_STATUS_ORDER[targetStatus] ?? 1,
-        ...(targetStatus === ORDER_PAYMENT_STATUS.REQUESTED ? { paymentRequestedAt: now } : {}),
-        ...(targetStatus === ORDER_PAYMENT_STATUS.PAID ? { paidAt: now } : {}),
+        paidAt: isPaid ? now : isReopen ? null : undefined,
+        paidById: isPaid ? userId ?? null : isReopen ? null : undefined,
       },
     });
+
+    // Cascade to installments so the order and its parcelas stay consistent.
+    if (isPaid) {
+      await tx.orderInstallment.updateMany({
+        where: { orderId, status: { not: ORDER_INSTALLMENT_STATUS.PAID } },
+        data: { status: ORDER_INSTALLMENT_STATUS.PAID, paidAt: now, paidById: userId ?? null },
+      });
+    } else if (isReopen) {
+      await tx.orderInstallment.updateMany({
+        where: { orderId },
+        data: {
+          status: ORDER_INSTALLMENT_STATUS.PENDING,
+          paidAt: null,
+          paidById: null,
+          paidAmount: 0,
+        },
+      });
+    }
 
     await this.changeLogService.logChange({
       entityType: ENTITY_TYPE.ORDER,
@@ -2778,9 +2848,8 @@ export class OrderService {
 
       const emptyBucket = () => ({ count: 0, total: 0 });
       const summary: OrderPaymentSummaryData = {
-        NOT_REQUESTED: emptyBucket(),
-        REQUESTED: emptyBucket(),
         AWAITING_PAYMENT: emptyBucket(),
+        PARTIALLY_PAID: emptyBucket(),
         PAID_LAST_90_DAYS: emptyBucket(),
       };
 
@@ -2845,9 +2914,22 @@ export class OrderService {
         paidAt: true,
         freight: true,
         discount: true,
+        installmentCount: true,
         supplierId: true,
         supplier: { select: { id: true, fantasyName: true } },
         items: { select: { orderedQuantity: true, price: true, icms: true, ipi: true } },
+        installments: {
+          select: {
+            id: true,
+            number: true,
+            dueDate: true,
+            amount: true,
+            paidAmount: true,
+            status: true,
+            paidAt: true,
+          },
+          orderBy: { number: 'asc' as const },
+        },
       } as const;
       const airbrushingSelect = {
         id: true,
@@ -2908,6 +2990,10 @@ export class OrderService {
       const rows: PayableRow[] = [];
 
       // --- ORDER rows ---
+      // Boleto (BANK_SLIP) orders settle through reconciliation; everything else
+      // (PIX / cartão) settles through the order lifecycle ("Marcar como pago").
+      // Boleto orders with a parcela schedule emit one payable row per open
+      // installment so finance sees each upcoming due date and amount.
       for (const order of orders) {
         let itemsTotal = 0;
         let goodsSubtotal = 0;
@@ -2919,18 +3005,45 @@ export class OrderService {
         const discountAmount = order.discount > 0 ? goodsSubtotal * (order.discount / 100) : 0;
         const amount = itemsTotal - discountAmount + (order.freight || 0);
 
-        rows.push({
-          source: 'ORDER',
-          id: order.id,
-          payeeId: order.supplierId ?? null,
-          payeeName: order.supplier?.fantasyName ?? 'Sem fornecedor',
-          description: order.description,
-          amount,
-          paymentState: order.paymentStatus as PayableRow['paymentState'],
-          dueDate: order.forecast ?? null,
-          method: order.paymentMethod ?? null,
-          requestedAt: order.paymentRequestedAt ?? null,
-        });
+        const isBoleto = order.paymentMethod === 'BANK_SLIP';
+        const settleVia: PayableRow['settleVia'] = isBoleto ? 'RECONCILIATION' : 'ORDER_LIFECYCLE';
+        const openInstallments = (order.installments || []).filter(i => i.status !== 'PAID');
+
+        if (openInstallments.length > 0) {
+          const total = order.installments.length;
+          for (const inst of openInstallments) {
+            const remaining = Math.max(0, inst.amount - (inst.paidAmount || 0));
+            rows.push({
+              source: 'ORDER',
+              id: order.id,
+              installmentId: inst.id,
+              payeeId: order.supplierId ?? null,
+              payeeName: order.supplier?.fantasyName ?? 'Sem fornecedor',
+              description: order.description,
+              amount: remaining > 0 ? remaining : inst.amount,
+              paymentState: inst.status === 'PARTIALLY_PAID' ? 'PARTIALLY_PAID' : 'AWAITING_PAYMENT',
+              dueDate: inst.dueDate ?? order.forecast ?? null,
+              method: order.paymentMethod ?? null,
+              requestedAt: null,
+              settleVia,
+              subtype: total > 1 ? `${inst.number}ª parcela de ${total}` : null,
+            });
+          }
+        } else {
+          rows.push({
+            source: 'ORDER',
+            id: order.id,
+            payeeId: order.supplierId ?? null,
+            payeeName: order.supplier?.fantasyName ?? 'Sem fornecedor',
+            description: order.description,
+            amount,
+            paymentState: order.paymentStatus as PayableRow['paymentState'],
+            dueDate: order.forecast ?? null,
+            method: order.paymentMethod ?? null,
+            requestedAt: null,
+            settleVia,
+          });
+        }
       }
 
       // --- AIRBRUSHING rows ---
@@ -2942,7 +3055,7 @@ export class OrderService {
           payeeName: ab.painter?.name ?? 'Aerografia (sem pintor)',
           description: ab.task?.name ? `Aerografia — ${ab.task.name}` : 'Aerografia',
           amount: ab.price ?? 0,
-          paymentState: ab.paymentStatus === 'PARTIALLY_PAID' ? 'PARTIALLY_PAID' : 'NOT_REQUESTED',
+          paymentState: ab.paymentStatus === 'PARTIALLY_PAID' ? 'PARTIALLY_PAID' : 'AWAITING_PAYMENT',
           dueDate: ab.finishDate ?? null,
           method: null,
           requestedAt: null,
@@ -2998,7 +3111,8 @@ export class OrderService {
           paymentState: 'PAID',
           dueDate: order.forecast ?? null,
           method: order.paymentMethod ?? null,
-          requestedAt: order.paymentRequestedAt ?? null,
+          requestedAt: null,
+          settleVia: order.paymentMethod === 'BANK_SLIP' ? 'RECONCILIATION' : 'ORDER_LIFECYCLE',
           paidAt: order.paidAt ?? null,
         });
       }
@@ -3022,8 +3136,6 @@ export class OrderService {
       // --- summary buckets ---
       const emptyBucket = () => ({ count: 0, total: 0 });
       const summary: PayablesSummary = {
-        NOT_REQUESTED: emptyBucket(),
-        REQUESTED: emptyBucket(),
         AWAITING_PAYMENT: emptyBucket(),
         PARTIALLY_PAID: emptyBucket(),
         EXPECTED: emptyBucket(),
@@ -3049,44 +3161,22 @@ export class OrderService {
     }
   }
 
-  /** NOT_REQUESTED → REQUESTED (stamps paymentRequestedAt). */
-  async requestPayment(orderId: string, userId?: string): Promise<OrderUpdateResponse> {
-    return this.changePaymentStatus(
-      orderId,
-      ORDER_PAYMENT_STATUS.REQUESTED,
-      'Pagamento solicitado com sucesso.',
-      userId,
-    );
-  }
-
-  /** REQUESTED|NOT_REQUESTED → AWAITING_PAYMENT. */
+  /** Revert payment to AWAITING_PAYMENT (undo a settle); reopens installments. */
   async markAwaitingPayment(orderId: string, userId?: string): Promise<OrderUpdateResponse> {
     return this.changePaymentStatus(
       orderId,
       ORDER_PAYMENT_STATUS.AWAITING_PAYMENT,
-      'Pedido marcado como aguardando pagamento.',
+      'Pagamento do pedido revertido para aguardando pagamento.',
       userId,
     );
   }
 
-  /** REQUESTED|AWAITING_PAYMENT|NOT_REQUESTED → PAID (stamps paidAt). */
+  /** AWAITING_PAYMENT|PARTIALLY_PAID → PAID (stamps paidAt + paidById, settles installments). */
   async markPaid(orderId: string, userId?: string): Promise<OrderUpdateResponse> {
     return this.changePaymentStatus(
       orderId,
       ORDER_PAYMENT_STATUS.PAID,
       'Pedido marcado como pago.',
-      userId,
-    );
-  }
-
-  async batchRequestPayment(
-    orderIds: string[],
-    userId?: string,
-  ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
-    return this.batchChangePaymentStatus(
-      orderIds,
-      ORDER_PAYMENT_STATUS.REQUESTED,
-      { singular: 'com pagamento solicitado', plural: 'com pagamento solicitado' },
       userId,
     );
   }
@@ -3098,7 +3188,7 @@ export class OrderService {
     return this.batchChangePaymentStatus(
       orderIds,
       ORDER_PAYMENT_STATUS.AWAITING_PAYMENT,
-      { singular: 'marcado como aguardando pagamento', plural: 'marcados como aguardando pagamento' },
+      { singular: 'revertido para aguardando pagamento', plural: 'revertidos para aguardando pagamento' },
       userId,
     );
   }
@@ -3113,5 +3203,215 @@ export class OrderService {
       { singular: 'marcado como pago', plural: 'marcados como pagos' },
       userId,
     );
+  }
+
+  // =====================
+  // Payment installments (boleto 2x/3x)
+  // =====================
+
+  /**
+   * Recompute an order's payment rollup from its installments:
+   * all PAID → PAID; any settled/partial → PARTIALLY_PAID; none → AWAITING_PAYMENT.
+   * No-op for orders without installments (single-payment PIX / cartão).
+   */
+  private async recomputeOrderPaymentRollup(
+    tx: PrismaTransaction,
+    orderId: string,
+  ): Promise<void> {
+    const installments = await tx.orderInstallment.findMany({
+      where: { orderId },
+      select: { status: true, paidAmount: true, paidAt: true },
+    });
+    if (installments.length === 0) return;
+
+    const allPaid = installments.every(i => i.status === ORDER_INSTALLMENT_STATUS.PAID);
+    const anySettled = installments.some(
+      i => i.status === ORDER_INSTALLMENT_STATUS.PAID || (i.paidAmount || 0) > 0,
+    );
+    const target = allPaid
+      ? ORDER_PAYMENT_STATUS.PAID
+      : anySettled
+        ? ORDER_PAYMENT_STATUS.PARTIALLY_PAID
+        : ORDER_PAYMENT_STATUS.AWAITING_PAYMENT;
+
+    const lastPaidAt = installments
+      .map(i => i.paidAt)
+      .filter((d): d is Date => !!d)
+      .sort((a, b) => b.getTime() - a.getTime())[0];
+
+    await tx.order.update({
+      where: { id: orderId },
+      data: {
+        paymentStatus: target as any,
+        paymentStatusOrder: ORDER_PAYMENT_STATUS_ORDER[target] ?? 1,
+        paidAt: target === ORDER_PAYMENT_STATUS.PAID ? lastPaidAt ?? new Date() : null,
+      },
+    });
+  }
+
+  /** Mark a single installment paid (manual) and roll up the parent order. */
+  async markInstallmentPaid(installmentId: string, userId?: string): Promise<OrderUpdateResponse> {
+    try {
+      const order = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        const inst = await tx.orderInstallment.findUnique({
+          where: { id: installmentId },
+          select: { id: true, orderId: true, amount: true },
+        });
+        if (!inst) throw new NotFoundException('Parcela não encontrada.');
+        await tx.orderInstallment.update({
+          where: { id: installmentId },
+          data: {
+            status: ORDER_INSTALLMENT_STATUS.PAID,
+            paidAmount: inst.amount,
+            paidAt: new Date(),
+            paidById: userId ?? null,
+          },
+        });
+        await this.recomputeOrderPaymentRollup(tx, inst.orderId);
+        return tx.order.findUnique({ where: { id: inst.orderId } });
+      });
+      return {
+        success: true,
+        message: 'Parcela marcada como paga.',
+        data: order as unknown as Order,
+      };
+    } catch (error: any) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) throw error;
+      this.logger.error('Erro ao marcar parcela como paga:', error);
+      throw new InternalServerErrorException(
+        'Erro ao marcar parcela como paga. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  /**
+   * Generate a payment-installment schedule for an order, based on its method/count.
+   * PIX / CREDIT_CARD (or count <= 1) → no installment rows (settled at order level).
+   * BANK_SLIP with N > 1 → N parcelas spaced by `intervalDays` (defaults to
+   * paymentDueDays or 30), amounts split evenly with the last absorbing the rounding
+   * remainder. Idempotent: clears any prior schedule first.
+   */
+  async generateInstallmentsForOrder(
+    tx: PrismaTransaction,
+    orderId: string,
+    opts: {
+      total: number;
+      count: number;
+      intervalDays?: number | null;
+      from?: Date;
+    },
+  ): Promise<void> {
+    const count = Math.max(1, Math.floor(opts.count || 1));
+    await tx.orderInstallment.deleteMany({ where: { orderId } });
+    if (count <= 1) return;
+
+    const interval = opts.intervalDays && opts.intervalDays > 0 ? opts.intervalDays : 30;
+    const base = opts.from ?? new Date();
+    const cents = Math.round((opts.total || 0) * 100);
+    const per = Math.floor(cents / count);
+    const rows: Array<{
+      orderId: string;
+      number: number;
+      amount: number;
+      dueDate: Date;
+      status: any;
+    }> = [];
+    for (let n = 1; n <= count; n++) {
+      const amountCents = n === count ? cents - per * (count - 1) : per;
+      const due = new Date(base);
+      due.setDate(due.getDate() + interval * n);
+      rows.push({
+        orderId,
+        number: n,
+        amount: amountCents / 100,
+        dueDate: due,
+        status: ORDER_INSTALLMENT_STATUS.PENDING,
+      });
+    }
+    await tx.orderInstallment.createMany({ data: rows });
+  }
+
+  /** Link (replace) the fiscal documents (NFe) associated with an order, enabling
+   *  boleto installments to auto-settle when those NFs are reconciled. */
+  async linkFiscalDocuments(
+    orderId: string,
+    fiscalDocumentIds: string[],
+  ): Promise<OrderUpdateResponse> {
+    try {
+      const order = await this.prisma.order.update({
+        where: { id: orderId },
+        data: { fiscalDocuments: { set: (fiscalDocumentIds || []).map(id => ({ id })) } },
+      });
+      return {
+        success: true,
+        message: 'Documentos fiscais vinculados ao pedido.',
+        data: order as unknown as Order,
+      };
+    } catch (error: any) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.error('Erro ao vincular documentos fiscais ao pedido:', error);
+      throw new InternalServerErrorException(
+        'Erro ao vincular documentos fiscais. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  /**
+   * Settle a boleto order's installments when one of its fiscal documents is
+   * reconciled against a bank transaction. Applies `allocatedAmount` across the
+   * order's open installments oldest-first (full or partial) and rolls up the
+   * order's payment status. Safe no-op when no boleto order is linked to the NF.
+   * Meant to be called post-commit; callers should wrap it in try/catch so a
+   * settle failure never breaks reconciliation.
+   */
+  async settleInstallmentsForFiscalDocument(
+    fiscalDocumentId: string,
+    allocatedAmount: number,
+    userId?: string,
+  ): Promise<void> {
+    const amount = Math.abs(Number(allocatedAmount) || 0);
+    if (amount <= 0) return;
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        paymentMethod: 'BANK_SLIP',
+        fiscalDocuments: { some: { id: fiscalDocumentId } },
+        installments: { some: { status: { not: ORDER_INSTALLMENT_STATUS.PAID } } },
+      },
+      select: { id: true },
+    });
+
+    for (const o of orders) {
+      await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        let remaining = amount;
+        const open = await tx.orderInstallment.findMany({
+          where: { orderId: o.id, status: { not: ORDER_INSTALLMENT_STATUS.PAID } },
+          orderBy: { number: 'asc' },
+          select: { id: true, amount: true, paidAmount: true },
+        });
+        const now = new Date();
+        for (const inst of open) {
+          if (remaining <= 0.005) break;
+          const due = Math.max(0, inst.amount - (inst.paidAmount || 0));
+          const applied = Math.min(due, remaining);
+          if (applied <= 0) continue;
+          remaining -= applied;
+          const newPaid = (inst.paidAmount || 0) + applied;
+          const fullyPaid = newPaid >= inst.amount - 0.005;
+          await tx.orderInstallment.update({
+            where: { id: inst.id },
+            data: {
+              paidAmount: newPaid,
+              status: fullyPaid
+                ? ORDER_INSTALLMENT_STATUS.PAID
+                : ORDER_INSTALLMENT_STATUS.PARTIALLY_PAID,
+              paidAt: fullyPaid ? now : null,
+              paidById: fullyPaid ? userId ?? null : null,
+            },
+          });
+        }
+        await this.recomputeOrderPaymentRollup(tx, o.id);
+      });
+    }
   }
 }

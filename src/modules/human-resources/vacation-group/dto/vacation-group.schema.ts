@@ -24,7 +24,6 @@ const relationIncludeSchema = z.union([
 
 export const vacationGroupIncludeSchema = z
   .object({
-    periods: relationIncludeSchema.optional(),
     vacations: relationIncludeSchema.optional(),
   })
   .partial();
@@ -131,21 +130,14 @@ export const vacationGroupQuerySchema = z.object({
 });
 
 // =====================
-// Period (template) child
+// CRUD schemas (template single-period: startDate + days)
 // =====================
 
-const vacationGroupPeriodInputSchema = z.object({
-  startDate: z.coerce.date({ invalid_type_error: 'data de início inválida' }),
-  days: z.coerce
-    .number({ invalid_type_error: 'dias inválidos' })
-    .int({ message: 'Dias deve ser inteiro' })
-    .min(1, { message: 'O período deve ter ao menos 1 dia' })
-    .max(30, { message: 'Um período não pode exceder 30 dias' }),
-});
-
-// =====================
-// CRUD schemas
-// =====================
+const groupGozoDaysSchema = z.coerce
+  .number({ invalid_type_error: 'dias inválidos' })
+  .int({ message: 'Dias deve ser inteiro' })
+  .min(1, { message: 'O gozo coletivo deve ter ao menos 1 dia' })
+  .max(30, { message: 'O gozo coletivo não pode exceder 30 dias' });
 
 export const vacationGroupCreateSchema = z
   .object({
@@ -156,7 +148,9 @@ export const vacationGroupCreateSchema = z
     sectorIds: z.array(z.string().uuid({ message: 'Setor inválido' })).optional(),
     positionIds: z.array(z.string().uuid({ message: 'Cargo inválido' })).optional(),
     notes: z.string().max(2000).nullable().optional(),
-    periods: z.array(vacationGroupPeriodInputSchema).min(1).max(3),
+    // Template single-period aplicado a cada colaborador na expansão.
+    startDate: z.coerce.date({ invalid_type_error: 'data de início inválida' }),
+    days: groupGozoDaysSchema,
   })
   .refine(
     d => d.type !== VACATION_GROUP_TYPE.SECTOR || (d.sectorIds?.length ?? 0) > 0,
@@ -172,7 +166,8 @@ export const vacationGroupUpdateSchema = z.object({
   sectorIds: z.array(z.string().uuid()).optional(),
   positionIds: z.array(z.string().uuid()).optional(),
   notes: z.string().max(2000).nullable().optional(),
-  periods: z.array(vacationGroupPeriodInputSchema).min(1).max(3).optional(),
+  startDate: z.coerce.date({ invalid_type_error: 'data de início inválida' }).optional(),
+  days: groupGozoDaysSchema.optional(),
 });
 
 export const vacationGroupAdvanceSchema = z.object({

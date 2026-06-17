@@ -51,6 +51,7 @@ export const employmentContractIncludeSchema = z
     payrolls: relationIncludeSchema.optional(),
     vacations: relationIncludeSchema.optional(),
     thirteenths: relationIncludeSchema.optional(),
+    phaseHistory: relationIncludeSchema.optional(),
   })
   .partial();
 
@@ -258,8 +259,6 @@ export const employmentContractCreateSchema = z
     exp2StartAt: nullableDate,
     exp2EndAt: nullableDate,
     effectedAt: nullableDate,
-    // Fase de experiência (1|2). NULL = derivar das datas exp1*/exp2*.
-    experiencePhase: z.number().int().min(1).max(2).nullable().optional(),
     // Art. 481 CLT — cláusula assecuratória do direito recíproco de rescisão.
     hasArt481Clause: z.boolean().optional(),
     // Overrides per-vínculo da insalubridade/periculosidade do cargo.
@@ -304,7 +303,6 @@ export const employmentContractUpdateSchema = z
     exp2StartAt: nullableDate,
     exp2EndAt: nullableDate,
     effectedAt: nullableDate,
-    experiencePhase: z.number().int().min(1).max(2).nullable().optional(),
     hasArt481Clause: z.boolean().optional(),
     insalubrityDegreeOverride: z.nativeEnum(INSALUBRITY_DEGREE).nullable().optional(),
     hazardPayOverride: z.boolean().nullable().optional(),

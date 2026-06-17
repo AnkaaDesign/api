@@ -84,7 +84,7 @@ export class VacationGroupService {
         this.prisma.vacationGroup.findMany({
           where,
           orderBy: q.orderBy || { createdAt: 'desc' },
-          include: q.include ?? { periods: true, _count: { select: { vacations: true } } },
+          include: q.include ?? { _count: { select: { vacations: true } } },
           skip,
           take,
         }),
@@ -118,8 +118,7 @@ export class VacationGroupService {
       const group = await this.prisma.vacationGroup.findUnique({
         where: { id },
         include: (include as any) ?? {
-          periods: true,
-          vacations: { where: { deletedAt: null }, include: { user: true, periods: true } },
+          vacations: { where: { deletedAt: null }, include: { user: true } },
         },
       });
       if (!group || (group as any).deletedAt) {
@@ -142,13 +141,6 @@ export class VacationGroupService {
     userId?: string,
   ): Promise<VacationGroupCreateResponse> {
     try {
-      // Períodos-modelo seguem as regras de fracionamento (até 3, um ≥14 etc.).
-      // Usamos 30 como teto de referência do grupo (o limite real é por colab.).
-      const validation = this.calc.validateFracionamento(data.periods, 30);
-      if (!validation.valid) {
-        throw new BadRequestException(validation.errors.join(' '));
-      }
-
       const concessiveEnd = this.calc.addYears(data.acquisitiveEnd, 1);
 
       const group = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -161,12 +153,13 @@ export class VacationGroupService {
             concessiveEnd,
             status: VACATION_STATUS.OPEN,
             statusOrder: VACATION_STATUS_ORDER[VACATION_STATUS.OPEN],
+            // Template single-period aplicado a cada colaborador na expansão.
+            startDate: data.startDate,
+            days: data.days,
             sectorIds: data.type === VACATION_GROUP_TYPE.SECTOR ? data.sectorIds ?? [] : [],
             positionIds: data.type === VACATION_GROUP_TYPE.POSITION ? data.positionIds ?? [] : [],
             notes: data.notes ?? null,
-            periods: { create: data.periods.map(p => ({ startDate: p.startDate, days: p.days })) },
           },
-          include: { periods: true },
         });
 
         await logEntityChange({
@@ -198,21 +191,13 @@ export class VacationGroupService {
     userId?: string,
   ): Promise<VacationGroupUpdateResponse> {
     try {
-      const periodsChanged = !!data.periods;
+      // Modelo FLAT: o template é uma tomada single-period (startDate + days).
+      const templateChanged = data.startDate !== undefined || data.days !== undefined;
 
       const group = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const existing = await tx.vacationGroup.findUnique({ where: { id } });
         if (!existing || existing.deletedAt) {
           throw new NotFoundException('Férias coletivas não encontradas.');
-        }
-
-        if (data.periods) {
-          const validation = this.calc.validateFracionamento(data.periods, 30);
-          if (!validation.valid) throw new BadRequestException(validation.errors.join(' '));
-          await tx.vacationGroupPeriod.deleteMany({ where: { groupId: id } });
-          await tx.vacationGroupPeriod.createMany({
-            data: data.periods.map(p => ({ groupId: id, startDate: p.startDate, days: p.days })),
-          });
         }
 
         const updated = await tx.vacationGroup.update({
@@ -222,8 +207,9 @@ export class VacationGroupService {
             ...(data.sectorIds !== undefined ? { sectorIds: data.sectorIds } : {}),
             ...(data.positionIds !== undefined ? { positionIds: data.positionIds } : {}),
             ...(data.notes !== undefined ? { notes: data.notes } : {}),
+            ...(data.startDate !== undefined ? { startDate: data.startDate } : {}),
+            ...(data.days !== undefined ? { days: data.days } : {}),
           },
-          include: { periods: true },
         });
 
         await logEntityChange({
@@ -241,17 +227,16 @@ export class VacationGroupService {
         return updated;
       });
 
-      // Propagação dos períodos-modelo aos membros JÁ expandidos cujo gozo ainda
-      // NÃO começou (OPEN/SCHEDULED). Reusa o caminho individual setPeriods, que
-      // valida fracionamento + sobreposição (exemptando o próprio grupo), reescreve
-      // os VacationPeriod e re-sincroniza o afastamento no Secullum quando aplicável.
+      // Propagação do template (startDate/days) aos membros JÁ expandidos cujo
+      // gozo ainda NÃO começou (OPEN/SCHEDULED). Reusa o caminho individual
+      // vacationService.update, que valida saldo + sobreposição (exemptando o
+      // próprio grupo) e re-sincroniza o afastamento no Secullum quando aplicável.
       // CONSERVADOR: membros em gozo (IN_PROGRESS), pagos (PAID) ou expirados
-      // (EXPIRED) NÃO são tocados — para eles o grupo permanece apenas template.
-      // Falhas individuais não abortam o update do grupo.
+      // (EXPIRED) NÃO são tocados. Falhas individuais não abortam o update.
       let propagated = 0;
       let propagationSkipped = 0;
       const propagationFailed: Array<{ id: string; reason?: string }> = [];
-      if (periodsChanged && data.periods) {
+      if (templateChanged) {
         const members = await this.prisma.vacation.findMany({
           where: { groupId: id, deletedAt: null },
           select: { id: true, status: true },
@@ -263,9 +248,13 @@ export class VacationGroupService {
             continue;
           }
           try {
-            await this.vacationService.setPeriods(
+            await this.vacationService.update(
               member.id,
-              { periods: data.periods.map(p => ({ startDate: p.startDate, days: p.days })) },
+              {
+                ...(data.startDate !== undefined ? { startDate: data.startDate } : {}),
+                ...(data.days !== undefined ? { days: data.days } : {}),
+              } as any,
+              undefined,
               userId,
             );
             propagated++;
@@ -275,7 +264,7 @@ export class VacationGroupService {
         }
         if (propagationFailed.length > 0) {
           this.logger.warn(
-            `Propagação de períodos do grupo ${id}: ${propagationFailed.length} membro(s) falharam: ` +
+            `Propagação do template do grupo ${id}: ${propagationFailed.length} membro(s) falharam: ` +
               propagationFailed.map(f => `${f.id} (${f.reason ?? 'sem detalhe'})`).join('; '),
           );
         }
@@ -285,8 +274,8 @@ export class VacationGroupService {
         success: true,
         message:
           'Férias coletivas atualizadas com sucesso.' +
-          (periodsChanged
-            ? ` Períodos propagados a ${propagated} colaborador(es)` +
+          (templateChanged
+            ? ` Gozo propagado a ${propagated} colaborador(es)` +
               `${propagationSkipped > 0 ? `, ${propagationSkipped} ignorado(s) (gozo iniciado/pago)` : ''}` +
               `${propagationFailed.length > 0 ? `, ${propagationFailed.length} falha(s)` : ''}.`
             : ''),
@@ -440,18 +429,21 @@ export class VacationGroupService {
 
   async expand(id: string, userId?: string): Promise<VacationGroupExpandResponse> {
     try {
-      const group = await this.prisma.vacationGroup.findUnique({
-        where: { id },
-        include: { periods: { select: { startDate: true, days: true } } },
-      });
+      const group = await this.prisma.vacationGroup.findUnique({ where: { id } });
       if (!group || group.deletedAt) {
         throw new NotFoundException('Férias coletivas não encontradas.');
       }
 
+      // Template single-period do grupo aplicado a cada colaborador.
+      const templateStartDate = (group as any).startDate as Date | null;
+      const templateDays = (group as any).days as number;
+      if (!templateStartDate || !templateDays || templateDays < 1) {
+        throw new BadRequestException(
+          'Não é possível expandir: defina a data de início e os dias de gozo coletivo primeiro.',
+        );
+      }
+
       const members = await this.resolveMembers(group as any);
-      const templatePeriods = ((group as any).periods as Array<{ startDate: Date; days: number }>).map(
-        p => ({ startDate: p.startDate, days: p.days }),
-      );
 
       const details: Array<{
         userId: string;
@@ -475,15 +467,16 @@ export class VacationGroupService {
           continue;
         }
         try {
-          // Reutiliza o create individual: deriva o aquisitivo do contrato do
-          // colaborador, valida fracionamento e sobreposição (exemptando o
-          // próprio grupo), grava changelog. groupId vincula ao coletivo.
+          // Reutiliza o create individual (single-period): deriva o aquisitivo
+          // do contrato do colaborador, valida saldo e sobreposição (exemptando
+          // o próprio grupo), grava changelog. groupId vincula ao coletivo.
           await this.vacationService.create(
             {
               userId: m.userId,
               groupId: id,
               unjustifiedAbsencesInPeriod: 0,
-              periods: templatePeriods,
+              startDate: templateStartDate,
+              days: templateDays,
             } as any,
             undefined,
             userId,
@@ -600,7 +593,6 @@ export class VacationGroupService {
       const updated = await this.prisma.vacationGroup.update({
         where: { id },
         data: { status: targetStatus as any, statusOrder: VACATION_STATUS_ORDER[targetStatus] },
-        include: { periods: true },
       });
 
       await this.changeLogService.logChange({

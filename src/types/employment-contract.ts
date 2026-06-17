@@ -46,8 +46,6 @@ export interface EmploymentContract extends BaseEntity {
   exp2StartAt: Date | null;
   exp2EndAt: Date | null;
   effectedAt: Date | null;
-  /** Fase de experiência (1 ou 2). Normalmente DERIVADA das datas de experiência. NULL = derivar. */
-  experiencePhase: number | null;
   /** Art. 481 CLT — cláusula assecuratória do direito recíproco de rescisão. */
   hasArt481Clause: boolean;
   terminationDate: Date | null;
@@ -70,6 +68,8 @@ export interface EmploymentContract extends BaseEntity {
   payrolls?: any[];
   vacations?: any[];
   thirteenths?: any[];
+  /** Trilha de auditoria das fases (modalidades) do vínculo ao longo do tempo. */
+  phaseHistory?: any[];
 }
 
 // =====================
@@ -85,6 +85,7 @@ export interface EmploymentContractIncludes {
   payrolls?: boolean | { include?: any };
   vacations?: boolean | { include?: any };
   thirteenths?: boolean | { include?: any };
+  phaseHistory?: boolean | { include?: any };
 }
 
 // =====================

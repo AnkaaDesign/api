@@ -511,6 +511,17 @@ export const userIncludeSchema = z
         }),
       ])
       .optional(),
+    contractPhaseHistory: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z.any().optional(),
+          select: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+        }),
+      ])
+      .optional(),
     admissions: z
       .union([
         z.boolean(),
@@ -1234,8 +1245,12 @@ const userFilters = {
   payrollNumber: z.coerce.number().int().optional(),
   sectorIds: z.array(z.string()).optional(),
   positionIds: z.array(z.string()).optional(),
-  contractKinds: z.array(z.nativeEnum(CONTRACT_TYPE)).optional(),
+  // Granular situação/modalidade/categoria filters (key off the synced cache columns).
+  contractStatuses: z.array(z.nativeEnum(CONTRACT_STATUS)).optional(),
+  contractTypes: z.array(z.nativeEnum(CONTRACT_TYPE)).optional(),
   employeeTypes: z.array(z.nativeEnum(EMPLOYEE_TYPE)).optional(),
+  // Alias kept for backward compatibility — maps to currentContractType like contractTypes.
+  contractKinds: z.array(z.nativeEnum(CONTRACT_TYPE)).optional(),
   isActive: z.boolean().optional(),
   isVerified: z.boolean().optional(),
   hasPosition: z.boolean().optional(),
@@ -1244,7 +1259,6 @@ const userFilters = {
   hasPpeSize: z.boolean().optional(),
   hasActivities: z.boolean().optional(),
   hasTasks: z.boolean().optional(),
-  showDismissed: z.boolean().optional(),
   performanceLevelRange: z
     .object({
       min: z.number().optional(),
@@ -1313,37 +1327,42 @@ const userTransform = (data: any) => {
     delete data.positionIds;
   }
 
-  // Handle contractKinds filter — now maps to the current-vínculo type cache.
-  if (data.contractKinds && Array.isArray(data.contractKinds) && data.contractKinds.length > 0) {
-    andConditions.push({ currentContractType: { in: data.contractKinds } });
-    delete data.contractKinds;
+  // Handle granular situação filter (current contract lifecycle status).
+  if (
+    data.contractStatuses &&
+    Array.isArray(data.contractStatuses) &&
+    data.contractStatuses.length > 0
+  ) {
+    andConditions.push({ currentContractStatus: { in: data.contractStatuses } });
+    delete data.contractStatuses;
   }
 
-  // Handle employeeTypes filter (worker category — CLT/PJ/terceirizado/etc.)
+  // Handle granular modalidade filter (current contract type). `contractKinds`
+  // is a backward-compatible alias that maps to the same cache column.
+  const contractTypeValues =
+    (Array.isArray(data.contractTypes) && data.contractTypes.length > 0 && data.contractTypes) ||
+    (Array.isArray(data.contractKinds) && data.contractKinds.length > 0 && data.contractKinds) ||
+    null;
+  if (contractTypeValues) {
+    andConditions.push({ currentContractType: { in: contractTypeValues } });
+  }
+  delete data.contractTypes;
+  delete data.contractKinds;
+
+  // Handle categoria filter (worker category — CLT/PJ/terceirizado/etc.)
   if (data.employeeTypes && Array.isArray(data.employeeTypes) && data.employeeTypes.length > 0) {
     andConditions.push({ currentEmployeeType: { in: data.employeeTypes } });
     delete data.employeeTypes;
   }
 
-  // Handle isActive filter
-  // isActive now mirrors the current contract's lifecycle status: a collaborator
-  // is "active" when their current vínculo is NOT dismissed.
+  // Handle isActive filter — THE canonical "currently employed" signal.
+  // Keyed off the synced `User.isActive` column (robust for null/zero-contract
+  // users). Dismissed === isActive === false. When undefined, no condition is
+  // applied so ALL users (incl. dismissed) are returned — the default
+  // "active only" view is a frontend concern.
   if (typeof data.isActive === 'boolean') {
-    andConditions.push({
-      currentContractStatus: data.isActive
-        ? { not: CONTRACT_STATUS.TERMINATED } // Active = current vínculo not terminated
-        : CONTRACT_STATUS.TERMINATED, // Inactive = current vínculo terminated
-    });
+    andConditions.push({ isActive: data.isActive });
     delete data.isActive;
-  }
-
-  // Handle showDismissed filter — when not explicitly true, hide terminated
-  // collaborators (default list behavior). Skip when isActive already scoped it.
-  if (typeof data.showDismissed === 'boolean') {
-    if (!data.showDismissed) {
-      andConditions.push({ currentContractStatus: { not: CONTRACT_STATUS.TERMINATED } });
-    }
-    delete data.showDismissed;
   }
 
   // Handle isVerified filter
@@ -1547,8 +1566,8 @@ const notificationPreferenceCreateNestedSchema = z.object({
 });
 
 // First employment contract (vínculo) created together with the collaborator.
-// When omitted, the service defaults CLT to contractType=FIXED_TERM + status=EXPERIENCE
-// (efetivação later flips status→ACTIVE + modality→INDETERMINATE) and uses the user's
+// When omitted, the service defaults CLT to contractType=EXPERIENCE_PERIOD_1 + status=ACTIVE
+// (efetivação later changes modality EXPERIENCE_PERIOD_2→INDETERMINATE) and uses the user's
 // admissionDate (positionId/sectorId mirror the user).
 export const userContractCreateNestedSchema = z.object({
   employeeType: z
@@ -1601,7 +1620,7 @@ export const userCreateSchema = z
     name: createNameSchema(2, 200, 'Nome'),
     avatarId: z.string().uuid('ID de avatar inválido').nullable().optional(),
     // First vínculo (EmploymentContract) created with the collaborator. Optional;
-    // the service defaults CLT to contractType=FIXED_TERM + status=EXPERIENCE.
+    // the service defaults CLT to contractType=EXPERIENCE_PERIOD_1 + status=ACTIVE.
     contract: userContractCreateNestedSchema.optional(),
     phone: phoneSchema.nullable().optional(),
     // Cargo (position) — required at create time. The bound Secullum função is
@@ -1815,8 +1834,6 @@ export const userUpdateSchema = z
     exp1EndAt: nullableDate.optional(),
     exp2StartAt: nullableDate.optional(),
     exp2EndAt: nullableDate.optional(),
-    // Fase de experiência (1|2) do vínculo atual. NULL = derivar das datas.
-    experiencePhase: z.number().int().min(1).max(2).nullable().optional(),
     // Art. 481 CLT — cláusula assecuratória do direito recíproco de rescisão.
     hasArt481Clause: z.boolean().optional(),
     // Overrides per-vínculo da insalubridade/periculosidade do cargo (NULL = herda).
@@ -2016,17 +2033,22 @@ export type UserWhere = z.infer<typeof userWhereSchema>;
 // =====================
 
 /**
- * Contract-type (MODALITY) transition rules WITHIN a single vínculo
- * (EmploymentContract). With the Part-A taxonomy, the lifecycle is driven by
- * CONTRACT_STATUS (EXPERIENCE → ACTIVE → … → TERMINATED), NOT by the modality.
- * The modality is largely stable; the one canonical change is efetivação (CLT
- * art. 451), which converts FIXED_TERM → INDETERMINATE while the status flips
- * EXPERIENCE → ACTIVE. Administrative modality corrections among CLT modalities
- * are allowed; the real gating is the status machine in `@utils/contract`.
+ * Contract-type (MODALITY/phase) transition rules WITHIN a single vínculo
+ * (EmploymentContract). Experiência is now encoded in the modality
+ * (EXPERIENCE_PERIOD_1 → EXPERIENCE_PERIOD_2 → INDETERMINATE on efetivação,
+ * CLT art. 451) while status stays ACTIVE. Administrative modality corrections
+ * among CLT modalities are allowed; demissão is a STATUS change handled in the
+ * status machine in `@utils/contract`.
  */
 export const CONTRACT_TYPE_TRANSITIONS: Record<CONTRACT_TYPE, CONTRACT_TYPE[]> = {
   // INDETERMINATE (efetivo) is terminal as a modality.
   [CONTRACT_TYPE.INDETERMINATE]: [],
+  // Experiência phases advance to one another and efetivam (→ INDETERMINATE).
+  [CONTRACT_TYPE.EXPERIENCE_PERIOD_1]: [
+    CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
+    CONTRACT_TYPE.INDETERMINATE,
+  ],
+  [CONTRACT_TYPE.EXPERIENCE_PERIOD_2]: [CONTRACT_TYPE.INDETERMINATE],
   // The other CLT modalities can be efetivadas (→ INDETERMINATE) or corrected
   // between one another administratively.
   [CONTRACT_TYPE.FIXED_TERM]: [
@@ -2079,6 +2101,8 @@ export function getStatusTransitionError(
     [CONTRACT_TYPE.INTERMITTENT]: 'Intermitente',
     [CONTRACT_TYPE.APPRENTICE]: 'Aprendiz',
     [CONTRACT_TYPE.TEMPORARY]: 'Temporário',
+    [CONTRACT_TYPE.EXPERIENCE_PERIOD_1]: 'Experiência 1',
+    [CONTRACT_TYPE.EXPERIENCE_PERIOD_2]: 'Experiência 2',
   };
 
   if (currentType === CONTRACT_TYPE.INDETERMINATE) {

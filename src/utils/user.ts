@@ -84,6 +84,8 @@ export function getUserStatusColor(contractType: CONTRACT_TYPE): string {
     [CONTRACT_TYPE.INTERMITTENT]: 'green',
     [CONTRACT_TYPE.APPRENTICE]: 'green',
     [CONTRACT_TYPE.TEMPORARY]: 'green',
+    [CONTRACT_TYPE.EXPERIENCE_PERIOD_1]: 'orange',
+    [CONTRACT_TYPE.EXPERIENCE_PERIOD_2]: 'orange',
   };
   return colors[contractType] || 'default';
 }
@@ -314,17 +316,19 @@ export function getLedSector(user: User): User['ledSector'] | null {
 /**
  * Check if user is eligible for bonus calculation. This is the SINGLE
  * canonical definition (must match the API live calc) — all four predicates:
- * 1. isBonifiable(currentContract) — CLT && status ACTIVE (the former EFFECTED gate)
+ * 1. isBonifiable(currentContract) — CLT && status ACTIVE && type INDETERMINATE
+ *    (the former EFFECTED gate; experiência EXPERIENCE_PERIOD_1/2 is excluded)
  * 2. position.bonifiable === true
  * 3. user.performanceLevel > 0
  * 4. user.secullumEmployeeId != null (registered in the time-clock system)
  */
 export function isUserEligibleForBonus(user: User): boolean {
-  // Check confirmed-CLT eligibility (CLT && ACTIVE) against the User cache.
+  // Check confirmed-CLT eligibility (CLT && ACTIVE && INDETERMINATE) against the User cache.
   if (
     !isBonifiable({
       employeeType: user.currentEmployeeType as EMPLOYEE_TYPE | null | undefined,
       status: user.currentContractStatus as any,
+      contractType: user.currentContractType as any,
     })
   ) {
     return false;

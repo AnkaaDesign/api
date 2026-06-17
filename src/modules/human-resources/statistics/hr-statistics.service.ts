@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { CONTRACT_STATUS } from '../../../constants/enums';
+import { CONTRACT_TYPE } from '../../../constants/enums';
 import {
   businessMonthKey,
   businessPeriodEnd,
@@ -32,9 +32,11 @@ const UNASSIGNED_POSITION_LABEL = 'Sem cargo';
 
 type UserRow = {
   id: string;
-  // contractStatus = situação do vínculo (EXPERIENCE/ACTIVE/...): substitui o uso
-  // antigo de contractType para distinguir experiência vs efetivado.
+  // contractStatus = situação do vínculo (binária ACTIVE/TERMINATED).
   contractStatus: string | null;
+  // contractType = modalidade/fase do vínculo; experiência = EXPERIENCE_PERIOD_1/2,
+  // efetivado = INDETERMINATE.
+  contractType: string | null;
   sectorId: string | null;
   positionId: string | null;
   createdAt: Date;
@@ -51,9 +53,11 @@ const USER_ROW_SELECT = {
   positionId: true,
   createdAt: true,
   currentContractStatus: true,
+  currentContractType: true,
   currentContract: {
     select: {
       status: true,
+      contractType: true,
       effectedAt: true,
       exp1EndAt: true,
       exp2EndAt: true,
@@ -70,8 +74,10 @@ function toUserRow(u: {
   positionId: string | null;
   createdAt: Date;
   currentContractStatus: string | null;
+  currentContractType: string | null;
   currentContract: {
     status: string | null;
+    contractType: string | null;
     effectedAt: Date | null;
     exp1EndAt: Date | null;
     exp2EndAt: Date | null;
@@ -81,6 +87,7 @@ function toUserRow(u: {
   return {
     id: u.id,
     contractStatus: u.currentContract?.status ?? u.currentContractStatus ?? null,
+    contractType: u.currentContract?.contractType ?? u.currentContractType ?? null,
     sectorId: u.sectorId,
     positionId: u.positionId,
     createdAt: u.createdAt,
@@ -257,7 +264,9 @@ export class HrStatisticsService {
     const timeseries: HeadcountTimeseriesItem[] = buckets.map(b => {
       const activeUsers = users.filter(u => this.isActiveDuring(u, b.start, b.end));
       const inExperience = activeUsers.filter(
-        u => u.contractStatus === CONTRACT_STATUS.EXPERIENCE,
+        u =>
+          u.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_1 ||
+          u.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
       ).length;
       const newHires = users.filter(u => {
         const j = this.joinDate(u);
@@ -304,10 +313,14 @@ export class HrStatisticsService {
     ).length;
 
     const inExperience = snapshotActive.filter(
-      u => u.contractStatus === CONTRACT_STATUS.EXPERIENCE,
+      u =>
+        u.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_1 ||
+        u.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
     ).length;
-    // "Efetivado" = vínculo em situação regular (ACTIVE) e fora da experiência.
-    const effected = snapshotActive.filter(u => u.contractStatus === CONTRACT_STATUS.ACTIVE).length;
+    // "Efetivado" = vínculo já efetivado (modalidade INDETERMINATE).
+    const effected = snapshotActive.filter(
+      u => u.contractType === CONTRACT_TYPE.INDETERMINATE,
+    ).length;
 
     const summary: HeadcountSummary = {
       totalActive,

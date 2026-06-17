@@ -1110,10 +1110,12 @@ model Order {
   paymentDueDays        Int?
   paymentResponsibleId  String?
   paymentAssignedById   String?
-  paymentStatus         OrderPaymentStatus   @default(NOT_REQUESTED)
+  paymentStatus         OrderPaymentStatus   @default(AWAITING_PAYMENT)
   paymentStatusOrder    Int                  @default(1)
   paymentRequestedAt    DateTime?
   paidAt                DateTime?
+  paidById              String?
+  installmentCount      Int                  @default(1)
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   activities            Activity[]           @relation("ACTIVITY_ORDER")
@@ -1122,7 +1124,10 @@ model Order {
   supplier              Supplier?            @relation("ORDER_SUPPLIER", fields: [supplierId], references: [id])
   paymentResponsible    User?                @relation("ORDER_PAYMENT_RESPONSIBLE", fields: [paymentResponsibleId], references: [id])
   paymentAssignedBy     User?                @relation("ORDER_PAYMENT_ASSIGNED_BY", fields: [paymentAssignedById], references: [id])
+  paidBy                User?                @relation("ORDER_PAID_BY", fields: [paidById], references: [id])
   items                 OrderItem[]
+  installments          OrderInstallment[]
+  fiscalDocuments       FiscalDocument[]     @relation("ORDER_FISCAL_DOCUMENTS")
   budgets               File[]               @relation("ORDER_BUDGETS")
   invoices              File[]               @relation("ORDER_INVOICES")
   invoiceReimbursements File[]               @relation("ORDER_INVOICE_REIMBURSEMENTS")
@@ -1139,6 +1144,7 @@ model Order {
   @@index([paymentAssignedById])
   @@index([paymentStatus])
   @@index([paymentStatusOrder])
+  @@index([paidById])
 }
 
 model OrderItem {
@@ -1161,6 +1167,34 @@ model OrderItem {
 
   @@index([orderId])
   @@index([itemId])
+}
+
+// Payment installments for an Order.
+// PIX / CREDIT_CARD orders carry a single installment settled via the order
+// lifecycle (manual "mark paid"). BANK_SLIP (boleto) orders carry N installments
+// (2x/3x...) that settle through reconciliation as each parcela's bank
+// transaction is matched against the order's fiscal document(s).
+model OrderInstallment {
+  id         String                 @id @default(uuid())
+  orderId    String
+  number     Int // 1-based installment index
+  dueDate    DateTime?
+  amount     Float
+  paidAmount Float                  @default(0)
+  status     OrderInstallmentStatus @default(PENDING)
+  paidAt     DateTime?
+  paidById   String?
+  notes      String?
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+  order      Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paidBy     User?                  @relation("ORDER_INSTALLMENT_PAID_BY", fields: [paidById], references: [id])
+
+  @@unique([orderId, number])
+  @@index([orderId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([paidById])
 }
 
 model OrderSchedule {
@@ -1915,6 +1949,8 @@ model User {
   warningsWitness                Warning[]                    @relation("WITNESS_WARNING")
   paymentResponsibleOrders       Order[]                      @relation("ORDER_PAYMENT_RESPONSIBLE")
   paymentAssignedByOrders        Order[]                      @relation("ORDER_PAYMENT_ASSIGNED_BY")
+  paidOrders                     Order[]                      @relation("ORDER_PAID_BY")
+  paidOrderInstallments          OrderInstallment[]           @relation("ORDER_INSTALLMENT_PAID_BY")
   invoicesCreated                Invoice[]                    @relation("InvoicesCreated")
   taskForecastHistories          TaskForecastHistory[]        @relation("TASK_FORECAST_HISTORY_USER")
   bankTransactionImports         BankTransaction[]            @relation("BankTransactionUploader")
@@ -1940,6 +1976,7 @@ model User {
   admissionsCreated              Admission[]                  @relation("ADMISSION_CREATED_BY")
   admissionDocumentsSigned       AdmissionDocument[]          @relation("ADMISSION_DOCUMENT_SIGNED_BY")
   contracts                      EmploymentContract[]         @relation("EMPLOYMENT_CONTRACT_USER")
+  contractPhaseHistory           ContractPhaseHistory[]       @relation("CONTRACT_PHASE_HISTORY_USER")
   currentContract                EmploymentContract?          @relation("USER_CURRENT_CONTRACT", fields: [currentContractId], references: [id])
   terminations                   Termination[]                @relation("TERMINATION_USER")
   terminationsInitiated          Termination[]                @relation("TERMINATION_INITIATED_BY")
@@ -2557,24 +2594,24 @@ enum ResponsibleRole {
   @@map("RepresentativeRole")
 }
 
-// The legal MODALITY of an employment bond (only meaningful for on-folha CLT-family types).
-// Experiência phase (1 vs 2) is DERIVED from exp1*/exp2* date fields, not from this enum;
-// while in experiência the modality is FIXED_TERM with status EXPERIENCE, advancing to
-// INDETERMINATE + status ACTIVE on efetivação (CLT art. 451) within the SAME vínculo.
+// The legal MODALITY/phase of an employment bond (only meaningful for on-folha CLT-family types).
+// Experiência is now encoded directly in this enum (EXPERIENCE_PERIOD_1 / EXPERIENCE_PERIOD_2)
+// with status=ACTIVE. Efetivação (CLT art. 451) is a single type change
+// EXPERIENCE_PERIOD_2 → INDETERMINATE within the SAME vínculo; status stays ACTIVE.
 enum ContractType {
   INDETERMINATE
   FIXED_TERM
   INTERMITTENT
   APPRENTICE
   TEMPORARY
+  EXPERIENCE_PERIOD_1
+  EXPERIENCE_PERIOD_2
 }
 
 // The LIFECYCLE status (situação) of an employment bond. Orthogonal to ContractType.
+// Binary: afastado is owned by the Leave feature, aviso prévio by the Termination feature.
 enum ContractStatus {
-  EXPERIENCE
   ACTIVE
-  NOTICE_PERIOD
-  ON_LEAVE
   TERMINATED
 }
 
@@ -4132,6 +4169,7 @@ model FiscalDocument {
   matches    ReconciliationMatch[]     @relation("DocumentMatches")
   items      FiscalDocumentItem[]
   orderCodes FiscalDocumentOrderCode[]
+  orders     Order[]                   @relation("ORDER_FISCAL_DOCUMENTS")
 
   @@index([docType])
   @@index([operationType])
@@ -5252,9 +5290,7 @@ model EmploymentContract {
   exp2StartAt     DateTime?
   exp2EndAt       DateTime?
   effectedAt      DateTime?
-  // Experiência phase (1 or 2). Normally DERIVED from exp1*/exp2* dates; this optional
-  // explicit marker is for cases where date-derivation is awkward. NULL = derive from dates.
-  experiencePhase Int?             // 1 | 2 | null
+  // Experiência phase is encoded in contractType (EXPERIENCE_PERIOD_1 / EXPERIENCE_PERIOD_2).
   // Art. 481 CLT — cláusula assecuratória do direito recíproco de rescisão; when a fixed-term
   // contract carries it, early termination follows the indeterminate regime (aviso prévio).
   hasArt481Clause Boolean          @default(false)
@@ -5282,6 +5318,7 @@ model EmploymentContract {
   payrolls        Payroll[]        @relation("PAYROLL_CONTRACT")
   vacations       Vacation[]       @relation("VACATION_CONTRACT")
   thirteenths     Thirteenth[]     @relation("THIRTEENTH_CONTRACT")
+  phaseHistory    ContractPhaseHistory[] @relation("CONTRACT_PHASE_HISTORY_CONTRACT")
 
   @@unique([userId, sequence])
   @@index([userId])
@@ -5290,6 +5327,31 @@ model EmploymentContract {
   @@index([employeeType])
   @@index([positionId])
   @@index([sectorId])
+}
+
+// Auditable timeline of the modalities (contractType) an EmploymentContract held
+// over its life. The contract advances its MODALITY in place (EXPERIENCE_PERIOD_1
+// → EXPERIENCE_PERIOD_2 → INDETERMINATE) — status stays ACTIVE, the vínculo is a
+// single continuous relationship (no termination/recreation between phases). Each
+// row is one phase: startDate when the modality began, endDate when it was
+// superseded (NULL = current/open phase). At most one open row per contract.
+model ContractPhaseHistory {
+  id           String                    @id @default(uuid())
+  contractId   String
+  userId       String
+  contractType ContractType
+  startDate    DateTime
+  endDate      DateTime? // NULL = current/open phase
+  triggeredBy  ChangeLogTriggeredByType?
+  reason       String?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+
+  contract EmploymentContract @relation("CONTRACT_PHASE_HISTORY_CONTRACT", fields: [contractId], references: [id], onDelete: Cascade)
+  user     User               @relation("CONTRACT_PHASE_HISTORY_USER", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([contractId, endDate])
+  @@index([userId])
 }
 
 // Grau de insalubridade (NR-15) → percentual do adicional sobre o salário-mínimo.
@@ -5723,6 +5785,10 @@ model Vacation {
   contractId                  String?
   // Férias coletivas: vínculo opcional ao grupo que originou este registro individual.
   groupId                     String?
+  // Início do gozo DESTA tomada (null enquanto não agendada).
+  startDate                   DateTime?
+  // Dias de gozo DESTA tomada (uma Vacation = uma tomada single-period).
+  days                        Int                 @default(0)
   // Período aquisitivo (12 meses de trabalho que geram direito).
   acquisitiveStart            DateTime
   acquisitiveEnd              DateTime
@@ -5756,11 +5822,11 @@ model Vacation {
   user                        User?               @relation("VACATION_USER", fields: [userId], references: [id], onDelete: SetNull)
   contract                    EmploymentContract? @relation("VACATION_CONTRACT", fields: [contractId], references: [id])
   group                       VacationGroup?      @relation("VACATION_GROUP", fields: [groupId], references: [id], onDelete: SetNull)
-  periods                     VacationPeriod[]    @relation("VACATION_PERIOD_VACATION")
 
-  // Unicidade do período aquisitivo por colaborador é garantida por índice ÚNICO
-  // PARCIAL (WHERE deleted_at IS NULL) criado na migração SQL — permite recriar
-  // após soft-delete e ignora linhas órfãs (userId NULL). Ver migration.
+  // Modelo FLAT: cada Vacation é UMA tomada single-period (startDate+days).
+  // Múltiplas Vacations podem compartilhar o mesmo período aquisitivo
+  // (irmãs); os dias de gozo restantes são derivados agrupando as irmãs por
+  // (userId, acquisitiveStart, acquisitiveEnd). NÃO há mais índice único.
   @@index([userId])
   @@index([contractId])
   @@index([groupId])
@@ -5769,20 +5835,9 @@ model Vacation {
   @@index([acquisitiveEnd])
   @@index([concessiveEnd])
   @@index([deletedAt])
-}
-
-// Fracionamento das férias (Reforma 2017): até 3 períodos, um ≥ 14 dias.
-model VacationPeriod {
-  id         String   @id @default(uuid())
-  vacationId String
-  startDate  DateTime
-  days       Int
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  vacation   Vacation @relation("VACATION_PERIOD_VACATION", fields: [vacationId], references: [id], onDelete: Cascade)
-
-  @@index([vacationId])
   @@index([startDate])
+  // Agrupamento das tomadas-irmãs (cálculo de saldo de gozo do período).
+  @@index([userId, acquisitiveStart, acquisitiveEnd])
 }
 
 // Alvo das férias coletivas (CLT art. 139): toda a empresa, setores ou cargos.
@@ -5793,45 +5848,34 @@ enum VacationGroupType {
 }
 
 // Férias COLETIVAS (CLT art. 139-141). Registra-se o período coletivo PRIMEIRO;
-// depois ele é "expandido" em um Vacation individual por colaborador alvo, cada
-// um com seu próprio período aquisitivo e fracionamento editável.
+// depois ele é "expandido" em um Vacation individual (single-period) por
+// colaborador alvo, cada um com seu próprio período aquisitivo. O grupo é apenas
+// proveniência após a expansão (não há mais navegação dedicada).
 model VacationGroup {
-  id               String                @id @default(uuid())
+  id               String            @id @default(uuid())
   name             String
   type             VacationGroupType
   // Janela coletiva de referência (informativa; o aquisitivo real é por colaborador).
   acquisitiveStart DateTime
   acquisitiveEnd   DateTime
   concessiveEnd    DateTime?
-  status           VacationStatus        @default(OPEN)
-  statusOrder      Int                   @default(1)
+  status           VacationStatus    @default(OPEN)
+  statusOrder      Int               @default(1)
+  // Template single-period: início e dias de gozo aplicados a cada colaborador.
+  startDate        DateTime?
+  days             Int               @default(0)
   // Alvo: vazio salvo quando type=SECTOR/POSITION.
-  sectorIds        String[]              @default([])
-  positionIds      String[]              @default([])
+  sectorIds        String[]          @default([])
+  positionIds      String[]          @default([])
   notes            String?
   deletedAt        DateTime?
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
-  periods          VacationGroupPeriod[] @relation("VACATION_GROUP_PERIOD")
-  vacations        Vacation[]            @relation("VACATION_GROUP")
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  vacations        Vacation[]        @relation("VACATION_GROUP")
 
   @@index([status, statusOrder])
   @@index([acquisitiveEnd])
   @@index([deletedAt])
-}
-
-// Períodos-modelo (template) compartilhados do grupo coletivo. Cada Vacation
-// individual gerado herda estes períodos em seu próprio VacationPeriod[].
-model VacationGroupPeriod {
-  id        String        @id @default(uuid())
-  groupId   String
-  startDate DateTime
-  days      Int
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  group     VacationGroup @relation("VACATION_GROUP_PERIOD", fields: [groupId], references: [id], onDelete: Cascade)
-
-  @@index([groupId])
 }
 
 // ============================================================================
@@ -5959,8 +6003,15 @@ model Postit {
 
 // Order payment (contas a pagar)
 enum OrderPaymentStatus {
-  NOT_REQUESTED
-  REQUESTED
   AWAITING_PAYMENT
+  PARTIALLY_PAID
   PAID
+}
+
+enum OrderInstallmentStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
 }

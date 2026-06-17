@@ -21,17 +21,14 @@ import type { User } from '../../../../types/user';
 // Entities
 // =====================
 
-export interface VacationPeriod extends BaseEntity {
-  vacationId: string;
-  startDate: Date;
-  days: number;
-}
-
 export interface Vacation extends BaseEntity {
   userId: string;
   contractId: string | null;
   // Férias coletivas: vínculo opcional ao grupo que originou este registro individual.
   groupId: string | null;
+  // Modelo FLAT: uma Vacation = uma tomada single-period.
+  startDate: Date | null;
+  days: number;
   acquisitiveStart: Date;
   acquisitiveEnd: Date;
   concessiveEnd: Date | null;
@@ -56,10 +53,35 @@ export interface Vacation extends BaseEntity {
 
   // Relations
   user?: User;
-  periods?: VacationPeriod[];
   contract?: any;
   // Férias coletivas: grupo que originou este registro individual (quando expandido).
   group?: any;
+}
+
+// =====================
+// Saldo de gozo do período aquisitivo (siblings agrupados)
+// =====================
+
+export interface VacationPeriodTaking {
+  id: string;
+  startDate: Date | null;
+  days: number;
+  status: VACATION_STATUS;
+}
+
+export interface VacationPeriodBalance {
+  /** Dias de direito (escala art. 130). */
+  entitledDays: number;
+  /** Abono pecuniário da PRIMEIRA tomada do período. */
+  abonoDays: number;
+  /** Dias de gozo disponíveis = entitledDays - abonoDays. */
+  gozoEntitled: number;
+  /** Soma de days das tomadas do grupo. */
+  scheduledDays: number;
+  /** Saldo de gozo restante = max(0, gozoEntitled - scheduledDays). */
+  remainingDays: number;
+  /** Histórico das tomadas-irmãs do período. */
+  takings: VacationPeriodTaking[];
 }
 
 // =====================
@@ -75,7 +97,7 @@ export interface VacationReciboLine {
 export interface VacationRecibo {
   vacationId: string;
   userId: string;
-  /** Dias gozados (entitled - abono). */
+  /** Dias gozados DESTA tomada (single-period). */
   vacationDays: number;
   abonoPecuniarioDays: number;
   /** Base de cálculo das férias (remuneração + média de variáveis). */
@@ -108,3 +130,4 @@ export type VacationBatchCreateResponse<T> = BaseBatchResponse<Vacation, T>;
 export type VacationBatchUpdateResponse<T> = BaseBatchResponse<Vacation, T>;
 export type VacationBatchDeleteResponse = BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }>;
 export type VacationCalculateResponse = BaseGetUniqueResponse<{ vacation: Vacation; recibo: VacationRecibo }>;
+export type VacationPeriodBalanceResponse = BaseGetUniqueResponse<VacationPeriodBalance>;

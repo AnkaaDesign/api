@@ -40,17 +40,20 @@ export class PayablesService {
       const rows: PayableRow[] = [];
 
       // 1) Orders / airbrushing / schedules / paid — annotate settleVia.
+      // Respect a settleVia the source already set (boleto orders → RECONCILIATION);
+      // only fall back to the source default when it is missing.
       for (const r of orderResp.data.rows) {
         rows.push({
           ...r,
           settleVia:
-            r.source === 'ORDER'
+            r.settleVia ??
+            (r.source === 'ORDER'
               ? 'ORDER_LIFECYCLE'
               : r.source === 'AIRBRUSHING'
                 ? 'AIRBRUSHING'
                 : r.source === 'SCHEDULED'
                   ? 'SCHEDULE_TRIGGER'
-                  : 'NONE',
+                  : 'NONE'),
         });
       }
 
@@ -179,8 +182,6 @@ export class PayablesService {
       // --- summary buckets ---
       const emptyBucket = () => ({ count: 0, total: 0 });
       const summary: PayablesSummary = {
-        NOT_REQUESTED: emptyBucket(),
-        REQUESTED: emptyBucket(),
         AWAITING_PAYMENT: emptyBucket(),
         PARTIALLY_PAID: emptyBucket(),
         EXPECTED: emptyBucket(),

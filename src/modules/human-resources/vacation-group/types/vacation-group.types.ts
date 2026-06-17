@@ -12,12 +12,6 @@ import type {
 import type { VACATION_STATUS, VACATION_GROUP_TYPE } from '../../../../constants';
 import type { Vacation } from '../../vacation/types/vacation.types';
 
-export interface VacationGroupPeriod extends BaseEntity {
-  groupId: string;
-  startDate: Date;
-  days: number;
-}
-
 export interface VacationGroup extends BaseEntity {
   name: string;
   type: VACATION_GROUP_TYPE;
@@ -26,12 +20,14 @@ export interface VacationGroup extends BaseEntity {
   concessiveEnd: Date | null;
   status: VACATION_STATUS;
   statusOrder: number;
+  // Template single-period aplicado a cada colaborador na expansão.
+  startDate: Date | null;
+  days: number;
   sectorIds: string[];
   positionIds: string[];
   notes: string | null;
 
   // Relations
-  periods?: VacationGroupPeriod[];
   vacations?: Vacation[];
 }
 

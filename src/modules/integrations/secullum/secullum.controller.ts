@@ -21,6 +21,7 @@ import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { ReadRateLimit, WriteRateLimit } from '@modules/common/throttler/throttler.decorators';
 import { CONTRACT_STATUS, SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { SecullumService } from './secullum.service';
+import { SecullumVacationSyncService } from './secullum-vacation-sync.service';
 import {
   UserSecullumSyncService,
   SecullumBackfillResult,
@@ -70,8 +71,30 @@ export class SecullumController {
     private readonly secullumService: SecullumService,
     private readonly userService: UserService,
     private readonly userSecullumSyncService: UserSecullumSyncService,
+    private readonly secullumVacationSync: SecullumVacationSyncService,
     private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * Diagnostic for the Férias → ponto integration: shows which Secullum
+   * justificativa is resolved as "Férias" (the single point of failure for
+   * vacation sync) and lists the candidates so an operator can spot a
+   * misconfiguration instead of hitting a silent abort.
+   * GET /integrations/secullum/ferias-justificativa
+   */
+  @Get('ferias-justificativa')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
+  async getFeriasJustificativa() {
+    const data = await this.secullumVacationSync.getFeriasJustificativaDiagnostic();
+    return {
+      success: true,
+      message: data.resolved
+        ? `Justificativa de Férias resolvida: ${data.resolved.name}.`
+        : 'Nenhuma justificativa de Férias pôde ser resolvida no Secullum.',
+      data,
+    };
+  }
 
   /**
    * Resolve an Ankaa userId to its persisted `User.secullumEmployeeId`.

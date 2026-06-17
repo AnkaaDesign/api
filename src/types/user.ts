@@ -89,6 +89,8 @@ export interface User extends BaseEntity {
   // Vínculos empregatícios (EmploymentContract). `contracts` is the canonical list relation.
   currentContract?: EmploymentContract | null;
   contracts?: EmploymentContract[];
+  /** Trilha de auditoria das fases (modalidades) dos vínculos do colaborador. */
+  contractPhaseHistory?: any[];
   admissions?: Admission[];
   ppeSize?: PpeSize;
   preference?: Preferences;

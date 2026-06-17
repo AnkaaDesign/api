@@ -254,10 +254,10 @@ export class AuthService {
       phone: phone || null,
       password: hashedPassword,
       // Guest (Convidado) self-signup: no real vínculo yet — seed the current
-      // contract cache so the experiência situação is reflected until HR
+      // contract cache so the experiência modalidade is reflected until HR
       // formalises an EmploymentContract.
-      currentContractType: CONTRACT_TYPE.FIXED_TERM,
-      currentContractStatus: CONTRACT_STATUS.EXPERIENCE,
+      currentContractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
+      currentContractStatus: CONTRACT_STATUS.ACTIVE,
       verified: false, // Requires verification
       performanceLevel: 0,
       sectorId: guestSector.id, // Assign to Convidado sector
