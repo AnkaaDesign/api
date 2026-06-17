@@ -936,6 +936,45 @@ export class PersonalService {
     return { success: true, data: stats };
   }
 
+  /**
+   * Returns the authenticated user's position ladder for the personal bonus
+   * simulator: their current position plus the next two positions by hierarchy
+   * (3 total). Exposes ONLY id/name/hierarchy — NEVER salary — so a regular
+   * employee can build the "what if I get promoted" selector without calling
+   * the HR-only GET /positions (which carries salary data and is restricted to
+   * HR/ACCOUNTING/ADMIN, returning 403 to PRODUCTION and other sectors).
+   */
+  async getMyPositions(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { position: { select: { id: true, name: true, hierarchy: true } } },
+    });
+
+    const current = user?.position;
+    if (!current) {
+      return {
+        success: true,
+        data: [] as Array<{ id: string; name: string; hierarchy: number | null }>,
+      };
+    }
+
+    // Current + next 2 by hierarchy (mirrors the old client-side slice of 3).
+    const ladder = await this.prisma.position.findMany({
+      where: { hierarchy: { gte: current.hierarchy ?? 0 } },
+      orderBy: { hierarchy: 'asc' },
+      select: { id: true, name: true, hierarchy: true },
+      take: 3,
+    });
+
+    // Guarantee the user's current position is always present even if a
+    // hierarchy tie/ordering quirk would otherwise drop it from the top 3.
+    const data = ladder.some((p) => p.id === current.id)
+      ? ladder
+      : [current, ...ladder].slice(0, 3);
+
+    return { success: true, data };
+  }
+
   // =====================
   // MY APURAÇÃO DE CARTÃO PONTO (Assinatura Digital — review / sign / reject)
   // =====================
