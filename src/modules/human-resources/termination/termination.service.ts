@@ -1159,6 +1159,13 @@ export class TerminationService {
               },
             });
 
+            // Histórico de fases: encerra a fase atualmente em aberto na data de
+            // rescisão (o vínculo terminou; a timeline fecha).
+            await this.employmentContractService.closeOpenContractPhase(tx, {
+              contractId,
+              endDate: terminationDate,
+            });
+
             await this.employmentContractService.syncUserCurrentContract(tx, existing.userId, {
               userId: userId ?? undefined,
             });

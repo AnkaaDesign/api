@@ -14,16 +14,11 @@ import { CONTRACT_STATUS, CONTRACT_TYPE, EMPLOYEE_TYPE } from '@constants';
  * Situações que representam um vínculo ABERTO (pessoa empregada).
  * Tudo que NÃO é TERMINATED.
  */
-export const OPEN_CONTRACT_STATUSES = [
-  CONTRACT_STATUS.EXPERIENCE,
-  CONTRACT_STATUS.ACTIVE,
-  CONTRACT_STATUS.NOTICE_PERIOD,
-  CONTRACT_STATUS.ON_LEAVE,
-] as const;
+export const OPEN_CONTRACT_STATUSES = [CONTRACT_STATUS.ACTIVE] as const;
 
 /**
  * Modalidades legais válidas para um vínculo CLT (folha).
- * APPRENTICE só existe sob CLT.
+ * APPRENTICE e as fases de experiência (EXPERIENCE_PERIOD_1/2) só existem sob CLT.
  */
 export const CLT_CONTRACT_TYPES = [
   CONTRACT_TYPE.INDETERMINATE,
@@ -31,6 +26,8 @@ export const CLT_CONTRACT_TYPES = [
   CONTRACT_TYPE.INTERMITTENT,
   CONTRACT_TYPE.APPRENTICE,
   CONTRACT_TYPE.TEMPORARY,
+  CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
+  CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
 ] as const;
 
 /**
@@ -40,35 +37,38 @@ export const CLT_CONTRACT_TYPES = [
 export interface ContractLike {
   employeeType?: EMPLOYEE_TYPE | string | null;
   status?: CONTRACT_STATUS | string | null;
+  contractType?: CONTRACT_TYPE | string | null;
 }
 
 /**
  * ELEGIBILIDADE À BONIFICAÇÃO — predicado canônico (substitui o antigo gate
  * `contractType === EFFECTED` espalhado em 8+ sites).
  *
- * Elegível ⇔ vínculo CLT confirmado E em situação ATIVA:
- *   employeeType === CLT && status === ACTIVE
+ * Elegível ⇔ vínculo CLT efetivado E em situação ATIVA:
+ *   employeeType === CLT && status === ACTIVE && contractType === INDETERMINATE
  *
- * Observação: a modalidade (FIXED_TERM/INTERMITTENT/APPRENTICE/…) NÃO importa;
- * o que importa é ser CLT e estar ACTIVE (efetivado/regular). Em experiência
- * (status=EXPERIENCE) NÃO é bonificável.
+ * Em experiência (contractType = EXPERIENCE_PERIOD_1/2) NÃO é bonificável,
+ * mesmo com status ACTIVE — a efetivação é o gate (EXPERIENCE_PERIOD_2 → INDETERMINATE).
  */
 export function isBonifiable(contract: ContractLike | null | undefined): boolean {
   if (!contract) return false;
   return (
-    contract.employeeType === EMPLOYEE_TYPE.CLT && contract.status === CONTRACT_STATUS.ACTIVE
+    contract.employeeType === EMPLOYEE_TYPE.CLT &&
+    contract.status === CONTRACT_STATUS.ACTIVE &&
+    contract.contractType === CONTRACT_TYPE.INDETERMINATE
   );
 }
 
 /**
  * Fragmento de `where` Prisma sobre o CACHE do User (currentEmployeeType /
- * currentContractStatus) que reproduz `isBonifiable` no banco. Use para
- * filtrar usuários bonificáveis em queries (substitui o antigo
+ * currentContractStatus / currentContractType) que reproduz `isBonifiable` no banco.
+ * Use para filtrar usuários bonificáveis em queries (substitui o antigo
  * `currentContractType: CONTRACT_TYPE.EFFECTED` + `currentEmployeeType IN payroll`).
  */
 export const BONIFIABLE_USER_WHERE = {
   currentEmployeeType: EMPLOYEE_TYPE.CLT,
   currentContractStatus: CONTRACT_STATUS.ACTIVE,
+  currentContractType: CONTRACT_TYPE.INDETERMINATE,
 } as const;
 
 /**
@@ -83,24 +83,15 @@ export function isOpenStatus(status: CONTRACT_STATUS | string | null | undefined
 // =====================
 
 /**
- * Transições de situação PERMITIDAS:
- *   EXPERIENCE     → ACTIVE (efetivação) | TERMINATED
- *   ACTIVE         → NOTICE_PERIOD | ON_LEAVE | TERMINATED
- *   NOTICE_PERIOD  → TERMINATED
- *   ON_LEAVE       → ACTIVE | TERMINATED
- *   TERMINATED     → (terminal)
+ * Transições de situação PERMITIDAS (situação agora é binária):
+ *   ACTIVE     → TERMINATED
+ *   TERMINATED → (terminal)
  *
- * Bloqueia regressões ilegais (ex.: ACTIVE→EXPERIENCE, TERMINATED→qualquer).
+ * Experiência e efetivação são mudanças de MODALIDADE (contractType), não de situação.
+ * afastado e aviso prévio são feições do Leave/Termination, não situações de vínculo.
  */
 export const CONTRACT_STATUS_TRANSITIONS: Record<CONTRACT_STATUS, CONTRACT_STATUS[]> = {
-  [CONTRACT_STATUS.EXPERIENCE]: [CONTRACT_STATUS.ACTIVE, CONTRACT_STATUS.TERMINATED],
-  [CONTRACT_STATUS.ACTIVE]: [
-    CONTRACT_STATUS.NOTICE_PERIOD,
-    CONTRACT_STATUS.ON_LEAVE,
-    CONTRACT_STATUS.TERMINATED,
-  ],
-  [CONTRACT_STATUS.NOTICE_PERIOD]: [CONTRACT_STATUS.TERMINATED],
-  [CONTRACT_STATUS.ON_LEAVE]: [CONTRACT_STATUS.ACTIVE, CONTRACT_STATUS.TERMINATED],
+  [CONTRACT_STATUS.ACTIVE]: [CONTRACT_STATUS.TERMINATED],
   [CONTRACT_STATUS.TERMINATED]: [],
 };
 

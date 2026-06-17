@@ -27,6 +27,7 @@ import { MemoCategoryLearnerService } from './memo-category-learner.service';
 import { FiscalDerivedLearnerService } from './fiscal-derived-learner.service';
 import { RecurrenceLearnerService } from './recurrence-learner.service';
 import { CategoryFusionService } from './learning/category-fusion.service';
+import { OrderService } from '../../inventory/order/order.service';
 import { LearnedRuleSource } from '@prisma/client';
 import { memoFingerprint } from './text-normalization';
 
@@ -65,6 +66,7 @@ export class ReconciliationService {
     private readonly fiscalLearner: FiscalDerivedLearnerService,
     private readonly recurrenceLearner: RecurrenceLearnerService,
     private readonly fusion: CategoryFusionService,
+    private readonly orderService: OrderService,
   ) {}
 
   async listTransactions(filters: TransactionsFilterDto) {
@@ -490,6 +492,17 @@ export class ReconciliationService {
     await this.fiscalLearner
       .learnFromTransaction(transactionId, { manual: true })
       .catch(err => this.logger.warn(`fiscal learnFromTransaction failed: ${err}`));
+
+    // Auto-settle boleto order installments for any NF that was just reconciled.
+    // Best-effort and outside the match transaction — never blocks the match.
+    for (const [fiscalDocumentId, allocated] of allocByDoc.entries()) {
+      await this.orderService
+        .settleInstallmentsForFiscalDocument(fiscalDocumentId, allocated, userId)
+        .catch(err =>
+          this.logger.warn(`settleInstallmentsForFiscalDocument failed: ${err}`),
+        );
+    }
+
     return updated;
   }
 

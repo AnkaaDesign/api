@@ -536,11 +536,25 @@ export class UserService {
       if (filters.positionIds && filters.positionIds.length > 0) {
         finalWhere.positionId = { in: filters.positionIds };
       }
-      if (filters.contractKinds && filters.contractKinds.length > 0) {
+      // Granular situação/modalidade/categoria filters key off the synced cache
+      // columns. `contractKinds` is a backward-compatible alias for contractTypes.
+      if (filters.contractStatuses && filters.contractStatuses.length > 0) {
+        finalWhere.currentContractStatus = { in: filters.contractStatuses };
+      }
+      if (filters.contractTypes && filters.contractTypes.length > 0) {
+        finalWhere.currentContractType = { in: filters.contractTypes };
+      } else if (filters.contractKinds && filters.contractKinds.length > 0) {
         finalWhere.currentContractType = { in: filters.contractKinds };
+      }
+      if (filters.employeeTypes && filters.employeeTypes.length > 0) {
+        finalWhere.currentEmployeeType = { in: filters.employeeTypes };
       }
 
       // Handle boolean filters
+      // isActive is THE canonical "currently employed" signal — keyed off the
+      // synced User.isActive column (robust for null/zero-contract users).
+      // An internal caller passing { isActive: false } reliably gets dismissed
+      // users. When undefined, no condition is applied (all users returned).
       if (filters.isActive !== undefined) {
         finalWhere.isActive = filters.isActive;
       }
@@ -846,18 +860,17 @@ export class UserService {
     }
 
     // Criar o PRIMEIRO vínculo (sequence 1, isCurrent true) e sincronizar o
-    // cache do User (currentContract*). Defaults CLT: contractType=FIXED_TERM,
-    // status=EXPERIENCE (a experiência é a SITUAÇÃO, não uma modalidade);
+    // cache do User (currentContract*). Defaults CLT: contractType=EXPERIENCE_PERIOD_1
+    // (a fase de experiência é encodada no contractType), status=ACTIVE;
     // off-folha: contractType=null, status=ACTIVE. Datas calculadas automaticamente.
     const employeeType = (contractInput?.employeeType as EMPLOYEE_TYPE) ?? EMPLOYEE_TYPE.CLT;
     const contractType =
       contractInput?.contractType === undefined
         ? employeeType === EMPLOYEE_TYPE.CLT
-          ? CONTRACT_TYPE.FIXED_TERM
+          ? CONTRACT_TYPE.EXPERIENCE_PERIOD_1
           : null
         : (contractInput.contractType as CONTRACT_TYPE | null);
-    const status =
-      employeeType === EMPLOYEE_TYPE.CLT ? CONTRACT_STATUS.EXPERIENCE : CONTRACT_STATUS.ACTIVE;
+    const status = CONTRACT_STATUS.ACTIVE;
     const integrityError = validateEmployeeContractTypeIntegrity({ employeeType, contractType });
     if (integrityError) {
       throw new BadRequestException(integrityError);
@@ -1097,7 +1110,8 @@ export class UserService {
         }
 
         // Validate the contract STATUS transition (lifecycle machine) within the
-        // current vínculo. Blocks illegal regressions (e.g. ACTIVE→EXPERIENCE).
+        // current vínculo. Status is binary (ACTIVE→TERMINATED); blocks revivals
+        // of a TERMINATED vínculo.
         if (
           (data as any).contractStatus &&
           existingContractStatus &&
@@ -2067,13 +2081,12 @@ export class UserService {
   /**
    * Automatically advance experiência by DATES when phases end. Called daily.
    *
-   * With the Part-A taxonomy, experiência is the SITUAÇÃO `status=EXPERIENCE`
-   * (modality stays e.g. FIXED_TERM); phase 1 vs 2 is tracked by the optional
-   * `experiencePhase` marker and the exp1/exp2 phase dates. Transitions:
-   * - phase 1 → phase 2 (when exp1EndAt passed): set experiencePhase=2,
-   *   exp2StartAt; status stays EXPERIENCE.
-   * - efetivação (when exp2EndAt passed): status EXPERIENCE → ACTIVE,
-   *   contractType → INDETERMINATE, set effectedAt.
+   * Experiência phase is encoded in `contractType` (EXPERIENCE_PERIOD_1 /
+   * EXPERIENCE_PERIOD_2) with status=ACTIVE throughout. Transitions:
+   * - phase 1 → phase 2 (when exp1EndAt passed AND exp2 dates exist):
+   *   contractType EXPERIENCE_PERIOD_1 → EXPERIENCE_PERIOD_2.
+   * - efetivação (when the final exp end passed): contractType → INDETERMINATE,
+   *   set effectedAt. status stays ACTIVE (no longer a status transition).
    */
   async processExperiencePeriodTransitions(userId: string | null = null): Promise<{
     totalProcessed: number;
@@ -2099,15 +2112,19 @@ export class UserService {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
-      // Find CURRENT contracts in EXPERIENCE still in phase 1 (experiencePhase=1
-      // or unset/derived) whose exp1 ended today or earlier, and which have NOT
-      // yet reached exp2EndAt (otherwise they go straight to efetivação below).
+      // Find CURRENT CLT contracts in EXPERIENCE_PERIOD_1 whose exp1 ended today or
+      // earlier AND which HAVE phase-2 dates configured. Without phase-2 dates the
+      // contract has a single phase and must go straight to efetivação below (never
+      // bumped to phase 2 — otherwise it would get stuck, because the efetivação query
+      // keys off exp2EndAt).
       const contractsEndingExp1 = await this.prisma.employmentContract.findMany({
         where: {
           isCurrent: true,
-          status: CONTRACT_STATUS.EXPERIENCE,
+          contractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
+          employeeType: EMPLOYEE_TYPE.CLT,
           exp1EndAt: { lt: tomorrow },
-          OR: [{ experiencePhase: { not: 2 } }, { experiencePhase: null }],
+          exp2StartAt: { not: null },
+          exp2EndAt: { not: null },
           ...(userId ? { userId } : {}),
         },
         include: { user: { select: { id: true, name: true } } },
@@ -2117,16 +2134,27 @@ export class UserService {
         `Found ${contractsEndingExp1.length} contracts with Experience Period 1 ended (pending transition)`,
       );
 
-      // Advance phase 1 → phase 2 (status stays EXPERIENCE).
+      // Advance phase 1 → phase 2 (contractType EXPERIENCE_PERIOD_1 → EXPERIENCE_PERIOD_2;
+      // status stays ACTIVE).
       for (const contract of contractsEndingExp1) {
         try {
           await this.prisma.$transaction(async (tx: PrismaTransaction) => {
             await tx.employmentContract.update({
               where: { id: contract.id },
               data: {
-                experiencePhase: 2,
+                contractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
                 exp2StartAt: contract.exp2StartAt || today,
               },
+            });
+
+            // Histórico de fases: encerra a fase de experiência 1 e abre a fase 2.
+            await this.employmentContractService.transitionContractPhase(tx, {
+              contractId: contract.id,
+              userId: contract.userId,
+              newContractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
+              date: today,
+              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+              reason: 'Fim do período de experiência 1',
             });
 
             await this.employmentContractService.syncUserCurrentContract(tx, contract.userId, {
@@ -2137,9 +2165,9 @@ export class UserService {
               entityType: ENTITY_TYPE.USER,
               entityId: contract.userId,
               action: CHANGE_ACTION.UPDATE,
-              field: 'experiencePhase',
-              oldValue: contract.experiencePhase?.toString() ?? '1',
-              newValue: '2',
+              field: 'currentContractType',
+              oldValue: CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
+              newValue: CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
               reason: 'Transição automática: Período de Experiência 1 finalizado',
               triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
               triggeredById: contract.userId,
@@ -2166,14 +2194,30 @@ export class UserService {
         }
       }
 
-      // Find CURRENT contracts in EXPERIENCE whose exp2 ended today or earlier
-      // → efetivação (status EXPERIENCE → ACTIVE, modality → INDETERMINATE).
+      // Find CURRENT CLT contracts still in experiência (EXPERIENCE_PERIOD_2, or
+      // EXPERIENCE_PERIOD_1 with no phase-2 dates) whose FINAL experience end date has
+      // passed → efetivação (modality → INDETERMINATE; status stays ACTIVE).
+      // The final end date is exp2EndAt when phase 2 exists, otherwise exp1EndAt
+      // (single-phase contracts have no exp2 dates and efetivate straight from phase 1).
       const contractsEndingExp2 = await this.prisma.employmentContract.findMany({
         where: {
           isCurrent: true,
-          status: CONTRACT_STATUS.EXPERIENCE,
-          exp2EndAt: { lt: tomorrow },
+          employeeType: EMPLOYEE_TYPE.CLT,
           ...(userId ? { userId } : {}),
+          OR: [
+            // Phase-2 contracts: efetivate when exp2 has passed.
+            {
+              contractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
+              exp2EndAt: { not: null, lt: tomorrow },
+            },
+            // Single-phase contracts (still EXPERIENCE_PERIOD_1, no exp2 dates):
+            // efetivate when exp1 has passed.
+            {
+              contractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
+              exp2EndAt: null,
+              exp1EndAt: { lt: tomorrow },
+            },
+          ],
         },
         include: {
           user: { select: { id: true, name: true, positionId: true, performanceLevel: true } },
@@ -2194,6 +2238,8 @@ export class UserService {
           positionId: contract.positionId,
           performanceLevel: contract.user?.performanceLevel,
         };
+        // Efetivação is now a modality change (EXPERIENCE_PERIOD_* → INDETERMINATE),
+        // not a status transition; status stays ACTIVE. No status-machine guard needed.
         try {
           await this.prisma.$transaction(async (tx: PrismaTransaction) => {
             // Find the next position in the hierarchy (lowest hierarchy value greater than current).
@@ -2215,18 +2261,27 @@ export class UserService {
 
             const shouldPromote = nextPosition !== null;
 
-            // Efetivação (CLT art. 451): status → ACTIVE, modalidade →
-            // INDETERMINATE, grava effectedAt (e promove o cargo se houver
-            // hierarquia superior).
+            // Efetivação (CLT art. 451): modalidade → INDETERMINATE, grava effectedAt
+            // (status permanece ACTIVE; e promove o cargo se houver hierarquia superior).
             await tx.employmentContract.update({
               where: { id: contract.id },
               data: {
-                status: CONTRACT_STATUS.ACTIVE,
-                statusOrder: CONTRACT_STATUS_ORDER[CONTRACT_STATUS.ACTIVE],
                 contractType: CONTRACT_TYPE.INDETERMINATE,
-                effectedAt: today,
+                // Stamp effectedAt only if not already set (idempotent re-runs).
+                ...(contract.effectedAt ? {} : { effectedAt: today }),
                 ...(shouldPromote && { positionId: nextPosition!.id }),
               },
+            });
+
+            // Histórico de fases: encerra a fase de experiência e abre a fase
+            // efetivada (INDETERMINATE).
+            await this.employmentContractService.transitionContractPhase(tx, {
+              contractId: contract.id,
+              userId: user.id,
+              newContractType: CONTRACT_TYPE.INDETERMINATE,
+              date: today,
+              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+              reason: 'Efetivação após período de experiência',
             });
 
             // Performance level + position promotion live on the User.
@@ -2243,14 +2298,14 @@ export class UserService {
               userId: userId ?? undefined,
             });
 
-            // Log the status change (efetivação)
+            // Log the modality change (efetivação)
             await this.changeLogService.logChange({
               entityType: ENTITY_TYPE.USER,
               entityId: user.id,
               action: CHANGE_ACTION.UPDATE,
-              field: 'currentContractStatus',
-              oldValue: CONTRACT_STATUS.EXPERIENCE,
-              newValue: CONTRACT_STATUS.ACTIVE,
+              field: 'currentContractType',
+              oldValue: contract.contractType,
+              newValue: CONTRACT_TYPE.INDETERMINATE,
               reason: 'Transição automática: Período de Experiência 2 finalizado (efetivação)',
               triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
               triggeredById: user.id,

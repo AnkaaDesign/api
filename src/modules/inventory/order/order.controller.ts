@@ -290,20 +290,6 @@ export class OrderController {
   // Declared BEFORE the :id routes so "batch" isn't captured as an :id param.
   // =====================
 
-  @Put('batch/request-payment')
-  @Roles(
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-    SECTOR_PRIVILEGES.ADMIN,
-  )
-  async batchRequestPayment(
-    @Body(new ZodValidationPipe(orderBatchPaymentSchema)) data: OrderBatchPaymentFormData,
-    @UserId() userId: string,
-  ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
-    return this.orderService.batchRequestPayment(data.orderIds, userId);
-  }
-
   @Put('batch/mark-awaiting-payment')
   @Roles(
     SECTOR_PRIVILEGES.WAREHOUSE,
@@ -336,18 +322,32 @@ export class OrderController {
   // Payment workflow — single order (contas a pagar)
   // =====================
 
-  @Put(':id/request-payment')
+  @Put('installments/:installmentId/mark-paid')
   @Roles(
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.ACCOUNTING,
     SECTOR_PRIVILEGES.ADMIN,
   )
-  async requestPayment(
-    @Param('id', ParseUUIDPipe) id: string,
+  async markInstallmentPaid(
+    @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @UserId() userId: string,
   ): Promise<OrderUpdateResponse> {
-    return this.orderService.requestPayment(id, userId);
+    return this.orderService.markInstallmentPaid(installmentId, userId);
+  }
+
+  @Put(':id/fiscal-documents')
+  @Roles(
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async linkFiscalDocuments(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { fiscalDocumentIds?: string[] },
+  ): Promise<OrderUpdateResponse> {
+    return this.orderService.linkFiscalDocuments(id, body?.fiscalDocumentIds ?? []);
   }
 
   @Put(':id/mark-awaiting-payment')

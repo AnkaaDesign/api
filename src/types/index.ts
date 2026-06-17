@@ -57,6 +57,7 @@ export * from './user-position-history';
 export * from './benefit';
 export * from './admission';
 export * from './employment-contract';
+export * from './contract-phase-history';
 export * from './termination';
 export * from './medical-exam';
 export * from './leave';

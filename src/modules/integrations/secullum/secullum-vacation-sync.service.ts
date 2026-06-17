@@ -12,8 +12,10 @@
 //   simple to drive the recibo, so we treat Secullum strictly as the ponto-side
 //   "this person is off" record.
 //
-// - One Ankaa Vacation maps to N Secullum afastamentos, one per VacationPeriod
-//   ({ startDate, days } → Inicio = startDate, Fim = startDate + days − 1).
+// - In the flat model a Vacation IS a single gozo taking, so it maps to exactly
+//   ONE Secullum afastamento ({ startDate, days } → Inicio = startDate,
+//   Fim = startDate + days − 1). An unscheduled taking (startDate null) pushes
+//   nothing.
 //
 // - IDEMPOTENCY / REVERSE: every afastamento we create is tagged in its `Motivo`
 //   with a sentinel `[ANKAA-VAC:<vacationId>]`. To (re)sync we first delete every
@@ -47,6 +49,33 @@ export interface VacationSyncResult {
   // True when the user has no Secullum link (secullumEmployeeId is null) — the
   // operation is a no-op, not a failure.
   skipped?: boolean;
+}
+
+export interface VacationDateRange {
+  inicio: string; // YYYY-MM-DD
+  fim: string; // YYYY-MM-DD (inclusive)
+}
+
+export interface VacationSecullumStatus {
+  /** User has a secullumEmployeeId. */
+  linked: boolean;
+  secullumEmployeeId: number | null;
+  /** Gozo range expected in the ponto (single-period: 0 or 1 entry from startDate/days). */
+  expectedPeriods: VacationDateRange[];
+  /** Afastamentos tagged for this vacation currently in Secullum. */
+  pushedAbsences: (VacationDateRange & { id: number })[];
+  /** Expected períodos not found in Secullum. */
+  missing: VacationDateRange[];
+  /** Tagged afastamentos in Secullum that no longer match an expected período. */
+  extra: (VacationDateRange & { id: number })[];
+  inSync: boolean;
+  state: 'NOT_LINKED' | 'NOT_PUSHED' | 'SYNCED' | 'OUT_OF_SYNC' | 'UNKNOWN';
+  message: string;
+}
+
+export interface FeriasJustificativaDiagnostic {
+  resolved: { id: number; name: string } | null;
+  candidates: { id: number; name: string; feriasFlag: boolean; disabled: boolean }[];
 }
 
 @Injectable()
@@ -109,7 +138,8 @@ export class SecullumVacationSyncService {
           groupId: true,
           status: true,
           user: { select: { id: true, name: true, secullumEmployeeId: true } },
-          periods: { select: { startDate: true, days: true } },
+          startDate: true,
+          days: true,
         },
       });
 
@@ -129,8 +159,11 @@ export class SecullumVacationSyncService {
         };
       }
 
-      const periods = vacation.periods ?? [];
-      if (periods.length === 0) {
+      // Single-period (flat) model: a Vacation IS one taking (startDate + days).
+      // Unscheduled (startDate null) or zero/negative days ⇒ nothing to push.
+      const startDate = vacation.startDate ?? null;
+      const days = vacation.days ?? 0;
+      if (startDate == null || days <= 0) {
         // No gozo dates yet — make sure nothing stale lingers, but nothing to add.
         const removed = await this.removeTaggedAbsences(secullumEmployeeId, vacationId);
         return {
@@ -166,26 +199,24 @@ export class SecullumVacationSyncService {
       let created = 0;
       const failures: string[] = [];
 
-      for (const p of periods) {
-        const inicio = this.toIsoDay(p.startDate);
-        // Secullum afastamento Fim is inclusive; a 30-day gozo starting on D ends
-        // on D + 29.
-        const fim = this.toIsoDay(this.addDays(p.startDate, Math.max(0, p.days - 1)));
-        try {
-          await this.secullum.createAbsence({
-            Inicio: inicio,
-            Fim: fim,
-            JustificativaId: justificativaId,
-            Motivo: motivo,
-            FuncionarioId: secullumEmployeeId,
-          });
-          created++;
-        } catch (err: any) {
-          failures.push(`${inicio}..${fim}: ${err?.message ?? 'erro'}`);
-          this.logger.warn(
-            `Vacation ${vacationId}: failed to create Secullum afastamento ${inicio}..${fim} for funcionario ${secullumEmployeeId}: ${err?.message ?? err}`,
-          );
-        }
+      const inicio = this.toIsoDay(startDate);
+      // Secullum afastamento Fim is inclusive; a 30-day gozo starting on D ends
+      // on D + 29.
+      const fim = this.toIsoDay(this.addDays(startDate, Math.max(0, days - 1)));
+      try {
+        await this.secullum.createAbsence({
+          Inicio: inicio,
+          Fim: fim,
+          JustificativaId: justificativaId,
+          Motivo: motivo,
+          FuncionarioId: secullumEmployeeId,
+        });
+        created++;
+      } catch (err: any) {
+        failures.push(`${inicio}..${fim}: ${err?.message ?? 'erro'}`);
+        this.logger.warn(
+          `Vacation ${vacationId}: failed to create Secullum afastamento ${inicio}..${fim} for funcionario ${secullumEmployeeId}: ${err?.message ?? err}`,
+        );
       }
 
       if (failures.length > 0) {
@@ -368,8 +399,188 @@ export class SecullumVacationSyncService {
   }
 
   // ---------------------------------------------------------------------------
+  // Visibility / diagnostics (read-only — never throws)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Read-derived sync status for a single vacation: compares the vacation's gozo
+   * períodos against the afastamentos tagged for it in Secullum. Used by the UI
+   * to show whether the férias actually reached the ponto. One Secullum read per
+   * call — intended for the detail screen / explicit "verificar no ponto", NOT
+   * for list rows. Never throws.
+   */
+  async getVacationSecullumStatus(vacationId: string): Promise<VacationSecullumStatus> {
+    const empty: VacationSecullumStatus = {
+      linked: false,
+      secullumEmployeeId: null,
+      expectedPeriods: [],
+      pushedAbsences: [],
+      missing: [],
+      extra: [],
+      inSync: false,
+      state: 'NOT_LINKED',
+      message: 'Colaborador não vinculado ao Secullum.',
+    };
+    try {
+      const vacation = await this.prisma.vacation.findUnique({
+        where: { id: vacationId },
+        select: {
+          id: true,
+          status: true,
+          user: { select: { secullumEmployeeId: true } },
+          startDate: true,
+          days: true,
+        },
+      });
+      if (!vacation) {
+        return { ...empty, state: 'NOT_LINKED', message: 'Férias não encontradas.' };
+      }
+
+      // Single-period (flat) model: zero or one expected range. Empty when the
+      // taking is not yet scheduled (startDate null) or has no days.
+      const expectedPeriods =
+        vacation.startDate != null && (vacation.days ?? 0) > 0
+          ? [
+              {
+                inicio: this.toIsoDay(vacation.startDate),
+                fim: this.toIsoDay(
+                  this.addDays(vacation.startDate, Math.max(0, (vacation.days ?? 0) - 1)),
+                ),
+              },
+            ]
+          : [];
+
+      const secullumEmployeeId = vacation.user?.secullumEmployeeId ?? null;
+      if (secullumEmployeeId == null) {
+        return { ...empty, expectedPeriods };
+      }
+
+      // Pull the employee's afastamentos and keep only the ones WE tagged for
+      // this vacation.
+      let list: SecullumAbsence[] = [];
+      try {
+        const res = await this.secullum.getAbsencesByEmployee(secullumEmployeeId);
+        list = res.success && res.data ? res.data : [];
+      } catch (err: any) {
+        this.logger.warn(
+          `getVacationSecullumStatus ${vacationId}: could not list afastamentos for funcionario ${secullumEmployeeId}: ${err?.message ?? err}`,
+        );
+        return {
+          ...empty,
+          linked: true,
+          secullumEmployeeId,
+          expectedPeriods,
+          state: 'UNKNOWN',
+          message: 'Não foi possível consultar o ponto no momento.',
+        };
+      }
+
+      const tag = this.vacationTag(vacationId);
+      const pushedAbsences = list
+        .filter((a) => (a.Motivo ?? '').includes(tag))
+        .map((a) => ({ id: a.Id, inicio: this.normalizeDay(a.Inicio), fim: this.normalizeDay(a.Fim) }));
+
+      const expectedKeys = new Set(expectedPeriods.map((p) => `${p.inicio}..${p.fim}`));
+      const pushedKeys = new Set(pushedAbsences.map((p) => `${p.inicio}..${p.fim}`));
+      const missing = expectedPeriods.filter((p) => !pushedKeys.has(`${p.inicio}..${p.fim}`));
+      const extra = pushedAbsences.filter((p) => !expectedKeys.has(`${p.inicio}..${p.fim}`));
+
+      let state: VacationSecullumStatus['state'];
+      let message: string;
+      if (pushedAbsences.length === 0) {
+        state = 'NOT_PUSHED';
+        message =
+          vacation.status === 'OPEN'
+            ? 'Ainda não enviado ao ponto (férias em aberto).'
+            : 'Nenhum período enviado ao ponto.';
+      } else if (missing.length === 0 && extra.length === 0) {
+        state = 'SYNCED';
+        message = `Sincronizado no ponto: ${pushedAbsences.length} período(s).`;
+      } else {
+        state = 'OUT_OF_SYNC';
+        message = `Divergência no ponto: ${missing.length} faltando, ${extra.length} a mais.`;
+      }
+
+      return {
+        linked: true,
+        secullumEmployeeId,
+        expectedPeriods,
+        pushedAbsences,
+        missing,
+        extra,
+        inSync: state === 'SYNCED',
+        state,
+        message,
+      };
+    } catch (err: any) {
+      this.logger.error(
+        `getVacationSecullumStatus ${vacationId}: unexpected error: ${err?.message ?? err}`,
+      );
+      return { ...empty, state: 'UNKNOWN', message: 'Erro ao consultar o status no ponto.' };
+    }
+  }
+
+  /**
+   * Diagnostic for the Secullum integration settings: which justificativa is
+   * resolved as "Férias" and what the candidates are. Lets an operator see/fix
+   * the single point of failure instead of a silent abort. Never throws.
+   */
+  async getFeriasJustificativaDiagnostic(): Promise<FeriasJustificativaDiagnostic> {
+    try {
+      const res = await this.secullum.getJustifications();
+      const justifications = res.success && res.data ? res.data : [];
+      const chosen = this.pickFeriasJustification(justifications);
+      return {
+        resolved: chosen ? { id: chosen.Id, name: chosen.NomeCompleto ?? chosen.NomeAbreviado ?? String(chosen.Id) } : null,
+        candidates: justifications.map((j) => ({
+          id: j.Id,
+          name: j.NomeCompleto ?? j.NomeAbreviado ?? String(j.Id),
+          feriasFlag: !!j.UsarJustificativaParaContagemDeFerias,
+          disabled: !!j.Desativar,
+        })),
+      };
+    } catch (err: any) {
+      this.logger.warn(`getFeriasJustificativaDiagnostic: ${err?.message ?? err}`);
+      return { resolved: null, candidates: [] };
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------
+
+  /**
+   * Pick the justificativa that represents Férias from a list.
+   * Priority: (1) UsarJustificativaParaContagemDeFerias === true (canonical
+   * flag), (2) NomeCompleto/NomeAbreviado matching /f[eé]rias/i. Active
+   * (non-Desativar) entries win over disabled ones.
+   */
+  private pickFeriasJustification(justifications: SecullumJustification[]): SecullumJustification | null {
+    const active = justifications.filter((j) => !j.Desativar);
+    const pool = active.length > 0 ? active : justifications;
+
+    const feriasRe = /f[eé]rias/i;
+    const matchesName = (j: SecullumJustification) =>
+      feriasRe.test(j.NomeCompleto ?? '') || feriasRe.test(j.NomeAbreviado ?? '');
+
+    const flagged = pool.filter((j) => j.UsarJustificativaParaContagemDeFerias);
+    let chosen: SecullumJustification | undefined;
+    if (flagged.length === 1) {
+      chosen = flagged[0];
+    } else if (flagged.length > 1) {
+      chosen = flagged.find(matchesName) ?? flagged[0];
+    }
+    if (!chosen) {
+      chosen = pool.find(matchesName);
+    }
+    return chosen ?? null;
+  }
+
+  // Normalize a Secullum date string ("YYYY-MM-DDT00:00:00" on read) to "YYYY-MM-DD".
+  private normalizeDay(value: string | null | undefined): string {
+    if (!value) return '';
+    return value.length >= 10 ? value.slice(0, 10) : value;
+  }
 
   // Fetch the employee's afastamentos and delete the ones tagged with this
   // vacation's sentinel. Returns the count removed. Tolerant of individual
@@ -440,27 +651,7 @@ export class SecullumVacationSyncService {
       return null;
     }
 
-    const active = justifications.filter((j) => !j.Desativar);
-    const pool = active.length > 0 ? active : justifications;
-
-    const feriasRe = /f[eé]rias/i;
-    const matchesName = (j: SecullumJustification) =>
-      feriasRe.test(j.NomeCompleto ?? '') || feriasRe.test(j.NomeAbreviado ?? '');
-
-    // 1) Canonical flag, narrowed by name when several carry the flag.
-    const flagged = pool.filter((j) => j.UsarJustificativaParaContagemDeFerias);
-    let chosen: SecullumJustification | undefined;
-    if (flagged.length === 1) {
-      chosen = flagged[0];
-    } else if (flagged.length > 1) {
-      chosen = flagged.find(matchesName) ?? flagged[0];
-    }
-
-    // 2) Name fallback when no justificativa carries the férias-counting flag.
-    if (!chosen) {
-      chosen = pool.find(matchesName);
-    }
-
+    const chosen = this.pickFeriasJustification(justifications);
     if (!chosen) {
       this.logger.warn(
         'No Secullum justificativa matched Férias (neither UsarJustificativaParaContagemDeFerias nor name ~ /férias/).',

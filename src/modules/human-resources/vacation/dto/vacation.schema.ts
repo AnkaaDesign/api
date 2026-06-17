@@ -29,7 +29,6 @@ export const vacationIncludeSchema = z
   .object({
     user: relationIncludeSchema.optional(),
     contract: relationIncludeSchema.optional(),
-    periods: relationIncludeSchema.optional(),
     group: relationIncludeSchema.optional(),
   })
   .partial();
@@ -47,6 +46,8 @@ const vacationOrderByFields = z.object({
   acquisitiveStart: orderByDirection.optional(),
   acquisitiveEnd: orderByDirection.optional(),
   concessiveEnd: orderByDirection.optional(),
+  startDate: orderByDirection.optional(),
+  days: orderByDirection.optional(),
   entitledDays: orderByDirection.optional(),
   paymentDueDate: orderByDirection.optional(),
   paymentDate: orderByDirection.optional(),
@@ -110,14 +111,17 @@ export const vacationWhereSchema: z.ZodSchema = z.lazy(() =>
       id: stringWhere.optional(),
       userId: stringWhere.optional(),
       contractId: z.union([stringWhere, z.null()]).optional(),
+      groupId: z.union([stringWhere, z.null()]).optional(),
       status: stringWhere.optional(),
       statusOrder: numberWhere.optional(),
       entitledDays: numberWhere.optional(),
+      days: numberWhere.optional(),
       unjustifiedAbsencesInPeriod: numberWhere.optional(),
 
       acquisitiveStart: dateWhere.optional(),
       acquisitiveEnd: dateWhere.optional(),
       concessiveEnd: z.union([dateWhere, z.null()]).optional(),
+      startDate: z.union([dateWhere, z.null()]).optional(),
       paymentDueDate: z.union([dateWhere, z.null()]).optional(),
       paymentDate: z.union([dateWhere, z.null()]).optional(),
       createdAt: dateWhere.optional(),
@@ -208,21 +212,16 @@ export const vacationBatchQuerySchema = z.object({
 });
 
 // =====================
-// Period child schema (fracionamento)
+// CRUD schemas (modelo FLAT: uma Vacation = uma tomada single-period)
 // =====================
 
-const vacationPeriodInputSchema = z.object({
-  startDate: z.coerce.date({ invalid_type_error: 'data de início inválida' }),
-  days: z.coerce
-    .number({ invalid_type_error: 'dias inválidos' })
-    .int({ message: 'Dias deve ser inteiro' })
-    .min(1, { message: 'O período deve ter ao menos 1 dia' })
-    .max(30, { message: 'Um período não pode exceder 30 dias' }),
-});
-
-// =====================
-// CRUD schemas
-// =====================
+// Dias de gozo DESTA tomada (1..30). O guard de over-allocation (Σdias ≤
+// gozoEntitled) é aplicado no service por grupo aquisitivo.
+const gozoDaysSchema = z.coerce
+  .number({ invalid_type_error: 'dias inválidos' })
+  .int({ message: 'Dias deve ser inteiro' })
+  .min(1, { message: 'A tomada deve ter ao menos 1 dia' })
+  .max(30, { message: 'Uma tomada não pode exceder 30 dias' });
 
 export const vacationCreateSchema = z.object({
   userId: z.string().uuid({ message: 'Colaborador inválido' }),
@@ -231,6 +230,10 @@ export const vacationCreateSchema = z.object({
   contractId: z.string().uuid({ message: 'Vínculo inválido' }).nullable().optional(),
   acquisitiveStart: z.coerce.date().optional(),
   acquisitiveEnd: z.coerce.date().optional(),
+  // Início do gozo desta tomada (null/omitido enquanto não agendada).
+  startDate: z.coerce.date({ invalid_type_error: 'data de início inválida' }).nullable().optional(),
+  // Dias de gozo desta tomada.
+  days: gozoDaysSchema,
   unjustifiedAbsencesInPeriod: z.coerce
     .number({ invalid_type_error: 'faltas injustificadas inválidas' })
     .int()
@@ -244,10 +247,11 @@ export const vacationCreateSchema = z.object({
     .optional(),
   soldThird: z.boolean().optional(),
   notes: z.string().max(2000).nullable().optional(),
-  periods: z.array(vacationPeriodInputSchema).max(3).optional(),
 });
 
 export const vacationUpdateSchema = z.object({
+  startDate: z.coerce.date({ invalid_type_error: 'data de início inválida' }).nullable().optional(),
+  days: gozoDaysSchema.optional(),
   unjustifiedAbsencesInPeriod: z.coerce.number().int().min(0).optional(),
   abonoPecuniarioDays: z.coerce
     .number()
@@ -277,15 +281,21 @@ export const vacationBatchDeleteSchema = z.object({
 });
 
 // =====================
-// Status machine + periods (fracionamento)
+// Status machine
 // =====================
 
 export const vacationAdvanceSchema = z.object({
   status: z.enum(Object.values(VACATION_STATUS) as [string, ...string[]]).optional(),
 });
 
-export const vacationSetPeriodsSchema = z.object({
-  periods: z.array(vacationPeriodInputSchema).min(1).max(3),
+// =====================
+// Period balance query — GET /vacations/period-balance
+// =====================
+
+export const vacationPeriodBalanceSchema = z.object({
+  userId: z.string().uuid({ message: 'Colaborador inválido' }),
+  acquisitiveStart: z.coerce.date({ invalid_type_error: 'data inválida' }),
+  acquisitiveEnd: z.coerce.date({ invalid_type_error: 'data inválida' }),
 });
 
 // =====================
@@ -301,6 +311,5 @@ export type VacationBatchCreateFormData = z.infer<typeof vacationBatchCreateSche
 export type VacationBatchUpdateFormData = z.infer<typeof vacationBatchUpdateSchema>;
 export type VacationBatchDeleteFormData = z.infer<typeof vacationBatchDeleteSchema>;
 export type VacationAdvanceFormData = z.infer<typeof vacationAdvanceSchema>;
-export type VacationSetPeriodsFormData = z.infer<typeof vacationSetPeriodsSchema>;
-export type VacationPeriodInput = z.infer<typeof vacationPeriodInputSchema>;
+export type VacationPeriodBalanceFormData = z.infer<typeof vacationPeriodBalanceSchema>;
 export type VacationInclude = z.infer<typeof vacationIncludeSchema>;

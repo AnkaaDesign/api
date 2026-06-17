@@ -30,7 +30,6 @@ import {
   MEDICAL_EXAM_STATUS,
   MEDICAL_EXAM_STATUS_ORDER,
   MEDICAL_EXAM_TYPE,
-  CONTRACT_STATUS,
 } from '../../../constants';
 import { computeAccidentStabilityWindow } from '../../../utils';
 import { nextBrazilianBusinessDay } from '../../../utils/brazilian-holidays.util';
@@ -238,68 +237,10 @@ export class LeaveService {
     return true;
   }
 
-  /**
-   * Sync the worker's CURRENT EmploymentContract status with the afastamento
-   * lifecycle (Part A status machine: ACTIVE ↔ ON_LEAVE).
-   *
-   * Written directly via prisma here (not through Part A's EmploymentContractService)
-   * per the ownership rules: we only touch the `status` field + the User cache mirror,
-   * and only between ACTIVE and ON_LEAVE. EXPERIENCE / NOTICE_PERIOD / TERMINATED bonds
-   * are left untouched (an afastamento does not regress those).
-   *
-   * @param targetStatus ON_LEAVE (afastamento started) or ACTIVE (returned)
-   */
-  private async syncContractLeaveStatus(
-    tx: PrismaTransaction,
-    leaveUserId: string,
-    targetStatus: string,
-    actorUserId?: string,
-  ): Promise<void> {
-    const user = await tx.user.findUnique({
-      where: { id: leaveUserId },
-      select: { currentContractId: true },
-    });
-    if (!user?.currentContractId) return;
-
-    const contract = await tx.employmentContract.findUnique({
-      where: { id: user.currentContractId },
-      select: { id: true, status: true },
-    });
-    if (!contract) return;
-
-    // Only the ACTIVE ↔ ON_LEAVE transitions are valid here.
-    const allowed =
-      (targetStatus === CONTRACT_STATUS.ON_LEAVE && contract.status === CONTRACT_STATUS.ACTIVE) ||
-      (targetStatus === CONTRACT_STATUS.ACTIVE && contract.status === CONTRACT_STATUS.ON_LEAVE);
-    if (!allowed) return;
-
-    await tx.employmentContract.update({
-      where: { id: contract.id },
-      data: { status: targetStatus as any },
-    });
-    // Keep the denormalized User cache mirror consistent.
-    await tx.user.update({
-      where: { id: leaveUserId },
-      data: { currentContractStatus: targetStatus as any },
-    });
-
-    await this.changeLogService.logChange({
-      entityType: ENTITY_TYPE.USER,
-      entityId: leaveUserId,
-      action: CHANGE_ACTION.UPDATE,
-      field: 'currentContractStatus',
-      oldValue: contract.status,
-      newValue: targetStatus,
-      reason:
-        targetStatus === CONTRACT_STATUS.ON_LEAVE
-          ? 'Vínculo marcado como afastado (ON_LEAVE) pelo afastamento ativo'
-          : 'Vínculo retornado para ativo (ACTIVE) pelo encerramento do afastamento',
-      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
-      triggeredById: null,
-      userId: actorUserId || null,
-      transaction: tx,
-    });
-  }
+  // NOTE: The afastamento lifecycle no longer mirrors onto the contract status.
+  // ContractStatus is binary (ACTIVE | TERMINATED); "afastado" is owned entirely by
+  // the Leave feature (the Leave table is the source of truth). The previous
+  // syncContractLeaveStatus writer (ACTIVE ↔ ON_LEAVE) was removed.
 
   /**
    * Set the acidentária estabilidade window (art. 118 Lei 8.213/91 — 12 months from
@@ -577,15 +518,8 @@ export class LeaveService {
           transaction: tx,
         });
 
-        // A leave created already ACTIVE flips the current vínculo to ON_LEAVE.
-        if (newLeave.status === LEAVE_STATUS.ACTIVE) {
-          await this.syncContractLeaveStatus(
-            tx,
-            newLeave.userId,
-            CONTRACT_STATUS.ON_LEAVE,
-            userId,
-          );
-        }
+        // (Afastamento no longer mirrors onto contract status; the Leave table is the
+        // source of truth for "afastado". Contract status stays ACTIVE.)
 
         return newLeave;
       });
@@ -677,27 +611,8 @@ export class LeaveService {
           );
         }
 
-        // Sync the current vínculo's ON_LEAVE status with the afastamento lifecycle.
-        if (data.status && data.status !== existing.status) {
-          if (data.status === LEAVE_STATUS.ACTIVE) {
-            await this.syncContractLeaveStatus(
-              tx,
-              existing.userId,
-              CONTRACT_STATUS.ON_LEAVE,
-              userId,
-            );
-          } else if (
-            data.status === LEAVE_STATUS.COMPLETED ||
-            data.status === LEAVE_STATUS.CANCELLED
-          ) {
-            await this.syncContractLeaveStatus(
-              tx,
-              existing.userId,
-              CONTRACT_STATUS.ACTIVE,
-              userId,
-            );
-          }
-        }
+        // (Afastamento no longer mirrors onto contract status; the Leave table is the
+        // source of truth for "afastado". Contract status stays ACTIVE throughout.)
 
         await trackAndLogFieldChanges({
           changeLogService: this.changeLogService,
@@ -790,13 +705,8 @@ export class LeaveService {
           );
         }
 
-        // Return from afastamento ⇒ vínculo volta a ACTIVE.
-        await this.syncContractLeaveStatus(
-          tx,
-          existing.userId,
-          CONTRACT_STATUS.ACTIVE,
-          userId,
-        );
+        // (Afastamento no longer mirrors onto contract status; contract status stays
+        // ACTIVE throughout. The Leave table is the source of truth for "afastado".)
 
         // Work-accident return ⇒ estabilidade acidentária de 12 meses a partir do retorno.
         if (existing.type === LEAVE_TYPE.WORK_ACCIDENT) {

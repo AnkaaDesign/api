@@ -65,24 +65,24 @@ export enum SECTOR_PRIVILEGES {
  */
 export const TEAM_LEADER = 'TEAM_LEADER' as const;
 
-// The legal MODALITY of an employment bond (vínculo). Only meaningful for on-folha CLT-family
-// types. Experiência phase (1 vs 2) is DERIVED from exp1*/exp2* dates, not from this enum;
-// while in experiência the modality is FIXED_TERM with status EXPERIENCE, advancing to
-// INDETERMINATE + status ACTIVE on efetivação (CLT art. 451) within the SAME vínculo.
+// The legal MODALITY/phase of an employment bond (vínculo). Only meaningful for on-folha
+// CLT-family types. Experiência phase (1 vs 2) is encoded directly here
+// (EXPERIENCE_PERIOD_1 / EXPERIENCE_PERIOD_2) with status ACTIVE; efetivação (CLT art. 451)
+// is a single type change EXPERIENCE_PERIOD_2 → INDETERMINATE within the SAME vínculo.
 export enum CONTRACT_TYPE {
   INDETERMINATE = 'INDETERMINATE',
   FIXED_TERM = 'FIXED_TERM',
   INTERMITTENT = 'INTERMITTENT',
   APPRENTICE = 'APPRENTICE',
   TEMPORARY = 'TEMPORARY',
+  EXPERIENCE_PERIOD_1 = 'EXPERIENCE_PERIOD_1',
+  EXPERIENCE_PERIOD_2 = 'EXPERIENCE_PERIOD_2',
 }
 
 // The LIFECYCLE status (situação) of an employment bond. Orthogonal to CONTRACT_TYPE.
+// Binary: afastado is owned by the Leave feature, aviso prévio by the Termination feature.
 export enum CONTRACT_STATUS {
-  EXPERIENCE = 'EXPERIENCE',
   ACTIVE = 'ACTIVE',
-  NOTICE_PERIOD = 'NOTICE_PERIOD',
-  ON_LEAVE = 'ON_LEAVE',
   TERMINATED = 'TERMINATED',
 }
 
@@ -527,10 +527,17 @@ export enum PAYROLL_DISCOUNT_TYPE {
 }
 
 export enum ORDER_PAYMENT_STATUS {
-  NOT_REQUESTED = 'NOT_REQUESTED',
-  REQUESTED = 'REQUESTED',
   AWAITING_PAYMENT = 'AWAITING_PAYMENT',
+  PARTIALLY_PAID = 'PARTIALLY_PAID',
   PAID = 'PAID',
+}
+
+export enum ORDER_INSTALLMENT_STATUS {
+  PENDING = 'PENDING',
+  PARTIALLY_PAID = 'PARTIALLY_PAID',
+  PAID = 'PAID',
+  OVERDUE = 'OVERDUE',
+  CANCELLED = 'CANCELLED',
 }
 
 export enum ARTWORK_STATUS {

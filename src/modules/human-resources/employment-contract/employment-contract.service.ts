@@ -74,9 +74,9 @@ export class EmploymentContractService {
    * Sempre executado dentro da transação que alterou o(s) vínculo(s) do colaborador.
    *
    * REGRA do vínculo atual (corrige o bug que pegava o maior sequence ignorando
-   * a situação): preferimos o vínculo ABERTO (status ∈ {EXPERIENCE, ACTIVE,
-   * NOTICE_PERIOD, ON_LEAVE}) de MAIOR sequence. Só caímos para um vínculo
-   * TERMINATED se NÃO houver nenhum aberto (mantém histórico coerente p/ readmissão).
+   * a situação): preferimos o vínculo ABERTO (status = ACTIVE) de MAIOR sequence.
+   * Só caímos para um vínculo TERMINATED se NÃO houver nenhum aberto (mantém
+   * histórico coerente p/ readmissão).
    */
   async syncUserCurrentContract(
     tx: PrismaTransaction,
@@ -139,6 +139,94 @@ export class EmploymentContractService {
     });
   }
 
+  // =====================
+  // Phase-history audit trail (timeline of contractType phases)
+  // =====================
+
+  /**
+   * Abre uma nova fase (linha de histórico em aberto, endDate=NULL) para a
+   * modalidade atual do vínculo. Idempotente: se já existir uma fase ABERTA com o
+   * mesmo contractType, não duplica. Ignora vínculos off-folha (contractType=null).
+   * Sempre executado dentro da transação que alterou o vínculo.
+   */
+  async openContractPhase(
+    tx: PrismaTransaction,
+    params: {
+      contractId: string;
+      userId: string;
+      contractType: CONTRACT_TYPE | null;
+      startDate: Date;
+      triggeredBy?: CHANGE_TRIGGERED_BY;
+      reason?: string | null;
+    },
+  ): Promise<void> {
+    const { contractId, userId, contractType, startDate, triggeredBy, reason } = params;
+    // Off-folha (terceirizado/PJ/autônomo): sem modalidade → sem histórico de fase.
+    if (!contractType) return;
+
+    // Idempotência: não abrir uma fase duplicada do mesmo tipo se já houver uma aberta.
+    const existingOpen = await tx.contractPhaseHistory.findFirst({
+      where: { contractId, endDate: null },
+      select: { id: true, contractType: true },
+    });
+    if (existingOpen && existingOpen.contractType === contractType) return;
+
+    await tx.contractPhaseHistory.create({
+      data: {
+        contractId,
+        userId,
+        contractType: contractType as any,
+        startDate,
+        endDate: null,
+        triggeredBy: (triggeredBy as any) ?? null,
+        reason: reason ?? null,
+      },
+    });
+  }
+
+  /**
+   * Encerra a fase ATUALMENTE EM ABERTO (endDate IS NULL) do vínculo, gravando o
+   * endDate informado. No-op se não houver fase aberta. Sempre dentro da transação.
+   */
+  async closeOpenContractPhase(
+    tx: PrismaTransaction,
+    params: { contractId: string; endDate: Date },
+  ): Promise<void> {
+    const { contractId, endDate } = params;
+    await tx.contractPhaseHistory.updateMany({
+      where: { contractId, endDate: null },
+      data: { endDate },
+    });
+  }
+
+  /**
+   * Transição de fase: encerra a fase aberta atual (closeOpenContractPhase) e abre
+   * uma nova fase para a nova modalidade (openContractPhase), ambas na mesma data.
+   * Usado tanto pela transição automática (cron) quanto pela efetivação manual.
+   */
+  async transitionContractPhase(
+    tx: PrismaTransaction,
+    params: {
+      contractId: string;
+      userId: string;
+      newContractType: CONTRACT_TYPE | null;
+      date: Date;
+      triggeredBy?: CHANGE_TRIGGERED_BY;
+      reason?: string | null;
+    },
+  ): Promise<void> {
+    const { contractId, userId, newContractType, date, triggeredBy, reason } = params;
+    await this.closeOpenContractPhase(tx, { contractId, endDate: date });
+    await this.openContractPhase(tx, {
+      contractId,
+      userId,
+      contractType: newContractType,
+      startDate: date,
+      triggeredBy,
+      reason,
+    });
+  }
+
   /**
    * Cria um NOVO vínculo para um colaborador EXISTENTE (recontratação / nova
    * relação): sequence = max(sequence)+1, derruba o isCurrent anterior e
@@ -178,19 +266,19 @@ export class EmploymentContractService {
     const sequence = (maxSequence._max.sequence ?? 0) + 1;
 
     const employeeType = (data.employeeType as EMPLOYEE_TYPE) ?? EMPLOYEE_TYPE.CLT;
-    // Default de modalidade: CLT inicia em experiência → modalidade FIXED_TERM
-    // (a fase de experiência é a SITUAÇÃO EXPERIENCE, não uma modalidade). Off-folha → null.
+    // Default de modalidade: CLT inicia em experiência → modalidade EXPERIENCE_PERIOD_1
+    // (a fase de experiência é encodada no contractType). Off-folha → null.
     const contractType =
       data.contractType === undefined
         ? employeeType === EMPLOYEE_TYPE.CLT
-          ? CONTRACT_TYPE.FIXED_TERM
+          ? CONTRACT_TYPE.EXPERIENCE_PERIOD_1
           : null
         : (data.contractType as CONTRACT_TYPE | null);
 
-    // Default de situação: CLT entra em EXPERIENCE; off-folha entra ACTIVE.
+    // Default de situação: vínculo nasce ACTIVE (CLT e off-folha). A situação é
+    // binária; experiência é modalidade, não situação.
     const status =
-      ((data as any).status as CONTRACT_STATUS | undefined) ??
-      (employeeType === EMPLOYEE_TYPE.CLT ? CONTRACT_STATUS.EXPERIENCE : CONTRACT_STATUS.ACTIVE);
+      ((data as any).status as CONTRACT_STATUS | undefined) ?? CONTRACT_STATUS.ACTIVE;
 
     // Integridade categoria × modalidade.
     const integrityError = validateEmployeeContractTypeIntegrity({ employeeType, contractType });
@@ -248,16 +336,27 @@ export class EmploymentContractService {
       transaction: tx,
     });
 
+    // Abre a primeira fase do histórico (timeline da modalidade). Off-folha
+    // (contractType=null) é ignorado dentro de openContractPhase.
+    await this.openContractPhase(tx, {
+      contractId: created.id,
+      userId,
+      contractType,
+      startDate: (created.admissionDate as Date | null) ?? new Date(),
+      triggeredBy: options?.userId ? CHANGE_TRIGGERED_BY.USER : CHANGE_TRIGGERED_BY.SYSTEM,
+      reason: options?.changelogReason ?? 'Início do vínculo',
+    });
+
     await this.syncUserCurrentContract(tx, userId, { userId: options?.userId });
 
     return created;
   }
 
   /**
-   * Auto-cálculo das datas de experiência (CLT). A experiência é a SITUAÇÃO
-   * `EXPERIENCE` (não mais uma modalidade): split padrão 1º período = 30 dias,
-   * 2º período = 50 dias (teto legal de 90 dias). Vínculo já ACTIVE (efetivado)
-   * grava effectedAt. Retorna apenas os campos a serem persistidos.
+   * Auto-cálculo das datas de experiência (CLT). A experiência é a MODALIDADE
+   * `EXPERIENCE_PERIOD_1` / `EXPERIENCE_PERIOD_2` (status ACTIVE): split padrão
+   * 1º período = 30 dias, 2º período = 50 dias (teto legal de 90 dias). Vínculo
+   * já efetivado (INDETERMINATE) grava effectedAt. Retorna apenas os campos a persistir.
    *
    * O split é configurável via EXPERIENCE_PHASE_1_DAYS / EXPERIENCE_PHASE_2_DAYS.
    */
@@ -287,7 +386,11 @@ export class EmploymentContractService {
     const p1 = EmploymentContractService.EXPERIENCE_PHASE_1_DAYS;
     const p2 = EmploymentContractService.EXPERIENCE_PHASE_2_DAYS;
 
-    if (input.status === CONTRACT_STATUS.EXPERIENCE) {
+    const isExperience =
+      input.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_1 ||
+      input.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2;
+
+    if (isExperience) {
       const start = exp1StartAt || admissionDate || now;
       exp1StartAt = exp1StartAt || start;
       admissionDate = admissionDate || start;
@@ -475,15 +578,12 @@ export class EmploymentContractService {
     if (data.providerCnpj !== undefined) updateData.providerCnpj = data.providerCnpj;
     if (data.notes !== undefined) updateData.notes = data.notes;
 
-    // Efetivação (CLT art. 451): status EXPERIENCE → ACTIVE converte a modalidade
-    // para INDETERMINATE (salvo override explícito) e grava effectedAt.
+    // Efetivação (CLT art. 451): mudança de modalidade EXPERIENCE_PERIOD_2 → INDETERMINATE
+    // (a situação já é/permanece ACTIVE). Grava effectedAt se ainda não houver.
     if (
-      data.status === CONTRACT_STATUS.ACTIVE &&
-      existing.status === CONTRACT_STATUS.EXPERIENCE
+      data.contractType === CONTRACT_TYPE.INDETERMINATE &&
+      existing.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2
     ) {
-      if (data.contractType === undefined && existing.contractType !== CONTRACT_TYPE.INDETERMINATE) {
-        updateData.contractType = CONTRACT_TYPE.INDETERMINATE;
-      }
       if (data.effectedAt === undefined && !existing.effectedAt) {
         updateData.effectedAt = new Date();
       }
@@ -529,6 +629,34 @@ export class EmploymentContractService {
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
       transaction: tx,
     });
+
+    // Histórico de fases: quando a MODALIDADE muda de fato (inclui a efetivação
+    // manual EXPERIENCE_PERIOD_2 → INDETERMINATE), encerra a fase aberta e abre a
+    // nova. Guard contra dupla-abertura: só dispara se contractType realmente mudou.
+    if (
+      updateData.contractType !== undefined &&
+      updated.contractType !== existing.contractType &&
+      updated.contractType !== null
+    ) {
+      const transitionDate =
+        (updateData.effectedAt as Date | undefined) ?? (updated.effectedAt as Date | null) ?? new Date();
+      await this.transitionContractPhase(tx, {
+        contractId: id,
+        userId: existing.userId,
+        newContractType: updated.contractType as CONTRACT_TYPE,
+        date:
+          updated.contractType === CONTRACT_TYPE.INDETERMINATE &&
+          existing.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2
+            ? transitionDate
+            : new Date(),
+        triggeredBy: CHANGE_TRIGGERED_BY.USER,
+        reason:
+          updated.contractType === CONTRACT_TYPE.INDETERMINATE &&
+          existing.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2
+            ? 'Efetivação (alteração manual)'
+            : 'Alteração manual de modalidade',
+      });
+    }
 
     // Re-sincroniza o cache se este for (ou puder ter virado) o vínculo atual.
     await this.syncUserCurrentContract(tx, existing.userId, { userId });

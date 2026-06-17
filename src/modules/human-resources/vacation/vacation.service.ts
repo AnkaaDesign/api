@@ -1,9 +1,12 @@
 // vacation.service.ts
 // Férias (Departamento Pessoal) — Part C.
 //
-// CRUD + list/filter + batch + status machine + fracionamento + recibo de
-// férias (documento próprio, NÃO embutido na folha mensal). Espelha as
-// convenções do TerminationService (transação + changelog + respostas pt-BR).
+// Modelo FLAT: cada Vacation é UMA tomada single-period (startDate + days).
+// Várias Vacations podem compartilhar o mesmo período aquisitivo (irmãs); o
+// saldo de gozo restante é derivado agrupando-as por (userId, acquisitiveStart,
+// acquisitiveEnd). CRUD + list/filter + batch + status machine + saldo de
+// período + recibo de férias (documento próprio, NÃO embutido na folha mensal).
+// Espelha as convenções do TerminationService (transação + changelog + pt-BR).
 
 import {
   BadRequestException,
@@ -27,7 +30,11 @@ import {
   VACATION_STATUS_ORDER,
 } from '../../../constants';
 import { VacationCalculationService, VariablePayrollSample } from './vacation-calculation.service';
-import { SecullumVacationSyncService } from '@modules/integrations/secullum/secullum-vacation-sync.service';
+import {
+  SecullumVacationSyncService,
+  type VacationSyncResult,
+  type VacationSecullumStatus,
+} from '@modules/integrations/secullum/secullum-vacation-sync.service';
 import type {
   VacationAdvanceFormData,
   VacationBatchCreateFormData,
@@ -36,7 +43,7 @@ import type {
   VacationCreateFormData,
   VacationGetManyFormData,
   VacationInclude,
-  VacationSetPeriodsFormData,
+  VacationPeriodBalanceFormData,
   VacationUpdateFormData,
 } from './dto/vacation.schema';
 import type {
@@ -48,6 +55,9 @@ import type {
   VacationDeleteResponse,
   VacationGetManyResponse,
   VacationGetUniqueResponse,
+  VacationPeriodBalance,
+  VacationPeriodBalanceResponse,
+  VacationPeriodTaking,
   VacationUpdateResponse,
 } from './types/vacation.types';
 
@@ -93,6 +103,21 @@ export class VacationService {
         `Secullum vacation sync raised unexpectedly for ${vacationId}: ${err?.message ?? err}`,
       );
     }
+  }
+
+  /**
+   * Manually (re)push this vacation's gozo períodos to the ponto (Secullum).
+   * Exposed so HR can re-trigger after an outage / unlinked-then-linked user.
+   */
+  async syncSecullum(id: string): Promise<{ success: boolean; message: string; data: VacationSyncResult }> {
+    const result = await this.secullumVacationSync.syncVacation(id);
+    return { success: result.success, message: result.message, data: result };
+  }
+
+  /** Read-derived Secullum sync status for this vacation ("verificar no ponto"). */
+  async getSecullumStatus(id: string): Promise<{ success: boolean; message: string; data: VacationSecullumStatus }> {
+    const status = await this.secullumVacationSync.getVacationSecullumStatus(id);
+    return { success: status.state !== 'UNKNOWN', message: status.message, data: status };
   }
 
   // =====================
@@ -151,20 +176,22 @@ export class VacationService {
     return { samples, baseSalary };
   }
 
-  // Garante que os períodos candidatos não se sobreponham aos de OUTRAS férias
-  // ativas do mesmo colaborador (não se pode estar em duas férias ao mesmo
-  // tempo). Exclui a própria férias e as do mesmo grupo coletivo de origem.
+  // Garante que a tomada candidata (startDate+days) não se sobreponha às de
+  // OUTRAS férias ativas do mesmo colaborador (não se pode estar em duas férias
+  // ao mesmo tempo). Exclui a própria férias e as do mesmo grupo coletivo de
+  // origem. Tomadas ainda não agendadas (startDate=null) não conflitam.
   private async assertNoOverlap(
     tx: PrismaTransaction,
     userId: string,
-    candidate: Array<{ startDate: Date; days: number }>,
+    candidate: { startDate: Date | null; days: number },
     opts: { excludeVacationId?: string; excludeGroupId?: string | null } = {},
   ): Promise<void> {
-    if (!candidate || candidate.length === 0) return;
+    if (!candidate || candidate.startDate == null) return;
     const others = await tx.vacation.findMany({
       where: {
         userId,
         deletedAt: null,
+        startDate: { not: null },
         status: {
           in: [
             VACATION_STATUS.OPEN,
@@ -175,17 +202,114 @@ export class VacationService {
         ...(opts.excludeVacationId ? { id: { not: opts.excludeVacationId } } : {}),
         ...(opts.excludeGroupId ? { groupId: { not: opts.excludeGroupId } } : {}),
       },
-      select: { periods: { select: { startDate: true, days: true } } },
+      select: { startDate: true, days: true },
     });
-    const existing = others.flatMap(v => v.periods as Array<{ startDate: Date; days: number }>);
-    const conflict = this.calc.detectPeriodOverlap(candidate, existing);
+    const existing = others
+      .filter(v => v.startDate != null)
+      .map(v => ({ startDate: v.startDate as Date, days: v.days }));
+    const conflict = this.calc.detectPeriodOverlap(
+      [{ startDate: candidate.startDate, days: candidate.days }],
+      existing,
+    );
     if (conflict.overlaps && conflict.candidate && conflict.existing) {
       const fmt = (d: Date) => new Date(d).toISOString().slice(0, 10);
       throw new BadRequestException(
-        `O período iniciando em ${fmt(conflict.candidate.startDate)} (${conflict.candidate.days} dia(s)) ` +
-          `sobrepõe outro período de férias do colaborador (${fmt(conflict.existing.startDate)}, ${conflict.existing.days} dia(s)).`,
+        `A tomada iniciando em ${fmt(conflict.candidate.startDate)} (${conflict.candidate.days} dia(s)) ` +
+          `sobrepõe outra tomada de férias do colaborador (${fmt(conflict.existing.startDate)}, ${conflict.existing.days} dia(s)).`,
       );
     }
+  }
+
+  // Soma os dias de gozo das tomadas-irmãs ativas (mesmo período aquisitivo),
+  // identifica a PRIMEIRA tomada (earliest startDate ?? createdAt) e calcula o
+  // saldo de gozo restante. Usado pelo guard de over-allocation e pelo endpoint
+  // de saldo de período. `excludeVacationId` exclui a própria tomada em updates.
+  private async loadPeriodGroup(
+    tx: PrismaTransaction,
+    userId: string,
+    acquisitiveStart: Date,
+    acquisitiveEnd: Date,
+    opts: { excludeVacationId?: string } = {},
+  ): Promise<{
+    siblings: Array<{
+      id: string;
+      startDate: Date | null;
+      days: number;
+      createdAt: Date;
+      status: string;
+      abonoPecuniarioDays: number;
+      entitledDays: number;
+    }>;
+    firstTakingId: string | null;
+    entitledDays: number;
+    abonoDays: number;
+    gozoEntitled: number;
+    scheduledDays: number;
+    remainingDays: number;
+  }> {
+    const siblings = await tx.vacation.findMany({
+      where: {
+        userId,
+        acquisitiveStart,
+        acquisitiveEnd,
+        deletedAt: null,
+        status: { not: VACATION_STATUS.EXPIRED },
+      },
+      select: {
+        id: true,
+        startDate: true,
+        days: true,
+        createdAt: true,
+        status: true,
+        abonoPecuniarioDays: true,
+        entitledDays: true,
+      },
+    });
+
+    // PRIMEIRA tomada do período = a mais antiga por (startDate ?? createdAt, createdAt).
+    const key = (v: { startDate: Date | null; createdAt: Date }): number =>
+      (v.startDate ? new Date(v.startDate).getTime() : new Date(v.createdAt).getTime());
+    const sorted = [...siblings].sort((a, b) => {
+      const ka = key(a);
+      const kb = key(b);
+      if (ka !== kb) return ka - kb;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+    const first = sorted[0] ?? null;
+
+    const entitledDays = first?.entitledDays ?? 0;
+    const abonoDays = first?.abonoPecuniarioDays ?? 0;
+    const gozoEntitled = Math.max(0, entitledDays - abonoDays);
+    const scheduledDays = siblings
+      .filter(v => !opts.excludeVacationId || v.id !== opts.excludeVacationId)
+      .reduce((sum, v) => sum + (v.days ?? 0), 0);
+    const remainingDays = Math.max(0, gozoEntitled - scheduledDays);
+
+    return {
+      siblings: sorted,
+      firstTakingId: first?.id ?? null,
+      entitledDays,
+      abonoDays,
+      gozoEntitled,
+      scheduledDays,
+      remainingDays,
+    };
+  }
+
+  // isDouble por tomada (art. 137): quando agendada, dobro se o gozo terminar
+  // após o concessivo; quando não agendada (startDate=null), dobro se hoje já
+  // passou do concessivo.
+  private computeTakingIsDouble(
+    startDate: Date | null,
+    days: number,
+    concessiveEnd: Date | null,
+  ): boolean {
+    if (!concessiveEnd) return false;
+    const cEnd = new Date(concessiveEnd).getTime();
+    if (startDate) {
+      return this.calc.periodEndDate(new Date(startDate), days).getTime() > cEnd;
+    }
+    return Date.now() > cEnd;
   }
 
   private monthsBetween(start: Date, end: Date): Array<{ year: number; month: number }> {
@@ -218,7 +342,7 @@ export class VacationService {
         this.prisma.vacation.findMany({
           where,
           orderBy: q.orderBy || { acquisitiveEnd: 'desc' },
-          include: q.include ?? { user: true, periods: true },
+          include: q.include ?? { user: true },
           skip,
           take,
         }),
@@ -248,7 +372,7 @@ export class VacationService {
     try {
       const vacation = await this.prisma.vacation.findUnique({
         where: { id },
-        include: (include as any) ?? { user: true, periods: true },
+        include: (include as any) ?? { user: true },
       });
       if (!vacation || (vacation as any).deletedAt) {
         throw new NotFoundException('Registro de férias não encontrado.');
@@ -307,44 +431,53 @@ export class VacationService {
       concessiveEnd = this.calc.addYears(acquisitiveEnd, 1);
     }
 
-    // Impede aquisitivo duplicado para o mesmo vínculo/colaborador (mensagem
-    // amigável; o índice único PARCIAL no banco é a garantia real contra corrida
-    // — ver tratamento de P2002 em create()/batchCreate()).
-    const duplicate = await tx.vacation.findFirst({
-      where: { userId: data.userId, acquisitiveStart, acquisitiveEnd, deletedAt: null },
-      select: { id: true },
-    });
-    if (duplicate) {
-      throw new BadRequestException(
-        'Já existe um registro de férias para este período aquisitivo deste colaborador.',
-      );
-    }
-
     const absences = data.unjustifiedAbsencesInPeriod ?? 0;
     const entitledDays = this.calc.entitledDaysForAbsences(absences);
-    const isDouble = this.calc.isDoubleOwed(concessiveEnd);
     const groupId = (data as any).groupId ?? null;
+    const startDate = data.startDate ?? null;
+    const days = data.days;
 
-    // Valida fracionamento ANTES de inserir (evita round-trip + rollback).
-    if (data.periods && data.periods.length > 0) {
-      const validation = this.calc.validateFracionamento(data.periods, entitledDays);
-      if (!validation.valid) {
-        throw new BadRequestException(validation.errors.join(' '));
-      }
-      // Sem sobreposição com outras férias ativas do mesmo colaborador.
-      await this.assertNoOverlap(
-        tx,
-        data.userId,
-        data.periods.map(p => ({ startDate: p.startDate, days: p.days })),
-        { excludeGroupId: groupId },
+    // Modelo FLAT: várias tomadas por período aquisitivo são permitidas. Carrega
+    // o grupo de tomadas-irmãs ativas para aplicar os guards de saldo/abono.
+    const group = await this.loadPeriodGroup(tx, data.userId, acquisitiveStart, acquisitiveEnd);
+
+    // Abono só na PRIMEIRA tomada do período: nas demais é zerado pelo service.
+    const isFirstTaking = group.firstTakingId == null;
+    let abonoPecuniarioDays = data.abonoPecuniarioDays ?? 0;
+    if (!isFirstTaking && abonoPecuniarioDays > 0) {
+      this.logger.warn(
+        `Abono pecuniário ignorado: não é a primeira tomada do período aquisitivo de ${user.name}.`,
+      );
+      abonoPecuniarioDays = 0;
+    }
+
+    // gozoEntitled = entitledDays - abono(primeira tomada). Para a PRIMEIRA
+    // tomada o abono é o desta criação; para as demais, o já gravado no grupo.
+    const gozoEntitled = isFirstTaking
+      ? Math.max(0, entitledDays - abonoPecuniarioDays)
+      : group.gozoEntitled;
+
+    // Over-allocation guard: Σdias (irmãs + esta) ≤ gozoEntitled.
+    if (group.scheduledDays + days > gozoEntitled) {
+      throw new BadRequestException(
+        `A soma das tomadas de gozo (${group.scheduledDays + days} dia(s)) excede o saldo do período ` +
+          `aquisitivo (${gozoEntitled} dia(s) de gozo). Restam ${Math.max(0, gozoEntitled - group.scheduledDays)} dia(s).`,
       );
     }
+
+    // isDouble desta tomada: gozo após o concessivo (art. 137).
+    const isDouble = this.computeTakingIsDouble(startDate, days, concessiveEnd);
+
+    // Sem sobreposição com outras tomadas ativas do mesmo colaborador.
+    await this.assertNoOverlap(tx, data.userId, { startDate, days }, { excludeGroupId: groupId });
 
     const vacation = await tx.vacation.create({
       data: {
         userId: data.userId,
         contractId,
         groupId,
+        startDate,
+        days,
         acquisitiveStart,
         acquisitiveEnd,
         concessiveEnd,
@@ -352,19 +485,12 @@ export class VacationService {
         entitledDays,
         status: VACATION_STATUS.OPEN,
         statusOrder: VACATION_STATUS_ORDER[VACATION_STATUS.OPEN],
-        abonoPecuniarioDays: data.abonoPecuniarioDays ?? 0,
+        abonoPecuniarioDays,
         soldThird: data.soldThird ?? false,
         isDouble,
         notes: data.notes ?? null,
-        ...(data.periods && data.periods.length > 0
-          ? {
-              periods: {
-                create: data.periods.map(p => ({ startDate: p.startDate, days: p.days })),
-              },
-            }
-          : {}),
       },
-      include: (include as any) ?? { user: true, periods: true },
+      include: (include as any) ?? { user: true },
     });
 
     await logEntityChange({
@@ -435,27 +561,124 @@ export class VacationService {
         ] as const) {
           if (data[field] !== undefined) updateData[field] = data[field];
         }
-        if (data.abonoPecuniarioDays !== undefined) {
-          updateData.abonoPecuniarioDays = data.abonoPecuniarioDays;
-        }
+
+        // Período aquisitivo efetivo após o update (para guards de saldo/dobro).
+        const effAcqStart = data.acquisitiveStart ?? existing.acquisitiveStart;
+        const effAcqEnd = data.acquisitiveEnd ?? existing.acquisitiveEnd;
+        const effEntitled =
+          data.unjustifiedAbsencesInPeriod !== undefined
+            ? this.calc.entitledDaysForAbsences(data.unjustifiedAbsencesInPeriod)
+            : existing.entitledDays;
+        const effStartDate =
+          data.startDate !== undefined ? data.startDate : existing.startDate;
+        const effDays = data.days !== undefined ? data.days : existing.days;
+
         // Recompute entitledDays when faltas change (escala art. 130).
         if (data.unjustifiedAbsencesInPeriod !== undefined) {
           updateData.unjustifiedAbsencesInPeriod = data.unjustifiedAbsencesInPeriod;
-          updateData.entitledDays = this.calc.entitledDaysForAbsences(
-            data.unjustifiedAbsencesInPeriod,
-          );
+          updateData.entitledDays = effEntitled;
         }
-        // Recompute concessivo + dobro when acquisitiveEnd changes.
+
+        // Abono só na PRIMEIRA tomada do período: zera nas demais.
+        if (data.abonoPecuniarioDays !== undefined) {
+          let abono = data.abonoPecuniarioDays;
+          if (abono > 0 && existing.userId) {
+            const grp = await this.loadPeriodGroup(
+              tx,
+              existing.userId,
+              effAcqStart,
+              effAcqEnd,
+              { excludeVacationId: id },
+            );
+            const isFirst = grp.firstTakingId == null
+              ? true
+              : (() => {
+                  // Esta tomada é a primeira se seu (startDate??createdAt) for ≤
+                  // ao da primeira irmã restante.
+                  const selfKey = effStartDate
+                    ? new Date(effStartDate).getTime()
+                    : new Date(existing.createdAt).getTime();
+                  const firstSib = grp.siblings[0];
+                  const sibKey = firstSib
+                    ? (firstSib.startDate
+                        ? new Date(firstSib.startDate).getTime()
+                        : new Date(firstSib.createdAt).getTime())
+                    : Infinity;
+                  return selfKey <= sibKey;
+                })();
+            if (!isFirst) {
+              this.logger.warn(
+                `Abono pecuniário ignorado no update ${id}: não é a primeira tomada do período.`,
+              );
+              abono = 0;
+            }
+          }
+          updateData.abonoPecuniarioDays = abono;
+        }
+
+        // startDate / days da tomada (modelo FLAT).
+        if (data.startDate !== undefined) updateData.startDate = data.startDate;
+        if (data.days !== undefined) updateData.days = data.days;
+
+        // Over-allocation guard quando days/aquisitivo/abono mudam: Σdias ≤ gozoEntitled.
+        if (
+          (data.days !== undefined ||
+            data.acquisitiveStart !== undefined ||
+            data.acquisitiveEnd !== undefined ||
+            data.unjustifiedAbsencesInPeriod !== undefined ||
+            data.abonoPecuniarioDays !== undefined) &&
+          existing.userId
+        ) {
+          const grp = await this.loadPeriodGroup(tx, existing.userId, effAcqStart, effAcqEnd, {
+            excludeVacationId: id,
+          });
+          const effAbono =
+            updateData.abonoPecuniarioDays !== undefined
+              ? updateData.abonoPecuniarioDays
+              : existing.abonoPecuniarioDays;
+          // Saldo de gozo do período: usa o abono da primeira tomada (do grupo)
+          // salvo se esta própria for a primeira/única.
+          const baseEntitled = grp.firstTakingId == null ? effEntitled : grp.entitledDays;
+          const baseAbono = grp.firstTakingId == null ? effAbono : grp.abonoDays;
+          const gozoEntitled = Math.max(0, baseEntitled - baseAbono);
+          if (grp.scheduledDays + effDays > gozoEntitled) {
+            throw new BadRequestException(
+              `A soma das tomadas de gozo (${grp.scheduledDays + effDays} dia(s)) excede o saldo do ` +
+                `período aquisitivo (${gozoEntitled} dia(s) de gozo). ` +
+                `Restam ${Math.max(0, gozoEntitled - grp.scheduledDays)} dia(s).`,
+            );
+          }
+        }
+
+        // Recompute concessivo when acquisitiveEnd changes.
+        let effConcessive = existing.concessiveEnd;
         if (data.acquisitiveEnd !== undefined) {
-          const concessiveEnd = this.calc.addYears(data.acquisitiveEnd, 1);
-          updateData.concessiveEnd = concessiveEnd;
-          updateData.isDouble = this.calc.isDoubleOwed(concessiveEnd);
+          effConcessive = this.calc.addYears(data.acquisitiveEnd, 1);
+          updateData.concessiveEnd = effConcessive;
+        }
+        // Recompute isDouble desta tomada quando startDate/days/concessivo mudam.
+        if (
+          data.startDate !== undefined ||
+          data.days !== undefined ||
+          data.acquisitiveEnd !== undefined
+        ) {
+          updateData.isDouble = this.computeTakingIsDouble(effStartDate, effDays, effConcessive);
+        }
+
+        // Sem sobreposição com outras tomadas ativas quando startDate/days mudam.
+        if ((data.startDate !== undefined || data.days !== undefined) && existing.userId) {
+          await this.assertNoOverlap(
+            tx,
+            existing.userId,
+            { startDate: effStartDate, days: effDays },
+            { excludeVacationId: id, excludeGroupId: existing.groupId },
+          );
         }
 
         const updated = await tx.vacation.update({
           where: { id },
           data: updateData,
-          include: (include as any) ?? { user: true, periods: true },
+          include: (include as any) ?? { user: true },
         });
 
         await trackAndLogFieldChanges({
@@ -465,6 +688,8 @@ export class VacationService {
           oldEntity: existing,
           newEntity: updated,
           fieldsToTrack: [
+            'startDate',
+            'days',
             'unjustifiedAbsencesInPeriod',
             'entitledDays',
             'abonoPecuniarioDays',
@@ -561,82 +786,49 @@ export class VacationService {
   }
 
   // =====================
-  // Fracionamento — PUT /vacations/:id/periods
+  // Saldo de gozo do período — GET /vacations/period-balance
   // =====================
 
-  async setPeriods(
-    id: string,
-    data: VacationSetPeriodsFormData,
-    userId?: string,
-  ): Promise<VacationUpdateResponse> {
+  /**
+   * Saldo de gozo de um período aquisitivo: agrupa as tomadas-irmãs (mesmo
+   * userId + acquisitiveStart/End) e devolve entitled/abono/gozoEntitled/
+   * scheduled/remaining + o histórico das tomadas. Read-only.
+   */
+  async getPeriodBalance(vacationId: string): Promise<VacationPeriodBalanceResponse> {
     try {
-      const vacation = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        const existing = await tx.vacation.findUnique({ where: { id } });
-        if (!existing || existing.deletedAt) {
-          throw new NotFoundException('Registro de férias não encontrado.');
-        }
-        if (existing.status === VACATION_STATUS.PAID) {
-          throw new BadRequestException('Não é possível alterar períodos de férias já pagas.');
-        }
-
-        const validation = this.calc.validateFracionamento(data.periods, existing.entitledDays);
-        if (!validation.valid) {
-          throw new BadRequestException(validation.errors.join(' '));
-        }
-
-        // Sem sobreposição com outras férias ativas do mesmo colaborador
-        // (a própria férias e as do mesmo grupo coletivo são exemptas).
-        if (existing.userId) {
-          await this.assertNoOverlap(
-            tx,
-            existing.userId,
-            data.periods.map(p => ({ startDate: p.startDate, days: p.days })),
-            { excludeVacationId: id, excludeGroupId: existing.groupId },
-          );
-        }
-
-        await tx.vacationPeriod.deleteMany({ where: { vacationId: id } });
-        await tx.vacationPeriod.createMany({
-          data: data.periods.map(p => ({ vacationId: id, startDate: p.startDate, days: p.days })),
+      const balance = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        // Load the acquisitive dates straight from the row — exact Date objects,
+        // so the sibling grouping match can't be broken by client date drift.
+        const vac = await tx.vacation.findUnique({
+          where: { id: vacationId },
+          select: { userId: true, acquisitiveStart: true, acquisitiveEnd: true },
         });
-
-        const updated = await tx.vacation.findUnique({
-          where: { id },
-          include: { user: true, periods: true },
-        });
-
-        await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.VACATION,
-          entityId: id,
-          action: CHANGE_ACTION.UPDATE,
-          field: 'periods',
-          oldValue: null,
-          newValue: { periods: data.periods, totalDays: validation.totalDays },
-          reason: `Fracionamento de férias definido (${validation.periodCount} período(s))`,
-          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-          triggeredById: id,
-          userId: userId || null,
-          transaction: tx,
-        });
-
-        return updated;
+        if (!vac || !vac.userId) return null;
+        return this.loadPeriodGroup(tx, vac.userId, vac.acquisitiveStart, vac.acquisitiveEnd);
       });
-
-      // If the vacation is already pushed to the ponto (SCHEDULED/IN_PROGRESS),
-      // re-sync so Secullum reflects the edited períodos (delete-then-recreate
-      // inside syncVacation keeps it idempotent). OPEN férias aren't pushed yet,
-      // so nothing to do. Non-fatal on failure.
-      const status = (vacation as any)?.status as VACATION_STATUS | undefined;
-      if (status === VACATION_STATUS.SCHEDULED || status === VACATION_STATUS.IN_PROGRESS) {
-        await this.syncToSecullum(id);
+      if (!balance) {
+        throw new NotFoundException('Férias não encontradas para calcular o saldo do período.');
       }
-
-      return { success: true, message: 'Períodos de férias atualizados com sucesso.', data: vacation as any };
+      const takings: VacationPeriodTaking[] = balance.siblings.map(s => ({
+        id: s.id,
+        startDate: s.startDate,
+        days: s.days,
+        status: s.status as VacationPeriodTaking['status'],
+      }));
+      const data: VacationPeriodBalance = {
+        entitledDays: balance.entitledDays,
+        abonoDays: balance.abonoDays,
+        gozoEntitled: balance.gozoEntitled,
+        scheduledDays: balance.scheduledDays,
+        remainingDays: balance.remainingDays,
+        takings,
+      };
+      return { success: true, message: 'Saldo do período aquisitivo carregado com sucesso.', data };
     } catch (error: any) {
-      if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
-      this.logger.error('Erro ao definir períodos de férias:', error);
+      if (error instanceof NotFoundException || error instanceof BadRequestException) throw error;
+      this.logger.error('Erro ao carregar saldo do período de férias:', error);
       throw new InternalServerErrorException(
-        'Erro ao definir períodos de férias. Por favor, tente novamente.',
+        'Erro ao carregar saldo do período de férias. Por favor, tente novamente.',
       );
     }
   }
@@ -682,14 +874,19 @@ export class VacationService {
         const year = (existing.concessiveEnd ?? existing.acquisitiveEnd).getFullYear();
         const dependentsCount = ((existing as any).user?.dependents ?? []).length;
 
-        const recibo = this.calc.buildRecibo(
+        // Recibo POR TOMADA (single-period). O abono só entra na primeira
+        // tomada do período; create/update já garantem que apenas ela carrega
+        // abonoPecuniarioDays > 0, então includeAbono = (abono > 0).
+        const includeAbono = existing.abonoPecuniarioDays > 0;
+        const recibo = this.calc.buildReciboForTaking(
           {
             baseSalary,
             variableAverage,
-            entitledDays: existing.entitledDays,
-            abonoPecuniarioDays: existing.abonoPecuniarioDays,
-            soldThird: existing.soldThird,
+            days: existing.days,
             isDouble: existing.isDouble,
+            includeAbono,
+            abonoDays: existing.abonoPecuniarioDays,
+            soldThird: existing.soldThird,
             dependentsCount,
             allowSimplifiedDeduction: true,
             year,
@@ -708,9 +905,11 @@ export class VacationService {
             inss: recibo.inss,
             irrf: recibo.irrf,
             // paymentDueDate = início do gozo − 2 dias quando agendado, senão hoje + 10.
-            paymentDueDate: this.calc.addDays(new Date(), 10),
+            paymentDueDate: existing.startDate
+              ? this.calc.addDays(new Date(existing.startDate), -2)
+              : this.calc.addDays(new Date(), 10),
           },
-          include: { user: true, periods: true },
+          include: { user: true },
         });
 
         await this.changeLogService.logChange({
@@ -756,10 +955,7 @@ export class VacationService {
   ): Promise<VacationUpdateResponse> {
     try {
       const vacation = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        const existing = await tx.vacation.findUnique({
-          where: { id },
-          include: { periods: { select: { id: true, startDate: true, days: true } } },
-        });
+        const existing = await tx.vacation.findUnique({ where: { id } });
         if (!existing || existing.deletedAt) {
           throw new NotFoundException('Registro de férias não encontrado.');
         }
@@ -786,10 +982,10 @@ export class VacationService {
           );
         }
 
-        // Guard: → SCHEDULED requires at least one period (fracionamento/gozo).
-        if (targetStatus === VACATION_STATUS.SCHEDULED && (existing.periods || []).length === 0) {
+        // Guard: → SCHEDULED requires the gozo a ter início (startDate) definido.
+        if (targetStatus === VACATION_STATUS.SCHEDULED && existing.startDate == null) {
           throw new BadRequestException(
-            'Não é possível agendar férias sem ao menos um período de gozo definido.',
+            'Não é possível agendar férias sem a data de início do gozo definida.',
           );
         }
         // Guard: → PAID requires the recibo to be calculated.
@@ -798,17 +994,18 @@ export class VacationService {
             'Não é possível concluir o pagamento: o recibo de férias ainda não foi calculado.',
           );
         }
-        // Guard: → PAID com período de gozo após o concessivo deve ser pago em
-        // DOBRO (art. 137). Bloqueia o pagamento simples e sinaliza para recálculo.
+        // Guard: → PAID com gozo após o concessivo deve ser pago em DOBRO
+        // (art. 137). Bloqueia o pagamento simples e sinaliza para recálculo.
         let mustDouble = false;
-        if (targetStatus === VACATION_STATUS.PAID && existing.concessiveEnd) {
+        if (
+          targetStatus === VACATION_STATUS.PAID &&
+          existing.concessiveEnd &&
+          existing.startDate
+        ) {
           const concessiveEnd = new Date(existing.concessiveEnd);
-          for (const p of existing.periods as Array<{ startDate: Date; days: number }>) {
-            const periodEnd = this.calc.periodEndDate(new Date(p.startDate), p.days);
-            if (periodEnd.getTime() > concessiveEnd.getTime()) {
-              mustDouble = true;
-              break;
-            }
+          const periodEnd = this.calc.periodEndDate(new Date(existing.startDate), existing.days);
+          if (periodEnd.getTime() > concessiveEnd.getTime()) {
+            mustDouble = true;
           }
           if (mustDouble && !existing.isDouble) {
             throw new BadRequestException(
@@ -840,7 +1037,7 @@ export class VacationService {
 
         const updated = await tx.vacation.findUnique({
           where: { id },
-          include: (include as any) ?? { user: true, periods: true },
+          include: (include as any) ?? { user: true },
         });
 
         await this.changeLogService.logChange({

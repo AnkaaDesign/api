@@ -171,12 +171,11 @@ export class OutflowForecastService {
 
     const emptyBucket = () => ({ count: 0, total: 0 });
     const byStatus: Record<
-      'NOT_REQUESTED' | 'REQUESTED' | 'AWAITING_PAYMENT',
+      'AWAITING_PAYMENT' | 'PARTIALLY_PAID',
       { count: number; total: number }
     > = {
-      NOT_REQUESTED: emptyBucket(),
-      REQUESTED: emptyBucket(),
       AWAITING_PAYMENT: emptyBucket(),
+      PARTIALLY_PAID: emptyBucket(),
     };
 
     const rows: OutflowForecastOrderRow[] = orders.map(order => {
@@ -218,7 +217,7 @@ export class OutflowForecastService {
     }));
 
     return {
-      totalOpen: byStatus.NOT_REQUESTED.total + byStatus.REQUESTED.total + byStatus.AWAITING_PAYMENT.total,
+      totalOpen: byStatus.AWAITING_PAYMENT.total + byStatus.PARTIALLY_PAID.total,
       byStatus,
       orders: rows,
       schedules: scheduleRows,

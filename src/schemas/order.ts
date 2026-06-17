@@ -32,6 +32,9 @@ export const orderIncludeSchema = z
     invoiceReimbursements: z.boolean().optional(),
     receipts: z.boolean().optional(),
     reimbursements: z.boolean().optional(),
+    installments: z.boolean().optional(),
+    paidBy: z.boolean().optional(),
+    fiscalDocuments: z.boolean().optional(),
     supplier: z
       .union([
         z.boolean(),
@@ -1419,6 +1422,12 @@ export const orderCreateSchema = z
       .positive('Prazo de vencimento deve ser positivo')
       .nullable()
       .optional(),
+    installmentCount: z
+      .number()
+      .int('Número de parcelas deve ser um número inteiro')
+      .min(1, 'Número de parcelas deve ser ao menos 1')
+      .max(48, 'Número de parcelas deve ser no máximo 48')
+      .optional(),
     paymentResponsibleId: z
       .string()
       .uuid({ message: 'Responsável pelo pagamento inválido' })
@@ -1533,6 +1542,12 @@ export const orderUpdateSchema = z
       .int('Prazo de vencimento deve ser um número inteiro')
       .positive('Prazo de vencimento deve ser positivo')
       .nullable()
+      .optional(),
+    installmentCount: z
+      .number()
+      .int('Número de parcelas deve ser um número inteiro')
+      .min(1, 'Número de parcelas deve ser ao menos 1')
+      .max(48, 'Número de parcelas deve ser no máximo 48')
       .optional(),
     paymentResponsibleId: z
       .string()
@@ -2140,6 +2155,7 @@ export const mapOrderToFormData = createMapToFormDataHelper<Order, OrderUpdateFo
   paymentMethod: order.paymentMethod || undefined,
   paymentPix: order.paymentPix || undefined,
   paymentDueDays: order.paymentDueDays || undefined,
+  installmentCount: order.installmentCount || undefined,
   paymentResponsibleId: order.paymentResponsibleId || undefined,
 }));
 

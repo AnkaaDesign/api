@@ -201,7 +201,6 @@ export class VacationNotificationScheduler {
       },
       include: {
         user: { select: { name: true } },
-        periods: { select: { startDate: true, days: true } },
       },
     });
     if (conflicting.length === 0) return;
@@ -210,12 +209,13 @@ export class VacationNotificationScheduler {
       try {
         const concessiveEnd = vacation.concessiveEnd;
         if (!concessiveEnd) continue;
-        const periods = (vacation as any).periods as Array<{ startDate: Date; days: number }>;
-        const hasLatePeriod = periods.some(p => {
-          const end = new Date(p.startDate.getTime());
-          end.setDate(end.getDate() + (p.days || 0) - 1);
-          return end.getTime() > concessiveEnd.getTime();
-        });
+        // Modelo FLAT: cada Vacation é uma tomada single-period (startDate+days).
+        const startDate = (vacation as any).startDate as Date | null;
+        const days = (vacation as any).days as number;
+        if (!startDate) continue;
+        const end = new Date(startDate.getTime());
+        end.setDate(end.getDate() + (days || 0) - 1);
+        const hasLatePeriod = end.getTime() > concessiveEnd.getTime();
         if (!hasLatePeriod) continue;
 
         const userName = (vacation as any).user?.name || 'Colaborador';
