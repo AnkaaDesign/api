@@ -27,8 +27,9 @@ import {
   CHANGE_TRIGGERED_BY,
   ENTITY_TYPE,
   VACATION_STATUS,
-  VACATION_STATUS_ORDER,
+  VACATION_STATUS_LABELS,
 } from '../../../constants';
+import { isPayrollEmployeeType } from '../../../utils/contract';
 import { VacationCalculationService, VariablePayrollSample } from './vacation-calculation.service';
 import {
   SecullumVacationSyncService,
@@ -60,23 +61,6 @@ import type {
   VacationPeriodTaking,
   VacationUpdateResponse,
 } from './types/vacation.types';
-
-const STATUS_LABELS_PT: Record<string, string> = {
-  [VACATION_STATUS.OPEN]: 'Aberto',
-  [VACATION_STATUS.SCHEDULED]: 'Agendado',
-  [VACATION_STATUS.IN_PROGRESS]: 'Em gozo',
-  [VACATION_STATUS.PAID]: 'Pago',
-  [VACATION_STATUS.EXPIRED]: 'Expirado',
-};
-
-// Forward chain of the férias status machine. EXPIRED is reached by the
-// concessivo-expiry cron (art. 137), not by manual advance.
-const STATUS_CHAIN: VACATION_STATUS[] = [
-  VACATION_STATUS.OPEN,
-  VACATION_STATUS.SCHEDULED,
-  VACATION_STATUS.IN_PROGRESS,
-  VACATION_STATUS.PAID,
-];
 
 @Injectable()
 export class VacationService {
@@ -192,13 +176,7 @@ export class VacationService {
         userId,
         deletedAt: null,
         startDate: { not: null },
-        status: {
-          in: [
-            VACATION_STATUS.OPEN,
-            VACATION_STATUS.SCHEDULED,
-            VACATION_STATUS.IN_PROGRESS,
-          ],
-        },
+        status: VACATION_STATUS.SCHEDULED,
         ...(opts.excludeVacationId ? { id: { not: opts.excludeVacationId } } : {}),
         ...(opts.excludeGroupId ? { groupId: { not: opts.excludeGroupId } } : {}),
       },
@@ -401,11 +379,22 @@ export class VacationService {
         id: true,
         name: true,
         currentContractId: true,
+        currentEmployeeType: true,
         currentContract: { select: { id: true, admissionDate: true } },
+        dependents: { where: { irrfDeduction: true }, select: { id: true } },
       },
     });
     if (!user) {
       throw new NotFoundException('Colaborador não encontrado.');
+    }
+
+    // CLT gate: férias (folha) só se aplicam a vínculos CLT/folha. Terceirizado/
+    // PJ/autônomo/estagiário não geram férias neste módulo.
+    if (!isPayrollEmployeeType((user as any).currentEmployeeType)) {
+      throw new BadRequestException(
+        `Não é possível registrar férias para ${user.name}: o vínculo atual não é CLT/folha. ` +
+          'Apenas colaboradores CLT possuem férias na folha.',
+      );
     }
 
     const contractId = data.contractId ?? user.currentContractId ?? null;
@@ -483,8 +472,7 @@ export class VacationService {
         concessiveEnd,
         unjustifiedAbsencesInPeriod: absences,
         entitledDays,
-        status: VACATION_STATUS.OPEN,
-        statusOrder: VACATION_STATUS_ORDER[VACATION_STATUS.OPEN],
+        status: VACATION_STATUS.SCHEDULED,
         abonoPecuniarioDays,
         soldThird: data.soldThird ?? false,
         isDouble,
@@ -505,7 +493,31 @@ export class VacationService {
       transaction: tx,
     });
 
-    return vacation;
+    // Auto-calcula o recibo inline (base/terço/abono/INSS/IRRF + paymentDueDate).
+    // O cálculo usa os dependentes IRRF já carregados acima.
+    await this.computeAndPersistRecibo(
+      tx,
+      {
+        id: vacation.id,
+        userId: data.userId,
+        days,
+        isDouble,
+        abonoPecuniarioDays,
+        soldThird: data.soldThird ?? false,
+        startDate,
+        acquisitiveStart,
+        acquisitiveEnd,
+        concessiveEnd,
+        user: { dependents: (user as any).dependents ?? [] },
+      },
+      userId,
+    );
+
+    // Re-read so the returned entity reflects the persisted recibo.
+    return tx.vacation.findUnique({
+      where: { id: vacation.id },
+      include: (include as any) ?? { user: true },
+    });
   }
 
   async create(
@@ -517,6 +529,9 @@ export class VacationService {
       const vacation = await this.prisma.$transaction((tx: PrismaTransaction) =>
         this.createWithTransaction(tx, data, userId, include),
       );
+      // Mirror the gozo período into Secullum (ponto) AFTER the DB commit.
+      // Non-fatal: a Secullum outage never undoes the vacation write.
+      await this.syncToSecullum(vacation.id);
       return { success: true, message: 'Férias criadas com sucesso.', data: vacation };
     } catch (error: any) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
@@ -675,11 +690,41 @@ export class VacationService {
           );
         }
 
-        const updated = await tx.vacation.update({
+        let updated = await tx.vacation.update({
           where: { id },
           data: updateData,
           include: (include as any) ?? { user: true },
         });
+
+        // Recompute the recibo + paymentDueDate whenever a field that feeds the
+        // calc changes: startDate / days / abono / faltas / período aquisitivo.
+        const reciboInputsChanged =
+          data.startDate !== undefined ||
+          data.days !== undefined ||
+          data.abonoPecuniarioDays !== undefined ||
+          data.unjustifiedAbsencesInPeriod !== undefined ||
+          data.acquisitiveStart !== undefined ||
+          data.acquisitiveEnd !== undefined;
+        if (reciboInputsChanged && existing.userId) {
+          const withUser = await tx.vacation.findUnique({
+            where: { id },
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  dependents: { where: { irrfDeduction: true }, select: { id: true } },
+                },
+              },
+            },
+          });
+          if (withUser) {
+            await this.computeAndPersistRecibo(tx, withUser as any, userId);
+            updated = (await tx.vacation.findUnique({
+              where: { id },
+              include: (include as any) ?? { user: true },
+            }))!;
+          }
+        }
 
         await trackAndLogFieldChanges({
           changeLogService: this.changeLogService,
@@ -708,6 +753,11 @@ export class VacationService {
 
         return updated;
       });
+
+      // SEV-1 fix: re-sync Secullum AFTER the commit so an edited gozo período
+      // doesn't orphan the old afastamento (syncVacation deletes-then-recreates
+      // the tagged record idempotently). Non-fatal; mirrors leave.update().
+      await this.syncToSecullum(id);
 
       return { success: true, message: 'Férias atualizadas com sucesso.', data: vacation as any };
     } catch (error: any) {
@@ -743,10 +793,9 @@ export class VacationService {
         }
 
         secullumEmployeeId = (vacation as any).user?.secullumEmployeeId ?? null;
-        // Only SCHEDULED / IN_PROGRESS férias were ever pushed to the ponto.
-        wasPushed =
-          vacation.status === VACATION_STATUS.SCHEDULED ||
-          vacation.status === VACATION_STATUS.IN_PROGRESS;
+        // Vacations are created SCHEDULED (and pushed to the ponto) — that's the
+        // only status that ever has an afastamento to reverse.
+        wasPushed = vacation.status === VACATION_STATUS.SCHEDULED;
 
         await logEntityChange({
           changeLogService: this.changeLogService,
@@ -837,6 +886,100 @@ export class VacationService {
   // Cálculo do recibo — POST /vacations/:id/calculate
   // =====================
 
+  // Núcleo compartilhado do recibo: lê a média de variáveis do período
+  // aquisitivo, monta o recibo da tomada (single-period) e PERSISTE base/terço/
+  // abono/INSS/IRRF + paymentDueDate (= início do gozo − 2 dias). Usado por
+  // create (auto-cálculo inline), update (recálculo) e calculate (endpoint).
+  // Recebe a vacation já carregada (com user.dependents). Loga a alteração.
+  private async computeAndPersistRecibo(
+    tx: PrismaTransaction,
+    existing: {
+      id: string;
+      userId: string | null;
+      days: number;
+      isDouble: boolean;
+      abonoPecuniarioDays: number;
+      soldThird: boolean;
+      startDate: Date | null;
+      acquisitiveStart: Date;
+      acquisitiveEnd: Date;
+      concessiveEnd: Date | null;
+      user?: { dependents?: Array<{ id: string }> } | null;
+    },
+    userId?: string,
+  ): Promise<{ vacation: any; recibo: any }> {
+    if (!existing.userId) {
+      throw new BadRequestException(
+        'Não é possível calcular o recibo: as férias não estão vinculadas a um colaborador (vínculo desfeito).',
+      );
+    }
+
+    const { samples, baseSalary } = await this.loadVariableSamples(
+      tx,
+      existing.userId,
+      existing.acquisitiveStart,
+      existing.acquisitiveEnd,
+    );
+    const variableAverage = this.calc.computeVariableAverage(samples);
+
+    const year = (existing.concessiveEnd ?? existing.acquisitiveEnd).getFullYear();
+    const dependentsCount = (existing.user?.dependents ?? []).length;
+
+    // Recibo POR TOMADA (single-period). O abono só entra na primeira tomada do
+    // período; create/update já garantem que apenas ela carrega
+    // abonoPecuniarioDays > 0, então includeAbono = (abono > 0).
+    const includeAbono = existing.abonoPecuniarioDays > 0;
+    const recibo = this.calc.buildReciboForTaking(
+      {
+        baseSalary,
+        variableAverage,
+        days: existing.days,
+        isDouble: existing.isDouble,
+        includeAbono,
+        abonoDays: existing.abonoPecuniarioDays,
+        soldThird: existing.soldThird,
+        dependentsCount,
+        allowSimplifiedDeduction: true,
+        year,
+      },
+      { vacationId: existing.id, userId: existing.userId },
+    );
+
+    // Persiste a base/terço/abono/INSS/IRRF calculados (recibo permanece um
+    // documento próprio, não embutido na folha). paymentDueDate = início do
+    // gozo − 2 dias (art. 145 CLT — pagamento até 2 dias antes do gozo).
+    const updated = await tx.vacation.update({
+      where: { id: existing.id },
+      data: {
+        baseRemuneration: recibo.baseRemuneration,
+        oneThird: recibo.oneThird,
+        abonoAmount: recibo.abonoAmount,
+        inss: recibo.inss,
+        irrf: recibo.irrf,
+        paymentDueDate: existing.startDate
+          ? this.calc.addDays(new Date(existing.startDate), -2)
+          : null,
+      },
+      include: { user: true },
+    });
+
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.VACATION,
+      entityId: existing.id,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'recibo',
+      oldValue: null,
+      newValue: { net: recibo.net, inss: recibo.inss, irrf: recibo.irrf, isDouble: recibo.isDouble },
+      reason: 'Recibo de férias calculado',
+      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+      triggeredById: existing.id,
+      userId: userId || null,
+      transaction: tx,
+    });
+
+    return { vacation: updated, recibo };
+  }
+
   async calculate(id: string, userId?: string): Promise<VacationCalculateResponse> {
     try {
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -857,76 +1000,8 @@ export class VacationService {
         if (existing.status === VACATION_STATUS.PAID) {
           throw new BadRequestException('Não é possível recalcular férias já pagas.');
         }
-        if (!existing.userId) {
-          throw new BadRequestException(
-            'Não é possível calcular o recibo: as férias não estão vinculadas a um colaborador (vínculo desfeito).',
-          );
-        }
 
-        const { samples, baseSalary } = await this.loadVariableSamples(
-          tx,
-          existing.userId,
-          existing.acquisitiveStart,
-          existing.acquisitiveEnd,
-        );
-        const variableAverage = this.calc.computeVariableAverage(samples);
-
-        const year = (existing.concessiveEnd ?? existing.acquisitiveEnd).getFullYear();
-        const dependentsCount = ((existing as any).user?.dependents ?? []).length;
-
-        // Recibo POR TOMADA (single-period). O abono só entra na primeira
-        // tomada do período; create/update já garantem que apenas ela carrega
-        // abonoPecuniarioDays > 0, então includeAbono = (abono > 0).
-        const includeAbono = existing.abonoPecuniarioDays > 0;
-        const recibo = this.calc.buildReciboForTaking(
-          {
-            baseSalary,
-            variableAverage,
-            days: existing.days,
-            isDouble: existing.isDouble,
-            includeAbono,
-            abonoDays: existing.abonoPecuniarioDays,
-            soldThird: existing.soldThird,
-            dependentsCount,
-            allowSimplifiedDeduction: true,
-            year,
-          },
-          { vacationId: existing.id, userId: existing.userId },
-        );
-
-        // Persiste a base/terço/abono/INSS/IRRF calculados (recibo permanece um
-        // documento próprio, não embutido na folha).
-        const updated = await tx.vacation.update({
-          where: { id },
-          data: {
-            baseRemuneration: recibo.baseRemuneration,
-            oneThird: recibo.oneThird,
-            abonoAmount: recibo.abonoAmount,
-            inss: recibo.inss,
-            irrf: recibo.irrf,
-            // paymentDueDate = início do gozo − 2 dias quando agendado, senão hoje + 10.
-            paymentDueDate: existing.startDate
-              ? this.calc.addDays(new Date(existing.startDate), -2)
-              : this.calc.addDays(new Date(), 10),
-          },
-          include: { user: true },
-        });
-
-        await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.VACATION,
-          entityId: id,
-          action: CHANGE_ACTION.UPDATE,
-          field: 'recibo',
-          oldValue: null,
-          newValue: { net: recibo.net, inss: recibo.inss, irrf: recibo.irrf, isDouble: recibo.isDouble },
-          reason: 'Recibo de férias calculado',
-          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-          triggeredById: id,
-          userId: userId || null,
-          transaction: tx,
-        });
-
-        return { vacation: updated, recibo };
+        return this.computeAndPersistRecibo(tx, existing as any, userId);
       });
 
       return {
@@ -947,6 +1022,9 @@ export class VacationService {
   // Status machine — PUT /vacations/:id/advance
   // =====================
 
+  // markPaid: única transição manual no modelo colapsado. SCHEDULED ou EXPIRED
+  // → PAID (EXPIRED-exit corrige o beco-sem-saída). Mantém o nome `advance` e a
+  // rota PUT /vacations/:id/advance que web/mobile já chamam.
   async advance(
     id: string,
     data: VacationAdvanceFormData,
@@ -962,46 +1040,32 @@ export class VacationService {
 
         const currentStatus = existing.status as VACATION_STATUS;
         if (currentStatus === VACATION_STATUS.PAID) {
-          throw new BadRequestException('As férias já estão pagas; não há próximo status.');
+          throw new BadRequestException('As férias já estão pagas.');
         }
-        if (currentStatus === VACATION_STATUS.EXPIRED) {
+
+        // O único alvo válido é PAID. Aceita SCHEDULED ou EXPIRED como origem.
+        const targetStatus = (data.status as VACATION_STATUS) ?? VACATION_STATUS.PAID;
+        if (targetStatus !== VACATION_STATUS.PAID) {
           throw new BadRequestException(
-            'O período concessivo expirou (art. 137). As férias devem ser pagas em dobro; recalcule antes de prosseguir.',
+            `Transição inválida: ${VACATION_STATUS_LABELS[currentStatus]} → ${
+              VACATION_STATUS_LABELS[targetStatus] ?? '—'
+            }. A única transição manual é para "${VACATION_STATUS_LABELS[VACATION_STATUS.PAID]}".`,
           );
         }
 
-        const currentIndex = STATUS_CHAIN.indexOf(currentStatus);
-        const nextStatus = STATUS_CHAIN[currentIndex + 1];
-        const targetStatus = (data.status as VACATION_STATUS) ?? nextStatus;
-
-        if (!targetStatus || targetStatus !== nextStatus) {
-          throw new BadRequestException(
-            `Transição de status inválida: ${STATUS_LABELS_PT[currentStatus]} → ${
-              targetStatus ? STATUS_LABELS_PT[targetStatus] : '—'
-            }. O próximo status válido é ${nextStatus ? STATUS_LABELS_PT[nextStatus] : '—'}.`,
-          );
-        }
-
-        // Guard: → SCHEDULED requires the gozo a ter início (startDate) definido.
-        if (targetStatus === VACATION_STATUS.SCHEDULED && existing.startDate == null) {
-          throw new BadRequestException(
-            'Não é possível agendar férias sem a data de início do gozo definida.',
-          );
-        }
-        // Guard: → PAID requires the recibo to be calculated.
-        if (targetStatus === VACATION_STATUS.PAID && existing.baseRemuneration == null) {
+        // Guard: → PAID requires the recibo to be calculated (auto agora; mantemos
+        // honesto).
+        if (existing.baseRemuneration == null) {
           throw new BadRequestException(
             'Não é possível concluir o pagamento: o recibo de férias ainda não foi calculado.',
           );
         }
+
         // Guard: → PAID com gozo após o concessivo deve ser pago em DOBRO
-        // (art. 137). Bloqueia o pagamento simples e sinaliza para recálculo.
+        // (art. 137). Marca isDouble (já está EXPIRED com isDouble, mas SCHEDULED
+        // pode ultrapassar também).
         let mustDouble = false;
-        if (
-          targetStatus === VACATION_STATUS.PAID &&
-          existing.concessiveEnd &&
-          existing.startDate
-        ) {
+        if (existing.concessiveEnd && existing.startDate) {
           const concessiveEnd = new Date(existing.concessiveEnd);
           const periodEnd = this.calc.periodEndDate(new Date(existing.startDate), existing.days);
           if (periodEnd.getTime() > concessiveEnd.getTime()) {
@@ -1016,17 +1080,14 @@ export class VacationService {
         }
 
         // Transição ATÔMICA: só atualiza se o status ainda for o lido (evita
-        // pagamento duplicado por avanços concorrentes). updateMany permite o
-        // guard de status no WHERE; count===0 ⇒ alguém já mudou o status.
+        // pagamento duplicado por chamadas concorrentes). count===0 ⇒ alguém já
+        // mudou o status.
         const guarded = await tx.vacation.updateMany({
           where: { id, status: currentStatus as any },
           data: {
-            status: targetStatus as any,
-            statusOrder: VACATION_STATUS_ORDER[targetStatus],
+            status: VACATION_STATUS.PAID as any,
             ...(mustDouble ? { isDouble: true } : {}),
-            ...(targetStatus === VACATION_STATUS.PAID && !existing.paymentDate
-              ? { paymentDate: new Date() }
-              : {}),
+            ...(!existing.paymentDate ? { paymentDate: new Date() } : {}),
           },
         });
         if (guarded.count === 0) {
@@ -1046,8 +1107,8 @@ export class VacationService {
           action: CHANGE_ACTION.UPDATE,
           field: 'status',
           oldValue: currentStatus,
-          newValue: targetStatus,
-          reason: `Status das férias alterado: ${STATUS_LABELS_PT[currentStatus]} → ${STATUS_LABELS_PT[targetStatus]}`,
+          newValue: VACATION_STATUS.PAID,
+          reason: `Status das férias alterado: ${VACATION_STATUS_LABELS[currentStatus]} → ${VACATION_STATUS_LABELS[VACATION_STATUS.PAID]}`,
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           triggeredById: id,
           userId: userId || null,
@@ -1057,21 +1118,12 @@ export class VacationService {
         return updated;
       });
 
-      // Ponto sync: when the vacation reaches SCHEDULED (períodos guaranteed by
-      // the guard above), push the gozo date ranges into Secullum as
-      // afastamentos so punches aren't expected during férias. Re-syncing on
-      // IN_PROGRESS is a cheap self-heal (idempotent). Non-fatal on failure.
-      const newStatus = (vacation as any)?.status as VACATION_STATUS | undefined;
-      if (newStatus === VACATION_STATUS.SCHEDULED || newStatus === VACATION_STATUS.IN_PROGRESS) {
-        await this.syncToSecullum(id);
-      }
-
-      return { success: true, message: 'Status das férias atualizado com sucesso.', data: vacation as any };
+      return { success: true, message: 'Férias marcadas como pagas com sucesso.', data: vacation as any };
     } catch (error: any) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
-      this.logger.error('Erro ao avançar status das férias:', error);
+      this.logger.error('Erro ao marcar férias como pagas:', error);
       throw new InternalServerErrorException(
-        'Erro ao avançar status das férias. Por favor, tente novamente.',
+        'Erro ao marcar férias como pagas. Por favor, tente novamente.',
       );
     }
   }
@@ -1139,6 +1191,8 @@ export class VacationService {
         const vacation = await this.prisma.$transaction((tx: PrismaTransaction) =>
           this.createWithTransaction(tx, item, userId, include),
         );
+        // Mirror into Secullum after the commit; never fails the batch item.
+        await this.syncToSecullum(vacation.id);
         success.push(vacation);
       } catch (error: any) {
         const message =

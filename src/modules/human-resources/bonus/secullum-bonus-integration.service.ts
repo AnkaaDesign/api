@@ -150,7 +150,7 @@ export class SecullumBonusIntegrationService {
         overrides: {
           title: 'Dados de folha degradados (Secullum)',
           body: reason,
-          webUrl: '/recursos-humanos/bonus',
+          webUrl: '/departamento-pessoal/bonus',
           mobileUrl: '/(tabs)/recursos-humanos/folha-de-pagamento',
           relatedEntityType: 'SECULLUM_PAYROLL',
         },

@@ -64,7 +64,7 @@ import type {
 
 @Controller('vacations')
 @UseGuards(AuthGuard)
-@Roles(SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+@Roles(SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
 export class VacationController {
   constructor(private readonly vacationService: VacationService) {}
 

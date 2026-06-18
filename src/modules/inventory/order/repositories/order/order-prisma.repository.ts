@@ -153,6 +153,7 @@ export class OrderPrismaRepository
       paymentMethod: (orderData.paymentMethod as any) || null,
       paymentPix: orderData.paymentPix || null,
       paymentDueDays: orderData.paymentDueDays || null,
+      paymentFirstDueDate: (orderData as any).paymentFirstDueDate || null,
     };
 
     // Handle optional relations using connect syntax
@@ -242,6 +243,8 @@ export class OrderPrismaRepository
       updateData.paymentMethod = formData.paymentMethod as any;
     if (formData.paymentPix !== undefined) updateData.paymentPix = formData.paymentPix;
     if (formData.paymentDueDays !== undefined) updateData.paymentDueDays = formData.paymentDueDays;
+    if ((formData as any).paymentFirstDueDate !== undefined)
+      updateData.paymentFirstDueDate = (formData as any).paymentFirstDueDate;
 
     // Handle payment responsible relation
     if ((formData as any).paymentResponsibleId !== undefined) {
@@ -579,6 +582,7 @@ export class OrderPrismaRepository
       paymentMethod: databaseOrder.paymentMethod as any,
       paymentPix: databaseOrder.paymentPix as any,
       paymentDueDays: databaseOrder.paymentDueDays as any,
+      paymentFirstDueDate: (databaseOrder as any).paymentFirstDueDate as any,
       budgets: databaseOrder.budgets as any,
       invoices: databaseOrder.invoices as any,
       receipts: databaseOrder.receipts as any,

@@ -670,6 +670,7 @@ export class ZodValidationPipe implements PipeTransform {
       'reference',
       'representativeName',
       'forecast',
+      'paymentFirstDueDate',
     ];
 
     const lowerFieldName = fieldName.toLowerCase();

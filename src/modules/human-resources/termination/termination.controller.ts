@@ -79,7 +79,7 @@ import {
 
 @Controller('terminations')
 @UseGuards(AuthGuard)
-@Roles(SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+@Roles(SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
 export class TerminationController {
   constructor(private readonly terminationService: TerminationService) {}
 

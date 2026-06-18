@@ -19,7 +19,6 @@ export interface VacationGroup extends BaseEntity {
   acquisitiveEnd: Date;
   concessiveEnd: Date | null;
   status: VACATION_STATUS;
-  statusOrder: number;
   // Template single-period aplicado a cada colaborador na expansão.
   startDate: Date | null;
   days: number;

@@ -190,8 +190,8 @@ export class OrderController {
   // payable total per bucket; PAID windowed to the last 90 days). Declared
   // before @Get(':id') so "payment-summary" isn't captured as an :id param.
   @Get('payment-summary')
+  // Financial-only: WAREHOUSE manages orders but never their payment side.
   @Roles(
-    SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.ACCOUNTING,
     SECTOR_PRIVILEGES.ADMIN,
@@ -203,8 +203,8 @@ export class OrderController {
   // Unified payables list (orders + airbrushing painter payments + scheduled/expected).
   // Declared before @Get(':id') so "payables" isn't captured as an :id param.
   @Get('payables')
+  // Financial-only: WAREHOUSE manages orders but never their payment side.
   @Roles(
-    SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.ACCOUNTING,
     SECTOR_PRIVILEGES.ADMIN,
@@ -291,8 +291,8 @@ export class OrderController {
   // =====================
 
   @Put('batch/mark-awaiting-payment')
+  // Financial-only: WAREHOUSE manages orders but never their payment side.
   @Roles(
-    SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.ACCOUNTING,
     SECTOR_PRIVILEGES.ADMIN,
@@ -305,8 +305,8 @@ export class OrderController {
   }
 
   @Put('batch/mark-paid')
+  // Financial-only: WAREHOUSE manages orders but never their payment side.
   @Roles(
-    SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.ACCOUNTING,
     SECTOR_PRIVILEGES.ADMIN,
@@ -323,8 +323,8 @@ export class OrderController {
   // =====================
 
   @Put('installments/:installmentId/mark-paid')
+  // Financial-only: WAREHOUSE manages orders but never their payment side.
   @Roles(
-    SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.ACCOUNTING,
     SECTOR_PRIVILEGES.ADMIN,
@@ -337,8 +337,8 @@ export class OrderController {
   }
 
   @Put(':id/fiscal-documents')
+  // Financial-only: WAREHOUSE manages orders but never their payment side.
   @Roles(
-    SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.ACCOUNTING,
     SECTOR_PRIVILEGES.ADMIN,
@@ -351,8 +351,8 @@ export class OrderController {
   }
 
   @Put(':id/mark-awaiting-payment')
+  // Financial-only: WAREHOUSE manages orders but never their payment side.
   @Roles(
-    SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.ACCOUNTING,
     SECTOR_PRIVILEGES.ADMIN,
@@ -365,8 +365,8 @@ export class OrderController {
   }
 
   @Put(':id/mark-paid')
+  // Financial-only: WAREHOUSE manages orders but never their payment side.
   @Roles(
-    SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.ACCOUNTING,
     SECTOR_PRIVILEGES.ADMIN,

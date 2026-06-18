@@ -35,7 +35,6 @@ export interface Vacation extends BaseEntity {
   unjustifiedAbsencesInPeriod: number;
   entitledDays: number;
   status: VACATION_STATUS;
-  statusOrder: number;
   abonoPecuniarioDays: number;
   soldThird: boolean;
   baseRemuneration: number | null;

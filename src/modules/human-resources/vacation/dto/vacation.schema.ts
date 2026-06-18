@@ -42,7 +42,6 @@ const orderByDirection = z.enum(['asc', 'desc']);
 const vacationOrderByFields = z.object({
   id: orderByDirection.optional(),
   status: orderByDirection.optional(),
-  statusOrder: orderByDirection.optional(),
   acquisitiveStart: orderByDirection.optional(),
   acquisitiveEnd: orderByDirection.optional(),
   concessiveEnd: orderByDirection.optional(),
@@ -113,7 +112,6 @@ export const vacationWhereSchema: z.ZodSchema = z.lazy(() =>
       contractId: z.union([stringWhere, z.null()]).optional(),
       groupId: z.union([stringWhere, z.null()]).optional(),
       status: stringWhere.optional(),
-      statusOrder: numberWhere.optional(),
       entitledDays: numberWhere.optional(),
       days: numberWhere.optional(),
       unjustifiedAbsencesInPeriod: numberWhere.optional(),
@@ -230,8 +228,12 @@ export const vacationCreateSchema = z.object({
   contractId: z.string().uuid({ message: 'Vínculo inválido' }).nullable().optional(),
   acquisitiveStart: z.coerce.date().optional(),
   acquisitiveEnd: z.coerce.date().optional(),
-  // Início do gozo desta tomada (null/omitido enquanto não agendada).
-  startDate: z.coerce.date({ invalid_type_error: 'data de início inválida' }).nullable().optional(),
+  // Início do gozo desta tomada — OBRIGATÓRIO (cria já agendada). Passado é
+  // permitido (registro retroativo); ">= hoje" não é exigido.
+  startDate: z.coerce.date({
+    required_error: 'A data de início do gozo é obrigatória',
+    invalid_type_error: 'data de início inválida',
+  }),
   // Dias de gozo desta tomada.
   days: gozoDaysSchema,
   unjustifiedAbsencesInPeriod: z.coerce

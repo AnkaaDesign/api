@@ -161,6 +161,17 @@ export class CronService {
         }
       }
 
+      // Boleto parcelas: flip past-due PENDING installments to OVERDUE so the payment
+      // side has a real stored status (filtering/alerts), mirroring the delivery axis.
+      try {
+        const overdueInstallments = await this.orderService.markOverdueInstallments();
+        if (overdueInstallments > 0) {
+          this.logger.log(`${overdueInstallments} boleto installment(s) flagged OVERDUE`);
+        }
+      } catch (instError) {
+        this.logger.error('Failed to flag overdue installments', instError as Error);
+      }
+
       this.logger.log('Overdue orders update completed successfully.');
       this.logger.log(
         `Results: ${overdueOrders.data.length} orders processed, ` +

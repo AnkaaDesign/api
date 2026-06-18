@@ -1355,7 +1355,7 @@ export class SkillService {
   // CROSS-CAMPAIGN STATISTICS
   // ===================================================================
   //
-  // Three endpoints power the /estatisticas/recursos-humanos/competencias
+  // Three endpoints power the /estatisticas/departamento-pessoal/competencias
   // dashboard. They all share the same loading strategy: pull the matching
   // entries (with evaluatee → sector + responses → topic → skill) once, then
   // run several reducers over that same in-memory dataset. This keeps the
@@ -1498,7 +1498,7 @@ export class SkillService {
   /**
    * Cross-campaign overview: KPIs, per-skill averages, topic distribution,
    * sector ranking, user ranking. Powers the Overview tab of the new HR stats
-   * page (`/estatisticas/recursos-humanos/competencias`).
+   * page (`/estatisticas/departamento-pessoal/competencias`).
    */
   async getStatsOverview(
     filters: SkillStatsOverviewFilters,

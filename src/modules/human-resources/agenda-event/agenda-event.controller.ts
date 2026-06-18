@@ -59,7 +59,9 @@ import type {
 
 @Controller('agenda-events')
 @UseGuards(AuthGuard)
-@Roles(SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+// Agenda events are the shared Calendário (Ferramentas) data — HR/ACCOUNTING/ADMIN and
+// PRODUCTION_MANAGER can all view and manage them (create/edit/delete).
+@Roles(SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
 export class AgendaEventController {
   constructor(private readonly service: AgendaEventService) {}
 

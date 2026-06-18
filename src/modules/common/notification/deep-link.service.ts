@@ -82,7 +82,7 @@ export class DeepLinkService {
   // STOCK_*, ITEM_* → /estoque/produtos/detalhes/:id (web) | item/:id (mobile)
   // FINANCIAL_* → /financeiro/faturamento/detalhes/:id (web) | financial/:id (mobile)
   // SERVICE_ORDER_* → /producao/cronograma/detalhes/:id (web) | task/:id (mobile, navigates via task)
-  // USER_*, PROFILE_* → /administracao/colaboradores/detalhes/:id (web) | user/:id (mobile)
+  // USER_*, PROFILE_* → /departamento-pessoal/colaboradores/detalhes/:id (web) | user/:id (mobile)
   private readonly ROUTES: Record<DeepLinkEntity, RouteConfig> = {
     [DeepLinkEntity.Task]: {
       web: '/producao/cronograma/detalhes/',
@@ -105,7 +105,7 @@ export class DeepLinkService {
       mobile: 'financial/',
     },
     [DeepLinkEntity.User]: {
-      web: '/administracao/colaboradores/detalhes/',
+      web: '/departamento-pessoal/colaboradores/detalhes/',
       mobile: 'user/',
     },
   };

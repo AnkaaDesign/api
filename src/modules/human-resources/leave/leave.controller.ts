@@ -72,6 +72,9 @@ export class LeaveController {
 
   // Basic CRUD Operations
   @Get()
+  // Read-only access for PRODUCTION_MANAGER: the shared Calendário (Ferramentas) renders
+  // leaves; writes stay ACCOUNTING/HR/ADMIN (class-level). Merged via getAllAndMerge.
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @ReadRateLimit()
   async findMany(
     @Query(new ZodQueryValidationPipe(leaveGetManySchema)) query: LeaveGetManyFormData,

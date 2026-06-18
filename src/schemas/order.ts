@@ -1418,8 +1418,12 @@ export const orderCreateSchema = z
       .optional(),
     paymentDueDays: z
       .number()
-      .int('Prazo de vencimento deve ser um número inteiro')
-      .positive('Prazo de vencimento deve ser positivo')
+      .int('Intervalo entre parcelas deve ser um número inteiro')
+      .positive('Intervalo entre parcelas deve ser positivo')
+      .nullable()
+      .optional(),
+    paymentFirstDueDate: z.coerce
+      .date({ invalid_type_error: 'Data do primeiro vencimento inválida' })
       .nullable()
       .optional(),
     installmentCount: z
@@ -1539,8 +1543,12 @@ export const orderUpdateSchema = z
       .optional(),
     paymentDueDays: z
       .number()
-      .int('Prazo de vencimento deve ser um número inteiro')
-      .positive('Prazo de vencimento deve ser positivo')
+      .int('Intervalo entre parcelas deve ser um número inteiro')
+      .positive('Intervalo entre parcelas deve ser positivo')
+      .nullable()
+      .optional(),
+    paymentFirstDueDate: z.coerce
+      .date({ invalid_type_error: 'Data do primeiro vencimento inválida' })
       .nullable()
       .optional(),
     installmentCount: z
@@ -2155,6 +2163,7 @@ export const mapOrderToFormData = createMapToFormDataHelper<Order, OrderUpdateFo
   paymentMethod: order.paymentMethod || undefined,
   paymentPix: order.paymentPix || undefined,
   paymentDueDays: order.paymentDueDays || undefined,
+  paymentFirstDueDate: order.paymentFirstDueDate || undefined,
   installmentCount: order.installmentCount || undefined,
   paymentResponsibleId: order.paymentResponsibleId || undefined,
 }));

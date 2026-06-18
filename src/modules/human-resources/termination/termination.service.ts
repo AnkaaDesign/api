@@ -42,6 +42,7 @@ import {
   TerminationCalculationService,
   isUnderStability,
 } from './termination-calculation.service';
+import { isPayrollEmployeeType } from '../../../utils/contract';
 import { TerminationDocumentService } from './termination-document.service';
 import { EmploymentContractService } from '../employment-contract/employment-contract.service';
 import type {
@@ -295,6 +296,7 @@ export class TerminationService {
         id: true,
         name: true,
         currentContractStatus: true,
+        currentEmployeeType: true,
         currentContractId: true,
         currentContract: {
           select: {
@@ -308,6 +310,14 @@ export class TerminationService {
     });
     if (!user) {
       throw new NotFoundException('Colaborador não encontrado.');
+    }
+    // CLT gate: rescisão (folha) só se aplica a vínculos CLT. Terceirizado/PJ/
+    // autônomo/estagiário não passam por este processo (mirror do gate de férias).
+    if (!isPayrollEmployeeType((user as any).currentEmployeeType)) {
+      throw new BadRequestException(
+        `Não é possível registrar a rescisão de ${user.name}: o vínculo atual não é CLT/folha. ` +
+          'Apenas colaboradores CLT possuem processo de rescisão neste módulo.',
+      );
     }
     if (user.currentContractStatus === CONTRACT_STATUS.TERMINATED) {
       throw new BadRequestException('Este colaborador já está demitido.');
@@ -955,6 +965,14 @@ export class TerminationService {
         ) {
           throw new BadRequestException(
             'Não é possível avançar para Pagamento: nenhuma verba rescisória foi calculada.',
+          );
+        }
+
+        // Guard: →COMPLETED requires terminationDate (do not silently default to
+        // today — the FGTS/notice/payment dates all derive from it).
+        if (targetStatus === TERMINATION_STATUS.COMPLETED && !existing.terminationDate) {
+          throw new BadRequestException(
+            'Não é possível concluir a rescisão: a data de desligamento não foi informada.',
           );
         }
 

@@ -506,7 +506,8 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   // Order payment fields
   paymentMethod: 'método de pagamento',
   paymentPix: 'chave pix',
-  paymentDueDays: 'prazo de vencimento',
+  paymentDueDays: 'intervalo entre parcelas',
+  paymentFirstDueDate: 'primeiro vencimento',
   paymentResponsibleId: 'responsável pelo pagamento',
   paymentAssignedById: 'atribuído por',
 };

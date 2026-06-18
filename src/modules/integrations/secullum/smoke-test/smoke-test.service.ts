@@ -171,7 +171,7 @@ export class SecullumSmokeTestService {
           failedLabels: failed.length > 0 ? failedLabels : '',
         },
         overrides: {
-          webUrl: '/recursos-humanos/integracoes/secullum',
+          webUrl: '/departamento-pessoal/integracoes/secullum',
           mobileUrl: '/(tabs)/recursos-humanos/calculos',
           relatedEntityType: 'SECULLUM_SOLICITACAO',
         },

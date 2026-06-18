@@ -28,7 +28,6 @@ import {
   CHANGE_TRIGGERED_BY,
   ENTITY_TYPE,
   VACATION_STATUS,
-  VACATION_STATUS_ORDER,
 } from '../../../constants';
 
 // Dias de antecedência para o alerta de "concessivo expirando" (configurável).
@@ -66,7 +65,7 @@ export class VacationNotificationScheduler {
   }
 
   private vacationWebUrl(vacationId: string): string {
-    return `/recursos-humanos/ferias/detalhes/${vacationId}`;
+    return `/departamento-pessoal/ferias/detalhes/${vacationId}`;
   }
 
   private vacationMobileUrl(vacationId: string): string {
@@ -81,7 +80,7 @@ export class VacationNotificationScheduler {
     const overdue = await this.prisma.vacation.findMany({
       where: {
         concessiveEnd: { lt: now },
-        status: { in: [VACATION_STATUS.OPEN, VACATION_STATUS.SCHEDULED] as any[] },
+        status: VACATION_STATUS.SCHEDULED as any,
         deletedAt: null,
       },
       include: { user: { select: { name: true } } },
@@ -96,7 +95,6 @@ export class VacationNotificationScheduler {
             where: { id: vacation.id },
             data: {
               status: VACATION_STATUS.EXPIRED as any,
-              statusOrder: VACATION_STATUS_ORDER[VACATION_STATUS.EXPIRED],
               isDouble: true,
             },
           });
@@ -147,7 +145,7 @@ export class VacationNotificationScheduler {
     const expiring = await this.prisma.vacation.findMany({
       where: {
         concessiveEnd: { gte: now, lte: threshold },
-        status: { in: [VACATION_STATUS.OPEN, VACATION_STATUS.SCHEDULED] as any[] },
+        status: VACATION_STATUS.SCHEDULED as any,
         deletedAt: null,
       },
       include: { user: { select: { name: true } } },
