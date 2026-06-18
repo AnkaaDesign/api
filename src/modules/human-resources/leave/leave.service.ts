@@ -351,6 +351,12 @@ export class LeaveService {
   private async leaveValidation(
     data: Partial<LeaveCreateFormData | LeaveUpdateFormData>,
     tx?: PrismaTransaction,
+    existing?: {
+      startDate?: Date | null;
+      expectedEndDate?: Date | null;
+      actualEndDate?: Date | null;
+      type?: string | null;
+    } | null,
   ): Promise<void> {
     const transaction = tx || this.prisma;
 
@@ -359,6 +365,42 @@ export class LeaveService {
       if (!user) {
         throw new NotFoundException('Colaborador não encontrado.');
       }
+    }
+
+    // Date coherence (merged with the existing record on update):
+    //   expectedEndDate >= startDate, and actualEndDate >= startDate on finish.
+    const startDate =
+      data.startDate !== undefined ? data.startDate : existing?.startDate ?? null;
+    const expectedEndDate =
+      data.expectedEndDate !== undefined ? data.expectedEndDate : existing?.expectedEndDate ?? null;
+    const actualEndDate =
+      data.actualEndDate !== undefined ? data.actualEndDate : existing?.actualEndDate ?? null;
+    const type = (data as any).type ?? existing?.type ?? null;
+
+    if (startDate && expectedEndDate && new Date(expectedEndDate) < new Date(startDate)) {
+      throw new BadRequestException(
+        'A data prevista de término do afastamento não pode ser anterior à data de início.',
+      );
+    }
+    if (startDate && actualEndDate && new Date(actualEndDate) < new Date(startDate)) {
+      throw new BadRequestException(
+        'A data efetiva de término do afastamento não pode ser anterior à data de início.',
+      );
+    }
+
+    // Open-ended INSS/illness/accident leave (no end date): Secullum ponto
+    // coverage is deferred (we can only push a closed afastamento range). Log a
+    // warning so an operator knows to close/extend the range later.
+    const openEndedTypes: string[] = [
+      LEAVE_TYPE.ILLNESS_INSS,
+      LEAVE_TYPE.WORK_ACCIDENT,
+      LEAVE_TYPE.ILLNESS_UP_TO_15,
+    ];
+    if (type && openEndedTypes.includes(type) && startDate && !expectedEndDate && !actualEndDate) {
+      this.logger.warn(
+        `Afastamento ${type} sem data de término (colaborador ${data.userId ?? 'desconhecido'}): ` +
+          'cobertura no ponto (Secullum) adiada até que um término seja definido.',
+      );
     }
   }
 
@@ -562,7 +604,7 @@ export class LeaveService {
           this.validateStatusTransition(existing.status, data.status);
         }
 
-        await this.leaveValidation(data, tx);
+        await this.leaveValidation(data, tx, existing as any);
 
         const { fileIds, ...rest } = data;
         const updateData: any = { ...rest };

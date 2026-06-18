@@ -45,6 +45,9 @@ export function isValidStatusTransition(fromStatus: ORDER_STATUS, toStatus: ORDE
       ORDER_STATUS.PARTIALLY_RECEIVED,
       ORDER_STATUS.RECEIVED,
       ORDER_STATUS.OVERDUE,
+      // A fulfilled-but-not-received order can still be cancelled (e.g. supplier backs
+      // out). Safe: stock is only added on RECEIVED, so nothing to reverse here.
+      ORDER_STATUS.CANCELLED,
     ],
     [ORDER_STATUS.OVERDUE]: [
       ORDER_STATUS.PARTIALLY_FULFILLED,

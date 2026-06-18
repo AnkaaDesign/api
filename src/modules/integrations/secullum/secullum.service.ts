@@ -2216,7 +2216,7 @@ export class SecullumService {
         overrides: {
           title: 'Falha no healthcheck da Secullum',
           body: `O healthcheck da Secullum falhou (${status}). Verifique as credenciais e a disponibilidade do serviço.`,
-          webUrl: '/recursos-humanos/integracoes/secullum',
+          webUrl: '/departamento-pessoal/integracoes/secullum',
           mobileUrl: '/(tabs)/recursos-humanos/calculos',
           relatedEntityType: 'SECULLUM_SOLICITACAO',
         },
@@ -3144,7 +3144,7 @@ export class SecullumService {
             overrides: {
               title: 'Solicitação aprovada',
               body: 'Sua solicitação de ponto foi aprovada.',
-              webUrl: '/recursos-humanos/integracoes/secullum',
+              webUrl: '/pessoal/meus-pontos',
               mobileUrl: '/(tabs)/pessoal/meus-pontos',
               relatedEntityType: 'SECULLUM_SOLICITACAO',
             },
@@ -3168,7 +3168,7 @@ export class SecullumService {
           overrides: {
             title: 'Solicitação de ponto aprovada (funcionário não vinculado)',
             body: `Uma solicitação de ponto (ID ${requestData.SolicitacaoId}) foi aprovada para o funcionário Secullum ${requestData.FuncionarioId}, que não possui usuário vinculado no Ankaa. Avise o funcionário.`,
-            webUrl: '/recursos-humanos/integracoes/secullum',
+            webUrl: '/departamento-pessoal/controle-ponto/requisicoes',
             mobileUrl: '/(tabs)/recursos-humanos/calculos',
             relatedEntityType: 'SECULLUM_SOLICITACAO',
           },
@@ -3234,7 +3234,7 @@ export class SecullumService {
             overrides: {
               title: 'Solicitação rejeitada',
               body: `Sua solicitação de ponto foi rejeitada. Motivo: ${rejectionBody.Motivo}`,
-              webUrl: '/recursos-humanos/integracoes/secullum',
+              webUrl: '/pessoal/meus-pontos',
               mobileUrl: '/(tabs)/pessoal/meus-pontos',
               relatedEntityType: 'SECULLUM_SOLICITACAO',
             },
@@ -3256,7 +3256,7 @@ export class SecullumService {
           overrides: {
             title: 'Solicitação de ponto rejeitada (funcionário não vinculado)',
             body: `Uma solicitação de ponto (ID ${requestData.SolicitacaoId}) foi rejeitada para o funcionário Secullum ${requestData.FuncionarioId}, que não possui usuário vinculado no Ankaa. Motivo: ${rejectionBody.Motivo}. Avise o funcionário.`,
-            webUrl: '/recursos-humanos/integracoes/secullum',
+            webUrl: '/departamento-pessoal/controle-ponto/requisicoes',
             mobileUrl: '/(tabs)/recursos-humanos/calculos',
             relatedEntityType: 'SECULLUM_SOLICITACAO',
           },
@@ -4032,7 +4032,7 @@ export class SecullumService {
                 overrides: {
                   title: 'Cartão-ponto pronto para assinatura',
                   body: 'Seu cartão-ponto está disponível para assinatura digital. Acesse para revisar e assinar.',
-                  webUrl: '/recursos-humanos/integracoes/secullum',
+                  webUrl: '/pessoal/meus-pontos',
                   mobileUrl: '/(tabs)/pessoal/meus-pontos/assinaturas',
                   relatedEntityType: 'SECULLUM_SOLICITACAO',
                 },
@@ -4061,7 +4061,7 @@ export class SecullumService {
                   overrides: {
                     title: 'Cartão-ponto pronto para assinatura',
                     body: 'Seu cartão-ponto está disponível para assinatura digital. Acesse para revisar e assinar.',
-                    webUrl: '/recursos-humanos/integracoes/secullum',
+                    webUrl: '/pessoal/meus-pontos',
                     mobileUrl: '/(tabs)/pessoal/meus-pontos/assinaturas',
                     relatedEntityType: 'SECULLUM_SOLICITACAO',
                   },
@@ -4846,7 +4846,7 @@ export class SecullumService {
             body: `Solicitação de justificativa de ausência de ${requesterName} para ${payload.date}.${
               payload.observacoes ? ` Justificativa: ${payload.observacoes}` : ''
             }`,
-            webUrl: '/recursos-humanos/integracoes/secullum',
+            webUrl: '/departamento-pessoal/controle-ponto/requisicoes',
             mobileUrl: '/(tabs)/recursos-humanos/calculos',
             relatedEntityType: 'SECULLUM_SOLICITACAO',
           },
@@ -4946,7 +4946,7 @@ export class SecullumService {
           body: `Solicitação de ajuste de ponto de ${requesterName} para ${payload.date}.${
             payload.observacoes ? ` Observação: ${payload.observacoes}` : ''
           }`,
-          webUrl: '/recursos-humanos/integracoes/secullum',
+          webUrl: '/departamento-pessoal/controle-ponto/requisicoes',
           mobileUrl: '/(tabs)/recursos-humanos/calculos',
           relatedEntityType: 'SECULLUM_SOLICITACAO',
         },
@@ -5409,7 +5409,7 @@ export class SecullumService {
               body: `Solicitação de justificativa de ausência de ${requesterName} para ${dateLabel}.${
                 body.observacoes ? ` Justificativa: ${body.observacoes}` : ''
               }`,
-              webUrl: '/recursos-humanos/integracoes/secullum',
+              webUrl: '/departamento-pessoal/controle-ponto/requisicoes',
               mobileUrl: '/(tabs)/recursos-humanos/calculos',
               relatedEntityType: 'SECULLUM_SOLICITACAO',
             },
@@ -5433,7 +5433,7 @@ export class SecullumService {
               body: `Solicitação de ajuste de ponto de ${requesterName} para ${dateLabel}.${
                 body.observacoes ? ` Observação: ${body.observacoes}` : ''
               }`,
-              webUrl: '/recursos-humanos/integracoes/secullum',
+              webUrl: '/departamento-pessoal/controle-ponto/requisicoes',
               mobileUrl: '/(tabs)/recursos-humanos/calculos',
               relatedEntityType: 'SECULLUM_SOLICITACAO',
             },
@@ -5643,7 +5643,7 @@ export class SecullumService {
       action: configKey === 'secullum.signature.signed' ? 'signed' : 'rejected',
       data: { employeeName, period, ...(motivo ? { response: motivo } : {}) },
       overrides: {
-        webUrl: '/recursos-humanos/integracoes/secullum',
+        webUrl: '/departamento-pessoal/controle-ponto/fechamento',
         mobileUrl: '/(tabs)/recursos-humanos/calculos',
         relatedEntityType: 'SECULLUM_ASSINATURA',
       },
@@ -5781,7 +5781,7 @@ export class SecullumService {
           body: `Solicitação de inclusão de marcação de ponto de ${requesterName}.${
             payload.justificativa ? ` Justificativa: ${payload.justificativa}` : ''
           }`,
-          webUrl: '/recursos-humanos/integracoes/secullum',
+          webUrl: '/departamento-pessoal/controle-ponto/requisicoes',
           mobileUrl: '/(tabs)/recursos-humanos/calculos',
           relatedEntityType: 'SECULLUM_SOLICITACAO',
         },

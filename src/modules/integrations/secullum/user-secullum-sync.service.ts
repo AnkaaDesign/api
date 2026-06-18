@@ -265,7 +265,7 @@ export class UserSecullumSyncService implements OnModuleInit {
           overrides: {
             title: 'Falha na sincronização com a Secullum',
             body: `Falha ao criar o funcionário "${user.name}" na Secullum: ${message}`,
-            webUrl: '/recursos-humanos/integracoes/secullum',
+            webUrl: '/departamento-pessoal/integracoes/secullum',
             mobileUrl: '/(tabs)/recursos-humanos/calculos',
             relatedEntityType: 'SECULLUM_SOLICITACAO',
           },
@@ -382,7 +382,7 @@ export class UserSecullumSyncService implements OnModuleInit {
           overrides: {
             title: 'Falha na sincronização com a Secullum',
             body: `Falha ao atualizar o funcionário "${user.name}" na Secullum: ${message}`,
-            webUrl: '/recursos-humanos/integracoes/secullum',
+            webUrl: '/departamento-pessoal/integracoes/secullum',
             mobileUrl: '/(tabs)/recursos-humanos/calculos',
             relatedEntityType: 'SECULLUM_SOLICITACAO',
           },
@@ -565,7 +565,7 @@ export class UserSecullumSyncService implements OnModuleInit {
         overrides: {
           title: 'Conflito de vínculo Secullum detectado',
           body: `${result.conflicts} conflito(s) de vínculo durante a sincronização Secullum. Reconcilie manualmente.${sample ? ` Ex.: ${sample}` : ''}`,
-          webUrl: '/recursos-humanos/integracoes/secullum',
+          webUrl: '/departamento-pessoal/integracoes/secullum',
           mobileUrl: '/(tabs)/recursos-humanos/calculos',
           relatedEntityType: 'SECULLUM_SOLICITACAO',
         },

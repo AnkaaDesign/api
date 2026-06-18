@@ -382,6 +382,7 @@ export class OrderService {
             total,
             count: installmentCount,
             intervalDays: orderData.paymentDueDays ?? null,
+            firstDueDate: (orderData.paymentFirstDueDate as Date) ?? null,
           });
           await this.recomputeOrderPaymentRollup(tx, newOrder.id);
         }
@@ -1084,6 +1085,7 @@ export class OrderService {
           'paymentMethod',
           'paymentPix',
           'paymentDueDays',
+          'paymentFirstDueDate',
           'paymentResponsibleId',
           'paymentAssignedById',
         ];
@@ -1107,13 +1109,18 @@ export class OrderService {
         const postUpdate = await tx.order.findUnique({
           where: { id },
           select: {
+            status: true,
             paymentMethod: true,
             installmentCount: true,
             paymentDueDays: true,
+            paymentFirstDueDate: true,
             freight: true,
             discount: true,
             items: { select: { orderedQuantity: true, price: true, icms: true, ipi: true } },
-            installments: { select: { status: true, paidAmount: true } },
+            installments: {
+              select: { number: true, dueDate: true, status: true, paidAmount: true },
+              orderBy: { number: 'asc' as const },
+            },
           },
         });
         if (postUpdate) {
@@ -1122,7 +1129,17 @@ export class OrderService {
           );
           const wantCount = postUpdate.installmentCount || 1;
           const isBoleto = postUpdate.paymentMethod === 'BANK_SLIP';
-          if (!anySettled) {
+          if (postUpdate.status === ORDER_STATUS.CANCELLED) {
+            // Order cancelled: cancel any open parcelas so a dead order can't keep
+            // resurfacing in Contas a Pagar at the installment level. Already-paid
+            // parcelas are left intact (real money stays recorded). Never regenerate.
+            if ((postUpdate.installments || []).length > 0) {
+              await tx.orderInstallment.updateMany({
+                where: { orderId: id, status: { not: ORDER_INSTALLMENT_STATUS.PAID } },
+                data: { status: ORDER_INSTALLMENT_STATUS.CANCELLED },
+              });
+            }
+          } else if (!anySettled) {
             if (isBoleto && wantCount > 1) {
               let goodsSubtotal = 0;
               let itemsTotal = 0;
@@ -1134,10 +1151,16 @@ export class OrderService {
               const discountAmount =
                 postUpdate.discount > 0 ? goodsSubtotal * (postUpdate.discount / 100) : 0;
               const total = itemsTotal - discountAmount + (postUpdate.freight || 0);
+              // Keep the schedule stable across unrelated updates (e.g. receiving an
+              // unpaid order). Anchor the 1st parcela to the chosen first due date,
+              // else the existing schedule's first parcela, else (legacy) now+interval.
+              const existingFirstDue =
+                (postUpdate.installments || []).find(i => i.number === 1)?.dueDate ?? null;
               await this.generateInstallmentsForOrder(tx, id, {
                 total,
                 count: wantCount,
                 intervalDays: postUpdate.paymentDueDays ?? null,
+                firstDueDate: postUpdate.paymentFirstDueDate ?? existingFirstDue ?? null,
               });
               await this.recomputeOrderPaymentRollup(tx, id);
             } else if ((postUpdate.installments || []).length > 0) {
@@ -1727,6 +1750,7 @@ export class OrderService {
               'paymentMethod',
               'paymentPix',
               'paymentDueDays',
+              'paymentFirstDueDate',
               'paymentResponsibleId',
               'paymentAssignedById',
             ];
@@ -2133,7 +2157,13 @@ export class OrderService {
   }
 
   /**
-   * Update an order item
+   * Update an order item.
+   *
+   * @deprecated DEAD CODE — no route/caller reaches this. The live per-item update is
+   * `OrderItemService.update`, which (unlike this method) also recomputes the parent
+   * order's fulfillment/received status via checkAndUpdateOrder*Status. Do NOT wire this
+   * method to a controller: it adjusts stock but leaves the order status stale. Use
+   * `OrderItemService.update` instead. Kept only to avoid a large unrelated diff.
    */
   async updateOrderItem(
     id: string,
@@ -2691,20 +2721,45 @@ export class OrderService {
 
     // Cascade to installments so the order and its parcelas stay consistent.
     if (isPaid) {
+      // Blanket "marcar como pago": close every open parcela. We intentionally do NOT
+      // touch paidAmount here — a PAID parcela with paidAmount 0 is the marker of a
+      // manual blanket settle (vs. a reconciled one with a real paidAmount). The
+      // non-destructive reopen below relies on this distinction. No code sums
+      // OrderInstallment.paidAmount, so reports are unaffected (PAID parcelas are
+      // excluded from Contas a Pagar regardless).
       await tx.orderInstallment.updateMany({
         where: { orderId, status: { not: ORDER_INSTALLMENT_STATUS.PAID } },
         data: { status: ORDER_INSTALLMENT_STATUS.PAID, paidAt: now, paidById: userId ?? null },
       });
     } else if (isReopen) {
-      await tx.orderInstallment.updateMany({
+      // Non-destructive reopen: re-derive each parcela from its ACTUAL paidAmount so a
+      // real (reconciled) payment is never wiped. Blanket-paid parcelas (status PAID,
+      // paidAmount 0) revert to PENDING; genuinely (partially) paid parcelas are kept.
+      const insts = await tx.orderInstallment.findMany({
         where: { orderId },
-        data: {
-          status: ORDER_INSTALLMENT_STATUS.PENDING,
-          paidAt: null,
-          paidById: null,
-          paidAmount: 0,
-        },
+        select: { id: true, amount: true, paidAmount: true, paidAt: true, paidById: true },
       });
+      for (const inst of insts) {
+        const paid = inst.paidAmount || 0;
+        const fullyPaid = paid >= inst.amount - 0.005;
+        const status = fullyPaid
+          ? ORDER_INSTALLMENT_STATUS.PAID
+          : paid > 0
+            ? ORDER_INSTALLMENT_STATUS.PARTIALLY_PAID
+            : ORDER_INSTALLMENT_STATUS.PENDING;
+        await tx.orderInstallment.update({
+          where: { id: inst.id },
+          data: {
+            status,
+            paidAt: fullyPaid ? inst.paidAt : null,
+            paidById: fullyPaid ? inst.paidById : null,
+          },
+        });
+      }
+      // Re-derive the order rollup from the preserved installment state. This keeps the
+      // order PARTIALLY_PAID/PAID when real payments remain — which is correct — instead
+      // of forcing AWAITING_PAYMENT and losing the reconciliation.
+      await this.recomputeOrderPaymentRollup(tx, orderId);
     }
 
     await this.changeLogService.logChange({
@@ -2723,6 +2778,12 @@ export class OrderService {
       transaction: tx,
     });
 
+    // Reopen re-derives the rollup from installments, so the order row may differ from
+    // the optimistic update above — return the authoritative final state.
+    if (isReopen) {
+      const fresh = await tx.order.findUnique({ where: { id: orderId } });
+      if (fresh) return fresh as unknown as Order;
+    }
     return updated as unknown as Order;
   }
 
@@ -2909,6 +2970,7 @@ export class OrderService {
         description: true,
         forecast: true,
         paymentMethod: true,
+        paymentFirstDueDate: true,
         paymentStatus: true,
         paymentRequestedAt: true,
         paidAt: true,
@@ -3038,7 +3100,8 @@ export class OrderService {
             description: order.description,
             amount,
             paymentState: order.paymentStatus as PayableRow['paymentState'],
-            dueDate: order.forecast ?? null,
+            // Boleto à vista (1x) uses the chosen first due date; non-boleto falls back to forecast.
+            dueDate: order.paymentFirstDueDate ?? order.forecast ?? null,
             method: order.paymentMethod ?? null,
             requestedAt: null,
             settleVia,
@@ -3249,6 +3312,26 @@ export class OrderService {
     });
   }
 
+  /**
+   * Flip past-due, still-open boleto parcelas to OVERDUE (run daily by the cron).
+   * Only PENDING parcelas are flipped — PARTIALLY_PAID keeps its richer state, and PAID
+   * is untouched. OVERDUE is treated as "open" by every downstream path (payables show
+   * it, reconciliation/markPaid can still settle it, the rollup never counts it as paid),
+   * so the flip is safe and purely informational/filterable. Cancelled orders excluded.
+   */
+  async markOverdueInstallments(asOf?: Date): Promise<number> {
+    const now = asOf ?? new Date();
+    const res = await this.prisma.orderInstallment.updateMany({
+      where: {
+        dueDate: { not: null, lt: now },
+        status: ORDER_INSTALLMENT_STATUS.PENDING,
+        order: { status: { not: ORDER_STATUS.CANCELLED } },
+      },
+      data: { status: ORDER_INSTALLMENT_STATUS.OVERDUE },
+    });
+    return res.count;
+  }
+
   /** Mark a single installment paid (manual) and roll up the parent order. */
   async markInstallmentPaid(installmentId: string, userId?: string): Promise<OrderUpdateResponse> {
     try {
@@ -3287,9 +3370,12 @@ export class OrderService {
   /**
    * Generate a payment-installment schedule for an order, based on its method/count.
    * PIX / CREDIT_CARD (or count <= 1) → no installment rows (settled at order level).
-   * BANK_SLIP with N > 1 → N parcelas spaced by `intervalDays` (defaults to
-   * paymentDueDays or 30), amounts split evenly with the last absorbing the rounding
-   * remainder. Idempotent: clears any prior schedule first.
+   * BANK_SLIP with N > 1 → N parcelas. The 1st parcela is due on `firstDueDate`
+   * (the user-picked "primeiro vencimento"); when absent it falls back to
+   * `from + intervalDays` (legacy behaviour). Each subsequent parcela is spaced by
+   * `intervalDays` (the chosen "intervalo entre parcelas", defaults to 30).
+   * Amounts split evenly with the last absorbing the rounding remainder. Idempotent:
+   * clears any prior schedule first.
    */
   async generateInstallmentsForOrder(
     tx: PrismaTransaction,
@@ -3298,6 +3384,7 @@ export class OrderService {
       total: number;
       count: number;
       intervalDays?: number | null;
+      firstDueDate?: Date | null;
       from?: Date;
     },
   ): Promise<void> {
@@ -3307,6 +3394,14 @@ export class OrderService {
 
     const interval = opts.intervalDays && opts.intervalDays > 0 ? opts.intervalDays : 30;
     const base = opts.from ?? new Date();
+    // Anchor of the 1st parcela: the user-chosen first due date, or (legacy) base + interval.
+    const firstDue = opts.firstDueDate
+      ? new Date(opts.firstDueDate)
+      : (() => {
+          const d = new Date(base);
+          d.setDate(d.getDate() + interval);
+          return d;
+        })();
     const cents = Math.round((opts.total || 0) * 100);
     const per = Math.floor(cents / count);
     const rows: Array<{
@@ -3318,8 +3413,8 @@ export class OrderService {
     }> = [];
     for (let n = 1; n <= count; n++) {
       const amountCents = n === count ? cents - per * (count - 1) : per;
-      const due = new Date(base);
-      due.setDate(due.getDate() + interval * n);
+      const due = new Date(firstDue);
+      due.setDate(due.getDate() + interval * (n - 1));
       rows.push({
         orderId,
         number: n,

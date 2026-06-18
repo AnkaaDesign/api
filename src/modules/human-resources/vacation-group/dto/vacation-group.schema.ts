@@ -34,7 +34,6 @@ const vacationGroupOrderByFields = z.object({
   id: orderByDirection.optional(),
   name: orderByDirection.optional(),
   status: orderByDirection.optional(),
-  statusOrder: orderByDirection.optional(),
   acquisitiveStart: orderByDirection.optional(),
   acquisitiveEnd: orderByDirection.optional(),
   concessiveEnd: orderByDirection.optional(),

@@ -1,9 +1,11 @@
 // vacation.service.spec.ts
 //
-// Service-level tests for the robustness guards added to the férias engine:
-// duplicate-period rejection (+P2002), soft-delete on delete, atomic PAID
-// transition (lost-update detection), and the art. 137 payment-past-concessivo
-// block. Prisma is mocked; `$transaction(cb)` runs the callback with a mock tx.
+// Service-level tests for the robustness guards on the férias engine under the
+// COLLAPSED status model (SCHEDULED → PAID, + EXPIRED). "Em gozo" is computed,
+// never stored. Covered here: CLT gate on create, soft-delete on delete, the
+// atomic PAID transition (lost-update detection), the EXPIRED→PAID exit, and the
+// art. 137 payment-past-concessivo block. Prisma is mocked; `$transaction(cb)`
+// runs the callback with a mock tx.
 
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { VacationService } from './vacation.service';
@@ -19,15 +21,16 @@ const changeLogMock: any = new Proxy(
 function makeTx() {
   return {
     user: { findUnique: jest.fn() },
+    payroll: { findMany: jest.fn().mockResolvedValue([]) },
     vacation: {
       findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
       delete: jest.fn(),
     },
-    vacationPeriod: { deleteMany: jest.fn(), createMany: jest.fn() },
   };
 }
 
@@ -46,21 +49,22 @@ function makeService(tx: any) {
 }
 
 describe('VacationService — robustness guards', () => {
-  describe('create — duplicate acquisitive period', () => {
-    it('rejeita período aquisitivo duplicado (findFirst)', async () => {
+  describe('create — CLT gate', () => {
+    it('rejeita criação de férias para vínculo não-CLT', async () => {
       const tx = makeTx();
       tx.user.findUnique.mockResolvedValue({
         id: 'u1',
         name: 'Fulano',
+        currentEmployeeType: 'TERCEIRIZADO',
         currentContractId: 'c1',
         currentContract: { id: 'c1', admissionDate: new Date('2024-03-10') },
+        dependents: [],
       });
-      tx.vacation.findFirst.mockResolvedValue({ id: 'dup' });
       const { service } = makeService(tx);
 
-      await expect(service.create({ userId: 'u1' } as any)).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
+      await expect(
+        service.create({ userId: 'u1', days: 30, startDate: new Date('2026-06-01') } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
       expect(tx.vacation.create).not.toHaveBeenCalled();
     });
 
@@ -69,14 +73,17 @@ describe('VacationService — robustness guards', () => {
       tx.user.findUnique.mockResolvedValue({
         id: 'u1',
         name: 'Fulano',
+        currentEmployeeType: 'CLT',
         currentContractId: 'c1',
         currentContract: { id: 'c1', admissionDate: new Date('2024-03-10') },
+        dependents: [],
       });
-      tx.vacation.findFirst.mockResolvedValue(null);
       tx.vacation.create.mockRejectedValue({ code: 'P2002' });
       const { service } = makeService(tx);
 
-      await expect(service.create({ userId: 'u1' } as any)).rejects.toMatchObject({
+      await expect(
+        service.create({ userId: 'u1', days: 30, startDate: new Date('2026-06-01') } as any),
+      ).rejects.toMatchObject({
         message: expect.stringMatching(/já existe um registro de férias/i),
       });
     });
@@ -113,15 +120,17 @@ describe('VacationService — robustness guards', () => {
     });
   });
 
-  describe('advance — atomic transition', () => {
+  describe('advance — markPaid (atomic transition)', () => {
     const baseVacation = {
       id: 'v1',
-      status: VACATION_STATUS.IN_PROGRESS,
+      status: VACATION_STATUS.SCHEDULED,
       deletedAt: null,
       baseRemuneration: 1000,
+      isDouble: false,
       paymentDate: null,
+      startDate: new Date('2026-01-01'),
+      days: 10,
       concessiveEnd: new Date('2030-01-01'),
-      periods: [{ id: 'p1', startDate: new Date('2026-01-01'), days: 10 }],
     };
 
     it('erro de concorrência quando updateMany não afeta linhas (count=0)', async () => {
@@ -139,10 +148,11 @@ describe('VacationService — robustness guards', () => {
       const tx = makeTx();
       tx.vacation.findUnique.mockResolvedValue({
         ...baseVacation,
-        status: VACATION_STATUS.IN_PROGRESS,
+        status: VACATION_STATUS.SCHEDULED,
         isDouble: false,
         concessiveEnd: new Date('2026-01-05'), // período 01–10 jan ultrapassa
-        periods: [{ id: 'p1', startDate: new Date('2026-01-01'), days: 10 }],
+        startDate: new Date('2026-01-01'),
+        days: 10,
       });
       const { service } = makeService(tx);
 
@@ -152,7 +162,7 @@ describe('VacationService — robustness guards', () => {
       expect(tx.vacation.updateMany).not.toHaveBeenCalled();
     });
 
-    it('avança IN_PROGRESS → PAID quando dentro do concessivo', async () => {
+    it('avança SCHEDULED → PAID quando dentro do concessivo', async () => {
       const tx = makeTx();
       tx.vacation.findUnique
         .mockResolvedValueOnce({ ...baseVacation })
@@ -163,7 +173,29 @@ describe('VacationService — robustness guards', () => {
       const res = await service.advance('v1', { status: VACATION_STATUS.PAID } as any);
       expect(res.success).toBe(true);
       expect(tx.vacation.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'v1', status: VACATION_STATUS.IN_PROGRESS } }),
+        expect.objectContaining({ where: { id: 'v1', status: VACATION_STATUS.SCHEDULED } }),
+      );
+    });
+
+    it('avança EXPIRED → PAID (saída do beco-sem-saída)', async () => {
+      const tx = makeTx();
+      // EXPIRED com gozo dentro do concessivo (não força dobro extra) e já isDouble.
+      const expired = {
+        ...baseVacation,
+        status: VACATION_STATUS.EXPIRED,
+        isDouble: true,
+        concessiveEnd: new Date('2030-01-01'),
+      };
+      tx.vacation.findUnique
+        .mockResolvedValueOnce({ ...expired })
+        .mockResolvedValueOnce({ ...expired, status: VACATION_STATUS.PAID });
+      tx.vacation.updateMany.mockResolvedValue({ count: 1 });
+      const { service } = makeService(tx);
+
+      const res = await service.advance('v1', { status: VACATION_STATUS.PAID } as any);
+      expect(res.success).toBe(true);
+      expect(tx.vacation.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'v1', status: VACATION_STATUS.EXPIRED } }),
       );
     });
 

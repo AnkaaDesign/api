@@ -75,7 +75,7 @@ import {
 
 @Controller('admissions')
 @UseGuards(AuthGuard)
-@Roles(SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+@Roles(SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
 export class AdmissionController {
   constructor(
     private readonly admissionService: AdmissionService,

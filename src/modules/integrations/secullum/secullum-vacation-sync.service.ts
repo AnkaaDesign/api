@@ -306,8 +306,8 @@ export class SecullumVacationSyncService {
 
   /**
    * Sync every individual vacation that belongs to a collective group. Fans out
-   * the per-vacation syncVacation (which is itself idempotent). Only SCHEDULED /
-   * IN_PROGRESS members are pushed to the ponto. Never throws.
+   * the per-vacation syncVacation (which is itself idempotent). Only SCHEDULED
+   * members are pushed to the ponto. Never throws.
    *
    * NOTE: Secullum's calc engine excludes afastamento days (JustificativaId =
    * Férias) from expected punches, so the apuração/assinatura flow handles
@@ -319,7 +319,7 @@ export class SecullumVacationSyncService {
         where: {
           groupId,
           deletedAt: null,
-          status: { in: ['SCHEDULED', 'IN_PROGRESS'] as any[] },
+          status: 'SCHEDULED' as any,
         },
         select: { id: true },
       });
@@ -489,10 +489,7 @@ export class SecullumVacationSyncService {
       let message: string;
       if (pushedAbsences.length === 0) {
         state = 'NOT_PUSHED';
-        message =
-          vacation.status === 'OPEN'
-            ? 'Ainda não enviado ao ponto (férias em aberto).'
-            : 'Nenhum período enviado ao ponto.';
+        message = 'Nenhum período enviado ao ponto.';
       } else if (missing.length === 0 && extra.length === 0) {
         state = 'SYNCED';
         message = `Sincronizado no ponto: ${pushedAbsences.length} período(s).`;

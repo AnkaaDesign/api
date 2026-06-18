@@ -1107,7 +1107,8 @@ model Order {
   discount              Float                @default(0)
   paymentMethod         PaymentMethod?
   paymentPix            String?
-  paymentDueDays        Int?
+  paymentDueDays        Int? // boleto: nº de dias entre parcelas (intervalo/steps)
+  paymentFirstDueDate   DateTime? // boleto: vencimento da 1ª parcela (data escolhida)
   paymentResponsibleId  String?
   paymentAssignedById   String?
   paymentStatus         OrderPaymentStatus   @default(AWAITING_PAYMENT)
@@ -5768,10 +5769,8 @@ model Dependent {
 // FÉRIAS (Part C)
 // ============================================================================
 enum VacationStatus {
-  OPEN         // período aquisitivo em curso / não agendado
-  SCHEDULED    // agendado (gozo futuro)
-  IN_PROGRESS  // em gozo
-  PAID         // pago / encerrado
+  SCHEDULED    // agendada (gozo planejado; "em gozo" é derivado das datas)
+  PAID         // paga / encerrada
   EXPIRED      // período concessivo expirou sem gozo (art. 137 — dobro)
 }
 
@@ -5798,8 +5797,7 @@ model Vacation {
   unjustifiedAbsencesInPeriod Int                 @default(0)
   // Dias de direito conforme a escala (0-5→30, 6-14→24, 15-23→18, 24-32→12, >32→0).
   entitledDays                Int                 @default(30)
-  status                      VacationStatus      @default(OPEN)
-  statusOrder                 Int                 @default(1)
+  status                      VacationStatus      @default(SCHEDULED)
   // Abono pecuniário (venda de até 10 dias) e venda de 1/3 (abono).
   abonoPecuniarioDays         Int                 @default(0)
   soldThird                   Boolean             @default(false)
@@ -5831,7 +5829,6 @@ model Vacation {
   @@index([contractId])
   @@index([groupId])
   @@index([status])
-  @@index([statusOrder])
   @@index([acquisitiveEnd])
   @@index([concessiveEnd])
   @@index([deletedAt])
@@ -5859,8 +5856,7 @@ model VacationGroup {
   acquisitiveStart DateTime
   acquisitiveEnd   DateTime
   concessiveEnd    DateTime?
-  status           VacationStatus    @default(OPEN)
-  statusOrder      Int               @default(1)
+  status           VacationStatus    @default(SCHEDULED)
   // Template single-period: início e dias de gozo aplicados a cada colaborador.
   startDate        DateTime?
   days             Int               @default(0)
@@ -5873,7 +5869,7 @@ model VacationGroup {
   updatedAt        DateTime          @updatedAt
   vacations        Vacation[]        @relation("VACATION_GROUP")
 
-  @@index([status, statusOrder])
+  @@index([status])
   @@index([acquisitiveEnd])
   @@index([deletedAt])
 }

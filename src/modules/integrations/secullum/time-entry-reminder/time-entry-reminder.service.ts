@@ -622,7 +622,7 @@ export class TimeEntryReminderService {
             allowExtendedHours: true, // Clock-out (SAIDA2) escalations may fire until 18:45
           },
           overrides: {
-            webUrl: '/recursos-humanos/controle-ponto',
+            webUrl: '/departamento-pessoal/controle-ponto',
             mobileUrl: '/(tabs)/recursos-humanos/controle-ponto',
             relatedEntityType: 'TIME_ENTRY',
             title: `Ponto não registrado — ${user.name}`,
@@ -842,7 +842,7 @@ export class TimeEntryReminderService {
                   body: `Foi detectada uma ausência não justificada de ${displayName} em ${absenceDate}.${
                     userId ? '' : ' (funcionário sem usuário vinculado no Ankaa).'
                   }`,
-                  webUrl: '/recursos-humanos/integracoes/secullum',
+                  webUrl: '/departamento-pessoal/controle-ponto/ausencias',
                   mobileUrl: '/(tabs)/recursos-humanos/calculos',
                   relatedEntityType: 'SECULLUM_SOLICITACAO',
                 },

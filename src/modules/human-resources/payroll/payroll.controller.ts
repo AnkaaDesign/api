@@ -86,7 +86,7 @@ export class PayrollController {
           action: `finalization_${outcome}`,
           data: { period, year, month, stage: opts.stage, detail: opts.detail },
           overrides: {
-            webUrl: '/recursos-humanos/folha-de-pagamento',
+            webUrl: '/departamento-pessoal/folha-de-pagamento',
             mobileUrl: '/(tabs)/recursos-humanos/folha-de-pagamento',
             relatedEntityType: 'PAYROLL',
             title: isFailure

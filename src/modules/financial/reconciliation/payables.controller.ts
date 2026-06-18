@@ -18,7 +18,8 @@ const payablesSettleSchema = z.object({
 type PayablesSettleDto = z.infer<typeof payablesSettleSchema>;
 
 @Controller('financial/payables')
-@Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.ADMIN)
+// Financial-only: WAREHOUSE has no access to the Contas a Pagar / payables side.
+@Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.ADMIN)
 export class PayablesController {
   constructor(private readonly payablesService: PayablesService) {}
 

@@ -161,7 +161,8 @@ export interface Order extends BaseEntity {
   discount: number;
   paymentMethod: PAYMENT_METHOD | null;
   paymentPix: string | null;
-  paymentDueDays: number | null;
+  paymentDueDays: number | null; // boleto: intervalo (dias) entre parcelas
+  paymentFirstDueDate: Date | null; // boleto: vencimento da 1ª parcela
   paymentResponsibleId: string | null;
   paymentAssignedById: string | null;
   paidById: string | null;

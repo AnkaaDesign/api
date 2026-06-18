@@ -3250,7 +3250,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "HUMAN_RESOURCES"],
+    sectors: ["ADMIN"],
     channels: {
       IN_APP: { enabled: true, mandatory: true, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: false },
@@ -3284,7 +3284,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "HUMAN_RESOURCES"],
+    sectors: ["ADMIN"],
     channels: {
       IN_APP: { enabled: true, mandatory: true, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: false },

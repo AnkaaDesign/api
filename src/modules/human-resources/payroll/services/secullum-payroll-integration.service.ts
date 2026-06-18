@@ -164,7 +164,7 @@ export class SecullumPayrollIntegrationService {
         overrides: {
           title: 'Dados de folha degradados (Secullum)',
           body,
-          webUrl: '/recursos-humanos/folha-de-pagamento',
+          webUrl: '/departamento-pessoal/folha-de-pagamento',
           mobileUrl: '/(tabs)/recursos-humanos/folha-de-pagamento',
           relatedEntityType: 'SECULLUM_PAYROLL',
         },
