@@ -222,8 +222,8 @@ enum GoalMetric {
 }
 
 model Payroll {
-  id                      String            @id @default(uuid())
-  baseRemuneration        Decimal           @db.Decimal(10, 2)
+  id                      String              @id @default(uuid())
+  baseRemuneration        Decimal             @db.Decimal(10, 2)
   year                    Int
   month                   Int
   userId                  String
@@ -231,25 +231,25 @@ model Payroll {
   positionId              String?
   workingDaysInMonth      Int?
   workedDaysInMonth       Int?
-  absenceHours            Decimal           @default(0) @db.Decimal(10, 2)
-  overtime50Hours         Decimal?          @db.Decimal(10, 2)
-  overtime50Amount        Decimal?          @db.Decimal(10, 2)
-  overtime100Hours        Decimal?          @db.Decimal(10, 2)
-  overtime100Amount       Decimal?          @db.Decimal(10, 2)
-  nightHours              Decimal?          @db.Decimal(10, 2)
-  nightDifferentialAmount Decimal?          @db.Decimal(10, 2)
-  dsrAmount               Decimal?          @db.Decimal(10, 2)
+  absenceHours            Decimal             @default(0) @db.Decimal(10, 2)
+  overtime50Hours         Decimal?            @db.Decimal(10, 2)
+  overtime50Amount        Decimal?            @db.Decimal(10, 2)
+  overtime100Hours        Decimal?            @db.Decimal(10, 2)
+  overtime100Amount       Decimal?            @db.Decimal(10, 2)
+  nightHours              Decimal?            @db.Decimal(10, 2)
+  nightDifferentialAmount Decimal?            @db.Decimal(10, 2)
+  dsrAmount               Decimal?            @db.Decimal(10, 2)
   dsrDays                 Int?
-  grossSalary             Decimal?          @db.Decimal(10, 2)
-  inssBase                Decimal?          @db.Decimal(10, 2)
-  inssAmount              Decimal?          @db.Decimal(10, 2)
-  irrfBase                Decimal?          @db.Decimal(10, 2)
-  irrfAmount              Decimal?          @db.Decimal(10, 2)
-  fgtsAmount              Decimal?          @db.Decimal(10, 2)
-  netSalary               Decimal?          @db.Decimal(10, 2)
-  totalDiscounts          Decimal?          @db.Decimal(10, 2)
-  createdAt               DateTime          @default(now())
-  updatedAt               DateTime          @updatedAt
+  grossSalary             Decimal?            @db.Decimal(10, 2)
+  inssBase                Decimal?            @db.Decimal(10, 2)
+  inssAmount              Decimal?            @db.Decimal(10, 2)
+  irrfBase                Decimal?            @db.Decimal(10, 2)
+  irrfAmount              Decimal?            @db.Decimal(10, 2)
+  fgtsAmount              Decimal?            @db.Decimal(10, 2)
+  netSalary               Decimal?            @db.Decimal(10, 2)
+  totalDiscounts          Decimal?            @db.Decimal(10, 2)
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
   bonus                   Bonus?
   position                Position?           @relation(fields: [positionId], references: [id])
   user                    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -702,18 +702,18 @@ model File {
 }
 
 model MonetaryValue {
-  id         String    @id @default(uuid())
-  value      Float
-  current    Boolean   @default(false)
+  id            String    @id @default(uuid())
+  value         Float
+  current       Boolean   @default(false)
   // Data de vigência do valor (para resolução histórica de salário: getUserSalaryAt).
   // Backfill = createdAt; novas linhas devem informar a data efetiva do reajuste.
-  effectiveDate DateTime @default(now())
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  itemId     String?
-  positionId String?
-  item       Item?     @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  position   Position? @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  effectiveDate DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  itemId        String?
+  positionId    String?
+  item          Item?     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  position      Position? @relation(fields: [positionId], references: [id], onDelete: Cascade)
 
   @@index([current])
   @@index([itemId])
@@ -1413,12 +1413,12 @@ model Warning {
 }
 
 model Sector {
-  id                     String             @id @default(uuid())
+  id                     String               @id @default(uuid())
   name                   String
-  privileges             SectorPrivileges   @default(BASIC)
-  leaderId               String?            @unique
-  createdAt              DateTime           @default(now())
-  updatedAt              DateTime           @updatedAt
+  privileges             SectorPrivileges     @default(BASIC)
+  leaderId               String?              @unique
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
   /// Secullum integration: Departamento.Id mapped to this Sector. NULL = unmapped.
   /// Multiple sectors may share the same Secullum departamento (N:1).
   secullumDepartamentoId Int?
@@ -1560,10 +1560,10 @@ model TaskQuoteCustomerConfig {
 }
 
 model Supplier {
-  id                String          @id @default(uuid())
-  sequentialNumber  Int?            @unique @default(dbgenerated("nextval('supplier_number_seq'::regclass)"))
-  fantasyName       String          @unique
-  cnpj              String?         @unique
+  id                String             @id @default(uuid())
+  sequentialNumber  Int?               @unique @default(dbgenerated("nextval('supplier_number_seq'::regclass)"))
+  fantasyName       String             @unique
+  cnpj              String?            @unique
   corporateName     String?
   email             String?
   address           String?
@@ -1577,15 +1577,16 @@ model Supplier {
   phones            String[]
   pix               String?
   logoId            String?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
   streetType        StreetType?
-  tags              String[]        @default([])
-  items             Item[]          @relation("ITEM_SUPPLIER")
-  orders            Order[]         @relation("ORDER_SUPPLIER")
-  orderSchedules    OrderSchedule[] @relation("SCHEDULE_SUPPLIER")
+  tags              String[]           @default([])
+  items             Item[]             @relation("ITEM_SUPPLIER")
+  orders            Order[]            @relation("ORDER_SUPPLIER")
+  orderSchedules    OrderSchedule[]    @relation("SCHEDULE_SUPPLIER")
   orderRules        OrderRule[]
-  logo              File?           @relation("SUPPLIER_LOGO", fields: [logoId], references: [id])
+  recurrentPayables RecurrentPayable[] @relation("SUPPLIER_RECURRENT_PAYABLES")
+  logo              File?              @relation("SUPPLIER_LOGO", fields: [logoId], references: [id])
 
   @@index([fantasyName])
   @@index([cnpj])
@@ -3523,8 +3524,8 @@ enum WebhookEventStatus {
 
 /// Modalidade de empréstimo descontado em folha (PayrollDiscount.loanKind).
 enum LoanKind {
-  COMPANY            // Empréstimo/adiantamento concedido pela própria empresa
-  PAYROLL_CONSIGNED  // Consignado em folha (banco/credor externo)
+  COMPANY // Empréstimo/adiantamento concedido pela própria empresa
+  PAYROLL_CONSIGNED // Consignado em folha (banco/credor externo)
 }
 
 enum PayrollDiscountType {
@@ -3549,9 +3550,9 @@ enum PayrollDiscountType {
   CUSTOM
   // Earnings (proventos) — modeled in the same enum since PayrollDiscount carries both
   // sides of the holerite via signed/typed lines; these are NON-negative earnings.
-  FAMILY_ALLOWANCE   // salário-família
-  INSALUBRIDADE      // adicional de insalubridade
-  PERICULOSIDADE     // adicional de periculosidade
+  FAMILY_ALLOWANCE // salário-família
+  INSALUBRIDADE // adicional de insalubridade
+  PERICULOSIDADE // adicional de periculosidade
   HABITUAL_GRATIFICATION // gratificação habitual (reflexos)
 }
 
@@ -3744,25 +3745,26 @@ model Invoice {
 }
 
 model Installment {
-  id                  String                   @id @default(uuid())
-  customerConfigId    String?
-  externalOperationId String?
-  invoiceId           String?
-  number              Int
-  dueDate             DateTime
-  amount              Decimal                  @db.Decimal(10, 2)
-  paidAmount          Decimal                  @default(0) @db.Decimal(10, 2)
-  paidAt              DateTime?
-  status              InstallmentStatus        @default(PENDING)
-  paymentMethod       String?
-  observations        String?
-  createdAt           DateTime                 @default(now())
-  updatedAt           DateTime                 @updatedAt
-  customerConfig      TaskQuoteCustomerConfig? @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Cascade)
-  externalOperation   ExternalOperation?       @relation("ExternalOperationInstallments", fields: [externalOperationId], references: [id], onDelete: Cascade)
-  invoice             Invoice?                 @relation("InvoiceInstallments", fields: [invoiceId], references: [id], onDelete: SetNull)
-  bankSlip            BankSlip?                @relation("InstallmentBankSlip")
-  receiptFiles        File[]                   @relation("InstallmentReceipts")
+  id                    String                   @id @default(uuid())
+  customerConfigId      String?
+  externalOperationId   String?
+  invoiceId             String?
+  number                Int
+  dueDate               DateTime
+  amount                Decimal                  @db.Decimal(10, 2)
+  paidAmount            Decimal                  @default(0) @db.Decimal(10, 2)
+  paidAt                DateTime?
+  status                InstallmentStatus        @default(PENDING)
+  paymentMethod         String?
+  observations          String?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  customerConfig        TaskQuoteCustomerConfig? @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Cascade)
+  externalOperation     ExternalOperation?       @relation("ExternalOperationInstallments", fields: [externalOperationId], references: [id], onDelete: Cascade)
+  invoice               Invoice?                 @relation("InvoiceInstallments", fields: [invoiceId], references: [id], onDelete: SetNull)
+  bankSlip              BankSlip?                @relation("InstallmentBankSlip")
+  receiptFiles          File[]                   @relation("InstallmentReceipts")
+  reconciliationMatches ReconciliationMatch[]    @relation("InstallmentMatches")
 
   @@unique([customerConfigId, number])
   @@unique([externalOperationId, number])
@@ -3807,10 +3809,10 @@ model BankSlip {
 }
 
 model NfseDocument {
-  id String @id @default(uuid())
+  id            String     @id @default(uuid())
   // invoiceId is nullable + SetNull: a note must NEVER be unlinked/deleted just because its
   // invoice is removed (e.g. by a billing revert). It survives as task history instead.
-  invoiceId String?
+  invoiceId     String?
   // Durable link to the task so the full NFS-e history (incl. cancelled/rejected/orphan
   // notes re-linked from Elotech) is always visible on the task quote page.
   taskId        String?
@@ -4243,6 +4245,9 @@ model ReconciliationMatch {
   transactionId    String
   fiscalDocumentId String?
   bankSlipId       String?
+  // Receivable installment matched by an inflow (entrada). One of
+  // fiscalDocument / bankSlip / installment is set per match.
+  installmentId    String?
   allocatedAmount  Decimal                 @db.Decimal(14, 2)
   matchType        ReconciliationMatchType
   confidenceScore  Int                     @default(100)
@@ -4254,12 +4259,15 @@ model ReconciliationMatch {
   transaction      BankTransaction         @relation("TransactionMatches", fields: [transactionId], references: [id], onDelete: Cascade)
   fiscalDocument   FiscalDocument?         @relation("DocumentMatches", fields: [fiscalDocumentId], references: [id], onDelete: Restrict)
   bankSlip         BankSlip?               @relation("BankSlipMatches", fields: [bankSlipId], references: [id])
+  installment      Installment?            @relation("InstallmentMatches", fields: [installmentId], references: [id], onDelete: Restrict)
   matchedBy        User?                   @relation("MatchedBy", fields: [matchedByUserId], references: [id])
 
   @@unique([transactionId, fiscalDocumentId])
+  @@unique([transactionId, installmentId])
   @@index([transactionId])
   @@index([fiscalDocumentId])
   @@index([bankSlipId])
+  @@index([installmentId])
   @@index([matchType])
 }
 
@@ -4339,6 +4347,102 @@ model PayrollMonthSettlement {
   @@index([year, month])
 }
 
+enum RecurrentPayableStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+/// A recurring monthly payable obligation (rent, internet, energy, water…).
+/// The contract/template — one row per obligation. The cron materializes one
+/// RecurrentPayableOccurrence per competence month, mirroring the OrderSchedule
+/// advance-in-place + atomic-claim pattern. categoryId links it to the
+/// reconciliation taxonomy so a categorized bank debit can auto-settle the month.
+model RecurrentPayable {
+  id              String                       @id @default(uuid())
+  name            String
+  description     String?
+  // Payee: a real Supplier (preferred — its CNPJ drives NF auto-linking) or a
+  // free-text fallback when no Supplier record exists.
+  supplierId      String?
+  payeeName       String?
+  // Required bridge to the reconciliation taxonomy. A categorized bank debit on
+  // this category auto-settles the matching month's occurrence.
+  categoryId      String
+  // FIXED = known monthly amount (rent); VARIABLE = estimated, real value typed
+  // on payment (energy/water).
+  amountKind      RecurrenceKind               @default(VARIABLE)
+  fixedAmount     Decimal?                     @db.Decimal(12, 2)
+  // Seed estimate for VARIABLE bills; when null the cron falls back to the
+  // 3-month bank-history average for the linked category.
+  estimatedAmount Decimal?                     @db.Decimal(12, 2)
+  frequency       ScheduleFrequency            @default(MONTHLY)
+  frequencyCount  Int                          @default(1)
+  dueDayOfMonth   Int
+  paymentMethod   PaymentMethod?
+  // When true, an inbound NF is expected and auto-links by supplier CNPJ +
+  // competence; when false the obligation reconciles by category only.
+  expectsNf       Boolean                      @default(false)
+  isActive        Boolean                      @default(true)
+  // Cron-claim fields (same semantics as OrderSchedule).
+  nextRun         DateTime?
+  lastRun         DateTime?
+  lastFiredAt     DateTime?
+  lastRunStatus   ScheduleRunStatus?
+  lastRunError    String?
+  finishedAt      DateTime?
+  createdById     String?
+  createdAt       DateTime                     @default(now())
+  updatedAt       DateTime                     @updatedAt
+  supplier        Supplier?                    @relation("SUPPLIER_RECURRENT_PAYABLES", fields: [supplierId], references: [id])
+  category        TransactionCategory          @relation("CategoryRecurrentPayables", fields: [categoryId], references: [id])
+  occurrences     RecurrentPayableOccurrence[] @relation("RecurrentPayableOccurrences")
+
+  @@index([nextRun])
+  @@index([isActive])
+  @@index([categoryId])
+  @@index([supplierId])
+}
+
+/// One materialized monthly instance of a RecurrentPayable — the actual "conta a
+/// pagar" row and single source of truth for the month. The estimate is shown
+/// until paid; paidAmount captures the real value (user-typed for VARIABLE, or
+/// the reconciled debit amount). fiscalDocument/bankTransaction links are
+/// post-payment enrichments, never blocking states — status stays PAID.
+model RecurrentPayableOccurrence {
+  id                 String                 @id @default(uuid())
+  recurrentPayableId String
+  competence         String // YYYY-MM
+  dueDate            DateTime
+  estimatedAmount    Decimal                @db.Decimal(12, 2)
+  paidAmount         Decimal?               @db.Decimal(12, 2)
+  status             RecurrentPayableStatus @default(PENDING)
+  paidAt             DateTime?
+  paidById           String?
+  paymentMethod      PaymentMethod?
+  expectsNf          Boolean                @default(false)
+  // Set by the daily recurrent-payable sweeps (RecurrentPayableService):
+  // linkPendingNfs matches an ENTRADA NF by supplier CNPJ + competence
+  // (fiscalDocumentId); reconcilePendingFromBank auto-settles from a categorized
+  // bank debit (bankTransactionId). These are scheduled sweeps, not events.
+  fiscalDocumentId   String?
+  bankTransactionId  String?
+  nfLinkedAt         DateTime?
+  reconciledAt       DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  recurrentPayable   RecurrentPayable       @relation("RecurrentPayableOccurrences", fields: [recurrentPayableId], references: [id], onDelete: Cascade)
+
+  @@unique([recurrentPayableId, competence])
+  @@index([recurrentPayableId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([competence])
+  @@index([bankTransactionId])
+  @@index([fiscalDocumentId])
+}
+
 model TransactionCategory {
   id             String                  @id @default(uuid())
   name           String                  @unique
@@ -4380,6 +4484,7 @@ model TransactionCategory {
   emitterPriors         EmitterCategoryPrior[]     @relation("EmitterPriorCategory")
   cadences              CounterpartyCadence[]      @relation("CadenceCategory")
   suggestedTransactions BankTransaction[]          @relation("TxSuggestedCategory")
+  recurrentPayables     RecurrentPayable[]         @relation("CategoryRecurrentPayables")
 
   @@index([kind])
   @@index([itemCategoryId])
@@ -5269,57 +5374,57 @@ enum AdmissionDocumentStatus {
 // contract of a different employeeType. This is the source of truth for the employment
 // relationship; User mirrors the current one via currentContract* fields.
 model EmploymentContract {
-  id              String           @id @default(uuid())
-  userId          String
-  sequence        Int              // ordinal vínculo for this person (1,2,3…)
-  matricula       Int?             // per-vínculo registration number (eSocial matrícula)
-  payrollNumber   Int?             // folha number (CLT only)
-  employeeType    EmployeeType     @default(CLT)
-  contractType    ContractType?    // CLT-family kind/phase; NULL for terceirizado/PJ/autônomo
-  status          ContractStatus   @default(ACTIVE)
-  statusOrder     Int              @default(1)
-  positionId      String?
-  sectorId        String?
+  id                        String                 @id @default(uuid())
+  userId                    String
+  sequence                  Int // ordinal vínculo for this person (1,2,3…)
+  matricula                 Int? // per-vínculo registration number (eSocial matrícula)
+  payrollNumber             Int? // folha number (CLT only)
+  employeeType              EmployeeType           @default(CLT)
+  contractType              ContractType? // CLT-family kind/phase; NULL for terceirizado/PJ/autônomo
+  status                    ContractStatus         @default(ACTIVE)
+  statusOrder               Int                    @default(1)
+  positionId                String?
+  sectorId                  String?
   // Per-vínculo overrides for the position's insalubridade/periculosidade config.
   // NULL = inherit from the Position. Mutually exclusive when set (service-enforced).
   insalubrityDegreeOverride InsalubrityDegree?
   hazardPayOverride         Boolean?
   // Phase dates (CLT experiência → efetivação) — moved off User
-  admissionDate   DateTime?        // vínculo start (was User.exp1StartAt / Admission.hireDate)
-  exp1StartAt     DateTime?
-  exp1EndAt       DateTime?
-  exp2StartAt     DateTime?
-  exp2EndAt       DateTime?
-  effectedAt      DateTime?
+  admissionDate             DateTime? // vínculo start (was User.exp1StartAt / Admission.hireDate)
+  exp1StartAt               DateTime?
+  exp1EndAt                 DateTime?
+  exp2StartAt               DateTime?
+  exp2EndAt                 DateTime?
+  effectedAt                DateTime?
   // Experiência phase is encoded in contractType (EXPERIENCE_PERIOD_1 / EXPERIENCE_PERIOD_2).
   // Art. 481 CLT — cláusula assecuratória do direito recíproco de rescisão; when a fixed-term
   // contract carries it, early termination follows the indeterminate regime (aviso prévio).
-  hasArt481Clause Boolean          @default(false)
+  hasArt481Clause           Boolean                @default(false)
   // Termination
-  terminationDate DateTime?        // (was User.dismissedAt)
-  terminationType TerminationType?
+  terminationDate           DateTime? // (was User.dismissedAt)
+  terminationType           TerminationType?
   // Estabilidade (job-stability window) — set on return from a qualifying leave/event.
   // Blocks dismissal between stabilityStart and stabilityEnd (Part G guard).
-  stabilityType   StabilityType?
-  stabilityStart  DateTime?
-  stabilityEnd    DateTime?
+  stabilityType             StabilityType?
+  stabilityStart            DateTime?
+  stabilityEnd              DateTime?
   // Terceirizado / PJ (off-folha) — the real employer / counterparty
-  providerName    String?
-  providerCnpj    String?
-  notes           String?
-  isCurrent       Boolean          @default(true) // the latest/open vínculo for this user
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  user            User             @relation("EMPLOYMENT_CONTRACT_USER", fields: [userId], references: [id], onDelete: Cascade)
-  currentOfUser   User?            @relation("USER_CURRENT_CONTRACT")
-  position        Position?        @relation("EMPLOYMENT_CONTRACT_POSITION", fields: [positionId], references: [id])
-  sector          Sector?          @relation("EMPLOYMENT_CONTRACT_SECTOR", fields: [sectorId], references: [id])
-  admission       Admission?       @relation("ADMISSION_CONTRACT")
-  terminations    Termination[]    @relation("TERMINATION_CONTRACT")
-  payrolls        Payroll[]        @relation("PAYROLL_CONTRACT")
-  vacations       Vacation[]       @relation("VACATION_CONTRACT")
-  thirteenths     Thirteenth[]     @relation("THIRTEENTH_CONTRACT")
-  phaseHistory    ContractPhaseHistory[] @relation("CONTRACT_PHASE_HISTORY_CONTRACT")
+  providerName              String?
+  providerCnpj              String?
+  notes                     String?
+  isCurrent                 Boolean                @default(true) // the latest/open vínculo for this user
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+  user                      User                   @relation("EMPLOYMENT_CONTRACT_USER", fields: [userId], references: [id], onDelete: Cascade)
+  currentOfUser             User?                  @relation("USER_CURRENT_CONTRACT")
+  position                  Position?              @relation("EMPLOYMENT_CONTRACT_POSITION", fields: [positionId], references: [id])
+  sector                    Sector?                @relation("EMPLOYMENT_CONTRACT_SECTOR", fields: [sectorId], references: [id])
+  admission                 Admission?             @relation("ADMISSION_CONTRACT")
+  terminations              Termination[]          @relation("TERMINATION_CONTRACT")
+  payrolls                  Payroll[]              @relation("PAYROLL_CONTRACT")
+  vacations                 Vacation[]             @relation("VACATION_CONTRACT")
+  thirteenths               Thirteenth[]           @relation("THIRTEENTH_CONTRACT")
+  phaseHistory              ContractPhaseHistory[] @relation("CONTRACT_PHASE_HISTORY_CONTRACT")
 
   @@unique([userId, sequence])
   @@index([userId])
@@ -5357,41 +5462,41 @@ model ContractPhaseHistory {
 
 // Grau de insalubridade (NR-15) → percentual do adicional sobre o salário-mínimo.
 enum InsalubrityDegree {
-  NONE  // 0%
-  MIN   // 10%
-  MED   // 20%
-  MAX   // 40%
+  NONE // 0%
+  MIN // 10%
+  MED // 20%
+  MAX // 40%
 }
 
 // Type of job-stability (estabilidade) window protecting against dismissal.
 enum StabilityType {
-  ACCIDENT    // acidentária — 12 meses após retorno (art. 118 Lei 8.213/91)
-  PREGNANCY   // gestante — confirmação até 5 meses após o parto (ADCT art. 10, II, b)
-  UNION       // dirigente sindical
-  CIPA        // membro da CIPA
+  ACCIDENT // acidentária — 12 meses após retorno (art. 118 Lei 8.213/91)
+  PREGNANCY // gestante — confirmação até 5 meses após o parto (ADCT art. 10, II, b)
+  UNION // dirigente sindical
+  CIPA // membro da CIPA
   OTHER
 }
 
 model Admission {
-  id          String              @id @default(uuid())
-  userId      String
-  contractId  String?             @unique
-  status      AdmissionStatus     @default(DOCS_PENDING)
-  statusOrder Int                 @default(1)
-  hireDate    DateTime?
-  notes       String?
+  id                  String              @id @default(uuid())
+  userId              String
+  contractId          String?             @unique
+  status              AdmissionStatus     @default(DOCS_PENDING)
+  statusOrder         Int                 @default(1)
+  hireDate            DateTime?
+  notes               String?
   // Cancelamento: preserva a etapa em que o processo estava ao ser cancelado
   // e a justificativa do porquê não foi concluído.
   cancelledFromStatus AdmissionStatus?
   cancellationReason  String?
-  createdById String?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  user        User                @relation("ADMISSION_USER", fields: [userId], references: [id], onDelete: Cascade)
-  contract    EmploymentContract? @relation("ADMISSION_CONTRACT", fields: [contractId], references: [id], onDelete: Cascade)
-  createdBy   User?               @relation("ADMISSION_CREATED_BY", fields: [createdById], references: [id])
-  documents   AdmissionDocument[]
-  admissionExam MedicalExam?      @relation("ADMISSION_EXAM")
+  createdById         String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  user                User                @relation("ADMISSION_USER", fields: [userId], references: [id], onDelete: Cascade)
+  contract            EmploymentContract? @relation("ADMISSION_CONTRACT", fields: [contractId], references: [id], onDelete: Cascade)
+  createdBy           User?               @relation("ADMISSION_CREATED_BY", fields: [createdById], references: [id])
+  documents           AdmissionDocument[]
+  admissionExam       MedicalExam?        @relation("ADMISSION_EXAM")
 
   @@index([userId])
   @@index([statusOrder])
@@ -5399,14 +5504,14 @@ model Admission {
 }
 
 model AdmissionDocument {
-  id          String                  @id @default(uuid())
-  admissionId String
-  type        AdmissionDocumentType
-  required    Boolean                 @default(true)
-  status      AdmissionDocumentStatus @default(PENDING)
-  fileId      String?
-  expiresAt   DateTime?
-  note        String?
+  id                String                  @id @default(uuid())
+  admissionId       String
+  type              AdmissionDocumentType
+  required          Boolean                 @default(true)
+  status            AdmissionDocumentStatus @default(PENDING)
+  fileId            String?
+  expiresAt         DateTime?
+  note              String?
   // ---- Assinatura eletrônica in-app (reusa o pipeline de assinatura de EPI) ----
   // Preenchidos quando um documento assinável (ex.: LGPD_TERM) é assinado no app.
   // PDF final assinado/selado (≠ fileId, que é o documento original enviado).
@@ -5420,7 +5525,7 @@ model AdmissionDocument {
   hmacSignature     String?
   documentSha256    String?
   // Selo PAdES (ICP-Brasil) aplicado no servidor sobre o PDF assinado.
-  padesSealed       Boolean   @default(false)
+  padesSealed       Boolean                 @default(false)
   padesSealedAt     DateTime?
   certSubject       String?
   certIssuer        String?
@@ -5428,13 +5533,13 @@ model AdmissionDocument {
   certCnpj          String?
   certNotAfter      DateTime?
   legalBasis        String?
-  consentGiven      Boolean   @default(false)
-  createdAt   DateTime                @default(now())
-  updatedAt   DateTime                @updatedAt
-  admission   Admission               @relation(fields: [admissionId], references: [id], onDelete: Cascade)
-  file        File?                   @relation("ADMISSION_DOCUMENT_FILE", fields: [fileId], references: [id])
-  signedFile  File?                   @relation("ADMISSION_DOCUMENT_SIGNED_FILE", fields: [signedFileId], references: [id])
-  signedBy    User?                   @relation("ADMISSION_DOCUMENT_SIGNED_BY", fields: [signedByUserId], references: [id])
+  consentGiven      Boolean                 @default(false)
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  admission         Admission               @relation(fields: [admissionId], references: [id], onDelete: Cascade)
+  file              File?                   @relation("ADMISSION_DOCUMENT_FILE", fields: [fileId], references: [id])
+  signedFile        File?                   @relation("ADMISSION_DOCUMENT_SIGNED_FILE", fields: [signedFileId], references: [id])
+  signedBy          User?                   @relation("ADMISSION_DOCUMENT_SIGNED_BY", fields: [signedByUserId], references: [id])
 
   @@index([admissionId])
   @@index([fileId])
@@ -5505,10 +5610,10 @@ enum TerminationItemType {
 
 enum TerminationDocumentType {
   NOTICE_LETTER
-  WARNING_LETTER          // carta de aviso (justa causa / advertência formal)
-  TRCT                    // Termo de Rescisão do Contrato de Trabalho
-  TERM_484A               // termo de acordo mútuo art. 484-A CLT
-  HOMOLOGATION_TERM       // termo de homologação
+  WARNING_LETTER // carta de aviso (justa causa / advertência formal)
+  TRCT // Termo de Rescisão do Contrato de Trabalho
+  TERM_484A // termo de acordo mútuo art. 484-A CLT
+  HOMOLOGATION_TERM // termo de homologação
   FGTS_GUIDE
   FGTS_STATEMENT
   UNEMPLOYMENT_INSURANCE_FORM
@@ -5626,34 +5731,34 @@ enum MedicalExamStatus {
 }
 
 model MedicalExam {
-  id            String            @id @default(uuid())
-  userId        String
-  type          MedicalExamType
-  status        MedicalExamStatus @default(SCHEDULED)
-  statusOrder   Int               @default(1)
-  result        MedicalExamResult @default(PENDING)
+  id                String            @id @default(uuid())
+  userId            String
+  type              MedicalExamType
+  status            MedicalExamStatus @default(SCHEDULED)
+  statusOrder       Int               @default(1)
+  result            MedicalExamResult @default(PENDING)
   // Restrições laborais quando result = FIT_WITH_RESTRICTIONS (apto com restrições).
-  restrictions  String?
+  restrictions      String?
   // Periodicidade do próximo exame periódico (meses). NULL = usa Position/legal default.
   periodicityMonths Int?
-  scheduledAt   DateTime?
-  examDate      DateTime?
-  expiresAt     DateTime?
-  physicianName String?
-  crm           String?
-  clinic        String?
-  notes         String?
-  fileId        String?
+  scheduledAt       DateTime?
+  examDate          DateTime?
+  expiresAt         DateTime?
+  physicianName     String?
+  crm               String?
+  clinic            String?
+  notes             String?
+  fileId            String?
   // Optional FK links to the employment-lifecycle event that requires this exam,
   // replacing the fragile userId+type heuristic (one user has many vínculos).
-  admissionId   String?           @unique
-  terminationId String?           @unique
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  user          User              @relation("MEDICAL_EXAM_USER", fields: [userId], references: [id], onDelete: Cascade)
-  file          File?             @relation("MEDICAL_EXAM_ASO", fields: [fileId], references: [id])
-  admission     Admission?        @relation("ADMISSION_EXAM", fields: [admissionId], references: [id], onDelete: SetNull)
-  termination   Termination?      @relation("TERMINATION_EXAM", fields: [terminationId], references: [id], onDelete: SetNull)
+  admissionId       String?           @unique
+  terminationId     String?           @unique
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  user              User              @relation("MEDICAL_EXAM_USER", fields: [userId], references: [id], onDelete: Cascade)
+  file              File?             @relation("MEDICAL_EXAM_ASO", fields: [fileId], references: [id])
+  admission         Admission?        @relation("ADMISSION_EXAM", fields: [admissionId], references: [id], onDelete: SetNull)
+  termination       Termination?      @relation("TERMINATION_EXAM", fields: [terminationId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([statusOrder])
@@ -5688,34 +5793,34 @@ enum LeaveStatus {
 
 // Espécie de benefício INSS (substitui o número livre como dado estruturado).
 enum InssBenefitSpecies {
-  B31  // auxílio-doença previdenciário (comum)
-  B91  // auxílio-doença acidentário (gera estabilidade acidentária)
-  B32  // aposentadoria por invalidez previdenciária
-  B92  // aposentadoria por invalidez acidentária
-  B80  // salário-maternidade
-  B36  // auxílio-acidente
+  B31 // auxílio-doença previdenciário (comum)
+  B91 // auxílio-doença acidentário (gera estabilidade acidentária)
+  B32 // aposentadoria por invalidez previdenciária
+  B92 // aposentadoria por invalidez acidentária
+  B80 // salário-maternidade
+  B36 // auxílio-acidente
   OTHER
 }
 
 model Leave {
-  id                 String               @id @default(uuid())
-  userId             String
-  type               LeaveType
-  status             LeaveStatus          @default(SCHEDULED)
-  statusOrder        Int                  @default(1)
-  startDate          DateTime
-  expectedEndDate    DateTime?
-  actualEndDate      DateTime?
-  cid                String?
+  id                  String               @id @default(uuid())
+  userId              String
+  type                LeaveType
+  status              LeaveStatus          @default(SCHEDULED)
+  statusOrder         Int                  @default(1)
+  startDate           DateTime
+  expectedEndDate     DateTime?
+  actualEndDate       DateTime?
+  cid                 String?
   // Espécie estruturada do benefício INSS (preferir sobre o número livre).
-  inssBenefitSpecies InssBenefitSpecies?
-  inssBenefitNumber  String?
-  returnExamRequired Boolean              @default(false)
-  notes              String?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  user               User                 @relation("LEAVE_USER", fields: [userId], references: [id], onDelete: Cascade)
-  files              File[]               @relation("FileToLeave")
+  inssBenefitSpecies  InssBenefitSpecies?
+  inssBenefitNumber   String?
+  returnExamRequired  Boolean              @default(false)
+  notes               String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  user                User                 @relation("LEAVE_USER", fields: [userId], references: [id], onDelete: Cascade)
+  files               File[]               @relation("FileToLeave")
   workAccidentReports WorkAccidentReport[] @relation("WORK_ACCIDENT_REPORT_LEAVE")
 
   @@index([userId])
@@ -5736,26 +5841,26 @@ enum DependentRelationship {
 }
 
 model Dependent {
-  id             String                @id @default(uuid())
-  userId         String
-  name           String
-  cpf            String?
-  birthDate      DateTime
-  relationship   DependentRelationship
+  id                  String                @id @default(uuid())
+  userId              String
+  name                String
+  cpf                 String?
+  birthDate           DateTime
+  relationship        DependentRelationship
   /// Elegível à dedução de IRRF (R$ 189,59/mês por dependente)
-  irrfDeduction  Boolean               @default(true)
+  irrfDeduction       Boolean               @default(true)
   /// Elegível ao salário-família (filho <= 14 anos ou inválido; teto de remuneração aplica)
-  salarioFamilia Boolean               @default(false)
+  salarioFamilia      Boolean               @default(false)
   /// Plano de saúde/odontológico (UserBenefit) ao qual este dependente está vinculado.
   /// O custo do plano escala por dependente inscrito (Part H). NULL = não inscrito.
   healthPlanBenefitId String?
   /// Valor mensal atribuído a este dependente no plano (titular+dependentes deduzem IRRF).
-  healthPlanValue Decimal?             @db.Decimal(10, 2)
-  notes          String?
-  createdAt      DateTime              @default(now())
-  updatedAt      DateTime              @updatedAt
-  user           User                  @relation("DEPENDENT_USER", fields: [userId], references: [id], onDelete: Cascade)
-  healthPlanBenefit UserBenefit?       @relation("DEPENDENT_HEALTH_PLAN", fields: [healthPlanBenefitId], references: [id])
+  healthPlanValue     Decimal?              @db.Decimal(10, 2)
+  notes               String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  user                User                  @relation("DEPENDENT_USER", fields: [userId], references: [id], onDelete: Cascade)
+  healthPlanBenefit   UserBenefit?          @relation("DEPENDENT_HEALTH_PLAN", fields: [healthPlanBenefitId], references: [id])
 
   @@unique([userId, cpf])
   @@index([userId])
@@ -5769,9 +5874,9 @@ model Dependent {
 // FÉRIAS (Part C)
 // ============================================================================
 enum VacationStatus {
-  SCHEDULED    // agendada (gozo planejado; "em gozo" é derivado das datas)
-  PAID         // paga / encerrada
-  EXPIRED      // período concessivo expirou sem gozo (art. 137 — dobro)
+  SCHEDULED // agendada (gozo planejado; "em gozo" é derivado das datas)
+  PAID // paga / encerrada
+  EXPIRED // período concessivo expirou sem gozo (art. 137 — dobro)
 }
 
 // Um período aquisitivo/concessivo de férias de um vínculo. As férias são pagas
@@ -5839,8 +5944,8 @@ model Vacation {
 
 // Alvo das férias coletivas (CLT art. 139): toda a empresa, setores ou cargos.
 enum VacationGroupType {
-  ALL      // todos os colaboradores ativos
-  SECTOR   // setores específicos (sectorIds)
+  ALL // todos os colaboradores ativos
+  SECTOR // setores específicos (sectorIds)
   POSITION // cargos específicos (positionIds)
 }
 
@@ -5878,10 +5983,10 @@ model VacationGroup {
 // 13º SALÁRIO (Part D)
 // ============================================================================
 enum ThirteenthStatus {
-  OPEN                 // avos acumulando
-  FIRST_PAID           // 1ª parcela paga
-  SECOND_PAID          // 2ª parcela paga (sem encerramento total ainda)
-  PAID                 // ambas as parcelas pagas / encerrado
+  OPEN // avos acumulando
+  FIRST_PAID // 1ª parcela paga
+  SECOND_PAID // 2ª parcela paga (sem encerramento total ainda)
+  PAID // ambas as parcelas pagas / encerrado
   CANCELLED
 }
 
@@ -5923,21 +6028,21 @@ model Thirteenth {
 // CAT — Comunicação de Acidente de Trabalho (Part E)
 // ============================================================================
 enum WorkAccidentReportType {
-  INITIAL       // CAT inicial
-  REOPENING     // CAT de reabertura
-  DEATH         // CAT de óbito
+  INITIAL // CAT inicial
+  REOPENING // CAT de reabertura
+  DEATH // CAT de óbito
 }
 
 model WorkAccidentReport {
   id           String                 @id @default(uuid())
   userId       String
-  leaveId      String?                // vínculo ao afastamento (LeaveType.WORK_ACCIDENT)
+  leaveId      String? // vínculo ao afastamento (LeaveType.WORK_ACCIDENT)
   type         WorkAccidentReportType @default(INITIAL)
-  catNumber    String?                // número da CAT
+  catNumber    String? // número da CAT
   emissionDate DateTime?
   accidentDate DateTime?
   description  String?
-  fileId       String?                // documento da CAT
+  fileId       String? // documento da CAT
   createdAt    DateTime               @default(now())
   updatedAt    DateTime               @updatedAt
   user         User                   @relation("WORK_ACCIDENT_REPORT_USER", fields: [userId], references: [id], onDelete: Cascade)

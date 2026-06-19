@@ -119,8 +119,7 @@ async function main() {
   // Usuários elegíveis: não-ADMIN (privilégio do setor) e não desligados.
   const users = await prisma.user.findMany({
     where: {
-      contractKind: { not: 'DISMISSED' },
-      dismissedAt: null,
+      currentContractStatus: { not: 'TERMINATED' },
       OR: [{ sector: null }, { sector: { privileges: { not: 'ADMIN' } } }],
     },
     orderBy: { name: 'asc' },

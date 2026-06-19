@@ -13,6 +13,7 @@ import { NotificationDispatchService } from '@modules/common/notification/notifi
 import { OfxParserService } from './ofx-parser.service';
 import { ReconciliationClassifierService } from './reconciliation-classifier.service';
 import { ReconciliationMatcherService } from './reconciliation-matcher.service';
+import { ReceivableMatchService } from './receivable-match.service';
 import {
   ImportSummary,
   OfxImportFileResult,
@@ -36,6 +37,7 @@ export class ReconciliationImportService {
     private readonly prisma: PrismaService,
     private readonly ofxParser: OfxParserService,
     private readonly matcher: ReconciliationMatcherService,
+    private readonly receivableMatch: ReceivableMatchService,
     private readonly classifier: ReconciliationClassifierService,
     private readonly dispatchService: NotificationDispatchService,
   ) {}
@@ -158,7 +160,18 @@ export class ReconciliationImportService {
         const ok = await this.matcher.matchTransaction(tx as any);
         if (ok) autoMatched += 1;
       }
-      summary.autoMatchedCount = autoMatched;
+      // Boleto liquidations (CREDIT/BOLETO, expectsFiscalDocument=false) are not
+      // reached by matchTransaction's NF path — bridge them to their PAID slip.
+      const bridged = await this.matcher
+        .bridgeBoletoCredits({ ids: newlyInsertedIds })
+        .catch(() => 0);
+      // ENTRADA: auto-conciliate incoming PIX/TED credits against open
+      // receivables immediately on import (parity with the saída matcher),
+      // instead of waiting for the 04:00 daily cron.
+      const inflowMatched = await this.receivableMatch
+        .matchInflowByIds(newlyInsertedIds)
+        .catch(() => 0);
+      summary.autoMatchedCount = autoMatched + bridged + inflowMatched;
 
       await this.prisma.reconciliationRun.update({
         where: { id: run.id },

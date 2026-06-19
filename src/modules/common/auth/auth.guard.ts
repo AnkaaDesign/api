@@ -10,6 +10,7 @@ import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
 import { ROLES_KEY } from './decorators/roles.decorator';
 import { IS_PUBLIC_KEY } from './decorators/public.decorator';
+import { IS_ADMIN_ONLY_KEY } from './decorators/admin-only.decorator';
 import { UserRepository } from '@modules/people/user/repositories/user.repository';
 import { SECTOR_PRIVILEGES, TEAM_LEADER } from '../../../constants';
 import { canAccessAnyPrivilege } from '../../../utils/privilege';
@@ -40,6 +41,14 @@ export class AuthGuard implements CanActivate {
     }
 
     const roles = this.reflector.getAllAndMerge<string[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    // Exclusive ADMIN-only override. Unlike @Roles (which the guard MERGES as a
+    // union of class + handler), @AdminOnly() bypasses the union entirely and
+    // grants access to ADMIN only. Handler-level takes precedence over class.
+    const isAdminOnly = this.reflector.getAllAndOverride<boolean>(IS_ADMIN_ONLY_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
@@ -94,6 +103,18 @@ export class AuthGuard implements CanActivate {
 
       request['user'] = payload;
       request['user'].isTeamLeader = isTeamLeader(user);
+
+      // Exclusive ADMIN-only enforcement (runs before/independent of the role
+      // union). This is the only way to restrict a handler BELOW its class-level
+      // @Roles set, since @Roles is merged as a union by getAllAndMerge.
+      if (isAdminOnly && payload.role !== SECTOR_PRIVILEGES.ADMIN) {
+        console.warn(
+          `Access denied for user ${payload.sub}. Endpoint is ADMIN-only, User role: ${payload.role}`,
+        );
+        throw new ForbiddenException(
+          'Acesso negado. Esta ação é restrita a administradores.',
+        );
+      }
 
       // Check role-based access
       if (roles?.length) {

@@ -236,6 +236,7 @@ export class PushService implements OnModuleInit {
     title: string,
     body: string,
     data?: any,
+    badge?: number,
   ): Promise<MulticastNotificationResult> {
     if (!this.firebaseApp) {
       this.logger.warn('Firebase not initialized. Cannot send notifications.');
@@ -249,6 +250,10 @@ export class PushService implements OnModuleInit {
 
     try {
       this.logger.log(`Sending multicast notification to ${tokens.length} tokens`);
+
+      // Use the real unread count for the badge when available; fall back to 1
+      // so iOS still surfaces "something new" if the count could not be computed.
+      const apnsBadge = typeof badge === 'number' && badge >= 0 ? badge : 1;
 
       const message: admin.messaging.MulticastMessage = {
         tokens,
@@ -264,13 +269,17 @@ export class PushService implements OnModuleInit {
             priority: 'high',
             defaultSound: true,
             defaultVibrateTimings: true,
+            // Drives the Android launcher badge count where supported.
+            ...(typeof badge === 'number' && badge >= 0
+              ? { notificationCount: badge }
+              : {}),
           },
         },
         apns: {
           payload: {
             aps: {
               sound: 'default',
-              badge: 1,
+              badge: apnsBadge,
               contentAvailable: true,
             },
           },
@@ -518,6 +527,30 @@ export class PushService implements OnModuleInit {
   }
 
   /**
+   * Count unread (unseen) notifications for a user, used to drive the
+   * app-icon badge count. Mirrors NotificationTrackingService.getUnseenCount
+   * (notifications addressed to the user with no SeenNotification row).
+   * Never throws — returns undefined on failure so the push still goes out.
+   */
+  private async getUnreadBadgeCount(userId: string): Promise<number | undefined> {
+    try {
+      return await this.prisma.notification.count({
+        where: {
+          userId,
+          seenBy: {
+            none: {
+              userId,
+            },
+          },
+        },
+      });
+    } catch (error) {
+      this.logger.warn(`[PUSH] Failed to compute unread badge count: ${error.message}`);
+      return undefined;
+    }
+  }
+
+  /**
    * Get all active device tokens for a user
    */
   async getUserTokens(userId: string): Promise<string[]> {
@@ -566,6 +599,12 @@ export class PushService implements OnModuleInit {
 
     this.logger.log(`[PUSH] Found ${tokens.length} active device token(s) for user`);
 
+    // Compute the user's current unread count so the OS app-icon badge reflects
+    // the real number even while the app is backgrounded or closed (iOS, and
+    // Android launchers that support it).
+    const badge = await this.getUnreadBadgeCount(userId);
+    this.logger.log(`[PUSH] Unread badge count for user: ${badge ?? 'n/a'}`);
+
     if (tokens.length === 0) {
       this.logger.warn('[PUSH] ⚠️ No active tokens found - notification cannot be delivered');
       this.logger.warn('[PUSH] Possible reasons:');
@@ -610,6 +649,7 @@ export class PushService implements OnModuleInit {
         title,
         body,
         data,
+        badge,
       );
 
       totalSuccess += expoResult.success;
@@ -630,7 +670,7 @@ export class PushService implements OnModuleInit {
     if (fcmTokens.length > 0) {
       this.logger.log('[PUSH] ----------------------------------------');
       this.logger.log('[PUSH] Sending to FCM tokens via Firebase...');
-      const fcmResult = await this.sendMulticastNotification(fcmTokens, title, body, data);
+      const fcmResult = await this.sendMulticastNotification(fcmTokens, title, body, data, badge);
 
       totalSuccess += fcmResult.success;
       totalFailure += fcmResult.failure;

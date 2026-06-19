@@ -27,6 +27,7 @@ export * from './notification';
 export * from './notification-configuration';
 export * from './observation';
 export * from './order';
+export * from './receivable';
 export * from './paint';
 export * from './paint-brand';
 export * from './payroll';

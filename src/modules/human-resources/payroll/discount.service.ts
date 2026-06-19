@@ -211,7 +211,7 @@ export class DiscountService {
     try {
       this.logger.log(`Finding discounts with params: ${JSON.stringify(params)}`);
 
-      const [data, totalRecords] = await Promise.all([
+      const [result, totalRecords] = await Promise.all([
         this.discountRepository.findMany({
           where: params.where,
           include,
@@ -221,6 +221,12 @@ export class DiscountService {
         }),
         this.discountRepository.count(params.where),
       ]);
+
+      // The repository returns a paginated envelope { data, meta }; unwrap it so
+      // the response `data` is the row array. Returning `result` directly here
+      // double-nested the array as data.data, which made every consumer (the
+      // Empréstimos list, the colaborador loans card) render as empty.
+      const data = result.data;
 
       const page = params.page || 1;
       const limit = params.limit || 10;

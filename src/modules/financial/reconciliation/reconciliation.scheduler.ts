@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { ReconciliationStatus, ReconciliationSource } from '@prisma/client';
 import { ReconciliationMatcherService } from './reconciliation-matcher.service';
 import { ReconciliationClassifierService } from './reconciliation-classifier.service';
+import { ReceivableMatchService } from './receivable-match.service';
 
 @Injectable()
 export class ReconciliationScheduler {
@@ -14,6 +15,7 @@ export class ReconciliationScheduler {
     private readonly config: ConfigService,
     private readonly matcher: ReconciliationMatcherService,
     private readonly classifier: ReconciliationClassifierService,
+    private readonly receivableMatch: ReceivableMatchService,
   ) {}
 
   /**
@@ -37,7 +39,14 @@ export class ReconciliationScheduler {
       const end = new Date();
       const start = new Date(end.getTime() - lookback * 86_400_000);
       const matched = await this.matcher.matchDateRange(start, end);
-      this.logger.log(`Daily rematch: ${matched} transactions auto-matched`);
+      // ENTRADA: also auto-conciliate incoming credits against open receivables.
+      const inflowMatched = await this.receivableMatch.matchInflowDateRange(start, end);
+      // BOLETO: bridge incoming boleto liquidations to their PAID slip (these
+      // credits are skipped by both matchers above — see bridgeBoletoCredits).
+      const bridged = await this.matcher.bridgeBoletoCredits({ start, end });
+      this.logger.log(
+        `Daily rematch: ${matched} saída + ${inflowMatched} entrada + ${bridged} boleto-bridge transactions auto-matched`,
+      );
     } catch (err) {
       this.logger.error(`Daily rematch failed: ${err}`);
     } finally {

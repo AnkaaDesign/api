@@ -27,17 +27,23 @@ const COUNTERPARTY_CATEGORY_RULES: Readonly<Record<string, string>> = {
 interface MemoRule {
   slug: string;
   pattern: RegExp;
+  // Restrict a rule to one money-flow direction. Outflow-semantic rules
+  // (tarifa/tributo/folha) must NOT fire on a CREDIT; income rules
+  // (rendimento/juros) must NOT fire on a DEBIT. Omit for direction-neutral.
+  direction?: BankTransactionType;
 }
 
 // Ordered: most-specific patterns first.
 const MEMO_RULES: readonly MemoRule[] = [
-  { slug: 'tarifa-bancaria', pattern: /^\s*tarifa\b/i },
-  { slug: 'tarifa-bancaria', pattern: /^\s*manutencao\s+de\s+titulos/i },
-  { slug: 'tributo', pattern: /^\s*debito\s+arrecadacao/i },
-  { slug: 'tributo', pattern: /\bdarf\b/i },
-  { slug: 'tributo', pattern: /\bgps\b/i },
-  { slug: 'folha', pattern: /\bfolha\s+pagto\b/i },
-  { slug: 'folha', pattern: /\bfolha\s+de\s+pagamento\b/i },
+  { slug: 'tarifa-bancaria', pattern: /^\s*tarifa\b/i, direction: BankTransactionType.DEBIT },
+  { slug: 'tarifa-bancaria', pattern: /^\s*manutencao\s+de\s+titulos/i, direction: BankTransactionType.DEBIT },
+  { slug: 'tributo', pattern: /^\s*debito\s+arrecadacao/i, direction: BankTransactionType.DEBIT },
+  { slug: 'tributo', pattern: /\bdarf\b/i, direction: BankTransactionType.DEBIT },
+  { slug: 'tributo', pattern: /\bgps\b/i, direction: BankTransactionType.DEBIT },
+  { slug: 'folha', pattern: /\bfolha\s+pagto\b/i, direction: BankTransactionType.DEBIT },
+  { slug: 'folha', pattern: /\bfolha\s+de\s+pagamento\b/i, direction: BankTransactionType.DEBIT },
+  // Investment in/out and refunds are direction-neutral (resgate is a CREDIT,
+  // aplicação a DEBIT — same "transferência" category either way).
   { slug: 'transferencia', pattern: /aplic\.?\s*financ/i },
   { slug: 'transferencia', pattern: /\bcaptacao\b/i },
   { slug: 'transferencia', pattern: /aplic\s+fundos/i },
@@ -46,6 +52,9 @@ const MEMO_RULES: readonly MemoRule[] = [
   { slug: 'transferencia', pattern: /resgate\s+aplic/i },
   { slug: 'transferencia', pattern: /plano\s+int\s+capital/i },
   { slug: 'estorno', pattern: /^\s*devolucao\s+pix/i },
+  // ENTRADA income: bank yield / interest credited (never a payable).
+  { slug: 'rendimentos', pattern: /\brendimento/i, direction: BankTransactionType.CREDIT },
+  { slug: 'rendimentos', pattern: /\bjuros\b/i, direction: BankTransactionType.CREDIT },
 ];
 
 /**
@@ -72,8 +81,10 @@ export class LadderLearner implements CategoryLearner {
     try {
       const snap = await this.categories.snapshot();
 
-      // 1. Counterparty CPF/CNPJ hardcoded rule.
-      if (tx.counterpartyCnpjCpf) {
+      // 1. Counterparty CPF/CNPJ hardcoded rule. DEBIT-only: every entry maps to
+      // an outflow payee (pró-labore, aluguel, energia, água, internet), so it
+      // must never categorize an incoming credit from the same counterparty.
+      if (tx.type === BankTransactionType.DEBIT && tx.counterpartyCnpjCpf) {
         const digits = tx.counterpartyCnpjCpf.replace(/\D/g, '');
         const slug = COUNTERPARTY_CATEGORY_RULES[digits];
         if (slug) {
@@ -106,22 +117,31 @@ export class LadderLearner implements CategoryLearner {
         }
       }
 
-      // 3. Subtype fast path.
-      if (tx.subtype === BankTransactionSubtype.TARIFA) {
-        const cat = snap.bySlug.get('tarifa-bancaria');
+      // 3. Subtype fast path (income/fee subtypes resolve to a category).
+      const subtypeSlug =
+        tx.subtype === BankTransactionSubtype.TARIFA
+          ? 'tarifa-bancaria'
+          : tx.subtype === BankTransactionSubtype.RENDIMENTO
+            ? 'rendimentos'
+            : tx.subtype === BankTransactionSubtype.ESTORNO
+              ? 'estorno'
+              : null;
+      if (subtypeSlug) {
+        const cat = snap.bySlug.get(subtypeSlug);
         if (cat) {
           out.push({
             source: LearningSource.SUBTYPE,
             categoryId: cat.id,
             confidence: 1.0,
-            provenance: 'Subtype TARIFA',
+            provenance: `Subtype ${tx.subtype}`,
           });
         }
       }
 
-      // 4. Memo regex rules (first match wins).
+      // 4. Memo regex rules (first match wins), honoring the rule's direction.
       const memo = tx.memo ?? '';
       for (const rule of MEMO_RULES) {
+        if (rule.direction && rule.direction !== tx.type) continue;
         if (rule.pattern.test(memo)) {
           const cat = snap.bySlug.get(rule.slug);
           if (cat) {

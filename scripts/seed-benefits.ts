@@ -216,11 +216,11 @@ async function main() {
 
   // 2) Usuários ativos (não demitidos), ordem determinística por nome
   const users = await prisma.user.findMany({
-    where: { contractKind: { not: 'DISMISSED' as any } },
+    where: { currentContractStatus: { not: 'TERMINATED' as any } },
     select: { id: true, name: true },
     orderBy: { name: 'asc' },
   });
-  console.log(`  ${users.length} colaboradores ativos (contractKind != DISMISSED)`);
+  console.log(`  ${users.length} colaboradores ativos (currentContractStatus != TERMINATED)`);
 
   // Início de vigência determinístico: primeiro dia do mês corrente
   const now = new Date();
