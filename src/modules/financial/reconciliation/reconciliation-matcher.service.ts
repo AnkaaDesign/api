@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import {
   BankTransactionType,
+  BankTransactionSubtype,
   FiscalDocumentOperation,
   Prisma,
   ReconciliationAlias,
@@ -562,6 +563,44 @@ export class ReconciliationMatcherService {
       if (await this.matchTransaction(tx as RawTransaction)) matched += 1;
     }
     return matched;
+  }
+
+  /**
+   * Bridges incoming boleto liquidations (CREDIT rows, subtype BOLETO) to their
+   * already-PAID BankSlip. These rows have `expectsFiscalDocument = false`, so
+   * `matchTransaction`/`matchAll`/`matchDateRange` (which only fetch NF-expecting
+   * rows) never reach the boleto bridge — leaving the bank-side credit PENDING
+   * forever even though the installment was settled by the Sicredi webhook.
+   *
+   * This runs the same safe `tryBoletoBridge` (unique PAID, unlinked slip within
+   * ±2d and ±R$0.05) explicitly over those credits. Scope by date range (cron),
+   * by ids (import / manual re-run) or unscoped (full sweep).
+   */
+  async bridgeBoletoCredits(opts?: {
+    start?: Date;
+    end?: Date;
+    ids?: string[];
+  }): Promise<number> {
+    const where: Prisma.BankTransactionWhereInput = {
+      type: BankTransactionType.CREDIT,
+      subtype: BankTransactionSubtype.BOLETO,
+      bankSlipId: null,
+      reconciliationStatus: ReconciliationStatus.PENDING,
+    };
+    if (opts?.ids && opts.ids.length > 0) where.id = { in: opts.ids };
+    if (opts?.start && opts?.end) where.postedAt = { gte: opts.start, lte: opts.end };
+
+    const rows = await this.prisma.bankTransaction.findMany({
+      where,
+      select: { id: true, postedAt: true, amount: true },
+    });
+
+    let bridged = 0;
+    for (const row of rows) {
+      const ok = await this.tryBoletoBridge(row as RawTransaction).catch(() => false);
+      if (ok) bridged += 1;
+    }
+    return bridged;
   }
 
   /**

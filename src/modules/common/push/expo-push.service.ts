@@ -75,6 +75,7 @@ export class ExpoPushService {
     title: string,
     body: string,
     data?: any,
+    badge?: number,
   ): Promise<ExpoPushResult> {
     if (!this.expo) {
       return { success: false, error: 'Expo Push Service not initialized' };
@@ -117,6 +118,9 @@ export class ExpoPushService {
         data: data || {},
         priority,
         channelId,
+        // App-icon badge count. On iOS this sets the badge even while the app
+        // is closed; on Android it drives the launcher badge where supported.
+        ...(typeof badge === 'number' && badge >= 0 ? { badge } : {}),
       };
 
       // Send notification
@@ -158,6 +162,7 @@ export class ExpoPushService {
     title: string,
     body: string,
     data?: any,
+    badge?: number,
   ): Promise<ExpoMulticastResult> {
     if (!this.expo) {
       return { success: 0, failure: tokens.length, tickets: [], failedTokens: tokens };
@@ -215,6 +220,9 @@ export class ExpoPushService {
         data: data || {},
         priority,
         channelId,
+        // App-icon badge count. On iOS this sets the badge even while the app
+        // is closed; on Android it drives the launcher badge where supported.
+        ...(typeof badge === 'number' && badge >= 0 ? { badge } : {}),
       }));
 
       // Chunk messages (Expo has a limit of 100 per request)

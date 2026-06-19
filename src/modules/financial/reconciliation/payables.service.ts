@@ -2,6 +2,7 @@ import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { OrderService } from '../../inventory/order/order.service';
 import { OutflowForecastService } from './outflow-forecast.service';
+import { RecurrentPayableService } from '../recurrent-payable/recurrent-payable.service';
 import { PayableRow, PayablesResponse, PayablesSummary } from '../../../types';
 
 /**
@@ -22,6 +23,7 @@ export class PayablesService {
     private readonly prisma: PrismaService,
     private readonly orderService: OrderService,
     private readonly outflowForecastService: OutflowForecastService,
+    private readonly recurrentPayableService: RecurrentPayableService,
   ) {}
 
   async getPayables(): Promise<PayablesResponse> {
@@ -31,11 +33,17 @@ export class PayablesService {
       const month = now.getMonth() + 1;
       const competence = `${year}-${String(month).padStart(2, '0')}`;
 
-      const [orderResp, forecast, payrollSettlement] = await Promise.all([
+      const [orderResp, forecast, payrollSettlement, recurrentRows] = await Promise.all([
         this.orderService.getPayables(),
         this.outflowForecastService.forecast(),
         this.prisma.payrollMonthSettlement.findUnique({ where: { year_month: { year, month } } }),
+        this.recurrentPayableService.ensureCurrentOccurrenceRows(competence),
       ]);
+
+      // Categories promoted to a first-class RecurrentPayable are surfaced as
+      // materialized occurrences below — suppress the legacy category-derived
+      // RECURRING forecast rows for them to avoid double-counting.
+      const promotedCategoryIds = new Set(recurrentRows.map(r => r.payable.categoryId));
 
       const rows: PayableRow[] = [];
 
@@ -158,8 +166,10 @@ export class PayablesService {
         });
       }
 
-      // 5) Recorrentes (per category) — settled by reconciliation.
+      // 5) Recorrentes legados (per category) — settled by reconciliation.
+      // Skip categories promoted to a first-class RecurrentPayable (shown below).
       for (const item of forecast.recorrentes?.items ?? []) {
+        if (promotedCategoryIds.has(item.category.id)) continue;
         const paid = item.status === 'PAID';
         rows.push({
           source: 'RECURRING',
@@ -176,6 +186,34 @@ export class PayablesService {
           isEstimate: !paid,
           competence,
           subtype: (item.category as { recurrenceKind?: string }).recurrenceKind === 'FIXED' ? 'Fixo' : 'Variável',
+        });
+      }
+
+      // 6) Contas recorrentes (first-class) — materialized monthly occurrences.
+      // VARIABLE bills show the estimate (italic) until paid; the pay action
+      // prompts for the real amount. FIXED bills settle with the known amount.
+      for (const { occurrence, payable } of recurrentRows) {
+        const paid = occurrence.status === 'PAID';
+        const isVariable = payable.amountKind === 'VARIABLE';
+        const estimate = Number(occurrence.estimatedAmount);
+        const amount = paid && occurrence.paidAmount != null ? Number(occurrence.paidAmount) : estimate;
+        rows.push({
+          source: 'RECURRENT_PAYABLE',
+          id: occurrence.id,
+          payeeId: payable.supplierId ?? payable.id,
+          payeeName: payable.supplier?.fantasyName ?? payable.payeeName ?? payable.name,
+          description: payable.name,
+          amount,
+          paymentState: paid ? 'PAID' : 'AWAITING_PAYMENT',
+          dueDate: occurrence.dueDate,
+          method: occurrence.paymentMethod ?? payable.paymentMethod ?? null,
+          requestedAt: null,
+          paidAt: occurrence.paidAt ?? null,
+          settleVia: paid ? 'NONE' : 'RECURRENT_PAYABLE',
+          // Only an unpaid VARIABLE bill is a true estimate (real amount typed on pay).
+          isEstimate: !paid && isVariable,
+          competence,
+          subtype: isVariable ? 'Variável' : 'Fixo',
         });
       }
 

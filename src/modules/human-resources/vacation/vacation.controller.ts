@@ -17,6 +17,7 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
+import { AdminOnly } from '@modules/common/auth/decorators/admin-only.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { ReadRateLimit, WriteRateLimit } from '@modules/common/throttler/throttler.decorators';
 import {
@@ -64,12 +65,17 @@ import type {
 
 @Controller('vacations')
 @UseGuards(AuthGuard)
-@Roles(SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
+// Manage (create/update/calculate/advance/sync/batch) is HR/Accounting/Admin.
+// PRODUCTION_MANAGER gets read-only access, re-granted per-GET below (the guard
+// unions class + method @Roles via getAllAndMerge, so adding PM on a GET widens
+// only that handler; the write handlers stay restricted to this class-level set).
+@Roles(SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
 export class VacationController {
   constructor(private readonly vacationService: VacationService) {}
 
   // List / filter
   @Get()
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @ReadRateLimit()
   async findMany(
     @Query(new ZodQueryValidationPipe(vacationGetManySchema)) query: VacationGetManyFormData,
@@ -111,6 +117,10 @@ export class VacationController {
   }
 
   @Delete('batch')
+  // Deletion is ADMIN-only. The class-level @Roles is merged (union) by the
+  // guard, so @AdminOnly() is required to restrict below it — @Roles(ADMIN)
+  // alone would NOT narrow access.
+  @AdminOnly()
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
   async batchDelete(
@@ -124,6 +134,7 @@ export class VacationController {
   // vacation id so the acquisitive dates come straight from the DB row — avoids
   // any client date-serialization/timezone drift in the grouping match.
   @Get(':id/period-balance')
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @ReadRateLimit()
   async periodBalance(@Param('id', ParseUUIDPipe) id: string): Promise<VacationPeriodBalanceResponse> {
     return this.vacationService.getPeriodBalance(id);
@@ -161,6 +172,7 @@ export class VacationController {
   }
 
   @Get(':id/secullum-status')
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @ReadRateLimit()
   async secullumStatus(@Param('id', ParseUUIDPipe) id: string) {
     return this.vacationService.getSecullumStatus(id);
@@ -168,6 +180,7 @@ export class VacationController {
 
   // Dynamic routes (after static)
   @Get(':id')
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
   @ReadRateLimit()
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -188,6 +201,8 @@ export class VacationController {
   }
 
   @Delete(':id')
+  // Deletion is ADMIN-only (see batchDelete note re: the role-union guard).
+  @AdminOnly()
   @WriteRateLimit()
   async delete(
     @Param('id', ParseUUIDPipe) id: string,

@@ -48,8 +48,7 @@ const BACKFILL_NOTE_MARKER = 'Seed: registro de admissão (backfill)';
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 interface AdmissionDateSource {
-  exp1StartAt: Date | null;
-  effectedAt: Date | null;
+  currentContract: { exp1StartAt: Date | null; effectedAt: Date | null } | null;
   createdAt: Date;
 }
 
@@ -59,8 +58,9 @@ interface AdmissionDateSource {
  * insertion date — almost never the real admission date).
  */
 function preferredAdmissionDate(user: AdmissionDateSource): { date: Date; source: string } {
-  if (user.exp1StartAt) return { date: user.exp1StartAt, source: 'exp1StartAt' };
-  if (user.effectedAt) return { date: user.effectedAt, source: 'effectedAt' };
+  const c = user.currentContract;
+  if (c?.exp1StartAt) return { date: c.exp1StartAt, source: 'exp1StartAt' };
+  if (c?.effectedAt) return { date: c.effectedAt, source: 'effectedAt' };
   return { date: user.createdAt, source: 'createdAt (último recurso)' };
 }
 
@@ -80,7 +80,7 @@ async function backfillAdmissions(): Promise<number> {
       positionId: { not: null },
       positionHistories: { none: {} },
     },
-    select: { id: true, name: true, positionId: true, exp1StartAt: true, effectedAt: true, createdAt: true },
+    select: { id: true, name: true, positionId: true, currentContract: { select: { exp1StartAt: true, effectedAt: true } }, createdAt: true },
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
   });
 
@@ -125,7 +125,7 @@ async function repairBackfilledAdmissions(): Promise<number> {
       id: true,
       startedAt: true,
       user: {
-        select: { id: true, name: true, exp1StartAt: true, effectedAt: true, createdAt: true },
+        select: { id: true, name: true, currentContract: { select: { exp1StartAt: true, effectedAt: true } }, createdAt: true },
       },
     },
     orderBy: { startedAt: 'asc' },
@@ -166,9 +166,9 @@ async function synthesizeSamplePromotions(): Promise<number> {
   const candidates = await prisma.user.findMany({
     where: {
       positionId: { not: null },
-      contractKind: { not: 'DISMISSED' },
+      currentContractStatus: { not: 'TERMINATED' },
     },
-    select: { id: true, name: true, positionId: true, exp1StartAt: true, effectedAt: true, createdAt: true },
+    select: { id: true, name: true, positionId: true, currentContract: { select: { exp1StartAt: true, effectedAt: true } }, createdAt: true },
     orderBy: [{ name: 'asc' }, { id: 'asc' }],
     take: 12, // headroom: some may be skipped
   });

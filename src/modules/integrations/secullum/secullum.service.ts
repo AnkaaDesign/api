@@ -191,9 +191,11 @@ export class SecullumService {
           }
         }
 
-        // Transform axios errors to our format
-        const message =
-          error.response?.data?.message || error.message || 'Erro de comunicação com Secullum';
+        // Transform axios errors to our format. Route through getErrorMessage so
+        // Secullum's real reason — including its canonical ARRAY body shape — reaches
+        // the controller and the frontend, instead of "Request failed with status
+        // code 400". (getErrorMessage never returns empty; the || is a belt-and-braces.)
+        const message = this.getErrorMessage(error) || 'Erro de comunicação com Secullum';
         const statusCode = error.response?.status || 500;
         throw this.createApiError(message, statusCode);
       },
@@ -832,10 +834,11 @@ export class SecullumService {
     } catch (error) {
       this.logger.error(`Error updating time entry ${id}`, error);
 
-      // Extract error message from Secullum response if available
-      const errorMessage =
-        error.response?.data?.message || error.message || 'Erro ao atualizar registro de ponto';
-      throw this.createApiError(errorMessage, error.response?.status || 500);
+      // apiClient's interceptor already normalized this into an HttpException
+      // carrying Secullum's real message — rethrow as-is rather than down-ranking
+      // the status to 500 and re-genericizing the message.
+      if (error instanceof HttpException) throw error;
+      throw this.createApiError(this.getErrorMessage(error) || 'Erro ao atualizar registro de ponto', error.response?.status || 500);
     }
   }
 
@@ -868,10 +871,11 @@ export class SecullumService {
     } catch (error) {
       this.logger.error(`Error batch updating time entries`, error);
 
-      // Extract error message from Secullum response if available
-      const errorMessage =
-        error.response?.data?.message || error.message || 'Erro ao atualizar registros de ponto';
-      throw this.createApiError(errorMessage, error.response?.status || 500);
+      // apiClient's interceptor already normalized this into an HttpException
+      // carrying Secullum's real message — rethrow as-is rather than down-ranking
+      // the status to 500 and re-genericizing the message.
+      if (error instanceof HttpException) throw error;
+      throw this.createApiError(this.getErrorMessage(error) || 'Erro ao atualizar registros de ponto', error.response?.status || 500);
     }
   }
 
@@ -4481,6 +4485,14 @@ export class SecullumService {
 
   private getErrorMessage(error: any): string {
     const data = error?.response?.data;
+    // Secullum's CANONICAL 400 body is an ARRAY of { message } — check it FIRST.
+    // This is the single most common shape (e.g. "Já há uma solicitação pendente
+    // nesta data.", "PIS/PASEP não encontrado") and was previously missed, which
+    // degraded every such error to axios's generic "Request failed with status
+    // code 400". Mirrors the canonical errMsg() in smoke-test.service.ts.
+    if (Array.isArray(data) && data[0]?.message) {
+      return String(data[0].message);
+    }
     // Secullum runs ASP.NET — 400s come back as a raw string, { Message },
     // { message }, or a ModelState dictionary of field → string[].
     if (typeof data === 'string' && data.trim()) {
@@ -5033,16 +5045,29 @@ export class SecullumService {
 
     this.logger.log(`SECULLUM (pontowebapp) ${method} ${url} usuario=${auth.usuario}`);
 
-    const response = await axios({
-      method: method.toLowerCase(),
-      url,
-      headers,
-      params,
-      data,
-      timeout: 30000,
-      responseType: options?.responseType ?? 'json',
-    } as any);
-    return response.data as T;
+    try {
+      const response = await axios({
+        method: method.toLowerCase(),
+        url,
+        headers,
+        params,
+        data,
+        timeout: 30000,
+        responseType: options?.responseType ?? 'json',
+      } as any);
+      return response.data as T;
+    } catch (error: any) {
+      // pontowebapp uses bare axios (no shared interceptor), so normalize here:
+      // surface Secullum's real reason (its 400 body is an ARRAY of { message },
+      // e.g. "Face não reconhecida", "Fora do perímetro") instead of axios's generic
+      // "Request failed with status code 400". Preserve response/status so callers
+      // that branch on them (e.g. 401 → auth) still can.
+      const normalized: any = new Error(this.getErrorMessage(error));
+      normalized.response = error?.response;
+      normalized.status = error?.response?.status;
+      normalized.cause = error;
+      throw normalized;
+    }
   }
 
   // ==========================================================================

@@ -29,7 +29,14 @@ import { CategoryFusionService } from './learning/category-fusion.service';
 import { OutflowForecastService } from './outflow-forecast.service';
 import { PayablesService } from './payables.service';
 import { PayablesController } from './payables.controller';
+import { RecurrentPayableService } from '../recurrent-payable/recurrent-payable.service';
+import { RecurrentPayableScheduler } from '../recurrent-payable/recurrent-payable.scheduler';
+import { RecurrentPayableController } from '../recurrent-payable/recurrent-payable.controller';
+import { ReceivablesService } from './receivables.service';
+import { ReceivablesController } from './receivables.controller';
+import { ReceivableMatchService } from './receivable-match.service';
 import { OrderModule } from '@modules/inventory/order/order.module';
+import { TaskQuoteModule } from '@modules/production/task-quote/task-quote.module';
 import { CATEGORY_LEARNERS } from './learning/category-signal';
 
 // Order matters only for display tie-breaks; fusion is order-independent. The
@@ -68,10 +75,23 @@ const categoryLearnersProvider = {
     // Orders + airbrushing + schedules payables, composed into the unified
     // Contas a Pagar by PayablesService. financial → inventory direction.
     OrderModule,
+    // Task-quote status cascade — reused by ReceivableMatchService to flip
+    // Installment → Invoice → TaskQuote when an inflow is conciliated (same
+    // cascade the Sicredi webhook runs for boletos).
+    TaskQuoteModule,
   ],
-  controllers: [ReconciliationController, PayablesController],
+  controllers: [
+    ReconciliationController,
+    PayablesController,
+    RecurrentPayableController,
+    ReceivablesController,
+  ],
   providers: [
     PayablesService,
+    RecurrentPayableService,
+    RecurrentPayableScheduler,
+    ReceivablesService,
+    ReceivableMatchService,
     ReconciliationService,
     ReconciliationImportService,
     ReconciliationMatcherService,
@@ -106,6 +126,7 @@ const categoryLearnersProvider = {
     FiscalDerivedLearnerService,
     RecurrenceLearnerService,
     CategoryFusionService,
+    RecurrentPayableService,
   ],
 })
 export class ReconciliationModule {}

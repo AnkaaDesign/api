@@ -181,14 +181,22 @@ export class ReconciliationController {
     });
 
     let matched: number;
+    let bridged = 0;
     if (body.dateStart && body.dateEnd) {
-      matched = await this.matcher.matchDateRange(new Date(body.dateStart), new Date(body.dateEnd));
+      const start = new Date(body.dateStart);
+      const end = new Date(body.dateEnd);
+      matched = await this.matcher.matchDateRange(start, end);
+      bridged = await this.matcher.bridgeBoletoCredits({ start, end });
     } else if (body.transactionIds && body.transactionIds.length > 0) {
       matched = await this.matcher.matchByIds(body.transactionIds);
+      bridged = await this.matcher.bridgeBoletoCredits({ ids: body.transactionIds });
     } else {
       // Global re-run for all PENDING transactions expecting a fiscal document.
       matched = await this.matcher.matchAll();
+      bridged = await this.matcher.bridgeBoletoCredits();
     }
+    // Boleto liquidations are bridged to their PAID slip alongside NF matching.
+    matched += bridged;
     // Single "Verificar" pipeline also (re)derives item categories over the same
     // scope, so one action classifies, matches AND categorizes.
     const categorized = await this.service.categorize({

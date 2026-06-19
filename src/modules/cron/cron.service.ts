@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { UserService } from '../people/user/user.service';
 import { OrderService } from '../inventory/order/order.service';
 import { PpeDeliveryScheduleService } from '../inventory/ppe/ppe-delivery-schedule.service';
+import { PrismaService } from '../common/prisma/prisma.service';
 import { ORDER_STATUS } from '../../constants/enums';
 
 /**
@@ -22,7 +23,47 @@ export class CronService {
     private readonly userService: UserService,
     private readonly orderService: OrderService,
     private readonly ppeDeliveryScheduleService: PpeDeliveryScheduleService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * Persist OVERDUE status on past-due receivables and recurring payables.
+   * Runs daily at 6 AM (06:00), before the Sicredi boleto sweep (07:00).
+   *
+   * Both states were previously only derived in the browser, so the stored
+   * status under-reported overdue items to the API/reports/auto-matchers:
+   * - Receivable Installments (non-boleto only — boleto-backed installments are
+   *   owned by the Sicredi scheduler's checkOverdueBoletos, which also recalcs
+   *   the invoice). OVERDUE stays in the receivable matcher's open-set.
+   * - RecurrentPayableOccurrence (enum had OVERDUE but nothing ever wrote it).
+   */
+  @Cron('0 6 * * *', { timeZone: 'America/Sao_Paulo' })
+  async markOverdueReceivablesAndPayables() {
+    const now = new Date();
+    this.logger.log('Starting overdue receivables/payables sweep...');
+
+    try {
+      const installments = await this.prisma.installment.updateMany({
+        where: {
+          status: { in: ['PENDING', 'PROCESSING'] },
+          dueDate: { lt: now },
+          bankSlip: { is: null },
+        },
+        data: { status: 'OVERDUE' },
+      });
+
+      const occurrences = await this.prisma.recurrentPayableOccurrence.updateMany({
+        where: { status: 'PENDING', dueDate: { lt: now } },
+        data: { status: 'OVERDUE' },
+      });
+
+      this.logger.log(
+        `Overdue sweep: ${installments.count} installment(s) + ${occurrences.count} recurrent occurrence(s) marked OVERDUE`,
+      );
+    } catch (err) {
+      this.logger.error(`Overdue sweep failed: ${err}`);
+    }
+  }
 
   /**
    * Process automatic user status transitions when experience periods end

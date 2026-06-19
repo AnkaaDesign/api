@@ -23,6 +23,7 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
+import { AdminOnly } from '@modules/common/auth/decorators/admin-only.decorator';
 import { User, UserId } from '@modules/common/auth/decorators/user.decorator';
 import { ReadRateLimit, WriteRateLimit } from '@modules/common/throttler/throttler.decorators';
 import {
@@ -127,6 +128,10 @@ export class AdmissionController {
   }
 
   @Delete('batch')
+  // Deletion is ADMIN-only. The class-level @Roles is merged (union) by the
+  // guard, so @AdminOnly() is required to restrict below it — @Roles(ADMIN)
+  // alone would NOT narrow access.
+  @AdminOnly()
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
   async batchDelete(
@@ -294,6 +299,8 @@ export class AdmissionController {
   }
 
   @Delete(':id')
+  // Deletion is ADMIN-only (see batchDelete note re: the role-union guard).
+  @AdminOnly()
   @WriteRateLimit()
   async delete(
     @Param('id', ParseUUIDPipe) id: string,

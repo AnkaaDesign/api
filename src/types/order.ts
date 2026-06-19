@@ -572,7 +572,10 @@ export type PayableSource =
   | 'TAX'
   | 'PAYROLL'
   | 'PAYROLL_SCHEDULED'
-  | 'RECURRING';
+  | 'RECURRING'
+  // A materialized monthly occurrence of a first-class RecurrentPayable
+  // (rent/internet/energy/water). Supersedes RECURRING for promoted categories.
+  | 'RECURRENT_PAYABLE';
 
 /** How a payable row is settled — lets the UI pick the action generically. */
 export type PayableSettleVia =
@@ -583,6 +586,9 @@ export type PayableSettleVia =
   | 'PAYROLL_MONTH'
   | 'SCHEDULE_TRIGGER'
   | 'RECONCILIATION'
+  // Mark-paid on a RecurrentPayableOccurrence; VARIABLE bills prompt for the
+  // real paid amount, FIXED settle with the known amount.
+  | 'RECURRENT_PAYABLE'
   | 'NONE';
 
 export type PayableState =

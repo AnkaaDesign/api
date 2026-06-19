@@ -95,12 +95,15 @@ export class DiscountPrismaRepository extends DiscountRepository {
 
   async findMany(options: any): Promise<any> {
     try {
-      const { where, orderBy = [{ createdAt: 'asc' }], skip = 0, take = 20 } = options || {};
+      const { where, include, orderBy = [{ createdAt: 'asc' }], skip = 0, take = 20 } = options || {};
 
       const [total, data] = await Promise.all([
         this.prisma.payrollDiscount.count({ where }),
         this.prisma.payrollDiscount.findMany({
           where,
+          // Honor the requested relations (e.g. include.user so the Empréstimos
+          // list can show the colaborador name); previously dropped silently.
+          ...(include ? { include } : {}),
           orderBy,
           skip,
           take,

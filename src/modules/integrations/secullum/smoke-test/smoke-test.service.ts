@@ -108,10 +108,12 @@ export class SecullumSmokeTestService {
         await this.phaseVacation(ctx, checks);
         await this.phaseHoliday(ctx, checks);
         await this.phaseRequests(ctx, checks);
-        // The real punch submission notifies the funcionário (and currently fails
-        // for Kennedy with "PIS/PASEP não encontrado"), so only submit it on manual
-        // runs — scheduled crons do the reads only, to avoid twice-daily spam.
-        await this.phaseInclusaoPonto(ctx, checks, trigger === 'MANUAL');
+        // Kennedy is the dedicated diagnostic account, so the real GPS punch is
+        // submitted on EVERY run (manual AND scheduled) — notifications to this
+        // account are acceptable. A business rejection (e.g. "PIS/PASEP não
+        // encontrado") proves the endpoint is alive and is recorded as SKIP; only a
+        // transport break (404/5xx/auth) is red.
+        await this.phaseInclusaoPonto(ctx, checks, true);
         if (includeApuracao) {
           await this.phaseAssinatura(ctx, checks);
         } else {
@@ -522,6 +524,12 @@ export class SecullumSmokeTestService {
     // data (never clobber), and route through approveRequest so a rejection
     // surfaces Secullum's real message instead of a bare "400".
     const dateB = this.daysAgo(6);
+    // A skipped/failed approval (Secullum business rejection — the common case)
+    // leaves the request PENDING. Sweep any residual pending request on this date
+    // from a prior run BEFORE creating, so a same-day second run (06:00 then 12:00
+    // hit the same dateB) does not collide with "Já há uma solicitação pendente
+    // nesta data" — the root cause of the request.approve.create/approve failures.
+    await this.discardPendingSolicitacao(fid, dateB, 0);
     const baseB = this.firstLista(await this.secullum.getTimeEntries({ employeeId: String(fid), startDate: dateB, endDate: dateB }));
     const busyB = !!baseB && this.cellKeys.some((k) => baseB[k] != null && baseB[k] !== '');
     if (busyB) {
@@ -554,6 +562,11 @@ export class SecullumSmokeTestService {
           checks.push({ checkKey: 'request.approve', label: 'Aprovar solicitação (/Solicitacoes/Aceitar)', category: 'request', status: 'FAIL', errorMessage: this.errMsg(err), durationMs: Date.now() - start, order });
         }
       }
+      // Whether approval passed, was business-rejected (SKIP), or failed, never
+      // leave request B pending — residue would break the next run's create. When
+      // approval succeeded the request was consumed into a batida (cleared below),
+      // so only sweep a still-pending request.
+      if (!approvedOk) await this.discardPendingSolicitacao(fid, dateB, 0);
       if (approvedOk) {
         await this.check(checks, 'request.approve.cleanup', 'Limpar batida da solicitação aprovada', 'request', async () => {
           const row = this.firstLista(await this.secullum.getTimeEntries({ employeeId: String(fid), startDate: dateB, endDate: dateB }));
@@ -959,6 +972,40 @@ export class SecullumSmokeTestService {
       await this.sleep(1000);
     }
     return null;
+  }
+
+  /**
+   * Single-shot sweep: if a PENDING solicitação exists on (funcionarioId, date,
+   * tipo), discard it via /Solicitacoes/Descartar. Used to clear residue from a
+   * prior run before re-creating, and to guarantee a skipped/failed approval never
+   * leaves a pending request behind — which would otherwise break the next run's
+   * create with "Já há uma solicitação pendente nesta data". Best-effort, never
+   * throws (a sweep failure must not fail the diagnostic). Returns true if it
+   * discarded something.
+   */
+  private async discardPendingSolicitacao(funcionarioId: number, date: string, tipo: number): Promise<boolean> {
+    try {
+      const r = await this.secullum.getRequests(false, { quantidade: 200 });
+      const sol = (r.data ?? []).find(
+        (s: any) =>
+          Number(s.FuncionarioId) === funcionarioId &&
+          String(s.Data).slice(0, 10) === date &&
+          (s.Tipo ?? 0) === tipo &&
+          s.Estado === 0,
+      );
+      if (!sol) return false;
+      await this.secullum.getApiClient().post('/Solicitacoes/Descartar', {
+        SolicitacaoId: sol.Id,
+        Versao: sol.Versao,
+        Motivo: 'Diagnóstico Ankaa (limpeza residual)',
+        TipoSolicitacao: sol.Tipo ?? tipo,
+      });
+      this.logger.log(`Swept residual pending solicitação ${sol.Id} (func ${funcionarioId}, ${date}, tipo ${tipo})`);
+      return true;
+    } catch (err: any) {
+      this.logger.warn(`discardPendingSolicitacao(${funcionarioId}, ${date}, ${tipo}) failed: ${this.errMsg(err)}`);
+      return false;
+    }
   }
 
   private async findPendingSolicitacaoAny(funcionarioId: number): Promise<any | null> {

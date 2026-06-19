@@ -14,6 +14,22 @@ import type { Discount } from '@types';
 
 export const discountIncludeSchema = z
   .object({
+    // Direct relation to the colaborador — used by the Empréstimos list to show
+    // the employee name on master discounts (payrollId=null have no payroll to
+    // resolve the user through). Without this the include was stripped by zod.
+    user: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z
+            .object({
+              position: z.boolean().optional(),
+              sector: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
     payroll: z
       .union([
         z.boolean(),
