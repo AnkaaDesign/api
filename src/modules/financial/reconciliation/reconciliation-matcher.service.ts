@@ -1334,6 +1334,11 @@ export class ReconciliationMatcherService {
     });
     if (!tx) return [];
 
+    // This is the saída/NF matcher (FiscalDocument candidates). Inbound CREDITs
+    // are receivables — their candidates come from ReceivableMatchService — so
+    // never surface phantom NF candidates for a credit.
+    if (tx.type === 'CREDIT') return [];
+
     // Tax/fee transactions have no meaningful NFe match — return empty.
     const memoUpper = (tx.memo || '').toUpperCase();
     const isLikelyTaxOrFee =
@@ -1775,7 +1780,28 @@ export class ReconciliationMatcherService {
     if (candidates.length !== 1) return false;
     const slip = candidates[0];
 
-    await this.prisma.$transaction(async tx2 => {
+    return this.prisma.$transaction(async tx2 => {
+      // Serialize against the webhook's onBankSlipPaid bridge + concurrent
+      // import/cron runs, then RE-CHECK under the lock: the credit must still be
+      // unlinked, and the slip must still have no linked transaction. Without
+      // this, two runners could each create a BANK_SLIP_BRIDGE match for the same
+      // credit (the unique index has fiscalDocumentId/installmentId NULL, so it
+      // doesn't catch a second slip-only match) → double-counted reconciliation.
+      await this.lockWrites(tx2);
+
+      const liveTx = await tx2.bankTransaction.findUnique({
+        where: { id: tx.id },
+        select: { bankSlipId: true, reconciliationStatus: true },
+      });
+      if (!liveTx || liveTx.bankSlipId || liveTx.reconciliationStatus !== ReconciliationStatus.PENDING) {
+        return false;
+      }
+      const stillFree = await tx2.bankSlip.findFirst({
+        where: { id: slip.id, transactions: { none: {} } },
+        select: { id: true },
+      });
+      if (!stillFree) return false;
+
       await tx2.bankTransaction.update({
         where: { id: tx.id },
         data: {
@@ -1795,9 +1821,8 @@ export class ReconciliationMatcherService {
           notes: `Pareamento automático com boleto ${slip.nossoNumero}`,
         },
       });
+      return true;
     });
-
-    return true;
   }
 
   private async tryExactMatch(tx: RawTransaction): Promise<boolean> {

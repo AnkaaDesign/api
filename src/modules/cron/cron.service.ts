@@ -28,7 +28,9 @@ export class CronService {
 
   /**
    * Persist OVERDUE status on past-due receivables and recurring payables.
-   * Runs daily at 6 AM (06:00), before the Sicredi boleto sweep (07:00).
+   * Runs daily at 8 AM (08:00) — AFTER the Sicredi boleto creation (06:00) and
+   * overdue sweep (07:00), so a boleto-backed installment has its slip (and is
+   * excluded by `bankSlip: { is: null }`) before we ever consider it here.
    *
    * Both states were previously only derived in the browser, so the stored
    * status under-reported overdue items to the API/reports/auto-matchers:
@@ -37,7 +39,7 @@ export class CronService {
    *   the invoice). OVERDUE stays in the receivable matcher's open-set.
    * - RecurrentPayableOccurrence (enum had OVERDUE but nothing ever wrote it).
    */
-  @Cron('0 6 * * *', { timeZone: 'America/Sao_Paulo' })
+  @Cron('0 8 * * *', { timeZone: 'America/Sao_Paulo' })
   async markOverdueReceivablesAndPayables() {
     const now = new Date();
     this.logger.log('Starting overdue receivables/payables sweep...');
