@@ -3200,6 +3200,7 @@ export class OrderService {
       const emptyBucket = () => ({ count: 0, total: 0 });
       const summary: PayablesSummary = {
         AWAITING_PAYMENT: emptyBucket(),
+        OVERDUE: emptyBucket(),
         PARTIALLY_PAID: emptyBucket(),
         EXPECTED: emptyBucket(),
         PAID: emptyBucket(),

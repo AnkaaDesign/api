@@ -593,6 +593,8 @@ export type PayableSettleVia =
 
 export type PayableState =
   | 'AWAITING_PAYMENT'
+  // Past its due date and not (fully) paid — takes precedence over AWAITING/PARTIAL.
+  | 'OVERDUE'
   | 'PARTIALLY_PAID'
   | 'EXPECTED'
   // Settled this month — surfaced on Contas a Pagar so finance can review what was paid.
@@ -632,6 +634,7 @@ export interface PayableRow {
 
 export interface PayablesSummary {
   AWAITING_PAYMENT: OrderPaymentSummaryBucket;
+  OVERDUE: OrderPaymentSummaryBucket;
   PARTIALLY_PAID: OrderPaymentSummaryBucket;
   EXPECTED: OrderPaymentSummaryBucket;
   /** Settled this month (orders by paidAt, airbrushing by paidAt). */
