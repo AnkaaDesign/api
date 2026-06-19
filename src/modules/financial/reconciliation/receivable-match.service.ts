@@ -431,13 +431,15 @@ export class ReceivableMatchService {
     const invoiceIds = new Set<string>();
     const now = new Date();
     await this.prisma.$transaction(async db => {
-      // Reverse this transaction's matches first, then recompute each affected
-      // installment's paidAmount from the SUM of its remaining (non-reversed)
-      // matches — so reversing one credit that partially paid an installment
-      // leaves the other credits' contributions intact.
-      await db.reconciliationMatch.updateMany({
+      // Delete this transaction's matches first (NOT soft-reverse): the
+      // (transactionId, installmentId) unique index counts reversed rows, so
+      // soft-reversing would 500 when the operator re-matches the same credit to
+      // the same installment after fixing a mistake. Hard delete mirrors the
+      // saída unmatch and frees the slot. Each affected installment's paidAmount
+      // is then recomputed from its remaining matches, so a credit that only
+      // partially paid an installment leaves the other credits' shares intact.
+      await db.reconciliationMatch.deleteMany({
         where: { id: { in: matches.map(m => m.id) } },
-        data: { reversedAt: now },
       });
 
       const installmentIds = [...new Set(matches.map(m => m.installmentId!).filter(Boolean))];
