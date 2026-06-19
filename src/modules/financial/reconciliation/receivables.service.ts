@@ -36,7 +36,7 @@ export class ReceivablesService {
         },
         include: {
           bankSlip: { select: { id: true } },
-          reconciliationMatches: { where: { reversedAt: null }, select: { id: true } },
+          reconciliationMatches: { where: { reversedAt: null }, select: { id: true, transactionId: true } },
           invoice: { select: { id: true, customer: { select: { id: true, fantasyName: true } } } },
           customerConfig: {
             select: { orderNumber: true, customer: { select: { id: true, fantasyName: true } } },
@@ -90,6 +90,9 @@ export class ReceivablesService {
           number: inst.number,
           hasBankSlip: !!inst.bankSlip,
           reconciled: inst.reconciliationMatches.length > 0,
+          // The bank transaction this receipt was conciliated against (if any),
+          // so the list row can link straight to its reconciliation detail.
+          transactionId: inst.reconciliationMatches[0]?.transactionId ?? null,
         };
       });
 

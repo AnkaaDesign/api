@@ -217,10 +217,26 @@ export class PayablesService {
         });
       }
 
+      // Promote any genuinely-due open obligation to OVERDUE (uniform across all
+      // sources — orders, airbrushing, recurrent occurrences). Forecast (EXPECTED)
+      // and already-paid rows are never overdue. Mirrors the receivables side and
+      // makes the persisted-OVERDUE state visible as a real Contas a Pagar bucket
+      // (was only conveyed via client-side row styling).
+      for (const row of rows) {
+        if (
+          (row.paymentState === 'AWAITING_PAYMENT' || row.paymentState === 'PARTIALLY_PAID') &&
+          row.dueDate != null &&
+          new Date(row.dueDate) < now
+        ) {
+          row.paymentState = 'OVERDUE';
+        }
+      }
+
       // --- summary buckets ---
       const emptyBucket = () => ({ count: 0, total: 0 });
       const summary: PayablesSummary = {
         AWAITING_PAYMENT: emptyBucket(),
+        OVERDUE: emptyBucket(),
         PARTIALLY_PAID: emptyBucket(),
         EXPECTED: emptyBucket(),
         PAID: emptyBucket(),
