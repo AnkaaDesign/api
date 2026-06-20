@@ -211,6 +211,15 @@ export const routes = {
         list: '/departamento-pessoal/bonus/nivel-de-performance',
       },
     },
+    // Medicina do Trabalho — FISPQ/FDS (inventário de produtos químicos).
+    // Mirrors web /medicina-do-trabalho/fispq deep-links.
+    fispq: {
+      root: '/medicina-do-trabalho/fispq',
+      list: '/medicina-do-trabalho/fispq',
+      create: '/medicina-do-trabalho/fispq/cadastrar',
+      details: (id: string) => `/medicina-do-trabalho/fispq/detalhes/${id}`,
+      edit: (id: string) => `/medicina-do-trabalho/fispq/editar/${id}`,
+    },
   },
 
   // Inventory - Estoque - Inventory Management

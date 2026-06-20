@@ -37,6 +37,10 @@ type RawCredit = {
 type ScoredCandidate = {
   id: string;
   amount: number;
+  /** Already-received amount (partial allocations). */
+  paidAmount: number;
+  /** Outstanding balance = amount − paidAmount, what a new credit can settle. */
+  remaining: number;
   invoiceId: string | null;
   dueDate: Date;
   number: number;
@@ -189,7 +193,12 @@ export class ReceivableMatchService {
         bankSlip: null, // boleto installments settle via the Sicredi bridge
         amount: amountFilter,
         dueDate: { gte: lower, lte: upper },
-        reconciliationMatches: { none: { reversedAt: null } },
+        // Auto path: never touch an installment that already has a live match.
+        // Manual path: open-but-partially-allocated installments (status still
+        // PENDING/OVERDUE, balance remaining) stay eligible so the operator can
+        // top them up via allocate — only fully-settled (PAID) ones drop out,
+        // and those are already excluded by the open-status filter above.
+        ...(opts.exactValueOnly ? { reconciliationMatches: { none: { reversedAt: null } } } : {}),
       },
       include: {
         invoice: { select: { customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } } } },
@@ -206,14 +215,18 @@ export class ReceivableMatchService {
         const customer =
           inst.invoice?.customer ?? inst.customerConfig?.customer ?? inst.externalOperation?.customer ?? null;
         const amount = Number(inst.amount);
+        const paidAmount = Number(inst.paidAmount ?? 0);
+        const remaining = Math.max(0, amount - paidAmount);
         const customerCnpjCpf = onlyDigits(customer?.cnpj ?? customer?.cpf ?? null) || null;
         const customerName = customer?.fantasyName ?? customer?.corporateName ?? null;
+        // Score against the outstanding balance so a partially-paid installment
+        // surfaced in the manual path scores on what the credit can still settle.
         const confidence = this.scoreCandidate({
           txAbs: abs,
           txPostedAt: tx.postedAt,
           txName: tx.counterpartyName ?? null,
           txCnpj,
-          instAmount: amount,
+          instAmount: remaining > 0 ? remaining : amount,
           instDueDate: inst.dueDate,
           custName: customerName,
           custCnpj: customerCnpjCpf,
@@ -221,6 +234,8 @@ export class ReceivableMatchService {
         return {
           id: inst.id,
           amount,
+          paidAmount,
+          remaining,
           invoiceId: inst.invoiceId,
           dueDate: inst.dueDate,
           number: inst.number,
@@ -287,6 +302,8 @@ export class ReceivableMatchService {
       installmentId: c.id,
       number: c.number,
       amount: c.amount,
+      paidAmount: c.paidAmount,
+      remaining: c.remaining,
       dueDate: c.dueDate,
       customerName: c.customerName,
       invoiceId: c.invoiceId,
@@ -356,15 +373,17 @@ export class ReceivableMatchService {
         paidAmount: true,
         invoiceId: true,
         status: true,
-        reconciliationMatches: { where: { reversedAt: null }, select: { id: true } },
       },
     });
     const byId = new Map(installments.map(i => [i.id, i]));
     for (const a of allocations) {
       const inst = byId.get(a.installmentId);
       if (!inst) throw new NotFoundException('Parcela a receber não encontrada.');
-      if (inst.reconciliationMatches.length > 0) {
-        throw new BadRequestException('Uma das parcelas já está conciliada.');
+      // Allow topping up a partially-allocated installment; only a fully
+      // settled (PAID) parcela is off-limits. The remaining-balance check below
+      // (computed from paidAmount) prevents over-allocation.
+      if (inst.status === 'PAID') {
+        throw new BadRequestException('Uma das parcelas já está totalmente conciliada.');
       }
       const remaining = new Decimal(inst.amount).sub(inst.paidAmount ?? new Decimal(0));
       if (new Decimal(a.amount).lte(0)) throw new BadRequestException('Cada alocação deve ser positiva.');
@@ -411,8 +430,10 @@ export class ReceivableMatchService {
       });
     });
 
-    for (const invoiceId of invoiceIds) {
-      await this.cascadeService.cascadeFromInvoice(invoiceId).catch(() => undefined);
+    // Cascade by installment so customerConfig/externalOperation-anchored
+    // receivables (no invoice) also flow up to their source-entity status.
+    for (const a of allocations) {
+      await this.cascadeService.cascadeFromInstallment(a.installmentId).catch(() => undefined);
     }
     return { success: true, message: 'Recebimento alocado com sucesso.' };
   }
@@ -428,7 +449,6 @@ export class ReceivableMatchService {
       throw new BadRequestException('Nenhuma conciliação de entrada para reverter.');
     }
 
-    const invoiceIds = new Set<string>();
     const now = new Date();
     await this.prisma.$transaction(async db => {
       // Delete this transaction's matches first (NOT soft-reverse): the
@@ -465,7 +485,6 @@ export class ReceivableMatchService {
         });
         if (inst.invoiceId) {
           await this.recalcInvoice(db, inst.invoiceId);
-          invoiceIds.add(inst.invoiceId);
         }
       }
       await db.bankTransaction.update({
@@ -477,8 +496,10 @@ export class ReceivableMatchService {
       });
     });
 
-    for (const invoiceId of invoiceIds) {
-      await this.cascadeService.cascadeFromInvoice(invoiceId).catch(() => undefined);
+    // Cascade by installment so non-invoice (customerConfig/externalOperation)
+    // receivables reopen their source-entity status too.
+    for (const installmentId of [...new Set(matches.map(m => m.installmentId!).filter(Boolean))]) {
+      await this.cascadeService.cascadeFromInstallment(installmentId).catch(() => undefined);
     }
     return { success: true, message: 'Conciliação de entrada revertida.' };
   }
@@ -536,8 +557,10 @@ export class ReceivableMatchService {
       if (invoiceId) await this.recalcInvoice(db, invoiceId);
     });
 
-    // Cascade task-quote status outside the transaction (same as the webhook).
-    if (invoiceId) await this.cascadeService.cascadeFromInvoice(invoiceId).catch(() => undefined);
+    // Cascade source-entity status outside the transaction (same as the webhook).
+    // Cascade by installment, not invoice: non-boleto receivables can hang
+    // directly off a customerConfig/externalOperation with no invoice.
+    await this.cascadeService.cascadeFromInstallment(installmentId).catch(() => undefined);
   }
 
   /** Recompute an invoice's paidAmount + status from its installments. Copied

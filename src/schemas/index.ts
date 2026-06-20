@@ -110,6 +110,7 @@ export {
 } from './service';
 export * from './serviceOrder';
 export * from './supplier';
+export * from './warehouse-location';
 export * from './task';
 export * from './task-copy';
 export * from './truck';
@@ -150,6 +151,7 @@ export * from './admission';
 export * from './employment-contract';
 export * from './termination';
 export * from './medical-exam';
+export * from './fispq';
 export * from './leave';
 export * from './work-accident-report';
 export * from './dependent';

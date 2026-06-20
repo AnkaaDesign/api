@@ -57,6 +57,10 @@ const discountCreateSchema = z.object({
 
 const periodAdjustmentSchema = z.object({
   percentage: z.number().min(-100, 'Reajuste mínimo é -100%').max(100, 'Reajuste máximo é +100%'),
+  // Optional vigência + note recorded on the audit row (SalaryAdjustment type
+  // BONUS). When omitted, the service falls back to the period reference date.
+  effectiveDate: z.coerce.date().optional(),
+  note: z.string().max(1000).optional(),
 });
 
 @Controller('bonus')
@@ -495,7 +499,7 @@ export class BonusController {
   ) {
     if (month < 1 || month > 12) throw new Error('Mês deve estar entre 1 e 12');
     if (year < 2020 || year > 2030) throw new Error('Ano deve estar entre 2020 e 2030');
-    return this.bonusService.applyPeriodAdjustment(year, month, body.percentage!, userId);
+    return this.bonusService.applyPeriodAdjustment(year, month, body.percentage!, userId, body.effectiveDate, body.note);
   }
 
   /**

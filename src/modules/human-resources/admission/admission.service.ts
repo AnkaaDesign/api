@@ -25,6 +25,7 @@ import {
   ADMISSION_STATUS,
   CHANGE_ACTION,
   CHANGE_TRIGGERED_BY,
+  CONTRACT_STATUS,
   ENTITY_TYPE,
   MEDICAL_EXAM_RESULT,
   MEDICAL_EXAM_STATUS,
@@ -32,6 +33,7 @@ import {
 } from '../../../constants';
 import {
   ADMISSION_STATUS_ORDER,
+  CONTRACT_STATUS_ORDER,
   MEDICAL_EXAM_STATUS_ORDER,
 } from '../../../constants/sortOrders';
 import { EmploymentContractService } from '../employment-contract/employment-contract.service';
@@ -459,6 +461,17 @@ export class AdmissionService {
           throw new NotFoundException('Admissão não encontrada.');
         }
 
+        // Admissões finalizadas (concluídas/canceladas) são registros imutáveis —
+        // espelha o guard de UI (botão Editar desabilitado) e o da rescisão.
+        if (
+          existing.status === ADMISSION_STATUS.COMPLETED ||
+          existing.status === ADMISSION_STATUS.CANCELLED
+        ) {
+          throw new BadRequestException(
+            `Não é possível editar uma admissão ${STATUS_LABELS_PT[existing.status].toLowerCase()}.`,
+          );
+        }
+
         const updated = await tx.admission.update({
           where: { id },
           data: {
@@ -509,6 +522,20 @@ export class AdmissionService {
           throw new NotFoundException('Admissão não encontrada.');
         }
 
+        // Só é possível excluir admissões CANCELADAS ou já CONCLUÍDAS. Admissões
+        // em andamento devem ser canceladas antes (preservando o histórico e
+        // desfazendo o vínculo/ASO criados ao vivo) — excluir uma admissão em
+        // andamento deixaria um vínculo ABERTO órfão (o colaborador seguiria
+        // marcado como ativo) e um ASO pendente sem processo.
+        if (
+          admission.status !== ADMISSION_STATUS.CANCELLED &&
+          admission.status !== ADMISSION_STATUS.COMPLETED
+        ) {
+          throw new BadRequestException(
+            `Não é possível excluir uma admissão ${STATUS_LABELS_PT[admission.status].toLowerCase()}. Apenas admissões canceladas ou concluídas podem ser excluídas — cancele a admissão antes de excluí-la.`,
+          );
+        }
+
         await logEntityChange({
           changeLogService: this.changeLogService,
           entityType: ENTITY_TYPE.ADMISSION,
@@ -526,7 +553,7 @@ export class AdmissionService {
 
       return { success: true, message: 'Admissão excluída com sucesso.' };
     } catch (error: any) {
-      if (error instanceof NotFoundException) throw error;
+      if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
       this.logger.error('Erro ao excluir admissão:', error);
       throw new InternalServerErrorException(
         'Erro ao excluir admissão. Por favor, tente novamente.',
@@ -738,6 +765,89 @@ export class AdmissionService {
           userId: userId || null,
           transaction: tx,
         });
+
+        // CANCELLED effect — desfaz os efeitos colaterais "ao vivo" que a criação
+        // da admissão deixou pendentes, evitando vínculo/ASO órfãos:
+        //  (1) encerra (TERMINATED) o vínculo que ESTA admissão criou — somente o
+        //      contractId desta admissão, nunca vínculos anteriores — e re-sincroniza
+        //      o cache do User (para colaborador re-engajado, o vínculo anterior
+        //      encerrado volta a ser o atual; para colaborador novo, isActive=false);
+        //  (2) cancela o ASO admissional ainda não concluído gerado pelo processo.
+        if (isCancelling) {
+          const contractId = (existing as any).contractId;
+          if (contractId) {
+            const contract = await tx.employmentContract.findUnique({
+              where: { id: contractId },
+              select: { id: true, status: true, sequence: true },
+            });
+            // Só encerramos vínculo ainda ABERTO (não mexe num já encerrado).
+            if (contract && contract.status !== CONTRACT_STATUS.TERMINATED) {
+              const now = new Date();
+              await tx.employmentContract.update({
+                where: { id: contractId },
+                data: {
+                  status: CONTRACT_STATUS.TERMINATED as any,
+                  statusOrder: CONTRACT_STATUS_ORDER[CONTRACT_STATUS.TERMINATED],
+                  terminationDate: now,
+                },
+              });
+              await this.employmentContractService.closeOpenContractPhase(tx, {
+                contractId,
+                endDate: now,
+              });
+              await this.employmentContractService.syncUserCurrentContract(tx, existing.userId, {
+                userId: userId ?? undefined,
+              });
+
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.USER,
+                entityId: existing.userId,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'currentContractStatus',
+                oldValue: contract.status,
+                newValue: CONTRACT_STATUS.TERMINATED,
+                reason: `Vínculo (sequência ${contract.sequence}) encerrado pelo cancelamento do processo de admissão`,
+                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                triggeredById: id,
+                userId: userId || null,
+                transaction: tx,
+              });
+            }
+          }
+
+          // Cancela o ASO admissional pendente (SCHEDULED/IN_PROGRESS) desta
+          // admissão — nunca um exame já concluído, que é registro permanente.
+          const pendingExam = await tx.medicalExam.findFirst({
+            where: {
+              admissionId: existing.id,
+              status: { notIn: [MEDICAL_EXAM_STATUS.COMPLETED, MEDICAL_EXAM_STATUS.CANCELLED] as any[] },
+            },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, status: true },
+          });
+          if (pendingExam) {
+            await tx.medicalExam.update({
+              where: { id: pendingExam.id },
+              data: {
+                status: MEDICAL_EXAM_STATUS.CANCELLED as any,
+                statusOrder: MEDICAL_EXAM_STATUS_ORDER[MEDICAL_EXAM_STATUS.CANCELLED],
+              },
+            });
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.MEDICAL_EXAM,
+              entityId: pendingExam.id,
+              action: CHANGE_ACTION.CANCEL,
+              field: 'status',
+              oldValue: pendingExam.status,
+              newValue: MEDICAL_EXAM_STATUS.CANCELLED,
+              reason: 'Exame admissional (ASO) cancelado pelo cancelamento do processo de admissão',
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              triggeredById: id,
+              userId: userId || null,
+              transaction: tx,
+            });
+          }
+        }
 
         // COMPLETED effect: the admission hireDate becomes the linked vínculo's
         // admissionDate when it was never filled (Admission.hireDate mirrors

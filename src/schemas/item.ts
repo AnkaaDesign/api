@@ -162,6 +162,22 @@ export const itemSelectSchema = z
         }),
       ])
       .optional(),
+    warehouseLocation: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              name: z.boolean().optional(),
+              section: z.boolean().optional(),
+              code: z.boolean().optional(),
+              isActive: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
     prices: z
       .union([
         z.boolean(),
@@ -1267,6 +1283,7 @@ export const itemOrderBySchema = z
         shouldAssignToUser: orderByDirectionSchema.optional(),
         categoryId: orderByDirectionSchema.optional(),
         supplierId: orderByDirectionSchema.optional(),
+        warehouseLocationId: orderByDirectionSchema.optional(),
         estimatedLeadTime: orderByDirectionSchema.optional(),
         isActive: orderByDirectionSchema.optional(),
         abcCategory: orderByDirectionSchema.optional(),
@@ -1290,6 +1307,16 @@ export const itemOrderBySchema = z
             name: orderByDirectionSchema.optional(),
             fantasyName: orderByDirectionSchema.optional(),
             cnpj: orderByDirectionSchema.optional(),
+            createdAt: orderByDirectionSchema.optional(),
+            updatedAt: orderByDirectionSchema.optional(),
+          })
+          .optional(),
+        warehouseLocation: z
+          .object({
+            id: orderByDirectionSchema.optional(),
+            name: orderByDirectionSchema.optional(),
+            section: orderByDirectionSchema.optional(),
+            code: orderByDirectionSchema.optional(),
             createdAt: orderByDirectionSchema.optional(),
             updatedAt: orderByDirectionSchema.optional(),
           })
@@ -1380,6 +1407,19 @@ export const itemWhereSchema: z.ZodSchema = z.lazy(() =>
         .optional(),
 
       supplierId: z
+        .union([
+          z.string(),
+          z.null(),
+          z.object({
+            equals: z.union([z.string(), z.null()]).optional(),
+            not: z.union([z.string(), z.null()]).optional(),
+            in: z.array(z.string()).optional(),
+            notIn: z.array(z.string()).optional(),
+          }),
+        ])
+        .optional(),
+
+      warehouseLocationId: z
         .union([
           z.string(),
           z.null(),
@@ -2734,6 +2774,13 @@ export const itemCreateSchemaBase = z.object({
   brandIds: z.array(z.string().uuid({ message: 'Marca inválida' })).optional(),
   categoryId: z.string().uuid({ message: 'Categoria inválida' }).nullable().optional(),
   supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).nullable().optional(),
+  warehouseLocationId: z
+    .string()
+    .uuid({ message: 'Localização inválida' })
+    .nullable()
+    .optional(),
+  locationLevel: z.coerce.number().int().min(1).nullable().optional(),
+  locationColumn: z.coerce.number().int().min(1).nullable().optional(),
   estimatedLeadTime: z.number().int().nullable().default(30).optional(),
   isActive: z.boolean().default(true),
   price: optionalNonNegativeNumber,
@@ -2833,6 +2880,13 @@ export const itemUpdateSchemaBase = z.object({
   brandIds: z.array(z.string().uuid({ message: 'Marca inválida' })).optional(),
   categoryId: z.string().uuid({ message: 'Categoria inválida' }).nullable().optional(),
   supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).nullable().optional(),
+  warehouseLocationId: z
+    .string()
+    .uuid({ message: 'Localização inválida' })
+    .nullable()
+    .optional(),
+  locationLevel: z.coerce.number().int().min(1).nullable().optional(),
+  locationColumn: z.coerce.number().int().min(1).nullable().optional(),
   estimatedLeadTime: z.number().int().nullable().optional(),
   isActive: z.boolean().optional(),
   abcCategoryOrder: z.number().int().nullable().optional(),
@@ -3178,6 +3232,9 @@ export const mapItemToFormData = createMapToFormDataHelper<Item, ItemUpdateFormD
   brandIds: item.brands?.map(b => b.id) ?? [],
   categoryId: item.categoryId || undefined,
   supplierId: item.supplierId || undefined,
+  warehouseLocationId: item.warehouseLocationId || undefined,
+  locationLevel: item.locationLevel ?? undefined,
+  locationColumn: item.locationColumn ?? undefined,
   estimatedLeadTime: item.estimatedLeadTime || undefined,
   isActive: item.isActive,
   abcCategory: item.abcCategory,

@@ -1063,7 +1063,7 @@ export class OrderService {
 
           // Payment is decoupled from fulfillment: reaching a settled status no
           // longer auto-marks the order paid. Payment is settled explicitly via the
-          // contas a pagar workflow (request → awaiting → paid).
+          // contas a pagar workflow (AWAITING_PAYMENT → PARTIALLY_PAID → PAID).
         }
 
         // Track field-level changes (excluding status which is handled separately)
@@ -1141,28 +1141,47 @@ export class OrderService {
             }
           } else if (!anySettled) {
             if (isBoleto && wantCount > 1) {
-              let goodsSubtotal = 0;
-              let itemsTotal = 0;
-              for (const item of postUpdate.items) {
-                const subtotal = item.orderedQuantity * item.price;
-                goodsSubtotal += subtotal;
-                itemsTotal += subtotal * (1 + (item.icms || 0) / 100 + (item.ipi || 0) / 100);
+              // Only regenerate parcelas when a payment-relevant field actually
+              // changed vs the pre-update order. Regenerating unconditionally on
+              // every edit (e.g. notes/description/status) churns installment IDs
+              // — breaking cached "marcar parcela paga" actions — and wipes manual
+              // schedule edits. Be conservative: any items in the update payload
+              // count as a potential total change (item-level diff is not cheap).
+              const prevCount = existingOrder.installmentCount ?? 1;
+              const prevMethod = existingOrder.paymentMethod ?? null;
+              const prevDueDays = existingOrder.paymentDueDays ?? null;
+              const prevFirstDue = existingOrder.paymentFirstDueDate
+                ? new Date(existingOrder.paymentFirstDueDate).getTime()
+                : null;
+              const nextFirstDue = postUpdate.paymentFirstDueDate
+                ? new Date(postUpdate.paymentFirstDueDate).getTime()
+                : null;
+              const hasNoSchedule = (postUpdate.installments || []).length === 0;
+              const paymentFieldChanged =
+                hasNoSchedule ||
+                prevCount !== wantCount ||
+                prevMethod !== postUpdate.paymentMethod ||
+                prevDueDays !== (postUpdate.paymentDueDays ?? null) ||
+                prevFirstDue !== nextFirstDue ||
+                (existingOrder.freight ?? 0) !== (postUpdate.freight ?? 0) ||
+                (existingOrder.discount ?? 0) !== (postUpdate.discount ?? 0) ||
+                actualUpdateData.items !== undefined;
+
+              if (paymentFieldChanged) {
+                const total = this.computeOrderPayableTotal(postUpdate);
+                // Keep the schedule stable across unrelated updates (e.g. receiving an
+                // unpaid order). Anchor the 1st parcela to the chosen first due date,
+                // else the existing schedule's first parcela, else (legacy) now+interval.
+                const existingFirstDue =
+                  (postUpdate.installments || []).find(i => i.number === 1)?.dueDate ?? null;
+                await this.generateInstallmentsForOrder(tx, id, {
+                  total,
+                  count: wantCount,
+                  intervalDays: postUpdate.paymentDueDays ?? null,
+                  firstDueDate: postUpdate.paymentFirstDueDate ?? existingFirstDue ?? null,
+                });
+                await this.recomputeOrderPaymentRollup(tx, id);
               }
-              const discountAmount =
-                postUpdate.discount > 0 ? goodsSubtotal * (postUpdate.discount / 100) : 0;
-              const total = itemsTotal - discountAmount + (postUpdate.freight || 0);
-              // Keep the schedule stable across unrelated updates (e.g. receiving an
-              // unpaid order). Anchor the 1st parcela to the chosen first due date,
-              // else the existing schedule's first parcela, else (legacy) now+interval.
-              const existingFirstDue =
-                (postUpdate.installments || []).find(i => i.number === 1)?.dueDate ?? null;
-              await this.generateInstallmentsForOrder(tx, id, {
-                total,
-                count: wantCount,
-                intervalDays: postUpdate.paymentDueDays ?? null,
-                firstDueDate: postUpdate.paymentFirstDueDate ?? existingFirstDue ?? null,
-              });
-              await this.recomputeOrderPaymentRollup(tx, id);
             } else if ((postUpdate.installments || []).length > 0) {
               // No longer an installment boleto — drop the stale schedule.
               await tx.orderInstallment.deleteMany({ where: { orderId: id } });
@@ -2698,11 +2717,25 @@ export class OrderService {
   ): Promise<Order> {
     const order = await tx.order.findUnique({
       where: { id: orderId },
-      select: { id: true, paymentStatus: true },
+      select: { id: true, status: true, paymentStatus: true },
     });
 
     if (!order) {
       throw new NotFoundException('Pedido não encontrado.');
+    }
+
+    // A cancelled order is a dead obligation: never mutate its payment status (no
+    // marcar como pago / reabrir). Cancellation already cancels its open parcelas.
+    if (order.status === ORDER_STATUS.CANCELLED) {
+      throw new BadRequestException(
+        'Não é possível alterar o status de pagamento de um pedido cancelado.',
+      );
+    }
+
+    // No-op transition: target already current. Bail out before re-stamping
+    // paidAt/paidById (which would overwrite the original payment timestamp/author).
+    if ((order.paymentStatus as ORDER_PAYMENT_STATUS) === targetStatus) {
+      return (await tx.order.findUnique({ where: { id: orderId } })) as unknown as Order;
     }
 
     const now = new Date();
@@ -2872,6 +2905,31 @@ export class OrderService {
   }
 
   /**
+   * Single source of truth for an order's payable total (Contas a Pagar / summary
+   * cards / parcela schedule). Semantics: items (price×qty) grossed up by ICMS/IPI,
+   * minus discount% applied to the PRE-TAX goods subtotal, plus freight. The result
+   * is rounded once to centavos (and floored at 0) so the payables list, summary
+   * cards and the sum of parcelas all reconcile to the same value.
+   */
+  private computeOrderPayableTotal(order: {
+    freight?: number | null;
+    discount?: number | null;
+    items: Array<{ orderedQuantity: number; price: number; icms?: number | null; ipi?: number | null }>;
+  }): number {
+    let itemsTotal = 0;
+    let goodsSubtotal = 0;
+    for (const item of order.items) {
+      const subtotal = item.orderedQuantity * item.price;
+      goodsSubtotal += subtotal;
+      itemsTotal += subtotal * (1 + (item.icms || 0) / 100 + (item.ipi || 0) / 100);
+    }
+    const discount = order.discount || 0;
+    const discountAmount = discount > 0 ? goodsSubtotal * (discount / 100) : 0;
+    const total = itemsTotal - discountAmount + (order.freight || 0);
+    return Math.max(0, Math.round(total * 100) / 100);
+  }
+
+  /**
    * Lightweight per-paymentStatus aggregates for the Contas a Pagar summary
    * cards. Avoids shipping every payable order to the client: totals are
    * computed server-side with the same payable convention used by the web
@@ -2904,6 +2962,9 @@ export class OrderService {
           items: {
             select: { orderedQuantity: true, price: true, icms: true, ipi: true },
           },
+          installments: {
+            select: { amount: true, paidAmount: true, status: true },
+          },
         },
       });
 
@@ -2915,22 +2976,27 @@ export class OrderService {
       };
 
       for (const order of orders) {
-        let itemsTotal = 0;
-        let goodsSubtotal = 0;
-        for (const item of order.items) {
-          const subtotal = item.orderedQuantity * item.price;
-          goodsSubtotal += subtotal;
-          itemsTotal += subtotal * (1 + (item.icms || 0) / 100 + (item.ipi || 0) / 100);
-        }
-        const discountAmount =
-          order.discount > 0 ? goodsSubtotal * (order.discount / 100) : 0;
-        const payableTotal = itemsTotal - discountAmount + (order.freight || 0);
+        const fullTotal = this.computeOrderPayableTotal(order);
 
-        const bucket =
-          order.paymentStatus === ORDER_PAYMENT_STATUS.PAID
-            ? summary.PAID_LAST_90_DAYS
-            : summary[order.paymentStatus as keyof Omit<OrderPaymentSummaryData, 'PAID_LAST_90_DAYS'>];
+        const isPaidBucket = order.paymentStatus === ORDER_PAYMENT_STATUS.PAID;
+        const bucket = isPaidBucket
+          ? summary.PAID_LAST_90_DAYS
+          : summary[order.paymentStatus as keyof Omit<OrderPaymentSummaryData, 'PAID_LAST_90_DAYS'>];
         if (!bucket) continue;
+
+        // Reconcile with getPayables: for orders with an installment schedule that
+        // are not fully paid, the open obligation is the sum of unpaid parcelas
+        // (full amount − settled paidAmount), not the whole order total.
+        const installments = order.installments || [];
+        let payableTotal = fullTotal;
+        if (!isPaidBucket && installments.length > 0) {
+          const settled = installments.reduce((acc, inst) => {
+            if (inst.status === ORDER_INSTALLMENT_STATUS.PAID) return acc + inst.amount;
+            return acc + (inst.paidAmount || 0);
+          }, 0);
+          payableTotal = Math.max(0, Math.round((fullTotal - settled) * 100) / 100);
+        }
+
         bucket.count += 1;
         bucket.total += payableTotal;
       }
@@ -2972,7 +3038,6 @@ export class OrderService {
         paymentMethod: true,
         paymentFirstDueDate: true,
         paymentStatus: true,
-        paymentRequestedAt: true,
         paidAt: true,
         freight: true,
         discount: true,
@@ -3057,15 +3122,7 @@ export class OrderService {
       // Boleto orders with a parcela schedule emit one payable row per open
       // installment so finance sees each upcoming due date and amount.
       for (const order of orders) {
-        let itemsTotal = 0;
-        let goodsSubtotal = 0;
-        for (const item of order.items) {
-          const subtotal = item.orderedQuantity * item.price;
-          goodsSubtotal += subtotal;
-          itemsTotal += subtotal * (1 + (item.icms || 0) / 100 + (item.ipi || 0) / 100);
-        }
-        const discountAmount = order.discount > 0 ? goodsSubtotal * (order.discount / 100) : 0;
-        const amount = itemsTotal - discountAmount + (order.freight || 0);
+        const amount = this.computeOrderPayableTotal(order);
 
         const isBoleto = order.paymentMethod === 'BANK_SLIP';
         const settleVia: PayableRow['settleVia'] = isBoleto ? 'RECONCILIATION' : 'ORDER_LIFECYCLE';
@@ -3086,7 +3143,6 @@ export class OrderService {
               paymentState: inst.status === 'PARTIALLY_PAID' ? 'PARTIALLY_PAID' : 'AWAITING_PAYMENT',
               dueDate: inst.dueDate ?? order.forecast ?? null,
               method: order.paymentMethod ?? null,
-              requestedAt: null,
               settleVia,
               subtype: total > 1 ? `${inst.number}ª parcela de ${total}` : null,
             });
@@ -3103,7 +3159,6 @@ export class OrderService {
             // Boleto à vista (1x) uses the chosen first due date; non-boleto falls back to forecast.
             dueDate: order.paymentFirstDueDate ?? order.forecast ?? null,
             method: order.paymentMethod ?? null,
-            requestedAt: null,
             settleVia,
           });
         }
@@ -3121,7 +3176,6 @@ export class OrderService {
           paymentState: ab.paymentStatus === 'PARTIALLY_PAID' ? 'PARTIALLY_PAID' : 'AWAITING_PAYMENT',
           dueDate: ab.finishDate ?? null,
           method: null,
-          requestedAt: null,
           taskId: ab.taskId,
         });
       }
@@ -3146,23 +3200,13 @@ export class OrderService {
             paymentState: 'EXPECTED',
             dueDate: exp?.nextRun ?? schedule.nextRun ?? null,
             method: null,
-            requestedAt: null,
           });
         }
       }
 
       // --- PAID this month (orders + airbrushing settled in the current month) ---
-      const orderAmount = (order: (typeof paidOrders)[number]) => {
-        let itemsTotal = 0;
-        let goodsSubtotal = 0;
-        for (const item of order.items) {
-          const subtotal = item.orderedQuantity * item.price;
-          goodsSubtotal += subtotal;
-          itemsTotal += subtotal * (1 + (item.icms || 0) / 100 + (item.ipi || 0) / 100);
-        }
-        const discountAmount = order.discount > 0 ? goodsSubtotal * (order.discount / 100) : 0;
-        return itemsTotal - discountAmount + (order.freight || 0);
-      };
+      const orderAmount = (order: (typeof paidOrders)[number]) =>
+        this.computeOrderPayableTotal(order);
       for (const order of paidOrders) {
         rows.push({
           source: 'ORDER',
@@ -3174,7 +3218,6 @@ export class OrderService {
           paymentState: 'PAID',
           dueDate: order.forecast ?? null,
           method: order.paymentMethod ?? null,
-          requestedAt: null,
           settleVia: order.paymentMethod === 'BANK_SLIP' ? 'RECONCILIATION' : 'ORDER_LIFECYCLE',
           paidAt: order.paidAt ?? null,
         });
@@ -3190,7 +3233,6 @@ export class OrderService {
           paymentState: 'PAID',
           dueDate: ab.finishDate ?? null,
           method: null,
-          requestedAt: null,
           paidAt: ab.paidAt ?? null,
           taskId: ab.taskId,
         });
@@ -3403,7 +3445,7 @@ export class OrderService {
           d.setDate(d.getDate() + interval);
           return d;
         })();
-    const cents = Math.round((opts.total || 0) * 100);
+    const cents = Math.max(0, Math.round((opts.total || 0) * 100));
     const per = Math.floor(cents / count);
     const rows: Array<{
       orderId: string;

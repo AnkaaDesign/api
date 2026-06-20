@@ -22,6 +22,11 @@ import type {
   ITEM_CATEGORY_TYPE,
 } from '@constants';
 import type { Supplier, SupplierIncludes, SupplierOrderBy } from './supplier';
+import type {
+  WarehouseLocation,
+  WarehouseLocationIncludes,
+  WarehouseLocationOrderBy,
+} from './warehouse-location';
 import type { Activity, ActivityIncludes } from './activity';
 import type { Borrow, BorrowIncludes } from './borrow';
 import type { OrderItem, OrderItemIncludes } from './order';
@@ -89,6 +94,10 @@ export interface Item extends BaseEntity {
   fixedTargetQuantity: number | null;
   categoryId?: string;
   supplierId: string | null;
+  warehouseLocationId: string | null;
+  // Exact cell within the warehouse location grid (1-based). null = unplaced.
+  locationLevel: number | null;
+  locationColumn: number | null;
   estimatedLeadTime: number | null;
   isActive: boolean;
   abcCategory: ABC_CATEGORY | null;
@@ -113,6 +122,7 @@ export interface Item extends BaseEntity {
   brands?: ItemBrand[];
   category?: ItemCategory;
   supplier?: Supplier;
+  warehouseLocation?: WarehouseLocation;
   prices?: MonetaryValue[];
   measures?: Measure[];
   activities?: Activity[];
@@ -285,12 +295,14 @@ export interface ItemSelect {
   // Foreign keys
   categoryId?: boolean;
   supplierId?: boolean;
+  warehouseLocationId?: boolean;
   estimatedLeadTime?: boolean;
 
   // Relations
   brands?: boolean | { select?: ItemBrandSelect };
   category?: boolean | { select?: ItemCategorySelect };
   supplier?: boolean;
+  warehouseLocation?: boolean | { include?: WarehouseLocationIncludes };
   prices?:
     | boolean
     | {

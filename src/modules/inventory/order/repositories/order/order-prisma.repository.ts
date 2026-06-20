@@ -19,7 +19,7 @@ import {
 import { OrderRepository } from './order.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
-import { ORDER_STATUS } from '../../../../../constants/enums';
+import { ORDER_STATUS, ORDER_PAYMENT_STATUS, PAYMENT_METHOD } from '../../../../../constants/enums';
 import { Prisma, Order as PrismaOrder } from '@prisma/client';
 import { getOrderStatusOrder, mapOrderStatusToPrisma, mapWhereClause } from '../../../../../utils';
 
@@ -141,6 +141,10 @@ export class OrderPrismaRepository
     }
 
     const status = orderData.status || ORDER_STATUS.CREATED;
+    // Installments (and the boleto due-date scalars) only apply to BANK_SLIP. For any
+    // other method, normalize to a single non-scheduled payment so non-boleto orders
+    // never carry a phantom parcela plan.
+    const isBoleto = orderData.paymentMethod === PAYMENT_METHOD.BANK_SLIP;
     const createData: Prisma.OrderCreateInput = {
       description: orderData.description,
       status: mapOrderStatusToPrisma(status),
@@ -152,8 +156,18 @@ export class OrderPrismaRepository
       orderRuleId: orderData.orderRuleId || null,
       paymentMethod: (orderData.paymentMethod as any) || null,
       paymentPix: orderData.paymentPix || null,
-      paymentDueDays: orderData.paymentDueDays || null,
-      paymentFirstDueDate: (orderData as any).paymentFirstDueDate || null,
+      paymentDueDays: isBoleto ? orderData.paymentDueDays || null : null,
+      paymentFirstDueDate: isBoleto ? (orderData as any).paymentFirstDueDate || null : null,
+      // Persist the chosen installment count so boleto orders keep their parcela
+      // schedule across later edits (the update path reads this back to decide
+      // whether to regenerate parcelas — a missing value wrongly wiped them).
+      // Non-boleto methods are forced to a single payment.
+      installmentCount: isBoleto ? (orderData as any).installmentCount ?? 1 : 1,
+      // Payment obligation is set up automatically at creation: every new order is
+      // immediately payable in Contas a Pagar (AWAITING_PAYMENT), with no manual
+      // "solicitar pagamento" step. Set explicitly rather than relying on the DB default.
+      paymentStatus: ORDER_PAYMENT_STATUS.AWAITING_PAYMENT as any,
+      paymentStatusOrder: 1,
     };
 
     // Handle optional relations using connect syntax
@@ -245,6 +259,18 @@ export class OrderPrismaRepository
     if (formData.paymentDueDays !== undefined) updateData.paymentDueDays = formData.paymentDueDays;
     if ((formData as any).paymentFirstDueDate !== undefined)
       updateData.paymentFirstDueDate = (formData as any).paymentFirstDueDate;
+    if ((formData as any).installmentCount !== undefined)
+      updateData.installmentCount = (formData as any).installmentCount;
+
+    // Boleto scalars are only meaningful for BANK_SLIP. When the order's payment
+    // method is being switched to a non-boleto method, scrub the stale schedule
+    // scalars so the payables due-date column (paymentFirstDueDate ?? forecast) and
+    // installment count don't keep reflecting a boleto plan that no longer exists.
+    if (formData.paymentMethod !== undefined && formData.paymentMethod !== PAYMENT_METHOD.BANK_SLIP) {
+      updateData.paymentFirstDueDate = null;
+      updateData.paymentDueDays = null;
+      updateData.installmentCount = 1;
+    }
 
     // Handle payment responsible relation
     if ((formData as any).paymentResponsibleId !== undefined) {
@@ -611,7 +637,6 @@ export class OrderPrismaRepository
       installments: (databaseOrder as any).installments as any,
       paymentStatus: (databaseOrder as any).paymentStatus,
       paymentStatusOrder: (databaseOrder as any).paymentStatusOrder ?? 1,
-      paymentRequestedAt: (databaseOrder as any).paymentRequestedAt ?? null,
       paidAt: (databaseOrder as any).paidAt ?? null,
     };
   }

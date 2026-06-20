@@ -40,6 +40,8 @@ import { SectorModule } from './modules/people/sector/sector.module';
 import { GoalModule } from './modules/people/goal/goal.module';
 import { ServiceOrderModule } from './modules/production/service-order/service-order.module';
 import { SupplierModule } from './modules/inventory/supplier/supplier.module';
+import { WarehouseLocationModule } from './modules/inventory/warehouse-location/warehouse-location.module';
+import { FispqModule } from './modules/inventory/fispq/fispq.module';
 import { TaskModule } from './modules/production/task/task.module';
 import { TaskQuoteModule } from './modules/production/task-quote/task-quote.module';
 import { ObservationModule } from './modules/production/task-observation/observation.module';
@@ -127,6 +129,8 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     GoalModule,
     ServiceOrderModule,
     SupplierModule,
+    WarehouseLocationModule,
+    FispqModule,
     TaskModule,
     TaskQuoteModule,
     LayoutModule,

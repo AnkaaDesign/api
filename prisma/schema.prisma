@@ -154,23 +154,11 @@ model Bonus {
   @@index([netBonus])
 }
 
-// Per-period bonus calculation config. Currently holds the cumulative
-// `adjustment` (reajuste) — applyPeriodAdjustment ADDS the input delta to
-// this value, so apply(+5%) twice yields +10%. Both live and saved-bonus
-// calculation paths read this row, which is why applies take effect even
-// before any bonus has been saved for the period.
-model BonusPeriodConfig {
-  id         String   @id @default(uuid())
-  year       Int
-  month      Int
-  // Stored as a fraction (0.05 = +5%) to match the runtime config shape.
-  adjustment Float    @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@unique([year, month])
-  @@index([year, month])
-}
+// NOTE: BonusPeriodConfig was removed (migration 20260620020000). Bonus period
+// reajustes are now first-class SalaryAdjustment rows (type BONUS) — a single,
+// unified adjustment system. The bonus engine derives a period's cumulative
+// adjustment by summing the BONUS reajuste deltas in force (see
+// BonusService.loadPeriodAdjustmentFraction).
 
 /// Company-wide target value for a metric on a single bonus period (day 26 of
 /// previous month through day 25 of `month`/`year`). `sectorId` is only set for
@@ -694,6 +682,7 @@ model File {
   medicalExamAsos                        MedicalExam[]             @relation("MEDICAL_EXAM_ASO")
   leaves                                 Leave[]                   @relation("FileToLeave")
   workAccidentReports                    WorkAccidentReport[]      @relation("WORK_ACCIDENT_REPORT_FILE")
+  fispqPdfs                              Fispq[]                   @relation("FISPQ_PDF")
 
   @@index([filename])
   @@index([originalName])
@@ -760,6 +749,11 @@ model Item {
   // the taxonomy migration and still needs human confirmation ("a revisar").
   categoryReviewNeeded           Boolean                 @default(false)
   supplierId                     String?
+  // Physical storage location in the warehouse (section/shelf), managed registry.
+  warehouseLocationId            String?
+  // Exact cell within the location's grid: nível (row) and coluna. 1-based, null = unplaced.
+  locationLevel                  Int?
+  locationColumn                 Int?
   estimatedLeadTime              Int?                    @default(30)
   isActive                       Boolean                 @default(true)
   // Capability fields — behavior gates live on the item, not the category.
@@ -791,6 +785,7 @@ model Item {
   brands                         ItemBrand[]             @relation("ITEM_BRANDS")
   category                       ItemCategory?           @relation("ITEM_CATEGORY", fields: [categoryId], references: [id])
   supplier                       Supplier?               @relation("ITEM_SUPPLIER", fields: [supplierId], references: [id])
+  warehouseLocation              WarehouseLocation?      @relation("ITEM_WAREHOUSE_LOCATION", fields: [warehouseLocationId], references: [id])
   maintenance                    Maintenance[]           @relation("MAINTENANCE_ITEM")
   maintenanceItemsNeeded         MaintenanceItem[]       @relation("MAINTENANCE_ITEM_NEEDED")
   maintenanceSchedules           MaintenanceSchedule[]   @relation("MAINTENANCE_SCHEDULE_ITEM")
@@ -799,6 +794,10 @@ model Item {
   orderItems                     OrderItem[]             @relation("ORDER_ITEM_ITEM")
   orderRules                     OrderRule[]
   formulaComponents              PaintFormulaComponent[]
+  // FISPQ / FDS — Safety Data Sheet for chemical items (1:1) + reverse link for
+  // EPI items required by other chemicals' FISPQ (Section 8 exposure controls).
+  fispq                          Fispq?                  @relation("ITEM_FISPQ")
+  requiredByFispqs               Fispq[]                 @relation("FISPQ_REQUIRED_PPE")
   ppeDelivery                    PpeDelivery[]           @relation("PPE_DELIVERY_ITEM")
   ppeScheduleItems               PpeScheduleItem[]       @relation("PPE_SCHEDULE_ITEM_ITEM")
   paintBrands                    PaintBrand[]            @relation("PAINT_BRAND_COMPONENT_ITEMS")
@@ -811,6 +810,7 @@ model Item {
   @@index([name])
   @@index([isActive])
   @@index([supplierId])
+  @@index([warehouseLocationId])
   @@index([abcCategory, abcCategoryOrder])
   @@index([xyzCategory, xyzCategoryOrder])
   @@index([ppeType])
@@ -818,6 +818,53 @@ model Item {
   @@index([lastAutoOrderDate])
   @@index([lastUsedAt])
   @@index([deactivatedAt])
+}
+
+// Physical storage structures placed on a top-view warehouse map. Each structure
+// (estante, painel, palete, estante com kanban) has an internal níveis × colunas
+// grid; items optionally pin to a specific cell (Item.locationLevel/locationColumn).
+enum WarehouseLocationType {
+  ESTANTE
+  ESTANTE_DUPLA
+  ESTANTE_KANBAN
+  PAINEL
+  PALETE
+}
+
+model WarehouseLocation {
+  id          String                @id @default(uuid())
+  name        String
+  type        WarehouseLocationType @default(ESTANTE)
+  // Optional grouping label (e.g. "Setor 1") so locations can be organized.
+  section     String?
+  // Optional short human code (e.g. "A1-03"); unique when provided.
+  code        String?               @unique
+  description String?
+  isActive    Boolean               @default(true)
+
+  // Top-view map placement, in logical floor units (invented on create, editable later).
+  positionX Float @default(0)
+  positionY Float @default(0)
+  width     Float @default(80)
+  height    Float @default(40)
+  rotation  Float @default(0)
+
+  // Internal grid for the front view. levels = níveis (rows / prateleiras).
+  // `columns` is the default column count; `columnsPerLevel` overrides it per
+  // nível (index 0 = nível 1) so a kanban estante can hold a different number
+  // of boxes on each prateleira. Empty / missing entries fall back to `columns`.
+  levels          Int   @default(1)
+  columns         Int   @default(1)
+  columnsPerLevel Int[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items     Item[]   @relation("ITEM_WAREHOUSE_LOCATION")
+
+  @@index([name])
+  @@index([section])
+  @@index([isActive])
+  @@index([type])
 }
 
 model WeeklyScheduleConfig {
@@ -1113,7 +1160,6 @@ model Order {
   paymentAssignedById   String?
   paymentStatus         OrderPaymentStatus   @default(AWAITING_PAYMENT)
   paymentStatusOrder    Int                  @default(1)
-  paymentRequestedAt    DateTime?
   paidAt                DateTime?
   paidById              String?
   installmentCount      Int                  @default(1)
@@ -3319,6 +3365,7 @@ enum ChangeLogEntityType {
   EXTERNAL_OPERATION
   EXTERNAL_OPERATION_ITEM
   FILE
+  FISPQ
   HOLIDAY
   ITEM
   ITEM_BRAND
@@ -3365,6 +3412,7 @@ enum ChangeLogEntityType {
   SERVICE
   SERVICE_ORDER
   SUPPLIER
+  WAREHOUSE_LOCATION
   TASK
   TASK_QUOTE
   TASK_QUOTE_ITEM
@@ -5189,6 +5237,96 @@ enum WasteCertificateStatus {
   SIGNED // signed PDF uploaded
 }
 
+// FISPQ (Ficha de Informações de Segurança de Produtos Químicos, ABNT NBR 14725)
+// / FDS (Ficha de Dados de Segurança, GHS-aligned) — same Safety Data Sheet, one
+// per chemical item. Holds core safety fields + the official PDF; surfaced in the
+// Medicina do Trabalho domain as a chemical-products inventory with status tracking.
+model Fispq {
+  id        String  @id @default(uuid())
+  itemId    String  @unique
+  item      Item    @relation("ITEM_FISPQ", fields: [itemId], references: [id], onDelete: Cascade)
+
+  // Section 1 — identification
+  productName    String?
+  manufacturer   String?
+  supplierName   String?
+  recommendedUse String?
+  emergencyPhone String?
+
+  // Section 2 — GHS hazards
+  ghsPictograms        GhsPictogram[] @default([])
+  signalWord           GhsSignalWord?
+  hazardStatements     String[]       @default([]) // H-codes, e.g. "H225 Líquido e vapores altamente inflamáveis"
+  precautionStatements String[]       @default([]) // P-codes
+
+  // Section 3 + 14 — composition / transport
+  casNumber    String?
+  onuNumber    String? // número ONU (UN number)
+  unRiskClass  String? // classe de risco transporte (ANTT)
+  packingGroup String? // grupo de embalagem I/II/III
+
+  // Section 9 — physical/chemical
+  physicalState String?
+  color         String?
+  odor          String?
+  flashPoint    String?
+  phValue       String?
+
+  // Sections 4–7 — narrative safety guidance
+  firstAidMeasures     String?
+  fireFightingMeasures String?
+  accidentalRelease    String?
+  handlingStorage      String?
+
+  // Section 8 — exposure control / PPE
+  requiredPpeText  String?
+  requiredPpeItems Item[]  @relation("FISPQ_REQUIRED_PPE") // link stocked EPI items
+
+  // Document + lifecycle
+  pdfFileId      String?
+  pdfFile        File?       @relation("FISPQ_PDF", fields: [pdfFileId], references: [id])
+  revisionNumber String?
+  issueDate      DateTime?
+  revisionDate   DateTime?
+  validUntil     DateTime?
+  status         FispqStatus @default(DRAFT)
+  notes          String?
+  isActive       Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([itemId])
+  @@index([validUntil])
+  @@index([status])
+  @@index([casNumber])
+  @@index([onuNumber])
+  @@index([pdfFileId])
+}
+
+enum GhsPictogram {
+  GHS01_EXPLOSIVE
+  GHS02_FLAMMABLE
+  GHS03_OXIDIZING
+  GHS04_GAS_UNDER_PRESSURE
+  GHS05_CORROSIVE
+  GHS06_TOXIC
+  GHS07_HARMFUL
+  GHS08_HEALTH_HAZARD
+  GHS09_ENVIRONMENTAL
+}
+
+enum GhsSignalWord {
+  DANGER // PERIGO
+  WARNING // ATENÇÃO
+}
+
+enum FispqStatus {
+  DRAFT // cadastro incompleto
+  ACTIVE // FDS vigente
+  EXPIRED // validade/revisão vencida
+  ARCHIVED // produto descontinuado
+}
+
 // =====================
 // ACCOUNTING Area — Departamento Pessoal & Medicina do Trabalho
 // =====================
@@ -5200,6 +5338,11 @@ enum SalaryAdjustmentType {
   EQUALIZATION
   REFRAME
   OTHER
+  // System-applied: a bonus period reajuste (BonusPeriodConfig.adjustment).
+  // Recorded here too so bonus reajustes share the salary-reajuste history.
+  // Rows of this type carry no SalaryAdjustmentItem (they target the bonus
+  // period, not specific positions).
+  BONUS
 }
 
 model SalaryAdjustment {

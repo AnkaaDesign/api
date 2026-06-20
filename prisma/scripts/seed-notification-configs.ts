@@ -7950,6 +7950,45 @@ const CONFIGS: ConfigDef[] = [
       targeted: false,
     },
   },
+  // ─── fispq/fds (medicina do trabalho — @Cron FispqAlertScheduler) ──
+  {
+    key: "fispq.expiring",
+    name: "FISPQ/FDS a Vencer ou Pendente",
+    notificationType: "USER",
+    eventType: "fispq.expiring",
+    description: "Fichas de Dados de Segurança (FISPQ/FDS) de produtos químicos prestes a vencer (dentro da janela de antecedência), vencidas ou ausentes — alerta diário do DP/Medicina do Trabalho.",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: true,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "HUMAN_RESOURCES", "ACCOUNTING"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: true, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "FISPQ/FDS a vencer ou pendente",
+        body: "{{expiringCount}} FDS vencem nos próximos {{advanceDays}} dias{{#if missingCount}} e {{missingCount}} produto(s) sem FDS válida{{/if}}{{#if products}}: {{products}}{{/if}}.",
+      },
+      push: {
+        title: "FISPQ/FDS a vencer",
+        body: "{{expiringCount}} FDS vencem em {{advanceDays}} dias{{#if products}}: {{products}}{{/if}}",
+      },
+      whatsapp: {
+        body: "{{expiringCount}} FISPQ/FDS vencem nos próximos {{advanceDays}} dias{{#if missingCount}} e {{missingCount}} sem FDS válida{{/if}}{{#if products}}: {{products}}{{/if}}. Atualize as fichas de segurança.",
+      },
+    },
+    metadata: {
+      registry: "seed-notification-configs",
+      trigger: "fispq-alert.scheduler.ts dispatchByConfiguration(\"fispq.expiring\")",
+      targeted: false,
+    },
+  },
   // ─── medical-exam (medicina do trabalho — @Cron MedicalExamAlertScheduler) ──
   {
     key: "medical_exam.expiring",

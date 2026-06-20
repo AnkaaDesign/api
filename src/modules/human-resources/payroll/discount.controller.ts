@@ -45,7 +45,7 @@ import type {
 import {
   discountCreateSchema,
   discountUpdateSchema,
-  discountGetManySchema,
+  discountGetManyFormDataSchema,
   discountQuerySchema,
   discountBatchCreateSchema,
   discountBatchUpdateSchema,
@@ -63,7 +63,10 @@ export class DiscountController {
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
   @ReadRateLimit()
   async findMany(
-    @Query(new ZodQueryValidationPipe(discountGetManySchema)) query: DiscountGetManyFormData,
+    // Use the transformed schema so `searchingFor` is folded into `where`
+    // (matches reference, payroll-scoped colaborador name, master-loan
+    // colaborador name, and lenderName) and orderBy is normalized.
+    @Query(new ZodQueryValidationPipe(discountGetManyFormDataSchema)) query: DiscountGetManyFormData,
     @UserId() userId: string,
   ): Promise<DiscountGetManyResponse> {
     return this.discountService.findMany(query, query.include, userId);

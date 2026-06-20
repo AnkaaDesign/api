@@ -61,6 +61,7 @@ export class ItemPrismaRepository
       brandIds,
       categoryId,
       supplierId,
+      warehouseLocationId,
       ppeType,
       ppeSize,
       ppeDeliveryMode,
@@ -121,6 +122,10 @@ export class ItemPrismaRepository
       createInput.supplier = { connect: { id: supplierId } };
     }
 
+    if (warehouseLocationId) {
+      createInput.warehouseLocation = { connect: { id: warehouseLocationId } };
+    }
+
     return createInput;
   }
 
@@ -131,6 +136,7 @@ export class ItemPrismaRepository
       brandIds,
       categoryId,
       supplierId,
+      warehouseLocationId,
       ppeType,
       ppeSize,
       ppeDeliveryMode,
@@ -191,6 +197,12 @@ export class ItemPrismaRepository
 
     if (supplierId !== undefined) {
       updateInput.supplier = supplierId ? { connect: { id: supplierId } } : { disconnect: true };
+    }
+
+    if (warehouseLocationId !== undefined) {
+      updateInput.warehouseLocation = warehouseLocationId
+        ? { connect: { id: warehouseLocationId } }
+        : { disconnect: true };
     }
 
     return updateInput;
@@ -346,10 +358,12 @@ export class ItemPrismaRepository
   }
 
   protected getDefaultInclude(): Prisma.ItemInclude | undefined {
+    // warehouseLocation included so the Localização column / map search resolve names.
     return {
       brands: { orderBy: { name: 'asc' } },
       category: true,
       supplier: true,
+      warehouseLocation: true,
       prices: {
         orderBy: {
           updatedAt: 'desc',
@@ -375,6 +389,9 @@ export class ItemPrismaRepository
       fixedTargetQuantity: true,
       categoryId: true,
       supplierId: true,
+      warehouseLocationId: true,
+      locationLevel: true,
+      locationColumn: true,
       createdAt: true,
       updatedAt: true,
       brands: {
@@ -400,6 +417,14 @@ export class ItemPrismaRepository
         select: {
           id: true,
           fantasyName: true,
+        },
+      },
+      warehouseLocation: {
+        select: {
+          id: true,
+          name: true,
+          section: true,
+          code: true,
         },
       },
       prices: {
@@ -457,6 +482,9 @@ export class ItemPrismaRepository
       xyzCategoryOrder: true,
       categoryId: true,
       supplierId: true,
+      warehouseLocationId: true,
+      locationLevel: true,
+      locationColumn: true,
       estimatedLeadTime: true,
       isActive: true,
       isBorrowable: true,
@@ -545,6 +573,9 @@ export class ItemPrismaRepository
       xyzCategoryOrder: true,
       categoryId: true,
       supplierId: true,
+      warehouseLocationId: true,
+      locationLevel: true,
+      locationColumn: true,
       estimatedLeadTime: true,
       isActive: true,
       isBorrowable: true,

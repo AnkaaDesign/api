@@ -177,10 +177,33 @@ export const discountWhereSchema: z.ZodType<any> = z.lazy(() =>
         .optional(),
       isPersistent: z.boolean().optional(),
       isActive: z.boolean().optional(),
+      lenderName: z
+        .union([
+          z.string(),
+          z.null(),
+          z.object({
+            equals: z.string().nullable().optional(),
+            contains: z.string().optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
+          }),
+        ])
+        .optional(),
       createdAt: nullableDate.optional(),
       updatedAt: nullableDate.optional(),
 
       // Relation filters
+      // Direct colaborador relation — master loans (payrollId=null) anchor the
+      // employee here, so name search must reach it (see discountTransform).
+      user: z
+        .object({
+          name: z
+            .object({
+              contains: z.string().optional(),
+              mode: z.enum(['default', 'insensitive']).optional(),
+            })
+            .optional(),
+        })
+        .optional(),
       payroll: z
         .object({
           id: z.string().optional(),
@@ -476,7 +499,13 @@ const discountTransform = (data: any) => {
       ...data.where,
       OR: [
         { reference: { contains: data.searchingFor, mode: 'insensitive' } },
+        // Folha-scoped lines resolve the colaborador through the payroll…
         { payroll: { user: { name: { contains: data.searchingFor, mode: 'insensitive' } } } },
+        // …while master loans (payrollId=null, the Empréstimos list) carry the
+        // colaborador directly. Without this branch a name search silently
+        // returned nothing for the master rows.
+        { user: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+        { lenderName: { contains: data.searchingFor, mode: 'insensitive' } },
       ],
     };
     delete data.searchingFor;
