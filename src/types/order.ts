@@ -171,7 +171,6 @@ export interface Order extends BaseEntity {
   // Payment workflow (contas a pagar)
   paymentStatus: ORDER_PAYMENT_STATUS;
   paymentStatusOrder: number; // 1=AwaitingPayment, 2=PartiallyPaid, 3=Paid
-  paymentRequestedAt: Date | null;
   paidAt: Date | null;
 
   // Relations (optional, populated based on query)
@@ -275,6 +274,18 @@ export interface OrderIncludes {
         include?: ActivityIncludes;
         where?: any; // ActivityWhere not yet defined
         orderBy?: ActivityOrderBy;
+        take?: number;
+        skip?: number;
+      };
+  installments?:
+    | boolean
+    | {
+        include?: {
+          order?: boolean;
+          paidBy?: boolean;
+        };
+        orderBy?: any;
+        where?: any;
         take?: number;
         skip?: number;
       };
@@ -613,7 +624,6 @@ export interface PayableRow {
   paymentState: PayableState;
   dueDate: Date | null;
   method: string | null;
-  requestedAt: Date | null;
   /** When the row was settled (PAID rows only). */
   paidAt?: Date | null;
   /** Convenience link back to the originating task (airbrushing rows). */

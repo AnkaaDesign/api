@@ -264,7 +264,6 @@ export const orderOrderBySchema = z.union([
       statusOrder: orderByDirectionSchema.optional(),
       paymentStatus: orderByDirectionSchema.optional(),
       paymentStatusOrder: orderByDirectionSchema.optional(),
-      paymentRequestedAt: orderByDirectionSchema.optional(),
       paidAt: orderByDirectionSchema.optional(),
       createdAt: orderByDirectionSchema.optional(),
       updatedAt: orderByDirectionSchema.optional(),
@@ -283,7 +282,6 @@ export const orderOrderBySchema = z.union([
         statusOrder: orderByDirectionSchema.optional(),
         paymentStatus: orderByDirectionSchema.optional(),
         paymentStatusOrder: orderByDirectionSchema.optional(),
-        paymentRequestedAt: orderByDirectionSchema.optional(),
         paidAt: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
@@ -483,21 +481,6 @@ export const orderWhereSchema: z.ZodSchema = z.lazy(() =>
             lte: z.number().optional(),
             gt: z.number().optional(),
             gte: z.number().optional(),
-          }),
-        ])
-        .optional(),
-
-      paymentRequestedAt: z
-        .union([
-          z.coerce.date(),
-          z.null(),
-          z.object({
-            equals: z.union([z.coerce.date(), z.null()]).optional(),
-            not: z.union([z.coerce.date(), z.null()]).optional(),
-            lt: z.coerce.date().optional(),
-            lte: z.coerce.date().optional(),
-            gt: z.coerce.date().optional(),
-            gte: z.coerce.date().optional(),
           }),
         ])
         .optional(),
@@ -1499,6 +1482,19 @@ export const orderCreateSchema = z
       )
       .optional(),
   })
+  .superRefine((data, ctx) => {
+    // Multiple installments (parcelas) only make sense for boleto (BANK_SLIP).
+    if (
+      (data.installmentCount ?? 1) > 1 &&
+      data.paymentMethod !== PAYMENT_METHOD.BANK_SLIP
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Parcelamento só é permitido para pagamento via boleto.',
+        path: ['installmentCount'],
+      });
+    }
+  })
   .transform(toFormData);
 
 export const orderUpdateSchema = z
@@ -1624,6 +1620,22 @@ export const orderUpdateSchema = z
         },
       )
       .optional(),
+  })
+  .superRefine((data, ctx) => {
+    // Multiple installments (parcelas) only make sense for boleto (BANK_SLIP). Only
+    // enforce when paymentMethod is explicitly present in the update payload — a
+    // partial edit that omits paymentMethod is left to the mapper's normalization.
+    if (
+      (data.installmentCount ?? 1) > 1 &&
+      data.paymentMethod !== undefined &&
+      data.paymentMethod !== PAYMENT_METHOD.BANK_SLIP
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Parcelamento só é permitido para pagamento via boleto.',
+        path: ['installmentCount'],
+      });
+    }
   })
   .transform(toFormData);
 

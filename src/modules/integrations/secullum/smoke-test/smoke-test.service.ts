@@ -1203,9 +1203,12 @@ export class SecullumSmokeTestService {
 
   private errMsg(err: any): string {
     const body = err?.response?.data;
-    if (Array.isArray(body) && body[0]?.message) return String(body[0].message);
-    if (typeof body === 'string' && body.trim()) return body.slice(0, 300);
+    if (Array.isArray(body) && (body[0]?.message || body[0]?.Mensagem))
+      return String(body[0].message ?? body[0].Mensagem);
+    if (typeof body === 'string' && body.trim()) return body.trim().slice(0, 300);
     if (body?.message) return String(body.message);
+    if (body?.Message) return String(body.Message);
+    if (body?.Mensagem) return String(body.Mensagem);
     return err?.message ? String(err.message) : 'Erro desconhecido';
   }
 }

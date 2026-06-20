@@ -94,6 +94,36 @@ export class TaskQuoteStatusCascadeService {
    * - Some installments PAID, none overdue → PARTIAL
    * - No installments PAID, none overdue → UPCOMING
    */
+  /**
+   * Cascade from an installment, resolving the correct anchor. Non-boleto
+   * receivables (ENTRADA conciliation) may hang directly off a customerConfig or
+   * externalOperation with NO invoice, in which case cascadeFromInvoice has
+   * nothing to trace. This picks the right entry point: invoice when present,
+   * else the quote (via customerConfig) or the external operation. Never throws.
+   */
+  async cascadeFromInstallment(installmentId: string): Promise<void> {
+    try {
+      const inst = await this.prisma.installment.findUnique({
+        where: { id: installmentId },
+        select: {
+          invoiceId: true,
+          externalOperationId: true,
+          customerConfig: { select: { quoteId: true } },
+        },
+      });
+      if (!inst) return;
+      if (inst.invoiceId) {
+        await this.cascadeFromInvoice(inst.invoiceId);
+      } else if (inst.externalOperationId) {
+        await this.cascadeFromExternalOperation(inst.externalOperationId);
+      } else if (inst.customerConfig?.quoteId) {
+        await this.cascadeFromQuote(inst.customerConfig.quoteId);
+      }
+    } catch (error) {
+      this.logger.error(`Error cascading from installment ${installmentId}: ${error}`);
+    }
+  }
+
   async cascadeFromInvoice(invoiceId: string): Promise<void> {
     try {
       // Find the invoice and trace back to the TaskQuote (or ExternalOperation)

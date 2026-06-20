@@ -50,6 +50,32 @@ const CATEGORY_INCLUDE = {
   },
 } satisfies Prisma.BankTransactionInclude;
 
+/**
+ * Receivable installment context shown on a reconciled inflow — parcela, NF
+ * total and cliente/tarefa — so the detail page can say what a CREDIT settled.
+ * Shared by both the direct (installment) and boleto (bankSlip → installment)
+ * match paths.
+ */
+const INSTALLMENT_RECEIVABLE_SELECT = {
+  id: true,
+  number: true,
+  dueDate: true,
+  amount: true,
+  paidAmount: true,
+  paidAt: true,
+  status: true,
+  invoice: {
+    select: {
+      id: true,
+      totalAmount: true,
+      status: true,
+      customer: { select: { id: true, fantasyName: true } },
+      task: { select: { id: true, name: true, serialNumber: true } },
+      installments: { select: { id: true } },
+    },
+  },
+} satisfies Prisma.InstallmentSelect;
+
 @Injectable()
 export class ReconciliationService {
   private readonly logger = new Logger(ReconciliationService.name);
@@ -229,8 +255,19 @@ export class ReconciliationService {
               },
             },
             bankSlip: {
-              select: { id: true, nossoNumero: true, paidAmount: true },
+              select: {
+                id: true,
+                nossoNumero: true,
+                paidAmount: true,
+                // Boleto liquidation (Sicredi) matches link via the slip; the
+                // receivable it settled hangs off the slip's installment.
+                installment: { select: INSTALLMENT_RECEIVABLE_SELECT },
+              },
             },
+            // Receivable (entrada) matches link a CREDIT to an Installment.
+            // Nest invoice → customer/task so the detail page can show what
+            // the credit was conciliated against (parcela, NF, cliente).
+            installment: { select: INSTALLMENT_RECEIVABLE_SELECT },
           },
         },
       },

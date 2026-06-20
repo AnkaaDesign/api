@@ -585,8 +585,13 @@ export class TerminationService {
         if (!termination) {
           throw new NotFoundException('Rescisão não encontrada.');
         }
-        if (termination.status === TERMINATION_STATUS.COMPLETED) {
-          throw new BadRequestException('Não é possível excluir uma rescisão concluída.');
+        // Só é possível excluir rescisões CANCELADAS. Rescisões em andamento
+        // devem ser canceladas (preservando o histórico) antes de excluídas;
+        // rescisões concluídas já demitiram o colaborador e nunca são excluídas.
+        if (termination.status !== TERMINATION_STATUS.CANCELLED) {
+          throw new BadRequestException(
+            `Não é possível excluir uma rescisão ${STATUS_LABELS_PT[termination.status].toLowerCase()}. Apenas rescisões canceladas podem ser excluídas — cancele a rescisão antes de excluí-la.`,
+          );
         }
 
         await logEntityChange({

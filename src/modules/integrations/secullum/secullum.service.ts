@@ -2386,11 +2386,19 @@ export class SecullumService {
   private handleApiError(error: any, message: string): never {
     this.logger.error(message, error);
 
+    // The interceptor may already have normalized this into an HttpException
+    // carrying Secullum's real message — rethrow as-is rather than re-wrapping
+    // and re-genericizing it.
+    if (error instanceof HttpException) throw error;
+
     if (error.response) {
+      // Route through getErrorMessage so Secullum's canonical ARRAY body
+      // ([{ message }]) and object/string shapes reach the caller, instead of
+      // degrading to the static `message` fallback.
       throw new HttpException(
         {
           success: false,
-          message: error.response.data?.message || message,
+          message: this.getErrorMessage(error) || message,
           error: error.response.data,
         },
         error.response.status,

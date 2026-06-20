@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "ChangeLogEntityType" ADD VALUE IF NOT EXISTS 'WAREHOUSE_LOCATION';

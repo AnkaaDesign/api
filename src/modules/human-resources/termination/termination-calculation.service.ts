@@ -77,7 +77,11 @@ export interface TerminationCalculationInput {
 
 export interface ComputedTerminationItem {
   type: TERMINATION_ITEM_TYPE;
-  description: string;
+  // null when the description would merely echo the type label (the reference
+  // quantity / base / percentage are shown in their own columns). Only kept for
+  // genuinely disambiguating info not carried by another column (e.g. the year
+  // for a 13º that crosses the notice projection, a CLT article note).
+  description: string | null;
   referenceQuantity: number | null;
   baseValue: number | null;
   amount: number;
@@ -326,7 +330,8 @@ export class TerminationCalculationService {
     const daysWorked = this.daysWorkedInTerminationMonth(terminationDate, input.exp1StartAt);
     items.push({
       type: TERMINATION_ITEM_TYPE.SALARY_BALANCE,
-      description: `Saldo de salário (${daysWorked} dia${daysWorked === 1 ? '' : 's'})`,
+      // Days worked are shown in the Referência column — no echo description.
+      description: null,
       referenceQuantity: daysWorked,
       baseValue: br,
       amount: round2(dailyRate * daysWorked),
@@ -344,9 +349,11 @@ export class TerminationCalculationService {
       const fullAmount = dailyRate * input.noticeDays;
       items.push({
         type: TERMINATION_ITEM_TYPE.NOTICE_INDEMNIFIED,
+        // Days are in the Referência column; only the mutual-agreement 50% rule
+        // adds non-column info worth keeping.
         description: isMutualAgreement
-          ? `Aviso prévio indenizado (${input.noticeDays} dias — 50%, acordo mútuo CLT 484-A)`
-          : `Aviso prévio indenizado (${input.noticeDays} dias)`,
+          ? 'Acordo mútuo: 50% (CLT 484-A)'
+          : null,
         referenceQuantity: input.noticeDays,
         baseValue: br,
         amount: round2(isMutualAgreement ? fullAmount / 2 : fullAmount),
@@ -365,7 +372,7 @@ export class TerminationCalculationService {
     ) {
       items.push({
         type: TERMINATION_ITEM_TYPE.NOTICE_DISCOUNT,
-        description: `Desconto do aviso prévio não cumprido (${input.noticeDays} dias — CLT 487 §2º)`,
+        description: 'Aviso prévio não cumprido (CLT 487 §2º)',
         referenceQuantity: input.noticeDays,
         baseValue: br,
         amount: -round2(dailyRate * input.noticeDays),
@@ -384,9 +391,9 @@ export class TerminationCalculationService {
         if (months13 > 0) {
           items.push({
             type: TERMINATION_ITEM_TYPE.THIRTEENTH_PROPORTIONAL,
-            description: crossesYear
-              ? `13º salário proporcional ${year} (${months13}/12 avos)`
-              : `13º salário proporcional (${months13}/12 avos)`,
+            // Avos are in the Referência column; keep only the year when the
+            // notice projection splits the 13º across two calendar years.
+            description: crossesYear ? `Ano ${year}` : null,
             referenceQuantity: months13,
             baseValue: br,
             amount: round2((br / 12) * months13),
@@ -400,9 +407,8 @@ export class TerminationCalculationService {
     if (input.accruedVacationPeriods > 0) {
       items.push({
         type: TERMINATION_ITEM_TYPE.ACCRUED_VACATION,
-        description: `Férias vencidas + 1/3 (${input.accruedVacationPeriods} período${
-          input.accruedVacationPeriods === 1 ? '' : 's'
-        })`,
+        // Periods are in the Referência column; the +1/3 is part of the label.
+        description: null,
         referenceQuantity: input.accruedVacationPeriods,
         baseValue: br,
         amount: round2(br * input.accruedVacationPeriods * (4 / 3)),
@@ -416,7 +422,8 @@ export class TerminationCalculationService {
       if (vacationMonths > 0) {
         items.push({
           type: TERMINATION_ITEM_TYPE.PROPORTIONAL_VACATION,
-          description: `Férias proporcionais + 1/3 (${vacationMonths}/12 avos)`,
+          // Avos are in the Referência column; the +1/3 is part of the label.
+          description: null,
           referenceQuantity: vacationMonths,
           baseValue: br,
           amount: round2((br / 12) * vacationMonths * (4 / 3)),
@@ -459,7 +466,8 @@ export class TerminationCalculationService {
       );
       items.push({
         type: TERMINATION_ITEM_TYPE.FGTS_FINE,
-        description: `Multa do FGTS (${fgtsFinePercent * 100}% sobre a base de ${fgtsFineBase.toFixed(2)})`,
+        // Percentage is in the Referência column, base in the Base column.
+        description: null,
         referenceQuantity: fgtsFinePercent * 100,
         baseValue: fgtsFineBase,
         amount: round2(fgtsFineBase * fgtsFinePercent),
@@ -482,7 +490,7 @@ export class TerminationCalculationService {
     ) {
       items.push({
         type: TERMINATION_ITEM_TYPE.ART479_INDEMNITY,
-        description: `Indenização art. 479 CLT (50% dos ${remainingFixedTermDays} dias restantes da experiência)`,
+        description: 'Art. 479 CLT — 50% dos dias restantes da experiência',
         referenceQuantity: remainingFixedTermDays,
         baseValue: br,
         amount: round2(0.5 * dailyRate * remainingFixedTermDays),
@@ -501,7 +509,7 @@ export class TerminationCalculationService {
     ) {
       items.push({
         type: TERMINATION_ITEM_TYPE.ART479_INDEMNITY,
-        description: `Indenização art. 480 CLT devida pelo empregado (50% dos ${remainingFixedTermDays} dias restantes do contrato)`,
+        description: 'Art. 480 CLT — devida pelo empregado (50% dos dias restantes)',
         referenceQuantity: remainingFixedTermDays,
         baseValue: br,
         amount: -round2(0.5 * dailyRate * remainingFixedTermDays),

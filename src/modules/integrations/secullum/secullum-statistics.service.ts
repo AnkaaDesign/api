@@ -583,6 +583,14 @@ export class SecullumStatisticsService {
   }
 
   private errMsg(err: any): string {
+    // Surface Secullum's real reason. Its canonical 400 body is an ARRAY of
+    // { message }; it may also be { message }/{ Message } or a plain string.
+    // Only then fall back to the (generic) axios error.message.
+    const body = err?.response?.data;
+    if (Array.isArray(body) && body[0]?.message) return String(body[0].message);
+    if (typeof body === 'string' && body.trim()) return body.trim().slice(0, 300);
+    if (body?.message) return String(body.message);
+    if (body?.Message) return String(body.Message);
     if (err instanceof Error) return err.message;
     return String(err);
   }

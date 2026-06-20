@@ -28,6 +28,7 @@ import {
   CHANGE_ACTION,
   BONIFICATION_STATUS,
   TASK_STATUS,
+  SALARY_ADJUSTMENT_TYPE,
 } from '../../../constants/enums';
 import { BONIFIABLE_USER_WHERE } from '../../../utils/contract';
 import { logEntityChange } from '@modules/common/changelog/utils/changelog-helpers';
@@ -1668,15 +1669,16 @@ export class BonusService {
 
   /**
    * Internal helper: load the period adjustment as a fraction (0.05 = +5%).
-   * Resolution order:
-   *   1. Exact {year, month} BonusPeriodConfig row (canonical source).
-   *   2. Snapshot stored on the most recent same-period saved Bonus row
-   *      (backward-compat for periods adjusted under the old "store on bonus
-   *      row" scheme — reported until the next apply upserts a config row).
-   *   3. Carry-forward: the MOST RECENT PRIOR BonusPeriodConfig row, so a
-   *      vigência set in the past stays in force for every later period until
-   *      a newer row overrides it (dissídio semantics).
-   *   4. 0 when nothing exists.
+   *
+   * Unified adjustment system: a bonus period reajuste is a first-class
+   * SalaryAdjustment row (type BONUS) carrying a DELTA percentage and an
+   * effectiveDate. The cumulative adjustment in force for a period is the SUM of
+   * every BONUS reajuste whose vigência falls on/before the END of that period's
+   * bonus cycle (the 25th — the cycle runs from the 26th of the previous month
+   * to the 25th). This reproduces the old carry-forward/dissídio behaviour (a
+   * reajuste stays in force for its period and every later one) while keeping a
+   * real per-apply history. The sum is clamped on the lower side to -0.99 so
+   * `1 + adjustment` can never drive bonuses to or below zero.
    */
   async loadPeriodAdjustmentFraction(
     year: number,
@@ -1684,46 +1686,28 @@ export class BonusService {
     tx?: PrismaTransaction,
   ): Promise<number> {
     const db = tx ?? this.prisma;
-    const config = await db.bonusPeriodConfig.findUnique({
-      where: { year_month: { year, month } },
-      select: { adjustment: true },
+    const cutoff = this.periodCycleEnd(year, month);
+    const agg = await db.salaryAdjustment.aggregate({
+      _sum: { percentage: true },
+      where: { type: SALARY_ADJUSTMENT_TYPE.BONUS, effectiveDate: { lte: cutoff } },
     });
-    if (config) {
-      const f = Number(config.adjustment);
-      return Number.isFinite(f) ? f : 0;
-    }
-    // Backward-compat fallback for periods written before BonusPeriodConfig existed.
-    const sample = await db.bonus.findFirst({
-      where: { year, month },
-      orderBy: { updatedAt: 'desc' },
-      select: { calculationParams: true },
-    });
-    const params = (sample?.calculationParams ?? null) as any;
-    const sampleFraction = Number(params?.config?.adjustment);
-    if (Number.isFinite(sampleFraction)) {
-      return sampleFraction;
-    }
+    const sumPct = Number(agg._sum.percentage ?? 0);
+    if (!Number.isFinite(sumPct)) return 0;
+    return Math.max(-0.99, sumPct / 100);
+  }
 
-    // Carry-forward (dissídio semantics): when this exact period has neither a
-    // config row nor a same-period saved-bonus snapshot, inherit the MOST
-    // RECENT PRIOR BonusPeriodConfig row. This makes a single "Data de Vigência"
-    // write (one upserted row) apply to that period AND all later periods until
-    // a newer row overrides it — exactly like a salary dissídio that stays in
-    // force from its effective date onward.
-    const prior = await db.bonusPeriodConfig.findFirst({
-      where: {
-        OR: [{ year: { lt: year } }, { year, month: { lt: month } }],
-      },
-      orderBy: [{ year: 'desc' }, { month: 'desc' }],
-      select: { adjustment: true },
-    });
-    const priorFraction = Number(prior?.adjustment);
-    return Number.isFinite(priorFraction) ? priorFraction : 0;
+  /**
+   * End instant of the bonus cycle for a period: the 25th at 23:59:59.999 (UTC).
+   * A reajuste applies to period {year, month} (and onward) when its vigência is
+   * on/before this boundary.
+   */
+  private periodCycleEnd(year: number, month: number): Date {
+    return new Date(Date.UTC(year, month - 1, 25, 23, 59, 59, 999));
   }
 
   /**
    * Public read: returns the period reajuste in PERCENTAGE form for the UI
-   * (e.g., 5.0 for +5%). The canonical source is BonusPeriodConfig.
+   * (e.g., 5.0 for +5%). Derived from the BONUS reajuste rows.
    */
   async getPeriodAdjustment(year: number, month: number): Promise<{ adjustment: number }> {
     const fraction = await this.loadPeriodAdjustmentFraction(year, month);
@@ -1735,10 +1719,11 @@ export class BonusService {
    *   - The input `percentage` is a DELTA. It is ADDED to the existing
    *     period adjustment, so apply(+5%) twice from 0 yields +10%. This
    *     matches HR's mental model of stacking yearly inflation reajustes.
-   *   - The cumulative value lives in `BonusPeriodConfig` (one row per
-   *     {year, month}) and is read by every calculation path — live and
-   *     saved-bonus saves. So an apply takes effect immediately for live
-   *     bonuses even when nothing has been saved yet for the period.
+   *   - Each apply creates a first-class SalaryAdjustment(BONUS) row carrying
+   *     the delta. The cumulative value in force for a period is the SUM of
+   *     those rows (loadPeriodAdjustmentFraction), read by every calculation
+   *     path — live and saved-bonus saves. So an apply takes effect immediately
+   *     for live bonuses even when nothing has been saved yet for the period.
    *   - **Already-saved bonuses are NOT recomputed.** They are immutable
    *     point-in-time records — the saved snapshot reflects the state at
    *     the moment "Calcular e Salvar" was run, and stays that way until
@@ -1752,6 +1737,8 @@ export class BonusService {
     month: number,
     percentage: number,
     userId?: string,
+    effectiveDate?: Date,
+    note?: string,
   ): Promise<{
     success: boolean;
     data: {
@@ -1766,41 +1753,66 @@ export class BonusService {
     }
 
     const deltaFraction = percentage / 100;
+    // Period attribution is PERIOD-scoped (no mid-period proration): a bonus
+    // reajuste is in force for its period and every later one. The bonus engine
+    // attributes a row to a period via `effectiveDate <= periodCycleEnd` (the
+    // 25th at 23:59:59.999 UTC). To make that attribution exact and TZ-proof we
+    // ALWAYS anchor the stored effectiveDate to the canonical period anchor —
+    // the first day (UTC) of the PASSED {year, month}. This anchor is provably
+    // `> previousPeriodCutoff` and `<= thisPeriodCutoff` for every month/year
+    // (incl. rollover), so it lands inside exactly the intended period's cycle.
+    //
+    // We deliberately do NOT store the raw vigência: the Reajustes dialog already
+    // resolved {year, month} from the vigência with its own local-time rule
+    // (getDate() >= 26 → next month), and persisting the raw Date would let the
+    // server's UTC `<= cutoff` comparison disagree with that intent at the
+    // 25th/26th BRT(UTC-3) boundary — e.g. a vigência of 25/06 22:00 BRT
+    // serializes to 26/06T01:00Z, which exceeds the June-25 cutoff and would be
+    // mis-attributed to July despite the dialog intending June. Anchoring to
+    // {year, month} eliminates that class of bug entirely.
+    //
+    // The `effectiveDate` param is still accepted (harmless, backward-compatible)
+    // but no longer drives attribution — it is now vestigial for the bonus path.
+    void effectiveDate;
+    const appliedEffectiveDate = new Date(Date.UTC(year, month - 1, 1));
     let previousFraction = 0;
     let newFraction = 0;
 
     await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-      // Read the baseline via loadPeriodAdjustmentFraction (which now applies
-      // carry-forward). This keeps both behaviors correct:
-      //   (a) Applying at a NEW vigência period with no row of its own seeds
-      //       from the inherited prior value + delta (carry-forward path).
-      //   (b) Re-applying on a period that already has its own row adds to
-      //       that exact row (exact-row path takes precedence over carry-forward).
+      // Baseline in force for this period BEFORE the new reajuste.
       previousFraction = await this.loadPeriodAdjustmentFraction(year, month, tx);
-      const proposed = previousFraction + deltaFraction;
-      newFraction = Math.max(-0.99, proposed);
+      newFraction = Math.max(-0.99, previousFraction + deltaFraction);
 
-      await tx.bonusPeriodConfig.upsert({
-        where: { year_month: { year, month } },
-        create: { year, month, adjustment: newFraction },
-        update: { adjustment: newFraction },
+      // The apply IS a first-class SalaryAdjustment reajuste (type BONUS, no
+      // position items) — the single source of truth. The bonus engine sums
+      // these rows to derive a period's cumulative adjustment, and the Reajustes
+      // history shows them alongside salary reajustes. `percentage` is the DELTA.
+      const created = await tx.salaryAdjustment.create({
+        data: {
+          type: SALARY_ADJUSTMENT_TYPE.BONUS,
+          percentage,
+          effectiveDate: appliedEffectiveDate,
+          note: note?.trim() || `Reajuste de bônus do período ${month}/${year}`,
+          appliedById: userId || null,
+        },
       });
 
       const previousPct = Math.round(previousFraction * 10000) / 100;
       const newPct = Math.round(newFraction * 10000) / 100;
       await logEntityChange({
         changeLogService: this.changeLogService,
-        entityType: ENTITY_TYPE.BONUS,
-        entityId: `period-${year}-${month}`,
-        action: CHANGE_ACTION.UPDATE,
+        entityType: ENTITY_TYPE.SALARY_ADJUSTMENT,
+        entityId: created.id,
+        action: CHANGE_ACTION.CREATE,
         entity: {
+          type: SALARY_ADJUSTMENT_TYPE.BONUS,
           year,
           month,
           previousAdjustment: previousPct,
           delta: percentage,
           adjustment: newPct,
         },
-        reason: `Reajuste do período ${month}/${year}: ${previousPct > 0 ? '+' : ''}${previousPct}% → ${newPct > 0 ? '+' : ''}${newPct}% (Δ ${percentage > 0 ? '+' : ''}${percentage}%)`,
+        reason: `Reajuste de bônus do período ${month}/${year}: ${previousPct > 0 ? '+' : ''}${previousPct}% → ${newPct > 0 ? '+' : ''}${newPct}% (Δ ${percentage > 0 ? '+' : ''}${percentage}%)`,
         userId: userId || null,
         triggeredBy: CHANGE_TRIGGERED_BY.USER,
         transaction: tx,
@@ -3334,7 +3346,7 @@ export class BonusService {
     /**
      * Period the simulation targets. When provided and the caller did NOT
      * pass an explicit `config.adjustment`, the saved period reajuste
-     * (BonusPeriodConfig) is injected so the simulation matches the real,
+     * (summed BONUS reajustes) is injected so the simulation matches the real,
      * saved bonus to the cent. This is the single place that guarantees
      * every simulator (web + mobile) applies the same adjustment — no client
      * can forget it.

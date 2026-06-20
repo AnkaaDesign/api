@@ -421,7 +421,7 @@ describe('TerminationCalculationService', () => {
       );
       const indemnity = find(items, TERMINATION_ITEM_TYPE.ART479_INDEMNITY);
       expect(indemnity?.amount).toBe(-1500); // negative = discount owed by employee
-      expect(indemnity?.description).toContain('art. 480');
+      expect(indemnity?.description).toContain('Art. 480');
     });
 
     it('also applies to EXPERIENCE_EARLY_EMPLOYEE', () => {
@@ -443,7 +443,7 @@ describe('TerminationCalculationService', () => {
       );
       const indemnity = find(items, TERMINATION_ITEM_TYPE.ART479_INDEMNITY);
       expect(indemnity?.amount).toBe(1500);
-      expect(indemnity?.description).toContain('art. 479');
+      expect(indemnity?.description).toContain('Art. 479');
     });
 
     it('no FGTS fine for an employee-side early fixed-term termination', () => {
