@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import {
   BankTransactionSubtype,
   BankTransactionType,
@@ -50,7 +51,7 @@ export class OfxParserService {
     const bankCode = String(bankAcct.BANKID || bankAcct.bankid || '748');
     const transactions = stmttrnArray
       .filter((t: any) => t && (t.TRNAMT || t.trnamt) !== undefined)
-      .map((t: any) => this.parseTransaction(t));
+      .map((t: any, index: number) => this.parseTransaction(t, index));
 
     // Sicredi packs the cooperativa (agência) and conta corrente into ACCTID
     // as a single 16-digit string: AAAACCCCCCCCCCCD (4-digit cooperativa +
@@ -74,7 +75,7 @@ export class OfxParserService {
     };
   }
 
-  private parseTransaction(t: any): ParsedOfxTransaction {
+  private parseTransaction(t: any, index = 0): ParsedOfxTransaction {
     const amount = parseFloat(String(t.TRNAMT || t.trnamt || '0').replace(',', '.'));
     const type =
       amount >= 0 ? BankTransactionType.CREDIT : BankTransactionType.DEBIT;
@@ -99,8 +100,23 @@ export class OfxParserService {
       memo = rawMemo ? `${rawName} - ${rawMemo}` : rawName;
     }
 
+    const rawDatePosted = String(t.DTPOSTED || t.dtposted || '');
+    const rawAmount = String(t.TRNAMT || t.trnamt || '');
     return {
-      fitId: String(t.FITID || t.fitid || `${Date.now()}_${Math.random()}`),
+      // Prefer the bank-provided FITID. When absent, synthesize a DETERMINISTIC
+      // id from DTPOSTED + TRNAMT + MEMO + the line's position in the statement.
+      // The old `${Date.now()}_${Math.random()}` produced a different id on every
+      // import, defeating the (bankCode, agency, accountNumber, fitId) dedupe and
+      // duplicating rows on re-import. The seq disambiguates two truly identical
+      // same-day/same-amount/same-memo lines so neither is silently dropped.
+      fitId: String(
+        t.FITID ||
+          t.fitid ||
+          `SYN-${createHash('sha1')
+            .update(`${rawDatePosted}|${rawAmount}|${memo ?? ''}|${index}`)
+            .digest('hex')
+            .slice(0, 24)}`,
+      ),
       postedAt: this.parseOfxDate(t.DTPOSTED || t.dtposted),
       amount,
       type,

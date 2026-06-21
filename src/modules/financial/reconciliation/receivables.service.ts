@@ -36,10 +36,17 @@ export class ReceivablesService {
         },
         include: {
           bankSlip: { select: { id: true } },
-          reconciliationMatches: { where: { reversedAt: null }, select: { id: true, transactionId: true } },
-          invoice: { select: { id: true, customer: { select: { id: true, fantasyName: true } } } },
+          reconciliationMatches: {
+            where: { reversedAt: null },
+            select: { id: true, transactionId: true, allocatedAmount: true, matchedAt: true },
+          },
+          invoice: { select: { id: true, taskId: true, customer: { select: { id: true, fantasyName: true } } } },
           customerConfig: {
-            select: { orderNumber: true, customer: { select: { id: true, fantasyName: true } } },
+            select: {
+              orderNumber: true,
+              customer: { select: { id: true, fantasyName: true } },
+              quote: { select: { task: { select: { id: true } } } },
+            },
           },
           externalOperation: {
             select: { id: true, customer: { select: { id: true, fantasyName: true } } },
@@ -75,10 +82,21 @@ export class ReceivablesService {
           inst.customerConfig?.orderNumber ??
           'Cliente';
 
+        // Axis B — derive clearance from the (non-reversed) match + amount drift.
+        const match = inst.reconciliationMatches[0] ?? null;
+        let clearanceState: 'UNCLEARED' | 'CLEARED' | 'DISPUTED' = 'UNCLEARED';
+        if (match) {
+          const tol = Math.max(2, amount * 0.005);
+          const drift = Math.abs(Number(match.allocatedAmount) - amount);
+          clearanceState = drift > tol ? 'DISPUTED' : 'CLEARED';
+        }
+
         return {
           source,
           id: inst.id,
           invoiceId: inst.invoiceId,
+          // Task-quote (faturamento) the receipt belongs to — the row's nav target.
+          taskId: inst.invoice?.taskId ?? inst.customerConfig?.quote?.task?.id ?? null,
           customerId: customer?.id ?? null,
           customerName: label,
           description: `Parcela ${inst.number}${customer ? ` — ${customer.fantasyName}` : ''}`,
@@ -93,6 +111,8 @@ export class ReceivablesService {
           // The bank transaction this receipt was conciliated against (if any),
           // so the list row can link straight to its reconciliation detail.
           transactionId: inst.reconciliationMatches[0]?.transactionId ?? null,
+          clearanceState,
+          clearedAt: match?.matchedAt ?? null,
         };
       });
 

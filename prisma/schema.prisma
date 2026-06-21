@@ -58,6 +58,7 @@ model Airbrushing {
   invoiceReimbursements File[]                   @relation("AIRBRUSHING_INVOICE_REIMBURSEMENTS")
   receipts              File[]                   @relation("AIRBRUSHING_RECEIPTS")
   reimbursements        File[]                   @relation("AIRBRUSHING_REIMBURSEMENTS")
+  reconciliationMatches ReconciliationMatch[]    @relation("AirbrushingMatches")
 
   @@index([statusOrder])
   @@index([painterId])
@@ -956,6 +957,7 @@ enum AccountingType {
   APLICACAO_FINANCEIRA // financial investment moves
   ESTORNO // reversals / refunds
   LUCRO_DISTRIBUIDO // distributed profit (LD/S, LD/G)
+  RECEITA_SERVICOS // service revenue — incoming receipts that settle task/external-op receivables
 }
 
 model ItemCategory {
@@ -1236,6 +1238,7 @@ model OrderInstallment {
   updatedAt  DateTime               @updatedAt
   order      Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   paidBy     User?                  @relation("ORDER_INSTALLMENT_PAID_BY", fields: [paidById], references: [id])
+  reconciliationMatches ReconciliationMatch[] @relation("OrderInstallmentMatches")
 
   @@unique([orderId, number])
   @@index([orderId])
@@ -3889,6 +3892,10 @@ model NfseDocument {
 
   invoice Invoice? @relation("InvoiceNfse", fields: [invoiceId], references: [id], onDelete: SetNull)
   task    Task?    @relation("TaskNfseDocuments", fields: [taskId], references: [id], onDelete: SetNull)
+  // Back-relation to the SIEG-imported SAIDA FiscalDocument generated from this
+  // emission (set on import by nfseNumber + our company CNPJ). FK lives on
+  // FiscalDocument.nfseDocumentId (@unique).
+  fiscalDocument FiscalDocument? @relation("NfseFiscalDocument")
 
   @@index([invoiceId])
   @@index([taskId])
@@ -4176,6 +4183,14 @@ model FiscalDocument {
   paymentMethods Json?
   siegId         String?
   rawXmlFileId   String?
+  // Direction-aware "vinculada" for SAIDA (outgoing/emitted) notes: an emitted
+  // NFS-e can never get a bank ReconciliationMatch (the matcher only considers
+  // ENTRADA docs), so its "link" is to the NfseDocument it was generated from —
+  // which in turn carries the durable Invoice/Task (faturamento) link. Populated
+  // on SIEG import by number+CNPJ. Nullable + @unique (one NfseDocument ⇄ one
+  // FiscalDocument). onDelete: SetNull so removing the emission record never
+  // deletes the imported SIEG document.
+  nfseDocumentId String?                  @unique
   fetchedAt      DateTime                @default(now())
   cancelledAt    DateTime?
   createdAt      DateTime                @default(now())
@@ -4216,11 +4231,12 @@ model FiscalDocument {
   municipioPrestacao        String? // IBGE code or name
   itemListaServico          String? // ABRASF service list code
 
-  rawXmlFile File?                     @relation("FiscalDocXml", fields: [rawXmlFileId], references: [id])
-  matches    ReconciliationMatch[]     @relation("DocumentMatches")
-  items      FiscalDocumentItem[]
-  orderCodes FiscalDocumentOrderCode[]
-  orders     Order[]                   @relation("ORDER_FISCAL_DOCUMENTS")
+  rawXmlFile   File?                     @relation("FiscalDocXml", fields: [rawXmlFileId], references: [id])
+  nfseDocument NfseDocument?             @relation("NfseFiscalDocument", fields: [nfseDocumentId], references: [id], onDelete: SetNull)
+  matches      ReconciliationMatch[]     @relation("DocumentMatches")
+  items        FiscalDocumentItem[]
+  orderCodes   FiscalDocumentOrderCode[]
+  orders       Order[]                   @relation("ORDER_FISCAL_DOCUMENTS")
 
   @@index([docType])
   @@index([operationType])
@@ -4296,6 +4312,13 @@ model ReconciliationMatch {
   // Receivable installment matched by an inflow (entrada). One of
   // fiscalDocument / bankSlip / installment is set per match.
   installmentId    String?
+  // Payable anchors (saída side — the DEBIT→payable confirmation sweep). Exactly
+  // one of these is set per match. Each gives the corresponding payment type
+  // FITID-grade idempotency via the @@unique([transactionId, <anchor>]) below.
+  orderInstallmentId       String?
+  recurrentOccurrenceId    String?
+  airbrushingId            String?
+  payrollMonthSettlementId String?
   allocatedAmount  Decimal                 @db.Decimal(14, 2)
   matchType        ReconciliationMatchType
   confidenceScore  Int                     @default(100)
@@ -4308,14 +4331,27 @@ model ReconciliationMatch {
   fiscalDocument   FiscalDocument?         @relation("DocumentMatches", fields: [fiscalDocumentId], references: [id], onDelete: Restrict)
   bankSlip         BankSlip?               @relation("BankSlipMatches", fields: [bankSlipId], references: [id])
   installment      Installment?            @relation("InstallmentMatches", fields: [installmentId], references: [id], onDelete: Restrict)
+  orderInstallment       OrderInstallment?           @relation("OrderInstallmentMatches", fields: [orderInstallmentId], references: [id], onDelete: Restrict)
+  recurrentOccurrence    RecurrentPayableOccurrence? @relation("RecurrentOccurrenceMatches", fields: [recurrentOccurrenceId], references: [id], onDelete: Restrict)
+  airbrushing            Airbrushing?                @relation("AirbrushingMatches", fields: [airbrushingId], references: [id], onDelete: Restrict)
+  payrollMonthSettlement PayrollMonthSettlement?     @relation("PayrollMonthSettlementMatches", fields: [payrollMonthSettlementId], references: [id], onDelete: Restrict)
   matchedBy        User?                   @relation("MatchedBy", fields: [matchedByUserId], references: [id])
 
   @@unique([transactionId, fiscalDocumentId])
   @@unique([transactionId, installmentId])
+  @@unique([transactionId, bankSlipId])
+  @@unique([transactionId, orderInstallmentId])
+  @@unique([transactionId, recurrentOccurrenceId])
+  @@unique([transactionId, airbrushingId])
+  @@unique([transactionId, payrollMonthSettlementId])
   @@index([transactionId])
   @@index([fiscalDocumentId])
   @@index([bankSlipId])
   @@index([installmentId])
+  @@index([orderInstallmentId])
+  @@index([recurrentOccurrenceId])
+  @@index([airbrushingId])
+  @@index([payrollMonthSettlementId])
   @@index([matchType])
 }
 
@@ -4390,6 +4426,7 @@ model PayrollMonthSettlement {
   notes     String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  reconciliationMatches ReconciliationMatch[] @relation("PayrollMonthSettlementMatches")
 
   @@unique([year, month])
   @@index([year, month])
@@ -4481,6 +4518,7 @@ model RecurrentPayableOccurrence {
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
   recurrentPayable   RecurrentPayable       @relation("RecurrentPayableOccurrences", fields: [recurrentPayableId], references: [id], onDelete: Cascade)
+  reconciliationMatches ReconciliationMatch[] @relation("RecurrentOccurrenceMatches")
 
   @@unique([recurrentPayableId, competence])
   @@index([recurrentPayableId])

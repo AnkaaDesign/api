@@ -387,7 +387,14 @@ export class RecurrentPayableService {
 
   /** Settle/link a single occurrence from a categorized DEBIT:
    *   - PENDING → auto-mark PAID with the debited amount (full automation)
-   *   - already PAID (manual) → only link the bank transaction (anti-double-count) */
+   *   - already PAID (manual) → confirm (clear) it without changing the amount
+   *
+   * Both paths now write a ReconciliationMatch keyed on recurrentOccurrenceId so
+   * clearance is a first-class fact (derived clearanceState), idempotent via the
+   * (transactionId, recurrentOccurrenceId) unique constraint. When the occurrence
+   * was already PAID with a different amount, the debit/asserted-amount drift is
+   * recorded on the match (notes + low confidence → DISPUTED) instead of being
+   * silently absorbed. */
   private async applyBankSettlement(
     payable: RecurrentPayable,
     tx: { id: string; postedAt: Date; amount: number | Prisma.Decimal },
@@ -397,7 +404,7 @@ export class RecurrentPayableService {
     const amount = Math.abs(Number(tx.amount));
 
     if (occ.status === 'PENDING') {
-      await this.prisma.recurrentPayableOccurrence.update({
+      const updated = await this.prisma.recurrentPayableOccurrence.update({
         where: { id: occ.id },
         data: {
           status: 'PAID',
@@ -408,18 +415,54 @@ export class RecurrentPayableService {
           reconciledAt: new Date(),
         },
       });
+      await this.writeOccurrenceMatch(tx, occ.id, amount, Number(updated.paidAmount));
       this.logger.log(
         `RecurrentPayable ${payable.name} ${competence} auto-settled from tx ${tx.id} (R$${amount})`,
       );
       return true;
     }
+    // Already PAID (manual baixa): confirm/link without touching the amount, and
+    // record the bank line as the clearance.
     if (!occ.bankTransactionId) {
       await this.prisma.recurrentPayableOccurrence.update({
         where: { id: occ.id },
         data: { bankTransactionId: tx.id, reconciledAt: new Date() },
       });
     }
+    await this.writeOccurrenceMatch(tx, occ.id, amount, Number(occ.paidAmount ?? amount));
     return false;
+  }
+
+  /** Idempotently record the bank line that cleared this occurrence as a
+   *  ReconciliationMatch on the recurrentOccurrence anchor. A value drift beyond
+   *  tolerance (±R$2 / ±0.5%) is flagged (note + low confidence) so it surfaces
+   *  as DISPUTED — the recurrent sweep no longer silently absorbs the diff. */
+  private async writeOccurrenceMatch(
+    tx: { id: string; amount: number | Prisma.Decimal },
+    occurrenceId: string,
+    debitAbs: number,
+    assertedAmount: number,
+  ): Promise<void> {
+    const diff = Math.abs(debitAbs - assertedAmount);
+    const tolerance = Math.max(2, assertedAmount * 0.005);
+    const disputed = diff > tolerance;
+    await this.prisma.reconciliationMatch
+      .createMany({
+        data: [
+          {
+            transactionId: tx.id,
+            recurrentOccurrenceId: occurrenceId,
+            allocatedAmount: new Prisma.Decimal(debitAbs),
+            matchType: 'VALUE_DATE',
+            confidenceScore: disputed ? 50 : 95,
+            notes: disputed
+              ? `Conciliação automática com divergência de valor: débito R$${debitAbs.toFixed(2)} vs. baixa R$${assertedAmount.toFixed(2)}.`
+              : null,
+          },
+        ],
+        skipDuplicates: true,
+      })
+      .catch(err => this.logger.warn(`Occurrence match write failed for tx ${tx.id}: ${err}`));
   }
 
   private async linkNf(

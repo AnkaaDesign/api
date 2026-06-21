@@ -64,6 +64,16 @@ export const PRODUCT_KEYWORD_RULES: readonly KeywordRule[] = [
     confidence: 90,
   },
   {
+    // Steel wool ("palha de aço" / "lã de aço") is a Fibras Abrasivas consumable
+    // we stock, but the bare tokens "palha"/"aco" are non-discriminative (palha
+    // also hits "Vassoura de Palha"), so the fuzzy/lexicon path misses it. A
+    // two-token exact phrase is unambiguous — no false-positive risk.
+    pattern: /\bpalha\s+de\s+aco\b|\bla\s+de\s+aco\b/,
+    itemCategoryNames: ['Fibras Abrasivas', 'Abrasivos'],
+    itemCategoryName: 'Fibras Abrasivas',
+    confidence: 85,
+  },
+  {
     pattern: /\b(primer|prim\.|wash\s?primer|fundo|seladora)\b/,
     itemCategoryNames: ['Primers, wash primers e seladoras (fundos)', 'Tinta'],
     itemCategoryName: 'Tinta',

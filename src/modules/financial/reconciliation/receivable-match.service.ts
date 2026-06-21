@@ -22,6 +22,12 @@ const AUTO_RUNNER_UP_GAP = 15;
 /** Open installment statuses an incoming receipt may settle. */
 const OPEN_INSTALLMENT_STATUSES = ['PENDING', 'PROCESSING', 'OVERDUE'] as const;
 
+/** Slug of the service-revenue category every reconciled receivable receipt is
+ *  tagged with, so the entrada side carries an accounting classification (the
+ *  inflow analog of the saída's NF-item-derived categories). Seeded by migration
+ *  20260621100100_seed_service_revenue_category. */
+const SERVICE_REVENUE_CATEGORY_SLUG = 'receita-servicos';
+
 const onlyDigits = (v: string | null | undefined): string => (v || '').replace(/\D/g, '');
 
 type RawCredit = {
@@ -33,7 +39,8 @@ type RawCredit = {
   counterpartyCnpjCpf?: string | null;
 };
 
-/** A candidate installment enriched with its customer identity for scoring. */
+/** A candidate installment enriched with its customer identity for scoring, plus
+ *  the task/invoice context the manual UI renders (mirrors the NF candidate card). */
 type ScoredCandidate = {
   id: string;
   amount: number;
@@ -44,10 +51,19 @@ type ScoredCandidate = {
   invoiceId: string | null;
   dueDate: Date;
   number: number;
+  /** Installment status (PENDING / OVERDUE / PARTIAL …) for the UI badge. */
+  status: string;
   customerName: string | null;
   customerCnpjCpf: string | null;
   /** 0-100 fused confidence (value + date proximity + CNPJ + name). */
   confidence: number;
+  /** Task-quote context (faturamento detail target) — null for non-task receivables. */
+  taskId: string | null;
+  taskName: string | null;
+  taskSerialNumber: string | null;
+  /** Total NF/invoice value + how many parcelas it has, for the card. */
+  invoiceTotal: number | null;
+  totalInstallments: number | null;
 };
 
 /**
@@ -65,11 +81,61 @@ type ScoredCandidate = {
 @Injectable()
 export class ReceivableMatchService {
   private readonly logger = new Logger(ReceivableMatchService.name);
+  /** Memoized id of the service-revenue category (slug never changes). */
+  private serviceRevenueCategoryId: string | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly cascadeService: TaskQuoteStatusCascadeService,
   ) {}
+
+  /** Resolve (and cache) the seeded service-revenue category id. Returns null if
+   *  the seed migration hasn't run, so tagging degrades gracefully. */
+  private async resolveServiceRevenueCategoryId(
+    db: Prisma.TransactionClient,
+  ): Promise<string | null> {
+    if (this.serviceRevenueCategoryId) return this.serviceRevenueCategoryId;
+    const cat = await db.transactionCategory.findUnique({
+      where: { slug: SERVICE_REVENUE_CATEGORY_SLUG },
+      select: { id: true },
+    });
+    this.serviceRevenueCategoryId = cat?.id ?? null;
+    return this.serviceRevenueCategoryId;
+  }
+
+  /** Tag a reconciled CREDIT with the service-revenue category (idempotent), so
+   *  the entrada carries an accounting classification just like a saída derives
+   *  one from its NF items. `allocatedAmount` is the share settled by this credit.
+   *  Always AUTO — the tag is derived from the match, not a hand-picked category,
+   *  so every unmatch path that drops AUTO tags cleans it up automatically. */
+  private async tagServiceRevenue(
+    db: Prisma.TransactionClient,
+    transactionId: string,
+    allocatedAmount: Prisma.Decimal,
+  ): Promise<void> {
+    const categoryId = await this.resolveServiceRevenueCategoryId(db);
+    if (!categoryId) return;
+    await db.bankTransactionCategory.upsert({
+      where: { transactionId_categoryId: { transactionId, categoryId } },
+      create: {
+        transactionId,
+        categoryId,
+        source: ReconciliationSource.AUTO,
+        allocatedAmount,
+      },
+      update: { allocatedAmount, source: ReconciliationSource.AUTO },
+    });
+  }
+
+  /** Drop the service-revenue tag when an inflow match is reversed. */
+  private async untagServiceRevenue(
+    db: Prisma.TransactionClient,
+    transactionId: string,
+  ): Promise<void> {
+    const categoryId = await this.resolveServiceRevenueCategoryId(db);
+    if (!categoryId) return;
+    await db.bankTransactionCategory.deleteMany({ where: { transactionId, categoryId } });
+  }
 
   // ---------------------------------------------------------------------------
   // Auto-match scan (driven by the reconciliation scheduler)
@@ -201,8 +267,21 @@ export class ReceivableMatchService {
         ...(opts.exactValueOnly ? { reconciliationMatches: { none: { reversedAt: null } } } : {}),
       },
       include: {
-        invoice: { select: { customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } } } },
-        customerConfig: { select: { customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } } } },
+        invoice: {
+          select: {
+            customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } },
+            taskId: true,
+            totalAmount: true,
+            task: { select: { id: true, name: true, serialNumber: true } },
+            _count: { select: { installments: true } },
+          },
+        },
+        customerConfig: {
+          select: {
+            customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } },
+            quote: { select: { task: { select: { id: true, name: true, serialNumber: true } } } },
+          },
+        },
         externalOperation: { select: { customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } } } },
       },
       orderBy: { dueDate: 'asc' },
@@ -219,6 +298,9 @@ export class ReceivableMatchService {
         const remaining = Math.max(0, amount - paidAmount);
         const customerCnpjCpf = onlyDigits(customer?.cnpj ?? customer?.cpf ?? null) || null;
         const customerName = customer?.fantasyName ?? customer?.corporateName ?? null;
+        // Task-quote context: prefer the invoice's task, else the customerConfig's
+        // quote task (TASK_QUOTE receivables without a materialized invoice).
+        const task = inst.invoice?.task ?? inst.customerConfig?.quote?.task ?? null;
         // Score against the outstanding balance so a partially-paid installment
         // surfaced in the manual path scores on what the credit can still settle.
         const confidence = this.scoreCandidate({
@@ -239,9 +321,15 @@ export class ReceivableMatchService {
           invoiceId: inst.invoiceId,
           dueDate: inst.dueDate,
           number: inst.number,
+          status: inst.status,
           customerName,
           customerCnpjCpf,
           confidence,
+          taskId: task?.id ?? inst.invoice?.taskId ?? null,
+          taskName: task?.name ?? null,
+          taskSerialNumber: task?.serialNumber ?? null,
+          invoiceTotal: inst.invoice?.totalAmount != null ? Number(inst.invoice.totalAmount) : null,
+          totalInstallments: inst.invoice?._count?.installments ?? null,
         };
       })
       .sort((a, b) => b.confidence - a.confidence);
@@ -298,17 +386,141 @@ export class ReceivableMatchService {
     if (tx.type !== 'CREDIT') throw new BadRequestException('Conciliação de entrada requer um crédito.');
 
     const candidates = await this.findScoredCandidates(tx, { exactValueOnly: false, windowDays: 60 });
-    return candidates.map(c => ({
+    const installmentCandidates = candidates.map(c => ({
       installmentId: c.id,
       number: c.number,
       amount: c.amount,
       paidAmount: c.paidAmount,
       remaining: c.remaining,
       dueDate: c.dueDate,
+      status: c.status,
       customerName: c.customerName,
       invoiceId: c.invoiceId,
       confidence: c.confidence,
+      taskId: c.taskId,
+      taskName: c.taskName,
+      taskSerialNumber: c.taskSerialNumber,
+      invoiceTotal: c.invoiceTotal,
+      totalInstallments: c.totalInstallments,
+      // Direct (PIX/TED) installment match — no boleto involved.
+      bankSlipId: null as string | null,
+      viaBankSlip: false,
     }));
+
+    // Boleto receivables WE issued that are already PAID (Sicredi liquidation) but
+    // whose bank-statement credit hasn't been linked yet. The auto bridge only acts
+    // on a unique value+date hit; surfacing them here lets the operator confirm the
+    // bank line manually — and is what makes a boleto reappear as a candidate after
+    // its bridge is undone (the installment stays PAID, so it is invisible to the
+    // open-installment finder above).
+    const boletoCandidates = await this.findBoletoCandidates(tx);
+
+    // Same installment can't appear twice; boletos are keyed by their own slip.
+    return [...installmentCandidates, ...boletoCandidates].sort((a, b) => b.confidence - a.confidence);
+  }
+
+  /** Unlinked PAID boletos as manual conciliation candidates (the operator's path
+   *  for what the auto bridge couldn't uniquely resolve). Scored by value + date +
+   *  counterparty, mirroring the installment scorer. */
+  private async findBoletoCandidates(tx: {
+    postedAt: Date;
+    amount: Prisma.Decimal | number;
+    counterpartyName?: string | null;
+    counterpartyCnpjCpf?: string | null;
+  }) {
+    const abs = Math.abs(Number(tx.amount));
+    // Value band tolerant of boleto juros/multa/desconto drift; date band wide
+    // since the operator reviews each one.
+    const valuePad = Math.max(5, abs * 0.05);
+    const windowMs = 90 * 86_400_000;
+    const lower = new Date(tx.postedAt.getTime() - windowMs);
+    const upper = new Date(tx.postedAt.getTime() + windowMs);
+    const txCnpj = onlyDigits(tx.counterpartyCnpjCpf);
+
+    const slips = await this.prisma.bankSlip.findMany({
+      where: {
+        status: 'PAID',
+        transactions: { none: {} }, // not yet linked to a bank credit
+        paidAmount: { gte: abs - valuePad, lte: abs + valuePad },
+        OR: [{ paidAt: { gte: lower, lte: upper } }, { paidAt: null }],
+      },
+      select: {
+        id: true,
+        paidAmount: true,
+        paidAt: true,
+        dueDate: true,
+        installment: {
+          select: {
+            id: true,
+            number: true,
+            amount: true,
+            dueDate: true,
+            status: true,
+            invoiceId: true,
+            invoice: {
+              select: {
+                taskId: true,
+                totalAmount: true,
+                customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } },
+                task: { select: { id: true, name: true, serialNumber: true } },
+                _count: { select: { installments: true } },
+              },
+            },
+            customerConfig: {
+              select: {
+                customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } },
+                quote: { select: { task: { select: { id: true, name: true, serialNumber: true } } } },
+              },
+            },
+            externalOperation: {
+              select: { customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } } },
+            },
+          },
+        },
+      },
+      take: 50,
+    });
+
+    return slips
+      .filter(s => s.installment != null)
+      .map(s => {
+        const inst = s.installment!;
+        const customer =
+          inst.invoice?.customer ?? inst.customerConfig?.customer ?? inst.externalOperation?.customer ?? null;
+        const task = inst.invoice?.task ?? inst.customerConfig?.quote?.task ?? null;
+        const paid = Number(s.paidAmount ?? inst.amount);
+        const confidence = this.scoreCandidate({
+          txAbs: abs,
+          txPostedAt: tx.postedAt,
+          txName: tx.counterpartyName ?? null,
+          txCnpj,
+          instAmount: paid,
+          instDueDate: s.paidAt ?? s.dueDate ?? inst.dueDate,
+          custName: customer?.fantasyName ?? customer?.corporateName ?? null,
+          custCnpj: onlyDigits(customer?.cnpj ?? customer?.cpf ?? null) || null,
+        });
+        return {
+          installmentId: inst.id,
+          number: inst.number,
+          amount: paid,
+          paidAmount: 0,
+          remaining: paid,
+          dueDate: inst.dueDate,
+          status: inst.status,
+          customerName: customer?.fantasyName ?? customer?.corporateName ?? null,
+          invoiceId: inst.invoiceId,
+          confidence,
+          taskId: task?.id ?? inst.invoice?.taskId ?? null,
+          taskName: task?.name ?? null,
+          taskSerialNumber: task?.serialNumber ?? null,
+          invoiceTotal: inst.invoice?.totalAmount != null ? Number(inst.invoice.totalAmount) : null,
+          totalInstallments: inst.invoice?._count?.installments ?? null,
+          // Boleto bridge: matching this candidate links the credit to the boleto,
+          // it does NOT re-settle the (already paid) installment.
+          bankSlipId: s.id,
+          viaBankSlip: true,
+        };
+      });
   }
 
   async manualMatchInstallment(transactionId: string, installmentId: string, userId?: string) {
@@ -321,15 +533,65 @@ export class ReceivableMatchService {
 
     const installment = await this.prisma.installment.findUnique({
       where: { id: installmentId },
-      select: { id: true, status: true, reconciliationMatches: { where: { reversedAt: null }, select: { id: true } } },
+      select: {
+        id: true,
+        status: true,
+        reconciliationMatches: { where: { reversedAt: null }, select: { id: true } },
+        bankSlip: { select: { id: true, status: true, transactions: { select: { id: true }, take: 1 } } },
+      },
     });
     if (!installment) throw new NotFoundException('Parcela a receber não encontrada.');
     if (installment.reconciliationMatches.length > 0) {
       throw new BadRequestException('Esta parcela já está conciliada.');
     }
 
+    // Boleto receivable already PAID (Sicredi) with no bank line linked yet: link
+    // the credit to the boleto (bridge) instead of re-settling the installment.
+    const slip = installment.bankSlip;
+    if (slip && slip.status === 'PAID') {
+      if (slip.transactions.length > 0) {
+        throw new BadRequestException('Este boleto já está conciliado a outra transação.');
+      }
+      await this.settleViaBoletoBridge(tx, slip.id, userId);
+      return { success: true, message: 'Recebimento conciliado ao boleto com sucesso.' };
+    }
+
     await this.settleInstallment(tx, installmentId, ReconciliationSource.MANUAL, userId);
     return { success: true, message: 'Recebimento conciliado com sucesso.' };
+  }
+
+  /** Manually link a credit to an already-PAID boleto (mirror of the auto bridge).
+   *  The installment was settled by the Sicredi webhook, so this only attaches the
+   *  bank line + tags the entrada — it never touches the installment/invoice. */
+  private async settleViaBoletoBridge(
+    tx: { id: string; amount: Prisma.Decimal | number },
+    bankSlipId: string,
+    userId?: string,
+  ): Promise<void> {
+    const abs = new Decimal(Math.abs(Number(tx.amount)));
+    await this.prisma.$transaction(async db => {
+      await db.reconciliationMatch.create({
+        data: {
+          transactionId: tx.id,
+          bankSlipId,
+          allocatedAmount: abs,
+          matchType: ReconciliationMatchType.BANK_SLIP_BRIDGE,
+          confidenceScore: 100,
+          matchedByUserId: userId ?? null,
+        },
+      });
+      await db.bankTransaction.update({
+        where: { id: tx.id },
+        data: {
+          bankSlipId,
+          reconciliationStatus: ReconciliationStatus.RECONCILED,
+          reconciliationSource: ReconciliationSource.MANUAL,
+          topMatchScore: null,
+          expectsFiscalDocument: true,
+        },
+      });
+      await this.tagServiceRevenue(db, tx.id, abs);
+    });
   }
 
   /**
@@ -428,6 +690,7 @@ export class ReceivableMatchService {
           topMatchScore: null,
         },
       });
+      await this.tagServiceRevenue(db, tx.id, totalAlloc);
     });
 
     // Cascade by installment so customerConfig/externalOperation-anchored
@@ -438,14 +701,24 @@ export class ReceivableMatchService {
     return { success: true, message: 'Recebimento alocado com sucesso.' };
   }
 
-  /** Reverse an inflow match (mirrors the saída unmatch): reopen the installment,
-   *  recompute the invoice and reset the transaction to PENDING. */
+  /** Reverse an inflow match (mirrors the saída unmatch). Two shapes:
+   *  - Direct installment match (PIX/TED): reopen the installment + recompute the
+   *    invoice (the match itself is what marked it received).
+   *  - Boleto-bridge match (OFX credit ↔ bankSlip, installmentId null): the boleto
+   *    was settled by the Sicredi webhook independently, so unlinking only detaches
+   *    the bank line (clear bankSlipId) — the installment stays PAID.
+   *  Either way the transaction goes back to PENDING and its service-revenue tag drops. */
   async unmatchInflow(transactionId: string) {
     const matches = await this.prisma.reconciliationMatch.findMany({
       where: { transactionId, reversedAt: null, installmentId: { not: null } },
       select: { id: true, installmentId: true },
     });
-    if (matches.length === 0) {
+    // Boleto-bridge links (credit ↔ bankSlip, no installmentId) — detached, not reopened.
+    const bridgeMatches = await this.prisma.reconciliationMatch.findMany({
+      where: { transactionId, reversedAt: null, installmentId: null, bankSlipId: { not: null } },
+      select: { id: true },
+    });
+    if (matches.length === 0 && bridgeMatches.length === 0) {
       throw new BadRequestException('Nenhuma conciliação de entrada para reverter.');
     }
 
@@ -459,7 +732,7 @@ export class ReceivableMatchService {
       // is then recomputed from its remaining matches, so a credit that only
       // partially paid an installment leaves the other credits' shares intact.
       await db.reconciliationMatch.deleteMany({
-        where: { id: { in: matches.map(m => m.id) } },
+        where: { id: { in: [...matches.map(m => m.id), ...bridgeMatches.map(m => m.id)] } },
       });
 
       const installmentIds = [...new Set(matches.map(m => m.installmentId!).filter(Boolean))];
@@ -487,11 +760,16 @@ export class ReceivableMatchService {
           await this.recalcInvoice(db, inst.invoiceId);
         }
       }
+      await this.untagServiceRevenue(db, transactionId);
+
       await db.bankTransaction.update({
         where: { id: transactionId },
         data: {
           reconciliationStatus: ReconciliationStatus.PENDING,
           reconciliationSource: null,
+          // Detach the boleto bridge link too (no-op for direct installment matches,
+          // whose transactions never carry a bankSlipId).
+          bankSlipId: null,
         },
       });
     });
@@ -553,6 +831,8 @@ export class ReceivableMatchService {
           topMatchScore: null,
         },
       });
+
+      await this.tagServiceRevenue(db, tx.id, abs);
 
       if (invoiceId) await this.recalcInvoice(db, invoiceId);
     });

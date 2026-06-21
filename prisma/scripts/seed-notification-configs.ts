@@ -2735,6 +2735,40 @@ const CONFIGS: ConfigDef[] = [
       targeted: false,
     },
   },
+  {
+    key: "payable.confirmation.stale",
+    name: "Pagamentos Sem Conciliação",
+    notificationType: "GENERAL",
+    eventType: "payable.confirmation.stale",
+    description: "Pagamentos marcados como pagos há mais de N dias (PAYABLE_CONFIRMATION_STALE_DAYS) que ainda não foram conciliados com nenhuma linha do extrato bancário; uma conta nunca realmente paga deixa de parecer idêntica a uma paga de verdade.",
+    enabled: true,
+    importance: "NORMAL",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: 1,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "FINANCIAL"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: true, defaultOn: true },
+      PUSH: { enabled: false, mandatory: false, defaultOn: false },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Pagamentos sem conciliação",
+        body: "{{staleCount}} pagamento(s) marcado(s) como pago(s) há mais de {{staleDays}} dias ainda não foram conciliados com o extrato bancário. Importe o OFX ou revise as baixas.",
+      },
+      whatsapp: {
+        body: "{{staleCount}} pagamento(s) marcado(s) como pago(s) há mais de {{staleDays}} dias ainda não foram conciliados com o extrato bancário.",
+      },
+    },
+    metadata: {
+      trigger: "reconciliation.scheduler.ts runStalePaidAging @Cron('0 5 * * *')",
+      registry: "seed-notification-configs",
+      targeted: false,
+    },
+  },
   // ─── secullum ────────────────────────────────────────────────────────────────
   {
     key: "secullum.absence.unjustified",

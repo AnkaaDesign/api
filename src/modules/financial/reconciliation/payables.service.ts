@@ -3,7 +3,14 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { OrderService } from '../../inventory/order/order.service';
 import { OutflowForecastService } from './outflow-forecast.service';
 import { RecurrentPayableService } from '../recurrent-payable/recurrent-payable.service';
-import { PayableRow, PayablesResponse, PayablesSummary } from '../../../types';
+import { ClearanceState, PayableRow, PayablesResponse, PayablesSummary } from '../../../types';
+
+/** Same amount tolerance the saída sweep uses to decide CLEARED vs DISPUTED. */
+const CLEAR_TOLERANCE_ABS = 2;
+const CLEAR_TOLERANCE_PCT = 0.005;
+
+/** One non-reversed match on a payable anchor, reduced to what clearance needs. */
+type AnchorMatch = { allocatedAmount: number; transactionId: string; matchedAt: Date };
 
 /**
  * Unified Contas a Pagar source. Composes EVERY payable into one normalized
@@ -225,6 +232,12 @@ export class PayablesService {
         }
       }
 
+      // --- Axis B: clearance derivation -------------------------------------
+      // Annotate every row with its bank-confirmation state, derived purely from
+      // a non-reversed ReconciliationMatch on the row's anchor. Independent of
+      // paymentState: a PAID row stays UNCLEARED until a debit confirms it.
+      await this.annotateClearance(rows, payrollSettlement?.id ?? null, competence);
+
       // --- summary buckets ---
       const emptyBucket = () => ({ count: 0, total: 0 });
       const summary: PayablesSummary = {
@@ -249,6 +262,95 @@ export class PayablesService {
     } catch (error) {
       this.logger.error('Erro ao carregar contas a pagar (unificado):', error as Error);
       throw new InternalServerErrorException('Erro ao carregar contas a pagar. Por favor, tente novamente.');
+    }
+  }
+
+  /**
+   * Derive Axis B (clearanceState) for every payable row from non-reversed
+   * ReconciliationMatches on each row's anchor:
+   *   - ORDER rows with an installmentId → orderInstallmentId anchor
+   *   - AIRBRUSHING rows                  → airbrushingId anchor (= row.id)
+   *   - RECURRENT_PAYABLE rows            → recurrentOccurrenceId anchor (= row.id)
+   *   - PAYROLL row                       → payrollMonthSettlementId anchor
+   * Rows with no anchor (TAX/SCHEDULED/13º/férias estimates, legacy RECURRING
+   * category rows) stay UNCLEARED. A match whose allocated amount agrees with the
+   * row amount within tolerance ⇒ CLEARED; beyond tolerance ⇒ DISPUTED.
+   */
+  private async annotateClearance(
+    rows: PayableRow[],
+    payrollSettlementId: string | null,
+    competence: string,
+  ): Promise<void> {
+    const orderInstallmentIds = new Set<string>();
+    const airbrushingIds = new Set<string>();
+    const recurrentOccurrenceIds = new Set<string>();
+    for (const r of rows) {
+      r.clearanceState = 'UNCLEARED';
+      r.clearedAt = null;
+      r.bankTransactionId = null;
+      if (r.source === 'ORDER' && r.installmentId) orderInstallmentIds.add(r.installmentId);
+      else if (r.source === 'AIRBRUSHING') airbrushingIds.add(r.id);
+      else if (r.source === 'RECURRENT_PAYABLE') recurrentOccurrenceIds.add(r.id);
+    }
+
+    const anchorIds: string[] = [
+      ...orderInstallmentIds,
+      ...airbrushingIds,
+      ...recurrentOccurrenceIds,
+    ];
+    if (anchorIds.length === 0 && !payrollSettlementId) return;
+
+    const matches = await this.prisma.reconciliationMatch.findMany({
+      where: {
+        reversedAt: null,
+        OR: [
+          orderInstallmentIds.size ? { orderInstallmentId: { in: [...orderInstallmentIds] } } : undefined,
+          airbrushingIds.size ? { airbrushingId: { in: [...airbrushingIds] } } : undefined,
+          recurrentOccurrenceIds.size ? { recurrentOccurrenceId: { in: [...recurrentOccurrenceIds] } } : undefined,
+          payrollSettlementId ? { payrollMonthSettlementId: payrollSettlementId } : undefined,
+        ].filter(Boolean) as object[],
+      },
+      select: {
+        allocatedAmount: true,
+        transactionId: true,
+        matchedAt: true,
+        orderInstallmentId: true,
+        airbrushingId: true,
+        recurrentOccurrenceId: true,
+        payrollMonthSettlementId: true,
+      },
+    });
+
+    const byOrderInstallment = new Map<string, AnchorMatch>();
+    const byAirbrushing = new Map<string, AnchorMatch>();
+    const byRecurrent = new Map<string, AnchorMatch>();
+    let payrollMatch: AnchorMatch | null = null;
+    for (const m of matches) {
+      const am: AnchorMatch = {
+        allocatedAmount: Number(m.allocatedAmount),
+        transactionId: m.transactionId,
+        matchedAt: m.matchedAt,
+      };
+      if (m.orderInstallmentId) byOrderInstallment.set(m.orderInstallmentId, am);
+      else if (m.airbrushingId) byAirbrushing.set(m.airbrushingId, am);
+      else if (m.recurrentOccurrenceId) byRecurrent.set(m.recurrentOccurrenceId, am);
+      else if (m.payrollMonthSettlementId) payrollMatch = am;
+    }
+
+    const apply = (row: PayableRow, m: AnchorMatch | null | undefined) => {
+      if (!m) return;
+      const tol = Math.max(CLEAR_TOLERANCE_ABS, row.amount * CLEAR_TOLERANCE_PCT);
+      const drift = Math.abs(m.allocatedAmount - row.amount);
+      row.clearanceState = (drift > tol ? 'DISPUTED' : 'CLEARED') as ClearanceState;
+      row.clearedAt = m.matchedAt;
+      row.bankTransactionId = m.transactionId;
+    };
+
+    for (const r of rows) {
+      if (r.source === 'ORDER' && r.installmentId) apply(r, byOrderInstallment.get(r.installmentId));
+      else if (r.source === 'AIRBRUSHING') apply(r, byAirbrushing.get(r.id));
+      else if (r.source === 'RECURRENT_PAYABLE') apply(r, byRecurrent.get(r.id));
+      else if (r.source === 'PAYROLL' && r.competence === competence) apply(r, payrollMatch);
     }
   }
 

@@ -313,6 +313,9 @@ export class TerminationService {
     }
     // CLT gate: rescisão (folha) só se aplica a vínculos CLT. Terceirizado/PJ/
     // autônomo/estagiário não passam por este processo (mirror do gate de férias).
+    // Espelha o tratamento de prestador na admissão (isProviderEmployeeType): como
+    // prestadores nem chegam a abrir uma rescisão, não há exame demissional nem
+    // checklist de documentos a pular aqui.
     if (!isPayrollEmployeeType((user as any).currentEmployeeType)) {
       throw new BadRequestException(
         `Não é possível registrar a rescisão de ${user.name}: o vínculo atual não é CLT/folha. ` +

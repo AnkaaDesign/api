@@ -1,8 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
+  FiscalDocumentOperation,
   FiscalDocumentSource,
   FiscalDocumentStatus,
+  FiscalDocumentType,
+  NfseStatus,
   Prisma,
   ReconciliationSource,
   ReconciliationStatus,
@@ -26,11 +30,20 @@ export interface IngestedFiscalDocument {
 @Injectable()
 export class SiegIngestionService {
   private readonly logger = new Logger(SiegIngestionService.name);
+  /** Mirrors SiegXmlParserService.DEFAULT_COMPANY_CNPJ so a SAIDA note's emitter
+   *  can be confirmed as our own company before linking to its NfseDocument. */
+  private static readonly DEFAULT_COMPANY_CNPJ = '13636938000144';
+  private readonly companyCnpj: string;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
-  ) {}
+    private readonly config: ConfigService,
+  ) {
+    this.companyCnpj = onlyDigits(
+      this.config.get<string>('COMPANY_CNPJ') || SiegIngestionService.DEFAULT_COMPANY_CNPJ,
+    );
+  }
 
   /**
    * Persists a parsed fiscal document, skipping duplicates by accessKey.
@@ -107,12 +120,21 @@ export class SiegIngestionService {
         }
       }
 
+      // Resolve (or refresh) the billing link for SAIDA NFS-e. Done outside the
+      // transaction (read-only) so a late-arriving emission record is picked up
+      // on re-import. Only set when found — never clear an existing link to null
+      // (the emission might be created after this re-import runs).
+      const nfseDocumentId = await this.resolveNfseDocumentId(parsed);
+
       await this.prisma.$transaction(async tx => {
         // Refresh header fields. A late-arriving cancellation (cStat 101 /
         // cancNFe) flips status/cancelledAt here.
         await tx.fiscalDocument.update({
           where: { id: existing.id },
-          data: this.mapHeaderFields(parsed),
+          data: {
+            ...this.mapHeaderFields(parsed),
+            ...(nfseDocumentId ? { nfseDocumentId } : {}),
+          },
         });
 
         if (parsed.items && parsed.items.length > 0) {
@@ -204,12 +226,15 @@ export class SiegIngestionService {
       this.logger.warn(`Failed to persist raw XML for ${parsed.accessKey}: ${err}`);
     }
 
+    const nfseDocumentId = await this.resolveNfseDocumentId(parsed);
+
     const created = await this.prisma.fiscalDocument.create({
       data: {
         accessKey: parsed.accessKey,
         source,
         siegId: siegId ?? null,
         rawXmlFileId,
+        nfseDocumentId: nfseDocumentId ?? undefined,
         ...this.mapHeaderFields(parsed),
         items:
           parsed.items && parsed.items.length > 0
@@ -369,6 +394,42 @@ export class SiegIngestionService {
     };
   }
 
+  /**
+   * For a SAIDA (outgoing/emitted) NFS-e issued by our own company, finds the
+   * NfseDocument it was generated from so the imported FiscalDocument can carry
+   * a direction-aware "vinculada" link to its billing (Invoice/Task). Matches by
+   * `NfseDocument.nfseNumber === Number(parsed.nfNumber)`, preferring an
+   * AUTHORIZED emission, and only when the parsed document is an NFSE whose
+   * emitter is our company. Returns null when no link applies (any ENTRADA doc,
+   * a non-NFSE, a foreign emitter, an unparseable number, or no emission found).
+   */
+  private async resolveNfseDocumentId(parsed: ParsedFiscalDocument): Promise<string | null> {
+    if (parsed.operationType !== FiscalDocumentOperation.SAIDA) return null;
+    if (parsed.docType !== FiscalDocumentType.NFSE) return null;
+    if (onlyDigits(parsed.emitCnpj ?? '') !== this.companyCnpj) return null;
+    const num = Number(parsed.nfNumber);
+    if (!Number.isFinite(num) || num <= 0) return null;
+
+    const candidates = await this.prisma.nfseDocument.findMany({
+      where: { nfseNumber: num },
+      select: { id: true, status: true },
+    });
+    if (candidates.length === 0) return null;
+    // Prefer an AUTHORIZED emission; fall back to the first record otherwise (a
+    // cancelled emission is still the durable billing anchor of the note).
+    const authorized = candidates.find(c => c.status === NfseStatus.AUTHORIZED);
+    const chosenId = (authorized ?? candidates[0]).id;
+
+    // nfseDocumentId is @unique — never steal a link already held by ANOTHER
+    // FiscalDocument (would throw on write). Allow re-asserting the same link.
+    const holder = await this.prisma.fiscalDocument.findUnique({
+      where: { nfseDocumentId: chosenId },
+      select: { accessKey: true },
+    });
+    if (holder && holder.accessKey !== parsed.accessKey) return null;
+    return chosenId;
+  }
+
   /** Maps a parsed line item into the FiscalDocumentItem column set. */
   private mapItemFields(it: ParsedFiscalDocument['items'][number]) {
     return {
@@ -388,4 +449,9 @@ export class SiegIngestionService {
       taxes: (it.taxes ?? null) as any,
     };
   }
+}
+
+/** Strips all non-digit characters from a CNPJ/CPF string for robust compares. */
+function onlyDigits(value: string): string {
+  return String(value ?? '').replace(/\D/g, '');
 }
