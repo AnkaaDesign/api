@@ -165,10 +165,6 @@ export interface PpeDeliverySchedule extends BaseEntity {
   dayOfWeek: WEEK_DAY | null;
   month: MONTH | null;
   customMonths: MONTH[];
-  rescheduleCount: number;
-  originalDate: Date | null;
-  lastRescheduleDate: Date | null;
-  rescheduleReason: RESCHEDULE_REASON | null;
   nextRun: Date | null;
   lastRun: Date | null;
 
