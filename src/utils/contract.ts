@@ -134,6 +134,19 @@ export function isPayrollEmployeeType(
 }
 
 /**
+ * `true` para prestadores de serviço (terceirizado/PJ). Estes não passam pelo
+ * processo padrão de admissão CLT: sem cargo obrigatório, sem checklist de
+ * documentos e sem exame admissional (ASO).
+ */
+export function isProviderEmployeeType(
+  employeeType: EMPLOYEE_TYPE | string | null | undefined,
+): boolean {
+  return (
+    employeeType === EMPLOYEE_TYPE.TERCEIRIZADO || employeeType === EMPLOYEE_TYPE.PJ
+  );
+}
+
+/**
  * Valida a coerência categoria × modalidade de um vínculo:
  *  - CLT  → contractType OBRIGATÓRIO e ∈ CLT_CONTRACT_TYPES (APPRENTICE só com CLT).
  *  - off-folha (INTERN/TERCEIRIZADO/PJ/AUTONOMOUS) → contractType DEVE ser NULL.

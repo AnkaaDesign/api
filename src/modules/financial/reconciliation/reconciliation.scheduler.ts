@@ -2,9 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { ReconciliationStatus, ReconciliationSource } from '@prisma/client';
+import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { ReconciliationMatcherService } from './reconciliation-matcher.service';
 import { ReconciliationClassifierService } from './reconciliation-classifier.service';
 import { ReceivableMatchService } from './receivable-match.service';
+import { PayableMatchService } from './payable-match.service';
 
 @Injectable()
 export class ReconciliationScheduler {
@@ -13,9 +16,12 @@ export class ReconciliationScheduler {
 
   constructor(
     private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
     private readonly matcher: ReconciliationMatcherService,
     private readonly classifier: ReconciliationClassifierService,
     private readonly receivableMatch: ReceivableMatchService,
+    private readonly payableMatch: PayableMatchService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
 
   /**
@@ -44,8 +50,12 @@ export class ReconciliationScheduler {
       // BOLETO: bridge incoming boleto liquidations to their PAID slip (these
       // credits are skipped by both matchers above — see bridgeBoletoCredits).
       const bridged = await this.matcher.bridgeBoletoCredits({ start, end });
+      // SAÍDA: confirm marked-paid payables against DEBITs (the import-time sweep
+      // backstop). Gated by PAYABLE_AUTO_CONFIRM_ENABLED + paidAt-anchored, so a
+      // wide lookback here cannot retroactively confirm history.
+      const payableConfirmed = await this.payableMatch.confirmPayablesDateRange(start, end);
       this.logger.log(
-        `Daily rematch: ${matched} saída + ${inflowMatched} entrada + ${bridged} boleto-bridge transactions auto-matched`,
+        `Daily rematch: ${matched} saída-NF + ${inflowMatched} entrada + ${bridged} boleto-bridge + ${payableConfirmed} payable-confirm transactions auto-matched`,
       );
     } catch (err) {
       this.logger.error(`Daily rematch failed: ${err}`);
@@ -79,6 +89,90 @@ export class ReconciliationScheduler {
       );
     } catch (err) {
       this.logger.error(`Daily reclassify failed: ${err}`);
+    }
+  }
+
+  /**
+   * Stale-paid aging alert at 05:00 BRT. Finds payables that were ASSERTED paid
+   * (paidAt set, terminal status) but remain UNCLEARED — no non-reversed
+   * ReconciliationMatch on their anchor — past PAYABLE_CONFIRMATION_STALE_DAYS
+   * (≈2× the OFX upload cadence, default 7). These are "Pago · aguardando
+   * conciliação" items that never got a confirming bank line, so a never-actually
+   * -paid one stops looking identical to a real one forever. One summary
+   * notification per run (not per item) to avoid spam.
+   */
+  @Cron('0 5 * * *', { timeZone: 'America/Sao_Paulo' })
+  async runStalePaidAging(): Promise<void> {
+    try {
+      const staleDays = this.config.get<number>('PAYABLE_CONFIRMATION_STALE_DAYS', 7);
+      const cutoff = new Date(Date.now() - staleDays * 86_400_000);
+
+      const [orderInstallments, airbrushings, occurrences, payrolls] = await Promise.all([
+        this.prisma.orderInstallment.count({
+          where: {
+            status: 'PAID',
+            paidAt: { not: null, lt: cutoff },
+            reconciliationMatches: { none: { reversedAt: null } },
+          },
+        }),
+        this.prisma.airbrushing.count({
+          where: {
+            paymentStatus: 'PAID',
+            paidAt: { not: null, lt: cutoff },
+            reconciliationMatches: { none: { reversedAt: null } },
+          },
+        }),
+        this.prisma.recurrentPayableOccurrence.count({
+          where: {
+            status: 'PAID',
+            paidAt: { not: null, lt: cutoff },
+            reconciliationMatches: { none: { reversedAt: null } },
+          },
+        }),
+        this.prisma.payrollMonthSettlement.count({
+          where: {
+            paidAt: { not: null, lt: cutoff },
+            reconciliationMatches: { none: { reversedAt: null } },
+          },
+        }),
+      ]);
+
+      const staleCount = orderInstallments + airbrushings + occurrences + payrolls;
+      if (staleCount === 0) {
+        this.logger.debug('Stale-paid aging: no unconfirmed paid payables');
+        return;
+      }
+
+      this.logger.log(
+        `Stale-paid aging: ${staleCount} paid-but-unconfirmed payable(s) older than ${staleDays}d ` +
+          `(orders ${orderInstallments}, airbrushing ${airbrushings}, recorrentes ${occurrences}, folha ${payrolls})`,
+      );
+
+      await this.dispatchService
+        .dispatchByConfiguration('payable.confirmation.stale', 'system', {
+          entityType: 'Payable',
+          entityId: 'stale-paid-aging',
+          action: 'stale',
+          data: {
+            staleCount,
+            staleDays,
+            orderInstallments,
+            airbrushings,
+            occurrences,
+            payrolls,
+          },
+          overrides: {
+            title: 'Pagamentos sem conciliação',
+            body: `${staleCount} pagamento(s) marcado(s) como pago(s) há mais de ${staleDays} dias ainda não foram conciliados com o extrato bancário. Importe o OFX ou revise as baixas.`,
+            webUrl: `/financeiro/contas-a-pagar`,
+            relatedEntityType: 'PAYABLE',
+          },
+        })
+        .catch(err =>
+          this.logger.error(`Falha ao notificar pagamentos sem conciliação: ${err}`),
+        );
+    } catch (err) {
+      this.logger.error(`Stale-paid aging failed: ${err}`);
     }
   }
 }

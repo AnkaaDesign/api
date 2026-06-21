@@ -1623,15 +1623,12 @@ export const userCreateSchema = z
     // the service defaults CLT to contractType=EXPERIENCE_PERIOD_1 + status=ACTIVE.
     contract: userContractCreateNestedSchema.optional(),
     phone: phoneSchema.nullable().optional(),
-    // Cargo (position) — required at create time. The bound Secullum função is
-    // resolved from it, and HR workflows assume every collaborator has a cargo.
+    // Cargo (position) — required at create time for on-folha collaborators. The
+    // bound Secullum função is resolved from it, and HR workflows assume every CLT
+    // collaborator has a cargo. Off-payroll providers (terceirizado/PJ) don't
+    // occupy a cargo, so the requirement is relaxed for them via the refine below.
     // userUpdateSchema keeps it nullable.optional so legacy rows aren't blocked.
-    positionId: z
-      .string({
-        required_error: 'Cargo é obrigatório',
-        invalid_type_error: 'Cargo é obrigatório',
-      })
-      .uuid('Cargo inválido'),
+    positionId: z.string().uuid('Cargo inválido').nullable().optional(),
     pis: pisSchema.nullable().optional(),
     // CPF — required at create time. Secullum requires it for funcionario
     // creation and Brazilian payroll mandates it. userUpdateSchema keeps it
@@ -1744,7 +1741,21 @@ export const userCreateSchema = z
   .refine(data => data.email || data.phone, {
     message: 'Email ou telefone deve ser fornecido',
     path: ['email'], // Show error on email field
-  });
+  })
+  .refine(
+    data => {
+      // Cargo is required for on-folha collaborators. Off-payroll providers
+      // (terceirizado/PJ) don't occupy a cargo, so it stays optional for them.
+      const employeeType = data.contract?.employeeType;
+      const isProvider =
+        employeeType === EMPLOYEE_TYPE.TERCEIRIZADO || employeeType === EMPLOYEE_TYPE.PJ;
+      return isProvider || !!data.positionId;
+    },
+    {
+      message: 'Cargo é obrigatório',
+      path: ['positionId'],
+    },
+  );
 
 export const userUpdateSchema = z
   .object({

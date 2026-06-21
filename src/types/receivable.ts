@@ -2,6 +2,8 @@
 // Unified receivables (Contas a Receber) — the ENTRADA analog of payables.
 // =====================
 
+import type { ClearanceState } from './order';
+
 export type ReceivableSource = 'TASK_QUOTE' | 'EXTERNAL_OPERATION' | 'INVOICE';
 
 export type ReceivableState =
@@ -17,6 +19,8 @@ export interface ReceivableRow {
   /** Installment id (the settle/conciliation target). */
   id: string;
   invoiceId: string | null;
+  /** Task-quote (faturamento) this receivable belongs to — row navigation target. */
+  taskId: string | null;
   customerId: string | null;
   customerName: string;
   description: string;
@@ -32,6 +36,16 @@ export interface ReceivableRow {
   reconciled: boolean;
   /** Bank transaction this receipt was conciliated against (for row linking). */
   transactionId: string | null;
+  /**
+   * Axis B — bank-confirmation state, the receivables analog of the payables
+   * `clearanceState`. Derived from the non-reversed ReconciliationMatch + amount
+   * comparison (UNCLEARED until a credit confirms it; DISPUTED on amount drift).
+   * `reconciled` stays as the simple boolean for back-compat; this is the
+   * three-valued field web/mobile should prefer.
+   */
+  clearanceState: ClearanceState;
+  /** When the confirming bank credit cleared this row. */
+  clearedAt: Date | null;
 }
 
 export interface ReceivablesSummaryBucket {

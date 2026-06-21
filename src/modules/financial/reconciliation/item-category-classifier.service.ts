@@ -19,8 +19,11 @@ import { lookupNcm, NcmTarget } from './ncm-category-map';
 
 const LEXICON_TTL_MS = 5 * 60_000;
 // Minimum confidence for a derived tag to be persisted at all. Below this the
-// signal is too noisy to be useful even as a suggestion.
-const MIN_CONFIDENCE = 45;
+// signal is too noisy to be useful even as a suggestion. Raised 45→55: the
+// 45-54 band was dominated by weak single-signal coincidences (e.g. a lone
+// generic token like "auto" routing motor oil → Verniz). A real match (NCM,
+// learned alias, keyword, multi-token fuzzy) comfortably clears 55.
+const MIN_CONFIDENCE = 55;
 // Tags at/above this are "confident"; the UI surfaces anything below for review.
 export const REVIEW_CONFIDENCE_THRESHOLD = 75;
 
@@ -521,7 +524,14 @@ export class ItemCategoryClassifierService {
     const itemCat = await this.categories.resolveByItemCategoryId(bestCat);
     if (!itemCat) return null;
     const confidence = Math.round(100 * purity * (0.55 + 0.45 * coverage));
-    return { categoryId: itemCat.id, confidence: Math.min(94, confidence) };
+    // A single shared token is non-discriminative coincidence: a generic word
+    // ("auto", "kit", "linha") that happens to appear only in one category's
+    // items produces purity 1.0 and a deceptively high score (this is exactly
+    // how "LUBRAX TOP AUTO 0W20" → Verniz at 66). The lexicon is the LAST,
+    // demoted fallback — require ≥2 matched tokens for full weight and halve a
+    // lone-token vote so it falls below MIN_CONFIDENCE and is discarded.
+    const adjusted = matched < 2 ? Math.round(confidence * 0.5) : confidence;
+    return { categoryId: itemCat.id, confidence: Math.min(94, adjusted) };
   }
 
   /**

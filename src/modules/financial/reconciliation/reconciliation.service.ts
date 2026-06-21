@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
+  FiscalDocumentOperation,
   Prisma,
   ReconciliationAliasSource,
   ReconciliationMatchType,
@@ -288,6 +289,12 @@ export class ReconciliationService {
         // Purchase-order codes parsed from infCpl (#Ped:) — shown on the NF
         // detail and used by order-group reconciliation.
         orderCodes: { select: { code: true }, orderBy: { code: 'asc' } },
+        // Billing link for SAIDA (emitted) notes — the faturamento/orçamento the
+        // note was generated from. The detail page surfaces it as "Orçamento /
+        // Faturamento" instead of a (never-existing) bank transaction.
+        nfseDocument: {
+          select: { id: true, invoiceId: true, taskId: true, nfseNumber: true },
+        },
         matches: {
           where: { reversedAt: null },
           include: {
@@ -1103,11 +1110,36 @@ export class ReconciliationService {
         (where.totalValue as Prisma.DecimalFilter).lte = filters.valueMax;
     }
     if (filters.hasMatch !== undefined) {
-      if (filters.hasMatch) where.matches = { some: {} };
-      else where.matches = { none: {} };
+      // "Vinculada" is direction-aware: ENTRADA notes link via a non-reversed
+      // bank ReconciliationMatch, while SAIDA (emitted) notes can never get a
+      // bank match — their link is the NfseDocument → Invoice/Task (faturamento).
+      // So the filter must accept EITHER condition, scoped by operationType, and
+      // its inverse for "não vinculadas".
+      const linkedCondition: Prisma.FiscalDocumentWhereInput = {
+        OR: [
+          {
+            operationType: FiscalDocumentOperation.ENTRADA,
+            matches: { some: { reversedAt: null } },
+          },
+          {
+            operationType: FiscalDocumentOperation.SAIDA,
+            nfseDocument: {
+              OR: [{ invoiceId: { not: null } }, { taskId: { not: null } }],
+            },
+          },
+        ],
+      };
+      if (filters.hasMatch) {
+        where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), linkedCondition];
+      } else {
+        where.NOT = [
+          ...(Array.isArray(where.NOT) ? where.NOT : where.NOT ? [where.NOT] : []),
+          linkedCondition,
+        ];
+      }
     }
 
-    const [data, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.prisma.fiscalDocument.findMany({
         where,
         orderBy: { [filters.sortBy]: filters.sortDir },
@@ -1121,10 +1153,25 @@ export class ReconciliationService {
               transaction: { select: { id: true, postedAt: true, amount: true } },
             },
           },
+          // SAIDA (emitted) docs surface their billing link so the web can show
+          // the faturamento/orçamento it was generated from instead of a (never-
+          // existing) bank transaction.
+          nfseDocument: {
+            select: { id: true, invoiceId: true, taskId: true, nfseNumber: true },
+          },
         },
       }),
       this.prisma.fiscalDocument.count({ where }),
     ]);
+    // Single source of truth for "vinculada": ENTRADA → has an open bank match;
+    // SAIDA → its NfseDocument carries an Invoice/Task (faturamento) link.
+    const data = rows.map(doc => ({
+      ...doc,
+      linked:
+        doc.operationType === FiscalDocumentOperation.ENTRADA
+          ? doc.matches.length > 0
+          : doc.nfseDocument?.invoiceId != null || doc.nfseDocument?.taskId != null,
+    }));
     return {
       data,
       meta: {

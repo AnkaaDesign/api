@@ -35,6 +35,7 @@ import { RecurrentPayableController } from '../recurrent-payable/recurrent-payab
 import { ReceivablesService } from './receivables.service';
 import { ReceivablesController } from './receivables.controller';
 import { ReceivableMatchService } from './receivable-match.service';
+import { PayableMatchService } from './payable-match.service';
 import { OrderModule } from '@modules/inventory/order/order.module';
 import { TaskQuoteModule } from '@modules/production/task-quote/task-quote.module';
 import { CATEGORY_LEARNERS } from './learning/category-signal';
@@ -92,6 +93,7 @@ const categoryLearnersProvider = {
     RecurrentPayableScheduler,
     ReceivablesService,
     ReceivableMatchService,
+    PayableMatchService,
     ReconciliationService,
     ReconciliationImportService,
     ReconciliationMatcherService,

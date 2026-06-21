@@ -14,6 +14,7 @@ import { OfxParserService } from './ofx-parser.service';
 import { ReconciliationClassifierService } from './reconciliation-classifier.service';
 import { ReconciliationMatcherService } from './reconciliation-matcher.service';
 import { ReceivableMatchService } from './receivable-match.service';
+import { PayableMatchService } from './payable-match.service';
 import {
   ImportSummary,
   OfxImportFileResult,
@@ -38,6 +39,7 @@ export class ReconciliationImportService {
     private readonly ofxParser: OfxParserService,
     private readonly matcher: ReconciliationMatcherService,
     private readonly receivableMatch: ReceivableMatchService,
+    private readonly payableMatch: PayableMatchService,
     private readonly classifier: ReconciliationClassifierService,
     private readonly dispatchService: NotificationDispatchService,
   ) {}
@@ -171,7 +173,15 @@ export class ReconciliationImportService {
       const inflowMatched = await this.receivableMatch
         .matchInflowByIds(newlyInsertedIds)
         .catch(() => 0);
-      summary.autoMatchedCount = autoMatched + bridged + inflowMatched;
+      // SAÍDA: symmetric to the entrada sweep — auto-confirm (clear) already
+      // marked-paid payables (orders/airbrushing/recurrent/payroll) against the
+      // newly-inserted DEBITs, so a "Pago · aguardando conciliação" item flips to
+      // "Conciliado" within seconds of this upload. Anchored on each payable's
+      // paidAt, gated by PAYABLE_AUTO_CONFIRM_ENABLED.
+      const payableConfirmed = await this.payableMatch
+        .confirmPayablesByIds(newlyInsertedIds)
+        .catch(() => 0);
+      summary.autoMatchedCount = autoMatched + bridged + inflowMatched + payableConfirmed;
 
       await this.prisma.reconciliationRun.update({
         where: { id: run.id },

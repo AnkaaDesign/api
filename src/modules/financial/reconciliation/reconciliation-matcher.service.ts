@@ -455,6 +455,41 @@ interface RawTransaction {
 export class ReconciliationMatcherService {
   private readonly logger = new Logger(ReconciliationMatcherService.name);
   private readonly companyCnpj: string;
+  /** Memoized id of the seeded service-revenue category (slug is immutable). */
+  private serviceRevenueCategoryId: string | null = null;
+
+  /**
+   * Tag a reconciled CREDIT boleto with the service-revenue category, so the
+   * entrada side carries an accounting classification (the inflow analog of the
+   * NF-item-derived categories on the saída side). Idempotent; degrades to a
+   * no-op if the seed migration hasn't run. Runs inside the caller's transaction.
+   */
+  private async tagBankSlipServiceRevenue(
+    db: Prisma.TransactionClient,
+    transactionId: string,
+    allocatedAmount: Prisma.Decimal | number,
+  ): Promise<void> {
+    if (!this.serviceRevenueCategoryId) {
+      const cat = await db.transactionCategory.findUnique({
+        where: { slug: 'receita-servicos' },
+        select: { id: true },
+      });
+      this.serviceRevenueCategoryId = cat?.id ?? null;
+    }
+    if (!this.serviceRevenueCategoryId) return;
+    await db.bankTransactionCategory.upsert({
+      where: {
+        transactionId_categoryId: { transactionId, categoryId: this.serviceRevenueCategoryId },
+      },
+      create: {
+        transactionId,
+        categoryId: this.serviceRevenueCategoryId,
+        source: ReconciliationSource.AUTO,
+        allocatedAmount: new Prisma.Decimal(allocatedAmount),
+      },
+      update: { allocatedAmount: new Prisma.Decimal(allocatedAmount) },
+    });
+  }
 
   constructor(
     @Inject(forwardRef(() => PrismaService)) private readonly prisma: PrismaService,
@@ -1821,6 +1856,7 @@ export class ReconciliationMatcherService {
           notes: `Pareamento automático com boleto ${slip.nossoNumero}`,
         },
       });
+      await this.tagBankSlipServiceRevenue(tx2, tx.id, absAmount);
       return true;
     });
   }
@@ -2159,6 +2195,7 @@ export class ReconciliationMatcherService {
             notes: 'Pareamento via evento bankslip.paid',
           },
         });
+        await this.tagBankSlipServiceRevenue(tx2, tx.id, payload.paidAmount);
       });
     } catch (err) {
       this.logger.warn(`Failed to bridge bankslip paid event: ${err}`);

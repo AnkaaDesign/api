@@ -37,6 +37,7 @@ import {
   MEDICAL_EXAM_STATUS_ORDER,
 } from '../../../constants/sortOrders';
 import { EmploymentContractService } from '../employment-contract/employment-contract.service';
+import { isProviderEmployeeType } from '../../../utils/contract';
 import type {
   AdmissionBatchCreateResponse,
   AdmissionBatchDeleteResponse,
@@ -78,6 +79,22 @@ const STATUS_CHAIN: ADMISSION_STATUS[] = [
   ADMISSION_STATUS.REGISTRATION,
   ADMISSION_STATUS.COMPLETED,
 ];
+
+// Prestadores de serviço (terceirizado/PJ) não têm documentação CLT nem exame
+// admissional, então pulam DOCS_PENDING e MEDICAL_EXAM: o processo começa no
+// contrato e segue Contrato → Registro → Concluída.
+const PROVIDER_STATUS_CHAIN: ADMISSION_STATUS[] = [
+  ADMISSION_STATUS.CONTRACT,
+  ADMISSION_STATUS.REGISTRATION,
+  ADMISSION_STATUS.COMPLETED,
+];
+
+// Seleciona a cadeia de status conforme a categoria do vínculo.
+function getStatusChain(
+  employeeType: string | null | undefined,
+): ADMISSION_STATUS[] {
+  return isProviderEmployeeType(employeeType) ? PROVIDER_STATUS_CHAIN : STATUS_CHAIN;
+}
 
 // Default required-document checklist: every type EXCEPT the optional ones
 // (OTHER / DRIVER_LICENSE / TIME_BANK_AGREEMENT — addable later as optional).
@@ -337,38 +354,74 @@ export class AdmissionService {
       inlineByType.set(doc.type, doc.fileId);
     }
 
+    // Prestador de serviço (terceirizado/PJ): processo enxuto — começa no
+    // contrato, sem checklist de documentos nem exame admissional.
+    const isProvider = isProviderEmployeeType(data.contract?.employeeType);
+    const isRehire = !!targetExistingUserId;
+
+    // Documentos seguem a pessoa: numa re-engajamento (CPF já existente), carrega
+    // para a nova admissão os documentos JÁ recebidos/assinados da admissão mais
+    // recente, para que não seja preciso reenviá-los. (Não se aplica a prestador.)
+    const carriedByType = new Map<string, { fileId: string | null; status: any }>();
+    if (isRehire && !isProvider) {
+      const priorAdmission = await tx.admission.findFirst({
+        where: { userId: targetUserId, status: { not: ADMISSION_STATUS.CANCELLED } },
+        orderBy: { createdAt: 'desc' },
+        include: { documents: true },
+      });
+      for (const doc of priorAdmission?.documents ?? []) {
+        const carriable =
+          doc.status === ADMISSION_DOCUMENT_STATUS.RECEIVED ||
+          doc.status === ADMISSION_DOCUMENT_STATUS.SIGNED;
+        if (doc.fileId && carriable) {
+          carriedByType.set(doc.type, { fileId: doc.fileId, status: doc.status });
+        }
+      }
+    }
+
+    const initialStatus = isProvider
+      ? ADMISSION_STATUS.CONTRACT
+      : ADMISSION_STATUS.DOCS_PENDING;
+
     const admission = await tx.admission.create({
       data: {
         userId: targetUserId,
         contractId: user.currentContractId ?? null,
         hireDate: data.hireDate ?? user.currentContract?.admissionDate ?? null,
         notes: data.notes ?? null,
-        status: ADMISSION_STATUS.DOCS_PENDING,
-        statusOrder: ADMISSION_STATUS_ORDER[ADMISSION_STATUS.DOCS_PENDING],
+        status: initialStatus,
+        statusOrder: ADMISSION_STATUS_ORDER[initialStatus],
         createdById: userId ?? null,
-        // Auto-create the default required-document checklist, attaching any
-        // inline-provided file (status RECEIVED when a fileId is supplied).
-        documents: {
-          create: DEFAULT_CHECKLIST.map(type => {
-            const fileId = inlineByType.get(type);
-            inlineByType.delete(type);
-            return {
-              type: type as any,
-              // Obrigatórios: CPF + CTPS (RG/CNH validados como grupo no avanço).
-              required: HARD_REQUIRED_DOCUMENT_TYPES.includes(type),
-              fileId: fileId ?? null,
-              status: fileId ? ADMISSION_DOCUMENT_STATUS.RECEIVED : ADMISSION_DOCUMENT_STATUS.PENDING,
-            };
-          }),
-        },
+        // Prestador não tem checklist. CLT: cria o checklist padrão, pré-preenchido
+        // com o arquivo inline OU com o documento carregado da admissão anterior
+        // (status RECEIVED quando há fileId).
+        documents: isProvider
+          ? undefined
+          : {
+              create: DEFAULT_CHECKLIST.map(type => {
+                const inlineFileId = inlineByType.get(type);
+                inlineByType.delete(type);
+                const carried = carriedByType.get(type);
+                const fileId = inlineFileId ?? carried?.fileId ?? null;
+                return {
+                  type: type as any,
+                  // Obrigatórios: CPF + CTPS (RG/CNH validados como grupo no avanço).
+                  required: HARD_REQUIRED_DOCUMENT_TYPES.includes(type),
+                  fileId,
+                  status: inlineFileId
+                    ? ADMISSION_DOCUMENT_STATUS.RECEIVED
+                    : carried?.status ?? ADMISSION_DOCUMENT_STATUS.PENDING,
+                };
+              }),
+            },
       },
       include: include ?? { documents: true, user: true },
     });
 
     // Any remaining inline documents (optional types not in the default
     // checklist) are added as extra rows. ADMISSION_EXAM is never a document
-    // (it is the real MedicalExam/ASO entity).
-    for (const [type, fileId] of inlineByType.entries()) {
+    // (it is the real MedicalExam/ASO entity). Prestador não recebe documentos.
+    for (const [type, fileId] of isProvider ? [] : inlineByType.entries()) {
       if (type === ADMISSION_DOCUMENT_TYPE.ADMISSION_EXAM) continue;
       await tx.admissionDocument.create({
         data: {
@@ -582,6 +635,7 @@ export class AdmissionService {
                 id: true,
                 name: true,
                 currentContractId: true,
+                currentEmployeeType: true,
                 currentContract: { select: { admissionDate: true } },
               },
             },
@@ -602,9 +656,13 @@ export class AdmissionService {
           );
         }
 
-        const currentIndex = STATUS_CHAIN.indexOf(currentStatus);
-        const nextStatus = STATUS_CHAIN[currentIndex + 1];
-        const previousStatus = currentIndex > 0 ? STATUS_CHAIN[currentIndex - 1] : undefined;
+        // Prestador (terceirizado/PJ) usa uma cadeia enxuta (sem documentação
+        // nem exame admissional), então não pode retroceder a esses estágios.
+        const isProvider = isProviderEmployeeType((existing as any).user?.currentEmployeeType);
+        const statusChain = getStatusChain((existing as any).user?.currentEmployeeType);
+        const currentIndex = statusChain.indexOf(currentStatus);
+        const nextStatus = statusChain[currentIndex + 1];
+        const previousStatus = currentIndex > 0 ? statusChain[currentIndex - 1] : undefined;
         const targetStatus = (data.status as ADMISSION_STATUS) ?? nextStatus;
         const isCancelling = targetStatus === ADMISSION_STATUS.CANCELLED;
         const isGoingBack = previousStatus !== undefined && targetStatus === previousStatus;
@@ -694,7 +752,7 @@ export class AdmissionService {
         // when the collaborator has no non-cancelled ADMISSION exam yet, so the
         // step never depends on someone remembering to create it manually.
         let examCrossReference = '';
-        if (targetStatus === ADMISSION_STATUS.MEDICAL_EXAM) {
+        if (targetStatus === ADMISSION_STATUS.MEDICAL_EXAM && !isProvider) {
           const existingExam = await tx.medicalExam.findFirst({
             where: {
               status: { not: MEDICAL_EXAM_STATUS.CANCELLED as any },
