@@ -19,6 +19,10 @@ import type {
 import type { User, UserIncludes } from './user';
 import type { File, FileIncludes } from './file';
 import type { MedicalExam } from './medical-exam';
+import type {
+  EmploymentContract,
+  EmploymentContractIncludes,
+} from './employment-contract';
 
 // =====================
 // Main Entity Interfaces
@@ -38,6 +42,7 @@ export interface Admission extends BaseEntity {
 
   // Relations (optional, populated based on query)
   user?: User;
+  contract?: EmploymentContract | null;
   createdBy?: User;
   documents?: AdmissionDocument[];
   admissionExam?: MedicalExam | null;
@@ -70,6 +75,7 @@ export interface AdmissionDocument extends BaseEntity {
 
 export interface AdmissionIncludes {
   user?: boolean | { include?: UserIncludes };
+  contract?: boolean | { include?: EmploymentContractIncludes };
   createdBy?: boolean | { include?: UserIncludes };
   documents?: boolean | { include?: AdmissionDocumentIncludes };
 }
