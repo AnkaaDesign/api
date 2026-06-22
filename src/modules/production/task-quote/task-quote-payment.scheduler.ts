@@ -186,8 +186,24 @@ export class TaskQuotePaymentScheduler {
         notificationsSent++;
       }
 
-      // Cascade status for each affected quote (may transition to DUE)
-      for (const quoteId of affectedQuoteIds) {
+      // Self-heal quote status. The reminder logic above only touches quotes with
+      // an installment due *yesterday*, so a quote that flipped to DUE on an earlier
+      // overdue installment never gets re-evaluated once that installment is paid
+      // through a path that doesn't itself cascade (e.g. a late manual/PIX payment).
+      // To guarantee TaskQuote.status always reconverges with its installments, we
+      // re-cascade EVERY quote currently in an active payment status — not just the
+      // ones affected today. cascadeFromQuote is idempotent and only writes when the
+      // derived status differs, so this is a cheap daily reconciliation pass.
+      const activeQuotes = await this.prisma.taskQuote.findMany({
+        where: { status: { in: ['UPCOMING', 'DUE', 'PARTIAL'] } },
+        select: { id: true },
+      });
+      const quotesToCascade = new Set<string>([
+        ...affectedQuoteIds,
+        ...activeQuotes.map(q => q.id),
+      ]);
+
+      for (const quoteId of quotesToCascade) {
         try {
           await this.cascadeService.cascadeFromQuote(quoteId);
         } catch (cascadeError) {
@@ -196,7 +212,7 @@ export class TaskQuotePaymentScheduler {
       }
 
       this.logger.log(
-        `Payment reminder check completed. ${notificationsSent} notification(s) sent. ${affectedQuoteIds.size} quote(s) cascaded.`,
+        `Payment reminder check completed. ${notificationsSent} notification(s) sent. ${quotesToCascade.size} quote(s) reconciled.`,
       );
     } catch (error) {
       this.logger.error('Error during payment reminder check:', error);
