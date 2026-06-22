@@ -7772,6 +7772,48 @@ const CONFIGS: ConfigDef[] = [
   },
   // ─── timeentry ───────────────────────────────────────────────────────────────
   {
+    key: "timeentry.due",
+    name: "Hora de Registrar o Ponto",
+    notificationType: "USER",
+    eventType: "timeentry.due",
+    description: "Disparado no horário esperado de cada uma das 4 marcações de ponto (entrada, saída para almoço, retorno do almoço e saída do expediente), assim que o horário chega e a marcação ainda não foi registrada — antes do lembrete de 15 minutos. (notificação direcionada ao próprio colaborador)",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: true,
+    batchingEnabled: false,
+    maxFrequencyPerDay: 4,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "BASIC", "COMMERCIAL", "DESIGNER", "EXTERNAL", "FINANCIAL", "HUMAN_RESOURCES", "LOGISTIC", "MAINTENANCE", "PLOTTING", "PRODUCTION", "PRODUCTION_MANAGER", "WAREHOUSE"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: true, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Hora de registrar o ponto",
+        body: "Está na hora de registrar: {{entryLabel}}. Horário esperado: {{expectedTime}}.",
+      },
+      push: {
+        title: "Hora de registrar o ponto",
+        body: "Registre agora: {{entryLabel}} (horário {{expectedTime}})",
+      },
+      email: {
+        subject: "Hora de registrar o ponto",
+        body: "Está na hora de registrar: {{entryLabel}}.\n\nHorário esperado: {{expectedTime}}\nData: {{date}}\n",
+      },
+      whatsapp: {
+        body: "Está na hora de registrar: {{entryLabel}}. Horário esperado: {{expectedTime}}.",
+      },
+    },
+    metadata: {
+      registry: "seed-notification-configs",
+      trigger: "time-entry-reminder.service.ts (sendTimeEntryPunchDue) — cron de detecção de marcações ausentes, dispara no horário esperado (ATIVO)",
+      targeted: true,
+    },
+  },
+  {
     key: "timeentry.missing.escalation",
     name: "Ponto Não Registrado (Gestores)",
     notificationType: "USER",
