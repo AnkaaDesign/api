@@ -214,6 +214,68 @@ export class TaskService {
     return existing !== incoming;
   }
 
+  /**
+   * Recomputes a quote's per-customer-config subtotals/totals (applying each
+   * config's discount) and the aggregate TaskQuote.subtotal/total from the
+   * current TaskQuoteService rows. Use after any operation that adds/removes
+   * quote services (cascade delete, SO↔quote sync) so the aggregate and the
+   * customer configs never drift apart — the bug where TaskQuote dropped to the
+   * raw remaining-services sum while CustomerConfig kept the old approved total.
+   */
+  private async recalcQuoteTotals(tx: PrismaTransaction, quoteId: string): Promise<void> {
+    const allItems = await tx.taskQuoteService.findMany({ where: { quoteId } });
+    const allConfigs = await tx.taskQuoteCustomerConfig.findMany({ where: { quoteId } });
+
+    // No customer configs: aggregate is just the raw services sum.
+    if (allConfigs.length === 0) {
+      const sum = allItems.reduce((s, i) => s + Number(i.amount || 0), 0);
+      const rounded = Math.round(sum * 100) / 100;
+      await tx.taskQuote.update({
+        where: { id: quoteId },
+        data: { subtotal: rounded, total: rounded },
+      });
+      return;
+    }
+
+    const isSingleConfig = allConfigs.length === 1;
+    let aggregateSubtotal = 0;
+    let aggregateTotal = 0;
+
+    for (const config of allConfigs) {
+      const assignedServices = allItems.filter(
+        s =>
+          s.invoiceToCustomerId === config.customerId ||
+          (isSingleConfig && !s.invoiceToCustomerId),
+      );
+      const configSubtotal = assignedServices.reduce((sum, s) => sum + Number(s.amount || 0), 0);
+      const discountType = config.discountType || 'NONE';
+      const discountValue = config.discountValue ? Number(config.discountValue) : 0;
+      let discount = 0;
+      if (discountType === 'PERCENTAGE' && discountValue) {
+        discount = Math.round(((configSubtotal * discountValue) / 100) * 100) / 100;
+      } else if (discountType === 'FIXED_VALUE' && discountValue) {
+        discount = Math.min(discountValue, configSubtotal);
+      }
+      const configTotal = Math.max(0, Math.round((configSubtotal - discount) * 100) / 100);
+
+      await tx.taskQuoteCustomerConfig.update({
+        where: { id: config.id },
+        data: { subtotal: configSubtotal, total: configTotal },
+      });
+
+      aggregateSubtotal += configSubtotal;
+      aggregateTotal += configTotal;
+    }
+
+    await tx.taskQuote.update({
+      where: { id: quoteId },
+      data: {
+        subtotal: Math.round(aggregateSubtotal * 100) / 100,
+        total: Math.round(aggregateTotal * 100) / 100,
+      },
+    });
+  }
+
   private filterNoOpQuoteFields(existing: any, incoming: any): any | null {
     const filtered: any = {};
     for (const key of Object.keys(incoming)) {
@@ -3209,6 +3271,23 @@ export class TaskService {
             return true;
           });
 
+          // Normalized descriptions of PRODUCTION SOs that will REMAIN after the
+          // deletions below. Used to guard the cascade-delete: a quote service
+          // must NOT be removed while another live PRODUCTION SO still mirrors
+          // its description (e.g. a duplicate "(Prata)" SO is removed but the
+          // original SO — and the priced quote service — must survive).
+          const deletedSoIdSet = new Set(serviceOrdersToDelete.map(so => so.id));
+          const remainingProductionDescriptions = new Set<string>(
+            existingServiceOrders
+              .filter(
+                so =>
+                  so.type === SERVICE_ORDER_TYPE.PRODUCTION &&
+                  so.description &&
+                  !deletedSoIdSet.has(so.id),
+              )
+              .map(so => normalizeDescription(so.description)),
+          );
+
           // Log deletion summary
           this.logger.log(
             `[Task Update] 🗑️ Service orders to delete: ${serviceOrdersToDelete.length} of ${existingServiceOrders.length} total`,
@@ -3239,58 +3318,57 @@ export class TaskService {
 
             // CASCADE DELETE: Delete corresponding quote services when production SO is deleted
             if (soToDelete.description && soToDelete.type === SERVICE_ORDER_TYPE.PRODUCTION) {
-              const normalizedDesc = soToDelete.description.toLowerCase().trim();
+              const normalizedDesc = normalizeDescription(soToDelete.description);
 
-              // Find matching quote services by normalized description
-              const matchingQuoteItems = await tx.taskQuoteService.findMany({
-                where: {
-                  quote: {
-                    task: { id: id },
-                  },
-                },
-              });
-
-              const deletedQuoteItemIds: string[] = [];
-              for (const quoteItem of matchingQuoteItems) {
-                const quoteNormalizedDesc = (quoteItem.description || '').toLowerCase().trim();
-                // Check if descriptions match (quote service description may include observation suffix)
-                if (
-                  quoteNormalizedDesc === normalizedDesc ||
-                  quoteNormalizedDesc.startsWith(normalizedDesc + ' - ')
-                ) {
-                  this.logger.log(
-                    `[Task Update] Cascade-deleting quote service ${quoteItem.id} (${quoteItem.description})`,
-                  );
-                  await tx.taskQuoteService.delete({
-                    where: { id: quoteItem.id },
-                  });
-                  deletedQuoteItemIds.push(quoteItem.id);
-                }
-              }
-
-              // Recalculate quote totals if any quote services were deleted
-              if (deletedQuoteItemIds.length > 0) {
-                const taskQuote = await tx.taskQuote.findFirst({
-                  where: { task: { id: id } },
-                });
-                if (taskQuote) {
-                  const remainingItems = await tx.taskQuoteService.findMany({
-                    where: { quoteId: taskQuote.id },
-                  });
-                  const newSubtotal = remainingItems.reduce(
-                    (sum, item) => sum + Number(item.amount || 0),
-                    0,
-                  );
-                  await tx.taskQuote.update({
-                    where: { id: taskQuote.id },
-                    data: {
-                      subtotal: newSubtotal,
-                      total: newSubtotal,
+              // GUARD: only cascade-delete the mirrored quote service when NO
+              // other live PRODUCTION SO still references this description. Without
+              // this, removing a duplicate SO (e.g. a "(Prata)" copy created by the
+              // quote↔SO sync) wiped the priced quote service even though the
+              // original SO remained — the bug that zeroed approved quotes.
+              if (remainingProductionDescriptions.has(normalizedDesc)) {
+                this.logger.log(
+                  `[Task Update] Skipping cascade-delete for "${soToDelete.description}" - another live PRODUCTION SO still references it`,
+                );
+              } else {
+                // Find matching quote services by normalized description
+                const matchingQuoteItems = await tx.taskQuoteService.findMany({
+                  where: {
+                    quote: {
+                      task: { id: id },
                     },
+                  },
+                });
+
+                const deletedQuoteItemIds: string[] = [];
+                for (const quoteItem of matchingQuoteItems) {
+                  const quoteNormalizedDesc = normalizeDescription(quoteItem.description);
+                  // Check if descriptions match (quote service description may include observation suffix)
+                  if (
+                    quoteNormalizedDesc === normalizedDesc ||
+                    quoteNormalizedDesc.startsWith(normalizedDesc + ' - ')
+                  ) {
+                    this.logger.log(
+                      `[Task Update] Cascade-deleting quote service ${quoteItem.id} (${quoteItem.description})`,
+                    );
+                    await tx.taskQuoteService.delete({
+                      where: { id: quoteItem.id },
+                    });
+                    deletedQuoteItemIds.push(quoteItem.id);
+                  }
+                }
+
+                // Recalculate quote totals if any quote services were deleted.
+                // Discount-aware recalc keeps TaskQuote and CustomerConfig in sync.
+                if (deletedQuoteItemIds.length > 0) {
+                  const taskQuote = await tx.taskQuote.findFirst({
+                    where: { task: { id: id } },
                   });
-                  this.logger.log(
-                    `[Task Update] Recalculated quote totals after cascade delete. New subtotal: ${newSubtotal}`,
-                  );
+                  if (taskQuote) {
+                    await this.recalcQuoteTotals(tx, taskQuote.id);
+                    this.logger.log(
+                      `[Task Update] Recalculated quote totals after cascade delete of ${deletedQuoteItemIds.length} quote service(s)`,
+                    );
+                  }
                 }
               }
             }
