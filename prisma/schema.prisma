@@ -6087,6 +6087,10 @@ model Vacation {
   // Abono pecuniário (venda de até 10 dias) e venda de 1/3 (abono).
   abonoPecuniarioDays         Int                 @default(0)
   soldThird                   Boolean             @default(false)
+  // Id do afastamento espelhado no Secullum (POST /FuncionariosAfastamentos).
+  // Guardado aqui para reconciliar/remover o registro do ponto SEM precisar de
+  // um marcador "[ANKAA-VAC:..]" no Motivo — o Motivo fica limpo ("Férias (Ankaa)").
+  secullumAbsenceId           Int?
   // Base de cálculo incl. média de variáveis (HE/adicionais/bonif.) no aquisitivo.
   baseRemuneration            Decimal?            @db.Decimal(10, 2)
   oneThird                    Decimal?            @db.Decimal(10, 2)

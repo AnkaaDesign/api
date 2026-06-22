@@ -970,6 +970,7 @@ export class AuthService {
         ppeSize: true,
         preference: true,
         ledSector: true,
+        avatar: true,
       },
     });
 
