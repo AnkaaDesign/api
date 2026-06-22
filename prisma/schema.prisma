@@ -3094,6 +3094,7 @@ enum MeasureType {
   VOLUME
   LENGTH
   WIDTH
+  THICKNESS
   AREA
   COUNT
   DIAMETER
