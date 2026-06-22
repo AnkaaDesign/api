@@ -99,6 +99,7 @@ export const MEASURE_CATEGORIES = {
   VOLUME: 'Volume',
   LENGTH: 'Comprimento',
   WIDTH: 'Largura',
+  THICKNESS: 'Espessura',
   AREA: 'Área',
   COUNT: 'Contagem',
   PACKAGING: 'Embalagem',

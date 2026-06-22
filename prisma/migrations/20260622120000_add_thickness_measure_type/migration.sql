@@ -1,0 +1,13 @@
+-- Add THICKNESS to the MeasureType enum.
+--
+-- Items such as sheet/board materials (e.g. "chapa de compensado") need a
+-- thickness ("Espessura") dimension distinct from LENGTH (Comprimento) and
+-- WIDTH (Largura). Until now there was no measure type for it. THICKNESS uses
+-- the same length units (mm/cm/m/inches); its display order is controlled in
+-- code (constants/sortOrders.ts -> MEASURE_TYPE_ORDER), so the enum is simply
+-- appended here.
+--
+-- PostgreSQL 12+ permits ALTER TYPE ... ADD VALUE inside a transaction as long
+-- as the new value is not referenced in the same transaction. The value is
+-- only consumed by application reads/writes after the migration commits.
+ALTER TYPE "MeasureType" ADD VALUE IF NOT EXISTS 'THICKNESS';
