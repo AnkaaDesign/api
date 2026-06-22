@@ -142,6 +142,15 @@ export class TimeEntryReminderService {
   }
 
   /**
+   * Redis dedup key for the "punch due" notification — fired at the expected
+   * time (tolerance 0), ahead of the 15-min reminder. Independent key so it
+   * survives alongside the reminder/escalation keys on later ticks.
+   */
+  private dueDedupKey(date: string, userId: string, entryType: TimeEntryType): string {
+    return `time-entry-due:${date}:${userId}:${entryType}`;
+  }
+
+  /**
    * Redis dedup key for a sector escalation (independent of the employee reminder key,
    * since the escalation fires on a later tick with a larger grace window).
    */
@@ -331,8 +340,10 @@ export class TimeEntryReminderService {
       return null;
     }
 
-    // Check if current time is past expected + tolerance
-    if (!this.isTimePastEntry(expectedTime, 15)) {
+    // Check from the expected time onward (tolerance 0) so the "punch due"
+    // notification can fire at the expected time. The 15-min reminder and the
+    // sector escalation gate themselves on the larger window in the caller.
+    if (!this.isTimePastEntry(expectedTime, 0)) {
       return null;
     }
 
@@ -459,26 +470,43 @@ export class TimeEntryReminderService {
         if (result.isMissing) {
           stats.missing++;
 
-          // Redis dedup check (employee reminder)
-          const key = this.dedupKey(today, user.id, entryType);
-          const alreadySent = await this.cacheService.exists(key);
-          if (alreadySent) {
-            stats.skippedDedup++;
-            this.logger.debug(
-              `Skipping duplicate ${entryType} reminder for ${user.name} (already sent today)`,
-            );
-          } else {
-            // Send notification
-            await this.sendTimeEntryReminder(user.id, user.name, entryType, result.expectedTime);
-
-            // Mark as sent (24h TTL)
-            await this.cacheService.set(key, '1', 24 * 60 * 60);
-
-            stats.notified++;
-
+          // Punch-due nudge: fires at the expected time (tolerance 0), ahead of
+          // the 15-min reminder. checkUserTimeEntry only returns once the
+          // expected time has passed, so we are already in-window here. Own
+          // dedup key so it is independent of the reminder/escalation keys.
+          const dueKey = this.dueDedupKey(today, user.id, entryType);
+          const dueSent = await this.cacheService.exists(dueKey);
+          if (!dueSent) {
+            await this.sendTimeEntryPunchDue(user.id, user.name, entryType, result.expectedTime);
+            await this.cacheService.set(dueKey, '1', 24 * 60 * 60);
             this.logger.log(
-              `Sent ${entryType} reminder to ${user.name} (expected: ${result.expectedTime})`,
+              `Sent ${entryType} punch-due to ${user.name} (expected: ${result.expectedTime})`,
             );
+          }
+
+          // Employee reminder: only once the punch is 15 min overdue.
+          if (this.isTimePastEntry(result.expectedTime, 15)) {
+            // Redis dedup check (employee reminder)
+            const key = this.dedupKey(today, user.id, entryType);
+            const alreadySent = await this.cacheService.exists(key);
+            if (alreadySent) {
+              stats.skippedDedup++;
+              this.logger.debug(
+                `Skipping duplicate ${entryType} reminder for ${user.name} (already sent today)`,
+              );
+            } else {
+              // Send notification
+              await this.sendTimeEntryReminder(user.id, user.name, entryType, result.expectedTime);
+
+              // Mark as sent (24h TTL)
+              await this.cacheService.set(key, '1', 24 * 60 * 60);
+
+              stats.notified++;
+
+              this.logger.log(
+                `Sent ${entryType} reminder to ${user.name} (expected: ${result.expectedTime})`,
+              );
+            }
           }
 
           // Sector escalation: fires on the same 15-min grace window as the
@@ -515,6 +543,69 @@ export class TimeEntryReminderService {
     );
 
     return stats;
+  }
+
+  /**
+   * Send a "punch due" notification to a user at the expected punch time.
+   * Config key: timeentry.due
+   * Fires at the expected time (tolerance 0), ahead of the 15-min reminder, so
+   * the collaborator is nudged exactly when the punch is due. Uses
+   * dispatchByConfigurationToUsers for targeted user dispatch (checks config
+   * enablement + user notification preferences before sending).
+   */
+  async sendTimeEntryPunchDue(
+    userId: string,
+    userName: string,
+    entryType: TimeEntryType,
+    expectedTime: string,
+  ): Promise<void> {
+    const entryTypeLabels: Record<TimeEntryType, string> = {
+      ENTRADA1: 'entrada (1º período)',
+      SAIDA1: 'saída para almoço',
+      ENTRADA2: 'retorno do almoço',
+      SAIDA2: 'saída (fim do expediente)',
+    };
+
+    const entryLabel = entryTypeLabels[entryType];
+    const today = new Date().toLocaleDateString('pt-BR');
+
+    try {
+      await this.dispatchService.dispatchByConfigurationToUsers(
+        'timeentry.due',
+        'system', // Cron-triggered, no actor user
+        {
+          entityType: 'TimeEntry',
+          entityId: userId, // Use userId as entity since there's no TimeEntry entity
+          action: 'due',
+          data: {
+            userName,
+            entryType,
+            entryLabel,
+            expectedTime,
+            date: today,
+          },
+          metadata: {
+            entryType,
+            expectedTime,
+            date: today,
+            noReschedule: true, // Time-sensitive — drop if outside work hours
+            allowExtendedHours: true, // Clock-out (SAIDA2) nudges may fire until 18:45
+          },
+          overrides: {
+            actionUrl: '/pessoal/meus-pontos',
+            webUrl: '/pessoal/meus-pontos',
+            mobileUrl: '/(tabs)/pessoal/meus-pontos',
+            relatedEntityType: 'TIME_ENTRY',
+            title: 'Hora de Registrar o Ponto',
+            body: `Está na hora de registrar sua ${entryLabel}. Horário esperado: ${expectedTime}.`,
+          },
+        },
+        [userId],
+      );
+    } catch (error) {
+      this.logger.error(`Failed to send punch-due notification to ${userName}: ${error.message}`);
+      throw error;
+    }
   }
 
   /**
