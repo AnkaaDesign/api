@@ -140,6 +140,7 @@ export class SecullumVacationSyncService {
           user: { select: { id: true, name: true, secullumEmployeeId: true } },
           startDate: true,
           days: true,
+          secullumAbsenceId: true,
         },
       });
 
@@ -165,7 +166,8 @@ export class SecullumVacationSyncService {
       const days = vacation.days ?? 0;
       if (startDate == null || days <= 0) {
         // No gozo dates yet — make sure nothing stale lingers, but nothing to add.
-        const removed = await this.removeTaggedAbsences(secullumEmployeeId, vacationId);
+        const removed = await this.removePushedAbsences(secullumEmployeeId, vacationId, vacation.secullumAbsenceId);
+        await this.persistAbsenceId(vacationId, null);
         return {
           success: true,
           created: 0,
@@ -187,16 +189,15 @@ export class SecullumVacationSyncService {
       }
 
       // Remove previously-pushed records first so a re-sync (edited períodos)
-      // doesn't leave duplicates.
-      const removed = await this.removeTaggedAbsences(secullumEmployeeId, vacationId);
+      // doesn't leave duplicates. Uses the stored afastamento id (clean path) and
+      // falls back to the legacy [ANKAA-VAC:..] Motivo sentinel for old records.
+      const removed = await this.removePushedAbsences(secullumEmployeeId, vacationId, vacation.secullumAbsenceId);
 
-      // Collective records carry BOTH the group tag and the vacation tag so a
-      // whole collective can be removed at once (removeCollective) while the
-      // individual record stays identifiable.
-      const motivo = vacation.groupId
-        ? `${this.groupTag(vacation.groupId)}${this.vacationTag(vacationId)} Férias coletivas (Ankaa)`
-        : `${this.vacationTag(vacationId)} Férias (Ankaa)`;
+      // Motivo fica LIMPO/legível no ponto. A reconciliação não depende mais dele
+      // (usamos o id do afastamento guardado na Vacation).
+      const motivo = vacation.groupId ? 'Férias coletivas (Ankaa)' : 'Férias (Ankaa)';
       let created = 0;
+      let createdAbsenceId: number | null = null;
       const failures: string[] = [];
 
       const inicio = this.toIsoDay(startDate);
@@ -204,7 +205,7 @@ export class SecullumVacationSyncService {
       // on D + 29.
       const fim = this.toIsoDay(this.addDays(startDate, Math.max(0, days - 1)));
       try {
-        await this.secullum.createAbsence({
+        const res = await this.secullum.createAbsence({
           Inicio: inicio,
           Fim: fim,
           JustificativaId: justificativaId,
@@ -212,12 +213,21 @@ export class SecullumVacationSyncService {
           FuncionarioId: secullumEmployeeId,
         });
         created++;
+        // Capture the id of the afastamento we just created so future syncs can
+        // find/remove it without a Motivo tag. The POST usually echoes it; if not,
+        // re-list and match by funcionário + justificativa + date range.
+        createdAbsenceId =
+          (res?.data?.Id && res.data.Id > 0 ? res.data.Id : null) ??
+          (await this.findAbsenceId(secullumEmployeeId, justificativaId, inicio, fim));
       } catch (err: any) {
         failures.push(`${inicio}..${fim}: ${err?.message ?? 'erro'}`);
         this.logger.warn(
           `Vacation ${vacationId}: failed to create Secullum afastamento ${inicio}..${fim} for funcionario ${secullumEmployeeId}: ${err?.message ?? err}`,
         );
       }
+
+      // Persist (or clear) the mirrored afastamento id — the new reconciliation key.
+      await this.persistAbsenceId(vacationId, createdAbsenceId);
 
       if (failures.length > 0) {
         return {
@@ -263,14 +273,13 @@ export class SecullumVacationSyncService {
     secullumEmployeeId?: number | null,
   ): Promise<VacationSyncResult> {
     try {
-      let empId = secullumEmployeeId ?? null;
-      if (empId == null) {
-        const vacation = await this.prisma.vacation.findUnique({
-          where: { id: vacationId },
-          select: { user: { select: { secullumEmployeeId: true } } },
-        });
-        empId = vacation?.user?.secullumEmployeeId ?? null;
-      }
+      // Read the stored afastamento id (clean-removal key) plus the user link as
+      // an empId fallback. Vacations are soft-deleted, so the row still exists.
+      const vacation = await this.prisma.vacation.findUnique({
+        where: { id: vacationId },
+        select: { secullumAbsenceId: true, user: { select: { secullumEmployeeId: true } } },
+      });
+      const empId = secullumEmployeeId ?? vacation?.user?.secullumEmployeeId ?? null;
 
       if (empId == null) {
         return {
@@ -280,7 +289,8 @@ export class SecullumVacationSyncService {
         };
       }
 
-      const removed = await this.removeTaggedAbsences(empId, vacationId);
+      const removed = await this.removePushedAbsences(empId, vacationId, vacation?.secullumAbsenceId ?? null);
+      await this.persistAbsenceId(vacationId, null);
       this.logger.log(
         `Vacation ${vacationId}: removed ${removed} afastamento(s) from Secullum (funcionario ${empId}).`,
       );
@@ -362,20 +372,25 @@ export class SecullumVacationSyncService {
   async removeCollective(groupId: string): Promise<VacationSyncResult> {
     try {
       // Members may already be soft-deleted, so read regardless of deletedAt to
-      // capture the secullumEmployeeId of every colaborador in the group.
+      // capture the stored afastamento id + secullumEmployeeId of every member.
       const members = await this.prisma.vacation.findMany({
         where: { groupId },
-        select: { user: { select: { secullumEmployeeId: true } } },
+        select: { id: true, secullumAbsenceId: true, user: { select: { secullumEmployeeId: true } } },
       });
+      let removed = 0;
+      for (const m of members) {
+        const empId = m.user?.secullumEmployeeId ?? null;
+        if (empId == null) continue;
+        // Clean path: remove by stored afastamento id (+ legacy per-vacation tag).
+        removed += await this.removePushedAbsences(empId, m.id, m.secullumAbsenceId);
+        await this.persistAbsenceId(m.id, null);
+      }
+      // Legacy sweep: older collective records carried a [GRP:..] sentinel in the
+      // Motivo; remove any that still linger across the involved funcionários.
       const empIds = Array.from(
-        new Set(
-          members
-            .map((m) => m.user?.secullumEmployeeId)
-            .filter((v): v is number => v != null),
-        ),
+        new Set(members.map((m) => m.user?.secullumEmployeeId).filter((v): v is number => v != null)),
       );
       const tag = this.groupTag(groupId);
-      let removed = 0;
       for (const empId of empIds) {
         removed += await this.removeAbsencesMatching(empId, tag);
       }
@@ -430,6 +445,7 @@ export class SecullumVacationSyncService {
           user: { select: { secullumEmployeeId: true } },
           startDate: true,
           days: true,
+          secullumAbsenceId: true,
         },
       });
       if (!vacation) {
@@ -475,9 +491,13 @@ export class SecullumVacationSyncService {
         };
       }
 
+      // Ours = the afastamento whose id we stored (clean path) OR, for legacy
+      // records created before the stored-id migration, the one still carrying the
+      // [ANKAA-VAC:..] sentinel in its Motivo.
       const tag = this.vacationTag(vacationId);
+      const storedId = vacation.secullumAbsenceId ?? null;
       const pushedAbsences = list
-        .filter((a) => (a.Motivo ?? '').includes(tag))
+        .filter((a) => (storedId != null && a.Id === storedId) || (a.Motivo ?? '').includes(tag))
         .map((a) => ({ id: a.Id, inicio: this.normalizeDay(a.Inicio), fim: this.normalizeDay(a.Fim) }));
 
       const expectedKeys = new Set(expectedPeriods.map((p) => `${p.inicio}..${p.fim}`));
@@ -579,14 +599,73 @@ export class SecullumVacationSyncService {
     return value.length >= 10 ? value.slice(0, 10) : value;
   }
 
-  // Fetch the employee's afastamentos and delete the ones tagged with this
-  // vacation's sentinel. Returns the count removed. Tolerant of individual
-  // delete failures.
-  private async removeTaggedAbsences(
+  // Remove the afastamento(s) we pushed for a vacation. Clean path: delete the
+  // stored afastamento id directly. Legacy path: also sweep any record still
+  // carrying the [ANKAA-VAC:<id>] sentinel in its Motivo (pre stored-id records).
+  // Returns the count removed. Tolerant of individual delete failures.
+  private async removePushedAbsences(
     secullumEmployeeId: number,
     vacationId: string,
+    storedAbsenceId: number | null | undefined,
   ): Promise<number> {
-    return this.removeAbsencesMatching(secullumEmployeeId, this.vacationTag(vacationId));
+    let removed = 0;
+    if (storedAbsenceId != null) {
+      try {
+        await this.secullum.deleteAbsence(storedAbsenceId);
+        removed++;
+      } catch (err: any) {
+        this.logger.warn(
+          `Failed to delete stored afastamento ${storedAbsenceId} (vacation ${vacationId}): ${err?.message ?? err}`,
+        );
+      }
+    }
+    // Legacy fallback for afastamentos created before the stored-id migration.
+    removed += await this.removeAbsencesMatching(secullumEmployeeId, this.vacationTag(vacationId));
+    return removed;
+  }
+
+  // After creating an afastamento, find its Secullum id by matching the employee,
+  // justificativa and date range (used when the POST does not echo the new id).
+  private async findAbsenceId(
+    secullumEmployeeId: number,
+    justificativaId: number,
+    inicio: string,
+    fim: string,
+  ): Promise<number | null> {
+    try {
+      const res = await this.secullum.getAbsencesByEmployee(secullumEmployeeId);
+      const list = res.success && res.data ? res.data : [];
+      const match = list
+        .filter(
+          (a) =>
+            a.JustificativaId === justificativaId &&
+            this.normalizeDay(a.Inicio) === inicio &&
+            this.normalizeDay(a.Fim) === fim,
+        )
+        .sort((a, b) => b.Id - a.Id)[0];
+      return match?.Id ?? null;
+    } catch (err: any) {
+      this.logger.warn(
+        `Could not resolve afastamento id for funcionario ${secullumEmployeeId} ${inicio}..${fim}: ${err?.message ?? err}`,
+      );
+      return null;
+    }
+  }
+
+  // Persist (or clear) the mirrored Secullum afastamento id on the Vacation row.
+  // Best-effort: a failure here only means a future re-sync falls back to the
+  // legacy Motivo sweep, so it must never break the caller.
+  private async persistAbsenceId(vacationId: string, absenceId: number | null): Promise<void> {
+    try {
+      await this.prisma.vacation.update({
+        where: { id: vacationId },
+        data: { secullumAbsenceId: absenceId },
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `Could not persist secullumAbsenceId=${absenceId} on vacation ${vacationId}: ${err?.message ?? err}`,
+      );
+    }
   }
 
   // Delete every afastamento for an employee whose Motivo contains `marker`

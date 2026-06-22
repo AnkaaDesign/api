@@ -3388,9 +3388,19 @@ export class BonusService {
       performanceLevel: u.performanceLevel,
     }));
 
+    // Round the average tasks-per-user (B1) to 2 decimals BEFORE feeding it to
+    // the calculator, exactly like the live/saved bonus path does
+    // (`calculateLiveBonuses` / `getPeriodTaskStats` both apply roundAverage).
+    // Without this, a client that sends a full-precision average (e.g. mobile's
+    // 29.5/17 = 1.735294…) gets a different anchor than the saved bonus, which
+    // rounds to 1.74 — the degree-5 anchor polynomial amplifies that ~0.005 gap
+    // into a visible R$ swing (R$ 35,02 vs R$ 35,56). Rounding here makes every
+    // simulator (web + mobile) match the real bonus to the cent.
+    const roundedAverageTasksPerUser = roundAverage(input.averageTasksPerUser);
+
     const userResults = this.bonusCalculationService.calculateMany(
       usersWithSalaries,
-      input.averageTasksPerUser,
+      roundedAverageTasksPerUser,
       salaryRange,
       effectiveConfig,
     );
