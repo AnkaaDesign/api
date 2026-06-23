@@ -54,6 +54,7 @@ import {
   getServiceOrderToQuoteSync,
   type SyncQuoteItem,
 } from '../../../utils/task-quote-service-order-sync';
+import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
 import {
   syncEmNegociacaoForTask,
   registerEmNegociacaoEventEmitter,
@@ -304,25 +305,14 @@ export class ServiceOrderService {
                   },
                 });
 
-                // Recalculate quote subtotal and total
-                const allItems = await tx.taskQuoteService.findMany({
-                  where: { quoteId: taskWithQuote.quote.id },
-                });
-                const newSubtotal = allItems.reduce(
-                  (sum, item) => sum + Number(item.amount || 0),
-                  0,
-                );
-
-                await tx.taskQuote.update({
-                  where: { id: taskWithQuote.quote.id },
-                  data: {
-                    subtotal: newSubtotal,
-                    total: newSubtotal,
-                  },
-                });
+                // Recalculate quote totals (discount-aware, keeps the aggregate
+                // TaskQuote and every TaskQuoteCustomerConfig in sync). A naive
+                // subtotal=total=sum here wiped customer discounts and left the
+                // configs drifting from the aggregate.
+                await recalcQuoteTotals(tx, taskWithQuote.quote.id);
 
                 this.logger.log(
-                  `[SO→QUOTE SYNC] Quote item created. New quote subtotal: ${newSubtotal}`,
+                  `[SO→QUOTE SYNC] Quote item created. Recalculated totals for quote ${taskWithQuote.quote.id}`,
                 );
               } else {
                 this.logger.log(`[SO→QUOTE SYNC] Skipped: ${syncResult.reason}`);
@@ -1843,21 +1833,13 @@ export class ServiceOrderService {
                   amount: Number(createdItem.amount),
                 });
 
-                const allItems = await tx.taskQuoteService.findMany({
-                  where: { quoteId },
-                });
-                const newSubtotal = allItems.reduce(
-                  (sum: number, item: any) => sum + Number(item.amount || 0),
-                  0,
-                );
-
-                await tx.taskQuote.update({
-                  where: { id: quoteId },
-                  data: { subtotal: newSubtotal, total: newSubtotal },
-                });
+                // Discount-aware recalc: keeps the aggregate TaskQuote and every
+                // TaskQuoteCustomerConfig consistent (a naive subtotal=total=sum
+                // wiped discounts and drifted the configs).
+                await recalcQuoteTotals(tx, quoteId);
 
                 this.logger.log(
-                  `[SO→QUOTE SYNC] Batch: Quote item created. New subtotal: ${newSubtotal}`,
+                  `[SO→QUOTE SYNC] Batch: Quote item created. Recalculated totals for quote ${quoteId}`,
                 );
               } else {
                 this.logger.log(

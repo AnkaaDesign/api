@@ -91,6 +91,7 @@ import {
   type SyncServiceOrder,
   type SyncQuoteItem,
 } from '../../../utils/task-quote-service-order-sync';
+import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
 import { TaskCreatedEvent, TaskStatusChangedEvent } from './task.events';
 import { ArtworkApprovedEvent, ArtworkReprovedEvent } from './artwork.events';
 import { CutCreatedEvent, CutsAddedToTaskEvent } from '../cut/cut.events';
@@ -223,57 +224,10 @@ export class TaskService {
    * raw remaining-services sum while CustomerConfig kept the old approved total.
    */
   private async recalcQuoteTotals(tx: PrismaTransaction, quoteId: string): Promise<void> {
-    const allItems = await tx.taskQuoteService.findMany({ where: { quoteId } });
-    const allConfigs = await tx.taskQuoteCustomerConfig.findMany({ where: { quoteId } });
-
-    // No customer configs: aggregate is just the raw services sum.
-    if (allConfigs.length === 0) {
-      const sum = allItems.reduce((s, i) => s + Number(i.amount || 0), 0);
-      const rounded = Math.round(sum * 100) / 100;
-      await tx.taskQuote.update({
-        where: { id: quoteId },
-        data: { subtotal: rounded, total: rounded },
-      });
-      return;
-    }
-
-    const isSingleConfig = allConfigs.length === 1;
-    let aggregateSubtotal = 0;
-    let aggregateTotal = 0;
-
-    for (const config of allConfigs) {
-      const assignedServices = allItems.filter(
-        s =>
-          s.invoiceToCustomerId === config.customerId ||
-          (isSingleConfig && !s.invoiceToCustomerId),
-      );
-      const configSubtotal = assignedServices.reduce((sum, s) => sum + Number(s.amount || 0), 0);
-      const discountType = config.discountType || 'NONE';
-      const discountValue = config.discountValue ? Number(config.discountValue) : 0;
-      let discount = 0;
-      if (discountType === 'PERCENTAGE' && discountValue) {
-        discount = Math.round(((configSubtotal * discountValue) / 100) * 100) / 100;
-      } else if (discountType === 'FIXED_VALUE' && discountValue) {
-        discount = Math.min(discountValue, configSubtotal);
-      }
-      const configTotal = Math.max(0, Math.round((configSubtotal - discount) * 100) / 100);
-
-      await tx.taskQuoteCustomerConfig.update({
-        where: { id: config.id },
-        data: { subtotal: configSubtotal, total: configTotal },
-      });
-
-      aggregateSubtotal += configSubtotal;
-      aggregateTotal += configTotal;
-    }
-
-    await tx.taskQuote.update({
-      where: { id: quoteId },
-      data: {
-        subtotal: Math.round(aggregateSubtotal * 100) / 100,
-        total: Math.round(aggregateTotal * 100) / 100,
-      },
-    });
+    // Delegates to the shared single-source-of-truth implementation so every
+    // flow that mutates quote services (cascade-delete, SO↔quote sync, the
+    // service-order module) recomputes totals identically.
+    await recalcQuoteTotals(tx, quoteId);
   }
 
   private filterNoOpQuoteFields(existing: any, incoming: any): any | null {
@@ -4288,64 +4242,17 @@ export class TaskService {
                   });
                 }
 
-                // Recalculate quote subtotal and total with customer config discounts
-                const allItems = await tx.taskQuoteService.findMany({
-                  where: { quoteId: currentQuote.id },
-                });
-                const allConfigs = await tx.taskQuoteCustomerConfig.findMany({
-                  where: { quoteId: currentQuote.id },
-                });
-                const isSingleConfig = allConfigs.length === 1;
-
-                let aggregateSubtotal = 0;
-                let aggregateTotal = 0;
-
-                for (const config of allConfigs) {
-                  const assignedServices = allItems.filter(
-                    s =>
-                      s.invoiceToCustomerId === config.customerId ||
-                      (isSingleConfig && !s.invoiceToCustomerId),
-                  );
-                  const configSubtotal = assignedServices.reduce(
-                    (sum, s) => sum + Number(s.amount || 0),
-                    0,
-                  );
-                  const discountType = config.discountType || 'NONE';
-                  const discountValue = config.discountValue ? Number(config.discountValue) : 0;
-                  let discount = 0;
-                  if (discountType === 'PERCENTAGE' && discountValue) {
-                    discount = Math.round(((configSubtotal * discountValue) / 100) * 100) / 100;
-                  } else if (discountType === 'FIXED_VALUE' && discountValue) {
-                    discount = Math.min(discountValue, configSubtotal);
-                  }
-                  const configTotal = Math.max(
-                    0,
-                    Math.round((configSubtotal - discount) * 100) / 100,
-                  );
-
-                  await tx.taskQuoteCustomerConfig.update({
-                    where: { id: config.id },
-                    data: { subtotal: configSubtotal, total: configTotal },
-                  });
-
-                  aggregateSubtotal += configSubtotal;
-                  aggregateTotal += configTotal;
-                }
-
-                await tx.taskQuote.update({
-                  where: { id: currentQuote.id },
-                  data: {
-                    subtotal: Math.round(aggregateSubtotal * 100) / 100,
-                    total: Math.round(aggregateTotal * 100) / 100,
-                  },
-                });
+                // Recalculate quote subtotal and total with customer config discounts.
+                // Shared helper keeps the aggregate TaskQuote and every
+                // TaskQuoteCustomerConfig in sync (discount-aware).
+                await this.recalcQuoteTotals(tx, currentQuote.id);
 
                 // NOTE: subtotal/total changelog entries are NOT logged here to avoid duplicates.
                 // The scalar field tracking at the end of the update method (quoteFieldsToTrack loop)
                 // already detects and logs subtotal/total changes for TASK_QUOTE.
 
                 this.logger.log(
-                  `[QUOTE↔SO SYNC] Updated quote totals. Subtotal: ${aggregateSubtotal}, Total: ${aggregateTotal}`,
+                  `[QUOTE↔SO SYNC] Recalculated quote totals for ${currentQuote.id}`,
                 );
               }
 
