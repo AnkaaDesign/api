@@ -607,6 +607,7 @@ export class ZodValidationPipe implements PipeTransform {
       'paymentDueDays',
       'freight',
       'discount',
+      'installmentCount',
     ];
     return numericFields.includes(fieldName);
   }
@@ -637,6 +638,7 @@ export class ZodValidationPipe implements PipeTransform {
       'priority',
       'category',
       'method',
+      'paymentMethod',
       'frequency',
       'dayOfWeek',
       'position',
@@ -661,6 +663,7 @@ export class ZodValidationPipe implements PipeTransform {
       'country',
       'site',
       'pix',
+      'paymentPix',
       'corporateName',
       'fantasyName',
       'observations',

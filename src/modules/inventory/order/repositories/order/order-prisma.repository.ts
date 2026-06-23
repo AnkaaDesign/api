@@ -27,47 +27,7 @@ import { getOrderStatusOrder, mapOrderStatusToPrisma, mapWhereClause } from '../
 
 // Default include for order repository
 const DEFAULT_ORDER_INCLUDE: Prisma.OrderInclude = {
-  budgets: {
-    select: {
-      id: true,
-      filename: true,
-      path: true,
-      mimetype: true,
-      size: true,
-      thumbnailUrl: true,
-    },
-  },
-  invoices: {
-    select: {
-      id: true,
-      filename: true,
-      path: true,
-      mimetype: true,
-      size: true,
-      thumbnailUrl: true,
-    },
-  },
   receipts: {
-    select: {
-      id: true,
-      filename: true,
-      path: true,
-      mimetype: true,
-      size: true,
-      thumbnailUrl: true,
-    },
-  },
-  reimbursements: {
-    select: {
-      id: true,
-      filename: true,
-      path: true,
-      mimetype: true,
-      size: true,
-      thumbnailUrl: true,
-    },
-  },
-  invoiceReimbursements: {
     select: {
       id: true,
       filename: true,
@@ -188,22 +148,8 @@ export class OrderPrismaRepository
     }
 
     // Handle many-to-many file relations
-    if (orderData.budgetIds && orderData.budgetIds.length > 0) {
-      createData.budgets = { connect: orderData.budgetIds.map(id => ({ id })) };
-    }
-    if (orderData.invoiceIds && orderData.invoiceIds.length > 0) {
-      createData.invoices = { connect: orderData.invoiceIds.map(id => ({ id })) };
-    }
     if (orderData.receiptIds && orderData.receiptIds.length > 0) {
       createData.receipts = { connect: orderData.receiptIds.map(id => ({ id })) };
-    }
-    if (orderData.reimbursementIds && orderData.reimbursementIds.length > 0) {
-      createData.reimbursements = { connect: orderData.reimbursementIds.map(id => ({ id })) };
-    }
-    if (orderData.reimbursementInvoiceIds && orderData.reimbursementInvoiceIds.length > 0) {
-      createData.invoiceReimbursements = {
-        connect: orderData.reimbursementInvoiceIds.map(id => ({ id })),
-      };
     }
 
     // Handle nested items creation
@@ -297,22 +243,8 @@ export class OrderPrismaRepository
     }
 
     // Handle many-to-many file relations with set operation
-    if (formData.budgetIds !== undefined) {
-      updateData.budgets = { set: formData.budgetIds.map(id => ({ id })) };
-    }
-    if (formData.invoiceIds !== undefined) {
-      updateData.invoices = { set: formData.invoiceIds.map(id => ({ id })) };
-    }
     if (formData.receiptIds !== undefined) {
       updateData.receipts = { set: formData.receiptIds.map(id => ({ id })) };
-    }
-    if (formData.reimbursementIds !== undefined) {
-      updateData.reimbursements = { set: formData.reimbursementIds.map(id => ({ id })) };
-    }
-    if (formData.reimbursementInvoiceIds !== undefined) {
-      updateData.invoiceReimbursements = {
-        set: formData.reimbursementInvoiceIds.map(id => ({ id })),
-      };
     }
     if (formData.ppeScheduleId !== undefined) {
       updateData.ppeSchedule = formData.ppeScheduleId
@@ -589,15 +521,7 @@ export class OrderPrismaRepository
       forecast: databaseOrder.forecast,
       status: databaseOrder.status as ORDER_STATUS,
       statusOrder: databaseOrder.statusOrder,
-      budgetIds: (databaseOrder.budgets as any)?.map((budget: any) => budget.id),
-      invoiceIds: (databaseOrder.invoices as any)?.map((invoice: any) => invoice.id),
       receiptIds: (databaseOrder.receipts as any)?.map((receipt: any) => receipt.id),
-      reimbursementIds: (databaseOrder.reimbursements as any)?.map(
-        (reimbursement: any) => reimbursement.id,
-      ),
-      reimbursementInvoiceIds: (databaseOrder.invoiceReimbursements as any)?.map(
-        (reimbursementInvoice: any) => reimbursementInvoice.id,
-      ),
       supplierId: databaseOrder.supplierId,
       orderScheduleId: databaseOrder.orderScheduleId,
       orderRuleId: databaseOrder.orderRuleId,
@@ -609,11 +533,7 @@ export class OrderPrismaRepository
       paymentPix: databaseOrder.paymentPix as any,
       paymentDueDays: databaseOrder.paymentDueDays as any,
       paymentFirstDueDate: (databaseOrder as any).paymentFirstDueDate as any,
-      budgets: databaseOrder.budgets as any,
-      invoices: databaseOrder.invoices as any,
       receipts: databaseOrder.receipts as any,
-      reimbursements: databaseOrder.reimbursements as any,
-      invoiceReimbursements: databaseOrder.invoiceReimbursements as any,
       supplier: databaseOrder.supplier as any,
       orderSchedule: databaseOrder.orderSchedule as any,
       ppeSchedule: databaseOrder.ppeSchedule as any,

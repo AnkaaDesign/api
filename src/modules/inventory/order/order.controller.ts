@@ -223,11 +223,7 @@ export class OrderController {
   @UseInterceptors(
     FileFieldsInterceptor(
       [
-        { name: 'budgets', maxCount: 10 },
-        { name: 'invoices', maxCount: 10 },
         { name: 'receipts', maxCount: 10 },
-        { name: 'reimbursements', maxCount: 10 },
-        { name: 'reimbursementInvoices', maxCount: 10 },
       ],
       multerConfig,
     ),
@@ -238,11 +234,7 @@ export class OrderController {
     @UserId() userId: string,
     @UploadedFiles()
     files?: {
-      budgets?: Express.Multer.File[];
-      invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
-      reimbursements?: Express.Multer.File[];
-      reimbursementInvoices?: Express.Multer.File[];
     },
   ): Promise<OrderCreateResponse> {
     return this.orderService.create(data, query.include, userId, files);
@@ -410,11 +402,7 @@ export class OrderController {
   @UseInterceptors(
     FileFieldsInterceptor(
       [
-        { name: 'budgets', maxCount: 10 },
-        { name: 'invoices', maxCount: 10 },
         { name: 'receipts', maxCount: 10 },
-        { name: 'reimbursements', maxCount: 10 },
-        { name: 'reimbursementInvoices', maxCount: 10 },
       ],
       multerConfig,
     ),
@@ -427,11 +415,7 @@ export class OrderController {
     @User('role') userRole: string,
     @UploadedFiles()
     files?: {
-      budgets?: Express.Multer.File[];
-      invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
-      reimbursements?: Express.Multer.File[];
-      reimbursementInvoices?: Express.Multer.File[];
     },
   ): Promise<OrderUpdateResponse> {
     return this.orderService.update(id, data, query.include, userId, files, userRole);
@@ -452,43 +436,11 @@ export class OrderController {
   // =====================
   // These endpoints are deprecated. Use PUT /orders/:id with file fields instead.
 
-  @Post(':id/upload/budgets')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  async uploadBudget() {
-    throw new BadRequestException(
-      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "budgets" para enviar arquivos.',
-    );
-  }
-
-  @Post(':id/upload/invoices')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  async uploadInvoice() {
-    throw new BadRequestException(
-      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "invoices" para enviar arquivos.',
-    );
-  }
-
   @Post(':id/upload/receipts')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async uploadReceipt() {
     throw new BadRequestException(
       'Este endpoint está obsoleto. Use PUT /orders/:id com campo "receipts" para enviar arquivos.',
-    );
-  }
-
-  @Post(':id/upload/reimbursements')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  async uploadReimbursement() {
-    throw new BadRequestException(
-      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "reimbursements" para enviar arquivos.',
-    );
-  }
-
-  @Post(':id/upload/reimbursement-invoices')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  async uploadReimbursementInvoice() {
-    throw new BadRequestException(
-      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "reimbursementInvoices" para enviar arquivos.',
     );
   }
 }
@@ -584,6 +536,12 @@ export class OrderItemController {
     @Query(new ZodQueryValidationPipe(orderItemQuerySchema)) query: OrderItemQueryFormData,
     @UserId() userId: string,
   ): Promise<OrderItemBatchUpdateResponse<OrderItemUpdateFormData>> {
+    if (!data || !Array.isArray(data.ids) || data.ids.length === 0) {
+      throw new BadRequestException('Informe ao menos um item para marcar como recebido/feito.');
+    }
+    if (data.ids.some(id => typeof id !== 'string' || !id.trim())) {
+      throw new BadRequestException('Lista de itens contém identificador inválido.');
+    }
     const updates = data.ids.map(id => ({
       id,
       data: { fulfilledAt: new Date() },
@@ -598,10 +556,22 @@ export class OrderItemController {
     @Query(new ZodQueryValidationPipe(orderItemQuerySchema)) query: OrderItemQueryFormData,
     @UserId() userId: string,
   ): Promise<OrderItemBatchUpdateResponse<OrderItemUpdateFormData>> {
+    if (!data || !Array.isArray(data.items) || data.items.length === 0) {
+      throw new BadRequestException('Informe ao menos um item para marcar como recebido.');
+    }
+    for (const item of data.items) {
+      if (!item || typeof item.id !== 'string' || !item.id.trim()) {
+        throw new BadRequestException('Item inválido na lista de recebimento.');
+      }
+      const qty = Number(item.receivedQuantity);
+      if (!Number.isFinite(qty) || qty < 0) {
+        throw new BadRequestException('Quantidade recebida deve ser um número maior ou igual a zero.');
+      }
+    }
     const updates = data.items.map(item => ({
       id: item.id,
       data: {
-        receivedQuantity: item.receivedQuantity,
+        receivedQuantity: Number(item.receivedQuantity),
         receivedAt: new Date(),
       },
     }));

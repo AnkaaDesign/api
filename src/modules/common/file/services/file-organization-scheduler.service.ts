@@ -67,11 +67,7 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
 
   // Supplier-based contexts
   supplierLogo: 'supplier',
-  orderBudgets: 'supplier',
-  orderInvoices: 'supplier',
   orderReceipts: 'supplier',
-  orderReimbursements: 'supplier',
-  orderNfeReimbursements: 'supplier',
 
   // User-based contexts
   userAvatar: 'user',
@@ -128,14 +124,7 @@ const FOLDER_TO_CONTEXT_MAP: Array<{ pattern: RegExp; context: keyof FilesFolder
   { pattern: /\/Clientes\/[^/]+\/Logo\//, context: 'customerLogo' },
 
   // Supplier contexts
-  {
-    pattern: /\/Fornecedores\/[^/]+\/Notas Fiscais Reembolso\//,
-    context: 'orderNfeReimbursements',
-  },
-  { pattern: /\/Fornecedores\/[^/]+\/Notas Fiscais\//, context: 'orderInvoices' },
-  { pattern: /\/Fornecedores\/[^/]+\/Orcamentos\//, context: 'orderBudgets' },
   { pattern: /\/Fornecedores\/[^/]+\/Comprovantes\//, context: 'orderReceipts' },
-  { pattern: /\/Fornecedores\/[^/]+\/Reembolsos\//, context: 'orderReimbursements' },
   { pattern: /\/Fornecedores\/[^/]+\/Logo\//, context: 'supplierLogo' },
 
   // External withdrawal (root-level, not entity-based)
@@ -379,8 +368,6 @@ export class FileOrganizationSchedulerService {
       const order = await this.prisma.order.findFirst({
         where: {
           OR: [
-            { budgets: { some: { id: fileId } } },
-            { invoices: { some: { id: fileId } } },
             { receipts: { some: { id: fileId } } },
           ],
         },

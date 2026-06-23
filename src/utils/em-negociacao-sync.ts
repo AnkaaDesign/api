@@ -77,9 +77,11 @@ export async function syncEmNegociacaoForTask(
     const task = await (prisma as any).task.findUnique({
       where: { id: taskId },
       include: {
-        // layoutFileId on the quote also counts as an "artwork" for handoff
-        // purposes — it's the rendered layout uploaded via the budget editor.
-        quote: { select: { status: true, layoutFileId: true } },
+        // A quote layout file also counts as an "artwork" for handoff purposes —
+        // it's the rendered layout uploaded via the budget editor.
+        quote: {
+          select: { status: true, layoutFiles: { select: { id: true }, take: 1 } },
+        },
         serviceOrders: {
           select: {
             id: true,
@@ -124,7 +126,7 @@ export async function syncEmNegociacaoForTask(
     // job is to get something uploaded; approval is a separate workflow.
     // The quote's layoutFile (rendered via the budget editor) also counts —
     // from the operator's perspective, uploading a layout = artwork delivered.
-    const hasAnyArtwork = artworks.length > 0 || !!task.quote?.layoutFileId;
+    const hasAnyArtwork = artworks.length > 0 || (task.quote?.layoutFiles?.length ?? 0) > 0;
     // "Needs artwork" is determined by the presence of ARTWORK-type service orders.
     // A task with no Arte SOs at all is service-only and doesn't wait for artwork.
     const needsArtwork = allServiceOrders.some(

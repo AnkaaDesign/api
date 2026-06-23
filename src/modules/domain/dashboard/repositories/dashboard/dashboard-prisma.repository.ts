@@ -875,7 +875,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
   async getOrdersWithoutNfe(limit: number): Promise<DashboardListItem[]> {
     const orders = await this.prisma.order.findMany({
       where: {
-        invoices: { none: {} },
+        fiscalDocuments: { none: {} },
         status: { not: ORDER_STATUS.CANCELLED as any },
       },
       include: {
@@ -918,7 +918,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
   }> {
     const [ordersWithNfe, tasksWithNfe] = await Promise.all([
       this.prisma.order.count({
-        where: { invoices: { some: {} } },
+        where: { fiscalDocuments: { some: {} } },
       }),
       this.prisma.task.count({
         where: { invoices: { some: {} } },
@@ -1225,7 +1225,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     const [ordersWithoutNfe, tasksWithoutNfe] = await Promise.all([
       this.prisma.order.count({
         where: {
-          invoices: { none: {} },
+          fiscalDocuments: { none: {} },
           status: { not: ORDER_STATUS.CANCELLED as any },
         },
       }),
@@ -3053,8 +3053,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
           { taskBudgets: { some: {} } },
           { taskInvoices: { some: {} } },
           { taskReceipts: { some: {} } },
-          { orderBudgets: { some: {} } },
-          { orderInvoices: { some: {} } },
           { orderReceipts: { some: {} } },
         ],
       },

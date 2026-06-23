@@ -2779,8 +2779,15 @@ export const itemCreateSchemaBase = z.object({
     .uuid({ message: 'Localização inválida' })
     .nullable()
     .optional(),
-  locationLevel: z.coerce.number().int().min(1).nullable().optional(),
-  locationColumn: z.coerce.number().int().min(1).nullable().optional(),
+  locationCells: z
+    .array(
+      z.object({
+        level: z.coerce.number().int().min(1),
+        column: z.coerce.number().int().min(1).nullable(),
+      }),
+    )
+    .nullable()
+    .optional(),
   estimatedLeadTime: z.number().int().nullable().default(30).optional(),
   isActive: z.boolean().default(true),
   price: optionalNonNegativeNumber,
@@ -2885,8 +2892,15 @@ export const itemUpdateSchemaBase = z.object({
     .uuid({ message: 'Localização inválida' })
     .nullable()
     .optional(),
-  locationLevel: z.coerce.number().int().min(1).nullable().optional(),
-  locationColumn: z.coerce.number().int().min(1).nullable().optional(),
+  locationCells: z
+    .array(
+      z.object({
+        level: z.coerce.number().int().min(1),
+        column: z.coerce.number().int().min(1).nullable(),
+      }),
+    )
+    .nullable()
+    .optional(),
   estimatedLeadTime: z.number().int().nullable().optional(),
   isActive: z.boolean().optional(),
   abcCategoryOrder: z.number().int().nullable().optional(),
@@ -3233,8 +3247,7 @@ export const mapItemToFormData = createMapToFormDataHelper<Item, ItemUpdateFormD
   categoryId: item.categoryId || undefined,
   supplierId: item.supplierId || undefined,
   warehouseLocationId: item.warehouseLocationId || undefined,
-  locationLevel: item.locationLevel ?? undefined,
-  locationColumn: item.locationColumn ?? undefined,
+  locationCells: item.locationCells ?? undefined,
   estimatedLeadTime: item.estimatedLeadTime || undefined,
   isActive: item.isActive,
   abcCategory: item.abcCategory,

@@ -165,33 +165,12 @@ export class OrderService {
       // Validar preços contra o catálogo
       await this.validateItemPrices(data.items, tx);
 
-      // Validar disponibilidade de estoque para pedidos imediatos (não agendados)
-      // Only validate stock for inventory items (skip temporary items without itemId)
-      if (
-        data.status &&
-        [ORDER_STATUS.PARTIALLY_FULFILLED, ORDER_STATUS.FULFILLED].includes(
-          data.status as ORDER_STATUS,
-        )
-      ) {
-        // Filter out temporary items (items without itemId) before validating stock
-        const inventoryItems = data.items.filter(item => item.itemId);
-
-        if (inventoryItems.length > 0) {
-          const stockValidation = await this.itemService.validateStockAvailability(
-            inventoryItems.map(item => ({
-              itemId: item.itemId,
-              quantity: item.orderedQuantity,
-            })),
-            tx,
-          );
-
-          if (!stockValidation.valid) {
-            throw new BadRequestException(
-              `Estoque insuficiente: ${stockValidation.errors.join(', ')}`,
-            );
-          }
-        }
-      }
+      // NOTE: A purchase order (pedido) BUYS goods from a supplier to ADD them to stock —
+      // it never consumes stock. So we must NOT validate "stock availability" here (that
+      // belongs to outgoing flows: withdrawals, external operations, paint production,
+      // borrows). A previous version blocked fulfilling an order whenever the warehouse
+      // didn't already hold the ordered quantity ("Estoque insuficiente: ... Disponível: X,
+      // Solicitado: Y"), which is exactly backwards — you order precisely because you're low.
 
       // Calcular total do pedido para log/referência
       const calculatedTotal = this.calculateOrderTotal(data.items);
@@ -338,11 +317,7 @@ export class OrderService {
     include?: OrderInclude,
     userId?: string,
     files?: {
-      budgets?: Express.Multer.File[];
-      invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
-      reimbursements?: Express.Multer.File[];
-      reimbursementInvoices?: Express.Multer.File[];
     },
   ): Promise<OrderCreateResponse> {
     try {
@@ -491,11 +466,7 @@ export class OrderService {
   private async processOrderFileUploads(
     orderId: string,
     files: {
-      budgets?: Express.Multer.File[];
-      invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
-      reimbursements?: Express.Multer.File[];
-      reimbursementInvoices?: Express.Multer.File[];
     },
     userId?: string,
     tx?: PrismaTransaction,
@@ -515,72 +486,12 @@ export class OrderService {
 
       const supplierName = order.supplier?.fantasyName;
 
-      // Process budgets
-      if (files.budgets && files.budgets.length > 0) {
-        for (const file of files.budgets) {
-          await this.saveFileTostorage(
-            file,
-            'orderBudgets',
-            orderId,
-            'order',
-            supplierName,
-            userId,
-            transaction,
-          );
-        }
-      }
-
-      // Process invoices
-      if (files.invoices && files.invoices.length > 0) {
-        for (const file of files.invoices) {
-          await this.saveFileTostorage(
-            file,
-            'orderInvoices',
-            orderId,
-            'order',
-            supplierName,
-            userId,
-            transaction,
-          );
-        }
-      }
-
       // Process receipts
       if (files.receipts && files.receipts.length > 0) {
         for (const file of files.receipts) {
           await this.saveFileTostorage(
             file,
             'orderReceipts',
-            orderId,
-            'order',
-            supplierName,
-            userId,
-            transaction,
-          );
-        }
-      }
-
-      // Process reimbursements
-      if (files.reimbursements && files.reimbursements.length > 0) {
-        for (const file of files.reimbursements) {
-          await this.saveFileTostorage(
-            file,
-            'orderReimbursements',
-            orderId,
-            'order',
-            supplierName,
-            userId,
-            transaction,
-          );
-        }
-      }
-
-      // Process reimbursement invoices
-      if (files.reimbursementInvoices && files.reimbursementInvoices.length > 0) {
-        for (const file of files.reimbursementInvoices) {
-          await this.saveFileTostorage(
-            file,
-            'orderNfeReimbursements',
             orderId,
             'order',
             supplierName,
@@ -632,20 +543,8 @@ export class OrderService {
         where: { id: fileRecord.id },
         data: {
           // Connect file to order based on context
-          ...(fileContext === 'orderBudgets' && {
-            orderBudgets: { connect: { id: entityId } },
-          }),
-          ...(fileContext === 'orderInvoices' && {
-            orderInvoices: { connect: { id: entityId } },
-          }),
           ...(fileContext === 'orderReceipts' && {
             orderReceipts: { connect: { id: entityId } },
-          }),
-          ...(fileContext === 'orderReimbursements' && {
-            orderReimbursements: { connect: { id: entityId } },
-          }),
-          ...(fileContext === 'orderNfeReimbursements' && {
-            orderNfeReimbursements: { connect: { id: entityId } },
           }),
         },
       });
@@ -662,18 +561,10 @@ export class OrderService {
    * Clean up uploaded files if order creation failed
    */
   private async cleanupFailedUploads(files: {
-    budgets?: Express.Multer.File[];
-    invoices?: Express.Multer.File[];
     receipts?: Express.Multer.File[];
-    reimbursements?: Express.Multer.File[];
-    reimbursementInvoices?: Express.Multer.File[];
   }): Promise<void> {
     const allFiles = [
-      ...(files.budgets || []),
-      ...(files.invoices || []),
       ...(files.receipts || []),
-      ...(files.reimbursements || []),
-      ...(files.reimbursementInvoices || []),
     ];
 
     for (const file of allFiles) {
@@ -694,11 +585,7 @@ export class OrderService {
     include?: OrderInclude,
     userId?: string,
     files?: {
-      budgets?: Express.Multer.File[];
-      invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
-      reimbursements?: Express.Multer.File[];
-      reimbursementInvoices?: Express.Multer.File[];
     },
     userSector?: string,
   ): Promise<OrderUpdateResponse> {
@@ -713,8 +600,6 @@ export class OrderService {
           include: {
             items: true,
             supplier: true,
-            budgets: true,
-            invoices: true,
           },
         });
 
@@ -1079,8 +964,6 @@ export class OrderService {
           'recurringEndDate',
           'scheduledFor',
           'orderScheduleId',
-          'budgetId',
-          'nfeId',
           'receiptId',
           'paymentMethod',
           'paymentPix',
@@ -1722,8 +1605,6 @@ export class OrderService {
                 include: {
                   items: true,
                   supplier: true,
-                  budgets: true,
-                  invoices: true,
                 },
               },
             );
@@ -1763,8 +1644,6 @@ export class OrderService {
               'recurringEndDate',
               'scheduledFor',
               'orderScheduleId',
-              'budgetId',
-              'nfeId',
               'receiptId',
               'paymentMethod',
               'paymentPix',
@@ -2765,33 +2644,55 @@ export class OrderService {
         data: { status: ORDER_INSTALLMENT_STATUS.PAID, paidAt: now, paidById: userId ?? null },
       });
     } else if (isReopen) {
-      // Non-destructive reopen: re-derive each parcela from its ACTUAL paidAmount so a
-      // real (reconciled) payment is never wiped. Blanket-paid parcelas (status PAID,
-      // paidAmount 0) revert to PENDING; genuinely (partially) paid parcelas are kept.
+      // Reopen ("Desfazer pagamento"): fully revert every MANUAL settle to PENDING. Only
+      // parcelas backed by a real bank reconciliation (a ReconciliationMatch) are kept —
+      // those are re-derived from their reconciled paidAmount so a matched payment is never
+      // wiped. paidAmount on its own is NOT a reliable "real payment" signal (manual
+      // settles / seeds can carry it), which is why we key off the match, not the amount.
       const insts = await tx.orderInstallment.findMany({
         where: { orderId },
-        select: { id: true, amount: true, paidAmount: true, paidAt: true, paidById: true },
+        select: {
+          id: true,
+          amount: true,
+          paidAmount: true,
+          paidAt: true,
+          paidById: true,
+          _count: { select: { reconciliationMatches: true } },
+        },
       });
       for (const inst of insts) {
-        const paid = inst.paidAmount || 0;
-        const fullyPaid = paid >= inst.amount - 0.005;
-        const status = fullyPaid
-          ? ORDER_INSTALLMENT_STATUS.PAID
-          : paid > 0
-            ? ORDER_INSTALLMENT_STATUS.PARTIALLY_PAID
-            : ORDER_INSTALLMENT_STATUS.PENDING;
-        await tx.orderInstallment.update({
-          where: { id: inst.id },
-          data: {
-            status,
-            paidAt: fullyPaid ? inst.paidAt : null,
-            paidById: fullyPaid ? inst.paidById : null,
-          },
-        });
+        const isReconciled = inst._count.reconciliationMatches > 0;
+        if (isReconciled) {
+          const paid = inst.paidAmount || 0;
+          const fullyPaid = paid >= inst.amount - 0.005;
+          const status = fullyPaid
+            ? ORDER_INSTALLMENT_STATUS.PAID
+            : paid > 0
+              ? ORDER_INSTALLMENT_STATUS.PARTIALLY_PAID
+              : ORDER_INSTALLMENT_STATUS.PENDING;
+          await tx.orderInstallment.update({
+            where: { id: inst.id },
+            data: {
+              status,
+              paidAt: fullyPaid ? inst.paidAt : null,
+              paidById: fullyPaid ? inst.paidById : null,
+            },
+          });
+        } else {
+          // Manual / blanket settle (no reconciliation) → revert completely.
+          await tx.orderInstallment.update({
+            where: { id: inst.id },
+            data: {
+              status: ORDER_INSTALLMENT_STATUS.PENDING,
+              paidAmount: 0,
+              paidAt: null,
+              paidById: null,
+            },
+          });
+        }
       }
-      // Re-derive the order rollup from the preserved installment state. This keeps the
-      // order PARTIALLY_PAID/PAID when real payments remain — which is correct — instead
-      // of forcing AWAITING_PAYMENT and losing the reconciliation.
+      // Re-derive the order rollup: with the manual settles reverted it drops to
+      // AWAITING_PAYMENT; if real reconciled parcelas remain it stays PARTIALLY_PAID/PAID.
       await this.recomputeOrderPaymentRollup(tx, orderId);
     }
 
@@ -3384,11 +3285,15 @@ export class OrderService {
           select: { id: true, orderId: true, amount: true },
         });
         if (!inst) throw new NotFoundException('Parcela não encontrada.');
+        // Manual settle: mark PAID without stamping paidAmount. A non-zero paidAmount is
+        // reserved for REAL (reconciled) payments — the order-level "Desfazer pagamento"
+        // reopen preserves those but reverts manual settles (paidAmount 0) to PENDING.
+        // Stamping the full amount here made manual marks look reconciled, so Desfazer
+        // could never revert a per-parcela settle. The rollup keys off status, not amount.
         await tx.orderInstallment.update({
           where: { id: installmentId },
           data: {
             status: ORDER_INSTALLMENT_STATUS.PAID,
-            paidAmount: inst.amount,
             paidAt: new Date(),
             paidById: userId ?? null,
           },

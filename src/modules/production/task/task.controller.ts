@@ -728,7 +728,7 @@ export class TaskController {
         { name: 'cutFiles', maxCount: 20 },
         { name: 'observationFiles', maxCount: 10 },
         // Quote layout file
-        { name: 'quoteLayoutFile', maxCount: 1 },
+        { name: 'quoteLayoutFile', maxCount: 2 },
         // Airbrushing files - support up to 10 airbrushings with multiple files each
         { name: 'airbrushings[0].receipts', maxCount: 10 },
         { name: 'airbrushings[0].invoices', maxCount: 10 },

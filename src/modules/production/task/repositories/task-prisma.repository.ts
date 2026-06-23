@@ -233,7 +233,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
           },
         },
       },
-      layoutFile: true,
+      layoutFiles: true,
       customerConfigs: {
         include: {
           customer: {
@@ -1526,9 +1526,14 @@ export class TaskPrismaRepository
         });
         const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
 
-        const layoutFileConnect = quoteData.layoutFileId
-          ? { layoutFile: { connect: { id: quoteData.layoutFileId } } }
-          : {};
+        const layoutFileConnect =
+          quoteData.layoutFileIds !== undefined
+            ? {
+                layoutFiles: {
+                  connect: (quoteData.layoutFileIds ?? []).map((fid: string) => ({ id: fid })),
+                },
+              }
+            : {};
 
         const newQuote = await transaction.taskQuote.create({
           data: {
@@ -1726,7 +1731,13 @@ export class TaskPrismaRepository
 
           if (currentTask?.quoteId) {
             const layoutFileUpdate =
-              quoteData.layoutFileId !== undefined ? { layoutFileId: quoteData.layoutFileId } : {};
+              quoteData.layoutFileIds !== undefined
+                ? {
+                    layoutFiles: {
+                      set: (quoteData.layoutFileIds ?? []).map((fid: string) => ({ id: fid })),
+                    },
+                  }
+                : {};
 
             await transaction.taskQuote.update({
               where: { id: currentTask.quoteId },
@@ -1820,9 +1831,14 @@ export class TaskPrismaRepository
             });
             const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
 
-            const layoutFileConnect = quoteData.layoutFileId
-              ? { layoutFile: { connect: { id: quoteData.layoutFileId } } }
-              : {};
+            const layoutFileConnect =
+              quoteData.layoutFileIds !== undefined
+                ? {
+                    layoutFiles: {
+                      connect: (quoteData.layoutFileIds ?? []).map((fid: string) => ({ id: fid })),
+                    },
+                  }
+                : {};
 
             const newQuote = await transaction.taskQuote.create({
               data: {
@@ -1874,6 +1890,25 @@ export class TaskPrismaRepository
             updateInput.quote = {
               connect: { id: newQuote.id },
             };
+          }
+        } else if (typeof quoteData === 'object' && quoteData.layoutFileIds !== undefined) {
+          // Layout-only payload: services were stripped as no-ops upstream, but the
+          // layout file selection still needs to persist. Apply it directly to the
+          // existing quote without touching services/subtotal/total.
+          const currentTask = await transaction.task.findUnique({
+            where: { id },
+            select: { quoteId: true },
+          });
+
+          if (currentTask?.quoteId) {
+            await transaction.taskQuote.update({
+              where: { id: currentTask.quoteId },
+              data: {
+                layoutFiles: {
+                  set: (quoteData.layoutFileIds ?? []).map((fid: string) => ({ id: fid })),
+                },
+              },
+            });
           }
         }
       }

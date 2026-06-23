@@ -87,9 +87,11 @@ export class TaskQuotePrismaRepository
       // Guarantee Terms
       guaranteeYears: formData.guaranteeYears || null,
       customGuaranteeText: formData.customGuaranteeText || null,
-      // Layout File
-      ...(formData.layoutFileId && {
-        layoutFile: { connect: { id: formData.layoutFileId } },
+      // Layout Files (max 2)
+      ...(formData.layoutFileIds !== undefined && {
+        layoutFiles: {
+          connect: (formData.layoutFileIds ?? []).map((id: string) => ({ id })),
+        },
       }),
       // New fields
       simultaneousTasks: (formData as any).simultaneousTasks || null,
@@ -154,13 +156,11 @@ export class TaskQuotePrismaRepository
     if (formData.customGuaranteeText !== undefined)
       updateInput.customGuaranteeText = formData.customGuaranteeText;
 
-    // Layout File
-    if (formData.layoutFileId !== undefined) {
-      if (formData.layoutFileId) {
-        updateInput.layoutFile = { connect: { id: formData.layoutFileId } };
-      } else {
-        updateInput.layoutFile = { disconnect: true };
-      }
+    // Layout Files (max 2) — `set` replaces the relation wholesale ([] clears)
+    if (formData.layoutFileIds !== undefined) {
+      updateInput.layoutFiles = {
+        set: (formData.layoutFileIds ?? []).map((id: string) => ({ id })),
+      };
     }
 
     // New fields
@@ -199,8 +199,8 @@ export class TaskQuotePrismaRepository
         mappedInclude.task = { include: (include as any).task.include as any };
       }
     }
-    if ((include as any).layoutFile !== undefined)
-      mappedInclude.layoutFile = (include as any).layoutFile;
+    if ((include as any).layoutFiles !== undefined)
+      mappedInclude.layoutFiles = (include as any).layoutFiles;
     if ((include as any).customerConfigs !== undefined) {
       mappedInclude.customerConfigs =
         (include as any).customerConfigs === true
@@ -422,7 +422,7 @@ export class TaskQuotePrismaRepository
     const quote = await this.prisma.taskQuote.findFirst({
       where: { task: { id: taskId } },
       include: {
-        layoutFile: true,
+        layoutFiles: true,
         services: {
           orderBy: { position: 'asc' },
           include: {

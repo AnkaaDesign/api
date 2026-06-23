@@ -62,6 +62,7 @@ export class ItemPrismaRepository
       categoryId,
       supplierId,
       warehouseLocationId,
+      locationCells,
       ppeType,
       ppeSize,
       ppeDeliveryMode,
@@ -101,6 +102,8 @@ export class ItemPrismaRepository
         : {}),
       // Handle optional category relation
       ...(categoryId ? { category: { connect: { id: categoryId } } } : {}),
+      // Warehouse cells (JSON array); null clears via Prisma.JsonNull
+      ...(locationCells !== undefined && { locationCells: locationCells ?? Prisma.JsonNull }),
       // Map PPE fields if present - ensure they are properly typed
       ...(ppeType && { ppeType: mapPpeTypeToPrisma(ppeType) }),
       ...(effectivePpeSize && { ppeSize: mapPpeSizeToPrisma(effectivePpeSize) }),
@@ -137,6 +140,7 @@ export class ItemPrismaRepository
       categoryId,
       supplierId,
       warehouseLocationId,
+      locationCells,
       ppeType,
       ppeSize,
       ppeDeliveryMode,
@@ -163,6 +167,8 @@ export class ItemPrismaRepository
 
     const updateInput: Prisma.ItemUpdateInput = {
       ...rest,
+      // Warehouse cells (JSON array); null clears via Prisma.JsonNull
+      ...(locationCells !== undefined && { locationCells: locationCells ?? Prisma.JsonNull }),
       // Map PPE fields if present
       ...(ppeType !== undefined && { ppeType: ppeType ? mapPpeTypeToPrisma(ppeType) : null }),
       ...(effectivePpeSize !== undefined && {
@@ -390,8 +396,7 @@ export class ItemPrismaRepository
       categoryId: true,
       supplierId: true,
       warehouseLocationId: true,
-      locationLevel: true,
-      locationColumn: true,
+      locationCells: true,
       createdAt: true,
       updatedAt: true,
       brands: {
@@ -483,8 +488,7 @@ export class ItemPrismaRepository
       categoryId: true,
       supplierId: true,
       warehouseLocationId: true,
-      locationLevel: true,
-      locationColumn: true,
+      locationCells: true,
       estimatedLeadTime: true,
       isActive: true,
       isBorrowable: true,
@@ -574,8 +578,7 @@ export class ItemPrismaRepository
       categoryId: true,
       supplierId: true,
       warehouseLocationId: true,
-      locationLevel: true,
-      locationColumn: true,
+      locationCells: true,
       estimatedLeadTime: true,
       isActive: true,
       isBorrowable: true,

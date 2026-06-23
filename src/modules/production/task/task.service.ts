@@ -2207,8 +2207,46 @@ export class TaskService {
             }
           }
 
-          // NOTE: No validation on production SO status before completing task.
-          // Only PRODUCTION_MANAGER or ADMIN can manually finish/complete tasks.
+          // Validation for ANY → COMPLETED (finishing a task)
+          // A task can only be finished when ALL of its service orders (regardless
+          // of type) are already concluded. Previously the remaining production SOs
+          // were silently auto-completed on finish; now finishing is blocked with a
+          // clear error so each service must be explicitly completed first.
+          if (toStatus === TASK_STATUS.COMPLETED && fromStatus !== TASK_STATUS.COMPLETED) {
+            const existingSOs = existingTask.serviceOrders || [];
+
+            // Merge any service order status updates from this same request so a
+            // caller completing the services and the task together is allowed.
+            let finalSOs: ServiceOrder[] = existingSOs;
+            if (data.serviceOrders && Array.isArray(data.serviceOrders)) {
+              finalSOs = existingSOs.map(existingSO => {
+                const update = data.serviceOrders!.find((so: any) => so.id === existingSO.id);
+                if (update && update.status) {
+                  return { ...existingSO, status: update.status as SERVICE_ORDER_STATUS };
+                }
+                return existingSO;
+              });
+            }
+
+            // CANCELLED service orders don't block completion.
+            const incompleteServices = finalSOs.filter(
+              (so: any) =>
+                so.status !== SERVICE_ORDER_STATUS.COMPLETED &&
+                so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+            );
+
+            if (incompleteServices.length > 0) {
+              const total = finalSOs.filter(
+                (so: any) => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+              ).length;
+              this.logger.warn(
+                `[VALIDATION] User attempted to finish task ${id} with ${incompleteServices.length}/${total} incomplete service(s). IDs: ${incompleteServices.map((so: any) => so.id).join(', ')}`,
+              );
+              throw new BadRequestException(
+                `Não é possível finalizar a tarefa: ${incompleteServices.length} de ${total} serviço(s) ainda não foi(ram) concluído(s). Conclua todos os serviços antes de finalizar a tarefa.`,
+              );
+            }
+          }
 
           // Auto-fill date requirements based on status transition
           // Instead of throwing an error, automatically set the required dates
@@ -2400,27 +2438,38 @@ export class TaskService {
           );
         }
 
-        // Process quote layout file BEFORE task update (to get the file ID for quote)
+        // Process quote layout file(s) BEFORE task update (to get the File ids for the quote).
+        // Up to 2 layout files (controller maxCount=2). Newly-uploaded File ids are merged,
+        // order-preserving, with any existing-selected ids the client sent in layoutFileIds.
         if (files?.quoteLayoutFile && files.quoteLayoutFile.length > 0 && (data as any).quote) {
-          console.log('[TaskService] Processing quote layout file');
+          console.log('[TaskService] Processing quote layout file(s)');
           const customerName = existingTask.customer?.fantasyName;
 
-          const layoutFile = files.quoteLayoutFile[0];
-          const fileRecord = await this.fileService.createFromUploadWithTransaction(
-            tx,
-            layoutFile,
-            'quote-layouts',
-            userId,
-            {
-              entityId: id,
-              entityType: 'PRICING_LAYOUT',
-              customerName,
-            },
-          );
-          console.log('[TaskService] Uploaded quote layout file:', fileRecord.id);
+          const uploadedLayoutIds: string[] = [];
+          for (const layoutFile of files.quoteLayoutFile) {
+            const fileRecord = await this.fileService.createFromUploadWithTransaction(
+              tx,
+              layoutFile,
+              'quote-layouts',
+              userId,
+              {
+                entityId: id,
+                entityType: 'PRICING_LAYOUT',
+                customerName,
+              },
+            );
+            console.log('[TaskService] Uploaded quote layout file:', fileRecord.id);
+            uploadedLayoutIds.push(fileRecord.id);
+          }
 
-          // Set the layoutFileId in the quote data
-          (data as any).quote.layoutFileId = fileRecord.id;
+          // Merge client-sent existing ids with the newly uploaded ones (order preserved,
+          // de-duplicated), capped at 2 layout files.
+          const existingLayoutIds: string[] = Array.isArray((data as any).quote.layoutFileIds)
+            ? (data as any).quote.layoutFileIds
+            : [];
+          (data as any).quote.layoutFileIds = [
+            ...new Set([...existingLayoutIds, ...uploadedLayoutIds]),
+          ].slice(0, 2);
         }
 
         // Extract service orders from data to handle them explicitly
@@ -5484,6 +5533,7 @@ export class TaskService {
               where: { id: existingTask.quoteId },
               include: {
                 services: { orderBy: { position: 'asc' } },
+                layoutFiles: { select: { id: true } },
                 customerConfigs: {
                   include: { customer: { select: { id: true, fantasyName: true, cnpj: true } } },
                 },
@@ -5501,7 +5551,7 @@ export class TaskService {
                 customGuaranteeText: oldQuote.customGuaranteeText,
                 customForecastDays: oldQuote.customForecastDays,
                 simultaneousTasks: oldQuote.simultaneousTasks,
-                layoutFileId: oldQuote.layoutFileId,
+                layoutFileIds: ((oldQuote as any).layoutFiles || []).map((f: any) => f.id),
                 services: oldQuote.services.map(service => ({
                   description: service.description,
                   amount: service.amount,
@@ -5528,6 +5578,7 @@ export class TaskService {
               where: { id: updatedTask.quoteId },
               include: {
                 services: { orderBy: { position: 'asc' } },
+                layoutFiles: { select: { id: true } },
                 customerConfigs: {
                   include: { customer: { select: { id: true, fantasyName: true, cnpj: true } } },
                 },
@@ -5545,7 +5596,7 @@ export class TaskService {
                 customGuaranteeText: newQuote.customGuaranteeText,
                 customForecastDays: newQuote.customForecastDays,
                 simultaneousTasks: newQuote.simultaneousTasks,
-                layoutFileId: newQuote.layoutFileId,
+                layoutFileIds: ((newQuote as any).layoutFiles || []).map((f: any) => f.id),
                 services: newQuote.services.map(service => ({
                   description: service.description,
                   amount: service.amount,
@@ -6438,6 +6489,7 @@ export class TaskService {
               logoPaints: true,
               generalPainting: true,
               cuts: { include: { file: true } },
+              serviceOrders: true, // Needed to gate task completion on service order status
             },
           });
           if (existingTask) {
@@ -6535,6 +6587,41 @@ export class TaskService {
                   throw new BadRequestException(
                     'Apenas o gerente de produção ou administrador pode finalizar tarefas ou reverter tarefas concluídas.',
                   );
+                }
+
+                // A task can only be finished when ALL of its service orders are
+                // already concluded (mirrors the single-update path). CANCELLED
+                // service orders don't block completion.
+                if (
+                  (update.data.status as TASK_STATUS) === TASK_STATUS.COMPLETED &&
+                  (existingTask.status as TASK_STATUS) !== TASK_STATUS.COMPLETED
+                ) {
+                  const existingSOs = (existingTask as any).serviceOrders || [];
+                  let finalSOs = existingSOs;
+                  if (Array.isArray((update.data as any).serviceOrders)) {
+                    finalSOs = existingSOs.map((existingSO: any) => {
+                      const soUpdate = (update.data as any).serviceOrders.find(
+                        (so: any) => so.id === existingSO.id,
+                      );
+                      if (soUpdate && soUpdate.status) {
+                        return { ...existingSO, status: soUpdate.status };
+                      }
+                      return existingSO;
+                    });
+                  }
+                  const incompleteServices = finalSOs.filter(
+                    (so: any) =>
+                      so.status !== SERVICE_ORDER_STATUS.COMPLETED &&
+                      so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+                  );
+                  if (incompleteServices.length > 0) {
+                    const total = finalSOs.filter(
+                      (so: any) => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+                    ).length;
+                    throw new BadRequestException(
+                      `Não é possível finalizar a tarefa: ${incompleteServices.length} de ${total} serviço(s) ainda não foi(ram) concluído(s). Conclua todos os serviços antes de finalizar a tarefa.`,
+                    );
+                  }
                 }
 
                 // Note: startedAt and finishedAt are no longer required as they are auto-filled
@@ -9747,7 +9834,13 @@ export class TaskService {
                   customGuaranteeText: quoteData.customGuaranteeText ?? null,
                   customForecastDays: quoteData.customForecastDays ?? null,
                   simultaneousTasks: quoteData.simultaneousTasks ?? null,
-                  layoutFileId: quoteData.layoutFileId ?? null,
+                  // Restore layout files from snapshot (array of File ids)
+                  ...(Array.isArray(quoteData.layoutFileIds) &&
+                    quoteData.layoutFileIds.length > 0 && {
+                      layoutFiles: {
+                        connect: quoteData.layoutFileIds.map((fid: string) => ({ id: fid })),
+                      },
+                    }),
                   ...(quoteData.customerConfigs?.length > 0 && {
                     customerConfigs: {
                       create: quoteData.customerConfigs.map((config: any) => ({
@@ -11360,6 +11453,7 @@ export class TaskService {
             position: true,
           },
         },
+        layoutFiles: { select: { id: true } },
         customerConfigs: {
           select: {
             customerId: true,
@@ -11400,8 +11494,12 @@ export class TaskService {
         customGuaranteeText: sourceQuote.customGuaranteeText,
         simultaneousTasks: sourceQuote.simultaneousTasks,
         customForecastDays: sourceQuote.customForecastDays,
-        ...(sourceQuote.layoutFileId
-          ? { layoutFile: { connect: { id: sourceQuote.layoutFileId } } }
+        ...((sourceQuote as any).layoutFiles?.length
+          ? {
+              layoutFiles: {
+                connect: (sourceQuote as any).layoutFiles.map((f: any) => ({ id: f.id })),
+              },
+            }
           : {}),
         services: {
           create: sourceQuote.services.map(service => ({
