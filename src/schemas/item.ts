@@ -3266,12 +3266,28 @@ export const mapItemCategoryToFormData = createMapToFormDataHelper<
 // Item Merge Schema
 // =====================
 
+// Per-field conflict resolution. Each key holds the chosen winning value for a
+// user-owned scalar field (the value of whichever item the user picked). This
+// list MUST mirror ALLOWED_MERGE_FIELDS in item.service.ts `merge()`. Derived or
+// forced fields (quantity, totalPrice, monthlyConsumption, reorderPoint,
+// reorderQuantity, maxQuantity) are intentionally absent — the server computes
+// them. Unknown keys are stripped by Zod, so stale payloads degrade safely.
 export const itemMergeConflictsSchema = z
   .object({
-    keepPrimaryPrice: z.boolean().optional(),
-    keepPrimaryDescription: z.boolean().optional(),
-    combineBarcodes: z.boolean().optional(),
-    combineTags: z.boolean().optional(),
+    name: z.string().nullish(),
+    uniCode: z.string().nullish(),
+    categoryId: z.string().nullish(),
+    supplierId: z.string().nullish(),
+    boxQuantity: z.number().int().nullish(),
+    estimatedLeadTime: z.number().int().nullish(),
+    shouldAssignToUser: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+    ppeType: z.string().nullish(),
+    ppeCA: z.string().nullish(),
+    ppeDeliveryMode: z.string().nullish(),
+    ppeStandardQuantity: z.number().int().nullish(),
+    icms: z.number().nullish(),
+    ipi: z.number().nullish(),
     // Brands is a many-to-many relation. The merge dialog resolves a conflict by
     // sending the chosen brand set as an array of brand objects (or ids); the
     // service translates it into a relation `set` write so the union survives the
