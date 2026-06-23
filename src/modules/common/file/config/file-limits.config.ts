@@ -78,14 +78,6 @@ export const ENTITY_FILE_LIMITS: Record<string, FileLimitConfig> = {
   },
 
   // Order relationships
-  orderBudgets: {
-    maxFiles: 10,
-    description: 'Máximo de 10 orçamentos por pedido',
-  },
-  orderInvoices: {
-    maxFiles: 10,
-    description: 'Máximo de 10 notas fiscais por pedido',
-  },
   orderReceipts: {
     maxFiles: 10,
     description: 'Máximo de 10 recibos por pedido',

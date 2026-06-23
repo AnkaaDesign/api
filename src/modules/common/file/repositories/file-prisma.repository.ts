@@ -85,12 +85,6 @@ export class FilePrismaRepository
     if (include.warning !== undefined) {
       mappedInclude.warning = include.warning;
     }
-    if (include.orderBudgets !== undefined) {
-      mappedInclude.orderBudgets = include.orderBudgets;
-    }
-    if (include.orderInvoices !== undefined) {
-      mappedInclude.orderInvoices = include.orderInvoices;
-    }
     if (include.orderReceipts !== undefined) {
       mappedInclude.orderReceipts = include.orderReceipts;
     }

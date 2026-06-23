@@ -629,6 +629,7 @@ model File {
   path                                   String
   size                                   Int
   thumbnailUrl                           String?
+  quoteLayoutId                          String?
   createdAt                              DateTime                  @default(now())
   updatedAt                              DateTime                  @updatedAt
   artworks                               Artwork?
@@ -639,7 +640,7 @@ model File {
   ppeSignatureDocuments                  PpeDeliverySignature[]    @relation("PPE_SIGNATURE_DOCUMENT")
   supplierLogo                           Supplier[]                @relation("SUPPLIER_LOGO")
   configCustomerSignatures               TaskQuoteCustomerConfig[] @relation("CONFIG_CUSTOMER_SIGNATURE")
-  quoteLayouts                           TaskQuote[]               @relation("QUOTE_LAYOUT")
+  quoteLayout                            TaskQuote?                @relation("QUOTE_LAYOUT", fields: [quoteLayoutId], references: [id], onDelete: SetNull)
   userAvatar                             User[]                    @relation("USER_AVATAR")
   thumbnailJob                           ThumbnailJob?
   airbrushingBudgets                     Airbrushing[]             @relation("AIRBRUSHING_BUDGETS")
@@ -653,11 +654,7 @@ model File {
   externalOperationReimbursements        ExternalOperation[]       @relation("EXTERNAL_OPERATION_REIMBURSEMENTS")
   warning                                Warning[]                 @relation("FileToWarning")
   observations                           Observation[]             @relation("OBSERVATIONS_FILES")
-  orderBudgets                           Order[]                   @relation("ORDER_BUDGETS")
-  orderInvoices                          Order[]                   @relation("ORDER_INVOICES")
-  orderInvoiceReimbursements             Order[]                   @relation("ORDER_INVOICE_REIMBURSEMENTS")
   orderReceipts                          Order[]                   @relation("ORDER_RECEIPTS")
-  orderReimbursements                    Order[]                   @relation("ORDER_REIMBURSEMENTS")
   taskBaseFiles                          Task[]                    @relation("TASK_BASE_FILES")
   taskBudgets                            Task[]                    @relation("TASK_BUDGETS")
   taskInvoices                           Task[]                    @relation("TASK_INVOICES")
@@ -689,6 +686,7 @@ model File {
   @@index([originalName])
   @@index([mimetype])
   @@index([path])
+  @@index([quoteLayoutId])
 }
 
 model MonetaryValue {
@@ -752,9 +750,10 @@ model Item {
   supplierId                     String?
   // Physical storage location in the warehouse (section/shelf), managed registry.
   warehouseLocationId            String?
-  // Exact cell within the location's grid: nível (row) and coluna. 1-based, null = unplaced.
-  locationLevel                  Int?
-  locationColumn                 Int?
+  // Cells the item occupies within the location's grid, as JSON: [{ level, column }].
+  // level = prateleira/linha (1-based); column = caixa kanban (1-based) or null on
+  // non-kanban structures. Empty/null = whole structure (shown on every shelf).
+  locationCells                  Json?
   estimatedLeadTime              Int?                    @default(30)
   isActive                       Boolean                 @default(true)
   // Capability fields — behavior gates live on the item, not the category.
@@ -823,7 +822,7 @@ model Item {
 
 // Physical storage structures placed on a top-view warehouse map. Each structure
 // (estante, painel, palete, estante com kanban) has an internal níveis × colunas
-// grid; items optionally pin to a specific cell (Item.locationLevel/locationColumn).
+// grid; items optionally pin to one or more cells (Item.locationCells).
 enum WarehouseLocationType {
   ESTANTE
   ESTANTE_DUPLA
@@ -1177,11 +1176,7 @@ model Order {
   items                 OrderItem[]
   installments          OrderInstallment[]
   fiscalDocuments       FiscalDocument[]     @relation("ORDER_FISCAL_DOCUMENTS")
-  budgets               File[]               @relation("ORDER_BUDGETS")
-  invoices              File[]               @relation("ORDER_INVOICES")
-  invoiceReimbursements File[]               @relation("ORDER_INVOICE_REIMBURSEMENTS")
   receipts              File[]               @relation("ORDER_RECEIPTS")
-  reimbursements        File[]               @relation("ORDER_REIMBURSEMENTS")
 
   @@index([status])
   @@index([statusOrder])
@@ -1540,7 +1535,6 @@ model TaskQuote {
   statusOrder         Int                       @default(1)
   guaranteeYears      Int?
   customGuaranteeText String?
-  layoutFileId        String?
   createdAt           DateTime                  @default(now())
   updatedAt           DateTime                  @updatedAt
   billingApprovedAt   DateTime?
@@ -1548,14 +1542,13 @@ model TaskQuote {
   customForecastDays  Int?
   simultaneousTasks   Int?
   task                Task?                     @relation("TASK_QUOTE")
-  layoutFile          File?                     @relation("QUOTE_LAYOUT", fields: [layoutFileId], references: [id])
+  layoutFiles         File[]                    @relation("QUOTE_LAYOUT")
   services            TaskQuoteService[]        @relation("QUOTE_SERVICES")
   customerConfigs     TaskQuoteCustomerConfig[] @relation("QuoteCustomerConfig")
 
   @@index([status])
   @@index([statusOrder])
   @@index([expiresAt])
-  @@index([layoutFileId])
 }
 
 model TaskQuoteService {

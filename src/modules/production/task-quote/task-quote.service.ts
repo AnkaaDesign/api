@@ -263,9 +263,11 @@ export class TaskQuoteService {
             // Guarantee Terms
             guaranteeYears: data.guaranteeYears || null,
             customGuaranteeText: data.customGuaranteeText || null,
-            // Layout File
-            ...(data.layoutFileId && {
-              layoutFile: { connect: { id: data.layoutFileId } },
+            // Layout Files (max 2)
+            ...(data.layoutFileIds !== undefined && {
+              layoutFiles: {
+                connect: (data.layoutFileIds ?? []).map((id: string) => ({ id })),
+              },
             }),
             simultaneousTasks: data.simultaneousTasks || null,
             customForecastDays: data.customForecastDays || null,
@@ -313,7 +315,7 @@ export class TaskQuoteService {
               },
             },
             task: true,
-            layoutFile: true,
+            layoutFiles: true,
             customerConfigs: {
               include: {
                 customer: {
@@ -426,7 +428,7 @@ export class TaskQuoteService {
               },
             },
             task: true,
-            layoutFile: true,
+            layoutFiles: true,
             customerConfigs: {
               include: {
                 customer: {
@@ -808,11 +810,11 @@ export class TaskQuoteService {
             ...(data.customGuaranteeText !== undefined && {
               customGuaranteeText: data.customGuaranteeText,
             }),
-            // Layout File
-            ...(data.layoutFileId !== undefined && {
-              layoutFile: data.layoutFileId
-                ? { connect: { id: data.layoutFileId } }
-                : { disconnect: true },
+            // Layout Files (max 2) — `set` replaces the relation wholesale ([] clears)
+            ...(data.layoutFileIds !== undefined && {
+              layoutFiles: {
+                set: (data.layoutFileIds ?? []).map((id: string) => ({ id })),
+              },
             }),
             ...(data.simultaneousTasks !== undefined && {
               simultaneousTasks: data.simultaneousTasks,
@@ -845,7 +847,7 @@ export class TaskQuoteService {
               },
             },
             task: true,
-            layoutFile: true,
+            layoutFiles: true,
             customerConfigs: {
               include: {
                 customer: {
@@ -856,13 +858,24 @@ export class TaskQuoteService {
           },
         });
 
+        // Derive the layout file id-list so changelog tracks it as ONE field
+        // (the relation itself is an array of File objects).
+        const oldEntityForTracking = {
+          ...(existing as any),
+          layoutFileIds: ((existing as any).layoutFiles || []).map((f: any) => f.id),
+        };
+        const newEntityForTracking = {
+          ...(updatedQuote as any),
+          layoutFileIds: ((updatedQuote as any).layoutFiles || []).map((f: any) => f.id),
+        };
+
         // Track individual field changes
         await trackAndLogFieldChanges({
           changeLogService: this.changeLogService,
           entityType: ENTITY_TYPE.TASK_QUOTE,
           entityId: id,
-          oldEntity: existing,
-          newEntity: updatedQuote,
+          oldEntity: oldEntityForTracking,
+          newEntity: newEntityForTracking,
           fieldsToTrack: [
             'subtotal',
             'total',
@@ -870,7 +883,7 @@ export class TaskQuoteService {
             'status',
             'guaranteeYears',
             'customGuaranteeText',
-            'layoutFileId',
+            'layoutFileIds',
             'customForecastDays',
             'budgetNumber',
             'simultaneousTasks',
@@ -1264,7 +1277,7 @@ export class TaskQuoteService {
               },
             },
             task: true,
-            layoutFile: true,
+            layoutFiles: true,
             customerConfigs: {
               include: {
                 customer: {
@@ -1281,9 +1294,9 @@ export class TaskQuoteService {
 
       // Reconcile the "Em Negociação" SO whenever this update changed the
       // quote status (explicit caller status, or the auto-revert-to-PENDING
-      // branch above triggered by value-affecting edits) OR the layoutFile —
+      // branch above triggered by value-affecting edits) OR the layout files —
       // uploading/clearing a layout flips the "has artwork" check.
-      if (data.status !== undefined || (data as any).layoutFileId !== undefined) {
+      if (data.status !== undefined || (data as any).layoutFileIds !== undefined) {
         const task = await this.prisma.task.findFirst({
           where: { quoteId: id },
           select: { id: true },
@@ -1318,6 +1331,7 @@ export class TaskQuoteService {
           services: { orderBy: { position: 'asc' } },
           task: { select: { id: true } },
           customerConfigs: { select: { id: true, customerId: true } },
+          layoutFiles: { select: { id: true } },
         },
       });
 
@@ -1353,7 +1367,7 @@ export class TaskQuoteService {
         customGuaranteeText: existing.customGuaranteeText,
         customForecastDays: existing.customForecastDays,
         simultaneousTasks: existing.simultaneousTasks,
-        layoutFileId: existing.layoutFileId,
+        layoutFileIds: ((existing as any).layoutFiles || []).map((f: any) => f.id),
         services: existing.services.map(service => ({
           description: service.description,
           amount: service.amount,
@@ -2445,7 +2459,7 @@ export class TaskQuoteService {
           budgetNumber: true,
           createdAt: true,
           updatedAt: true,
-          layoutFile: {
+          layoutFiles: {
             select: { id: true, filename: true, originalName: true, mimetype: true, size: true },
           },
           services: {
@@ -2676,7 +2690,7 @@ export class TaskQuoteService {
         where: { id },
         include: {
           services: true,
-          layoutFile: true,
+          layoutFiles: true,
           customerConfigs: {
             include: {
               customer: { select: { id: true, fantasyName: true, cnpj: true } },

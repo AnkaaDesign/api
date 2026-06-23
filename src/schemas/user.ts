@@ -591,12 +591,8 @@ export const userIncludeSchema = z
       .union([
         z.boolean(),
         z.object({
-          include: z
-            .object({
-              users: z.boolean().optional(),
-              tasks: z.boolean().optional(),
-            })
-            .optional(),
+          include: z.any().optional(),
+          select: z.any().optional(),
         }),
       ])
       .optional(),
@@ -604,12 +600,8 @@ export const userIncludeSchema = z
       .union([
         z.boolean(),
         z.object({
-          include: z
-            .object({
-              users: z.boolean().optional(),
-              tasks: z.boolean().optional(),
-            })
-            .optional(),
+          include: z.any().optional(),
+          select: z.any().optional(),
         }),
       ])
       .optional(),

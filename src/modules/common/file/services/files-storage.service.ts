@@ -31,11 +31,7 @@ export interface FilesFolderMapping {
   serviceOrderCheckoutFiles: string;
 
   // Entity-specific folders - Orders
-  orderBudgets: string;
-  orderInvoices: string;
   orderReceipts: string;
-  orderReimbursements: string;
-  orderNfeReimbursements: string;
 
   // Entity-specific folders - Airbrushing
   airbrushingArtworks: string;
@@ -134,11 +130,7 @@ export class FilesStorageService {
     serviceOrderCheckoutFiles: 'Checkout',
 
     // Order folders (under Fornecedores/{supplierName}/)
-    orderBudgets: 'Orcamentos',
-    orderInvoices: 'Notas Fiscais',
     orderReceipts: 'Comprovantes',
-    orderReimbursements: 'Reembolsos',
-    orderNfeReimbursements: 'Notas Fiscais Reembolso',
 
     // Airbrushing folders (under Clientes/{customerName}/)
     airbrushingArtworks: 'Aerografias',
@@ -273,11 +265,7 @@ export class FilesStorageService {
    * Contexts that belong under Fornecedores/{supplierName}/
    */
   private readonly supplierContexts: ReadonlySet<keyof FilesFolderMapping> = new Set([
-    'orderBudgets',
-    'orderInvoices',
     'orderReceipts',
-    'orderReimbursements',
-    'orderNfeReimbursements',
     'supplierLogo',
   ]);
 
@@ -676,11 +664,7 @@ export class FilesStorageService {
         'taskNfeReimbursements',
       ],
       order: [
-        'orderBudgets',
-        'orderInvoices',
         'orderReceipts',
-        'orderReimbursements',
-        'orderNfeReimbursements',
       ],
       customer: ['customerLogo'],
       supplier: ['supplierLogo'],
@@ -734,12 +718,7 @@ export class FilesStorageService {
       }
 
       if (entityType.toLowerCase() === 'order') {
-        switch (category) {
-          case FileTypeCategory.DOCUMENT:
-            return 'orderBudgets';
-          default:
-            return availableContexts[0] as keyof FilesFolderMapping;
-        }
+        return 'orderReceipts';
       }
 
       return availableContexts[0] as keyof FilesFolderMapping;

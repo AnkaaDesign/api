@@ -1113,8 +1113,6 @@ export class FileService {
             taskBudgets: true,
             taskInvoices: true,
             taskReceipts: true,
-            orderBudgets: true,
-            orderInvoices: true,
             orderReceipts: true,
             airbrushingReceipts: true,
             airbrushingInvoices: true,
@@ -1133,8 +1131,6 @@ export class FileService {
             (associations.taskBudgets?.length || 0) > 0 ||
             (associations.taskInvoices?.length || 0) > 0 ||
             (associations.taskReceipts?.length || 0) > 0 ||
-            (associations.orderBudgets?.length || 0) > 0 ||
-            (associations.orderInvoices?.length || 0) > 0 ||
             (associations.orderReceipts?.length || 0) > 0 ||
             (associations.airbrushingReceipts?.length || 0) > 0 ||
             (associations.airbrushingInvoices?.length || 0) > 0 ||
@@ -1422,8 +1418,6 @@ export class FileService {
               taskBudgets: true,
               taskInvoices: true,
               taskReceipts: true,
-              orderBudgets: true,
-              orderInvoices: true,
               orderReceipts: true,
               airbrushingReceipts: true,
               airbrushingInvoices: true,
@@ -1442,8 +1436,6 @@ export class FileService {
               (associations.taskBudgets?.length || 0) > 0 ||
               (associations.taskInvoices?.length || 0) > 0 ||
               (associations.taskReceipts?.length || 0) > 0 ||
-              (associations.orderBudgets?.length || 0) > 0 ||
-              (associations.orderInvoices?.length || 0) > 0 ||
               (associations.orderReceipts?.length || 0) > 0 ||
               (associations.airbrushingReceipts?.length || 0) > 0 ||
               (associations.airbrushingInvoices?.length || 0) > 0 ||

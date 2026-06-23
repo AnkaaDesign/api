@@ -460,7 +460,9 @@ export const warningCreateSchema = z
     hrNotes: createDescriptionSchema(0, 1000).nullable().optional(),
     resolvedAt: z.coerce.date().nullable().optional(),
     // Dias de suspensão (severity = SUSPENSION). CLT art. 474 limita a 30 dias.
+    // z.coerce.number() handles FormData string values (e.g. "5" → 5).
     suspensionDays: z
+      .coerce
       .number()
       .int('Dias de suspensão deve ser um número inteiro')
       .min(1, 'Dias de suspensão deve ser ao menos 1')
@@ -496,6 +498,7 @@ export const warningUpdateSchema = z
     hrNotes: createDescriptionSchema(0, 1000).nullable().optional(),
     resolvedAt: z.coerce.date().nullable().optional(),
     suspensionDays: z
+      .coerce
       .number()
       .int('Dias de suspensão deve ser um número inteiro')
       .min(1, 'Dias de suspensão deve ser ao menos 1')
@@ -573,5 +576,9 @@ export const mapToWarningFormData = createMapToFormDataHelper<Warning, WarningUp
     followUpDate: warning.followUpDate,
     hrNotes: warning.hrNotes,
     resolvedAt: warning.resolvedAt,
+    suspensionDays: warning.suspensionDays,
+    terminationId: warning.terminationId,
+    witnessIds: (warning.witness as any[])?.map((w: any) => w.id) ?? [],
+    attachmentIds: (warning.attachments as any[])?.map((a: any) => a.id) ?? [],
   }),
 );

@@ -98,7 +98,7 @@ export const taskQuoteIncludeSchema = z
       ])
       .optional(),
     services: z.boolean().optional(),
-    layoutFile: z.boolean().optional(),
+    layoutFiles: z.boolean().optional(),
     customerConfigs: z
       .union([
         z.boolean(),
@@ -506,8 +506,8 @@ export const taskQuoteCreateNestedSchema = z.object({
   // Custom Forecast - manual override for production days displayed in budget (1-30 days)
   customForecastDays: z.number().int().min(1).max(30).optional().nullable(),
 
-  // Layout File
-  layoutFileId: z.string().uuid().optional().nullable(),
+  // Layout Files (max 2, ordered File ids)
+  layoutFileIds: z.array(z.string().uuid()).max(2).optional().nullable(),
 
   simultaneousTasks: simultaneousTasksSchema,
   customerConfigs: z
@@ -537,8 +537,8 @@ export const taskQuoteCreateSchema = z.object({
   // Custom Forecast - manual override for production days displayed in budget (1-30 days)
   customForecastDays: z.number().int().min(1).max(30).optional().nullable(),
 
-  // Layout File
-  layoutFileId: z.string().uuid().optional().nullable(),
+  // Layout Files (max 2, ordered File ids)
+  layoutFileIds: z.array(z.string().uuid()).max(2).optional().nullable(),
 
   simultaneousTasks: simultaneousTasksSchema,
   customerConfigs: z
@@ -563,8 +563,8 @@ export const taskQuoteUpdateSchema = z.object({
   // Custom Forecast - manual override for production days displayed in budget (1-30 days)
   customForecastDays: z.number().int().min(1).max(30).optional().nullable(),
 
-  // Layout File
-  layoutFileId: z.string().uuid().optional().nullable(),
+  // Layout Files (max 2, ordered File ids)
+  layoutFileIds: z.array(z.string().uuid()).max(2).optional().nullable(),
 
   simultaneousTasks: simultaneousTasksSchema,
   customerConfigs: z.array(taskQuoteCustomerConfigCreateNestedSchema).optional(),

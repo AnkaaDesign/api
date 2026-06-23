@@ -37,7 +37,7 @@ export const QUOTE_VALUE_REVERTABLE_STATUSES: TASK_QUOTE_STATUS[] = [
 export const QUOTE_SAFE_AFTER_BILLING_FIELDS = new Set<string>([
   'expiresAt',
   'customGuaranteeText',
-  'layoutFileId',
+  'layoutFileIds',
   'status',
   'guaranteeYears',
   'customForecastDays',

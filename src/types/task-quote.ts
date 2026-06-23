@@ -48,9 +48,8 @@ export interface TaskQuote extends BaseEntity {
   // Custom Forecast - manual override for production days displayed in budget
   customForecastDays: number | null;
 
-  // Layout File
-  layoutFileId: string | null;
-  layoutFile?: File;
+  // Layout Files (max 2)
+  layoutFiles?: File[];
 
   simultaneousTasks: number | null;
 
@@ -82,7 +81,7 @@ export interface TaskQuoteIncludes {
             | { select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean } };
         };
       };
-  layoutFile?: boolean;
+  layoutFiles?: boolean;
   customerConfigs?:
     | boolean
     | {
