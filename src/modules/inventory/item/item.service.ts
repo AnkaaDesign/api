@@ -3063,6 +3063,19 @@ export class ItemService {
     include?: ItemInclude,
     userId?: string,
   ) {
+    // 0. Validate input: the target must not appear in the source list, and the
+    // source list must be non-empty after de-duplication. Without this guard the
+    // target item could be deleted in step 15, destroying the merge result.
+    const sourceItemIds = [...new Set(data.sourceItemIds)].filter(
+      id => id !== data.targetItemId,
+    );
+    if (sourceItemIds.length === 0) {
+      throw new BadRequestException(
+        'Selecione ao menos um item de origem diferente do item principal para mesclar',
+      );
+    }
+    data = { ...data, sourceItemIds };
+
     return await this.prisma.$transaction(async (tx: PrismaTransaction) => {
       // 1. Fetch target item and source items
       const targetItem = await tx.item.findUnique({
@@ -3101,6 +3114,9 @@ export class ItemService {
           formulaComponents: true,
           externalOperationItems: true,
           brands: true,
+          paintBrands: true,
+          paintTypes: true,
+          requiredByFispqs: true,
           category: true,
           supplier: true,
         },
@@ -3124,7 +3140,22 @@ export class ItemService {
           orderItems: 0,
           relatedItems: 0,
           measures: 0,
+          measuresDropped: 0,
+          consumptionSnapshots: 0,
           barcodes: 0,
+          maintenanceItemsNeeded: 0,
+          formulaComponents: 0,
+          externalOperationItems: 0,
+          ppeDeliveries: 0,
+          ppeScheduleItems: 0,
+          maintenance: 0,
+          maintenanceSchedules: 0,
+          orderRules: 0,
+          fispq: 0,
+          brands: 0,
+          paintBrands: 0,
+          paintTypes: 0,
+          requiredByFispqs: 0,
         },
         quantityStrategy: 'sum',
         totalQuantityMerged: 0,
@@ -3155,35 +3186,70 @@ export class ItemService {
         }
       }
 
-      // 5. Merge measures - avoid duplicates based on type
+      // 5. Merge measures. An item's identity is the full (measureType, value,
+      // unit) tuple, NOT just the type — two items that share a measureType but
+      // differ in value (e.g. DIAMETER 2,5mm vs 4,6mm) are genuinely different.
+      // We only skip a source measure that is an exact duplicate; a same-type
+      // but different-value measure is a CONFLICT: the target's value is kept
+      // (the survivor keeps its identity) and the dropped value is recorded so
+      // the loss is visible in the changelog instead of silently vanishing.
+      const targetMeasures = await tx.measure.findMany({
+        where: { itemId: data.targetItemId },
+      });
+      const droppedMeasures: Array<{
+        itemId: string;
+        itemName: string;
+        measureType: string;
+        value: number | null;
+        unit: string | null;
+        keptValue: number | null;
+        keptUnit: string | null;
+      }> = [];
       for (const sourceItem of sourceItems) {
-        if (sourceItem.measures.length > 0) {
-          for (const measure of sourceItem.measures) {
-            // Check if target already has a measure of this type
-            const existingMeasure = await tx.measure.findFirst({
-              where: {
+        for (const measure of sourceItem.measures) {
+          const sameType = targetMeasures.find(m => m.measureType === measure.measureType);
+          const exactDuplicate =
+            sameType && sameType.value === measure.value && sameType.unit === measure.unit;
+          if (exactDuplicate) {
+            continue; // identical measure already on target — nothing to do
+          }
+          if (sameType) {
+            // Same type, different value/unit: keep target's, record the drop.
+            droppedMeasures.push({
+              itemId: sourceItem.id,
+              itemName: sourceItem.name,
+              measureType: measure.measureType,
+              value: measure.value,
+              unit: measure.unit,
+              keptValue: sameType.value,
+              keptUnit: sameType.unit,
+            });
+            mergeDetails.mergedRelations.measuresDropped++;
+          } else {
+            // Target has no measure of this type — adopt the source's.
+            const created = await tx.measure.create({
+              data: {
                 itemId: data.targetItemId,
+                value: measure.value,
+                unit: measure.unit,
                 measureType: measure.measureType,
               },
             });
-
-            if (!existingMeasure) {
-              await tx.measure.create({
-                data: {
-                  itemId: data.targetItemId,
-                  value: measure.value,
-                  unit: measure.unit,
-                  measureType: measure.measureType,
-                },
-              });
-              mergeDetails.mergedRelations.measures++;
-            }
+            targetMeasures.push(created);
+            mergeDetails.mergedRelations.measures++;
           }
-          // Delete old measures
-          await tx.measure.deleteMany({
-            where: { itemId: sourceItem.id },
-          });
         }
+        // Remaining source measures are deleted with the source item (cascade),
+        // but delete explicitly to be safe.
+        await tx.measure.deleteMany({ where: { itemId: sourceItem.id } });
+      }
+      if (droppedMeasures.length > 0) {
+        mergeDetails.conflicts = {
+          ...(mergeDetails.conflicts && !Array.isArray(mergeDetails.conflicts)
+            ? mergeDetails.conflicts
+            : {}),
+          measures: droppedMeasures,
+        };
       }
 
       // 6. Merge barcodes (combine unique barcodes)
@@ -3233,33 +3299,165 @@ export class ItemService {
         }
       }
 
-      // 10. Update maintenance items references
-      for (const sourceItem of sourceItems) {
-        if (sourceItem.maintenanceItemsNeeded.length > 0) {
-          await tx.maintenanceItem.updateMany({
-            where: { itemId: sourceItem.id },
-            data: { itemId: data.targetItemId },
-          });
-        }
+      // 10. Update maintenance items references (items needed BY a maintenance)
+      {
+        const moved = await tx.maintenanceItem.updateMany({
+          where: { itemId: { in: data.sourceItemIds } },
+          data: { itemId: data.targetItemId },
+        });
+        mergeDetails.mergedRelations.maintenanceItemsNeeded += moved.count;
       }
 
       // 11. Update formula components references
-      for (const sourceItem of sourceItems) {
-        if (sourceItem.formulaComponents.length > 0) {
-          await tx.paintFormulaComponent.updateMany({
-            where: { itemId: sourceItem.id },
-            data: { itemId: data.targetItemId },
+      {
+        const moved = await tx.paintFormulaComponent.updateMany({
+          where: { itemId: { in: data.sourceItemIds } },
+          data: { itemId: data.targetItemId },
+        });
+        mergeDetails.mergedRelations.formulaComponents += moved.count;
+      }
+
+      // 12. Update external operation items references
+      {
+        const moved = await tx.externalOperationItem.updateMany({
+          where: { itemId: { in: data.sourceItemIds } },
+          data: { itemId: data.targetItemId },
+        });
+        mergeDetails.mergedRelations.externalOperationItems += moved.count;
+      }
+
+      // 12a. Move PPE delivery history (EPI deliveries to employees). These are
+      // cascade-deleted with the source item, so they MUST be reassigned first.
+      {
+        const moved = await tx.ppeDelivery.updateMany({
+          where: { itemId: { in: data.sourceItemIds } },
+          data: { itemId: data.targetItemId },
+        });
+        mergeDetails.mergedRelations.ppeDeliveries += moved.count;
+      }
+
+      // 12b. Move maintenance records (the item being maintained).
+      {
+        const moved = await tx.maintenance.updateMany({
+          where: { itemId: { in: data.sourceItemIds } },
+          data: { itemId: data.targetItemId },
+        });
+        mergeDetails.mergedRelations.maintenance += moved.count;
+      }
+
+      // 12c. Move maintenance schedules referencing the item.
+      {
+        const moved = await tx.maintenanceSchedule.updateMany({
+          where: { itemId: { in: data.sourceItemIds } },
+          data: { itemId: data.targetItemId },
+        });
+        mergeDetails.mergedRelations.maintenanceSchedules += moved.count;
+      }
+
+      // 12d. Move automatic order rules.
+      {
+        const moved = await tx.orderRule.updateMany({
+          where: { itemId: { in: data.sourceItemIds } },
+          data: { itemId: data.targetItemId },
+        });
+        mergeDetails.mergedRelations.orderRules += moved.count;
+      }
+
+      // 12e. Move PPE delivery schedule line items. The table has a unique
+      // (scheduleId, ppeType, itemId) constraint, so reassign only when the
+      // target does not already occupy that slot; otherwise drop the duplicate.
+      {
+        const scheduleItems = await tx.ppeScheduleItem.findMany({
+          where: { itemId: { in: data.sourceItemIds } },
+        });
+        for (const si of scheduleItems) {
+          const existing = await tx.ppeScheduleItem.findFirst({
+            where: {
+              scheduleId: si.scheduleId,
+              ppeType: si.ppeType,
+              itemId: data.targetItemId,
+            },
           });
+          if (existing) {
+            await tx.ppeScheduleItem.delete({ where: { id: si.id } });
+          } else {
+            await tx.ppeScheduleItem.update({
+              where: { id: si.id },
+              data: { itemId: data.targetItemId },
+            });
+            mergeDetails.mergedRelations.ppeScheduleItems++;
+          }
         }
       }
 
-      // 12. Update external withdrawal items references
-      for (const sourceItem of sourceItems) {
-        if (sourceItem.externalOperationItems.length > 0) {
-          await tx.externalOperationItem.updateMany({
-            where: { itemId: sourceItem.id },
-            data: { itemId: data.targetItemId },
+      // 12f. Move the FISPQ (safety data sheet). itemId is unique (1:1), so it
+      // can only move if the target has none; if both have one the target's is
+      // kept and the source's is cascade-deleted with its item.
+      {
+        const targetFispq = await tx.fispq.findUnique({
+          where: { itemId: data.targetItemId },
+        });
+        if (!targetFispq) {
+          const sourceFispq = await tx.fispq.findFirst({
+            where: { itemId: { in: data.sourceItemIds } },
           });
+          if (sourceFispq) {
+            await tx.fispq.update({
+              where: { id: sourceFispq.id },
+              data: { itemId: data.targetItemId },
+            });
+            mergeDetails.mergedRelations.fispq = 1;
+          }
+        }
+      }
+
+      // 12g. Union many-to-many memberships onto the target before the source
+      // items are deleted (deleting an item drops its join rows). Covers stock
+      // brands, paint-brand/paint-type component links, and "required PPE" FISPQ
+      // links. Connect is idempotent, so existing links are unaffected.
+      {
+        const collectIds = (key: 'brands' | 'paintBrands' | 'paintTypes' | 'requiredByFispqs') =>
+          [...new Set(sourceItems.flatMap((s: any) => (s[key] ?? []).map((r: any) => r.id)))];
+
+        // Brands are also resolvable via conflictResolutions.brands (which does a
+        // `set` in step 14); only auto-union when no explicit resolution is given.
+        if (!data.conflictResolutions?.brands) {
+          const targetBrandIds = new Set(targetItem.brands.map((b: any) => b.id));
+          const newBrandIds = collectIds('brands').filter(id => !targetBrandIds.has(id));
+          if (newBrandIds.length > 0) {
+            await tx.item.update({
+              where: { id: data.targetItemId },
+              data: { brands: { connect: newBrandIds.map(id => ({ id })) } },
+            });
+            mergeDetails.mergedRelations.brands += newBrandIds.length;
+          }
+        }
+
+        const paintBrandIds = collectIds('paintBrands');
+        if (paintBrandIds.length > 0) {
+          await tx.item.update({
+            where: { id: data.targetItemId },
+            data: { paintBrands: { connect: paintBrandIds.map(id => ({ id })) } },
+          });
+          mergeDetails.mergedRelations.paintBrands += paintBrandIds.length;
+        }
+
+        const paintTypeIds = collectIds('paintTypes');
+        if (paintTypeIds.length > 0) {
+          await tx.item.update({
+            where: { id: data.targetItemId },
+            data: { paintTypes: { connect: paintTypeIds.map(id => ({ id })) } },
+          });
+          mergeDetails.mergedRelations.paintTypes += paintTypeIds.length;
+        }
+
+        const requiredByFispqIds = collectIds('requiredByFispqs');
+        if (requiredByFispqIds.length > 0) {
+          await tx.item.update({
+            where: { id: data.targetItemId },
+            data: { requiredByFispqs: { connect: requiredByFispqIds.map(id => ({ id })) } },
+          });
+          mergeDetails.mergedRelations.requiredByFispqs += requiredByFispqIds.length;
         }
       }
 
@@ -3300,8 +3498,28 @@ export class ItemService {
         }
       }
 
-      // 14. Apply conflict resolutions if provided
+      // 14. Apply conflict resolutions if provided. Only an explicit allowlist of
+      // user-owned scalar fields may be written here — derived fields (quantity,
+      // totalPrice, monthlyConsumption, reorder thresholds, ABC/XYZ) are computed
+      // below and must never be set from the payload, and writing an unknown key
+      // would make Prisma throw and abort the whole merge.
       if (data.conflictResolutions && Object.keys(data.conflictResolutions).length > 0) {
+        const ALLOWED_MERGE_FIELDS = new Set([
+          'name',
+          'uniCode',
+          'categoryId',
+          'supplierId',
+          'boxQuantity',
+          'estimatedLeadTime',
+          'shouldAssignToUser',
+          'isActive',
+          'ppeType',
+          'ppeCA',
+          'ppeDeliveryMode',
+          'ppeStandardQuantity',
+          'icms',
+          'ipi',
+        ]);
         const updateData: any = {};
         for (const [field, value] of Object.entries(data.conflictResolutions)) {
           if (value === undefined) continue;
@@ -3314,9 +3532,10 @@ export class ItemService {
                   .filter((id: unknown): id is string => typeof id === 'string')
               : [];
             updateData.brands = { set: brandIds.map((id) => ({ id })) };
-          } else {
+          } else if (ALLOWED_MERGE_FIELDS.has(field)) {
             updateData[field] = value;
           }
+          // Unknown / derived / forced fields are ignored on purpose.
         }
 
         if (Object.keys(updateData).length > 0) {
@@ -3325,6 +3544,72 @@ export class ItemService {
             data: updateData,
           });
         }
+      }
+
+      // 14a. Merge consumption snapshots. ConsumptionSnapshot has a bare itemId
+      // column with NO foreign key, so its rows are neither cascade-deleted with
+      // the source nor auto-reassigned — they would orphan. Merge each source
+      // month into the target (summing), respecting the (itemId, year, month)
+      // unique constraint, then drop any leftovers.
+      {
+        const sourceSnapshots = await tx.consumptionSnapshot.findMany({
+          where: { itemId: { in: data.sourceItemIds } },
+        });
+        for (const snap of sourceSnapshots) {
+          const existing = await tx.consumptionSnapshot.findUnique({
+            where: {
+              itemId_year_month: {
+                itemId: data.targetItemId,
+                year: snap.year,
+                month: snap.month,
+              },
+            },
+          });
+          if (existing) {
+            await tx.consumptionSnapshot.update({
+              where: { id: existing.id },
+              data: {
+                totalConsumption: existing.totalConsumption + snap.totalConsumption,
+                consumptionCount: existing.consumptionCount + snap.consumptionCount,
+                normalizedConsumption:
+                  existing.normalizedConsumption + snap.normalizedConsumption,
+              },
+            });
+            await tx.consumptionSnapshot.delete({ where: { id: snap.id } });
+          } else {
+            await tx.consumptionSnapshot.update({
+              where: { id: snap.id },
+              data: { itemId: data.targetItemId },
+            });
+          }
+          mergeDetails.mergedRelations.consumptionSnapshots++;
+        }
+      }
+
+      // 14b. Recompute the target's derived metrics now that quantity, prices,
+      // activities, orders and snapshots have all moved to it. Step 3 updated
+      // quantity with a raw write that bypassed the repository recompute, so
+      // monthlyConsumption / reorderPoint / maxQuantity / reorderQuantity would
+      // otherwise stay stale. recomputeItemMetrics is transaction-safe.
+      await this.itemRecomputeService.recomputeItemMetrics(data.targetItemId, tx);
+
+      // 14c. Recompute totalPrice (denormalized = latest price × final quantity),
+      // which no recompute helper covers. Read the post-merge latest price and
+      // quantity directly so it reflects the merged price history.
+      {
+        const latestPrice = await tx.monetaryValue.findFirst({
+          where: { itemId: data.targetItemId },
+          orderBy: { createdAt: 'desc' },
+          select: { value: true },
+        });
+        const finalItem = await tx.item.findUnique({
+          where: { id: data.targetItemId },
+          select: { quantity: true },
+        });
+        await tx.item.update({
+          where: { id: data.targetItemId },
+          data: { totalPrice: (latestPrice?.value ?? 0) * (finalItem?.quantity ?? 0) },
+        });
       }
 
       // 15. Delete source items
