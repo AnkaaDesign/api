@@ -511,10 +511,12 @@ export class ZodValidationPipe implements PipeTransform {
           continue;
         }
 
-        // CRITICAL: Convert empty strings to null for nullable fields
-        // FormData converts null values to empty strings, we need to convert back
-        // This handles: UUID fields (logoId), enum fields (streetType, state), etc.
-        if (value === '' && this.shouldConvertEmptyToNull(key)) {
+        // CRITICAL: Convert the null sentinel to null for nullable fields.
+        // FormData has no null type, so our web form-data-helper serializes JS null
+        // as the literal string "null" (older callers sent ""). Convert both back so
+        // nullable Zod fields validate. Handles: UUID fields (logoId, paymentResponsibleId),
+        // enum fields (streetType, state), nullable dates (paymentFirstDueDate), etc.
+        if ((value === '' || value === 'null') && this.shouldConvertEmptyToNull(key)) {
           fixed[key] = null;
           continue;
         }
