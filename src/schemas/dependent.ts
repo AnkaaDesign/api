@@ -10,6 +10,7 @@ import {
   createUuidWhereSchema,
   createDateWhereSchema,
   mergeAndConditions,
+  normalizeSearchTerm,
 } from './common';
 import { DEPENDENT_RELATIONSHIP } from '@constants';
 
@@ -144,9 +145,9 @@ const dependentTransform = (data: any) => {
     const searchTerm = data.searchingFor.trim();
     andConditions.push({
       OR: [
-        { name: { contains: searchTerm, mode: 'insensitive' } },
-        { cpf: { contains: searchTerm, mode: 'insensitive' } },
-        { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { cpfNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
       ],
     });
     delete data.searchingFor;

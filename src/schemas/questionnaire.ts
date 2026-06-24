@@ -6,7 +6,9 @@
 // create/update + query), trimmed to the core workflow (no batch / analytics).
 
 import { z } from 'zod';
-import { orderByDirectionSchema, normalizeOrderBy } from './common';
+import { orderByDirectionSchema, normalizeOrderBy,
+  normalizeSearchTerm,
+} from './common';
 
 // =====================
 // Enum schemas
@@ -274,8 +276,8 @@ export const questionnaireGroupGetManySchema = z
     if (searchingFor) {
       and.push({
         OR: [
-          { name: { contains: searchingFor, mode: 'insensitive' } },
-          { description: { contains: searchingFor, mode: 'insensitive' } },
+          { nameNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+          { descriptionNormalized: { contains: normalizeSearchTerm(searchingFor) } },
         ],
       });
     }
@@ -301,8 +303,8 @@ export const questionnaireQuestionGetManySchema = z
     if (searchingFor) {
       and.push({
         OR: [
-          { title: { contains: searchingFor, mode: 'insensitive' } },
-          { description: { contains: searchingFor, mode: 'insensitive' } },
+          { titleNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+          { descriptionNormalized: { contains: normalizeSearchTerm(searchingFor) } },
         ],
       });
     }
@@ -329,8 +331,8 @@ export const questionnaireGetManySchema = z
     if (searchingFor) {
       and.push({
         OR: [
-          { name: { contains: searchingFor, mode: 'insensitive' } },
-          { description: { contains: searchingFor, mode: 'insensitive' } },
+          { nameNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+          { descriptionNormalized: { contains: normalizeSearchTerm(searchingFor) } },
         ],
       });
     }

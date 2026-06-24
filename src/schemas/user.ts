@@ -13,6 +13,7 @@ import {
   createNameSchema,
   nullableDate,
   createDateSchema,
+  normalizeSearchTerm,
 } from './common';
 import { cleanCPF } from '../utils/cleaners';
 import { isValidCPF } from '../utils/validators';
@@ -1291,14 +1292,14 @@ const userTransform = (data: any) => {
     } else {
       // Otherwise, search across text fields
       const orConditions: any[] = [
-        { name: { contains: searchTerm, mode: 'insensitive' } },
-        { email: { contains: searchTerm, mode: 'insensitive' } },
-        { phone: { contains: searchTerm } },
-        { cpf: { contains: searchTerm } },
-        { pis: { contains: searchTerm } },
-        { position: { is: { name: { contains: searchTerm, mode: 'insensitive' } } } },
-        { sector: { is: { name: { contains: searchTerm, mode: 'insensitive' } } } },
-        { ledSector: { is: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+        { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { emailNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { phoneNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { cpfNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { pisNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { position: { is: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
+        { sector: { is: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
+        { ledSector: { is: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
       ];
 
       andConditions.push({ OR: orConditions });

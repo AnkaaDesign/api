@@ -11,6 +11,7 @@ import {
   createBooleanWhereSchema,
   createDateWhereSchema,
   mergeAndConditions,
+  normalizeSearchTerm,
 } from './common';
 
 // Paleta fixa de cores dos post-its (cores nomeadas, render no front).
@@ -80,7 +81,7 @@ const postitTransform = (data: any) => {
   const andConditions: any[] = [];
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      content: { contains: data.searchingFor.trim(), mode: 'insensitive' },
+      contentNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) },
     });
     delete data.searchingFor;
   }

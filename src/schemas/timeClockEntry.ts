@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
 // Note: Time clock entries are now managed internally without external integrations
-import { dateRangeSchema } from './common';
+import { dateRangeSchema,
+  normalizeSearchTerm,
+} from './common';
 
 // Time validation - HH:MM format
 export const timeSchema = z
@@ -151,12 +153,12 @@ export const timeClockEntryQuerySchema = timeClockEntryQueryBaseSchema.transform
       OR: [
         {
           user: {
-            name: { contains: data.searchingFor, mode: 'insensitive' },
+            nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) },
           },
         },
         {
           user: {
-            cpf: { contains: data.searchingFor },
+            cpfNormalized: { contains: normalizeSearchTerm(data.searchingFor) },
           },
         },
       ],

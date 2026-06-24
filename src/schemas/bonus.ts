@@ -9,6 +9,7 @@ import {
   normalizeOrderBy,
   moneySchema,
   nullableDate,
+  normalizeSearchTerm,
 } from './common';
 import type { Bonus } from '@types';
 
@@ -378,7 +379,7 @@ const bonusTransform = (data: any) => {
       OR: [
         { year: { equals: parseInt(searchTerm) || undefined } },
         { month: { equals: parseInt(searchTerm) || undefined } },
-        { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
       ],
     };
     delete data.searchingFor;

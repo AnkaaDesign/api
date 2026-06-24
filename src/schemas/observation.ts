@@ -1,7 +1,9 @@
 // packages/schemas/src/observation.ts
 
 import { z } from 'zod';
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy,
+  normalizeSearchTerm,
+} from './common';
 import type { Observation } from '@types';
 
 // =====================
@@ -251,9 +253,9 @@ const observationTransform = (data: any) => {
   if (searchingFor) {
     andConditions.push({
       OR: [
-        { description: { contains: searchingFor, mode: 'insensitive' } },
-        { task: { name: { contains: searchingFor, mode: 'insensitive' } } },
-        { task: { serialNumber: { contains: searchingFor, mode: 'insensitive' } } },
+        { descriptionNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+        { task: { nameNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
+        { task: { serialNumberNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
       ],
     });
   }

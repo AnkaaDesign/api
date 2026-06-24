@@ -1,7 +1,9 @@
 // packages/schemas/src/economic-activity.ts
 
 import { z } from 'zod';
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy,
+  normalizeSearchTerm,
+} from './common';
 import type { EconomicActivity } from '@types';
 
 // =====================
@@ -199,8 +201,8 @@ const economicActivityTransform = (data: any): any => {
   if (searchingFor) {
     andConditions.push({
       OR: [
-        { code: { contains: searchingFor, mode: 'insensitive' } },
-        { description: { contains: searchingFor, mode: 'insensitive' } },
+        { codeNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+        { descriptionNormalized: { contains: normalizeSearchTerm(searchingFor) } },
       ],
     });
   }

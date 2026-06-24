@@ -6,6 +6,7 @@ import {
   orderByDirectionSchema,
   normalizeOrderBy,
   createNameSchema,
+  normalizeSearchTerm,
 } from './common';
 import type { Truck } from '@types';
 import { TRUCK_SPOT, TRUCK_CATEGORY, IMPLEMENT_TYPE } from '@constants';
@@ -226,11 +227,11 @@ const truckTransform = (data: any): any => {
     andConditions.push({
       OR: [
         // Direct truck fields
-        { plate: { contains: searchTerm, mode: 'insensitive' } },
-        { chassisNumber: { contains: searchTerm, mode: 'insensitive' } },
+        { plateNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { chassisNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } },
         // Related task
-        { task: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        { task: { serialNumber: { contains: searchTerm, mode: 'insensitive' } } },
+        { task: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { task: { serialNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
       ],
     });
     delete data.searchingFor;

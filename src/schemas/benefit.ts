@@ -11,6 +11,7 @@ import {
   createBooleanWhereSchema,
   createDateWhereSchema,
   mergeAndConditions,
+  normalizeSearchTerm,
 } from './common';
 import { BENEFIT_KIND, BENEFIT_ENROLLMENT_STATUS } from '@constants';
 
@@ -285,9 +286,9 @@ const benefitTransform = (data: any) => {
     const searchTerm = data.searchingFor.trim();
     andConditions.push({
       OR: [
-        { name: { contains: searchTerm, mode: 'insensitive' } },
-        { provider: { contains: searchTerm, mode: 'insensitive' } },
-        { notes: { contains: searchTerm, mode: 'insensitive' } },
+        { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { providerNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { notesNormalized: { contains: normalizeSearchTerm(searchTerm) } },
       ],
     });
     delete data.searchingFor;
@@ -342,9 +343,9 @@ const userBenefitTransform = (data: any) => {
     const searchTerm = data.searchingFor.trim();
     andConditions.push({
       OR: [
-        { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        { benefit: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        { notes: { contains: searchTerm, mode: 'insensitive' } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { benefit: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { notesNormalized: { contains: normalizeSearchTerm(searchTerm) } },
       ],
     });
     delete data.searchingFor;

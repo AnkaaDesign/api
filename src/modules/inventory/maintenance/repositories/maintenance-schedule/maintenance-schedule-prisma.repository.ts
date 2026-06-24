@@ -67,7 +67,7 @@ export class MaintenanceSchedulePrismaRepository
       dayOfWeek: databaseEntity.dayOfWeek as WEEK_DAY | null,
       month: databaseEntity.month as MONTH | null,
       customMonths: (databaseEntity.customMonths || []) as MONTH[],
-    } as MaintenanceSchedule;
+    } as unknown as MaintenanceSchedule;
   }
 
   protected mapCreateFormDataToDatabaseCreateInput(

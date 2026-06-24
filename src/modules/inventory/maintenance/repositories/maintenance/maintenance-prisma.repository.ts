@@ -59,7 +59,7 @@ export class MaintenancePrismaRepository
 
   // Abstract method implementations from BaseStringPrismaRepository
   protected mapDatabaseEntityToEntity(databaseEntity: PrismaMaintenance): Maintenance {
-    return databaseEntity as Maintenance;
+    return databaseEntity as unknown as Maintenance;
   }
 
   protected mapCreateFormDataToDatabaseCreateInput(

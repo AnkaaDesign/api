@@ -7,6 +7,7 @@ import {
   normalizeOrderBy,
   quantitySchema,
   toFormData,
+  normalizeSearchTerm,
 } from './common';
 import type { Activity } from '@types';
 import { ACTIVITY_OPERATION, ACTIVITY_REASON } from '@constants';
@@ -707,21 +708,21 @@ const activityTransform = (data: any) => {
     andConditions.push({
       OR: [
         // User name search
-        { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
 
         // Direct item fields
-        { item: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        { item: { uniCode: { contains: searchTerm, mode: 'insensitive' } } },
+        { item: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { item: { uniCodeNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
 
         // Item brand name (nested relation, multi-brand: match any brand)
-        { item: { brands: { some: { name: { contains: searchTerm, mode: 'insensitive' } } } } },
+        { item: { brands: { some: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } } },
 
         // Item category name (nested relation)
-        { item: { category: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+        { item: { category: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
 
         // Item supplier fields (nested relation)
-        { item: { supplier: { fantasyName: { contains: searchTerm, mode: 'insensitive' } } } },
-        { item: { supplier: { corporateName: { contains: searchTerm, mode: 'insensitive' } } } },
+        { item: { supplier: { fantasyNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
+        { item: { supplier: { corporateNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
       ],
     });
     delete data.searchingFor;

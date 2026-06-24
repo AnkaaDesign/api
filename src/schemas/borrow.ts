@@ -7,6 +7,7 @@ import {
   normalizeOrderBy,
   nullableDate,
   toFormData,
+  normalizeSearchTerm,
 } from './common';
 import type { Borrow } from '@types';
 import { BORROW_STATUS } from '@constants';
@@ -654,8 +655,8 @@ const borrowTransform = (data: any) => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { item: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
-        { user: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+        { item: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
       ],
     });
     delete data.searchingFor;

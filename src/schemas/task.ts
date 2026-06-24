@@ -10,6 +10,7 @@ import {
   createDescriptionSchema,
   nullableDate,
   moneySchema,
+  normalizeSearchTerm,
 } from './common';
 import type { Task } from '@types';
 import {
@@ -1322,27 +1323,27 @@ const taskTransform = (data: any): any => {
     andConditions.push({
       OR: [
         // Direct task fields
-        { name: { contains: searchTerm, mode: 'insensitive' } },
-        { serialNumber: { contains: searchTerm, mode: 'insensitive' } },
-        { details: { contains: searchTerm, mode: 'insensitive' } },
+        { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { serialNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { detailsNormalized: { contains: normalizeSearchTerm(searchTerm) } },
         // Related entities
-        { customer: { fantasyName: { contains: searchTerm, mode: 'insensitive' } } },
-        { customer: { corporateName: { contains: searchTerm, mode: 'insensitive' } } },
-        { customer: { cpf: { contains: searchTerm, mode: 'insensitive' } } },
-        { customer: { cnpj: { contains: searchTerm, mode: 'insensitive' } } },
-        { sector: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        { createdBy: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        { observation: { description: { contains: searchTerm, mode: 'insensitive' } } },
+        { customer: { fantasyNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { customer: { corporateNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { customer: { cpfNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { customer: { cnpjNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { sector: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { createdBy: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { observation: { descriptionNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
         // ProductionServiceOrder only has description field, no name field
-        { serviceOrders: { some: { description: { contains: searchTerm, mode: 'insensitive' } } } },
+        { serviceOrders: { some: { descriptionNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
         // Paint relations - search by paint name
-        { generalPainting: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        { generalPainting: { code: { contains: searchTerm, mode: 'insensitive' } } },
-        { logoPaints: { some: { name: { contains: searchTerm, mode: 'insensitive' } } } },
-        { logoPaints: { some: { code: { contains: searchTerm, mode: 'insensitive' } } } },
+        { generalPainting: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { generalPainting: { codeNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { logoPaints: { some: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
+        { logoPaints: { some: { codeNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
         // Truck search - plate, chassisNumber
-        { truck: { plate: { contains: searchTerm, mode: 'insensitive' } } },
-        { truck: { chassisNumber: { contains: searchTerm, mode: 'insensitive' } } },
+        { truck: { plateNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { truck: { chassisNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
       ],
     });
     delete data.searchingFor;

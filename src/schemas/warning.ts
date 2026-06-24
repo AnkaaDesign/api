@@ -13,6 +13,7 @@ import {
   createNullFilterTransform,
   mergeAndConditions,
   createDescriptionSchema,
+  normalizeSearchTerm,
 } from './common';
 import type { Warning } from '@types';
 import { WARNING_CATEGORY, WARNING_SEVERITY } from '@constants';
@@ -328,12 +329,12 @@ const warningTransform = (data: any) => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { reason: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
-        { description: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
-        { hrNotes: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        { reasonNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
+        { descriptionNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
+        { hrNotesNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
         {
           collaborator: {
-            name: { contains: data.searchingFor.trim(), mode: 'insensitive' },
+            nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) },
           },
         },
       ],

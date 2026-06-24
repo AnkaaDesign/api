@@ -12,7 +12,9 @@
 //   - <entity>QuerySchema (?include= for single-entity endpoints)
 
 import { z } from 'zod';
-import { orderByDirectionSchema, normalizeOrderBy, createMapToFormDataHelper } from './common';
+import { orderByDirectionSchema, normalizeOrderBy, createMapToFormDataHelper,
+  normalizeSearchTerm,
+} from './common';
 import type {
   Skill,
   Topic,
@@ -468,8 +470,8 @@ export const skillGetManySchema = z
     if (searchingFor) {
       andConditions.push({
         OR: [
-          { name: { contains: searchingFor, mode: 'insensitive' } },
-          { description: { contains: searchingFor, mode: 'insensitive' } },
+          { nameNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+          { descriptionNormalized: { contains: normalizeSearchTerm(searchingFor) } },
         ],
       });
     }
@@ -505,8 +507,8 @@ export const topicGetManySchema = z
     if (searchingFor) {
       andConditions.push({
         OR: [
-          { title: { contains: searchingFor, mode: 'insensitive' } },
-          { description: { contains: searchingFor, mode: 'insensitive' } },
+          { titleNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+          { descriptionNormalized: { contains: normalizeSearchTerm(searchingFor) } },
         ],
       });
     }
@@ -551,8 +553,8 @@ export const assessmentGetManySchema = z
     if (searchingFor) {
       andConditions.push({
         OR: [
-          { name: { contains: searchingFor, mode: 'insensitive' } },
-          { description: { contains: searchingFor, mode: 'insensitive' } },
+          { nameNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+          { descriptionNormalized: { contains: normalizeSearchTerm(searchingFor) } },
         ],
       });
     }

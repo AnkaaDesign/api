@@ -7,6 +7,7 @@ import {
   normalizeOrderBy,
   dateRangeSchema,
   uuidArraySchema,
+  normalizeSearchTerm,
 } from './common';
 import type { OrderSchedule } from '@types';
 import { SCHEDULE_FREQUENCY, MONTH_OCCURRENCE, WEEK_DAY } from '@constants';
@@ -407,8 +408,8 @@ const orderScheduleTransform = (data: any) => {
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
       OR: [
-        { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
-        { description: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
+        { descriptionNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
       ],
     });
     delete data.searchingFor;

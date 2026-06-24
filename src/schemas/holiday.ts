@@ -1,7 +1,9 @@
 // packages/schemas/src/holiday.ts
 
 import { z } from 'zod';
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy,
+  normalizeSearchTerm,
+} from './common';
 import type { Holiday } from '@types';
 import { HOLIDAY_TYPE } from '@constants';
 
@@ -211,7 +213,7 @@ const holidayTransform = (data: any) => {
   // Text search
   if (searchingFor) {
     andConditions.push({
-      OR: [{ name: { contains: searchingFor, mode: 'insensitive' } }],
+      OR: [{ nameNormalized: { contains: normalizeSearchTerm(searchingFor) } }],
     });
   }
 

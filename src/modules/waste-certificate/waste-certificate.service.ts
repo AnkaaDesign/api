@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { FileService } from '@modules/common/file/file.service';
+import { normalizeSearchTerm } from '@schemas';
 import type {
   WasteCertificateCreateFormData,
   WasteCertificateGetManyFormData,
@@ -29,7 +30,7 @@ export class WasteCertificateService {
     if (status) where.status = status;
     if (searchingFor && searchingFor.trim().length > 0) {
       where.OR = [
-        { description: { contains: searchingFor, mode: 'insensitive' } },
+        { descriptionNormalized: { contains: normalizeSearchTerm(searchingFor) } },
         { volume: { contains: searchingFor, mode: 'insensitive' } },
       ];
     }

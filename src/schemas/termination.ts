@@ -11,6 +11,7 @@ import {
   createDateWhereSchema,
   mergeAndConditions,
   createDescriptionSchema,
+  normalizeSearchTerm,
 } from './common';
 import {
   TERMINATION_TYPE,
@@ -195,9 +196,9 @@ const terminationTransform = (data: any) => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { reason: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
-        { justCauseArticle: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
-        { user: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        { reasonNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
+        { justCauseArticleNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
       ],
     });
     delete data.searchingFor;

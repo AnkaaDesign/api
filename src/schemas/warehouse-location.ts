@@ -5,6 +5,7 @@ import {
   createMapToFormDataHelper,
   orderByDirectionSchema,
   normalizeOrderBy,
+  normalizeSearchTerm,
 } from './common';
 import type { WarehouseLocation } from '@types';
 import { WAREHOUSE_LOCATION_TYPE } from '@constants';
@@ -238,11 +239,11 @@ const warehouseLocationTransform = (data: any): any => {
     const searchTerm = data.searchingFor.trim();
     andConditions.push({
       OR: [
-        { name: { contains: searchTerm, mode: 'insensitive' } },
-        { section: { contains: searchTerm, mode: 'insensitive' } },
-        { code: { contains: searchTerm, mode: 'insensitive' } },
-        { description: { contains: searchTerm, mode: 'insensitive' } },
-        { items: { some: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+        { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { sectionNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { codeNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { descriptionNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { items: { some: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
       ],
     });
     delete data.searchingFor;

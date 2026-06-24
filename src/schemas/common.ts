@@ -734,6 +734,23 @@ export const createRelationWhereSchema = () =>
 // Transform Helpers
 // =====================
 
+/**
+ * Normalizes a free-text search term so it can be matched against the
+ * accent-insensitive `<field>Normalized` generated columns.
+ *
+ * The transformation MUST mirror the SQL expression used by those columns:
+ *   lower(immutable_unaccent(<field>))
+ * i.e. strip diacritics (á→a, ç→c, ã→a, …) and lowercase. Keep this in sync
+ * with the `immutable_unaccent` function defined in the migration that adds
+ * the normalized columns.
+ */
+export const normalizeSearchTerm = (value: string): string =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
 // Create search OR conditions
 export const createSearchTransform = (searchingFor: string, fields: string[]) => {
   if (!searchingFor?.trim()) return null;

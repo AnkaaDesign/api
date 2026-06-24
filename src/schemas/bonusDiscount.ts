@@ -8,6 +8,7 @@ import {
   createNameSchema,
   moneySchema,
   nullableDate,
+  normalizeSearchTerm,
 } from './common';
 import type { BonusDiscount } from '@types';
 
@@ -380,8 +381,8 @@ const bonusDiscountTransform = (data: any) => {
     data.where = {
       ...data.where,
       OR: [
-        { reference: { contains: data.searchingFor, mode: 'insensitive' } },
-        { bonus: { user: { name: { contains: data.searchingFor, mode: 'insensitive' } } } },
+        { referenceNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
+        { bonus: { user: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } } },
       ],
     };
     delete data.searchingFor;

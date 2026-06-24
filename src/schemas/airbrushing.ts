@@ -7,6 +7,7 @@ import {
   normalizeOrderBy,
   nullableDate,
   toFormData,
+  normalizeSearchTerm,
 } from './common';
 import type { Airbrushing } from '@types';
 import { AIRBRUSHING_STATUS, AIRBRUSHING_PAYMENT_STATUS } from '@constants';
@@ -565,8 +566,8 @@ const airbrushingTransform = (data: any): any => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { task: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
-        { task: { customer: { name: { contains: data.searchingFor, mode: 'insensitive' } } } },
+        { task: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
+        { task: { customer: { fantasyNameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } } },
       ],
     });
     delete data.searchingFor;

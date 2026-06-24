@@ -12,6 +12,7 @@ import {
   createNumberWhereSchema,
   createDescriptionSchema,
   mergeAndConditions,
+  normalizeSearchTerm,
 } from './common';
 import { SALARY_ADJUSTMENT_TYPE } from '@constants';
 
@@ -171,17 +172,17 @@ const salaryAdjustmentTransform = (data: any) => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { note: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        { noteNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
         {
           appliedBy: {
-            name: { contains: data.searchingFor.trim(), mode: 'insensitive' },
+            nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) },
           },
         },
         {
           items: {
             some: {
               position: {
-                name: { contains: data.searchingFor.trim(), mode: 'insensitive' },
+                nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) },
               },
             },
           },

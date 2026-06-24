@@ -6,6 +6,7 @@ import {
   orderByDirectionSchema,
   normalizeOrderBy,
   dateRangeSchema,
+  normalizeSearchTerm,
 } from './common';
 import type { Maintenance, MaintenanceItem } from '@types';
 import { MAINTENANCE_STATUS, SCHEDULE_FREQUENCY } from '@constants';
@@ -571,20 +572,20 @@ const maintenanceTransform = (data: any): any => {
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
       OR: [
-        { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
-        { description: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
-        { item: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
+        { descriptionNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
+        { item: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
         {
           item: {
-            brands: { some: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+            brands: { some: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
           },
         },
         {
-          item: { category: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+          item: { category: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
         },
         {
           item: {
-            supplier: { fantasyName: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+            supplier: { fantasyNameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
           },
         },
       ],
@@ -1461,8 +1462,8 @@ const maintenanceScheduleTransform = (data: any): any => {
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
       OR: [
-        { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
-        { description: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
+        { descriptionNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
       ],
     });
     delete data.searchingFor;

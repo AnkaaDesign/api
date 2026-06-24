@@ -7,6 +7,7 @@ import {
   normalizeOrderBy,
   moneySchema,
   unitPriceSchema,
+  normalizeSearchTerm,
 } from './common';
 import type { Order, OrderItem, OrderSchedule } from '@types';
 import {
@@ -904,21 +905,21 @@ const orderTransform = (data: any) => {
     andConditions.push({
       OR: [
         // Direct order fields
-        { description: { contains: searchTerm, mode: 'insensitive' } },
-        { notes: { contains: searchTerm, mode: 'insensitive' } },
+        { descriptionNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { notesNormalized: { contains: normalizeSearchTerm(searchTerm) } },
 
         // Supplier search
-        { supplier: { fantasyName: { contains: searchTerm, mode: 'insensitive' } } },
-        { supplier: { corporateName: { contains: searchTerm, mode: 'insensitive' } } },
+        { supplier: { fantasyNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { supplier: { corporateNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
 
         // Search by item name through order items
-        { items: { some: { item: { name: { contains: searchTerm, mode: 'insensitive' } } } } },
+        { items: { some: { item: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } } },
 
         // Search by item brand through order items (multi-brand: match any brand)
         {
           items: {
             some: {
-              item: { brands: { some: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+              item: { brands: { some: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
             },
           },
         },
@@ -926,7 +927,7 @@ const orderTransform = (data: any) => {
         // Search by item category through order items
         {
           items: {
-            some: { item: { category: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+            some: { item: { category: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
           },
         },
       ],
@@ -1049,7 +1050,7 @@ const orderItemTransform = (data: any) => {
   // Handle searchingFor
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      item: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+      item: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
     });
     delete data.searchingFor;
   }
@@ -1143,8 +1144,8 @@ const orderScheduleTransform = (data: any) => {
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
       OR: [
-        { supplier: { fantasyName: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
-        { category: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        { supplier: { fantasyNameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
+        { category: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
       ],
     });
     delete data.searchingFor;

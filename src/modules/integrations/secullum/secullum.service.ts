@@ -1,6 +1,7 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { CacheService } from '@modules/common/cache/cache.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { normalizeSearchTerm } from '@schemas';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import archiver from 'archiver';
@@ -3424,7 +3425,7 @@ export class SecullumService {
     const where: any = { secullumEmployeeId: { not: null } };
     if (dismissedIds.length) where.secullumEmployeeId.notIn = dismissedIds;
     const search = params.search?.trim();
-    if (search) where.name = { contains: search, mode: 'insensitive' };
+    if (search) where.nameNormalized = { contains: normalizeSearchTerm(search) };
 
     const [data, totalRecords] = await Promise.all([
       this.prismaService.user.findMany({

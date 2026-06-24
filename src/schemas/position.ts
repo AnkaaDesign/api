@@ -6,6 +6,7 @@ import {
   orderByDirectionSchema,
   normalizeOrderBy,
   createNameSchema,
+  normalizeSearchTerm,
 } from './common';
 import { INSALUBRITY_DEGREE } from '@constants';
 import type { Position } from '@types';
@@ -310,7 +311,7 @@ const positionTransform = (data: any) => {
 
   if (data.searchingFor) {
     andConditions.push({
-      name: { contains: data.searchingFor, mode: 'insensitive' },
+      nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) },
     });
     delete data.searchingFor;
   }
