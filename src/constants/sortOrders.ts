@@ -162,6 +162,8 @@ export const TASK_QUOTE_STATUS_ORDER: Record<TASK_QUOTE_STATUS, number> = {
   [TASK_QUOTE_STATUS.PARTIAL]: 6,
   [TASK_QUOTE_STATUS.SETTLED]: 7,
   [TASK_QUOTE_STATUS.PENDING]: 8,
+  // Terminal — sorts last in the faturamento views.
+  [TASK_QUOTE_STATUS.CANCELLED]: 9,
 };
 
 export const ORDER_STATUS_ORDER: Record<string, number> = {

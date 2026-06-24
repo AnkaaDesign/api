@@ -2360,6 +2360,152 @@ export class TaskQuoteService {
   }
 
   /**
+   * Cancel a quote because its task was cancelled. Sets the quote to CANCELLED
+   * and tears down any billing it produced (delete invoices/installments, baixa
+   * active boletos at Sicredi, cancel active NFS-e at Elotech) — mirroring
+   * revertBillingApproval but ending at CANCELLED instead of BUDGET_APPROVED, and
+   * accepting ANY non-cancelled source status (a draft quote simply flips to
+   * CANCELLED with no fiscal records to tear down).
+   *
+   * Refuses (throws) when an installment is already PAID or an NFS-e emission is
+   * in flight — those represent real money / in-flight state and must be handled
+   * manually. Idempotent: a no-op if the quote is already CANCELLED.
+   *
+   * Called from the task-cancel cascade POST-commit (external Sicredi/Elotech
+   * calls cannot run inside the task's transaction).
+   */
+  async cancelForTaskCancellation(id: string, userId: string): Promise<void> {
+    const existing = await this.taskQuoteRepository.findById(id);
+    if (!existing) {
+      this.logger.warn(`[CANCEL_QUOTE] Quote ${id} not found; nothing to cancel.`);
+      return;
+    }
+    if (existing.status === TASK_QUOTE_STATUS.CANCELLED) {
+      return; // idempotent
+    }
+
+    const task = await this.prisma.task.findFirst({
+      where: { quoteId: id },
+      select: { id: true },
+    });
+    const taskId = task?.id ?? null;
+
+    if (taskId) {
+      // In-flight NFS-e emission blocks teardown (could race a note into existence
+      // after we delete its record).
+      const pendingNfses = await this.prisma.nfseDocument.findMany({
+        where: { invoice: { taskId }, status: { in: ['PROCESSING', 'PENDING'] } },
+        select: { id: true, status: true },
+      });
+      if (pendingNfses.length > 0) {
+        throw new BadRequestException(
+          `Existem NFS-e(s) em emissão (${pendingNfses.map(n => n.status).join(', ')}). ` +
+            `Aguarde a conclusão da emissão antes de cancelar o orçamento.`,
+        );
+      }
+
+      // Real money received → cannot silently cancel; needs manual estorno.
+      const paidInstallments = await this.prisma.installment.findMany({
+        where: { invoice: { taskId }, status: { in: ['PAID'] } },
+        select: { id: true },
+      });
+      if (paidInstallments.length > 0) {
+        throw new BadRequestException(
+          `Existem ${paidInstallments.length} parcela(s) paga(s). Não é possível cancelar um ` +
+            `orçamento com pagamentos registrados — trate o estorno manualmente.`,
+        );
+      }
+
+      // Best-effort cancel active NFS-e at Elotech (AUTHORIZED / CANCEL_REJECTED
+      // are both still live at the prefeitura). A note left active is logged and
+      // stays linked to the task (invoiceId→null) — never lost.
+      const authorizedNfses = await this.prisma.nfseDocument.findMany({
+        where: {
+          invoice: { taskId },
+          status: { in: ['AUTHORIZED', 'CANCEL_REJECTED'] },
+          elotechNfseId: { not: null },
+        },
+        select: { id: true, nfseNumber: true },
+      });
+      if (authorizedNfses.length > 0) {
+        const outcomes = await Promise.allSettled(
+          authorizedNfses.map(n =>
+            this.elotechNfseService.cancelNfse(
+              n.id,
+              'Cancelamento automático por cancelamento da tarefa.',
+              1,
+            ),
+          ),
+        );
+        outcomes.forEach((o, i) => {
+          if (!(o.status === 'fulfilled' && o.value?.cancelled)) {
+            this.logger.warn(
+              `[CANCEL_QUOTE] NFS-e #${authorizedNfses[i].nfseNumber} segue ATIVA após ` +
+                `cancelamento da tarefa; permanece vinculada à tarefa — cancele-a manualmente se necessário.`,
+            );
+          }
+        });
+      }
+
+      // Best-effort baixa of active boletos at Sicredi.
+      const activeSlips = await this.prisma.bankSlip.findMany({
+        where: {
+          installment: { invoice: { taskId } },
+          status: { notIn: ['CANCELLED', 'PAID'] },
+          nossoNumero: { not: null },
+        },
+        select: { nossoNumero: true },
+      });
+      if (activeSlips.length > 0) {
+        await Promise.allSettled(
+          activeSlips
+            .filter(s => s.nossoNumero && !s.nossoNumero.startsWith('TMP-'))
+            .map(s => this.sicrediService.cancelBoleto(s.nossoNumero!)),
+        );
+      }
+    }
+
+    await this.prisma.$transaction(async tx => {
+      if (taskId) {
+        // Delete installments (cascades bank slips) + invoices. NfseDocuments are
+        // NOT cascaded — invoiceId is SetNull and they remain linked to the task
+        // as permanent fiscal history.
+        await tx.installment.deleteMany({ where: { invoice: { taskId } } });
+        await tx.invoice.deleteMany({ where: { taskId } });
+      }
+      await tx.taskQuote.update({
+        where: { id },
+        data: {
+          status: TASK_QUOTE_STATUS.CANCELLED,
+          statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.CANCELLED),
+          billingApprovedAt: null,
+        } as any,
+      });
+    });
+
+    if (taskId) {
+      await syncEmNegociacaoForTask(this.prisma, taskId, userId);
+    }
+
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.TASK_QUOTE,
+      entityId: id,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'status',
+      oldValue: existing.status,
+      newValue: TASK_QUOTE_STATUS.CANCELLED,
+      reason: 'Orçamento cancelado automaticamente pelo cancelamento da tarefa',
+      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+      triggeredById: userId,
+      userId,
+    });
+
+    this.logger.log(
+      `[CANCEL_QUOTE] Quote ${id} cancelled (was ${existing.status}) after task cancellation.`,
+    );
+  }
+
+  /**
    * Update only the orderNumber field on a CustomerConfig.
    * Bypasses the financial obligation guard — orderNumber is metadata only
    * and does not affect invoices, installments, or bank slips.
@@ -2788,8 +2934,8 @@ export class TaskQuoteService {
     // them without generating invoices/boletos. settleManually has no installments
     // to clean up in that case, so it's safe.
     const ALLOWED: Record<TASK_QUOTE_STATUS, TASK_QUOTE_STATUS[]> = {
-      [TASK_QUOTE_STATUS.PENDING]:             [TASK_QUOTE_STATUS.BUDGET_APPROVED],
-      [TASK_QUOTE_STATUS.BUDGET_APPROVED]:     [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.BILLING_APPROVED, TASK_QUOTE_STATUS.SETTLED],
+      [TASK_QUOTE_STATUS.PENDING]:             [TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.CANCELLED],
+      [TASK_QUOTE_STATUS.BUDGET_APPROVED]:     [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.BILLING_APPROVED, TASK_QUOTE_STATUS.SETTLED, TASK_QUOTE_STATUS.CANCELLED],
       // BILLING_APPROVED → SETTLED covers prepayment edge cases (customer pays
       // before installments are tracked) and lets operators settle quotes that
       // got stuck at BILLING_APPROVED when internalApprove's auto-transition to
@@ -2804,6 +2950,9 @@ export class TaskQuoteService {
       // previously settled invoice). Mirrors the web comment at
       // quote-permissions.ts:73-76.
       [TASK_QUOTE_STATUS.SETTLED]:             [TASK_QUOTE_STATUS.PARTIAL],
+      // Terminal — a quote is cancelled when its task is cancelled. Re-quoting
+      // creates a new quote rather than transitioning out of CANCELLED.
+      [TASK_QUOTE_STATUS.CANCELLED]:           [],
     };
 
     const allowed = ALLOWED[currentStatus] ?? [];

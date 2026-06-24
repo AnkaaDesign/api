@@ -92,9 +92,6 @@ export const orderScheduleOrderBySchema = z.union([
       dayOfMonth: orderByDirectionSchema.optional(),
       dayOfWeek: orderByDirectionSchema.optional(),
       month: orderByDirectionSchema.optional(),
-      rescheduleCount: orderByDirectionSchema.optional(),
-      originalDate: orderByDirectionSchema.optional(),
-      lastRescheduleDate: orderByDirectionSchema.optional(),
       nextRun: orderByDirectionSchema.optional(),
       lastRun: orderByDirectionSchema.optional(),
       finishedAt: orderByDirectionSchema.optional(),
@@ -240,20 +237,6 @@ export const orderScheduleWhereSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
-      rescheduleCount: z
-        .union([
-          z.number(),
-          z.object({
-            equals: z.number().optional(),
-            not: z.number().optional(),
-            lt: z.number().optional(),
-            lte: z.number().optional(),
-            gt: z.number().optional(),
-            gte: z.number().optional(),
-          }),
-        ])
-        .optional(),
-
       // Boolean fields
       isActive: z
         .union([
@@ -267,36 +250,6 @@ export const orderScheduleWhereSchema: z.ZodSchema = z.lazy(() =>
 
       // Date fields
       specificDate: z
-        .union([
-          z.date(),
-          z.null(),
-          z.object({
-            equals: z.union([z.date(), z.null()]).optional(),
-            not: z.union([z.date(), z.null()]).optional(),
-            lt: z.coerce.date().optional(),
-            lte: z.coerce.date().optional(),
-            gt: z.coerce.date().optional(),
-            gte: z.coerce.date().optional(),
-          }),
-        ])
-        .optional(),
-
-      originalDate: z
-        .union([
-          z.date(),
-          z.null(),
-          z.object({
-            equals: z.union([z.date(), z.null()]).optional(),
-            not: z.union([z.date(), z.null()]).optional(),
-            lt: z.coerce.date().optional(),
-            lte: z.coerce.date().optional(),
-            gt: z.coerce.date().optional(),
-            gte: z.coerce.date().optional(),
-          }),
-        ])
-        .optional(),
-
-      lastRescheduleDate: z
         .union([
           z.date(),
           z.null(),
@@ -378,7 +331,6 @@ const orderScheduleFilters = {
     .optional(),
   itemIds: z.array(z.string().uuid('Item inválido')).optional(),
   isActive: z.boolean().optional(),
-  hasReschedules: z.boolean().optional(),
   nextRunRange: dateRangeSchema.optional(),
   lastRunRange: dateRangeSchema.optional(),
   specificDateRange: dateRangeSchema.optional(),
@@ -437,11 +389,6 @@ const orderScheduleTransform = (data: any) => {
     delete data.isActive;
   }
 
-  // Handle hasReschedules filter
-  if (data.hasReschedules === true) {
-    andConditions.push({ rescheduleCount: { gt: 0 } });
-    delete data.hasReschedules;
-  }
 
   // Handle nextRunRange filter
   if (data.nextRunRange && typeof data.nextRunRange === 'object') {
@@ -747,12 +694,6 @@ export const orderScheduleUpdateSchema = z
     month: z.string().nullable().optional(),
     customMonths: z.array(z.string()).optional(),
 
-    // Reschedule fields
-    rescheduleCount: z.number().int().min(0).optional(),
-    originalDate: z.coerce.date().nullable().optional(),
-    lastRescheduleDate: z.coerce.date().nullable().optional(),
-    rescheduleReason: z.string().optional(), // RescheduleReason enum
-
     // Target supplier — nullable so existing schedules can be edited without
     // forcing assignment; web supplier selector is also optional.
     supplierId: z.string().uuid('Fornecedor inválido').nullable().optional(),
@@ -856,10 +797,6 @@ export const mapOrderScheduleToFormData = createMapToFormDataHelper<
   dayOfWeek: orderSchedule.dayOfWeek || null,
   month: orderSchedule.month || null,
   customMonths: orderSchedule.customMonths || [],
-  rescheduleCount: orderSchedule.rescheduleCount,
-  originalDate: orderSchedule.originalDate || null,
-  lastRescheduleDate: orderSchedule.lastRescheduleDate || null,
-  rescheduleReason: orderSchedule.rescheduleReason ?? undefined,
   supplierId: orderSchedule.supplierId ?? null,
   weeklyConfigId: orderSchedule.weeklyConfigId || null,
   monthlyConfigId: orderSchedule.monthlyConfigId || null,

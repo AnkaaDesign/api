@@ -29,6 +29,7 @@ export const taskQuoteStatusSchema = z.enum([
   TASK_QUOTE_STATUS.DUE,
   TASK_QUOTE_STATUS.PARTIAL,
   TASK_QUOTE_STATUS.SETTLED,
+  TASK_QUOTE_STATUS.CANCELLED,
 ]);
 
 // =====================

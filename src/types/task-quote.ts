@@ -26,7 +26,8 @@ export type TASK_QUOTE_STATUS =
   | 'UPCOMING'
   | 'DUE'
   | 'PARTIAL'
-  | 'SETTLED';
+  | 'SETTLED'
+  | 'CANCELLED';
 export type DISCOUNT_TYPE = 'NONE' | 'PERCENTAGE' | 'FIXED_VALUE';
 
 // =====================
