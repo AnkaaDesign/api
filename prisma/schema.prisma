@@ -3742,6 +3742,7 @@ enum TaskQuoteStatus {
   DUE
   PARTIAL
   SETTLED
+  CANCELLED
 }
 
 enum DiscountType {

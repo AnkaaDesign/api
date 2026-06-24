@@ -40,6 +40,7 @@ import {
   SERVICE_ORDER_STATUS,
   SERVICE_ORDER_TYPE,
   TASK_STATUS,
+  TASK_QUOTE_STATUS,
   CHANGE_TRIGGERED_BY,
   ENTITY_TYPE,
   CHANGE_ACTION,
@@ -50,8 +51,10 @@ import {
   calculateCorrectTaskStatus,
 } from '../../../utils/task-service-order-sync';
 import { getTaskStatusOrder } from '../../../utils/sortOrder';
+import { TASK_QUOTE_STATUS_ORDER } from '../../../constants/sortOrders';
 import {
   getServiceOrderToQuoteSync,
+  makeDescObsKey,
   type SyncQuoteItem,
 } from '../../../utils/task-quote-service-order-sync';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
@@ -854,6 +857,53 @@ export class ServiceOrderService {
                 `[AUTO-CANCEL TASK ON ALL COMMERCIAL SO CANCEL] All ${commercialServiceOrders.length} COMMERCIAL service orders cancelled for task ${task.id}, cancelling task and all remaining service orders`,
               );
 
+              // I18: never strand live billing. If the quote already produced
+              // non-cancelled fiscal records (Invoice / boletos / NFS-e), an
+              // implicit auto-cancel here would leave them live on a CANCELLED
+              // task. Block and require the operator to revert the billing first —
+              // never destroy fiscal documents as a side effect of cancelling a
+              // negotiation service order.
+              const liveBillingInvoice = await tx.invoice.findFirst({
+                where: { taskId: task.id, status: { not: 'CANCELLED' } },
+                select: { id: true },
+              });
+              if (liveBillingInvoice) {
+                throw new BadRequestException(
+                  'Não é possível cancelar a tarefa: o faturamento já foi aprovado (existem faturas, boletos ou NFS-e ativos). Reverta o faturamento antes de cancelar as ordens de serviço comerciais.',
+                );
+              }
+
+              // The guard above ensured no live billing, so cascade-cancel the
+              // (draft) quote with a clean status flip — keeps task and quote in
+              // sync when the task is auto-cancelled.
+              const quoteForCancel = await tx.task.findUnique({
+                where: { id: task.id },
+                select: { quote: { select: { id: true, status: true } } },
+              });
+              const qfc = (quoteForCancel as any)?.quote;
+              if (qfc && qfc.status !== TASK_QUOTE_STATUS.CANCELLED) {
+                await tx.taskQuote.update({
+                  where: { id: qfc.id },
+                  data: {
+                    status: TASK_QUOTE_STATUS.CANCELLED,
+                    statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.CANCELLED],
+                  },
+                });
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.TASK_QUOTE,
+                  entityId: qfc.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'status',
+                  oldValue: qfc.status,
+                  newValue: TASK_QUOTE_STATUS.CANCELLED,
+                  reason: 'Orçamento cancelado automaticamente pelo cancelamento da tarefa',
+                  triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                  triggeredById: id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+              }
+
               const oldTaskStatus = task.status as TASK_STATUS;
               await tx.task.update({
                 where: { id: task.id },
@@ -1274,6 +1324,31 @@ export class ServiceOrderService {
           }
         }
 
+        // I11: keep the mirrored priced quote line in sync with this SO edit
+        // (description/observation rename or PRODUCTION type change). Non-fatal —
+        // never roll back the SO update on a sync hiccup.
+        try {
+          const newType = (data.type ?? serviceOrderExists.type) as string;
+          const newDescription =
+            data.description !== undefined ? data.description : serviceOrderExists.description;
+          const newObservation =
+            data.observation !== undefined
+              ? data.observation
+              : (serviceOrderExists as any).observation;
+          await this.syncQuoteServiceForUpdatedSO(tx, serviceOrderExists as any, {
+            id,
+            taskId: (updated as any).taskId,
+            type: newType,
+            description: newDescription ?? null,
+            observation: newObservation ?? null,
+          });
+        } catch (syncError) {
+          this.logger.error(
+            `[SO→Quote sync] Failed to sync quote line for updated SO ${id} (non-fatal):`,
+            syncError,
+          );
+        }
+
         return updated;
       });
 
@@ -1517,6 +1592,210 @@ export class ServiceOrderService {
   }
 
   /**
+   * I11: When a PRODUCTION service order is DELETED directly via the SO module
+   * (not through the task form), keep its mirrored priced TaskQuoteService line in
+   * sync. Without this the quote line is orphaned and the quote totals keep
+   * counting a line whose SO no longer exists (money drift). Mirrors the task-form
+   * cascade (task.service.ts): removes the line ONLY when no other live PRODUCTION
+   * SO still references the same desc+observation key, then recomputes both money
+   * layers. Structural changes are limited to draft quotes (PENDING/BUDGET_APPROVED)
+   * so an already-billed line is never silently dropped.
+   */
+  private async cascadeRemoveQuoteServiceForDeletedSO(
+    tx: PrismaTransaction,
+    deletedSO: {
+      id: string;
+      taskId: string | null;
+      type: string;
+      description: string | null;
+      observation?: string | null;
+    },
+  ): Promise<void> {
+    if (
+      deletedSO.type !== SERVICE_ORDER_TYPE.PRODUCTION ||
+      !deletedSO.description ||
+      !deletedSO.taskId
+    ) {
+      return;
+    }
+
+    const task: any = await tx.task.findUnique({
+      where: { id: deletedSO.taskId },
+      select: {
+        serviceOrders: {
+          select: { id: true, type: true, description: true, observation: true, status: true },
+        },
+        quote: {
+          select: {
+            id: true,
+            status: true,
+            services: { select: { id: true, description: true, observation: true } },
+          },
+        },
+      },
+    });
+    if (!task?.quote) return;
+    if (
+      task.quote.status !== TASK_QUOTE_STATUS.PENDING &&
+      task.quote.status !== TASK_QUOTE_STATUS.BUDGET_APPROVED
+    ) {
+      return;
+    }
+
+    const soKey = makeDescObsKey(deletedSO.description, deletedSO.observation ?? null);
+
+    // Another live PRODUCTION SO still mirrors this exact line → keep the line.
+    const remainingKeys = new Set<string>(
+      task.serviceOrders
+        .filter(
+          (so: any) =>
+            so.id !== deletedSO.id &&
+            so.type === SERVICE_ORDER_TYPE.PRODUCTION &&
+            so.description &&
+            so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+        )
+        .map((so: any) => makeDescObsKey(so.description, so.observation)),
+    );
+    if (remainingKeys.has(soKey)) return;
+
+    const toDelete = task.quote.services.filter(
+      (s: any) => makeDescObsKey(s.description, s.observation) === soKey,
+    );
+    if (toDelete.length === 0) return;
+
+    await tx.taskQuoteService.deleteMany({
+      where: { id: { in: toDelete.map((s: any) => s.id) } },
+    });
+    await recalcQuoteTotals(tx, task.quote.id);
+    this.logger.log(
+      `[SO→Quote sync] Removed ${toDelete.length} orphaned quote service line(s) after deleting PRODUCTION SO ${deletedSO.id}; recomputed totals.`,
+    );
+  }
+
+  /**
+   * I11: When a PRODUCTION service order is UPDATED directly (description /
+   * observation / type) via the SO module, keep its mirrored priced
+   * TaskQuoteService line in sync. A desc/obs edit RENAMES the line (re-aligning
+   * the desc+observation key the quote↔SO sync dedups on — otherwise the line is
+   * orphaned and the next sync creates a duplicate). A type change into/out of
+   * PRODUCTION creates/removes the mirror. Structural add/remove is limited to
+   * draft quotes; a pure text rename changes no money so it is always applied.
+   */
+  private async syncQuoteServiceForUpdatedSO(
+    tx: PrismaTransaction,
+    oldSO: { type: string; description: string | null; observation?: string | null },
+    updatedSO: {
+      id: string;
+      taskId: string | null;
+      type: string;
+      description: string | null;
+      observation?: string | null;
+    },
+  ): Promise<void> {
+    if (!updatedSO.taskId) return;
+    const wasProduction = oldSO.type === SERVICE_ORDER_TYPE.PRODUCTION;
+    const isProduction = updatedSO.type === SERVICE_ORDER_TYPE.PRODUCTION;
+    if (!wasProduction && !isProduction) return;
+
+    const task: any = await tx.task.findUnique({
+      where: { id: updatedSO.taskId },
+      select: {
+        serviceOrders: {
+          select: { id: true, type: true, description: true, observation: true, status: true },
+        },
+        quote: {
+          select: {
+            id: true,
+            status: true,
+            services: { select: { id: true, description: true, observation: true } },
+          },
+        },
+      },
+    });
+    if (!task?.quote) return;
+    const isDraft =
+      task.quote.status === TASK_QUOTE_STATUS.PENDING ||
+      task.quote.status === TASK_QUOTE_STATUS.BUDGET_APPROVED;
+
+    const newDescription = (updatedSO.description || '').trim();
+    const newObservation = (updatedSO.observation || '').trim() || null;
+    const oldKey = oldSO.description
+      ? makeDescObsKey(oldSO.description, oldSO.observation ?? null)
+      : null;
+    const newKey = newDescription ? makeDescObsKey(newDescription, newObservation) : null;
+
+    const keyMatches = (s: any, key: string) => makeDescObsKey(s.description, s.observation) === key;
+
+    // Case 1 — PRODUCTION → PRODUCTION with a changed desc/obs key: rename the line.
+    if (wasProduction && isProduction) {
+      if (!oldKey || !newKey || oldKey === newKey) return;
+      const matches = task.quote.services.filter((s: any) => keyMatches(s, oldKey));
+      if (matches.length === 0) return;
+      const newKeyExists = task.quote.services.some((s: any) => keyMatches(s, newKey));
+      if (newKeyExists) {
+        // The renamed-to line already exists → the old line is now a duplicate.
+        if (isDraft) {
+          await tx.taskQuoteService.deleteMany({
+            where: { id: { in: matches.map((m: any) => m.id) } },
+          });
+          await recalcQuoteTotals(tx, task.quote.id);
+        }
+        return;
+      }
+      await tx.taskQuoteService.updateMany({
+        where: { id: { in: matches.map((m: any) => m.id) } },
+        data: { description: newDescription, observation: newObservation },
+      });
+      await recalcQuoteTotals(tx, task.quote.id);
+      this.logger.log(
+        `[SO→Quote sync] Renamed ${matches.length} quote service line(s) to match updated PRODUCTION SO ${updatedSO.id}.`,
+      );
+      return;
+    }
+
+    // Case 2 — PRODUCTION → non-PRODUCTION: remove the mirror (draft only), guarded.
+    if (wasProduction && !isProduction) {
+      if (!isDraft || !oldKey) return;
+      const remainingKeys = new Set<string>(
+        task.serviceOrders
+          .filter(
+            (so: any) =>
+              so.id !== updatedSO.id &&
+              so.type === SERVICE_ORDER_TYPE.PRODUCTION &&
+              so.description &&
+              so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+          )
+          .map((so: any) => makeDescObsKey(so.description, so.observation)),
+      );
+      if (remainingKeys.has(oldKey)) return;
+      const matches = task.quote.services.filter((s: any) => keyMatches(s, oldKey));
+      if (matches.length === 0) return;
+      await tx.taskQuoteService.deleteMany({
+        where: { id: { in: matches.map((m: any) => m.id) } },
+      });
+      await recalcQuoteTotals(tx, task.quote.id);
+      return;
+    }
+
+    // Case 3 — non-PRODUCTION → PRODUCTION: create the mirror if missing (draft only).
+    if (!wasProduction && isProduction) {
+      if (!isDraft || !newKey) return;
+      const exists = task.quote.services.some((s: any) => keyMatches(s, newKey));
+      if (exists) return;
+      await tx.taskQuoteService.create({
+        data: {
+          quoteId: task.quote.id,
+          description: newDescription,
+          observation: newObservation,
+          amount: 0,
+        },
+      });
+      await recalcQuoteTotals(tx, task.quote.id);
+      return;
+    }
+  }
+
+  /**
    * Delete a service order
    */
   async delete(id: string, userId?: string): Promise<ServiceOrderDeleteResponse> {
@@ -1544,6 +1823,18 @@ export class ServiceOrderService {
           reason: 'Ordem de serviço excluída',
           transaction: tx,
         });
+
+        // I11: remove the orphaned mirrored quote line (and recompute totals) when
+        // a PRODUCTION SO is deleted directly. Non-fatal — a sync hiccup must not
+        // block the deletion.
+        try {
+          await this.cascadeRemoveQuoteServiceForDeletedSO(tx, serviceOrderExists as any);
+        } catch (syncError) {
+          this.logger.error(
+            `[SO→Quote sync] Failed to remove quote line for deleted SO ${id} (non-fatal):`,
+            syncError,
+          );
+        }
       });
 
       return {
@@ -2176,6 +2467,23 @@ export class ServiceOrderService {
               transaction: tx,
             });
 
+            // I11: keep the mirrored priced quote line in sync with this SO's
+            // description/observation/type edit (parity with single update).
+            try {
+              await this.syncQuoteServiceForUpdatedSO(tx, oldData as any, {
+                id: serviceOrder.id,
+                taskId: (serviceOrder as any).taskId,
+                type: (serviceOrder as any).type,
+                description: (serviceOrder as any).description ?? null,
+                observation: (serviceOrder as any).observation ?? null,
+              });
+            } catch (syncError) {
+              this.logger.error(
+                `[SO→Quote sync] Failed to sync quote line for batch-updated SO ${serviceOrder.id} (non-fatal):`,
+                syncError,
+              );
+            }
+
             // Auto-start task when PRODUCTION service order is started and task is waiting for production
             // NOTE: Only PRODUCTION type service orders trigger task auto-start, not ARTWORK
             if (
@@ -2410,6 +2718,48 @@ export class ServiceOrderService {
                     this.logger.log(
                       `[AUTO-CANCEL TASK ON ALL COMMERCIAL SO CANCEL BATCH] All ${commercialServiceOrders.length} COMMERCIAL service orders cancelled for task ${task.id}, cancelling task and all remaining service orders`,
                     );
+
+                    // I18: never strand live billing (parity with single update).
+                    const liveBillingInvoice = await tx.invoice.findFirst({
+                      where: { taskId: task.id, status: { not: 'CANCELLED' } },
+                      select: { id: true },
+                    });
+                    if (liveBillingInvoice) {
+                      throw new BadRequestException(
+                        'Não é possível cancelar a tarefa: o faturamento já foi aprovado (existem faturas, boletos ou NFS-e ativos). Reverta o faturamento antes de cancelar as ordens de serviço comerciais.',
+                      );
+                    }
+
+                    // The guard above ensured no live billing, so cascade-cancel
+                    // the (draft) quote with a clean status flip (parity with the
+                    // single-update path).
+                    const quoteForCancel = await tx.task.findUnique({
+                      where: { id: task.id },
+                      select: { quote: { select: { id: true, status: true } } },
+                    });
+                    const qfc = (quoteForCancel as any)?.quote;
+                    if (qfc && qfc.status !== TASK_QUOTE_STATUS.CANCELLED) {
+                      await tx.taskQuote.update({
+                        where: { id: qfc.id },
+                        data: {
+                          status: TASK_QUOTE_STATUS.CANCELLED,
+                          statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.CANCELLED],
+                        },
+                      });
+                      await this.changeLogService.logChange({
+                        entityType: ENTITY_TYPE.TASK_QUOTE,
+                        entityId: qfc.id,
+                        action: CHANGE_ACTION.UPDATE,
+                        field: 'status',
+                        oldValue: qfc.status,
+                        newValue: TASK_QUOTE_STATUS.CANCELLED,
+                        reason: 'Orçamento cancelado automaticamente pelo cancelamento da tarefa',
+                        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                        triggeredById: serviceOrder.id,
+                        userId: userId || '',
+                        transaction: tx,
+                      });
+                    }
 
                     const oldTaskStatus = task.status as TASK_STATUS;
                     await tx.task.update({
@@ -3122,6 +3472,17 @@ export class ServiceOrderService {
               reason: 'Ordem de serviço excluída em lote',
               transaction: tx,
             });
+
+            // I11: remove the orphaned mirrored quote line + recompute totals for
+            // each batch-deleted PRODUCTION SO (parity with single delete).
+            try {
+              await this.cascadeRemoveQuoteServiceForDeletedSO(tx, oldData as any);
+            } catch (syncError) {
+              this.logger.error(
+                `[SO→Quote sync] Failed to remove quote line for batch-deleted SO ${id} (non-fatal):`,
+                syncError,
+              );
+            }
           }
         }
 

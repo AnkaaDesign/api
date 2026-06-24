@@ -87,12 +87,6 @@ export interface MaintenanceSchedule extends BaseEntity {
   month: MONTH | null;
   customMonths: MONTH[];
 
-  // Reschedule fields
-  rescheduleCount: number;
-  originalDate: Date | null;
-  lastRescheduleDate: Date | null;
-  rescheduleReason: RESCHEDULE_REASON | null;
-
   // Schedule configuration relations
   weeklyConfigId: string | null;
   monthlyConfigId: string | null;

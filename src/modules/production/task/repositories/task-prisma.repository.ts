@@ -1664,6 +1664,10 @@ export class TaskPrismaRepository
             total,
             expiresAt: quoteData.expiresAt ? new Date(quoteData.expiresAt) : new Date(),
             status: quoteData.status || 'PENDING',
+            // Persist the status sort key on create too — omitting it stored the
+            // column @default(1) on every new quote (PENDING's real order is 8),
+            // corrupting statusOrder-based sorting until the next update.
+            statusOrder: TASK_QUOTE_STATUS_ORDER[(quoteData.status || 'PENDING') as TASK_QUOTE_STATUS],
             guaranteeYears: quoteData.guaranteeYears || null,
             customGuaranteeText: quoteData.customGuaranteeText || null,
             customForecastDays: quoteData.customForecastDays || null,
@@ -1709,6 +1713,14 @@ export class TaskPrismaRepository
         });
 
         createdPricingId = newQuote.id;
+
+        // Authoritative discount-aware recompute of BOTH money layers (aggregate
+        // TaskQuote.subtotal/total + per-config subtotal/total), mirroring the
+        // update path (recalcQuoteTotals at the new-quote branch below). Without
+        // this, a quote created with a per-config discount persisted the
+        // discount-unaware total straight from the payload (money drift / the
+        // detail≠wizard class of bug at creation time).
+        await recalcQuoteTotals(transaction, newQuote.id);
       }
 
       if (createdPricingId) {

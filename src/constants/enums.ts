@@ -2655,6 +2655,7 @@ export enum TASK_QUOTE_STATUS {
   DUE = 'DUE',
   PARTIAL = 'PARTIAL',
   SETTLED = 'SETTLED',
+  CANCELLED = 'CANCELLED',
 }
 
 export enum DISCOUNT_TYPE {

@@ -945,12 +945,6 @@ export class MaintenanceScheduleService {
         month: finishedSchedule.month,
         customMonths: finishedSchedule.customMonths,
 
-        // Reschedule fields (reset for new instance)
-        rescheduleCount: 0,
-        originalDate: null,
-        lastRescheduleDate: null,
-        rescheduleReason: null,
-
         // Schedule configuration relations
         weeklyConfigId: finishedSchedule.weeklyConfigId,
         monthlyConfigId: finishedSchedule.monthlyConfigId,

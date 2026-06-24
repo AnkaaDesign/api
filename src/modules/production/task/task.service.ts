@@ -1824,11 +1824,12 @@ export class TaskService {
 
       // Track if task was auto-transitioned to WAITING_PRODUCTION for notification after transaction
       let taskAutoTransitionedToWaitingProduction = false;
-      // When an auto-cancel (all COMMERCIAL SOs cancelled) hits a task whose quote
-      // is already in a billing status, capture the quoteId so we can revert the
-      // billing (cancel invoices, void boletos, release NFS-e) AFTER the tx — the
-      // revert does external Sicredi/Elotech calls and must run post-commit.
-      let billingRevertQuoteId: string | null = null;
+      // Capture the task's status at entry so the post-commit step can detect a
+      // transition INTO CANCELLED (from ANY cause — a direct cancel or the
+      // all-COMMERCIAL-SOs-cancelled auto-cancel) and cascade-cancel the quote
+      // (set it CANCELLED + tear down invoices/boletos/NFS-e). The teardown does
+      // external Sicredi/Elotech calls and must run AFTER the tx commits.
+      let taskOldStatusForQuoteCancel: TASK_STATUS | null = null;
 
       const transactionResult = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Get existing task - always include customer for file organization
@@ -1874,6 +1875,8 @@ export class TaskService {
         if (!existingTask) {
           throw new NotFoundException('Tarefa não encontrada. Verifique se o ID está correto.');
         }
+
+        taskOldStatusForQuoteCancel = existingTask.status as TASK_STATUS;
 
         // ───────────────────────────────────────────────────────────────────
         // Strip a no-op nested `quote` block before any side-effect runs.
@@ -4068,28 +4071,8 @@ export class TaskService {
                 transaction: tx,
               });
 
-              // If the cancelled task's quote is already in a billing status,
-              // capture it so the billing is reverted AFTER this transaction
-              // commits (cancel invoices, void boletos at Sicredi, release NFS-e
-              // at Elotech — external calls that can't run inside the tx). Without
-              // this the cancelled task left live invoices/boletos/NFS-e dangling.
-              const cancelledQuote = await tx.task.findUnique({
-                where: { id },
-                select: { quote: { select: { id: true, status: true } } },
-              });
-              const cq = (cancelledQuote as any)?.quote;
-              if (
-                cq &&
-                [
-                  TASK_QUOTE_STATUS.BILLING_APPROVED,
-                  TASK_QUOTE_STATUS.UPCOMING,
-                  TASK_QUOTE_STATUS.DUE,
-                  TASK_QUOTE_STATUS.PARTIAL,
-                ].includes(cq.status)
-              ) {
-                billingRevertQuoteId = cq.id;
-              }
-
+              // The quote is cascade-cancelled in the post-commit step (it detects
+              // the task's transition into CANCELLED) — no per-branch capture needed.
               taskAutoTransitionedToWaitingProduction = true;
             }
           }
@@ -6366,22 +6349,29 @@ export class TaskService {
         taskAutoTransitionedToWaitingProduction: wasAutoTransitioned,
       } = transactionResult;
 
-      // Auto-revert billing AFTER the transaction commits: an SO-driven task
-      // auto-cancel must not leave a billed quote with live invoices/boletos/
-      // NFS-e. revertBillingApproval performs external Sicredi/Elotech calls and
-      // refuses (throws) when an installment is already PAID — in that genuine
+      // When this update transitioned the task INTO CANCELLED (a direct cancel or
+      // the all-COMMERCIAL-SOs-cancelled auto-cancel), cascade-cancel its quote:
+      // set the quote to CANCELLED and tear down any billing (delete invoices,
+      // baixa boletos at Sicredi, cancel NFS-e at Elotech). These external calls
+      // run post-commit. cancelForTaskCancellation refuses (throws) when an
+      // installment is already PAID or an NFS-e is mid-emission — in that genuine
       // conflict we log and leave the records for manual teardown rather than
       // failing the already-committed cancellation.
-      if (billingRevertQuoteId) {
+      if (
+        taskOldStatusForQuoteCancel !== TASK_STATUS.CANCELLED &&
+        (updatedTask as any)?.status === TASK_STATUS.CANCELLED &&
+        (updatedTask as any)?.quoteId
+      ) {
+        const quoteToCancelId = (updatedTask as any).quoteId as string;
         try {
-          await this.taskQuoteService.revertBillingApproval(billingRevertQuoteId, userId);
+          await this.taskQuoteService.cancelForTaskCancellation(quoteToCancelId, userId);
           this.logger.log(
-            `[Task Update] Auto-reverted billing for quote ${billingRevertQuoteId} after task ${id} auto-cancel`,
+            `[Task Update] Cascade-cancelled quote ${quoteToCancelId} after task ${id} cancellation`,
           );
-        } catch (revertError) {
+        } catch (cancelError) {
           this.logger.error(
-            `[Task Update] Could not auto-revert billing for quote ${billingRevertQuoteId} after task ${id} auto-cancel (manual teardown may be required): ${
-              revertError instanceof Error ? revertError.message : String(revertError)
+            `[Task Update] Could not cascade-cancel quote ${quoteToCancelId} after task ${id} cancellation (manual teardown may be required): ${
+              cancelError instanceof Error ? cancelError.message : String(cancelError)
             }`,
           );
         }

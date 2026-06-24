@@ -2082,6 +2082,7 @@ export const TASK_QUOTE_STATUS_LABELS: Record<TASK_QUOTE_STATUS, string> = {
   [TASK_QUOTE_STATUS.DUE]: 'Vencido',
   [TASK_QUOTE_STATUS.PARTIAL]: 'Parcial',
   [TASK_QUOTE_STATUS.SETTLED]: 'Liquidado',
+  [TASK_QUOTE_STATUS.CANCELLED]: 'Cancelado',
 };
 
 // =====================

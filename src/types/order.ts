@@ -20,7 +20,6 @@ import {
   WEEK_DAY,
   MONTH,
   ORDER_TRIGGER_TYPE,
-  RESCHEDULE_REASON,
 } from '@constants';
 import type { Supplier, SupplierIncludes, SupplierOrderBy } from './supplier';
 import type { Item, ItemIncludes, ItemOrderBy, ItemWhere } from './item';
@@ -60,12 +59,6 @@ export interface OrderSchedule extends BaseEntity {
   dayOfWeek: WEEK_DAY | null;
   month: MONTH | null;
   customMonths: MONTH[];
-
-  // Reschedule fields
-  rescheduleCount: number;
-  originalDate: Date | null;
-  lastRescheduleDate: Date | null;
-  rescheduleReason: RESCHEDULE_REASON | null;
 
   // Schedule configuration relations
   weeklyConfigId: string | null;

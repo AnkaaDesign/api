@@ -757,14 +757,14 @@ export class InvoiceController {
       throw new NotFoundException(`Parcela ${installmentId} não encontrada.`);
     }
 
-    if (
-      installment.status === INSTALLMENT_STATUS.PAID ||
-      installment.status === INSTALLMENT_STATUS.CANCELLED
-    ) {
+    // Only an already-PAID installment is rejected. A CANCELLED installment may be
+    // revived straight to PAID (e.g. the boleto was cancelled but the customer paid
+    // by PIX/cash anyway) — the settlement writes below re-anchor it cleanly and
+    // recalcInvoicePaymentState re-counts it (CANCELLED installments are excluded
+    // from paidAmount, PAID ones are included).
+    if (installment.status === INSTALLMENT_STATUS.PAID) {
       throw new BadRequestException(
-        'Esta parcela já foi ' +
-          (installment.status === INSTALLMENT_STATUS.PAID ? 'paga' : 'cancelada') +
-          ' e não pode ser marcada como paga.',
+        'Esta parcela já foi paga e não pode ser marcada como paga novamente.',
       );
     }
 

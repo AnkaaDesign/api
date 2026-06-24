@@ -95,6 +95,13 @@ export class InvoiceGenerationService {
     }
 
     const invoiceIds: string[] = [];
+    // Track NfseDocument ids already claimed (reused or minted) earlier in THIS
+    // approval run. A multi-config quote creates one invoice per config in the
+    // same loop; without this guard the taskId-scoped reuse lookup below would
+    // let config B "reuse" the note config A just minted, re-pointing it to B's
+    // invoice and leaving config A with NO municipal note (its boleto then stalls
+    // in CREATING forever because readyForBoleto gates on an AUTHORIZED note).
+    const usedNfseIds: string[] = [];
 
     await this.prisma.$transaction(async tx => {
       for (const config of customerConfigs) {
@@ -284,6 +291,9 @@ export class InvoiceGenerationService {
             where: {
               taskId: taskId,
               status: { notIn: ['CANCELLED', 'CANCEL_REQUESTED'] },
+              // Never re-point a note already claimed by an earlier config in this
+              // same run — that note belongs to the other customer's invoice.
+              id: { notIn: usedNfseIds },
             },
             orderBy: { createdAt: 'desc' },
           });
@@ -297,18 +307,20 @@ export class InvoiceGenerationService {
                 data: { invoiceId: invoice.id },
               });
             }
+            usedNfseIds.push(existingLiveNfse.id);
             this.logger.warn(
               `[INVOICE_GEN] Reusing existing live NfseDocument ${existingLiveNfse.id} ` +
                 `(status=${existingLiveNfse.status}) for invoice ${invoice.id} — not minting a duplicate.`,
             );
           } else {
-            await tx.nfseDocument.create({
+            const createdNfse = await tx.nfseDocument.create({
               data: {
                 invoiceId: invoice.id,
                 taskId: taskId,
                 status: 'PENDING',
               },
             });
+            usedNfseIds.push(createdNfse.id);
             this.logger.log(
               `[INVOICE_GEN] NfseDocument created for invoice ${invoice.id} (status=PENDING)`,
             );
