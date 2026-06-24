@@ -2315,12 +2315,21 @@ export class SecullumService {
     } catch (error) {
       const status = error.response?.status;
 
-      // If we get a 401 and haven't retried yet, try refreshing the token
+      // If we get a 401 and haven't retried yet, force a genuine re-authentication.
       if (status === 401 && retryOnAuth) {
-        this.logger.warn('Got 401 response, attempting to refresh token and retry');
+        this.logger.warn('Got 401 response, forcing re-authentication and retry');
 
-        // Clear the cached token and try again
+        // Clearing only the in-memory cache is NOT enough: getValidToken() reads
+        // the DB-stored token first and returns it whenever expiresAt is >5 min
+        // away, so a server-INVALIDATED-but-not-yet-clock-expired token would be
+        // re-served and 401 again. authenticate() performs a fresh password grant
+        // and OVERWRITES the stored token, guaranteeing the retry uses a new one.
         await this.cacheService.del(this.tokenCacheKey);
+        try {
+          await this.authenticate();
+        } catch (reauthError) {
+          this.logger.warn('Forced re-authentication failed; retrying anyway', reauthError);
+        }
 
         // Retry the request once
         return this.makeAuthenticatedRequest<T>(
@@ -5053,29 +5062,49 @@ export class SecullumService {
 
     this.logger.log(`SECULLUM (pontowebapp) ${method} ${url} usuario=${auth.usuario}`);
 
-    try {
-      const response = await axios({
-        method: method.toLowerCase(),
-        url,
-        headers,
-        params,
-        data,
-        timeout: 30000,
-        responseType: options?.responseType ?? 'json',
-      } as any);
-      return response.data as T;
-    } catch (error: any) {
-      // pontowebapp uses bare axios (no shared interceptor), so normalize here:
-      // surface Secullum's real reason (its 400 body is an ARRAY of { message },
-      // e.g. "Face não reconhecida", "Fora do perímetro") instead of axios's generic
-      // "Request failed with status code 400". Preserve response/status so callers
-      // that branch on them (e.g. 401 → auth) still can.
-      const normalized: any = new Error(this.getErrorMessage(error));
-      normalized.response = error?.response;
-      normalized.status = error?.response?.status;
-      normalized.cause = error;
-      throw normalized;
+    // The pontowebapp mobile host intermittently challenges a burst of Basic-auth
+    // requests with 401/403 (and 429 when rate-limited) even when the credential is
+    // valid — the first calls in a run succeed, later ones get rejected. The Basic
+    // credential is stateless, so a short backoff + identical retry recovers. These
+    // statuses mean the server rejected BEFORE processing, so retrying a write is safe.
+    const RETRYABLE = new Set([401, 403, 429]);
+    const MAX_ATTEMPTS = 3;
+    let lastError: any;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        const response = await axios({
+          method: method.toLowerCase(),
+          url,
+          headers,
+          params,
+          data,
+          timeout: 30000,
+          responseType: options?.responseType ?? 'json',
+        } as any);
+        return response.data as T;
+      } catch (error: any) {
+        lastError = error;
+        const status = error?.response?.status;
+        if (RETRYABLE.has(status) && attempt < MAX_ATTEMPTS - 1) {
+          const waitMs = 1500 * (attempt + 1);
+          this.logger.warn(
+            `SECULLUM (pontowebapp) ${method} ${endpoint} → ${status}; retrying in ${waitMs}ms (attempt ${attempt + 1}/${MAX_ATTEMPTS})`,
+          );
+          await new Promise(res => setTimeout(res, waitMs));
+          continue;
+        }
+        break;
+      }
     }
+    // No shared interceptor here, so normalize: surface Secullum's real reason (its
+    // 400 body is an ARRAY of { message }, e.g. "Face não reconhecida", "Fora do
+    // perímetro") instead of axios's generic "Request failed with status code N".
+    // Preserve response/status so callers that branch on them (e.g. 401 → auth) can.
+    const normalized: any = new Error(this.getErrorMessage(lastError));
+    normalized.response = lastError?.response;
+    normalized.status = lastError?.response?.status;
+    normalized.cause = lastError;
+    throw normalized;
   }
 
   // ==========================================================================
