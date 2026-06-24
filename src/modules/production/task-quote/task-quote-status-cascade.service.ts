@@ -297,7 +297,13 @@ export class TaskQuoteStatusCascadeService {
         include: {
           customerConfigs: {
             include: {
-              installments: true,
+              installments: {
+                include: {
+                  // Bank slip status is needed to tell a genuinely-overdue installment
+                  // apart from one whose charge instrument (boleto) was CANCELLED.
+                  bankSlip: { select: { status: true } },
+                },
+              },
             },
           },
         },
@@ -332,10 +338,17 @@ export class TaskQuoteStatusCascadeService {
       const paidCount = allInstallments.filter(inst => inst.status === 'PAID').length;
       const cancelledInstallments = allInstallments.filter(inst => inst.status === 'CANCELLED');
       const activeInstallments = allInstallments.filter(inst => inst.status !== 'CANCELLED');
-      const overdueCount = allInstallments.filter(
-        inst =>
-          inst.status !== 'PAID' && inst.status !== 'CANCELLED' && new Date(inst.dueDate) < now,
-      ).length;
+      // A past-due, unpaid installment is only "overdue" if it is still actively being
+      // collected. If its sole charge instrument (boleto) is CANCELLED, the charge no
+      // longer exists, so it must NOT force the quote to DUE. Installments with NO bank
+      // slip (e.g. PIX/ENTRADA receivables) keep counting as overdue when past due.
+      const overdueCount = allInstallments.filter(inst => {
+        if (inst.status === 'PAID' || inst.status === 'CANCELLED') return false;
+        if (new Date(inst.dueDate) >= now) return false;
+        const slipStatus = (inst as any).bankSlip?.status;
+        if (slipStatus === 'CANCELLED') return false;
+        return true;
+      }).length;
 
       // Guard: if all installments were cancelled (e.g. after invoice cancellation)
       // there is nothing to evaluate — keep the current status unchanged.

@@ -194,8 +194,13 @@ export class TaskQuotePaymentScheduler {
       // re-cascade EVERY quote currently in an active payment status — not just the
       // ones affected today. cascadeFromQuote is idempotent and only writes when the
       // derived status differs, so this is a cheap daily reconciliation pass.
+      //
+      // SETTLED is included here (but NOT in the reminder query above, which would
+      // spam reminders for already-settled quotes): cascadeFromQuote permits a
+      // SETTLED → reopen when an active, unpaid installment exists, so a quote that
+      // was prematurely/wrongly settled gets re-opened by this self-heal pass.
       const activeQuotes = await this.prisma.taskQuote.findMany({
-        where: { status: { in: ['UPCOMING', 'DUE', 'PARTIAL'] } },
+        where: { status: { in: ['UPCOMING', 'DUE', 'PARTIAL', 'SETTLED'] } },
         select: { id: true },
       });
       const quotesToCascade = new Set<string>([

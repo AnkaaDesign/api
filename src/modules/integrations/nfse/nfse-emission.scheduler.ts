@@ -140,25 +140,53 @@ export class NfseEmissionScheduler {
 
       const now = new Date();
 
-      // Recover stuck PROCESSING docs (stuck for more than 5 minutes)
+      // I22: A doc stuck in PROCESSING (>5min) may have ALREADY been emitted at Elotech —
+      // emission is a non-transactional HTTP call, so the note can be live at the prefeitura
+      // even though our claim never flipped to AUTHORIZED (process crash, network drop after
+      // the POST). Auto-flipping PROCESSING→PENDING and re-emitting would mint a DUPLICATE
+      // live municipal note. Park it as ERROR so a human/relink script reconciles it against
+      // the live Elotech state instead of silently re-emitting. The retryAfter is set far in
+      // the future so the ERROR-retry sweep below does NOT auto-pick it up.
       const stuckThreshold = new Date(now.getTime() - 5 * 60 * 1000);
+      const farFuture = new Date(now.getTime() + 100 * 365 * 24 * 60 * 60 * 1000);
       const unstuck = await this.prisma.nfseDocument.updateMany({
         where: {
           status: NfseStatus.PROCESSING,
           updatedAt: { lt: stuckThreshold },
         },
         data: {
-          status: NfseStatus.PENDING,
-          errorMessage: 'Recovered from stuck PROCESSING state',
+          status: NfseStatus.ERROR,
+          errorMessage:
+            'Travado em PROCESSING — pode já ter sido emitido no Elotech. ' +
+            'Requer reconciliação manual contra a prefeitura antes de reemitir (não reemitido automaticamente).',
+          // Park errorCount past the retry ceiling AND push retryAfter far out so neither
+          // this sweep nor any retry re-emits it without human intervention.
+          errorCount: 3,
+          retryAfter: farFuture,
         },
       });
       if (unstuck.count > 0) {
-        this.logger.warn(`Recovered ${unstuck.count} NFS-e document(s) stuck in PROCESSING state`);
+        this.logger.warn(
+          `Parked ${unstuck.count} NFS-e document(s) stuck in PROCESSING as ERROR (needs manual reconcile — NOT auto-re-emitted)`,
+        );
       }
 
-      // Find NfseDocuments that are PENDING, or ERROR with retryAfter passed and < 3 errors
+      // Find NfseDocuments that are PENDING, or ERROR with retryAfter passed and < 3 errors.
+      // I33: NEVER emit a note for a CANCELLED invoice or an opted-out customer
+      // (generateInvoice=false). The note's lifecycle is owned by an ACTIVE/billable invoice;
+      // a doc still PENDING/ERROR against a cancelled invoice (or one whose customer opted out)
+      // must not mint a live municipal note. The flag lives on customerConfig (task-backed) or
+      // on the externalOperation (withdrawal-backed) — exclude either opt-out.
       const pendingDocs = await this.prisma.nfseDocument.findMany({
         where: {
+          invoice: {
+            is: {
+              status: { not: 'CANCELLED' },
+              // Exclude opt-outs: customer config OR external operation with generateInvoice=false.
+              customerConfig: { isNot: { generateInvoice: false } },
+              externalOperation: { isNot: { generateInvoice: false } },
+            },
+          },
           OR: [
             { status: NfseStatus.PENDING },
             {

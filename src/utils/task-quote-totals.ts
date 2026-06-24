@@ -41,11 +41,13 @@ export async function recalcQuoteTotals(
   let aggregateTotal = 0;
 
   for (const config of allConfigs) {
-    const assignedServices = allItems.filter(
-      s =>
-        s.invoiceToCustomerId === config.customerId ||
-        (isSingleConfig && !s.invoiceToCustomerId),
-    );
+    // Single config: every service on the quote is billed to that one customer,
+    // regardless of a stale/foreign `invoiceToCustomerId` left over from when the
+    // quote briefly had multiple configs. Filtering by customerId there would
+    // silently drop those services from the subtotal (the detail≠wizard bug).
+    const assignedServices = isSingleConfig
+      ? allItems
+      : allItems.filter(s => s.invoiceToCustomerId === config.customerId);
     const configSubtotal = assignedServices.reduce((sum, s) => sum + Number(s.amount || 0), 0);
     const discountType = config.discountType || 'NONE';
     const discountValue = config.discountValue ? Number(config.discountValue) : 0;
@@ -64,6 +66,21 @@ export async function recalcQuoteTotals(
 
     aggregateSubtotal += configSubtotal;
     aggregateTotal += configTotal;
+  }
+
+  // Multi-config: services not yet assigned to any customer (invoiceToCustomerId
+  // null) belong to no config above, so their amounts were dropped from the
+  // aggregate. Fold them in at full value (they bear no config discount) so the
+  // draft TaskQuote.subtotal/total shown on the task detail page is truthful.
+  // The billing-approval guard (task-quote.service unassigned check) still blocks
+  // approval until every service is assigned, so this never reaches an invoice.
+  if (!isSingleConfig) {
+    const unassignedSum = allItems
+      .filter(s => !s.invoiceToCustomerId)
+      .reduce((sum, s) => sum + Number(s.amount || 0), 0);
+    const unassignedRounded = Math.round(unassignedSum * 100) / 100;
+    aggregateSubtotal += unassignedRounded;
+    aggregateTotal += unassignedRounded;
   }
 
   await tx.taskQuote.update({

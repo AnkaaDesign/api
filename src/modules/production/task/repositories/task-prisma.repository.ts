@@ -1,6 +1,7 @@
 // repositories/task-prisma.repository.ts
 
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { FileService } from '@modules/common/file/file.service';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Task } from '../../../../types';
 import {
@@ -28,6 +29,8 @@ import {
   mapWhereClause,
   transformPaintColorPreview,
 } from '../../../../utils';
+import { recalcQuoteTotals } from '../../../../utils/task-quote-totals';
+import { reconcileQuoteCustomerConfigs } from '../../../../utils/task-quote-customer-config-sync';
 
 // =====================
 // Query Pattern Definitions
@@ -233,7 +236,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
           },
         },
       },
-      layoutFiles: true,
+      layoutFiles: { orderBy: { createdAt: 'asc' } },
       customerConfigs: {
         include: {
           customer: {
@@ -535,7 +538,10 @@ export class TaskPrismaRepository
 {
   protected readonly logger = new Logger(TaskPrismaRepository.name);
 
-  constructor(protected readonly prisma: PrismaService) {
+  constructor(
+    protected readonly prisma: PrismaService,
+    private readonly fileService: FileService,
+  ) {
     super(prisma);
   }
 
@@ -734,6 +740,7 @@ export class TaskPrismaRepository
       budgetIds,
       invoiceIds,
       receiptIds,
+      bankSlipIds,
       reimbursementIds,
       reimbursementInvoiceIds,
       artworkIds,
@@ -1035,6 +1042,7 @@ export class TaskPrismaRepository
       budgetIds,
       invoiceIds,
       receiptIds,
+      bankSlipIds,
       reimbursementIds,
       reimbursementInvoiceIds,
       artworkIds,
@@ -1104,6 +1112,13 @@ export class TaskPrismaRepository
     }
     if (receiptIds !== undefined) {
       updateData.receipts = { set: receiptIds.map(id => ({ id })) };
+    }
+    // Bank slips (TASK_BANK_SLIPS File[] relation). Absence = preserve: only
+    // rewritten when bankSlipIds was explicitly sent. Mirrors how the
+    // single-update service path connects bank slips — without this branch the
+    // bulk-attached bankSlipIds the batch path computes were silently dropped.
+    if (bankSlipIds !== undefined) {
+      updateData.bankSlips = { set: bankSlipIds.map(id => ({ id })) };
     }
     if (reimbursementIds !== undefined) {
       updateData.reimbursements = { set: reimbursementIds.map(id => ({ id })) };
@@ -1323,24 +1338,113 @@ export class TaskPrismaRepository
     }
 
     const airbrushings = (extendedData as any).airbrushings;
+    // The single-update SERVICE path handles airbrushing create/update itself
+    // (painter validation, File→Artwork resolution, per-entity changelog) and
+    // delegates ONLY the notIn-delete to this mapper. The batch path has no such
+    // service-layer airbrushing handling, so it opts into full create+update
+    // here via the `_applyAirbrushingsFully` marker. Without the marker we keep
+    // the historical delete-only behavior so single-update never double-creates.
+    const applyAirbrushingsFully = (extendedData as any)._applyAirbrushingsFully === true;
 
     if (airbrushings !== undefined) {
       if (airbrushings === null || (Array.isArray(airbrushings) && airbrushings.length === 0)) {
         updateData.airbrushings = { deleteMany: {} };
       } else if (Array.isArray(airbrushings) && airbrushings.length > 0) {
-        const idsToKeep = airbrushings
-          .filter(
-            (item: any) =>
-              item.id && typeof item.id === 'string' && !item.id.startsWith('airbrushing-'),
-          )
-          .map((item: any) => item.id);
+        // A persisted airbrushing carries a real UUID id; a brand-new one sent by
+        // the form has a temp id (`airbrushing-...`) or no id at all.
+        const existingAirbrushings = airbrushings.filter(
+          (item: any) =>
+            item.id && typeof item.id === 'string' && !item.id.startsWith('airbrushing-'),
+        );
+        const newAirbrushings = airbrushings.filter(
+          (item: any) =>
+            !item.id || typeof item.id !== 'string' || item.id.startsWith('airbrushing-'),
+        );
+        const idsToKeep = existingAirbrushings.map((item: any) => item.id);
 
-        if (idsToKeep.length > 0) {
-          updateData.airbrushings = {
-            deleteMany: { id: { notIn: idsToKeep } },
+        if (!applyAirbrushingsFully) {
+          // Single-update path: delete-only (notIn), service layer does the rest.
+          if (idsToKeep.length > 0) {
+            updateData.airbrushings = {
+              deleteMany: { id: { notIn: idsToKeep } },
+            };
+            this.logger.log(
+              `[mapUpdateFormDataToDatabaseUpdateInput] Airbrushings: keeping ${idsToKeep.length} existing, deleting others`,
+            );
+          }
+        } else {
+          // Batch path: full create + update + notIn-delete in one nested write.
+          //
+          // Build a scalar/relation create payload for a new airbrushing.
+          // NOTE: artworks are intentionally NOT touched here — the single-update
+          // service path resolves File IDs → Artwork entity IDs via a service
+          // helper the repository cannot reach. Leaving them out preserves
+          // existing artworks (absence = preserve) instead of risking a wrong set.
+          const buildCreate = (item: any) => ({
+            status: item.status || 'PENDING',
+            price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
+            startDate: item.startDate || null,
+            finishDate: item.finishDate || null,
+            startedAt: item.startedAt || null,
+            finishedAt: item.finishedAt || null,
+            paymentStatus: item.paymentStatus || 'PENDING',
+            painter: item.painterId ? { connect: { id: item.painterId } } : undefined,
+            receipts:
+              item.receiptIds && item.receiptIds.length > 0
+                ? { connect: item.receiptIds.map((fid: string) => ({ id: fid })) }
+                : undefined,
+            invoices:
+              item.invoiceIds && item.invoiceIds.length > 0
+                ? { connect: item.invoiceIds.map((fid: string) => ({ id: fid })) }
+                : undefined,
+          });
+
+          // Build a scalar/relation update payload for an existing airbrushing.
+          // Only fields actually sent are written (absence = preserve). File
+          // relations use `set` when explicitly provided (mirrors the service path).
+          const buildUpdateData = (item: any) => {
+            const d: any = {};
+            if (item.status !== undefined) d.status = item.status || 'PENDING';
+            if (item.price !== undefined) {
+              d.price = item.price !== null ? Number(item.price) : null;
+            }
+            if (item.startDate !== undefined) d.startDate = item.startDate || null;
+            if (item.finishDate !== undefined) d.finishDate = item.finishDate || null;
+            if (item.startedAt !== undefined) d.startedAt = item.startedAt || null;
+            if (item.finishedAt !== undefined) d.finishedAt = item.finishedAt || null;
+            if (item.paymentStatus !== undefined) d.paymentStatus = item.paymentStatus;
+            if (item.painterId !== undefined) {
+              d.painter = item.painterId
+                ? { connect: { id: item.painterId } }
+                : { disconnect: true };
+            }
+            if (item.receiptIds !== undefined) {
+              d.receipts = { set: (item.receiptIds || []).map((fid: string) => ({ id: fid })) };
+            }
+            if (item.invoiceIds !== undefined) {
+              d.invoices = { set: (item.invoiceIds || []).map((fid: string) => ({ id: fid })) };
+            }
+            return d;
           };
+
+          const airbrushingsUpdate: any = {};
+          // Delete only the airbrushings the form dropped (notIn the kept set).
+          // When every submitted airbrushing is new there is nothing to keep, so
+          // wipe the prior set before recreating.
+          airbrushingsUpdate.deleteMany =
+            idsToKeep.length > 0 ? { id: { notIn: idsToKeep } } : {};
+          if (newAirbrushings.length > 0) {
+            airbrushingsUpdate.create = newAirbrushings.map(buildCreate);
+          }
+          if (existingAirbrushings.length > 0) {
+            airbrushingsUpdate.update = existingAirbrushings.map((item: any) => ({
+              where: { id: item.id },
+              data: buildUpdateData(item),
+            }));
+          }
+          updateData.airbrushings = airbrushingsUpdate;
           this.logger.log(
-            `[mapUpdateFormDataToDatabaseUpdateInput] Airbrushings: keeping ${idsToKeep.length} existing, deleting others`,
+            `[mapUpdateFormDataToDatabaseUpdateInput] Airbrushings (batch full): ${existingAirbrushings.length} update, ${newAirbrushings.length} create, deleting others`,
           );
         }
       }
@@ -1526,11 +1630,21 @@ export class TaskPrismaRepository
         });
         const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
 
-        const layoutFileConnect =
+        // Clone any layout File owned by another quote so the new quote owns an
+        // INDEPENDENT copy — connecting the source ids would steal them (FK on File).
+        const resolvedLayoutIds =
           quoteData.layoutFileIds !== undefined
+            ? await this.fileService.resolveLayoutFileIdsForQuote(
+                transaction,
+                null,
+                quoteData.layoutFileIds ?? [],
+              )
+            : undefined;
+        const layoutFileConnect =
+          resolvedLayoutIds !== undefined
             ? {
                 layoutFiles: {
-                  connect: (quoteData.layoutFileIds ?? []).map((fid: string) => ({ id: fid })),
+                  connect: resolvedLayoutIds.map((fid: string) => ({ id: fid })),
                 },
               }
             : {};
@@ -1562,9 +1676,14 @@ export class TaskPrismaRepository
                       config.generateInvoice !== undefined ? config.generateInvoice : true,
                     generateBankSlip:
                       config.generateBankSlip !== undefined ? config.generateBankSlip : true,
+                    // Mirror the updateWithTransaction create branch — orderNumber
+                    // (and customerSignatureId) were silently dropped on task
+                    // CREATE, so a quote born with a pre-set order number lost it.
+                    orderNumber: config.orderNumber ?? null,
                     responsibleId: config.responsibleId || null,
                     paymentCondition: config.paymentCondition || null,
                     paymentConfig: (config as any).paymentConfig ?? null,
+                    customerSignatureId: config.customerSignatureId ?? null,
                   })),
                 },
               }),
@@ -1707,43 +1826,55 @@ export class TaskPrismaRepository
       const quoteData = (data as any).quote;
 
       if (quoteData !== undefined && quoteData !== null) {
-        if (
+        const hasServices =
           typeof quoteData === 'object' &&
-          quoteData.services &&
           Array.isArray(quoteData.services) &&
-          quoteData.services.length > 0
-        ) {
-          const hasNewItems = quoteData.services.some((item: any) => !item.id);
+          quoteData.services.length > 0;
+        const hasConfigs =
+          typeof quoteData === 'object' && quoteData.customerConfigs !== undefined;
+        const hasLayout =
+          typeof quoteData === 'object' && quoteData.layoutFileIds !== undefined;
+        const hasQuoteScalars =
+          typeof quoteData === 'object' &&
+          (quoteData.expiresAt !== undefined ||
+            quoteData.status !== undefined ||
+            quoteData.guaranteeYears !== undefined ||
+            quoteData.customGuaranteeText !== undefined ||
+            quoteData.customForecastDays !== undefined ||
+            quoteData.simultaneousTasks !== undefined);
+
+        // Decouple the quote-write decision from `services` presence. A config /
+        // discount / layout / scalar-only edit (services stripped as no-ops
+        // upstream) must still persist — gating the whole branch on
+        // services.length>0 silently dropped discount-only edits (200 OK, change
+        // vanished on reload).
+        if (hasServices || hasConfigs || hasLayout || hasQuoteScalars) {
+          const hasNewItems =
+            hasServices && quoteData.services.some((item: any) => !item.id);
 
           const currentTask = await transaction.task.findUnique({
             where: { id },
             select: { quoteId: true },
           });
 
-          const calculatedSubtotal = quoteData.services.reduce(
-            (sum: number, item: any) => sum + Number(item.amount || 0),
-            0,
-          );
-          const subtotal =
-            quoteData.subtotal !== undefined ? Number(quoteData.subtotal) : calculatedSubtotal;
-          const total =
-            quoteData.total !== undefined ? Number(quoteData.total) : calculatedSubtotal;
-
           if (currentTask?.quoteId) {
+            // Clone any layout File owned by ANOTHER quote so this quote owns an
+            // INDEPENDENT copy — a raw `set` of foreign ids would steal them.
+            const resolvedLayoutIds = hasLayout
+              ? await this.fileService.resolveLayoutFileIdsForQuote(
+                  transaction,
+                  currentTask.quoteId,
+                  quoteData.layoutFileIds ?? [],
+                )
+              : undefined;
             const layoutFileUpdate =
-              quoteData.layoutFileIds !== undefined
-                ? {
-                    layoutFiles: {
-                      set: (quoteData.layoutFileIds ?? []).map((fid: string) => ({ id: fid })),
-                    },
-                  }
+              resolvedLayoutIds !== undefined
+                ? { layoutFiles: { set: resolvedLayoutIds.map((fid: string) => ({ id: fid })) } }
                 : {};
 
             await transaction.taskQuote.update({
               where: { id: currentTask.quoteId },
               data: {
-                subtotal,
-                total,
                 expiresAt: quoteData.expiresAt ? new Date(quoteData.expiresAt) : undefined,
                 status: quoteData.status || undefined,
                 ...(quoteData.status && {
@@ -1764,66 +1895,41 @@ export class TaskPrismaRepository
                     ? quoteData.simultaneousTasks
                     : undefined,
                 ...layoutFileUpdate,
-                ...(quoteData.customerConfigs !== undefined && {
-                  customerConfigs: {
+                // Services: rewrite ONLY when actually sent. Omitting them (a
+                // config/layout-only edit) must never wipe the existing services.
+                ...(hasServices && {
+                  services: {
                     deleteMany: {},
-                    create: quoteData.customerConfigs.map((config: any) => ({
-                      customerId: config.customerId,
-                      subtotal: config.subtotal !== undefined ? Number(config.subtotal) : 0,
-                      total: config.total !== undefined ? Number(config.total) : 0,
-                      discountType: config.discountType || 'NONE',
-                      discountValue: config.discountValue ?? null,
-                      discountReference: config.discountReference ?? null,
-                      customPaymentText: config.customPaymentText || null,
-                      generateInvoice:
-                        config.generateInvoice !== undefined ? config.generateInvoice : true,
-                      generateBankSlip:
-                        config.generateBankSlip !== undefined ? config.generateBankSlip : true,
-                      responsibleId: config.responsibleId || null,
-                      paymentCondition: config.paymentCondition || null,
-                      paymentConfig: (config as any).paymentConfig ?? null,
+                    create: quoteData.services.map((item: any, index: number) => ({
+                      description: item.description,
+                      observation: item.observation || null,
+                      amount: Number(item.amount || 0),
+                      position: index,
+                      ...(item.invoiceToCustomerId && {
+                        invoiceToCustomer: { connect: { id: item.invoiceToCustomerId } },
+                      }),
                     })),
                   },
                 }),
-                services: {
-                  deleteMany: {},
-                  create: quoteData.services.map((item: any, index: number) => ({
-                    description: item.description,
-                    observation: item.observation || null,
-                    amount: Number(item.amount || 0),
-                    position: index,
-                    ...(item.invoiceToCustomerId && {
-                      invoiceToCustomer: { connect: { id: item.invoiceToCustomerId } },
-                    }),
-                  })),
-                },
               },
             });
 
-            // Re-create installments for each customer config after delete/recreate
-            if (quoteData.customerConfigs && quoteData.customerConfigs.length > 0) {
-              const newConfigs = await transaction.taskQuoteCustomerConfig.findMany({
-                where: { quoteId: currentTask.quoteId },
-              });
-              for (const config of quoteData.customerConfigs) {
-                const dbConfig = newConfigs.find((c: any) => c.customerId === config.customerId);
-                if (!dbConfig) continue;
+            // Configs: non-destructive upsert by (quoteId, customerId) — preserves
+            // issued Invoice/Installments and DB-owned fields (customerSignatureId,
+            // orderNumber, paymentConfig) the task form never resends, and never
+            // cascade-deletes an issued invoice.
+            if (hasConfigs) {
+              await reconcileQuoteCustomerConfigs(
+                transaction,
+                currentTask.quoteId,
+                quoteData.customerConfigs as any,
+              );
+            }
 
-                // Installments are now created at BILLING_APPROVED time, not at task create/duplicate
-                if (config.installments && config.installments.length > 0) {
-                  await transaction.installment.createMany({
-                    data: config.installments.map((inst: any) => ({
-                      customerConfigId: dbConfig.id,
-                      number: inst.number,
-                      dueDate: inst.dueDate instanceof Date ? inst.dueDate : new Date(inst.dueDate),
-                      amount:
-                        typeof inst.amount === 'number' ? inst.amount : Number(inst.amount) || 0,
-                      paidAmount: 0,
-                      status: 'PENDING' as const,
-                    })),
-                  });
-                }
-              }
+            // Authoritative, discount-aware recompute from the persisted services +
+            // configs — never trust the client-supplied subtotal/total.
+            if (hasServices || hasConfigs) {
+              await recalcQuoteTotals(transaction, currentTask.quoteId);
             }
           } else if (hasNewItems) {
             const maxBudgetNumber = await transaction.taskQuote.aggregate({
@@ -1831,22 +1937,35 @@ export class TaskPrismaRepository
             });
             const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
 
-            const layoutFileConnect =
+            const calculatedSubtotal = quoteData.services.reduce(
+              (sum: number, item: any) => sum + Number(item.amount || 0),
+              0,
+            );
+
+            // Clone any layout File owned by another quote so the new quote owns
+            // an INDEPENDENT copy — connecting source ids would steal them.
+            const resolvedLayoutIds =
               quoteData.layoutFileIds !== undefined
-                ? {
-                    layoutFiles: {
-                      connect: (quoteData.layoutFileIds ?? []).map((fid: string) => ({ id: fid })),
-                    },
-                  }
+                ? await this.fileService.resolveLayoutFileIdsForQuote(
+                    transaction,
+                    null,
+                    quoteData.layoutFileIds ?? [],
+                  )
+                : undefined;
+            const layoutFileConnect =
+              resolvedLayoutIds !== undefined
+                ? { layoutFiles: { connect: resolvedLayoutIds.map((fid: string) => ({ id: fid })) } }
                 : {};
 
             const newQuote = await transaction.taskQuote.create({
               data: {
                 budgetNumber: nextBudgetNumber,
-                subtotal,
-                total,
+                subtotal: calculatedSubtotal,
+                total: calculatedSubtotal,
                 expiresAt: quoteData.expiresAt ? new Date(quoteData.expiresAt) : new Date(),
                 status: quoteData.status || 'PENDING',
+                statusOrder:
+                  TASK_QUOTE_STATUS_ORDER[(quoteData.status || 'PENDING') as TASK_QUOTE_STATUS],
                 guaranteeYears: quoteData.guaranteeYears || null,
                 customGuaranteeText: quoteData.customGuaranteeText || null,
                 customForecastDays: quoteData.customForecastDays || null,
@@ -1867,9 +1986,11 @@ export class TaskPrismaRepository
                           config.generateInvoice !== undefined ? config.generateInvoice : true,
                         generateBankSlip:
                           config.generateBankSlip !== undefined ? config.generateBankSlip : true,
+                        orderNumber: config.orderNumber ?? null,
                         responsibleId: config.responsibleId || null,
                         paymentCondition: config.paymentCondition || null,
                         paymentConfig: (config as any).paymentConfig ?? null,
+                        customerSignatureId: config.customerSignatureId ?? null,
                       })),
                     },
                   }),
@@ -1887,28 +2008,12 @@ export class TaskPrismaRepository
               },
             });
 
+            // Recompute discount-aware totals from the freshly-created rows.
+            await recalcQuoteTotals(transaction, newQuote.id);
+
             updateInput.quote = {
               connect: { id: newQuote.id },
             };
-          }
-        } else if (typeof quoteData === 'object' && quoteData.layoutFileIds !== undefined) {
-          // Layout-only payload: services were stripped as no-ops upstream, but the
-          // layout file selection still needs to persist. Apply it directly to the
-          // existing quote without touching services/subtotal/total.
-          const currentTask = await transaction.task.findUnique({
-            where: { id },
-            select: { quoteId: true },
-          });
-
-          if (currentTask?.quoteId) {
-            await transaction.taskQuote.update({
-              where: { id: currentTask.quoteId },
-              data: {
-                layoutFiles: {
-                  set: (quoteData.layoutFileIds ?? []).map((fid: string) => ({ id: fid })),
-                },
-              },
-            });
           }
         }
       }

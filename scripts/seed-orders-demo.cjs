@@ -130,9 +130,14 @@ async function main() {
       paymentResponsibleId: user?.id || null,
       installmentCount: 1,
       items: { create: lines },
-      budgets: { create: [demoFile('orcamento', 'Orçamento Fornecedor')] },
-      invoices: { create: [demoFile('nota', 'NF-e 001234')] },
-      receipts: { create: [demoFile('recibo', 'Comprovante Pix')] },
+      // Order no longer has budgets/invoices relations — all demo documents now
+      // attach to the surviving receipts (File[]) relation, which is what the
+      // detail page's Documentos card reads.
+      receipts: { create: [
+        demoFile('orcamento', 'Orçamento Fornecedor'),
+        demoFile('nota', 'NF-e 001234'),
+        demoFile('recibo', 'Comprovante Pix'),
+      ] },
     });
   }
 
@@ -160,8 +165,10 @@ async function main() {
       installmentCount: 3,
       paymentResponsibleId: user?.id || null,
       items: { create: lines },
-      budgets: { create: [demoFile('orcamento', 'Orçamento Boleto')] },
-      invoices: { create: [demoFile('nota', 'NF-e 004567')] },
+      receipts: { create: [
+        demoFile('orcamento', 'Orçamento Boleto'),
+        demoFile('nota', 'NF-e 004567'),
+      ] },
       installments: {
         create: [1, 2, 3].map((n) => ({
           number: n,
@@ -196,7 +203,7 @@ async function main() {
       installmentCount: 2,
       paymentResponsibleId: user?.id || null,
       items: { create: lines },
-      invoices: { create: [demoFile('nota', 'NF-e 007788')] },
+      receipts: { create: [demoFile('nota', 'NF-e 007788')] },
       installments: {
         create: [
           { number: 1, dueDate: firstDue, amount: per, paidAmount: per, status: 'PAID', paidAt: addDays(now, -9), paidById: user?.id || null },
@@ -226,7 +233,7 @@ async function main() {
       paymentResponsibleId: user?.id || null,
       installmentCount: 1,
       items: { create: lines },
-      invoices: { create: [demoFile('nota', 'NF-e 009900')] },
+      receipts: { create: [demoFile('nota', 'NF-e 009900')] },
     });
   }
 
@@ -243,7 +250,7 @@ async function main() {
       paymentStatusOrder: 1,
       installmentCount: 1,
       items: { create: lines },
-      budgets: { create: [demoFile('orcamento', 'Orçamento Inicial'), demoFile('orcamento', 'Orçamento Concorrente')] },
+      receipts: { create: [demoFile('orcamento', 'Orçamento Inicial'), demoFile('orcamento', 'Orçamento Concorrente')] },
     });
   }
 
@@ -268,7 +275,7 @@ async function main() {
       installmentCount: 1,
       paymentResponsibleId: user?.id || null,
       items: { create: lines },
-      invoices: { create: [demoFile('nota', 'NF-e 003322')] },
+      receipts: { create: [demoFile('nota', 'NF-e 003322')] },
       installments: { create: [{ number: 1, dueDate: firstDue, amount: total, status: 'PENDING' }] },
     });
   }

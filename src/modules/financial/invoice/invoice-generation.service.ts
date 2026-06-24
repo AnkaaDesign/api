@@ -184,6 +184,21 @@ export class InvoiceGenerationService {
           `[INVOICE_GEN] Generated ${generatedInstallments.length} installment(s) for customerConfig ${config.id}`,
         );
 
+        // I44: the Invoice.totalAmount is a FROZEN snapshot of config.total. Defensively
+        // assert it matches the sum of the generated installments — a divergence (beyond a
+        // centavo) means we are about to bill an amount that does not reconcile to its own
+        // parcelas. Do NOT silently rewrite the snapshot; surface it so it can be corrected.
+        const installmentsSum = Number(
+          generatedInstallments.reduce((s, i) => s + i.amount, 0).toFixed(2),
+        );
+        if (Math.abs(installmentsSum - totalAmount) > 0.01) {
+          this.logger.error(
+            `[INVOICE_GEN] AMOUNT DIVERGENCE for customerConfig ${config.id} (task ${taskId}, ` +
+              `customer ${config.customerId}): config.total=${totalAmount} but Σ installments=` +
+              `${installmentsSum}. Billing the frozen total; reconcile manually.`,
+          );
+        }
+
         // Create the Invoice
         const invoice = await tx.invoice.create({
           data: {
@@ -258,15 +273,46 @@ export class InvoiceGenerationService {
         const shouldGenerateNfse = !options?.skipNfse && config.generateInvoice !== false;
 
         if (shouldGenerateNfse) {
-          await tx.nfseDocument.create({
-            data: {
-              invoiceId: invoice.id,
-              status: 'PENDING',
+          // I20: never mint a SECOND live municipal note. A note that was already emitted
+          // (or is emitting / pending cancellation) survives invoice cancellation as task
+          // history (NfseDocument.invoiceId is SetNull, taskId durable). Re-approving billing
+          // would otherwise create a duplicate live NF for the same task. Reuse any existing
+          // note that is NOT terminally cancelled and NOT in-flight cancellation
+          // (CANCEL_REQUESTED — the reconciler still owns it): re-link it to the new invoice
+          // instead of creating a fresh one. Only mint a new note when none exists.
+          const existingLiveNfse = await tx.nfseDocument.findFirst({
+            where: {
+              taskId: taskId,
+              status: { notIn: ['CANCELLED', 'CANCEL_REQUESTED'] },
             },
+            orderBy: { createdAt: 'desc' },
           });
-          this.logger.log(
-            `[INVOICE_GEN] NfseDocument created for invoice ${invoice.id} (status=PENDING)`,
-          );
+
+          if (existingLiveNfse) {
+            // Re-link the surviving note to the new invoice (if it was orphaned) so the
+            // invoice's NFS-e section still resolves it. Do NOT change its status.
+            if (existingLiveNfse.invoiceId !== invoice.id) {
+              await tx.nfseDocument.update({
+                where: { id: existingLiveNfse.id },
+                data: { invoiceId: invoice.id },
+              });
+            }
+            this.logger.warn(
+              `[INVOICE_GEN] Reusing existing live NfseDocument ${existingLiveNfse.id} ` +
+                `(status=${existingLiveNfse.status}) for invoice ${invoice.id} — not minting a duplicate.`,
+            );
+          } else {
+            await tx.nfseDocument.create({
+              data: {
+                invoiceId: invoice.id,
+                taskId: taskId,
+                status: 'PENDING',
+              },
+            });
+            this.logger.log(
+              `[INVOICE_GEN] NfseDocument created for invoice ${invoice.id} (status=PENDING)`,
+            );
+          }
         } else {
           this.logger.log(
             `[INVOICE_GEN] Skipping NfseDocument for invoice ${invoice.id}: generateInvoice=false`,
@@ -386,6 +432,18 @@ export class InvoiceGenerationService {
     this.logger.log(
       `[INVOICE_GEN_EW] Generated ${generatedInstallments.length} installment(s) for withdrawal ${externalOperationId}`,
     );
+
+    // I44: defensively assert the frozen invoice total reconciles to the generated parcelas.
+    const ewInstallmentsSum = Number(
+      generatedInstallments.reduce((s, i) => s + i.amount, 0).toFixed(2),
+    );
+    if (Math.abs(ewInstallmentsSum - totalAmount) > 0.01) {
+      this.logger.error(
+        `[INVOICE_GEN_EW] AMOUNT DIVERGENCE for withdrawal ${externalOperationId} ` +
+          `(customer ${withdrawal.customerId}): computed total=${totalAmount} but Σ installments=` +
+          `${ewInstallmentsSum}. Billing the frozen total; reconcile manually.`,
+      );
+    }
 
     const invoiceIds: string[] = [];
 
@@ -509,15 +567,39 @@ export class InvoiceGenerationService {
 
       // Create NfseDocument for municipal emission (Elotech OXY) only if generateInvoice is true
       if (withdrawal.generateInvoice !== false) {
-        await tx.nfseDocument.create({
-          data: {
-            invoiceId: invoice.id,
-            status: 'PENDING',
+        // I20: never mint a SECOND live municipal note for this external operation. Reuse any
+        // existing note still linked to one of this withdrawal's invoices that is NOT terminally
+        // cancelled and NOT in-flight cancellation (CANCEL_REQUESTED — the reconciler owns it).
+        const existingLiveNfse = await tx.nfseDocument.findFirst({
+          where: {
+            invoice: { externalOperationId },
+            status: { notIn: ['CANCELLED', 'CANCEL_REQUESTED'] },
           },
+          orderBy: { createdAt: 'desc' },
         });
-        this.logger.log(
-          `[INVOICE_GEN_EW] NfseDocument created for invoice ${invoice.id} (status=PENDING)`,
-        );
+
+        if (existingLiveNfse) {
+          if (existingLiveNfse.invoiceId !== invoice.id) {
+            await tx.nfseDocument.update({
+              where: { id: existingLiveNfse.id },
+              data: { invoiceId: invoice.id },
+            });
+          }
+          this.logger.warn(
+            `[INVOICE_GEN_EW] Reusing existing live NfseDocument ${existingLiveNfse.id} ` +
+              `(status=${existingLiveNfse.status}) for invoice ${invoice.id} — not minting a duplicate.`,
+          );
+        } else {
+          await tx.nfseDocument.create({
+            data: {
+              invoiceId: invoice.id,
+              status: 'PENDING',
+            },
+          });
+          this.logger.log(
+            `[INVOICE_GEN_EW] NfseDocument created for invoice ${invoice.id} (status=PENDING)`,
+          );
+        }
       } else {
         this.logger.log(
           `[INVOICE_GEN_EW] Skipping NfseDocument for invoice ${invoice.id}: generateInvoice=false`,

@@ -25,8 +25,6 @@ export const artworkIncludeSchema = z
               airbrushingReceipts: z.boolean().optional(),
               airbrushingInvoices: z.boolean().optional(),
               airbrushingArtworks: z.boolean().optional(),
-              orderBudgets: z.boolean().optional(),
-              orderInvoices: z.boolean().optional(),
               orderReceipts: z.boolean().optional(),
               taskBudgets: z.boolean().optional(),
               taskInvoices: z.boolean().optional(),

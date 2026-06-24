@@ -3,6 +3,16 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { InvoiceRepository } from './repositories/invoice.repository';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
+import { Decimal } from '@prisma/client/runtime/library';
+
+/**
+ * Minimal Prisma transaction-client shape needed by recalcInvoicePaymentState.
+ * Accepts either the PrismaService or an interactive-transaction client.
+ */
+type InvoiceTxClient = {
+  invoice: PrismaService['invoice'];
+  installment: PrismaService['installment'];
+};
 import type {
   Invoice,
   InvoiceInclude,
@@ -193,11 +203,18 @@ export class InvoiceService {
         },
       });
 
-      // Cancel all NFS-e documents for this invoice that aren't already cancelled/authorized
+      // Only locally-cancel NFS-e documents that have NO live municipal note and are
+      // NOT in an in-flight cancellation lifecycle. PENDING/PROCESSING/ERROR were never
+      // authorized (or never emitted) so there is nothing live at the prefeitura — safe
+      // to cancel locally. AUTHORIZED notes are live and must go through the real Elotech
+      // cancel request (handled by the controller post-transaction). CANCEL_REQUESTED is a
+      // pending request the reconciler still tracks — force-flipping it would orphan a live
+      // note. CANCEL_REJECTED is still a live AUTHORIZED note (its cancel was rejected).
+      // Never orphan a live municipal note by locally-flipping it to CANCELLED.
       await tx.nfseDocument.updateMany({
         where: {
           invoiceId: id,
-          status: { notIn: ['CANCELLED', 'AUTHORIZED'] },
+          status: { in: ['PENDING', 'PROCESSING', 'ERROR'] },
         },
         data: {
           status: 'CANCELLED',
@@ -344,5 +361,67 @@ export class InvoiceService {
     });
 
     return this.findById(invoiceId);
+  }
+
+  /**
+   * SINGLE source of truth for recomputing an invoice's paidAmount + status from its
+   * installments. Used by every payment path (Sicredi webhook, boleto reconcile cron,
+   * manual mark-paid) so the three previously-divergent recalcs can never disagree.
+   *
+   * - paidAmount = Σ paidAmount of NON-CANCELLED installments (Decimal-safe), ALWAYS written.
+   * - status:
+   *     PAID            — every active installment is PAID
+   *     PARTIALLY_PAID  — some payment recorded but not all paid
+   *     ACTIVE          — no payment recorded
+   * - CANCELLED invoices are never touched (cancelInvoice owns that terminal state).
+   *
+   * Idempotent: re-running with no installment change yields the same result.
+   * Accepts a tx client so callers can fold it into their own $transaction.
+   */
+  async recalcInvoicePaymentState(tx: InvoiceTxClient, invoiceId: string): Promise<void> {
+    const invoice = await tx.invoice.findUnique({ where: { id: invoiceId } });
+    if (!invoice) return;
+
+    // Never overwrite a CANCELLED invoice — cancelInvoice owns that state.
+    if (invoice.status === INVOICE_STATUS.CANCELLED) {
+      return;
+    }
+
+    const installments = await tx.installment.findMany({ where: { invoiceId } });
+
+    // Sum paid amount across NON-CANCELLED installments (Decimal-safe).
+    const activeInstallments = installments.filter(
+      inst => inst.status !== INSTALLMENT_STATUS.CANCELLED,
+    );
+    const paidAmount = activeInstallments.reduce(
+      (sum, inst) => sum.add(inst.paidAmount ?? new Decimal(0)),
+      new Decimal(0),
+    );
+
+    let status: string;
+    if (activeInstallments.length === 0) {
+      // All installments cancelled — nothing to settle; keep the invoice un-cancelled
+      // (cancelInvoice handles full cancellation) but reflect no outstanding payment.
+      status = INVOICE_STATUS.ACTIVE;
+    } else {
+      const allPaid = activeInstallments.every(inst => inst.status === INSTALLMENT_STATUS.PAID);
+      if (allPaid) {
+        status = INVOICE_STATUS.PAID;
+      } else if (paidAmount.gt(0)) {
+        status = INVOICE_STATUS.PARTIALLY_PAID;
+      } else {
+        status = INVOICE_STATUS.ACTIVE;
+      }
+    }
+
+    // ALWAYS write paidAmount (do not skip on unchanged status — that was the I31 staleness bug).
+    await tx.invoice.update({
+      where: { id: invoiceId },
+      data: { paidAmount, status: status as any },
+    });
+
+    this.logger.log(
+      `Invoice ${invoiceId} payment state recalculated: paidAmount=${paidAmount}, status=${status}`,
+    );
   }
 }

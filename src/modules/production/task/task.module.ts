@@ -1,6 +1,7 @@
 // tasks.module.ts
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TaskController } from './task.controller';
+import { TaskQuoteModule } from '../task-quote/task-quote.module';
 import { TaskService } from './task.service';
 import { TaskAnalyticsService } from './task-analytics.service';
 import { TaskRepository } from './repositories/task.repository';
@@ -17,7 +18,14 @@ import { NotificationModule } from '@modules/common/notification/notification.mo
 import { NfseModule } from '@modules/integrations/nfse/nfse.module';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule, FileModule, NotificationModule, NfseModule],
+  imports: [
+    PrismaModule,
+    ChangeLogModule,
+    FileModule,
+    NotificationModule,
+    NfseModule,
+    forwardRef(() => TaskQuoteModule),
+  ],
   controllers: [TaskController],
   providers: [
     TaskService,

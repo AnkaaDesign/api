@@ -1041,6 +1041,34 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             continue;
           }
 
+          // I24: skip CANCELLED bank slips. A slip is CANCELLED when the installment was
+          // already settled manually (e.g. PIX/cash via mark-paid, which cancels the slip),
+          // or the boleto was voided. Re-processing it would overwrite the real manual
+          // settlement (paidAmount/method) and double-count.
+          if (bankSlip.status === BANK_SLIP_STATUS.CANCELLED) {
+            this.logger.log(
+              `${logPrefix} BankSlip ${bankSlip.id} is CANCELLED (likely settled manually), skipping`,
+            );
+            continue;
+          }
+
+          // I24: never overwrite an installment already PAID via a NON-boleto method
+          // (manual PIX/cash/other). The Sicredi "liquidados" feed can echo a boleto whose
+          // installment was settled out-of-band — respect the existing manual settlement.
+          const existingInst = bankSlip.installment;
+          if (
+            existingInst &&
+            existingInst.status === INSTALLMENT_STATUS.PAID &&
+            existingInst.paymentMethod &&
+            existingInst.paymentMethod !== 'BANK_SLIP'
+          ) {
+            this.logger.log(
+              `${logPrefix} Installment ${existingInst.id} already PAID via ${existingInst.paymentMethod} ` +
+                `(non-boleto manual settlement), skipping boleto reconciliation`,
+            );
+            continue;
+          }
+
           // Sicredi /liquidados/dia uses different field names than expected by the DTO:
           //   Amount: valorLiquidado (actual) | valorLiquidacao | valor
           //   Date:   dataPagamento (actual) | dataLiquidacao | dataCredito
@@ -1065,11 +1093,32 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
           const invoiceId = bankSlip.installment?.invoice?.id;
 
+          // I23: only settle on a FULL payment. A boleto is registered at a fixed face value;
+          // if the credited value is short of the installment amount (beyond a centavo
+          // tolerance) record the money but do NOT mark PAID and keep the slip ACTIVE so the
+          // remainder is still owed. When paidAmount is unknown (null) treat as full (legacy
+          // behavior — the feed didn't report a value).
+          const expectedAmount =
+            bankSlip.installment != null ? Number(bankSlip.installment.amount) : null;
+          const fullyPaid =
+            paidAmount == null ||
+            expectedAmount == null ||
+            paidAmount >= expectedAmount - 0.01;
+
+          if (!fullyPaid) {
+            this.logger.warn(
+              `${logPrefix} Underpayment for installment ${bankSlip.installment?.id} ` +
+                `(nossoNumero=${paidBoleto.nossoNumero}): received ${paidAmount} but expected ` +
+                `${expectedAmount}. Recording payment WITHOUT settling — bank slip kept ACTIVE, ` +
+                `installment status unchanged. Needs human review.`,
+            );
+          }
+
           await this.prisma.$transaction(async tx => {
             await tx.bankSlip.update({
               where: { id: bankSlip.id },
               data: {
-                status: BANK_SLIP_STATUS.PAID,
+                ...(fullyPaid ? { status: BANK_SLIP_STATUS.PAID } : {}),
                 ...(paidAmount != null && { paidAmount }),
                 paidAt,
                 lastSyncAt: new Date(),
@@ -1080,7 +1129,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
               await tx.installment.update({
                 where: { id: bankSlip.installment.id },
                 data: {
-                  status: INSTALLMENT_STATUS.PAID,
+                  ...(fullyPaid ? { status: INSTALLMENT_STATUS.PAID } : {}),
                   ...(paidAmount != null && { paidAmount }),
                   paidAt,
                   paymentMethod: 'BANK_SLIP',
@@ -1093,23 +1142,30 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             }
           });
 
-          if (invoiceId) {
+          // Cascade so the quote reflects reality (settle only when the installment is PAID).
+          if (bankSlip.installment) {
+            await this.cascadeService.cascadeFromInstallment(bankSlip.installment.id);
+          } else if (invoiceId) {
             await this.cascadeService.cascadeFromInvoice(invoiceId);
           }
 
-          await this.dispatchBankSlipPaidNotification(
-            bankSlip.id,
-            invoiceId,
-            paidAmount ?? 0,
-            bankSlip.dueDate,
-          );
+          // Only signal "paid" downstream on a FULL payment (slip is PAID). An underpayment
+          // leaves the slip ACTIVE — emitting the OFX bridge / push would be wrong.
+          if (fullyPaid) {
+            await this.dispatchBankSlipPaidNotification(
+              bankSlip.id,
+              invoiceId,
+              paidAmount ?? 0,
+              bankSlip.dueDate,
+            );
 
-          // Bridge to bank-statement reconciliation (OFX-imported transactions)
-          this.events.emit('banking.bankslip.paid', {
-            bankSlipId: bankSlip.id,
-            paidAt,
-            paidAmount: paidAmount ?? 0,
-          });
+            // Bridge to bank-statement reconciliation (OFX-imported transactions)
+            this.events.emit('banking.bankslip.paid', {
+              bankSlipId: bankSlip.id,
+              paidAt,
+              paidAmount: paidAmount ?? 0,
+            });
+          }
 
           reconciled++;
           this.logger.log(
@@ -1632,14 +1688,41 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     }
 
     // --- seuNumero ---
+    // I57: a blind overwrite on the daily sync can REVERT a corrected NF reference. Our local
+    // seuNumero may have been deliberately set to a valid NF reference (e.g. "NF3039" — see
+    // buildSeuNumero) after an NF was cancelled/re-emitted, while Sicredi still echoes the old
+    // or an empty value. Only overwrite when:
+    //   (1) the incoming Sicredi value is non-empty, AND
+    //   (2) it actually differs, AND
+    //   (3) our current reference is missing/blank OR is NOT already a valid NF reference.
+    // Never clobber a valid corrected "NF…" reference with a non-NF / stale Sicredi value.
+    const incomingSeuNumero =
+      typeof sicrediData.seuNumero === 'string' ? sicrediData.seuNumero.trim() : '';
+    const localSeuNumero = (bankSlip.seuNumero ?? '').trim();
+    const localIsValidNfRef = /^NF\d+/i.test(localSeuNumero);
+    const incomingIsValidNfRef = /^NF\d+/i.test(incomingSeuNumero);
+
     if (
-      sicrediData.seuNumero != null &&
-      sicrediData.seuNumero !== bankSlip.seuNumero
+      incomingSeuNumero !== '' &&
+      incomingSeuNumero !== localSeuNumero &&
+      // Don't clobber a valid local NF reference unless Sicredi also has a valid NF reference
+      // (a legitimately corrected NF number coming back from the bank).
+      (!localIsValidNfRef || incomingIsValidNfRef)
     ) {
       seuNumeroChanged = true;
-      bankSlipUpdates.seuNumero = sicrediData.seuNumero;
+      bankSlipUpdates.seuNumero = incomingSeuNumero;
       this.logger.log(
-        `[BOLETO_SYNC] ${bankSlip.nossoNumero} seuNumero: "${bankSlip.seuNumero}" → "${sicrediData.seuNumero}"`,
+        `[BOLETO_SYNC] ${bankSlip.nossoNumero} seuNumero: "${bankSlip.seuNumero}" → "${incomingSeuNumero}"`,
+      );
+    } else if (
+      incomingSeuNumero !== '' &&
+      incomingSeuNumero !== localSeuNumero &&
+      localIsValidNfRef &&
+      !incomingIsValidNfRef
+    ) {
+      this.logger.warn(
+        `[BOLETO_SYNC] ${bankSlip.nossoNumero} keeping local NF reference "${localSeuNumero}" — ` +
+          `refusing to overwrite with non-NF Sicredi value "${incomingSeuNumero}".`,
       );
     }
 
@@ -1709,6 +1792,17 @@ export class SicrediBoletoScheduler implements OnModuleInit {
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
   /**
+   * Public passthrough to the TaskQuote status cascade (single source of truth for
+   * SETTLED / PARTIAL / DUE / UPCOMING derivation). Exposed so callers that already
+   * inject this scheduler (e.g. InvoiceController's manual mark-paid / cancel-boleto)
+   * can reconverge a quote without re-implementing the derivation. Best-effort —
+   * the cascade never throws.
+   */
+  async cascadeFromInstallment(installmentId: string): Promise<void> {
+    await this.cascadeService.cascadeFromInstallment(installmentId);
+  }
+
+  /**
    * Recalculate and update invoice status based on its installments.
    */
   private async updateInvoiceStatus(invoiceId: string): Promise<void> {
@@ -1735,12 +1829,16 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
     if (activeInstallments.length === 0) return;
 
-    const allPaid = activeInstallments.every(inst => inst.status === INSTALLMENT_STATUS.PAID);
-    const somePaid = activeInstallments.some(inst => inst.status === INSTALLMENT_STATUS.PAID);
+    // Never overwrite a CANCELLED invoice — cancelInvoice owns that terminal state.
+    if (invoice.status === INVOICE_STATUS.CANCELLED) return;
 
+    const allPaid = activeInstallments.every(inst => inst.status === INSTALLMENT_STATUS.PAID);
+
+    // I31: sum ALL recorded payment across active installments (not only PAID ones) so an
+    // underpayment recorded on a still-ACTIVE installment is reflected in paidAmount. Mirrors
+    // InvoiceService.recalcInvoicePaymentState — single algorithm, always writes paidAmount.
     const totalPaid = Number(
       activeInstallments
-        .filter(inst => inst.status === INSTALLMENT_STATUS.PAID)
         .reduce((sum, inst) => sum + Number((inst.paidAmount ?? 0).toString()), 0)
         .toFixed(2),
     );
@@ -1748,23 +1846,25 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     let newStatus: string;
     if (allPaid) {
       newStatus = INVOICE_STATUS.PAID;
-    } else if (somePaid) {
+    } else if (totalPaid > 0) {
       newStatus = INVOICE_STATUS.PARTIALLY_PAID;
     } else {
       newStatus = INVOICE_STATUS.ACTIVE;
     }
 
-    if (invoice.status !== newStatus) {
-      await tx.invoice.update({
-        where: { id: invoiceId },
-        data: {
-          status: newStatus as any,
-          paidAmount: totalPaid,
-        },
-      });
+    // I31: ALWAYS write paidAmount (the old code skipped the write when status was unchanged,
+    // leaving paidAmount stale and causing threshold disagreement across the three recalcs).
+    await tx.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: newStatus as any,
+        paidAmount: totalPaid,
+      },
+    });
 
-      this.logger.log(`Invoice ${invoiceId} status updated to ${newStatus} (paid: ${totalPaid})`);
-    }
+    this.logger.log(
+      `Invoice ${invoiceId} payment state recalculated: status=${newStatus}, paid=${totalPaid}`,
+    );
   }
 
   /**

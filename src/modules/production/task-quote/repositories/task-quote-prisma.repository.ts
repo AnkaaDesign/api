@@ -87,7 +87,11 @@ export class TaskQuotePrismaRepository
       // Guarantee Terms
       guaranteeYears: formData.guaranteeYears || null,
       customGuaranteeText: formData.customGuaranteeText || null,
-      // Layout Files (max 2)
+      // Layout Files (max 2). NOTE: this raw connect does NOT clone foreign
+      // Files — it would steal ownership (FK lives on File). It is currently
+      // unreached (controller routes create/update to TaskQuoteService's inline
+      // transaction, which clones via resolveLayoutFileIdsForQuote). Do NOT wire
+      // this mapper to user input without routing ids through that resolver.
       ...(formData.layoutFileIds !== undefined && {
         layoutFiles: {
           connect: (formData.layoutFileIds ?? []).map((id: string) => ({ id })),
@@ -156,7 +160,12 @@ export class TaskQuotePrismaRepository
     if (formData.customGuaranteeText !== undefined)
       updateInput.customGuaranteeText = formData.customGuaranteeText;
 
-    // Layout Files (max 2) — `set` replaces the relation wholesale ([] clears)
+    // Layout Files (max 2) — `set` replaces the relation wholesale ([] clears).
+    // NOTE: this raw set does NOT clone foreign Files — it would steal ownership
+    // (FK lives on File). It is currently unreached (controller routes create/
+    // update to TaskQuoteService's inline transaction, which clones via
+    // resolveLayoutFileIdsForQuote). Do NOT wire this mapper to user input
+    // without routing ids through that resolver.
     if (formData.layoutFileIds !== undefined) {
       updateInput.layoutFiles = {
         set: (formData.layoutFileIds ?? []).map((id: string) => ({ id })),
@@ -422,7 +431,7 @@ export class TaskQuotePrismaRepository
     const quote = await this.prisma.taskQuote.findFirst({
       where: { task: { id: taskId } },
       include: {
-        layoutFiles: true,
+        layoutFiles: { orderBy: { createdAt: 'asc' } },
         services: {
           orderBy: { position: 'asc' },
           include: {

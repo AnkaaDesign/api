@@ -228,12 +228,31 @@ export class SicrediWebhookService {
       : bankSlip.amount;
     const now = new Date();
 
+    // I23: a Sicredi boleto is registered at a fixed face value and is normally paid in full.
+    // If the credited value is LESS than the installment amount (anomalous underpayment), we
+    // must NOT settle: record the money received but leave the installment in its current
+    // status (PENDING/OVERDUE) and keep the bank slip ACTIVE so the remainder stays owed.
+    // A centavo tolerance absorbs rounding. Only a full payment settles.
+    const installmentAmount = new Decimal(bankSlip.installment.amount.toString());
+    const TOLERANCE = new Decimal('0.01');
+    const fullyPaid = paidAmount.gte(installmentAmount.sub(TOLERANCE));
+
+    if (!fullyPaid) {
+      this.logger.warn(
+        `[LIQUIDATION] Underpayment for installment ${bankSlip.installmentId} ` +
+          `(nossoNumero=${nossoNumero}): received ${paidAmount.toString()} but expected ` +
+          `${installmentAmount.toString()}. Recording payment WITHOUT settling — bank slip ` +
+          `kept ACTIVE, installment status unchanged. Needs human review.`,
+      );
+    }
+
     await this.prismaService.$transaction(async tx => {
-      // Update BankSlip to PAID
+      // Update BankSlip: only PAID when fully paid; underpayment keeps it ACTIVE so the
+      // remainder is still collectible.
       await tx.bankSlip.update({
         where: { id: bankSlip.id },
         data: {
-          status: 'PAID',
+          ...(fullyPaid ? { status: 'PAID' } : {}),
           paidAmount,
           paidAt: now,
           liquidationData: {
@@ -246,11 +265,13 @@ export class SicrediWebhookService {
         },
       });
 
-      // Update Installment to PAID
+      // Update Installment: only flip to PAID on full payment. Underpayment records the
+      // money (paidAmount/paidAt/paymentMethod) but keeps the existing status so the quote
+      // does NOT settle.
       await tx.installment.update({
         where: { id: bankSlip.installmentId },
         data: {
-          status: 'PAID',
+          ...(fullyPaid ? { status: 'PAID' } : {}),
           paidAmount,
           paidAt: now,
           paymentMethod: 'BANK_SLIP',
@@ -261,22 +282,28 @@ export class SicrediWebhookService {
       await this.recalculateInvoice(tx, bankSlip.installment.invoiceId);
     });
 
-    // Cascade TaskQuote status (UPCOMING → PARTIAL → SETTLED)
-    await this.cascadeService.cascadeFromInvoice(bankSlip.installment.invoiceId);
+    // Cascade so the quote reflects reality. On a full payment this can settle; on an
+    // underpayment the installment is not PAID so nothing wrongly settles.
+    await this.cascadeService.cascadeFromInstallment(bankSlip.installmentId);
 
     this.logger.log(
-      `Liquidation handled for nossoNumero: ${nossoNumero}, paidAmount: ${paidAmount}`,
+      `Liquidation handled for nossoNumero: ${nossoNumero}, paidAmount: ${paidAmount}, fullyPaid: ${fullyPaid}`,
     );
 
-    // Bridge to bank-statement reconciliation (OFX-imported transactions)
-    this.events.emit('banking.bankslip.paid', {
-      bankSlipId: bankSlip.id,
-      paidAt: now,
-      paidAmount: Number(paidAmount),
-    });
+    // Only signal "paid" downstream on a FULL payment. On an underpayment the bank slip
+    // stays ACTIVE, so emitting the OFX-reconciliation bridge (which can settle a payable)
+    // or a "boleto pago" push notification would be wrong.
+    if (fullyPaid) {
+      // Bridge to bank-statement reconciliation (OFX-imported transactions)
+      this.events.emit('banking.bankslip.paid', {
+        bankSlipId: bankSlip.id,
+        paidAt: now,
+        paidAmount: Number(paidAmount),
+      });
 
-    // Dispatch push notification for boleto payment
-    await this.dispatchBankSlipPaidNotification(bankSlip, paidAmount, nossoNumero);
+      // Dispatch push notification for boleto payment
+      await this.dispatchBankSlipPaidNotification(bankSlip, paidAmount, nossoNumero);
+    }
   }
 
   private async dispatchBankSlipPaidNotification(
