@@ -834,6 +834,14 @@ export class TaskPrismaRepository
     }
 
     const creatorId = (extendedData as any).createdById;
+    // ServiceOrder.createdBy is required, so SOs can only be created when a
+    // creator id is known. Surface the silent drop — otherwise a caller that
+    // forgot to pass userId loses every submitted SO with no signal.
+    if (serviceOrders && serviceOrders.length > 0 && !creatorId) {
+      this.logger.warn(
+        `[mapCreateFormDataToDatabaseCreateInput] ${serviceOrders.length} service order(s) were dropped on task create: no creator id (userId) available to set ServiceOrder.createdBy.`,
+      );
+    }
     if (serviceOrders && serviceOrders.length > 0 && creatorId) {
       taskData.serviceOrders = {
         create: serviceOrders.map((service, index) => ({

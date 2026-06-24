@@ -7638,14 +7638,106 @@ export class TaskService {
             `[batchUpdate] Processing individual layouts for ${tasksNeedingLayoutUpdate.length} tasks`,
           );
 
-          // Helper to create an individual layout for a side
-          const createIndividualLayout = async (
+          // Helper to apply an individual layout for a side.
+          //
+          // I38 FIX: when the truck already owns a layout for this side, UPDATE it
+          // in place (preserving the Layout id + its LayoutSection ids unless the
+          // sections actually changed) instead of always creating a fresh Layout.
+          // Blindly recreating churned the layoutId FK every batch save → a false
+          // "layouts changed" event and broken external references. Mirrors the
+          // single-update in-place path (sole-owner update / copy-on-write fork /
+          // create-new). Returns the layout id the truck should point at.
+          const applyIndividualLayout = async (
             layoutData: any,
             sideName: string,
             taskId: string,
+            existingLayoutId: string | null,
+            truckId: string,
+            relationName: 'trucksLeftSide' | 'trucksRightSide' | 'trucksBackSide',
           ): Promise<string | null> => {
             if (!layoutData) return null;
 
+            // Only rewrite sections when the payload actually carries them —
+            // absence = preserve existing measures.
+            const wantsSectionRewrite =
+              Array.isArray(layoutData.layoutSections) && layoutData.layoutSections.length > 0;
+            const sectionCreate = wantsSectionRewrite
+              ? layoutData.layoutSections.map((section: any, index: number) => ({
+                  width: section.width,
+                  isDoor: section.isDoor,
+                  doorHeight: section.doorHeight,
+                  position: section.position ?? index,
+                }))
+              : null;
+
+            if (existingLayoutId) {
+              const existingLayout = await tx.layout.findUnique({
+                where: { id: existingLayoutId },
+                include: { layoutSections: true, [relationName]: { select: { id: true } } },
+              });
+
+              // Copy-on-write: if OTHER trucks share this Layout, editing it in
+              // place would corrupt theirs — fork a private copy for this truck.
+              const otherTrucks = ((existingLayout as any)?.[relationName] || []).filter(
+                (t: any) => t.id !== truckId,
+              );
+
+              if (existingLayout && otherTrucks.length === 0) {
+                // Sole owner → update IN PLACE, preserving the Layout id.
+                if (wantsSectionRewrite) {
+                  await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
+                }
+                await tx.layout.update({
+                  where: { id: existingLayoutId },
+                  data: {
+                    ...(layoutData.height !== undefined && { height: layoutData.height }),
+                    ...(layoutData.photoId !== undefined && {
+                      photoId: layoutData.photoId || null,
+                    }),
+                    ...(wantsSectionRewrite && {
+                      layoutSections: { create: sectionCreate },
+                    }),
+                  },
+                });
+                this.logger.log(
+                  `[batchUpdate] Individual ${sideName} layout updated in-place: ${existingLayoutId} for task ${taskId}`,
+                );
+                return existingLayoutId;
+              }
+
+              // Shared (or vanished) → fork a private copy, carrying over the
+              // existing measures/height/photo when the payload omitted them.
+              const fallbackSections = ((existingLayout as any)?.layoutSections || []).map(
+                (s: any, i: number) => ({
+                  width: s.width,
+                  isDoor: s.isDoor,
+                  doorHeight: s.doorHeight,
+                  position: s.position ?? i,
+                }),
+              );
+              const forkedLayout = await tx.layout.create({
+                data: {
+                  height:
+                    layoutData.height !== undefined
+                      ? layoutData.height
+                      : (existingLayout as any)?.height,
+                  ...(layoutData.photoId !== undefined
+                    ? layoutData.photoId
+                      ? { photo: { connect: { id: layoutData.photoId } } }
+                      : {}
+                    : (existingLayout as any)?.photoId
+                      ? { photo: { connect: { id: (existingLayout as any).photoId } } }
+                      : {}),
+                  layoutSections: { create: sectionCreate ?? fallbackSections },
+                },
+              });
+              this.logger.log(
+                `[batchUpdate] Individual ${sideName} layout forked (copy-on-write): ${forkedLayout.id} for task ${taskId}`,
+              );
+              return forkedLayout.id;
+            }
+
+            // No existing layout for this side → create new.
             this.logger.log(
               `[batchUpdate] Creating individual ${sideName} layout for task ${taskId}`,
             );
@@ -7656,7 +7748,7 @@ export class TaskService {
                   photo: { connect: { id: layoutData.photoId } },
                 }),
                 layoutSections: {
-                  create: layoutData.layoutSections.map((section: any, index: number) => ({
+                  create: (layoutData.layoutSections || []).map((section: any, index: number) => ({
                     width: section.width,
                     isDoor: section.isDoor,
                     doorHeight: section.doorHeight,
@@ -7759,21 +7851,33 @@ export class TaskService {
             const existingRightId = taskWithTruck?.truck?.rightSideLayoutId ?? null;
             const existingBackId = taskWithTruck?.truck?.backSideLayoutId ?? null;
 
-            // Create individual layouts for this task
-            const newLeftId = await createIndividualLayout(
+            // Apply individual layouts for this task — update in place when the
+            // truck already owns the side's layout (I38: no id churn), else fork/
+            // create. When the returned id equals the existing id (in-place
+            // update) the disconnect below is correctly skipped.
+            const newLeftId = await applyIndividualLayout(
               truckData.leftSideLayout,
               'left',
               taskId,
+              existingLeftId,
+              truckId,
+              'trucksLeftSide',
             );
-            const newRightId = await createIndividualLayout(
+            const newRightId = await applyIndividualLayout(
               truckData.rightSideLayout,
               'right',
               taskId,
+              existingRightId,
+              truckId,
+              'trucksRightSide',
             );
-            const newBackId = await createIndividualLayout(
+            const newBackId = await applyIndividualLayout(
               truckData.backSideLayout,
               'back',
               taskId,
+              existingBackId,
+              truckId,
+              'trucksBackSide',
             );
 
             if (newLeftId && existingLeftId !== newLeftId) {
@@ -11928,6 +12032,7 @@ export class TaskService {
             logoPaints: { select: { id: true } },
             cuts: {
               select: {
+                id: true,
                 fileId: true,
                 type: true,
                 origin: true,
@@ -12334,10 +12439,14 @@ export class TaskService {
             // ===== INDIVIDUAL RESOURCES (Create New) =====
             case 'cuts':
               if (hasData(sourceTask.cuts)) {
-                // Create new cut records with PENDING status
+                // PASS 1: create every copied cut WITHOUT a parentCutId. Copying
+                // the source's parentCutId verbatim would dangle — it points at a
+                // cut on the SOURCE task, not the new copies. Build an old→new id
+                // map so we can rewire parent links to the destination copies.
+                const oldToNewCutId = new Map<string, string>();
                 const newCuts = await Promise.all(
                   sourceTask.cuts.map(async cut => {
-                    return await tx.cut.create({
+                    const created = await tx.cut.create({
                       data: {
                         taskId: destinationTaskId,
                         fileId: cut.fileId,
@@ -12346,11 +12455,34 @@ export class TaskService {
                         statusOrder: 1, // PENDING order
                         origin: cut.origin,
                         reason: cut.reason,
-                        parentCutId: cut.parentCutId,
+                        // parentCutId set in PASS 2 (remapped) — never the source's.
                       },
                     });
+                    if ((cut as any).id) {
+                      oldToNewCutId.set((cut as any).id, created.id);
+                    }
+                    return created;
                   }),
                 );
+
+                // PASS 2: rewire parent links. A copied cut whose source parent was
+                // ALSO copied gets the remapped destination parent; a cut whose
+                // parent lives outside this copy stays parentless (null) rather
+                // than dangling onto the source task.
+                await Promise.all(
+                  sourceTask.cuts.map(async (cut, index) => {
+                    const sourceParentId = (cut as any).parentCutId as string | null;
+                    if (!sourceParentId) return;
+                    const remappedParentId = oldToNewCutId.get(sourceParentId);
+                    if (remappedParentId) {
+                      await tx.cut.update({
+                        where: { id: newCuts[index].id },
+                        data: { parentCutId: remappedParentId },
+                      });
+                    }
+                  }),
+                );
+
                 copiedFields.push(field);
                 details.cuts = {
                   count: newCuts.length,
