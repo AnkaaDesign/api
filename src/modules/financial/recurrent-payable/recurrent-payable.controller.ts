@@ -40,6 +40,16 @@ export class RecurrentPayableController {
     return this.service.list(filter);
   }
 
+  /** Per-bill monthly dashboard for the unified Recorrentes page. `competence`
+   *  is YYYY-MM; defaults to the current SP competence. */
+  @Get('monthly')
+  async monthly(@Query('competence') competence?: string) {
+    const comp = /^\d{4}-\d{2}$/.test(competence ?? '')
+      ? (competence as string)
+      : this.service.currentCompetence();
+    return this.service.monthlyView(comp);
+  }
+
   @Get(':id')
   async findById(@Param('id') id: string) {
     return this.service.findById(id);

@@ -554,11 +554,10 @@ async function suiteQuery(fx: Fixtures) {
       include: { supplier: true, items: true },
       defaultOrderBy: [{ paymentStatusOrder: 'asc' }, { createdAt: 'desc' }],
       searchingFor: 'a',
-      extraParams: { where: { paymentStatus: { in: ['NOT_REQUESTED', 'REQUESTED', 'AWAITING_PAYMENT'] } } },
+      extraParams: { where: { paymentStatus: { in: ['AWAITING_PAYMENT', 'PARTIALLY_PAID'] } } },
       filters: [
-        { name: 'paymentStatus NOT_REQUESTED', params: { where: { paymentStatus: { in: ['NOT_REQUESTED'] } } } },
-        { name: 'paymentStatus REQUESTED', params: { where: { paymentStatus: { in: ['REQUESTED'] } } } },
         { name: 'paymentStatus AWAITING_PAYMENT', params: { where: { paymentStatus: { in: ['AWAITING_PAYMENT'] } } } },
+        { name: 'paymentStatus PARTIALLY_PAID', params: { where: { paymentStatus: { in: ['PARTIALLY_PAID'] } } } },
         {
           name: 'paymentStatus PAID (90d window)',
           params: { where: { paymentStatus: 'PAID', paidAt: { gte: new Date(Date.now() - 90 * 24 * 3600 * 1000) } } },
@@ -667,7 +666,7 @@ async function suiteQuery(fx: Fixtures) {
     expect(
       'Contas a pagar — GET /orders/payment-summary',
       res.status === 200 && res.body?.success === true && buckets &&
-        ['NOT_REQUESTED', 'REQUESTED', 'AWAITING_PAYMENT', 'PAID_LAST_90_DAYS'].every(k => k in buckets),
+        ['AWAITING_PAYMENT', 'PARTIALLY_PAID', 'PAID_LAST_90_DAYS'].every(k => k in buckets),
       `status=${res.status} ${JSON.stringify(res.body)?.slice(0, 220)}`,
     );
   }

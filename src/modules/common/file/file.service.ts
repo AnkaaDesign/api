@@ -249,9 +249,25 @@ export class FileService {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
+    // A reused file is a CLONE that SHARES its source's path. The result is distinct by
+    // path, so excluding only the clone's id would leave the source (same path) in the
+    // result and it would reappear as a suggestion. Resolve the excluded ids to their
+    // paths and exclude those paths too, so an already-used layout stays hidden.
+    let excludePaths: string[] = [];
+    if (excludeIds.length > 0) {
+      const excludedFiles = await this.prisma.file.findMany({
+        where: { id: { in: excludeIds } },
+        select: { path: true },
+      });
+      excludePaths = [...new Set(excludedFiles.map((f) => f.path))];
+    }
+
     const files = await this.prisma.file.findMany({
       where: {
-        path: { contains: pathPrefix },
+        AND: [
+          { path: { contains: pathPrefix } },
+          ...(excludePaths.length > 0 ? [{ path: { notIn: excludePaths } }] : []),
+        ],
         createdAt: { gte: thirtyDaysAgo },
         ...(excludeIds.length > 0 ? { id: { notIn: excludeIds } } : {}),
       },
@@ -291,9 +307,40 @@ export class FileService {
         mimetype: sourceFile.mimetype,
         path: sourceFile.path,
         size: sourceFile.size,
-        thumbnailUrl: sourceFile.thumbnailUrl,
+        // Generated below — thumbnails are keyed by File id, so copying the source's
+        // (source-id keyed) thumbnailUrl would point the clone at a thumbnail that
+        // doesn't match its own id. Start null and generate one for the clone.
+        thumbnailUrl: null,
       },
     });
+
+    // The clone has a NEW id but shares the source's path/bytes; its thumbnail must be
+    // keyed by the clone id, else the UI falls back to a generic icon. Generate it now
+    // (best-effort — the on-demand thumbnail endpoint also covers it on first request).
+    if (
+      sourceFile.mimetype.startsWith('image/') &&
+      !sourceFile.mimetype.includes('eps')
+    ) {
+      try {
+        const thumb = await this.thumbnailService.generateThumbnail(
+          sourceFile.path,
+          sourceFile.mimetype,
+          newFile.id,
+          { width: 300, height: 300, quality: 85, format: 'webp', fit: 'contain' },
+        );
+        if (thumb.success && thumb.thumbnailUrl) {
+          await this.prisma.file.update({
+            where: { id: newFile.id },
+            data: { thumbnailUrl: thumb.thumbnailUrl },
+          });
+          newFile.thumbnailUrl = thumb.thumbnailUrl;
+        }
+      } catch (error: any) {
+        this.logger.warn(
+          `Error generating thumbnail for cloned file ${newFile.id}: ${error.message}`,
+        );
+      }
+    }
 
     // Log changelog event
     await this.changeLogService.logChange({
@@ -463,7 +510,10 @@ export class FileService {
     userId?: string,
   ): Promise<string[]> {
     const resolved: string[] = [];
-    for (const id of requestedIds) {
+    // Dedupe first — a repeated id owned by ANOTHER quote would otherwise be cloned
+    // once per occurrence, producing multiple stray File copies for a single slot.
+    const uniqueIds = [...new Set(requestedIds)];
+    for (const id of uniqueIds) {
       const file = await tx.file.findUnique({
         where: { id },
         select: { id: true, quoteLayoutId: true },

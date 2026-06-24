@@ -185,6 +185,165 @@ export class WarningService {
   }
 
   /**
+   * Notify each warned-warning signer (collaborator + witnesses) that they must
+   * take ciência and sign the warning in their own app. Targets the explicit
+   * user IDs via dispatchByConfigurationToUsers. Never throws — notification
+   * failures must not break the warning flow.
+   */
+  private async notifyWarningSigners(
+    warning: {
+      id: string;
+      collaboratorId: string;
+      severity?: string | null;
+    },
+    options: {
+      collaboratorName?: string | null;
+      witnessIds?: string[];
+      // When set, only these witness ids are notified (newly added on update).
+      onlyWitnessIds?: string[];
+      // Skip the collaborator copy (e.g. on a witness-only update).
+      skipCollaborator?: boolean;
+    } = {},
+  ): Promise<void> {
+    const severityLabel = warning.severity
+      ? WarningService.SEVERITY_LABELS_PT[warning.severity] ?? warning.severity
+      : '';
+
+    // Collaborator copy.
+    if (!options.skipCollaborator && warning.collaboratorId) {
+      try {
+        await this.dispatchService.dispatchByConfigurationToUsers(
+          'warning.issued',
+          'system',
+          {
+            entityType: 'Warning',
+            entityId: warning.id,
+            action: 'sign_required',
+            data: { warningId: warning.id, severity: warning.severity, signerRole: 'COLLABORATOR' },
+            overrides: {
+              title: 'Assinatura de advertência pendente',
+              body: `Você recebeu uma advertência${
+                severityLabel ? ` (${severityLabel})` : ''
+              }. Toque para tomar ciência e assinar.`,
+              webUrl: '/pessoal/minhas-advertencias',
+              mobileUrl: `/(tabs)/pessoal/minhas-advertencias/detalhes/${warning.id}`,
+              relatedEntityType: 'WARNING',
+            },
+          },
+          [warning.collaboratorId],
+        );
+      } catch (err) {
+        this.logger.error(
+          `Falha ao notificar colaborador para assinar advertência ${warning.id}`,
+          err as Error,
+        );
+      }
+    }
+
+    // Witness copies.
+    const witnessTargets = options.onlyWitnessIds ?? options.witnessIds ?? [];
+    if (witnessTargets.length > 0) {
+      const collaboratorName = options.collaboratorName || 'um colaborador';
+      try {
+        await this.dispatchService.dispatchByConfigurationToUsers(
+          'warning.issued',
+          'system',
+          {
+            entityType: 'Warning',
+            entityId: warning.id,
+            action: 'witness_sign_required',
+            data: { warningId: warning.id, signerRole: 'WITNESS' },
+            overrides: {
+              title: 'Testemunho de advertência pendente',
+              body: `Você foi indicado(a) como testemunha de uma advertência de ${collaboratorName}. Toque para confirmar e assinar.`,
+              webUrl: '/pessoal/minhas-advertencias',
+              mobileUrl: `/(tabs)/pessoal/minhas-advertencias/detalhes/${warning.id}`,
+              relatedEntityType: 'WARNING',
+            },
+          },
+          witnessTargets,
+        );
+      } catch (err) {
+        this.logger.error(
+          `Falha ao notificar testemunhas para assinar advertência ${warning.id}`,
+          err as Error,
+        );
+      }
+    }
+  }
+
+  /**
+   * Notify each witness to confirm/sign after a refusal was registered. Used by
+   * WarningSignatureService.refuseWarningSignature through the controller layer.
+   * Never throws.
+   */
+  /**
+   * Seed the signature audit trail with a WARNING_CREATED event so the signed
+   * PDF's audit page can render the full lifecycle. Best-effort — never throws.
+   */
+  private async recordWarningCreatedEvent(
+    warningId: string,
+    actorUserId?: string | null,
+    severity?: string | null,
+  ): Promise<void> {
+    try {
+      await this.prisma.warningSignatureEvent.create({
+        data: {
+          warningId,
+          type: 'WARNING_CREATED',
+          actorUserId: actorUserId ?? null,
+          metadata: severity ? { severity } : undefined,
+        },
+      });
+    } catch (err) {
+      this.logger.error(
+        `Falha ao registrar evento WARNING_CREATED para advertência ${warningId}`,
+        err as Error,
+      );
+    }
+  }
+
+  async notifyWitnessesOfRefusal(warningId: string): Promise<void> {
+    try {
+      const warning = await this.prisma.warning.findUnique({
+        where: { id: warningId },
+        select: {
+          id: true,
+          collaborator: { select: { name: true } },
+          witness: { select: { id: true } },
+        },
+      });
+      if (!warning) return;
+      const witnessIds = warning.witness.map(w => w.id);
+      if (witnessIds.length === 0) return;
+      const collaboratorName = warning.collaborator?.name || 'um colaborador';
+      await this.dispatchService.dispatchByConfigurationToUsers(
+        'warning.issued',
+        'system',
+        {
+          entityType: 'Warning',
+          entityId: warning.id,
+          action: 'witness_sign_required',
+          data: { warningId: warning.id, signerRole: 'WITNESS', refused: true },
+          overrides: {
+            title: 'Confirme a recusa de assinatura',
+            body: `${collaboratorName} recusou-se a assinar a advertência. Toque para confirmar e assinar como testemunha.`,
+            webUrl: '/pessoal/minhas-advertencias',
+            mobileUrl: `/(tabs)/pessoal/minhas-advertencias/detalhes/${warning.id}`,
+            relatedEntityType: 'WARNING',
+          },
+        },
+        witnessIds,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Falha ao notificar testemunhas da recusa da advertência ${warningId}`,
+        err as Error,
+      );
+    }
+  }
+
+  /**
    * Get user's led sector for team-based filtering
    */
   async getUserLedSector(userId: string): Promise<{ ledSectorId: string | null } | null> {
@@ -455,6 +614,23 @@ export class WarningService {
         userId,
       );
 
+      // Notify collaborator + each witness that an in-app signature is required.
+      await this.notifyWarningSigners(
+        {
+          id: warning.id,
+          collaboratorId: (warning as any).collaboratorId ?? data.collaboratorId,
+          severity: (warning as any).severity ?? data.severity,
+        },
+        {
+          collaboratorName: (warning as any).collaborator?.name ?? null,
+          witnessIds:
+            (warning as any).witness?.map((w: any) => w.id) ?? data.witnessIds ?? [],
+        },
+      );
+
+      // Seed the signature audit trail with the WARNING_CREATED event (best-effort).
+      await this.recordWarningCreatedEvent(warning.id, userId, (warning as any).severity ?? data.severity);
+
       return {
         success: true,
         message: 'Advertência criada com sucesso.',
@@ -494,6 +670,10 @@ export class WarningService {
     userId?: string,
     attachments?: Express.Multer.File[],
   ): Promise<WarningUpdateResponse> {
+    // Captured inside the transaction; used to notify newly-added witnesses
+    // after the transaction commits.
+    let addedWitnessIds: string[] = [];
+
     try {
       const updatedWarning = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar advertência existente
@@ -543,6 +723,9 @@ export class WarningService {
         const oldWitnessIds = existingWarning.witness?.map((w: any) => w.id).sort() || [];
         const newWitnessIds = updatedWarning.witness?.map((w: any) => w.id).sort() || [];
 
+        // Witnesses present after the update but not before → notify to sign.
+        addedWitnessIds = newWitnessIds.filter((wid: string) => !oldWitnessIds.includes(wid));
+
         if (JSON.stringify(oldWitnessIds) !== JSON.stringify(newWitnessIds)) {
           await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.WARNING,
@@ -586,6 +769,22 @@ export class WarningService {
 
         return updatedWarning;
       });
+
+      // Notify newly-added witnesses that an in-app signature is required.
+      if (addedWitnessIds.length > 0) {
+        await this.notifyWarningSigners(
+          {
+            id: updatedWarning.id,
+            collaboratorId: (updatedWarning as any).collaboratorId,
+            severity: (updatedWarning as any).severity,
+          },
+          {
+            collaboratorName: (updatedWarning as any).collaborator?.name ?? null,
+            onlyWitnessIds: addedWitnessIds,
+            skipCollaborator: true,
+          },
+        );
+      }
 
       return {
         success: true,
@@ -704,6 +903,25 @@ export class WarningService {
             reason: (warning as any).reason,
           },
           userId,
+        );
+
+        // Notify collaborator + witnesses that an in-app signature is required.
+        await this.notifyWarningSigners(
+          {
+            id: warning.id,
+            collaboratorId: (warning as any).collaboratorId,
+            severity: (warning as any).severity,
+          },
+          {
+            collaboratorName: (warning as any).collaborator?.name ?? null,
+            witnessIds: (warning as any).witness?.map((w: any) => w.id) ?? [],
+          },
+        );
+
+        await this.recordWarningCreatedEvent(
+          warning.id,
+          userId,
+          (warning as any).severity,
         );
       }
 
