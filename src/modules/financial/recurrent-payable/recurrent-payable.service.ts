@@ -100,6 +100,7 @@ export class RecurrentPayableService {
         description: dto.description ?? null,
         supplierId: dto.supplierId ?? null,
         payeeName: dto.payeeName ?? null,
+        payeeCnpj: dto.payeeCnpj ?? null,
         categoryId: dto.categoryId,
         amountKind: dto.amountKind,
         fixedAmount: dto.fixedAmount ?? null,
@@ -131,6 +132,7 @@ export class RecurrentPayableService {
         ? { connect: { id: dto.supplierId } }
         : { disconnect: true };
     if (dto.payeeName !== undefined) data.payeeName = dto.payeeName;
+    if (dto.payeeCnpj !== undefined) data.payeeCnpj = dto.payeeCnpj;
     if (dto.categoryId !== undefined) data.category = { connect: { id: dto.categoryId } };
     if (dto.amountKind !== undefined) data.amountKind = dto.amountKind;
     if (dto.fixedAmount !== undefined) data.fixedAmount = dto.fixedAmount;
@@ -304,6 +306,117 @@ export class RecurrentPayableService {
   }
 
   // ---------------------------------------------------------------------------
+  // Monthly dashboard (the unified "Recorrentes" page)
+  // ---------------------------------------------------------------------------
+
+  /** Current competence (YYYY-MM, SP time) — the monthly view's default. */
+  currentCompetence(): string {
+    return competenceOf(new Date());
+  }
+
+  /** Per-bill monthly view for the unified Recorrentes page. Lazily materializes
+   *  each active payable's occurrence for the competence (so every row is
+   *  actionable even before the cron runs) and folds in the occurrence's
+   *  status/paid/forecast plus the bill's display metadata. KPI totals are
+   *  computed alongside so the cards bind directly. */
+  async monthlyView(competence: string) {
+    const payables = await this.prisma.recurrentPayable.findMany({
+      where: { isActive: true },
+      include: {
+        supplier: { select: { id: true, fantasyName: true, cnpj: true } },
+        category: { select: { id: true, name: true, color: true } },
+      },
+      orderBy: [{ dueDayOfMonth: 'asc' }, { name: 'asc' }],
+    });
+
+    const items = [] as Array<{
+      id: string;
+      occurrenceId: string | null;
+      name: string;
+      category: { id: string; name: string; color: string | null } | null;
+      payeeName: string | null;
+      amountKind: string;
+      isVariable: boolean;
+      frequency: string;
+      paymentMethod: string | null;
+      dueDate: string;
+      status: string;
+      paidAmount: number | null;
+      paidAt: string | null;
+      forecastAmount: number;
+      nfLinked: boolean;
+      transactionCount: number;
+    }>;
+
+    // Only the CURRENT competence materializes (mirrors Contas a Pagar's lazy
+    // materialization). Past/future months are read-only: show the real
+    // occurrence if the cron already created it, else a transient estimate so we
+    // never write phantom rows for months the user is merely browsing.
+    const isCurrent = competence === this.currentCompetence();
+
+    let totalPaid = 0;
+    let totalForecast = 0;
+    let paidCount = 0;
+    let pendingCount = 0;
+
+    for (const payable of payables) {
+      let occ = await this.prisma.recurrentPayableOccurrence.findUnique({
+        where: { recurrentPayableId_competence: { recurrentPayableId: payable.id, competence } },
+      });
+      if (!occ && isCurrent) occ = await this.materializeOccurrence(payable, competence);
+
+      const transactionCount = occ
+        ? await this.prisma.reconciliationMatch.count({ where: { recurrentOccurrenceId: occ.id } })
+        : 0;
+      const forecastAmount = occ
+        ? Number(occ.estimatedAmount ?? 0)
+        : await this.computeEstimate(payable);
+      const status = occ?.status ?? 'PENDING';
+      const paidAmount = occ?.paidAmount == null ? null : Number(occ.paidAmount);
+
+      totalForecast += forecastAmount;
+      if (status === 'PAID') {
+        paidCount += 1;
+        totalPaid += paidAmount ?? 0;
+      } else {
+        pendingCount += 1;
+      }
+
+      items.push({
+        id: payable.id,
+        occurrenceId: occ?.id ?? null,
+        name: payable.name,
+        category: payable.category,
+        payeeName: payable.supplier?.fantasyName ?? payable.payeeName ?? null,
+        amountKind: payable.amountKind,
+        isVariable: payable.amountKind === 'VARIABLE',
+        frequency: payable.frequency,
+        paymentMethod: occ?.paymentMethod ?? payable.paymentMethod ?? null,
+        dueDate: (occ?.dueDate ?? dueDateForCompetence(competence, payable.dueDayOfMonth)).toISOString(),
+        status,
+        paidAmount,
+        paidAt: occ?.paidAt ? occ.paidAt.toISOString() : null,
+        forecastAmount,
+        nfLinked: occ?.fiscalDocumentId != null,
+        transactionCount,
+      });
+    }
+
+    return {
+      success: true,
+      message: 'Recorrentes do mês carregadas.',
+      data: {
+        competence,
+        items,
+        totalPaid: Math.round(totalPaid * 100) / 100,
+        totalForecast: Math.round(totalForecast * 100) / 100,
+        paidCount,
+        pendingCount,
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------------------
   // Read for PayablesService
   // ---------------------------------------------------------------------------
 
@@ -364,13 +477,19 @@ export class RecurrentPayableService {
    *  supplier CNPJ + competence. Returns how many NFs were linked. */
   async linkPendingNfs(monthsBack = 3): Promise<number> {
     const from = this.monthsAgoStart(monthsBack);
+    // Match NFs by the payable's own CNPJ (preferred) or the legacy supplier
+    // CNPJ for rows created before payeeCnpj existed.
     const payables = await this.prisma.recurrentPayable.findMany({
-      where: { isActive: true, expectsNf: true, supplier: { cnpj: { not: null } } },
+      where: {
+        isActive: true,
+        expectsNf: true,
+        OR: [{ payeeCnpj: { not: null } }, { supplier: { cnpj: { not: null } } }],
+      },
       include: { supplier: { select: { cnpj: true } } },
     });
     let linked = 0;
     for (const payable of payables) {
-      const cnpj = payable.supplier?.cnpj;
+      const cnpj = payable.payeeCnpj ?? payable.supplier?.cnpj;
       if (!cnpj) continue;
       const docs = await this.prisma.fiscalDocument.findMany({
         where: { operationType: 'ENTRADA', emitCnpj: cnpj, issueDate: { gte: from } },

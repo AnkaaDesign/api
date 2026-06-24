@@ -2848,9 +2848,13 @@ export class OrderService {
           OR: [
             // Open obligations: money owed = not cancelled and not paid. Payability is
             // decoupled from fulfillment (payable from creation until actually paid).
+            // Mirror getPayables: a method-less order is "A Definir" (not configured),
+            // so it stays out of the actionable Contas a Pagar list AND its KPI counts.
+            // (The Previsão de Saídas forecast intentionally still includes these.)
             {
               status: { not: ORDER_STATUS.CANCELLED },
               paymentStatus: { not: ORDER_PAYMENT_STATUS.PAID },
+              paymentMethod: { not: null },
             },
             // Recently settled (explicitly paid) within the window.
             { paymentStatus: ORDER_PAYMENT_STATUS.PAID, paidAt: { gte: paidWindowStart } },
@@ -2982,6 +2986,11 @@ export class OrderService {
             // (fulfillment vs payment) are independent.
             status: { not: ORDER_STATUS.CANCELLED },
             paymentStatus: { not: ORDER_PAYMENT_STATUS.PAID },
+            // The payment method is what makes an order actionable here: without
+            // PIX/Boleto/Cartão chosen the obligation isn't configured yet (it shows
+            // "A Definir" in the order UI), so it stays out of Contas a Pagar until
+            // someone sets how it will be paid. Once a method is set it appears.
+            paymentMethod: { not: null },
           },
           select: orderSelect,
         }),

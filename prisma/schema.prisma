@@ -638,6 +638,7 @@ model File {
   layoutPhotos                           Layout[]                  @relation("LAYOUT_PHOTO")
   ppeDeliveryDocuments                   PpeDelivery[]             @relation("PPE_DELIVERY_DOCUMENT")
   ppeSignatureDocuments                  PpeDeliverySignature[]    @relation("PPE_SIGNATURE_DOCUMENT")
+  warningSignatureDocuments              WarningSignature[]        @relation("WARNING_SIGNATURE_DOCUMENT")
   supplierLogo                           Supplier[]                @relation("SUPPLIER_LOGO")
   configCustomerSignatures               TaskQuoteCustomerConfig[] @relation("CONFIG_CUSTOMER_SIGNATURE")
   quoteLayout                            TaskQuote?                @relation("QUOTE_LAYOUT", fields: [quoteLayoutId], references: [id], onDelete: SetNull)
@@ -1443,17 +1444,144 @@ model Warning {
   hrNotes        String?
   followUpDate   DateTime
   resolvedAt     DateTime?
+  // Encerrar automaticamente ("Resolvida") quando followUpDate vencer sem reincidência.
+  // Nunca aplicado a SUSPENSION/FINAL_WARNING (sempre encerramento manual do RH).
+  autoResolve    Boolean         @default(true)
+  // True quando o resolvedAt foi definido pelo cron de decurso de prazo (não pelo RH).
+  autoResolved   Boolean         @default(false)
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
-  collaborator   User            @relation("COLLABORATOR_WARNING", fields: [collaboratorId], references: [id])
-  supervisor     User            @relation("SUPERVISOR_WARNING", fields: [supervisorId], references: [id])
-  termination    Termination?    @relation("WARNING_TERMINATION", fields: [terminationId], references: [id])
-  attachments    File[]          @relation("FileToWarning")
-  witness        User[]          @relation("WITNESS_WARNING")
+  collaborator   User              @relation("COLLABORATOR_WARNING", fields: [collaboratorId], references: [id])
+  supervisor     User              @relation("SUPERVISOR_WARNING", fields: [supervisorId], references: [id])
+  termination    Termination?      @relation("WARNING_TERMINATION", fields: [terminationId], references: [id])
+  attachments    File[]             @relation("FileToWarning")
+  witness        User[]             @relation("WITNESS_WARNING")
+  signatures     WarningSignature[] @relation("WARNING_SIGNATURE")
 
   @@index([collaboratorId])
   @@index([severityOrder])
   @@index([terminationId])
+  @@index([isActive, autoResolve, followUpDate])
+}
+
+model WarningSignature {
+  id        String  @id @default(uuid())
+  warningId String
+  warning   Warning @relation("WARNING_SIGNATURE", fields: [warningId], references: [id], onDelete: Cascade)
+
+  // Papel de quem assina: o colaborador advertido ou uma testemunha indicada.
+  signerRole WarningSignerRole @default(COLLABORATOR)
+
+  // Identity (quem tomou ciência — colaborador ou testemunha)
+  signedByUserId String
+  signedByUser   User   @relation("WARNING_SIGNATURE_USER", fields: [signedByUserId], references: [id])
+  signedByCpf    String
+
+  // Caminho da RECUSA (CLT: recusa não invalida a advertência; documenta-se por testemunhas).
+  // refused=true → assinatura biométrica ausente; ciência comprovada pelas testemunhas (Warning.witness).
+  refused        Boolean @default(false)
+  refusedReason  String?
+  // Quem operou o app ao registrar a recusa (supervisor/RH).
+  registeredById String?
+  registeredBy   User?   @relation("WARNING_SIGNATURE_REGISTRAR", fields: [registeredById], references: [id])
+
+  // Biometric (apenas o resultado — nenhum dado biométrico bruto, por LGPD)
+  biometricMethod  BiometricMethod @default(NONE)
+  biometricSuccess Boolean         @default(false)
+
+  // Device
+  deviceBrand     String?
+  deviceModel     String?
+  deviceOs        String?
+  deviceOsVersion String?
+  appVersion      String?
+
+  // Location (arredondado a 4 casas decimais — minimização LGPD)
+  latitude         Float?
+  longitude        Float?
+  locationAccuracy Float?
+  networkType      NetworkType @default(UNKNOWN)
+  ipAddress        String?
+
+  // Timestamps (duplo — cliente + servidor, evidência de clock-skew)
+  clientTimestamp DateTime
+  serverTimestamp DateTime @default(now())
+
+  // Integridade criptográfica
+  evidenceHash  String
+  hmacSignature String
+
+  // PDF assinado/termo gerado
+  signedDocumentId String?
+  signedDocument   File?   @relation("WARNING_SIGNATURE_DOCUMENT", fields: [signedDocumentId], references: [id])
+
+  // Selo PAdES (certificado ICP-Brasil aplicado no servidor sobre o PDF)
+  padesSealed      Boolean   @default(false)
+  padesSealedAt    DateTime?
+  certSubject      String?
+  certIssuer       String?
+  certSerialNumber String?
+  certCnpj         String?
+  certNotAfter     DateTime?
+
+  // SHA-256 do PDF antes do selo PAdES — exibido na trilha de auditoria
+  documentSha256 String?
+
+  // Evidência bruta (para reverificação)
+  evidenceJson Json
+
+  // LGPD
+  legalBasis   String  @default("CLT Art. 2 - Poder diretivo; ciência de medida disciplinar")
+  consentGiven Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  events WarningSignatureEvent[] @relation("WARNING_SIGNATURE_EVENTS")
+
+  @@unique([warningId, signedByUserId])
+  @@index([signedByUserId])
+  @@index([warningId])
+}
+
+enum WarningSignerRole {
+  COLLABORATOR
+  WITNESS
+}
+
+enum WarningSignatureEventType {
+  WARNING_CREATED
+  DOCUMENT_VIEWED
+  BIOMETRIC_PROMPTED
+  BIOMETRIC_SUCCEEDED
+  BIOMETRIC_FAILED
+  SIGNATURE_SUBMITTED
+  SIGNATURE_REFUSED
+  HMAC_VALIDATED
+  HMAC_REJECTED
+  PADES_SEALED
+  PADES_FAILED
+  SIGNATURE_COMPLETED
+  SIGNATURE_FAILED
+  PDF_DOWNLOADED
+}
+
+model WarningSignatureEvent {
+  id          String                    @id @default(uuid())
+  warningId   String
+  signatureId String?
+  signature   WarningSignature?         @relation("WARNING_SIGNATURE_EVENTS", fields: [signatureId], references: [id], onDelete: Cascade)
+  type        WarningSignatureEventType
+  occurredAt  DateTime                  @default(now())
+  actorUserId String?
+  actorUser   User?                     @relation("WARNING_SIGNATURE_EVENT_ACTOR", fields: [actorUserId], references: [id])
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json?
+
+  @@index([warningId])
+  @@index([signatureId])
+  @@index([type])
+  @@index([occurredAt])
 }
 
 model Sector {
@@ -1970,6 +2098,9 @@ model User {
   ppeDeliveries                  PpeDelivery[]                @relation("PPE_DELIVERY_USER")
   ppeSignatures                  PpeDeliverySignature[]       @relation("PPE_SIGNATURE_USER")
   ppeSignatureEvents             PpeDeliverySignatureEvent[]  @relation("PPE_SIGNATURE_EVENT_ACTOR")
+  warningSignatures              WarningSignature[]           @relation("WARNING_SIGNATURE_USER")
+  warningSignaturesRegistered    WarningSignature[]           @relation("WARNING_SIGNATURE_REGISTRAR")
+  warningSignatureEvents         WarningSignatureEvent[]      @relation("WARNING_SIGNATURE_EVENT_ACTOR")
   ppeSize                        PpeSize?                     @relation("USER_PPE_SIZE")
   preference                     Preferences?                 @relation("USER_PREFERENCES")
   ledSector                      Sector?                      @relation("SECTOR_LEADER")
@@ -4442,10 +4573,15 @@ model RecurrentPayable {
   id              String                       @id @default(uuid())
   name            String
   description     String?
-  // Payee: a real Supplier (preferred — its CNPJ drives NF auto-linking) or a
-  // free-text fallback when no Supplier record exists.
+  // Legacy optional link to an inventory Supplier. No longer set from the UI —
+  // recurrent bills are not provided by item suppliers. Kept for back-compat /
+  // existing rows; NF auto-linking now prefers payeeCnpj below.
   supplierId      String?
+  // Free-text payee name (imobiliária, concessionária…).
   payeeName       String?
+  // Optional CNPJ of the payee. Drives NF auto-linking by emitter CNPJ +
+  // competence WITHOUT coupling to the inventory Supplier model.
+  payeeCnpj       String?
   // Required bridge to the reconciliation taxonomy. A categorized bank debit on
   // this category auto-settles the matching month's occurrence.
   categoryId      String

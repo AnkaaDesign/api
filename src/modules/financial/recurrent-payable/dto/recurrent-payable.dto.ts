@@ -21,6 +21,15 @@ export const createRecurrentPayableSchema = z
     description: z.string().trim().optional().nullable(),
     supplierId: z.string().uuid().optional().nullable(),
     payeeName: z.string().trim().optional().nullable(),
+    // Optional CNPJ of the payee (digits only, 14). Enables NF auto-linking.
+    payeeCnpj: z
+      .string()
+      .trim()
+      .transform(v => v.replace(/\D/g, ''))
+      .refine(v => v.length === 0 || v.length === 14, 'CNPJ deve ter 14 dígitos')
+      .transform(v => (v.length === 0 ? null : v))
+      .optional()
+      .nullable(),
     categoryId: z.string().uuid({ message: 'Categoria é obrigatória' }),
     amountKind: z.enum(['FIXED', 'VARIABLE']).default('VARIABLE'),
     fixedAmount: z.number().nonnegative().optional().nullable(),

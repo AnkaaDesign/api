@@ -17,6 +17,9 @@ import type { File, FileIncludes } from './file';
 // Main Entity Interface
 // =====================
 
+// Papel de quem assina a advertência: o colaborador advertido ou uma testemunha.
+export type WarningSignerRole = 'COLLABORATOR' | 'WITNESS';
+
 export interface Warning extends BaseEntity {
   severity: WARNING_SEVERITY;
   severityOrder: number; // 1=Verbal, 2=Escrita, 3=Suspensão, 4=Advertência Final
@@ -33,6 +36,9 @@ export interface Warning extends BaseEntity {
   followUpDate: Date;
   hrNotes: string | null;
   resolvedAt: Date | null;
+  // Auto-resolução: encerra automaticamente após followUpDate quando habilitado.
+  autoResolve: boolean;
+  autoResolved: boolean;
 
   // Relations (optional, populated based on query)
   collaborator?: User;
@@ -40,6 +46,80 @@ export interface Warning extends BaseEntity {
   witness?: User[];
   attachments?: File[];
   termination?: unknown;
+  signatures?: WarningSignature[];
+}
+
+// =====================
+// In-app Signature Entities
+// =====================
+
+export interface WarningSignature extends BaseEntity {
+  warningId: string;
+  signerRole: WarningSignerRole;
+  signedByUserId: string;
+  signedByCpf: string;
+  // Caminho da recusa testemunhada (CLT). refused=true → biometria ausente.
+  refused: boolean;
+  refusedReason: string | null;
+  registeredById: string | null;
+  // Biometria — apenas resultado (LGPD: nenhum dado biométrico bruto).
+  biometricMethod: string;
+  biometricSuccess: boolean;
+  // Device
+  deviceBrand: string | null;
+  deviceModel: string | null;
+  deviceOs: string | null;
+  deviceOsVersion: string | null;
+  appVersion: string | null;
+  // Location (arredondado a 4 casas decimais — minimização LGPD)
+  latitude: number | null;
+  longitude: number | null;
+  locationAccuracy: number | null;
+  networkType: string;
+  ipAddress: string | null;
+  // Timestamps (cliente + servidor)
+  clientTimestamp: Date;
+  serverTimestamp: Date;
+  // Integridade criptográfica
+  evidenceHash: string;
+  hmacSignature: string;
+  // PDF assinado/termo gerado
+  signedDocumentId: string | null;
+  // Selo PAdES (ICP-Brasil)
+  padesSealed: boolean;
+  padesSealedAt: Date | null;
+  certSubject: string | null;
+  certIssuer: string | null;
+  certSerialNumber: string | null;
+  certCnpj: string | null;
+  certNotAfter: Date | null;
+  documentSha256: string | null;
+  // Evidência bruta (para reverificação)
+  evidenceJson: unknown;
+  // LGPD
+  legalBasis: string;
+  consentGiven: boolean;
+
+  // Relations (optional, populated based on query)
+  signedByUser?: User;
+  registeredBy?: User;
+  signedDocument?: File;
+  events?: WarningSignatureEvent[];
+}
+
+export interface WarningSignatureEvent {
+  id: string;
+  warningId: string;
+  signatureId: string | null;
+  type: string;
+  occurredAt: Date;
+  actorUserId: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  metadata: unknown;
+
+  // Relations
+  actorUser?: User;
 }
 
 // =====================

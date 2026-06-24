@@ -62,11 +62,14 @@ export class WarningPrismaRepository
       createdAt: databaseEntity.createdAt,
       updatedAt: databaseEntity.updatedAt,
       // Map relations if present
+      autoResolve: databaseEntity.autoResolve,
+      autoResolved: databaseEntity.autoResolved,
       collaborator: databaseEntity.collaborator,
       supervisor: databaseEntity.supervisor,
       witness: databaseEntity.witness,
       attachments: databaseEntity.attachments,
       termination: databaseEntity.termination,
+      signatures: databaseEntity.signatures,
     };
   }
 
@@ -256,6 +259,13 @@ export class WarningPrismaRepository
         },
       },
       attachments: true,
+      signatures: {
+        include: {
+          signedByUser: { select: { id: true, name: true } },
+          registeredBy: { select: { id: true, name: true } },
+          signedDocument: true,
+        },
+      },
     };
   }
 

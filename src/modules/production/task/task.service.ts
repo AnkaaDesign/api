@@ -11671,6 +11671,11 @@ export class TaskService {
             position: true,
             invoiceToCustomerId: true,
           },
+          // Read in the SAME order the quote is displayed everywhere (position asc),
+          // with a createdAt tiebreaker so services whose positions tie (legacy rows
+          // default to 0) preserve their original insertion order instead of coming
+          // back in non-deterministic heap order. Without this the copy is scrambled.
+          orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
         },
         layoutFiles: { select: { id: true } },
         customerConfigs: {
@@ -11733,11 +11738,14 @@ export class TaskService {
             }
           : {}),
         services: {
-          create: sourceQuote.services.map(service => ({
+          // Re-assign clean sequential positions from the (now correctly ordered)
+          // source list so the copy has unique, stable positions — guarding against
+          // tied/legacy positions re-introducing the scramble on future reads.
+          create: sourceQuote.services.map((service, index) => ({
             description: service.description,
             amount: service.amount,
             observation: service.observation,
-            position: service.position,
+            position: index,
             // Preserve the per-service invoice target so multi-customer billing
             // and the discount-aware totals stay internally consistent on copy.
             invoiceToCustomerId: (service as any).invoiceToCustomerId ?? null,
@@ -11950,7 +11958,11 @@ export class TaskService {
                   select: {
                     description: true,
                     amount: true,
+                    position: true,
                   },
+                  // Match the canonical display order (position asc, createdAt tiebreaker)
+                  // so the copy changelog preview lists services as on the source quote.
+                  orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
                 },
               },
             },
@@ -12023,7 +12035,11 @@ export class TaskService {
                   select: {
                     description: true,
                     amount: true,
+                    position: true,
                   },
+                  // Match the canonical display order (position asc, createdAt tiebreaker)
+                  // so the copy changelog preview lists services as on the source quote.
+                  orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
                 },
               },
             },
