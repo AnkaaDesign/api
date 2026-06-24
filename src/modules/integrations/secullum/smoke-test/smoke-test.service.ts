@@ -423,11 +423,12 @@ export class SecullumSmokeTestService {
     const tag = '[ANKAA-SMOKE]';
     const justificativaId = await this.resolveAnyJustificativaId();
 
+    const inicio = this.fmt(this.nextWeekday(50));
     const created = await this.check(checks, 'afastamento.create', 'Criar afastamento', 'afastamento', async () => {
       if (justificativaId == null) throw new Error('Nenhuma justificativa ativa encontrada');
       const r = await this.secullum.createAbsence({
-        Inicio: this.daysFromNow(50),
-        Fim: this.daysFromNow(50),
+        Inicio: inicio,
+        Fim: inicio,
         JustificativaId: justificativaId,
         Motivo: `${tag} Diagnóstico Ankaa`,
         FuncionarioId: fid,
@@ -447,11 +448,14 @@ export class SecullumSmokeTestService {
     const tag = '[ANKAA-VAC:SMOKE]';
     const justificativaId = await this.resolveAnyJustificativaId();
 
+    const inicioDate = this.nextWeekday(60);
+    const fimDate = new Date(inicioDate);
+    fimDate.setDate(fimDate.getDate() + 2);
     const created = await this.check(checks, 'vacation.create', 'Criar férias (afastamento)', 'afastamento', async () => {
       if (justificativaId == null) throw new Error('Nenhuma justificativa ativa encontrada');
       const r = await this.secullum.createAbsence({
-        Inicio: this.daysFromNow(60),
-        Fim: this.daysFromNow(62),
+        Inicio: this.fmt(inicioDate),
+        Fim: this.fmt(fimDate),
         JustificativaId: justificativaId,
         Motivo: `${tag} Férias diagnóstico Ankaa`,
         FuncionarioId: fid,
@@ -876,21 +880,48 @@ export class SecullumSmokeTestService {
   private async pontowebapp<T>(method: 'GET' | 'POST', endpoint: string, auth: { usuario: string; senha: string }, data?: any, params?: any): Promise<T> {
     const url = `${this.pontowebappBaseUrl}/${this.customerId}${endpoint}`;
     const b64 = Buffer.from(`${auth.usuario}:${auth.senha}:0`, 'utf-8').toString('base64');
-    const r = await axios({
-      method: method.toLowerCase() as any,
-      url,
-      headers: {
-        Authorization: `Basic ${b64}`,
-        'User-Agent': 'PontoWeb/94 CFNetwork/3826.500.131 Darwin/24.5.0',
-        'Accept-Language': 'pt',
-        Accept: '*/*',
-        ...(data != null ? { 'Content-Type': 'application/json' } : {}),
-      },
-      params,
-      data,
-      timeout: 30000,
-    });
-    return r.data as T;
+    const headers = {
+      Authorization: `Basic ${b64}`,
+      'User-Agent': 'PontoWeb/94 CFNetwork/3826.500.131 Darwin/24.5.0',
+      'Accept-Language': 'pt',
+      Accept: '*/*',
+      ...(data != null ? { 'Content-Type': 'application/json' } : {}),
+    };
+    // The pontowebapp host intermittently 401/403-challenges a burst of Basic-auth
+    // calls in a single run (first ones pass, later ones fail) and 429s under rate
+    // limiting — retry with a short backoff. These statuses are pre-processing
+    // rejections, so retrying the solicitação create is safe.
+    const RETRYABLE = new Set([401, 403, 429]);
+    const MAX_ATTEMPTS = 3;
+    let lastError: any;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        const r = await axios({ method: method.toLowerCase() as any, url, headers, params, data, timeout: 30000 });
+        return r.data as T;
+      } catch (error: any) {
+        lastError = error;
+        const status = error?.response?.status;
+        if (RETRYABLE.has(status) && attempt < MAX_ATTEMPTS - 1) {
+          await this.sleep(1500 * (attempt + 1));
+          continue;
+        }
+        break;
+      }
+    }
+    // Surface Secullum's real reason (its error body) instead of axios's opaque
+    // "Request failed with status code N", so the diagnostic panel shows WHY.
+    const body = lastError?.response?.data;
+    const detail =
+      typeof body === 'string'
+        ? body
+        : Array.isArray(body)
+          ? body.map((b: any) => b?.message ?? JSON.stringify(b)).join('; ')
+          : body?.message ?? (body ? JSON.stringify(body) : '');
+    const status = lastError?.response?.status;
+    const err: any = new Error(detail ? `HTTP ${status}: ${detail}` : lastError?.message ?? 'pontowebapp request failed');
+    err.response = lastError?.response;
+    err.status = status;
+    throw err;
   }
 
   /** Employee sign (motivo=null) or reject (motivo set) of an apuração, no notifications. */
@@ -1152,6 +1183,20 @@ export class SecullumSmokeTestService {
 
   private daysAgo(days: number): string {
     return this.daysFromNow(-days);
+  }
+
+  /**
+   * Like daysFromNow, but rolls a weekend landing forward to the next Monday.
+   * Secullum's POST /FuncionariosAfastamentos rejects (HTTP 400) an afastamento
+   * whose Início falls on a non-working day (no escala/horário). Because the
+   * offsets are fixed constants, the target weekday drifts daily, so a plain
+   * daysFromNow(N) intermittently lands on Sat/Sun and fails ~2 days out of 7.
+   */
+  private nextWeekday(days: number): Date {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+    return d;
   }
 
   private lastMonthRange(): [string, string] {
