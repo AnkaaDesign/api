@@ -6,6 +6,7 @@ import {
   orderByDirectionSchema,
   normalizeOrderBy,
   dateRangeSchema,
+  normalizeSearchTerm,
 } from './common';
 import type { PpeSize, PpeDelivery } from '@types';
 import {
@@ -331,8 +332,8 @@ const ppeSizeTransform = (data: any) => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { user: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
-        { user: { email: { contains: data.searchingFor, mode: 'insensitive' } } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
+        { user: { emailNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
       ],
     });
     delete data.searchingFor;
@@ -885,8 +886,8 @@ const ppeDeliveryTransform = (data: any) => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { user: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
-        { item: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
+        { item: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
       ],
     });
     delete data.searchingFor;
@@ -1529,7 +1530,7 @@ const ppeDeliveryScheduleTransform = (data: any) => {
 
   if (data.searchingFor) {
     andConditions.push({
-      name: { contains: data.searchingFor, mode: 'insensitive' },
+      nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) },
     });
     delete data.searchingFor;
   }

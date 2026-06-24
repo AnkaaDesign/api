@@ -7,6 +7,7 @@
 
 import { z } from 'zod';
 import { VACATION_STATUS, VACATION_GROUP_TYPE } from '../../../../constants';
+import { normalizeSearchTerm } from '@schemas';
 
 // =====================
 // Include / order / where (Prisma passthrough)
@@ -92,8 +93,8 @@ const vacationGroupTransform = (data: any) => {
   if (data.searchingFor) {
     and.push({
       OR: [
-        { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
-        { notes: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
+        { notesNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
       ],
     });
     delete data.searchingFor;

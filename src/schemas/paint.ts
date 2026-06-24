@@ -6,6 +6,7 @@ import {
   orderByDirectionSchema,
   normalizeOrderBy,
   hexColorSchema,
+  normalizeSearchTerm,
 } from './common';
 import type {
   Paint,
@@ -1611,7 +1612,7 @@ const paintTypeTransform = (data: any) => {
 
   if (data.searchingFor) {
     andConditions.push({
-      OR: [{ name: { contains: data.searchingFor, mode: 'insensitive' } }],
+      OR: [{ nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } }],
     });
     delete data.searchingFor;
   }
@@ -1893,8 +1894,8 @@ const paintFormulaTransform = (data: any) => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { description: { contains: data.searchingFor, mode: 'insensitive' } },
-        { paint: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+        { descriptionNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
+        { paint: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
       ],
     });
     delete data.searchingFor;
@@ -2078,8 +2079,8 @@ const paintFormulaComponentTransform = (data: any) => {
   // Handle search - this creates an OR condition for item name or formula description
   if (data.searchingFor) {
     formulaCondition.OR = [
-      { description: { contains: data.searchingFor, mode: 'insensitive' } },
-      { paint: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+      { descriptionNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
+      { paint: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
     ];
     delete data.searchingFor;
   }
@@ -2327,8 +2328,8 @@ const paintProductionTransform = (data: any) => {
   // Handle search - this creates an OR condition for formula description or paint name
   if (data.searchingFor) {
     formulaCondition.OR = [
-      { description: { contains: data.searchingFor, mode: 'insensitive' } },
-      { paint: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+      { descriptionNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
+      { paint: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
     ];
     delete data.searchingFor;
   }
@@ -2583,7 +2584,7 @@ const paintGroundTransform = (data: any) => {
 
   if (data.searchingFor) {
     andConditions.push({
-      paint: { name: { contains: data.searchingFor, mode: 'insensitive' } },
+      paint: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
     });
     delete data.searchingFor;
   }
@@ -2723,7 +2724,7 @@ const paintBrandTransform = (data: any) => {
 
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      name: { contains: data.searchingFor.trim(), mode: 'insensitive' },
+      nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) },
     });
     delete data.searchingFor;
   }

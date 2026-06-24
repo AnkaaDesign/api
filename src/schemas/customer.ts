@@ -6,6 +6,7 @@ import {
   orderByDirectionSchema,
   normalizeOrderBy,
   emailSchema,
+  normalizeSearchTerm,
 } from './common';
 import type { Customer } from '@types';
 import { isValidCPF, isValidCNPJ, cleanCNPJ, cleanCPF } from '@utils';
@@ -568,29 +569,29 @@ const customerTransform = (data: any) => {
     console.log('[CustomerTransform] Cleaned search (numbers only):', cleanedSearch);
 
     const searchConditions: any[] = [
-      { fantasyName: { contains: searchingFor, mode: 'insensitive' } },
-      { corporateName: { contains: searchingFor, mode: 'insensitive' } },
-      { email: { contains: searchingFor, mode: 'insensitive' } },
-      { city: { contains: searchingFor, mode: 'insensitive' } },
-      { state: { contains: searchingFor, mode: 'insensitive' } },
-      { neighborhood: { contains: searchingFor, mode: 'insensitive' } },
-      { address: { contains: searchingFor, mode: 'insensitive' } },
-      { tasks: { some: { truck: { plate: { contains: searchingFor, mode: 'insensitive' } } } } },
-      { tasks: { some: { serialNumber: { contains: searchingFor, mode: 'insensitive' } } } },
+      { fantasyNameNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+      { corporateNameNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+      { emailNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+      { cityNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+      { stateNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+      { neighborhoodNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+      { addressNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+      { tasks: { some: { truck: { plateNormalized: { contains: normalizeSearchTerm(searchingFor) } } } } },
+      { tasks: { some: { serialNumberNormalized: { contains: normalizeSearchTerm(searchingFor) } } } },
     ];
 
     // Add CNPJ search conditions - search both with original input and cleaned version
     if (cleanedSearch.length > 0) {
       // For CNPJ (14 digits when complete)
       if (cleanedSearch.length <= 14) {
-        searchConditions.push({ cnpj: { contains: searchingFor } }); // Search with original format
-        searchConditions.push({ cnpj: { contains: cleanedSearch } }); // Search with cleaned numbers
+        searchConditions.push({ cnpjNormalized: { contains: normalizeSearchTerm(searchingFor) } }); // Search with original format
+        searchConditions.push({ cnpjNormalized: { contains: normalizeSearchTerm(cleanedSearch) } }); // Search with cleaned numbers
       }
 
       // For CPF (11 digits when complete)
       if (cleanedSearch.length <= 11) {
-        searchConditions.push({ cpf: { contains: searchingFor } }); // Search with original format
-        searchConditions.push({ cpf: { contains: cleanedSearch } }); // Search with cleaned numbers
+        searchConditions.push({ cpfNormalized: { contains: normalizeSearchTerm(searchingFor) } }); // Search with original format
+        searchConditions.push({ cpfNormalized: { contains: normalizeSearchTerm(cleanedSearch) } }); // Search with cleaned numbers
       }
     }
 

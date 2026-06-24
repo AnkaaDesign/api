@@ -114,6 +114,8 @@ model ChangeLog {
   createdAt     DateTime                  @default(now())
   user          User?                     @relation("CHANGELOG_USER", fields: [userId], references: [id], onDelete: Cascade)
 
+  fieldNormalized String? /// accent-insensitive search (generated column, see migration)
+  reasonNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([entityType, entityId])
   @@index([createdAt])
   @@index([userId])
@@ -264,6 +266,7 @@ model BonusDiscount {
   bonus            Bonus    @relation(fields: [bonusId], references: [id], onDelete: Cascade)
   suspendedTasks   Task[]
 
+  referenceNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([bonusId])
   @@index([calculationOrder])
 }
@@ -279,6 +282,7 @@ model BonusExtra {
   updatedAt        DateTime @updatedAt
   bonus            Bonus    @relation(fields: [bonusId], references: [id], onDelete: Cascade)
 
+  referenceNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([bonusId])
   @@index([calculationOrder])
 }
@@ -319,6 +323,8 @@ model PayrollDiscount {
   user               User?               @relation("PAYROLL_DISCOUNT_USER", fields: [userId], references: [id], onDelete: Cascade)
   taxTable           TaxTable?           @relation(fields: [taxTableId], references: [id])
 
+  lenderNameNormalized String? /// accent-insensitive search (generated column, see migration)
+  referenceNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([payrollId])
   @@index([userId])
   @@index([discountType])
@@ -343,6 +349,7 @@ model TaxTable {
   discounts         PayrollDiscount[]
   brackets          TaxBracket[]
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([taxType, year, isActive])
   @@index([taxType, year])
   @@index([isActive])
@@ -362,6 +369,7 @@ model TaxBracket {
   updatedAt    DateTime @updatedAt
   taxTable     TaxTable @relation(fields: [taxTableId], references: [id], onDelete: Cascade)
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([taxTableId, bracketOrder])
   @@index([taxTableId])
   @@index([bracketOrder])
@@ -375,6 +383,8 @@ model EconomicActivity {
   updatedAt   DateTime   @updatedAt
   customers   Customer[]
 
+  codeNormalized String? /// accent-insensitive search (generated column, see migration)
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([code])
   @@index([description])
 }
@@ -412,6 +422,15 @@ model Customer {
   invoiceEntities      Invoice[]                 @relation("CustomerInvoiceEntities")
   externalOperations   ExternalOperation[]       @relation("CustomerExternalOperations")
 
+  addressNormalized String? /// accent-insensitive search (generated column, see migration)
+  cityNormalized String? /// accent-insensitive search (generated column, see migration)
+  cnpjNormalized String? /// accent-insensitive search (generated column, see migration)
+  corporateNameNormalized String? /// accent-insensitive search (generated column, see migration)
+  cpfNormalized String? /// accent-insensitive search (generated column, see migration)
+  emailNormalized String? /// accent-insensitive search (generated column, see migration)
+  fantasyNameNormalized String? /// accent-insensitive search (generated column, see migration)
+  neighborhoodNormalized String? /// accent-insensitive search (generated column, see migration)
+  stateNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([fantasyName])
   @@index([cpf])
   @@index([neighborhood])
@@ -457,6 +476,7 @@ model PpeDelivery {
   user               User                  @relation("PPE_DELIVERY_USER", fields: [userId], references: [id], onDelete: Cascade)
   signature          PpeDeliverySignature? @relation("PPE_DELIVERY_SIGNATURE")
 
+  reasonNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([userId])
   @@index([itemId])
   @@index([ppeScheduleId])
@@ -599,6 +619,7 @@ model PpeDeliverySchedule {
   yearlyConfig    YearlyScheduleConfig?  @relation(fields: [yearlyConfigId], references: [id])
   items           PpeScheduleItem[]      @relation("PPE_SCHEDULE_ITEMS")
 
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([nextRun])
   @@index([isActive])
   @@index([assignmentType])
@@ -683,6 +704,9 @@ model File {
   workAccidentReports                    WorkAccidentReport[]      @relation("WORK_ACCIDENT_REPORT_FILE")
   fispqPdfs                              Fispq[]                   @relation("FISPQ_PDF")
 
+  filenameNormalized String? /// accent-insensitive search (generated column, see migration)
+  mimetypeNormalized String? /// accent-insensitive search (generated column, see migration)
+  originalNameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([filename])
   @@index([originalName])
   @@index([mimetype])
@@ -806,6 +830,8 @@ model Item {
   relatedTo                      Item[]                  @relation("RelatedItems")
   relatedItems                   Item[]                  @relation("RelatedItems")
 
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
+  uniCodeNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([shouldAssignToUser])
   @@index([categoryId])
   @@index([name])
@@ -862,6 +888,10 @@ model WarehouseLocation {
   updatedAt DateTime @updatedAt
   items     Item[]   @relation("ITEM_WAREHOUSE_LOCATION")
 
+  codeNormalized String? /// accent-insensitive search (generated column, see migration)
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
+  sectionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([name])
   @@index([section])
   @@index([isActive])
@@ -937,6 +967,7 @@ model ItemBrand {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   items     Item[]   @relation("ITEM_BRANDS")
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
 }
 
 // Chart-of-accounts groups (plano de contas, from CONTABILIDADE PDF). This is
@@ -983,6 +1014,7 @@ model ItemCategory {
   // document line tagged "Verniz" maps back to this inventory category.
   transactionCategories TransactionCategory[] @relation("ITEM_CATEGORY_TO_TX_CATEGORY")
 
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([type, typeOrder])
   @@index([parentId])
   @@index([accountingType])
@@ -997,6 +1029,7 @@ model Observation {
   task        Task     @relation("OBSERVATION_TO_TASK", fields: [taskId], references: [id], onDelete: Cascade)
   files       File[]   @relation("OBSERVATIONS_FILES")
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([taskId])
   @@index([createdAt])
 }
@@ -1026,6 +1059,8 @@ model ExternalOperation {
   receipts              File[]                         @relation("EXTERNAL_OPERATION_RECEIPTS")
   reimbursements        File[]                         @relation("EXTERNAL_OPERATION_REIMBURSEMENTS")
 
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
+  withdrawerNameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([withdrawerName])
   @@index([type])
   @@index([status, statusOrder])
@@ -1043,6 +1078,7 @@ model ExternalOperationServiceItem {
   updatedAt           DateTime          @updatedAt
   externalOperation   ExternalOperation @relation(fields: [externalOperationId], references: [id], onDelete: Cascade)
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([externalOperationId])
 }
 
@@ -1080,6 +1116,8 @@ model Maintenance {
   maintenanceSchedule   MaintenanceSchedule? @relation("MAINTENANCE_FROM_SCHEDULE", fields: [maintenanceScheduleId], references: [id])
   itemsNeeded           MaintenanceItem[]
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([itemId])
   @@index([status])
   @@index([statusOrder])
@@ -1133,6 +1171,8 @@ model MaintenanceSchedule {
   weeklyConfig           WeeklyScheduleConfig?     @relation(fields: [weeklyConfigId], references: [id])
   yearlyConfig           YearlyScheduleConfig?     @relation(fields: [yearlyConfigId], references: [id])
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([itemId])
   @@index([nextRun])
   @@index([status, statusOrder])
@@ -1179,6 +1219,8 @@ model Order {
   fiscalDocuments       FiscalDocument[]     @relation("ORDER_FISCAL_DOCUMENTS")
   receipts              File[]               @relation("ORDER_RECEIPTS")
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([status])
   @@index([statusOrder])
   @@index([supplierId])
@@ -1236,6 +1278,7 @@ model OrderInstallment {
   paidBy     User?                  @relation("ORDER_INSTALLMENT_PAID_BY", fields: [paidById], references: [id])
   reconciliationMatches ReconciliationMatch[] @relation("OrderInstallmentMatches")
 
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([orderId, number])
   @@index([orderId])
   @@index([status])
@@ -1276,6 +1319,8 @@ model OrderSchedule {
   weeklyConfig       WeeklyScheduleConfig?  @relation(fields: [weeklyConfigId], references: [id])
   yearlyConfig       YearlyScheduleConfig?  @relation(fields: [yearlyConfigId], references: [id])
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([nextRun])
   @@index([lastRunId])
   @@index([originalScheduleId])
@@ -1318,6 +1363,8 @@ model Paint {
   relatedPaints    Paint[]            @relation("RelatedPaints")
   logoTasks        Task[]             @relation("TASK_LOGO_PAINT")
 
+  codeNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([name])
   @@index([paintTypeId])
   @@index([paintBrandId])
@@ -1333,6 +1380,7 @@ model PaintBrand {
   paints         Paint[]
   componentItems Item[]   @relation("PAINT_BRAND_COMPONENT_ITEMS")
 
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([name])
 }
 
@@ -1345,6 +1393,7 @@ model PaintType {
   paints         Paint[]
   componentItems Item[]   @relation("PAINT_TYPE_COMPONENT_ITEMS")
 
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([name])
 }
 
@@ -1374,6 +1423,7 @@ model PaintFormula {
   components      PaintFormulaComponent[]
   paintProduction PaintProduction[]
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([paintId])
 }
 
@@ -1422,6 +1472,7 @@ model Position {
   positionHistories         UserPositionHistory[]  @relation("USER_POSITION_HISTORY_POSITION")
   positionHistoriesPrevious UserPositionHistory[]  @relation("USER_POSITION_HISTORY_PREVIOUS_POSITION")
 
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([name])
   @@index([hierarchy])
   @@index([secullumFuncaoId])
@@ -1458,6 +1509,9 @@ model Warning {
   witness        User[]             @relation("WITNESS_WARNING")
   signatures     WarningSignature[] @relation("WARNING_SIGNATURE")
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  hrNotesNormalized String? /// accent-insensitive search (generated column, see migration)
+  reasonNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([collaboratorId])
   @@index([severityOrder])
   @@index([terminationId])
@@ -1605,6 +1659,7 @@ model Sector {
   goals                  Goal[]
   assessmentSectors      AssessmentSector[]
 
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([leaderId])
   @@index([secullumDepartamentoId])
 }
@@ -1642,6 +1697,7 @@ model ServiceOrder {
   checkinFiles           File[]             @relation("SERVICE_ORDER_CHECKIN_FILES")
   checkoutFiles          File[]             @relation("SERVICE_ORDER_CHECKOUT_FILES")
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([taskId])
   @@index([statusOrder])
   @@index([type])
@@ -1692,6 +1748,7 @@ model TaskQuoteService {
   invoiceToCustomerId String?
   invoiceToCustomer   Customer? @relation("QuoteServiceInvoiceToCustomer", fields: [invoiceToCustomerId], references: [id], onDelete: SetNull)
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([quoteId])
   @@index([invoiceToCustomerId])
 }
@@ -1758,6 +1815,14 @@ model Supplier {
   recurrentPayables RecurrentPayable[] @relation("SUPPLIER_RECURRENT_PAYABLES")
   logo              File?              @relation("SUPPLIER_LOGO", fields: [logoId], references: [id])
 
+  addressNormalized String? /// accent-insensitive search (generated column, see migration)
+  cityNormalized String? /// accent-insensitive search (generated column, see migration)
+  cnpjNormalized String? /// accent-insensitive search (generated column, see migration)
+  corporateNameNormalized String? /// accent-insensitive search (generated column, see migration)
+  emailNormalized String? /// accent-insensitive search (generated column, see migration)
+  fantasyNameNormalized String? /// accent-insensitive search (generated column, see migration)
+  neighborhoodNormalized String? /// accent-insensitive search (generated column, see migration)
+  stateNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([fantasyName])
   @@index([cnpj])
   @@index([state])
@@ -1819,6 +1884,9 @@ model Task {
   nfseDocuments         NfseDocument[]        @relation("TaskNfseDocuments")
   forecastHistory       TaskForecastHistory[] @relation("TASK_FORECAST_HISTORY")
 
+  detailsNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
+  serialNumberNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([status, sectorId])
   @@index([statusOrder])
   @@index([bonificationOrder])
@@ -1844,6 +1912,7 @@ model TaskFieldChangeLog {
   user         User     @relation("TASK_FIELD_CHANGE_USER", fields: [changedBy], references: [id])
   task         Task     @relation("TASK_FIELD_CHANGE_LOGS", fields: [taskId], references: [id], onDelete: Cascade)
 
+  fieldNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([taskId])
   @@index([field])
   @@index([changedAt])
@@ -1865,6 +1934,8 @@ model TaskForecastHistory {
   task      Task @relation("TASK_FORECAST_HISTORY", fields: [taskId], references: [id], onDelete: Cascade)
   changedBy User @relation("TASK_FORECAST_HISTORY_USER", fields: [changedById], references: [id])
 
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
+  reasonNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([taskId])
   @@index([createdAt])
   @@index([taskId, createdAt])
@@ -1914,6 +1985,8 @@ model Truck {
   rightSideLayout   Layout?        @relation("TRUCK_RIGHT_SIDE", fields: [rightSideLayoutId], references: [id])
   task              Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
+  chassisNumberNormalized String? /// accent-insensitive search (generated column, see migration)
+  plateNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([spot])
   @@index([plate])
   @@index([backSideLayoutId])
@@ -2166,6 +2239,15 @@ model User {
   postits                        Postit[]                     @relation("POSTIT_USER")
   secullumSmokeRuns              SecullumSmokeTestRun[]       @relation("SecullumSmokeRuns")
 
+  addressNormalized String? /// accent-insensitive search (generated column, see migration)
+  cityNormalized String? /// accent-insensitive search (generated column, see migration)
+  cpfNormalized String? /// accent-insensitive search (generated column, see migration)
+  emailNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
+  neighborhoodNormalized String? /// accent-insensitive search (generated column, see migration)
+  phoneNormalized String? /// accent-insensitive search (generated column, see migration)
+  pisNormalized String? /// accent-insensitive search (generated column, see migration)
+  stateNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([currentContractStatus, sectorId])
   @@index([currentContractType])
   @@index([currentEmployeeType])
@@ -2215,6 +2297,7 @@ model StatisticsPreset {
   updatedAt DateTime @updatedAt
   user      User     @relation("USER_STATISTICS_PRESETS", fields: [userId], references: [id], onDelete: Cascade)
 
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([userId, pageKey, name])
   @@index([userId, pageKey])
 }
@@ -2258,6 +2341,8 @@ model Notification {
   deliveries        NotificationDelivery[]
   seenBy            SeenNotification[]
 
+  bodyNormalized String? /// accent-insensitive search (generated column, see migration)
+  titleNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([userId])
   @@index([scheduledAt])
 }
@@ -2357,6 +2442,8 @@ model NotificationConfiguration {
   rules               NotificationRule[]           @relation("NOTIFICATION_CONFIG_RULES")
   targetRule          NotificationTargetRule?      @relation("NOTIFICATION_CONFIG_TARGET_RULE")
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([notificationType])
   @@index([eventType])
   @@index([enabled])
@@ -2454,6 +2541,8 @@ model Repository {
   apps        App[]
   commits     GitCommit[]
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@map("repositories")
 }
 
@@ -2499,6 +2588,7 @@ model App {
   repository      Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   deployments     Deployment[]
 
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([repositoryId])
   @@index([appType])
   @@map("apps")
@@ -2542,6 +2632,9 @@ model Deployment {
   previousDeployment   Deployment?           @relation("DeploymentRollback", fields: [previousDeploymentId], references: [id])
   rollbackedDeployment Deployment?           @relation("DeploymentRollback")
 
+  appIdNormalized String? /// accent-insensitive search (generated column, see migration)
+  gitCommitIdNormalized String? /// accent-insensitive search (generated column, see migration)
+  versionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([appId, environment, status])
   @@index([gitCommitId])
   @@index([appId, environment])
@@ -2605,6 +2698,7 @@ model Message {
   targets       MessageTarget[] @relation("MESSAGE_TARGETS")
   views         MessageView[]   @relation("MESSAGE_VIEWS")
 
+  titleNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([status, statusOrder])
   @@index([createdById])
   @@index([startDate])
@@ -2675,6 +2769,8 @@ model BackupSchedule {
   createdBy           User?                @relation("BACKUP_SCHEDULE_CREATOR", fields: [createdById], references: [id])
   deletedBy           User?                @relation("BACKUP_SCHEDULE_DELETER", fields: [deletedById], references: [id])
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([enabled])
   @@index([type])
   @@index([nextRunAt])
@@ -2716,6 +2812,8 @@ model Backup {
   deletedBy            User?               @relation("BACKUP_DELETER", fields: [deletedById], references: [id])
   schedule             BackupSchedule?     @relation(fields: [scheduleId], references: [id])
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([status])
   @@index([type])
   @@index([createdAt])
@@ -2748,6 +2846,9 @@ model Responsible {
   tasks                 Task[]                    @relation("TaskResponsibles")
   customerConfigs       TaskQuoteCustomerConfig[] @relation("CUSTOMER_CONFIG_RESPONSIBLE")
 
+  emailNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
+  phoneNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([email])
   @@index([phone])
   @@index([companyId])
@@ -3914,6 +4015,7 @@ model Invoice {
   installments        Installment[]            @relation("InvoiceInstallments")
   nfseDocuments       NfseDocument[]           @relation("InvoiceNfse")
 
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([taskId])
   @@index([customerId])
   @@index([status])
@@ -4406,6 +4508,8 @@ model FiscalDocumentItem {
   fiscalDocument     FiscalDocument        @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
   category           TransactionCategory?  @relation("FiscalItemCategory", fields: [categoryId], references: [id])
 
+  codeNormalized String? /// accent-insensitive search (generated column, see migration)
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([fiscalDocumentId])
   @@index([categoryId])
 }
@@ -4424,6 +4528,7 @@ model FiscalDocumentOrderCode {
 
   fiscalDocument FiscalDocument @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
 
+  codeNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([fiscalDocumentId, code])
   @@index([code])
   @@index([fiscalDocumentId])
@@ -4462,6 +4567,7 @@ model ReconciliationMatch {
   payrollMonthSettlement PayrollMonthSettlement?     @relation("PayrollMonthSettlementMatches", fields: [payrollMonthSettlementId], references: [id], onDelete: Restrict)
   matchedBy        User?                   @relation("MatchedBy", fields: [matchedByUserId], references: [id])
 
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([transactionId, fiscalDocumentId])
   @@unique([transactionId, installmentId])
   @@unique([transactionId, bankSlipId])
@@ -4553,6 +4659,7 @@ model PayrollMonthSettlement {
   updatedAt DateTime  @updatedAt
   reconciliationMatches ReconciliationMatch[] @relation("PayrollMonthSettlementMatches")
 
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([year, month])
   @@index([year, month])
 }
@@ -4614,6 +4721,8 @@ model RecurrentPayable {
   category        TransactionCategory          @relation("CategoryRecurrentPayables", fields: [categoryId], references: [id])
   occurrences     RecurrentPayableOccurrence[] @relation("RecurrentPayableOccurrences")
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([nextRun])
   @@index([isActive])
   @@index([categoryId])
@@ -4702,6 +4811,7 @@ model TransactionCategory {
   suggestedTransactions BankTransaction[]          @relation("TxSuggestedCategory")
   recurrentPayables     RecurrentPayable[]         @relation("CategoryRecurrentPayables")
 
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([kind])
   @@index([itemCategoryId])
   @@index([isRecurring])
@@ -5026,6 +5136,8 @@ model Skill {
   topics           Topic[]
   assessmentSkills AssessmentSkill[]
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([order])
   @@index([isActive])
   @@index([deletedAt])
@@ -5048,6 +5160,8 @@ model Topic {
   assessmentTopics AssessmentTopic[]
   responses        AssessmentResponse[]
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  titleNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([skillId, order])
   @@index([skillId])
   @@index([deletedAt])
@@ -5064,6 +5178,8 @@ model TopicLevel {
 
   topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([topicId, score])
   @@index([topicId])
 }
@@ -5086,6 +5202,8 @@ model Assessment {
   topics    AssessmentTopic[]
   entries   AssessmentEntry[]
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([status])
   @@index([periodStart, periodEnd])
   @@index([createdById])
@@ -5170,6 +5288,7 @@ model AssessmentEntry {
   evaluator  User                 @relation("ASSESSMENT_ENTRY_EVALUATOR", fields: [evaluatorId], references: [id])
   responses  AssessmentResponse[]
 
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([assessmentId, evaluateeId])
   @@index([assessmentId])
   @@index([evaluateeId])
@@ -5234,6 +5353,8 @@ model QuestionnaireGroup {
 
   questions QuestionnaireQuestion[]
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([order])
   @@index([isActive])
   @@index([deletedAt])
@@ -5256,6 +5377,8 @@ model QuestionnaireQuestion {
   links   QuestionnaireQuestionLink[]
   answers QuestionnaireAnswer[]
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  titleNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([groupId, order])
   @@index([groupId])
   @@index([deletedAt])
@@ -5273,6 +5396,7 @@ model QuestionnaireOption {
 
   question QuestionnaireQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([questionId, order])
   @@index([questionId])
 }
@@ -5303,6 +5427,8 @@ model Questionnaire {
   questions   QuestionnaireQuestionLink[]
   entries     QuestionnaireEntry[]
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([status])
   @@index([periodStart, periodEnd])
   @@index([createdById])
@@ -5351,6 +5477,7 @@ model QuestionnaireEntry {
   respondent    User                  @relation("QUESTIONNAIRE_ENTRY_RESPONDENT", fields: [respondentId], references: [id])
   answers       QuestionnaireAnswer[]
 
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([questionnaireId, respondentId])
   @@index([questionnaireId])
   @@index([respondentId])
@@ -5396,6 +5523,7 @@ model WasteCertificate {
   pdfFile    File? @relation("WASTE_CERTIFICATE_PDF", fields: [pdfFileId], references: [id])
   signedFile File? @relation("WASTE_CERTIFICATE_SIGNED", fields: [signedFileId], references: [id])
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([status])
   @@index([createdAt])
 }
@@ -5463,6 +5591,11 @@ model Fispq {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
+  casNumberNormalized String? /// accent-insensitive search (generated column, see migration)
+  manufacturerNormalized String? /// accent-insensitive search (generated column, see migration)
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
+  onuNumberNormalized String? /// accent-insensitive search (generated column, see migration)
+  productNameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([itemId])
   @@index([validUntil])
   @@index([status])
@@ -5525,6 +5658,7 @@ model SalaryAdjustment {
   appliedBy     User?                  @relation("SALARY_ADJUSTMENT_APPLIED_BY", fields: [appliedById], references: [id])
   items         SalaryAdjustmentItem[]
 
+  noteNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([appliedById])
   @@index([effectiveDate])
 }
@@ -5570,6 +5704,7 @@ model UserPositionHistory {
   previousPosition   Position?            @relation("USER_POSITION_HISTORY_PREVIOUS_POSITION", fields: [previousPositionId], references: [id])
   changedBy          User?                @relation("USER_POSITION_HISTORY_CHANGED_BY", fields: [changedById], references: [id])
 
+  noteNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([userId])
   @@index([positionId])
   @@index([previousPositionId])
@@ -5609,6 +5744,9 @@ model Benefit {
   updatedAt                      DateTime      @updatedAt
   enrollments                    UserBenefit[]
 
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
+  providerNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([kind])
   @@index([isActive])
 }
@@ -5638,6 +5776,7 @@ model UserBenefit {
   declarationFile         File?                   @relation("USER_BENEFIT_DECLARATION", fields: [declarationFileId], references: [id])
   dependents              Dependent[]             @relation("DEPENDENT_HEALTH_PLAN")
 
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([userId])
   @@index([benefitId])
   @@index([statusOrder])
@@ -5737,6 +5876,8 @@ model EmploymentContract {
   thirteenths               Thirteenth[]           @relation("THIRTEENTH_CONTRACT")
   phaseHistory              ContractPhaseHistory[] @relation("CONTRACT_PHASE_HISTORY_CONTRACT")
 
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
+  providerNameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([userId, sequence])
   @@index([userId])
   @@index([userId, isCurrent])
@@ -5767,6 +5908,7 @@ model ContractPhaseHistory {
   contract EmploymentContract @relation("CONTRACT_PHASE_HISTORY_CONTRACT", fields: [contractId], references: [id], onDelete: Cascade)
   user     User               @relation("CONTRACT_PHASE_HISTORY_USER", fields: [userId], references: [id], onDelete: Cascade)
 
+  reasonNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([contractId, endDate])
   @@index([userId])
 }
@@ -5809,6 +5951,7 @@ model Admission {
   documents           AdmissionDocument[]
   admissionExam       MedicalExam?        @relation("ADMISSION_EXAM")
 
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([userId])
   @@index([statusOrder])
   @@index([createdById])
@@ -5852,6 +5995,7 @@ model AdmissionDocument {
   signedFile        File?                   @relation("ADMISSION_DOCUMENT_SIGNED_FILE", fields: [signedFileId], references: [id])
   signedBy          User?                   @relation("ADMISSION_DOCUMENT_SIGNED_BY", fields: [signedByUserId], references: [id])
 
+  noteNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([admissionId])
   @@index([fileId])
   @@index([signedFileId])
@@ -5980,6 +6124,8 @@ model Termination {
   dismissalExam          MedicalExam?          @relation("TERMINATION_EXAM")
   warnings               Warning[]             @relation("WARNING_TERMINATION")
 
+  justCauseArticleNormalized String? /// accent-insensitive search (generated column, see migration)
+  reasonNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([userId])
   @@index([contractId])
   @@index([statusOrder])
@@ -6000,6 +6146,7 @@ model TerminationItem {
   updatedAt         DateTime            @updatedAt
   termination       Termination         @relation(fields: [terminationId], references: [id], onDelete: Cascade)
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([terminationId])
 }
 
@@ -6015,6 +6162,7 @@ model TerminationDocument {
   termination   Termination               @relation(fields: [terminationId], references: [id], onDelete: Cascade)
   file          File?                     @relation("TERMINATION_DOCUMENT_FILE", fields: [fileId], references: [id])
 
+  noteNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([terminationId])
   @@index([fileId])
 }
@@ -6071,6 +6219,9 @@ model MedicalExam {
   admission         Admission?        @relation("ADMISSION_EXAM", fields: [admissionId], references: [id], onDelete: SetNull)
   termination       Termination?      @relation("TERMINATION_EXAM", fields: [terminationId], references: [id], onDelete: SetNull)
 
+  clinicNormalized String? /// accent-insensitive search (generated column, see migration)
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
+  physicianNameNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([userId])
   @@index([statusOrder])
   @@index([expiresAt])
@@ -6134,6 +6285,8 @@ model Leave {
   files               File[]               @relation("FileToLeave")
   workAccidentReports WorkAccidentReport[] @relation("WORK_ACCIDENT_REPORT_LEAVE")
 
+  inssBenefitNumberNormalized String? /// accent-insensitive search (generated column, see migration)
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([userId])
   @@index([statusOrder])
   @@index([startDate])
@@ -6173,6 +6326,9 @@ model Dependent {
   user                User                  @relation("DEPENDENT_USER", fields: [userId], references: [id], onDelete: Cascade)
   healthPlanBenefit   UserBenefit?          @relation("DEPENDENT_HEALTH_PLAN", fields: [healthPlanBenefitId], references: [id])
 
+  cpfNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([userId, cpf])
   @@index([userId])
   @@index([relationship])
@@ -6245,6 +6401,7 @@ model Vacation {
   // Múltiplas Vacations podem compartilhar o mesmo período aquisitivo
   // (irmãs); os dias de gozo restantes são derivados agrupando as irmãs por
   // (userId, acquisitiveStart, acquisitiveEnd). NÃO há mais índice único.
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([userId])
   @@index([contractId])
   @@index([groupId])
@@ -6289,6 +6446,8 @@ model VacationGroup {
   updatedAt        DateTime          @updatedAt
   vacations        Vacation[]        @relation("VACATION_GROUP")
 
+  nameNormalized String? /// accent-insensitive search (generated column, see migration)
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([status])
   @@index([acquisitiveEnd])
   @@index([deletedAt])
@@ -6331,6 +6490,7 @@ model Thirteenth {
   user                  User                @relation("THIRTEENTH_USER", fields: [userId], references: [id], onDelete: Cascade)
   contract              EmploymentContract? @relation("THIRTEENTH_CONTRACT", fields: [contractId], references: [id])
 
+  notesNormalized String? /// accent-insensitive search (generated column, see migration)
   @@unique([userId, year, contractId])
   @@index([userId])
   @@index([contractId])
@@ -6364,6 +6524,8 @@ model WorkAccidentReport {
   leave        Leave?                 @relation("WORK_ACCIDENT_REPORT_LEAVE", fields: [leaveId], references: [id])
   file         File?                  @relation("WORK_ACCIDENT_REPORT_FILE", fields: [fileId], references: [id])
 
+  catNumberNormalized String? /// accent-insensitive search (generated column, see migration)
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([userId])
   @@index([leaveId])
   @@index([fileId])
@@ -6390,6 +6552,8 @@ model AgendaEvent {
   updatedAt        DateTime              @updatedAt
   createdBy        User                  @relation("AGENDA_EVENT_CREATED_BY", fields: [createdById], references: [id], onDelete: Cascade)
 
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
+  titleNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([createdById])
   @@index([eventDate])
   @@index([isActive])
@@ -6412,6 +6576,7 @@ model Postit {
   updatedAt  DateTime @updatedAt
   user       User     @relation("POSTIT_USER", fields: [userId], references: [id], onDelete: Cascade)
 
+  contentNormalized String? /// accent-insensitive search (generated column, see migration)
   @@index([userId])
   @@index([isArchived])
   @@index([position])

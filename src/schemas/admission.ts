@@ -11,6 +11,7 @@ import {
   createDateWhereSchema,
   mergeAndConditions,
   createDescriptionSchema,
+  normalizeSearchTerm,
 } from './common';
 import {
   ADMISSION_STATUS,
@@ -158,8 +159,8 @@ const admissionTransform = (data: any) => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { notes: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
-        { user: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        { notesNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
       ],
     });
     delete data.searchingFor;

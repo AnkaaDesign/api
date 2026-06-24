@@ -6,6 +6,7 @@ import {
   orderByDirectionSchema,
   normalizeOrderBy,
   nullableDate,
+  normalizeSearchTerm,
 } from './common';
 import type { ServiceOrder } from '@types';
 import { SERVICE_ORDER_STATUS, SERVICE_ORDER_TYPE } from '@constants';
@@ -338,7 +339,7 @@ const serviceOrderTransform = (data: any) => {
   // Handle searchingFor - search in description
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      description: { contains: data.searchingFor.trim(), mode: 'insensitive' },
+      descriptionNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) },
     });
     delete data.searchingFor;
   }

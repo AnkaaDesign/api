@@ -25,6 +25,7 @@ import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES, NOTIFICATION_TYPE, NOTIFICATION_CHANNEL } from '../../../constants';
 import { PrismaService } from '../prisma/prisma.service';
+import { normalizeSearchTerm } from '@schemas';
 import { NotificationQueueService } from './notification-queue.service';
 import { NotificationAnalyticsService, DateRange } from './notification-analytics.service';
 import { NotificationExportService, ExportFormat } from './notification-export.service';
@@ -277,8 +278,8 @@ export class NotificationAdminController {
         const searchTerm = searchingFor.trim();
         andConditions.push({
           OR: [
-            { title: { contains: searchTerm, mode: 'insensitive' } },
-            { body: { contains: searchTerm, mode: 'insensitive' } },
+            { titleNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+            { bodyNormalized: { contains: normalizeSearchTerm(searchTerm) } },
           ],
         });
       }

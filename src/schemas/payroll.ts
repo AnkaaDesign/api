@@ -9,6 +9,7 @@ import {
   createUuidSchema,
   createNameSchema,
   percentageSchema,
+  normalizeSearchTerm,
 } from './common';
 import { BONUS_STATUS, PAYROLL_STATUS } from '@constants';
 
@@ -887,9 +888,9 @@ const payrollTransform = (data: any) => {
     data.where = {
       ...data.where,
       OR: [
-        { user: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
-        { user: { email: { contains: data.searchingFor, mode: 'insensitive' } } },
-        { position: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
+        { user: { emailNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
+        { position: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
       ],
     };
     delete data.searchingFor;

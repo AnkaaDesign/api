@@ -5,6 +5,7 @@ import {
   nullableDate,
   createNameSchema,
   createMapToFormDataHelper,
+  normalizeSearchTerm,
 } from './common';
 import type { Discount } from '@types';
 
@@ -498,14 +499,14 @@ const discountTransform = (data: any) => {
     data.where = {
       ...data.where,
       OR: [
-        { reference: { contains: data.searchingFor, mode: 'insensitive' } },
+        { referenceNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
         // Folha-scoped lines resolve the colaborador through the payroll…
-        { payroll: { user: { name: { contains: data.searchingFor, mode: 'insensitive' } } } },
+        { payroll: { user: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } } },
         // …while master loans (payrollId=null, the Empréstimos list) carry the
         // colaborador directly. Without this branch a name search silently
         // returned nothing for the master rows.
-        { user: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
-        { lenderName: { contains: data.searchingFor, mode: 'insensitive' } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
+        { lenderNameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
       ],
     };
     delete data.searchingFor;

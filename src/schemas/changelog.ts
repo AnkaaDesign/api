@@ -1,7 +1,9 @@
 // packages/schemas/src/changelog.ts
 
 import { z } from 'zod';
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy,
+  normalizeSearchTerm,
+} from './common';
 import type { ChangeLog } from '@types';
 import { CHANGE_TRIGGERED_BY } from '@constants';
 
@@ -304,9 +306,9 @@ const changeLogTransform = (data: any) => {
       OR: [
         { entityType: { contains: searchingFor, mode: 'insensitive' } },
         { action: { contains: searchingFor, mode: 'insensitive' } },
-        { field: { contains: searchingFor, mode: 'insensitive' } },
-        { reason: { contains: searchingFor, mode: 'insensitive' } },
-        { user: { name: { contains: searchingFor, mode: 'insensitive' } } },
+        { fieldNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+        { reasonNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
       ],
     });
   }

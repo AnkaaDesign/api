@@ -2,7 +2,9 @@
 
 import { z } from 'zod';
 import { DEPLOYMENT_STATUS, DEPLOYMENT_ENVIRONMENT, DEPLOYMENT_TRIGGER } from '@constants';
-import { orderByDirectionSchema, normalizeOrderBy } from './common';
+import { orderByDirectionSchema, normalizeOrderBy,
+  normalizeSearchTerm,
+} from './common';
 
 // =====================
 // Include Schema
@@ -235,9 +237,9 @@ export const deploymentGetManySchema = z
       data.where = {
         ...data.where,
         OR: [
-          { appId: { contains: data.searchingFor, mode: 'insensitive' } },
-          { gitCommitId: { contains: data.searchingFor, mode: 'insensitive' } },
-          { version: { contains: data.searchingFor, mode: 'insensitive' } },
+          { appIdNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
+          { gitCommitIdNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
+          { versionNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
         ],
       };
       delete data.searchingFor;

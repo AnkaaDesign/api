@@ -1,7 +1,9 @@
 // packages/schemas/src/sector.ts
 
 import { z } from 'zod';
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy,
+  normalizeSearchTerm,
+} from './common';
 import type { Sector } from '@types';
 import { SECTOR_PRIVILEGES } from '@constants';
 
@@ -284,7 +286,7 @@ const sectorTransform = (data: any): any => {
 
   if (searchingFor) {
     andConditions.push({
-      OR: [{ name: { contains: searchingFor, mode: 'insensitive' } }],
+      OR: [{ nameNormalized: { contains: normalizeSearchTerm(searchingFor) } }],
     });
   }
 

@@ -10,6 +10,7 @@ import {
   createUuidWhereSchema,
   createDateWhereSchema,
   mergeAndConditions,
+  normalizeSearchTerm,
 } from './common';
 import { WORK_ACCIDENT_REPORT_TYPE } from '@constants';
 
@@ -119,9 +120,9 @@ const workAccidentReportTransform = (data: any) => {
     const searchTerm = data.searchingFor.trim();
     andConditions.push({
       OR: [
-        { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        { catNumber: { contains: searchTerm, mode: 'insensitive' } },
-        { description: { contains: searchTerm, mode: 'insensitive' } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { catNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { descriptionNormalized: { contains: normalizeSearchTerm(searchTerm) } },
       ],
     });
     delete data.searchingFor;

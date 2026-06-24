@@ -11,6 +11,7 @@ import {
   createDateWhereSchema,
   createDescriptionSchema,
   mergeAndConditions,
+  normalizeSearchTerm,
 } from './common';
 import { POSITION_CHANGE_REASON } from '@constants';
 
@@ -170,16 +171,16 @@ const userPositionHistoryTransform = (data: any) => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { note: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        { noteNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
         {
-          user: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+          user: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
         },
         {
-          position: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+          position: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
         },
         {
           previousPosition: {
-            name: { contains: data.searchingFor.trim(), mode: 'insensitive' },
+            nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) },
           },
         },
       ],

@@ -11,6 +11,7 @@ import {
   createUuidWhereSchema,
   createDateWhereSchema,
   mergeAndConditions,
+  normalizeSearchTerm,
 } from './common';
 import { GHS_PICTOGRAM, GHS_SIGNAL_WORD, FISPQ_STATUS } from '@constants';
 
@@ -160,12 +161,12 @@ const fispqTransform = (data: any) => {
     const searchTerm = data.searchingFor.trim();
     andConditions.push({
       OR: [
-        { productName: { contains: searchTerm, mode: 'insensitive' } },
-        { manufacturer: { contains: searchTerm, mode: 'insensitive' } },
-        { casNumber: { contains: searchTerm, mode: 'insensitive' } },
-        { onuNumber: { contains: searchTerm, mode: 'insensitive' } },
-        { notes: { contains: searchTerm, mode: 'insensitive' } },
-        { item: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { productNameNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { manufacturerNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { casNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { onuNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { notesNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { item: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
       ],
     });
     delete data.searchingFor;

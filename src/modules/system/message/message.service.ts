@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { normalizeSearchTerm } from '@schemas';
 import { CreateMessageDto, UpdateMessageDto, FilterMessageDto } from './dto';
 import { MessagePublishedEvent } from './message.events';
 
@@ -311,7 +312,7 @@ export class MessageService {
 
       // Free-text search across the message title
       if (filters.searchingFor && filters.searchingFor.trim()) {
-        where.title = { contains: filters.searchingFor.trim(), mode: 'insensitive' };
+        where.titleNormalized = { contains: normalizeSearchTerm(filters.searchingFor.trim()) };
       }
 
       // Status filter. Web sends lowercase values (draft|active|archived) which map

@@ -10,6 +10,7 @@ import {
   createUuidWhereSchema,
   createDateWhereSchema,
   mergeAndConditions,
+  normalizeSearchTerm,
 } from './common';
 import { MEDICAL_EXAM_TYPE, MEDICAL_EXAM_STATUS, MEDICAL_EXAM_RESULT } from '@constants';
 
@@ -167,10 +168,10 @@ const medicalExamTransform = (data: any) => {
     const searchTerm = data.searchingFor.trim();
     andConditions.push({
       OR: [
-        { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        { physicianName: { contains: searchTerm, mode: 'insensitive' } },
-        { clinic: { contains: searchTerm, mode: 'insensitive' } },
-        { notes: { contains: searchTerm, mode: 'insensitive' } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { physicianNameNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { clinicNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { notesNormalized: { contains: normalizeSearchTerm(searchTerm) } },
       ],
     });
     delete data.searchingFor;

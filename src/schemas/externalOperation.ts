@@ -6,6 +6,7 @@ import {
   orderByDirectionSchema,
   normalizeOrderBy,
   createNameSchema,
+  normalizeSearchTerm,
 } from './common';
 import { paymentConditionSchema, paymentConfigSchema } from './task-quote';
 import type { ExternalOperation, ExternalOperationItem } from '@types';
@@ -512,10 +513,10 @@ const externalOperationTransform = (data: any) => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { withdrawerName: { contains: data.searchingFor, mode: 'insensitive' } },
-        { notes: { contains: data.searchingFor, mode: 'insensitive' } },
-        { customer: { fantasyName: { contains: data.searchingFor, mode: 'insensitive' } } },
-        { customer: { corporateName: { contains: data.searchingFor, mode: 'insensitive' } } },
+        { withdrawerNameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
+        { notesNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
+        { customer: { fantasyNameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
+        { customer: { corporateNameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
       ],
     });
     delete data.searchingFor;
@@ -1103,7 +1104,7 @@ const externalOperationItemTransform = (data: any) => {
 
   if (data.searchingFor) {
     andConditions.push({
-      item: { name: { contains: data.searchingFor, mode: 'insensitive' } },
+      item: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
     });
     delete data.searchingFor;
   }

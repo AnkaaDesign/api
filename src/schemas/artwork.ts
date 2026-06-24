@@ -1,7 +1,9 @@
 // packages/schemas/src/artwork.ts
 
 import { z } from 'zod';
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy,
+  normalizeSearchTerm,
+} from './common';
 import type { Artwork } from '@types';
 
 // =====================
@@ -347,10 +349,10 @@ const artworkTransform = (data: any) => {
   if (searchingFor) {
     andConditions.push({
       OR: [
-        { file: { filename: { contains: searchingFor, mode: 'insensitive' } } },
-        { file: { originalName: { contains: searchingFor, mode: 'insensitive' } } },
-        { task: { name: { contains: searchingFor, mode: 'insensitive' } } },
-        { task: { serialNumber: { contains: searchingFor, mode: 'insensitive' } } },
+        { file: { filenameNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
+        { file: { originalNameNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
+        { task: { nameNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
+        { task: { serialNumberNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
       ],
     });
   }

@@ -2,7 +2,9 @@
 
 import { z } from 'zod';
 import { NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, NOTIFICATION_IMPORTANCE } from '@constants';
-import { nullableDate, orderByDirectionSchema, normalizeOrderBy } from './common';
+import { nullableDate, orderByDirectionSchema, normalizeOrderBy,
+  normalizeSearchTerm,
+} from './common';
 
 // =====================
 // Include Schemas
@@ -396,8 +398,8 @@ const notificationTransform = (data: any) => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { title: { contains: data.searchingFor, mode: 'insensitive' } },
-        { body: { contains: data.searchingFor, mode: 'insensitive' } },
+        { titleNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
+        { bodyNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
       ],
     });
     delete data.searchingFor;

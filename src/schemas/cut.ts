@@ -1,7 +1,9 @@
 // packages/schemas/src/cut.ts
 
 import { z } from 'zod';
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy,
+  normalizeSearchTerm,
+} from './common';
 import type { Cut } from '@types';
 import { CUT_TYPE, CUT_STATUS, CUT_ORIGIN, CUT_REQUEST_REASON } from '@constants';
 
@@ -347,11 +349,11 @@ const cutTransform = (data: any) => {
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
       OR: [
-        { file: { filename: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
-        { task: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        { file: { filenameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
+        { task: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
         {
           task: {
-            customer: { fantasyName: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+            customer: { fantasyNameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
           },
         },
       ],

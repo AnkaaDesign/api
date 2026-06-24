@@ -11,6 +11,7 @@ import {
   createBooleanWhereSchema,
   createDateWhereSchema,
   mergeAndConditions,
+  normalizeSearchTerm,
 } from './common';
 import { NOTIFICATION_CHANNEL } from '@constants';
 
@@ -107,8 +108,8 @@ const agendaEventTransform = (data: any) => {
     const searchTerm = data.searchingFor.trim();
     andConditions.push({
       OR: [
-        { title: { contains: searchTerm, mode: 'insensitive' } },
-        { description: { contains: searchTerm, mode: 'insensitive' } },
+        { titleNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { descriptionNormalized: { contains: normalizeSearchTerm(searchTerm) } },
       ],
     });
     delete data.searchingFor;

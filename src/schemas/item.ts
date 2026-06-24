@@ -8,6 +8,7 @@ import {
   nullableString,
   createNameSchema,
   optionalNonNegativeNumber,
+  normalizeSearchTerm,
 } from './common';
 import type { Item, ItemBrand, ItemCategory } from '@types';
 import { AccountingType } from '@prisma/client';
@@ -2031,12 +2032,12 @@ const itemTransform = (data: any) => {
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
       OR: [
-        { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
-        { uniCode: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
+        { uniCodeNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
         { barcodes: { has: data.searchingFor.trim() } },
-        { brands: { some: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } } },
-        { category: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
-        { supplier: { fantasyName: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        { brands: { some: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } } },
+        { category: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
+        { supplier: { fantasyNameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
       ],
     });
     delete data.searchingFor;
@@ -2447,7 +2448,7 @@ const itemBrandTransform = (data: any) => {
 
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      name: { contains: data.searchingFor.trim(), mode: 'insensitive' },
+      nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) },
     });
     delete data.searchingFor;
   }
@@ -2505,7 +2506,7 @@ const itemCategoryTransform = (data: any) => {
 
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      name: { contains: data.searchingFor.trim(), mode: 'insensitive' },
+      nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) },
     });
     delete data.searchingFor;
   }

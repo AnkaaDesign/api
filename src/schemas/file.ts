@@ -1,7 +1,9 @@
 // packages/schemas/src/schemas/file.ts
 
 import { z } from 'zod';
-import { orderByDirectionSchema, normalizeOrderBy } from './common';
+import { orderByDirectionSchema, normalizeOrderBy,
+  normalizeSearchTerm,
+} from './common';
 
 // =====================
 // Base Schema Components
@@ -390,9 +392,9 @@ const fileTransform = (data: any) => {
   if (searchingFor) {
     andConditions.push({
       OR: [
-        { filename: { contains: searchingFor, mode: 'insensitive' } },
-        { originalName: { contains: searchingFor, mode: 'insensitive' } },
-        { mimetype: { contains: searchingFor, mode: 'insensitive' } },
+        { filenameNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+        { originalNameNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+        { mimetypeNormalized: { contains: normalizeSearchTerm(searchingFor) } },
       ],
     });
   }

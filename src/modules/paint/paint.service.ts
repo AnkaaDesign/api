@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
+import { normalizeSearchTerm } from '@schemas';
 import { PaintRepository } from './repositories/paint/paint.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
@@ -328,8 +329,8 @@ export class PaintService {
 
         // Create search conditions for direct paint fields
         const searchConditions: any[] = [
-          { name: { contains: searchingFor, mode: 'insensitive' } },
-          { code: { contains: searchingFor, mode: 'insensitive' } },
+          { nameNormalized: { contains: normalizeSearchTerm(searchingFor) } },
+          { codeNormalized: { contains: normalizeSearchTerm(searchingFor) } },
           { hex: { contains: searchingFor, mode: 'insensitive' } },
         ];
 
@@ -476,7 +477,7 @@ export class PaintService {
         SELECT DISTINCT p.id
         FROM "Paint" p,
         LATERAL unnest(p.tags) AS tag
-        WHERE LOWER(tag) LIKE LOWER(${searchPattern})
+        WHERE LOWER(immutable_unaccent(tag)) LIKE LOWER(immutable_unaccent(${searchPattern}))
       `;
 
       const ids = result.map(row => row.id);
@@ -505,12 +506,12 @@ export class PaintService {
         LEFT JOIN "_TASK_LOGO_PAINT" tlp ON tlp."A" = p.id
         LEFT JOIN "Task" t2 ON t2.id = tlp."B"
         LEFT JOIN "Truck" tr2 ON tr2."taskId" = t2.id
-        WHERE LOWER(t1.name) LIKE LOWER(${searchPattern})
-           OR LOWER(t1."serialNumber") LIKE LOWER(${searchPattern})
-           OR LOWER(tr1.plate) LIKE LOWER(${searchPattern})
-           OR LOWER(t2.name) LIKE LOWER(${searchPattern})
-           OR LOWER(t2."serialNumber") LIKE LOWER(${searchPattern})
-           OR LOWER(tr2.plate) LIKE LOWER(${searchPattern})
+        WHERE LOWER(immutable_unaccent(t1.name)) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(t1."serialNumber")) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(tr1.plate)) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(t2.name)) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(t2."serialNumber")) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(tr2.plate)) LIKE LOWER(immutable_unaccent(${searchPattern}))
       `;
 
       const ids = result.map(row => row.id);
@@ -541,14 +542,14 @@ export class PaintService {
         LEFT JOIN "_TASK_LOGO_PAINT" tlp ON tlp."A" = p.id
         LEFT JOIN "Task" t2 ON t2.id = tlp."B"
         LEFT JOIN "Customer" c2 ON c2.id = t2."customerId"
-        WHERE LOWER(c1."fantasyName") LIKE LOWER(${searchPattern})
-           OR LOWER(c1."corporateName") LIKE LOWER(${searchPattern})
-           OR LOWER(c1.cnpj) LIKE LOWER(${searchPattern})
-           OR LOWER(c1.cpf) LIKE LOWER(${searchPattern})
-           OR LOWER(c2."fantasyName") LIKE LOWER(${searchPattern})
-           OR LOWER(c2."corporateName") LIKE LOWER(${searchPattern})
-           OR LOWER(c2.cnpj) LIKE LOWER(${searchPattern})
-           OR LOWER(c2.cpf) LIKE LOWER(${searchPattern})
+        WHERE LOWER(immutable_unaccent(c1."fantasyName")) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(c1."corporateName")) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(c1.cnpj)) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(c1.cpf)) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(c2."fantasyName")) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(c2."corporateName")) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(c2.cnpj)) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(c2.cpf)) LIKE LOWER(immutable_unaccent(${searchPattern}))
       `;
 
       const ids = result.map(row => row.id);

@@ -13,6 +13,7 @@ import {
   createDateWhereSchema,
   mergeAndConditions,
   createDescriptionSchema,
+  normalizeSearchTerm,
 } from './common';
 import {
   CONTRACT_TYPE,
@@ -163,8 +164,8 @@ const employmentContractTransform = (data: any) => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { providerName: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
-        { user: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        { providerNameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
       ],
     });
     delete data.searchingFor;

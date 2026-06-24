@@ -11,6 +11,7 @@ import {
   createBooleanWhereSchema,
   createDateWhereSchema,
   mergeAndConditions,
+  normalizeSearchTerm,
 } from './common';
 import { LEAVE_TYPE, LEAVE_STATUS, INSS_BENEFIT_SPECIES } from '@constants';
 
@@ -162,9 +163,9 @@ const leaveTransform = (data: any) => {
     const searchTerm = data.searchingFor.trim();
     andConditions.push({
       OR: [
-        { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
-        { inssBenefitNumber: { contains: searchTerm, mode: 'insensitive' } },
-        { notes: { contains: searchTerm, mode: 'insensitive' } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { inssBenefitNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { notesNormalized: { contains: normalizeSearchTerm(searchTerm) } },
       ],
     });
     delete data.searchingFor;

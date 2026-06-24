@@ -12,6 +12,7 @@ import {
   corporateNameSchema,
   addressSchema,
   citySchema,
+  normalizeSearchTerm,
 } from './common';
 import type { Supplier } from '@types';
 import { cleanNumeric, cleanCNPJ } from '@utils';
@@ -460,16 +461,16 @@ const supplierTransform = (data: any): any => {
     const cleanedSearch = searchTerm.replace(/\D/g, '');
 
     const searchConditions: any[] = [
-      { fantasyName: { contains: searchTerm, mode: 'insensitive' } },
-      { corporateName: { contains: searchTerm, mode: 'insensitive' } },
-      { email: { contains: searchTerm, mode: 'insensitive' } },
-      { items: { some: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+      { fantasyNameNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+      { corporateNameNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+      { emailNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+      { items: { some: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
     ];
 
     // Add CNPJ search conditions - search both with original input and cleaned version
     if (cleanedSearch.length > 0 && cleanedSearch.length <= 14) {
-      searchConditions.push({ cnpj: { contains: searchTerm } }); // Search with original format
-      searchConditions.push({ cnpj: { contains: cleanedSearch } }); // Search with cleaned numbers only
+      searchConditions.push({ cnpjNormalized: { contains: normalizeSearchTerm(searchTerm) } }); // Search with original format
+      searchConditions.push({ cnpjNormalized: { contains: normalizeSearchTerm(cleanedSearch) } }); // Search with cleaned numbers only
     }
 
     andConditions.push({ OR: searchConditions });

@@ -7,6 +7,7 @@ import {
   normalizeOrderBy,
   nullableDate,
   moneySchema,
+  normalizeSearchTerm,
 } from './common';
 import type { TaskQuote } from '@types';
 import {
@@ -326,10 +327,7 @@ const taskQuoteTransform = (data: any) => {
       ...transformed.where,
       services: {
         some: {
-          description: {
-            contains: data.searchingFor,
-            mode: 'insensitive',
-          },
+          descriptionNormalized: { contains: normalizeSearchTerm(data.searchingFor) },
         },
       },
     };

@@ -10,6 +10,7 @@
 
 import { z } from 'zod';
 import { VACATION_STATUS } from '../../../../constants';
+import { normalizeSearchTerm } from '@schemas';
 
 // =====================
 // Generic relation include (Prisma passthrough)
@@ -164,8 +165,8 @@ const vacationTransform = (data: any) => {
   if (data.searchingFor) {
     and.push({
       OR: [
-        { notes: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
-        { user: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        { notesNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
+        { user: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
       ],
     });
     delete data.searchingFor;

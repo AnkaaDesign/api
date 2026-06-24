@@ -2485,7 +2485,7 @@ export class TaskQuoteService {
               amount: true,
               position: true,
               invoiceToCustomer: {
-                select: { id: true, corporateName: true, fantasyName: true, cnpj: true },
+                select: { id: true, corporateName: true, fantasyName: true, cnpj: true, cpf: true },
               },
             },
           },
@@ -2507,7 +2507,7 @@ export class TaskQuoteService {
                 select: { id: true, name: true, role: true },
               },
               customer: {
-                select: { id: true, corporateName: true, fantasyName: true, cnpj: true },
+                select: { id: true, corporateName: true, fantasyName: true, cnpj: true, cpf: true },
               },
               customerSignature: {
                 select: { id: true, filename: true, originalName: true, mimetype: true },
@@ -2558,7 +2558,7 @@ export class TaskQuoteService {
               startedAt: true,
               finishedAt: true,
               customer: {
-                select: { id: true, corporateName: true, fantasyName: true, cnpj: true },
+                select: { id: true, corporateName: true, fantasyName: true, cnpj: true, cpf: true },
               },
               responsibles: {
                 select: { id: true, name: true, role: true },

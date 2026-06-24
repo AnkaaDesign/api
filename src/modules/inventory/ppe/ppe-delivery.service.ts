@@ -2,6 +2,7 @@
 
 import { Injectable, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
 import { EventEmitter } from 'events';
+import { normalizeSearchTerm } from '@schemas';
 import {
   PpeDeliveryRepository,
   PrismaTransaction,
@@ -1133,9 +1134,9 @@ export class PpeDeliveryService {
       whereConditions.AND = [
         {
           OR: [
-            { name: { contains: search, mode: 'insensitive' } },
-            { uniCode: { contains: search, mode: 'insensitive' } },
-            { brands: { some: { name: { contains: search, mode: 'insensitive' } } } },
+            { nameNormalized: { contains: normalizeSearchTerm(search) } },
+            { uniCodeNormalized: { contains: normalizeSearchTerm(search) } },
+            { brands: { some: { nameNormalized: { contains: normalizeSearchTerm(search) } } } },
           ],
         },
       ];
