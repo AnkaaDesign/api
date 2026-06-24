@@ -36,7 +36,6 @@ import {
   INSTALLMENT_STATUS,
   TASK_QUOTE_STATUS,
   TASK_QUOTE_STATUS_ORDER,
-  EXTERNAL_OPERATION_STATUS_ORDER,
 } from '@constants';
 import type { InvoiceGetManyFormData } from '@types';
 
@@ -613,18 +612,41 @@ export class InvoiceController {
       }
     }
 
-    await this.prisma.bankSlip.update({
-      where: { id: bankSlip.id },
-      data: { status: 'CANCELLED' },
+    // I30: cancelling a boleto voids the charge instrument. Cancel the slip AND the
+    // installment together (atomically), then recompute the invoice and cascade. Without
+    // cancelling the installment, a now-past-due PENDING/OVERDUE installment keeps counting
+    // as overdue and the quote shows a spurious DUE even though the charge is gone. A PAID
+    // installment is real financial history — never reverse it (the early guard above already
+    // rejects cancelling a PAID boleto, but guard the installment write too).
+    const installmentRow = await this.prisma.installment.findUnique({
+      where: { id: installmentId },
+      select: { invoiceId: true, status: true },
     });
 
-    // Notify financial/admin/commercial that the boleto was manually cancelled.
-    const cancelledInstallment = await this.prisma.installment.findUnique({
-      where: { id: installmentId },
-      select: { invoiceId: true },
+    await this.prisma.$transaction(async tx => {
+      await tx.bankSlip.update({
+        where: { id: bankSlip.id },
+        data: { status: 'CANCELLED' },
+      });
+
+      if (installmentRow && installmentRow.status !== INSTALLMENT_STATUS.PAID) {
+        await tx.installment.update({
+          where: { id: installmentId },
+          data: { status: INSTALLMENT_STATUS.CANCELLED },
+        });
+      }
+
+      if (installmentRow?.invoiceId) {
+        await this.invoiceService.recalcInvoicePaymentState(tx, installmentRow.invoiceId);
+      }
     });
+
+    // Reconverge the quote/withdrawal status now that this installment no longer counts.
+    await this.sicrediBoletoScheduler.cascadeFromInstallment(installmentId);
+
+    // Notify financial/admin/commercial that the boleto was manually cancelled.
     await this.dispatchBankSlipCancelledNotification(
-      cancelledInstallment?.invoiceId ?? null,
+      installmentRow?.invoiceId ?? null,
       bankSlip.nossoNumero,
     );
 
@@ -763,66 +785,52 @@ export class InvoiceController {
       }
     }
 
-    // Update bank slip to cancelled, store payment method in sicrediStatus for display
-    if (installment.bankSlip && installment.bankSlip.status !== BANK_SLIP_STATUS.CANCELLED) {
-      await this.prisma.bankSlip.update({
-        where: { id: installment.bankSlip.id },
+    // I29: wrap all three settlement writes (bank slip → CANCELLED, installment → PAID,
+    // invoice recalc) in ONE $transaction so a crash mid-mark-paid can never leave the
+    // installment PAID while the invoice/quote stays stale. The Sicredi HTTP cancel above
+    // is intentionally OUTSIDE the transaction (network side-effect, best-effort).
+    const now = new Date();
+    await this.prisma.$transaction(async tx => {
+      // Update bank slip to cancelled, store payment method in sicrediStatus for display
+      if (installment.bankSlip && installment.bankSlip.status !== BANK_SLIP_STATUS.CANCELLED) {
+        await tx.bankSlip.update({
+          where: { id: installment.bankSlip.id },
+          data: {
+            status: BANK_SLIP_STATUS.CANCELLED,
+            sicrediStatus: `PAID_${body.paymentMethod}`,
+          },
+        });
+      }
+
+      // Mark installment as paid
+      await tx.installment.update({
+        where: { id: installmentId },
         data: {
-          status: BANK_SLIP_STATUS.CANCELLED,
-          sicrediStatus: `PAID_${body.paymentMethod}`,
+          status: INSTALLMENT_STATUS.PAID,
+          paidAmount: installment.amount,
+          paidAt: now,
+          paymentMethod: body.paymentMethod,
+          observations: body.observations ?? undefined,
+          ...(body.receiptFileIds && body.receiptFileIds.length > 0
+            ? {
+                receiptFiles: {
+                  connect: body.receiptFileIds.map(id => ({ id })),
+                },
+              }
+            : {}),
         },
       });
-    }
 
-    // Mark installment as paid
-    const now = new Date();
-    await this.prisma.installment.update({
-      where: { id: installmentId },
-      data: {
-        status: INSTALLMENT_STATUS.PAID,
-        paidAmount: installment.amount,
-        paidAt: now,
-        paymentMethod: body.paymentMethod,
-        observations: body.observations ?? undefined,
-        ...(body.receiptFileIds && body.receiptFileIds.length > 0
-          ? {
-              receiptFiles: {
-                connect: body.receiptFileIds.map(id => ({ id })),
-              },
-            }
-          : {}),
-      },
+      // I29/I31: recompute invoice paidAmount + status via the single source of truth
+      // (always writes paidAmount, Decimal-safe). No more hand-rolled derivation.
+      if (installment.invoiceId) {
+        await this.invoiceService.recalcInvoicePaymentState(tx, installment.invoiceId);
+      }
     });
 
-    // Recalculate invoice status
     if (installment.invoiceId) {
-      const allInstallments = await this.prisma.installment.findMany({
-        where: { invoiceId: installment.invoiceId },
-      });
-      const allPaid = allInstallments.every(
-        i =>
-          i.id === installmentId ||
-          i.status === INSTALLMENT_STATUS.PAID ||
-          i.status === 'CANCELLED',
-      );
-      const paidAmount = allInstallments.reduce((sum, i) => {
-        if (i.id === installmentId) return sum + Number(installment.amount);
-        if (i.status === INSTALLMENT_STATUS.PAID) return sum + Number(i.paidAmount);
-        return sum;
-      }, 0);
-
-      await this.prisma.invoice.update({
-        where: { id: installment.invoiceId },
-        data: {
-          status: allPaid ? 'PAID' : 'PARTIALLY_PAID',
-          paidAmount,
-        },
-      });
-
       // Notify that the boleto/installment was paid (manual PIX/cash/other path) —
       // mirrors the bank_slip.paid notification dispatched by the Sicredi webhook.
-      // Emitted here (before the cascade block) so the early-return for non-cascadeable
-      // quotes does not skip it.
       await this.dispatchBankSlipPaidNotification(
         installment.invoiceId,
         installment.bankSlip?.id ?? installmentId,
@@ -830,180 +838,24 @@ export class InvoiceController {
         installment.dueDate,
       );
 
-      // Cascade: recalculate task quote status (SETTLED / PARTIAL / DUE / UPCOMING)
-      // or, for withdrawal-backed invoices, liquidate the external withdrawal.
-      const invoice = await this.prisma.invoice.findUnique({
+      // I29: single source of truth for SETTLED / PARTIAL / DUE / UPCOMING (and external
+      // operation LIQUIDATED) — replaces the hand-rolled per-path derivation. cascadeFromInstallment
+      // resolves the correct anchor (invoice → quote, or external operation) and never throws.
+      await this.sicrediBoletoScheduler.cascadeFromInstallment(installmentId);
+
+      // Reconcile Em Negociação for the linked task (kept for symmetry with other paths).
+      const invoiceForSync = await this.prisma.invoice.findUnique({
         where: { id: installment.invoiceId },
-        select: {
-          externalOperationId: true,
-          customerConfig: { select: { quoteId: true } },
-        },
+        select: { customerConfig: { select: { quoteId: true } } },
       });
-
-      if (invoice?.externalOperationId) {
-        // External withdrawal ("Operação Externa"): when every active installment is paid,
-        // a CHARGED withdrawal becomes LIQUIDATED. Best-effort — never breaks the request.
-        try {
-          const withdrawalId = invoice.externalOperationId;
-          const withdrawal = await this.prisma.externalOperation.findUnique({
-            where: { id: withdrawalId },
-            select: { id: true, status: true, withdrawerName: true },
-          });
-          if (withdrawal?.status === 'CHARGED') {
-            const withdrawalInstallments = await this.prisma.installment.findMany({
-              where: { externalOperationId: withdrawalId },
-              select: { id: true, status: true },
-            });
-            const activeWithdrawalInsts = withdrawalInstallments.filter(
-              i => i.status !== 'CANCELLED',
-            );
-            const allWithdrawalPaid =
-              activeWithdrawalInsts.length > 0 &&
-              activeWithdrawalInsts.every(
-                i => i.id === installmentId || i.status === INSTALLMENT_STATUS.PAID,
-              );
-            if (allWithdrawalPaid) {
-              await this.prisma.externalOperation.update({
-                where: { id: withdrawalId },
-                data: {
-                  status: 'LIQUIDATED' as any,
-                  statusOrder: EXTERNAL_OPERATION_STATUS_ORDER['LIQUIDATED'] || 1,
-                },
-              });
-              this.logger.log(
-                `[BOLETO] Cascaded ExternalOperation ${withdrawalId} status: CHARGED → LIQUIDATED (manual installment payment)`,
-              );
-
-              // Notify settlement — mirrors the task_quote.settled key emitted by the
-              // cascade/webhook paths, keyed to the withdrawal detail page.
-              try {
-                const label = withdrawal.withdrawerName || withdrawalId.slice(-8).toUpperCase();
-                await this.dispatchService.dispatchByConfiguration(
-                  'task_quote.settled',
-                  'system',
-                  {
-                    entityType: 'ExternalOperation',
-                    entityId: withdrawalId,
-                    action: 'settled',
-                    data: { quoteLabel: label, externalOperationId: withdrawalId },
-                    overrides: {
-                      title: 'Pagamento Liquidado',
-                      body: `A operação externa ${label} foi totalmente liquidada. Todas as parcelas estão pagas.`,
-                      relatedEntityType: 'EXTERNAL_OPERATION',
-                      webUrl: `/estoque/operacoes-externas/detalhes/${withdrawalId}`,
-                      mobileUrl: `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`,
-                    },
-                  },
-                );
-              } catch (notifyErr) {
-                this.logger.error(
-                  'Falha ao notificar liquidação de operação externa (task_quote.settled):',
-                  notifyErr,
-                );
-              }
-
-              // Also fire the dedicated external_operation.liquidated key so its
-              // own audience (ADMIN/FINANCIAL config) learns about the auto-liquidation.
-              try {
-                const label = withdrawal.withdrawerName || withdrawalId.slice(-8).toUpperCase();
-                await this.dispatchService.dispatchByConfiguration(
-                  'external_operation.liquidated',
-                  'system',
-                  {
-                    entityType: 'ExternalOperation',
-                    entityId: withdrawalId,
-                    action: 'liquidated',
-                    data: { operationLabel: label, externalOperationId: withdrawalId },
-                    overrides: {
-                      title: 'Operação Externa Liquidada',
-                      body: `Operação externa ${label} liquidada — pagamento quitado.`,
-                      relatedEntityType: 'EXTERNAL_OPERATION',
-                      webUrl: `/estoque/operacoes-externas/detalhes/${withdrawalId}`,
-                      mobileUrl: `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`,
-                    },
-                  },
-                );
-              } catch (notifyErr) {
-                this.logger.error(
-                  'Falha ao notificar liquidação de operação externa (external_operation.liquidated):',
-                  notifyErr,
-                );
-              }
-            }
-          }
-        } catch (cascadeErr) {
-          this.logger.error(
-            `[BOLETO] Failed to cascade external withdrawal status for invoice ${installment.invoiceId}: ${cascadeErr}`,
-          );
-        }
-      } else if (invoice?.customerConfig?.quoteId) {
-        const quoteId = invoice.customerConfig.quoteId;
-        const now = new Date();
-        const allQuoteInstallments = await this.prisma.installment.findMany({
-          where: { customerConfig: { quoteId } },
-          select: { id: true, status: true, dueDate: true },
-        });
-        const active = allQuoteInstallments.filter(i => i.status !== 'CANCELLED');
-        // Treat the just-paid installment as PAID regardless of what the DB returned,
-        // mirroring the invoice-recalculation workaround above (i.id === installmentId).
-        const paidCount = active.filter(
-          i => i.id === installmentId || i.status === INSTALLMENT_STATUS.PAID,
-        ).length;
-        const overdueCount = active.filter(
-          i =>
-            i.id !== installmentId &&
-            i.status !== INSTALLMENT_STATUS.PAID &&
-            new Date(i.dueDate) < now,
-        ).length;
-
-        // Only cascade quotes that are in a payment-progress status
-        const cascadeableStatuses: string[] = [
-          TASK_QUOTE_STATUS.UPCOMING,
-          TASK_QUOTE_STATUS.DUE,
-          TASK_QUOTE_STATUS.PARTIAL,
-          TASK_QUOTE_STATUS.SETTLED,
-        ];
-        const currentQuote = await this.prisma.taskQuote.findUnique({
-          where: { id: quoteId },
-          select: { status: true },
-        });
-        if (!currentQuote || !cascadeableStatuses.includes(currentQuote.status as string)) {
-          return { message: `Parcela marcada como paga via ${body.paymentMethod}.` };
-        }
-
-        let newStatus: TASK_QUOTE_STATUS;
-        if (active.length > 0 && paidCount === active.length) {
-          newStatus = TASK_QUOTE_STATUS.SETTLED;
-        } else if (overdueCount > 0) {
-          newStatus = TASK_QUOTE_STATUS.DUE;
-        } else if (paidCount > 0) {
-          newStatus = TASK_QUOTE_STATUS.PARTIAL;
-        } else {
-          newStatus = TASK_QUOTE_STATUS.UPCOMING;
-        }
-
-        await this.prisma.taskQuote.update({
-          where: { id: quoteId },
-          data: {
-            status: newStatus as any,
-            statusOrder: TASK_QUOTE_STATUS_ORDER[newStatus],
-          },
-        });
-
-        // Reconcile Em Negociação. The cascade stays within ≥ BUDGET_APPROVED
-        // so this is usually a no-op, but kept for symmetry with other paths.
-        const task = await this.prisma.task.findFirst({
-          where: { quoteId },
+      const syncQuoteId = invoiceForSync?.customerConfig?.quoteId;
+      if (syncQuoteId) {
+        const syncTask = await this.prisma.task.findFirst({
+          where: { quoteId: syncQuoteId },
           select: { id: true },
         });
-        if (task) {
-          await syncEmNegociacaoForTask(this.prisma, task.id);
-        }
-
-        // Notify when this manual payment settles the whole quote (mirrors the
-        // task_quote.settled key emitted by the cascade/webhook paths).
-        if (newStatus === TASK_QUOTE_STATUS.SETTLED && newStatus !== currentQuote.status) {
-          await this.dispatchTaskQuoteSettled(quoteId, task?.id ?? null);
+        if (syncTask) {
+          await syncEmNegociacaoForTask(this.prisma, syncTask.id);
         }
       }
     }
@@ -1476,7 +1328,15 @@ export class InvoiceController {
     // Verify the invoice exists and is not cancelled
     const invoice = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        status: true,
+        externalOperationId: true,
+        // I21: the opt-out flag lives on the customerConfig (task-backed invoices) or on
+        // the externalOperation itself (withdrawal-backed invoices). Load both.
+        customerConfig: { select: { generateInvoice: true } },
+        externalOperation: { select: { generateInvoice: true } },
+      },
     });
 
     if (!invoice) {
@@ -1485,6 +1345,18 @@ export class InvoiceController {
 
     if (invoice.status === 'CANCELLED') {
       throw new BadRequestException('Não é possível emitir NFS-e para uma fatura cancelada.');
+    }
+
+    // I21: respect the customer's opt-out. generateInvoice=false means the customer does
+    // NOT want a municipal note emitted — reject instead of silently emitting one.
+    const optedOut = invoice.externalOperationId
+      ? invoice.externalOperation?.generateInvoice === false
+      : invoice.customerConfig?.generateInvoice === false;
+    if (optedOut) {
+      throw new BadRequestException(
+        'Este cliente está configurado para NÃO emitir NFS-e (geração de nota desabilitada). ' +
+          'Ative a emissão de nota fiscal na configuração de faturamento antes de emitir.',
+      );
     }
 
     // Check existing NFS-e state for this invoice

@@ -14,7 +14,8 @@ import {
   getFileRelationshipChangeDescription,
 } from '../../../utils';
 import { promises as fs, existsSync, unlinkSync, statSync } from 'fs';
-import { join, extname, resolve } from 'path';
+import { join, extname, resolve, basename } from 'path';
+import { v4 as uuidv4 } from 'uuid';
 import {
   trackAndLogFieldChanges,
   logEntityChange,
@@ -314,6 +315,167 @@ export class FileService {
       success: true,
       data: fileWithUrl,
     };
+  }
+
+  /**
+   * Clone a File as an INDEPENDENT copy: copies the physical bytes to a NEW
+   * unique storage path and creates a new File row. Unlike createFromExistingFile
+   * (which shares the path), this is safe to delete independently of the source.
+   * Used for quote layout files, whose FK lives on File so a File can belong to
+   * only one quote — duplicating/bulk-applying must clone, never reassign.
+   */
+  /**
+   * General-purpose file clone: byte-copies a source File to a NEW unique path
+   * under `folder` and returns the new File id. Use whenever a record holds a
+   * SINGULAR / unique-fileId relation to a File (e.g. Artwork.fileId @unique)
+   * and must be duplicated without `connect`-ing — which would STEAL the file
+   * from its current owner. Runs inside the caller's transaction (rollback-safe).
+   */
+  async cloneFile(
+    tx: PrismaTransaction,
+    sourceFileId: string,
+    folder: keyof FilesFolderMapping,
+    userId?: string,
+  ): Promise<string> {
+    const source = await this.fileRepository.findByIdWithTransaction(tx, sourceFileId);
+    if (!source) {
+      throw new NotFoundException('Arquivo de origem não encontrado.');
+    }
+
+    // Distinct destination path per clone (generateFilePath's only uniqueness
+    // token is a seconds-resolution timestamp + File.path is not unique-
+    // constrained + copyToStorage overwrites silently → inject a uuid suffix).
+    const generatedPath = this.filesStorageService.generateFilePath(
+      source.originalName,
+      folder,
+      source.mimetype,
+    );
+    const generatedExt = extname(generatedPath);
+    const newPath = `${generatedPath.slice(0, generatedPath.length - generatedExt.length)}_${uuidv4().slice(0, 8)}${generatedExt}`;
+
+    const createData: FileCreateFormData = {
+      filename: basename(newPath),
+      originalName: source.originalName,
+      mimetype: source.mimetype,
+      path: newPath,
+      size: source.size,
+    };
+
+    const newFile = await this.fileRepository.createWithTransaction(tx, createData);
+
+    try {
+      await this.filesStorageService.copyToStorage(source.path, newPath);
+    } catch (error: any) {
+      this.logger.error(`Falha ao clonar arquivo ${sourceFileId}: ${error.message}`);
+      throw new InternalServerErrorException('Falha ao clonar arquivo.');
+    }
+
+    const essentialFields = getEssentialFields(ENTITY_TYPE.FILE);
+    const fileForLog = extractEssentialFields(newFile, essentialFields as (keyof File)[]);
+    await logEntityChange({
+      changeLogService: this.changeLogService,
+      entityType: ENTITY_TYPE.FILE,
+      entityId: newFile.id,
+      action: CHANGE_ACTION.CREATE,
+      entity: fileForLog,
+      reason: `Arquivo clonado de ${source.filename}`,
+      userId: userId || null,
+      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+      transaction: tx,
+    });
+
+    return newFile.id;
+  }
+
+  async cloneFileForQuoteLayout(
+    tx: PrismaTransaction,
+    sourceFileId: string,
+    userId?: string,
+  ): Promise<string> {
+    const source = await this.fileRepository.findByIdWithTransaction(tx, sourceFileId);
+    if (!source) {
+      throw new NotFoundException('Arquivo de layout de origem não encontrado.');
+    }
+
+    // New unique destination path under the quote-layouts folder. generateFilePath's
+    // only uniqueness token is a seconds-resolution timestamp; since File.path is NOT
+    // unique-constrained and copyToStorage overwrites silently, two same-named clones
+    // (same originalName + mimetype) created in the same second would otherwise collide
+    // on one path — re-introducing the shared-bytes data-loss bug this clone fixes
+    // (a single-file delete would unlink the other quote's layout). Inject a random
+    // suffix to guarantee a distinct destination path per clone.
+    const generatedPath = this.filesStorageService.generateFilePath(
+      source.originalName,
+      'quote-layouts',
+      source.mimetype,
+    );
+    const generatedExt = extname(generatedPath);
+    const newPath = `${generatedPath.slice(0, generatedPath.length - generatedExt.length)}_${uuidv4().slice(0, 8)}${generatedExt}`;
+
+    const createData: FileCreateFormData = {
+      filename: basename(newPath),
+      originalName: source.originalName,
+      mimetype: source.mimetype,
+      path: newPath,
+      size: source.size,
+      // thumbnailUrl intentionally null: thumbnails are keyed by fileId, so the
+      // clone gets its own generated lazily; never share the source thumbnail.
+    };
+
+    const newFile = await this.fileRepository.createWithTransaction(tx, createData);
+
+    // Copy the physical bytes to the new path (best-effort; fail loud so the tx
+    // rolls back rather than leaving a File row with no backing bytes).
+    try {
+      await this.filesStorageService.copyToStorage(source.path, newPath);
+    } catch (error: any) {
+      this.logger.error(`Falha ao clonar arquivo de layout ${sourceFileId}: ${error.message}`);
+      throw new InternalServerErrorException('Falha ao clonar arquivo de layout.');
+    }
+
+    const essentialFields = getEssentialFields(ENTITY_TYPE.FILE);
+    const fileForLog = extractEssentialFields(newFile, essentialFields as (keyof File)[]);
+    await logEntityChange({
+      changeLogService: this.changeLogService,
+      entityType: ENTITY_TYPE.FILE,
+      entityId: newFile.id,
+      action: CHANGE_ACTION.CREATE,
+      entity: fileForLog,
+      reason: `Layout clonado de arquivo ${source.filename}`,
+      userId: userId || null,
+      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+      transaction: tx,
+    });
+
+    return newFile.id;
+  }
+
+  /**
+   * Resolve a desired list of layout File ids for a target quote, cloning any
+   * File that currently belongs to a DIFFERENT quote so ownership is never
+   * stolen. Pass targetQuoteId=null when the quote does not exist yet (create).
+   * Order of the returned ids matches the input order.
+   */
+  async resolveLayoutFileIdsForQuote(
+    tx: PrismaTransaction,
+    targetQuoteId: string | null,
+    requestedIds: string[],
+    userId?: string,
+  ): Promise<string[]> {
+    const resolved: string[] = [];
+    for (const id of requestedIds) {
+      const file = await tx.file.findUnique({
+        where: { id },
+        select: { id: true, quoteLayoutId: true },
+      });
+      if (!file) continue; // drop ids that no longer exist
+      if (file.quoteLayoutId && file.quoteLayoutId !== targetQuoteId) {
+        resolved.push(await this.cloneFileForQuoteLayout(tx, id, userId));
+      } else {
+        resolved.push(id);
+      }
+    }
+    return resolved;
   }
 
   /**

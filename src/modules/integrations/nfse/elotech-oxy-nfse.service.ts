@@ -1049,22 +1049,60 @@ export class ElotechOxyNfseService {
       services && services.length > 0
         ? services.reduce((sum, svc) => sum + svc.amount, 0)
         : totalAmount;
-    let effectiveDiscountPercent = 0;
-    if (invoice.globalDiscount) {
+
+    // I45: distribute the global discount across line items with LARGEST-REMAINDER so the
+    // per-line discounts sum EXACTLY to the target. Independent per-line rounding (the old
+    // approach) made the emitted NF gross diverge from invoice.totalAmount/boleto by centavos.
+    //
+    // Target (in cents):
+    //   FIXED_VALUE → exactly gd.value (so net = subtotal - gd.value == invoice.totalAmount)
+    //   PERCENTAGE  → round(subtotal * pct) (the natural rounded total of a percentage discount)
+    // The line amounts feeding the distribution are the service amounts (or the single
+    // fallback line). buildItem then reads its line's precomputed discount by index.
+    const lineAmounts: number[] =
+      services && services.length > 0 ? services.map(svc => svc.amount) : [totalAmount];
+    const lineDiscounts: number[] = new Array(lineAmounts.length).fill(0);
+
+    if (invoice.globalDiscount && servicesSubtotal > 0) {
       const gd = invoice.globalDiscount;
+      let targetCents = 0;
       if (gd.type === 'PERCENTAGE' && gd.value) {
-        effectiveDiscountPercent = gd.value;
-      } else if (gd.type === 'FIXED_VALUE' && gd.value && servicesSubtotal > 0) {
-        effectiveDiscountPercent = Math.round((gd.value / servicesSubtotal) * 100 * 100) / 100;
+        targetCents = Math.round(((servicesSubtotal * gd.value) / 100) * 100);
+      } else if (gd.type === 'FIXED_VALUE' && gd.value) {
+        targetCents = Math.round(gd.value * 100);
+      }
+      // Never discount more than the subtotal.
+      targetCents = Math.min(targetCents, Math.round(servicesSubtotal * 100));
+
+      if (targetCents > 0) {
+        const subtotalCents = Math.round(servicesSubtotal * 100);
+        // Proportional share per line (floor) + remainder, then hand out the leftover cents
+        // to the lines with the largest fractional remainders (largest-remainder method).
+        const raw = lineAmounts.map(
+          amt => (Math.round(amt * 100) * targetCents) / subtotalCents,
+        );
+        const floored = raw.map(r => Math.floor(r));
+        let distributed = floored.reduce((s, v) => s + v, 0);
+        let leftover = targetCents - distributed;
+        const order = raw
+          .map((r, i) => ({ i, frac: r - Math.floor(r) }))
+          .sort((a, b) => b.frac - a.frac);
+        let k = 0;
+        while (leftover > 0 && order.length > 0) {
+          floored[order[k % order.length].i] += 1;
+          leftover -= 1;
+          k += 1;
+        }
+        for (let i = 0; i < floored.length; i++) {
+          lineDiscounts[i] = floored[i] / 100;
+        }
       }
     }
 
     const buildItem = (description: string, amount: number, index: number) => {
-      // Distribute global discount proportionally to each service
-      let valorDesconto = 0;
-      if (effectiveDiscountPercent > 0) {
-        valorDesconto = Math.round(((amount * effectiveDiscountPercent) / 100) * 100) / 100;
-      }
+      // I45: use the precomputed largest-remainder discount for this line so the per-line
+      // sum equals the target to the centavo (no independent rounding drift).
+      const valorDesconto = lineDiscounts[index] ?? 0;
       const valorLiquido = Math.max(0, Math.round((amount - valorDesconto) * 100) / 100);
       totalDescontosIncondicionados += valorDesconto;
 

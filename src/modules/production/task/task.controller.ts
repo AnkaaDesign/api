@@ -44,7 +44,6 @@ import {
   taskBatchCreateSchema,
   taskBatchUpdateSchema,
   taskBatchDeleteSchema,
-  taskDuplicateSchema,
   taskQuerySchema,
   taskPositionUpdateSchema,
   taskBulkPositionUpdateSchema,
@@ -67,7 +66,6 @@ import type {
   TaskBatchCreateFormData,
   TaskBatchUpdateFormData,
   TaskBatchDeleteFormData,
-  TaskDuplicateFormData,
   TaskQueryFormData,
   TaskPositionUpdateFormData,
   TaskBulkPositionUpdateFormData,
@@ -409,18 +407,6 @@ export class TaskController {
   // SPECIFIC ENDPOINTS (before dynamic routes)
   // =====================
 
-  @Post(':id/duplicate')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
-  async duplicate(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(taskDuplicateSchema)) data: TaskDuplicateFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
-    @UserId() userId: string,
-  ): Promise<SuccessResponse<Task>> {
-    // TODO: Implement duplicateTask in service
-    throw new Error('duplicateTask not implemented');
-    // return this.tasksService.duplicateTask(id, data, query.include);
-  }
 
   @Put(':id/prepare')
   @Roles(

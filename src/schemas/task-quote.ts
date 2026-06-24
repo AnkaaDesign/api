@@ -449,6 +449,21 @@ export const taskQuoteCustomerConfigCreateNestedSchema = z.object({
   responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),
   // Direct installments (alternative to paymentCondition-based generation)
   installments: z.array(installmentInputSchema).optional(),
+}).superRefine((data, ctx) => {
+  // A PERCENTAGE discount must be within 0–100. Without this guard a value > 100
+  // silently clamps the computed total to 0 (a free quote). FIXED_VALUE keeps its
+  // own non-negative bound from moneySchema and has no upper limit.
+  if (
+    data.discountType === DISCOUNT_TYPE.PERCENTAGE &&
+    data.discountValue != null &&
+    (data.discountValue < 0 || data.discountValue > 100)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['discountValue'],
+      message: 'Desconto em porcentagem deve estar entre 0 e 100.',
+    });
+  }
 });
 
 // Simultaneous tasks schema

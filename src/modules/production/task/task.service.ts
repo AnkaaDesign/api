@@ -6,6 +6,7 @@ import {
   InternalServerErrorException,
   Logger,
   Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
@@ -47,6 +48,7 @@ import {
   CUT_STATUS,
   AIRBRUSHING_STATUS,
   TASK_QUOTE_STATUS,
+  INVOICE_STATUS,
 } from '../../../constants/enums';
 import { TASK_QUOTE_STATUS_ORDER } from '@constants';
 import { validateSectorFieldAccess } from './task.permissions';
@@ -88,6 +90,7 @@ import {
   getBidirectionalSyncActions,
   combineServiceOrderToQuoteDescription,
   normalizeDescription,
+  makeDescObsKey,
   type SyncServiceOrder,
   type SyncQuoteItem,
 } from '../../../utils/task-quote-service-order-sync';
@@ -97,6 +100,7 @@ import { ArtworkApprovedEvent, ArtworkReprovedEvent } from './artwork.events';
 import { CutCreatedEvent, CutsAddedToTaskEvent } from '../cut/cut.events';
 import { TaskFieldTrackerService } from './task-field-tracker.service';
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
+import { TaskQuoteService } from '../task-quote/task-quote.service';
 // NOTE: TaskNotificationService import removed - legacy notification path was deprecated
 
 /**
@@ -141,6 +145,8 @@ export class TaskService {
     // NOTE: TaskNotificationService injection removed - legacy notification path was deprecated
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly nfseEmissionScheduler: NfseEmissionScheduler,
+    @Inject(forwardRef(() => TaskQuoteService))
+    private readonly taskQuoteService: TaskQuoteService,
   ) {}
 
   /**
@@ -228,6 +234,192 @@ export class TaskService {
     // flow that mutates quote services (cascade-delete, SO↔quote sync, the
     // service-order module) recomputes totals identically.
     await recalcQuoteTotals(tx, quoteId);
+  }
+
+  /**
+   * Shared quote ⇄ PRODUCTION ServiceOrder bidirectional sync-create.
+   *
+   * Refetches the task's current quote services + service orders, computes the
+   * non-destructive bidirectional sync actions (getBidirectionalSyncActions),
+   * then:
+   *  - creates missing quote services from PRODUCTION SOs (+ recalc totals),
+   *  - creates missing PRODUCTION SOs from quote services (skipping any
+   *    description the caller explicitly deleted in the same request),
+   *  - propagates observation-only updates onto matched SOs.
+   *
+   * Both the single-update and batch-update paths call this so a bulk edit keeps
+   * SOs ⇄ quote services + discount-aware totals in sync exactly like a single
+   * edit. It only ADDS rows (never deletes) — deletions stay with each caller's
+   * own delete/cascade logic. Errors are swallowed (logged) so a sync hiccup
+   * never rolls back the primary update, mirroring the single-update path.
+   *
+   * @returns true if any sync action was performed (caller may want to refetch).
+   */
+  private async syncQuoteServicesAndServiceOrders(
+    tx: PrismaTransaction,
+    taskId: string,
+    userId: string | undefined,
+    persistedTaskStatus: TASK_STATUS,
+    deletedServiceOrderDescriptions?: Set<string>,
+  ): Promise<boolean> {
+    try {
+      const taskWithQuote = await tx.task.findUnique({
+        where: { id: taskId },
+        include: {
+          quote: { include: { services: true } },
+          serviceOrders: true,
+        },
+      });
+
+      const currentQuote = taskWithQuote?.quote;
+      const currentServiceOrders = taskWithQuote?.serviceOrders || [];
+
+      // Nothing to sync if neither side has rows.
+      if (!currentQuote?.services && currentServiceOrders.length === 0) {
+        return false;
+      }
+
+      const quoteItems: SyncQuoteItem[] = (currentQuote?.services || []).map((item: any) => ({
+        id: item.id,
+        description: item.description,
+        observation: item.observation,
+        amount: item.amount,
+      }));
+
+      const serviceOrders: SyncServiceOrder[] = currentServiceOrders.map((so: any) => ({
+        id: so.id,
+        description: so.description,
+        observation: so.observation,
+        type: so.type,
+      }));
+
+      const syncActions = getBidirectionalSyncActions(quoteItems, serviceOrders);
+
+      this.logger.log(
+        `[QUOTE↔SO SYNC] Task ${taskId}: ${syncActions.quoteItemsToCreate.length} quote service(s) to create, ` +
+          `${syncActions.serviceOrdersToCreate.length} service order(s) to create, ` +
+          `${syncActions.serviceOrdersToUpdate.length} service order(s) to update`,
+      );
+
+      // Create missing quote services from service orders.
+      if (syncActions.quoteItemsToCreate.length > 0 && currentQuote?.id) {
+        for (const itemToCreate of syncActions.quoteItemsToCreate) {
+          await tx.taskQuoteService.create({
+            data: {
+              quoteId: currentQuote.id,
+              description: itemToCreate.description,
+              observation: itemToCreate.observation || null,
+              amount: itemToCreate.amount,
+            },
+          });
+
+          await this.changeLogService.logChange({
+            entityType: ENTITY_TYPE.TASK_QUOTE_SERVICE,
+            entityId: currentQuote.id,
+            action: CHANGE_ACTION.CREATE,
+            field: null,
+            newValue: serializeChangelogValue({
+              description: itemToCreate.description,
+              amount: Number(itemToCreate.amount),
+              observation: itemToCreate.observation || null,
+            }),
+            userId: userId || null,
+            reason: `Item '${itemToCreate.description}' adicionado via sincronização com O.S.`,
+            triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+            triggeredById: null,
+            transaction: tx,
+            metadata: { itemDescription: itemToCreate.description },
+          });
+        }
+
+        // Discount-aware recompute keeps TaskQuote + every CustomerConfig in sync.
+        await this.recalcQuoteTotals(tx, currentQuote.id);
+      }
+
+      // Create missing service orders from quote services — skipping any that
+      // the caller explicitly deleted in the same request.
+      if (syncActions.serviceOrdersToCreate.length > 0) {
+        const isTaskCompleted = persistedTaskStatus === TASK_STATUS.COMPLETED;
+        for (const soToCreate of syncActions.serviceOrdersToCreate) {
+          const normalizedDesc = (soToCreate.description || '').toLowerCase().trim();
+          if (deletedServiceOrderDescriptions?.has(normalizedDesc)) {
+            this.logger.log(
+              `[QUOTE↔SO SYNC] SKIPPING service order creation for "${soToCreate.description}" - was explicitly deleted by user`,
+            );
+            continue;
+          }
+
+          const newServiceOrder = await tx.serviceOrder.create({
+            data: {
+              taskId,
+              description: soToCreate.description,
+              observation: soToCreate.observation,
+              type: SERVICE_ORDER_TYPE.PRODUCTION,
+              status: isTaskCompleted
+                ? SERVICE_ORDER_STATUS.COMPLETED
+                : SERVICE_ORDER_STATUS.PENDING,
+              statusOrder: isTaskCompleted
+                ? 4
+                : getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
+              createdById: userId || '',
+              ...(isTaskCompleted && {
+                startedAt: new Date(),
+                startedById: userId || '',
+                finishedAt: new Date(),
+                completedById: userId || '',
+              }),
+            },
+          });
+
+          await this.changeLogService.logChange({
+            entityType: ENTITY_TYPE.SERVICE_ORDER,
+            entityId: newServiceOrder.id,
+            action: CHANGE_ACTION.CREATE,
+            reason: 'Ordem de serviço criada automaticamente a partir do item de precificação',
+            triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+            triggeredById: taskId,
+            userId: userId || '',
+            transaction: tx,
+          });
+        }
+      }
+
+      // Propagate observation-only updates onto matched service orders.
+      if (syncActions.serviceOrdersToUpdate.length > 0) {
+        for (const soToUpdate of syncActions.serviceOrdersToUpdate) {
+          const oldSo = currentServiceOrders.find((so: any) => so.id === soToUpdate.id);
+
+          await tx.serviceOrder.update({
+            where: { id: soToUpdate.id },
+            data: { observation: soToUpdate.observation },
+          });
+
+          await this.changeLogService.logChange({
+            entityType: ENTITY_TYPE.SERVICE_ORDER,
+            entityId: soToUpdate.id,
+            action: CHANGE_ACTION.UPDATE,
+            field: 'observation',
+            oldValue: (oldSo as any)?.observation || null,
+            newValue: soToUpdate.observation,
+            reason: 'Observação atualizada automaticamente a partir do item de precificação',
+            triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+            triggeredById: taskId,
+            userId: userId || '',
+            transaction: tx,
+          });
+        }
+      }
+
+      return (
+        syncActions.quoteItemsToCreate.length > 0 ||
+        syncActions.serviceOrdersToCreate.length > 0 ||
+        syncActions.serviceOrdersToUpdate.length > 0
+      );
+    } catch (syncError) {
+      this.logger.error('[QUOTE↔SO SYNC] Error during bidirectional sync:', syncError);
+      // Don't throw — sync errors shouldn't block the main update.
+      return false;
+    }
   }
 
   private filterNoOpQuoteFields(existing: any, incoming: any): any | null {
@@ -787,6 +979,30 @@ export class TaskService {
               data: postCreateUpdates,
             });
           }
+        }
+
+        // =====================================================================
+        // QUOTE → PRODUCTION SO SYNC (create path)
+        // A task created with a nested quote must mirror its quote services into
+        // PRODUCTION ServiceOrders, exactly like update() and the standalone
+        // quote-create do. Without this, a task born with a priced quote had no
+        // matching production SOs (the bidirectional sync only ran on edits).
+        // The shared helper is non-destructive (adds rows on either side) and
+        // swallows its own errors so it never rolls back the create.
+        // =====================================================================
+        const createNestedQuote = (data as any).quote;
+        const createHasQuoteServices =
+          createNestedQuote &&
+          typeof createNestedQuote === 'object' &&
+          Array.isArray(createNestedQuote.services) &&
+          createNestedQuote.services.length > 0;
+        if (createHasQuoteServices) {
+          await this.syncQuoteServicesAndServiceOrders(
+            tx,
+            newTask.id,
+            userId,
+            (newTask.status as TASK_STATUS) ?? TASK_STATUS.PREPARATION,
+          );
         }
 
         // Handle truck layouts: create NEW individual layouts for each task
@@ -1608,6 +1824,11 @@ export class TaskService {
 
       // Track if task was auto-transitioned to WAITING_PRODUCTION for notification after transaction
       let taskAutoTransitionedToWaitingProduction = false;
+      // When an auto-cancel (all COMMERCIAL SOs cancelled) hits a task whose quote
+      // is already in a billing status, capture the quoteId so we can revert the
+      // billing (cancel invoices, void boletos, release NFS-e) AFTER the tx — the
+      // revert does external Sicredi/Elotech calls and must run post-commit.
+      let billingRevertQuoteId: string | null = null;
 
       const transactionResult = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Get existing task - always include customer for file organization
@@ -1946,33 +2167,96 @@ export class TaskService {
               } else {
                 // Create or update layout
                 if (existingLayoutId) {
-                  // Get layout details before update for changelog
+                  const relationName =
+                    layoutField === 'leftSideLayoutId'
+                      ? 'trucksLeftSide'
+                      : layoutField === 'rightSideLayoutId'
+                        ? 'trucksRightSide'
+                        : 'trucksBackSide';
+                  // Get layout details before update — for changelog AND the
+                  // copy-on-write sharing check.
                   const existingLayout = await tx.layout.findUnique({
                     where: { id: existingLayoutId },
-                    include: { layoutSections: true },
+                    include: { layoutSections: true, [relationName]: { select: { id: true } } },
                   });
 
-                  // Update in-place: replace sections but keep the same Layout record
-                  // This preserves shared layout references (multiple trucks pointing to same layout)
-                  await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
-                  const updatedLayout = await tx.layout.update({
-                    where: { id: existingLayoutId },
-                    data: {
-                      height: layoutData.height,
-                      photoId: layoutData.photoId || null,
-                      layoutSections: {
-                        create: layoutData.layoutSections.map((section: any, index: number) => ({
-                          width: section.width,
-                          isDoor: section.isDoor,
-                          doorHeight: section.doorHeight,
-                          position: section.position ?? index,
-                        })),
+                  // Only rewrite the sections (measures) when the payload actually
+                  // carries them — an omitted/empty list must PRESERVE the existing
+                  // measures. Blindly delete+recreate wiped them on partial saves
+                  // (the "truck measures disappeared on save" bug).
+                  const wantsSectionRewrite =
+                    Array.isArray(layoutData.layoutSections) && layoutData.layoutSections.length > 0;
+                  const sectionCreate = wantsSectionRewrite
+                    ? layoutData.layoutSections.map((section: any, index: number) => ({
+                        width: section.width,
+                        isDoor: section.isDoor,
+                        doorHeight: section.doorHeight,
+                        position: section.position ?? index,
+                      }))
+                    : null;
+                  const fallbackSections = ((existingLayout as any)?.layoutSections || []).map(
+                    (s: any, i: number) => ({
+                      width: s.width,
+                      isDoor: s.isDoor,
+                      doorHeight: s.doorHeight,
+                      position: s.position ?? i,
+                    }),
+                  );
+
+                  // Copy-on-write: if OTHER trucks share this Layout, editing it in
+                  // place would corrupt theirs — fork a private copy for this truck.
+                  const otherTrucks = ((existingLayout as any)?.[relationName] || []).filter(
+                    (t: any) => t.id !== truckId,
+                  );
+
+                  let updatedLayout: any;
+                  if (otherTrucks.length > 0) {
+                    updatedLayout = await tx.layout.create({
+                      data: {
+                        height:
+                          layoutData.height !== undefined
+                            ? layoutData.height
+                            : (existingLayout as any)?.height,
+                        ...(layoutData.photoId !== undefined
+                          ? layoutData.photoId
+                            ? { photo: { connect: { id: layoutData.photoId } } }
+                            : {}
+                          : (existingLayout as any)?.photoId
+                            ? { photo: { connect: { id: (existingLayout as any).photoId } } }
+                            : {}),
+                        layoutSections: { create: sectionCreate ?? fallbackSections },
                       },
-                    },
-                    include: {
-                      layoutSections: true,
-                    },
-                  });
+                      include: { layoutSections: true },
+                    });
+                    await tx.truck.update({
+                      where: { id: truckId! },
+                      data: { [layoutField]: updatedLayout.id },
+                    });
+                    this.logger.log(
+                      `[Task Update] ${layoutField} shared by ${otherTrucks.length} other truck(s); forked to ${updatedLayout.id} (copy-on-write)`,
+                    );
+                  } else {
+                    // Sole owner: update in place. Rewrite sections only when sent,
+                    // and preserve photoId when the payload omits it.
+                    if (wantsSectionRewrite) {
+                      await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
+                    }
+                    updatedLayout = await tx.layout.update({
+                      where: { id: existingLayoutId },
+                      data: {
+                        ...(layoutData.height !== undefined && { height: layoutData.height }),
+                        ...(layoutData.photoId !== undefined && {
+                          photoId: layoutData.photoId || null,
+                        }),
+                        ...(wantsSectionRewrite && {
+                          layoutSections: { create: sectionCreate },
+                        }),
+                      },
+                      include: {
+                        layoutSections: true,
+                      },
+                    });
+                  }
 
                   // Create changelog for layout update
                   await logEntityChange({
@@ -2228,7 +2512,13 @@ export class TaskService {
               });
             }
 
-            // CANCELLED service orders don't block completion.
+            // CANCELLED service orders don't block completion. This gate is
+            // INTENTIONALLY blocking for every other non-terminal status
+            // (PENDING / IN_PROGRESS / WAITING_ARTWORK / WAITING_APPROVE / PAUSED):
+            // a task may only be finished once all of its service orders are
+            // concluded or cancelled, because finishing makes the task billable.
+            // There is deliberately no force-finish escape — a manager must
+            // conclude or cancel every service order first.
             const incompleteServices = finalSOs.filter(
               (so: any) =>
                 so.status !== SERVICE_ORDER_STATUS.COMPLETED &&
@@ -3280,6 +3570,11 @@ export class TaskService {
           // its description (e.g. a duplicate "(Prata)" SO is removed but the
           // original SO — and the priced quote service — must survive).
           const deletedSoIdSet = new Set(serviceOrdersToDelete.map(so => so.id));
+          // Composite description::observation keys (the SAME key the quote↔SO
+          // sync dedups on) for the PRODUCTION SOs that REMAIN after this edit.
+          // Using a desc-only key here let a same-description/different-
+          // observation sibling block (or, in the cascade below, wrong-delete)
+          // the wrong priced line.
           const remainingProductionDescriptions = new Set<string>(
             existingServiceOrders
               .filter(
@@ -3288,7 +3583,7 @@ export class TaskService {
                   so.description &&
                   !deletedSoIdSet.has(so.id),
               )
-              .map(so => normalizeDescription(so.description)),
+              .map(so => makeDescObsKey(so.description, (so as any).observation)),
           );
 
           // Log deletion summary
@@ -3321,19 +3616,23 @@ export class TaskService {
 
             // CASCADE DELETE: Delete corresponding quote services when production SO is deleted
             if (soToDelete.description && soToDelete.type === SERVICE_ORDER_TYPE.PRODUCTION) {
-              const normalizedDesc = normalizeDescription(soToDelete.description);
+              // Composite description::observation key — the SAME key the quote↔SO
+              // sync dedups on, so the cascade matches exactly the priced line this
+              // SO mirrors (not every same-description sibling).
+              const soKey = makeDescObsKey(soToDelete.description, (soToDelete as any).observation);
 
               // GUARD: only cascade-delete the mirrored quote service when NO
-              // other live PRODUCTION SO still references this description. Without
-              // this, removing a duplicate SO (e.g. a "(Prata)" copy created by the
-              // quote↔SO sync) wiped the priced quote service even though the
-              // original SO remained — the bug that zeroed approved quotes.
-              if (remainingProductionDescriptions.has(normalizedDesc)) {
+              // other live PRODUCTION SO still references this same desc+obs.
+              // Without this, removing a duplicate SO (e.g. a "(Prata)" copy
+              // created by the quote↔SO sync) wiped the priced quote service even
+              // though the original SO remained — the bug that zeroed approved
+              // quotes.
+              if (remainingProductionDescriptions.has(soKey)) {
                 this.logger.log(
                   `[Task Update] Skipping cascade-delete for "${soToDelete.description}" - another live PRODUCTION SO still references it`,
                 );
               } else {
-                // Find matching quote services by normalized description
+                // Find matching quote services by composite desc::obs key
                 const matchingQuoteItems = await tx.taskQuoteService.findMany({
                   where: {
                     quote: {
@@ -3344,12 +3643,10 @@ export class TaskService {
 
                 const deletedQuoteItemIds: string[] = [];
                 for (const quoteItem of matchingQuoteItems) {
-                  const quoteNormalizedDesc = normalizeDescription(quoteItem.description);
-                  // Check if descriptions match (quote service description may include observation suffix)
-                  if (
-                    quoteNormalizedDesc === normalizedDesc ||
-                    quoteNormalizedDesc.startsWith(normalizedDesc + ' - ')
-                  ) {
+                  // Match on the composite key (desc + observation). A legacy
+                  // desc-only / startsWith match wrong-deleted a same-description
+                  // line that only differed by observation.
+                  if (makeDescObsKey(quoteItem.description, quoteItem.observation) === soKey) {
                     this.logger.log(
                       `[Task Update] Cascade-deleting quote service ${quoteItem.id} (${quoteItem.description})`,
                     );
@@ -3770,6 +4067,28 @@ export class TaskService {
                 userId: userId || '',
                 transaction: tx,
               });
+
+              // If the cancelled task's quote is already in a billing status,
+              // capture it so the billing is reverted AFTER this transaction
+              // commits (cancel invoices, void boletos at Sicredi, release NFS-e
+              // at Elotech — external calls that can't run inside the tx). Without
+              // this the cancelled task left live invoices/boletos/NFS-e dangling.
+              const cancelledQuote = await tx.task.findUnique({
+                where: { id },
+                select: { quote: { select: { id: true, status: true } } },
+              });
+              const cq = (cancelledQuote as any)?.quote;
+              if (
+                cq &&
+                [
+                  TASK_QUOTE_STATUS.BILLING_APPROVED,
+                  TASK_QUOTE_STATUS.UPCOMING,
+                  TASK_QUOTE_STATUS.DUE,
+                  TASK_QUOTE_STATUS.PARTIAL,
+                ].includes(cq.status)
+              ) {
+                billingRevertQuoteId = cq.id;
+              }
 
               taskAutoTransitionedToWaitingProduction = true;
             }
@@ -4199,237 +4518,39 @@ export class TaskService {
           );
 
         if (hasNewServiceOrders || hasNewQuoteItems) {
-          try {
-            // Refetch task with quote services to ensure we have the latest state
-            // This is necessary because:
-            // 1. New quote might have been created by the repository
-            // 2. Quote services might have been cascade-deleted when service orders were deleted
-            // 3. Previous refetches might not have included quote services
-            const taskWithQuote = await tx.task.findUnique({
-              where: { id },
+          // Shared bidirectional sync-create (quote services ⇄ PRODUCTION SOs +
+          // discount-aware recalc). Identical logic now runs in batchUpdate so a
+          // bulk edit keeps both sides in sync exactly like this single edit.
+          const deletedDescriptions = (data as any)._deletedServiceOrderDescriptions as
+            | Set<string>
+            | undefined;
+
+          const syncPerformed = await this.syncQuoteServicesAndServiceOrders(
+            tx,
+            id,
+            userId,
+            existingTask.status as TASK_STATUS,
+            deletedDescriptions,
+          );
+
+          // Refetch task if any sync action was performed so downstream tracking
+          // sees the freshly-created quote services / service orders.
+          if (syncPerformed) {
+            updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
               include: {
-                quote: { include: { services: true } },
+                ...include,
+                customer: true,
+                artworks: true,
+                observation: { include: { files: true } },
+                truck: true,
                 serviceOrders: true,
+                quote: { include: { services: true } },
               },
             });
 
-            // Get current state of quote and service orders from the fresh refetch
-            const currentQuote = taskWithQuote?.quote;
-            const currentServiceOrders = taskWithQuote?.serviceOrders || [];
-
             this.logger.log(
-              `[QUOTE↔SO SYNC] Refetched quote services: ${currentQuote?.services?.length || 0}, service orders: ${currentServiceOrders.length}`,
+              `[QUOTE↔SO SYNC] Task refetched after sync. Quote services: ${updatedTask?.quote?.services?.length || 0}, Service orders: ${updatedTask?.serviceOrders?.length || 0}`,
             );
-
-            // Only proceed if we have data to sync
-            if (currentQuote?.services || currentServiceOrders.length > 0) {
-              // All quote services and service orders participate in sync
-              const syncEligibleQuoteItems = currentQuote?.services || [];
-              const syncEligibleServiceOrders = currentServiceOrders;
-
-              this.logger.log(
-                `[QUOTE↔SO SYNC] Quote services for sync: ${syncEligibleQuoteItems.length}, service orders for sync: ${syncEligibleServiceOrders.length}`,
-              );
-
-              const quoteItems: SyncQuoteItem[] = syncEligibleQuoteItems.map((item: any) => ({
-                id: item.id,
-                description: item.description,
-                observation: item.observation,
-                amount: item.amount,
-              }));
-
-              const serviceOrders: SyncServiceOrder[] = syncEligibleServiceOrders.map(
-                (so: any) => ({
-                  id: so.id,
-                  description: so.description,
-                  observation: so.observation,
-                  type: so.type,
-                }),
-              );
-
-              // Get sync actions
-              const syncActions = getBidirectionalSyncActions(quoteItems, serviceOrders);
-
-              this.logger.log(
-                `[QUOTE↔SO SYNC] Task ${id}: Found ${syncActions.quoteItemsToCreate.length} quote services to create, ` +
-                  `${syncActions.serviceOrdersToCreate.length} service orders to create`,
-              );
-
-              // Create missing quote services from service orders
-              if (syncActions.quoteItemsToCreate.length > 0 && currentQuote?.id) {
-                for (const itemToCreate of syncActions.quoteItemsToCreate) {
-                  this.logger.log(
-                    `[QUOTE↔SO SYNC] Creating quote service: "${itemToCreate.description}" (amount: ${itemToCreate.amount})`,
-                  );
-
-                  await tx.taskQuoteService.create({
-                    data: {
-                      quoteId: currentQuote.id,
-                      description: itemToCreate.description,
-                      observation: itemToCreate.observation || null,
-                      amount: itemToCreate.amount,
-                    },
-                  });
-
-                  // Log per-service TASK_QUOTE_SERVICE CREATE entry
-                  await this.changeLogService.logChange({
-                    entityType: ENTITY_TYPE.TASK_QUOTE_SERVICE,
-                    entityId: currentQuote.id,
-                    action: CHANGE_ACTION.CREATE,
-                    field: null,
-                    newValue: serializeChangelogValue({
-                      description: itemToCreate.description,
-                      amount: Number(itemToCreate.amount),
-                      observation: itemToCreate.observation || null,
-                    }),
-                    userId: userId || null,
-                    reason: `Item '${itemToCreate.description}' adicionado via sincronização com O.S.`,
-                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-                    triggeredById: null,
-                    transaction: tx,
-                    metadata: { itemDescription: itemToCreate.description },
-                  });
-                }
-
-                // Recalculate quote subtotal and total with customer config discounts.
-                // Shared helper keeps the aggregate TaskQuote and every
-                // TaskQuoteCustomerConfig in sync (discount-aware).
-                await this.recalcQuoteTotals(tx, currentQuote.id);
-
-                // NOTE: subtotal/total changelog entries are NOT logged here to avoid duplicates.
-                // The scalar field tracking at the end of the update method (quoteFieldsToTrack loop)
-                // already detects and logs subtotal/total changes for TASK_QUOTE.
-
-                this.logger.log(
-                  `[QUOTE↔SO SYNC] Recalculated quote totals for ${currentQuote.id}`,
-                );
-              }
-
-              // Create missing service orders from quote services
-              // CRITICAL FIX: Skip creating service orders that were explicitly deleted in this same request
-              const deletedDescriptions = (data as any)._deletedServiceOrderDescriptions as
-                | Set<string>
-                | undefined;
-
-              if (syncActions.serviceOrdersToCreate.length > 0) {
-                for (const soToCreate of syncActions.serviceOrdersToCreate) {
-                  // Check if this description was explicitly deleted - if so, skip creating it
-                  const normalizedDesc = (soToCreate.description || '').toLowerCase().trim();
-                  if (deletedDescriptions?.has(normalizedDesc)) {
-                    this.logger.log(
-                      `[QUOTE↔SO SYNC] SKIPPING service order creation for "${soToCreate.description}" - was explicitly deleted by user`,
-                    );
-                    continue; // Skip this one, user explicitly deleted it
-                  }
-
-                  this.logger.log(
-                    `[QUOTE↔SO SYNC] Creating service order: description="${soToCreate.description}", observation="${soToCreate.observation || ''}"`,
-                  );
-
-                  // Auto-complete new SOs added to COMPLETED tasks
-                  const isQuoteSyncTaskCompleted =
-                    (existingTask.status as TASK_STATUS) === TASK_STATUS.COMPLETED;
-                  const quoteSyncSoStatus = isQuoteSyncTaskCompleted
-                    ? SERVICE_ORDER_STATUS.COMPLETED
-                    : SERVICE_ORDER_STATUS.PENDING;
-
-                  const newServiceOrder = await tx.serviceOrder.create({
-                    data: {
-                      taskId: id,
-                      description: soToCreate.description,
-                      observation: soToCreate.observation,
-                      type: SERVICE_ORDER_TYPE.PRODUCTION,
-                      status: quoteSyncSoStatus,
-                      statusOrder: isQuoteSyncTaskCompleted
-                        ? 4
-                        : getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
-                      createdById: userId || '',
-                      ...(isQuoteSyncTaskCompleted && {
-                        startedAt: new Date(),
-                        startedById: userId || '',
-                        finishedAt: new Date(),
-                        completedById: userId || '',
-                      }),
-                    },
-                  });
-
-                  // Log the creation
-                  await this.changeLogService.logChange({
-                    entityType: ENTITY_TYPE.SERVICE_ORDER,
-                    entityId: newServiceOrder.id,
-                    action: CHANGE_ACTION.CREATE,
-                    reason:
-                      'Ordem de serviço criada automaticamente a partir do item de precificação',
-                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-                    triggeredById: id,
-                    userId: userId || '',
-                    transaction: tx,
-                  });
-
-                  this.logger.log(`[QUOTE↔SO SYNC] Created service order ${newServiceOrder.id}`);
-                }
-              }
-
-              // Update service orders with new observations (if quote service had extra text)
-              if (syncActions.serviceOrdersToUpdate.length > 0) {
-                for (const soToUpdate of syncActions.serviceOrdersToUpdate) {
-                  this.logger.log(
-                    `[QUOTE↔SO SYNC] Updating service order ${soToUpdate.id} with observation="${soToUpdate.observation || ''}"`,
-                  );
-
-                  const oldSo = currentServiceOrders.find((so: any) => so.id === soToUpdate.id);
-
-                  await tx.serviceOrder.update({
-                    where: { id: soToUpdate.id },
-                    data: {
-                      observation: soToUpdate.observation,
-                    },
-                  });
-
-                  // Log the update
-                  await this.changeLogService.logChange({
-                    entityType: ENTITY_TYPE.SERVICE_ORDER,
-                    entityId: soToUpdate.id,
-                    action: CHANGE_ACTION.UPDATE,
-                    field: 'observation',
-                    oldValue: oldSo?.observation || null,
-                    newValue: soToUpdate.observation,
-                    reason:
-                      'Observação atualizada automaticamente a partir do item de precificação',
-                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-                    triggeredById: id,
-                    userId: userId || '',
-                    transaction: tx,
-                  });
-                }
-              }
-
-              // Refetch task if any sync actions were performed
-              if (
-                syncActions.quoteItemsToCreate.length > 0 ||
-                syncActions.serviceOrdersToCreate.length > 0 ||
-                syncActions.serviceOrdersToUpdate.length > 0
-              ) {
-                updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
-                  include: {
-                    ...include,
-                    customer: true,
-                    artworks: true,
-                    observation: { include: { files: true } },
-                    truck: true,
-                    serviceOrders: true,
-                    quote: { include: { services: true } },
-                  },
-                });
-
-                this.logger.log(
-                  `[QUOTE↔SO SYNC] Task refetched after sync. Quote services: ${updatedTask?.quote?.services?.length || 0}, Service orders: ${updatedTask?.serviceOrders?.length || 0}`,
-                );
-              }
-            }
-          } catch (syncError) {
-            this.logger.error('[QUOTE↔SO SYNC] Error during bidirectional sync:', syncError);
-            // Don't throw - sync errors shouldn't block the main update
           }
         }
 
@@ -6245,6 +6366,27 @@ export class TaskService {
         taskAutoTransitionedToWaitingProduction: wasAutoTransitioned,
       } = transactionResult;
 
+      // Auto-revert billing AFTER the transaction commits: an SO-driven task
+      // auto-cancel must not leave a billed quote with live invoices/boletos/
+      // NFS-e. revertBillingApproval performs external Sicredi/Elotech calls and
+      // refuses (throws) when an installment is already PAID — in that genuine
+      // conflict we log and leave the records for manual teardown rather than
+      // failing the already-committed cancellation.
+      if (billingRevertQuoteId) {
+        try {
+          await this.taskQuoteService.revertBillingApproval(billingRevertQuoteId, userId);
+          this.logger.log(
+            `[Task Update] Auto-reverted billing for quote ${billingRevertQuoteId} after task ${id} auto-cancel`,
+          );
+        } catch (revertError) {
+          this.logger.error(
+            `[Task Update] Could not auto-revert billing for quote ${billingRevertQuoteId} after task ${id} auto-cancel (manual teardown may be required): ${
+              revertError instanceof Error ? revertError.message : String(revertError)
+            }`,
+          );
+        }
+      }
+
       // Emit events for created service orders AFTER transaction commits
       if (createdServiceOrders && createdServiceOrders.length > 0) {
         this.logger.log(
@@ -6609,6 +6751,10 @@ export class TaskService {
                       return existingSO;
                     });
                   }
+                  // Same intentionally-blocking completion gate as the single
+                  // update path: a task can only finish once every service order
+                  // is COMPLETED or CANCELLED (finishing makes the task billable).
+                  // No force-finish escape by design.
                   const incompleteServices = finalSOs.filter(
                     (so: any) =>
                       so.status !== SERVICE_ORDER_STATUS.COMPLETED &&
@@ -6636,6 +6782,12 @@ export class TaskService {
                 }),
                 ...((update.data as any).bonification && {
                   bonificationOrder: getBonificationStatusOrder((update.data as any).bonification),
+                }),
+                // Batch has no service-layer airbrushing handling, so opt the repo
+                // mapper into FULL create+update+notIn-delete (the single-update
+                // path leaves this unset and keeps repo delete-only).
+                ...((update.data as any).airbrushings !== undefined && {
+                  _applyAirbrushingsFully: true,
                 }),
               };
 
@@ -8283,6 +8435,31 @@ export class TaskService {
                 }
               }
             }
+
+            // =====================================================================
+            // BIDIRECTIONAL SYNC: Quote Services ⇄ Production Service Orders (Batch)
+            // Mirrors the single-update path: whenever a batch edit touched the
+            // quote services or the service orders, create the mirrored rows on
+            // the other side and recompute discount-aware totals. Without this,
+            // bulk edits desynced SOs ⇄ quote services + totals. The shared helper
+            // is non-destructive (only ADDS rows) and swallows its own errors.
+            // =====================================================================
+            const batchTouchedServiceOrders =
+              (updateData as any).serviceOrders !== undefined;
+            const batchTouchedQuoteServices =
+              (updateData as any).quote?.services !== undefined &&
+              Array.isArray((updateData as any).quote.services) &&
+              (updateData as any).quote.services.length > 0;
+            if (batchTouchedServiceOrders || batchTouchedQuoteServices) {
+              await this.syncQuoteServicesAndServiceOrders(
+                tx,
+                task.id,
+                userId,
+                // Use the PERSISTED (post-update) status for SO auto-complete
+                // parity with the single-update path.
+                (updatedTask.status as TASK_STATUS) ?? (existingTask.status as TASK_STATUS),
+              );
+            }
           }
         }
 
@@ -9316,17 +9493,11 @@ export class TaskService {
               });
             }
 
-            // Recalculate aggregate totals from customer configs
-            const configs = await tx.taskQuoteCustomerConfig.findMany({
-              where: { quoteId: changeLog.entityId },
-            });
-            const newSubtotal = configs.reduce((sum, c) => sum + Number(c.subtotal || 0), 0);
-            const newTotal = configs.reduce((sum, c) => sum + Number(c.total || 0), 0);
-
-            await tx.taskQuote.update({
-              where: { id: changeLog.entityId },
-              data: { subtotal: newSubtotal, total: newTotal },
-            });
+            // Authoritative discount-aware recompute (per-config + aggregate +
+            // multi-config unassigned fold) from the restored services. Summing
+            // the stale per-config subtotal/total snapshots here re-introduced
+            // the aggregate-vs-config drift / dropped-discount bug.
+            await this.recalcQuoteTotals(tx, changeLog.entityId);
           }
         } else {
           // Scalar field rollback
@@ -9397,14 +9568,9 @@ export class TaskService {
         }
 
         const recalculateTotals = async () => {
-          // Recalculate aggregate totals from customer configs
-          const configs = await tx.taskQuoteCustomerConfig.findMany({ where: { quoteId } });
-          const newSubtotal = configs.reduce((sum, c) => sum + Number(c.subtotal || 0), 0);
-          const newTotal = configs.reduce((sum, c) => sum + Number(c.total || 0), 0);
-          await tx.taskQuote.update({
-            where: { id: quoteId },
-            data: { subtotal: newSubtotal, total: newTotal },
-          });
+          // Authoritative discount-aware recompute (per-config + aggregate +
+          // unassigned fold) — never sum stale per-config snapshots.
+          await this.recalcQuoteTotals(tx, quoteId);
         };
 
         if (changeLog.action === 'CREATE') {
@@ -9830,25 +9996,38 @@ export class TaskService {
                     ? new Date(quoteData.expiresAt)
                     : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
                   status: quoteData.status || 'PENDING',
+                  statusOrder:
+                    TASK_QUOTE_STATUS_ORDER[
+                      (quoteData.status || 'PENDING') as TASK_QUOTE_STATUS
+                    ] ?? undefined,
                   guaranteeYears: quoteData.guaranteeYears ?? null,
                   customGuaranteeText: quoteData.customGuaranteeText ?? null,
                   customForecastDays: quoteData.customForecastDays ?? null,
                   simultaneousTasks: quoteData.simultaneousTasks ?? null,
-                  // Restore layout files from snapshot (array of File ids)
-                  ...(Array.isArray(quoteData.layoutFileIds) &&
-                    quoteData.layoutFileIds.length > 0 && {
-                      layoutFiles: {
-                        connect: quoteData.layoutFileIds.map((fid: string) => ({ id: fid })),
-                      },
-                    }),
+                  // Restore the FULL per-customer billing config (discount, flags,
+                  // orderNumber, paymentConfig, signature). The previous partial
+                  // subset silently dropped the discount + billing settings on
+                  // restore — the exact aggregate/discount drift this rollback is
+                  // supposed to undo.
                   ...(quoteData.customerConfigs?.length > 0 && {
                     customerConfigs: {
                       create: quoteData.customerConfigs.map((config: any) => ({
                         customerId: config.customerId,
                         subtotal: config.subtotal || 0,
                         total: config.total || 0,
+                        discountType: config.discountType || 'NONE',
+                        discountValue: config.discountValue ?? null,
+                        discountReference: config.discountReference ?? null,
                         customPaymentText: config.customPaymentText ?? null,
+                        generateInvoice:
+                          config.generateInvoice !== undefined ? config.generateInvoice : true,
+                        generateBankSlip:
+                          config.generateBankSlip !== undefined ? config.generateBankSlip : true,
+                        orderNumber: config.orderNumber ?? null,
                         responsibleId: config.responsibleId ?? null,
+                        paymentCondition: config.paymentCondition ?? null,
+                        paymentConfig: config.paymentConfig ?? null,
+                        customerSignatureId: config.customerSignatureId ?? null,
                       })),
                     },
                   }),
@@ -9857,7 +10036,24 @@ export class TaskService {
 
               this.logger.log(`[Rollback] Recreated TaskQuote ${recreatedQuote.id}`);
 
-              // Recreate services if available
+              // Restore layout files by CLONING any that another quote now owns —
+              // a raw `connect` of the snapshot ids would STEAL them from their
+              // live owner (the FK lives on File.quoteLayoutId).
+              if (Array.isArray(quoteData.layoutFileIds) && quoteData.layoutFileIds.length > 0) {
+                const resolvedLayoutIds = await this.fileService.resolveLayoutFileIdsForQuote(
+                  tx,
+                  quoteIdToRestore,
+                  quoteData.layoutFileIds,
+                );
+                await tx.taskQuote.update({
+                  where: { id: quoteIdToRestore },
+                  data: {
+                    layoutFiles: { set: resolvedLayoutIds.map((fid: string) => ({ id: fid })) },
+                  },
+                });
+              }
+
+              // Recreate services if available (preserve per-service invoice target)
               if (quoteData.services && Array.isArray(quoteData.services)) {
                 for (let i = 0; i < quoteData.services.length; i++) {
                   const item = quoteData.services[i];
@@ -9868,10 +10064,16 @@ export class TaskService {
                       quoteId: quoteIdToRestore,
                       observation: item.observation ?? null,
                       position: item.position !== undefined ? item.position : i,
+                      ...(item.invoiceToCustomerId && {
+                        invoiceToCustomerId: item.invoiceToCustomerId,
+                      }),
                     },
                   });
                 }
                 this.logger.log(`[Rollback] Recreated ${quoteData.services.length} quote services`);
+
+                // Authoritative discount-aware recompute from the restored rows.
+                await this.recalcQuoteTotals(tx, quoteIdToRestore);
               }
             }
           } else if (typeof parsedValue === 'string') {
@@ -11372,6 +11574,22 @@ export class TaskService {
         `[bulkUploadFiles] ${uploadedFileIds.length} files uploaded, adding to ${tasks.length} tasks`,
       );
 
+      // The Task.artworks relation points to Artwork rows (1:1 with a File via
+      // Artwork.fileId @unique), NOT to File rows — so for artworks each uploaded
+      // File must be wrapped in an Artwork and we connect those ids. `set`-ting
+      // raw File ids never matched an Artwork, so bulk artwork upload silently
+      // did nothing. Budgets/invoices/receipts/bankSlips ARE File[] relations and
+      // connect by file id directly.
+      let relationItemIds: string[] = uploadedFileIds;
+      if (fileType === 'artworks') {
+        relationItemIds = [];
+        for (const fid of uploadedFileIds) {
+          relationItemIds.push(
+            await this.createArtworkForFile({ id: fid }, null, null, 'APPROVED', tx),
+          );
+        }
+      }
+
       // Add uploaded files to each task
       for (const task of tasks) {
         try {
@@ -11381,9 +11599,9 @@ export class TaskService {
             include: { [relationName]: { select: { id: true } } },
           });
 
-          // Merge current file IDs with new ones (avoid duplicates)
+          // Merge current relation IDs with the new ones (avoid duplicates).
           const currentFileIds = (currentTask as any)?.[relationName]?.map((f: any) => f.id) || [];
-          const mergedFileIds = [...new Set([...currentFileIds, ...uploadedFileIds])];
+          const mergedFileIds = [...new Set([...currentFileIds, ...relationItemIds])];
 
           // Update task with merged file IDs
           await tx.task.update({
@@ -11451,6 +11669,7 @@ export class TaskService {
             amount: true,
             observation: true,
             position: true,
+            invoiceToCustomerId: true,
           },
         },
         layoutFiles: { select: { id: true } },
@@ -11483,21 +11702,33 @@ export class TaskService {
     });
     const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
 
+    // Clone the source quote's layout files so the new quote owns INDEPENDENT
+    // copies — connecting the source ids would steal them (FK lives on File).
+    const clonedLayoutIds: string[] = [];
+    for (const f of ((sourceQuote as any).layoutFiles ?? [])) {
+      clonedLayoutIds.push(await this.fileService.cloneFileForQuoteLayout(tx, f.id));
+    }
+
     const newQuote = await tx.taskQuote.create({
       data: {
         budgetNumber: nextBudgetNumber,
         subtotal: sourceQuote.subtotal,
         total: sourceQuote.total,
         expiresAt: sourceQuote.expiresAt,
-        status: sourceQuote.status,
+        // A duplicate is a fresh draft — normalize to PENDING (with its matching
+        // statusOrder, billingApprovedAt left null). Copying a billed status onto
+        // a quote that has no invoices/installments produced an impossible locked
+        // state.
+        status: TASK_QUOTE_STATUS.PENDING,
+        statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.PENDING],
         guaranteeYears: sourceQuote.guaranteeYears,
         customGuaranteeText: sourceQuote.customGuaranteeText,
         simultaneousTasks: sourceQuote.simultaneousTasks,
         customForecastDays: sourceQuote.customForecastDays,
-        ...((sourceQuote as any).layoutFiles?.length
+        ...(clonedLayoutIds.length
           ? {
               layoutFiles: {
-                connect: (sourceQuote as any).layoutFiles.map((f: any) => ({ id: f.id })),
+                connect: clonedLayoutIds.map((id) => ({ id })),
               },
             }
           : {}),
@@ -11507,6 +11738,9 @@ export class TaskService {
             amount: service.amount,
             observation: service.observation,
             position: service.position,
+            // Preserve the per-service invoice target so multi-customer billing
+            // and the discount-aware totals stay internally consistent on copy.
+            invoiceToCustomerId: (service as any).invoiceToCustomerId ?? null,
           })),
         },
         ...(sourceQuote.customerConfigs.length > 0
@@ -11531,6 +11765,10 @@ export class TaskService {
           : {}),
       },
     });
+
+    // Recompute discount-aware per-config + aggregate totals from the cloned rows
+    // so the copy is internally consistent (never trust the copied scalars).
+    await this.recalcQuoteTotals(tx, newQuote.id);
 
     return newQuote.id;
   }
@@ -11693,7 +11931,7 @@ export class TaskService {
               include: {
                 receipts: { select: { id: true } },
                 invoices: { select: { id: true } },
-                artworks: { select: { id: true } },
+                artworks: { select: { id: true, fileId: true, status: true } },
               },
             },
             serviceOrders: {
@@ -11866,6 +12104,11 @@ export class TaskService {
         const updateData: any = {};
         const copiedFields: CopyableTaskField[] = [];
         const details: Record<string, any> = {};
+        // When copying a quote onto the destination, the destination's PREVIOUS
+        // quote is left dangling (no task points at it, but its budgetNumber +
+        // services + configs survive). Capture it here so we can clean it up
+        // after the reassign — but only when it carries no active obligation.
+        let orphanedOldQuoteId: string | null = null;
 
         this.logger.log(`[copyFromTask] Processing ${fieldsToProcess.length} fields...`);
         this.logger.debug(`[copyFromTask] Fields to process: ${fieldsToProcess.join(', ')}`);
@@ -11984,6 +12227,12 @@ export class TaskService {
 
             case 'quoteId':
               if (hasData(sourceTask.quoteId)) {
+                // Remember the destination's CURRENT quote before we overwrite the
+                // FK — it would otherwise dangle forever. Cleaned up post-update
+                // (guarded against active obligations).
+                if (destinationTask.quote?.id) {
+                  orphanedOldQuoteId = destinationTask.quote.id;
+                }
                 // Create an independent copy of the quote (never share quote across tasks)
                 const newQuoteId = await this.duplicateTaskQuote(sourceTask.quoteId, tx);
                 updateData.quoteId = newQuoteId;
@@ -12099,6 +12348,29 @@ export class TaskService {
                 // Create new airbrushing records with PENDING status
                 const newAirbrushings = await Promise.all(
                   sourceTask.airbrushings.map(async airbrushing => {
+                    // Artwork is 1:1 with its File (Artwork.fileId @unique) and
+                    // belongs to a SINGLE airbrushing (singular airbrushingId FK).
+                    // `connect`-ing the source's artworks would STEAL them from the
+                    // source airbrushing — clone the underlying file + create a NEW
+                    // Artwork per copied airbrushing. (receipts/invoices are File[]
+                    // M2M, so sharing them via connect is safe.)
+                    const clonedArtworks = airbrushing.artworks?.length
+                      ? await Promise.all(
+                          (airbrushing.artworks as any[]).map(async a => ({
+                            file: {
+                              connect: {
+                                id: await this.fileService.cloneFile(
+                                  tx,
+                                  a.fileId,
+                                  'airbrushingArtworks',
+                                ),
+                              },
+                            },
+                            status: a.status,
+                          })),
+                        )
+                      : [];
+
                     return await tx.airbrushing.create({
                       data: {
                         taskId: destinationTaskId,
@@ -12106,16 +12378,14 @@ export class TaskService {
                         status: AIRBRUSHING_STATUS.PENDING,
                         startDate: null,
                         finishDate: null,
-                        // Connect shared files/artworks
+                        // Shared files (M2M) can be connected; artworks are cloned.
                         receipts: airbrushing.receipts?.length
                           ? { connect: airbrushing.receipts.map(r => ({ id: r.id })) }
                           : undefined,
                         invoices: airbrushing.invoices?.length
                           ? { connect: airbrushing.invoices.map(i => ({ id: i.id })) }
                           : undefined,
-                        artworks: airbrushing.artworks?.length
-                          ? { connect: airbrushing.artworks.map(a => ({ id: a.id })) }
-                          : undefined,
+                        artworks: clonedArtworks.length ? { create: clonedArtworks } : undefined,
                       },
                     });
                   }),
@@ -12469,6 +12739,35 @@ export class TaskService {
           this.logger.log(`[copyFromTask] Task update successful`);
         } else {
           this.logger.log(`[copyFromTask] No fields to update via task.update()`);
+        }
+
+        // Clean up the destination's now-orphaned previous quote (reassigned
+        // above). Delete ONLY when it carries no active billing obligation —
+        // an Invoice in any non-cancelled state means the quote was billed and
+        // must be preserved for the financial record. Quote children (services,
+        // customer configs) cascade on delete; the financial guard prevents
+        // wiping a quote that still anchors a live invoice/installment.
+        if (
+          orphanedOldQuoteId &&
+          orphanedOldQuoteId !== updateData.quoteId
+        ) {
+          const activeInvoiceCount = await tx.invoice.count({
+            where: {
+              customerConfig: { quoteId: orphanedOldQuoteId },
+              status: { not: INVOICE_STATUS.CANCELLED },
+            },
+          });
+
+          if (activeInvoiceCount === 0) {
+            await tx.taskQuote.delete({ where: { id: orphanedOldQuoteId } });
+            this.logger.log(
+              `[copyFromTask] Deleted orphaned previous quote ${orphanedOldQuoteId} (no active invoice)`,
+            );
+          } else {
+            this.logger.warn(
+              `[copyFromTask] Kept orphaned previous quote ${orphanedOldQuoteId}: ${activeInvoiceCount} non-cancelled invoice(s) still reference it`,
+            );
+          }
         }
 
         // Create INDIVIDUAL changelog entries for each copied field

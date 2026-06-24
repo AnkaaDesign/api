@@ -4,6 +4,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
+import { FileModule } from '@modules/common/file/file.module';
 import { InvoiceModule } from '@modules/financial/invoice/invoice.module';
 import { NfseModule } from '@modules/integrations/nfse/nfse.module';
 import { SicrediModule } from '@modules/integrations/sicredi/sicredi.module';
@@ -37,6 +38,7 @@ import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.servi
     PrismaModule,
     ChangeLogModule,
     NotificationModule,
+    FileModule,
     forwardRef(() => InvoiceModule),
     NfseModule,
     // forwardRef: SicrediModule imports this module back (cascade service); a direct

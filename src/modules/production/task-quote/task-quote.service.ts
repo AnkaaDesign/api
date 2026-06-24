@@ -17,6 +17,7 @@ import { InvoiceGenerationService } from '@modules/financial/invoice/invoice-gen
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
+import { FileService } from '@modules/common/file/file.service';
 import type {
   TaskQuoteCreateFormData,
   TaskQuoteUpdateFormData,
@@ -58,6 +59,8 @@ import {
 } from '../../../utils/task-quote-service-order-sync';
 import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
+import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
+import { reconcileQuoteCustomerConfigs } from '../../../utils/task-quote-customer-config-sync';
 import {
   QUOTE_STATUS_LOCKED,
   QUOTE_VALUE_REVERTABLE_STATUSES,
@@ -92,6 +95,7 @@ export class TaskQuoteService {
     private readonly prisma: PrismaService,
     private readonly taskQuoteRepository: TaskQuoteRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly fileService: FileService,
     @Inject(forwardRef(() => InvoiceGenerationService))
     private readonly invoiceGenerationService: InvoiceGenerationService,
     private readonly nfseEmissionScheduler: NfseEmissionScheduler,
@@ -237,9 +241,19 @@ export class TaskQuoteService {
         config.total = Math.round(total * 100) / 100;
       }
 
-      // Compute aggregate subtotal/total from customerConfigs
-      const aggregateSubtotal = data.customerConfigs.reduce((sum, c) => sum + (c.subtotal || 0), 0);
-      const aggregateTotal = data.customerConfigs.reduce((sum, c) => sum + (c.total || 0), 0);
+      // Compute aggregate subtotal/total from customerConfigs. In multi-config,
+      // services not assigned to any customer belong to no config above, so fold
+      // their amounts into the aggregate (no discount) — mirrors recalcQuoteTotals.
+      let aggregateSubtotal = data.customerConfigs.reduce((sum, c) => sum + (c.subtotal || 0), 0);
+      let aggregateTotal = data.customerConfigs.reduce((sum, c) => sum + (c.total || 0), 0);
+      if (!isSingleConfig) {
+        const unassignedSum = (data.services || [])
+          .filter(s => !s.invoiceToCustomerId)
+          .reduce((sum, s) => sum + (s.amount || 0), 0);
+        const unassignedRounded = Math.round(unassignedSum * 100) / 100;
+        aggregateSubtotal = Math.round((aggregateSubtotal + unassignedRounded) * 100) / 100;
+        aggregateTotal = Math.round((aggregateTotal + unassignedRounded) * 100) / 100;
+      }
 
       // Create quote with items in transaction
       const quote = await this.prisma.$transaction(async tx => {
@@ -263,10 +277,17 @@ export class TaskQuoteService {
             // Guarantee Terms
             guaranteeYears: data.guaranteeYears || null,
             customGuaranteeText: data.customGuaranteeText || null,
-            // Layout Files (max 2)
+            // Layout Files (max 2) — clone any File owned by another quote (FK on File).
             ...(data.layoutFileIds !== undefined && {
               layoutFiles: {
-                connect: (data.layoutFileIds ?? []).map((id: string) => ({ id })),
+                connect: (
+                  await this.fileService.resolveLayoutFileIdsForQuote(
+                    tx,
+                    null,
+                    data.layoutFileIds ?? [],
+                    userId,
+                  )
+                ).map((fid: string) => ({ id: fid })),
               },
             }),
             simultaneousTasks: data.simultaneousTasks || null,
@@ -315,7 +336,7 @@ export class TaskQuoteService {
               },
             },
             task: true,
-            layoutFiles: true,
+            layoutFiles: { orderBy: { createdAt: 'asc' } },
             customerConfigs: {
               include: {
                 customer: {
@@ -428,7 +449,7 @@ export class TaskQuoteService {
               },
             },
             task: true,
-            layoutFiles: true,
+            layoutFiles: { orderBy: { createdAt: 'asc' } },
             customerConfigs: {
               include: {
                 customer: {
@@ -784,14 +805,26 @@ export class TaskQuoteService {
         }
       }
 
-      // Compute aggregate subtotal/total from customerConfigs if provided
+      // Compute aggregate subtotal/total from customerConfigs if provided. In
+      // multi-config, fold unassigned-service amounts (no config = no discount)
+      // into the aggregate so it matches recalcQuoteTotals. servicesToUse is the
+      // same source the per-config loop summed above (data.services ?? existing).
       const computeAggregates = data.customerConfigs && data.customerConfigs.length > 0;
-      const aggregateSubtotal = computeAggregates
+      let aggregateSubtotal = computeAggregates
         ? data.customerConfigs!.reduce((sum, c) => sum + (c.subtotal || 0), 0)
         : undefined;
-      const aggregateTotal = computeAggregates
+      let aggregateTotal = computeAggregates
         ? data.customerConfigs!.reduce((sum, c) => sum + (c.total || 0), 0)
         : undefined;
+      if (computeAggregates && data.customerConfigs!.length >= 2) {
+        const servicesForAggregate = data.services ?? (existing as any).services ?? [];
+        const unassignedSum = servicesForAggregate
+          .filter((s: any) => !s.invoiceToCustomerId)
+          .reduce((sum: number, s: any) => sum + (s.amount || 0), 0);
+        const unassignedRounded = Math.round(unassignedSum * 100) / 100;
+        aggregateSubtotal = Math.round(((aggregateSubtotal || 0) + unassignedRounded) * 100) / 100;
+        aggregateTotal = Math.round(((aggregateTotal || 0) + unassignedRounded) * 100) / 100;
+      }
 
       // Update quote with items in transaction
       const updated = await this.prisma.$transaction(async tx => {
@@ -810,10 +843,19 @@ export class TaskQuoteService {
             ...(data.customGuaranteeText !== undefined && {
               customGuaranteeText: data.customGuaranteeText,
             }),
-            // Layout Files (max 2) — `set` replaces the relation wholesale ([] clears)
+            // Layout Files (max 2) — `set` replaces the relation wholesale ([] clears).
+            // Clone any File currently owned by ANOTHER quote so bulk-applying one
+            // layout to N quotes gives each an INDEPENDENT copy (FK lives on File).
             ...(data.layoutFileIds !== undefined && {
               layoutFiles: {
-                set: (data.layoutFileIds ?? []).map((id: string) => ({ id })),
+                set: (
+                  await this.fileService.resolveLayoutFileIdsForQuote(
+                    tx,
+                    id,
+                    data.layoutFileIds ?? [],
+                    userId,
+                  )
+                ).map((fid: string) => ({ id: fid })),
               },
             }),
             ...(data.simultaneousTasks !== undefined && {
@@ -847,7 +889,7 @@ export class TaskQuoteService {
               },
             },
             task: true,
-            layoutFiles: true,
+            layoutFiles: { orderBy: { createdAt: 'asc' } },
             customerConfigs: {
               include: {
                 customer: {
@@ -895,94 +937,39 @@ export class TaskQuoteService {
 
         // Handle customerConfigs changes
         if (data.customerConfigs !== undefined) {
-          // Guard: prevent destructive customerConfig changes when there are real financial obligations
-          const existingConfigIds = ((existing as any).customerConfigs || []).map((c: any) => c.id);
-          if (existingConfigIds.length > 0) {
-            const blockingInvoices = await tx.invoice.findMany({
-              where: {
-                customerConfigId: { in: existingConfigIds },
-                status: { not: 'CANCELLED' },
-              },
-              include: {
-                installments: {
-                  include: { bankSlip: { select: { status: true } } },
+          // Reconcile by (quoteId, customerId) WITHOUT destroy-and-recreate:
+          // updates existing rows in place (so issued Invoice/Installments and
+          // DB-owned fields — customerSignatureId/orderNumber/paymentConfig —
+          // survive), creates new customers, deletes only removed ones (blocking
+          // on live financial obligations). Replaces the former deleteMany +
+          // createMany, which silently wiped the signature and could cascade-
+          // delete an issued invoice. Installments stay created at
+          // BILLING_APPROVED time, not here.
+          const { cancelledInvoices } = await reconcileQuoteCustomerConfigs(
+            tx,
+            id,
+            data.customerConfigs as any,
+          );
+
+          // If a removed customer's stale invoice was auto-cancelled and the
+          // quote was already in a billing status, revert it to BUDGET_APPROVED
+          // so financial re-verifies before regenerating invoices/boletos/NFS-e.
+          if (cancelledInvoices) {
+            const billingStatuses = [
+              TASK_QUOTE_STATUS.BILLING_APPROVED,
+              TASK_QUOTE_STATUS.UPCOMING,
+              TASK_QUOTE_STATUS.DUE,
+              TASK_QUOTE_STATUS.PARTIAL,
+            ];
+            if (billingStatuses.includes((existing as any).status)) {
+              await tx.taskQuote.update({
+                where: { id },
+                data: {
+                  status: TASK_QUOTE_STATUS.BUDGET_APPROVED,
+                  statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.BUDGET_APPROVED),
                 },
-                nfseDocuments: { select: { status: true } },
-              },
-            });
-
-            for (const inv of blockingInvoices) {
-              const hasActiveBankSlip = inv.installments.some(
-                (inst: any) => inst.bankSlip && !['CANCELLED'].includes(inst.bankSlip.status),
-              );
-              const hasPaidInstallment = inv.installments.some(
-                (inst: any) => inst.status === 'PAID',
-              );
-              const hasActiveNfse = inv.nfseDocuments.some(
-                (nfse: any) => nfse.status === 'AUTHORIZED',
-              );
-
-              if (hasActiveBankSlip || hasPaidInstallment || hasActiveNfse) {
-                throw new BadRequestException(
-                  'Não é possível alterar as configurações de clientes enquanto houver boletos ativos, parcelas pagas ou notas fiscais autorizadas. Cancele-os primeiro.',
-                );
-              }
-
-              // Auto-cancel invoices that have no active obligations but are still marked as ACTIVE
-              if (inv.status !== 'CANCELLED') {
-                await tx.invoice.update({
-                  where: { id: inv.id },
-                  data: { status: 'CANCELLED' },
-                });
-              }
+              });
             }
-
-            // If invoices were auto-cancelled, revert quote status to BUDGET_APPROVED
-            // so financial can re-verify before regenerating invoices/boletos/NFS-e
-            if (blockingInvoices.length > 0) {
-              const billingStatuses = [
-                TASK_QUOTE_STATUS.BILLING_APPROVED,
-                TASK_QUOTE_STATUS.UPCOMING,
-                TASK_QUOTE_STATUS.DUE,
-                TASK_QUOTE_STATUS.PARTIAL,
-              ];
-              if (billingStatuses.includes((existing as any).status)) {
-                await tx.taskQuote.update({
-                  where: { id },
-                  data: {
-                    status: TASK_QUOTE_STATUS.BUDGET_APPROVED,
-                    statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.BUDGET_APPROVED),
-                  },
-                });
-              }
-            }
-          }
-
-          // Delete existing configs (cascades to installments) and recreate
-          await tx.taskQuoteCustomerConfig.deleteMany({ where: { quoteId: id } });
-          if (data.customerConfigs.length > 0) {
-            await tx.taskQuoteCustomerConfig.createMany({
-              data: data.customerConfigs.map(config => ({
-                quoteId: id,
-                customerId: config.customerId,
-                subtotal: config.subtotal || 0,
-                total: config.total || 0,
-                discountType: (config as any).discountType || 'NONE',
-                discountValue: (config as any).discountValue ?? null,
-                discountReference: (config as any).discountReference || null,
-                customPaymentText: config.customPaymentText || null,
-                generateInvoice:
-                  config.generateInvoice !== undefined ? config.generateInvoice : true,
-                generateBankSlip:
-                  config.generateBankSlip !== undefined ? config.generateBankSlip : true,
-                orderNumber: (config as any).orderNumber || null,
-                responsibleId: config.responsibleId || null,
-                paymentCondition: config.paymentCondition || null,
-                paymentConfig: (config as any).paymentConfig ?? null,
-              })),
-            });
-
-            // Installments are now created at BILLING_APPROVED time, not at quote update
           }
 
           // Clear orphaned service assignments: if a customer was removed from configs,
@@ -1265,6 +1252,15 @@ export class TaskQuoteService {
           }
         }
 
+        // Authoritative, discount-aware recompute of per-config + aggregate
+        // totals from the now-persisted services + configs. Single source of
+        // truth — runs whenever services OR configs changed, so a services-only
+        // edit (configs stripped by filterToMaterialChanges) never leaves
+        // subtotal/total stale (the "detail ≠ wizard" + mis-billed-invoice bug).
+        if (data.services !== undefined || data.customerConfigs !== undefined) {
+          await recalcQuoteTotals(tx, id);
+        }
+
         return tx.taskQuote.findUnique({
           where: { id },
           include: {
@@ -1277,7 +1273,7 @@ export class TaskQuoteService {
               },
             },
             task: true,
-            layoutFiles: true,
+            layoutFiles: { orderBy: { createdAt: 'asc' } },
             customerConfigs: {
               include: {
                 customer: {
@@ -1506,25 +1502,38 @@ export class TaskQuoteService {
         where: { quoteId },
         select: { id: true, finishedAt: true },
       });
-      if (task?.id && task.finishedAt) {
-        const generatedInvoiceIds = await this.invoiceGenerationService.generateInvoicesForTask(
-          task.id,
-          userId,
-          new Date(),
-          { skipBankSlips: true, skipNfse: true },
+
+      // Can only auto-generate a financial record from a FINISHED task. Without one
+      // there is nothing legitimate to settle.
+      if (!task?.id || !task.finishedAt) {
+        throw new BadRequestException(
+          'Não é possível liquidar este orçamento: a tarefa ainda não foi concluída e ' +
+            'não há parcelas a quitar. Conclua a tarefa (ou aprove o faturamento) antes de liquidar.',
         );
-        if (generatedInvoiceIds.length > 0) {
-          this.logger.log(
-            `[SETTLE_MANUALLY] Pre-generated ${generatedInvoiceIds.length} invoice(s) for quote ${quoteId} before settlement (no prior installments found).`,
-          );
-        } else {
-          this.logger.warn(
-            `[SETTLE_MANUALLY] No invoices could be generated for quote ${quoteId} (paymentCondition or finishedAt may be missing). Settlement proceeds with no installments.`,
-          );
-        }
-      } else {
-        this.logger.warn(
-          `[SETTLE_MANUALLY] Quote ${quoteId} has no linked task or task.finishedAt — cannot auto-generate installments. Settlement proceeds with no installments.`,
+      }
+
+      const generatedInvoiceIds = await this.invoiceGenerationService.generateInvoicesForTask(
+        task.id,
+        userId,
+        new Date(),
+        { skipBankSlips: true, skipNfse: true },
+      );
+      if (generatedInvoiceIds.length > 0) {
+        this.logger.log(
+          `[SETTLE_MANUALLY] Pre-generated ${generatedInvoiceIds.length} invoice(s) for quote ${quoteId} before settlement (no prior installments found).`,
+        );
+      }
+
+      // Verify a real financial basis now exists. Generation can no-op (e.g. missing
+      // paymentCondition/config) and leave zero installments — settling in that state
+      // would mark the quote SETTLED with NO financial record. Block it.
+      const installmentsAfterGen = await this.prisma.installment.count({
+        where: { customerConfig: { quoteId } },
+      });
+      if (installmentsAfterGen === 0) {
+        throw new BadRequestException(
+          'Não é possível liquidar este orçamento: nenhuma parcela foi gerada ' +
+            '(condição de pagamento ausente ou inválida). Configure o faturamento antes de liquidar.',
         );
       }
     }
@@ -2306,13 +2315,17 @@ export class TaskQuoteService {
       // confirmed CANCELLED at the prefeitura reach this point (the guard above blocks revert
       // while any note is still active), so no active fiscal document is ever stranded.
       await tx.invoice.deleteMany({ where: { taskId: task.id } });
-      // Revert quote status
+      // Revert quote status. Clear billingApprovedAt too — leaving the timestamp set
+      // while the status drops below BILLING_APPROVED desyncs status/timestamp and
+      // skews avgSalesCycleDays. (billingApprovedAt exists in schema.prisma but the
+      // generated Prisma client is stale; cast to satisfy the type checker.)
       await tx.taskQuote.update({
         where: { id },
         data: {
           status: TASK_QUOTE_STATUS.BUDGET_APPROVED,
           statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.BUDGET_APPROVED),
-        },
+          billingApprovedAt: null,
+        } as any,
       });
     });
 
@@ -2460,6 +2473,7 @@ export class TaskQuoteService {
           createdAt: true,
           updatedAt: true,
           layoutFiles: {
+            orderBy: { createdAt: 'asc' },
             select: { id: true, filename: true, originalName: true, mimetype: true, size: true },
           },
           services: {
@@ -2690,7 +2704,7 @@ export class TaskQuoteService {
         where: { id },
         include: {
           services: true,
-          layoutFiles: true,
+          layoutFiles: { orderBy: { createdAt: 'asc' } },
           customerConfigs: {
             include: {
               customer: { select: { id: true, fantasyName: true, cnpj: true } },
