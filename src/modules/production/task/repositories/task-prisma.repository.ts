@@ -1384,10 +1384,12 @@ export class TaskPrismaRepository
           // Batch path: full create + update + notIn-delete in one nested write.
           //
           // Build a scalar/relation create payload for a new airbrushing.
-          // NOTE: artworks are intentionally NOT touched here — the single-update
-          // service path resolves File IDs → Artwork entity IDs via a service
-          // helper the repository cannot reach. Leaving them out preserves
-          // existing artworks (absence = preserve) instead of risking a wrong set.
+          // artworks: a NEW airbrushing has nothing to preserve, so connect the
+          // Artwork ids the form selected (mirrors the nested task-create path).
+          // Without this, batch-created airbrushings silently dropped their
+          // artworks. (Existing-airbrushing UPDATES below still leave artworks
+          // untouched — resolving File→Artwork there needs the service helper the
+          // repository can't reach, so absence = preserve.)
           const buildCreate = (item: any) => ({
             status: item.status || 'PENDING',
             price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
@@ -1397,6 +1399,10 @@ export class TaskPrismaRepository
             finishedAt: item.finishedAt || null,
             paymentStatus: item.paymentStatus || 'PENDING',
             painter: item.painterId ? { connect: { id: item.painterId } } : undefined,
+            artworks:
+              item.artworkIds && item.artworkIds.length > 0
+                ? { connect: item.artworkIds.map((aid: string) => ({ id: aid })) }
+                : undefined,
             receipts:
               item.receiptIds && item.receiptIds.length > 0
                 ? { connect: item.receiptIds.map((fid: string) => ({ id: fid })) }

@@ -1568,6 +1568,16 @@ export class ServiceOrderService {
       const statusChanged =
         data.status !== undefined && data.status !== serviceOrderExists.status;
       if (isEmNegociacao && statusChanged && (serviceOrder as any)?.taskId) {
+        // Reverse cascade FIRST: completing the commercial step IS the budget-
+        // approval gate, so advance the quote (PENDING → BUDGET_APPROVED) before
+        // the sync runs. Otherwise syncEmNegociacaoForTask sees a still-PENDING
+        // quote and reverts the just-completed SO back to IN_PROGRESS.
+        if (data.status === SERVICE_ORDER_STATUS.COMPLETED) {
+          await this.budgetApproveOnEmNegociacaoComplete(
+            (serviceOrder as any).taskId,
+            userId,
+          );
+        }
         await syncEmNegociacaoForTask(
           this.prisma,
           (serviceOrder as any).taskId,
@@ -1587,6 +1597,62 @@ export class ServiceOrderService {
       }
       throw new InternalServerErrorException(
         'Erro interno do servidor ao atualizar a ordem de serviço. Tente novamente.',
+      );
+    }
+  }
+
+  /**
+   * Reverse of the quote→SO sync (em-negociacao-sync.ts): when the COMMERCIAL
+   * "Em Negociação" SO is COMPLETED, the commercial step is done — which IS the
+   * budget-approval gate. Advance the quote PENDING → BUDGET_APPROVED so the two
+   * stay consistent (parity with the manual budget-approve endpoint, minus the
+   * notification — auto-firing it per task would spam on bulk completes).
+   * Only ever moves PENDING → BUDGET_APPROVED; never downgrades or skips ahead to
+   * billing. Best-effort: a failure here never breaks the SO update.
+   */
+  private async budgetApproveOnEmNegociacaoComplete(
+    taskId: string,
+    userId?: string | null,
+  ): Promise<void> {
+    try {
+      const task = await this.prisma.task.findUnique({
+        where: { id: taskId },
+        select: { quote: { select: { id: true, status: true } } },
+      });
+      const quote = (task as any)?.quote;
+      // Only advance from the pre-approval state — never downgrade an already
+      // budget/billing-approved quote, and never touch a cancelled one.
+      if (!quote || quote.status !== TASK_QUOTE_STATUS.PENDING) return;
+
+      await this.prisma.taskQuote.update({
+        where: { id: quote.id },
+        data: {
+          status: TASK_QUOTE_STATUS.BUDGET_APPROVED,
+          statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.BUDGET_APPROVED],
+        },
+      });
+
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.TASK_QUOTE,
+        entityId: quote.id,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'status',
+        oldValue: quote.status,
+        newValue: TASK_QUOTE_STATUS.BUDGET_APPROVED,
+        reason:
+          'Orçamento aprovado automaticamente pela conclusão da Em Negociação',
+        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+        triggeredById: taskId,
+        userId: userId || '',
+      });
+
+      this.logger.log(
+        `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: quote ${quote.id} PENDING → BUDGET_APPROVED on commercial completion`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[EM NEGOCIAÇÃO → QUOTE] Failed to budget-approve quote for task ${taskId} (non-fatal):`,
+        error,
       );
     }
   }
@@ -3217,6 +3283,22 @@ export class ServiceOrderService {
               serviceOrder,
               userId,
             });
+
+            // Reverse cascade: completing the COMMERCIAL "Em Negociação" SO
+            // approves the budget (PENDING → BUDGET_APPROVED). Parity with the
+            // single-update path. The batch path does not run the quote→SO sync,
+            // so there is no revert risk — the completion simply sticks.
+            if (
+              (serviceOrder as any).type === SERVICE_ORDER_TYPE.COMMERCIAL &&
+              ((serviceOrder as any).description ?? '').toLowerCase().trim() ===
+                'em negociação' &&
+              (serviceOrder as any).taskId
+            ) {
+              await this.budgetApproveOnEmNegociacaoComplete(
+                (serviceOrder as any).taskId,
+                userId,
+              );
+            }
           }
 
           // If status changed to WAITING_APPROVE and type is ARTWORK

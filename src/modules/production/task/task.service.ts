@@ -1687,6 +1687,25 @@ export class TaskService {
               }
             }
 
+            // Mirror the single-create path: a batched/serial task carrying a quote
+            // with services must get its matching PRODUCTION service orders (the sync
+            // also keeps totals consistent). Without this, batch/serial-created tasks
+            // with a priced quote had no mirrored production SOs.
+            const batchNestedQuote = (task as any).quote;
+            if (
+              batchNestedQuote &&
+              typeof batchNestedQuote === 'object' &&
+              Array.isArray(batchNestedQuote.services) &&
+              batchNestedQuote.services.length > 0
+            ) {
+              await this.syncQuoteServicesAndServiceOrders(
+                tx,
+                createdTask.id,
+                userId,
+                (createdTask.status as TASK_STATUS) ?? TASK_STATUS.PREPARATION,
+              );
+            }
+
             // Log successful task creation
             await logEntityChange({
               changeLogService: this.changeLogService,

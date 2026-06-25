@@ -718,6 +718,11 @@ export class TaskQuoteService {
         data.status !== currentStatus
       ) {
         validateQuoteStatusChangeRole(data.status as TASK_QUOTE_STATUS, actorPrivilege);
+        // I41: also enforce the status-machine allowlist on the generic update()
+        // path — not just the dedicated /status endpoint. Without this, a manual
+        // PUT with a status body could jump the machine (e.g. PENDING → DUE).
+        // Internal cascades/schedulers pass _internal=true and skip this guard.
+        this.validateStatusTransition(currentStatus, data.status as TASK_QUOTE_STATUS);
       }
 
       // ─────────────────────────────────────────────────────────────────────
