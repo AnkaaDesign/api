@@ -44,6 +44,25 @@ export class ReceivablesController {
     return { success: true, message: 'Candidatos carregados.', data };
   }
 
+  /** Identity-resolved allocation suggestion for a credit (who paid + which
+   *  parcelas), ready for one-click confirmation — incl. lump-sum batches and
+   *  already-paid clearance the plain candidate list can't express. */
+  @Get('suggestion/:transactionId')
+  async suggestion(@Param('transactionId') transactionId: string) {
+    const data = await this.matchService.getReceivableSuggestion(transactionId);
+    return { success: true, message: 'Sugestão carregada.', data };
+  }
+
+  /** Confirm the identity suggestion for a credit (operator one-click). */
+  @Post('confirm-suggestion')
+  @HttpCode(HttpStatus.OK)
+  async confirmSuggestion(
+    @Body(new ZodValidationPipe(unmatchSchema)) body: { transactionId: string },
+    @UserId() userId: string,
+  ) {
+    return this.matchService.confirmReceivableSuggestion(body.transactionId, userId);
+  }
+
   /** Manually conciliate a bank credit against an open installment. */
   @Post('match')
   @HttpCode(HttpStatus.OK)
