@@ -92,6 +92,41 @@ export function makeDescObsKey(description: string | null, observation?: string 
 }
 
 /**
+ * Finds the candidate (quote item or service order) that pairs with an item of the
+ * given description + observation.
+ *
+ * Matching is observation-tolerant to avoid spawning duplicates when an observation
+ * is added to / edited on ONE side after the pair was already created (e.g. someone
+ * appends a paint color "(Prata)" to the quote items while the existing service
+ * orders still have a blank observation). The rules, in priority order:
+ *
+ *   1. Exact description + observation match (a genuine 1:1 pair).
+ *   2. Same description where EITHER side's observation is blank — the blank side
+ *      simply hadn't been annotated yet, so it's the same line item.
+ *
+ * Two NON-empty differing observations are intentionally NOT matched: they are
+ * distinct line items (e.g. "Outros (A)" vs "Outros (B)"), preserving the
+ * multiple-items-same-description feature.
+ */
+export function findCounterpartByDescObs<
+  T extends { description: string | null; observation?: string | null },
+>(candidates: T[], description: string | null, observation?: string | null): T | undefined {
+  const exact = candidates.find(
+    c =>
+      areDescriptionsEqual(c.description, description) &&
+      areDescriptionsEqual(c.observation || '', observation || ''),
+  );
+  if (exact) return exact;
+
+  const targetObsBlank = normalizeDescription(observation || '') === '';
+  return candidates.find(
+    c =>
+      areDescriptionsEqual(c.description, description) &&
+      (targetObsBlank || normalizeDescription(c.observation || '') === ''),
+  );
+}
+
+/**
  * DEPRECATED: Kept for backwards compatibility
  * Now just returns the description as-is since we have separate observation field
  */
@@ -153,11 +188,10 @@ export function getServiceOrderToQuoteSync(
     };
   }
 
-  // Match on both description AND observation — different observations = different items
-  const existingItem = existingQuoteItems.find(item =>
-    areDescriptionsEqual(item.description, description) &&
-    areDescriptionsEqual(item.observation || '', observation || ''),
-  );
+  // Match on description + observation, tolerating a blank observation on either
+  // side so adding an annotation later doesn't spawn a duplicate. Two non-empty
+  // differing observations stay distinct.
+  const existingItem = findCounterpartByDescObs(existingQuoteItems, description, observation);
 
   if (existingItem) {
     return {
@@ -211,11 +245,10 @@ export function getQuoteItemToServiceOrderSync(
     so => so.type === SERVICE_ORDER_TYPE.PRODUCTION,
   );
 
-  // Match on both description AND observation — different observations = different items
-  const existingOrder = productionOrders.find(so =>
-    areDescriptionsEqual(so.description, description) &&
-    areDescriptionsEqual(so.observation || '', observation || ''),
-  );
+  // Match on description + observation, tolerating a blank observation on either
+  // side so adding an annotation later doesn't spawn a duplicate. Two non-empty
+  // differing observations stay distinct.
+  const existingOrder = findCounterpartByDescObs(productionOrders, description, observation);
 
   if (existingOrder) {
     return {
