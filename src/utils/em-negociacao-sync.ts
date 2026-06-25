@@ -144,6 +144,18 @@ export async function syncEmNegociacaoForTask(
 
     if (emNegociacao.status === target) return; // idempotent
 
+    // Once "Em Negociação" is COMPLETED (manually via the OS form or automatically),
+    // never auto-downgrade it back to WAITING_ARTWORK just because no artwork has
+    // been uploaded yet — completion is a deliberate commercial hand-off and must
+    // stick (otherwise a bulk "Concluir" is silently reverted on the next sync).
+    // A genuine quote un-approval still reopens it (→ IN_PROGRESS) via the branch below.
+    if (
+      emNegociacao.status === SERVICE_ORDER_STATUS.COMPLETED &&
+      target === SERVICE_ORDER_STATUS.WAITING_ARTWORK
+    ) {
+      return;
+    }
+
     const now = new Date();
     const patch: any = {
       status: target,
