@@ -229,6 +229,113 @@ export class TaskService {
    * customer configs never drift apart — the bug where TaskQuote dropped to the
    * raw remaining-services sum while CustomerConfig kept the old approved total.
    */
+  /**
+   * Photo-driven checklist sync. Checkin/checkout PHOTOS live on each PRODUCTION
+   * service order (before/after per station). The two LOGISTIC checklist SOs —
+   * "Checklist Entrada" (checkin) and "Checklist Saída" (checkout) — are the
+   * task-level gate and are completed automatically from those photos:
+   *   • any active PRODUCTION SO has ≥1 checkin photo  → "Checklist Entrada" COMPLETED
+   *   • any active PRODUCTION SO has ≥1 checkout photo → "Checklist Saída"   COMPLETED
+   * Reversible: if all the photos are removed the checklist SO reopens to PENDING,
+   * so the task finish-gate can never pass without the photos actually present.
+   * Manual PAUSED / CANCELLED states are respected and never auto-touched.
+   * Runs inside the task-update transaction whenever SO checkin/checkout files
+   * were touched in the request.
+   */
+  private async syncChecklistServiceOrdersFromPhotos(
+    tx: PrismaTransaction,
+    taskId: string,
+    userId?: string | null,
+  ): Promise<void> {
+    const sos = await tx.serviceOrder.findMany({
+      where: { taskId },
+      select: {
+        id: true,
+        type: true,
+        description: true,
+        status: true,
+        _count: { select: { checkinFiles: true, checkoutFiles: true } },
+      },
+    });
+
+    const activeProduction = sos.filter(
+      so =>
+        so.type === SERVICE_ORDER_TYPE.PRODUCTION &&
+        so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+    );
+    const anyCheckinPhotos = activeProduction.some(so => so._count.checkinFiles > 0);
+    const anyCheckoutPhotos = activeProduction.some(so => so._count.checkoutFiles > 0);
+
+    // Accent-insensitive normalize so "Checklist Saída" matches regardless of how
+    // the description was stored ("saída"/"saida").
+    const norm = (s?: string | null) =>
+      (s ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+
+    const reconcile = async (
+      matchDescription: string,
+      hasPhotos: boolean,
+    ): Promise<void> => {
+      const checklist = sos.find(
+        so =>
+          so.type === SERVICE_ORDER_TYPE.LOGISTIC &&
+          norm(so.description) === matchDescription,
+      );
+      if (!checklist) return;
+      // Respect manual terminal/pause states — never auto-touch them.
+      if (
+        checklist.status === SERVICE_ORDER_STATUS.CANCELLED ||
+        checklist.status === SERVICE_ORDER_STATUS.PAUSED
+      ) {
+        return;
+      }
+      const target = hasPhotos
+        ? SERVICE_ORDER_STATUS.COMPLETED
+        : SERVICE_ORDER_STATUS.PENDING;
+      if (checklist.status === target) return; // idempotent
+
+      const now = new Date();
+      const patch: any = {
+        status: target,
+        statusOrder: getServiceOrderStatusOrder(target),
+      };
+      if (target === SERVICE_ORDER_STATUS.COMPLETED) {
+        patch.finishedAt = now;
+        if (userId) patch.completedById = userId;
+      } else {
+        patch.finishedAt = null;
+        patch.completedById = null;
+      }
+
+      await tx.serviceOrder.update({ where: { id: checklist.id }, data: patch });
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.SERVICE_ORDER,
+        entityId: checklist.id,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'status',
+        oldValue: checklist.status,
+        newValue: target,
+        reason:
+          target === SERVICE_ORDER_STATUS.COMPLETED
+            ? 'Concluído automaticamente pelo envio das fotos de check-in/out'
+            : 'Reaberto automaticamente — fotos de check-in/out removidas',
+        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+        triggeredById: taskId,
+        userId: userId || '',
+        transaction: tx,
+      });
+      this.logger.log(
+        `[CHECKLIST SYNC] Task ${taskId}: "${checklist.description}" ${checklist.status} → ${target} (hasPhotos=${hasPhotos})`,
+      );
+    };
+
+    await reconcile('checklist entrada', anyCheckinPhotos);
+    await reconcile('checklist saida', anyCheckoutPhotos);
+  }
+
   private async recalcQuoteTotals(tx: PrismaTransaction, quoteId: string): Promise<void> {
     // Delegates to the shared single-source-of-truth implementation so every
     // flow that mutates quote services (cascade-delete, SO↔quote sync, the
@@ -2454,8 +2561,9 @@ export class TaskService {
             );
           }
 
-          // Only PRODUCTION_MANAGER and ADMIN can set a task to COMPLETED or
-          // move it away from COMPLETED (COMPLETED feeds bonus/payroll).
+          // Only PRODUCTION_MANAGER, LOGISTIC and ADMIN can set a task to
+          // COMPLETED or move it away from COMPLETED (COMPLETED feeds
+          // bonus/payroll; logistics owns the checkout/finish hand-off).
           // When the caller didn't thread a privilege (internal endpoints like
           // /prepare), resolve it from the database — never assume.
           if (toStatus === TASK_STATUS.COMPLETED || fromStatus === TASK_STATUS.COMPLETED) {
@@ -2465,10 +2573,11 @@ export class TaskService {
             }
             if (
               effectivePrivilege !== SECTOR_PRIVILEGES.PRODUCTION_MANAGER &&
+              effectivePrivilege !== SECTOR_PRIVILEGES.LOGISTIC &&
               effectivePrivilege !== SECTOR_PRIVILEGES.ADMIN
             ) {
               throw new BadRequestException(
-                'Apenas o gerente de produção ou administrador pode finalizar tarefas ou reverter tarefas concluídas.',
+                'Apenas o gerente de produção, a logística ou o administrador pode finalizar tarefas ou reverter tarefas concluídas.',
               );
             }
           }
@@ -4384,6 +4493,20 @@ export class TaskService {
               );
             }
           }
+        }
+
+        // =====================================================================
+        // CHECKLIST AUTO-COMPLETION: photos drive the LOGISTIC checklist SOs.
+        // Checkin/checkout photos live on the PRODUCTION SOs; the "Checklist
+        // Entrada"/"Checklist Saída" SOs are completed (or reopened) from the
+        // presence of those photos. Runs whenever SO checkin/checkout files were
+        // touched in this request.
+        // =====================================================================
+        const checkinCheckoutFilesTouched =
+          (soFileMapping && soFileMapping.length > 0) ||
+          !!(data as any).serviceOrderFiles;
+        if (checkinCheckoutFilesTouched) {
+          await this.syncChecklistServiceOrdersFromPhotos(tx, id, userId);
         }
 
         // =====================================================================
@@ -6726,17 +6849,18 @@ export class TaskService {
                   );
                 }
 
-                // Only PRODUCTION_MANAGER and ADMIN can set a task to COMPLETED
-                // or move it away from COMPLETED (mirrors the single-update
-                // path and the dedicated /finish endpoint).
+                // Only PRODUCTION_MANAGER, LOGISTIC and ADMIN can set a task to
+                // COMPLETED or move it away from COMPLETED (mirrors the
+                // single-update path and the dedicated /finish endpoint).
                 if (
                   ((update.data.status as TASK_STATUS) === TASK_STATUS.COMPLETED ||
                     (existingTask.status as TASK_STATUS) === TASK_STATUS.COMPLETED) &&
                   userPrivilege !== SECTOR_PRIVILEGES.PRODUCTION_MANAGER &&
+                  userPrivilege !== SECTOR_PRIVILEGES.LOGISTIC &&
                   userPrivilege !== SECTOR_PRIVILEGES.ADMIN
                 ) {
                   throw new BadRequestException(
-                    'Apenas o gerente de produção ou administrador pode finalizar tarefas ou reverter tarefas concluídas.',
+                    'Apenas o gerente de produção, a logística ou o administrador pode finalizar tarefas ou reverter tarefas concluídas.',
                   );
                 }
 
