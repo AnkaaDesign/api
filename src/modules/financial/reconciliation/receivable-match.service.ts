@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma, ReconciliationMatchType, ReconciliationSource, ReconciliationStatus } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
@@ -19,8 +20,48 @@ const AMOUNT_TOLERANCE = 0.05;
 const AUTO_SCORE_THRESHOLD = 80;
 const AUTO_RUNNER_UP_GAP = 15;
 
+// ---------------------------------------------------------------------------
+// Identity-first matching (the dominant real-world pattern in this DB).
+//
+// Empirically, the value-first scan finds ZERO candidates for ~100% of pending
+// credits, because: receivables are overwhelmingly boletos OR already marked
+// PAID before the OFX arrives, and B2B customers pay many invoices in one PIX
+// (a lump sum that equals no single installment). So we resolve WHO paid first
+// (CNPJ in the PIX memo, or a fuzzy name hit on the customer), then reconcile
+// the credit WITHIN that customer's receivables — open AND recently-paid
+// (link-only clearance), single AND batch (pay-all / subset-sum).
+// ---------------------------------------------------------------------------
+
+/** Counterparty name similarity (0-1) to AUTO-resolve a single paying customer.
+ *  nameSimilarity already strips OFX prefixes (PIX_CRED) + legal forms (LTDA),
+ *  so a clean hit is trustworthy; a runner-up above MIN makes it ambiguous. */
+const NAME_AUTO_SIM = 0.85;
+const NAME_RUNNERUP_SIM = 0.6;
+/** Minimum similarity for a customer to be offered as a SUGGESTION (manual UI). */
+const NAME_SUGGEST_SIM = 0.45;
+
+/** Aggregate amount tolerance for a single OR batch match: a flat floor (bank
+ *  fees / centavo drift) OR a fraction of the credit, whichever is larger. */
+const MATCH_ABS_TOLERANCE = 2;
+const MATCH_PCT_TOLERANCE = 0.005;
+
+/** When LINKING a credit to an already-PAID installment (clearance without
+ *  re-settling), the installment must have been paid within this window of the
+ *  credit, so a historical lookback can never link an ancient receipt to a new
+ *  credit (or vice-versa). */
+const PAID_LINK_WINDOW_DAYS = 45;
+
+/** Subset-sum is bounded: above this many matchable installments we only try the
+ *  cheap "pay-all / windowed-all" sums and otherwise defer to the manual UI,
+ *  rather than exploring 2^N subsets. Covers the real "paid their whole balance"
+ *  pattern at O(1) and small partial batches at O(2^N). */
+const SUBSET_SUM_MAX_ITEMS = 14;
+
 /** Open installment statuses an incoming receipt may settle. */
 const OPEN_INSTALLMENT_STATUSES = ['PENDING', 'PROCESSING', 'OVERDUE'] as const;
+
+const aggregateTolerance = (amount: number): number =>
+  Math.max(MATCH_ABS_TOLERANCE, Math.abs(amount) * MATCH_PCT_TOLERANCE);
 
 /** Slug of the service-revenue category every reconciled receivable receipt is
  *  tagged with, so the entrada side carries an accounting classification (the
@@ -66,6 +107,45 @@ type ScoredCandidate = {
   totalInstallments: number | null;
 };
 
+/** A minimal customer row for in-memory identity resolution. */
+type CustomerIdentity = {
+  id: string;
+  cnpjCpf: string | null; // digits-only document, when on file
+  fantasyName: string | null;
+  corporateName: string | null;
+};
+
+/** In-memory index built once per scan: a digits→customer map for instant CNPJ
+ *  hits, plus the full list for fuzzy name resolution. */
+type CustomerIdentityIndex = {
+  byDocument: Map<string, string>; // cnpj/cpf digits → customerId
+  customers: CustomerIdentity[];
+};
+
+/** A customer's installment eligible to be settled or linked by an incoming
+ *  credit (open, or recently-paid-but-unlinked). */
+type MatchableInstallment = {
+  id: string;
+  amount: number;
+  paidAmount: number;
+  remaining: number;
+  status: string;
+  dueDate: Date;
+  paidAt: Date | null;
+  invoiceId: string | null;
+  isPaid: boolean;
+};
+
+/** One installment a credit will settle/link, with the amount attributed to it. */
+type ReceivableAllocation = {
+  installmentId: string;
+  invoiceId: string | null;
+  /** Amount of THIS credit attributed to the installment. */
+  amount: number;
+  /** The installment is already PAID — link for clearance, do not re-settle. */
+  linkOnly: boolean;
+};
+
 /**
  * ENTRADA conciliation — the inflow analog of the saída NF matcher.
  *
@@ -87,7 +167,26 @@ export class ReceivableMatchService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cascadeService: TaskQuoteStatusCascadeService,
+    private readonly config: ConfigService,
   ) {}
+
+  /** Master switch for the identity-first pipeline (CNPJ/name → customer →
+   *  single/batch/link-paid). Off ⇒ falls back to the legacy value-first scan. */
+  private get identityMatchEnabled(): boolean {
+    return this.config.get<boolean>('RECEIVABLE_IDENTITY_MATCH_ENABLED', true);
+  }
+  /** Allow auto-LINKING a credit to an already-PAID installment (clearance only). */
+  private get linkPaidEnabled(): boolean {
+    return this.config.get<boolean>('RECEIVABLE_LINK_PAID_ENABLED', true);
+  }
+  /** Allow auto-matching one credit against a BATCH of installments (lump sum). */
+  private get batchMatchEnabled(): boolean {
+    return this.config.get<boolean>('RECEIVABLE_BATCH_MATCH_ENABLED', true);
+  }
+  /** Learn the payer's CNPJ onto the Customer record after a confident match. */
+  private get backfillCnpjEnabled(): boolean {
+    return this.config.get<boolean>('RECEIVABLE_AUTO_BACKFILL_CNPJ', true);
+  }
 
   /** Resolve (and cache) the seeded service-revenue category id. Returns null if
    *  the seed migration hasn't run, so tagging degrades gracefully. */
@@ -157,6 +256,194 @@ export class ReceivableMatchService {
     return this.matchInflowWhere({ id: { in: ids } });
   }
 
+  /**
+   * READ-ONLY efficacy report — runs the exact identity-first resolution +
+   * allocation planning over every pending credit WITHOUT mutating anything, so
+   * the impact of the matcher can be sized before a sweep actually runs (the
+   * dry-run the rollout plan calls for). Buckets each credit into would-auto,
+   * suggestion (customer + value resolved but identity ambiguous → one-click),
+   * resolved-no-value, and unresolved.
+   */
+  async simulateInflowMatching(extra: Prisma.BankTransactionWhereInput = {}): Promise<{
+    totalPending: number;
+    totalPendingValue: number;
+    wouldAutoMatch: {
+      count: number;
+      value: number;
+      byVia: Record<'cnpj' | 'name', number>;
+      byKind: Record<string, number>;
+    };
+    suggestion: { count: number; value: number };
+    resolvedNoValue: { count: number; value: number };
+    unresolved: { count: number; value: number };
+    samples: Array<{
+      amount: number;
+      counterparty: string | null;
+      via: 'cnpj' | 'name' | null;
+      auto: boolean;
+      kind: string | null;
+      installments: number;
+    }>;
+  }> {
+    const credits = await this.prisma.bankTransaction.findMany({
+      where: { type: 'CREDIT', reconciliationStatus: ReconciliationStatus.PENDING, bankSlipId: null, ...extra },
+      select: { id: true, postedAt: true, amount: true, type: true, counterpartyName: true, counterpartyCnpjCpf: true },
+      orderBy: { amount: 'desc' },
+    });
+    const index = await this.buildCustomerIdentityIndex();
+
+    const report = {
+      totalPending: credits.length,
+      totalPendingValue: 0,
+      wouldAutoMatch: { count: 0, value: 0, byVia: { cnpj: 0, name: 0 }, byKind: {} as Record<string, number> },
+      suggestion: { count: 0, value: 0 },
+      resolvedNoValue: { count: 0, value: 0 },
+      unresolved: { count: 0, value: 0 },
+      samples: [] as Array<{
+        amount: number;
+        counterparty: string | null;
+        via: 'cnpj' | 'name' | null;
+        auto: boolean;
+        kind: string | null;
+        installments: number;
+      }>,
+    };
+
+    for (const tx of credits) {
+      const amount = Math.abs(Number(tx.amount));
+      report.totalPendingValue += amount;
+      const resolved = this.resolveCustomer(tx, index);
+      let via: 'cnpj' | 'name' | null = resolved?.via ?? null;
+      let auto = false;
+      let kind: string | null = null;
+      let installments = 0;
+
+      if (resolved) {
+        const plan = await this.planCustomerMatch(tx, resolved.customerId, resolved.via);
+        if (plan) {
+          kind = plan.kind;
+          installments = plan.allocations.length;
+          if (resolved.auto) {
+            auto = true;
+            report.wouldAutoMatch.count += 1;
+            report.wouldAutoMatch.value += amount;
+            report.wouldAutoMatch.byVia[resolved.via] += 1;
+            report.wouldAutoMatch.byKind[plan.kind] = (report.wouldAutoMatch.byKind[plan.kind] ?? 0) + 1;
+          } else {
+            report.suggestion.count += 1;
+            report.suggestion.value += amount;
+          }
+        } else {
+          report.resolvedNoValue.count += 1;
+          report.resolvedNoValue.value += amount;
+        }
+      } else {
+        report.unresolved.count += 1;
+        report.unresolved.value += amount;
+      }
+
+      if (report.samples.length < 30) {
+        report.samples.push({ amount, counterparty: tx.counterpartyName, via, auto, kind, installments });
+      }
+    }
+
+    return report;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Identity-based suggestion (manual UI one-click) — surfaces the SAME plan the
+  // auto path would apply for credits that don't clear the auto bar (ambiguous
+  // name, or value the operator should eyeball), including the already-paid
+  // link-only batches the plain `allocate` endpoint can't express.
+  // ---------------------------------------------------------------------------
+
+  /** The identity-resolved allocation plan for a credit, for the conciliation
+   *  panel — null when no customer resolves or the value doesn't reconcile. */
+  async getReceivableSuggestion(transactionId: string): Promise<{
+    suggestion: {
+      customerId: string;
+      customerName: string | null;
+      via: 'cnpj' | 'name';
+      auto: boolean;
+      confidence: number;
+      kind: string;
+      totalAmount: number;
+      allocations: Array<{ installmentId: string; amount: number; linkOnly: boolean; number: number; dueDate: Date }>;
+    } | null;
+  }> {
+    const tx = await this.prisma.bankTransaction.findUnique({
+      where: { id: transactionId },
+      select: { id: true, postedAt: true, amount: true, type: true, counterpartyName: true, counterpartyCnpjCpf: true },
+    });
+    if (!tx || tx.type !== 'CREDIT') return { suggestion: null };
+
+    const index = await this.buildCustomerIdentityIndex();
+    const resolved = this.resolveCustomer(tx, index);
+    if (!resolved) return { suggestion: null };
+    const plan = await this.planCustomerMatch(tx, resolved.customerId, resolved.via);
+    if (!plan) return { suggestion: null };
+
+    const [customer, installments] = await Promise.all([
+      this.prisma.customer.findUnique({
+        where: { id: resolved.customerId },
+        select: { fantasyName: true, corporateName: true },
+      }),
+      this.prisma.installment.findMany({
+        where: { id: { in: plan.allocations.map(a => a.installmentId) } },
+        select: { id: true, number: true, dueDate: true },
+      }),
+    ]);
+    const meta = new Map(installments.map(i => [i.id, i]));
+
+    return {
+      suggestion: {
+        customerId: resolved.customerId,
+        customerName: customer?.fantasyName ?? customer?.corporateName ?? null,
+        via: resolved.via,
+        auto: resolved.auto,
+        confidence: plan.confidence,
+        kind: plan.kind,
+        totalAmount: plan.allocations.reduce((s, a) => s + a.amount, 0),
+        allocations: plan.allocations.map(a => ({
+          installmentId: a.installmentId,
+          amount: a.amount,
+          linkOnly: a.linkOnly,
+          number: meta.get(a.installmentId)?.number ?? 0,
+          dueDate: meta.get(a.installmentId)?.dueDate ?? tx.postedAt,
+        })),
+      },
+    };
+  }
+
+  /** Confirm the identity suggestion for a credit (operator one-click). Re-resolves
+   *  under the live state and applies via the shared allocation path, so it handles
+   *  multi-installment batches AND already-paid link-only clearance that the plain
+   *  `allocate` endpoint rejects. Learns the payer document on success. */
+  async confirmReceivableSuggestion(transactionId: string, userId?: string) {
+    const tx = await this.prisma.bankTransaction.findUnique({
+      where: { id: transactionId },
+      select: { id: true, postedAt: true, amount: true, type: true, counterpartyName: true, counterpartyCnpjCpf: true, reconciliationStatus: true },
+    });
+    if (!tx) throw new NotFoundException('Transação não encontrada.');
+    if (tx.type !== 'CREDIT') throw new BadRequestException('Conciliação de entrada requer um crédito.');
+    if (tx.reconciliationStatus !== ReconciliationStatus.PENDING) {
+      throw new BadRequestException('Esta transação já foi conciliada.');
+    }
+
+    const index = await this.buildCustomerIdentityIndex();
+    const resolved = this.resolveCustomer(tx, index);
+    if (!resolved) throw new BadRequestException('Nenhum cliente pôde ser identificado para esta entrada.');
+    const plan = await this.planCustomerMatch(tx, resolved.customerId, resolved.via);
+    if (!plan) throw new BadRequestException('Nenhuma combinação de parcelas corresponde ao valor recebido.');
+
+    await this.applyReceivableAllocation(tx, plan.allocations, ReconciliationSource.MANUAL, userId);
+    await this.learnCustomerDocument(resolved.customerId, tx.counterpartyCnpjCpf);
+    return {
+      success: true,
+      message: `Recebimento conciliado a ${plan.allocations.length} parcela(s) com sucesso.`,
+    };
+  }
+
   private async matchInflowWhere(extra: Prisma.BankTransactionWhereInput): Promise<number> {
     const credits = await this.prisma.bankTransaction.findMany({
       where: {
@@ -174,10 +461,16 @@ export class ReceivableMatchService {
         counterpartyCnpjCpf: true,
       },
     });
+    if (credits.length === 0) return 0;
+
+    // Build the customer-identity index ONCE per scan (386 customers is cheap) so
+    // every credit resolves its payer in memory instead of re-querying.
+    const identity = this.identityMatchEnabled ? await this.buildCustomerIdentityIndex() : null;
+
     let matched = 0;
     for (const credit of credits) {
       try {
-        if (await this.tryReceivableInstallmentMatch(credit)) matched += 1;
+        if (await this.tryReceivableInstallmentMatch(credit, identity)) matched += 1;
       } catch (err) {
         this.logger.error(`Inflow match failed for tx ${credit.id}: ${err}`);
       }
@@ -186,15 +479,21 @@ export class ReceivableMatchService {
   }
 
   /**
-   * Auto-match a CREDIT against an open installment. Conservative but smarter
-   * than the old "exactly one value+date candidate": a unique exact-value
-   * candidate still auto-matches, and when several exact-value installments
-   * compete they're disambiguated by counterparty CNPJ/name + date proximity —
-   * auto-applying only on a clear winner (score ≥ threshold, gap ≥ runner-up).
-   * When no auto-match is made, the best candidate's confidence is stamped on
-   * the transaction (topMatchScore) so the extrato shows "Pendente · N%".
+   * Auto-match a CREDIT against a customer's receivables. Identity-first:
+   *   1. resolve the paying customer (CNPJ in the memo, or a clean fuzzy name hit);
+   *   2. within that customer's matchable installments (open AND recently-paid,
+   *      boleto AND not), try a single exact-value installment, then a batch
+   *      (one PIX paying many invoices — the dominant B2B pattern);
+   *   3. apply — open installments are settled, already-PAID ones are LINKED
+   *      (clearance only), and the payer's CNPJ is learned onto the customer.
+   * Falls back to the legacy value-first scan when no customer resolves, and
+   * always stamps the best confidence (topMatchScore) so the extrato shows
+   * "Pendente · N%" even when nothing auto-applies.
    */
-  private async tryReceivableInstallmentMatch(tx: RawCredit): Promise<boolean> {
+  private async tryReceivableInstallmentMatch(
+    tx: RawCredit,
+    identity: CustomerIdentityIndex | null,
+  ): Promise<boolean> {
     // Live status guard — a sibling pass may have reconciled it already.
     const live = await this.prisma.bankTransaction.findUnique({
       where: { id: tx.id },
@@ -202,8 +501,41 @@ export class ReceivableMatchService {
     });
     if (!live || live.reconciliationStatus !== ReconciliationStatus.PENDING) return false;
 
-    const candidates = await this.findScoredCandidates(tx, { exactValueOnly: true });
+    // ── Identity-first path ────────────────────────────────────────────────
+    if (identity) {
+      const resolved = this.resolveCustomer(tx, identity);
+      if (resolved && resolved.auto) {
+        const plan = await this.planCustomerMatch(tx, resolved.customerId, resolved.via);
+        if (plan) {
+          await this.applyReceivableAllocation(
+            tx,
+            plan.allocations,
+            ReconciliationSource.AUTO,
+            undefined,
+            plan.confidence,
+          );
+          await this.learnCustomerDocument(resolved.customerId, tx.counterpartyCnpjCpf);
+          this.logger.log(
+            `Inflow tx ${tx.id} auto-matched to customer ${resolved.customerId} ` +
+              `via ${resolved.via} (${plan.kind}, ${plan.allocations.length} parcela(s), conf ${plan.confidence})`,
+          );
+          return true;
+        }
+        // Customer resolved but value doesn't reconcile → record the near-miss.
+        await this.stampTopScore(tx.id, resolved.score);
+        return false;
+      }
+    }
 
+    // ── Legacy value-first fallback (kept so identity-off can't regress) ────
+    return this.tryValueFirstMatch(tx);
+  }
+
+  /** The original value-first auto-match: an open NON-boleto installment whose
+   *  exact value+date is unique (or a clear scored winner). Retained as a
+   *  fallback for credits where no customer could be resolved. */
+  private async tryValueFirstMatch(tx: RawCredit): Promise<boolean> {
+    const candidates = await this.findScoredCandidates(tx, { exactValueOnly: true });
     if (candidates.length === 0) {
       await this.stampTopScore(tx.id, null);
       return false;
@@ -218,7 +550,7 @@ export class ReceivableMatchService {
     if (isUnique || clearWinner) {
       await this.settleInstallment(tx, best.id, ReconciliationSource.AUTO, undefined, best.confidence);
       this.logger.log(
-        `Inflow tx ${tx.id} auto-matched to installment ${best.id} (conf ${best.confidence}${isUnique ? ', unique' : ''})`,
+        `Inflow tx ${tx.id} value-matched to installment ${best.id} (conf ${best.confidence}${isUnique ? ', unique' : ''})`,
       );
       return true;
     }
@@ -232,6 +564,319 @@ export class ReceivableMatchService {
     await this.prisma.bankTransaction
       .update({ where: { id: transactionId }, data: { topMatchScore: score } })
       .catch(() => undefined);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Identity-first matching helpers
+  // ---------------------------------------------------------------------------
+
+  /** Load every customer once for in-memory payer resolution. 386 rows ≈ free. */
+  private async buildCustomerIdentityIndex(): Promise<CustomerIdentityIndex> {
+    const rows = await this.prisma.customer.findMany({
+      select: { id: true, cnpj: true, cpf: true, fantasyName: true, corporateName: true },
+    });
+    const byDocument = new Map<string, string>();
+    const customers: CustomerIdentity[] = rows.map(r => {
+      const doc = onlyDigits(r.cnpj ?? r.cpf ?? null) || null;
+      if (doc) byDocument.set(doc, r.id);
+      return { id: r.id, cnpjCpf: doc, fantasyName: r.fantasyName, corporateName: r.corporateName };
+    });
+    return { byDocument, customers };
+  }
+
+  /** Resolve the paying customer from a credit. CNPJ/CPF (when the bank parsed it
+   *  into the memo) is exact and unambiguous; otherwise a fuzzy name hit, which
+   *  only AUTO-applies on a clean, unambiguous winner. `auto=false` results still
+   *  feed the suggestion path. */
+  private resolveCustomer(
+    tx: RawCredit,
+    index: CustomerIdentityIndex,
+  ): { customerId: string; via: 'cnpj' | 'name'; score: number; auto: boolean } | null {
+    const txDoc = onlyDigits(tx.counterpartyCnpjCpf);
+    if (txDoc) {
+      const byDoc = index.byDocument.get(txDoc);
+      if (byDoc) return { customerId: byDoc, via: 'cnpj', score: 100, auto: true };
+    }
+
+    const name = tx.counterpartyName;
+    if (!name) return null;
+    let bestId: string | null = null;
+    let bestSim = 0;
+    let secondSim = 0;
+    for (const c of index.customers) {
+      const sim = Math.max(nameSimilarity(name, c.fantasyName), nameSimilarity(name, c.corporateName));
+      if (sim > bestSim) {
+        secondSim = bestSim;
+        bestSim = sim;
+        bestId = c.id;
+      } else if (sim > secondSim) {
+        secondSim = sim;
+      }
+    }
+    if (!bestId || bestSim < NAME_SUGGEST_SIM) return null;
+    const auto = bestSim >= NAME_AUTO_SIM && secondSim < NAME_RUNNERUP_SIM;
+    return { customerId: bestId, via: 'name', score: Math.round(bestSim * 100), auto };
+  }
+
+  /** Build an allocation plan for a credit against one customer's receivables:
+   *  a single exact installment, a "paid the whole (windowed) balance" batch, or
+   *  a bounded subset-sum — returning null when the value can't be reconciled. */
+  private async planCustomerMatch(
+    tx: RawCredit,
+    customerId: string,
+    via: 'cnpj' | 'name',
+  ): Promise<{ allocations: ReceivableAllocation[]; kind: string; confidence: number } | null> {
+    const creditAbs = Math.abs(Number(tx.amount));
+    const matchable = await this.gatherMatchableInstallments(customerId, tx.postedAt);
+    if (matchable.length === 0) return null;
+
+    const best = this.findBestAllocation(creditAbs, matchable, tx.postedAt);
+    if (!best) return null;
+
+    const anyPaid = best.items.some(i => i.isPaid);
+    const isBatch = best.items.length > 1;
+    if (anyPaid && !this.linkPaidEnabled) return null;
+    if (isBatch && !this.batchMatchEnabled) return null;
+
+    const allocations: ReceivableAllocation[] = best.items.map(i => ({
+      installmentId: i.id,
+      invoiceId: i.invoiceId,
+      amount: i.isPaid ? i.amount : i.remaining,
+      linkOnly: i.isPaid,
+    }));
+    const confidence = via === 'cnpj' ? (isBatch ? 95 : 97) : isBatch ? 85 : 90;
+    return { allocations, kind: best.kind, confidence };
+  }
+
+  /** A customer's installments an incoming credit may settle (open) or LINK
+   *  (recently-paid, clearance only) — excluding any already cleared via an
+   *  installment match or a boleto slip already linked to a bank line. */
+  private async gatherMatchableInstallments(
+    customerId: string,
+    postedAt: Date,
+  ): Promise<MatchableInstallment[]> {
+    const paidLower = new Date(postedAt.getTime() - PAID_LINK_WINDOW_DAYS * 86_400_000);
+    const paidUpper = new Date(postedAt.getTime() + PAID_LINK_WINDOW_DAYS * 86_400_000);
+
+    const statusOr: Prisma.InstallmentWhereInput[] = [
+      { status: { in: OPEN_INSTALLMENT_STATUSES as unknown as Prisma.EnumInstallmentStatusFilter['in'] } },
+    ];
+    if (this.linkPaidEnabled) {
+      statusOr.push({ status: 'PAID', paidAt: { gte: paidLower, lte: paidUpper } });
+    }
+
+    const installments = await this.prisma.installment.findMany({
+      where: {
+        AND: [
+          {
+            OR: [
+              { invoice: { customerId } },
+              { customerConfig: { customer: { id: customerId } } },
+              { externalOperation: { customer: { id: customerId } } },
+            ],
+          },
+          { OR: statusOr },
+        ],
+        // Not already conciliated via an installment match…
+        reconciliationMatches: { none: { reversedAt: null } },
+        // …nor via a boleto slip already linked to a bank credit (avoid double clearance).
+        NOT: { bankSlip: { transactions: { some: {} } } },
+      },
+      select: {
+        id: true,
+        amount: true,
+        paidAmount: true,
+        status: true,
+        dueDate: true,
+        paidAt: true,
+        invoiceId: true,
+      },
+      orderBy: { dueDate: 'asc' },
+      take: 200,
+    });
+
+    return installments.map(i => {
+      const amount = Number(i.amount);
+      const paidAmount = Number(i.paidAmount ?? 0);
+      return {
+        id: i.id,
+        amount,
+        paidAmount,
+        remaining: Math.max(0, amount - paidAmount),
+        status: i.status,
+        dueDate: i.dueDate,
+        paidAt: i.paidAt,
+        invoiceId: i.invoiceId,
+        isPaid: i.status === 'PAID',
+      };
+    });
+  }
+
+  /** Pick the best reconciling set for a credit against a customer's matchable
+   *  installments: single exact → windowed "pay-all" batch → bounded subset-sum.
+   *  Attributed value is the outstanding balance (open) or the face (already-paid
+   *  link). Returns null when nothing sums to the credit within tolerance. */
+  private findBestAllocation(
+    creditAbs: number,
+    matchable: MatchableInstallment[],
+    postedAt: Date,
+  ): { items: MatchableInstallment[]; kind: string } | null {
+    const tol = aggregateTolerance(creditAbs);
+    const attr = (i: MatchableInstallment): number => (i.isPaid ? i.amount : i.remaining);
+    const refDate = (i: MatchableInstallment): Date => i.paidAt ?? i.dueDate;
+    const daysFrom = (i: MatchableInstallment): number =>
+      Math.abs(refDate(i).getTime() - postedAt.getTime()) / 86_400_000;
+
+    // 1. Single installment whose value matches — prefer OPEN, then date-closest.
+    const singles = matchable
+      .filter(i => Math.abs(attr(i) - creditAbs) <= tol)
+      .sort((a, b) => (a.isPaid ? 1 : 0) - (b.isPaid ? 1 : 0) || daysFrom(a) - daysFrom(b));
+    if (singles.length > 0) return { items: [singles[0]], kind: 'single' };
+
+    // 2. Batch — one transfer paying several invoices. Try tightening windows
+    //    around the payment date first (precise), then the whole balance.
+    for (const w of [10, 20, 45, Infinity]) {
+      const set = w === Infinity ? matchable : matchable.filter(i => daysFrom(i) <= w);
+      if (set.length >= 2) {
+        const sum = set.reduce((s, i) => s + attr(i), 0);
+        if (Math.abs(sum - creditAbs) <= aggregateTolerance(creditAbs)) {
+          return { items: set, kind: `batch:${w === Infinity ? 'all' : w + 'd'}` };
+        }
+      }
+    }
+
+    // 3. Bounded subset-sum for small sets (partial batches the windows missed).
+    if (matchable.length <= SUBSET_SUM_MAX_ITEMS) {
+      const subset = this.subsetSum(matchable, creditAbs, tol, attr);
+      if (subset && subset.length >= 2) return { items: subset, kind: 'subset' };
+    }
+
+    return null;
+  }
+
+  /** Bounded DFS subset-sum (≤ SUBSET_SUM_MAX_ITEMS items). Returns the first
+   *  subset (size ≥ 2) whose attributed sum is within tolerance of the target,
+   *  exploring high-value-first so a few large invoices resolve before many tiny
+   *  ones. Pruned when the running sum overshoots, so worst case is ~2^N nodes. */
+  private subsetSum(
+    items: MatchableInstallment[],
+    target: number,
+    tol: number,
+    attr: (i: MatchableInstallment) => number,
+  ): MatchableInstallment[] | null {
+    const sorted = items.map(i => ({ i, v: attr(i) })).sort((a, b) => b.v - a.v);
+    const n = sorted.length;
+    const chosen: MatchableInstallment[] = [];
+    let found: MatchableInstallment[] | null = null;
+
+    const dfs = (idx: number, sum: number): void => {
+      if (found) return;
+      if (chosen.length >= 2 && Math.abs(sum - target) <= tol) {
+        found = [...chosen];
+        return;
+      }
+      if (idx >= n || sum > target + tol) return;
+      chosen.push(sorted[idx].i);
+      dfs(idx + 1, sum + sorted[idx].v);
+      chosen.pop();
+      if (!found) dfs(idx + 1, sum);
+    };
+    dfs(0, 0);
+    return found;
+  }
+
+  /** Apply an allocation plan: settle OPEN installments, LINK already-paid ones
+   *  (clearance, no re-settle), recompute their invoices, mark the credit
+   *  reconciled, tag service revenue, and cascade each installment's task-quote
+   *  status. Idempotent via the (transactionId, installmentId) unique index. */
+  private async applyReceivableAllocation(
+    tx: { id: string; postedAt: Date; amount: Prisma.Decimal | number },
+    allocations: ReceivableAllocation[],
+    source: ReconciliationSource,
+    userId?: string,
+    confidence?: number,
+  ): Promise<void> {
+    const creditAbs = Math.abs(Number(tx.amount));
+    const totalAttr = allocations.reduce((s, a) => s + a.amount, 0);
+    const matchType =
+      source === ReconciliationSource.MANUAL
+        ? ReconciliationMatchType.MANUAL
+        : ReconciliationMatchType.VALUE_DATE;
+    const invoiceIds = new Set<string>();
+
+    await this.prisma.$transaction(async db => {
+      for (const a of allocations) {
+        if (!a.linkOnly) {
+          const inst = await db.installment.findUniqueOrThrow({
+            where: { id: a.installmentId },
+            select: { amount: true },
+          });
+          await db.installment.update({
+            where: { id: a.installmentId },
+            data: { status: 'PAID', paidAmount: inst.amount, paidAt: tx.postedAt },
+          });
+        }
+        await db.reconciliationMatch.create({
+          data: {
+            transactionId: tx.id,
+            installmentId: a.installmentId,
+            allocatedAmount: new Decimal(a.amount),
+            matchType,
+            confidenceScore: confidence ?? 90,
+            matchedByUserId: userId ?? null,
+          },
+        });
+        if (a.invoiceId) invoiceIds.add(a.invoiceId);
+      }
+      for (const invoiceId of invoiceIds) await this.recalcInvoice(db, invoiceId);
+
+      const fullyAllocated = Math.abs(totalAttr - creditAbs) <= aggregateTolerance(creditAbs);
+      await db.bankTransaction.update({
+        where: { id: tx.id },
+        data: {
+          reconciliationStatus: fullyAllocated
+            ? ReconciliationStatus.RECONCILED
+            : ReconciliationStatus.PARTIAL,
+          reconciliationSource: source,
+          topMatchScore: null,
+        },
+      });
+      await this.tagServiceRevenue(db, tx.id, new Decimal(totalAttr));
+    });
+
+    for (const a of allocations) {
+      await this.cascadeService.cascadeFromInstallment(a.installmentId).catch(() => undefined);
+    }
+  }
+
+  /** Learn the payer's CNPJ/CPF onto the customer after a confident match, so the
+   *  NEXT payment from them resolves by exact document (no fuzzy guess). Only
+   *  fills an empty slot and never overwrites a different document; a @unique
+   *  collision (another customer owns it) is swallowed. */
+  private async learnCustomerDocument(
+    customerId: string,
+    txCnpjCpf: string | null | undefined,
+  ): Promise<void> {
+    if (!this.backfillCnpjEnabled) return;
+    const doc = onlyDigits(txCnpjCpf);
+    if (!doc) return;
+    const field = doc.length === 14 ? 'cnpj' : doc.length === 11 ? 'cpf' : null;
+    if (!field) return;
+
+    const cust = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { cnpj: true, cpf: true },
+    });
+    if (!cust) return;
+    if (onlyDigits(cust.cnpj) === doc || onlyDigits(cust.cpf) === doc) return; // already known
+    if (cust[field]) return; // slot occupied by a different document — don't overwrite
+
+    try {
+      await this.prisma.customer.update({ where: { id: customerId }, data: { [field]: doc } });
+      this.logger.log(`Learned ${field} ${doc} for customer ${customerId} from a reconciled credit`);
+    } catch (err) {
+      this.logger.debug(`Skipped ${field} backfill for customer ${customerId}: ${err}`);
+    }
   }
 
   /**
