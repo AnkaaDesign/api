@@ -65,6 +65,7 @@ import { RepositoryModule } from './modules/system/repository/repository.module'
 import { GitCommitModule } from './modules/system/git-commit/git-commit.module';
 import { AppsModule } from './modules/system/app/app.module';
 import { UpdateModule } from './modules/system/update/update.module';
+import { InstallModule } from './modules/system/install/install.module';
 import { WhatsAppModule } from './modules/common/whatsapp/whatsapp.module';
 import { MessageModule } from './modules/system/message/message.module';
 import { DeepLinkModule } from './modules/common/deep-link/deep-link.module';
@@ -151,6 +152,7 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     GitCommitModule,
     AppsModule,
     UpdateModule,
+    InstallModule,
     WhatsAppModule,
     MessageModule,
     DeepLinkModule,
