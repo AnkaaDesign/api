@@ -13,7 +13,7 @@ import {
 import { HrStatisticsService } from './hr-statistics.service';
 import { SecullumStatisticsService } from '@modules/integrations/secullum/secullum-statistics.service';
 
-@Controller('human-resources/analytics')
+@Controller('personnel-department/analytics')
 export class HrStatisticsController {
   constructor(
     private readonly hrStatistics: HrStatisticsService,

@@ -69,7 +69,7 @@ export class VacationNotificationScheduler {
   }
 
   private vacationMobileUrl(vacationId: string): string {
-    return `/(tabs)/recursos-humanos/ferias/detalhes/${vacationId}`;
+    return `/(tabs)/departamento-pessoal/ferias/detalhes/${vacationId}`;
   }
 
   // -------------------------------------------------------------------------

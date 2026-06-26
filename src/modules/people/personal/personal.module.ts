@@ -9,7 +9,7 @@ import { BorrowModule } from '@modules/inventory/borrow/borrow.module';
 import { PpeModule } from '@modules/inventory/ppe/ppe.module';
 import { ActivityModule } from '@modules/inventory/activity/activity.module';
 import { SecullumModule } from '@modules/integrations/secullum/secullum.module';
-import { BonusModule } from '@modules/human-resources/bonus/bonus.module';
+import { BonusModule } from '@modules/personnel-department/bonus/bonus.module';
 import { WarningModule } from '../warning/warning.module';
 
 /**

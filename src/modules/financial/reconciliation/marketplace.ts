@@ -20,5 +20,36 @@
  */
 export function isMarketplaceMemo(memo: string | null | undefined): boolean {
   if (!memo) return false;
-  return /\bmarketplace\b/i.test(memo);
+  // "marketplace" (Mercado Livre/Pago) or the Shopee intermediary's memo, which
+  // never carries the word "marketplace" — it reads "SHPP BRASIL INSTITUICAO DE
+  // PAG" (or "SHOPEE"). Both settle through a payment intermediary the same way.
+  return /\bmarketplace\b|\bshopee\b|\bshpp\b/i.test(memo);
+}
+
+/**
+ * CNPJs of the payment intermediaries that settle marketplace purchases. The
+ * bank memo carries THIS CNPJ, never the seller's, so it's the most reliable
+ * marketplace signal — more robust than the memo text, which varies per bank.
+ *   - 10573521000191 — Mercado Pago (Mercado Livre)
+ *   - 38372267000182 — SHPP Brasil Instituição de Pagamento (Shopee)
+ */
+export const MARKETPLACE_INTERMEDIARY_CNPJS = new Set<string>([
+  '10573521000191',
+  '38372267000182',
+]);
+
+/**
+ * Whether a bank transaction is a marketplace payment, detected by the
+ * intermediary CNPJ (primary signal) or the memo (fallback). Used to route the
+ * debit into the value-only marketplace matching pass: marketplace settlements
+ * carry the intermediary's CNPJ — never the NF emitter's — so the only signal
+ * tying the debit to its fiscal document is the amount.
+ */
+export function isMarketplaceTransaction(
+  memo: string | null | undefined,
+  counterpartyCnpjCpf: string | null | undefined,
+): boolean {
+  const digits = counterpartyCnpjCpf?.replace(/\D/g, '');
+  if (digits && MARKETPLACE_INTERMEDIARY_CNPJS.has(digits)) return true;
+  return isMarketplaceMemo(memo);
 }

@@ -2222,7 +2222,7 @@ export class SecullumService {
           title: 'Falha no healthcheck da Secullum',
           body: `O healthcheck da Secullum falhou (${status}). Verifique as credenciais e a disponibilidade do serviço.`,
           webUrl: '/departamento-pessoal/integracoes/secullum',
-          mobileUrl: '/(tabs)/recursos-humanos/calculos',
+          mobileUrl: '/(tabs)/departamento-pessoal/calculos',
           relatedEntityType: 'SECULLUM_SOLICITACAO',
         },
       });
@@ -3191,7 +3191,7 @@ export class SecullumService {
             title: 'Solicitação de ponto aprovada (funcionário não vinculado)',
             body: `Uma solicitação de ponto (ID ${requestData.SolicitacaoId}) foi aprovada para o funcionário Secullum ${requestData.FuncionarioId}, que não possui usuário vinculado no Ankaa. Avise o funcionário.`,
             webUrl: '/departamento-pessoal/controle-ponto/requisicoes',
-            mobileUrl: '/(tabs)/recursos-humanos/calculos',
+            mobileUrl: '/(tabs)/departamento-pessoal/calculos',
             relatedEntityType: 'SECULLUM_SOLICITACAO',
           },
         });
@@ -3279,7 +3279,7 @@ export class SecullumService {
             title: 'Solicitação de ponto rejeitada (funcionário não vinculado)',
             body: `Uma solicitação de ponto (ID ${requestData.SolicitacaoId}) foi rejeitada para o funcionário Secullum ${requestData.FuncionarioId}, que não possui usuário vinculado no Ankaa. Motivo: ${rejectionBody.Motivo}. Avise o funcionário.`,
             webUrl: '/departamento-pessoal/controle-ponto/requisicoes',
-            mobileUrl: '/(tabs)/recursos-humanos/calculos',
+            mobileUrl: '/(tabs)/departamento-pessoal/calculos',
             relatedEntityType: 'SECULLUM_SOLICITACAO',
           },
         });
@@ -4877,7 +4877,7 @@ export class SecullumService {
               payload.observacoes ? ` Justificativa: ${payload.observacoes}` : ''
             }`,
             webUrl: '/departamento-pessoal/controle-ponto/requisicoes',
-            mobileUrl: '/(tabs)/recursos-humanos/calculos',
+            mobileUrl: '/(tabs)/departamento-pessoal/calculos',
             relatedEntityType: 'SECULLUM_SOLICITACAO',
           },
         },
@@ -4977,7 +4977,7 @@ export class SecullumService {
             payload.observacoes ? ` Observação: ${payload.observacoes}` : ''
           }`,
           webUrl: '/departamento-pessoal/controle-ponto/requisicoes',
-          mobileUrl: '/(tabs)/recursos-humanos/calculos',
+          mobileUrl: '/(tabs)/departamento-pessoal/calculos',
           relatedEntityType: 'SECULLUM_SOLICITACAO',
         },
       });
@@ -5473,7 +5473,7 @@ export class SecullumService {
                 body.observacoes ? ` Justificativa: ${body.observacoes}` : ''
               }`,
               webUrl: '/departamento-pessoal/controle-ponto/requisicoes',
-              mobileUrl: '/(tabs)/recursos-humanos/calculos',
+              mobileUrl: '/(tabs)/departamento-pessoal/calculos',
               relatedEntityType: 'SECULLUM_SOLICITACAO',
             },
           },
@@ -5497,7 +5497,7 @@ export class SecullumService {
                 body.observacoes ? ` Observação: ${body.observacoes}` : ''
               }`,
               webUrl: '/departamento-pessoal/controle-ponto/requisicoes',
-              mobileUrl: '/(tabs)/recursos-humanos/calculos',
+              mobileUrl: '/(tabs)/departamento-pessoal/calculos',
               relatedEntityType: 'SECULLUM_SOLICITACAO',
             },
           },
@@ -5707,7 +5707,7 @@ export class SecullumService {
       data: { employeeName, period, ...(motivo ? { response: motivo } : {}) },
       overrides: {
         webUrl: '/departamento-pessoal/controle-ponto/fechamento',
-        mobileUrl: '/(tabs)/recursos-humanos/calculos',
+        mobileUrl: '/(tabs)/departamento-pessoal/calculos',
         relatedEntityType: 'SECULLUM_ASSINATURA',
       },
     });
@@ -5845,7 +5845,7 @@ export class SecullumService {
             payload.justificativa ? ` Justificativa: ${payload.justificativa}` : ''
           }`,
           webUrl: '/departamento-pessoal/controle-ponto/requisicoes',
-          mobileUrl: '/(tabs)/recursos-humanos/calculos',
+          mobileUrl: '/(tabs)/departamento-pessoal/calculos',
           relatedEntityType: 'SECULLUM_SOLICITACAO',
         },
       });

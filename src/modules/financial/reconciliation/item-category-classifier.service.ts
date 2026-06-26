@@ -577,7 +577,16 @@ export class ItemCategoryClassifierService {
           emitName: true,
           docType: true,
           items: {
-            select: { id: true, code: true, description: true, totalValue: true, ncm: true },
+            select: {
+              id: true,
+              code: true,
+              description: true,
+              totalValue: true,
+              ncm: true,
+              categoryId: true,
+              categorySource: true,
+              categoryConfidence: true,
+            },
           },
         },
       });
@@ -586,6 +595,19 @@ export class ItemCategoryClassifierService {
       const lineResults: LineResult[] = [];
       for (const doc of docs) {
         for (const item of doc.items) {
+          // Honor a human's per-line choice: a MANUAL item category must drive
+          // the transaction's category tag directly, never get re-classified
+          // away. Without this the manual category shows on the NF detail but the
+          // Extrato list (which reads BankTransactionCategory) renders "—".
+          if (item.categorySource === ReconciliationSource.MANUAL && item.categoryId) {
+            lineResults.push({
+              itemId: item.id,
+              categoryId: item.categoryId,
+              confidence: item.categoryConfidence ?? 100,
+              lineValue: Number(item.totalValue),
+            });
+            continue;
+          }
           const hit = await this.classifyLine(item.code, item.description, doc.emitName, lex, doc.docType, item.ncm);
           // Learn from deterministic uniCode hits (confidence 100): the same
           // product's description will then resolve later even without the code.

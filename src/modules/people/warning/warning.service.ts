@@ -171,7 +171,7 @@ export class WarningService {
               ? `${userName} recebeu advertência (${severityLabel}) — ${categoryLabel}.`
               : `${userName} recebeu advertência — ${categoryLabel}.`,
             webUrl: `/departamento-pessoal/avisos/detalhes/${warning.id}`,
-            mobileUrl: `/(tabs)/recursos-humanos/avisos/detalhes/${warning.id}`,
+            mobileUrl: `/(tabs)/departamento-pessoal/advertencias/detalhes/${warning.id}`,
             relatedEntityType: 'WARNING',
           },
         },

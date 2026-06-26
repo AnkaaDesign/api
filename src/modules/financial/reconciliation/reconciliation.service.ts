@@ -235,6 +235,10 @@ export class ReconciliationService {
                 destName: true,
                 nfNumber: true,
                 status: true,
+                // Purchase-order codes (#Ped:) so "Notas vinculadas" can show
+                // the order number next to each NF and group the NFs of one
+                // order settled by this single transaction.
+                orderCodes: { select: { code: true }, orderBy: { code: 'asc' } },
                 items: {
                   orderBy: { createdAt: 'asc' },
                   select: {
@@ -383,6 +387,21 @@ export class ReconciliationService {
     if (payload.saveAlias && payload.categoryId) {
       await this.itemCategoryClassifier
         .recordItemAlias(item.description, payload.categoryId)
+        .catch(() => undefined);
+    }
+
+    // Re-derive the category tags of every transaction matched to this NF so the
+    // change is reflected wherever those tags are read (notably the Extrato list
+    // CATEGORIA column, which renders BankTransactionCategory — not the item's
+    // own category). deriveForTransaction skips transactions the user has
+    // categorized manually at the transaction level. Best-effort.
+    const linkedMatches = await this.prisma.reconciliationMatch.findMany({
+      where: { fiscalDocumentId: item.fiscalDocumentId, reversedAt: null },
+      select: { transactionId: true },
+    });
+    for (const txId of new Set(linkedMatches.map(m => m.transactionId))) {
+      await this.itemCategoryClassifier
+        .deriveForTransaction(txId)
         .catch(() => undefined);
     }
 

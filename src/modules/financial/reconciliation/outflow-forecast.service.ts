@@ -7,9 +7,9 @@ import {
   ReconciliationStatus,
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { PayrollService } from '@modules/human-resources/payroll/payroll.service';
-import { ThirteenthService } from '@modules/human-resources/thirteenth/thirteenth.service';
-import { VacationService } from '@modules/human-resources/vacation/vacation.service';
+import { PayrollService } from '@modules/personnel-department/payroll/payroll.service';
+import { ThirteenthService } from '@modules/personnel-department/thirteenth/thirteenth.service';
+import { VacationService } from '@modules/personnel-department/vacation/vacation.service';
 import { TransactionCategoryService } from './transaction-category.service';
 import { RecurrenceLearnerService } from './recurrence-learner.service';
 

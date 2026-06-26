@@ -9,7 +9,7 @@
 // ------
 // - The robust afastamento engine (status machine, return-exam rule, contract
 //   ON_LEAVE sync, payroll split) stays entirely in
-//   api/.../human-resources/leave. This service ONLY mirrors the leave date
+//   api/.../personnel-department/leave. This service ONLY mirrors the leave date
 //   range into Secullum — Secullum is treated strictly as the ponto-side "this
 //   person is off" record.
 //

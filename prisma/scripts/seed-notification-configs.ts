@@ -2259,7 +2259,7 @@ const CONFIGS: ConfigDef[] = [
       },
     },
     metadata: {
-      trigger: "human-resources/bonus/bonus-cron.service.ts ~:104",
+      trigger: "personnel-department/bonus/bonus-cron.service.ts ~:104",
       registry: "seed-notification-configs",
       targeted: false,
     },
@@ -2917,7 +2917,7 @@ const CONFIGS: ConfigDef[] = [
       },
     },
     metadata: {
-      trigger: "human-resources/bonus/secullum-bonus-integration.service.ts ~:144,:210; payroll/services/secullum-payroll-integration.service.ts ~:116",
+      trigger: "personnel-department/bonus/secullum-bonus-integration.service.ts ~:144,:210; payroll/services/secullum-payroll-integration.service.ts ~:116",
       registry: "seed-notification-configs",
       targeted: false,
     },

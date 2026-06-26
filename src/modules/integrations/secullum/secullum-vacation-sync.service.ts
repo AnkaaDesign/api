@@ -7,7 +7,7 @@
 // DESIGN
 // ------
 // - The robust vacation engine (values / calc / recibo / status machine) stays
-//   entirely in api/.../human-resources/vacation. This service ONLY mirrors the
+//   entirely in api/.../personnel-department/vacation. This service ONLY mirrors the
 //   gozo date ranges into Secullum — Secullum's native vacation handling is too
 //   simple to drive the recibo, so we treat Secullum strictly as the ponto-side
 //   "this person is off" record.

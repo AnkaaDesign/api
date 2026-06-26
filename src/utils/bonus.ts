@@ -2,7 +2,7 @@
 //
 // Period helpers, live-ID utilities, eligibility checks, and discount math.
 // The bonus calculation algorithm itself lives in
-// modules/human-resources/bonus/bonus-calculation.service.ts (salary-based
+// modules/personnel-department/bonus/bonus-calculation.service.ts (salary-based
 // logistic). This file MUST NOT contain any position-name parsing or
 // hardcoded position-level cascades — that fragility is gone for good.
 

@@ -17,7 +17,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PersonalService } from './personal.service';
-import { BonusService } from '@modules/human-resources/bonus/bonus.service';
+import { BonusService } from '@modules/personnel-department/bonus/bonus.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';

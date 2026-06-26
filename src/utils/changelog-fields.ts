@@ -1293,7 +1293,7 @@ export function formatFieldValue(
       INTERMEDIATE: 'Intermediário',
       SENIOR: 'Sênior',
       LEAD: 'Líder',
-      HUMAN_RESOURCES: 'Recursos Humanos',
+      HUMAN_RESOURCES: 'Departamento Pessoal',
       ADMIN: 'Administrador',
     };
     return privilegeLabels[value] || value;

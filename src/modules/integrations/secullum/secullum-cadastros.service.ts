@@ -230,7 +230,7 @@ export class SecullumCadastrosService {
           title: 'Período de apuração fechado',
           body: `O período de apuração da Secullum foi encerrado até ${closedDate}.`,
           webUrl: '/departamento-pessoal/controle-ponto/fechamento',
-          mobileUrl: '/(tabs)/recursos-humanos/calculos',
+          mobileUrl: '/(tabs)/departamento-pessoal/calculos',
           relatedEntityType: 'SECULLUM_SOLICITACAO',
         },
       });

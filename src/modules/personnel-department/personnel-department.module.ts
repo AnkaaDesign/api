@@ -1,4 +1,4 @@
-// human-resources.module.ts
+// personnel-department.module.ts
 
 import { Module } from '@nestjs/common';
 import { BonusModule } from './bonus/bonus.module';
@@ -61,4 +61,4 @@ import { VacationGroupModule } from './vacation-group/vacation-group.module';
     VacationGroupModule,
   ],
 })
-export class HumanResourcesModule {}
+export class PersonnelDepartmentModule {}
