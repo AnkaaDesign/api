@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -238,6 +239,38 @@ export class MessageController {
   }
 
   /**
+   * Batch delete messages (Admin only)
+   *
+   * MUST be declared before `@Delete(':id')` so `/messages/batch` is not parsed
+   * as an id by ParseUUIDPipe. Accepts `{ ids }` or `{ messageIds }` (clients
+   * differ) in the request body.
+   */
+  @Delete('batch')
+  @Roles('ADMIN', 'PRODUCTION_MANAGER')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Batch delete messages',
+    description: 'Delete multiple messages (and their views) by ID. Admin only.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Messages deleted successfully',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - admin access required',
+  })
+  async batchRemove(@Body() body: { ids?: string[]; messageIds?: string[] }) {
+    const ids = body?.ids ?? body?.messageIds ?? [];
+    const result = await this.messageService.batchRemove(ids);
+    return {
+      success: true,
+      data: result,
+      message: 'Mensagens excluídas com sucesso',
+    };
+  }
+
+  /**
    * Delete message (Admin only)
    */
   @Delete(':id')
@@ -269,6 +302,52 @@ export class MessageController {
     return {
       success: true,
       message: 'Mensagem excluída com sucesso',
+    };
+  }
+
+  /**
+   * Archive a message (Admin only)
+   */
+  @Patch(':id/archive')
+  @Roles('ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Archive message',
+    description: 'Archive a message (hide it without deleting). Admin only.',
+  })
+  @ApiParam({ name: 'id', description: 'Message UUID', type: 'string' })
+  @ApiResponse({ status: 200, description: 'Message archived successfully' })
+  @ApiResponse({ status: 404, description: 'Message not found' })
+  @ApiResponse({ status: 403, description: 'Forbidden - admin access required' })
+  async archive(@Param('id', ParseUUIDPipe) id: string) {
+    const message = await this.messageService.archive(id);
+    return {
+      success: true,
+      data: message,
+      message: 'Mensagem arquivada com sucesso',
+    };
+  }
+
+  /**
+   * Activate (publish) a message (Admin only)
+   */
+  @Patch(':id/activate')
+  @Roles('ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Activate message',
+    description: 'Activate (publish) a message. Admin only.',
+  })
+  @ApiParam({ name: 'id', description: 'Message UUID', type: 'string' })
+  @ApiResponse({ status: 200, description: 'Message activated successfully' })
+  @ApiResponse({ status: 404, description: 'Message not found' })
+  @ApiResponse({ status: 403, description: 'Forbidden - admin access required' })
+  async activate(@Param('id', ParseUUIDPipe) id: string) {
+    const message = await this.messageService.activate(id);
+    return {
+      success: true,
+      data: message,
+      message: 'Mensagem ativada com sucesso',
     };
   }
 

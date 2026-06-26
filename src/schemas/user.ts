@@ -108,6 +108,17 @@ export const userSelectSchema = z
         }),
       ])
       .optional(),
+    // Current employment contract (vínculo) — relation, selectable so list
+    // columns (admission/termination dates) can read it via `select`.
+    currentContract: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+        }),
+      ])
+      .optional(),
     position: z
       .union([
         z.boolean(),
