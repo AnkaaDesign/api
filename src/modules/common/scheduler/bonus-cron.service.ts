@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { BonusService } from '../../human-resources/bonus/bonus.service';
-import { PayrollService } from '../../human-resources/payroll/payroll.service';
+import { BonusService } from '../../personnel-department/bonus/bonus.service';
+import { PayrollService } from '../../personnel-department/payroll/payroll.service';
 import { CacheService } from '../cache/cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationDispatchService } from '../notification/notification-dispatch.service';
@@ -180,7 +180,7 @@ export class BonusCronService {
           },
           overrides: {
             webUrl: '/departamento-pessoal/folha-de-pagamento',
-            mobileUrl: '/(tabs)/recursos-humanos/folha-de-pagamento',
+            mobileUrl: '/(tabs)/departamento-pessoal/folha-de-pagamento',
             relatedEntityType: 'PAYROLL',
             title: isFailure
               ? `Falha na finalização da folha (${period})`

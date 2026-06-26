@@ -8,7 +8,7 @@ import { BorrowService } from '@modules/inventory/borrow/borrow.service';
 import { PpeDeliveryService } from '@modules/inventory/ppe/ppe-delivery.service';
 import { ActivityService } from '@modules/inventory/activity/activity.service';
 import { SecullumService } from '@modules/integrations/secullum/secullum.service';
-import { BonusService } from '@modules/human-resources/bonus/bonus.service';
+import { BonusService } from '@modules/personnel-department/bonus/bonus.service';
 import { WarningService } from '../warning/warning.service';
 import { PPE_DELIVERY_STATUS } from '../../../constants/enums';
 import type {

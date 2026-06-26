@@ -35,14 +35,24 @@ import { AppModule } from '../app.module';
 import { PrismaService } from '../modules/common/prisma/prisma.service';
 import { ReconciliationClassifierService } from '../modules/financial/reconciliation/reconciliation-classifier.service';
 import { ReconciliationMatcherService } from '../modules/financial/reconciliation/reconciliation-matcher.service';
-import { isMarketplaceMemo } from '../modules/financial/reconciliation/marketplace';
+import {
+  isMarketplaceTransaction,
+  MARKETPLACE_INTERMEDIARY_CNPJS,
+} from '../modules/financial/reconciliation/marketplace';
 
 // Scope every query to outbound marketplace payments. Refunds (CREDIT) are
-// ESTORNO and never need an NF, so they're deliberately excluded.
+// ESTORNO and never need an NF, so they're deliberately excluded. Detected by
+// the intermediary CNPJ (Mercado Pago, Shopee) or the memo word — the latter
+// catches the rare debit that carries no CNPJ.
 const MARKETPLACE_PENDING: Prisma.BankTransactionWhereInput = {
   reconciliationStatus: ReconciliationStatus.PENDING,
   type: BankTransactionType.DEBIT,
-  memo: { contains: 'Marketplace', mode: 'insensitive' },
+  OR: [
+    { counterpartyCnpjCpf: { in: [...MARKETPLACE_INTERMEDIARY_CNPJS] } },
+    { memo: { contains: 'Marketplace', mode: 'insensitive' } },
+    { memo: { contains: 'Shopee', mode: 'insensitive' } },
+    { memo: { contains: 'SHPP', mode: 'insensitive' } },
+  ],
 };
 
 const TX_SELECT = {
@@ -103,8 +113,8 @@ async function main(): Promise<void> {
 
     let matched = 0;
     for (const tx of txs) {
-      // Guard against a non-marketplace memo slipping through the SQL LIKE.
-      if (!isMarketplaceMemo(tx.memo)) continue;
+      // Guard against a non-marketplace row slipping through the SQL filter.
+      if (!isMarketplaceTransaction(tx.memo, tx.counterpartyCnpjCpf)) continue;
       const day = tx.postedAt.toISOString().slice(0, 10);
       const ok = await matcher.matchTransaction(tx as any);
       if (ok) {

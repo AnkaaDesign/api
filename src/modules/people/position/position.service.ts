@@ -45,7 +45,7 @@ import {
   trackAndLogFieldChanges,
   logEntityChange,
 } from '@modules/common/changelog/utils/changelog-helpers';
-import { SalaryAdjustmentService } from '@modules/human-resources/salary-adjustment/salary-adjustment.service';
+import { SalaryAdjustmentService } from '@modules/personnel-department/salary-adjustment/salary-adjustment.service';
 import { checkSalaryFloor, toNumberOrNull } from './utils/salary-floor.util';
 @Injectable()
 export class PositionService {

@@ -11,7 +11,7 @@ import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 
 import { AppModule } from '../app.module';
-import { PayrollService } from '../modules/human-resources/payroll/payroll.service';
+import { PayrollService } from '../modules/personnel-department/payroll/payroll.service';
 import { PrismaService } from '../modules/common/prisma/prisma.service';
 
 const MONTHS: Array<{ year: number; month: number }> = [

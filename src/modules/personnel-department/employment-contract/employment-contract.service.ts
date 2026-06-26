@@ -319,6 +319,12 @@ export class EmploymentContractService {
         ...dates,
         providerName: data.providerName ?? null,
         providerCnpj: data.providerCnpj ?? null,
+        hasArt481Clause: data.hasArt481Clause ?? false,
+        insalubrityDegreeOverride: data.insalubrityDegreeOverride ?? null,
+        hazardPayOverride: data.hazardPayOverride ?? null,
+        stabilityType: data.stabilityType ?? null,
+        stabilityStart: data.stabilityStart ?? null,
+        stabilityEnd: data.stabilityEnd ?? null,
         notes: data.notes ?? null,
       },
       include: options?.include ?? DEFAULT_INCLUDE,
@@ -576,6 +582,13 @@ export class EmploymentContractService {
     if (data.terminationType !== undefined) updateData.terminationType = data.terminationType;
     if (data.providerName !== undefined) updateData.providerName = data.providerName;
     if (data.providerCnpj !== undefined) updateData.providerCnpj = data.providerCnpj;
+    if (data.hasArt481Clause !== undefined) updateData.hasArt481Clause = data.hasArt481Clause;
+    if (data.insalubrityDegreeOverride !== undefined)
+      updateData.insalubrityDegreeOverride = data.insalubrityDegreeOverride;
+    if (data.hazardPayOverride !== undefined) updateData.hazardPayOverride = data.hazardPayOverride;
+    if (data.stabilityType !== undefined) updateData.stabilityType = data.stabilityType;
+    if (data.stabilityStart !== undefined) updateData.stabilityStart = data.stabilityStart;
+    if (data.stabilityEnd !== undefined) updateData.stabilityEnd = data.stabilityEnd;
     if (data.notes !== undefined) updateData.notes = data.notes;
 
     // Efetivação (CLT art. 451): mudança de modalidade EXPERIENCE_PERIOD_2 → INDETERMINATE

@@ -174,7 +174,7 @@ export class SecullumSmokeTestService {
         },
         overrides: {
           webUrl: '/departamento-pessoal/integracoes/secullum',
-          mobileUrl: '/(tabs)/recursos-humanos/calculos',
+          mobileUrl: '/(tabs)/departamento-pessoal/calculos',
           relatedEntityType: 'SECULLUM_SOLICITACAO',
         },
       });

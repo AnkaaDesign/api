@@ -58,7 +58,7 @@ import { SecullumSmokeTestModule } from './modules/integrations/secullum/smoke-t
 import { ServerModule } from './modules/common/server/server.module';
 import { BackupModule } from './modules/common/backup/backup.module';
 import { MonitoringModule } from './modules/common/monitoring/monitoring.module';
-import { HumanResourcesModule } from './modules/human-resources/human-resources.module';
+import { PersonnelDepartmentModule } from './modules/personnel-department/personnel-department.module';
 import { DeploymentModule } from './modules/system/deployment/deployment.module';
 import { SystemThrottlerModule } from './modules/system/throttler/throttler.module';
 import { RepositoryModule } from './modules/system/repository/repository.module';
@@ -103,7 +103,7 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     ThrottlerModule,
     ActivityModule,
     AirbrushingModule,
-    HumanResourcesModule, // Includes BonusModule and PayrollModule
+    PersonnelDepartmentModule, // Includes BonusModule and PayrollModule
     BorrowModule,
     CustomerModule,
     CutModule,

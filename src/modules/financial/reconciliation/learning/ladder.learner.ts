@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { BankTransactionSubtype, BankTransactionType } from '@prisma/client';
 import { ReconciliationAliasService } from '../reconciliation-alias.service';
 import { TransactionCategoryService } from '../transaction-category.service';
-import { isMarketplaceMemo } from '../marketplace';
+import { isMarketplaceTransaction } from '../marketplace';
 import {
   CategoryLearner,
   CategorySignal,
@@ -157,7 +157,10 @@ export class LadderLearner implements CategoryLearner {
       }
 
       // 5. Marketplace DEBIT → expects NF (value-only matcher pass).
-      if (tx.type === BankTransactionType.DEBIT && isMarketplaceMemo(tx.memo)) {
+      if (
+        tx.type === BankTransactionType.DEBIT &&
+        isMarketplaceTransaction(tx.memo, tx.counterpartyCnpjCpf)
+      ) {
         out.push({
           source: LearningSource.MARKETPLACE,
           confidence: 0.6,

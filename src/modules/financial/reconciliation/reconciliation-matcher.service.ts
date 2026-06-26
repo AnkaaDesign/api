@@ -18,7 +18,7 @@ import { nameSimilarity } from './text-normalization';
 import { ReconciliationAliasService } from './reconciliation-alias.service';
 import { ItemCategoryClassifierService } from './item-category-classifier.service';
 import { FiscalDerivedLearnerService } from './fiscal-derived-learner.service';
-import { isMarketplaceMemo } from './marketplace';
+import { isMarketplaceTransaction } from './marketplace';
 
 const FUZZY_DATE_WINDOW_DAYS = 10;
 const BOLETO_BRIDGE_WINDOW_DAYS = 2;
@@ -53,6 +53,15 @@ const MARKETPLACE_DATE_WINDOW_DAYS = 15;
 // Value-only matches carry less corroborating signal than CNPJ+value, so they
 // land below the 90 auto-match threshold to read as "auto, but verify" in audit.
 const MARKETPLACE_MATCH_CONFIDENCE = 80;
+// Marketplace auto-match value tolerance. A marketplace debit bundles small
+// marketplace/PIX fees and rounding on top of the NF, so the exact ±R$0.50
+// "perfect" tolerance is too tight in practice (e.g. a R$655.07 debit settling a
+// R$650.00 NF). We accept a 1% drift — bypassing the CNPJ/score gates entirely —
+// since the intermediary CNPJ can never corroborate the seller anyway. The
+// uniqueness guard (exactly one unmatched purchase in the window) is what keeps
+// this safe, not the value precision. Floored at PERFECT_VALUE_TOLERANCE so tiny
+// payments (where 1% < R$0.50) still tolerate cents of fiscal rounding.
+const MARKETPLACE_VALUE_TOLERANCE_PCT = 0.01;
 // A marketplace DEBIT routinely bundles DIFAL (interstate ICMS, up to ~18%) and
 // marketplace/PIX fees ON TOP of the NF total — so the matching purchase NF sits
 // BELOW the payment, often well beyond the generic 2% value tolerance. For the
@@ -141,6 +150,23 @@ const SUBSET_OPTS = {
   maxTolerance: SUBSET_MAX_TOLERANCE,
   minSize: SUBSET_MIN_SIZE,
   maxSize: SUBSET_MAX_SIZE,
+} as const;
+
+// Marketplace multi-seller subset-sum. A single Mercado Livre/Shopee payment can
+// bundle items bought from several different sellers, each emitting its OWN NF —
+// so the debit equals the SUM of 2..N unmatched purchase NFs that share NO
+// supplier CNPJ. Unlike trySubsetSumMatch there is no CNPJ root to corroborate
+// members (sellers all differ), so this pass leans entirely on an EXACT-ish sum
+// (cents tolerance, same as the supplier pass) + confident uniqueness + a tight
+// date window. maxSize is capped lower than the supplier pass: real multi-seller
+// carts bundle a handful of sellers, and a smaller ceiling shrinks the surface
+// for a coincidental sum to look unique.
+const MARKETPLACE_SUBSET_MAX_SIZE = 4;
+const MARKETPLACE_SUBSET_OPTS = {
+  perItemTolerance: SUBSET_PER_ITEM_TOLERANCE,
+  maxTolerance: SUBSET_MAX_TOLERANCE,
+  minSize: SUBSET_MIN_SIZE,
+  maxSize: MARKETPLACE_SUBSET_MAX_SIZE,
 } as const;
 
 /**
@@ -701,14 +727,22 @@ export class ReconciliationMatcherService {
       if (bridge) return true;
     }
 
-    // Marketplace payments (Mercado Livre/Pago, etc.) settle through an
-    // intermediary, so the memo's CNPJ is never the NF emitter — the CNPJ-based
-    // exact pass below can't ever match them. Match on value alone instead,
-    // gated by uniqueness. This is a terminal pass: if it can't find a single
-    // unambiguous purchase, running tryExactMatch with the intermediary CNPJ
-    // would only waste a query (and risk an accidental hit), so we stop here.
-    if (tx.type === BankTransactionType.DEBIT && isMarketplaceMemo(tx.memo)) {
-      return this.tryMarketplaceValueMatch(tx);
+    // Marketplace payments (Mercado Livre/Pago, Shopee, etc.) settle through an
+    // intermediary, so the memo's CNPJ is the intermediary's, never the NF
+    // emitter's — the CNPJ-based exact pass below can't ever match them. Detected
+    // by intermediary CNPJ or memo (covers Shopee, whose memo lacks the word
+    // "marketplace"). Match on value alone instead, gated by uniqueness. This is
+    // a terminal pass: if it can't find a single unambiguous purchase, running
+    // tryExactMatch with the intermediary CNPJ would only waste a query (and risk
+    // an accidental hit), so we stop here.
+    if (
+      tx.type === BankTransactionType.DEBIT &&
+      isMarketplaceTransaction(tx.memo, tx.counterpartyCnpjCpf)
+    ) {
+      // First the single-NF value match; if no single purchase fits, try summing
+      // several NFs from different sellers bundled into one marketplace payment.
+      if (await this.tryMarketplaceValueMatch(tx)) return true;
+      return this.tryMarketplaceSubsetSum(tx);
     }
 
     // Pass 1 — Exact (value + counterparty CNPJ + date ±5d)
@@ -1392,7 +1426,7 @@ export class ReconciliationMatcherService {
     // matches the NF emitter — so ignore CNPJ entirely (both the OFX one and any
     // learned alias) and let candidate lookup fall through to value+date
     // proximity, mirroring the value-only auto pass.
-    const marketplace = isMarketplaceMemo(tx.memo);
+    const marketplace = isMarketplaceTransaction(tx.memo, tx.counterpartyCnpjCpf);
 
     // Manual UI: consult the alias even at lower confidence — the user is in
     // the loop and we want to surface plausible candidates aggressively. The
@@ -2079,6 +2113,12 @@ export class ReconciliationMatcherService {
     const absAmount = Math.abs(Number(tx.amount));
     const lower = new Date(tx.postedAt.getTime() - MARKETPLACE_DATE_WINDOW_DAYS * 86_400_000);
     const upper = new Date(tx.postedAt.getTime() + MARKETPLACE_DATE_WINDOW_DAYS * 86_400_000);
+    // Accept up to 1% drift (floored at the cents tolerance) so fees/rounding
+    // baked into the marketplace debit don't block an otherwise-clear match.
+    const valueTolerance = Math.max(
+      PERFECT_VALUE_TOLERANCE,
+      absAmount * MARKETPLACE_VALUE_TOLERANCE_PCT,
+    );
 
     const candidates = await this.prisma.fiscalDocument.findMany({
       where: {
@@ -2086,8 +2126,8 @@ export class ReconciliationMatcherService {
         operationType: FiscalDocumentOperation.ENTRADA,
         destCnpj: this.companyCnpj,
         totalValue: {
-          gte: absAmount - PERFECT_VALUE_TOLERANCE,
-          lte: absAmount + PERFECT_VALUE_TOLERANCE,
+          gte: absAmount - valueTolerance,
+          lte: absAmount + valueTolerance,
         },
         issueDate: { gte: lower, lte: upper },
         matches: { none: {} },
@@ -2144,6 +2184,91 @@ export class ReconciliationMatcherService {
       });
     });
 
+    return true;
+  }
+
+  /**
+   * Marketplace multi-seller subset-sum. One Mercado Livre/Shopee payment often
+   * settles a cart whose items came from SEVERAL sellers, each emitting its own
+   * NF — so the debit equals the sum of 2..N unmatched purchase NFs that share no
+   * supplier CNPJ. Runs only after the single-NF marketplace pass fails.
+   *
+   * Conservative by necessity — there is no CNPJ anchor tying the members
+   * together (sellers all differ), so every guard is load-bearing:
+   *   - scoped to OUR purchases (AUTHORIZED, ENTRADA, destCnpj = company);
+   *   - each member strictly smaller than the payment (a member ~= payment is the
+   *     single-NF case, already handled);
+   *   - EXACT-ish sum (cents tolerance, no 1% widening — without a CNPJ to
+   *     corroborate, a loose value-only multi-seller sum is too risky);
+   *   - the summing subset must be CONFIDENTLY unique (complete search, exactly
+   *     one result); 0 / ambiguous / over-budget all defer to manual;
+   *   - members issued close together (one cart ships around the same time);
+   *   - pool-cap hit defers (a truncated pool can make a coincidence look unique).
+   */
+  private async tryMarketplaceSubsetSum(tx: RawTransaction): Promise<boolean> {
+    const absAmount = Math.abs(Number(tx.amount));
+    const lower = new Date(tx.postedAt.getTime() - MARKETPLACE_DATE_WINDOW_DAYS * 86_400_000);
+    const upper = new Date(tx.postedAt.getTime() + MARKETPLACE_DATE_WINDOW_DAYS * 86_400_000);
+
+    const pool = await this.prisma.fiscalDocument.findMany({
+      where: {
+        status: 'AUTHORIZED',
+        operationType: FiscalDocumentOperation.ENTRADA,
+        destCnpj: this.companyCnpj,
+        matches: { none: {} },
+        issueDate: { gte: lower, lte: upper },
+        // Each member is a PART of the payment — strictly smaller than it.
+        totalValue: { gt: 0, lt: absAmount },
+      },
+      orderBy: { id: 'asc' },
+      take: AUTO_MATCH_POOL_CAP,
+      select: { id: true, totalValue: true, issueDate: true, emitName: true },
+    });
+    // Cap hit ⇒ the pool may be truncated; a missing member could make a
+    // coincidental subset look unique. Defer rather than risk it.
+    if (pool.length >= AUTO_MATCH_POOL_CAP || pool.length < SUBSET_MIN_SIZE) return false;
+
+    const { subsets, complete } = findSubsetSums(
+      pool.map(d => ({ id: d.id, value: Number(d.totalValue) })),
+      absAmount,
+      MARKETPLACE_SUBSET_OPTS,
+    );
+    // Confident uniqueness only: 0 = nothing fits, ≥2 = ambiguous, !complete =
+    // budget hit — all defer to the manual UI.
+    if (!complete || subsets.length !== 1) return false;
+
+    const memberIds = new Set(subsets[0].ids);
+    const members = pool.filter(d => memberIds.has(d.id));
+    const subtotal = subsets[0].sum;
+    const times = members.map(m => m.issueDate.getTime());
+    // Members of one cart are issued close together.
+    if (Math.max(...times) - Math.min(...times) > SUBSET_INTRA_SPAN_DAYS * 86_400_000) {
+      return false;
+    }
+
+    const allocations = allocateWithResidual(
+      members.map(m => ({ id: m.id, value: Number(m.totalValue) })),
+      absAmount,
+    );
+    if (!allocations) return false;
+
+    const residual = subtotal - absAmount;
+    const sellers = [...new Set(members.map(m => m.emitName ?? '—'))];
+    const committed = await this.writeMultiNfMatch({
+      transactionId: tx.id,
+      allocations,
+      confidenceScore: MARKETPLACE_MATCH_CONFIDENCE,
+      notes:
+        `Pareamento marketplace por soma de ${members.length} notas de ` +
+        `${sellers.length} vendedor${sellers.length === 1 ? '' : 'es'} ` +
+        `somando R$ ${subtotal.toFixed(2)}` +
+        (Math.abs(residual) > 0.005 ? ` (Δ R$ ${Math.abs(residual).toFixed(2)})` : ''),
+    });
+    if (!committed) return false;
+
+    this.logger.log(
+      `Marketplace subset-sum match: tx ${tx.id} → ${members.length} NFs (R$ ${subtotal.toFixed(2)})`,
+    );
     return true;
   }
 

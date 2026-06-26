@@ -20,7 +20,7 @@ import {
   computeIRRF,
   computeSalarioFamilia,
   IRRF_DEPENDENT_DEDUCTION,
-} from '../src/modules/human-resources/payroll/utils/tax-tables';
+} from '../src/modules/personnel-department/payroll/utils/tax-tables';
 import { calculateEmployeeShare } from '../src/utils/benefit-discount';
 
 let passed = 0;

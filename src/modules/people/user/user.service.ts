@@ -64,7 +64,7 @@ import {
 } from '../../../constants/enums';
 import { POSITION_CHANGE_REASON_LABELS } from '../../../constants/enum-labels';
 import { CONTRACT_STATUS_ORDER } from '../../../constants/sortOrders';
-import { EmploymentContractService } from '@modules/human-resources/employment-contract/employment-contract.service';
+import { EmploymentContractService } from '@modules/personnel-department/employment-contract/employment-contract.service';
 import { isValidCPF, isValidPIS, isValidPhone } from '../../../utils';
 import {
   canTransitionContractStatus,
@@ -749,7 +749,7 @@ export class UserService {
       if (sector && sector.secullumDepartamentoId == null) {
         missing.push(
           `Setor "${sector.name}" sem departamento Secullum vinculado ` +
-            `(configure em Recursos Humanos → Integração Secullum)`,
+            `(configure em Departamento Pessoal → Integração Secullum)`,
         );
       }
     }
@@ -762,7 +762,7 @@ export class UserService {
       if (position && position.secullumFuncaoId == null) {
         missing.push(
           `Cargo "${position.name}" sem função Secullum vinculada ` +
-            `(configure em Recursos Humanos → Integração Secullum)`,
+            `(configure em Departamento Pessoal → Integração Secullum)`,
         );
       }
     }
@@ -901,6 +901,12 @@ export class UserService {
         ...contractDates,
         providerName: contractInput?.providerName ?? null,
         providerCnpj: contractInput?.providerCnpj ?? null,
+        hasArt481Clause: contractInput?.hasArt481Clause ?? false,
+        insalubrityDegreeOverride: contractInput?.insalubrityDegreeOverride ?? null,
+        hazardPayOverride: contractInput?.hazardPayOverride ?? null,
+        stabilityType: contractInput?.stabilityType ?? null,
+        stabilityStart: contractInput?.stabilityStart ?? null,
+        stabilityEnd: contractInput?.stabilityEnd ?? null,
       },
     });
 
@@ -1277,6 +1283,17 @@ export class UserService {
           exp2EndAt: _exp2EndAt,
           terminationDate: _terminationDate,
           terminationType: _terminationType,
+          // The fields below live on the EmploymentContract, NOT the User row —
+          // strip them here (Prisma would reject unknown args) and propagate to
+          // the current vínculo in contractUpdate below.
+          providerName: _providerName,
+          providerCnpj: _providerCnpj,
+          hasArt481Clause: _hasArt481Clause,
+          insalubrityDegreeOverride: _insalubrityDegreeOverride,
+          hazardPayOverride: _hazardPayOverride,
+          stabilityType: _stabilityType,
+          stabilityStart: _stabilityStart,
+          stabilityEnd: _stabilityEnd,
           // positionId/sectorId/payrollNumber stay on the User row (current
           // pointers) AND are propagated to the current contract below.
           ...dataForDb
@@ -1331,7 +1348,15 @@ export class UserService {
           (data as any).terminationType !== undefined ||
           data.hasOwnProperty('positionId') ||
           data.hasOwnProperty('sectorId') ||
-          data.hasOwnProperty('payrollNumber');
+          data.hasOwnProperty('payrollNumber') ||
+          data.hasOwnProperty('providerName') ||
+          data.hasOwnProperty('providerCnpj') ||
+          data.hasOwnProperty('hasArt481Clause') ||
+          data.hasOwnProperty('insalubrityDegreeOverride') ||
+          data.hasOwnProperty('hazardPayOverride') ||
+          data.hasOwnProperty('stabilityType') ||
+          data.hasOwnProperty('stabilityStart') ||
+          data.hasOwnProperty('stabilityEnd');
 
         if (currentContractId && contractFieldsTouched) {
           const contractUpdate: any = {};
@@ -1361,6 +1386,22 @@ export class UserService {
             contractUpdate.sectorId = (updatedUser as any).sectorId ?? null;
           if (data.hasOwnProperty('payrollNumber'))
             contractUpdate.payrollNumber = (updatedUser as any).payrollNumber ?? null;
+          if (data.hasOwnProperty('providerName'))
+            contractUpdate.providerName = (data as any).providerName ?? null;
+          if (data.hasOwnProperty('providerCnpj'))
+            contractUpdate.providerCnpj = (data as any).providerCnpj ?? null;
+          if (data.hasOwnProperty('hasArt481Clause'))
+            contractUpdate.hasArt481Clause = (data as any).hasArt481Clause ?? false;
+          if (data.hasOwnProperty('insalubrityDegreeOverride'))
+            contractUpdate.insalubrityDegreeOverride = (data as any).insalubrityDegreeOverride ?? null;
+          if (data.hasOwnProperty('hazardPayOverride'))
+            contractUpdate.hazardPayOverride = (data as any).hazardPayOverride ?? null;
+          if (data.hasOwnProperty('stabilityType'))
+            contractUpdate.stabilityType = (data as any).stabilityType ?? null;
+          if (data.hasOwnProperty('stabilityStart'))
+            contractUpdate.stabilityStart = (data as any).stabilityStart ?? null;
+          if (data.hasOwnProperty('stabilityEnd'))
+            contractUpdate.stabilityEnd = (data as any).stabilityEnd ?? null;
 
           await this.employmentContractService.updateWithTransaction(
             tx,

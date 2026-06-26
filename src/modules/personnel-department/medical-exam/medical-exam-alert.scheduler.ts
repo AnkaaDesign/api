@@ -120,7 +120,7 @@ export class MedicalExamAlertScheduler {
           },
           overrides: {
             webUrl: '/medicina-do-trabalho/aso',
-            mobileUrl: '/(tabs)/recursos-humanos/medicina/aso',
+            mobileUrl: '/(tabs)/departamento-pessoal/medicina/aso',
             relatedEntityType: 'MEDICAL_EXAM',
             title: 'Exames ocupacionais a vencer',
             body: `${expiring.length} exame(s) vencem nos próximos ${this.advanceDays} dias${
@@ -154,7 +154,7 @@ export class MedicalExamAlertScheduler {
           },
           overrides: {
             webUrl: '/medicina-do-trabalho/aso',
-            mobileUrl: '/(tabs)/recursos-humanos/medicina/aso',
+            mobileUrl: '/(tabs)/departamento-pessoal/medicina/aso',
             relatedEntityType: 'MEDICAL_EXAM',
             title: 'Exames de retorno ao trabalho pendentes',
             body: `${returnDue.length} exame(s) de retorno ao trabalho (ASO) aguardam realização${

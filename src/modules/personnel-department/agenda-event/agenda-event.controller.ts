@@ -1,6 +1,6 @@
 // agenda-event.controller.ts
 // Agenda com avisos — CRUD completo. Acesso espelha o calendário de RH
-// (Contabilidade, Recursos Humanos e Admin).
+// (Contabilidade, Departamento Pessoal e Admin).
 
 import {
   Body,

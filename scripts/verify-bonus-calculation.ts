@@ -10,7 +10,7 @@
 import {
   BonusCalculationService,
   DEFAULT_BONUS_CONFIG,
-} from '../src/modules/human-resources/bonus/bonus-calculation.service';
+} from '../src/modules/personnel-department/bonus/bonus-calculation.service';
 
 const POSITIONS = [
   { name: 'Junior I', salary: 2257.67 },

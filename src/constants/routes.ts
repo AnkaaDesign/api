@@ -104,8 +104,8 @@ export const routes = {
     root: '/financeiro',
   },
 
-  // Human Resources - Recursos Humanos - Human Resources
-  humanResources: {
+  // Personnel Department - Departamento Pessoal - Personnel Department
+  personnelDepartment: {
     calculations: {
       list: '/departamento-pessoal/calculos',
       root: '/departamento-pessoal/calculos',
@@ -539,7 +539,7 @@ export const routes = {
   // Statistics - Estatísticas - Statistics/Analytics
   statistics: {
     administration: '/estatisticas/administracao',
-    humanResources: '/estatisticas/departamento-pessoal',
+    personnelDepartment: '/estatisticas/departamento-pessoal',
     inventory: {
       root: '/estatisticas/estoque',
       consumption: '/estatisticas/estoque/consumo',

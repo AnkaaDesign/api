@@ -27,7 +27,7 @@ import qs from 'qs';
 
 import {
   TerminationCalculationService,
-} from '../src/modules/human-resources/termination/termination-calculation.service';
+} from '../src/modules/personnel-department/termination/termination-calculation.service';
 import {
   TERMINATION_TYPE,
   NOTICE_TYPE,
@@ -43,7 +43,7 @@ import {
   getIrrfTableForYear,
   computeProgressiveINSS,
   computeIRRF,
-} from '../src/modules/human-resources/payroll/utils/tax-tables';
+} from '../src/modules/personnel-department/payroll/utils/tax-tables';
 
 // ============================================================================
 // CLI

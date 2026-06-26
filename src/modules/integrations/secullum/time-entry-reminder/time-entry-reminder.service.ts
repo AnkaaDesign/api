@@ -714,7 +714,7 @@ export class TimeEntryReminderService {
           },
           overrides: {
             webUrl: '/departamento-pessoal/controle-ponto',
-            mobileUrl: '/(tabs)/recursos-humanos/controle-ponto',
+            mobileUrl: '/(tabs)/departamento-pessoal/controle-ponto',
             relatedEntityType: 'TIME_ENTRY',
             title: `Ponto não registrado — ${user.name}`,
             body: `${user.name} não registrou ${entryLabel} (horário esperado: ${expectedTime}) em ${today}.`,
@@ -934,7 +934,7 @@ export class TimeEntryReminderService {
                     userId ? '' : ' (funcionário sem usuário vinculado no Ankaa).'
                   }`,
                   webUrl: '/departamento-pessoal/controle-ponto/ausencias',
-                  mobileUrl: '/(tabs)/recursos-humanos/calculos',
+                  mobileUrl: '/(tabs)/departamento-pessoal/calculos',
                   relatedEntityType: 'SECULLUM_SOLICITACAO',
                 },
               },

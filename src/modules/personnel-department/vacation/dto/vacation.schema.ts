@@ -2,7 +2,7 @@
 // Férias (Departamento Pessoal) — Part C.
 //
 // NOTE (ownership): per the Phase-2/Part-C ownership rule, the vacation module
-// owns ONLY `modules/human-resources/vacation/**`. To avoid editing the shared
+// owns ONLY `modules/personnel-department/vacation/**`. To avoid editing the shared
 // `src/schemas/index.ts` aggregator, the Férias zod schemas + inferred form-data
 // types live HERE (module-local) instead of `src/schemas/vacation.ts`. The
 // orchestrator may later relocate them to the global aggregator for web/mobile
