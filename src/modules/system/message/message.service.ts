@@ -678,6 +678,107 @@ export class MessageService {
   }
 
   /**
+   * Archive a message (admin only): hide it without deleting.
+   */
+  async archive(id: string): Promise<Message> {
+    this.logger.log(`Archiving message: ${id}`);
+
+    try {
+      await this.findOne(id); // throws 404 if missing
+
+      const message = await this.prisma.message.update({
+        where: { id },
+        data: { status: 'ARCHIVED', archivedAt: new Date() },
+      });
+
+      this.logger.log(`Message archived successfully: ${id}`);
+      return message;
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error('Error archiving message:', error);
+      throw new InternalServerErrorException('Falha ao arquivar mensagem');
+    }
+  }
+
+  /**
+   * Activate (publish) a message (admin only). Mirrors update()'s publish path:
+   * sets ACTIVE, stamps publishedAt on the first publish, clears archivedAt, and
+   * emits message.published exactly once (guarded on publishedAt === null).
+   */
+  async activate(id: string): Promise<Message> {
+    this.logger.log(`Activating message: ${id}`);
+
+    try {
+      const existing = await this.findOne(id); // throws 404 if missing
+      const isFirstPublish = !existing.publishedAt;
+
+      const message = await this.prisma.message.update({
+        where: { id },
+        data: {
+          status: 'ACTIVE',
+          archivedAt: null,
+          ...(isFirstPublish ? { publishedAt: new Date() } : {}),
+        },
+      });
+
+      if (isFirstPublish) {
+        try {
+          const targetRows = await this.prisma.messageTarget.findMany({
+            where: { messageId: id },
+            select: { userId: true },
+          });
+          this.eventEmitter.emit(
+            'message.published',
+            new MessagePublishedEvent(
+              message,
+              targetRows.map(t => t.userId),
+              message.createdById,
+            ),
+          );
+        } catch (emitError) {
+          // Never let a notification failure break the business transaction.
+          this.logger.error('Error emitting message.published event:', emitError);
+        }
+      }
+
+      this.logger.log(`Message activated successfully: ${id}`);
+      return message;
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error('Error activating message:', error);
+      throw new InternalServerErrorException('Falha ao ativar mensagem');
+    }
+  }
+
+  /**
+   * Batch delete messages (admin only). MessageView/MessageTarget rows cascade
+   * on delete (onDelete: Cascade), so a single deleteMany is sufficient.
+   */
+  async batchRemove(ids: string[]): Promise<{ deletedCount: number }> {
+    const list = Array.isArray(ids) ? ids.filter(Boolean) : [];
+    this.logger.log(`Batch deleting ${list.length} message(s)`);
+
+    if (list.length === 0) {
+      return { deletedCount: 0 };
+    }
+
+    try {
+      const result = await this.prisma.message.deleteMany({
+        where: { id: { in: list } },
+      });
+      this.logger.log(`Batch deleted ${result.count} message(s)`);
+      return { deletedCount: result.count };
+    } catch (error) {
+      this.logger.error('Error batch deleting messages:', error);
+      throw new InternalServerErrorException('Falha ao excluir mensagens');
+    }
+  }
+
+  /**
    * Get unviewed messages for current user
    */
   async getUnviewedForUser(userId: string, userRole: string): Promise<Message[]> {

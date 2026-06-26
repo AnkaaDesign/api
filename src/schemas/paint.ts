@@ -734,6 +734,21 @@ export const paintIncludeSchema = z
 
 export const paintFormulaIncludeSchema = z
   .object({
+    // Relation counts (e.g. number of components) — without this the requested
+    // `_count` is stripped and the formula "Componentes" count renders as 0.
+    _count: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              components: z.boolean().optional(),
+              paintProduction: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
     components: z
       .union([
         z.boolean(),
