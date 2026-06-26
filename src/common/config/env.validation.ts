@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { config } from 'dotenv';
+import { join } from 'path';
 
 // Load environment variables from .env file (if not already loaded by PM2/runtime)
 // PM2 startup scripts load .env.production or .env.staging
@@ -29,6 +30,12 @@ export const envSchema = z.object({
   MAX_FILE_SIZE: z.string().regex(/^\d+$/).transform(Number).default('52428800'),
   ALLOWED_FILE_TYPES: z.string().default('image/*,application/pdf,application/msword'),
   FILE_URL_PREFIX: z.string().default('/files'),
+
+  // Native App Install (self-hosted iOS .ipa / Android .apk distribution)
+  // Storage dir for the published binaries + meta.json (anchored to the build root).
+  INSTALL_DIR: z.string().default(join(__dirname, '..', '..', 'install-binaries')),
+  // Public origin used to build the itms-services manifest download URLs.
+  INSTALL_PUBLIC_URL: z.string().url().default('https://api.ankaadesign.com.br'),
 
   // Twilio SMS
   TWILIO_ACCOUNT_SID: z.string().optional(),
