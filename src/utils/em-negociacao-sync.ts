@@ -117,6 +117,14 @@ export async function syncEmNegociacaoForTask(
     }
 
     const quoteStatus = task.quote?.status as TASK_QUOTE_STATUS | undefined;
+    // A cancelled quote/task is terminal: never reopen or re-drive the Em
+    // Negociação SO. Without this, a direct task cancellation (which sets the
+    // quote to CANCELLED but does not cancel the commercial SO) would fall
+    // through to the !quoteAtOrAbove branch and reactivate a COMPLETED SO to
+    // IN_PROGRESS, emitting a bogus "started.commercial" notification on a
+    // cancelled task. The auto-cancel path already cancels the SO (handled by
+    // the RESPECT_MANUAL guard above), so this only affects direct cancels.
+    if (quoteStatus === TASK_QUOTE_STATUS.CANCELLED) return;
     const quoteAtOrAbove =
       !!quoteStatus &&
       STATUSES_AT_OR_ABOVE_BUDGET_APPROVED.includes(quoteStatus);
