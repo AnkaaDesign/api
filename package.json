@@ -193,7 +193,7 @@
     "@paint": "./dist/modules/paint",
     "@system": "./dist/modules/system",
     "@integrations": "./dist/modules/integrations",
-    "@human-resources": "./dist/modules/human-resources"
+    "@personnel-department": "./dist/modules/personnel-department"
   },
   "pnpm": {
     "overrides": {

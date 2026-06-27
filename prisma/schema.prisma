@@ -989,6 +989,7 @@ enum AccountingType {
   ESTORNO // reversals / refunds
   LUCRO_DISTRIBUIDO // distributed profit (LD/S, LD/G)
   RECEITA_SERVICOS // service revenue — incoming receipts that settle task/external-op receivables
+  EXTRAORDINARIO // extraordinary / non-recurring exceptional items
 }
 
 model ItemCategory {
