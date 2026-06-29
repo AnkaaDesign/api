@@ -22,5 +22,9 @@ export abstract class WarehouseLocationRepository extends BaseStringRepository<
   WarehouseLocationWhere
 > {
   // WarehouseLocation-specific methods
-  abstract findByCode(code: string, tx?: PrismaTransaction): Promise<WarehouseLocation | null>;
+  abstract findByCodeAndSection(
+    code: string,
+    section: string | null,
+    tx?: PrismaTransaction,
+  ): Promise<WarehouseLocation | null>;
 }

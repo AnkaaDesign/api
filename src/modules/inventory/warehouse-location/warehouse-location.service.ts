@@ -53,18 +53,36 @@ export class WarehouseLocationService {
   ) {}
 
   /**
-   * Validar localização (código único)
+   * Validar localização (código único por setor)
    */
   private async validate(
     data: Partial<WarehouseLocationCreateFormData | WarehouseLocationUpdateFormData>,
     existingId?: string,
     tx?: PrismaTransaction,
   ): Promise<void> {
-    // Código deve ser único quando fornecido
+    // Código deve ser único dentro do setor (section) quando fornecido — o mesmo
+    // código pode se repetir em setores diferentes.
     if (data.code) {
-      const existingByCode = await this.warehouseLocationRepository.findByCode(data.code, tx);
+      // Setor efetivo: o informado na alteração ou, quando não enviado em uma
+      // atualização, o setor já gravado no registro.
+      let section: string | null = data.section ?? null;
+      if (data.section === undefined && existingId) {
+        const existing = await this.warehouseLocationRepository.findByIdWithTransaction(
+          tx,
+          existingId,
+        );
+        section = existing?.section ?? null;
+      }
+
+      const existingByCode = await this.warehouseLocationRepository.findByCodeAndSection(
+        data.code,
+        section,
+        tx,
+      );
       if (existingByCode && existingByCode.id !== existingId) {
-        throw new BadRequestException('Código já está em uso por outra localização.');
+        throw new BadRequestException(
+          'Código já está em uso por outra localização neste setor.',
+        );
       }
     }
   }

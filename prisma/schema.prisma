@@ -864,8 +864,9 @@ model WarehouseLocation {
   type        WarehouseLocationType @default(ESTANTE)
   // Optional grouping label (e.g. "Setor 1") so locations can be organized.
   section     String?
-  // Optional short human code (e.g. "A1-03"); unique when provided.
-  code        String?               @unique
+  // Optional short human code (e.g. "A1-03"); unique per section (setor) when
+  // provided, so the same code can be reused across different setores.
+  code        String?
   description String?
   isActive    Boolean               @default(true)
 
@@ -892,6 +893,7 @@ model WarehouseLocation {
   descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   nameNormalized String? /// accent-insensitive search (generated column, see migration)
   sectionNormalized String? /// accent-insensitive search (generated column, see migration)
+  @@unique([section, code])
   @@index([name])
   @@index([section])
   @@index([isActive])
@@ -1195,6 +1197,7 @@ model Order {
   notes                 String?
   freight               Float                @default(0)
   discount              Float                @default(0)
+  totalOverride         Float? // manual grand-total override; null = use the computed total (items − discount + freight)
   paymentMethod         PaymentMethod?
   paymentPix            String?
   paymentDueDays        Int? // boleto: nº de dias entre parcelas (intervalo/steps)

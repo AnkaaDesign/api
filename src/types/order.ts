@@ -149,6 +149,7 @@ export interface Order extends BaseEntity {
   notes: string | null;
   freight: number;
   discount: number;
+  totalOverride: number | null; // manual grand-total override (Valor Total); null = use computed total
   paymentMethod: PAYMENT_METHOD | null;
   paymentPix: string | null;
   paymentDueDays: number | null; // boleto: intervalo (dias) entre parcelas

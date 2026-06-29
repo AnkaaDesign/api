@@ -352,7 +352,10 @@ export class OrderService {
           }
           const discountAmount =
             orderData.discount > 0 ? goodsSubtotal * (orderData.discount / 100) : 0;
-          const total = itemsTotal - discountAmount + (orderData.freight || 0);
+          const computedTotal = itemsTotal - discountAmount + (orderData.freight || 0);
+          // Honor the manual grand-total override when present (null = use computed).
+          const total =
+            orderData.totalOverride != null ? (orderData.totalOverride as number) : computedTotal;
           await this.generateInstallmentsForOrder(tx, newOrder.id, {
             total,
             count: installmentCount,
@@ -999,6 +1002,7 @@ export class OrderService {
             paymentFirstDueDate: true,
             freight: true,
             discount: true,
+            totalOverride: true,
             items: { select: { orderedQuantity: true, price: true, icms: true, ipi: true } },
             installments: {
               select: { number: true, dueDate: true, status: true, paidAmount: true },
@@ -2815,8 +2819,14 @@ export class OrderService {
   private computeOrderPayableTotal(order: {
     freight?: number | null;
     discount?: number | null;
+    totalOverride?: number | null;
     items: Array<{ orderedQuantity: number; price: number; icms?: number | null; ipi?: number | null }>;
   }): number {
+    // Manual grand-total override (Valor Total): when set, it IS the order total —
+    // per-item prices (stock value etc.) are untouched, only the order-level total.
+    if (order.totalOverride != null) {
+      return Math.max(0, Math.round(order.totalOverride * 100) / 100);
+    }
     let itemsTotal = 0;
     let goodsSubtotal = 0;
     for (const item of order.items) {
@@ -2864,6 +2874,7 @@ export class OrderService {
           paymentStatus: true,
           freight: true,
           discount: true,
+          totalOverride: true,
           items: {
             select: { orderedQuantity: true, price: true, icms: true, ipi: true },
           },
@@ -2946,6 +2957,7 @@ export class OrderService {
         paidAt: true,
         freight: true,
         discount: true,
+        totalOverride: true,
         installmentCount: true,
         supplierId: true,
         supplier: { select: { id: true, fantasyName: true } },

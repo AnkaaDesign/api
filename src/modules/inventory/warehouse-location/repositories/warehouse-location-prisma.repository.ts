@@ -322,17 +322,23 @@ export class WarehouseLocationPrismaRepository
     }
   }
 
-  async findByCode(code: string, tx?: PrismaTransaction): Promise<WarehouseLocation | null> {
+  async findByCodeAndSection(
+    code: string,
+    section: string | null,
+    tx?: PrismaTransaction,
+  ): Promise<WarehouseLocation | null> {
     const transaction = tx || this.prisma;
     try {
       const result = await transaction.warehouseLocation.findFirst({
-        where: { code },
+        // Code is unique per setor (section), so the same code may be reused
+        // across different setores.
+        where: { code, section: section ?? null },
         include: this.getDefaultInclude(),
       });
 
       return result ? this.mapDatabaseEntityToEntity(result) : null;
     } catch (error) {
-      this.logError(`buscar localização por código ${code}`, error);
+      this.logError(`buscar localização por código ${code} no setor ${section ?? '—'}`, error);
       throw error;
     }
   }
