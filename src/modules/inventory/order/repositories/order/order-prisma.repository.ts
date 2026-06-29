@@ -113,6 +113,8 @@ export class OrderPrismaRepository
       notes: orderData.notes || null,
       freight: orderData.freight ?? 0,
       discount: orderData.discount ?? 0,
+      // Manual grand-total override (Valor Total); null = use the computed total.
+      totalOverride: (orderData as any).totalOverride ?? null,
       orderRuleId: orderData.orderRuleId || null,
       paymentMethod: (orderData.paymentMethod as any) || null,
       paymentPix: orderData.paymentPix || null,
@@ -198,6 +200,9 @@ export class OrderPrismaRepository
     if (formData.notes !== undefined) updateData.notes = formData.notes;
     if ((formData as any).freight !== undefined) updateData.freight = (formData as any).freight;
     if ((formData as any).discount !== undefined) updateData.discount = (formData as any).discount;
+    // Manual grand-total override (Valor Total); null clears it / falls back to computed.
+    if ((formData as any).totalOverride !== undefined)
+      updateData.totalOverride = (formData as any).totalOverride;
     if (formData.orderRuleId !== undefined) updateData.orderRuleId = formData.orderRuleId;
     if (formData.paymentMethod !== undefined)
       updateData.paymentMethod = formData.paymentMethod as any;
@@ -529,6 +534,7 @@ export class OrderPrismaRepository
       notes: databaseOrder.notes,
       freight: (databaseOrder as any).freight ?? 0,
       discount: (databaseOrder as any).discount ?? 0,
+      totalOverride: (databaseOrder as any).totalOverride ?? null,
       paymentMethod: databaseOrder.paymentMethod as any,
       paymentPix: databaseOrder.paymentPix as any,
       paymentDueDays: databaseOrder.paymentDueDays as any,
