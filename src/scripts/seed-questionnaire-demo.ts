@@ -7,6 +7,7 @@
 // Run:  cd api && npx tsx src/scripts/seed-questionnaire-demo.ts
 
 import { PrismaClient } from "@prisma/client";
+import { EMPLOYED_USER_WHERE } from "../utils/contract";
 
 const prisma = new PrismaClient();
 const rnd = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -99,7 +100,7 @@ async function main() {
   const optionsByQuestion = new Map<string, number[]>(questions.map((q) => [q.id, (q.options ?? []).map((o: any) => o.value)]));
 
   // 3. Users + creator.
-  const users = await prisma.user.findMany({ where: { isActive: true }, select: { id: true }, take: 30, orderBy: { name: "asc" } });
+  const users = await prisma.user.findMany({ where: { ...EMPLOYED_USER_WHERE }, select: { id: true }, take: 30, orderBy: { name: "asc" } });
   if (!users.length) throw new Error("Nenhum colaborador ativo encontrado.");
   const creator = users[0];
   const day = 24 * 60 * 60 * 1000;

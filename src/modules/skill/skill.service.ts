@@ -598,9 +598,12 @@ export class SkillService {
 
   async deleteAssessment(id: string) {
     const existing = await this.findAssessmentById(id);
-    if (existing.data.status !== 'CANCELLED') {
+    // An OPEN campaign is actively collecting evaluations — require it to be
+    // closed or cancelled first. Finished (CLOSED), cancelled and never-opened
+    // (DRAFT) campaigns can be deleted directly.
+    if (existing.data.status === 'OPEN') {
       throw new BadRequestException(
-        'Somente avaliações canceladas podem ser excluídas. Cancele a campanha antes.',
+        'Não é possível excluir uma campanha aberta. Feche ou cancele a campanha antes.',
       );
     }
     await this.prisma.assessment.update({

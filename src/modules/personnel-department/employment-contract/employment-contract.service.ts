@@ -69,8 +69,9 @@ export class EmploymentContractService {
   /**
    * Recalcula qual vínculo do colaborador é o atual (isCurrent) e atualiza o cache
    * no User: currentContractId/currentContractType/currentContractStatus/
-   * currentEmployeeType + espelha positionId/sectorId/payrollNumber e define
-   * isActive (true sse o vínculo atual estiver ABERTO, i.e. status != TERMINATED).
+   * currentEmployeeType + espelha positionId/sectorId/payrollNumber. A situação
+   * (currentContractStatus) é a fonte única de "vínculo ativo" — login e filtros
+   * derivam dela (isUserEmployed / EMPLOYED_USER_WHERE), sem flag isActive.
    * Sempre executado dentro da transação que alterou o(s) vínculo(s) do colaborador.
    *
    * REGRA do vínculo atual (corrige o bug que pegava o maior sequence ignorando
@@ -105,9 +106,9 @@ export class EmploymentContractService {
     }
 
     if (!current) {
-      // Sem vínculos: limpa o cache. isActive DEVE ir a false junto — manter o
-      // flag stale `true` divergiria do predicado `currentContractStatus != TERMINATED`
-      // (que os subsistemas — Secullum, etc. — esperam equivalente a isActive).
+      // Sem vínculos: limpa o cache. currentContractStatus = null significa
+      // "sem vínculo ativo" — login/elegibilidade derivam disso (isUserEmployed),
+      // não há mais flag isActive redundante a manter em sincronia.
       await tx.user.update({
         where: { id: userId },
         data: {
@@ -115,13 +116,10 @@ export class EmploymentContractService {
           currentContractType: null,
           currentContractStatus: null,
           currentEmployeeType: null,
-          isActive: false,
         },
       });
       return;
     }
-
-    const isOpen = isOpenStatus(current.status);
 
     await tx.user.update({
       where: { id: userId },
@@ -134,7 +132,6 @@ export class EmploymentContractService {
         positionId: current.positionId,
         sectorId: current.sectorId,
         payrollNumber: current.payrollNumber,
-        isActive: isOpen,
       },
     });
   }

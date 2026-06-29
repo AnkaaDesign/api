@@ -78,6 +78,43 @@ export function isOpenStatus(status: CONTRACT_STATUS | string | null | undefined
   return status != null && status !== CONTRACT_STATUS.TERMINATED;
 }
 
+/**
+ * Forma mínima do CACHE de vínculo espelhado no User (`currentContractStatus`)
+ * para avaliar "tem vínculo ativo / pode acessar o sistema".
+ */
+export interface UserContractCacheLike {
+  currentContractStatus?: CONTRACT_STATUS | string | null;
+}
+
+/**
+ * Predicado canônico "usuário com vínculo ATIVO" — SUBSTITUI o antigo flag
+ * `User.isActive` (removido). Verdadeiro ⇔ a situação do vínculo atual é ACTIVE.
+ *
+ * Um usuário SEM vínculo (`currentContractStatus = null`) ou DESLIGADO
+ * (TERMINATED) NÃO é ativo — exatamente o que o antigo `isActive` derivava
+ * (`isActive = isOpenStatus(currentContractStatus)`), agora lido direto da
+ * situação (fonte da verdade) em vez do espelho redundante.
+ *
+ * É também o gate de LOGIN: só acessa o sistema quem tem vínculo ativo.
+ */
+export function isUserEmployed(
+  user: UserContractCacheLike | null | undefined,
+): boolean {
+  return user?.currentContractStatus === CONTRACT_STATUS.ACTIVE;
+}
+
+/**
+ * Fragmento `where` Prisma que reproduz `isUserEmployed` no banco — SUBSTITUI o
+ * antigo `{ isActive: true }`. Use para filtrar usuários ativos/empregados.
+ *
+ * Importante: usa IGUALDADE (`= ACTIVE`), não `{ not: TERMINATED }`. O filtro
+ * `not` do Prisma é NULL-inclusivo (traria usuários sem vínculo), enquanto o
+ * antigo `isActive: true` os excluía. A igualdade preserva esse comportamento.
+ */
+export const EMPLOYED_USER_WHERE = {
+  currentContractStatus: CONTRACT_STATUS.ACTIVE,
+} as const;
+
 // =====================
 // Máquina de transição de situação (CONTRACT_STATUS)
 // =====================

@@ -51,7 +51,6 @@ export interface User extends BaseEntity {
   currentContractType: CONTRACT_TYPE | null;
   currentContractStatus: CONTRACT_STATUS | null;
   currentEmployeeType: EMPLOYEE_TYPE | null;
-  isActive: boolean;
   phone: string | null;
   password?: string | null;
   positionId: string | null;
@@ -157,7 +156,6 @@ export interface UserSelect {
   currentContractType?: boolean;
   currentContractStatus?: boolean;
   currentEmployeeType?: boolean;
-  isActive?: boolean;
   verified?: boolean;
 
   // Employment fields
@@ -387,7 +385,6 @@ export interface UserMinimal {
   currentContractType?: CONTRACT_TYPE | null;
   currentContractStatus?: CONTRACT_STATUS | null;
   currentEmployeeType?: EMPLOYEE_TYPE | null;
-  isActive?: boolean;
 }
 
 /**
@@ -432,7 +429,6 @@ export interface UserWithEmployment extends UserMinimal {
   currentContractType?: CONTRACT_TYPE | null;
   currentContractStatus?: CONTRACT_STATUS | null;
   currentEmployeeType?: EMPLOYEE_TYPE | null;
-  isActive: boolean;
 }
 
 /**
@@ -465,7 +461,6 @@ export const UserSelectPresets = {
     currentContractType: true,
     currentContractStatus: true,
     currentEmployeeType: true,
-    isActive: true,
   } as const,
 
   /**
@@ -479,7 +474,6 @@ export const UserSelectPresets = {
     currentContractType: true,
     currentContractStatus: true,
     currentEmployeeType: true,
-    isActive: true,
     positionId: true,
     position: true,
   } as const,
@@ -495,7 +489,6 @@ export const UserSelectPresets = {
     currentContractType: true,
     currentContractStatus: true,
     currentEmployeeType: true,
-    isActive: true,
     sectorId: true,
     sector: true,
   } as const,
@@ -511,7 +504,6 @@ export const UserSelectPresets = {
     currentContractType: true,
     currentContractStatus: true,
     currentEmployeeType: true,
-    isActive: true,
     positionId: true,
     sectorId: true,
     payrollNumber: true,
@@ -533,7 +525,6 @@ export const UserSelectPresets = {
     currentContractType: true,
     currentContractStatus: true,
     currentEmployeeType: true,
-    isActive: true,
     phone: true,
     positionId: true,
     preferenceId: true,
@@ -566,7 +557,6 @@ export interface UserOrderBy {
   currentContractType?: ORDER_BY_DIRECTION;
   currentContractStatus?: ORDER_BY_DIRECTION;
   currentEmployeeType?: ORDER_BY_DIRECTION;
-  isActive?: ORDER_BY_DIRECTION;
   phone?: ORDER_BY_DIRECTION;
   password?: ORDER_BY_DIRECTION;
   pis?: ORDER_BY_DIRECTION;

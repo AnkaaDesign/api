@@ -29,6 +29,7 @@ import { NotificationPreferenceService } from './notification-preference.service
 import { NotificationAnalyticsService } from './notification-analytics.service';
 import { NotificationDispatchService } from './notification-dispatch.service';
 import { SECTOR_PRIVILEGES, NOTIFICATION_CHANNEL } from '../../../constants';
+import { EMPLOYED_USER_WHERE } from '../../../utils/contract';
 import {
   GetNotificationsFilterDto,
   MarkNotificationsReadDto,
@@ -476,7 +477,7 @@ export class NotificationAdminApiController {
     if (dto.targetSectors && dto.targetSectors.length > 0) {
       const users = await this.prisma.user.findMany({
         where: {
-          isActive: true,
+          ...EMPLOYED_USER_WHERE,
           sector: {
             privileges: {
               in: dto.targetSectors as any,
@@ -565,7 +566,7 @@ export class NotificationAdminApiController {
     // If no targeting specified - send to all active users
     const allUsers = await this.prisma.user.findMany({
       where: {
-        isActive: true,
+        ...EMPLOYED_USER_WHERE,
       },
       select: {
         id: true,

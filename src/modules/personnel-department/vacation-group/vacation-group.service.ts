@@ -21,6 +21,7 @@ import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { logEntityChange } from '@modules/common/changelog/utils/changelog-helpers';
 import {
   CHANGE_ACTION,
+  CONTRACT_STATUS,
   CHANGE_TRIGGERED_BY,
   ENTITY_TYPE,
   VACATION_GROUP_TYPE,
@@ -346,7 +347,7 @@ export class VacationGroupService {
     sectorIds: string[];
     positionIds: string[];
   }): Promise<VacationGroupMember[]> {
-    const where: any = { currentContractStatus: 'ACTIVE' };
+    const where: any = { currentContractStatus: CONTRACT_STATUS.ACTIVE };
     if (group.type === VACATION_GROUP_TYPE.SECTOR) {
       where.sectorId = { in: group.sectorIds };
     } else if (group.type === VACATION_GROUP_TYPE.POSITION) {

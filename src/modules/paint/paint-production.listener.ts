@@ -4,6 +4,7 @@ import { NotificationDispatchService } from '@modules/common/notification/notifi
 import { DeepLinkService } from '@modules/common/notification/deep-link.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TASK_STATUS } from '../../constants/enums';
+import { EMPLOYED_USER_WHERE } from '../../utils/contract';
 
 /**
  * Event emitted when paint is produced
@@ -116,7 +117,7 @@ export class PaintProductionListener {
       // Get active users in those sectors (dispatch service will also exclude the triggering user)
       const usersInSectors = await this.prisma.user.findMany({
         where: {
-          isActive: true,
+          ...EMPLOYED_USER_WHERE,
           sectorId: {
             in: sectorIds as string[],
           },

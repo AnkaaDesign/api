@@ -79,7 +79,6 @@ export abstract class UserRepository extends BaseStringRepository<
       phone: string | null;
       currentContractType: string | null;
       currentContractStatus: string | null;
-      isActive: boolean;
       avatarId: string | null;
       payrollNumber: number | null;
       sector: { id: string; name: string } | null;

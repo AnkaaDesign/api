@@ -41,6 +41,8 @@ export interface Preferences extends BaseEntity {
   favorites?: string[]; // Array of FAVORITE_PAGES enum values
   dashboardLayoutWeb?: unknown | null; // DashboardLayout JSON; validated at the dashboard module
   dashboardLayoutMobile?: unknown | null;
+  tableConfigsWeb?: unknown | null; // { [tableId]: PersistedTableConfig } — web DataTable per-user layout; validated client-side
+  detailConfigsWeb?: unknown | null; // { [detailKey]: PersistedDetailConfig } — web detail-page per-user layout; validated client-side
 
   // Relations
   user?: User;

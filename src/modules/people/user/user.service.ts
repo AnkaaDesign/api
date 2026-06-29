@@ -540,6 +540,9 @@ export class UserService {
       // columns. `contractKinds` is a backward-compatible alias for contractTypes.
       if (filters.contractStatuses && filters.contractStatuses.length > 0) {
         finalWhere.currentContractStatus = { in: filters.contractStatuses };
+      } else if (filters.statuses && filters.statuses.length > 0) {
+        // `statuses` alias (web "Exibir" filter) → same cache column.
+        finalWhere.currentContractStatus = { in: filters.statuses };
       }
       if (filters.contractTypes && filters.contractTypes.length > 0) {
         finalWhere.currentContractType = { in: filters.contractTypes };
@@ -551,13 +554,9 @@ export class UserService {
       }
 
       // Handle boolean filters
-      // isActive is THE canonical "currently employed" signal — keyed off the
-      // synced User.isActive column (robust for null/zero-contract users).
-      // An internal caller passing { isActive: false } reliably gets dismissed
-      // users. When undefined, no condition is applied (all users returned).
-      if (filters.isActive !== undefined) {
-        finalWhere.isActive = filters.isActive;
-      }
+      // "Currently employed" is derived from contract situação — callers filter
+      // with contractStatuses: [ACTIVE] / [TERMINATED] (handled above). The
+      // redundant User.isActive column was removed.
       if (filters.isVerified !== undefined) {
         finalWhere.verified = filters.isVerified;
       }
@@ -1424,7 +1423,6 @@ export class UserService {
           'performanceLevel',
           'sectorId',
           'verified',
-          'isActive',
           'requirePasswordChange',
           'birth',
           'verificationCode',

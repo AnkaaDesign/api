@@ -124,7 +124,6 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'email',
     'avatar',
     'role',
-    'isActive',
     'createdAt',
     'updatedAt',
     'positionId',

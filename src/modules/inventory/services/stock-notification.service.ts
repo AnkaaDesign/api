@@ -19,6 +19,7 @@ import {
 import { StockCalculationResult } from './atomic-stock-calculator.service';
 import { PrismaTransaction } from '../activity/repositories/activity.repository';
 import { isFixedTarget } from '../../../constants/inventory-config';
+import { EMPLOYED_USER_WHERE } from '../../../utils/contract';
 
 export enum STOCK_EVENT_TYPE {
   LOW = 'low',
@@ -401,8 +402,7 @@ export class StockNotificationService {
   async getTargetUsers(tx: PrismaTransaction) {
     return tx.user.findMany({
       where: {
-        isActive: true,
-        currentContractStatus: { not: 'TERMINATED' },
+        ...EMPLOYED_USER_WHERE,
         sector: {
           privileges: { in: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.WAREHOUSE] },
         },

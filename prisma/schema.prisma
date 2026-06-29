@@ -2149,7 +2149,6 @@ model User {
   updatedAt                      DateTime                     @updatedAt
   performanceLevel               Int                          @default(0)
   avatarId                       String?
-  isActive                       Boolean                      @default(true)
   unionMember                    Boolean                      @default(false)
   unionAuthorizationDate         DateTime?
   dependentsCount                Int                          @default(0)
@@ -2252,7 +2251,6 @@ model User {
   @@index([currentContractStatus, sectorId])
   @@index([currentContractType])
   @@index([currentEmployeeType])
-  @@index([isActive])
   @@index([email])
   @@index([phone])
   @@index([email, phone])
@@ -2270,6 +2268,8 @@ model Preferences {
   favorites             String[]    @default([])
   dashboardLayoutWeb    Json?
   dashboardLayoutMobile Json?
+  tableConfigsWeb       Json? /// { [tableId]: PersistedTableConfig } — web DataTable per-user layout (column order/sizing/visibility, pinned rows, page size, default sort/filters). Validated client-side, same approach as dashboardLayoutWeb.
+  detailConfigsWeb      Json? /// { [detailKey]: PersistedDetailConfig } — web detail-page per-user layout (section order/visibility, field visibility, collapsed, pinned sections). Validated client-side, same approach as tableConfigsWeb.
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
   user                  User        @relation("USER_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)

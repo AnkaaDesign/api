@@ -17,6 +17,7 @@ import {
   CHANGE_ACTION,
   CHANGE_TRIGGERED_BY,
 } from '../../../constants';
+import { EMPLOYED_USER_WHERE } from '../../../utils/contract';
 import { logEntityChange, trackAndLogFieldChanges } from '../changelog/utils/changelog-helpers';
 import { User, UserNotificationPreference } from '../../../types';
 import { WorkScheduleService } from './work-schedule.service';
@@ -841,7 +842,7 @@ export class NotificationConfigurationService {
         const sectorUsers = await this.prisma.user.findMany({
           where: {
             sectorId: context.sectorId,
-            isActive: true,
+            ...EMPLOYED_USER_WHERE,
           },
           select: { id: true },
         });

@@ -12,6 +12,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { normalizeSearchTerm } from '@schemas';
 import { CreateMessageDto, UpdateMessageDto, FilterMessageDto } from './dto';
 import { MessagePublishedEvent } from './message.events';
+import { EMPLOYED_USER_WHERE } from '@utils/contract';
 
 import type { Message, MessageView, MessageTarget, MessageStatus } from '@prisma/client';
 
@@ -387,7 +388,7 @@ export class MessageService {
       });
 
       // Get total active users count for messages targeting all users
-      const totalActiveUsers = await this.prisma.user.count({ where: { isActive: true } });
+      const totalActiveUsers = await this.prisma.user.count({ where: { ...EMPLOYED_USER_WHERE } });
 
       // Map messages to include stats
       const data = messages.map(message => {
@@ -1098,7 +1099,7 @@ export class MessageService {
       // Simplified: no targets = ALL_USERS, has targets = count of targets
       if (!message.targets || message.targets.length === 0) {
         // ALL_USERS
-        targetedUsers = await this.prisma.user.count({ where: { isActive: true } });
+        targetedUsers = await this.prisma.user.count({ where: { ...EMPLOYED_USER_WHERE } });
       } else {
         // SPECIFIC_USERS (count unique user IDs in targets)
         targetedUsers = message.targets.length;

@@ -24,6 +24,7 @@ import {
   VERIFICATION_TYPE,
   SECTOR_PRIVILEGES,
 } from '../../../constants';
+import { isUserEmployed } from '../../../utils/contract';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { trackFieldChanges } from '@modules/common/changelog/utils/changelog-helpers';
 import type { SignInFormData, SignUpFormData, ChangePasswordFormData } from '../../../schemas';
@@ -123,7 +124,7 @@ export class AuthService {
     }
 
     // Check if user is active
-    if (!user.isActive) {
+    if (!isUserEmployed(user)) {
       throw new ForbiddenException('Sua conta está inativa. Entre em contato com o administrador.');
     }
 
@@ -763,10 +764,10 @@ export class AuthService {
     }
 
     // Flip the current contract's status (the user-update path writes the contract
-    // row and re-syncs the User cache + isActive flag).
+    // row and re-syncs the User cache). Login eligibility now derives from
+    // currentContractStatus (see isUserEmployed) — no separate isActive flag.
     await this.usersRepository.update(targetUserId, {
       contractStatus: status,
-      isActive: status !== CONTRACT_STATUS.TERMINATED,
     });
 
     // Track status change
@@ -979,7 +980,7 @@ export class AuthService {
     }
 
     // Check if user is active
-    if (!user.isActive) {
+    if (!isUserEmployed(user)) {
       throw new ForbiddenException('Sua conta está inativa. Entre em contato com o administrador.');
     }
 
@@ -1008,7 +1009,7 @@ export class AuthService {
     }
 
     // Check if user is active
-    if (!user.isActive) {
+    if (!isUserEmployed(user)) {
       throw new ForbiddenException('Sua conta está inativa. Entre em contato com o administrador.');
     }
 

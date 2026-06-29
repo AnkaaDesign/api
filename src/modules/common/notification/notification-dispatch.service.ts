@@ -31,6 +31,7 @@ import {
   SECTOR_PRIVILEGES_LABELS,
   NOTIFICATION_PRIORITY_LABELS,
 } from '../../../constants';
+import { EMPLOYED_USER_WHERE, isUserEmployed } from '../../../utils/contract';
 import { Prisma, NotificationActionType } from '@prisma/client';
 import { DeepLinkService } from './deep-link.service';
 import {
@@ -607,7 +608,7 @@ export class NotificationDispatchService {
       // Get all active users
       const users = await this.prisma.user.findMany({
         where: {
-          isActive: true,
+          ...EMPLOYED_USER_WHERE,
         },
         include: {
           sector: true,
@@ -684,7 +685,7 @@ export class NotificationDispatchService {
   async shouldSendToUser(user: User, notification: Notification): Promise<boolean> {
     try {
       // 1. User must be active
-      if (!user.isActive) {
+      if (!isUserEmployed(user)) {
         this.logger.debug(`User ${user.id} is not active, skipping notification`);
         return false;
       }
@@ -759,7 +760,7 @@ export class NotificationDispatchService {
    */
   isUserEligible(user: User, notification: Notification): boolean {
     // Must be active
-    if (!user.isActive) {
+    if (!isUserEmployed(user)) {
       return false;
     }
 
@@ -1758,7 +1759,7 @@ export class NotificationDispatchService {
       let targetUsers = await this.prisma.user.findMany({
         where: {
           id: { in: targetUserIds },
-          isActive: true,
+          ...EMPLOYED_USER_WHERE,
           ...(triggeringUserId && triggeringUserId !== 'system'
             ? { NOT: { id: triggeringUserId } }
             : {}),
@@ -2002,7 +2003,7 @@ export class NotificationDispatchService {
   ): Promise<User[]> {
     const users = await this.prisma.user.findMany({
       where: {
-        isActive: true,
+        ...EMPLOYED_USER_WHERE,
         sector: {
           is: {
             privileges: {

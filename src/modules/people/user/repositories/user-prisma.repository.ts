@@ -802,7 +802,7 @@ export class UserPrismaRepository
 
   /**
    * Find users for list views with basic information
-   * Includes: id, name, email, phone, status, isActive, avatarId, payrollNumber, sector, position
+   * Includes: id, name, email, phone, status, avatarId, payrollNumber, sector, position
    */
   async findManyForList(
     options?: FindManyOptions<UserOrderBy, UserWhere, UserInclude>,
@@ -815,7 +815,6 @@ export class UserPrismaRepository
       phone: string | null;
       currentContractType: string | null;
       currentContractStatus: string | null;
-      isActive: boolean;
       avatarId: string | null;
       payrollNumber: number | null;
       sector: { id: string; name: string } | null;
@@ -855,7 +854,6 @@ export class UserPrismaRepository
             currentContractType: true,
             currentContractStatus: true,
             currentEmployeeType: true,
-            isActive: true,
             avatarId: true,
             payrollNumber: true,
             sector: {

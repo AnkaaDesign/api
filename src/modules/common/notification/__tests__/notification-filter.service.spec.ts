@@ -479,7 +479,7 @@ describe('NotificationFilterService', () => {
       expect(prisma.user.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            isActive: true,
+            currentContractStatus: 'ACTIVE',
             OR: expect.any(Array),
           }),
         }),
@@ -554,8 +554,8 @@ describe('NotificationFilterService', () => {
   describe('getUsersForSystemNotification', () => {
     it('should return all active users', async () => {
       const mockUsers = [
-        { id: 'user-1', isActive: true },
-        { id: 'user-2', isActive: true },
+        { id: 'user-1', currentContractStatus: 'ACTIVE' },
+        { id: 'user-2', currentContractStatus: 'ACTIVE' },
       ];
 
       mockPrismaService.user.findMany.mockResolvedValue(mockUsers);
