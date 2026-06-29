@@ -51,6 +51,7 @@ import {
   REGULAR_CONSUMPTION_REASONS,
 } from '../../../constants/inventory-config';
 import { getStatusOrder } from '../../../utils/order';
+import { isUserEmployed } from '../../../utils/contract';
 import { EXTERNAL_OPERATION_STATUS_ORDER } from '../../../constants/sortOrders';
 import { OrderItemEnteredInventoryEvent } from '../order/order.events';
 import { ItemRecomputeService } from '../services/item-recompute.service';
@@ -1691,7 +1692,7 @@ export class ActivityService {
     if (data.userId !== undefined && data.userId !== null) {
       const user = await tx.user.findUnique({
         where: { id: data.userId },
-        select: { id: true, isActive: true },
+        select: { id: true, currentContractStatus: true },
       });
 
       if (!user) {
@@ -1699,7 +1700,7 @@ export class ActivityService {
       }
 
       // Verificar se o usuário está ativo
-      if (!user.isActive) {
+      if (!isUserEmployed(user)) {
         throw new BadRequestException('Usuário não está ativo');
       }
     }

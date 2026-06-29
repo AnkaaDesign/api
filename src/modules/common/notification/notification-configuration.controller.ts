@@ -37,6 +37,7 @@ import {
   NOTIFICATION_IMPORTANCE,
   NOTIFICATION_CHANNEL,
 } from '../../../constants';
+import { EMPLOYED_USER_WHERE } from '../../../utils/contract';
 
 // =====================
 // DTOs
@@ -762,7 +763,7 @@ export class NotificationConfigurationController {
         targetUsers = await this.prisma.user.findMany({
           where: {
             id: { in: testDto.targetUserIds },
-            isActive: true,
+            ...EMPLOYED_USER_WHERE,
           },
           select: {
             id: true,
@@ -782,7 +783,7 @@ export class NotificationConfigurationController {
         targetUsers = await this.prisma.user.findMany({
           where: {
             sectorId: { in: testDto.targetSectorIds },
-            isActive: true,
+            ...EMPLOYED_USER_WHERE,
           },
           select: {
             id: true,
@@ -800,8 +801,8 @@ export class NotificationConfigurationController {
         });
       } else if (configuration.targetRule) {
         // Use target rules to determine recipients.
-        // Inactive users are NEVER notified, so isActive: true is unconditional.
-        const whereClause: any = { isActive: true };
+        // Inactive users are NEVER notified, so the employed-user filter is unconditional.
+        const whereClause: any = { ...EMPLOYED_USER_WHERE };
 
         if (
           configuration.targetRule.allowedSectors &&
@@ -965,14 +966,14 @@ export class NotificationConfigurationController {
         const users = await this.prisma.user.findMany({
           where: {
             sectorId: { in: sectorIds },
-            isActive: true,
+            ...EMPLOYED_USER_WHERE,
           },
           select: { id: true },
         });
         targetUserIds = users.map(u => u.id);
       } else if (configuration.targetRule) {
         // Use target rules
-        const whereClause: any = { isActive: true };
+        const whereClause: any = { ...EMPLOYED_USER_WHERE };
 
         if (
           configuration.targetRule.allowedSectors &&

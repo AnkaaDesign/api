@@ -11,6 +11,7 @@
 // Idempotent-ish: it always creates two NEW campaigns prefixed "[DEMO]".
 
 import { PrismaClient } from "@prisma/client";
+import { EMPLOYED_USER_WHERE } from "../utils/contract";
 
 const prisma = new PrismaClient();
 
@@ -39,7 +40,7 @@ async function main() {
 
   // 2. Active users — 1 evaluator + up to 20 evaluatees.
   const users = await prisma.user.findMany({
-    where: { isActive: true },
+    where: { ...EMPLOYED_USER_WHERE },
     select: { id: true, name: true, sectorId: true },
     take: 40,
     orderBy: { name: "asc" },

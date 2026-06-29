@@ -51,7 +51,6 @@ export const userSelectSchema = z
     pis: z.boolean().optional(),
     cpf: z.boolean().optional(),
     verified: z.boolean().optional(),
-    isActive: z.boolean().optional(),
     payrollNumber: z.boolean().optional(),
     birth: z.boolean().optional(),
     unionMember: z.boolean().optional(),
@@ -387,7 +386,6 @@ export const userSelectForList = {
   currentContractType: true,
   currentContractStatus: true,
   currentEmployeeType: true,
-  isActive: true,
   avatarId: true,
   payrollNumber: true,
   sector: {
@@ -414,7 +412,6 @@ export const userSelectForProfile = {
   currentContractType: true,
   currentContractStatus: true,
   currentEmployeeType: true,
-  isActive: true,
   verified: true,
   avatarId: true,
   payrollNumber: true,
@@ -489,7 +486,6 @@ export const userSelectForAuth = {
   verificationType: true,
   requirePasswordChange: true,
   sessionToken: true,
-  isActive: true,
   sectorId: true,
   positionId: true,
 } as const;
@@ -1017,15 +1013,6 @@ export const userWhereSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
-      isActive: z
-        .union([
-          z.boolean(),
-          z.object({
-            equals: z.boolean().optional(),
-            not: z.boolean().optional(),
-          }),
-        ])
-        .optional(),
 
       birth: z
         .union([
@@ -1251,11 +1238,12 @@ const userFilters = {
   positionIds: z.array(z.string()).optional(),
   // Granular situação/modalidade/categoria filters (key off the synced cache columns).
   contractStatuses: z.array(z.nativeEnum(CONTRACT_STATUS)).optional(),
+  // Alias for contractStatuses — the web "Exibir Ativos/Desligados/Todos" filter sends `statuses`.
+  statuses: z.array(z.nativeEnum(CONTRACT_STATUS)).optional(),
   contractTypes: z.array(z.nativeEnum(CONTRACT_TYPE)).optional(),
   employeeTypes: z.array(z.nativeEnum(EMPLOYEE_TYPE)).optional(),
   // Alias kept for backward compatibility — maps to currentContractType like contractTypes.
   contractKinds: z.array(z.nativeEnum(CONTRACT_TYPE)).optional(),
-  isActive: z.boolean().optional(),
   isVerified: z.boolean().optional(),
   hasPosition: z.boolean().optional(),
   hasSector: z.boolean().optional(),
@@ -1332,14 +1320,18 @@ const userTransform = (data: any) => {
   }
 
   // Handle granular situação filter (current contract lifecycle status).
-  if (
-    data.contractStatuses &&
-    Array.isArray(data.contractStatuses) &&
-    data.contractStatuses.length > 0
-  ) {
-    andConditions.push({ currentContractStatus: { in: data.contractStatuses } });
-    delete data.contractStatuses;
+  // `statuses` is a backward-compatible alias (the web "Exibir" filter) → same cache column.
+  const contractStatusValues =
+    (Array.isArray(data.contractStatuses) &&
+      data.contractStatuses.length > 0 &&
+      data.contractStatuses) ||
+    (Array.isArray(data.statuses) && data.statuses.length > 0 && data.statuses) ||
+    null;
+  if (contractStatusValues) {
+    andConditions.push({ currentContractStatus: { in: contractStatusValues } });
   }
+  delete data.contractStatuses;
+  delete data.statuses;
 
   // Handle granular modalidade filter (current contract type). `contractKinds`
   // is a backward-compatible alias that maps to the same cache column.
@@ -1359,15 +1351,10 @@ const userTransform = (data: any) => {
     delete data.employeeTypes;
   }
 
-  // Handle isActive filter — THE canonical "currently employed" signal.
-  // Keyed off the synced `User.isActive` column (robust for null/zero-contract
-  // users). Dismissed === isActive === false. When undefined, no condition is
-  // applied so ALL users (incl. dismissed) are returned — the default
-  // "active only" view is a frontend concern.
-  if (typeof data.isActive === 'boolean') {
-    andConditions.push({ isActive: data.isActive });
-    delete data.isActive;
-  }
+  // "Currently employed" is now derived from contract situação — callers filter
+  // with `contractStatuses: [ACTIVE]` (active) / `[TERMINATED]` (dismissed), which
+  // maps to currentContractStatus above. The old `isActive` convenience filter
+  // (and the redundant User.isActive column) were removed.
 
   // Handle isVerified filter
   if (typeof data.isVerified === 'boolean') {
@@ -1646,7 +1633,6 @@ export const userCreateSchema = z
       .transform(cleanCPF)
       .refine(isValidCPF, { message: 'CPF inválido' }),
     verified: z.boolean().default(false),
-    isActive: z.boolean().default(true),
     performanceLevel: z.number().int().min(0).max(5).default(0),
     // Setor (sector) — required at create time. Drives the Secullum departamento
     // mapping and sector-scoped permissions/reports. userUpdateSchema keeps it
@@ -1788,7 +1774,6 @@ export const userUpdateSchema = z
     pis: pisSchema.nullable().optional(),
     cpf: cpfSchema.nullable().optional(),
     verified: z.boolean().optional(),
-    isActive: z.boolean().optional(),
     performanceLevel: z.number().int().min(0).max(5).optional(),
     sectorId: z.string().uuid('Setor inválido').nullable().optional(),
     password: z.string().min(8, 'Senha deve ter pelo menos 8 caracteres').nullable().optional(),

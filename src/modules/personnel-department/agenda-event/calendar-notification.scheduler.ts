@@ -26,6 +26,7 @@ import {
   NOTIFICATION_IMPORTANCE,
   NOTIFICATION_TYPE,
 } from '../../../constants';
+import { EMPLOYED_USER_WHERE } from '../../../utils/contract';
 
 const BIRTHDAY_RELATED_ENTITY_TYPE = 'USER_BIRTHDAY';
 const BIRTHDAY_ANNOUNCEMENT_RELATED_ENTITY_TYPE = 'USER_BIRTHDAY_ANNOUNCEMENT';
@@ -219,7 +220,7 @@ export class CalendarNotificationScheduler {
       for (const id of event.targetUserIds || []) ids.add(id);
       if (event.targetSectorIds && event.targetSectorIds.length > 0) {
         const sectorUsers = await this.prisma.user.findMany({
-          where: { sectorId: { in: event.targetSectorIds }, isActive: true },
+          where: { sectorId: { in: event.targetSectorIds }, ...EMPLOYED_USER_WHERE },
           select: { id: true },
         });
         for (const u of sectorUsers) ids.add(u.id);
@@ -230,7 +231,7 @@ export class CalendarNotificationScheduler {
 
     // Apenas usuários ativos recebem.
     const activeUsers = await this.prisma.user.findMany({
-      where: { id: { in: Array.from(ids) }, isActive: true },
+      where: { id: { in: Array.from(ids) }, ...EMPLOYED_USER_WHERE },
       select: { id: true },
     });
     return activeUsers.map(u => u.id);
@@ -257,7 +258,7 @@ export class CalendarNotificationScheduler {
         month === 1 && day === 28 && !this.isLeapYear(today.getFullYear());
 
       const users = await this.prisma.user.findMany({
-        where: { isActive: true, birth: { not: null } },
+        where: { ...EMPLOYED_USER_WHERE, birth: { not: null } },
         select: { id: true, name: true, birth: true },
       });
 
@@ -278,7 +279,7 @@ export class CalendarNotificationScheduler {
       // (inclusive sem data de nascimento cadastrada), exceto o próprio
       // aniversariante, que recebe a mensagem pessoal 'user.birthday'.
       const allActiveUsers = await this.prisma.user.findMany({
-        where: { isActive: true },
+        where: { ...EMPLOYED_USER_WHERE },
         select: { id: true },
       });
 

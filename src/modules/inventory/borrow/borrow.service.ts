@@ -40,6 +40,7 @@ import {
   ACTIVITY_OPERATION,
 } from '../../../constants/enums';
 import { BORROW_STATUS_ORDER, BORROW_STATUS_LABELS } from '../../../constants';
+import { isUserEmployed } from '../../../utils/contract';
 import {
   trackAndLogFieldChanges,
   logEntityChange,
@@ -145,7 +146,7 @@ export class BorrowService {
       select: {
         id: true,
         name: true,
-        isActive: true,
+        currentContractStatus: true,
         sectorId: true,
       },
     });
@@ -154,7 +155,7 @@ export class BorrowService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
-    if (!user.isActive) {
+    if (!isUserEmployed(user)) {
       throw new BadRequestException('Usuário não está ativo e não pode fazer empréstimos');
     }
 

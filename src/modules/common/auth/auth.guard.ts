@@ -15,6 +15,7 @@ import { UserRepository } from '@modules/people/user/repositories/user.repositor
 import { SECTOR_PRIVILEGES, TEAM_LEADER } from '../../../constants';
 import { canAccessAnyPrivilege } from '../../../utils/privilege';
 import { isTeamLeader } from '../../../utils/user';
+import { isUserEmployed } from '../../../utils/contract';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -73,7 +74,7 @@ export class AuthGuard implements CanActivate {
         throw new UnauthorizedException('Usuário não encontrado.');
       }
 
-      if (!user.isActive) {
+      if (!isUserEmployed(user)) {
         throw new ForbiddenException(
           'Sua conta está inativa. Entre em contato com o administrador.',
         );

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { User, Task, ServiceOrder, Order, Sector } from '../../../types';
 import { SectorPrivileges } from '@prisma/client';
+import { isUserEmployed, EMPLOYED_USER_WHERE } from '../../../utils/contract';
 
 /**
  * Predefined filter types for recipient resolution
@@ -207,7 +208,7 @@ export class NotificationRecipientResolverService {
 
     const users = await this.prisma.user.findMany({
       where: {
-        isActive: true,
+        ...EMPLOYED_USER_WHERE,
         sector: {
           privileges: {
             in: sectors,
@@ -235,7 +236,7 @@ export class NotificationRecipientResolverService {
 
     const users = await this.prisma.user.findMany({
       where: {
-        isActive: true,
+        ...EMPLOYED_USER_WHERE,
         id: {
           in: userIds,
         },
@@ -252,10 +253,10 @@ export class NotificationRecipientResolverService {
    * Filters users to only include active users
    *
    * @param users - List of users to filter
-   * @returns Users where isActive = true
+   * @returns Users that are employed (active contract)
    */
   filterActiveUsers(users: User[]): User[] {
-    return users.filter(user => user.isActive === true);
+    return users.filter(user => isUserEmployed(user));
   }
 
   /**
@@ -442,7 +443,7 @@ export class NotificationRecipientResolverService {
       .map(s => s.leader)
       .filter((m): m is NonNullable<typeof m> => m !== null)
       // Inactive leaders must never receive notifications.
-      .filter(m => (m as unknown as User).isActive === true);
+      .filter(m => isUserEmployed(m as unknown as User));
 
     return leaders as unknown as User[];
   }
@@ -456,7 +457,7 @@ export class NotificationRecipientResolverService {
   async getUsersBySectorId(sectorId: string): Promise<User[]> {
     const users = await this.prisma.user.findMany({
       where: {
-        isActive: true,
+        ...EMPLOYED_USER_WHERE,
         sectorId,
       },
       include: {
@@ -483,7 +484,7 @@ export class NotificationRecipientResolverService {
       include: { sector: true },
     });
 
-    if (!user || !user.isActive) {
+    if (!user || !isUserEmployed(user)) {
       return false;
     }
 

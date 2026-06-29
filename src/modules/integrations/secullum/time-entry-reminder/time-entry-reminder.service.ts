@@ -4,6 +4,7 @@ import { CacheService } from '@modules/common/cache/cache.service';
 import { SecullumService } from '../secullum.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { isWeekend } from '../../../../utils/date';
+import { EMPLOYED_USER_WHERE } from '../../../../utils/contract';
 import { SecullumHorarioRaw } from '../dto';
 
 /**
@@ -212,8 +213,7 @@ export class TimeEntryReminderService {
     // skip-with-log pattern in secullum.service.ts:getTimeEntriesByDay.
     const users = await this.prisma.user.findMany({
       where: {
-        isActive: true,
-        currentContractStatus: { not: 'TERMINATED' },
+        ...EMPLOYED_USER_WHERE,
       },
       select: {
         id: true,
@@ -787,7 +787,7 @@ export class TimeEntryReminderService {
     try {
       const users = await this.prisma.user.findMany({
         where: {
-          isActive: true,
+          ...EMPLOYED_USER_WHERE,
           sector: { privileges: { in: ['HUMAN_RESOURCES', 'PRODUCTION_MANAGER'] as any } },
         },
         select: { id: true },

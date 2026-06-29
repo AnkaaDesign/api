@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { createReadStream, existsSync, mkdirSync, renameSync, statSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { v4 as uuidv4 } from 'uuid';
 import { env } from '../../../common/config/env.validation';
 
 /**
@@ -28,9 +29,27 @@ export interface PlatformMeta {
   uploadedAt: string;
 }
 
+/**
+ * A previously-published binary that was superseded by a newer upload. The file
+ * is preserved under INSTALL_DIR/archive/<id>.<ext> so older builds stay
+ * downloadable from the admin deploy page.
+ */
+export interface HistoryEntry {
+  id: string;
+  platform: InstallPlatform;
+  version: string;
+  build: string;
+  uploadedAt: string;
+  sizeBytes: number;
+  /** Friendly download name, e.g. AnkaaDesign-android-1.2.0-45.apk */
+  filename: string;
+}
+
 export interface InstallMeta {
   ios: PlatformMeta | null;
   android: PlatformMeta | null;
+  /** Superseded builds, newest first. */
+  history: HistoryEntry[];
 }
 
 export interface PlatformVersionInfo {
@@ -84,6 +103,19 @@ export class InstallService implements OnModuleInit {
     return join(this.installDir, platform === 'ios' ? IPA_FILENAME : APK_FILENAME);
   }
 
+  private extFor(platform: InstallPlatform): string {
+    return platform === 'ios' ? '.ipa' : '.apk';
+  }
+
+  /** Directory holding superseded builds (one file per HistoryEntry id). */
+  private get archiveDir(): string {
+    return join(this.installDir, 'archive');
+  }
+
+  private archivePath(entry: HistoryEntry): string {
+    return join(this.archiveDir, `${entry.id}${this.extFor(entry.platform)}`);
+  }
+
   private get metaPath(): string {
     return join(this.installDir, META_FILENAME);
   }
@@ -110,17 +142,18 @@ export class InstallService implements OnModuleInit {
   readMeta(): InstallMeta {
     try {
       if (!existsSync(this.metaPath)) {
-        return { ios: null, android: null };
+        return { ios: null, android: null, history: [] };
       }
       const raw = readFileSync(this.metaPath, 'utf8');
       const parsed = JSON.parse(raw) as Partial<InstallMeta>;
       return {
         ios: parsed.ios ?? null,
         android: parsed.android ?? null,
+        history: Array.isArray(parsed.history) ? parsed.history : [],
       };
     } catch (err) {
       this.logger.warn(`Failed to read ${META_FILENAME}: ${(err as Error).message}`);
-      return { ios: null, android: null };
+      return { ios: null, android: null, history: [] };
     }
   }
 
@@ -159,6 +192,28 @@ export class InstallService implements OnModuleInit {
   publish(platform: InstallPlatform, tempPath: string, version: string, build: string): PlatformMeta {
     this.ensureDir();
     const dest = this.fileFor(platform);
+    const meta = this.readMeta();
+
+    // Archive the currently-published build (if any) before it is overwritten, so
+    // it stays downloadable from the deploy page's version history.
+    const previous = meta[platform];
+    if (previous && existsSync(dest)) {
+      const archived: HistoryEntry = {
+        id: uuidv4(),
+        platform,
+        version: previous.version,
+        build: previous.build,
+        uploadedAt: previous.uploadedAt,
+        sizeBytes: this.fileSize(dest),
+        filename: `AnkaaDesign-${platform}-${previous.version}-${previous.build}${this.extFor(platform)}`,
+      };
+      if (!existsSync(this.archiveDir)) {
+        mkdirSync(this.archiveDir, { recursive: true });
+      }
+      renameSync(dest, this.archivePath(archived));
+      meta.history = [archived, ...meta.history];
+    }
+
     renameSync(tempPath, dest);
 
     const entry: PlatformMeta = {
@@ -166,7 +221,6 @@ export class InstallService implements OnModuleInit {
       build,
       uploadedAt: new Date().toISOString(),
     };
-    const meta = this.readMeta();
     meta[platform] = entry;
     this.writeMeta(meta);
 
@@ -174,6 +228,19 @@ export class InstallService implements OnModuleInit {
       `Published ${platform} binary (v${version} build ${build}) -> ${dest} (${this.fileSize(dest)} bytes)`,
     );
     return entry;
+  }
+
+  /** Superseded builds, newest first — drops entries whose archived file is gone. */
+  getHistory(): HistoryEntry[] {
+    return this.readMeta().history.filter((entry) => existsSync(this.archivePath(entry)));
+  }
+
+  /** Resolve an archived build by id, or null when it is unknown / missing on disk. */
+  getArchiveEntry(id: string): { entry: HistoryEntry; path: string } | null {
+    const entry = this.readMeta().history.find((h) => h.id === id);
+    if (!entry) return null;
+    const path = this.archivePath(entry);
+    return existsSync(path) ? { entry, path } : null;
   }
 
   /** Build the itms-services manifest.plist XML for the iOS install flow. */

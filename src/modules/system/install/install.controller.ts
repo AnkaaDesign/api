@@ -3,6 +3,8 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
+  Param,
   Post,
   Res,
   UploadedFile,
@@ -65,6 +67,48 @@ export class InstallController {
   @ReadRateLimit()
   getVersion() {
     return this.installService.getVersionInfo();
+  }
+
+  @Get('history')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @ReadRateLimit()
+  getHistory() {
+    return {
+      success: true,
+      message: 'Histórico de versões',
+      data: this.installService.getHistory(),
+    };
+  }
+
+  @Get('archive/:id')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @NoRateLimit()
+  downloadArchive(@Param('id') id: string, @Res() res: Response): void {
+    const archived = this.installService.getArchiveEntry(id);
+    if (!archived) {
+      throw new NotFoundException('Versão não encontrada');
+    }
+
+    const { entry, path } = archived;
+    const contentType =
+      entry.platform === 'ios'
+        ? 'application/octet-stream'
+        : 'application/vnd.android.package-archive';
+
+    res.setHeader('content-type', contentType);
+    res.setHeader('content-disposition', `attachment; filename="${entry.filename}"`);
+    res.setHeader('content-length', String(this.installService.fileSize(path)));
+    res.setHeader('cache-control', 'no-cache');
+
+    const stream = this.installService.createBinaryStream(path);
+    stream.on('error', () => {
+      if (!res.headersSent) {
+        res.status(404).json({ error: 'Falha ao ler o binário arquivado' });
+      } else {
+        res.end();
+      }
+    });
+    stream.pipe(res);
   }
 
   @Get('manifest.plist')

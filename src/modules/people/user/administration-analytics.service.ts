@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import type { AdministrationAnalyticsFilters } from '../../../types/administration-analytics';
+import { EMPLOYED_USER_WHERE } from '../../../utils/contract';
 
 const MONTH_NAMES_PT = [
   'Janeiro',
@@ -138,7 +139,7 @@ export class AdministrationAnalyticsService {
 
     // Active users
     const activeUsers = await this.prisma.user.count({
-      where: { isActive: true },
+      where: { ...EMPLOYED_USER_WHERE },
     });
 
     // New customers this month

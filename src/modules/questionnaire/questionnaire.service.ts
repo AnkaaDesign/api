@@ -19,6 +19,7 @@ import type {
   QuestionnaireEntryAnswersUpsertFormData,
   QuestionnaireEntryUpdateFormData,
 } from '../../types/questionnaire';
+import { EMPLOYED_USER_WHERE } from '../../utils/contract';
 
 const ADMIN_LIKE = new Set(['ADMIN', 'HUMAN_RESOURCES', 'PRODUCTION_MANAGER']);
 
@@ -405,7 +406,7 @@ export class QuestionnaireService {
 
     const users = await this.prisma.user.findMany({
       where: {
-        isActive: true,
+        ...EMPLOYED_USER_WHERE,
         ...(targetAllUsers ? {} : { id: { in: targetUserIds } }),
       },
       select: { id: true },

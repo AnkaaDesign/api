@@ -40,6 +40,7 @@ import {
   PPE_TYPE,
 } from '@constants';
 import { PPE_DELIVERY_STATUS_ORDER } from '@constants';
+import { isUserEmployed } from '@utils/contract';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { UserRepository } from '@modules/people/user/repositories/user.repository';
@@ -110,7 +111,7 @@ export class PpeDeliveryService {
         throw new NotFoundException('Usuário não encontrado');
       }
 
-      if (!user.isActive) {
+      if (!isUserEmployed(user)) {
         throw new BadRequestException('Usuário não está ativo e não pode receber PPEs');
       }
 
@@ -128,7 +129,7 @@ export class PpeDeliveryService {
         throw new NotFoundException('Usuário responsável pela aprovação não encontrado');
       }
 
-      if (!reviewedByUser.isActive) {
+      if (!isUserEmployed(reviewedByUser)) {
         throw new BadRequestException('Usuário responsável pela aprovação não está ativo');
       }
     }

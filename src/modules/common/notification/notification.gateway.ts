@@ -16,6 +16,7 @@ import { UserRepository } from '@modules/people/user/repositories/user.repositor
 import { NotificationRepository } from './repositories/notification.repository';
 import { NotificationDeliveryRepository } from './repositories/notification-delivery.repository';
 import { NOTIFICATION_CHANNEL } from '@constants';
+import { isUserEmployed } from '@utils/contract';
 
 /**
  * WebSocket Gateway for real-time notification delivery
@@ -120,7 +121,7 @@ export class NotificationGateway
         return;
       }
 
-      if (!user.isActive) {
+      if (!isUserEmployed(user)) {
         this.logger.warn(`Connection rejected: User inactive (${userId})`);
         client.disconnect();
         return;

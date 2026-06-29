@@ -8,6 +8,7 @@ import archiver from 'archiver';
 import { randomUUID } from 'crypto';
 import { SecullumBrowserSignerService } from './secullum-browser-signer.service';
 import { SecullumToken } from '@prisma/client';
+import { EMPLOYED_USER_WHERE } from '@utils/contract';
 import {
   SecullumAuthResponse,
   SecullumTimeEntriesResponse,
@@ -1406,7 +1407,7 @@ export class SecullumService {
   async createAbsenceForUsers(
     payload: SecullumCreateAbsenceForUsersRequest,
   ): Promise<SecullumCreateAbsenceForUsersResponse> {
-    const where: any = { isActive: true, secullumEmployeeId: { not: null } };
+    const where: any = { ...EMPLOYED_USER_WHERE, secullumEmployeeId: { not: null } };
     if (!payload.applyToAll && payload.userIds && payload.userIds.length > 0) {
       where.id = { in: payload.userIds };
     } else if (!payload.applyToAll) {
@@ -1559,7 +1560,7 @@ export class SecullumService {
       //    column is the canonical FK and is populated by the backfill /
       //    sync flow — any active user without it is silently skipped here
       //    and surfaces in the sync diagnostics elsewhere.
-      const where: any = { isActive: true, secullumEmployeeId: { not: null } };
+      const where: any = { ...EMPLOYED_USER_WHERE, secullumEmployeeId: { not: null } };
       if (params.sectorId) where.sectorId = params.sectorId;
 
       const linkedUsers = await this.prismaService.user.findMany({
@@ -1672,7 +1673,7 @@ export class SecullumService {
       // Iterate over Ankaa users that have a `secullumEmployeeId` set; the
       // per-row sector / userId values come straight off the local user row
       // (no runtime CPF/PIS/payrollNumber matching).
-      const where: any = { isActive: true, secullumEmployeeId: { not: null } };
+      const where: any = { ...EMPLOYED_USER_WHERE, secullumEmployeeId: { not: null } };
       if (params.sectorId) where.sectorId = params.sectorId;
 
       const linkedUsers = await this.prismaService.user.findMany({
@@ -3781,11 +3782,9 @@ export class SecullumService {
       const activeUsers = await this.prismaService.user.findMany({
         where: {
           secullumEmployeeId: { not: null },
-          // Reconciled to `isActive` to match the rest of the Secullum subsystem
-          // (createAbsenceForUsers / absence reads all use `isActive: true`).
-          // `isActive` is the cached `currentContractStatus != TERMINATED` flag —
-          // same intent, but using ONE field across siblings avoids cache drift.
-          isActive: true,
+          // Apenas empregados ativos (currentContractStatus = ACTIVE) — mesmo
+          // filtro canônico usado nos demais reads do subsistema Secullum.
+          ...EMPLOYED_USER_WHERE,
         },
         select: { id: true, name: true },
       });
@@ -4067,7 +4066,7 @@ export class SecullumService {
             // that have a secullumEmployeeId so each employee is notified
             // individually (rather than nobody). This runs once per bulk job.
             const linkedUsers = await this.prismaService.user.findMany({
-              where: { isActive: true, secullumEmployeeId: { not: null } },
+              where: { ...EMPLOYED_USER_WHERE, secullumEmployeeId: { not: null } },
               select: { id: true },
             });
             const allUserIds = linkedUsers.map((u) => u.id);
@@ -6005,7 +6004,7 @@ export class SecullumService {
     sectorId?: string;
   }): Promise<SecullumAbsenceDaysResponse> {
     try {
-      const where: any = { isActive: true, secullumEmployeeId: { not: null } };
+      const where: any = { ...EMPLOYED_USER_WHERE, secullumEmployeeId: { not: null } };
       if (params.sectorId) where.sectorId = params.sectorId;
 
       const linkedUsers = await this.prismaService.user.findMany({

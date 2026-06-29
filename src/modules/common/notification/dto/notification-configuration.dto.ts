@@ -242,7 +242,7 @@ export class CreateTargetRuleDto {
 
   @ApiPropertyOptional({
     description: 'Dynamic query expression (for DYNAMIC target type)',
-    example: "user.sector.privilege === 'PRODUCTION' && user.isActive",
+    example: "user.sector.privilege === 'PRODUCTION' && user.currentContractStatus === 'ACTIVE'",
   })
   @IsOptional()
   @IsString()
@@ -640,7 +640,7 @@ export class UpdateTargetRuleDto {
 
   @ApiPropertyOptional({
     description: 'Custom filter expression',
-    example: "user.sector.privilege === 'PRODUCTION' && user.isActive",
+    example: "user.sector.privilege === 'PRODUCTION' && user.currentContractStatus === 'ACTIVE'",
   })
   @IsOptional()
   @IsString()

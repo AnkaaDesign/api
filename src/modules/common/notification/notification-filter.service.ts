@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NOTIFICATION_TYPE, SECTOR_PRIVILEGES } from '@constants';
+import { EMPLOYED_USER_WHERE } from '@utils/contract';
 import type { User, Notification } from '@types';
 import { NotificationPreferenceService } from './notification-preference.service';
 
@@ -639,7 +640,7 @@ export class NotificationFilterService {
               in: sectors,
             },
           },
-          isActive: true,
+          ...EMPLOYED_USER_WHERE,
         },
         include: {
           sector: true,
@@ -663,7 +664,7 @@ export class NotificationFilterService {
     try {
       const users = await this.prisma.user.findMany({
         where: {
-          isActive: true,
+          ...EMPLOYED_USER_WHERE,
         },
         include: {
           sector: true,
@@ -746,7 +747,7 @@ export class NotificationFilterService {
 
       const users = await this.prisma.user.findMany({
         where: {
-          isActive: true,
+          ...EMPLOYED_USER_WHERE,
           OR: conditions.filter(condition => Object.keys(condition).length > 0),
         },
         include: {
@@ -864,7 +865,7 @@ export class NotificationFilterService {
     if (userId) {
       try {
         const specificUser = await this.prisma.user.findUnique({
-          where: { id: userId, isActive: true },
+          where: { id: userId, ...EMPLOYED_USER_WHERE },
           include: {
             sector: true,
             ledSector: true,
@@ -903,7 +904,7 @@ export class NotificationFilterService {
     if (userId) {
       try {
         const specificUser = await this.prisma.user.findUnique({
-          where: { id: userId, isActive: true },
+          where: { id: userId, ...EMPLOYED_USER_WHERE },
           include: {
             sector: true,
             ledSector: true,

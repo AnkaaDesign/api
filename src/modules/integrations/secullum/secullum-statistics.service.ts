@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { EMPLOYED_USER_WHERE } from '../../../utils/contract';
 import { SecullumService } from './secullum.service';
 import type {
   AbsenteeismResult,
@@ -81,7 +82,7 @@ export class SecullumStatisticsService {
     // "Dezembro Y-1" column whenever the period start lands on day 26.
     const buckets = this.resolveBuckets(filters, dateRange);
 
-    const userWhere: any = { isActive: true, secullumEmployeeId: { not: null } };
+    const userWhere: any = { ...EMPLOYED_USER_WHERE, secullumEmployeeId: { not: null } };
     if (filters.sectorIds?.length) userWhere.sectorId = { in: filters.sectorIds };
     if (filters.positionIds?.length) userWhere.positionId = { in: filters.positionIds };
 
@@ -98,7 +99,7 @@ export class SecullumStatisticsService {
       }),
       this.prisma.user.count({
         where: (() => {
-          const w: any = { isActive: true };
+          const w: any = { ...EMPLOYED_USER_WHERE };
           if (filters.sectorIds?.length) w.sectorId = { in: filters.sectorIds };
           if (filters.positionIds?.length) w.positionId = { in: filters.positionIds };
           return w;

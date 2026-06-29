@@ -3,6 +3,7 @@
 import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import {
   ACTIVITY_OPERATION,
+  CONTRACT_STATUS,
   ACTIVITY_REASON,
   ORDER_STATUS,
   STOCK_LEVEL,
@@ -535,7 +536,7 @@ export class AtomicStockCalculatorService {
       return;
     }
 
-    if (user.currentContractStatus === 'TERMINATED') {
+    if (user.currentContractStatus === CONTRACT_STATUS.TERMINATED) {
       result.errors.push(`Usuário "${user.name}" não está ativo`);
       result.isValid = false;
     }
@@ -624,7 +625,7 @@ export class AtomicStockCalculatorService {
       const inactiveUsers = await tx.user.findMany({
         where: {
           id: { in: userIds as string[] },
-          currentContractStatus: 'TERMINATED',
+          currentContractStatus: CONTRACT_STATUS.TERMINATED,
         },
         select: { id: true, name: true, currentContractStatus: true },
       });
