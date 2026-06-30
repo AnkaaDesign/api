@@ -1052,6 +1052,7 @@ export class OrderService {
                 prevFirstDue !== nextFirstDue ||
                 (existingOrder.freight ?? 0) !== (postUpdate.freight ?? 0) ||
                 (existingOrder.discount ?? 0) !== (postUpdate.discount ?? 0) ||
+                (existingOrder.totalOverride ?? null) !== (postUpdate.totalOverride ?? null) ||
                 actualUpdateData.items !== undefined;
 
               if (paymentFieldChanged) {

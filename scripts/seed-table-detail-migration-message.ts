@@ -136,13 +136,38 @@ const blocks = [
 // Author of the message: Kennedy Campos (support).
 const KENNEDY_ID = "41fcb3fe-e1b6-43e9-bd72-41c072154100";
 
-async function main() {
-  const creator = await prisma.user.findUnique({
+// Fixed created/published timestamp: 2026-06-29 23:08 (BRT, UTC-3). The message
+// stays dated to this moment regardless of when the seed is actually run.
+const SEED_DATE = new Date("2026-06-29T23:08:00-03:00");
+
+// Resolve a portable message author: prefer the canonical support user, then any
+// active ADMIN, then any user at all. Only fails on a truly empty DB so the seed
+// stays runnable on any environment (not just one holding that exact UUID).
+async function resolveAuthor() {
+  const byId = await prisma.user.findUnique({
     where: { id: KENNEDY_ID },
     select: { id: true, name: true },
   });
+  if (byId) return byId;
 
-  if (!creator) throw new Error(`Creator (Kennedy) not found: ${KENNEDY_ID}`);
+  const admin = await prisma.user.findFirst({
+    where: { currentContractStatus: "ACTIVE", sector: { privileges: SectorPrivileges.ADMIN } },
+    select: { id: true, name: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (admin) return admin;
+
+  const anyUser = await prisma.user.findFirst({
+    select: { id: true, name: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (anyUser) return anyUser;
+
+  throw new Error("No users found in the database — cannot assign a message author.");
+}
+
+async function main() {
+  const creator = await resolveAuthor();
 
   // Resolve the audience: active users in the target sectors.
   const recipients = await prisma.user.findMany({
@@ -167,7 +192,8 @@ async function main() {
       title: TITLE,
       content: { blocks },
       status: "ACTIVE",
-      publishedAt: new Date(),
+      createdAt: SEED_DATE,
+      publishedAt: SEED_DATE,
       createdById: creator.id,
       isDismissible: true,
       requiresView: false,

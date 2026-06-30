@@ -151,6 +151,7 @@ export class OutflowForecastService {
           forecast: true,
           freight: true,
           discount: true,
+          totalOverride: true,
           supplier: { select: { fantasyName: true } },
           items: { select: { orderedQuantity: true, price: true, icms: true, ipi: true } },
         },
@@ -181,15 +182,22 @@ export class OutflowForecastService {
     const rows: OutflowForecastOrderRow[] = orders.map(order => {
       // Same payable convention as Contas a Pagar / getPaymentSummary:
       // items price×qty (+ICMS/IPI) − discount% on goods subtotal + freight.
-      let itemsTotal = 0;
-      let goodsSubtotal = 0;
-      for (const item of order.items) {
-        const subtotal = item.orderedQuantity * item.price;
-        goodsSubtotal += subtotal;
-        itemsTotal += subtotal * (1 + (item.icms || 0) / 100 + (item.ipi || 0) / 100);
+      // Manual grand-total override (Valor Total) wins when set, mirroring
+      // OrderService.computeOrderPayableTotal (rounded to centavos, floored at 0).
+      let total: number;
+      if (order.totalOverride != null) {
+        total = Math.max(0, Math.round(order.totalOverride * 100) / 100);
+      } else {
+        let itemsTotal = 0;
+        let goodsSubtotal = 0;
+        for (const item of order.items) {
+          const subtotal = item.orderedQuantity * item.price;
+          goodsSubtotal += subtotal;
+          itemsTotal += subtotal * (1 + (item.icms || 0) / 100 + (item.ipi || 0) / 100);
+        }
+        const discountAmount = order.discount > 0 ? goodsSubtotal * (order.discount / 100) : 0;
+        total = itemsTotal - discountAmount + (order.freight || 0);
       }
-      const discountAmount = order.discount > 0 ? goodsSubtotal * (order.discount / 100) : 0;
-      const total = itemsTotal - discountAmount + (order.freight || 0);
 
       const bucket = byStatus[order.paymentStatus as keyof typeof byStatus];
       if (bucket) {

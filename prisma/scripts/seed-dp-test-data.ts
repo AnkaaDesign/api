@@ -142,11 +142,11 @@ async function main() {
   console.log('\n  Adesões (UserBenefit):');
 
   const users = await prisma.user.findMany({
-    where: { isActive: true },
+    where: { currentContractStatus: 'ACTIVE' },
     select: { id: true, name: true },
     orderBy: { name: 'asc' },
   });
-  console.log(`  ${users.length} colaboradores ativos (isActive = true)`);
+  console.log(`  ${users.length} colaboradores ativos (currentContractStatus = ACTIVE)`);
 
   // Existing ACTIVE enrollments → idempotency set "userId:benefitId"
   const existingActive = await prisma.userBenefit.findMany({
