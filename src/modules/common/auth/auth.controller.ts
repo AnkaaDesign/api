@@ -14,6 +14,7 @@ import {
   HttpCode,
   HttpStatus,
   UnauthorizedException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import type { Request as ExpressRequest } from 'express';
 import { AuthService } from './auth.service';
@@ -62,6 +63,16 @@ export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
   constructor(private readonly authService: AuthService) {}
+
+  // Self-service password recovery can be temporarily disabled via env flag.
+  // Set PASSWORD_RECOVERY_ENABLED=false to block the public reset endpoints.
+  private assertPasswordRecoveryEnabled(): void {
+    if (process.env.PASSWORD_RECOVERY_ENABLED === 'false') {
+      throw new ServiceUnavailableException(
+        'A recuperação de senha está temporariamente desativada. Entre em contato com o administrador.',
+      );
+    }
+  }
 
   private getClientIp(req: ExpressRequest): string {
     const xForwardedFor = req.headers['x-forwarded-for'];
@@ -189,6 +200,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UsePipes(new ZodValidationPipe(passwordResetRequestSchema))
   async requestPasswordReset(@Body() data: PasswordResetRequestFormData) {
+    this.assertPasswordRecoveryEnabled();
     return this.authService.requestPasswordReset(data.contact);
   }
 
@@ -198,6 +210,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UsePipes(new ZodValidationPipe(passwordResetSchema))
   async resetPassword(@Body() data: PasswordResetFormData) {
+    this.assertPasswordRecoveryEnabled();
     return this.authService.resetPasswordWithCode(data.contact, data.code, data.password);
   }
 
