@@ -1577,6 +1577,19 @@ export class ServiceOrderService {
             (serviceOrder as any).taskId,
             userId,
           );
+        } else if (
+          serviceOrderExists.status === SERVICE_ORDER_STATUS.COMPLETED &&
+          data.status === SERVICE_ORDER_STATUS.IN_PROGRESS
+        ) {
+          // INVERSE: reopening the commercial step (Concluído → Em Andamento) must
+          // un-approve the auto-approved budget (BUDGET_APPROVED → PENDING) BEFORE
+          // the sync runs — otherwise syncEmNegociacaoForTask sees a still-approved
+          // quote (+ artwork) and re-completes the SO, so "Reabrir" appears to do
+          // nothing. Reverting the quote makes the reopen actually stick.
+          await this.budgetRevertOnEmNegociacaoReopen(
+            (serviceOrder as any).taskId,
+            userId,
+          );
         }
         await syncEmNegociacaoForTask(
           this.prisma,
@@ -1652,6 +1665,64 @@ export class ServiceOrderService {
     } catch (error) {
       this.logger.error(
         `[EM NEGOCIAÇÃO → QUOTE] Failed to budget-approve quote for task ${taskId} (non-fatal):`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * Inverse of budgetApproveOnEmNegociacaoComplete: when the COMMERCIAL "Em
+   * Negociação" SO is REOPENED (Concluído → Em Andamento), the commercial step is
+   * no longer done, so un-approve the auto-approved budget (BUDGET_APPROVED →
+   * PENDING). Without this the quote stays approved and syncEmNegociacaoForTask
+   * immediately re-completes the SO from the still-approved quote, so "Reabrir"
+   * appears to do nothing. Only ever moves BUDGET_APPROVED → PENDING: a quote
+   * manually advanced to billing/settled (or cancelled) is never downgraded —
+   * reopening the commercial note must not silently unwind billing. Best-effort:
+   * a failure here never breaks the SO update.
+   */
+  private async budgetRevertOnEmNegociacaoReopen(
+    taskId: string,
+    userId?: string | null,
+  ): Promise<void> {
+    try {
+      const task = await this.prisma.task.findUnique({
+        where: { id: taskId },
+        select: { quote: { select: { id: true, status: true } } },
+      });
+      const quote = (task as any)?.quote;
+      // Only revert the auto-approved state — never downgrade a billing-approved/
+      // billed quote, and never touch a cancelled one.
+      if (!quote || quote.status !== TASK_QUOTE_STATUS.BUDGET_APPROVED) return;
+
+      await this.prisma.taskQuote.update({
+        where: { id: quote.id },
+        data: {
+          status: TASK_QUOTE_STATUS.PENDING,
+          statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.PENDING],
+        },
+      });
+
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.TASK_QUOTE,
+        entityId: quote.id,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'status',
+        oldValue: quote.status,
+        newValue: TASK_QUOTE_STATUS.PENDING,
+        reason:
+          'Orçamento retornado para pendente pela reabertura da Em Negociação',
+        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+        triggeredById: taskId,
+        userId: userId || '',
+      });
+
+      this.logger.log(
+        `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: quote ${quote.id} BUDGET_APPROVED → PENDING on commercial reopen`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[EM NEGOCIAÇÃO → QUOTE] Failed to revert quote to pending for task ${taskId} (non-fatal):`,
         error,
       );
     }
@@ -3299,6 +3370,24 @@ export class ServiceOrderService {
                 userId,
               );
             }
+          }
+
+          // Inverse cascade: reopening the COMMERCIAL "Em Negociação" SO
+          // (Concluído → Em Andamento) un-approves the auto-approved budget
+          // (BUDGET_APPROVED → PENDING), parity with the single-update path so
+          // the quote and commercial SO never drift apart.
+          if (
+            oldData.status === SERVICE_ORDER_STATUS.COMPLETED &&
+            serviceOrder.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+            (serviceOrder as any).type === SERVICE_ORDER_TYPE.COMMERCIAL &&
+            ((serviceOrder as any).description ?? '').toLowerCase().trim() ===
+              'em negociação' &&
+            (serviceOrder as any).taskId
+          ) {
+            await this.budgetRevertOnEmNegociacaoReopen(
+              (serviceOrder as any).taskId,
+              userId,
+            );
           }
 
           // If status changed to WAITING_APPROVE and type is ARTWORK
