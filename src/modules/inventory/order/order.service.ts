@@ -1077,12 +1077,33 @@ export class OrderService {
           }
         }
 
+        // Payment status is settled through the dedicated cascade (stamps paidAt/paidById,
+        // settles or reopens parcelas, recomputes the rollup). The generic field mapper does
+        // NOT persist paymentStatus, so when the form sends a changed value we route it here —
+        // atomically in this same transaction — instead of relying on a separate request that
+        // is silently lost if the field update throws. Run it last, on the finalized schedule.
+        const targetPaymentStatus = (actualUpdateData as any).paymentStatus as
+          | ORDER_PAYMENT_STATUS
+          | undefined;
+        if (
+          targetPaymentStatus &&
+          targetPaymentStatus !== (existingOrder.paymentStatus as ORDER_PAYMENT_STATUS)
+        ) {
+          await this.updatePaymentStatusWithTransaction(tx, id, targetPaymentStatus, userId);
+        }
+
         // If include is specified, fetch the order with included relations
         if (include) {
           const orderWithIncludes = await this.orderRepository.findByIdWithTransaction(tx, id, {
             include,
           });
           return orderWithIncludes || updatedOrder;
+        }
+
+        // Re-read so the response reflects the payment cascade (paidAt/paymentStatus).
+        if (targetPaymentStatus) {
+          const fresh = await this.orderRepository.findByIdWithTransaction(tx, id, {});
+          if (fresh) return fresh;
         }
 
         return updatedOrder;
@@ -2940,6 +2961,24 @@ export class OrderService {
    *   - AIRBRUSHING painter payments (price set, paymentStatus ≠ PAID)
    *   - SCHEDULED/expected recurring outflows (active OrderSchedule due, via expected totals)
    */
+  /**
+   * Contas a Pagar due date derived from creation: the day AFTER the order was created,
+   * at 18:00 in São Paulo time. Brazil has had no DST since 2019, so the SP offset is a
+   * fixed −03:00 → 18:00 SP = 21:00 UTC. Used for orders that have no explicit, genuine
+   * payment date (non-boleto / no boleto vencimento); real installment/first-due dates win.
+   */
+  private payableDueFromCreatedAt(createdAt: Date | string | null | undefined): Date | null {
+    if (!createdAt) return null;
+    const created = new Date(createdAt);
+    if (isNaN(created.getTime())) return null;
+    // Calendar date of creation in SP time (en-CA → YYYY-MM-DD), then next day @ 18:00 SP.
+    const [y, m, d] = created
+      .toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })
+      .split('-')
+      .map(Number);
+    return new Date(Date.UTC(y, m - 1, d + 1, 21, 0, 0));
+  }
+
   async getPayables(): Promise<PayablesResponse> {
     try {
       // "Paid this month" window — orders/airbrushing settled in the current
@@ -2952,6 +2991,7 @@ export class OrderService {
         id: true,
         description: true,
         forecast: true,
+        createdAt: true,
         paymentMethod: true,
         paymentFirstDueDate: true,
         paymentStatus: true,
@@ -3064,7 +3104,7 @@ export class OrderService {
               description: order.description,
               amount: remaining > 0 ? remaining : inst.amount,
               paymentState: inst.status === 'PARTIALLY_PAID' ? 'PARTIALLY_PAID' : 'AWAITING_PAYMENT',
-              dueDate: inst.dueDate ?? order.forecast ?? null,
+              dueDate: inst.dueDate ?? this.payableDueFromCreatedAt(order.createdAt),
               method: order.paymentMethod ?? null,
               settleVia,
               subtype: total > 1 ? `${inst.number}ª parcela de ${total}` : null,
@@ -3079,8 +3119,9 @@ export class OrderService {
             description: order.description,
             amount,
             paymentState: order.paymentStatus as PayableRow['paymentState'],
-            // Boleto à vista (1x) uses the chosen first due date; non-boleto falls back to forecast.
-            dueDate: order.paymentFirstDueDate ?? order.forecast ?? null,
+            // Boleto à vista (1x) uses the chosen first due date; non-boleto falls back to the
+            // day after creation @ 18:00 SP, since forecast can point to an unrelated future month.
+            dueDate: order.paymentFirstDueDate ?? this.payableDueFromCreatedAt(order.createdAt),
             method: order.paymentMethod ?? null,
             settleVia,
           });
@@ -3139,7 +3180,7 @@ export class OrderService {
           description: order.description,
           amount: orderAmount(order),
           paymentState: 'PAID',
-          dueDate: order.forecast ?? null,
+          dueDate: this.payableDueFromCreatedAt(order.createdAt),
           method: order.paymentMethod ?? null,
           settleVia: order.paymentMethod === 'BANK_SLIP' ? 'RECONCILIATION' : 'ORDER_LIFECYCLE',
           paidAt: order.paidAt ?? null,

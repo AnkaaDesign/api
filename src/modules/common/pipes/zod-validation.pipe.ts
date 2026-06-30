@@ -610,6 +610,7 @@ export class ZodValidationPipe implements PipeTransform {
       'freight',
       'discount',
       'installmentCount',
+      'totalOverride',
     ];
     return numericFields.includes(fieldName);
   }
@@ -676,6 +677,7 @@ export class ZodValidationPipe implements PipeTransform {
       'representativeName',
       'forecast',
       'paymentFirstDueDate',
+      'totalOverride',
     ];
 
     const lowerFieldName = fieldName.toLowerCase();
