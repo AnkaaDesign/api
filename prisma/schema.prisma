@@ -2271,8 +2271,8 @@ model Preferences {
   favorites             String[]    @default([])
   dashboardLayoutWeb    Json?
   dashboardLayoutMobile Json?
-  tableConfigsWeb       Json? /// { [tableId]: PersistedTableConfig } — web DataTable per-user layout (column order/sizing/visibility, pinned rows, page size, default sort/filters). Validated client-side, same approach as dashboardLayoutWeb.
-  detailConfigsWeb      Json? /// { [detailKey]: PersistedDetailConfig } — web detail-page per-user layout (section order/visibility, field visibility, collapsed, pinned sections). Validated client-side, same approach as tableConfigsWeb.
+  tableConfigsWeb       Json? /// { [tableId]: PersistedTableConfig } — web DataTable per-user layout (column order/sizing/visibility/alignment, pinned rows, page size, default sort). Filters/search/selection/page are transient (URL only), not persisted. Validated client-side, same approach as dashboardLayoutWeb.
+  detailConfigsWeb      Json? /// { [detailKey]: PersistedDetailConfig } — web detail-page per-user layout (section order/visibility/width, field visibility/order). No collapse/pin feature. Validated client-side, same approach as tableConfigsWeb.
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
   user                  User        @relation("USER_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)
