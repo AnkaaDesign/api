@@ -92,6 +92,26 @@ export class OrderAnalyticsService {
   }
 
   /**
+   * An order's total value for analytics. The manual grand-total override (Valor
+   * Total) wins when set — rounded to centavos and floored at 0, same convention
+   * as OrderService.computeOrderPayableTotal — otherwise the item-sum used by the
+   * aggregations below. Routing every aggregation through this keeps them from
+   * diverging on overridden orders.
+   */
+  private orderTotal(order: {
+    totalOverride?: number | null;
+    items: Array<{ price: number; icms?: number | null; ipi?: number | null }>;
+  }): number {
+    if (order.totalOverride != null) {
+      return Math.max(0, Math.round(order.totalOverride * 100) / 100);
+    }
+    return order.items.reduce(
+      (sum, item) => sum + Number(item.price) + Number(item.icms || 0) + Number(item.ipi || 0),
+      0,
+    );
+  }
+
+  /**
    * Calculate summary statistics
    */
   private calculateSummary(orders: any[]): OrderSummary {
@@ -103,11 +123,8 @@ export class OrderAnalyticsService {
     let activeCount = 0;
 
     for (const order of orders) {
-      // Calculate order value from items
-      const orderValue = order.items.reduce((sum: number, item: any) => {
-        const itemTotal = Number(item.price) + Number(item.icms || 0) + Number(item.ipi || 0);
-        return sum + itemTotal;
-      }, 0);
+      // Order value honors the manual grand-total override when set.
+      const orderValue = this.orderTotal(order);
       totalValue += orderValue;
 
       // Count items
@@ -175,12 +192,7 @@ export class OrderAnalyticsService {
       });
 
       const totalValue = ordersWithItems.reduce((sum, order) => {
-        return (
-          sum +
-          order.items.reduce((itemSum, item) => {
-            return itemSum + Number(item.price) + Number(item.icms || 0) + Number(item.ipi || 0);
-          }, 0)
-        );
+        return sum + this.orderTotal(order);
       }, 0);
 
       statusCounts.push({
@@ -229,12 +241,7 @@ export class OrderAnalyticsService {
       if (!supplier) continue;
 
       const totalValue = ordersWithItems.reduce((sum, order) => {
-        return (
-          sum +
-          order.items.reduce((itemSum, item) => {
-            return itemSum + Number(item.price) + Number(item.icms || 0) + Number(item.ipi || 0);
-          }, 0)
-        );
+        return sum + this.orderTotal(order);
       }, 0);
 
       suppliers.push({
@@ -276,7 +283,12 @@ export class OrderAnalyticsService {
             category: true,
           },
         },
-        order: true,
+        order: {
+          select: {
+            totalOverride: true,
+            items: { select: { orderedQuantity: true, price: true, icms: true, ipi: true } },
+          },
+        },
       },
     });
 
@@ -299,7 +311,23 @@ export class OrderAnalyticsService {
       const orderedQty = Number(orderItem.orderedQuantity);
       const unitPrice =
         Number(orderItem.price) + Number(orderItem.icms || 0) + Number(orderItem.ipi || 0);
-      const itemValue = unitPrice * orderedQty;
+      let itemValue = unitPrice * orderedQty;
+      // Honor the order's manual grand-total override (Valor Total): it is an
+      // order-level total, so distribute it across the order's items in
+      // proportion to each item's value — keeping per-item analytics consistent
+      // with the order total used by the other aggregations.
+      const parentOrder = orderItem.order;
+      if (parentOrder?.totalOverride != null) {
+        const orderRaw = parentOrder.items.reduce(
+          (sum, it) =>
+            sum +
+            (Number(it.price) + Number(it.icms || 0) + Number(it.ipi || 0)) *
+              Number(it.orderedQuantity),
+          0,
+        );
+        const override = Math.max(0, Math.round(parentOrder.totalOverride * 100) / 100);
+        itemValue = orderRaw > 0 ? override * (itemValue / orderRaw) : 0;
+      }
 
       if (existing) {
         existing.totalOrdered += orderedQty;
@@ -383,9 +411,7 @@ export class OrderAnalyticsService {
         label = new Intl.DateTimeFormat('pt-BR', { month: 'short', year: 'numeric' }).format(date);
       }
 
-      const orderValue = order.items.reduce((sum, item) => {
-        return sum + Number(item.price) + Number(item.icms || 0) + Number(item.ipi || 0);
-      }, 0);
+      const orderValue = this.orderTotal(order);
 
       const existing = trendMap.get(key);
       if (existing) {

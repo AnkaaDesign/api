@@ -22,6 +22,10 @@ const prisma = new PrismaClient();
 const KENNEDY_ID = "41fcb3fe-e1b6-43e9-bd72-41c072154100";
 const SUPPORT_NAME = "Kennedy Campos";
 
+// Fixed created/published timestamp: 2026-06-29 23:08 (BRT, UTC-3). The messages
+// stay dated to this moment regardless of when the seed is actually run.
+const SEED_DATE = new Date("2026-06-29T23:08:00-03:00");
+
 // --- block builders (editor/DB format: `{ blocks: [...] }`) ----------------
 let blockSeq = 0;
 const id = () => `block-welcome-${++blockSeq}`;
@@ -200,12 +204,34 @@ const definitions: Def[] = [
   },
 ];
 
-async function main() {
-  const creator = await prisma.user.findUnique({
+// Resolve a portable message author: prefer the canonical support user, then any
+// active ADMIN, then any user at all. Only fails on a truly empty DB so the seed
+// stays runnable on any environment (not just one holding that exact UUID).
+async function resolveAuthor() {
+  const byId = await prisma.user.findUnique({
     where: { id: KENNEDY_ID },
     select: { id: true, name: true },
   });
-  if (!creator) throw new Error(`Creator (Kennedy) not found: ${KENNEDY_ID}`);
+  if (byId) return byId;
+
+  const admin = await prisma.user.findFirst({
+    where: { currentContractStatus: "ACTIVE", sector: { privileges: SectorPrivileges.ADMIN } },
+    select: { id: true, name: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (admin) return admin;
+
+  const anyUser = await prisma.user.findFirst({
+    select: { id: true, name: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (anyUser) return anyUser;
+
+  throw new Error("No users found in the database — cannot assign a message author.");
+}
+
+async function main() {
+  const creator = await resolveAuthor();
 
   for (const def of definitions) {
     const recipients = await prisma.user.findMany({
@@ -229,7 +255,8 @@ async function main() {
         title: def.title,
         content: { blocks: def.blocks },
         status: "ACTIVE",
-        publishedAt: new Date(),
+        createdAt: SEED_DATE,
+        publishedAt: SEED_DATE,
         createdById: creator.id,
         isDismissible: true,
         requiresView: false,
