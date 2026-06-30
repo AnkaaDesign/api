@@ -133,15 +133,16 @@ const blocks = [
   footerWave(),
 ];
 
-async function main() {
-  // Pick a creator: any active ADMIN user (fallback to first user).
-  const creator =
-    (await prisma.user.findFirst({
-      where: { sector: { privileges: SectorPrivileges.ADMIN }, currentContractStatus: "ACTIVE" },
-      select: { id: true, name: true },
-    })) ?? (await prisma.user.findFirst({ select: { id: true, name: true } }));
+// Author of the message: Kennedy Campos (support).
+const KENNEDY_ID = "41fcb3fe-e1b6-43e9-bd72-41c072154100";
 
-  if (!creator) throw new Error("No user found to act as message creator.");
+async function main() {
+  const creator = await prisma.user.findUnique({
+    where: { id: KENNEDY_ID },
+    select: { id: true, name: true },
+  });
+
+  if (!creator) throw new Error(`Creator (Kennedy) not found: ${KENNEDY_ID}`);
 
   // Resolve the audience: active users in the target sectors.
   const recipients = await prisma.user.findMany({
