@@ -1505,6 +1505,13 @@ export const orderUpdateSchema = z
         errorMap: () => ({ message: 'Status inválido' }),
       })
       .optional(),
+    // Payment status — settled through the dedicated cascade in OrderService.update
+    // (stamps paidAt/paidById, settles or reopens parcelas, recomputes the rollup).
+    paymentStatus: z
+      .enum(Object.values(ORDER_PAYMENT_STATUS) as [string, ...string[]], {
+        errorMap: () => ({ message: 'Status de pagamento inválido' }),
+      })
+      .optional(),
     supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).optional(),
     orderScheduleId: z.string().uuid({ message: 'Cronograma inválido' }).optional(),
     orderRuleId: z.string().uuid({ message: 'Regra de pedido inválida' }).optional(),
