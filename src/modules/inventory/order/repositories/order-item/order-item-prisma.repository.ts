@@ -55,6 +55,10 @@ export class OrderItemPrismaRepository
       orderId: databaseEntity.orderId,
       itemId: databaseEntity.itemId,
       temporaryItemDescription: databaseEntity.temporaryItemDescription,
+      temporaryItemUniCode: databaseEntity.temporaryItemUniCode,
+      temporaryItemBrand: databaseEntity.temporaryItemBrand,
+      temporaryItemMeasures: databaseEntity.temporaryItemMeasures,
+      temporaryItemCategoryId: databaseEntity.temporaryItemCategoryId,
       orderedQuantity: databaseEntity.orderedQuantity,
       receivedQuantity: databaseEntity.receivedQuantity,
       price: databaseEntity.price,
@@ -83,6 +87,14 @@ export class OrderItemPrismaRepository
       result.order = databaseEntity.order as any;
     }
 
+    if (
+      databaseEntity.temporaryItemCategory &&
+      typeof databaseEntity.temporaryItemCategory === 'object' &&
+      !Array.isArray(databaseEntity.temporaryItemCategory)
+    ) {
+      result.temporaryItemCategory = databaseEntity.temporaryItemCategory as any;
+    }
+
     if (databaseEntity.activities && Array.isArray(databaseEntity.activities)) {
       result.activities = databaseEntity.activities as any;
     }
@@ -107,9 +119,22 @@ export class OrderItemPrismaRepository
       createInput.item = { connect: { id: formData.itemId } };
     }
 
-    // Set temporary item description if provided (temporary item)
+    // Set temporary item fields if provided (temporary item). The description is
+    // the pure name; uniCode/brand/measures/category are discrete columns.
     if (formData.temporaryItemDescription) {
       createInput.temporaryItemDescription = formData.temporaryItemDescription;
+    }
+    if (formData.temporaryItemUniCode != null) {
+      createInput.temporaryItemUniCode = formData.temporaryItemUniCode;
+    }
+    if (formData.temporaryItemBrand != null) {
+      createInput.temporaryItemBrand = formData.temporaryItemBrand;
+    }
+    if (formData.temporaryItemMeasures != null) {
+      createInput.temporaryItemMeasures = formData.temporaryItemMeasures;
+    }
+    if (formData.temporaryItemCategoryId) {
+      createInput.temporaryItemCategory = { connect: { id: formData.temporaryItemCategoryId } };
     }
 
     return createInput;
@@ -119,10 +144,11 @@ export class OrderItemPrismaRepository
     formData: OrderItemUpdateFormData,
   ): Prisma.OrderItemUpdateInput {
     // Linking a temporary line to a catalog item: scalar itemId → relation
-    // connect (mirrors mapCreateFormDataToDatabaseCreateInput). Destructured
-    // out so the spread below stays a pure scalar update input.
-    const { itemId, ...scalarFormData } = formData;
-    const updateData = { ...scalarFormData } as typeof formData;
+    // connect (mirrors mapCreateFormDataToDatabaseCreateInput). The temporary
+    // category FK is likewise mapped to a relation connect/disconnect below.
+    // Both destructured out so the spread stays a pure scalar update input.
+    const { itemId, temporaryItemCategoryId, ...scalarFormData } = formData;
+    const updateData = { ...scalarFormData } as typeof scalarFormData;
 
     // Auto-set fulfilledAt when receivedQuantity > 0 and fulfilledAt is not already set
     // (Items must be fulfilled before they can be received)
@@ -148,10 +174,20 @@ export class OrderItemPrismaRepository
       updateData.receivedAt = undefined;
     }
 
+    const result: Prisma.OrderItemUpdateInput = { ...updateData };
+
     if (itemId) {
-      return { ...updateData, item: { connect: { id: itemId } } };
+      result.item = { connect: { id: itemId } };
     }
-    return updateData;
+
+    // Temporary category FK: connect when set, disconnect when explicitly nulled.
+    if (temporaryItemCategoryId !== undefined) {
+      result.temporaryItemCategory = temporaryItemCategoryId
+        ? { connect: { id: temporaryItemCategoryId } }
+        : { disconnect: true };
+    }
+
+    return result;
   }
 
   protected mapIncludeToDatabaseInclude(
@@ -199,6 +235,7 @@ export class OrderItemPrismaRepository
     return {
       item: { select: { id: true, name: true, uniCode: true } },
       order: { select: { id: true, description: true, status: true } },
+      temporaryItemCategory: { select: { id: true, name: true } },
     };
   }
 

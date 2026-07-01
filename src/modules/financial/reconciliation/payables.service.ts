@@ -3,6 +3,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { OrderService } from '../../inventory/order/order.service';
 import { RecurrentPayableService } from '../recurrent-payable/recurrent-payable.service';
 import { ClearanceState, PayableRow, PayablesResponse, PayablesSummary } from '../../../types';
+import { deriveOrderClearance, OrderClearance } from './order-clearance';
 
 /** Same amount tolerance the saída sweep uses to decide CLEARED vs DISPUTED. */
 const CLEAR_TOLERANCE_ABS = 2;
@@ -34,24 +35,28 @@ export class PayablesService {
     private readonly recurrentPayableService: RecurrentPayableService,
   ) {}
 
-  async getPayables(): Promise<PayablesResponse> {
+  async getPayables(requestedCompetence?: string): Promise<PayablesResponse> {
     try {
       const now = new Date();
       const year = now.getFullYear();
       const month = now.getMonth() + 1;
-      const competence = `${year}-${String(month).padStart(2, '0')}`;
-      // Cover the current AND next month so navigating forward in Contas a Pagar
-      // shows upcoming recurring obligations (e.g. a weekly bill's next-month
-      // visits) immediately, instead of waiting for the daily materialization cron.
-      const next = new Date(year, month, 1); // month is 1-based → this Date is next month
-      const nextCompetence = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+      const currentCompetence = `${year}-${String(month).padStart(2, '0')}`;
 
-      const [orderResp, curRecurrent, nextRecurrent] = await Promise.all([
+      // Selected competence (YYYY-MM), scoping the recurrent occurrences to the
+      // month the user is viewing. Invalid/absent input falls back to the current
+      // month so a bad query param never fabricates data.
+      const competence = /^\d{4}-\d{2}$/.test(requestedCompetence ?? '') ? (requestedCompetence as string) : currentCompetence;
+
+      // Only the current/future competence may lazily MATERIALIZE occurrences. A
+      // PAST competence loads its EXISTING rows read-only — we never back-materialize
+      // history, so older months (before the recurrent feature existed) stay
+      // legitimately empty instead of showing fabricated phantom debts.
+      const allowMaterialize = competence >= currentCompetence;
+
+      const [orderResp, recurrentRows] = await Promise.all([
         this.orderService.getPayables(),
-        this.recurrentPayableService.ensureCurrentOccurrenceRows(competence),
-        this.recurrentPayableService.ensureCurrentOccurrenceRows(nextCompetence),
+        this.recurrentPayableService.ensureCurrentOccurrenceRows(competence, allowMaterialize),
       ]);
-      const recurrentRows = [...curRecurrent, ...nextRecurrent];
 
       const rows: PayableRow[] = [];
 
@@ -172,76 +177,111 @@ export class PayablesService {
     payrollSettlementId: string | null,
     competence: string,
   ): Promise<void> {
-    const orderInstallmentIds = new Set<string>();
+    const orderIds = new Set<string>();
     const airbrushingIds = new Set<string>();
     const recurrentOccurrenceIds = new Set<string>();
     for (const r of rows) {
       r.clearanceState = 'UNCLEARED';
       r.clearedAt = null;
       r.bankTransactionId = null;
-      if (r.source === 'ORDER' && r.installmentId) orderInstallmentIds.add(r.installmentId);
+      // ORDER rows anchor on the ORDER (row.id) — clearance is derived from the
+      // whole order's match graph (installment anchors AND the linked-NF path),
+      // so an order cleared via its NF (C1) shows CLEARED even when the specific
+      // parcela row was never directly anchored.
+      if (r.source === 'ORDER') orderIds.add(r.id);
       else if (r.source === 'AIRBRUSHING') airbrushingIds.add(r.id);
       else if (r.source === 'RECURRENT_PAYABLE') recurrentOccurrenceIds.add(r.id);
     }
 
-    const anchorIds: string[] = [
-      ...orderInstallmentIds,
-      ...airbrushingIds,
-      ...recurrentOccurrenceIds,
-    ];
-    if (anchorIds.length === 0 && !payrollSettlementId) return;
+    // ORDER clearance from the unified match graph (shared with the forecast so
+    // both views read the SAME derived clearance — no double count).
+    const orderClearance = orderIds.size
+      ? await deriveOrderClearance(this.prisma, [...orderIds])
+      : new Map<string, OrderClearance>();
 
-    const matches = await this.prisma.reconciliationMatch.findMany({
-      where: {
-        reversedAt: null,
-        OR: [
-          orderInstallmentIds.size ? { orderInstallmentId: { in: [...orderInstallmentIds] } } : undefined,
-          airbrushingIds.size ? { airbrushingId: { in: [...airbrushingIds] } } : undefined,
-          recurrentOccurrenceIds.size ? { recurrentOccurrenceId: { in: [...recurrentOccurrenceIds] } } : undefined,
-          payrollSettlementId ? { payrollMonthSettlementId: payrollSettlementId } : undefined,
-        ].filter(Boolean) as object[],
-      },
-      select: {
-        allocatedAmount: true,
-        transactionId: true,
-        matchedAt: true,
-        orderInstallmentId: true,
-        airbrushingId: true,
-        recurrentOccurrenceId: true,
-        payrollMonthSettlementId: true,
-      },
-    });
+    if (airbrushingIds.size || recurrentOccurrenceIds.size || payrollSettlementId) {
+      const matches = await this.prisma.reconciliationMatch.findMany({
+        where: {
+          reversedAt: null,
+          OR: [
+            airbrushingIds.size ? { airbrushingId: { in: [...airbrushingIds] } } : undefined,
+            recurrentOccurrenceIds.size ? { recurrentOccurrenceId: { in: [...recurrentOccurrenceIds] } } : undefined,
+            payrollSettlementId ? { payrollMonthSettlementId: payrollSettlementId } : undefined,
+          ].filter(Boolean) as object[],
+        },
+        select: {
+          allocatedAmount: true,
+          transactionId: true,
+          matchedAt: true,
+          airbrushingId: true,
+          recurrentOccurrenceId: true,
+          payrollMonthSettlementId: true,
+        },
+      });
 
-    const byOrderInstallment = new Map<string, AnchorMatch>();
-    const byAirbrushing = new Map<string, AnchorMatch>();
-    const byRecurrent = new Map<string, AnchorMatch>();
-    let payrollMatch: AnchorMatch | null = null;
-    for (const m of matches) {
-      const am: AnchorMatch = {
-        allocatedAmount: Number(m.allocatedAmount),
-        transactionId: m.transactionId,
-        matchedAt: m.matchedAt,
+      const byAirbrushing = new Map<string, AnchorMatch>();
+      const byRecurrent = new Map<string, AnchorMatch>();
+      let payrollMatch: AnchorMatch | null = null;
+      for (const m of matches) {
+        const am: AnchorMatch = {
+          allocatedAmount: Number(m.allocatedAmount),
+          transactionId: m.transactionId,
+          matchedAt: m.matchedAt,
+        };
+        if (m.airbrushingId) byAirbrushing.set(m.airbrushingId, am);
+        else if (m.recurrentOccurrenceId) byRecurrent.set(m.recurrentOccurrenceId, am);
+        else if (m.payrollMonthSettlementId) payrollMatch = am;
+      }
+
+      const apply = (row: PayableRow, m: AnchorMatch | null | undefined) => {
+        if (!m) return;
+        const tol = Math.max(CLEAR_TOLERANCE_ABS, row.amount * CLEAR_TOLERANCE_PCT);
+        const drift = Math.abs(m.allocatedAmount - row.amount);
+        row.clearanceState = (drift > tol ? 'DISPUTED' : 'CLEARED') as ClearanceState;
+        row.clearedAt = m.matchedAt;
+        row.bankTransactionId = m.transactionId;
       };
-      if (m.orderInstallmentId) byOrderInstallment.set(m.orderInstallmentId, am);
-      else if (m.airbrushingId) byAirbrushing.set(m.airbrushingId, am);
-      else if (m.recurrentOccurrenceId) byRecurrent.set(m.recurrentOccurrenceId, am);
-      else if (m.payrollMonthSettlementId) payrollMatch = am;
+
+      for (const r of rows) {
+        if (r.source === 'AIRBRUSHING') apply(r, byAirbrushing.get(r.id));
+        else if (r.source === 'RECURRENT_PAYABLE') apply(r, byRecurrent.get(r.id));
+        else if (r.source === 'PAYROLL' && r.competence === competence) apply(r, payrollMatch);
+      }
     }
 
-    const apply = (row: PayableRow, m: AnchorMatch | null | undefined) => {
-      if (!m) return;
-      const tol = Math.max(CLEAR_TOLERANCE_ABS, row.amount * CLEAR_TOLERANCE_PCT);
-      const drift = Math.abs(m.allocatedAmount - row.amount);
-      row.clearanceState = (drift > tol ? 'DISPUTED' : 'CLEARED') as ClearanceState;
-      row.clearedAt = m.matchedAt;
-      row.bankTransactionId = m.transactionId;
-    };
-
+    // ORDER rows — clearance + 3-way consistency from the shared derivation.
     for (const r of rows) {
-      if (r.source === 'ORDER' && r.installmentId) apply(r, byOrderInstallment.get(r.installmentId));
-      else if (r.source === 'AIRBRUSHING') apply(r, byAirbrushing.get(r.id));
-      else if (r.source === 'RECURRENT_PAYABLE') apply(r, byRecurrent.get(r.id));
-      else if (r.source === 'PAYROLL' && r.competence === competence) apply(r, payrollMatch);
+      if (r.source !== 'ORDER') continue;
+      const oc = orderClearance.get(r.id);
+      if (!oc) continue;
+      // Surface the 3-way (order ≟ nf ≟ tx) signal on every ORDER row.
+      r.threeWayConsistency = oc.threeWay.flag;
+      r.threeWaySums = {
+        tx: oc.threeWay.txAllocated,
+        nf: oc.threeWay.nfLinkedTotal,
+        installment: oc.threeWay.installmentTotal,
+      };
+      if (!oc.hasBankBacking) continue;
+
+      if (r.installmentId) {
+        // A specific parcela clears ONLY on its OWN anchor — it must never inherit
+        // clearance from a sibling parcela's bank match (that would mark an unpaid
+        // parcela CLEARED). Its allocated amount decides CLEARED vs DISPUTED.
+        const inst = oc.byInstallment.get(r.installmentId);
+        if (!inst) continue; // this parcela is not bank-backed → stays UNCLEARED
+        const tol = Math.max(CLEAR_TOLERANCE_ABS, r.amount * CLEAR_TOLERANCE_PCT);
+        const drift = Math.abs(inst.allocatedAmount - r.amount);
+        r.clearanceState = (drift > tol ? 'DISPUTED' : 'CLEARED') as ClearanceState;
+        r.clearedAt = inst.matchedAt;
+        r.bankTransactionId = inst.transactionId;
+      } else {
+        // Order-level row (single-payment order, no per-parcela expansion): the
+        // whole order is bank-backed via the installment anchor OR the linked-NF
+        // path. A 3-way MISMATCH reads as DISPUTED.
+        r.clearanceState = (oc.threeWay.flag === 'MISMATCH' ? 'DISPUTED' : 'CLEARED') as ClearanceState;
+        r.clearedAt = oc.matchedAt;
+        r.bankTransactionId = oc.transactionId;
+      }
     }
   }
 

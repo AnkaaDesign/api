@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
@@ -37,10 +37,14 @@ export class PayablesController {
     private readonly recurrentPayableService: RecurrentPayableService,
   ) {}
 
-  /** Unified Contas a Pagar list: orders + airbrushing + schedules + taxes + folha + 13º/férias + recorrentes + recurrent payables. */
+  /**
+   * Unified Contas a Pagar list: orders + airbrushing + schedules + taxes + folha + 13º/férias + recorrentes + recurrent payables.
+   * `competence` (YYYY-MM) scopes the recurrent occurrences to the selected month;
+   * omit for the current month. A past competence loads existing rows read-only.
+   */
   @Get()
-  async getPayables(): Promise<PayablesResponse> {
-    return this.payablesService.getPayables();
+  async getPayables(@Query('competence') competence?: string): Promise<PayablesResponse> {
+    return this.payablesService.getPayables(competence);
   }
 
   /** Settle facade — payroll competence month or a recurrent-payable occurrence. */

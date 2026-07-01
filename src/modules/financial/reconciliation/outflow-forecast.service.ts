@@ -12,6 +12,8 @@ import { ThirteenthService } from '@modules/personnel-department/thirteenth/thir
 import { VacationService } from '@modules/personnel-department/vacation/vacation.service';
 import { TransactionCategoryService } from './transaction-category.service';
 import { RecurrenceLearnerService } from './recurrence-learner.service';
+import { RecurrentPayableService } from '../recurrent-payable/recurrent-payable.service';
+import { deriveOrderClearance } from './order-clearance';
 
 // Canonical payables convention (see ANDRESSA_WIRING_CONTRACT.md): an order is an OPEN
 // obligation iff it is not cancelled, not paid, and still has at least one unfulfilled
@@ -40,6 +42,10 @@ export interface OutflowForecastOrderRow {
   paymentStatus: OrderPaymentStatus;
   forecast: Date | null;
   total: number;
+  /** C3 — the order is already bank-backed (a reconciled debit settled it), so it
+   *  is EXCLUDED from the open forecast total to avoid double counting the cash
+   *  that has already left the account. */
+  bankCleared?: boolean;
 }
 
 export interface OutflowForecastScheduleRow {
@@ -83,6 +89,7 @@ export class OutflowForecastService {
     private readonly prisma: PrismaService,
     private readonly categories: TransactionCategoryService,
     private readonly recurrence: RecurrenceLearnerService,
+    private readonly recurrentPayables: RecurrentPayableService,
     private readonly payrollService: PayrollService,
     private readonly thirteenthService: ThirteenthService,
     private readonly vacationService: VacationService,
@@ -173,6 +180,14 @@ export class OutflowForecastService {
       }),
     ]);
 
+    // C3 — orders already settled by a reconciled bank debit (installment anchor
+    // OR linked-NF path) must NOT be counted again in the outflow FORECAST: the
+    // cash already left, and it is represented by the reconciled debit. Derived
+    // from the SAME graph Contas a Pagar's clearance reads, so the two views agree.
+    const orderClearance = orders.length
+      ? await deriveOrderClearance(this.prisma, orders.map(o => o.id))
+      : new Map();
+
     const emptyBucket = () => ({ count: 0, total: 0 });
     const byStatus: Record<
       'AWAITING_PAYMENT' | 'PARTIALLY_PAID',
@@ -202,8 +217,14 @@ export class OutflowForecastService {
         total = itemsTotal - discountAmount + (order.freight || 0);
       }
 
+      // Skip FULLY bank-backed orders from the forecast total (they are
+      // reconciled, not forecast) — but still list them (annotated) for
+      // transparency. A 3-way OK flag means the matched bank outflow covers the
+      // whole installment total; a partial clearance (MISMATCH: tx < total) stays
+      // in the forecast so its still-open cash isn't dropped.
+      const bankCleared = orderClearance.get(order.id)?.threeWay.flag === 'OK';
       const bucket = byStatus[order.paymentStatus as keyof typeof byStatus];
-      if (bucket) {
+      if (bucket && !bankCleared) {
         bucket.count += 1;
         bucket.total += total;
       }
@@ -216,6 +237,7 @@ export class OutflowForecastService {
         paymentStatus: order.paymentStatus,
         forecast: order.forecast,
         total,
+        bankCleared,
       };
     });
 
@@ -532,21 +554,106 @@ export class OutflowForecastService {
 
   // ----- (d) Recorrentes ------------------------------------------------------
 
+  /**
+   * Recorrentes now read from the FIRST-CLASS RecurrentPayable occurrences — the
+   * SAME source Contas a Pagar enumerates — instead of the old TransactionCategory
+   * 3-month averages, so both views list exactly the same obligations (Phase E).
+   *
+   * A recurring bill appears ONCE from ONE source: `forecastAmount` sums only the
+   * still-open (PENDING/OVERDUE) occurrence estimates; a bank-settled OR manually
+   * paid occurrence is PAID and drops out of the forecast total (its cash already
+   * left — the reconciled debit represents it), mirroring the Pedidos section's
+   * `bankCleared` exclusion. Folha and tax-type recurrents stay excluded here —
+   * they are owned by the Folha / Impostos sections (no double count).
+   *
+   * Safety net: any isRecurring category WITHOUT a RecurrentPayable (should not
+   * happen after the Phase-E backfill) still contributes its old 3-month average
+   * so nothing silently disappears — and the gap is logged.
+   */
   private async buildRecurringSection(from: Date, to: Date) {
+    const competence = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}`;
+    const rows = await this.recurrentPayables.forecastForCompetence(competence);
+
+    const isExcluded = (cat: { slug: string; accountingType: string | null }) =>
+      RECURRING_EXCLUDED_SLUGS.has(cat.slug) ||
+      (cat.accountingType != null &&
+        RECURRING_EXCLUDED_TYPES.includes(cat.accountingType as AccountingType));
+
+    const included = rows.filter(r => !isExcluded(r.category));
+
+    const items = included.map(r => ({
+      category: r.category,
+      paidAmount: r.paidAmount,
+      forecastAmount: r.openForecast,
+      transactionCount: 0,
+      status: r.status,
+      paymentDate: r.paymentDate,
+      isPaymentDateForecast: r.status !== 'PAID',
+    }));
+
+    // Every category already represented by a payable (included OR excluded) is
+    // "covered"; the fallback only fills genuinely payable-less isRecurring ones.
+    const covered = new Set(rows.map(r => r.category.id));
+    const fallbackItems = await this.buildRecurringFallback(from, to, covered);
+
+    const allItems = [...items, ...fallbackItems];
+    return {
+      totalPaid: allItems.reduce((a, b) => a + b.paidAmount, 0),
+      totalForecast: allItems.reduce((a, b) => a + b.forecastAmount, 0),
+      // How many recurring payables were folded into Impostos/Folha instead.
+      excludedCount: rows.length - included.length,
+      items: allItems,
+    };
+  }
+
+  /** Old-style 3-month-average rows for isRecurring categories that have NO
+   *  RecurrentPayable yet — so a mis-seeded category never vanishes from the
+   *  forecast. Emits a warning listing the uncovered categories. */
+  private async buildRecurringFallback(
+    from: Date,
+    to: Date,
+    covered: Set<string>,
+  ): Promise<
+    Array<{
+      category: { id: string; name: string; slug: string; color: string | null; accountingType: AccountingType | null };
+      paidAmount: number;
+      forecastAmount: number;
+      transactionCount: number;
+      status: 'PAID' | 'PENDING';
+      paymentDate: Date | null;
+      isPaymentDateForecast: boolean;
+    }>
+  > {
     const full = await this.categories.forecast(from, to);
-    const items = full.items.filter(
+    const missing = full.items.filter(
       item =>
+        !covered.has(item.category.id) &&
         !RECURRING_EXCLUDED_SLUGS.has(item.category.slug) &&
         (!item.category.accountingType ||
           !RECURRING_EXCLUDED_TYPES.includes(item.category.accountingType)),
     );
-    return {
-      totalPaid: items.reduce((a, b) => a + b.paidAmount, 0),
-      totalForecast: items.reduce((a, b) => a + b.forecastAmount, 0),
-      // How many recurring categories were folded into Impostos/Folha instead.
-      excludedCount: full.items.length - items.length,
-      items,
-    };
+    if (missing.length) {
+      this.logger.warn(
+        `Previsão de Saídas: ${missing.length} categoria(s) recorrente(s) sem RecurrentPayable — ` +
+          `usando a média de 3 meses como fallback: ${missing.map(m => m.category.name).join(', ')}. ` +
+          `Rode o seed-recurrent-payables-from-categories para unificar.`,
+      );
+    }
+    return missing.map(item => ({
+      category: {
+        id: item.category.id,
+        name: item.category.name,
+        slug: item.category.slug,
+        color: item.category.color,
+        accountingType: item.category.accountingType,
+      },
+      paidAmount: item.paidAmount,
+      forecastAmount: item.forecastAmount,
+      transactionCount: item.transactionCount,
+      status: item.status,
+      paymentDate: item.paymentDate,
+      isPaymentDateForecast: item.isPaymentDateForecast,
+    }));
   }
 
   /** Learned counterparty-cadence forecast — informational comparison only. */

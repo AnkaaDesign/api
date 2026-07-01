@@ -25,7 +25,6 @@ import {
   OrderItemGetManyResponse,
   OrderItemGetUniqueResponse,
   OrderItemCreateResponse,
-  OrderItemUpdateResponse,
   OrderItemDeleteResponse,
   OrderPaymentSummaryResponse,
   OrderPaymentSummaryData,
@@ -65,7 +64,6 @@ import {
   OrderInclude,
   OrderItemGetManyFormData,
   OrderItemCreateFormData,
-  OrderItemUpdateFormData,
   OrderItemInclude,
 } from '../../../schemas/order';
 import { OrderItemRepository } from './repositories/order-item/order-item.repository';
@@ -340,23 +338,20 @@ export class OrderService {
         // Create the order with items
         const newOrder = await this.orderRepository.createWithTransaction(tx, orderData);
 
-        // Boleto installment schedule (2x/3x). Single-payment PIX / cartão settle at
-        // the order level, so no installment rows are generated for them.
-        const installmentCount = (orderData.installmentCount as number) || 1;
-        if (orderData.paymentMethod === 'BANK_SLIP' && installmentCount > 1) {
-          let goodsSubtotal = 0;
-          let itemsTotal = 0;
-          for (const item of (orderData.items || []) as any[]) {
-            const subtotal = (item.orderedQuantity || 0) * (item.price || 0);
-            goodsSubtotal += subtotal;
-            itemsTotal += subtotal * (1 + (item.icms || 0) / 100 + (item.ipi || 0) / 100);
-          }
-          const discountAmount =
-            orderData.discount > 0 ? goodsSubtotal * (orderData.discount / 100) : 0;
-          const computedTotal = itemsTotal - discountAmount + (orderData.freight || 0);
-          // Honor the manual grand-total override when present (null = use computed).
-          const total =
-            orderData.totalOverride != null ? (orderData.totalOverride as number) : computedTotal;
+        // Every non-cancelled order carries >= 1 payment installment as a uniform
+        // per-tranche reconciliation anchor: single-payment PIX / cartão → 1 parcela
+        // (the whole order); BANK_SLIP Nx → N parcelas. Cancelled orders are a dead
+        // obligation, so no schedule is generated for them. The rollup respects the
+        // pre-payable PENDING state (a fresh all-PENDING schedule never auto-escalates
+        // a PENDING order — see recomputeOrderPaymentRollup).
+        if ((orderData.status as ORDER_STATUS) !== ORDER_STATUS.CANCELLED) {
+          const installmentCount = (orderData.installmentCount as number) || 1;
+          const total = this.computeOrderPayableTotal({
+            freight: orderData.freight,
+            discount: orderData.discount,
+            totalOverride: orderData.totalOverride,
+            items: (orderData.items || []) as any[],
+          });
           await this.generateInstallmentsForOrder(tx, newOrder.id, {
             total,
             count: installmentCount,
@@ -954,6 +949,10 @@ export class OrderService {
               data: {
                 orderId: id,
                 temporaryItemDescription: item.temporaryItemDescription,
+                temporaryItemUniCode: item.temporaryItemUniCode ?? null,
+                temporaryItemBrand: item.temporaryItemBrand ?? null,
+                temporaryItemMeasures: item.temporaryItemMeasures ?? null,
+                temporaryItemCategoryId: item.temporaryItemCategoryId ?? null,
                 orderedQuantity: item.orderedQuantity,
                 price: item.price,
                 icms: item.icms || 0,
@@ -1160,7 +1159,6 @@ export class OrderService {
             i => i.status === ORDER_INSTALLMENT_STATUS.PAID || (i.paidAmount || 0) > 0,
           );
           const wantCount = postUpdate.installmentCount || 1;
-          const isBoleto = postUpdate.paymentMethod === 'BANK_SLIP';
           if (postUpdate.status === ORDER_STATUS.CANCELLED) {
             // Order cancelled: cancel any open parcelas so a dead order can't keep
             // resurfacing in Contas a Pagar at the installment level. Already-paid
@@ -1172,65 +1170,61 @@ export class OrderService {
               });
             }
           } else if (!anySettled) {
-            if (isBoleto && wantCount > 1) {
-              // Only regenerate parcelas when a SCHEDULE-affecting input actually
-              // changed vs the pre-update order. Regenerating unconditionally on every
-              // edit (e.g. notes/description/status) churns installment IDs — breaking
-              // cached "marcar parcela paga" deep-links — and wipes manual schedule
-              // edits. The old `items !== undefined` proxy fired on EVERY web edit
-              // (the form always sends items); instead diff the real computed total.
-              const prevCount = existingOrder.installmentCount ?? 1;
-              const prevMethod = existingOrder.paymentMethod ?? null;
-              const prevDueDays = existingOrder.paymentDueDays ?? null;
-              const prevFirstDue = existingOrder.paymentFirstDueDate
-                ? new Date(existingOrder.paymentFirstDueDate).getTime()
-                : null;
-              const nextFirstDue = postUpdate.paymentFirstDueDate
-                ? new Date(postUpdate.paymentFirstDueDate).getTime()
-                : null;
-              const hasNoSchedule = (postUpdate.installments || []).length === 0;
-              // Real total change: compare the pre-update order total to the post-update
-              // one (covers item edits, freight, discount and totalOverride at once).
-              const prevTotal = this.computeOrderPayableTotal({
-                freight: existingOrder.freight,
-                discount: existingOrder.discount,
-                totalOverride: existingOrder.totalOverride,
-                items: existingOrder.items || [],
-              });
-              const nextTotal = this.computeOrderPayableTotal(postUpdate);
-              const totalChanged = Math.round(prevTotal * 100) !== Math.round(nextTotal * 100);
-              // The client clears the first-due anchor by explicitly sending null.
-              const firstDueExplicitlyCleared = (data as any).paymentFirstDueDate === null;
-              const paymentFieldChanged =
-                hasNoSchedule ||
-                prevCount !== wantCount ||
-                prevMethod !== postUpdate.paymentMethod ||
-                prevDueDays !== (postUpdate.paymentDueDays ?? null) ||
-                prevFirstDue !== nextFirstDue ||
-                totalChanged;
+            // Every non-cancelled order keeps >= 1 installment (single-payment = 1
+            // parcela, boleto Nx = N). Only regenerate when a SCHEDULE-affecting input
+            // actually changed vs the pre-update order (or the schedule is missing).
+            // Regenerating unconditionally on every edit (e.g. notes/description/status)
+            // churns installment IDs — breaking cached "marcar parcela paga" deep-links —
+            // and wipes manual schedule edits. Settled schedules are frozen (this branch
+            // only runs when nothing is settled), so paid parcelas are never clobbered.
+            const prevCount = existingOrder.installmentCount ?? 1;
+            const prevMethod = existingOrder.paymentMethod ?? null;
+            const prevDueDays = existingOrder.paymentDueDays ?? null;
+            const prevFirstDue = existingOrder.paymentFirstDueDate
+              ? new Date(existingOrder.paymentFirstDueDate).getTime()
+              : null;
+            const nextFirstDue = postUpdate.paymentFirstDueDate
+              ? new Date(postUpdate.paymentFirstDueDate).getTime()
+              : null;
+            const hasNoSchedule = (postUpdate.installments || []).length === 0;
+            // Real total change: compare the pre-update order total to the post-update
+            // one (covers item edits, freight, discount and totalOverride at once).
+            const prevTotal = this.computeOrderPayableTotal({
+              freight: existingOrder.freight,
+              discount: existingOrder.discount,
+              totalOverride: existingOrder.totalOverride,
+              items: existingOrder.items || [],
+            });
+            const nextTotal = this.computeOrderPayableTotal(postUpdate);
+            const totalChanged = Math.round(prevTotal * 100) !== Math.round(nextTotal * 100);
+            // The client clears the first-due anchor by explicitly sending null.
+            const firstDueExplicitlyCleared = (data as any).paymentFirstDueDate === null;
+            const paymentFieldChanged =
+              hasNoSchedule ||
+              prevCount !== wantCount ||
+              prevMethod !== postUpdate.paymentMethod ||
+              prevDueDays !== (postUpdate.paymentDueDays ?? null) ||
+              prevFirstDue !== nextFirstDue ||
+              totalChanged;
 
-              if (paymentFieldChanged) {
-                const total = nextTotal;
-                // Keep the schedule stable across unrelated updates (e.g. receiving an
-                // unpaid order). Anchor the 1st parcela to the chosen first due date.
-                // When the client explicitly CLEARS the first due date (null), re-anchor
-                // to now + interval rather than falling back to the stale existing date.
-                const existingFirstDue =
-                  (postUpdate.installments || []).find(i => i.number === 1)?.dueDate ?? null;
-                const firstDueForRegen = firstDueExplicitlyCleared
-                  ? null
-                  : (postUpdate.paymentFirstDueDate ?? existingFirstDue ?? null);
-                await this.generateInstallmentsForOrder(tx, id, {
-                  total,
-                  count: wantCount,
-                  intervalDays: postUpdate.paymentDueDays ?? null,
-                  firstDueDate: firstDueForRegen,
-                });
-                await this.recomputeOrderPaymentRollup(tx, id);
-              }
-            } else if ((postUpdate.installments || []).length > 0) {
-              // No longer an installment boleto — drop the stale schedule.
-              await tx.orderInstallment.deleteMany({ where: { orderId: id } });
+            if (paymentFieldChanged) {
+              const total = nextTotal;
+              // Keep the schedule stable across unrelated updates (e.g. receiving an
+              // unpaid order). Anchor the 1st parcela to the chosen first due date.
+              // When the client explicitly CLEARS the first due date (null), re-anchor
+              // to now + interval rather than falling back to the stale existing date.
+              const existingFirstDue =
+                (postUpdate.installments || []).find(i => i.number === 1)?.dueDate ?? null;
+              const firstDueForRegen = firstDueExplicitlyCleared
+                ? null
+                : (postUpdate.paymentFirstDueDate ?? existingFirstDue ?? null);
+              await this.generateInstallmentsForOrder(tx, id, {
+                total,
+                count: wantCount,
+                intervalDays: postUpdate.paymentDueDays ?? null,
+                firstDueDate: firstDueForRegen,
+              });
+              await this.recomputeOrderPaymentRollup(tx, id);
             }
           }
         }
@@ -2131,241 +2125,6 @@ export class OrderService {
       }
       throw new InternalServerErrorException(
         'Erro interno do servidor ao criar o item do pedido. Tente novamente.',
-      );
-    }
-  }
-
-  /**
-   * Update an order item.
-   *
-   * @deprecated DEAD CODE — no route/caller reaches this. The live per-item update is
-   * `OrderItemService.update`, which (unlike this method) also recomputes the parent
-   * order's fulfillment/received status via checkAndUpdateOrder*Status. Do NOT wire this
-   * method to a controller: it adjusts stock but leaves the order status stale. Use
-   * `OrderItemService.update` instead. Kept only to avoid a large unrelated diff.
-   */
-  async updateOrderItem(
-    id: string,
-    data: OrderItemUpdateFormData,
-    userId?: string,
-  ): Promise<OrderItemUpdateResponse> {
-    try {
-      // Declare variable outside transaction so it's accessible after
-      let existingItem: any;
-
-      const updatedItem = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // Get existing order item
-        existingItem = await tx.orderItem.findUnique({
-          where: { id },
-          include: {
-            order: true,
-          },
-        });
-
-        if (!existingItem) {
-          throw new NotFoundException('Item do pedido não encontrado.');
-        }
-
-        // Não permitir editar itens de pedidos já recebidos ou cancelados
-        if (
-          [ORDER_STATUS.RECEIVED, ORDER_STATUS.CANCELLED].includes(
-            existingItem.order.status as ORDER_STATUS,
-          )
-        ) {
-          throw new BadRequestException(
-            `Não é possível editar itens de um pedido ${getOrderStatusLabel(existingItem.order.status as ORDER_STATUS)}.`,
-          );
-        }
-
-        // Se a quantidade está sendo atualizada, validar
-        if (data.orderedQuantity !== undefined) {
-          const itemToValidate = {
-            itemId: existingItem.itemId,
-            orderedQuantity: data.orderedQuantity,
-            price: data.price !== undefined ? data.price : existingItem.price,
-            icms: data.icms !== undefined ? data.icms : existingItem.icms,
-            ipi: data.ipi !== undefined ? data.ipi : existingItem.ipi,
-          };
-
-          // Validar o item com a nova quantidade
-          await this.validateOrderItem(
-            itemToValidate,
-            existingItem.order.supplierId || undefined,
-            tx,
-          );
-        }
-
-        // Se o preço está sendo atualizado, validar
-        if (data.price !== undefined || data.icms !== undefined || data.ipi !== undefined) {
-          // Validar o novo preço
-          await this.validateItemPrices(
-            [
-              {
-                itemId: existingItem.itemId,
-                orderedQuantity:
-                  data.orderedQuantity !== undefined
-                    ? data.orderedQuantity
-                    : existingItem.orderedQuantity,
-                price: data.price !== undefined ? data.price : existingItem.price,
-                icms: data.icms !== undefined ? data.icms : existingItem.icms,
-                ipi: data.ipi !== undefined ? data.ipi : existingItem.ipi,
-              },
-            ],
-            tx,
-          );
-        }
-
-        // Validar quantidade recebida
-        if (data.receivedQuantity !== undefined) {
-          const orderedQty =
-            data.orderedQuantity !== undefined
-              ? data.orderedQuantity
-              : existingItem.orderedQuantity;
-          if (data.receivedQuantity > orderedQty) {
-            throw new BadRequestException(
-              `Quantidade recebida (${data.receivedQuantity}) não pode exceder a quantidade pedida (${orderedQty}).`,
-            );
-          }
-          if (data.receivedQuantity < 0) {
-            throw new BadRequestException('Quantidade recebida não pode ser negativa.');
-          }
-        }
-
-        // Handle received quantity updates - create activities when quantities change regardless of order status
-        if (
-          data.receivedQuantity !== undefined &&
-          data.receivedQuantity !== existingItem.receivedQuantity
-        ) {
-          // Always update the receivedAt date based on quantity
-          if (data.receivedQuantity > 0 && !existingItem.receivedAt) {
-            data.receivedAt = new Date();
-          } else if (data.receivedQuantity === 0) {
-            data.receivedAt = undefined;
-          }
-
-          // Always handle inventory activities when received quantities change
-          // Check if there are existing ORDER_RECEIVED activities for this item
-          const existingActivities = await tx.activity.findMany({
-            where: {
-              orderItemId: id,
-              reason: ACTIVITY_REASON.ORDER_RECEIVED,
-            },
-          });
-
-          // Calculate net quantity already added to stock (INBOUND adds, OUTBOUND
-          // corrections subtract) so reversals aren't double-counted.
-          const alreadyInStock = existingActivities.reduce((sum, activity) => {
-            if (activity.operation === ACTIVITY_OPERATION.INBOUND) {
-              return sum + activity.quantity;
-            } else if (activity.operation === ACTIVITY_OPERATION.OUTBOUND) {
-              return sum - activity.quantity;
-            }
-            return sum;
-          }, 0);
-
-          // Calculate the difference between new received quantity and what's already in stock
-          const stockAdjustment = data.receivedQuantity - alreadyInStock;
-
-          if (stockAdjustment !== 0) {
-            // Create activity for the adjustment
-            // Use ORDER_RECEIVED reason since this represents actual receipt of items
-            await tx.activity.create({
-              data: {
-                itemId: existingItem.itemId,
-                quantity: Math.abs(stockAdjustment),
-                operation:
-                  stockAdjustment > 0 ? ACTIVITY_OPERATION.INBOUND : ACTIVITY_OPERATION.OUTBOUND,
-                reason: ACTIVITY_REASON.ORDER_RECEIVED,
-                reasonOrder: 1, // Order received
-                orderId: existingItem.orderId,
-                orderItemId: id,
-                userId: null, // ORDER_RECEIVED activities don't have user assignment
-              },
-            });
-
-            // Update item stock atomically (increment) to avoid lost-update under
-            // concurrency. stockAdjustment is signed (negative on reversal).
-            const updatedStockItem = await tx.item.update({
-              where: { id: existingItem.itemId },
-              data: { quantity: { increment: stockAdjustment } },
-              select: { quantity: true },
-            });
-
-            // Preserve the non-negative clamp: if a concurrent write drove the
-            // result below zero, floor it back to 0.
-            if (updatedStockItem.quantity < 0) {
-              await tx.item.update({
-                where: { id: existingItem.itemId },
-                data: { quantity: 0 },
-              });
-            }
-          }
-        }
-
-        // Update the order item using repository
-        const updatedItem = await this.orderItemRepository.updateWithTransaction(tx, id, data);
-
-        // Track field-level changes
-        const fieldsToTrack = [
-          'orderedQuantity',
-          'receivedQuantity',
-          'price',
-          'icms',
-          'ipi',
-          'receivedAt',
-        ];
-
-        await trackAndLogFieldChanges({
-          changeLogService: this.changeLogService,
-          entityType: ENTITY_TYPE.ORDER_ITEM,
-          entityId: id,
-          oldEntity: existingItem,
-          newEntity: updatedItem,
-          fieldsToTrack,
-          userId: userId || null,
-          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-          transaction: tx,
-        });
-
-        return updatedItem;
-      });
-
-      // Emit order item received event if receivedQuantity increased
-      try {
-        if (
-          data.receivedQuantity !== undefined &&
-          data.receivedQuantity > (existingItem.receivedQuantity || 0)
-        ) {
-          // Get the order for the event
-          const order = await this.prisma.order.findUnique({
-            where: { id: existingItem.orderId },
-          });
-
-          if (order) {
-            const quantityIncrease = data.receivedQuantity - (existingItem.receivedQuantity || 0);
-            this.eventEmitter.emit(
-              'order.item.received',
-              new OrderItemReceivedEvent(order as Order, updatedItem, quantityIncrease),
-            );
-          }
-        }
-      } catch (error) {
-        this.logger.error('Error emitting order item received event:', error);
-        // Don't fail the update if event emission fails
-      }
-
-      return {
-        success: true,
-        message: 'Item do pedido atualizado com sucesso.',
-        data: updatedItem,
-      };
-    } catch (error) {
-      this.logger.error('Erro ao atualizar item do pedido:', error);
-      if (error instanceof BadRequestException || error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new InternalServerErrorException(
-        'Erro interno do servidor ao atualizar o item do pedido. Tente novamente.',
       );
     }
   }
@@ -3617,7 +3376,15 @@ export class OrderService {
   /**
    * Recompute an order's payment rollup from its installments:
    * all PAID → PAID; any settled/partial → PARTIALLY_PAID; none → AWAITING_PAYMENT.
-   * No-op for orders without installments (single-payment PIX / cartão).
+   * No-op for orders without installments (should be none now that every order
+   * carries >= 1 parcela, but kept defensive for legacy rows).
+   *
+   * PENDING is preserved: it is a pre-payable state gated behind the ADMIN
+   * "Requisitar Pagamento" (PENDING → AWAITING_PAYMENT) flow. A freshly generated,
+   * all-PENDING schedule would otherwise compute AWAITING_PAYMENT here and silently
+   * make the order payable, bypassing that gate — so a PENDING order is only ever
+   * moved forward by a REAL settlement (PARTIALLY_PAID / PAID), never by the empty
+   * AWAITING_PAYMENT baseline.
    */
   private async recomputeOrderPaymentRollup(
     tx: PrismaTransaction,
@@ -3639,6 +3406,18 @@ export class OrderService {
         ? ORDER_PAYMENT_STATUS.PARTIALLY_PAID
         : ORDER_PAYMENT_STATUS.AWAITING_PAYMENT;
 
+    // Never auto-escalate a pre-payable PENDING order to the AWAITING_PAYMENT baseline
+    // (that transition is ADMIN-gated). Only a real settlement moves it forward.
+    if (target === ORDER_PAYMENT_STATUS.AWAITING_PAYMENT) {
+      const current = await tx.order.findUnique({
+        where: { id: orderId },
+        select: { paymentStatus: true },
+      });
+      if ((current?.paymentStatus as ORDER_PAYMENT_STATUS) === ORDER_PAYMENT_STATUS.PENDING) {
+        return;
+      }
+    }
+
     const lastPaidAt = installments
       .map(i => i.paidAt)
       .filter((d): d is Date => !!d)
@@ -3652,6 +3431,21 @@ export class OrderService {
         paidAt: target === ORDER_PAYMENT_STATUS.PAID ? lastPaidAt ?? new Date() : null,
       },
     });
+  }
+
+  /**
+   * Public wrapper over the private payment rollup, so the reconciliation layer
+   * can recompute an order's paymentStatus/paidAt after it anchors and settles an
+   * OrderInstallment from a bank match (the C1 NF↔tx→order tie-back and the C2
+   * direct order↔tx confirmation). Runs inside the caller's Prisma transaction so
+   * the settle + rollup are atomic. Idempotent: re-running over an already-PAID
+   * order is a no-op (the rollup is a pure function of the installment states).
+   */
+  async recomputeOrderPaymentRollupFromReconciliation(
+    tx: PrismaTransaction,
+    orderId: string,
+  ): Promise<void> {
+    await this.recomputeOrderPaymentRollup(tx, orderId);
   }
 
   /**
@@ -3696,27 +3490,25 @@ export class OrderService {
     );
     if (anySettled) return; // frozen schedule — never re-split settled parcelas
 
-    const isBoleto = order.paymentMethod === PAYMENT_METHOD.BANK_SLIP;
+    // Every non-cancelled order keeps >= 1 installment, so keep the single-payment
+    // parcela's amount in sync with item-level edits too (not just boleto Nx).
     const wantCount = order.installmentCount || 1;
-    if (isBoleto && wantCount > 1) {
-      const newTotal = this.computeOrderPayableTotal(order);
-      const currentScheduleTotal = (order.installments || []).reduce(
-        (s, i) => s + (i.amount || 0),
-        0,
-      );
-      const totalChanged =
-        Math.round(currentScheduleTotal * 100) !== Math.round(newTotal * 100);
-      if (totalChanged || (order.installments || []).length === 0) {
-        const existingFirstDue =
-          (order.installments || []).find(i => i.number === 1)?.dueDate ?? null;
-        await this.generateInstallmentsForOrder(tx, orderId, {
-          total: newTotal,
-          count: wantCount,
-          intervalDays: order.paymentDueDays ?? null,
-          firstDueDate: order.paymentFirstDueDate ?? existingFirstDue ?? null,
-        });
-        await this.recomputeOrderPaymentRollup(tx, orderId);
-      }
+    const newTotal = this.computeOrderPayableTotal(order);
+    const currentScheduleTotal = (order.installments || []).reduce(
+      (s, i) => s + (i.amount || 0),
+      0,
+    );
+    const totalChanged = Math.round(currentScheduleTotal * 100) !== Math.round(newTotal * 100);
+    if (totalChanged || (order.installments || []).length === 0) {
+      const existingFirstDue =
+        (order.installments || []).find(i => i.number === 1)?.dueDate ?? null;
+      await this.generateInstallmentsForOrder(tx, orderId, {
+        total: newTotal,
+        count: wantCount,
+        intervalDays: order.paymentDueDays ?? null,
+        firstDueDate: order.paymentFirstDueDate ?? existingFirstDue ?? null,
+      });
+      await this.recomputeOrderPaymentRollup(tx, orderId);
     }
   }
 
@@ -3781,11 +3573,14 @@ export class OrderService {
 
   /**
    * Generate a payment-installment schedule for an order, based on its method/count.
-   * PIX / CREDIT_CARD (or count <= 1) → no installment rows (settled at order level).
-   * BANK_SLIP with N > 1 → N parcelas. The 1st parcela is due on `firstDueDate`
-   * (the user-picked "primeiro vencimento"); when absent it falls back to
-   * `from + intervalDays` (legacy behaviour). Each subsequent parcela is spaced by
-   * `intervalDays` (the chosen "intervalo entre parcelas", defaults to 30).
+   * EVERY non-cancelled order carries >= 1 OrderInstallment as a uniform per-tranche
+   * reconciliation anchor (mirrors the receivables Invoice→Installment model):
+   *   - PIX / CREDIT_CARD (or count <= 1) → a single parcela = the whole order
+   *     (number 1, amount = total, dueDate = firstDueDate ?? from + interval).
+   *   - BANK_SLIP with N > 1 → N parcelas. The 1st parcela is due on `firstDueDate`
+   *     (the user-picked "primeiro vencimento"); when absent it falls back to
+   *     `from + intervalDays` (legacy behaviour). Each subsequent parcela is spaced by
+   *     `intervalDays` (the chosen "intervalo entre parcelas", defaults to 30).
    * Amounts split evenly with the last absorbing the rounding remainder. Idempotent:
    * clears any prior schedule first.
    */
@@ -3802,7 +3597,6 @@ export class OrderService {
   ): Promise<void> {
     const count = Math.max(1, Math.floor(opts.count || 1));
     await tx.orderInstallment.deleteMany({ where: { orderId } });
-    if (count <= 1) return;
 
     const interval = opts.intervalDays && opts.intervalDays > 0 ? opts.intervalDays : 30;
     const base = opts.from ?? new Date();

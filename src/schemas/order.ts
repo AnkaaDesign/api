@@ -1432,6 +1432,14 @@ export const orderCreateSchema = z
               .min(1, 'Descrição do item temporário é obrigatória')
               .max(500, 'Descrição muito longa')
               .optional(),
+            temporaryItemUniCode: z.string().nullable().optional(),
+            temporaryItemBrand: z.string().nullable().optional(),
+            temporaryItemMeasures: z.string().nullable().optional(),
+            temporaryItemCategoryId: z
+              .string()
+              .uuid({ message: 'Categoria inválida' })
+              .nullable()
+              .optional(),
             orderedQuantity: z.number().positive('Quantidade deve ser positiva'),
             price: unitPriceSchema,
             icms: z
@@ -1581,6 +1589,14 @@ export const orderUpdateSchema = z
               .min(1, 'Descrição do item temporário é obrigatória')
               .max(500, 'Descrição muito longa')
               .optional(),
+            temporaryItemUniCode: z.string().nullable().optional(),
+            temporaryItemBrand: z.string().nullable().optional(),
+            temporaryItemMeasures: z.string().nullable().optional(),
+            temporaryItemCategoryId: z
+              .string()
+              .uuid({ message: 'Categoria inválida' })
+              .nullable()
+              .optional(),
             orderedQuantity: z.number().positive('Quantidade deve ser positiva'),
             price: unitPriceSchema,
             icms: z
@@ -1658,6 +1674,14 @@ export const orderItemCreateSchema = z
       .min(1, 'Descrição do item temporário é obrigatória')
       .max(500, 'Descrição muito longa')
       .optional(),
+    temporaryItemUniCode: z.string().nullable().optional(),
+    temporaryItemBrand: z.string().nullable().optional(),
+    temporaryItemMeasures: z.string().nullable().optional(),
+    temporaryItemCategoryId: z
+      .string()
+      .uuid({ message: 'Categoria inválida' })
+      .nullable()
+      .optional(),
     orderedQuantity: z.number().positive('Quantidade deve ser positiva'),
     price: unitPriceSchema,
     icms: z
@@ -1704,6 +1728,14 @@ export const orderItemUpdateSchema = z
       .string()
       .min(1, 'Descrição do item temporário é obrigatória')
       .max(500, 'Descrição muito longa')
+      .optional(),
+    temporaryItemUniCode: z.string().nullable().optional(),
+    temporaryItemBrand: z.string().nullable().optional(),
+    temporaryItemMeasures: z.string().nullable().optional(),
+    temporaryItemCategoryId: z
+      .string()
+      .uuid({ message: 'Categoria inválida' })
+      .nullable()
       .optional(),
     orderedQuantity: z.number().positive('Quantidade deve ser positiva').optional(),
     receivedQuantity: z.number().min(0, 'Quantidade recebida deve ser não negativa').optional(),
