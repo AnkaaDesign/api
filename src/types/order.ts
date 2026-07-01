@@ -22,7 +22,7 @@ import {
   ORDER_TRIGGER_TYPE,
 } from '@constants';
 import type { Supplier, SupplierIncludes, SupplierOrderBy } from './supplier';
-import type { Item, ItemIncludes, ItemOrderBy, ItemWhere } from './item';
+import type { Item, ItemCategory, ItemIncludes, ItemOrderBy, ItemWhere } from './item';
 import type { File, FileIncludes } from './file';
 import type { User } from './user';
 import type {
@@ -114,6 +114,10 @@ export interface OrderItem extends BaseEntity {
   orderId: string;
   itemId: string | null;
   temporaryItemDescription: string | null;
+  temporaryItemUniCode: string | null;
+  temporaryItemBrand: string | null;
+  temporaryItemMeasures: string | null;
+  temporaryItemCategoryId: string | null;
   orderedQuantity: number;
   receivedQuantity: number;
   price: number;
@@ -126,6 +130,7 @@ export interface OrderItem extends BaseEntity {
   // Relations (optional, populated based on query)
   item?: Item;
   order?: Order;
+  temporaryItemCategory?: ItemCategory;
   activities?: Activity[];
 }
 
@@ -275,6 +280,7 @@ export interface OrderItemIncludes {
         where?: OrderWhere;
         orderBy?: OrderOrderBy;
       };
+  temporaryItemCategory?: boolean | { select?: any };
   activities?:
     | boolean
     | {
@@ -643,7 +649,20 @@ export interface PayableRow {
   clearedAt?: Date | null;
   /** The bank transaction that cleared this row (for row → extrato linking). */
   bankTransactionId?: string | null;
+  /**
+   * C4 — per-order 3-way consistency (ORDER rows only): whether the matched bank
+   * outflow, the linked NF totals and the installment amounts agree within
+   * tolerance. 'OK' when bank-backed and consistent, 'MISMATCH' when bank-backed
+   * but the three sums diverge, null/undefined when the order has no bank backing
+   * yet (paid-on-paper / still open — nothing to cross-validate).
+   */
+  threeWayConsistency?: ThreeWayFlag | null;
+  /** The three sums behind {@link threeWayConsistency} (order ≟ nf ≟ tx). */
+  threeWaySums?: { tx: number; nf: number; installment: number } | null;
 }
+
+/** {@link PayableRow.threeWayConsistency} discriminant. */
+export type ThreeWayFlag = 'OK' | 'MISMATCH';
 
 export interface PayablesSummary {
   AWAITING_PAYMENT: OrderPaymentSummaryBucket;

@@ -300,11 +300,6 @@ export class RecurrentPayableService {
   // Materialization (called by the scheduler, idempotent per competence)
   // ---------------------------------------------------------------------------
 
-  /** Competence (YYYY-MM, SP time) a date falls in. */
-  competenceOf(d: Date): string {
-    return competenceOf(d);
-  }
-
   /** Advances a payable's nextRun. Weekly bills re-extend their horizon roughly
    *  weekly (the dueDate unique makes re-runs cheap); monthly-family bills jump to
    *  the start of the next cycle's month. */
@@ -749,8 +744,13 @@ export class RecurrentPayableService {
   /** Ensures every active payable has its competence-month occurrences
    *  materialized (one for monthly bills, several for weekly) so each is a
    *  separate actionable Contas a Pagar row, and returns occurrence + parent for
-   *  the unified feed. */
-  async ensureCurrentOccurrenceRows(competence: string): Promise<
+   *  the unified feed. Pass `allowMaterialize=false` (a PAST competence) to read
+   *  the EXISTING occurrences only — never back-materialize phantom historical
+   *  rows. */
+  async ensureCurrentOccurrenceRows(
+    competence: string,
+    allowMaterialize = true,
+  ): Promise<
     Array<{
       occurrence: RecurrentPayableOccurrence;
       payable: RecurrentPayable & { supplier: { id: string; fantasyName: string } | null };
@@ -762,10 +762,107 @@ export class RecurrentPayableService {
     });
     const rows: Array<{ occurrence: RecurrentPayableOccurrence; payable: (typeof payables)[number] }> = [];
     for (const payable of payables) {
-      const occurrences = await this.ensureOccurrencesForCompetence(payable, competence, true);
+      const occurrences = await this.ensureOccurrencesForCompetence(payable, competence, allowMaterialize);
       for (const occurrence of occurrences) rows.push({ occurrence, payable });
     }
     return rows;
+  }
+
+  /** Per-payable forecast rollup for a competence month — the SAME occurrence
+   *  source Contas a Pagar reads, so the Previsão de Saídas enumerates exactly the
+   *  obligations Contas a Pagar does. For each active payable it returns:
+   *    - openForecast  Σ estimate of the still-open (PENDING/OVERDUE) occurrences.
+   *      A bank-settled OR manually-paid occurrence is PAID and drops out (its cash
+   *      already left / is represented by the reconciled debit) → no double count.
+   *    - paidAmount    Σ real paidAmount of the PAID occurrences (context).
+   *  The current month materializes lazily (rows are actionable now); other months
+   *  synthesize the schedule as a transient forecast (mirrors monthlyView). */
+  async forecastForCompetence(competence: string): Promise<
+    Array<{
+      category: { id: string; name: string; slug: string; color: string | null; accountingType: string | null };
+      openForecast: number;
+      paidAmount: number;
+      occurrenceCount: number;
+      paidCount: number;
+      status: 'PAID' | 'PENDING' | 'OVERDUE';
+      paymentDate: Date | null;
+    }>
+  > {
+    const payables = await this.prisma.recurrentPayable.findMany({
+      where: { isActive: true },
+      include: {
+        category: { select: { id: true, name: true, slug: true, color: true, accountingType: true } },
+      },
+      orderBy: [{ name: 'asc' }],
+    });
+    const isCurrent = competence === this.currentCompetence();
+    const { from, to } = competenceRange(competence);
+
+    const out: Array<{
+      category: { id: string; name: string; slug: string; color: string | null; accountingType: string | null };
+      openForecast: number;
+      paidAmount: number;
+      occurrenceCount: number;
+      paidCount: number;
+      status: 'PAID' | 'PENDING' | 'OVERDUE';
+      paymentDate: Date | null;
+    }> = [];
+
+    for (const payable of payables) {
+      const occs = await this.ensureOccurrencesForCompetence(payable, competence, isCurrent);
+      let openForecast = 0;
+      let paidAmount = 0;
+      let paidCount = 0;
+      let occurrenceCount = 0;
+      let anyOverdue = false;
+      let nextDue: Date | null = null;
+
+      if (occs.length > 0) {
+        for (const o of occs) {
+          occurrenceCount++;
+          if (o.status === 'PAID') {
+            paidCount++;
+            paidAmount += Number(o.paidAmount ?? 0);
+          } else {
+            openForecast += Number(o.estimatedAmount ?? 0);
+            if (o.status === 'OVERDUE') anyOverdue = true;
+            if (!nextDue || o.dueDate < nextDue) nextDue = o.dueDate;
+          }
+        }
+      } else {
+        // No materialized rows (a non-current month) — synthesize the schedule as
+        // a transient forecast so the obligation isn't silently dropped.
+        const estimate = await this.computeEstimate(payable);
+        const dates = isWeeklyFrequency(payable.frequency)
+          ? weeklyDueDates(
+              payable.daysOfWeek,
+              weeksPerCycle(payable.frequency, payable.frequencyCount),
+              payable.createdAt,
+              from,
+              to,
+            )
+          : [dueDateForCompetence(competence, payable.dueDayOfMonth ?? 1)];
+        for (const d of dates) {
+          occurrenceCount++;
+          openForecast += estimate;
+          if (!nextDue || d < nextDue) nextDue = d;
+        }
+      }
+
+      const status: 'PAID' | 'PENDING' | 'OVERDUE' =
+        occurrenceCount > 0 && paidCount === occurrenceCount ? 'PAID' : anyOverdue ? 'OVERDUE' : 'PENDING';
+
+      out.push({
+        category: payable.category,
+        openForecast: Math.round(openForecast * 100) / 100,
+        paidAmount: Math.round(paidAmount * 100) / 100,
+        occurrenceCount,
+        paidCount,
+        status,
+        paymentDate: nextDue,
+      });
+    }
+    return out;
   }
 
   // ---------------------------------------------------------------------------

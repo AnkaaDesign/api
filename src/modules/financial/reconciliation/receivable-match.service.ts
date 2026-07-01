@@ -1,10 +1,18 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, ReconciliationMatchType, ReconciliationSource, ReconciliationStatus } from '@prisma/client';
+import {
+  FiscalDocumentOperation,
+  FiscalDocumentType,
+  Prisma,
+  ReconciliationMatchType,
+  ReconciliationSource,
+  ReconciliationStatus,
+} from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { nameSimilarity } from './text-normalization';
+import { RECON_ADVISORY_LOCK_KEY } from './reconciliation-matcher.service';
 
 /** How far apart (days) a credit's postedAt and an installment's dueDate may be
  *  for an automatic receivable match. Wider than the boleto bridge — non-boleto
@@ -60,6 +68,15 @@ const SUBSET_SUM_MAX_ITEMS = 14;
 /** Open installment statuses an incoming receipt may settle. */
 const OPEN_INSTALLMENT_STATUSES = ['PENDING', 'PROCESSING', 'OVERDUE'] as const;
 
+/** Date window (days) for the boleto-slip allocation: how far a collection
+ *  credit's postedAt and a PAID slip's paidAt may drift (settlement lag). Mirrors
+ *  BOLETO_BRIDGE_WINDOW_DAYS on the deterministic bridge. */
+const BOLETO_SLIP_WINDOW_DAYS = 5;
+
+/** Fallback own-company CNPJ (digits) for the NF-link stamp, matching
+ *  backfill-saida-fiscaldoc-nfse-link.ts. */
+const DEFAULT_COMPANY_CNPJ = '13636938000144';
+
 const aggregateTolerance = (amount: number): number =>
   Math.max(MATCH_ABS_TOLERANCE, Math.abs(amount) * MATCH_PCT_TOLERANCE);
 
@@ -78,6 +95,10 @@ type RawCredit = {
   type: string;
   counterpartyName: string | null;
   counterpartyCnpjCpf?: string | null;
+  /** OFX subtype — used to gate the boleto-slip allocation to BOLETO credits. */
+  subtype?: string | null;
+  /** Raw memo — the collection batch code (COBxxxxxx) is a weak same-batch key. */
+  memo?: string | null;
 };
 
 /** A candidate installment enriched with its customer identity for scoring, plus
@@ -146,6 +167,19 @@ type ReceivableAllocation = {
   linkOnly: boolean;
 };
 
+/** A PAID, UNBRIDGED Sicredi slip a collection credit may bridge to (single) or
+ *  sum into (lump COB batch). Its installment is already PAID by the webhook, so
+ *  the bridge only links the bank line — it never re-settles the installment. */
+type SlipCandidate = {
+  id: string;
+  amount: number;
+  paidAt: Date | null;
+  nossoNumero: string;
+  installmentId: string;
+  invoiceId: string | null;
+  customerId: string | null;
+};
+
 /**
  * ENTRADA conciliation — the inflow analog of the saída NF matcher.
  *
@@ -186,6 +220,16 @@ export class ReceivableMatchService {
   /** Learn the payer's CNPJ onto the Customer record after a confident match. */
   private get backfillCnpjEnabled(): boolean {
     return this.config.get<boolean>('RECEIVABLE_AUTO_BACKFILL_CNPJ', true);
+  }
+  /** Master switch for the boleto-slip allocation (collection settlements → PAID
+   *  Sicredi slips). Off ⇒ collection credits stay for the deterministic bridge /
+   *  manual UI. */
+  private get boletoSlipMatchEnabled(): boolean {
+    return this.config.get<boolean>('RECEIVABLE_BOLETO_SLIP_MATCH_ENABLED', true);
+  }
+  /** Own-company CNPJ (digits) for the NF-link stamp. */
+  private get companyCnpjDigits(): string {
+    return (this.config.get<string>('COMPANY_CNPJ') || DEFAULT_COMPANY_CNPJ).replace(/\D/g, '');
   }
 
   /** Resolve (and cache) the seeded service-revenue category id. Returns null if
@@ -459,6 +503,8 @@ export class ReceivableMatchService {
         type: true,
         counterpartyName: true,
         counterpartyCnpjCpf: true,
+        subtype: true,
+        memo: true,
       },
     });
     if (credits.length === 0) return 0;
@@ -500,6 +546,14 @@ export class ReceivableMatchService {
       select: { reconciliationStatus: true },
     });
     if (!live || live.reconciliationStatus !== ReconciliationStatus.PENDING) return false;
+
+    // ── Boleto-slip allocation (collection settlements) ────────────────────
+    // Collection credits (LIQ.COBRANCA) carry NO CNPJ/name — their real identity
+    // is the Sicredi-synced PAID BankSlip. Resolve slip-first (single or lump COB
+    // batch) BEFORE the CNPJ/name identity path, which can never resolve them.
+    if (tx.subtype === 'BOLETO' && this.boletoSlipMatchEnabled) {
+      if (await this.tryBoletoSlipAllocation(tx)) return true;
+    }
 
     // ── Identity-first path ────────────────────────────────────────────────
     if (identity) {
@@ -758,16 +812,16 @@ export class ReceivableMatchService {
    *  subset (size ≥ 2) whose attributed sum is within tolerance of the target,
    *  exploring high-value-first so a few large invoices resolve before many tiny
    *  ones. Pruned when the running sum overshoots, so worst case is ~2^N nodes. */
-  private subsetSum(
-    items: MatchableInstallment[],
+  private subsetSum<T>(
+    items: T[],
     target: number,
     tol: number,
-    attr: (i: MatchableInstallment) => number,
-  ): MatchableInstallment[] | null {
+    attr: (i: T) => number,
+  ): T[] | null {
     const sorted = items.map(i => ({ i, v: attr(i) })).sort((a, b) => b.v - a.v);
     const n = sorted.length;
-    const chosen: MatchableInstallment[] = [];
-    let found: MatchableInstallment[] | null = null;
+    const chosen: T[] = [];
+    let found: T[] | null = null;
 
     const dfs = (idx: number, sum: number): void => {
       if (found) return;
@@ -783,6 +837,252 @@ export class ReceivableMatchService {
     };
     dfs(0, 0);
     return found;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Boleto-slip allocation (collection settlements)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Slip-first reconciliation for a collection CREDIT (subtype BOLETO). These
+   * carry no CNPJ/name — their identity is the Sicredi-synced PAID BankSlip — and
+   * the memo's COBxxxxxx is a batch/carteira code, NOT a per-boleto id. Resolve
+   * candidate PAID, UNBRIDGED slips in the settlement window and:
+   *   - single slip whose liquidation equals the credit → bridge it (1:1 boleto);
+   *   - lump collection (one credit = a same-day COB batch) → sum a set of slips
+   *     to the credit (same-paidAt-day groups first, then bounded subset-sum) and
+   *     bridge them all.
+   * The installments are already PAID (webhook), so this only links the bank line
+   * + stamps the NF — it never re-settles the installment. Idempotent under the
+   * shared advisory lock + @@unique([transactionId, bankSlipId]).
+   */
+  private async tryBoletoSlipAllocation(tx: RawCredit): Promise<boolean> {
+    const creditAbs = Math.abs(Number(tx.amount));
+    const tol = aggregateTolerance(creditAbs);
+    const lower = new Date(tx.postedAt.getTime() - BOLETO_SLIP_WINDOW_DAYS * 86_400_000);
+    const upper = new Date(tx.postedAt.getTime() + BOLETO_SLIP_WINDOW_DAYS * 86_400_000);
+
+    // PAID, UNBRIDGED slips (no linked bank line AND no active reconciliation
+    // match) within the window whose value fits inside the credit.
+    const rows = await this.prisma.bankSlip.findMany({
+      where: {
+        status: 'PAID',
+        transactions: { none: {} },
+        reconciliationMatches: { none: { reversedAt: null } },
+        paidAt: { gte: lower, lte: upper },
+        paidAmount: { gt: 0, lte: creditAbs + tol },
+      },
+      select: {
+        id: true,
+        paidAmount: true,
+        paidAt: true,
+        nossoNumero: true,
+        installmentId: true,
+        installment: { select: { invoiceId: true, invoice: { select: { customerId: true } } } },
+      },
+      orderBy: { paidAt: 'asc' },
+    });
+    if (rows.length === 0) return false;
+
+    const cands: SlipCandidate[] = rows.map(s => ({
+      id: s.id,
+      amount: Number(s.paidAmount ?? 0),
+      paidAt: s.paidAt,
+      nossoNumero: s.nossoNumero,
+      installmentId: s.installmentId,
+      invoiceId: s.installment?.invoiceId ?? null,
+      customerId: s.installment?.invoice?.customerId ?? null,
+    }));
+
+    const dateDelta = (paidAt: Date | null): number =>
+      paidAt ? Math.abs(paidAt.getTime() - tx.postedAt.getTime()) : Infinity;
+
+    // 1. Single slip whose liquidation equals the credit — the common 1:1 boleto.
+    //    Prefer the slip whose paidAt is closest to the credit (settlement lag).
+    const exacts = cands
+      .filter(c => Math.abs(c.amount - creditAbs) <= tol)
+      .sort((a, b) => dateDelta(a.paidAt) - dateDelta(b.paidAt));
+    let chosen: SlipCandidate[] | null = exacts.length > 0 ? [exacts[0]] : null;
+    let kind = 'boleto-single';
+
+    // 2. Lump collection — one credit settles a same-day COB batch of boletos.
+    if (!chosen) {
+      const batch = this.findSlipBatch(cands, creditAbs, tol, tx.postedAt);
+      if (batch) {
+        chosen = batch;
+        kind = 'boleto-batch';
+      }
+    }
+    if (!chosen) return false;
+
+    return this.applyBoletoSlipAllocation(tx, chosen, kind, creditAbs);
+  }
+
+  /** Sum a set of PAID slips to the credit. The Sicredi COB batch liquidates on a
+   *  single day, so try same-paidAt-day groups (nearest the credit first) — the
+   *  whole day's sum, then a bounded subset within it — before a bounded
+   *  subset-sum over the whole window. Returns a set of ≥ 2 slips or null. */
+  private findSlipBatch(
+    cands: SlipCandidate[],
+    creditAbs: number,
+    tol: number,
+    postedAt: Date,
+  ): SlipCandidate[] | null {
+    const dayKey = (paidAt: Date | null): string =>
+      paidAt ? paidAt.toISOString().slice(0, 10) : 'null';
+
+    const byDay = new Map<string, SlipCandidate[]>();
+    for (const c of cands) {
+      const key = dayKey(c.paidAt);
+      const grp = byDay.get(key);
+      if (grp) grp.push(c);
+      else byDay.set(key, [c]);
+    }
+
+    const dayDelta = (key: string): number => {
+      if (key === 'null') return Infinity;
+      return Math.abs(new Date(`${key}T00:00:00.000Z`).getTime() - postedAt.getTime());
+    };
+    const days = [...byDay.entries()].sort((a, b) => dayDelta(a[0]) - dayDelta(b[0]));
+
+    for (const [, grp] of days) {
+      if (grp.length < 2) continue;
+      const sum = grp.reduce((s, c) => s + c.amount, 0);
+      if (Math.abs(sum - creditAbs) <= tol) return grp; // whole-day COB batch
+      if (grp.length <= SUBSET_SUM_MAX_ITEMS) {
+        const sub = this.subsetSum(grp, creditAbs, tol, c => c.amount);
+        if (sub && sub.length >= 2) return sub;
+      }
+    }
+
+    // Fallback: bounded subset-sum across the whole window (batches spanning days).
+    if (cands.length <= SUBSET_SUM_MAX_ITEMS) {
+      const sub = this.subsetSum(cands, creditAbs, tol, c => c.amount);
+      if (sub && sub.length >= 2) return sub;
+    }
+    return null;
+  }
+
+  /** Link a collection credit to its PAID slip(s): one BANK_SLIP_BRIDGE match per
+   *  slip, mark the credit reconciled, tag service revenue, and stamp each slip's
+   *  NF link. Runs under the shared advisory lock (serializes against the matcher
+   *  bridge + webhook) and re-verifies every slip is still unbridged. The single
+   *  bankSlipId FK is set ONLY for a 1:1 match; a batch relies on the match rows
+   *  (unmatchInflow already reverses installment-less bridge matches by txId). */
+  private async applyBoletoSlipAllocation(
+    tx: RawCredit,
+    slips: SlipCandidate[],
+    kind: string,
+    creditAbs: number,
+  ): Promise<boolean> {
+    const abs = new Decimal(creditAbs);
+    const share = new Decimal(creditAbs).div(slips.length);
+    const cob = (tx.memo ?? '').match(/COB\d+/i)?.[0] ?? null;
+
+    const committed = await this.prisma.$transaction(async db => {
+      await db.$executeRaw`SELECT pg_advisory_xact_lock(${RECON_ADVISORY_LOCK_KEY})`;
+
+      // Credit must still be pending + unlinked.
+      const live = await db.bankTransaction.findUnique({
+        where: { id: tx.id },
+        select: { bankSlipId: true, reconciliationStatus: true },
+      });
+      if (!live || live.bankSlipId || live.reconciliationStatus !== ReconciliationStatus.PENDING) {
+        return false;
+      }
+
+      // Re-verify every chosen slip is still unbridged under the lock.
+      for (const s of slips) {
+        const free = await db.bankSlip.findFirst({
+          where: {
+            id: s.id,
+            transactions: { none: {} },
+            reconciliationMatches: { none: { reversedAt: null } },
+          },
+          select: { id: true },
+        });
+        if (!free) return false;
+      }
+
+      for (const s of slips) {
+        await db.reconciliationMatch.create({
+          data: {
+            transactionId: tx.id,
+            bankSlipId: s.id,
+            allocatedAmount: slips.length === 1 ? abs : share,
+            matchType: ReconciliationMatchType.BANK_SLIP_BRIDGE,
+            confidenceScore: slips.length === 1 ? 98 : 90,
+            notes:
+              `Conciliação ${kind} boleto ${s.nossoNumero}` +
+              (cob ? ` (lote ${cob})` : ''),
+          },
+        });
+      }
+
+      await db.bankTransaction.update({
+        where: { id: tx.id },
+        data: {
+          // Only a 1:1 bridge can carry the scalar FK; a batch is anchored by its
+          // match rows (and the RECONCILED status keeps it out of every re-scan).
+          bankSlipId: slips.length === 1 ? slips[0].id : null,
+          reconciliationStatus: ReconciliationStatus.RECONCILED,
+          reconciliationSource: ReconciliationSource.AUTO,
+          topMatchScore: null,
+          expectsFiscalDocument: true,
+        },
+      });
+      await this.tagServiceRevenue(db, tx.id, abs);
+
+      // Close the broken hop: credit → slip → installment → invoice → NF.
+      for (const s of slips) {
+        if (s.invoiceId) await this.stampNfLinkForInvoice(db, s.invoiceId);
+      }
+      return true;
+    });
+
+    if (committed) {
+      this.logger.log(
+        `Inflow tx ${tx.id} boleto-slip matched (${kind}, ${slips.length} slip(s), R$ ${creditAbs.toFixed(2)})`,
+      );
+    }
+    return committed;
+  }
+
+  /** Stamp FiscalDocument.nfseDocumentId for the SAIDA doc generated from this
+   *  invoice's NfseDocument (match by nf number + own emitter CNPJ, never steal a
+   *  link). Idempotent — mirror of backfill-saida-fiscaldoc-nfse-link.ts. */
+  private async stampNfLinkForInvoice(
+    db: Prisma.TransactionClient,
+    invoiceId: string,
+  ): Promise<void> {
+    const nfses = await db.nfseDocument.findMany({
+      where: { invoiceId, nfseNumber: { not: null } },
+      select: { id: true, nfseNumber: true },
+    });
+    const companyDigits = this.companyCnpjDigits;
+    for (const nfse of nfses) {
+      if (nfse.nfseNumber == null) continue;
+      const claimed = await db.fiscalDocument.findFirst({
+        where: { nfseDocumentId: nfse.id },
+        select: { id: true },
+      });
+      if (claimed) continue;
+      const docs = await db.fiscalDocument.findMany({
+        where: {
+          operationType: FiscalDocumentOperation.SAIDA,
+          docType: FiscalDocumentType.NFSE,
+          nfseDocumentId: null,
+          nfNumber: String(nfse.nfseNumber),
+        },
+        select: { id: true, emitCnpj: true },
+      });
+      const own = docs.find(d => (d.emitCnpj ?? '').replace(/\D/g, '') === companyDigits);
+      if (!own) continue;
+      await db.fiscalDocument.update({
+        where: { id: own.id },
+        data: { nfseDocumentId: nfse.id },
+      });
+    }
   }
 
   /** Apply an allocation plan: settle OPEN installments, LINK already-paid ones

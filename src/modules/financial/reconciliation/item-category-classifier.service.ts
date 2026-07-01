@@ -65,6 +65,32 @@ interface LineResult {
   lineValue: number;
 }
 
+// Result of classifyLine — `source` is the winning tier's name (audit only;
+// there is no persistent decision log in this module, but it lets a caller /
+// future logger attribute an order-derived decision).
+type ClassifyResult = { categoryId: string; confidence: number; source?: string };
+
+// Minimum order-line-name ↔ NF-line-description token overlap (overlap
+// coefficient) for a fuzzy order-line match to count. Mirrors FUZZY_MIN_OVERLAP.
+const ORDER_FUZZY_MIN_OVERLAP = 0.6;
+
+// One purchase-order line's contribution to the order-derived category signal:
+// the TransactionCategory its chosen ItemCategory mirrors, plus the identity
+// fields used to match it back to an NF line (normalized uniCode + name tokens).
+interface OrderLineCategory {
+  txCategoryId: string;
+  uniCode: string; // normalized; '' when the line carries no uniCode
+  nameTokens: Set<string>;
+}
+
+// Per-document order context: every mappable order line reachable from a fiscal
+// document (via M2M orders / order-codes / payable matches) plus the set of
+// distinct mirrored TransactionCategory ids (size 1 ⇒ single-category purchase).
+interface OrderCategoryContext {
+  lines: OrderLineCategory[];
+  distinctTxCategoryIds: Set<string>;
+}
+
 /**
  * The "extremely intelligent fuzzy" item categorizer. Runs AFTER a transaction
  * is matched to one or more FiscalDocuments and maps each NF line item to a
@@ -269,11 +295,110 @@ export class ItemCategoryClassifierService {
   }
 
   /**
+   * Builds the order-derived category context for a fiscal document, ONCE per
+   * document (avoids N+1 across the doc's lines). Collects every purchase Order
+   * reachable from the document — via the M2M `orders` link, resolved
+   * `FiscalDocumentOrderCode.orderId` rows, and any non-reversed
+   * `ReconciliationMatch` on the doc's transaction(s) whose `orderInstallmentId`
+   * resolves to an order — then loads those orders' lines and maps each line's
+   * chosen ItemCategory (`item.categoryId ?? temporaryItemCategoryId`) to its
+   * mirrored `ITEM_DERIVED` TransactionCategory. Lines with neither category, or
+   * whose ItemCategory has no mirror, are skipped.
+   *
+   * Returns null when there is no order link or nothing maps — so order-less
+   * documents behave exactly as before.
+   */
+  private async resolveOrderContext(
+    fiscalDocumentId: string,
+    prismaTx?: Prisma.TransactionClient,
+  ): Promise<OrderCategoryContext | null> {
+    const db = prismaTx ?? this.prisma;
+    const doc = await db.fiscalDocument.findUnique({
+      where: { id: fiscalDocumentId },
+      select: {
+        orders: { select: { id: true } },
+        orderCodes: { where: { orderId: { not: null } }, select: { orderId: true } },
+        matches: { where: { reversedAt: null }, select: { transactionId: true } },
+      },
+    });
+    if (!doc) return null;
+
+    const orderIds = new Set<string>();
+    for (const o of doc.orders) orderIds.add(o.id);
+    for (const oc of doc.orderCodes) if (oc.orderId) orderIds.add(oc.orderId);
+
+    // Payable anchor: matches on this doc's transaction(s) whose orderInstallment
+    // resolves to an order (the DEBIT→payable reconciliation link).
+    const txIds = [...new Set(doc.matches.map(m => m.transactionId))];
+    if (txIds.length) {
+      const payMatches = await db.reconciliationMatch.findMany({
+        where: {
+          transactionId: { in: txIds },
+          reversedAt: null,
+          orderInstallmentId: { not: null },
+        },
+        select: { orderInstallment: { select: { orderId: true } } },
+      });
+      for (const m of payMatches) {
+        if (m.orderInstallment?.orderId) orderIds.add(m.orderInstallment.orderId);
+      }
+    }
+    if (orderIds.size === 0) return null;
+
+    const orderItems = await db.orderItem.findMany({
+      where: { orderId: { in: [...orderIds] } },
+      select: {
+        itemId: true,
+        temporaryItemCategoryId: true,
+        temporaryItemDescription: true,
+        temporaryItemUniCode: true,
+        item: { select: { categoryId: true, uniCode: true, name: true } },
+      },
+    });
+    if (orderItems.length === 0) return null;
+
+    // Cache ItemCategory.id → mirrored TransactionCategory.id for this call.
+    const txCatCache = new Map<string, string | null>();
+    const mapTxCat = async (itemCategoryId: string): Promise<string | null> => {
+      const cached = txCatCache.get(itemCategoryId);
+      if (cached !== undefined) return cached;
+      const cat = await this.categories.resolveByItemCategoryId(itemCategoryId);
+      const txId = cat?.id ?? null;
+      txCatCache.set(itemCategoryId, txId);
+      return txId;
+    };
+
+    const lines: OrderLineCategory[] = [];
+    const distinctTxCategoryIds = new Set<string>();
+    for (const oi of orderItems) {
+      const itemCategoryId = oi.item?.categoryId ?? oi.temporaryItemCategoryId;
+      if (!itemCategoryId) continue;
+      const txCategoryId = await mapTxCat(itemCategoryId);
+      if (!txCategoryId) continue;
+      const uniRaw = oi.item?.uniCode ?? oi.temporaryItemUniCode ?? '';
+      const name = oi.item?.name ?? oi.temporaryItemDescription ?? '';
+      lines.push({
+        txCategoryId,
+        uniCode: uniRaw ? normCode(uniRaw) : '',
+        nameTokens: new Set(itemDescriptionTokens(name)),
+      });
+      distinctTxCategoryIds.add(txCategoryId);
+    }
+    if (lines.length === 0) return null;
+    return { lines, distinctTxCategoryIds };
+  }
+
+  /**
    * Classifies a single NF line. Returns the best TransactionCategory id and a
    * 0-100 confidence, or null below threshold. Pure given the lexicon + the
    * category cache, so it is unit-testable.
    *
    * Precedence (highest trust first):
+   *   0.  Order-derived — when the doc resolves to a purchase Order, that order's
+   *       lines already carry a user-chosen ItemCategory. An exact order-line
+   *       match (uniCode or high name overlap) short-circuits at 98; a
+   *       single-category purchase seeds a 90 prior. A real purchase-scoped
+   *       signal outranks every heuristic below.
    *   1.  uniCode / code exact item → its category (100).
    *   1b. Learned alias (human corrections + AUTO_CODE self-training).
    *   2.  NCM → mirrored subcategory leaf — deterministic for this supplier mix
@@ -294,7 +419,8 @@ export class ItemCategoryClassifierService {
     lex: Lexicon,
     docType?: string | null,
     ncm?: string | null,
-  ): Promise<{ categoryId: string; confidence: number } | null> {
+    orderCtx?: OrderCategoryContext | null,
+  ): Promise<ClassifyResult | null> {
     const raw = stripAccents(description || '').toLowerCase();
     const descTokens = new Set(itemDescriptionTokens(description));
     // NFSe carries SERVICES, not inventory items — never assign an item-derived
@@ -302,11 +428,51 @@ export class ItemCategoryClassifierService {
     // service priors (and learned aliases) apply.
     const isService = docType === 'NFSE';
 
-    let best: { categoryId: string; confidence: number } | null = null;
-    const consider = (categoryId: string | undefined, confidence: number) => {
+    let best: ClassifyResult | null = null;
+    const consider = (categoryId: string | undefined, confidence: number, source?: string) => {
       if (!categoryId) return;
-      if (!best || confidence > best.confidence) best = { categoryId, confidence };
+      if (!best || confidence > best.confidence) best = { categoryId, confidence, source };
     };
+
+    // 0. Order-derived — the STRONGEST signal. When this fiscal document resolves
+    //    to a purchase Order, that order's lines already carry a user-chosen
+    //    ItemCategory (catalog item.categoryId or a temp line's
+    //    temporaryItemCategoryId), which mirrors to a TransactionCategory. A
+    //    purchase-scoped choice outranks every heuristic below, so it runs BEFORE
+    //    the catalog-exact tier. Strictly additive: when orderCtx is null this
+    //    block is skipped and every existing tier runs exactly as before.
+    if (orderCtx) {
+      // Exact identity: an order line whose uniCode equals the NF line `code`
+      // (or a uniCode embedded in the description text) → deterministic,
+      // short-circuit like the uniCode tier.
+      const docCodeKeys = new Set<string>();
+      if (code) {
+        const c = normCode(code);
+        if (c) docCodeKeys.add(c);
+      }
+      for (const t of codeCandidateTokens(description)) docCodeKeys.add(t);
+      for (const line of orderCtx.lines) {
+        if (line.uniCode && docCodeKeys.has(line.uniCode)) {
+          return { categoryId: line.txCategoryId, confidence: 98, source: 'ORDER_LINE_EXACT' };
+        }
+      }
+      // Fuzzy: high order-line-name ↔ NF-description token overlap.
+      if (descTokens.size) {
+        for (const line of orderCtx.lines) {
+          if (!line.nameTokens.size) continue;
+          if (tokenSetOverlap(line.nameTokens, descTokens) >= ORDER_FUZZY_MIN_OVERLAP) {
+            return { categoryId: line.txCategoryId, confidence: 98, source: 'ORDER_LINE_EXACT' };
+          }
+        }
+      }
+      // No exact line hit — but a single-category purchase is still a strong
+      // prior. Seed it and let the best-wins accumulator run (beats heuristics,
+      // not a hard short-circuit).
+      if (orderCtx.distinctTxCategoryIds.size === 1) {
+        const [only] = orderCtx.distinctTxCategoryIds;
+        consider(only, 90, 'ORDER_SINGLE_CATEGORY');
+      }
+    }
 
     // 1. uniCode — from the `code` field AND any uniCode embedded in the
     //    description text (letter+digit tokens). Highest trust.
@@ -580,6 +746,7 @@ export class ItemCategoryClassifierService {
       const docs = await db.fiscalDocument.findMany({
         where: { id: { in: docIds } },
         select: {
+          id: true,
           emitName: true,
           docType: true,
           items: {
@@ -600,6 +767,8 @@ export class ItemCategoryClassifierService {
       const lex = await this.buildLexicon();
       const lineResults: LineResult[] = [];
       for (const doc of docs) {
+        // Order context is per-document; build once and reuse across its lines.
+        const orderCtx = await this.resolveOrderContext(doc.id, prismaTx);
         for (const item of doc.items) {
           // Honor a human's per-line choice: a MANUAL item category must drive
           // the transaction's category tag directly, never get re-classified
@@ -614,7 +783,7 @@ export class ItemCategoryClassifierService {
             });
             continue;
           }
-          const hit = await this.classifyLine(item.code, item.description, doc.emitName, lex, doc.docType, item.ncm);
+          const hit = await this.classifyLine(item.code, item.description, doc.emitName, lex, doc.docType, item.ncm, orderCtx);
           // Learn from deterministic uniCode hits (confidence 100): the same
           // product's description will then resolve later even without the code.
           if (hit && hit.confidence === 100) {
@@ -682,6 +851,7 @@ export class ItemCategoryClassifierService {
     const lex = await this.buildLexicon(true);
     const docs = await this.prisma.fiscalDocument.findMany({
       select: {
+        id: true,
         emitName: true,
         docType: true,
         items: {
@@ -698,6 +868,9 @@ export class ItemCategoryClassifierService {
     let done = 0;
 
     for (const doc of docs) {
+      // Order context is per-document; build once so the bulk reprocess honors
+      // order-derived categories instead of stomping them with heuristics.
+      const orderCtx = await this.resolveOrderContext(doc.id);
       for (const item of doc.items) {
         total += 1;
         if (item.categoryId) before += 1;
@@ -714,6 +887,7 @@ export class ItemCategoryClassifierService {
           lex,
           doc.docType,
           item.ncm,
+          orderCtx,
         );
         const newCategoryId = hit?.categoryId ?? null;
         if (newCategoryId) after += 1;
@@ -771,6 +945,8 @@ export class ItemCategoryClassifierService {
       if (!doc || doc.operationType !== FiscalDocumentOperation.ENTRADA) return 0;
 
       const lex = await this.buildLexicon();
+      // Order context is per-document; build once and reuse across its lines.
+      const orderCtx = await this.resolveOrderContext(fiscalDocumentId);
       let categorized = 0;
       for (const item of doc.items) {
         // Never overwrite a human decision.
@@ -785,6 +961,7 @@ export class ItemCategoryClassifierService {
           lex,
           doc.docType,
           item.ncm,
+          orderCtx,
         );
         const newCategoryId = hit?.categoryId ?? null;
         if (newCategoryId !== (item.categoryId ?? null)) {
@@ -918,4 +1095,16 @@ export class ItemCategoryClassifierService {
 
 function normCode(code: string): string {
   return code.replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
+// Overlap coefficient (|A∩B| / min(|A|,|B|)) between two token sets — mirrors
+// nameSimilarity's overlap logic, used for order-line-name ↔ NF-description
+// fuzzy matching so a short clean order-line name fully contained in a noisier
+// NF description still scores 1.0.
+function tokenSetOverlap(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter += 1;
+  if (inter === 0) return 0;
+  return inter / Math.min(a.size, b.size);
 }

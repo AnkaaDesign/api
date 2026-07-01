@@ -5,6 +5,10 @@ import {
   BankTransactionType,
   BankTransactionSubtype,
   FiscalDocumentOperation,
+  FiscalDocumentType,
+  OrderInstallmentStatus,
+  OrderPaymentStatus,
+  OrderStatus,
   Prisma,
   ReconciliationAlias,
   ReconciliationAliasSource,
@@ -13,15 +17,20 @@ import {
   ReconciliationStatus,
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { OrderService } from '@modules/inventory/order/order.service';
 import { MatchCandidate } from './types/reconciliation.types';
 import { nameSimilarity } from './text-normalization';
 import { ReconciliationAliasService } from './reconciliation-alias.service';
 import { ItemCategoryClassifierService } from './item-category-classifier.service';
 import { FiscalDerivedLearnerService } from './fiscal-derived-learner.service';
 import { isMarketplaceTransaction } from './marketplace';
+import { resolveOrderIdsForFiscalDocs } from './order-clearance';
 
 const FUZZY_DATE_WINDOW_DAYS = 10;
-const BOLETO_BRIDGE_WINDOW_DAYS = 2;
+// Settlement lag: a Sicredi boleto's paidAt (liquidation date) and the OFX
+// credit's postedAt routinely differ by a few days (weekend/holiday clearing),
+// so a tight ±2d window missed most collection settlements.
+const BOLETO_BRIDGE_WINDOW_DAYS = 5;
 // When CNPJ is known, widen the candidates window significantly — Brazilian B2B
 // payment terms routinely run 30-60 days after the NF is issued.
 const CNPJ_CANDIDATE_DATE_WINDOW_DAYS = 60;
@@ -522,6 +531,7 @@ export class ReconciliationMatcherService {
     private readonly aliasService: ReconciliationAliasService,
     private readonly itemCategoryClassifier: ItemCategoryClassifierService,
     private readonly fiscalLearner: FiscalDerivedLearnerService,
+    private readonly orderService: OrderService,
     private readonly config: ConfigService,
   ) {
     this.companyCnpj = this.config.get<string>('COMPANY_CNPJ') || DEFAULT_COMPANY_CNPJ;
@@ -692,6 +702,14 @@ export class ReconciliationMatcherService {
 
     const matched = await this.runMatchPasses(tx);
     if (matched) {
+      // C1 — 3-way tie-back. When this transaction reconciled to an NF that
+      // resolves to a purchase Order, tie the NF-match row(s) back to the order's
+      // installments (anchor + settle + rollup) so the order becomes bank-CLEARED
+      // instead of staying UNCLEARED forever. Best-effort + idempotent (see
+      // clearOrdersForTransaction); never breaks the match result.
+      await this.clearOrdersForTransaction(tx.id).catch(err =>
+        this.logger.warn(`Order tie-back failed for tx ${tx.id}: ${err}`),
+      );
       // Enrich the now-matched transaction with item-derived categories from the
       // matched NF's line items. Best-effort; never breaks the match result.
       await this.itemCategoryClassifier.deriveForTransaction(tx.id);
@@ -718,6 +736,159 @@ export class ReconciliationMatcherService {
       }
     }
     return matched;
+  }
+
+  /**
+   * C1 — tie a reconciled transaction's NF-match(es) back to the purchase Order
+   * they belong to, so the order clears off the manual-PAID / paid-on-paper track
+   * and onto the bank-truth track. For every FiscalDocument this tx matched that
+   * resolves to an Order (M2M `orders` or resolved `FiscalDocumentOrderCode`), we
+   * anchor the order's OPEN/relevant installments on the EXISTING NF-match rows
+   * (setting `orderInstallmentId` — no NEW rows, so the reconciliation totals are
+   * never double-counted), settle those installments, and recompute the order
+   * rollup so it becomes paid + CLEARED.
+   *
+   * IDEMPOTENT + cron-safe: the tie-back only touches NF rows still lacking an
+   * `orderInstallmentId`, never re-settles an already-PAID installment, and skips
+   * CANCELLED / pre-payable PENDING orders. A re-run (import or daily cron) is a
+   * no-op once every row is tied back.
+   */
+  private async clearOrdersForTransaction(txId: string): Promise<void> {
+    const nfMatches = await this.prisma.reconciliationMatch.findMany({
+      where: { transactionId: txId, reversedAt: null, fiscalDocumentId: { not: null } },
+      select: { fiscalDocumentId: true },
+    });
+    if (nfMatches.length === 0) return;
+
+    const fdIds = [...new Set(nfMatches.map(m => m.fiscalDocumentId!).filter(Boolean))];
+    const fdToOrders = await resolveOrderIdsForFiscalDocs(this.prisma, fdIds);
+
+    // Invert to orderId → ITS OWN fiscal documents, so an order is only ever tied
+    // back to the NFs that actually belong to it (a single tx may pay NFs of
+    // several orders — never cross-anchor them).
+    const orderToFds = new Map<string, string[]>();
+    for (const [fdId, orders] of fdToOrders) {
+      for (const orderId of orders) {
+        const arr = orderToFds.get(orderId) ?? [];
+        arr.push(fdId);
+        orderToFds.set(orderId, arr);
+      }
+    }
+    if (orderToFds.size === 0) return;
+
+    for (const [orderId, orderFdIds] of orderToFds) {
+      await this.tieBackOrderInstallments(orderId, orderFdIds).catch(err =>
+        this.logger.warn(`Order tie-back failed for order ${orderId}: ${err}`),
+      );
+    }
+  }
+
+  /**
+   * Anchor + settle one order's installments from the NF-match rows of the given
+   * fiscal documents, under the reconciliation advisory lock. Pairing rule:
+   *   - single-installment order (the dominant single-payment case): every member
+   *     NF-match row anchors that one installment (Σ allocations = order total);
+   *   - multi-installment order: greedy nearest-amount 1:1 pairing (one bank line
+   *     per parcela). Two rows of the SAME transaction never both anchor the same
+   *     installment (would violate @@unique([transactionId, orderInstallmentId])).
+   */
+  private async tieBackOrderInstallments(orderId: string, fdIds: string[]): Promise<void> {
+    await this.prisma.$transaction(async db => {
+      await this.lockWrites(db);
+
+      const order = await db.order.findUnique({
+        where: { id: orderId },
+        select: { status: true, paymentStatus: true },
+      });
+      if (
+        !order ||
+        order.status === OrderStatus.CANCELLED ||
+        order.paymentStatus === OrderPaymentStatus.PENDING
+      ) {
+        return;
+      }
+
+      // NF-match rows for this order's NFs not yet tied to an installment.
+      const rows = await db.reconciliationMatch.findMany({
+        where: {
+          reversedAt: null,
+          fiscalDocumentId: { in: fdIds },
+          orderInstallmentId: null,
+        },
+        select: { id: true, transactionId: true, allocatedAmount: true },
+        orderBy: { allocatedAmount: 'desc' },
+      });
+      if (rows.length === 0) return; // already tied back → idempotent no-op
+
+      const installments = await db.orderInstallment.findMany({
+        where: { orderId },
+        select: {
+          id: true,
+          number: true,
+          amount: true,
+          status: true,
+          reconciliationMatches: { where: { reversedAt: null }, select: { transactionId: true } },
+        },
+        orderBy: { number: 'asc' },
+      });
+      if (installments.length === 0) return;
+
+      const single = installments.length === 1;
+      // installmentId → set of transactionIds already anchored to it (existing +
+      // assigned in this pass) — guards the (tx, installment) unique constraint.
+      const anchoredTx = new Map<string, Set<string>>();
+      for (const i of installments) {
+        anchoredTx.set(i.id, new Set(i.reconciliationMatches.map(m => m.transactionId)));
+      }
+      const pairedInstallments = new Set<string>();
+      const assignments: Array<{ matchId: string; installmentId: string }> = [];
+
+      for (const row of rows) {
+        const amount = Number(row.allocatedAmount);
+        let target: (typeof installments)[number] | undefined;
+        if (single) {
+          target = installments[0];
+        } else {
+          // Nearest-amount, each installment used at most once per pass.
+          target = installments
+            .filter(i => !pairedInstallments.has(i.id))
+            .sort((a, b) => Math.abs(a.amount - amount) - Math.abs(b.amount - amount))[0];
+        }
+        if (!target) continue;
+        const seen = anchoredTx.get(target.id)!;
+        if (seen.has(row.transactionId)) continue; // same tx already anchors it
+        seen.add(row.transactionId);
+        if (!single) pairedInstallments.add(target.id);
+        assignments.push({ matchId: row.id, installmentId: target.id });
+      }
+      if (assignments.length === 0) return;
+
+      // Anchor the existing NF rows (no new rows → no stats double-count).
+      for (const a of assignments) {
+        await db.reconciliationMatch.update({
+          where: { id: a.matchId },
+          data: { orderInstallmentId: a.installmentId },
+        });
+      }
+
+      // Settle each newly-anchored installment that isn't already PAID.
+      const touched = [...new Set(assignments.map(a => a.installmentId))];
+      const now = new Date();
+      for (const id of touched) {
+        const inst = installments.find(i => i.id === id)!;
+        if (inst.status === OrderInstallmentStatus.PAID) continue; // never wipe a settled parcela
+        await db.orderInstallment.update({
+          where: { id },
+          data: {
+            status: OrderInstallmentStatus.PAID,
+            paidAmount: inst.amount,
+            paidAt: now,
+          },
+        });
+      }
+
+      await this.orderService.recomputeOrderPaymentRollupFromReconciliation(db, orderId);
+    });
   }
 
   private async runMatchPasses(tx: RawTransaction): Promise<boolean> {
@@ -1837,25 +2008,43 @@ export class ReconciliationMatcherService {
     const lower = new Date(tx.postedAt.getTime() - BOLETO_BRIDGE_WINDOW_DAYS * 86_400_000);
     const upper = new Date(tx.postedAt.getTime() + BOLETO_BRIDGE_WINDOW_DAYS * 86_400_000);
 
+    // PAID, UNBRIDGED slips whose liquidation equals this credit. "Unbridged" =
+    // no linked bank line AND no active ReconciliationMatch: a lump-collection
+    // settlement (see ReceivableMatchService.tryBoletoSlipAllocation) links its
+    // member slips via ReconciliationMatch WITHOUT stamping the single bankSlipId
+    // FK, so `transactions:none` alone would re-offer an already-consumed slip.
     const candidates = await this.prisma.bankSlip.findMany({
       where: {
         status: 'PAID',
         paidAt: { gte: lower, lte: upper },
         paidAmount: { gte: absAmount - 0.05, lte: absAmount + 0.05 },
-        transactions: { none: {} }, // not already linked
+        transactions: { none: {} },
+        reconciliationMatches: { none: { reversedAt: null } },
       },
+      select: { id: true, nossoNumero: true, paidAt: true, installmentId: true },
     });
+    if (candidates.length === 0) return false;
 
-    if (candidates.length !== 1) return false;
-    const slip = candidates[0];
+    // Disambiguate instead of the old "unique or bail": recurring monthly boletos
+    // share a customer + value, so several PAID slips can match one credit. Pick
+    // the slip whose paidAt is CLOSEST to this credit's postedAt, tie-broken FIFO
+    // by paidAt — so N same-value credits in one batch, processed in order, each
+    // consume a distinct slip (the earlier a credit's date, the earlier the slip
+    // it claims).
+    const ordered = candidates.slice().sort((a, b) => {
+      const da = a.paidAt ? Math.abs(a.paidAt.getTime() - tx.postedAt.getTime()) : Infinity;
+      const db2 = b.paidAt ? Math.abs(b.paidAt.getTime() - tx.postedAt.getTime()) : Infinity;
+      if (da !== db2) return da - db2;
+      return (a.paidAt?.getTime() ?? 0) - (b.paidAt?.getTime() ?? 0);
+    });
 
     return this.prisma.$transaction(async tx2 => {
       // Serialize against the webhook's onBankSlipPaid bridge + concurrent
       // import/cron runs, then RE-CHECK under the lock: the credit must still be
-      // unlinked, and the slip must still have no linked transaction. Without
-      // this, two runners could each create a BANK_SLIP_BRIDGE match for the same
-      // credit (the unique index has fiscalDocumentId/installmentId NULL, so it
-      // doesn't catch a second slip-only match) → double-counted reconciliation.
+      // unlinked, and the chosen slip must still be unbridged. Without this, two
+      // runners could each create a BANK_SLIP_BRIDGE match for the same credit
+      // (the unique index has fiscalDocumentId/installmentId NULL, so it doesn't
+      // catch a second slip-only match) → double-counted reconciliation.
       await this.lockWrites(tx2);
 
       const liveTx = await tx2.bankTransaction.findUnique({
@@ -1865,11 +2054,25 @@ export class ReconciliationMatcherService {
       if (!liveTx || liveTx.bankSlipId || liveTx.reconciliationStatus !== ReconciliationStatus.PENDING) {
         return false;
       }
-      const stillFree = await tx2.bankSlip.findFirst({
-        where: { id: slip.id, transactions: { none: {} } },
-        select: { id: true },
-      });
-      if (!stillFree) return false;
+
+      // Claim the first candidate still unbridged under the lock (a concurrent
+      // runner / the webhook may have consumed our preferred one).
+      let slip: { id: string; nossoNumero: string; installmentId: string } | null = null;
+      for (const c of ordered) {
+        const free = await tx2.bankSlip.findFirst({
+          where: {
+            id: c.id,
+            transactions: { none: {} },
+            reconciliationMatches: { none: { reversedAt: null } },
+          },
+          select: { id: true, nossoNumero: true, installmentId: true },
+        });
+        if (free) {
+          slip = free;
+          break;
+        }
+      }
+      if (!slip) return false;
 
       await tx2.bankTransaction.update({
         where: { id: tx.id },
@@ -1891,8 +2094,64 @@ export class ReconciliationMatcherService {
         },
       });
       await this.tagBankSlipServiceRevenue(tx2, tx.id, absAmount);
+      await this.stampNfLinkFromSlip(tx2, slip.installmentId);
       return true;
     });
+  }
+
+  /**
+   * Close the broken hop credit → slip → installment → invoice → NF: stamp
+   * FiscalDocument.nfseDocumentId for the SAIDA doc generated from this invoice's
+   * NfseDocument, so a reconciled boleto credit is reachable to its NF in one
+   * shot. Mirrors backfill-saida-fiscaldoc-nfse-link.ts (match by nf number +
+   * own emitter CNPJ, never steal a link already held). Best-effort + idempotent
+   * — skips when already linked or no own SAIDA doc carries that number.
+   */
+  private async stampNfLinkFromSlip(
+    db: Prisma.TransactionClient,
+    installmentId: string,
+  ): Promise<void> {
+    const inst = await db.installment.findUnique({
+      where: { id: installmentId },
+      select: { invoiceId: true },
+    });
+    if (!inst?.invoiceId) return;
+    await this.stampNfLinkForInvoice(db, inst.invoiceId);
+  }
+
+  private async stampNfLinkForInvoice(
+    db: Prisma.TransactionClient,
+    invoiceId: string,
+  ): Promise<void> {
+    const nfses = await db.nfseDocument.findMany({
+      where: { invoiceId, nfseNumber: { not: null } },
+      select: { id: true, nfseNumber: true },
+    });
+    const companyDigits = this.companyCnpj.replace(/\D/g, '');
+    for (const nfse of nfses) {
+      if (nfse.nfseNumber == null) continue;
+      // NfseDocument already claimed by some FiscalDocument (FK is @unique).
+      const claimed = await db.fiscalDocument.findFirst({
+        where: { nfseDocumentId: nfse.id },
+        select: { id: true },
+      });
+      if (claimed) continue;
+      const docs = await db.fiscalDocument.findMany({
+        where: {
+          operationType: FiscalDocumentOperation.SAIDA,
+          docType: FiscalDocumentType.NFSE,
+          nfseDocumentId: null,
+          nfNumber: String(nfse.nfseNumber),
+        },
+        select: { id: true, emitCnpj: true },
+      });
+      const own = docs.find(d => (d.emitCnpj ?? '').replace(/\D/g, '') === companyDigits);
+      if (!own) continue;
+      await db.fiscalDocument.update({
+        where: { id: own.id },
+        data: { nfseDocumentId: nfse.id },
+      });
+    }
   }
 
   private async tryExactMatch(tx: RawTransaction): Promise<boolean> {
@@ -2284,6 +2543,13 @@ export class ReconciliationMatcherService {
     paidAmount: number;
   }): Promise<void> {
     try {
+      // Idempotency: if an OFX sweep already bridged this slip, do nothing.
+      const alreadyBridged = await this.prisma.reconciliationMatch.findFirst({
+        where: { bankSlipId: payload.bankSlipId, reversedAt: null },
+        select: { id: true },
+      });
+      if (alreadyBridged) return;
+
       const paidAt = new Date(payload.paidAt);
       const lower = new Date(paidAt.getTime() - BOLETO_BRIDGE_WINDOW_DAYS * 86_400_000);
       const upper = new Date(paidAt.getTime() + BOLETO_BRIDGE_WINDOW_DAYS * 86_400_000);
@@ -2296,13 +2562,47 @@ export class ReconciliationMatcherService {
           postedAt: { gte: lower, lte: upper },
           amount: { gte: payload.paidAmount - 0.05, lte: payload.paidAmount + 0.05 },
         },
-        select: { id: true },
+        select: { id: true, postedAt: true },
       });
-      if (candidates.length !== 1) return;
-      const tx = candidates[0];
+      if (candidates.length === 0) return;
+
+      // Disambiguate N same-value credits (mirror of tryBoletoBridge): pick the
+      // credit whose postedAt is closest to this slip's paidAt, tie-broken FIFO by
+      // postedAt, so successive liquidations of same-value boletos consume
+      // successive credits instead of the old "unique or bail".
+      const ordered = candidates.slice().sort((a, b) => {
+        const da = Math.abs(a.postedAt.getTime() - paidAt.getTime());
+        const db2 = Math.abs(b.postedAt.getTime() - paidAt.getTime());
+        if (da !== db2) return da - db2;
+        return a.postedAt.getTime() - b.postedAt.getTime();
+      });
+
       await this.prisma.$transaction(async tx2 => {
+        // Serialize against the OFX-sweep bridge + concurrent runs, then re-check
+        // under the lock: the slip must still be unbridged and the credit unlinked.
+        await this.lockWrites(tx2);
+
+        const slipTaken = await tx2.reconciliationMatch.findFirst({
+          where: { bankSlipId: payload.bankSlipId, reversedAt: null },
+          select: { id: true },
+        });
+        if (slipTaken) return;
+
+        let chosenId: string | null = null;
+        for (const c of ordered) {
+          const live = await tx2.bankTransaction.findUnique({
+            where: { id: c.id },
+            select: { bankSlipId: true, reconciliationStatus: true },
+          });
+          if (live && !live.bankSlipId && live.reconciliationStatus === ReconciliationStatus.PENDING) {
+            chosenId = c.id;
+            break;
+          }
+        }
+        if (!chosenId) return;
+
         await tx2.bankTransaction.update({
-          where: { id: tx.id },
+          where: { id: chosenId },
           data: {
             bankSlipId: payload.bankSlipId,
             reconciliationStatus: ReconciliationStatus.RECONCILED,
@@ -2312,7 +2612,7 @@ export class ReconciliationMatcherService {
         });
         await tx2.reconciliationMatch.create({
           data: {
-            transactionId: tx.id,
+            transactionId: chosenId,
             bankSlipId: payload.bankSlipId,
             allocatedAmount: payload.paidAmount,
             matchType: ReconciliationMatchType.BANK_SLIP_BRIDGE,
@@ -2320,7 +2620,12 @@ export class ReconciliationMatcherService {
             notes: 'Pareamento via evento bankslip.paid',
           },
         });
-        await this.tagBankSlipServiceRevenue(tx2, tx.id, payload.paidAmount);
+        await this.tagBankSlipServiceRevenue(tx2, chosenId, payload.paidAmount);
+        const slip = await tx2.bankSlip.findUnique({
+          where: { id: payload.bankSlipId },
+          select: { installmentId: true },
+        });
+        if (slip) await this.stampNfLinkFromSlip(tx2, slip.installmentId);
       });
     } catch (err) {
       this.logger.warn(`Failed to bridge bankslip paid event: ${err}`);

@@ -45,6 +45,7 @@ const DEFAULT_ORDER_INCLUDE: Prisma.OrderInclude = {
   items: {
     include: {
       item: { select: { id: true, name: true, uniCode: true } },
+      temporaryItemCategory: { select: { id: true, name: true } },
     },
   },
   activities: true,
@@ -172,9 +173,24 @@ export class OrderPrismaRepository
             itemData.item = { connect: { id: item.itemId } };
           }
 
-          // Set temporary item description if provided (temporary item)
+          // Set temporary item fields if provided (temporary item). Description is
+          // the pure name; uniCode/brand/measures/category are discrete columns.
           if (item.temporaryItemDescription) {
             itemData.temporaryItemDescription = item.temporaryItemDescription;
+          }
+          if (item.temporaryItemUniCode != null) {
+            itemData.temporaryItemUniCode = item.temporaryItemUniCode;
+          }
+          if (item.temporaryItemBrand != null) {
+            itemData.temporaryItemBrand = item.temporaryItemBrand;
+          }
+          if (item.temporaryItemMeasures != null) {
+            itemData.temporaryItemMeasures = item.temporaryItemMeasures;
+          }
+          if (item.temporaryItemCategoryId) {
+            itemData.temporaryItemCategory = {
+              connect: { id: item.temporaryItemCategoryId },
+            };
           }
 
           return itemData;
@@ -583,6 +599,10 @@ export class OrderPrismaRepository
       orderId: databaseOrderItem.orderId,
       itemId: databaseOrderItem.itemId,
       temporaryItemDescription: databaseOrderItem.temporaryItemDescription,
+      temporaryItemUniCode: databaseOrderItem.temporaryItemUniCode,
+      temporaryItemBrand: databaseOrderItem.temporaryItemBrand,
+      temporaryItemMeasures: databaseOrderItem.temporaryItemMeasures,
+      temporaryItemCategoryId: databaseOrderItem.temporaryItemCategoryId,
       orderedQuantity: databaseOrderItem.orderedQuantity,
       receivedQuantity: databaseOrderItem.receivedQuantity,
       price: databaseOrderItem.price,
@@ -592,6 +612,7 @@ export class OrderPrismaRepository
       fulfilledAt: databaseOrderItem.fulfilledAt,
       item: databaseOrderItem.item,
       order: databaseOrderItem.order,
+      temporaryItemCategory: databaseOrderItem.temporaryItemCategory,
       activities: databaseOrderItem.activities,
       createdAt: databaseOrderItem.createdAt,
       updatedAt: databaseOrderItem.updatedAt,

@@ -7,6 +7,7 @@ import {
   FiscalDocumentStatus,
   FiscalDocumentType,
   NfseStatus,
+  OrderStatus,
   Prisma,
   ReconciliationSource,
   ReconciliationStatus,
@@ -182,6 +183,16 @@ export class SiegIngestionService {
             })),
             skipDuplicates: true,
           });
+          // Resolve each order code to its purchase Order and connect the M2M
+          // backbone (FiscalDocument.orders), so a reconciled NF can flow back to
+          // its order. Conservative: only links on a confident, unique match.
+          await this.resolveOrderLinks(
+            tx,
+            existing.id,
+            parsed.emitCnpj,
+            Number(parsed.totalValue) || 0,
+            parsed.issueDate ?? null,
+          );
         }
 
         // A void NF must not stay matched to a payment. Reverse its open matches
@@ -246,6 +257,22 @@ export class SiegIngestionService {
             : undefined,
       },
     });
+
+    // Resolve the freshly-created order codes to their purchase Orders and connect
+    // the M2M backbone. Best-effort — a resolution failure must never fail the import.
+    if (parsed.orderCodes && parsed.orderCodes.length > 0) {
+      try {
+        await this.resolveOrderLinks(
+          this.prisma,
+          created.id,
+          parsed.emitCnpj,
+          Number(parsed.totalValue) || 0,
+          parsed.issueDate ?? null,
+        );
+      } catch (err) {
+        this.logger.warn(`Order-code resolution failed for ${created.accessKey}: ${err}`);
+      }
+    }
 
     this.events.emit('fiscal-document.created', {
       id: created.id,
@@ -430,6 +457,112 @@ export class SiegIngestionService {
     return chosenId;
   }
 
+  /**
+   * Public entry point for the backfill: resolve the order-code join rows of an
+   * already-imported FiscalDocument to their purchase Orders and connect the M2M
+   * backbone. Loads the doc header and delegates to `resolveOrderLinks`.
+   */
+  async resolveOrderLinksForDocument(fiscalDocumentId: string): Promise<number> {
+    const doc = await this.prisma.fiscalDocument.findUnique({
+      where: { id: fiscalDocumentId },
+      select: { id: true, emitCnpj: true, totalValue: true, issueDate: true },
+    });
+    if (!doc) return 0;
+    return this.resolveOrderLinks(
+      this.prisma,
+      doc.id,
+      doc.emitCnpj,
+      Number(doc.totalValue) || 0,
+      doc.issueDate ?? null,
+    );
+  }
+
+  /**
+   * Resolves a fiscal document's `#Ped:` order codes to their purchase Order and
+   * populates the Order↔NF backbone (FiscalDocumentOrderCode.orderId + the
+   * FiscalDocument.orders M2M), enabling a reconciled NF to flow back to its order.
+   *
+   * IMPORTANT — the `#Ped:` code is the SUPPLIER'S own sales-order reference (e.g.
+   * Farben's "C34673"), NOT our Order.orderNumber (a small local sequence, mostly
+   * null). There is therefore no deterministic code→order column; matching is a
+   * conservative heuristic that only links on a confident, UNIQUE match:
+   *   - supplier guard: the order's supplier CNPJ shares the same 8-digit root
+   *     (raiz) as the NF emitter (covers matriz/filial branches of one company);
+   *   - value guard: the order's payable total is within 1% of the NF total;
+   *   - date guard: the order's createdAt OR forecast is within 60 days of the NF
+   *     issue date;
+   *   - uniqueness: exactly one candidate order satisfies all guards;
+   *   - scope guard: only single-code documents are auto-resolved — a consolidated
+   *     invoice listing several codes maps to several distinct supplier POs that a
+   *     doc-level value match cannot split, so those are left unresolved.
+   * Anything short of a unique match leaves `orderId` null (idempotent, re-runnable).
+   * Returns the number of code rows newly resolved.
+   */
+  private async resolveOrderLinks(
+    db: Pick<Prisma.TransactionClient, 'order' | 'fiscalDocument' | 'fiscalDocumentOrderCode'>,
+    fiscalDocumentId: string,
+    emitCnpj: string | null,
+    totalValue: number,
+    issueDate: Date | null,
+  ): Promise<number> {
+    const codes = await db.fiscalDocumentOrderCode.findMany({
+      where: { fiscalDocumentId },
+      select: { id: true, code: true, orderId: true },
+    });
+    if (codes.length === 0) return 0;
+    // Scope guard: only single-code documents are auto-resolved (see docstring).
+    if (codes.length !== 1) return 0;
+    const codeRow = codes[0];
+    if (codeRow.orderId) return 0; // already resolved — idempotent
+
+    const root = onlyDigits(emitCnpj ?? '').slice(0, 8);
+    if (root.length < 8 || totalValue <= 0) return 0;
+
+    // Candidate orders: same supplier CNPJ raiz, not cancelled. Compute each order's
+    // payable total with the SAME convention as OrderService.computeOrderPayableTotal
+    // (totalOverride wins; else items price×qty + ICMS/IPI − discount% on goods
+    // subtotal + freight).
+    const candidates = await db.order.findMany({
+      where: {
+        status: { not: OrderStatus.CANCELLED },
+        supplier: { cnpjNormalized: { startsWith: root } },
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        forecast: true,
+        freight: true,
+        discount: true,
+        totalOverride: true,
+        items: { select: { orderedQuantity: true, price: true, icms: true, ipi: true } },
+      },
+    });
+
+    const DAY = 86_400_000;
+    const withinDate = (d: Date | null): boolean =>
+      !!d && !!issueDate && Math.abs(d.getTime() - issueDate.getTime()) <= 60 * DAY;
+
+    const matches = candidates.filter(o => {
+      const total = computeOrderPayableTotal(o);
+      if (total <= 0) return false;
+      if (Math.abs(total - totalValue) > 0.01 * totalValue) return false;
+      return withinDate(o.createdAt) || withinDate(o.forecast);
+    });
+
+    if (matches.length !== 1) return 0; // no confident, unique match — leave null
+
+    const orderId = matches[0].id;
+    await db.fiscalDocumentOrderCode.update({
+      where: { id: codeRow.id },
+      data: { orderId },
+    });
+    await db.fiscalDocument.update({
+      where: { id: fiscalDocumentId },
+      data: { orders: { connect: { id: orderId } } },
+    });
+    return 1;
+  }
+
   /** Maps a parsed line item into the FiscalDocumentItem column set. */
   private mapItemFields(it: ParsedFiscalDocument['items'][number]) {
     return {
@@ -454,4 +587,31 @@ export class SiegIngestionService {
 /** Strips all non-digit characters from a CNPJ/CPF string for robust compares. */
 function onlyDigits(value: string): string {
   return String(value ?? '').replace(/\D/g, '');
+}
+
+/**
+ * Order payable total, mirroring OrderService.computeOrderPayableTotal: a manual
+ * grand-total override wins; otherwise items (price×qty + ICMS/IPI) − discount% on
+ * the goods subtotal + freight. Used to value-match an NF against its purchase order.
+ */
+function computeOrderPayableTotal(order: {
+  freight?: number | null;
+  discount?: number | null;
+  totalOverride?: number | null;
+  items: Array<{ orderedQuantity: number; price: number; icms?: number | null; ipi?: number | null }>;
+}): number {
+  if (order.totalOverride != null) {
+    return Math.max(0, Math.round(order.totalOverride * 100) / 100);
+  }
+  let itemsTotal = 0;
+  let goodsSubtotal = 0;
+  for (const item of order.items) {
+    const subtotal = item.orderedQuantity * item.price;
+    goodsSubtotal += subtotal;
+    itemsTotal += subtotal * (1 + (item.icms || 0) / 100 + (item.ipi || 0) / 100);
+  }
+  const discount = order.discount || 0;
+  const discountAmount = discount > 0 ? goodsSubtotal * (discount / 100) : 0;
+  const total = itemsTotal - discountAmount + (order.freight || 0);
+  return Math.max(0, Math.round(total * 100) / 100);
 }

@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  OrderInstallmentStatus,
+  OrderPaymentStatus,
+  OrderStatus,
   Prisma,
   ReconciliationMatchType,
   ReconciliationSource,
@@ -8,6 +11,7 @@ import {
 } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { OrderService } from '@modules/inventory/order/order.service';
 import { nameSimilarity } from './text-normalization';
 
 /**
@@ -39,6 +43,13 @@ const CONFIRM_FORWARD_DAYS = 7;
  *  records the payment. */
 const CONFIRM_BACKWARD_DAYS = 2;
 
+/** C2 — direct order↔tx confirmation window for OPEN (not-yet-paid) order
+ *  installments, anchored on the parcela's dueDate (there is no paidAt yet). A
+ *  boleto/PIX may settle a parcela somewhat before its due date, or run late
+ *  after it, so the window is asymmetric and wide on the "paid late" side. */
+const OPEN_DUE_FORWARD_DAYS = 10; // debit posts up to 10d BEFORE the due date
+const OPEN_DUE_BACKWARD_DAYS = 45; // …or up to 45d AFTER it (late payment)
+
 /** Absolute (R$) and relative tolerance for "the debit equals the asserted
  *  amount". Beyond BOTH → DISPUTED. */
 const AMOUNT_TOLERANCE_ABS = 2;
@@ -67,6 +78,16 @@ type PaidPayable = {
   counterpartyName: string | null;
   counterpartyCnpjCpf: string | null;
   label: string;
+  /** C2 — the anchor is an OPEN (not-yet-paid) order installment that this debit
+   *  should SETTLE (mark PAID + roll up), not merely confirm an existing baixa.
+   *  false/undefined ⇒ the legacy already-PAID confirmation path. */
+  settleOnMatch?: boolean;
+  /** OPEN order-installment anchors only — the parent order, so the settle path
+   *  can recompute its rollup. */
+  orderId?: string;
+  /** True when the order also has a linked NF (M2M / resolved order code): the
+   *  match is cross-validated order+nf+tx, the strongest confirmation. */
+  nfCrossValidated?: boolean;
 };
 
 const onlyDigits = (v: string | null | undefined): string => (v || '').replace(/\D/g, '');
@@ -77,6 +98,7 @@ export class PayableMatchService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly orderService: OrderService,
     private readonly config: ConfigService,
   ) {}
 
@@ -244,6 +266,82 @@ export class PayableMatchService {
       });
     }
 
+    // --- C2: OPEN order installments (no NF, no prior baixa) settled DIRECTLY ---
+    // Most orders have no linked NF, so the C1 tie-back can never reach them. A
+    // DEBIT that matches an OPEN parcela by supplier CNPJ + amount + due-date
+    // window IS the payment: settle it and clear it in one step. Pre-payable
+    // PENDING orders and CANCELLED orders are excluded (only AWAITING_PAYMENT /
+    // PARTIALLY_PAID orders are real obligations); already-anchored parcelas are
+    // excluded so this never double-settles what C1 or a prior run handled.
+    // Identity is mandatory for a DIRECT settle: without an NF to corroborate, a
+    // supplier-CNPJ match is the anchor that makes settling an unpaid parcela on
+    // value+date safe. No parseable CNPJ on the debit ⇒ no C2 candidates.
+    const txDigits = onlyDigits(tx.counterpartyCnpjCpf);
+    const dueFrom = new Date(tx.postedAt.getTime() - OPEN_DUE_BACKWARD_DAYS * 86_400_000);
+    const dueTo = new Date(tx.postedAt.getTime() + OPEN_DUE_FORWARD_DAYS * 86_400_000);
+    const openInstallments = txDigits
+      ? await this.prisma.orderInstallment.findMany({
+      where: {
+        status: {
+          in: [
+            OrderInstallmentStatus.PENDING,
+            OrderInstallmentStatus.PARTIALLY_PAID,
+            OrderInstallmentStatus.OVERDUE,
+          ],
+        },
+        amount: { gte: lowerAmt, lte: upperAmt },
+        // Due-date anchored (there is no paidAt yet). Rows without a dueDate stay
+        // out — we can't scope them safely without a date signal.
+        dueDate: { gte: dueFrom, lte: dueTo },
+        reconciliationMatches: { none: { reversedAt: null } },
+        order: {
+          status: { not: OrderStatus.CANCELLED },
+          paymentStatus: {
+            in: [OrderPaymentStatus.AWAITING_PAYMENT, OrderPaymentStatus.PARTIALLY_PAID],
+          },
+        },
+      },
+          select: {
+            id: true,
+            amount: true,
+            paidAmount: true,
+            dueDate: true,
+            orderId: true,
+            order: {
+              select: {
+                description: true,
+                supplier: { select: { fantasyName: true, cnpj: true } },
+                _count: {
+                  select: { fiscalDocuments: true, fiscalDocumentOrderCodes: true },
+                },
+              },
+            },
+          },
+          take: 50,
+        })
+      : [];
+    for (const oi of openInstallments) {
+      if (!oi.dueDate) continue;
+      // Hard identity gate — the supplier CNPJ must equal the debit's.
+      if (onlyDigits(oi.order?.supplier?.cnpj) !== txDigits) continue;
+      const remaining = Math.max(0, oi.amount - (oi.paidAmount || 0));
+      out.push({
+        anchor: { kind: 'orderInstallment', id: oi.id },
+        // Compare the debit against the outstanding balance (partial parcelas).
+        paidAmount: remaining > 0 ? remaining : oi.amount,
+        // No paidAt yet — the dueDate is the reference the scorer uses.
+        paidAt: oi.dueDate,
+        counterpartyName: oi.order?.supplier?.fantasyName ?? null,
+        counterpartyCnpjCpf: oi.order?.supplier?.cnpj ?? null,
+        label: oi.order?.description ?? oi.id,
+        settleOnMatch: true,
+        orderId: oi.orderId,
+        nfCrossValidated:
+          (oi.order?._count?.fiscalDocuments ?? 0) > 0 ||
+          (oi.order?._count?.fiscalDocumentOrderCodes ?? 0) > 0,
+      });
+    }
+
     // --- Airbrushing painter payments marked PAID, not yet cleared ---
     const airbrushings = await this.prisma.airbrushing.findMany({
       where: {
@@ -365,9 +463,14 @@ export class PayableMatchService {
     abs: number,
     disputed: boolean,
   ): Promise<void> {
+    const settleOpen = c.settleOnMatch === true && c.anchor.kind === 'orderInstallment';
     const note = disputed
       ? `Conciliação automática com divergência de valor: débito R$${abs.toFixed(2)} vs. baixa R$${c.paidAmount.toFixed(2)}.`
-      : null;
+      : settleOpen
+        ? c.nfCrossValidated
+          ? 'Baixa automática por conciliação bancária (pedido + nota + extrato).'
+          : 'Baixa automática por conciliação bancária (pedido + extrato).'
+        : null;
 
     await this.prisma.$transaction(async db => {
       // Scalar-FK form so createMany({ skipDuplicates }) can ride the per-anchor
@@ -377,8 +480,9 @@ export class PayableMatchService {
         allocatedAmount: new Decimal(abs),
         matchType: ReconciliationMatchType.VALUE_DATE,
         // A clean clearance is high-confidence; a disputed one carries a low
-        // score so the review queue surfaces it.
-        confidenceScore: disputed ? 50 : 95,
+        // score so the review queue surfaces it. A cross-validated order+nf+tx
+        // settle is the strongest, at 100.
+        confidenceScore: disputed ? 50 : settleOpen && c.nfCrossValidated ? 100 : 95,
         notes: note,
         orderInstallmentId: c.anchor.kind === 'orderInstallment' ? c.anchor.id : null,
         airbrushingId: c.anchor.kind === 'airbrushing' ? c.anchor.id : null,
@@ -399,6 +503,32 @@ export class PayableMatchService {
           where: { id: c.anchor.id },
           data: { bankTransactionId: tx.id, reconciledAt: new Date() },
         });
+      }
+
+      // C2 — DIRECT settle of an OPEN order installment: mark the parcela PAID
+      // and recompute the order rollup so it becomes paid + CLEARED in one step.
+      // Guarded so it never wipes a parcela a concurrent run already settled.
+      if (settleOpen && c.orderId) {
+        const settled = await db.orderInstallment.updateMany({
+          where: {
+            id: c.anchor.id,
+            status: {
+              in: [
+                OrderInstallmentStatus.PENDING,
+                OrderInstallmentStatus.PARTIALLY_PAID,
+                OrderInstallmentStatus.OVERDUE,
+              ],
+            },
+          },
+          data: {
+            status: OrderInstallmentStatus.PAID,
+            paidAmount: abs,
+            paidAt: tx.postedAt,
+          },
+        });
+        if (settled.count > 0) {
+          await this.orderService.recomputeOrderPaymentRollupFromReconciliation(db, c.orderId);
+        }
       }
 
       await db.bankTransaction.update({

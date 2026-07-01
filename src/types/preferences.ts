@@ -43,6 +43,8 @@ export interface Preferences extends BaseEntity {
   dashboardLayoutMobile?: unknown | null;
   tableConfigsWeb?: unknown | null; // { [tableId]: PersistedTableConfig } — web DataTable per-user layout; validated client-side
   detailConfigsWeb?: unknown | null; // { [detailKey]: PersistedDetailConfig } — web detail-page per-user layout; validated client-side
+  tableConfigsMobile?: unknown | null; // { [tableId]: PersistedTableConfigMobile } — Flutter mobile list layout; validated client-side
+  detailConfigsMobile?: unknown | null; // { [detailKey]: PersistedDetailConfigMobile } — Flutter mobile detail layout; validated client-side
 
   // Relations
   user?: User;
