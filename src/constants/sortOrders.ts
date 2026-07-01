@@ -1510,6 +1510,8 @@ export const THIRTEENTH_STATUS_ORDER: Record<string, number> = {
 };
 
 export const ORDER_PAYMENT_STATUS_ORDER: Record<string, number> = {
+  // PENDING sorts before AWAITING — it's the pre-payable state.
+  [ORDER_PAYMENT_STATUS.PENDING]: 0,
   [ORDER_PAYMENT_STATUS.AWAITING_PAYMENT]: 1,
   [ORDER_PAYMENT_STATUS.PARTIALLY_PAID]: 2,
   [ORDER_PAYMENT_STATUS.PAID]: 3,

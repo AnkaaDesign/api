@@ -6,6 +6,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { ReconciliationMatcherService } from './reconciliation-matcher.service';
 import { ReconciliationClassifierService } from './reconciliation-classifier.service';
+import { ItemCategoryClassifierService } from './item-category-classifier.service';
 import { ReceivableMatchService } from './receivable-match.service';
 import { PayableMatchService } from './payable-match.service';
 
@@ -19,6 +20,7 @@ export class ReconciliationScheduler {
     private readonly prisma: PrismaService,
     private readonly matcher: ReconciliationMatcherService,
     private readonly classifier: ReconciliationClassifierService,
+    private readonly itemClassifier: ItemCategoryClassifierService,
     private readonly receivableMatch: ReceivableMatchService,
     private readonly payableMatch: PayableMatchService,
     private readonly dispatchService: NotificationDispatchService,
@@ -89,6 +91,27 @@ export class ReconciliationScheduler {
       );
     } catch (err) {
       this.logger.error(`Daily reclassify failed: ${err}`);
+    }
+  }
+
+  /**
+   * Backstop for categorize-at-import at 05:45 BRT. New NFs are categorized
+   * immediately by the `fiscal-document.created` listener; this sweep catches the
+   * rest — re-imports (which rebuild items without re-emitting the event) and any
+   * missed event — so every ENTRADA document's items carry a spend category even
+   * before its payment reconciles. Bounded per run; never stomps MANUAL choices.
+   */
+  @Cron('45 5 * * *', { timeZone: 'America/Sao_Paulo' })
+  async runDailyItemCategorization(): Promise<void> {
+    try {
+      const result = await this.itemClassifier.categorizePendingItems(500);
+      if (result.docsProcessed > 0) {
+        this.logger.log(
+          `Item categorization backstop: ${result.docsProcessed} documents, ${result.itemsCategorized} items categorized`,
+        );
+      }
+    } catch (err) {
+      this.logger.error(`Item categorization backstop failed: ${err}`);
     }
   }
 

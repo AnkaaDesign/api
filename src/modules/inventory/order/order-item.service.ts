@@ -491,6 +491,22 @@ export class OrderItemService {
             };
           }
 
+          // A change to a total-affecting field (qty/price/icms/ipi) moves the order
+          // total, so re-split the boleto parcelas to match (mirrors the main update
+          // path; no-op for settled/cancelled/single-payment orders).
+          if (
+            (data.orderedQuantity !== undefined &&
+              data.orderedQuantity !== existingOrderItem.orderedQuantity) ||
+            (data.price !== undefined && data.price !== existingOrderItem.price) ||
+            (data.icms !== undefined && data.icms !== existingOrderItem.icms) ||
+            (data.ipi !== undefined && data.ipi !== existingOrderItem.ipi)
+          ) {
+            await this.orderService.resyncOrderPaymentAfterTotalChange(
+              tx,
+              existingOrderItem.orderId,
+            );
+          }
+
           return updatedOrderItem;
         },
         {
@@ -774,6 +790,9 @@ export class OrderItemService {
           // Track which orders need status updates
           const ordersToCheckFulfillment = new Set<string>();
           const ordersToCheckReceived = new Set<string>();
+          // Orders whose grand total changed (item qty/price/icms/ipi edited) and so
+          // need their boleto installment schedule re-split to match the new total.
+          const ordersToResyncPayment = new Set<string>();
 
           for (const orderItem of batchResult.success) {
             const oldItem = oldItemsMap.get(orderItem.id);
@@ -823,6 +842,17 @@ export class OrderItemService {
                   userId: userId || null,
                   transaction: tx,
                 });
+              }
+
+              // A change to a total-affecting field means the order total moved, so
+              // its parcelas must be re-split (deferred until after the loop).
+              if (
+                oldItem.orderedQuantity !== orderItem.orderedQuantity ||
+                oldItem.price !== orderItem.price ||
+                oldItem.icms !== orderItem.icms ||
+                oldItem.ipi !== orderItem.ipi
+              ) {
+                ordersToResyncPayment.add(orderItem.orderId);
               }
 
               // Track which orders need status checks (but don't check yet)
@@ -918,6 +948,11 @@ export class OrderItemService {
           }
           for (const orderId of ordersToCheckReceived) {
             await this.orderService.checkAndUpdateOrderReceivedStatus(orderId, tx);
+          }
+          // Re-split boleto parcelas for orders whose total changed (mirrors the
+          // single update path; no-op for settled/cancelled/single-payment orders).
+          for (const orderId of ordersToResyncPayment) {
+            await this.orderService.resyncOrderPaymentAfterTotalChange(tx, orderId);
           }
 
           return batchResult;

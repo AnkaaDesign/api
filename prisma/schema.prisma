@@ -984,6 +984,7 @@ enum AccountingType {
   MATERIA_PRIMA // paints, toners, thinner, removers
   INVESTIMENTO // durable goods: tools, equipment (internos/externos)
   MANUTENCAO // equipment maintenance parts/services
+  PRESTACAO_SERVICO // third-party/outsourced services hired by the company (terceirizados, PJ, cleaning, monitoring)
   COZINHA_ALIMENTACAO // kitchen / food
   EPI // PPE + uniforms
   ESCRITORIO // office / admin supplies
@@ -4704,9 +4705,18 @@ model RecurrentPayable {
   // Seed estimate for VARIABLE bills; when null the cron falls back to the
   // 3-month bank-history average for the linked category.
   estimatedAmount Decimal?                     @db.Decimal(12, 2)
+  // MONTHLY-family cadences advance by whole months and use `dueDayOfMonth`.
+  // WEEKLY/BIWEEKLY cadences advance by weeks and use `daysOfWeek` instead
+  // (e.g. a housemaid paid every Tue+Fri → frequency WEEKLY, daysOfWeek [2,5]).
   frequency       ScheduleFrequency            @default(MONTHLY)
+  // For WEEKLY: "every N weeks" multiplier (BIWEEKLY already implies 2). For the
+  // monthly family: the month multiplier (BIMONTHLY=2×, etc.).
   frequencyCount  Int                          @default(1)
-  dueDayOfMonth   Int
+  // Day of the month a monthly-family bill is due (1-31). NULL for weekly bills.
+  dueDayOfMonth   Int?
+  // Weekdays a weekly/biweekly bill is due, 0=Sunday … 6=Saturday (SP time).
+  // Empty for monthly-family bills. Multiple entries ⇒ multiple charges per week.
+  daysOfWeek      Int[]                        @default([])
   paymentMethod   PaymentMethod?
   // When true, an inbound NF is expected and auto-links by supplier CNPJ +
   // competence; when false the obligation reconciles by category only.
@@ -4734,11 +4744,13 @@ model RecurrentPayable {
   @@index([supplierId])
 }
 
-/// One materialized monthly instance of a RecurrentPayable — the actual "conta a
-/// pagar" row and single source of truth for the month. The estimate is shown
-/// until paid; paidAmount captures the real value (user-typed for VARIABLE, or
-/// the reconciled debit amount). fiscalDocument/bankTransaction links are
-/// post-payment enrichments, never blocking states — status stays PAID.
+/// One materialized instance of a RecurrentPayable — the actual "conta a pagar"
+/// row. Monthly-family bills have one occurrence per competence month; weekly
+/// bills have one per due date (so multiple per month). `dueDate` is the unique
+/// per-payable key (always SP-midnight). The estimate is shown until paid;
+/// paidAmount captures the real value (user-typed for VARIABLE, or the reconciled
+/// debit amount). fiscalDocument/bankTransaction links are post-payment
+/// enrichments, never blocking states — status stays PAID.
 model RecurrentPayableOccurrence {
   id                 String                 @id @default(uuid())
   recurrentPayableId String
@@ -4764,11 +4776,12 @@ model RecurrentPayableOccurrence {
   recurrentPayable   RecurrentPayable       @relation("RecurrentPayableOccurrences", fields: [recurrentPayableId], references: [id], onDelete: Cascade)
   reconciliationMatches ReconciliationMatch[] @relation("RecurrentOccurrenceMatches")
 
-  @@unique([recurrentPayableId, competence])
+  @@unique([recurrentPayableId, dueDate])
   @@index([recurrentPayableId])
   @@index([status])
   @@index([dueDate])
   @@index([competence])
+  @@index([recurrentPayableId, competence])
   @@index([bankTransactionId])
   @@index([fiscalDocumentId])
 }
@@ -6589,6 +6602,9 @@ model Postit {
 
 // Order payment (contas a pagar)
 enum OrderPaymentStatus {
+  // Pre-awaiting: the order is created but NOT yet payable. An ADMIN must press
+  // "Requisitar Pagamento" to move it to AWAITING_PAYMENT before accounting can pay.
+  PENDING
   AWAITING_PAYMENT
   PARTIALLY_PAID
   PAID

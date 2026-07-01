@@ -125,11 +125,12 @@ export class OrderPrismaRepository
       // whether to regenerate parcelas — a missing value wrongly wiped them).
       // Non-boleto methods are forced to a single payment.
       installmentCount: isBoleto ? (orderData as any).installmentCount ?? 1 : 1,
-      // Payment obligation is set up automatically at creation: every new order is
-      // immediately payable in Contas a Pagar (AWAITING_PAYMENT), with no manual
-      // "solicitar pagamento" step. Set explicitly rather than relying on the DB default.
-      paymentStatus: ORDER_PAYMENT_STATUS.AWAITING_PAYMENT as any,
-      paymentStatusOrder: 1,
+      // New orders start in PENDING: they appear in Contas a Pagar as an upcoming
+      // (expected, non-payable) row but are NOT yet payable. An ADMIN must press
+      // "Requisitar Pagamento" (PENDING → AWAITING_PAYMENT) to make accounting able
+      // to pay. Set explicitly rather than relying on the DB default.
+      paymentStatus: ORDER_PAYMENT_STATUS.PENDING as any,
+      paymentStatusOrder: 0,
     };
 
     // Handle optional relations using connect syntax
@@ -221,6 +222,13 @@ export class OrderPrismaRepository
       updateData.paymentFirstDueDate = null;
       updateData.paymentDueDays = null;
       updateData.installmentCount = 1;
+    }
+
+    // The Pix key is only meaningful for PIX. When the payment method is switched
+    // to any non-PIX method, scrub the stale paymentPix so the detail view / payables
+    // don't keep echoing a Pix key that no longer applies.
+    if (formData.paymentMethod !== undefined && formData.paymentMethod !== PAYMENT_METHOD.PIX) {
+      updateData.paymentPix = null;
     }
 
     // Handle payment responsible relation

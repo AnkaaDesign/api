@@ -44,6 +44,7 @@ import {
   ACTIVITY_OPERATION,
   CHANGE_ACTION,
   SECTOR_PRIVILEGES,
+  PAYMENT_METHOD,
 } from '../../../constants/enums';
 import { ORDER_PAYMENT_STATUS_ORDER } from '../../../constants/sortOrders';
 import { OrderRepository } from './repositories/order/order.repository';
@@ -595,7 +596,7 @@ export class OrderService {
     try {
       // Declare variables outside transaction so they're accessible after
       let existingOrder: any;
-      let actualUpdateData: any;
+      let meta: any;
 
       const updatedOrder = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Get existing order
@@ -610,6 +611,119 @@ export class OrderService {
           throw new NotFoundException('Pedido não encontrado. Verifique se o ID está correto.');
         }
 
+        // All per-order update side effects (status/inventory transitions, item diffing,
+        // boleto installment upkeep, payment-status cascade, changelog) live in a shared
+        // helper so single update and batchUpdate apply IDENTICAL behavior.
+        meta = await this.applyOrderUpdateWithinTransaction(tx, id, data, existingOrder, {
+          userId,
+          userSector,
+          fieldTrackTriggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          include,
+        });
+
+        return meta.resultOrder;
+      });
+
+      // Handle file uploads after transaction
+      if (files) {
+        await this.processOrderFileUploads(updatedOrder.id, files, userId);
+      }
+
+      // Emit order status changed event
+      try {
+        if (meta.statusChanged) {
+          const user = userId ? await this.prisma.user.findUnique({ where: { id: userId } }) : null;
+
+          if (user) {
+            this.eventEmitter.emit(
+              'order.status.changed',
+              new OrderStatusChangedEvent(
+                updatedOrder,
+                meta.oldStatus as ORDER_STATUS,
+                meta.newStatus as ORDER_STATUS,
+                user as User,
+              ),
+            );
+
+            // Emit order cancelled event if status changed to CANCELLED
+            if (meta.newStatus === ORDER_STATUS.CANCELLED) {
+              this.eventEmitter.emit(
+                'order.cancelled',
+                new OrderCancelledEvent(updatedOrder, user as User, meta.cancelReason),
+              );
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.error('Error emitting order status changed event:', error);
+        // Don't fail the order update if event emission fails
+      }
+
+      // Emit payment responsible events
+      try {
+        // Payment was newly assigned or changed
+        if (
+          meta.newPaymentResponsibleId &&
+          meta.newPaymentResponsibleId !== meta.oldPaymentResponsibleId &&
+          userId
+        ) {
+          this.eventEmitter.emit('order.payment.assigned', {
+            order: updatedOrder,
+            paymentResponsibleId: meta.newPaymentResponsibleId,
+            assignedById: userId,
+          });
+        }
+
+        // Order status changed to FULFILLED and has a paymentAssignedById — notify the assigner
+        if (meta.fulfilledWithAssigner) {
+          this.eventEmitter.emit('order.payment.fulfilled', {
+            order: updatedOrder,
+            paymentAssignedById: meta.paymentAssignedById,
+            paymentResponsibleId: meta.paymentResponsibleIdOnOrder,
+          });
+        }
+      } catch (error) {
+        this.logger.error('Error emitting payment events:', error);
+      }
+
+      return { success: true, message: 'Pedido atualizado com sucesso.', data: updatedOrder };
+    } catch (error) {
+      this.logger.error('Erro ao atualizar pedido:', error);
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(
+        'Erro interno do servidor ao atualizar o pedido. Tente novamente.',
+      );
+    }
+  }
+
+  /**
+   * Apply ALL per-order update side effects within an existing transaction.
+   *
+   * Shared by single `update` and `batchUpdate` so both paths apply identical
+   * behavior: WAREHOUSE-received guard, paymentAssignedById auto-stamp, the
+   * CREATED→RECEIVED "via FULFILLED" routing, inventory/status transitions, item
+   * diffing, boleto installment upkeep, the payment-status cascade and changelog.
+   *
+   * Returns metadata the caller uses to emit post-commit notification events.
+   */
+  private async applyOrderUpdateWithinTransaction(
+    tx: PrismaTransaction,
+    id: string,
+    data: OrderUpdateFormData,
+    existingOrder: any,
+    opts: {
+      userId?: string;
+      userSector?: string;
+      fieldTrackTriggeredBy: CHANGE_TRIGGERED_BY;
+      include?: OrderInclude;
+    },
+  ): Promise<any> {
+    const { userId, userSector, fieldTrackTriggeredBy, include } = opts;
+    // Snapshot before any mutation, for the payment-assignment event check.
+    const oldPaymentResponsibleId = existingOrder.paymentResponsibleId;
+
         // WAREHOUSE sector cannot mark orders as received — only ADMIN can close orders.
         if (data.status === ORDER_STATUS.RECEIVED && userSector === SECTOR_PRIVILEGES.WAREHOUSE) {
           throw new ForbiddenException(
@@ -619,7 +733,7 @@ export class OrderService {
 
         // Handle special case: CREATED → RECEIVED should go through FULFILLED first
         const currentStatus = existingOrder.status as ORDER_STATUS;
-        actualUpdateData = { ...data };
+        let actualUpdateData: any = { ...data };
 
         // Auto-set paymentAssignedById when paymentResponsibleId changes
         if ((actualUpdateData as any).paymentResponsibleId !== undefined) {
@@ -629,6 +743,35 @@ export class OrderService {
           } else if (!(actualUpdateData as any).paymentResponsibleId) {
             // Unassigning: clear the assigner too
             (actualUpdateData as any).paymentAssignedById = null;
+          }
+        }
+
+        // Server safety net (anti-lying-scalar): once any parcela is settled the boleto
+        // schedule is frozen. Persisting installmentCount / paymentFirstDueDate /
+        // paymentDueDays (or switching the method away from boleto) would desync Order's
+        // scalar columns from the immutable OrderInstallment rows. Strip those
+        // schedule-defining changes here so the API never stores a value that contradicts
+        // the settled parcelas. (The web UI also disables these fields once settled; this
+        // is the server-side guarantee.) Schedule regeneration below is independently gated
+        // on `!anySettled`, so this only protects the persisted scalars.
+        const settledInstallmentsBefore = await tx.orderInstallment.findMany({
+          where: { orderId: id },
+          select: { status: true, paidAmount: true },
+        });
+        const anySettledBefore = settledInstallmentsBefore.some(
+          i => i.status === ORDER_INSTALLMENT_STATUS.PAID || (i.paidAmount || 0) > 0,
+        );
+        if (anySettledBefore) {
+          delete (actualUpdateData as any).installmentCount;
+          delete (actualUpdateData as any).paymentFirstDueDate;
+          delete (actualUpdateData as any).paymentDueDays;
+          // Reject a method change away from boleto that would invalidate the in-flight plan.
+          if (
+            (actualUpdateData as any).paymentMethod !== undefined &&
+            (actualUpdateData as any).paymentMethod !== existingOrder.paymentMethod &&
+            existingOrder.paymentMethod === PAYMENT_METHOD.BANK_SLIP
+          ) {
+            delete (actualUpdateData as any).paymentMethod;
           }
         }
 
@@ -694,9 +837,11 @@ export class OrderService {
             );
           }
 
-          // Now proceed with RECEIVED status
+          // Now proceed with RECEIVED status. Spread the already-mutated actualUpdateData
+          // (not the raw `data`) so prior mutations — paymentAssignedById auto-stamp and
+          // the settled-schedule scalar strip above — survive this rebuild.
           actualUpdateData = {
-            ...data,
+            ...actualUpdateData,
             status: ORDER_STATUS.RECEIVED,
           };
         }
@@ -943,7 +1088,7 @@ export class OrderService {
             oldValue: existingOrder.status,
             newValue: actualUpdateData.status,
             reason: 'Status do pedido atualizado',
-            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            triggeredBy: fieldTrackTriggeredBy,
             triggeredById: null,
             userId: userId || null,
             transaction: tx,
@@ -984,7 +1129,7 @@ export class OrderService {
           newEntity: updatedOrder,
           fieldsToTrack,
           userId: userId || null,
-          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredBy: fieldTrackTriggeredBy,
           transaction: tx,
         });
 
@@ -1028,12 +1173,12 @@ export class OrderService {
             }
           } else if (!anySettled) {
             if (isBoleto && wantCount > 1) {
-              // Only regenerate parcelas when a payment-relevant field actually
-              // changed vs the pre-update order. Regenerating unconditionally on
-              // every edit (e.g. notes/description/status) churns installment IDs
-              // — breaking cached "marcar parcela paga" actions — and wipes manual
-              // schedule edits. Be conservative: any items in the update payload
-              // count as a potential total change (item-level diff is not cheap).
+              // Only regenerate parcelas when a SCHEDULE-affecting input actually
+              // changed vs the pre-update order. Regenerating unconditionally on every
+              // edit (e.g. notes/description/status) churns installment IDs — breaking
+              // cached "marcar parcela paga" deep-links — and wipes manual schedule
+              // edits. The old `items !== undefined` proxy fired on EVERY web edit
+              // (the form always sends items); instead diff the real computed total.
               const prevCount = existingOrder.installmentCount ?? 1;
               const prevMethod = existingOrder.paymentMethod ?? null;
               const prevDueDays = existingOrder.paymentDueDays ?? null;
@@ -1044,29 +1189,42 @@ export class OrderService {
                 ? new Date(postUpdate.paymentFirstDueDate).getTime()
                 : null;
               const hasNoSchedule = (postUpdate.installments || []).length === 0;
+              // Real total change: compare the pre-update order total to the post-update
+              // one (covers item edits, freight, discount and totalOverride at once).
+              const prevTotal = this.computeOrderPayableTotal({
+                freight: existingOrder.freight,
+                discount: existingOrder.discount,
+                totalOverride: existingOrder.totalOverride,
+                items: existingOrder.items || [],
+              });
+              const nextTotal = this.computeOrderPayableTotal(postUpdate);
+              const totalChanged = Math.round(prevTotal * 100) !== Math.round(nextTotal * 100);
+              // The client clears the first-due anchor by explicitly sending null.
+              const firstDueExplicitlyCleared = (data as any).paymentFirstDueDate === null;
               const paymentFieldChanged =
                 hasNoSchedule ||
                 prevCount !== wantCount ||
                 prevMethod !== postUpdate.paymentMethod ||
                 prevDueDays !== (postUpdate.paymentDueDays ?? null) ||
                 prevFirstDue !== nextFirstDue ||
-                (existingOrder.freight ?? 0) !== (postUpdate.freight ?? 0) ||
-                (existingOrder.discount ?? 0) !== (postUpdate.discount ?? 0) ||
-                (existingOrder.totalOverride ?? null) !== (postUpdate.totalOverride ?? null) ||
-                actualUpdateData.items !== undefined;
+                totalChanged;
 
               if (paymentFieldChanged) {
-                const total = this.computeOrderPayableTotal(postUpdate);
+                const total = nextTotal;
                 // Keep the schedule stable across unrelated updates (e.g. receiving an
-                // unpaid order). Anchor the 1st parcela to the chosen first due date,
-                // else the existing schedule's first parcela, else (legacy) now+interval.
+                // unpaid order). Anchor the 1st parcela to the chosen first due date.
+                // When the client explicitly CLEARS the first due date (null), re-anchor
+                // to now + interval rather than falling back to the stale existing date.
                 const existingFirstDue =
                   (postUpdate.installments || []).find(i => i.number === 1)?.dueDate ?? null;
+                const firstDueForRegen = firstDueExplicitlyCleared
+                  ? null
+                  : (postUpdate.paymentFirstDueDate ?? existingFirstDue ?? null);
                 await this.generateInstallmentsForOrder(tx, id, {
                   total,
                   count: wantCount,
                   intervalDays: postUpdate.paymentDueDays ?? null,
-                  firstDueDate: postUpdate.paymentFirstDueDate ?? existingFirstDue ?? null,
+                  firstDueDate: firstDueForRegen,
                 });
                 await this.recomputeOrderPaymentRollup(tx, id);
               }
@@ -1092,109 +1250,46 @@ export class OrderService {
           await this.updatePaymentStatusWithTransaction(tx, id, targetPaymentStatus, userId);
         }
 
-        // If include is specified, fetch the order with included relations
+        // Resolve the order shape to return: include-resolved if requested, else a
+        // fresh read when the payment cascade ran (paidAt/paymentStatus), else the
+        // post-update order.
+        let resultOrder: any = updatedOrder;
         if (include) {
           const orderWithIncludes = await this.orderRepository.findByIdWithTransaction(tx, id, {
             include,
           });
-          return orderWithIncludes || updatedOrder;
-        }
-
-        // Re-read so the response reflects the payment cascade (paidAt/paymentStatus).
-        if (targetPaymentStatus) {
+          resultOrder = orderWithIncludes || updatedOrder;
+        } else if (targetPaymentStatus) {
           const fresh = await this.orderRepository.findByIdWithTransaction(tx, id, {});
-          if (fresh) return fresh;
+          if (fresh) resultOrder = fresh;
         }
 
-        return updatedOrder;
-      });
-
-      // Handle file uploads after transaction
-      if (files) {
-        await this.processOrderFileUploads(updatedOrder.id, files, userId);
-      }
-
-      // Emit order status changed event
-      try {
-        if (
-          actualUpdateData.status &&
-          (actualUpdateData.status as ORDER_STATUS) !== (existingOrder.status as ORDER_STATUS)
-        ) {
-          const user = userId ? await this.prisma.user.findUnique({ where: { id: userId } }) : null;
-
-          if (user) {
-            this.eventEmitter.emit(
-              'order.status.changed',
-              new OrderStatusChangedEvent(
-                updatedOrder,
-                existingOrder.status as ORDER_STATUS,
-                actualUpdateData.status as ORDER_STATUS,
-                user as User,
-              ),
-            );
-
-            // Emit order cancelled event if status changed to CANCELLED
-            if (actualUpdateData.status === ORDER_STATUS.CANCELLED) {
-              this.eventEmitter.emit(
-                'order.cancelled',
-                new OrderCancelledEvent(
-                  updatedOrder,
-                  user as User,
-                  actualUpdateData.notes || 'Pedido cancelado',
-                ),
-              );
-            }
-          }
-        }
-      } catch (error) {
-        this.logger.error('Error emitting order status changed event:', error);
-        // Don't fail the order update if event emission fails
-      }
-
-      // Emit payment responsible events
-      try {
+        // Capture metadata for the caller's post-commit event emits. existingOrder.status
+        // may have been mutated in place to FULFILLED by the CREATED→RECEIVED path above;
+        // that matches the single-update event semantics (intermediate FULFILLED is only
+        // changelogged, the emitted transition is the final one).
+        const oldStatusForEvent = existingOrder.status as ORDER_STATUS;
+        const newStatusForEvent = actualUpdateData.status as ORDER_STATUS | undefined;
+        const statusChanged =
+          !!newStatusForEvent && newStatusForEvent !== oldStatusForEvent;
         const newPaymentResponsibleId = (actualUpdateData as any).paymentResponsibleId;
-        const oldPaymentResponsibleId = existingOrder.paymentResponsibleId;
+        const fulfilledWithAssigner =
+          newStatusForEvent === ORDER_STATUS.FULFILLED &&
+          oldStatusForEvent !== ORDER_STATUS.FULFILLED &&
+          !!(resultOrder as any).paymentAssignedById;
 
-        // Payment was newly assigned or changed
-        if (
-          newPaymentResponsibleId &&
-          newPaymentResponsibleId !== oldPaymentResponsibleId &&
-          userId
-        ) {
-          this.eventEmitter.emit('order.payment.assigned', {
-            order: updatedOrder,
-            paymentResponsibleId: newPaymentResponsibleId,
-            assignedById: userId,
-          });
-        }
-
-        // Order status changed to FULFILLED and has a paymentAssignedById — notify the assigner
-        if (
-          actualUpdateData.status === ORDER_STATUS.FULFILLED &&
-          (existingOrder.status as ORDER_STATUS) !== ORDER_STATUS.FULFILLED &&
-          updatedOrder.paymentAssignedById
-        ) {
-          this.eventEmitter.emit('order.payment.fulfilled', {
-            order: updatedOrder,
-            paymentAssignedById: updatedOrder.paymentAssignedById,
-            paymentResponsibleId: updatedOrder.paymentResponsibleId,
-          });
-        }
-      } catch (error) {
-        this.logger.error('Error emitting payment events:', error);
-      }
-
-      return { success: true, message: 'Pedido atualizado com sucesso.', data: updatedOrder };
-    } catch (error) {
-      this.logger.error('Erro ao atualizar pedido:', error);
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
-        throw error;
-      }
-      throw new InternalServerErrorException(
-        'Erro interno do servidor ao atualizar o pedido. Tente novamente.',
-      );
-    }
+        return {
+          resultOrder,
+          oldStatus: oldStatusForEvent,
+          newStatus: newStatusForEvent,
+          statusChanged,
+          cancelReason: ((data as any).notes as string) || 'Pedido cancelado',
+          newPaymentResponsibleId,
+          oldPaymentResponsibleId,
+          fulfilledWithAssigner,
+          paymentAssignedById: (resultOrder as any).paymentAssignedById ?? null,
+          paymentResponsibleIdOnOrder: (resultOrder as any).paymentResponsibleId ?? null,
+        };
   }
 
   /**
@@ -1588,6 +1683,7 @@ export class OrderService {
     data: OrderBatchUpdateFormData,
     include?: OrderInclude,
     userId?: string,
+    userSector?: string,
   ): Promise<OrderBatchUpdateResponse<OrderUpdateFormData>> {
     try {
       const results = {
@@ -1647,95 +1743,54 @@ export class OrderService {
               continue;
             }
 
-            // Validate order update
-            await this.validateOrder(updateData.data, updateData.id, tx);
-
-            // Update the order
-            const updatedOrder = await this.orderRepository.updateWithTransaction(
+            // Apply the SAME per-order side effects as single update (inventory/status
+            // transitions, item diffing, boleto installment upkeep, payment-status cascade,
+            // changelog) via the shared helper — batchUpdate previously skipped all of these.
+            const meta = await this.applyOrderUpdateWithinTransaction(
               tx,
               updateData.id,
               updateData.data,
+              existingOrder,
+              {
+                userId,
+                userSector,
+                fieldTrackTriggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                include,
+              },
             );
 
-            // Track field-level changes
-            const fieldsToTrack = [
-              'status',
-              'supplierId',
-              'description',
-              'forecast',
-              'notes',
-              'freight',
-              'discount',
-              'isRecurring',
-              'recurringEndDate',
-              'scheduledFor',
-              'orderScheduleId',
-              'receiptId',
-              'paymentMethod',
-              'paymentPix',
-              'paymentDueDays',
-              'paymentFirstDueDate',
-              'paymentResponsibleId',
-              'paymentAssignedById',
-            ];
-
-            await trackAndLogFieldChanges({
-              changeLogService: this.changeLogService,
-              entityType: ENTITY_TYPE.ORDER,
-              entityId: updateData.id,
-              oldEntity: existingOrder,
-              newEntity: updatedOrder,
-              fieldsToTrack,
-              userId: userId || null,
-              triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-              transaction: tx,
-            });
-
-            // If include is specified, fetch the order with included relations
-            const finalOrder = include
-              ? await this.orderRepository.findByIdWithTransaction(tx, updateData.id, { include })
-              : updatedOrder;
-
+            const finalOrder = meta.resultOrder as Order;
             if (finalOrder) {
               results.success.push(finalOrder);
             }
 
             // Record status transition for post-commit notification emit
-            if (
-              updateData.data.status &&
-              (updateData.data.status as ORDER_STATUS) !==
-                (existingOrder.status as ORDER_STATUS)
-            ) {
+            if (meta.statusChanged) {
               statusTransitions.push({
-                order: (finalOrder || updatedOrder) as Order,
-                oldStatus: existingOrder.status as ORDER_STATUS,
-                newStatus: updateData.data.status as ORDER_STATUS,
-                cancelReason: (updateData.data as any).notes || 'Pedido cancelado',
+                order: finalOrder,
+                oldStatus: meta.oldStatus as ORDER_STATUS,
+                newStatus: meta.newStatus as ORDER_STATUS,
+                cancelReason: meta.cancelReason,
               });
             }
 
             // Record payment assignment for post-commit notification emit
-            const newPaymentResponsibleId = (updateData.data as any).paymentResponsibleId;
             if (
-              newPaymentResponsibleId &&
-              newPaymentResponsibleId !== existingOrder.paymentResponsibleId
+              meta.newPaymentResponsibleId &&
+              meta.newPaymentResponsibleId !== meta.oldPaymentResponsibleId
             ) {
               paymentAssignedEvents.push({
-                order: (finalOrder || updatedOrder) as Order,
-                paymentResponsibleId: newPaymentResponsibleId,
+                order: finalOrder,
+                paymentResponsibleId: meta.newPaymentResponsibleId,
               });
             }
 
             // Record payment fulfillment (→FULFILLED with an assigner) for post-commit emit
-            if (
-              (updateData.data.status as ORDER_STATUS) === ORDER_STATUS.FULFILLED &&
-              (existingOrder.status as ORDER_STATUS) !== ORDER_STATUS.FULFILLED &&
-              (updatedOrder as any).paymentAssignedById
-            ) {
+            if (meta.fulfilledWithAssigner) {
               paymentFulfilledEvents.push({
-                order: (finalOrder || updatedOrder) as Order,
-                paymentAssignedById: (updatedOrder as any).paymentAssignedById,
-                paymentResponsibleId: (updatedOrder as any).paymentResponsibleId ?? null,
+                order: finalOrder,
+                paymentAssignedById: meta.paymentAssignedById,
+                paymentResponsibleId: meta.paymentResponsibleIdOnOrder ?? null,
               });
             }
 
@@ -2602,6 +2657,7 @@ export class OrderService {
   // fulfillment no longer affects payable visibility.
 
   private static readonly PAYMENT_STATUS_LABELS_PT: Record<string, string> = {
+    [ORDER_PAYMENT_STATUS.PENDING]: 'Pendente',
     [ORDER_PAYMENT_STATUS.AWAITING_PAYMENT]: 'Aguardando pagamento',
     [ORDER_PAYMENT_STATUS.PARTIALLY_PAID]: 'Parcialmente pago',
     [ORDER_PAYMENT_STATUS.PAID]: 'Pago',
@@ -2619,6 +2675,11 @@ export class OrderService {
     targetStatus: ORDER_PAYMENT_STATUS,
     userId?: string,
     triggeredBy: CHANGE_TRIGGERED_BY = CHANGE_TRIGGERED_BY.USER_ACTION,
+    // The PENDING ↔ AWAITING_PAYMENT request workflow is ADMIN-only and pre-validated
+    // by assertPaymentRequestTransition. Only requestPayment/cancelPaymentRequest pass
+    // this flag; every other caller (mark-paid, mark-awaiting, generic PUT) leaves it
+    // false so this method rejects those pre-payable transitions itself.
+    opts: { allowRequestWorkflow?: boolean } = {},
   ): Promise<Order> {
     const order = await tx.order.findUnique({
       where: { id: orderId },
@@ -2641,6 +2702,35 @@ export class OrderService {
     // paidAt/paidById (which would overwrite the original payment timestamp/author).
     if ((order.paymentStatus as ORDER_PAYMENT_STATUS) === targetStatus) {
       return (await tx.order.findUnique({ where: { id: orderId } })) as unknown as Order;
+    }
+
+    // Payment state-machine guard. PENDING is a pre-payable state: an order can only
+    // LEAVE it via the ADMIN "Requisitar Pagamento" (PENDING → AWAITING_PAYMENT) and can
+    // only RE-ENTER it via "Cancelar requisição" (AWAITING_PAYMENT → PENDING) — both go
+    // through transitionPaymentRequest (opts.allowRequestWorkflow). Any other route into
+    // or out of PENDING (mark-paid/mark-awaiting/generic PUT) is illegal: it would either
+    // bypass the ADMIN gate (a FINANCIAL user making a PENDING order payable) or leave an
+    // inconsistent "PENDING yet paid" order (paidAt kept, parcelas PAID).
+    const currentStatus = order.paymentStatus as ORDER_PAYMENT_STATUS;
+    const isRequestWorkflow =
+      (currentStatus === ORDER_PAYMENT_STATUS.PENDING &&
+        targetStatus === ORDER_PAYMENT_STATUS.AWAITING_PAYMENT) ||
+      (currentStatus === ORDER_PAYMENT_STATUS.AWAITING_PAYMENT &&
+        targetStatus === ORDER_PAYMENT_STATUS.PENDING);
+    if (isRequestWorkflow) {
+      if (!opts.allowRequestWorkflow) {
+        throw new BadRequestException(
+          'A transição pendente ↔ aguardando pagamento só é permitida via requisição de pagamento (ADMIN).',
+        );
+      }
+    } else if (targetStatus === ORDER_PAYMENT_STATUS.PENDING) {
+      throw new BadRequestException(
+        'Um pedido só pode voltar para pendente cancelando a requisição de pagamento.',
+      );
+    } else if (currentStatus === ORDER_PAYMENT_STATUS.PENDING) {
+      throw new BadRequestException(
+        'Requisite o pagamento antes de marcar o pedido como pago ou aguardando pagamento.',
+      );
     }
 
     const now = new Date();
@@ -2880,13 +2970,14 @@ export class OrderService {
           OR: [
             // Open obligations: money owed = not cancelled and not paid. Payability is
             // decoupled from fulfillment (payable from creation until actually paid).
-            // Mirror getPayables: a method-less order is "A Definir" (not configured),
-            // so it stays out of the actionable Contas a Pagar list AND its KPI counts.
-            // (The Previsão de Saídas forecast intentionally still includes these.)
+            // Actionable obligations: not cancelled, not yet paid. A requisitioned
+            // (AWAITING / PARTIALLY_PAID) order counts regardless of whether a payment
+            // method is set yet — once requisitado it is payable. PENDING orders are
+            // upcoming/expected (not yet requisitados), so they are excluded here —
+            // they must NOT inflate the actionable AWAITING KPI.
             {
               status: { not: ORDER_STATUS.CANCELLED },
-              paymentStatus: { not: ORDER_PAYMENT_STATUS.PAID },
-              paymentMethod: { not: null },
+              paymentStatus: { notIn: [ORDER_PAYMENT_STATUS.PENDING, ORDER_PAYMENT_STATUS.PAID] },
             },
             // Recently settled (explicitly paid) within the window.
             { paymentStatus: ORDER_PAYMENT_STATUS.PAID, paidAt: { gte: paidWindowStart } },
@@ -2993,6 +3084,7 @@ export class OrderService {
         forecast: true,
         createdAt: true,
         paymentMethod: true,
+        paymentPix: true,
         paymentFirstDueDate: true,
         paymentStatus: true,
         paidAt: true,
@@ -3001,7 +3093,7 @@ export class OrderService {
         totalOverride: true,
         installmentCount: true,
         supplierId: true,
-        supplier: { select: { id: true, fantasyName: true } },
+        supplier: { select: { id: true, fantasyName: true, cnpj: true } },
         items: { select: { orderedQuantity: true, price: true, icms: true, ipi: true } },
         installments: {
           select: {
@@ -3038,12 +3130,13 @@ export class OrderService {
             // payment (the "Pago = Recebido" auto-settle was removed) — the two axes
             // (fulfillment vs payment) are independent.
             status: { not: ORDER_STATUS.CANCELLED },
+            // Every non-paid order appears in Contas a Pagar: PENDING ones render as
+            // muted "expected" rows (non-payable until an ADMIN requisita o pagamento)
+            // and the rest as actionable obligations — regardless of whether a payment
+            // method is set yet (a requisitioned order is payable; the method is just
+            // recorded when it's marked paid). PAID rows are fetched separately
+            // (the paid-this-month window below).
             paymentStatus: { not: ORDER_PAYMENT_STATUS.PAID },
-            // The payment method is what makes an order actionable here: without
-            // PIX/Boleto/Cartão chosen the obligation isn't configured yet (it shows
-            // "A Definir" in the order UI), so it stays out of Contas a Pagar until
-            // someone sets how it will be paid. Once a method is set it appears.
-            paymentMethod: { not: null },
           },
           select: orderSelect,
         }),
@@ -3089,6 +3182,37 @@ export class OrderService {
 
         const isBoleto = order.paymentMethod === 'BANK_SLIP';
         const settleVia: PayableRow['settleVia'] = isBoleto ? 'RECONCILIATION' : 'ORDER_LIFECYCLE';
+        // New PayableRow fields (web/mobile consume): the supplier is the "Tomador",
+        // the PIX key is only meaningful for PIX orders, and paymentRequested gates
+        // the muted/non-payable styling (false ⇒ PENDING, not yet requisitado).
+        const isPending = order.paymentStatus === ORDER_PAYMENT_STATUS.PENDING;
+        const payeeCnpj = order.supplier?.cnpj ?? null;
+        const pixKey = order.paymentMethod === 'PIX' ? order.paymentPix ?? null : null;
+        const paymentRequested = !isPending;
+
+        // PENDING orders are surfaced like SCHEDULED/expected outflows: a single
+        // muted, non-payable "EXPECTED" row (no per-parcela expansion, no settle
+        // action) until an ADMIN requisita o pagamento. amount still shows the
+        // computed grand total so accounting sees the upcoming value.
+        if (isPending) {
+          rows.push({
+            source: 'ORDER',
+            id: order.id,
+            payeeId: order.supplierId ?? null,
+            payeeName: order.supplier?.fantasyName ?? 'Sem fornecedor',
+            description: order.description,
+            amount,
+            paymentState: 'EXPECTED',
+            dueDate: order.paymentFirstDueDate ?? this.payableDueFromCreatedAt(order.createdAt),
+            method: order.paymentMethod ?? null,
+            settleVia,
+            paymentRequested,
+            payeeCnpj,
+            pixKey,
+          });
+          continue;
+        }
+
         const openInstallments = (order.installments || []).filter(i => i.status !== 'PAID');
 
         if (openInstallments.length > 0) {
@@ -3108,6 +3232,9 @@ export class OrderService {
               method: order.paymentMethod ?? null,
               settleVia,
               subtype: total > 1 ? `${inst.number}ª parcela de ${total}` : null,
+              paymentRequested,
+              payeeCnpj,
+              pixKey,
             });
           }
         } else {
@@ -3124,6 +3251,9 @@ export class OrderService {
             dueDate: order.paymentFirstDueDate ?? this.payableDueFromCreatedAt(order.createdAt),
             method: order.paymentMethod ?? null,
             settleVia,
+            paymentRequested,
+            payeeCnpj,
+            pixKey,
           });
         }
       }
@@ -3184,6 +3314,10 @@ export class OrderService {
           method: order.paymentMethod ?? null,
           settleVia: order.paymentMethod === 'BANK_SLIP' ? 'RECONCILIATION' : 'ORDER_LIFECYCLE',
           paidAt: order.paidAt ?? null,
+          // Paid rows have necessarily been requested; carry the Tomador/PIX too.
+          paymentRequested: true,
+          payeeCnpj: order.supplier?.cnpj ?? null,
+          pixKey: order.paymentMethod === 'PIX' ? order.paymentPix ?? null : null,
         });
       }
       for (const ab of paidAirbrushings) {
@@ -3276,6 +3410,207 @@ export class OrderService {
   }
 
   // =====================
+  // Payment request workflow (PENDING ↔ AWAITING_PAYMENT) — ADMIN only
+  // =====================
+
+  /**
+   * Validate a PENDING ↔ AWAITING_PAYMENT transition inside an existing
+   * transaction, throwing a clear error on a bad precondition. Returns nothing;
+   * the caller performs the actual transition via updatePaymentStatusWithTransaction.
+   *  - request  (PENDING → AWAITING_PAYMENT): order must currently be PENDING.
+   *  - cancel   (AWAITING_PAYMENT → PENDING): order must be AWAITING_PAYMENT AND
+   *    have no settled parcela (a paid/partially-paid order can't be un-requested).
+   */
+  private async assertPaymentRequestTransition(
+    tx: PrismaTransaction,
+    orderId: string,
+    fromStatus: ORDER_PAYMENT_STATUS,
+    toStatus: ORDER_PAYMENT_STATUS,
+  ): Promise<void> {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        status: true,
+        paymentStatus: true,
+        installments: { select: { status: true, paidAmount: true } },
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Pedido não encontrado.');
+    }
+    if (order.status === ORDER_STATUS.CANCELLED) {
+      throw new BadRequestException(
+        'Não é possível alterar o status de pagamento de um pedido cancelado.',
+      );
+    }
+
+    const current = order.paymentStatus as ORDER_PAYMENT_STATUS;
+    if (current !== fromStatus) {
+      throw new BadRequestException(
+        toStatus === ORDER_PAYMENT_STATUS.AWAITING_PAYMENT
+          ? 'Apenas pedidos pendentes podem ter o pagamento requisitado.'
+          : 'Apenas pedidos aguardando pagamento podem ter a requisição cancelada.',
+      );
+    }
+
+    // Cancelling a request is only allowed while nothing has been settled — a
+    // paid/partially-paid order (or one with any settled parcela) is past the point
+    // where it can be returned to PENDING.
+    if (toStatus === ORDER_PAYMENT_STATUS.PENDING) {
+      const hasSettled = (order.installments || []).some(
+        inst => inst.status === ORDER_INSTALLMENT_STATUS.PAID || (inst.paidAmount || 0) > 0,
+      );
+      if (hasSettled) {
+        throw new BadRequestException(
+          'Não é possível cancelar a requisição: o pedido já possui pagamento (parcela paga).',
+        );
+      }
+    }
+  }
+
+  /** PENDING → AWAITING_PAYMENT: ADMIN requisita o pagamento, tornando o pedido pagável. */
+  async requestPayment(orderId: string, userId?: string): Promise<OrderUpdateResponse> {
+    return this.transitionPaymentRequest(
+      orderId,
+      ORDER_PAYMENT_STATUS.PENDING,
+      ORDER_PAYMENT_STATUS.AWAITING_PAYMENT,
+      'Pagamento requisitado: pedido liberado para Contas a Pagar.',
+      userId,
+    );
+  }
+
+  /** AWAITING_PAYMENT → PENDING: desfaz a requisição (apenas sem parcela paga). */
+  async cancelPaymentRequest(orderId: string, userId?: string): Promise<OrderUpdateResponse> {
+    return this.transitionPaymentRequest(
+      orderId,
+      ORDER_PAYMENT_STATUS.AWAITING_PAYMENT,
+      ORDER_PAYMENT_STATUS.PENDING,
+      'Requisição de pagamento cancelada: pedido retornado para pendente.',
+      userId,
+    );
+  }
+
+  private async transitionPaymentRequest(
+    orderId: string,
+    fromStatus: ORDER_PAYMENT_STATUS,
+    toStatus: ORDER_PAYMENT_STATUS,
+    successMessage: string,
+    userId?: string,
+  ): Promise<OrderUpdateResponse> {
+    try {
+      const order = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        await this.assertPaymentRequestTransition(tx, orderId, fromStatus, toStatus);
+        return this.updatePaymentStatusWithTransaction(
+          tx,
+          orderId,
+          toStatus,
+          userId,
+          CHANGE_TRIGGERED_BY.USER_ACTION,
+          { allowRequestWorkflow: true },
+        );
+      });
+
+      return { success: true, message: successMessage, data: order };
+    } catch (error: any) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error('Erro ao alterar requisição de pagamento do pedido:', error);
+      throw new InternalServerErrorException(
+        'Erro ao alterar a requisição de pagamento. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  async batchRequestPayment(
+    orderIds: string[],
+    userId?: string,
+  ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
+    return this.batchTransitionPaymentRequest(
+      orderIds,
+      ORDER_PAYMENT_STATUS.PENDING,
+      ORDER_PAYMENT_STATUS.AWAITING_PAYMENT,
+      { singular: 'liberado para pagamento', plural: 'liberados para pagamento' },
+      userId,
+    );
+  }
+
+  async batchCancelPaymentRequest(
+    orderIds: string[],
+    userId?: string,
+  ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
+    return this.batchTransitionPaymentRequest(
+      orderIds,
+      ORDER_PAYMENT_STATUS.AWAITING_PAYMENT,
+      ORDER_PAYMENT_STATUS.PENDING,
+      { singular: 'retornado para pendente', plural: 'retornados para pendente' },
+      userId,
+    );
+  }
+
+  private async batchTransitionPaymentRequest(
+    orderIds: string[],
+    fromStatus: ORDER_PAYMENT_STATUS,
+    toStatus: ORDER_PAYMENT_STATUS,
+    entityLabel: { singular: string; plural: string },
+    userId?: string,
+  ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
+    try {
+      const success: Order[] = [];
+      const failed: Array<{ index: number; id?: string; error: string; data: { id: string } }> = [];
+
+      await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        for (const [index, orderId] of orderIds.entries()) {
+          try {
+            await this.assertPaymentRequestTransition(tx, orderId, fromStatus, toStatus);
+            const updated = await this.updatePaymentStatusWithTransaction(
+              tx,
+              orderId,
+              toStatus,
+              userId,
+              CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+              { allowRequestWorkflow: true },
+            );
+            success.push(updated);
+          } catch (error: any) {
+            failed.push({
+              index,
+              id: orderId,
+              error: error?.message || 'Erro ao alterar a requisição de pagamento.',
+              data: { id: orderId },
+            });
+          }
+        }
+      });
+
+      const successMessage =
+        success.length === 1
+          ? `1 pedido ${entityLabel.singular}`
+          : `${success.length} pedidos ${entityLabel.plural}`;
+      const failureMessage = failed.length > 0 ? `, ${failed.length} falharam` : '';
+
+      return {
+        success: true,
+        message: `${successMessage}${failureMessage}`,
+        data: {
+          success,
+          failed,
+          totalProcessed: success.length + failed.length,
+          totalSuccess: success.length,
+          totalFailed: failed.length,
+        },
+      };
+    } catch (error: any) {
+      this.logger.error('Erro na alteração de requisição de pagamento em lote:', error);
+      throw new InternalServerErrorException(
+        'Erro ao alterar a requisição de pagamento em lote. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  // =====================
   // Payment installments (boleto 2x/3x)
   // =====================
 
@@ -3317,6 +3652,72 @@ export class OrderService {
         paidAt: target === ORDER_PAYMENT_STATUS.PAID ? lastPaidAt ?? new Date() : null,
       },
     });
+  }
+
+  /**
+   * Re-sync an order's boleto payment schedule after a change that affects its
+   * grand total but bypasses the main `update` path — namely item-level edits
+   * (orderedQuantity / price / icms / ipi) made through the order-item endpoints.
+   * Those write the item totals but historically never touched the parcelas, so
+   * Order.installmentCount kept its split against a stale total.
+   *
+   * Mirrors the installment upkeep in the shared update helper: only regenerate
+   * for an unsettled multi-parcela boleto whose schedule total actually drifted
+   * from the new order total (preserving the existing first-due anchor), then
+   * recompute the rollup. No-op for settled schedules (frozen) and cancelled
+   * orders, and for single-payment methods (nothing to schedule).
+   */
+  async resyncOrderPaymentAfterTotalChange(
+    tx: PrismaTransaction,
+    orderId: string,
+  ): Promise<void> {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: {
+        status: true,
+        paymentMethod: true,
+        installmentCount: true,
+        paymentDueDays: true,
+        paymentFirstDueDate: true,
+        freight: true,
+        discount: true,
+        totalOverride: true,
+        items: { select: { orderedQuantity: true, price: true, icms: true, ipi: true } },
+        installments: {
+          select: { number: true, dueDate: true, amount: true, status: true, paidAmount: true },
+          orderBy: { number: 'asc' as const },
+        },
+      },
+    });
+    if (!order || order.status === ORDER_STATUS.CANCELLED) return;
+
+    const anySettled = (order.installments || []).some(
+      i => i.status === ORDER_INSTALLMENT_STATUS.PAID || (i.paidAmount || 0) > 0,
+    );
+    if (anySettled) return; // frozen schedule — never re-split settled parcelas
+
+    const isBoleto = order.paymentMethod === PAYMENT_METHOD.BANK_SLIP;
+    const wantCount = order.installmentCount || 1;
+    if (isBoleto && wantCount > 1) {
+      const newTotal = this.computeOrderPayableTotal(order);
+      const currentScheduleTotal = (order.installments || []).reduce(
+        (s, i) => s + (i.amount || 0),
+        0,
+      );
+      const totalChanged =
+        Math.round(currentScheduleTotal * 100) !== Math.round(newTotal * 100);
+      if (totalChanged || (order.installments || []).length === 0) {
+        const existingFirstDue =
+          (order.installments || []).find(i => i.number === 1)?.dueDate ?? null;
+        await this.generateInstallmentsForOrder(tx, orderId, {
+          total: newTotal,
+          count: wantCount,
+          intervalDays: order.paymentDueDays ?? null,
+          firstDueDate: order.paymentFirstDueDate ?? existingFirstDue ?? null,
+        });
+        await this.recomputeOrderPaymentRollup(tx, orderId);
+      }
+    }
   }
 
   /**

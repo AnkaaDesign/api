@@ -139,9 +139,12 @@ export class OutflowForecastService {
         where: {
           // Open obligation = money owed: not cancelled and not yet paid. Payability is
           // decoupled from fulfillment — an order is an outflow obligation from creation
-          // until it is explicitly paid, regardless of receipt status.
+          // until it is explicitly paid, regardless of receipt status. PENDING orders are
+          // pre-payable (awaiting the ADMIN payment request) and are NOT yet obligations,
+          // so they are excluded here — matching the AWAITING_PAYMENT/PARTIALLY_PAID buckets
+          // below (leaving them in would emit forecast rows that never sum into the totals).
           status: { not: OrderStatus.CANCELLED },
-          paymentStatus: { not: OrderPaymentStatus.PAID },
+          paymentStatus: { notIn: [OrderPaymentStatus.PAID, OrderPaymentStatus.PENDING] },
         },
         select: {
           id: true,
