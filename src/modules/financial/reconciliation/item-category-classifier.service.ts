@@ -1,5 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ItemCategoryAliasSource, Prisma, ReconciliationSource } from '@prisma/client';
+import { OnEvent } from '@nestjs/event-emitter';
+import {
+  FiscalDocumentOperation,
+  ItemCategoryAliasSource,
+  Prisma,
+  ReconciliationSource,
+} from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TransactionCategoryService } from './transaction-category.service';
 import { ItemCategoryAliasService } from './item-category-alias.service';
@@ -736,6 +742,114 @@ export class ItemCategoryClassifierService {
     }
     if (onProgress) onProgress(done, total);
     return { total, before, after, updated, skippedManual };
+  }
+
+  /**
+   * Classify and cache the per-line category on every item of ONE fiscal
+   * document, independent of any bank match. Powers categorize-at-import: an
+   * NF's itemized spend is known the moment it lands, not only once its payment
+   * reconciles. ENTRADA only — the spend side (SAIDA sales items don't feed
+   * payable categorization). Idempotent; never stomps a MANUAL item category;
+   * does NOT touch BankTransaction tags (deriveForTransaction owns those at match
+   * time and re-derives consistently from these cached item categories).
+   * Returns how many items ended up with a category.
+   */
+  async categorizeDocumentItems(fiscalDocumentId: string): Promise<number> {
+    try {
+      const doc = await this.prisma.fiscalDocument.findUnique({
+        where: { id: fiscalDocumentId },
+        select: {
+          operationType: true,
+          emitName: true,
+          docType: true,
+          items: {
+            select: { id: true, code: true, description: true, ncm: true, categoryId: true, categorySource: true },
+          },
+        },
+      });
+      // Only ENTRADA (purchases/services we pay) feed spend categorization.
+      if (!doc || doc.operationType !== FiscalDocumentOperation.ENTRADA) return 0;
+
+      const lex = await this.buildLexicon();
+      let categorized = 0;
+      for (const item of doc.items) {
+        // Never overwrite a human decision.
+        if (item.categorySource === ReconciliationSource.MANUAL) {
+          if (item.categoryId) categorized += 1;
+          continue;
+        }
+        const hit = await this.classifyLine(
+          item.code,
+          item.description,
+          doc.emitName,
+          lex,
+          doc.docType,
+          item.ncm,
+        );
+        const newCategoryId = hit?.categoryId ?? null;
+        if (newCategoryId !== (item.categoryId ?? null)) {
+          await this.prisma.fiscalDocumentItem.update({
+            where: { id: item.id },
+            data: {
+              categoryId: newCategoryId,
+              categoryConfidence: newCategoryId ? hit!.confidence : null,
+              categorySource: newCategoryId ? ReconciliationSource.AUTO : null,
+            },
+          });
+        }
+        if (newCategoryId) {
+          categorized += 1;
+          // Self-train on deterministic uniCode hits, mirroring deriveForTransaction.
+          if (hit && hit.confidence === 100) {
+            await this.aliasService.record({
+              description: item.description,
+              categoryId: hit.categoryId,
+              source: ItemCategoryAliasSource.AUTO_CODE,
+            });
+          }
+        }
+      }
+      return categorized;
+    } catch (err) {
+      this.logger.warn(`Categorize-at-import failed for fiscal document ${fiscalDocumentId}: ${err}`);
+      return 0;
+    }
+  }
+
+  /**
+   * Listener: categorize an NF's items the moment it is imported (SIEG cron or
+   * manual XML upload both emit `fiscal-document.created` after the document and
+   * its items are committed). Fire-and-forget — failures are swallowed by
+   * categorizeDocumentItems and the daily backstop re-attempts anything missed.
+   */
+  @OnEvent('fiscal-document.created', { async: true })
+  async onFiscalDocumentCreated(payload: { id?: string }): Promise<void> {
+    if (!payload?.id) return;
+    await this.categorizeDocumentItems(payload.id);
+  }
+
+  /**
+   * Backstop sweep for the daily cron: categorize ENTRADA documents that still
+   * have at least one uncategorized item. Covers re-imports (which rebuild items
+   * and do NOT re-emit `fiscal-document.created`), and any event the listener
+   * missed. Bounded by `limit`, newest first; a one-time full backfill of historic
+   * documents is the reprocess-fiscal-categories script. Returns coverage stats.
+   */
+  async categorizePendingItems(limit = 500): Promise<{ docsProcessed: number; itemsCategorized: number }> {
+    const docs = await this.prisma.fiscalDocument.findMany({
+      where: {
+        operationType: FiscalDocumentOperation.ENTRADA,
+        items: { some: { categoryId: null, categorySource: null } },
+      },
+      select: { id: true },
+      orderBy: { issueDate: 'desc' },
+      take: limit,
+    });
+    let itemsCategorized = 0;
+    for (const d of docs) {
+      itemsCategorized += await this.categorizeDocumentItems(d.id);
+    }
+    return { docsProcessed: docs.length, itemsCategorized };
   }
 
   private async persist(

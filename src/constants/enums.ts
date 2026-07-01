@@ -577,6 +577,8 @@ export enum PAYROLL_DISCOUNT_TYPE {
 }
 
 export enum ORDER_PAYMENT_STATUS {
+  // Pre-awaiting: created but not yet payable (awaiting "Requisitar Pagamento").
+  PENDING = 'PENDING',
   AWAITING_PAYMENT = 'AWAITING_PAYMENT',
   PARTIALLY_PAID = 'PARTIALLY_PAID',
   PAID = 'PAID',

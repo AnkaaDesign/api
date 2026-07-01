@@ -261,8 +261,9 @@ export class OrderController {
     @Body(new ZodValidationPipe(orderBatchUpdateSchema)) data: OrderBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(orderQuerySchema)) query: OrderQueryFormData,
     @UserId() userId: string,
+    @User('role') userRole: string,
   ): Promise<OrderBatchUpdateResponse<OrderUpdateFormData>> {
-    return this.orderService.batchUpdate(data, query.include, userId);
+    return this.orderService.batchUpdate(data, query.include, userId, userRole);
   }
 
   @Delete('batch')
@@ -308,6 +309,27 @@ export class OrderController {
     @UserId() userId: string,
   ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
     return this.orderService.batchMarkPaid(data.orderIds, userId);
+  }
+
+  @Put('batch/request-payment')
+  // "Requisitar Pagamento" (PENDING → AWAITING_PAYMENT) is ADMIN-only — the class has
+  // no @Roles, so a lone method @Roles(ADMIN) restricts to ADMIN (see batchDelete).
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  async batchRequestPayment(
+    @Body(new ZodValidationPipe(orderBatchPaymentSchema)) data: OrderBatchPaymentFormData,
+    @UserId() userId: string,
+  ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
+    return this.orderService.batchRequestPayment(data.orderIds, userId);
+  }
+
+  @Put('batch/cancel-payment-request')
+  // Undo of "Requisitar Pagamento" (AWAITING_PAYMENT → PENDING) — ADMIN-only.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  async batchCancelPaymentRequest(
+    @Body(new ZodValidationPipe(orderBatchPaymentSchema)) data: OrderBatchPaymentFormData,
+    @UserId() userId: string,
+  ): Promise<OrderBatchUpdateResponse<{ id: string }>> {
+    return this.orderService.batchCancelPaymentRequest(data.orderIds, userId);
   }
 
   // =====================
@@ -368,6 +390,26 @@ export class OrderController {
     @UserId() userId: string,
   ): Promise<OrderUpdateResponse> {
     return this.orderService.markPaid(id, userId);
+  }
+
+  @Put(':id/request-payment')
+  // "Requisitar Pagamento" (PENDING → AWAITING_PAYMENT) is ADMIN-only.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  async requestPayment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+  ): Promise<OrderUpdateResponse> {
+    return this.orderService.requestPayment(id, userId);
+  }
+
+  @Put(':id/cancel-payment-request')
+  // Undo of "Requisitar Pagamento" (AWAITING_PAYMENT → PENDING) — ADMIN-only.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  async cancelPaymentRequest(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+  ): Promise<OrderUpdateResponse> {
+    return this.orderService.cancelPaymentRequest(id, userId);
   }
 
   // =====================

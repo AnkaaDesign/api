@@ -1512,11 +1512,11 @@ export const orderUpdateSchema = z
         errorMap: () => ({ message: 'Status de pagamento inválido' }),
       })
       .optional(),
-    supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).optional(),
+    supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).nullable().optional(),
     orderScheduleId: z.string().uuid({ message: 'Cronograma inválido' }).optional(),
     orderRuleId: z.string().uuid({ message: 'Regra de pedido inválida' }).optional(),
     ppeScheduleId: z.string().uuid({ message: 'Agendamento EPI inválido' }).optional(),
-    notes: z.string().optional(),
+    notes: z.string().nullable().optional(),
     freight: z
       .number()
       .min(0, 'Frete deve ser maior ou igual a 0')

@@ -161,7 +161,7 @@ export interface Order extends BaseEntity {
 
   // Payment workflow (contas a pagar)
   paymentStatus: ORDER_PAYMENT_STATUS;
-  paymentStatusOrder: number; // 1=AwaitingPayment, 2=PartiallyPaid, 3=Paid
+  paymentStatusOrder: number; // 0=Pending, 1=AwaitingPayment, 2=PartiallyPaid, 3=Paid
   paidAt: Date | null;
 
   // Relations (optional, populated based on query)
@@ -617,6 +617,17 @@ export interface PayableRow {
   isEstimate?: boolean;
   /** Sub-label: installment ("1ª parcela"), Fixo/Variável, etc. */
   subtype?: string | null;
+  /**
+   * ORDER rows only — whether the order's payment has been requested (PENDING
+   * orders are false: they render as muted, non-payable "expected" rows; an ADMIN
+   * presses "Requisitar Pagamento" to make them payable). Always true once
+   * requested. Other sources leave this undefined.
+   */
+  paymentRequested?: boolean;
+  /** ORDER rows — the supplier's CNPJ (shown in the "Tomador" column). */
+  payeeCnpj?: string | null;
+  /** ORDER rows — the order's PIX key, set only when paymentMethod is PIX. */
+  pixKey?: string | null;
   /** Competence the row belongs to (YYYY-MM) — payroll/tax/recurring. */
   competence?: string | null;
   /** Deep-link target for RECONCILIATION/SCHEDULE settle actions. */
