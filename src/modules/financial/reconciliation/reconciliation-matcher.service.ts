@@ -1554,7 +1554,7 @@ export class ReconciliationMatcherService {
    */
   async getCandidatesForTransaction(
     transactionId: string,
-    options: { dateWindowDays?: number; amountTolerance?: number } = {},
+    options: { dateWindowDays?: number; amountTolerance?: number; search?: string } = {},
   ): Promise<MatchCandidate[]> {
     const dateWindow = options.dateWindowDays ?? FUZZY_DATE_WINDOW_DAYS;
     const amountTol = options.amountTolerance ?? FUZZY_AMOUNT_TOLERANCE;
@@ -1579,13 +1579,21 @@ export class ReconciliationMatcherService {
     // never surface phantom NF candidates for a credit.
     if (tx.type === 'CREDIT') return [];
 
-    // Tax/fee transactions have no meaningful NFe match — return empty.
+    // A manual search term (the user typing in "Buscar nota manualmente")
+    // overrides the tax/fee short-circuit and every scoring gate below — the user
+    // is deliberately looking for an NF to attach, even to a fee-looking debit or
+    // a payment whose statement CNPJ (boleto aggregator, marketplace) never
+    // matches the issuer.
+    const searchTerm = options.search?.trim() || undefined;
+
+    // Tax/fee transactions have no meaningful NFe match — return empty (unless the
+    // user is explicitly searching).
     const memoUpper = (tx.memo || '').toUpperCase();
     const isLikelyTaxOrFee =
       /DARF|ARRECADAC|TRIBUTO|IMPOSTO|TARIFA|TAR\.BANC|TAR BANC|\bIOF\b/.test(memoUpper) ||
       tx.subtype === 'TARIFA' ||
       tx.subtype === 'IOF';
-    if (isLikelyTaxOrFee) return [];
+    if (isLikelyTaxOrFee && !searchTerm) return [];
 
     const absAmount = Math.abs(Number(tx.amount));
     const minAmount = absAmount * (1 - amountTol);
@@ -1841,6 +1849,38 @@ export class ReconciliationMatcherService {
           docs.push(d);
         }
       }
+    }
+
+    // Manual search escape hatch. When the user types a term in "Buscar nota
+    // manualmente", surface ANY still-unmatched AUTHORIZED NF that matches it —
+    // by number, emitter/recipient name, access key, order code (#Ped) or CNPJ
+    // digits — regardless of value/date/CNPJ relation. This is the deliberate
+    // permissive path for payments routed through an intermediary (boleto
+    // aggregators like PJBANK, marketplaces) whose statement CNPJ never matches
+    // the service provider's, so scoring alone can't surface the right note.
+    if (searchTerm) {
+      const digits = searchTerm.replace(/\D/g, '');
+      const or: Prisma.FiscalDocumentWhereInput[] = [
+        { nfNumber: { contains: searchTerm, mode: 'insensitive' } },
+        { emitName: { contains: searchTerm, mode: 'insensitive' } },
+        { destName: { contains: searchTerm, mode: 'insensitive' } },
+        { accessKey: { contains: searchTerm } },
+        { orderCodes: { some: { code: { contains: searchTerm, mode: 'insensitive' } } } },
+      ];
+      if (digits.length >= 3) {
+        or.push(
+          { emitCnpj: { contains: digits } },
+          { destCnpj: { contains: digits } },
+        );
+      }
+      const searchDocs = await this.prisma.fiscalDocument.findMany({
+        where: { status: 'AUTHORIZED', matches: { none: {} }, OR: or },
+        orderBy: { issueDate: 'desc' },
+        take: 30,
+        select,
+      });
+      const seen = new Set(docs.map(d => d.id));
+      for (const d of searchDocs) if (!seen.has(d.id)) docs.push(d);
     }
 
     const scored = docs
