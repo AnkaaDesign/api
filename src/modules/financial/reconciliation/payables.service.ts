@@ -9,6 +9,9 @@ import { deriveOrderClearance, OrderClearance } from './order-clearance';
 const CLEAR_TOLERANCE_ABS = 2;
 const CLEAR_TOLERANCE_PCT = 0.005;
 
+/** One calendar day in ms — recurrent bills stay "Previsto" until this close to due. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /** One non-reversed match on a payable anchor, reduced to what clearance needs. */
 type AnchorMatch = { allocatedAmount: number; transactionId: string; matchedAt: Date };
 
@@ -96,6 +99,14 @@ export class PayablesService {
         const isVariable = payable.amountKind === 'VARIABLE';
         const estimate = Number(occurrence.estimatedAmount);
         const amount = paid && occurrence.paidAmount != null ? Number(occurrence.paidAmount) : estimate;
+        // A recurrent bill stays "Previsto" (EXPECTED) until 1 day before its
+        // configured due date, then flips to "Aguardando Pagamento" (and the
+        // OVERDUE sweep below promotes it once the due date passes). The due
+        // instant is SP-midnight, so `dueMs - now > 1 day` means "more than a
+        // day out" regardless of server timezone. Paid/ignored are never Previsto.
+        const dueMs = occurrence.dueDate ? new Date(occurrence.dueDate).getTime() : null;
+        const expected = !paid && !ignored && dueMs != null && dueMs - now.getTime() > DAY_MS;
+        const effectiveMethod = occurrence.paymentMethod ?? payable.paymentMethod ?? null;
         rows.push({
           source: 'RECURRENT_PAYABLE',
           id: occurrence.id,
@@ -103,10 +114,12 @@ export class PayablesService {
           payeeName: payable.supplier?.fantasyName ?? payable.payeeName ?? payable.name,
           description: payable.name,
           amount,
-          paymentState: paid ? 'PAID' : 'AWAITING_PAYMENT',
+          paymentState: paid ? 'PAID' : expected ? 'EXPECTED' : 'AWAITING_PAYMENT',
           ignored,
           dueDate: occurrence.dueDate,
-          method: occurrence.paymentMethod ?? payable.paymentMethod ?? null,
+          method: effectiveMethod,
+          // PIX key to pay this bill — only when the method actually is PIX.
+          pixKey: effectiveMethod === 'PIX' ? payable.pixKey ?? null : null,
           paidAt: occurrence.paidAt ?? null,
           settleVia: paid || ignored ? 'NONE' : 'RECURRENT_PAYABLE',
           // Only an unpaid VARIABLE bill is a true estimate (real amount typed on pay).

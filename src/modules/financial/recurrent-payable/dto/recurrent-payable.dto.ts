@@ -34,6 +34,25 @@ const recurrentPayableBaseSchema = z.object({
     .transform(v => (v.length === 0 ? null : v))
     .optional()
     .nullable(),
+  // Optional CPF of the payee (digits only, 11) — individuals. The Tomador is a
+  // CPF OR a CNPJ; both are accepted but at most one is set by the UI.
+  payeeCpf: z
+    .string()
+    .trim()
+    .transform(v => v.replace(/\D/g, ''))
+    .refine(v => v.length === 0 || v.length === 11, 'CPF deve ter 11 dígitos')
+    .transform(v => (v.length === 0 ? null : v))
+    .optional()
+    .nullable(),
+  // PIX key to pay this bill (only meaningful when paymentMethod = PIX). Stored
+  // as entered; format detection/normalization happens client-side.
+  pixKey: z
+    .string()
+    .trim()
+    .max(500, 'Chave Pix deve ter no máximo 500 caracteres')
+    .transform(v => (v.length === 0 ? null : v))
+    .optional()
+    .nullable(),
   categoryId: z.string().uuid({ message: 'Categoria é obrigatória' }),
   amountKind: z.enum(['FIXED', 'VARIABLE']).default('VARIABLE'),
   fixedAmount: z.number().nonnegative().optional().nullable(),
