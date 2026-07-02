@@ -561,6 +561,50 @@ export class RecurrentPayableService {
     return { success: true, message: 'Conta recorrente marcada como paga.', data };
   }
 
+  /** Ignore a single occurrence for its month (e.g. the diarista faltou, so the
+   *  Limpeza bill won't be paid). It stays on record as CANCELLED so it's dropped
+   *  from Contas a Pagar totals but can be reverted. Never touches a PAID one. */
+  async ignoreOccurrence(
+    occurrenceId: string,
+    opts: { userId?: string } = {},
+  ): Promise<{ success: boolean; message: string; data: RecurrentPayableOccurrence }> {
+    const occ = await this.prisma.recurrentPayableOccurrence.findUnique({
+      where: { id: occurrenceId },
+    });
+    if (!occ) throw new NotFoundException('Ocorrência não encontrada.');
+    if (occ.status === 'PAID') {
+      throw new BadRequestException(
+        'Esta conta já está paga — não pode ser ignorada. Estorne o pagamento primeiro.',
+      );
+    }
+    if (occ.status === 'CANCELLED') {
+      throw new BadRequestException('Esta conta já está ignorada.');
+    }
+    const data = await this.prisma.recurrentPayableOccurrence.update({
+      where: { id: occurrenceId },
+      data: { status: 'CANCELLED', paidById: opts.userId ?? null },
+    });
+    return { success: true, message: 'Conta recorrente ignorada neste mês.', data };
+  }
+
+  /** Revert an ignored (CANCELLED) occurrence back to an open obligation. */
+  async unignoreOccurrence(
+    occurrenceId: string,
+  ): Promise<{ success: boolean; message: string; data: RecurrentPayableOccurrence }> {
+    const occ = await this.prisma.recurrentPayableOccurrence.findUnique({
+      where: { id: occurrenceId },
+    });
+    if (!occ) throw new NotFoundException('Ocorrência não encontrada.');
+    if (occ.status !== 'CANCELLED') {
+      throw new BadRequestException('Esta conta não está ignorada.');
+    }
+    const data = await this.prisma.recurrentPayableOccurrence.update({
+      where: { id: occurrenceId },
+      data: { status: 'PENDING', paidById: null },
+    });
+    return { success: true, message: 'Conta recorrente reaberta.', data };
+  }
+
   // ---------------------------------------------------------------------------
   // Monthly dashboard (the unified "Recorrentes" page)
   // ---------------------------------------------------------------------------

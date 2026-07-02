@@ -624,6 +624,13 @@ export interface PayableRow {
   /** Sub-label: installment ("1ª parcela"), Fixo/Variável, etc. */
   subtype?: string | null;
   /**
+   * RECURRENT_PAYABLE rows only — the occurrence was IGNORED for its month (e.g.
+   * the diarista faltou, so the Limpeza bill won't be paid). Ignored rows stay on
+   * screen with a muted "Ignorado" badge but are excluded from every summary
+   * bucket and never promoted to OVERDUE. Revertible via the row action.
+   */
+  ignored?: boolean;
+  /**
    * ORDER rows only — whether the order's payment has been requested (PENDING
    * orders are false: they render as muted, non-payable "expected" rows; an ADMIN
    * presses "Requisitar Pagamento" to make them payable). Always true once

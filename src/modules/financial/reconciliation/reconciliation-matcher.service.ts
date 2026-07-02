@@ -1773,12 +1773,93 @@ export class ReconciliationMatcherService {
       });
     }
 
+    // --- Installment support (parcelas) ------------------------------------
+    // Every pass above excludes any NF that already has a match row
+    // (`matches: { none: {} }`). But an NF paid in installments is settled by
+    // SEVERAL transactions and keeps an OPEN balance until the cumulative
+    // allocation reaches its total (the write-time guard in
+    // reconciliation.service enforces that ceiling). Without this pass the NF
+    // would vanish from "Candidatas à conciliação" after the first installment,
+    // stranding the remaining parcelas. Re-surface CNPJ-scoped NFs that still
+    // have a positive balance open by OTHER transactions; `__remaining` flows
+    // into `remainingValue` so the UI defaults the allocation to what's left and
+    // labels the candidate as a parcela.
+    if (counterparty) {
+      // Use the WIDE (1-year) window here, not the 60-day CNPJ one: an already
+      // partially-paid NF is a confirmed candidate (a sibling transaction is
+      // allocated to it), and installment plans routinely span 90+ days, so the
+      // last parcela can post well outside the 60-day window of the NF's issue
+      // date. The `matches.some` guard below keeps this precise despite the reach.
+      const partLower = new Date(
+        tx.postedAt.getTime() - PERFECT_MATCH_DATE_WINDOW_DAYS * 86_400_000,
+      );
+      const partUpper = new Date(
+        tx.postedAt.getTime() + PERFECT_MATCH_DATE_WINDOW_DAYS * 86_400_000,
+      );
+      const partialDocs = await this.prisma.fiscalDocument.findMany({
+        where: {
+          status: 'AUTHORIZED',
+          issueDate: { gte: partLower, lte: partUpper },
+          // Already partially settled by a DIFFERENT transaction (an installment
+          // sibling), never the one we're matching now.
+          matches: {
+            some: { reversedAt: null, transactionId: { not: transactionId } },
+          },
+          OR: [
+            { emitCnpj: counterparty },
+            { destCnpj: counterparty },
+            { destCpf: counterparty },
+            ...(root
+              ? [
+                  { emitCnpj: { startsWith: root } } as Prisma.FiscalDocumentWhereInput,
+                  { destCnpj: { startsWith: root } } as Prisma.FiscalDocumentWhereInput,
+                ]
+              : []),
+          ],
+        },
+        orderBy: { issueDate: 'desc' },
+        take: 100,
+        select: {
+          ...select,
+          matches: {
+            where: { reversedAt: null, transactionId: { not: transactionId } },
+            select: { allocatedAmount: true },
+          },
+        },
+      });
+      const seen = new Set(docs.map(d => d.id));
+      for (const d of partialDocs) {
+        if (seen.has(d.id)) continue;
+        const allocated = (d.matches ?? []).reduce(
+          (s: number, m: { allocatedAmount: Prisma.Decimal | number }) =>
+            s + Number(m.allocatedAmount),
+          0,
+        );
+        const remaining = Number(d.totalValue) - allocated;
+        if (remaining > 0.05) {
+          (d as any).__remaining = remaining;
+          docs.push(d);
+        }
+      }
+    }
+
     const scored = docs
-      .map(doc => ({ doc, score: scoreCandidate(tx, doc, aliasContext) }))
+      .map(doc => {
+        // A partially-paid NF (installment) is scored against its REMAINING
+        // balance, not its full total — the remaining slice is what proximity-
+        // matches the current installment payment.
+        const scoringDoc =
+          doc.__remaining != null ? { ...doc, totalValue: doc.__remaining } : doc;
+        return { doc, score: scoreCandidate(tx, scoringDoc, aliasContext) };
+      })
       .sort((a, b) => b.score.total - a.score.total);
 
     const singleCandidates = scored.map(({ doc, score }) => {
       const docTotal = Number(doc.totalValue);
+      // Open balance: for a partially-paid NF it's the remaining slice; for a
+      // fully-open NF it's the full total.
+      const remaining = doc.__remaining != null ? Number(doc.__remaining) : docTotal;
+      const isInstallment = remaining + 0.05 < docTotal;
       const daysDelta = Math.round(
         Math.abs(doc.issueDate.getTime() - tx.postedAt.getTime()) / 86_400_000,
       );
@@ -1807,11 +1888,16 @@ export class ReconciliationMatcherService {
             )
           : score.total,
         matchType: score.matchType,
-        rationale: isMarketplaceBand
-          ? `Compra via marketplace • nota R$ ${docTotal.toFixed(2)} (pagamento ` +
-            `R$ ${absAmount.toFixed(2)} inclui DIFAL/taxas, ${belowPct.toFixed(0)}% acima da nota)`
-          : score.reasons.join(' • ') || 'Aproximação por valor/data',
-        amountDelta: Math.abs(docTotal - absAmount),
+        remainingValue: remaining,
+        allocatedValue: isInstallment ? Number((docTotal - remaining).toFixed(2)) : undefined,
+        rationale: isInstallment
+          ? `Parcela • nota R$ ${docTotal.toFixed(2)}, R$ ${(docTotal - remaining).toFixed(2)} ` +
+            `já pago em outras transações, R$ ${remaining.toFixed(2)} em aberto`
+          : isMarketplaceBand
+            ? `Compra via marketplace • nota R$ ${docTotal.toFixed(2)} (pagamento ` +
+              `R$ ${absAmount.toFixed(2)} inclui DIFAL/taxas, ${belowPct.toFixed(0)}% acima da nota)`
+            : score.reasons.join(' • ') || 'Aproximação por valor/data',
+        amountDelta: Math.abs(remaining - absAmount),
         daysDelta,
         aliasAssisted: !!aliasContext,
         orderCodes: (doc.orderCodes ?? []).map((oc: { code: string }) => ({ code: oc.code })),

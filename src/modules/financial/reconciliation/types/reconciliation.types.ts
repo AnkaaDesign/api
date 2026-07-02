@@ -86,6 +86,14 @@ export interface MatchCandidate {
   confidence: number;
   matchType: ReconciliationMatchType;
   rationale: string;
+  /** Open balance of the NF: totalValue minus what OTHER transactions already
+   *  allocated to it (non-reversed). Equals totalValue for a fully-open NF.
+   *  A value below totalValue means the NF is being paid in installments and
+   *  this is one of the remaining parcelas. */
+  remainingValue?: number;
+  /** How much of the NF was already settled by other transactions
+   *  (totalValue − remainingValue). Present only for partially-paid NFs. */
+  allocatedValue?: number;
   /** Absolute R$ difference between the NF total and |transaction amount|. */
   amountDelta: number;
   /** Whole-day difference between issue date and posting date. */
