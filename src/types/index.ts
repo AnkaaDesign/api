@@ -11,6 +11,7 @@ export * from './customer';
 export * from './economic-activity';
 export * from './cut';
 export * from './dashboard';
+export * from './search';
 export * from './deployment';
 export * from './externalOperation';
 export * from './express.types';

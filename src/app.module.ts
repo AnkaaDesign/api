@@ -19,6 +19,7 @@ import { BorrowModule } from './modules/inventory/borrow/borrow.module';
 import { CustomerModule } from './modules/production/customer/customer.module';
 import { CutModule } from './modules/production/cut/cut.module';
 import { DashboardModule } from './modules/domain/dashboard/dashboard.module';
+import { SearchModule } from './modules/domain/search/search.module';
 import { EconomicActivityModule } from './modules/production/economic-activity/economic-activity.module';
 import { PpeModule } from './modules/inventory/ppe/ppe.module';
 import { EventEmitterModule } from './modules/common/event-emitter/event-emitter.module';
@@ -108,6 +109,7 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     CustomerModule,
     CutModule,
     DashboardModule,
+    SearchModule,
     EconomicActivityModule,
     PpeModule,
     EventEmitterModule,
