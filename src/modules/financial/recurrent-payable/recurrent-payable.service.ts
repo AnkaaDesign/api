@@ -198,6 +198,9 @@ export class RecurrentPayableService {
         supplierId: dto.supplierId ?? null,
         payeeName: dto.payeeName ?? null,
         payeeCnpj: dto.payeeCnpj ?? null,
+        payeeCpf: dto.payeeCpf ?? null,
+        // A PIX key only belongs to a PIX bill; drop it for other methods.
+        pixKey: dto.paymentMethod === 'PIX' ? dto.pixKey ?? null : null,
         categoryId: dto.categoryId,
         amountKind: dto.amountKind,
         fixedAmount: dto.fixedAmount ?? null,
@@ -243,6 +246,7 @@ export class RecurrentPayableService {
         : { disconnect: true };
     if (dto.payeeName !== undefined) data.payeeName = dto.payeeName;
     if (dto.payeeCnpj !== undefined) data.payeeCnpj = dto.payeeCnpj;
+    if (dto.payeeCpf !== undefined) data.payeeCpf = dto.payeeCpf;
     if (dto.categoryId !== undefined) data.category = { connect: { id: dto.categoryId } };
     if (dto.amountKind !== undefined) data.amountKind = dto.amountKind;
     if (dto.fixedAmount !== undefined) data.fixedAmount = dto.fixedAmount;
@@ -252,6 +256,9 @@ export class RecurrentPayableService {
     if (dto.dueDayOfMonth !== undefined) data.dueDayOfMonth = dto.dueDayOfMonth ?? null;
     if (dto.daysOfWeek !== undefined) data.daysOfWeek = dto.daysOfWeek;
     if (dto.paymentMethod !== undefined) data.paymentMethod = dto.paymentMethod;
+    if (dto.pixKey !== undefined) data.pixKey = dto.pixKey;
+    // A key only belongs to a PIX bill — switching the method away drops it.
+    if (dto.paymentMethod !== undefined && dto.paymentMethod !== 'PIX') data.pixKey = null;
     if (dto.expectsNf !== undefined) data.expectsNf = dto.expectsNf;
     if (dto.isActive !== undefined) {
       data.isActive = dto.isActive;

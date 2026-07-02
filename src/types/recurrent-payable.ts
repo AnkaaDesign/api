@@ -28,6 +28,12 @@ export interface RecurrentPayable extends BaseEntity {
   // Payee: a real Supplier (preferred) or a free-text fallback.
   supplierId: string | null;
   payeeName: string | null;
+  // Tomador document — a CNPJ (companies; drives NF auto-linking) or a CPF
+  // (individuals). At most one is set.
+  payeeCnpj: string | null;
+  payeeCpf: string | null;
+  // PIX key to pay this bill — only meaningful when paymentMethod = PIX.
+  pixKey: string | null;
   categoryId: string;
   amountKind: RECURRENCE_KIND;
   // Decimal(12,2) columns; serialized as number (api convention).

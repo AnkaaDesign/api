@@ -4769,6 +4769,12 @@ model RecurrentPayable {
   // Optional CNPJ of the payee. Drives NF auto-linking by emitter CNPJ +
   // competence WITHOUT coupling to the inventory Supplier model.
   payeeCnpj       String?
+  // Optional CPF of the payee (individuals — landlord, autonomous worker…). The
+  // Tomador accepts a CPF OR a CNPJ; NF auto-linking still keys off payeeCnpj.
+  payeeCpf        String?
+  // PIX key used to pay this bill (only meaningful when paymentMethod = PIX).
+  // Stored as entered (CPF/CNPJ/email/phone/random). Shown in Contas a Pagar.
+  pixKey          String?
   // Required bridge to the reconciliation taxonomy. A categorized bank debit on
   // this category auto-settles the matching month's occurrence.
   categoryId      String

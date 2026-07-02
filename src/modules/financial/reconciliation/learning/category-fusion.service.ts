@@ -265,6 +265,60 @@ export class CategoryFusionService {
     });
   }
 
+  /**
+   * Back-fill a category onto a transaction from learned history (counterparty
+   * rules / aliases / memo tokens) WITHOUT touching its reconciliation status.
+   *
+   * `applyDecision` deliberately refuses to categorize a RECONCILED row —
+   * normally the category is decided before the match. But a transaction
+   * reconciled via an NF/boleto match (or reconciled in an earlier run, before
+   * its counterparty history existed) can end up RECONCILED yet uncategorized.
+   * This closes exactly that gap: once a counterparty has been categorized a few
+   * times, re-running "Verificar" applies that learned category to the older
+   * reconciled transactions. Still sacrosanct: never overrides a MANUAL category,
+   * never re-tags an already-categorized row, applies only at AUTO_APPLY
+   * confidence, and never alters the match/reconciliation status.
+   *
+   * Returns true when a category was applied.
+   */
+  async backfillCategoryFromHistory(
+    txId: string,
+    prismaTx?: Prisma.TransactionClient,
+  ): Promise<boolean> {
+    const db = prismaTx ?? this.prisma;
+    const tx = await db.bankTransaction.findUnique({
+      where: { id: txId },
+      select: {
+        categorySource: true,
+        categories: { select: { categoryId: true }, take: 1 },
+      },
+    });
+    if (!tx) return false;
+    // Never override a human decision; never double-tag an already categorized tx.
+    if (tx.categorySource === ReconciliationSource.MANUAL) return false;
+    if (tx.categories.length > 0) return false;
+
+    const input = await this.loadSignalInput(txId, db);
+    if (!input) return false;
+    const decision = await this.classify(input);
+    if (decision.tier !== DecisionTier.AUTO_APPLY || !decision.categoryId) return false;
+
+    await db.bankTransaction.update({
+      where: { id: txId },
+      data: {
+        categorySource: ReconciliationSource.AUTO,
+        classifiedAt: new Date(),
+        suggestedCategoryId: null,
+        suggestionConfidence: null,
+        suggestionProvenance: Prisma.JsonNull,
+        // reconciliationStatus intentionally untouched — this only categorizes.
+      },
+    });
+    await this.replaceAutoTag(db, txId, decision.categoryId);
+    await this.writeProvenance(db, txId, decision, 'CLASSIFY');
+    return true;
+  }
+
   /** Delete the single AUTO transaction-only tag and upsert the new one. */
   private async replaceAutoTag(
     db: Prisma.TransactionClient,

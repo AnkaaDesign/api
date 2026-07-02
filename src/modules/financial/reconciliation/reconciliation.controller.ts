@@ -204,7 +204,21 @@ export class ReconciliationController {
       dateFrom: body.dateStart,
       dateTo: body.dateEnd,
     });
-    return { classified, matched, categorized: categorized.categorized };
+    // STAGE 4: back-fill categories on reconciled-but-uncategorized transactions
+    // from learned counterparty/alias history. A tx matched to an NF (or matched
+    // in an earlier run) before its counterparty was ever categorized ends up
+    // RECONCILED without a category; now that the history exists, apply it. Folded
+    // into the "categorizadas" count the UI already shows.
+    const backfilled = await this.service.backfillCategoriesFromHistory({
+      transactionIds: body.transactionIds,
+      dateFrom: body.dateStart,
+      dateTo: body.dateEnd,
+    });
+    return {
+      classified,
+      matched,
+      categorized: categorized.categorized + backfilled.categorized,
+    };
   }
 
   // ----- taxonomy (categories) --------------------------------------------

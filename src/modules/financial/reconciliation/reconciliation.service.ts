@@ -1095,6 +1095,42 @@ export class ReconciliationService {
     return { processed: txs.length, categorized };
   }
 
+  /**
+   * Back-fill categories onto RECONCILED-but-uncategorized transactions from
+   * learned counterparty/alias history. Runs after the matcher in the "Verificar"
+   * pipeline so that, as the history grows, transactions that were reconciled
+   * (e.g. matched to an NF before their counterparty had ever been categorized)
+   * pick up the learned category automatically — no manual step. Only touches
+   * rows with no category tag at all; NF-item and MANUAL categories are left
+   * alone (the fusion primitive double-guards MANUAL).
+   */
+  async backfillCategoriesFromHistory(payload: {
+    transactionIds?: string[];
+    dateFrom?: string;
+    dateTo?: string;
+  }): Promise<{ processed: number; categorized: number }> {
+    const where: Prisma.BankTransactionWhereInput = {
+      reconciliationStatus: ReconciliationStatus.RECONCILED,
+      categories: { none: {} },
+    };
+    if (payload.transactionIds?.length) where.id = { in: payload.transactionIds };
+    if (payload.dateFrom || payload.dateTo) {
+      where.postedAt = {};
+      if (payload.dateFrom)
+        (where.postedAt as Prisma.DateTimeFilter).gte = new Date(payload.dateFrom);
+      if (payload.dateTo) (where.postedAt as Prisma.DateTimeFilter).lte = new Date(payload.dateTo);
+    }
+    const txs = await this.prisma.bankTransaction.findMany({ where, select: { id: true } });
+    let categorized = 0;
+    for (const t of txs) {
+      const applied = await this.fusion
+        .backfillCategoryFromHistory(t.id)
+        .catch(() => false);
+      if (applied) categorized += 1;
+    }
+    return { processed: txs.length, categorized };
+  }
+
   async listFiscalDocuments(filters: FiscalDocumentsFilterDto) {
     const where: Prisma.FiscalDocumentWhereInput = {};
     if (filters.docType) where.docType = filters.docType;
