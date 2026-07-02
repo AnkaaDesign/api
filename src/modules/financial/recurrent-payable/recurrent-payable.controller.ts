@@ -91,6 +91,24 @@ export class RecurrentPayableController {
     });
   }
 
+  /** Ignore an occurrence for its month (won't be paid — e.g. diarista faltou).
+   *  Kept on record (CANCELLED) so it's out of totals but revertible. */
+  @Post('occurrences/:occurrenceId/ignore')
+  @HttpCode(HttpStatus.OK)
+  async ignoreOccurrence(
+    @Param('occurrenceId') occurrenceId: string,
+    @UserId() userId: string,
+  ) {
+    return this.service.ignoreOccurrence(occurrenceId, { userId });
+  }
+
+  /** Revert an ignored occurrence back to an open obligation. */
+  @Post('occurrences/:occurrenceId/unignore')
+  @HttpCode(HttpStatus.OK)
+  async unignoreOccurrence(@Param('occurrenceId') occurrenceId: string) {
+    return this.service.unignoreOccurrence(occurrenceId);
+  }
+
   /** Admin/manual trigger to materialize due occurrences now (mirrors the cron). */
   @Post('run-due')
   @HttpCode(HttpStatus.OK)

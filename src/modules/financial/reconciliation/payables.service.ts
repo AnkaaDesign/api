@@ -90,6 +90,9 @@ export class PayablesService {
       // prompts for the real amount. FIXED bills settle with the known amount.
       for (const { occurrence, payable } of recurrentRows) {
         const paid = occurrence.status === 'PAID';
+        // CANCELLED occurrence = ignored for its month (diarista faltou, etc.).
+        // Kept visible but muted, excluded from totals, revertible.
+        const ignored = occurrence.status === 'CANCELLED';
         const isVariable = payable.amountKind === 'VARIABLE';
         const estimate = Number(occurrence.estimatedAmount);
         const amount = paid && occurrence.paidAmount != null ? Number(occurrence.paidAmount) : estimate;
@@ -101,12 +104,13 @@ export class PayablesService {
           description: payable.name,
           amount,
           paymentState: paid ? 'PAID' : 'AWAITING_PAYMENT',
+          ignored,
           dueDate: occurrence.dueDate,
           method: occurrence.paymentMethod ?? payable.paymentMethod ?? null,
           paidAt: occurrence.paidAt ?? null,
-          settleVia: paid ? 'NONE' : 'RECURRENT_PAYABLE',
+          settleVia: paid || ignored ? 'NONE' : 'RECURRENT_PAYABLE',
           // Only an unpaid VARIABLE bill is a true estimate (real amount typed on pay).
-          isEstimate: !paid && isVariable,
+          isEstimate: !paid && !ignored && isVariable,
           // Per-occurrence competence (rows now span current + next month).
           competence: occurrence.competence,
           subtype: isVariable ? 'Variável' : 'Fixo',
@@ -120,6 +124,7 @@ export class PayablesService {
       // (was only conveyed via client-side row styling).
       for (const row of rows) {
         if (
+          !row.ignored &&
           (row.paymentState === 'AWAITING_PAYMENT' || row.paymentState === 'PARTIALLY_PAID') &&
           row.dueDate != null &&
           new Date(row.dueDate) < now
@@ -144,6 +149,8 @@ export class PayablesService {
         PAID: emptyBucket(),
       };
       for (const row of rows) {
+        // Ignored occurrences are out of every bucket total — they aren't a debt.
+        if (row.ignored) continue;
         const bucket = summary[row.paymentState];
         if (!bucket) continue;
         bucket.count += 1;
