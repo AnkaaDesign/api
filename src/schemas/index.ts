@@ -117,6 +117,7 @@ export * from './truck';
 export * from './layout';
 export * from './user';
 export * from './dashboard';
+export * from './search';
 export * from './auth';
 export * from './server';
 export * from './bonus';
