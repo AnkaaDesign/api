@@ -123,8 +123,8 @@ export class ReconciliationController {
   }
 
   @Get('transactions/:id/candidates')
-  getCandidates(@Param('id') id: string) {
-    return this.service.getCandidates(id);
+  getCandidates(@Param('id') id: string, @Query('search') search?: string) {
+    return this.service.getCandidates(id, search);
   }
 
   @Get('transactions/:id')

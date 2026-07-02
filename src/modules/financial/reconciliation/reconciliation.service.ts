@@ -202,8 +202,8 @@ export class ReconciliationService {
     };
   }
 
-  async getCandidates(transactionId: string) {
-    return this.matcher.getCandidatesForTransaction(transactionId);
+  async getCandidates(transactionId: string, search?: string) {
+    return this.matcher.getCandidatesForTransaction(transactionId, { search });
   }
 
   /**
@@ -435,11 +435,22 @@ export class ReconciliationService {
       for (const id of payload.fiscalDocumentIds) allocByDoc.set(id, split);
     }
     const sum = [...allocByDoc.values()].reduce((a, b) => a + b, 0);
-    // Reject only OVER-allocation (linking NFs worth more than the payment is
-    // never valid). Under-allocation is allowed and produces a PARTIAL status:
-    // a payment can legitimately be backed by an NF for LESS than the full
-    // amount — e.g. a marketplace debit that bundles DIFAL/fees on top of the
-    // NF total, or an NF + tip/tariff. The remainder stays unreconciled.
+    // The part of the payment NOT backed by an NF (frete, seguro estendido,
+    // taxas de marketplace…) can be RESOLVED with a reason instead of a category
+    // tag. When a reason is given, the remainder counts as accounted-for, so an
+    // NF worth LESS than the payment still fully reconciles — instead of
+    // stranding it as PARTIAL. No reason → the remainder stays open (PARTIAL).
+    const REMAINDER_LABELS: Record<string, string> = {
+      FRETE: 'Frete',
+      SEGURO: 'Seguro',
+      TAXAS: 'Taxas',
+      OUTROS: 'Outros',
+    };
+    const remainder = Number((txAmount - sum).toFixed(2));
+    const remainderResolved = payload.remainderReason != null && remainder > 0.05;
+    // Reject only OVER-allocation (NF worth more than the payment is never
+    // valid). Under-coverage is allowed: the remainder is either resolved by a
+    // reason (→ RECONCILED) or left open (→ PARTIAL).
     if (sum > txAmount + 0.05) {
       throw new BadRequestException(
         `Soma das alocações (R$${sum.toFixed(2)}) excede o valor da transação (R$${txAmount.toFixed(2)})`,
@@ -447,6 +458,18 @@ export class ReconciliationService {
     }
 
     const keepDocIds = [...allocByDoc.keys()];
+
+    // When the remainder is resolved by a reason, fold a human-readable note
+    // ("Restante R$316,00 → Frete") into the match/transaction notes so the
+    // reason is visible without a category tag.
+    const matchNotes = remainderResolved
+      ? [
+          payload.notes,
+          `Restante R$${remainder.toFixed(2)} → ${REMAINDER_LABELS[payload.remainderReason!]}`,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : payload.notes;
 
     const updated = await this.prisma.$transaction(async tx2 => {
       // Serialize against the auto-matcher and other manual matches so the
@@ -509,31 +532,30 @@ export class ReconciliationService {
             matchType: ReconciliationMatchType.MANUAL,
             confidenceScore: 100,
             matchedByUserId: userId ?? null,
-            notes: payload.notes,
+            notes: matchNotes,
           },
           update: {
             allocatedAmount: amount,
             matchType: ReconciliationMatchType.MANUAL,
             matchedByUserId: userId ?? null,
-            notes: payload.notes,
+            notes: matchNotes,
             reversedAt: null,
             reversedById: null,
           },
         });
       }
+
       return tx2.bankTransaction.update({
         where: { id: transactionId },
         data: {
-          // Status reflects COVERAGE, not the number of linked NFs. The sum check
-          // above guarantees the allocations cover the transaction in full, so a
-          // valid manual match — whether to one NF or several (order group) — is
-          // RECONCILED. (PARTIAL would only apply to an under-covered tx, which
-          // this path rejects.) This keeps manual matches consistent with the
-          // auto order-group/subset passes, which also mark multi-NF as
-          // RECONCILED, and avoids the stats double-counting PARTIAL as both
-          // "pending" and "matched".
+          // Status reflects COVERAGE. The NF(s) cover the payment in full
+          // (RECONCILED), OR they cover it partially but the non-NF remainder is
+          // resolved by a reason (frete/seguro/taxas → also RECONCILED). Only an
+          // under-covered tx with an UNRESOLVED remainder stays PARTIAL. Keeps
+          // manual matches consistent with the auto order-group/subset passes and
+          // avoids stats double-counting PARTIAL as both "pending" and "matched".
           reconciliationStatus:
-            Math.abs(sum - txAmount) <= 0.05
+            Math.abs(sum - txAmount) <= 0.05 || remainderResolved
               ? ReconciliationStatus.RECONCILED
               : ReconciliationStatus.PARTIAL,
           reconciliationSource: ReconciliationSource.MANUAL,
