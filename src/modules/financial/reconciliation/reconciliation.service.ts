@@ -45,6 +45,9 @@ const CATEGORY_INCLUDE = {
           color: true,
           isResolving: true,
           isRecurring: true,
+          // Chart-of-accounts rollup (grupo contábil) — surfaced in the Extrato
+          // category column and on the transaction detail page.
+          accountingType: true,
         },
       },
     },

@@ -87,6 +87,29 @@ const MARKETPLACE_CANDIDATE_CONFIDENCE_MAX = 70;
 // Company CNPJ fallback, mirrored from SiegXmlParserService so marketplace
 // matching scopes to our own purchases even when COMPANY_CNPJ is unset in dev.
 const DEFAULT_COMPANY_CNPJ = '13636938000144';
+// --- Broad "last-resort" suggestions -----------------------------------------
+// When the normal passes surface NO confident candidate, offer the user ANY
+// still-open AUTHORIZED NF within a 2-month window — ignoring value AND CNPJ — at
+// a deliberately low confidence, so a payment routed through an intermediary
+// (boleto aggregator like PJBANK, whose statement CNPJ never matches the issuer)
+// or split across several odd installments can still be linked MANUALLY. These
+// are "possibilities", never matches: flat low confidence, sorted to the bottom,
+// and never eligible for the auto-match path.
+const FALLBACK_SUGGESTION_DATE_WINDOW_DAYS = 60; // 2 months either side of the payment
+const FALLBACK_SUGGESTION_CONFIDENCE = 10; // ~10%: visible/selectable but clearly weak
+const FALLBACK_SUGGESTION_MAX = 30; // cap so the list stays usable
+// Only inject broad suggestions when the normal passes produced nothing at least
+// this confident — a transaction that already has a plausible match stays clean.
+const FALLBACK_SUGGESTION_STRONG_CONFIDENCE = 45;
+// Cap the raw NF scan before ranking/dedup — bounds the query on busy importers.
+const FALLBACK_SUGGESTION_SCAN = 200;
+// Broad-suggestion ranking treats a payment as possibly one of up to N equal
+// parcelas of a larger note (a R$400 note paid in two R$200 boletos → k=2), so
+// the larger note floats up instead of being buried under same-value notes.
+const FALLBACK_SPLIT_MAX_PARTS = 4;
+// A note whose open balance is within this relative tolerance of k× the payment
+// is flagged as a likely parcelamento in the rationale (purely cosmetic).
+const FALLBACK_SPLIT_CLEAN_TOLERANCE = 0.02;
 // Order-group matching: a single payment that settles several NFs of ONE
 // purchase order (supplier stamps "#Ped:<code>" in infCpl). When the summed NF
 // totals land within this R$ tolerance of the payment we treat the order as the
@@ -1973,7 +1996,224 @@ export class ReconciliationMatcherService {
         ? singleCandidates.filter(c => !groupMemberIds.has(c.fiscalDocumentId))
         : singleCandidates;
 
-    return [...groupCandidates, ...dedupedSingles].sort((a, b) => b.confidence - a.confidence);
+    const baseline = [...groupCandidates, ...dedupedSingles].sort(
+      (a, b) => b.confidence - a.confidence,
+    );
+
+    // Broad last-resort suggestions. When the normal passes surfaced nothing
+    // confident, append every still-open AUTHORIZED NF within ±2 months — value
+    // and CNPJ ignored — at a flat low confidence so intermediary-routed boletos
+    // (PJBANK) and odd installment splits can at least be linked manually. Skipped
+    // when a plausible match already exists (avoid flooding a clean transaction)
+    // or during a manual search (that path is already deliberately permissive).
+    const hasStrong = baseline.some(c => c.confidence >= FALLBACK_SUGGESTION_STRONG_CONFIDENCE);
+    if (searchTerm || hasStrong) return baseline;
+
+    const fallback = await this.buildBroadSuggestions(
+      tx,
+      transactionId,
+      absAmount,
+      baseline,
+      groupMemberIds,
+    );
+    return [...baseline, ...fallback];
+  }
+
+  /**
+   * Last-resort candidate list for the manual UI: any still-open AUTHORIZED NF
+   * issued within ±{@link FALLBACK_SUGGESTION_DATE_WINDOW_DAYS} of the payment,
+   * regardless of value or CNPJ, at a flat {@link FALLBACK_SUGGESTION_CONFIDENCE}.
+   *
+   * Solves the intermediary-routed-boleto gap (e.g. PJBANK aggregator: the
+   * statement CNPJ is the aggregator's, never the issuer's, and the payment value
+   * may not equal the NF — a R$400 NF paid in two R$200 boletos). Because the
+   * scan is NOT filtered on `matches` and computes the open balance itself, a
+   * partially-paid NF keeps surfacing (with its remaining slice) until fully
+   * settled, so the second installment finds the same note without any CNPJ link.
+   */
+  private async buildBroadSuggestions(
+    tx: { postedAt: Date; amount: Prisma.Decimal | number },
+    transactionId: string,
+    absAmount: number,
+    existing: MatchCandidate[],
+    groupMemberIds: Set<string>,
+  ): Promise<MatchCandidate[]> {
+    const excluded = new Set<string>([
+      ...existing.map(c => c.fiscalDocumentId).filter((id): id is string => !!id),
+      ...groupMemberIds,
+    ]);
+    const lower = new Date(
+      tx.postedAt.getTime() - FALLBACK_SUGGESTION_DATE_WINDOW_DAYS * 86_400_000,
+    );
+    const upper = new Date(
+      tx.postedAt.getTime() + FALLBACK_SUGGESTION_DATE_WINDOW_DAYS * 86_400_000,
+    );
+    // Pass A — lightweight rank scan: scalar fields + allocations only (NO line
+    // items). Fetching items for all 200 scanned notes when only 30 survive would
+    // pull thousands of item rows; we hydrate items for the survivors in Pass B.
+    const scan = await this.prisma.fiscalDocument.findMany({
+      where: {
+        status: 'AUTHORIZED',
+        // A payment (saída) settles a PURCHASE note; our own sales notes (SAIDA)
+        // are receivables matched against credits elsewhere. Scoping to ENTRADA
+        // keeps the broad list purchase-focused instead of dumping every note.
+        operationType: FiscalDocumentOperation.ENTRADA,
+        issueDate: { gte: lower, lte: upper },
+      },
+      orderBy: { issueDate: 'desc' },
+      take: FALLBACK_SUGGESTION_SCAN,
+      select: {
+        id: true,
+        accessKey: true,
+        docType: true,
+        issueDate: true,
+        totalValue: true,
+        emitCnpj: true,
+        emitName: true,
+        destCnpj: true,
+        destName: true,
+        destCpf: true,
+        operationType: true,
+        nfNumber: true,
+        // Allocations from OTHER transactions, to compute the still-open balance
+        // (so a partially-paid NF re-surfaces with only its remaining slice).
+        matches: {
+          where: { reversedAt: null, transactionId: { not: transactionId } },
+          select: { allocatedAmount: true },
+        },
+      },
+    });
+
+    const ranked: {
+      doc: (typeof scan)[number];
+      remaining: number;
+      isInstallment: boolean;
+      daysDelta: number;
+      affinity: number;
+      bestK: number;
+      isLikelySplit: boolean;
+    }[] = [];
+    for (const doc of scan) {
+      if (excluded.has(doc.id)) continue;
+      const docTotal = Number(doc.totalValue);
+      const allocated = (doc.matches ?? []).reduce(
+        (s: number, m: { allocatedAmount: Prisma.Decimal | number }) =>
+          s + Number(m.allocatedAmount),
+        0,
+      );
+      const remaining = docTotal - allocated;
+      if (remaining <= 0.05) continue; // already fully settled by other transactions
+      const isInstallment = remaining + 0.05 < docTotal;
+      const daysDelta = Math.round(
+        Math.abs(doc.issueDate.getTime() - tx.postedAt.getTime()) / 86_400_000,
+      );
+
+      // Installment-aware affinity for ranking. A payment can be (a) a near-direct
+      // settle of the note (remaining ≈ payment) OR (b) one of several equal
+      // parcelas of a LARGER note (remaining ≈ k×payment, e.g. a R$400 note paid
+      // in two R$200 boletos). For each plausible split count k=1..4 we measure
+      // how cleanly the payment divides the open balance, with a mild penalty for
+      // more parcelas, and keep the best fit. Lower = better; the flat confidence
+      // is unchanged, this only orders the broad list so the right note floats up.
+      let affinity = Infinity;
+      let bestK = 1;
+      if (absAmount > 0) {
+        for (let k = 1; k <= FALLBACK_SPLIT_MAX_PARTS; k++) {
+          const fit = Math.abs(remaining - k * absAmount) / absAmount + (k - 1) * 0.05;
+          if (fit < affinity) {
+            affinity = fit;
+            bestK = k;
+          }
+        }
+      } else {
+        affinity = Math.abs(remaining - absAmount);
+      }
+      // A clean multi-part split (note ≈ k× the payment, k≥2) is worth calling out
+      // so the user understands why a larger note is being suggested.
+      const splitFit =
+        absAmount > 0 ? Math.abs(remaining - bestK * absAmount) / absAmount : 1;
+      const isLikelySplit = bestK >= 2 && splitFit <= FALLBACK_SPLIT_CLEAN_TOLERANCE;
+
+      ranked.push({ doc, remaining, isInstallment, daysDelta, affinity, bestK, isLikelySplit });
+    }
+
+    // Best fit first (near-direct settles, then clean k-part splits), then closest
+    // issue date. Cap BEFORE hydrating items so the heavy fetch touches ≤ N notes.
+    ranked.sort((a, b) => a.affinity - b.affinity || a.daysDelta - b.daysDelta);
+    const top = ranked.slice(0, FALLBACK_SUGGESTION_MAX);
+    if (top.length === 0) return [];
+
+    // Pass B — hydrate line items + order codes for the survivors only.
+    const itemsById = new Map<string, { orderCodes: { code: string }[]; items: any[] }>();
+    const hydrated = await this.prisma.fiscalDocument.findMany({
+      where: { id: { in: top.map(t => t.doc.id) } },
+      select: {
+        id: true,
+        orderCodes: { select: { code: true } },
+        items: {
+          select: {
+            id: true,
+            code: true,
+            description: true,
+            totalValue: true,
+            quantity: true,
+            unit: true,
+            unitValue: true,
+            categoryId: true,
+            category: { select: { id: true, name: true, slug: true, color: true } },
+          },
+          take: 100,
+        },
+      },
+    });
+    for (const h of hydrated) itemsById.set(h.id, { orderCodes: h.orderCodes, items: h.items });
+
+    return top.map(({ doc, remaining, isInstallment, daysDelta, bestK, isLikelySplit }) => {
+      const docTotal = Number(doc.totalValue);
+      const extra = itemsById.get(doc.id);
+      const rationale = isInstallment
+        ? `Sugestão ampla • parcela em aberto R$ ${remaining.toFixed(2)} de nota ` +
+          `R$ ${docTotal.toFixed(2)} • fora dos critérios de valor/CNPJ — confira antes de vincular`
+        : isLikelySplit
+          ? `Sugestão ampla • nota R$ ${docTotal.toFixed(2)} ≈ ${bestK}× o pagamento ` +
+            `(possível parcelamento em ${bestK}) • confira antes de vincular`
+          : `Sugestão ampla • nota R$ ${docTotal.toFixed(2)}, ${daysDelta} dia(s) de diferença • ` +
+            `fora dos critérios de valor/CNPJ — confira antes de vincular`;
+      return {
+        fiscalDocumentId: doc.id,
+        accessKey: doc.accessKey,
+        docType: doc.docType,
+        operationType: doc.operationType,
+        issueDate: doc.issueDate,
+        totalValue: docTotal,
+        emitCnpj: doc.emitCnpj,
+        emitName: doc.emitName,
+        destCnpj: doc.destCnpj,
+        destCpf: doc.destCpf ?? null,
+        destName: doc.destName,
+        nfNumber: doc.nfNumber ?? null,
+        confidence: FALLBACK_SUGGESTION_CONFIDENCE,
+        matchType: ReconciliationMatchType.FUZZY,
+        remainingValue: remaining,
+        allocatedValue: isInstallment ? Number((docTotal - remaining).toFixed(2)) : undefined,
+        rationale,
+        amountDelta: Math.abs(remaining - absAmount),
+        daysDelta,
+        aliasAssisted: false,
+        orderCodes: (extra?.orderCodes ?? []).map((oc: { code: string }) => ({ code: oc.code })),
+        items: (extra?.items ?? []).map((it: any) => ({
+          id: it.id,
+          code: it.code ?? null,
+          description: it.description,
+          totalValue: Number(it.totalValue),
+          quantity: it.quantity != null ? Number(it.quantity) : null,
+          unit: it.unit ?? null,
+          unitValue: it.unitValue != null ? Number(it.unitValue) : null,
+          categoryId: it.categoryId ?? null,
+          category: it.category ?? null,
+        })),
+      } as MatchCandidate;
+    });
   }
 
   /**
