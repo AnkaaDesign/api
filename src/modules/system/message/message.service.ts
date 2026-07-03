@@ -442,11 +442,22 @@ export class MessageService {
                 select: {
                   id: true,
                   name: true,
+                  sector: { select: { id: true, name: true } },
                 },
               },
             },
           },
-          views: true,
+          views: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  sector: { select: { id: true, name: true } },
+                },
+              },
+            },
+          },
           createdBy: {
             select: {
               id: true,
@@ -788,8 +799,10 @@ export class MessageService {
 
       const now = new Date();
 
-      // Find all active messages that the user hasn't viewed or dismissed
-      // Exclude ANY message that has been viewed (even if not dismissed) to prevent repeated showing
+      // Find all active messages the user hasn't PERMANENTLY dismissed.
+      // Merely-viewed messages are still returned: the popup should reappear daily
+      // (clients snooze per-day locally) until the user clicks "Não mostrar novamente",
+      // which sets dismissedAt and removes the message from this feed for good.
       const allMessages = await this.prisma.message.findMany({
         where: {
           status: 'ACTIVE',
@@ -800,11 +813,10 @@ export class MessageService {
               OR: [{ endDate: null }, { endDate: { gte: now } }],
             },
           ],
-          // Exclude messages that have been viewed OR dismissed by this user
-          // This prevents the modal from showing the same message repeatedly
           views: {
             none: {
               userId: userId,
+              dismissedAt: { not: null },
             },
           },
         },

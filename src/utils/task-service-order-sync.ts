@@ -591,10 +591,30 @@ export function isTaskStatusRollback(oldStatus: TASK_STATUS, newStatus: TASK_STA
 }
 
 /**
- * Determines if task status should be updated based on ARTWORK service order status change.
+ * Checks whether all COMMERCIAL service orders of a task are concluded.
+ * CANCELLED commercial orders don't block; a task with no commercial orders
+ * satisfies the gate vacuously.
+ */
+export function areCommercialServiceOrdersComplete(
+  serviceOrders: Array<{ status: SERVICE_ORDER_STATUS; type: SERVICE_ORDER_TYPE }>,
+): boolean {
+  return serviceOrders
+    .filter(
+      so =>
+        so.type === SERVICE_ORDER_TYPE.COMMERCIAL && so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+    )
+    .every(so => so.status === SERVICE_ORDER_STATUS.COMPLETED);
+}
+
+/**
+ * Determines if task status should be updated based on ARTWORK or COMMERCIAL
+ * service order status change.
  *
  * This handles the PREPARATION → WAITING_PRODUCTION transition and its rollback:
- * - When at least ONE artwork SO becomes COMPLETED → Task transitions to WAITING_PRODUCTION
+ * - When at least ONE artwork SO is COMPLETED AND ALL commercial SOs are concluded
+ *   → Task transitions to WAITING_PRODUCTION (triggered by either an artwork or a
+ *   commercial SO completing; the commercial gate only blocks the AUTOMATIC
+ *   transition — an explicit "Disponibilizar para produção" bypasses it)
  * - When ALL artwork SOs are rolled back (none remain COMPLETED) → Task rolls back to PREPARATION
  *
  * @param allServiceOrders - All service orders for the task (with their current/updated statuses)
@@ -621,8 +641,11 @@ export function getTaskUpdateForArtworkServiceOrderStatusChange(
   newTaskStatus: TASK_STATUS;
   reason: string;
 } | null {
-  // Only handle ARTWORK type service orders
-  if (serviceOrderType !== SERVICE_ORDER_TYPE.ARTWORK) {
+  // Only ARTWORK and COMMERCIAL service orders participate in the preparation gate
+  if (
+    serviceOrderType !== SERVICE_ORDER_TYPE.ARTWORK &&
+    serviceOrderType !== SERVICE_ORDER_TYPE.COMMERCIAL
+  ) {
     return null;
   }
 
@@ -634,23 +657,38 @@ export function getTaskUpdateForArtworkServiceOrderStatusChange(
   const artworkOrders = updatedServiceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.ARTWORK);
 
   // ===== FORWARD TRANSITION: PREPARATION → WAITING_PRODUCTION =====
-  // When an artwork SO becomes COMPLETED and task is in PREPARATION
+  // When an artwork or commercial SO becomes COMPLETED and task is in PREPARATION
   if (
     newServiceOrderStatus === SERVICE_ORDER_STATUS.COMPLETED &&
     oldServiceOrderStatus !== SERVICE_ORDER_STATUS.COMPLETED &&
     currentTaskStatus === TASK_STATUS.PREPARATION
   ) {
-    // One artwork becoming COMPLETED is enough to transition
-    return {
-      shouldUpdate: true,
-      newTaskStatus: TASK_STATUS.WAITING_PRODUCTION,
-      reason: `Tarefa liberada automaticamente para produção quando ordem de serviço de arte foi concluída`,
-    };
+    const anyArtworkCompleted = artworkOrders.some(
+      so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
+    );
+    const allCommercialCompleted = areCommercialServiceOrdersComplete(updatedServiceOrders);
+
+    if (anyArtworkCompleted && allCommercialCompleted) {
+      return {
+        shouldUpdate: true,
+        newTaskStatus: TASK_STATUS.WAITING_PRODUCTION,
+        reason:
+          serviceOrderType === SERVICE_ORDER_TYPE.COMMERCIAL
+            ? `Tarefa liberada automaticamente para produção quando ordem de serviço comercial foi concluída (arte concluída e ordens comerciais concluídas)`
+            : `Tarefa liberada automaticamente para produção quando ordem de serviço de arte foi concluída (ordens comerciais concluídas)`,
+      };
+    }
+
+    // Gate not satisfied yet (e.g. commercial SOs still open) — no automatic transition
+    return null;
   }
 
   // ===== BACKWARD TRANSITION: WAITING_PRODUCTION → PREPARATION =====
-  // When an artwork SO is rolled back from COMPLETED, check if task should rollback
+  // When an artwork SO is rolled back from COMPLETED, check if task should rollback.
+  // Only ARTWORK rollbacks trigger this — a commercial SO reopening must not undo
+  // an explicit "Disponibilizar para produção".
   if (
+    serviceOrderType === SERVICE_ORDER_TYPE.ARTWORK &&
     oldServiceOrderStatus === SERVICE_ORDER_STATUS.COMPLETED &&
     newServiceOrderStatus !== SERVICE_ORDER_STATUS.COMPLETED &&
     currentTaskStatus === TASK_STATUS.WAITING_PRODUCTION
