@@ -1854,16 +1854,18 @@ export class ReconciliationMatcherService {
           ...select,
           matches: {
             where: { reversedAt: null, transactionId: { not: transactionId } },
-            select: { allocatedAmount: true },
+            select: { allocatedAmount: true, adjustmentAmount: true },
           },
         },
       });
       const seen = new Set(docs.map(d => d.id));
       for (const d of partialDocs) {
         if (seen.has(d.id)) continue;
+        // A note is settled by what was PAID plus any written-off slice (discount),
+        // so a discounted-closed note has ~0 remaining and won't re-surface.
         const allocated = (d.matches ?? []).reduce(
-          (s: number, m: { allocatedAmount: Prisma.Decimal | number }) =>
-            s + Number(m.allocatedAmount),
+          (s: number, m: { allocatedAmount: Prisma.Decimal | number; adjustmentAmount?: Prisma.Decimal | number | null }) =>
+            s + Number(m.allocatedAmount) + Number(m.adjustmentAmount ?? 0),
           0,
         );
         const remaining = Number(d.totalValue) - allocated;
@@ -2077,9 +2079,10 @@ export class ReconciliationMatcherService {
         nfNumber: true,
         // Allocations from OTHER transactions, to compute the still-open balance
         // (so a partially-paid NF re-surfaces with only its remaining slice).
+        // adjustmentAmount = any written-off slice (discount) that also settles it.
         matches: {
           where: { reversedAt: null, transactionId: { not: transactionId } },
-          select: { allocatedAmount: true },
+          select: { allocatedAmount: true, adjustmentAmount: true },
         },
       },
     });
@@ -2097,12 +2100,12 @@ export class ReconciliationMatcherService {
       if (excluded.has(doc.id)) continue;
       const docTotal = Number(doc.totalValue);
       const allocated = (doc.matches ?? []).reduce(
-        (s: number, m: { allocatedAmount: Prisma.Decimal | number }) =>
-          s + Number(m.allocatedAmount),
+        (s: number, m: { allocatedAmount: Prisma.Decimal | number; adjustmentAmount?: Prisma.Decimal | number | null }) =>
+          s + Number(m.allocatedAmount) + Number(m.adjustmentAmount ?? 0),
         0,
       );
       const remaining = docTotal - allocated;
-      if (remaining <= 0.05) continue; // already fully settled by other transactions
+      if (remaining <= 0.05) continue; // fully settled by other transactions (paid + written off)
       const isInstallment = remaining + 0.05 < docTotal;
       const daysDelta = Math.round(
         Math.abs(doc.issueDate.getTime() - tx.postedAt.getTime()) / 86_400_000,

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import {
   FiscalDocumentOperation,
   Prisma,
+  ReconciliationAdjustmentReason as AdjustmentReason,
   ReconciliationAliasSource,
   ReconciliationMatchType,
   ReconciliationSource,
@@ -431,8 +432,19 @@ export class ReconciliationService {
 
     // Sum allocations or fall back to equal split
     const allocByDoc = new Map<string, number>();
+    // Per-note shortfall write-off (paid LESS than the note): amount + reason.
+    const adjByDoc = new Map<string, { amount: number; reason: AdjustmentReason }>();
     if (payload.allocations && payload.allocations.length > 0) {
-      for (const a of payload.allocations) allocByDoc.set(a.fiscalDocumentId, a.amount);
+      for (const a of payload.allocations) {
+        allocByDoc.set(a.fiscalDocumentId, a.amount);
+        // Signed: positive = discount (paid less), negative = surcharge (paid more).
+        if (a.adjustmentReason && a.adjustmentAmount && Math.abs(a.adjustmentAmount) > 0.005) {
+          adjByDoc.set(a.fiscalDocumentId, {
+            amount: a.adjustmentAmount,
+            reason: a.adjustmentReason,
+          });
+        }
+      }
     } else {
       const split = txAmount / payload.fiscalDocumentIds.length;
       for (const id of payload.fiscalDocumentIds) allocByDoc.set(id, split);
@@ -496,26 +508,34 @@ export class ReconciliationService {
           reversedAt: null,
           transactionId: { not: transactionId },
         },
-        select: { fiscalDocumentId: true, allocatedAmount: true },
+        select: { fiscalDocumentId: true, allocatedAmount: true, adjustmentAmount: true },
       });
       const otherAllocById = new Map<string, number>();
       for (const m of otherMatches) {
         if (!m.fiscalDocumentId) continue;
+        // "Already settled" by other transactions = what they paid PLUS what they
+        // wrote off (a prior discount slice), so a note can't be over-settled.
         otherAllocById.set(
           m.fiscalDocumentId,
-          (otherAllocById.get(m.fiscalDocumentId) ?? 0) + Number(m.allocatedAmount),
+          (otherAllocById.get(m.fiscalDocumentId) ?? 0) +
+            Number(m.allocatedAmount) +
+            Number(m.adjustmentAmount ?? 0),
         );
       }
       for (const [docId, amount] of allocByDoc) {
         const docTotal = totalById.get(docId);
         if (docTotal == null) continue;
         const already = otherAllocById.get(docId) ?? 0;
-        if (already + amount > docTotal + 0.05) {
+        const adjustment = adjByDoc.get(docId)?.amount ?? 0;
+        // Paid slice + written-off slice together must not exceed the note total.
+        if (already + amount + adjustment > docTotal + 0.05) {
           const nf = docs.find(d => d.id === docId);
           const label = nf?.nfNumber ? `NF ${nf.nfNumber}` : 'A nota fiscal';
+          const extra = adjustment > 0 ? ` + desconto R$${adjustment.toFixed(2)}` : '';
           throw new BadRequestException(
             `${label} já possui R$${already.toFixed(2)} alocados em outras transações; ` +
-              `alocar mais R$${amount.toFixed(2)} excederia o total da nota (R$${docTotal.toFixed(2)})`,
+              `alocar mais R$${amount.toFixed(2)}${extra} excederia o total da nota ` +
+              `(R$${docTotal.toFixed(2)})`,
           );
         }
       }
@@ -526,12 +546,15 @@ export class ReconciliationService {
         where: { transactionId, fiscalDocumentId: { notIn: keepDocIds } },
       });
       for (const [fiscalDocumentId, amount] of allocByDoc) {
+        const adj = adjByDoc.get(fiscalDocumentId);
         await tx2.reconciliationMatch.upsert({
           where: { transactionId_fiscalDocumentId: { transactionId, fiscalDocumentId } },
           create: {
             transactionId,
             fiscalDocumentId,
             allocatedAmount: amount,
+            adjustmentAmount: adj?.amount ?? null,
+            adjustmentReason: adj?.reason ?? null,
             matchType: ReconciliationMatchType.MANUAL,
             confidenceScore: 100,
             matchedByUserId: userId ?? null,
@@ -539,6 +562,9 @@ export class ReconciliationService {
           },
           update: {
             allocatedAmount: amount,
+            // Re-saving without a reason clears any prior write-off on this note.
+            adjustmentAmount: adj?.amount ?? null,
+            adjustmentReason: adj?.reason ?? null,
             matchType: ReconciliationMatchType.MANUAL,
             matchedByUserId: userId ?? null,
             notes: matchNotes,
