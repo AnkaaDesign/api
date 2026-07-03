@@ -84,6 +84,7 @@ import {
   getTaskUpdateForServiceOrderStatusChange,
   getTaskUpdateForArtworkServiceOrderStatusChange,
   calculateCorrectTaskStatus,
+  areCommercialServiceOrdersComplete,
 } from '../../../utils/task-service-order-sync';
 import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
 import {
@@ -3243,12 +3244,13 @@ export class TaskService {
                   );
 
                   // =====================================================================
-                  // ARTWORK SYNC: Check if artwork status change should update task status
+                  // ARTWORK/COMMERCIAL SYNC: Check if status change should update task status
                   // =====================================================================
                   if (
                     serviceOrderData.status !== undefined &&
                     serviceOrderData.status !== oldServiceOrder.status &&
-                    updatedServiceOrder.type === SERVICE_ORDER_TYPE.ARTWORK
+                    (updatedServiceOrder.type === SERVICE_ORDER_TYPE.ARTWORK ||
+                      updatedServiceOrder.type === SERVICE_ORDER_TYPE.COMMERCIAL)
                   ) {
                     // Get current task status
                     const currentTask = await tx.task.findUnique({
@@ -3456,12 +3458,13 @@ export class TaskService {
                   );
 
                   // =====================================================================
-                  // ARTWORK SYNC: Check if artwork status change should update task status
+                  // ARTWORK/COMMERCIAL SYNC: Check if status change should update task status
                   // =====================================================================
                   if (
                     serviceOrderData.status !== undefined &&
                     serviceOrderData.status !== existingMatch.status &&
-                    updatedServiceOrder.type === SERVICE_ORDER_TYPE.ARTWORK
+                    (updatedServiceOrder.type === SERVICE_ORDER_TYPE.ARTWORK ||
+                      updatedServiceOrder.type === SERVICE_ORDER_TYPE.COMMERCIAL)
                   ) {
                     // Get current task status
                     const currentTask = await tx.task.findUnique({
@@ -3592,10 +3595,11 @@ export class TaskService {
                 );
 
                 // =====================================================================
-                // ARTWORK SYNC: Check if newly created artwork with COMPLETED status should update task
+                // ARTWORK/COMMERCIAL SYNC: Check if newly created SO with COMPLETED status should update task
                 // =====================================================================
                 if (
-                  createdServiceOrder.type === SERVICE_ORDER_TYPE.ARTWORK &&
+                  (createdServiceOrder.type === SERVICE_ORDER_TYPE.ARTWORK ||
+                    createdServiceOrder.type === SERVICE_ORDER_TYPE.COMMERCIAL) &&
                   createdServiceOrder.status === SERVICE_ORDER_STATUS.COMPLETED
                 ) {
                   // Get current task status
@@ -3604,9 +3608,34 @@ export class TaskService {
                     select: { id: true, status: true },
                   });
 
-                  if (currentTask && currentTask.status === TASK_STATUS.PREPARATION) {
+                  // Evaluate the full preparation gate: ≥1 artwork completed AND all commercial concluded
+                  const taskServiceOrdersForGate =
+                    currentTask && currentTask.status === TASK_STATUS.PREPARATION
+                      ? await tx.serviceOrder.findMany({
+                          where: { taskId: id },
+                          select: { id: true, status: true, type: true },
+                        })
+                      : [];
+                  const preparationGateSatisfied =
+                    taskServiceOrdersForGate.some(
+                      so =>
+                        so.type === SERVICE_ORDER_TYPE.ARTWORK &&
+                        so.status === SERVICE_ORDER_STATUS.COMPLETED,
+                    ) &&
+                    areCommercialServiceOrdersComplete(
+                      taskServiceOrdersForGate.map(so => ({
+                        status: so.status as SERVICE_ORDER_STATUS,
+                        type: so.type as SERVICE_ORDER_TYPE,
+                      })),
+                    );
+
+                  if (
+                    currentTask &&
+                    currentTask.status === TASK_STATUS.PREPARATION &&
+                    preparationGateSatisfied
+                  ) {
                     this.logger.log(
-                      `[ARTWORK→TASK SYNC] New artwork SO ${createdServiceOrder.id} created with COMPLETED status, updating task ${id}: PREPARATION → WAITING_PRODUCTION`,
+                      `[ARTWORK→TASK SYNC] New ${createdServiceOrder.type} SO ${createdServiceOrder.id} created with COMPLETED status (artwork done, commercial done), updating task ${id}: PREPARATION → WAITING_PRODUCTION`,
                     );
 
                     await tx.task.update({
@@ -3625,7 +3654,7 @@ export class TaskService {
                       field: 'status',
                       oldValue: TASK_STATUS.PREPARATION,
                       newValue: TASK_STATUS.WAITING_PRODUCTION,
-                      reason: `Tarefa liberada automaticamente para produção quando ordem de serviço de arte foi criada como concluída`,
+                      reason: `Tarefa liberada automaticamente para produção quando ordem de serviço ${createdServiceOrder.type === SERVICE_ORDER_TYPE.COMMERCIAL ? 'comercial' : 'de arte'} foi criada como concluída`,
                       triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
                       triggeredById: createdServiceOrder.id,
                       userId: userId || '',
@@ -4004,8 +4033,10 @@ export class TaskService {
             }
           }
 
-          // Auto-transition task from PREPARATION to WAITING_PRODUCTION when all ARTWORK service orders are COMPLETED
-          // This ensures the task workflow progresses automatically when all artwork approvals are complete
+          // Auto-transition task from PREPARATION to WAITING_PRODUCTION when all ARTWORK service
+          // orders are COMPLETED AND all COMMERCIAL service orders are concluded.
+          // The commercial gate only blocks the AUTOMATIC transition — an explicit
+          // "Disponibilizar para produção" (manual status change) bypasses it.
           if (updatedTask && updatedTask.status === TASK_STATUS.PREPARATION) {
             // Get all ARTWORK service orders for this task (from the refetched data)
             const artworkServiceOrders = (updatedTask.serviceOrders || []).filter(
@@ -4018,9 +4049,17 @@ export class TaskService {
               (so: any) => so.status === SERVICE_ORDER_STATUS.COMPLETED,
             );
 
-            if (hasArtworkOrders && allArtworkCompleted) {
+            // All COMMERCIAL service orders must also be concluded (cancelled don't block)
+            const allCommercialCompleted = areCommercialServiceOrdersComplete(
+              (updatedTask.serviceOrders || []).map((so: any) => ({
+                status: so.status as SERVICE_ORDER_STATUS,
+                type: so.type as SERVICE_ORDER_TYPE,
+              })),
+            );
+
+            if (hasArtworkOrders && allArtworkCompleted && allCommercialCompleted) {
               this.logger.log(
-                `[AUTO-TRANSITION Task Update] All ${artworkServiceOrders.length} ARTWORK service orders completed for task ${id}, transitioning PREPARATION → WAITING_PRODUCTION`,
+                `[AUTO-TRANSITION Task Update] All ${artworkServiceOrders.length} ARTWORK service orders completed and all COMMERCIAL service orders concluded for task ${id}, transitioning PREPARATION → WAITING_PRODUCTION`,
               );
 
               // Update task status to WAITING_PRODUCTION

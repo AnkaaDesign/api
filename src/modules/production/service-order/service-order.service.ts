@@ -49,6 +49,7 @@ import {
   getTaskUpdateForServiceOrderStatusChange,
   isStatusRollback,
   calculateCorrectTaskStatus,
+  areCommercialServiceOrdersComplete,
 } from '../../../utils/task-service-order-sync';
 import { getTaskStatusOrder } from '../../../utils/sortOrder';
 import { TASK_QUOTE_STATUS_ORDER } from '../../../constants/sortOrders';
@@ -680,12 +681,15 @@ export class ServiceOrderService {
           }
         }
 
-        // Auto-transition task from PREPARATION to WAITING_PRODUCTION when at least one ARTWORK service order is COMPLETED
-        // This ensures the task workflow progresses automatically when any artwork approval is complete
+        // Auto-transition task from PREPARATION to WAITING_PRODUCTION when at least one ARTWORK
+        // service order is COMPLETED AND all COMMERCIAL service orders are concluded.
+        // Triggered by either an artwork or a commercial SO completing. The commercial gate only
+        // blocks the AUTOMATIC transition — an explicit "Disponibilizar para produção" bypasses it.
         if (
           data.status === SERVICE_ORDER_STATUS.COMPLETED &&
           oldData.status !== SERVICE_ORDER_STATUS.COMPLETED &&
-          updated.type === SERVICE_ORDER_TYPE.ARTWORK
+          (updated.type === SERVICE_ORDER_TYPE.ARTWORK ||
+            updated.type === SERVICE_ORDER_TYPE.COMMERCIAL)
         ) {
           const task = await tx.task.findUnique({
             where: { id: updated.taskId },
@@ -694,41 +698,64 @@ export class ServiceOrderService {
 
           // Only proceed if task is in PREPARATION status
           if (task && task.status === TASK_STATUS.PREPARATION) {
-            // Since this artwork service order just became COMPLETED, we can transition the task
-            // No need to check other artwork orders - one completed artwork is enough
-            this.logger.log(
-              `[AUTO-TRANSITION] ARTWORK service order ${id} completed for task ${task.id}, transitioning PREPARATION → WAITING_PRODUCTION`,
+            // Evaluate the full preparation gate over the task's service orders
+            // (the just-updated SO is already visible inside this transaction)
+            const taskServiceOrders = await tx.serviceOrder.findMany({
+              where: { taskId: updated.taskId },
+              select: { id: true, status: true, type: true },
+            });
+
+            const anyArtworkCompleted = taskServiceOrders.some(
+              so =>
+                so.type === SERVICE_ORDER_TYPE.ARTWORK &&
+                so.status === SERVICE_ORDER_STATUS.COMPLETED,
+            );
+            const allCommercialCompleted = areCommercialServiceOrdersComplete(
+              taskServiceOrders.map(so => ({
+                status: so.status as SERVICE_ORDER_STATUS,
+                type: so.type as SERVICE_ORDER_TYPE,
+              })),
             );
 
-            await tx.task.update({
-              where: { id: task.id },
-              data: {
-                status: TASK_STATUS.WAITING_PRODUCTION,
-                statusOrder: 2, // WAITING_PRODUCTION statusOrder
-              },
-            });
+            if (anyArtworkCompleted && allCommercialCompleted) {
+              this.logger.log(
+                `[AUTO-TRANSITION] ${updated.type} service order ${id} completed for task ${task.id} (artwork done, commercial done), transitioning PREPARATION → WAITING_PRODUCTION`,
+              );
 
-            // Log the auto-transition in changelog
-            await this.changeLogService.logChange({
-              entityType: ENTITY_TYPE.TASK,
-              entityId: task.id,
-              action: CHANGE_ACTION.UPDATE,
-              field: 'status',
-              oldValue: TASK_STATUS.PREPARATION,
-              newValue: TASK_STATUS.WAITING_PRODUCTION,
-              reason: `Tarefa liberada automaticamente para produção quando ordem de serviço de arte "${updated.description}" foi concluída`,
-              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-              triggeredById: id,
-              userId: userId || '',
-              transaction: tx,
-            });
+              await tx.task.update({
+                where: { id: task.id },
+                data: {
+                  status: TASK_STATUS.WAITING_PRODUCTION,
+                  statusOrder: 2, // WAITING_PRODUCTION statusOrder
+                },
+              });
 
-            // Track for event emission after transaction commits
-            taskAutoTransitionedToWaitingProduction = {
-              taskId: task.id,
-              oldStatus: TASK_STATUS.PREPARATION,
-              newStatus: TASK_STATUS.WAITING_PRODUCTION,
-            };
+              // Log the auto-transition in changelog
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: task.id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'status',
+                oldValue: TASK_STATUS.PREPARATION,
+                newValue: TASK_STATUS.WAITING_PRODUCTION,
+                reason: `Tarefa liberada automaticamente para produção quando ordem de serviço ${updated.type === SERVICE_ORDER_TYPE.COMMERCIAL ? 'comercial' : 'de arte'} "${updated.description}" foi concluída`,
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
+
+              // Track for event emission after transaction commits
+              taskAutoTransitionedToWaitingProduction = {
+                taskId: task.id,
+                oldStatus: TASK_STATUS.PREPARATION,
+                newStatus: TASK_STATUS.WAITING_PRODUCTION,
+              };
+            } else {
+              this.logger.log(
+                `[AUTO-TRANSITION] Task ${task.id} stays in PREPARATION (artwork completed: ${anyArtworkCompleted}, commercial completed: ${allCommercialCompleted})`,
+              );
+            }
           }
         }
 
@@ -2672,11 +2699,14 @@ export class ServiceOrderService {
               }
             }
 
-            // Auto-transition task from PREPARATION to WAITING_PRODUCTION when at least one ARTWORK service order is COMPLETED
+            // Auto-transition task from PREPARATION to WAITING_PRODUCTION when at least one ARTWORK
+            // service order is COMPLETED AND all COMMERCIAL service orders are concluded.
+            // Triggered by either an artwork or a commercial SO completing.
             if (
               serviceOrder.status === SERVICE_ORDER_STATUS.COMPLETED &&
               oldData.status !== SERVICE_ORDER_STATUS.COMPLETED &&
-              serviceOrder.type === SERVICE_ORDER_TYPE.ARTWORK
+              (serviceOrder.type === SERVICE_ORDER_TYPE.ARTWORK ||
+                serviceOrder.type === SERVICE_ORDER_TYPE.COMMERCIAL)
             ) {
               // Check if this task was already auto-transitioned in this batch
               const alreadyTransitioned = tasksAutoTransitionedToWaitingProduction.some(
@@ -2690,39 +2720,62 @@ export class ServiceOrderService {
 
                 // Only proceed if task is in PREPARATION status
                 if (task && task.status === TASK_STATUS.PREPARATION) {
-                  // Since this artwork service order just became COMPLETED, we can transition the task
-                  // No need to check other artwork orders - one completed artwork is enough
-                  this.logger.log(
-                    `[AUTO-TRANSITION BATCH] ARTWORK service order ${serviceOrder.id} completed for task ${task.id}, transitioning PREPARATION → WAITING_PRODUCTION`,
+                  // Evaluate the full preparation gate over the task's service orders
+                  // (updates from this batch are already visible inside the transaction)
+                  const taskServiceOrders = await tx.serviceOrder.findMany({
+                    where: { taskId: serviceOrder.taskId },
+                    select: { id: true, status: true, type: true },
+                  });
+
+                  const anyArtworkCompleted = taskServiceOrders.some(
+                    so =>
+                      so.type === SERVICE_ORDER_TYPE.ARTWORK &&
+                      so.status === SERVICE_ORDER_STATUS.COMPLETED,
+                  );
+                  const allCommercialCompleted = areCommercialServiceOrdersComplete(
+                    taskServiceOrders.map(so => ({
+                      status: so.status as SERVICE_ORDER_STATUS,
+                      type: so.type as SERVICE_ORDER_TYPE,
+                    })),
                   );
 
-                  await tx.task.update({
-                    where: { id: task.id },
-                    data: {
-                      status: TASK_STATUS.WAITING_PRODUCTION,
-                      statusOrder: 2, // WAITING_PRODUCTION statusOrder
-                    },
-                  });
+                  if (anyArtworkCompleted && allCommercialCompleted) {
+                    this.logger.log(
+                      `[AUTO-TRANSITION BATCH] ${serviceOrder.type} service order ${serviceOrder.id} completed for task ${task.id} (artwork done, commercial done), transitioning PREPARATION → WAITING_PRODUCTION`,
+                    );
 
-                  await this.changeLogService.logChange({
-                    entityType: ENTITY_TYPE.TASK,
-                    entityId: task.id,
-                    action: CHANGE_ACTION.UPDATE,
-                    field: 'status',
-                    oldValue: TASK_STATUS.PREPARATION,
-                    newValue: TASK_STATUS.WAITING_PRODUCTION,
-                    reason: `Tarefa liberada automaticamente para produção quando ordem de serviço de arte "${serviceOrder.description}" foi concluída (batch)`,
-                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-                    triggeredById: serviceOrder.id,
-                    userId: userId || '',
-                    transaction: tx,
-                  });
+                    await tx.task.update({
+                      where: { id: task.id },
+                      data: {
+                        status: TASK_STATUS.WAITING_PRODUCTION,
+                        statusOrder: 2, // WAITING_PRODUCTION statusOrder
+                      },
+                    });
 
-                  tasksAutoTransitionedToWaitingProduction.push({
-                    taskId: task.id,
-                    oldStatus: TASK_STATUS.PREPARATION,
-                    newStatus: TASK_STATUS.WAITING_PRODUCTION,
-                  });
+                    await this.changeLogService.logChange({
+                      entityType: ENTITY_TYPE.TASK,
+                      entityId: task.id,
+                      action: CHANGE_ACTION.UPDATE,
+                      field: 'status',
+                      oldValue: TASK_STATUS.PREPARATION,
+                      newValue: TASK_STATUS.WAITING_PRODUCTION,
+                      reason: `Tarefa liberada automaticamente para produção quando ordem de serviço ${serviceOrder.type === SERVICE_ORDER_TYPE.COMMERCIAL ? 'comercial' : 'de arte'} "${serviceOrder.description}" foi concluída (batch)`,
+                      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                      triggeredById: serviceOrder.id,
+                      userId: userId || '',
+                      transaction: tx,
+                    });
+
+                    tasksAutoTransitionedToWaitingProduction.push({
+                      taskId: task.id,
+                      oldStatus: TASK_STATUS.PREPARATION,
+                      newStatus: TASK_STATUS.WAITING_PRODUCTION,
+                    });
+                  } else {
+                    this.logger.log(
+                      `[AUTO-TRANSITION BATCH] Task ${task.id} stays in PREPARATION (artwork completed: ${anyArtworkCompleted}, commercial completed: ${allCommercialCompleted})`,
+                    );
+                  }
                 }
               }
             }
