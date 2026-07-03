@@ -207,7 +207,28 @@ export class ReconciliationService {
   }
 
   async getCandidates(transactionId: string, search?: string) {
-    return this.matcher.getCandidatesForTransaction(transactionId, { search });
+    const candidates = await this.matcher.getCandidatesForTransaction(transactionId, { search });
+    // Keep the stored topMatchScore fresh so the Extrato list badge matches what
+    // the detail page shows. The score is a snapshot written at import/daily-job
+    // time and goes stale as NFs are imported/matched elsewhere; recomputing it
+    // here (on the actual candidate query, no extra work) is the cheapest way to
+    // converge the two views. Only for a real (non-search) fetch of an unresolved
+    // transaction, best-effort, never blocking the response.
+    if (!search) {
+      const top = candidates.length ? Math.round(candidates[0].confidence) : null;
+      this.prisma.bankTransaction
+        .updateMany({
+          where: {
+            id: transactionId,
+            reconciliationStatus: {
+              in: [ReconciliationStatus.PENDING, ReconciliationStatus.PARTIAL],
+            },
+          },
+          data: { topMatchScore: top },
+        })
+        .catch(() => undefined);
+    }
+    return candidates;
   }
 
   /**

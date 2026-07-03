@@ -96,11 +96,12 @@ const DEFAULT_COMPANY_CNPJ = '13636938000144';
 // are "possibilities", never matches: flat low confidence, sorted to the bottom,
 // and never eligible for the auto-match path.
 const FALLBACK_SUGGESTION_DATE_WINDOW_DAYS = 60; // 2 months either side of the payment
-const FALLBACK_SUGGESTION_CONFIDENCE = 10; // ~10%: visible/selectable but clearly weak
 const FALLBACK_SUGGESTION_MAX = 30; // cap so the list stays usable
-// Only inject broad suggestions when the normal passes produced nothing at least
-// this confident — a transaction that already has a plausible match stays clean.
-const FALLBACK_SUGGESTION_STRONG_CONFIDENCE = 45;
+// Broad (CNPJ-independent) suggestions are now REAL-scored by scoreCandidate, not
+// a flat placeholder. Only surface an unconnected note when its proximity score
+// reaches this bar — a genuinely "good candidate" — so the list shows plausible
+// notes (a 1-day, value-close note scores ~30+) without flooding with noise.
+const FALLBACK_SUGGESTION_MIN_DISPLAY = 30;
 // Cap the raw NF scan before ranking/dedup — bounds the query on busy importers.
 const FALLBACK_SUGGESTION_SCAN = 200;
 // Broad-suggestion ranking treats a payment as possibly one of up to N equal
@@ -311,11 +312,20 @@ function cnpjRoot(value: string | null | undefined): string | null {
 function valueScore(txAmount: number, docTotal: number): number {
   const diff = Math.abs(txAmount - docTotal);
   const ratio = diff / Math.max(txAmount, docTotal, 0.01);
+  // Max 35 (exact) preserved for the auto-match trio/threshold. The mid-tiers are
+  // more generous than before: value differs by a few % in legitimate matches
+  // (negotiated discounts, marketplace DIFAL/fees), and DB analysis shows a
+  // near-perfect date + a value within ~5-6% is a strong true-match signal — the
+  // old curve zeroed anything past 5% and gave only 4 points at 5%, so a 1-day,
+  // 5%-off marketplace note scored ~20 and got buried under the flat fallback.
   if (diff <= PERFECT_VALUE_TOLERANCE) return 35;
-  if (ratio <= 0.005) return 25;
-  if (ratio <= 0.01) return 18;
-  if (ratio <= 0.02) return 10;
-  if (ratio <= 0.05) return 4;
+  if (ratio <= 0.005) return 30;
+  if (ratio <= 0.01) return 24;
+  if (ratio <= 0.02) return 18;
+  if (ratio <= 0.035) return 14;
+  if (ratio <= 0.06) return 11;
+  if (ratio <= 0.1) return 6;
+  if (ratio <= 0.15) return 3;
   return 0;
 }
 
@@ -327,14 +337,18 @@ function dateScore(postedAt: Date, issueDate: Date): number {
   // which made perfect-value + same-root-CNPJ + identical-name cases score
   // 84 and fall short of the 90 auto-match threshold even though they were
   // deterministic in practice.
-  if (diff <= 1) return 20;
-  if (diff <= 3) return 18;
-  if (diff <= 5) return 16;
-  if (diff <= 10) return 14;
-  if (diff <= 15) return 11;
-  if (diff <= 20) return 7;
-  if (diff <= 30) return 4;
-  if (diff <= 45) return 2;
+  // Max 22 (≤1d). Date is the strongest CNPJ-independent signal — DB analysis of
+  // reconciled matches: median lag 0.9d, marketplace ~1d (p90 1.7d), boleto ~2-4
+  // weeks (p90 ~32d). A same-day note is a very strong positive even when CNPJ
+  // can't corroborate (marketplace/boleto-aggregator payments never CNPJ-match).
+  if (diff <= 1) return 22;
+  if (diff <= 3) return 19;
+  if (diff <= 7) return 16;
+  if (diff <= 14) return 12;
+  if (diff <= 21) return 9;
+  if (diff <= 30) return 6;
+  if (diff <= 45) return 3;
+  if (diff <= 60) return 1;
   return 0;
 }
 
@@ -2002,14 +2016,15 @@ export class ReconciliationMatcherService {
       (a, b) => b.confidence - a.confidence,
     );
 
-    // Broad last-resort suggestions. When the normal passes surfaced nothing
-    // confident, append every still-open AUTHORIZED NF within ±2 months — value
-    // and CNPJ ignored — at a flat low confidence so intermediary-routed boletos
-    // (PJBANK) and odd installment splits can at least be linked manually. Skipped
-    // when a plausible match already exists (avoid flooding a clean transaction)
-    // or during a manual search (that path is already deliberately permissive).
-    const hasStrong = baseline.some(c => c.confidence >= FALLBACK_SUGGESTION_STRONG_CONFIDENCE);
-    if (searchTerm || hasStrong) return baseline;
+    // Broad (CNPJ-independent) suggestions: every still-open AUTHORIZED purchase
+    // note within ±2 months, REAL-scored by proximity (value + date), surfaced
+    // whenever it reaches FALLBACK_SUGGESTION_MIN_DISPLAY. This is what catches
+    // intermediary-routed payments (marketplace/PJBANK — the statement CNPJ is the
+    // aggregator's, never the issuer's) and discounted/split payments: a 1-day,
+    // value-close note scores ~30+ on date+value alone. A manual search is its own
+    // permissive path, so skip the broad merge there. De-duplicated against
+    // baseline so a note already surfaced by a CNPJ/value pass isn't shown twice.
+    if (searchTerm) return baseline;
 
     const fallback = await this.buildBroadSuggestions(
       tx,
@@ -2017,28 +2032,37 @@ export class ReconciliationMatcherService {
       absAmount,
       baseline,
       groupMemberIds,
+      aliasContext,
     );
-    return [...baseline, ...fallback];
+    return [...baseline, ...fallback].sort((a, b) => b.confidence - a.confidence);
   }
 
   /**
-   * Last-resort candidate list for the manual UI: any still-open AUTHORIZED NF
-   * issued within ±{@link FALLBACK_SUGGESTION_DATE_WINDOW_DAYS} of the payment,
-   * regardless of value or CNPJ, at a flat {@link FALLBACK_SUGGESTION_CONFIDENCE}.
+   * CNPJ-independent proximity suggestions for the manual UI: still-open
+   * AUTHORIZED purchase notes within ±{@link FALLBACK_SUGGESTION_DATE_WINDOW_DAYS}
+   * of the payment, REAL-scored by {@link scoreCandidate} (value + date + any
+   * CNPJ/name signal) and surfaced only when the score reaches
+   * {@link FALLBACK_SUGGESTION_MIN_DISPLAY}.
    *
-   * Solves the intermediary-routed-boleto gap (e.g. PJBANK aggregator: the
-   * statement CNPJ is the aggregator's, never the issuer's, and the payment value
-   * may not equal the NF — a R$400 NF paid in two R$200 boletos). Because the
-   * scan is NOT filtered on `matches` and computes the open balance itself, a
-   * partially-paid NF keeps surfacing (with its remaining slice) until fully
-   * settled, so the second installment finds the same note without any CNPJ link.
+   * Solves the intermediary-routed-payment gap (marketplace / PJBANK aggregator:
+   * the statement CNPJ is the aggregator's, never the issuer's) and discounted /
+   * split payments — value + date proximity alone gives a same-day, value-close
+   * note a meaningful score without any CNPJ link. Because the scan is NOT
+   * filtered on `matches` and computes the open balance itself, a partially-paid
+   * NF keeps surfacing (with its remaining slice) until fully settled.
    */
   private async buildBroadSuggestions(
-    tx: { postedAt: Date; amount: Prisma.Decimal | number },
+    tx: {
+      postedAt: Date;
+      amount: Prisma.Decimal | number;
+      counterpartyCnpjCpf: string | null;
+      counterpartyName?: string | null;
+    },
     transactionId: string,
     absAmount: number,
     existing: MatchCandidate[],
     groupMemberIds: Set<string>,
+    aliasContext: AliasContext | null,
   ): Promise<MatchCandidate[]> {
     const excluded = new Set<string>([
       ...existing.map(c => c.fiscalDocumentId).filter((id): id is string => !!id),
@@ -2092,7 +2116,7 @@ export class ReconciliationMatcherService {
       remaining: number;
       isInstallment: boolean;
       daysDelta: number;
-      affinity: number;
+      score: CandidateScore;
       bestK: number;
       isLikelySplit: boolean;
     }[] = [];
@@ -2111,38 +2135,37 @@ export class ReconciliationMatcherService {
         Math.abs(doc.issueDate.getTime() - tx.postedAt.getTime()) / 86_400_000,
       );
 
-      // Installment-aware affinity for ranking. A payment can be (a) a near-direct
-      // settle of the note (remaining ≈ payment) OR (b) one of several equal
-      // parcelas of a LARGER note (remaining ≈ k×payment, e.g. a R$400 note paid
-      // in two R$200 boletos). For each plausible split count k=1..4 we measure
-      // how cleanly the payment divides the open balance, with a mild penalty for
-      // more parcelas, and keep the best fit. Lower = better; the flat confidence
-      // is unchanged, this only orders the broad list so the right note floats up.
-      let affinity = Infinity;
+      // REAL proximity score (value + date + any CNPJ/name signal), the same
+      // scoreCandidate the CNPJ passes use — so the broad list is ranked and
+      // gated consistently, not by a flat placeholder. Value is scored against
+      // the OPEN balance, so an installment note is judged on the slice this
+      // payment could settle. Only surface notes that clear the display bar.
+      const score = scoreCandidate(tx, { ...doc, totalValue: remaining }, aliasContext);
+      if (score.total < FALLBACK_SUGGESTION_MIN_DISPLAY) continue;
+
+      // Split hint for the rationale only: note ≈ k× the payment (a R$400 note
+      // paid in two R$200 boletos). Does not affect the score/ranking.
       let bestK = 1;
       if (absAmount > 0) {
+        let best = Infinity;
         for (let k = 1; k <= FALLBACK_SPLIT_MAX_PARTS; k++) {
-          const fit = Math.abs(remaining - k * absAmount) / absAmount + (k - 1) * 0.05;
-          if (fit < affinity) {
-            affinity = fit;
+          const fit = Math.abs(remaining - k * absAmount) / absAmount;
+          if (fit < best) {
+            best = fit;
             bestK = k;
           }
         }
-      } else {
-        affinity = Math.abs(remaining - absAmount);
       }
-      // A clean multi-part split (note ≈ k× the payment, k≥2) is worth calling out
-      // so the user understands why a larger note is being suggested.
       const splitFit =
         absAmount > 0 ? Math.abs(remaining - bestK * absAmount) / absAmount : 1;
       const isLikelySplit = bestK >= 2 && splitFit <= FALLBACK_SPLIT_CLEAN_TOLERANCE;
 
-      ranked.push({ doc, remaining, isInstallment, daysDelta, affinity, bestK, isLikelySplit });
+      ranked.push({ doc, remaining, isInstallment, daysDelta, score, bestK, isLikelySplit });
     }
 
-    // Best fit first (near-direct settles, then clean k-part splits), then closest
-    // issue date. Cap BEFORE hydrating items so the heavy fetch touches ≤ N notes.
-    ranked.sort((a, b) => a.affinity - b.affinity || a.daysDelta - b.daysDelta);
+    // Highest proximity score first, then closest issue date. Cap BEFORE hydrating
+    // items so the heavy fetch touches ≤ N notes.
+    ranked.sort((a, b) => b.score.total - a.score.total || a.daysDelta - b.daysDelta);
     const top = ranked.slice(0, FALLBACK_SUGGESTION_MAX);
     if (top.length === 0) return [];
 
@@ -2171,17 +2194,17 @@ export class ReconciliationMatcherService {
     });
     for (const h of hydrated) itemsById.set(h.id, { orderCodes: h.orderCodes, items: h.items });
 
-    return top.map(({ doc, remaining, isInstallment, daysDelta, bestK, isLikelySplit }) => {
+    return top.map(({ doc, remaining, isInstallment, daysDelta, score, bestK, isLikelySplit }) => {
       const docTotal = Number(doc.totalValue);
       const extra = itemsById.get(doc.id);
+      const reasons = score.reasons.join(' • ');
       const rationale = isInstallment
-        ? `Sugestão ampla • parcela em aberto R$ ${remaining.toFixed(2)} de nota ` +
-          `R$ ${docTotal.toFixed(2)} • fora dos critérios de valor/CNPJ — confira antes de vincular`
+        ? `Parcela • R$ ${remaining.toFixed(2)} em aberto de R$ ${docTotal.toFixed(2)}` +
+          (reasons ? ` • ${reasons}` : '')
         : isLikelySplit
-          ? `Sugestão ampla • nota R$ ${docTotal.toFixed(2)} ≈ ${bestK}× o pagamento ` +
-            `(possível parcelamento em ${bestK}) • confira antes de vincular`
-          : `Sugestão ampla • nota R$ ${docTotal.toFixed(2)}, ${daysDelta} dia(s) de diferença • ` +
-            `fora dos critérios de valor/CNPJ — confira antes de vincular`;
+          ? `Nota R$ ${docTotal.toFixed(2)} ≈ ${bestK}× o pagamento (possível parcelamento)` +
+            (reasons ? ` • ${reasons}` : '')
+          : reasons || `Nota próxima (${daysDelta} dia(s) de diferença)`;
       return {
         fiscalDocumentId: doc.id,
         accessKey: doc.accessKey,
@@ -2195,14 +2218,14 @@ export class ReconciliationMatcherService {
         destCpf: doc.destCpf ?? null,
         destName: doc.destName,
         nfNumber: doc.nfNumber ?? null,
-        confidence: FALLBACK_SUGGESTION_CONFIDENCE,
-        matchType: ReconciliationMatchType.FUZZY,
+        confidence: score.total,
+        matchType: score.matchType,
         remainingValue: remaining,
         allocatedValue: isInstallment ? Number((docTotal - remaining).toFixed(2)) : undefined,
         rationale,
         amountDelta: Math.abs(remaining - absAmount),
         daysDelta,
-        aliasAssisted: false,
+        aliasAssisted: score.aliasAssisted,
         orderCodes: (extra?.orderCodes ?? []).map((oc: { code: string }) => ({ code: oc.code })),
         items: (extra?.items ?? []).map((it: any) => ({
           id: it.id,
