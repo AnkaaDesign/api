@@ -98,10 +98,19 @@ const DEFAULT_COMPANY_CNPJ = '13636938000144';
 const FALLBACK_SUGGESTION_DATE_WINDOW_DAYS = 60; // 2 months either side of the payment
 const FALLBACK_SUGGESTION_MAX = 30; // cap so the list stays usable
 // Broad (CNPJ-independent) suggestions are now REAL-scored by scoreCandidate, not
-// a flat placeholder. Only surface an unconnected note when its proximity score
-// reaches this bar — a genuinely "good candidate" — so the list shows plausible
-// notes (a 1-day, value-close note scores ~30+) without flooding with noise.
-const FALLBACK_SUGGESTION_MIN_DISPLAY = 30;
+// a flat placeholder. Detail-panel LIST floor: keep surfacing lower-probability
+// NFs so the user can still attempt a manual reconciliation — the statement CNPJ
+// never matches for marketplace/PJBANK boletos, so proximity is the only signal,
+// and a genuine split (a R$400 note paid as 2×R$200 boletos) scores only ~16 on
+// date alone because value is 0. Kept low, and clean splits are surfaced
+// regardless of score (see buildBroadSuggestions). This is the DISPLAY bar only;
+// none of these are auto-match eligible.
+const FALLBACK_SUGGESTION_MIN_DISPLAY = 8;
+// Extrato BADGE floor: only stamp topMatchScore (the "Pendente · NN%" chip) when
+// the best candidate is genuinely promising. Decouples the badge from the list —
+// the detail panel may show weak candidates to try, but the extrato stays quiet
+// for the many non-NF payments (taxes/salaries/fees) with only faint proximity.
+export const TOP_MATCH_SCORE_BADGE_FLOOR = 30;
 // Cap the raw NF scan before ranking/dedup — bounds the query on busy importers.
 const FALLBACK_SUGGESTION_SCAN = 200;
 // Broad-suggestion ranking treats a payment as possibly one of up to N equal
@@ -760,10 +769,14 @@ export class ReconciliationMatcherService {
         .catch(() => undefined);
     } else {
       // Record the best candidate's confidence so the list can show how close
-      // the closest NF is ("Pendente · 40%"). Best-effort; never blocks matching.
+      // the closest NF is ("Pendente · 40%"). Only badge a genuinely promising
+      // candidate (>= floor) — the detail panel may also list weak notes to try,
+      // but those must not light up the extrato. Best-effort; never blocks matching.
       try {
         const candidates = await this.getCandidatesForTransaction(tx.id);
-        const top = candidates.length ? candidates[0].confidence : null;
+        const best = candidates.length ? candidates[0].confidence : null;
+        const top =
+          best != null && best >= TOP_MATCH_SCORE_BADGE_FLOOR ? Math.round(best) : null;
         await this.prisma.bankTransaction.update({
           where: { id: tx.id },
           data: { topMatchScore: top },
@@ -2136,15 +2149,16 @@ export class ReconciliationMatcherService {
       );
 
       // REAL proximity score (value + date + any CNPJ/name signal), the same
-      // scoreCandidate the CNPJ passes use — so the broad list is ranked and
-      // gated consistently, not by a flat placeholder. Value is scored against
-      // the OPEN balance, so an installment note is judged on the slice this
-      // payment could settle. Only surface notes that clear the display bar.
+      // scoreCandidate the CNPJ passes use — so the broad list is ranked
+      // consistently, not by a flat placeholder. Value is scored against the OPEN
+      // balance, so an installment note is judged on the slice this payment could
+      // settle.
       const score = scoreCandidate(tx, { ...doc, totalValue: remaining }, aliasContext);
-      if (score.total < FALLBACK_SUGGESTION_MIN_DISPLAY) continue;
 
-      // Split hint for the rationale only: note ≈ k× the payment (a R$400 note
-      // paid in two R$200 boletos). Does not affect the score/ranking.
+      // Split hint: note ≈ k× the payment (a R$400 note paid in two R$200
+      // boletos). Used both for the rationale AND to force a clean split onto the
+      // list — such a note scores low on value (200 vs 400 → 0) yet is exactly the
+      // NF the user is hunting for, so it must never be filtered out.
       let bestK = 1;
       if (absAmount > 0) {
         let best = Infinity;
@@ -2160,12 +2174,22 @@ export class ReconciliationMatcherService {
         absAmount > 0 ? Math.abs(remaining - bestK * absAmount) / absAmount : 1;
       const isLikelySplit = bestK >= 2 && splitFit <= FALLBACK_SPLIT_CLEAN_TOLERANCE;
 
+      // Surface a note if it clears the (low) display bar OR is a clean split.
+      // Keeping weak notes visible is intentional: for intermediary-routed boletos
+      // proximity is the only lever the user has to reconcile manually.
+      if (score.total < FALLBACK_SUGGESTION_MIN_DISPLAY && !isLikelySplit) continue;
+
       ranked.push({ doc, remaining, isInstallment, daysDelta, score, bestK, isLikelySplit });
     }
 
     // Highest proximity score first, then closest issue date. Cap BEFORE hydrating
     // items so the heavy fetch touches ≤ N notes.
-    ranked.sort((a, b) => b.score.total - a.score.total || a.daysDelta - b.daysDelta);
+    ranked.sort(
+      (a, b) =>
+        b.score.total - a.score.total ||
+        Number(b.isLikelySplit) - Number(a.isLikelySplit) ||
+        a.daysDelta - b.daysDelta,
+    );
     const top = ranked.slice(0, FALLBACK_SUGGESTION_MAX);
     if (top.length === 0) return [];
 

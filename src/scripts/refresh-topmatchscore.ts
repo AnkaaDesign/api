@@ -15,7 +15,10 @@ import { Logger } from '@nestjs/common';
 
 import { AppModule } from '../app.module';
 import { PrismaService } from '../modules/common/prisma/prisma.service';
-import { ReconciliationMatcherService } from '../modules/financial/reconciliation/reconciliation-matcher.service';
+import {
+  ReconciliationMatcherService,
+  TOP_MATCH_SCORE_BADGE_FLOOR,
+} from '../modules/financial/reconciliation/reconciliation-matcher.service';
 
 async function main(): Promise<void> {
   const logger = new Logger('RefreshTopMatchScore');
@@ -43,7 +46,11 @@ async function main(): Promise<void> {
       let top: number | null = null;
       try {
         const candidates = await matcher.getCandidatesForTransaction(tx.id);
-        top = candidates.length ? Math.round(candidates[0].confidence) : null;
+        // Badge floor: the candidate list now includes weak proximity notes for
+        // manual reconciliation, but the extrato chip only lights up for a
+        // genuinely promising best candidate.
+        const best = candidates.length ? candidates[0].confidence : null;
+        top = best != null && best >= TOP_MATCH_SCORE_BADGE_FLOOR ? Math.round(best) : null;
       } catch (e) {
         logger.warn(`  tx ${tx.id}: candidate computation failed — ${(e as Error).message}`);
       }
