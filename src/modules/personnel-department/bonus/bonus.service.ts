@@ -532,12 +532,14 @@ export class BonusService {
         select: {
           id: true,
           name: true,
+          serialNumber: true,
           bonification: true,
           finishedAt: true,
           status: true,
           createdById: true,
           customer: { select: { id: true, fantasyName: true } },
           sector: { select: { id: true, name: true } },
+          truck: { select: { id: true, plate: true } },
         },
       });
 
@@ -801,11 +803,13 @@ export class BonusService {
         tasks: allTasks.map((task: any) => ({
           id: task.id,
           name: task.name,
+          serialNumber: task.serialNumber ?? null,
           status: task.status,
           finishedAt: task.finishedAt,
           bonification: task.bonification,
           customer: task.customer || null,
           sector: task.sector || null,
+          truck: task.truck || null,
         })),
         bonusDiscounts,
         bonusExtras,
@@ -2133,6 +2137,7 @@ export class BonusService {
         select: {
           id: true,
           name: true,
+          serialNumber: true,
           bonification: true,
           finishedAt: true,
           createdById: true,
@@ -2146,6 +2151,12 @@ export class BonusService {
             select: {
               id: true,
               name: true,
+            },
+          },
+          truck: {
+            select: {
+              id: true,
+              plate: true,
             },
           },
         },
@@ -2756,11 +2767,13 @@ export class BonusService {
             tasks: (liveBonus.tasks || []).map((task: any) => ({
               id: task.id,
               name: task.name,
+              serialNumber: task.serialNumber ?? null,
               status: task.status,
               finishedAt: task.finishedAt,
               bonification: task.bonification,
               customer: task.customer || null,
               sector: task.sector || null,
+              truck: task.truck || null,
             })),
             bonusDiscounts: liveBonusDiscounts,
             bonusExtras: liveBonusExtras,

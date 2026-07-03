@@ -182,7 +182,7 @@ export class PersonalService {
       ...query,
       where: {
         ...query.where,
-        userId, // Force filter by authenticated user
+        collaboratorId: userId, // Force filter by authenticated user (Warning FK is collaboratorId, not userId)
       },
     };
 
@@ -854,6 +854,12 @@ export class PersonalService {
               select: {
                 id: true,
                 name: true,
+              },
+            },
+            truck: {
+              select: {
+                id: true,
+                plate: true,
               },
             },
           },
