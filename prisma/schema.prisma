@@ -4309,6 +4309,19 @@ enum ReconciliationMatchType {
   BANK_SLIP_BRIDGE
 }
 
+// Why a payment settled a note for LESS than its total (note shortfall). The
+// unpaid slice is written off with one of these reasons so the note closes as
+// fully settled instead of lingering as an open parcela. Distinct from the
+// transaction-remainder reason (paying MORE than the note — frete/taxas on top).
+enum ReconciliationAdjustmentReason {
+  DESCONTO // negotiated discount
+  FRETE // freight line in the note that wasn't paid
+  GARANTIA_ESTENDIDA // extended-guarantee line not taken
+  SEGURO // insurance line not taken
+  TAXAS // fees/charges line not paid
+  OUTROS // other (see match notes)
+}
+
 enum FiscalDocumentType {
   NFE
   NFSE
@@ -4628,6 +4641,14 @@ model ReconciliationMatch {
   airbrushingId            String?
   payrollMonthSettlementId String?
   allocatedAmount          Decimal                     @db.Decimal(14, 2)
+  // Signed per-note settlement adjustment reconciling what was PAID (allocated)
+  // for this note with the note's total, with a reason. POSITIVE = paid LESS
+  // (discount): unpaid slice written off. NEGATIVE = paid MORE (frete/seguro on
+  // top): the extra payment is a surcharge, not note value. Note settled once
+  // allocatedAmount + adjustmentAmount ≈ its total. Does NOT change the
+  // transaction's allocation (still allocatedAmount) — only the note's settlement.
+  adjustmentAmount         Decimal?                    @db.Decimal(14, 2)
+  adjustmentReason         ReconciliationAdjustmentReason?
   matchType                ReconciliationMatchType
   confidenceScore          Int                         @default(100)
   matchedByUserId          String?

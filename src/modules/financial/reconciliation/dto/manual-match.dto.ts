@@ -8,6 +8,17 @@ export const manualMatchSchema = z
         z.object({
           fiscalDocumentId: z.string().uuid(),
           amount: z.number().positive('Valor alocado deve ser positivo'),
+          // Signed per-note settlement adjustment reconciling what was PAID for
+          // this note (`amount`) with the note's total, closed with a reason:
+          //   • POSITIVE — paid LESS than the note (e.g. a discount): the unpaid
+          //     slice is written off so the note settles up to its total.
+          //   • NEGATIVE — paid MORE than the note (e.g. frete/seguro on top): the
+          //     extra payment is a note-related surcharge, not note value.
+          // In both, note settled ⟺ amount + adjustmentAmount ≈ note total.
+          adjustmentAmount: z.number().optional(),
+          adjustmentReason: z
+            .enum(['DESCONTO', 'FRETE', 'GARANTIA_ESTENDIDA', 'SEGURO', 'TAXAS', 'OUTROS'])
+            .optional(),
         }),
       )
       .optional(),
