@@ -19,6 +19,7 @@ import { ClassifyBatchDto } from './dto/classify-batch.dto';
 import {
   ReconciliationMatcherService,
   RECON_ADVISORY_LOCK_KEY,
+  TOP_MATCH_SCORE_BADGE_FLOOR,
 } from './reconciliation-matcher.service';
 import { ReconciliationClassifierService } from './reconciliation-classifier.service';
 import { TransactionCategoryService } from './transaction-category.service';
@@ -215,7 +216,12 @@ export class ReconciliationService {
     // converge the two views. Only for a real (non-search) fetch of an unresolved
     // transaction, best-effort, never blocking the response.
     if (!search) {
-      const top = candidates.length ? Math.round(candidates[0].confidence) : null;
+      // Badge only a genuinely promising candidate. The candidate list now
+      // includes weak proximity notes (so the user can still try a manual
+      // reconciliation on intermediary-routed boletos), but those must not light
+      // up the extrato — keep the chip gated at the badge floor.
+      const best = candidates.length ? candidates[0].confidence : null;
+      const top = best != null && best >= TOP_MATCH_SCORE_BADGE_FLOOR ? Math.round(best) : null;
       this.prisma.bankTransaction
         .updateMany({
           where: {
