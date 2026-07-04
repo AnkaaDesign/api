@@ -163,6 +163,29 @@ export const UPLOAD_CONFIG = {
 // Treat each group as interchangeable so a valid file is never rejected just
 // because the OS labeled, e.g., an .xml as `text/xml` instead of
 // `application/xml`, or an .ofx as `text/plain`/`application/octet-stream`.
+// Vector / CAD / cut formats whose single extension is legitimately reported with
+// several MIME types across operating systems and browsers — crucially crossing the
+// application↔image category boundary, so the "same media category" leniency below
+// does NOT cover them. e.g. an .eps uploaded from Linux/Chromium arrives as the
+// freedesktop.org type `image/x-eps` (not the macOS/Windows `application/postscript`),
+// and would otherwise be rejected even though every variant is already whitelisted above.
+const EPS_MIME_TYPES = [
+  'application/postscript',
+  'application/eps',
+  'application/x-eps',
+  'image/eps',
+  'image/x-eps',
+];
+const DXF_MIME_TYPES = ['application/dxf', 'application/x-dxf', 'image/vnd.dxf'];
+const CDR_MIME_TYPES = [
+  'application/vnd.corel-draw',
+  'application/x-corel-draw',
+  'application/cdr',
+  'application/x-cdr',
+  'image/cdr',
+  'image/x-cdr',
+];
+
 const MIME_EQUIVALENTS: Record<string, string[]> = {
   'application/xml': ['application/xml', 'text/xml'],
   'text/xml': ['application/xml', 'text/xml'],
@@ -172,6 +195,10 @@ const MIME_EQUIVALENTS: Record<string, string[]> = {
     'application/octet-stream',
     'text/plain',
   ],
+  // .eps and .ai both map to application/postscript in extensionToMimeType above.
+  'application/postscript': EPS_MIME_TYPES,
+  'application/dxf': DXF_MIME_TYPES,
+  'application/vnd.corel-draw': CDR_MIME_TYPES,
 };
 
 // File filter function
