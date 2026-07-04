@@ -272,7 +272,7 @@ export class SecullumSmokeTestService {
     // 2a. Sweep any leftover sentinel funcionário from a crashed prior run.
     await this.check(checks, 'funcionario.sweep', 'Limpar funcionário de teste residual', 'funcionario-crud', async () => {
       const ids = await this.findSentinelFuncionarioIds();
-      for (const id of ids) await this.deleteFuncionario(id);
+      for (const id of ids) await this.deleteFuncionarioVerified(id);
     });
 
     // 2a-bis. Kennedy self-heal: a hard process kill between reactivation and
@@ -339,16 +339,71 @@ export class SecullumSmokeTestService {
       await api.post('/Funcionarios/AlterarVisibilidadeFuncionarios', [id]);
     });
 
+    // 2e-bis. Confirm the dismiss actually propagated before attempting restore.
+    // Secullum's visibility toggle has been observed to return HTTP 200 without
+    // the funcionário actually leaving the active list — calling restore
+    // immediately after then draws a confusing (but genuine, on Secullum's side)
+    // 400 "not currently dismissed" rejection. Poll briefly and skip restore
+    // (rather than fail it) when the dismiss never settles, since a skip
+    // correctly signals "endpoint untested this run" instead of a false red.
+    const dismissSettled = await this.waitUntilFuncionarioDismissed(id);
+
     // 2f. Restore via visibility toggle (demitidos → active).
-    await this.check(checks, 'funcionario.restore', 'Readmitir funcionário (AlterarVisibilidade)', 'funcionario-crud', async () => {
-      await api.post('/FuncionariosDemitidos/AlterarVisibilidadeFuncionarios', [{ id, invisivel: false }]);
-    });
+    if (dismissSettled) {
+      await this.check(checks, 'funcionario.restore', 'Readmitir funcionário (AlterarVisibilidade)', 'funcionario-crud', async () => {
+        await api.post('/FuncionariosDemitidos/AlterarVisibilidadeFuncionarios', [{ id, invisivel: false }]);
+      });
+    } else {
+      this.skip(checks, 'funcionario.restore', 'Readmitir funcionário (AlterarVisibilidade)', 'funcionario-crud', 'Demissão não propagou a tempo (funcionário ainda ativo) — readmissão pulada para não gerar um 400 enganoso.');
+    }
 
     // 2g. Real delete (ExcluirFuncionarios + admin senha). Allowed: no batidas.
+    // Verified: Secullum's DELETE has been observed to return HTTP 200 while the
+    // funcionário remains fully active (confirmed live 2026-07-03 — a residual
+    // "ANKAA HEALTHCHECK" funcionário sat active in production for hours despite
+    // a PASS-recorded delete). Re-check and retry a few times before giving up.
     const del = await this.check(checks, 'funcionario.delete', 'Excluir funcionário (ExcluirFuncionarios)', 'funcionario-crud', async () => {
-      await this.deleteFuncionario(id);
+      await this.deleteFuncionarioVerified(id);
     });
     if (del.ok) ctx.testFuncId = null;
+  }
+
+  /** Polls until `id` no longer appears in the active /Funcionarios list. */
+  private async waitUntilFuncionarioDismissed(id: number): Promise<boolean> {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (!(await this.isFuncionarioActive(id))) return true;
+      await this.sleep(700 * (attempt + 1));
+    }
+    return false;
+  }
+
+  /** True if `id` still appears in EITHER the active or dismissed funcionário list. */
+  private async funcionarioExists(id: number): Promise<boolean> {
+    const api = this.secullum.getApiClient();
+    for (const path of ['/Funcionarios', '/FuncionariosDemitidos']) {
+      try {
+        const list = (await api.get(path)).data ?? [];
+        if (list.some((f: any) => Number(f.Id ?? f.id) === id)) return true;
+      } catch {
+        /* best-effort — treat a read failure as inconclusive, not "gone" */
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Deletes a funcionário and confirms it is actually gone from both the
+   * active and dismissed lists, retrying the delete a few times if not —
+   * see the 2g comment above for why this verification exists.
+   */
+  private async deleteFuncionarioVerified(id: number): Promise<void> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await this.deleteFuncionario(id);
+      if (!(await this.funcionarioExists(id))) return;
+      await this.sleep(800 * (attempt + 1));
+    }
+    throw new Error(`Funcionário ${id} permanece ativo/demitido após ${3} tentativas de exclusão`);
   }
 
   // ===========================================================================
@@ -469,10 +524,33 @@ export class SecullumSmokeTestService {
     });
   }
 
-  /** Holiday create → find → delete. */
+  /**
+   * Holiday create → find → delete.
+   *
+   * Two safety nets were added after a live audit (2026-07-03) found TWO
+   * "ANKAA HEALTHCHECK" holidays permanently stuck in production Secullum
+   * (2026-08-26 and 2026-09-09) despite their creating runs recording BOTH
+   * feriado.create AND feriado.delete as PASS. Root cause: Secullum's
+   * DELETE /Feriados/:id can return HTTP 200 without the row actually being
+   * removed — a silent no-op the old code had no way to detect. Since the
+   * create date is `daysFromNow(70)` (recomputed fresh from "today" on every
+   * run), a lost holiday from day N is never looked at again by day N+1's run
+   * — it just orphans forever. Note: Secullum's `year` filter on GET
+   * /Feriados was also found to be a no-op server-side (it always returns
+   * every holiday regardless of the param), so it is no longer passed here.
+   */
   private async phaseHoliday(_ctx: SmokeRunContext, checks: SmokeCheckRecord[]) {
     const descricao = 'ANKAA HEALTHCHECK';
     const data = this.daysFromNow(70);
+
+    // Sweep ANY residual healthcheck holiday (any date) left by a prior run
+    // whose delete silently no-op'd — the only way to catch that failure mode,
+    // since a single run has no reliable signal that its own delete lied.
+    await this.check(checks, 'feriado.sweep', 'Limpar feriados de teste residuais', 'holiday', async () => {
+      const list = await this.secullum.getHolidays();
+      const stale = (list.data ?? []).filter((h: any) => h.Descricao === descricao);
+      for (const h of stale) await this.deleteHolidayVerified(String(h.Id));
+    });
 
     const created = await this.check(checks, 'feriado.create', 'Criar feriado', 'holiday', async () => {
       const r = await this.secullum.createHoliday({ Data: data, Descricao: descricao } as any);
@@ -481,12 +559,27 @@ export class SecullumSmokeTestService {
 
     await this.check(checks, 'feriado.delete', 'Excluir feriado', 'holiday', async () => {
       if (!created.ok) throw new Error('Criação falhou — nada a excluir');
-      const list = await this.secullum.getHolidays({ year: Number(data.slice(0, 4)) });
+      const list = await this.secullum.getHolidays();
       const match = (list.data ?? []).find((h: any) => h.Descricao === descricao && String(h.Data).slice(0, 10) === data);
       if (!match) throw new Error('Feriado criado não encontrado para exclusão');
-      const r = await this.secullum.deleteHoliday(String(match.Id));
-      if (!r.success) throw new Error(r.message);
+      await this.deleteHolidayVerified(String(match.Id));
     });
+  }
+
+  /**
+   * Deletes a Feriado and confirms it is actually gone, retrying a few times
+   * if not — see the phaseHoliday doc comment for why this exists.
+   */
+  private async deleteHolidayVerified(id: string): Promise<void> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const r = await this.secullum.deleteHoliday(id);
+      if (!r.success) throw new Error(r.message);
+      const list = await this.secullum.getHolidays();
+      const stillThere = (list.data ?? []).some((h: any) => String(h.Id) === id);
+      if (!stillThere) return;
+      await this.sleep(800 * (attempt + 1));
+    }
+    throw new Error(`Feriado ${id} permanece após ${3} tentativas de exclusão`);
   }
 
   /**
@@ -781,7 +874,7 @@ export class SecullumSmokeTestService {
     // Sweep the throwaway funcionário if it somehow survived.
     if (ctx.testFuncId != null) {
       await this.check(checks, 'teardown.test-funcionario', 'Remover funcionário de teste residual', 'teardown', async () => {
-        await this.deleteFuncionario(ctx.testFuncId!);
+        await this.deleteFuncionarioVerified(ctx.testFuncId!);
         ctx.testFuncId = null;
       });
     }

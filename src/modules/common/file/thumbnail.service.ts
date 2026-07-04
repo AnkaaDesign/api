@@ -587,21 +587,31 @@ export class ThumbnailService {
           this.logger.warn(`EPS to PDF warnings: ${pdfResult.stderr}`);
         }
 
-        // Step 2: Convert the cropped PDF to PNG with transparency support
-        // Use the same density as determined earlier for consistency
+        // Step 2: Convert the cropped PDF to PNG with transparency support.
+        //
+        // CRITICAL: rasterize into a *bounded* pixel box instead of at a fixed DPI. EPS files
+        // from CorelDRAW/Illustrator can have enormous bounding boxes (e.g. a 95"x122" canvas);
+        // at a fixed 300 DPI that produces a ~28000x36000px (~1 billion pixel) PNG that takes
+        // ~60s and blows the queue timeout, so no thumbnail is ever produced. `-dPDFFitPage`
+        // + `-g${box}x${box}` scales the page to fit a fixed pixel box regardless of the source
+        // size (small EPS are upscaled crisply since vectors are resolution-independent), keeping
+        // generation fast (~7s) and the intermediate well under Sharp's pixel limit. `density` is
+        // still used by the ImageMagick / large-image fallback branches below.
+        const fitBox = Math.min(Math.max(finalOptions.width, finalOptions.height) * 8, 4096);
         const pdfToPngCommand = [
           GS_BINARY,
           '-dNOPAUSE',
           '-dBATCH',
           '-dSAFER',
           '-sDEVICE=pngalpha', // Use pngalpha for transparency support
-          `-r${density}`, // Use dynamic DPI based on requested size
+          '-r72', // Nominal resolution; content is scaled to the pixel box by -dPDFFitPage
+          `-g${fitBox}x${fitBox}`, // Bound the raster to a fixed pixel box (aspect preserved)
+          '-dPDFFitPage', // Scale the page to fit the pixel box
           '-dTextAlphaBits=4',
           '-dGraphicsAlphaBits=4',
           '-dQuiet',
           `-dFirstPage=1`,
           `-dLastPage=1`,
-          '-dUseCropBox', // Use crop box if available for better content detection
           `-sOutputFile="${tempPngPath}"`,
           `"${tempPdfPath}"`,
         ].join(' ');
@@ -740,18 +750,47 @@ export class ThumbnailService {
 
           // Note: Large temp PNG will be cleaned up at the end
         } else {
-          // Normal processing with Sharp for reasonable-sized images
-          // Apply image enhancements with white background for better visibility
+          // Normal processing with Sharp for reasonable-sized images.
+          //
+          // Adaptive, white-preserving contrast: sparse vector line-art (thin strokes on a mostly
+          // white canvas — common for cut/plotter files) gets washed out when downscaled, and the
+          // old `.normalize().linear(1.2, -10)` made it worse (normalize is a no-op whenever a
+          // single stray black pixel anchors the range, and the linear term *lightens* faint gray
+          // strokes into invisibility). Instead we measure how light the image is and pick a
+          // darkening slope, using an intercept of -(slope-1)*255 so pure white (255) stays white
+          // while mid/low tones are darkened — revealing faint art without crushing normal images.
+          // Map mean luminance -> darkening slope continuously: an ink-rich image (low mean, ~214)
+          // gets the gentle floor (1.15) while a near-white sparse line drawing (~254) gets the
+          // strong ceiling (3.0). Endpoints tuned against real CorelDRAW cut files.
+          let slope = 1.15; // gentle default for normal (ink-rich) EPS
+          try {
+            const st = await sharp(tempPngPath)
+              .flatten({ background: { r: 255, g: 255, b: 255 } })
+              .stats();
+            const meanLum = (st.channels[0].mean + st.channels[1].mean + st.channels[2].mean) / 3;
+            const MIN_SLOPE = 1.15;
+            const MAX_SLOPE = 3.0;
+            const LOW_LUM = 220; // at/below this, image is ink-rich -> minimal darkening
+            const HIGH_LUM = 254; // at/above this, image is near-blank -> maximum darkening
+            const t = (meanLum - LOW_LUM) / (HIGH_LUM - LOW_LUM);
+            slope = Math.max(MIN_SLOPE, Math.min(MAX_SLOPE, MIN_SLOPE + t * (MAX_SLOPE - MIN_SLOPE)));
+            this.logger.log(
+              `EPS enhancement: meanLum=${meanLum.toFixed(1)} -> contrast slope=${slope.toFixed(2)}`,
+            );
+          } catch (statErr: any) {
+            this.logger.warn(`Could not compute EPS luminance stats: ${statErr.message}`);
+          }
+
           await sharp(tempPngPath)
             .flatten({ background: { r: 255, g: 255, b: 255 } }) // Add white background
-            .normalize() // Auto-adjust levels for better contrast
-            .linear(1.2, -10) // Increase contrast and reduce brightness to make light content more visible
+            .trim({ background: '#ffffff', threshold: 12 }) // Trim white margins for a tight thumbnail
             .resize(finalOptions.width, finalOptions.height, {
               fit: finalOptions.fit as any,
               withoutEnlargement: true,
               kernel: sharp.kernel.lanczos3,
               background: { r: 255, g: 255, b: 255 }, // White background
             })
+            .linear(slope, -(slope - 1) * 255) // White-preserving darkening (255 -> 255)
             .sharpen(1, 1, 2) // Add slight sharpening for better visibility in small thumbnails
             .webp({
               // Use WebP format
