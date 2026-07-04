@@ -198,12 +198,11 @@ export const preferencesCreateSchema = z
         errorMap: () => ({ message: 'esquema de cores inválido' }),
       })
       .default(COLOR_SCHEMA.LIGHT),
+    // Route-path strings. Relaxed from the FAVORITE_PAGES enum (2026-07): the
+    // Flutter app persists its menu paths here and the enum lagged behind the
+    // real route set; the value is a per-user UI preference, not a domain enum.
     favorites: z
-      .array(
-        z.enum(Object.values(FAVORITE_PAGES) as [string, ...string[]], {
-          errorMap: () => ({ message: 'página favorita inválida' }),
-        }),
-      )
+      .array(z.string().min(1).max(200, 'página favorita inválida'))
       .default([])
       .optional(),
     dashboardLayoutWeb: jsonValueSchema.nullable().optional(),
@@ -222,12 +221,9 @@ export const preferencesUpdateSchema = z
         errorMap: () => ({ message: 'esquema de cores inválido' }),
       })
       .optional(),
+    // Route-path strings (see create schema note — relaxed from FAVORITE_PAGES).
     favorites: z
-      .array(
-        z.enum(Object.values(FAVORITE_PAGES) as [string, ...string[]], {
-          errorMap: () => ({ message: 'página favorita inválida' }),
-        }),
-      )
+      .array(z.string().min(1).max(200, 'página favorita inválida'))
       .default([])
       .optional(),
     dashboardLayoutWeb: jsonValueSchema.nullable().optional(),
