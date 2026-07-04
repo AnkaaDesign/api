@@ -764,7 +764,13 @@ export class FileService {
       // Check if file type supports thumbnails
       const isImage = file.mimetype.startsWith('image/');
       const isPdf = file.mimetype === 'application/pdf';
-      const isEps = file.mimetype === 'application/postscript';
+      const isEps = [
+        'application/postscript',
+        'application/x-eps',
+        'application/eps',
+        'image/eps',
+        'image/x-eps',
+      ].includes(file.mimetype);
       const supportsThumbnails = isImage || isPdf || isEps;
 
       if (!supportsThumbnails) {

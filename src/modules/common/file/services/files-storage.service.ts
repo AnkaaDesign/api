@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { promises as fs, existsSync } from 'fs';
+import { randomUUID } from 'crypto';
 import { join, extname, basename, dirname } from 'path';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 
@@ -466,7 +467,14 @@ export class FilesStorageService {
     const baseName = basename(originalFilename, ext);
     const sanitizedBaseName = this.sanitizeFileName(baseName);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const uniqueFilename = `${sanitizedBaseName}_${timestamp}${ext}`;
+    // Timestamp is second-resolution, so two uploads landing in the same second
+    // (e.g. a multi-file drop) would otherwise generate the same path; since
+    // File.path has no unique constraint and moveToStorage/copyToStorage
+    // overwrite silently, that collision clobbers the earlier file's bytes on
+    // disk while its DB row still looks fine. A short random suffix guarantees
+    // a distinct path per call regardless of timing.
+    const uniqueSuffix = randomUUID().slice(0, 8);
+    const uniqueFilename = `${sanitizedBaseName}_${timestamp}_${uniqueSuffix}${ext}`;
 
     return join(folderPath, uniqueFilename);
   }
