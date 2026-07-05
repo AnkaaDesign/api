@@ -499,6 +499,50 @@ export const cutQueryParamsSchema = z.object({
 const toFormData = <T>(data: T) => data;
 
 // =====================
+// Origin invariant (REQUEST re-cuts vs PLAN cuts)
+// =====================
+// A re-cut (origin=REQUEST) is always raised against a parent cut with a
+// documented reason, so both `reason` and `parentCutId` are mandatory. A plan
+// cut (origin=PLAN) is a fresh cut with neither. Enforcing this in zod keeps
+// reason-less REQUESTs (which would emit the wrong notification) out entirely.
+const requestOriginRefine = (
+  data: { origin?: CUT_ORIGIN; reason?: unknown; parentCutId?: unknown },
+  ctx: z.RefinementCtx,
+) => {
+  if (data.origin === CUT_ORIGIN.REQUEST) {
+    if (data.reason === undefined || data.reason === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['reason'],
+        message: 'Motivo é obrigatório para solicitação de recorte.',
+      });
+    }
+    if (data.parentCutId === undefined || data.parentCutId === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['parentCutId'],
+        message: 'Corte pai é obrigatório para solicitação de recorte.',
+      });
+    }
+  } else if (data.origin === CUT_ORIGIN.PLAN) {
+    if (data.reason !== undefined && data.reason !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['reason'],
+        message: 'Motivo não deve ser informado para recorte de plano.',
+      });
+    }
+    if (data.parentCutId !== undefined && data.parentCutId !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['parentCutId'],
+        message: 'Corte pai não deve ser informado para recorte de plano.',
+      });
+    }
+  }
+};
+
+// =====================
 // CRUD Schemas
 // =====================
 
@@ -527,6 +571,7 @@ export const cutCreateSchema = z
     startedAt: z.coerce.date().nullable().optional(),
     completedAt: z.coerce.date().nullable().optional(),
   })
+  .superRefine(requestOriginRefine)
   .transform(toFormData);
 
 export const cutUpdateSchema = z
@@ -593,8 +638,8 @@ export const cutBatchUpdateSchema = z.object({
         .nullable()
         .optional(),
       parentCutId: z.string().uuid('Corte pai inválido').nullable().optional(),
-      startedAt: z.date().nullable().optional(),
-      completedAt: z.date().nullable().optional(),
+      startedAt: z.coerce.date().nullable().optional(),
+      completedAt: z.coerce.date().nullable().optional(),
     }),
   ),
 });
@@ -647,6 +692,7 @@ export const cutCreateNestedSchema = z
     parentCutId: z.string().uuid('Corte pai inválido').nullable().optional(),
     _fileIndex: z.number().optional(), // Temporary field for file mapping (frontend optimization)
   })
+  .superRefine(requestOriginRefine)
   .transform(toFormData);
 
 // Map helper

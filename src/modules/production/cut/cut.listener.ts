@@ -16,7 +16,7 @@ import { CUT_TYPE, CUT_REQUEST_REASON } from '../../../constants/enums';
  */
 const CUT_TYPE_LABELS: Record<string, string> = {
   [CUT_TYPE.VINYL]: 'Adesivo',
-  [CUT_TYPE.STENCIL]: 'Máscara de Pintura',
+  [CUT_TYPE.STENCIL]: 'Espovo',
 };
 
 /**

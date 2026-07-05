@@ -1545,6 +1545,58 @@ export class TaskService {
         }
       }
 
+      // ─────────────────────────────────────────────────────────────────────
+      // H9: Task-create with PLAN cuts must alert the cutting queue. This is the
+      // most common entry point for cuts, yet it fired no cut notification (only
+      // the standalone/edit-add paths did). After the transaction commits, emit
+      // cut.created per created cut + one cuts.added.to.task — mirroring
+      // CutService.create / batchCreate. Wrapped in try/catch so a notification
+      // failure never breaks task creation.
+      // ─────────────────────────────────────────────────────────────────────
+      if (userId && Array.isArray(data.cuts) && data.cuts.length > 0) {
+        try {
+          const createdByUser = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, name: true, email: true },
+          });
+
+          const taskForEvent = await this.prisma.task.findUnique({
+            where: { id: (task as any).id },
+            select: { id: true, name: true, sectorId: true, status: true },
+          });
+
+          if (createdByUser && taskForEvent) {
+            const createdCuts = await this.prisma.cut.findMany({
+              where: { taskId: taskForEvent.id },
+            });
+
+            if (createdCuts.length > 0) {
+              for (const cut of createdCuts) {
+                this.eventEmitter.emit(
+                  'cut.created',
+                  new CutCreatedEvent(cut as any, taskForEvent as any, createdByUser as any),
+                );
+              }
+
+              this.eventEmitter.emit(
+                'cuts.added.to.task',
+                new CutsAddedToTaskEvent(
+                  taskForEvent as any,
+                  createdCuts as any,
+                  createdByUser as any,
+                ),
+              );
+
+              this.logger.debug(
+                `[Task Create] Emitted cut.created x${createdCuts.length} + cuts.added.to.task for task ${taskForEvent.id}`,
+              );
+            }
+          }
+        } catch (cutEventError) {
+          this.logger.warn('[Task Create] Failed to emit cut created events:', cutEventError);
+        }
+      }
+
       return {
         success: true,
         message: 'Tarefa criada com sucesso.',
@@ -11663,7 +11715,7 @@ export class TaskService {
       // Verify all tasks exist
       const tasks = await tx.task.findMany({
         where: { id: { in: taskIds } },
-        select: { id: true, name: true },
+        select: { id: true, name: true, sectorId: true, status: true },
       });
 
       if (tasks.length !== taskIds.length) {
@@ -11737,28 +11789,53 @@ export class TaskService {
       }
     });
 
-    // After transaction: Emit field change events for notifications
+    // After transaction: Emit cut.created per created cut + one cuts.added.to.task
+    // per task so the cutting team (PLOTTING/DESIGNER) is actually alerted (H10).
+    // Previously this emitted task.field.changed (field='cuts'), which routed to
+    // task.listener.ts and never reached the cutting queue. Mirrors
+    // CutService.create / batchCreate (and the task-create / batchUpdate paths).
     if (fieldChangesForEvents.length > 0) {
       this.logger.log(
-        `[bulkAddCuttingPlans] Emitting ${fieldChangesForEvents.length} field change event(s) for notifications`,
+        `[bulkAddCuttingPlans] Emitting cut notifications for ${fieldChangesForEvents.length} task(s)`,
       );
 
-      for (const change of fieldChangesForEvents) {
-        try {
-          this.eventEmitter.emit('task.field.changed', {
-            task: change.task,
-            field: 'cuts',
-            oldValue: change.oldValue,
-            newValue: change.newValue,
-            changedBy: userId,
-            isFileArray: false,
-          });
-        } catch (eventError) {
-          this.logger.error(
-            `[bulkAddCuttingPlans] Error emitting event for task ${change.taskId}:`,
-            eventError,
-          );
+      try {
+        const createdByUser = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { id: true, name: true, email: true },
+        });
+
+        if (createdByUser) {
+          for (const change of fieldChangesForEvents) {
+            try {
+              const createdCuts = change.newValue;
+              if (!createdCuts || createdCuts.length === 0) continue;
+
+              for (const cut of createdCuts) {
+                this.eventEmitter.emit(
+                  'cut.created',
+                  new CutCreatedEvent(cut as any, change.task as any, createdByUser as any),
+                );
+              }
+
+              this.eventEmitter.emit(
+                'cuts.added.to.task',
+                new CutsAddedToTaskEvent(
+                  change.task as any,
+                  createdCuts as any,
+                  createdByUser as any,
+                ),
+              );
+            } catch (eventError) {
+              this.logger.error(
+                `[bulkAddCuttingPlans] Error emitting cut events for task ${change.taskId}:`,
+                eventError,
+              );
+            }
+          }
         }
+      } catch (eventError) {
+        this.logger.error('[bulkAddCuttingPlans] Failed to emit cut created events:', eventError);
       }
     }
 
