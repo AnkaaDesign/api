@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   InternalServerErrorException,
   Logger,
   Inject,
@@ -51,6 +52,7 @@ import {
   CUT_REQUEST_REASON,
   CHANGE_TRIGGERED_BY,
   ENTITY_TYPE,
+  SECTOR_PRIVILEGES,
 } from '../../../constants/enums';
 import { CUT_STATUS_ORDER } from '../../../constants/sortOrders';
 import {
@@ -60,6 +62,16 @@ import {
   extractEssentialFields,
   getEssentialFields,
 } from '@modules/common/changelog/utils/changelog-helpers';
+
+// Server-side cut status state machine. Only these transitions are legal;
+// PENDING <-> COMPLETED skips (in either direction) are rejected. Timestamps
+// (startedAt / completedAt) are derived from the target status server-side so
+// web, mobile and batch callers all behave identically and analytics stay sane.
+const CUT_STATUS_TRANSITIONS: Record<string, CUT_STATUS[]> = {
+  [CUT_STATUS.PENDING]: [CUT_STATUS.CUTTING],
+  [CUT_STATUS.CUTTING]: [CUT_STATUS.COMPLETED, CUT_STATUS.PENDING],
+  [CUT_STATUS.COMPLETED]: [CUT_STATUS.CUTTING],
+};
 
 @Injectable()
 export class CutService {
@@ -103,6 +115,25 @@ export class CutService {
     if (data.reason !== undefined && data.reason !== null) {
       if (!Object.values(CUT_REQUEST_REASON).includes(data.reason)) {
         throw new BadRequestException('Motivo da solicitação inválido.');
+      }
+    }
+
+    // Enforce the origin invariant (defense-in-depth mirror of the zod refine).
+    // Only applied when origin is explicitly present so partial updates (e.g.
+    // status-only changes) are not forced to resend reason/parentCutId.
+    if (data.origin === CUT_ORIGIN.REQUEST) {
+      if (data.reason === undefined || data.reason === null) {
+        throw new BadRequestException('Motivo é obrigatório para solicitação de recorte.');
+      }
+      if (data.parentCutId === undefined || data.parentCutId === null) {
+        throw new BadRequestException('Corte pai é obrigatório para solicitação de recorte.');
+      }
+    } else if (data.origin === CUT_ORIGIN.PLAN) {
+      if (data.reason !== undefined && data.reason !== null) {
+        throw new BadRequestException('Motivo não deve ser informado para recorte de plano.');
+      }
+      if (data.parentCutId !== undefined && data.parentCutId !== null) {
+        throw new BadRequestException('Corte pai não deve ser informado para recorte de plano.');
       }
     }
 
@@ -173,6 +204,111 @@ export class CutService {
   }
 
   // =====================
+  // STATUS STATE MACHINE
+  // =====================
+
+  /**
+   * Enforce the cut status state machine and derive timestamps server-side.
+   * Mutates `data.status`-driven fields on the incoming update payload:
+   * - PENDING  -> CUTTING:   startedAt ??= now (and clear any stale completedAt)
+   * - CUTTING  -> COMPLETED: completedAt ??= now (backfill startedAt if missing)
+   * - CUTTING  -> PENDING:   clear startedAt + completedAt
+   * - COMPLETED -> CUTTING:  re-open (clear completedAt, keep original startedAt)
+   * Illegal transitions (e.g. PENDING<->COMPLETED skips) throw BadRequestException.
+   * No-op when status is absent or unchanged.
+   */
+  private applyStatusTransition(
+    existing: { status: string; startedAt?: Date | null; completedAt?: Date | null },
+    data: Partial<CutUpdateFormData>,
+  ): void {
+    if (data.status === undefined || data.status === existing.status) {
+      return;
+    }
+
+    const from = existing.status as CUT_STATUS;
+    const to = data.status;
+
+    const allowed = CUT_STATUS_TRANSITIONS[from] || [];
+    if (!allowed.includes(to)) {
+      throw new BadRequestException(`Transição de status inválida: ${from} → ${to}.`);
+    }
+
+    // Effective value = what the client sent (if any) else what's already stored.
+    const effectiveStartedAt = data.startedAt !== undefined ? data.startedAt : existing.startedAt;
+    const effectiveCompletedAt =
+      data.completedAt !== undefined ? data.completedAt : existing.completedAt;
+
+    if (to === CUT_STATUS.CUTTING) {
+      if (!effectiveStartedAt) {
+        data.startedAt = new Date();
+      }
+      // Re-opening a completed cut: it is no longer complete.
+      if (effectiveCompletedAt) {
+        data.completedAt = null;
+      }
+    } else if (to === CUT_STATUS.COMPLETED) {
+      if (!effectiveCompletedAt) {
+        data.completedAt = new Date();
+      }
+      // Safety: never leave a COMPLETED cut without a startedAt (duration analytics).
+      if (!effectiveStartedAt) {
+        data.startedAt = new Date();
+      }
+    } else if (to === CUT_STATUS.PENDING) {
+      data.startedAt = null;
+      data.completedAt = null;
+    }
+  }
+
+  // =====================
+  // ORIGIN AUTHORIZATION
+  // =====================
+
+  /**
+   * Authorize cut creation by origin (re-cut decision, confirmed by Kennedy):
+   * - PLAN cuts    -> DESIGNER or ADMIN only.
+   * - REQUEST cuts -> ADMIN, PRODUCTION_MANAGER, or a PRODUCTION user who leads
+   *   a sector (production team leader). "Leads a sector" is resolved exactly
+   *   like the service-order status leader check: Sector.leaderId -> user, surfaced
+   *   as `isTeamLeader` on the JWT payload by AuthGuard (isTeamLeader(user) =
+   *   Boolean(user.ledSector?.id)).
+   * When userPrivilege is not supplied (no HTTP caller context) the check is
+   * skipped — the controller always supplies it.
+   */
+  private assertCutOriginAuthorization(
+    origins: Array<CUT_ORIGIN | undefined>,
+    userPrivilege?: string,
+    isTeamLeader?: boolean,
+  ): void {
+    if (!userPrivilege) {
+      return;
+    }
+
+    const isAdmin = userPrivilege === SECTOR_PRIVILEGES.ADMIN;
+    const isDesigner = userPrivilege === SECTOR_PRIVILEGES.DESIGNER;
+    const isProductionManager = userPrivilege === SECTOR_PRIVILEGES.PRODUCTION_MANAGER;
+    const isProductionLeader =
+      userPrivilege === SECTOR_PRIVILEGES.PRODUCTION && Boolean(isTeamLeader);
+
+    // Undefined origin defaults to PLAN in the DB, so it must be authorized as PLAN
+    // (otherwise omitting `origin` would bypass the DESIGNER/ADMIN gate).
+    const hasPlan = origins.some(o => (o ?? CUT_ORIGIN.PLAN) === CUT_ORIGIN.PLAN);
+    const hasRequest = origins.some(o => o === CUT_ORIGIN.REQUEST);
+
+    if (hasPlan && !(isDesigner || isAdmin)) {
+      throw new ForbiddenException(
+        'Apenas designers e administradores podem criar recortes de plano.',
+      );
+    }
+
+    if (hasRequest && !(isAdmin || isProductionManager || isProductionLeader)) {
+      throw new ForbiddenException(
+        'Apenas administradores, gerentes de produção e líderes de produção podem solicitar recortes.',
+      );
+    }
+  }
+
+  // =====================
   // CUT QUERY OPERATIONS
   // =====================
 
@@ -227,8 +363,13 @@ export class CutService {
     userId?: string,
     file?: Express.Multer.File,
     quantity: number = 1,
+    userPrivilege?: string,
+    isTeamLeader?: boolean,
   ): Promise<CutCreateResponse> {
     try {
+      // Authorize by origin (PLAN = designer/admin; REQUEST = admin/PM/prod-leader)
+      this.assertCutOriginAuthorization([data.origin], userPrivilege, isTeamLeader);
+
       // Ensure either file was provided or fileId already exists
       if (!file && !data.fileId) {
         throw new BadRequestException(
@@ -500,7 +641,11 @@ export class CutService {
       };
     } catch (error) {
       this.logger.error('Erro ao criar corte:', error);
-      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException
+      ) {
         throw error;
       }
       throw new InternalServerErrorException('Erro ao criar corte. Por favor, tente novamente.');
@@ -522,6 +667,9 @@ export class CutService {
 
         // Store old status for event emission
         const oldStatus = existing.status;
+
+        // Enforce status state machine + derive startedAt/completedAt server-side
+        this.applyStatusTransition(existing, data);
 
         // Validate cut data
         await this.cutValidation(data, id, tx);
@@ -750,31 +898,41 @@ export class CutService {
   async batchCreate(
     data: CutBatchCreateFormData,
     userId?: string,
+    userPrivilege?: string,
+    isTeamLeader?: boolean,
   ): Promise<CutBatchCreateResponse<CutBatchCreateData>> {
     try {
-      const result = await this.prisma.$transaction(async tx => {
-        const successfulCreations: any[] = [];
-        const failedCreations: any[] = [];
+      // Authorize by origin across all items (whole-request; PLAN = designer/admin,
+      // REQUEST = admin/PM/production-leader). Rejects the batch before any write.
+      this.assertCutOriginAuthorization(
+        data.cuts.map(c => c.origin),
+        userPrivilege,
+        isTeamLeader,
+      );
 
-        // Process each cut individually for validation and changelog tracking
-        for (let index = 0; index < data.cuts.length; index++) {
-          const cutData = data.cuts[index];
-          try {
+      const successfulCreations: any[] = [];
+      const failedCreations: any[] = [];
+
+      // Each cut is created in its OWN transaction so one DB error can never
+      // poison the others (Postgres 25P02) — partial success is real, not illusory.
+      for (let index = 0; index < data.cuts.length; index++) {
+        const cutData = data.cuts[index];
+        try {
+          const newCut = await this.prisma.$transaction(async tx => {
             // Validate cut data
             await this.cutValidation(cutData, undefined, tx);
 
             // Create the cut
-            const newCut = await this.cutRepository.createWithTransaction(tx, cutData);
-            successfulCreations.push(newCut);
+            const created = await this.cutRepository.createWithTransaction(tx, cutData);
 
             // Create changelog entry
             await logEntityChange({
               changeLogService: this.changeLogService,
               entityType: ENTITY_TYPE.CUT,
-              entityId: newCut.id,
+              entityId: created.id,
               action: CHANGE_ACTION.CREATE,
               entity: extractEssentialFields(
-                newCut,
+                created,
                 getEssentialFields(ENTITY_TYPE.CUT) as (keyof Cut)[],
               ),
               reason: 'Corte criado em lote',
@@ -782,23 +940,27 @@ export class CutService {
               triggeredBy: CHANGE_TRIGGERED_BY.BATCH_CREATE,
               transaction: tx,
             });
-          } catch (error: any) {
-            failedCreations.push({
-              index,
-              error: error.message || 'Erro ao criar corte.',
-              errorCode: error.name || 'UNKNOWN_ERROR',
-              data: cutData,
-            });
-          }
-        }
 
-        return {
-          success: successfulCreations,
-          failed: failedCreations,
-          totalCreated: successfulCreations.length,
-          totalFailed: failedCreations.length,
-        };
-      });
+            return created;
+          });
+
+          successfulCreations.push(newCut);
+        } catch (error: any) {
+          failedCreations.push({
+            index,
+            error: error.message || 'Erro ao criar corte.',
+            errorCode: error.name || 'UNKNOWN_ERROR',
+            data: cutData,
+          });
+        }
+      }
+
+      const result = {
+        success: successfulCreations,
+        failed: failedCreations,
+        totalCreated: successfulCreations.length,
+        totalFailed: failedCreations.length,
+      };
 
       // Emit cut events AFTER commit, mirroring the single create() path exactly:
       // cut.request.created (origin=REQUEST + reason), cut.created otherwise, and
@@ -879,7 +1041,7 @@ export class CutService {
       const failureMessage = result.totalFailed > 0 ? `, ${result.totalFailed} falharam` : '';
 
       return {
-        success: true,
+        success: result.totalFailed === 0,
         message: `${successMessage}${failureMessage}`,
         data: {
           success: result.success,
@@ -891,6 +1053,9 @@ export class CutService {
       };
     } catch (error) {
       this.logger.error('Erro ao criar cortes em lote:', error);
+      if (error instanceof ForbiddenException || error instanceof BadRequestException) {
+        throw error;
+      }
       throw new InternalServerErrorException(
         'Erro ao criar cortes em lote. Por favor, tente novamente.',
       );
@@ -906,33 +1071,31 @@ export class CutService {
       // AFTER commit, mirroring the single update() path.
       const statusTransitions: Array<{ cut: any; oldStatus: any }> = [];
 
-      const result = await this.prisma.$transaction(async tx => {
-        const successfulUpdates: any[] = [];
-        const failedUpdates: any[] = [];
+      const successfulUpdates: any[] = [];
+      const failedUpdates: any[] = [];
 
-        // Process each update individually for validation and field tracking
-        for (let index = 0; index < data.cuts.length; index++) {
-          const { id, ...updateData } = data.cuts[index];
-          try {
+      // Each cut is updated in its OWN transaction so one DB error can never
+      // poison the others (Postgres 25P02) — partial success is real.
+      for (let index = 0; index < data.cuts.length; index++) {
+        const { id, ...updateData } = data.cuts[index];
+        try {
+          const { updatedCut, oldStatus } = await this.prisma.$transaction(async tx => {
             // Fetch existing cut
             const existingCut = await this.cutRepository.findByIdWithTransaction(tx, id);
             if (!existingCut) {
               throw new NotFoundException('Corte não encontrado.');
             }
 
-            const oldStatus = existingCut.status;
+            const previousStatus = existingCut.status;
+
+            // Enforce status state machine + derive startedAt/completedAt server-side
+            this.applyStatusTransition(existingCut, updateData);
 
             // Validate cut data
             await this.cutValidation(updateData, id, tx);
 
             // Update the cut
-            const updatedCut = await this.cutRepository.updateWithTransaction(tx, id, updateData);
-            successfulUpdates.push(updatedCut);
-
-            // Record status change for post-commit event emission
-            if (oldStatus !== updatedCut.status) {
-              statusTransitions.push({ cut: updatedCut, oldStatus });
-            }
+            const cut = await this.cutRepository.updateWithTransaction(tx, id, updateData);
 
             // Track field changes
             const fieldsToTrack = [
@@ -951,30 +1114,39 @@ export class CutService {
               entityType: ENTITY_TYPE.CUT,
               entityId: id,
               oldEntity: existingCut,
-              newEntity: updatedCut,
+              newEntity: cut,
               fieldsToTrack,
               userId: userId || null,
               triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
               transaction: tx,
             });
-          } catch (error: any) {
-            failedUpdates.push({
-              index,
-              id,
-              error: error.message || 'Erro ao atualizar corte.',
-              errorCode: error.name || 'UNKNOWN_ERROR',
-              data: { id, ...updateData },
-            });
-          }
-        }
 
-        return {
-          success: successfulUpdates,
-          failed: failedUpdates,
-          totalUpdated: successfulUpdates.length,
-          totalFailed: failedUpdates.length,
-        };
-      });
+            return { updatedCut: cut, oldStatus: previousStatus };
+          });
+
+          successfulUpdates.push(updatedCut);
+
+          // Record status change for post-commit event emission
+          if (oldStatus !== updatedCut.status) {
+            statusTransitions.push({ cut: updatedCut, oldStatus });
+          }
+        } catch (error: any) {
+          failedUpdates.push({
+            index,
+            id,
+            error: error.message || 'Erro ao atualizar corte.',
+            errorCode: error.name || 'UNKNOWN_ERROR',
+            data: { id, ...updateData },
+          });
+        }
+      }
+
+      const result = {
+        success: successfulUpdates,
+        failed: failedUpdates,
+        totalUpdated: successfulUpdates.length,
+        totalFailed: failedUpdates.length,
+      };
 
       // Emit status-change events AFTER commit, mirroring the single update() path:
       // cut.started (-> CUTTING) and cut.completed (-> COMPLETED). Never breaks flow.
@@ -1033,7 +1205,7 @@ export class CutService {
       const failureMessage = result.totalFailed > 0 ? `, ${result.totalFailed} falharam` : '';
 
       return {
-        success: true,
+        success: result.totalFailed === 0,
         message: `${successMessage}${failureMessage}`,
         data: {
           success: result.success,
@@ -1056,20 +1228,19 @@ export class CutService {
     userId?: string,
   ): Promise<CutBatchDeleteResponse> {
     try {
-      const result = await this.prisma.$transaction(async tx => {
-        // Fetch all cuts before deletion for changelog
-        const cuts = await this.cutRepository.findByIdsWithTransaction(tx, data.cutIds);
+      // Dedupe ids so a repeated id can't delete-then-fail and inflate totalFailed.
+      const uniqueCutIds = [...new Set(data.cutIds)];
 
-        // Create a map for easy lookup
-        const cutsMap = new Map(cuts.map(cut => [cut.id, cut]));
+      const successfulDeletes: any[] = [];
+      const failedDeletes: any[] = [];
 
-        const successfulDeletes: any[] = [];
-        const failedDeletes: any[] = [];
-
-        for (let index = 0; index < data.cutIds.length; index++) {
-          const id = data.cutIds[index];
-          try {
-            const cut = cutsMap.get(id);
+      // Each delete runs in its OWN transaction so one DB error (e.g. a stale id,
+      // Postgres 25P02) can never roll back the others — partial success is real.
+      for (let index = 0; index < uniqueCutIds.length; index++) {
+        const id = uniqueCutIds[index];
+        try {
+          await this.prisma.$transaction(async tx => {
+            const cut = await this.cutRepository.findByIdWithTransaction(tx, id);
             if (!cut) {
               throw new NotFoundException('Corte não encontrado.');
             }
@@ -1091,25 +1262,26 @@ export class CutService {
             });
 
             await this.cutRepository.deleteWithTransaction(tx, id);
-            successfulDeletes.push({ id });
-          } catch (error: any) {
-            failedDeletes.push({
-              index,
-              id,
-              error: error.message || 'Erro ao remover corte.',
-              errorCode: error.name || 'UNKNOWN_ERROR',
-              data: { id },
-            });
-          }
-        }
+          });
 
-        return {
-          success: successfulDeletes,
-          failed: failedDeletes,
-          totalDeleted: successfulDeletes.length,
-          totalFailed: failedDeletes.length,
-        };
-      });
+          successfulDeletes.push({ id });
+        } catch (error: any) {
+          failedDeletes.push({
+            index,
+            id,
+            error: error.message || 'Erro ao remover corte.',
+            errorCode: error.name || 'UNKNOWN_ERROR',
+            data: { id },
+          });
+        }
+      }
+
+      const result = {
+        success: successfulDeletes,
+        failed: failedDeletes,
+        totalDeleted: successfulDeletes.length,
+        totalFailed: failedDeletes.length,
+      };
 
       const successMessage =
         result.totalDeleted === 1
@@ -1118,12 +1290,12 @@ export class CutService {
       const failureMessage = result.totalFailed > 0 ? `, ${result.totalFailed} falharam` : '';
 
       return {
-        success: true,
+        success: result.totalFailed === 0,
         message: `${successMessage}${failureMessage}`,
         data: {
           success: result.success,
           failed: result.failed,
-          totalProcessed: data.cutIds.length,
+          totalProcessed: uniqueCutIds.length,
           totalSuccess: result.totalDeleted,
           totalFailed: result.totalFailed,
         },

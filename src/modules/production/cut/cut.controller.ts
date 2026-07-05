@@ -55,7 +55,7 @@ import {
   cutBatchDeleteSchema,
 } from '../../../schemas/cut';
 import { z } from 'zod';
-import { UserId } from '@modules/common/auth/decorators/user.decorator';
+import { UserId, User, UserPayload } from '@modules/common/auth/decorators/user.decorator';
 
 @Controller('cuts')
 @UseGuards(AuthGuard)
@@ -84,13 +84,22 @@ export class CutController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.ADMIN)
+  // PLAN cuts = DESIGNER/ADMIN; REQUEST re-cuts = ADMIN/PRODUCTION_MANAGER/production
+  // team-leader. PRODUCTION_MANAGER + PRODUCTION are added so leaders pass the guard;
+  // the real per-origin authorization is enforced in CutService.
+  @Roles(
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.PRODUCTION,
+  )
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('file', multerConfig))
   async create(
     @Body() rawBody: any,
     @UserId() userId: string,
     @Query(new ZodQueryValidationPipe(cutQueryParamsSchema)) query: CutQueryFormData,
+    @User() user: UserPayload,
     @UploadedFile() file?: Express.Multer.File,
   ): Promise<CutCreateResponse> {
     // Extract quantity BEFORE validation (it's not a database field, just a UI helper)
@@ -103,19 +112,41 @@ export class CutController {
     const validationPipe = new ZodValidationPipe(cutCreateSchema);
     const data = await validationPipe.transform(bodyWithoutQuantity, { type: 'body' });
 
-    return this.cutService.create(data, query.include, userId, file, quantity);
+    return this.cutService.create(
+      data,
+      query.include,
+      userId,
+      file,
+      quantity,
+      user?.role as SECTOR_PRIVILEGES,
+      user?.isTeamLeader,
+    );
   }
 
   // Batch operations (must come before dynamic routes)
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.ADMIN)
+  // PLAN cuts = DESIGNER/ADMIN; REQUEST re-cuts = ADMIN/PRODUCTION_MANAGER/production
+  // team-leader. PRODUCTION_MANAGER + PRODUCTION are added so leaders pass the guard;
+  // the real per-origin authorization is enforced in CutService.
+  @Roles(
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.PRODUCTION,
+  )
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(cutBatchCreateSchema)) data: CutBatchCreateFormData,
     @UserId() userId: string,
     @Query(new ZodQueryValidationPipe(cutQueryParamsSchema)) query: CutQueryFormData,
+    @User() user: UserPayload,
   ): Promise<CutBatchCreateResponse<CutBatchCreateData>> {
-    return this.cutService.batchCreate(data, userId);
+    return this.cutService.batchCreate(
+      data,
+      userId,
+      user?.role as SECTOR_PRIVILEGES,
+      user?.isTeamLeader,
+    );
   }
 
   @Put('batch')
