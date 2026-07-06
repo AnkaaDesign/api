@@ -250,15 +250,15 @@ export class TaskListener {
 
       const changedByName = changedByUser?.name || 'Sistema';
 
-      // Consolidated truck layout change. The TaskFieldTrackerService collapses all
-      // changed truck-layout side fields into a single synthetic 'truck.layout' event,
+      // Consolidated truck implementMeasure change. The TaskFieldTrackerService collapses all
+      // changed truck-implementMeasure side fields into a single synthetic 'truck.implementMeasure' event,
       // so we dispatch ONE notification instead of one per side. The legacy per-side
-      // configs (task.field.truck.*SideLayoutId) go dormant since they are no longer emitted.
-      if (event.field === 'truck.layout') {
-        const layoutChangeSummary = event.layoutChangeSummary || 'lados atualizados';
+      // configs (task.field.truck.*SideImplementMeasureId) go dormant since they are no longer emitted.
+      if (event.field === 'truck.implementMeasure') {
+        const implementMeasureChangeSummary = event.implementMeasureChangeSummary || 'lados atualizados';
 
         await this.dispatchService.dispatchByConfiguration(
-          'task.field.truck.layout',
+          'task.field.truck.implementMeasure',
           event.changedBy,
           {
             entityType: 'Task',
@@ -269,20 +269,20 @@ export class TaskListener {
               taskName: event.task.name,
               serialNumber: event.task.serialNumber,
               taskSectorId: event.task.sectorId || null,
-              fieldName: 'truck.layout',
+              fieldName: 'truck.implementMeasure',
               changedBy: changedByName,
-              layoutChangeSummary,
+              implementMeasureChangeSummary,
             },
             overrides: {
               title: 'Medidas do Caminhão atualizadas',
-              body: `Medidas do caminhão da tarefa "${event.task.name}" atualizadas: ${layoutChangeSummary}`,
+              body: `Medidas do caminhão da tarefa "${event.task.name}" atualizadas: ${implementMeasureChangeSummary}`,
               webUrl: `/producao/cronograma/detalhes/${event.task.id}`,
             },
           },
         );
 
         this.logger.log(
-          `Consolidated truck layout notification dispatched (task.field.truck.layout): ${layoutChangeSummary}`,
+          `Consolidated truck implementMeasure notification dispatched (task.field.truck.implementMeasure): ${implementMeasureChangeSummary}`,
         );
         return;
       }

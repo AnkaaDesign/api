@@ -11,7 +11,7 @@ import type {
   ORDER_BY_DIRECTION,
 } from './common';
 import type { Task, TaskIncludes, TaskOrderBy, TaskWhere } from './task';
-import type { Layout, LayoutIncludes, LayoutOrderBy, LayoutWhere } from './layout';
+import type { ImplementMeasure, ImplementMeasureIncludes, ImplementMeasureOrderBy, ImplementMeasureWhere } from './implement-measure';
 import type { TRUCK_SPOT, TRUCK_CATEGORY, IMPLEMENT_TYPE } from '@constants';
 
 // =====================
@@ -25,15 +25,15 @@ export interface Truck extends BaseEntity {
   implementType: IMPLEMENT_TYPE | null; // Type of body/implement (dry-cargo, refrigerated, insulated, curtain-side, tank, flatbed)
   spot: TRUCK_SPOT | null; // Parking spot in garage (B1_F1_V1, B1_F2_V1, etc.) — null means patio
   taskId: string;
-  backSideLayoutId: string | null;
-  leftSideLayoutId: string | null;
-  rightSideLayoutId: string | null;
+  backSideMeasureId: string | null;
+  leftSideMeasureId: string | null;
+  rightSideMeasureId: string | null;
 
   // Relations (optional, populated based on query)
   task?: Task;
-  backSideLayout?: Layout | null;
-  leftSideLayout?: Layout | null;
-  rightSideLayout?: Layout | null;
+  backSideMeasure?: ImplementMeasure | null;
+  leftSideMeasure?: ImplementMeasure | null;
+  rightSideMeasure?: ImplementMeasure | null;
 }
 
 // =====================
@@ -46,20 +46,20 @@ export interface TruckIncludes {
     | {
         include?: TaskIncludes;
       };
-  backSideLayout?:
+  backSideMeasure?:
     | boolean
     | {
-        include?: LayoutIncludes;
+        include?: ImplementMeasureIncludes;
       };
-  leftSideLayout?:
+  leftSideMeasure?:
     | boolean
     | {
-        include?: LayoutIncludes;
+        include?: ImplementMeasureIncludes;
       };
-  rightSideLayout?:
+  rightSideMeasure?:
     | boolean
     | {
-        include?: LayoutIncludes;
+        include?: ImplementMeasureIncludes;
       };
 }
 
@@ -75,9 +75,9 @@ export interface TruckOrderBy {
   implementType?: ORDER_BY_DIRECTION;
   spot?: ORDER_BY_DIRECTION;
   taskId?: ORDER_BY_DIRECTION;
-  backSideLayoutId?: ORDER_BY_DIRECTION;
-  leftSideLayoutId?: ORDER_BY_DIRECTION;
-  rightSideLayoutId?: ORDER_BY_DIRECTION;
+  backSideMeasureId?: ORDER_BY_DIRECTION;
+  leftSideMeasureId?: ORDER_BY_DIRECTION;
+  rightSideMeasureId?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;
   updatedAt?: ORDER_BY_DIRECTION;
   task?: TaskOrderBy;
@@ -96,15 +96,15 @@ export interface TruckWhere {
   // ID fields
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
   taskId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-  backSideLayoutId?:
+  backSideMeasureId?:
     | string
     | { equals?: string; not?: string; in?: string[]; notIn?: string[] }
     | null;
-  leftSideLayoutId?:
+  leftSideMeasureId?:
     | string
     | { equals?: string; not?: string; in?: string[]; notIn?: string[] }
     | null;
-  rightSideLayoutId?:
+  rightSideMeasureId?:
     | string
     | { equals?: string; not?: string; in?: string[]; notIn?: string[] }
     | null;
@@ -194,9 +194,9 @@ export interface TruckWhere {
 
   // Relations
   task?: TaskWhere;
-  backSideLayout?: LayoutWhere | null;
-  leftSideLayout?: LayoutWhere | null;
-  rightSideLayout?: LayoutWhere | null;
+  backSideMeasure?: ImplementMeasureWhere | null;
+  leftSideMeasure?: ImplementMeasureWhere | null;
+  rightSideMeasure?: ImplementMeasureWhere | null;
 }
 
 // =====================

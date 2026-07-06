@@ -15,7 +15,7 @@ interface FileWithRelationships {
  */
 export const FILE_RELATIONSHIP_MAP = {
   // Task relationships
-  taskArtworks: { entityType: ENTITY_TYPE.TASK, description: 'artes da tarefa' },
+  taskLayouts: { entityType: ENTITY_TYPE.TASK, description: 'artes da tarefa' },
   taskBudgets: { entityType: ENTITY_TYPE.TASK, description: 'orçamento da tarefa' },
   taskInvoices: { entityType: ENTITY_TYPE.TASK, description: 'nota fiscal da tarefa' },
   taskReceipts: { entityType: ENTITY_TYPE.TASK, description: 'recibo da tarefa' },

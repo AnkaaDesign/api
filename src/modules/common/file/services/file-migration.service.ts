@@ -22,7 +22,7 @@ interface MigrationDetail {
   currentPath: string;
   newPath?: string;
   matchedCustomer?: string;
-  matchSource?: string; // How the customer was determined (e.g., "artwork.task.customer")
+  matchSource?: string; // How the customer was determined (e.g., "layout.task.customer")
   status: 'moved' | 'skipped' | 'error';
   reason?: string;
 }
@@ -89,7 +89,7 @@ export class FileMigrationService {
    * Find the customer for a file by tracing database relationships.
    *
    * The relationship chain depends on the file context:
-   * - Artwork files (Layouts): File → Artwork → Task[] → Customer
+   * - Layout files (Layouts): File → Layout → Task[] → Customer
    * - Observation files: File → Observation → Task → Customer
    * - Task files (budgets, invoices, etc.): File → Task → Customer
    * - Cut files: File → Cut → Task → Customer
@@ -97,8 +97,8 @@ export class FileMigrationService {
   async findCustomerForFile(
     fileId: string,
   ): Promise<{ id: string; fantasyName: string; source: string } | null> {
-    // 1. Check if file is an artwork (Layouts folder)
-    const artwork = await this.prisma.artwork.findFirst({
+    // 1. Check if file is an layout (Layouts folder)
+    const layout = await this.prisma.layout.findFirst({
       where: { fileId },
       include: {
         tasks: {
@@ -112,11 +112,11 @@ export class FileMigrationService {
       },
     });
 
-    if (artwork?.tasks?.[0]?.customer) {
+    if (layout?.tasks?.[0]?.customer) {
       return {
-        id: artwork.tasks[0].customer.id,
-        fantasyName: artwork.tasks[0].customer.fantasyName,
-        source: 'artwork.task.customer',
+        id: layout.tasks[0].customer.id,
+        fantasyName: layout.tasks[0].customer.fantasyName,
+        source: 'layout.task.customer',
       };
     }
 

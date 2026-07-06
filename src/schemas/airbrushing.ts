@@ -76,7 +76,7 @@ export const airbrushingIncludeSchema = z
         z.object({
           include: z
             .object({
-              tasksArtworks: z.boolean().optional(),
+              tasksLayouts: z.boolean().optional(),
               customerLogo: z.boolean().optional(),
               taskBudget: z.boolean().optional(),
               taskNfe: z.boolean().optional(),
@@ -101,7 +101,7 @@ export const airbrushingIncludeSchema = z
         z.object({
           include: z
             .object({
-              tasksArtworks: z.boolean().optional(),
+              tasksLayouts: z.boolean().optional(),
               customerLogo: z.boolean().optional(),
               taskBudget: z.boolean().optional(),
               taskNfe: z.boolean().optional(),
@@ -120,13 +120,13 @@ export const airbrushingIncludeSchema = z
         }),
       ])
       .optional(),
-    budgets: z
+    layouts: z
       .union([
         z.boolean(),
         z.object({
           include: z
             .object({
-              tasksArtworks: z.boolean().optional(),
+              tasksLayouts: z.boolean().optional(),
               customerLogo: z.boolean().optional(),
               taskBudget: z.boolean().optional(),
               taskNfe: z.boolean().optional(),
@@ -137,82 +137,7 @@ export const airbrushingIncludeSchema = z
               observations: z.boolean().optional(),
               airbrushingReceipts: z.boolean().optional(),
               airbrushingInvoices: z.boolean().optional(),
-              externalOperationBudget: z.boolean().optional(),
-              externalOperationNfe: z.boolean().optional(),
-              externalOperationReceipt: z.boolean().optional(),
-            })
-            .optional(),
-        }),
-      ])
-      .optional(),
-    reimbursements: z
-      .union([
-        z.boolean(),
-        z.object({
-          include: z
-            .object({
-              tasksArtworks: z.boolean().optional(),
-              customerLogo: z.boolean().optional(),
-              taskBudget: z.boolean().optional(),
-              taskNfe: z.boolean().optional(),
-              supplierLogo: z.boolean().optional(),
-              orderNfe: z.boolean().optional(),
-              orderBudget: z.boolean().optional(),
-              orderReceipt: z.boolean().optional(),
-              observations: z.boolean().optional(),
-              airbrushingReceipts: z.boolean().optional(),
-              airbrushingInvoices: z.boolean().optional(),
-              externalOperationBudget: z.boolean().optional(),
-              externalOperationNfe: z.boolean().optional(),
-              externalOperationReceipt: z.boolean().optional(),
-            })
-            .optional(),
-        }),
-      ])
-      .optional(),
-    invoiceReimbursements: z
-      .union([
-        z.boolean(),
-        z.object({
-          include: z
-            .object({
-              tasksArtworks: z.boolean().optional(),
-              customerLogo: z.boolean().optional(),
-              taskBudget: z.boolean().optional(),
-              taskNfe: z.boolean().optional(),
-              supplierLogo: z.boolean().optional(),
-              orderNfe: z.boolean().optional(),
-              orderBudget: z.boolean().optional(),
-              orderReceipt: z.boolean().optional(),
-              observations: z.boolean().optional(),
-              airbrushingReceipts: z.boolean().optional(),
-              airbrushingInvoices: z.boolean().optional(),
-              externalOperationBudget: z.boolean().optional(),
-              externalOperationNfe: z.boolean().optional(),
-              externalOperationReceipt: z.boolean().optional(),
-            })
-            .optional(),
-        }),
-      ])
-      .optional(),
-    artworks: z
-      .union([
-        z.boolean(),
-        z.object({
-          include: z
-            .object({
-              tasksArtworks: z.boolean().optional(),
-              customerLogo: z.boolean().optional(),
-              taskBudget: z.boolean().optional(),
-              taskNfe: z.boolean().optional(),
-              supplierLogo: z.boolean().optional(),
-              orderNfe: z.boolean().optional(),
-              orderBudget: z.boolean().optional(),
-              orderReceipt: z.boolean().optional(),
-              observations: z.boolean().optional(),
-              airbrushingReceipts: z.boolean().optional(),
-              airbrushingInvoices: z.boolean().optional(),
-              airbrushingArtworks: z.boolean().optional(),
+              airbrushingLayouts: z.boolean().optional(),
               externalOperationBudget: z.boolean().optional(),
               externalOperationNfe: z.boolean().optional(),
               externalOperationReceipt: z.boolean().optional(),
@@ -717,15 +642,12 @@ export const airbrushingCreateSchema = z.preprocess(
       .default(AIRBRUSHING_PAYMENT_STATUS.PENDING),
     taskId: z.string().uuid('Tarefa inválida'),
     painterId: z.string().uuid('Pintor inválido').nullable().optional(),
-    budgetIds: z.array(z.string().uuid()).optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),
     receiptIds: z.array(z.string().uuid()).optional(),
-    reimbursementIds: z.array(z.string().uuid()).optional(),
-    reimbursementInvoiceIds: z.array(z.string().uuid()).optional(),
-    artworkIds: z.array(z.string().uuid()).optional(),
-    // Artwork statuses map - maps File ID to artwork status (for approval workflow)
-    // PREPROCESS: Handle malformed FormData where artworkStatuses comes as array-like object with stringified JSON
-    artworkStatuses: z
+    layoutIds: z.array(z.string().uuid()).optional(),
+    // Layout statuses map - maps File ID to layout status (for approval workflow)
+    // PREPROCESS: Handle malformed FormData where layoutStatuses comes as array-like object with stringified JSON
+    layoutStatuses: z
       .preprocess(
         val => {
           if (!val || typeof val !== 'object') return val;
@@ -752,7 +674,7 @@ export const airbrushingCreateSchema = z.preprocess(
         z.record(
           z.string().uuid(),
           z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
-            errorMap: () => ({ message: 'Status de artwork inválido' }),
+            errorMap: () => ({ message: 'Status de layout inválido' }),
           }),
         ),
       )
@@ -778,15 +700,12 @@ export const airbrushingUpdateSchema = z.preprocess(
     paymentStatus: z.nativeEnum(AIRBRUSHING_PAYMENT_STATUS).optional(),
     taskId: z.string().uuid('Tarefa inválida').optional(),
     painterId: z.string().uuid('Pintor inválido').nullable().optional(),
-    budgetIds: z.array(z.string().uuid()).optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),
     receiptIds: z.array(z.string().uuid()).optional(),
-    reimbursementIds: z.array(z.string().uuid()).optional(),
-    reimbursementInvoiceIds: z.array(z.string().uuid()).optional(),
-    artworkIds: z.array(z.string().uuid()).optional(),
-    // Artwork statuses map - maps File ID to artwork status (for approval workflow)
-    // PREPROCESS: Handle malformed FormData where artworkStatuses comes as array-like object with stringified JSON
-    artworkStatuses: z
+    layoutIds: z.array(z.string().uuid()).optional(),
+    // Layout statuses map - maps File ID to layout status (for approval workflow)
+    // PREPROCESS: Handle malformed FormData where layoutStatuses comes as array-like object with stringified JSON
+    layoutStatuses: z
       .preprocess(
         val => {
           if (!val || typeof val !== 'object') return val;
@@ -813,7 +732,7 @@ export const airbrushingUpdateSchema = z.preprocess(
         z.record(
           z.string().uuid(),
           z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
-            errorMap: () => ({ message: 'Status de artwork inválido' }),
+            errorMap: () => ({ message: 'Status de layout inválido' }),
           }),
         ),
       )
@@ -887,7 +806,7 @@ export const airbrushingCreateNestedSchema = z
   .object({
     // Existing airbrushing UUID or temporary client id ("airbrushing-*").
     // The task update flow branches on this to update-in-place instead of
-    // recreating (which would cascade-delete artworks).
+    // recreating (which would cascade-delete layouts).
     id: z.string().optional(),
     startDate: nullableDate.optional(),
     finishDate: nullableDate.optional(),
@@ -903,12 +822,9 @@ export const airbrushingCreateNestedSchema = z
     status: z.nativeEnum(AIRBRUSHING_STATUS).default(AIRBRUSHING_STATUS.PENDING),
     paymentStatus: z.nativeEnum(AIRBRUSHING_PAYMENT_STATUS).optional(),
     painterId: z.string().uuid('Pintor inválido').nullable().optional(),
-    budgetIds: z.array(z.string().uuid()).optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),
     receiptIds: z.array(z.string().uuid()).optional(),
-    reimbursementIds: z.array(z.string().uuid()).optional(),
-    reimbursementInvoiceIds: z.array(z.string().uuid()).optional(),
-    artworkIds: z.array(z.string().uuid()).optional(),
+    layoutIds: z.array(z.string().uuid()).optional(),
   })
   .transform(toFormData);
 
@@ -931,10 +847,7 @@ export const mapAirbrushingToFormData = createMapToFormDataHelper<
   paymentStatus: airbrushing.paymentStatus,
   taskId: airbrushing.taskId,
   painterId: airbrushing.painterId,
-  budgetIds: airbrushing.budgets?.map(file => file.id),
   invoiceIds: airbrushing.invoices?.map(file => file.id),
   receiptIds: airbrushing.receipts?.map(file => file.id),
-  reimbursementIds: airbrushing.reimbursements?.map(file => file.id),
-  reimbursementInvoiceIds: airbrushing.invoiceReimbursements?.map(file => file.id),
-  artworkIds: airbrushing.artworks?.map(file => file.id),
+  layoutIds: airbrushing.layouts?.map(layout => layout.id),
 }));

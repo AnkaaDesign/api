@@ -20,8 +20,8 @@ export const TASK_FIELD_DOMAINS = {
   truck: ['truck'],
   /** Responsible users (incl. inline-created responsibles on create) */
   responsibles: ['responsibleIds', 'responsibles', 'newResponsibles'],
-  /** Artwork files and approval statuses */
-  artworks: ['artworkIds', 'artworkStatuses'],
+  /** Layout files and approval statuses */
+  layouts: ['layoutIds', 'layoutStatuses'],
   /** Paint selection */
   paint: ['paintId', 'paintIds'],
   /** Cutting plans */
@@ -69,7 +69,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'identity',
     'serviceOrders',
     // Passthrough: form sends these to preserve existing state
-    'artworks',
+    'layouts',
     'baseFiles',
     'truck',
     'meta',
@@ -82,7 +82,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'bonification',
     'truck',
     'responsibles',
-    'artworks',
+    'layouts',
     'paint',
     'serviceOrders',
     'quote',
@@ -94,7 +94,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
 
   [SECTOR_PRIVILEGES.PRODUCTION]: ['status', 'meta'],
 
-  [SECTOR_PRIVILEGES.DESIGNER]: ['artworks', 'paint', 'cuts', 'serviceOrders', 'baseFiles', 'meta'],
+  [SECTOR_PRIVILEGES.DESIGNER]: ['layouts', 'paint', 'cuts', 'serviceOrders', 'baseFiles', 'meta'],
 
   [SECTOR_PRIVILEGES.LOGISTIC]: [
     'identity',
@@ -109,7 +109,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'serviceOrderFiles',
     'observation',
     // Passthrough: form sends these to preserve existing state
-    'artworks',
+    'layouts',
     'meta',
   ],
 
@@ -128,7 +128,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'observation',
     'sector',
     // Passthrough: form sends these to preserve existing state
-    'artworks',
+    'layouts',
     'meta',
   ],
 
@@ -158,7 +158,7 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'bonification',
     'truck',
     'responsibles',
-    'artworks',
+    'layouts',
     'paint',
     'serviceOrders',
     'quote',
@@ -178,7 +178,7 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'status',
     'truck',
     'responsibles',
-    'artworks',
+    'layouts',
     'paint',
     'serviceOrders',
     'quote',
@@ -200,7 +200,7 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'status',
     'truck',
     'responsibles',
-    'artworks',
+    'layouts',
     'paint',
     'serviceOrders',
     'baseFiles',
@@ -219,7 +219,7 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'status',
     'truck',
     'responsibles',
-    'artworks',
+    'layouts',
     'paint',
     'serviceOrders',
     'baseFiles',
@@ -242,7 +242,7 @@ const FIELD_DOMAIN_LABELS: Record<FieldDomain, string> = {
   bonification: 'bonificação',
   truck: 'caminhão',
   responsibles: 'responsáveis',
-  artworks: 'artes',
+  layouts: 'layouts',
   paint: 'tintas',
   cuts: 'plano de corte',
   airbrushings: 'aerografias',

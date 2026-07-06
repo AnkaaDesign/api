@@ -52,28 +52,25 @@ model Airbrushing {
   updatedAt             DateTime                 @updatedAt
   task                  Task                     @relation("AIRBRUSHING", fields: [taskId], references: [id], onDelete: Cascade)
   painter               User?                    @relation("AIRBRUSHING_PAINTER", fields: [painterId], references: [id], onDelete: SetNull)
-  artworks              Artwork[]
-  budgets               File[]                   @relation("AIRBRUSHING_BUDGETS")
+  layouts               Layout[]
   invoices              File[]                   @relation("AIRBRUSHING_INVOICES")
-  invoiceReimbursements File[]                   @relation("AIRBRUSHING_INVOICE_REIMBURSEMENTS")
   receipts              File[]                   @relation("AIRBRUSHING_RECEIPTS")
-  reimbursements        File[]                   @relation("AIRBRUSHING_REIMBURSEMENTS")
   reconciliationMatches ReconciliationMatch[]    @relation("AirbrushingMatches")
 
   @@index([statusOrder])
   @@index([painterId])
 }
 
-model Artwork {
+model Layout {
   id            String        @id @default(uuid())
   fileId        String        @unique
-  status        ArtworkStatus @default(APPROVED)
+  status        LayoutStatus  @default(APPROVED)
   airbrushingId String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   airbrushing   Airbrushing?  @relation(fields: [airbrushingId], references: [id], onDelete: Cascade)
   file          File          @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  tasks         Task[]        @relation("TaskArtworks")
+  tasks         Task[]        @relation("TaskLayouts")
 
   @@index([fileId])
   @@index([airbrushingId])
@@ -663,10 +660,10 @@ model File {
   quoteLayoutId                          String?
   createdAt                              DateTime                  @default(now())
   updatedAt                              DateTime                  @updatedAt
-  artworks                               Artwork?
+  layouts                                Layout?
   customerLogo                           Customer[]                @relation("CUSTOMER_LOGO")
   taskCuts                               Cut[]                     @relation("TASK_CUTS")
-  layoutPhotos                           Layout[]                  @relation("LAYOUT_PHOTO")
+  implementMeasurePhotos                 ImplementMeasure[]        @relation("IMPLEMENT_MEASURE_PHOTO")
   ppeDeliveryDocuments                   PpeDelivery[]             @relation("PPE_DELIVERY_DOCUMENT")
   ppeSignatureDocuments                  PpeDeliverySignature[]    @relation("PPE_SIGNATURE_DOCUMENT")
   warningSignatureDocuments              WarningSignature[]        @relation("WARNING_SIGNATURE_DOCUMENT")
@@ -675,11 +672,8 @@ model File {
   quoteLayout                            TaskQuote?                @relation("QUOTE_LAYOUT", fields: [quoteLayoutId], references: [id], onDelete: SetNull)
   userAvatar                             User[]                    @relation("USER_AVATAR")
   thumbnailJob                           ThumbnailJob?
-  airbrushingBudgets                     Airbrushing[]             @relation("AIRBRUSHING_BUDGETS")
   airbrushingInvoices                    Airbrushing[]             @relation("AIRBRUSHING_INVOICES")
-  airbrushingInvoiceReimbursements       Airbrushing[]             @relation("AIRBRUSHING_INVOICE_REIMBURSEMENTS")
   airbrushingReceipts                    Airbrushing[]             @relation("AIRBRUSHING_RECEIPTS")
-  airbrushingReimbursements              Airbrushing[]             @relation("AIRBRUSHING_REIMBURSEMENTS")
   externalOperationInvoices              ExternalOperation[]       @relation("EXTERNAL_OPERATION_INVOICES")
   externalOperationInvoiceReimbursements ExternalOperation[]       @relation("EXTERNAL_OPERATION_INVOICE_REIMBURSEMENTS")
   externalOperationReceipts              ExternalOperation[]       @relation("EXTERNAL_OPERATION_RECEIPTS")
@@ -1925,7 +1919,7 @@ model Task {
   receipts              File[]                @relation("TASK_RECEIPTS")
   bankSlips             File[]                @relation("TASK_BANK_SLIPS")
   reimbursements        File[]                @relation("TASK_REIMBURSEMENTS")
-  artworks              Artwork[]             @relation("TaskArtworks")
+  layouts               Layout[]              @relation("TaskLayouts")
   projectFiles          File[]                @relation("TASK_PROJECT_FILES")
   checkinFiles          File[]                @relation("TASK_CHECKIN_FILES")
   checkoutFiles         File[]                @relation("TASK_CHECKOUT_FILES")
@@ -2030,12 +2024,12 @@ model Truck {
   taskId            String         @unique
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
-  backSideLayoutId  String?
-  leftSideLayoutId  String?
-  rightSideLayoutId String?
-  backSideLayout    Layout?        @relation("TRUCK_BACK_SIDE", fields: [backSideLayoutId], references: [id])
-  leftSideLayout    Layout?        @relation("TRUCK_LEFT_SIDE", fields: [leftSideLayoutId], references: [id])
-  rightSideLayout   Layout?        @relation("TRUCK_RIGHT_SIDE", fields: [rightSideLayoutId], references: [id])
+  backSideMeasureId  String?
+  leftSideMeasureId  String?
+  rightSideMeasureId String?
+  backSideMeasure    ImplementMeasure? @relation("TRUCK_BACK_SIDE", fields: [backSideMeasureId], references: [id])
+  leftSideMeasure    ImplementMeasure? @relation("TRUCK_LEFT_SIDE", fields: [leftSideMeasureId], references: [id])
+  rightSideMeasure   ImplementMeasure? @relation("TRUCK_RIGHT_SIDE", fields: [rightSideMeasureId], references: [id])
   task              Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   chassisNumberNormalized String? /// accent-insensitive search (generated column, see migration)
@@ -2043,36 +2037,36 @@ model Truck {
 
   @@index([spot])
   @@index([plate])
-  @@index([backSideLayoutId])
-  @@index([leftSideLayoutId])
-  @@index([rightSideLayoutId])
+  @@index([backSideMeasureId])
+  @@index([leftSideMeasureId])
+  @@index([rightSideMeasureId])
 }
 
-model Layout {
-  id              String          @id @default(uuid())
+model ImplementMeasure {
+  id              String                     @id @default(uuid())
   height          Float
   photoId         String?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  photo           File?           @relation("LAYOUT_PHOTO", fields: [photoId], references: [id])
-  layoutSections  LayoutSection[] @relation("LayoutSections")
-  trucksBackSide  Truck[]         @relation("TRUCK_BACK_SIDE")
-  trucksLeftSide  Truck[]         @relation("TRUCK_LEFT_SIDE")
-  trucksRightSide Truck[]         @relation("TRUCK_RIGHT_SIDE")
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  photo           File?                      @relation("IMPLEMENT_MEASURE_PHOTO", fields: [photoId], references: [id])
+  sections        ImplementMeasureSection[]  @relation("ImplementMeasureSections")
+  trucksBackSide  Truck[]                    @relation("TRUCK_BACK_SIDE")
+  trucksLeftSide  Truck[]                    @relation("TRUCK_LEFT_SIDE")
+  trucksRightSide Truck[]                    @relation("TRUCK_RIGHT_SIDE")
 }
 
-model LayoutSection {
-  id         String   @id @default(uuid())
-  layoutId   String
-  width      Float
-  isDoor     Boolean  @default(false)
-  doorHeight Float?
-  position   Int
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  layout     Layout   @relation("LayoutSections", fields: [layoutId], references: [id], onDelete: Cascade)
+model ImplementMeasureSection {
+  id                 String           @id @default(uuid())
+  implementMeasureId String
+  width              Float
+  isDoor             Boolean          @default(false)
+  doorHeight         Float?
+  position           Int
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  implementMeasure   ImplementMeasure @relation("ImplementMeasureSections", fields: [implementMeasureId], references: [id], onDelete: Cascade)
 
-  @@index([layoutId, position])
+  @@index([implementMeasureId, position])
 }
 
 model SecullumToken {
@@ -3127,7 +3121,6 @@ enum ActivityReason {
   ORDER_RECEIVED
   PRODUCTION_USAGE
   PPE_DELIVERY
-  BORROW
   RETURN
   EXTERNAL_OPERATION
   EXTERNAL_OPERATION_RETURN
@@ -3196,11 +3189,10 @@ enum AirbrushingStatus {
 
 enum AirbrushingPaymentStatus {
   PENDING
-  PARTIALLY_PAID
   PAID
 }
 
-enum ArtworkStatus {
+enum LayoutStatus {
   DRAFT
   APPROVED
   REPROVED
@@ -3232,7 +3224,6 @@ enum BorrowStatus {
   ACTIVE
   RETURNED
   LOST
-  OVERDUE
 }
 
 enum ExternalOperationType {
@@ -3666,7 +3657,7 @@ enum ChangeLogEntityType {
   ITEM
   ITEM_BRAND
   ITEM_CATEGORY
-  LAYOUT
+  IMPLEMENT_MEASURE
   LEAVE
   MAINTENANCE
   MAINTENANCE_ITEM

@@ -219,7 +219,7 @@ export class TruckService {
     // Get all valid spots for this garage
     const garageSpots = getGarageSpots(garageId);
 
-    // Get all trucks in this garage with their layout sections and active task to calculate lengths
+    // Get all trucks in this garage with their implementMeasure sections and active task to calculate lengths
     const trucksInGarage = await this.prisma.truck.findMany({
       where: {
         spot: {
@@ -228,11 +228,11 @@ export class TruckService {
         ...(excludeTruckId && { id: { not: excludeTruckId } }),
       },
       include: {
-        leftSideLayout: {
-          include: { layoutSections: true },
+        leftSideMeasure: {
+          include: { sections: true },
         },
-        rightSideLayout: {
-          include: { layoutSections: true },
+        rightSideMeasure: {
+          include: { sections: true },
         },
         task: {
           select: { name: true },
@@ -240,14 +240,14 @@ export class TruckService {
       },
     });
 
-    // Calculate truck lengths from layout sections
+    // Calculate truck lengths from implementMeasure sections
     const trucksWithLengths = trucksInGarage.map(truck => {
-      // Use left or right side layout to calculate length
-      const layout = truck.leftSideLayout || truck.rightSideLayout;
+      // Use left or right side implementMeasure to calculate length
+      const implementMeasure = truck.leftSideMeasure || truck.rightSideMeasure;
       let length: number = GARAGE_CONFIG.MIN_TRUCK_LENGTH; // Default minimum
 
-      if (layout?.layoutSections) {
-        const sectionsSum = layout.layoutSections.reduce((sum, s) => sum + s.width, 0);
+      if (implementMeasure?.sections) {
+        const sectionsSum = implementMeasure.sections.reduce((sum, s) => sum + s.width, 0);
         // Calculate full truck length with cabin using two-tier system
         length = calculateTruckGarageLength(sectionsSum);
       }

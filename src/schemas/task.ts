@@ -249,7 +249,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
-      artworks: z
+      layouts: z
         .union([
           z.boolean(),
           z.object({
@@ -447,8 +447,8 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 implementType: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
                 updatedAt: z.boolean().optional(),
-                // Layout relations with nested select support
-                leftSideLayout: z
+                // ImplementMeasure relations with nested select support
+                leftSideMeasure: z
                   .union([
                     z.boolean(),
                     z.object({
@@ -456,7 +456,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                         .object({
                           id: z.boolean().optional(),
                           height: z.boolean().optional(),
-                          layoutSections: z
+                          sections: z
                             .union([
                               z.boolean(),
                               z.object({
@@ -477,7 +477,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                     }),
                   ])
                   .optional(),
-                rightSideLayout: z
+                rightSideMeasure: z
                   .union([
                     z.boolean(),
                     z.object({
@@ -485,7 +485,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                         .object({
                           id: z.boolean().optional(),
                           height: z.boolean().optional(),
-                          layoutSections: z
+                          sections: z
                             .union([
                               z.boolean(),
                               z.object({
@@ -506,7 +506,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                     }),
                   ])
                   .optional(),
-                backSideLayout: z
+                backSideMeasure: z
                   .union([
                     z.boolean(),
                     z.object({
@@ -514,7 +514,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                         .object({
                           id: z.boolean().optional(),
                           height: z.boolean().optional(),
-                          layoutSections: z
+                          sections: z
                             .union([
                               z.boolean(),
                               z.object({
@@ -669,7 +669,7 @@ export const taskSelectTable = {
   _count: {
     select: {
       serviceOrders: true,
-      artworks: true,
+      layouts: true,
       logoPaints: true,
     },
   },
@@ -783,7 +783,7 @@ export const taskSelectDetail = {
       size: true,
     },
   },
-  artworks: {
+  layouts: {
     select: {
       id: true,
       fileId: true,
@@ -987,7 +987,7 @@ export const taskSelectPreparation = {
   },
   _count: {
     select: {
-      artworks: true,
+      layouts: true,
       logoPaints: true,
     },
   },
@@ -1109,7 +1109,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
       observation: prismaRelationValue.optional(),
       generalPainting: prismaRelationValue.optional(),
       createdBy: prismaRelationValue.optional(),
-      artworks: prismaRelationValue.optional(),
+      layouts: prismaRelationValue.optional(),
       baseFiles: prismaRelationValue.optional(),
       projectFiles: prismaRelationValue.optional(),
       checkinFiles: prismaRelationValue.optional(),
@@ -1242,7 +1242,7 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       observation: z.any().optional(),
       generalPainting: z.any().optional(),
       createdBy: z.any().optional(),
-      artworks: z
+      layouts: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -1397,12 +1397,12 @@ const taskTransform = (data: any): any => {
     delete data.hasObservation;
   }
 
-  if (data.hasArtworks === true) {
-    andConditions.push({ artworks: { some: {} } });
-    delete data.hasArtworks;
-  } else if (data.hasArtworks === false) {
-    andConditions.push({ artworks: { none: {} } });
-    delete data.hasArtworks;
+  if (data.hasLayouts === true) {
+    andConditions.push({ layouts: { some: {} } });
+    delete data.hasLayouts;
+  } else if (data.hasLayouts === false) {
+    andConditions.push({ layouts: { none: {} } });
+    delete data.hasLayouts;
   }
 
   if (data.hasPaints === true) {
@@ -1538,8 +1538,8 @@ const taskTransform = (data: any): any => {
   }
 
   // Design-specific display logic:
-  // Tasks should only display for design users until all artwork service orders are completed
-  // Also shows tasks that don't have an artwork service order yet
+  // Tasks should only display for design users until all layout service orders are completed
+  // Also shows tasks that don't have an layout service order yet
   // Logic: Show task if:
   // 1. Task has no ARTWORK service orders, OR
   // 2. Task has at least one ARTWORK service order that is NOT COMPLETED/CANCELLED
@@ -1548,12 +1548,12 @@ const taskTransform = (data: any): any => {
       AND: [
         // Not cancelled
         { status: { not: 'CANCELLED' } },
-        // Either has no artwork service orders OR has incomplete artwork service orders
+        // Either has no layout service orders OR has incomplete layout service orders
         {
           OR: [
-            // No artwork service orders at all
+            // No layout service orders at all
             { serviceOrders: { none: { type: 'ARTWORK' } } },
-            // Has at least one incomplete artwork service order
+            // Has at least one incomplete layout service order
             {
               serviceOrders: {
                 some: {
@@ -2040,7 +2040,7 @@ export const taskGetManySchema = z
     hasAssignee: z.boolean().optional(),
     hasTruck: z.boolean().optional(),
     hasObservation: z.boolean().optional(),
-    hasArtworks: z.boolean().optional(),
+    hasLayouts: z.boolean().optional(),
     hasPaints: z.boolean().optional(),
     hasServices: z.boolean().optional(),
     hasIncompleteServiceOrders: z.boolean().optional(), // For financial: tasks with ANY incomplete service orders
@@ -2321,8 +2321,8 @@ const taskProductionServiceOrderCreateSchema = z.object({
   checkoutFileIds: z.array(z.string().uuid('Arquivo de checkout inválido')).optional(),
 });
 
-// Layout section schema
-const layoutSectionSchema = z.object({
+// ImplementMeasure section schema
+const implementMeasureSectionSchema = z.object({
   id: z.string().uuid().optional(), // Existing section ID for updates
   width: z.number().positive(),
   isDoor: z.boolean(),
@@ -2330,12 +2330,12 @@ const layoutSectionSchema = z.object({
   position: z.number(),
 });
 
-// Layout side schema
-const layoutSideSchema = z
+// ImplementMeasure side schema
+const implementMeasureSideSchema = z
   .object({
-    id: z.string().uuid().optional(), // Existing layout ID for updates
+    id: z.string().uuid().optional(), // Existing implementMeasure ID for updates
     height: z.number().positive(),
-    layoutSections: z.array(layoutSectionSchema),
+    sections: z.array(implementMeasureSectionSchema),
     photoId: z.string().uuid().nullable().optional(),
   })
   .nullable()
@@ -2380,14 +2380,14 @@ const taskTruckSchema = z
     // Truck specifications
     category: truckCategorySchema.nullable().optional(),
     implementType: implementTypeSchema.nullable().optional(),
-    // Layout data - embedded in truck for single payload (new layouts)
-    leftSideLayout: layoutSideSchema,
-    rightSideLayout: layoutSideSchema,
-    backSideLayout: layoutSideSchema,
-    // Shared layout IDs - for batch creation (connect to existing layouts)
-    leftSideLayoutId: z.string().uuid().nullable().optional(),
-    rightSideLayoutId: z.string().uuid().nullable().optional(),
-    backSideLayoutId: z.string().uuid().nullable().optional(),
+    // ImplementMeasure data - embedded in truck for single payload (new implementMeasures)
+    leftSideMeasure: implementMeasureSideSchema,
+    rightSideMeasure: implementMeasureSideSchema,
+    backSideMeasure: implementMeasureSideSchema,
+    // Shared implementMeasure IDs - for batch creation (connect to existing implementMeasures)
+    leftSideMeasureId: z.string().uuid().nullable().optional(),
+    rightSideMeasureId: z.string().uuid().nullable().optional(),
+    backSideMeasureId: z.string().uuid().nullable().optional(),
   })
   .nullable()
   .optional();
@@ -2471,13 +2471,13 @@ export const taskCreateSchema = z
     bankSlipIds: uuidArraySchema('Boleto inválido'),
     reimbursementIds: uuidArraySchema('Reimbursement inválido'),
     reimbursementInvoiceIds: uuidArraySchema('NFe de reimbursement inválida'),
-    artworkIds: uuidArraySchema('Arquivo inválido'),
-    // Artwork statuses map - maps File ID to artwork status (for approval workflow)
-    artworkStatuses: z
+    layoutIds: uuidArraySchema('Arquivo inválido'),
+    // Layout statuses map - maps File ID to layout status (for approval workflow)
+    layoutStatuses: z
       .record(
         z.string().uuid(),
         z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
-          errorMap: () => ({ message: 'Status de artwork inválido' }),
+          errorMap: () => ({ message: 'Status de layout inválido' }),
         }),
       )
       .optional(),
@@ -2490,7 +2490,7 @@ export const taskCreateSchema = z
     quote: taskQuoteCreateNestedSchema.optional().nullable(), // Nested quote creation (one-to-one: each task gets its own quote)
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
-    truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts
+    truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and implementMeasures
     cut: cutCreateNestedSchema.nullable().optional(),
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
     airbrushings: z.array(airbrushingCreateNestedSchema).optional(), // Support for multiple airbrushings
@@ -2695,10 +2695,10 @@ export const taskUpdateSchema = z
     bankSlipIds: uuidArraySchema('Boleto inválido'),
     reimbursementIds: uuidArraySchema('Reimbursement inválido'),
     reimbursementInvoiceIds: uuidArraySchema('NFe de reimbursement inválida'),
-    artworkIds: uuidArraySchema('Arquivo inválido'),
-    // Artwork statuses map - maps File ID to artwork status (for approval workflow on existing files)
-    // PREPROCESS: Handle malformed FormData where artworkStatuses comes as array-like object with stringified JSON
-    artworkStatuses: z
+    layoutIds: uuidArraySchema('Arquivo inválido'),
+    // Layout statuses map - maps File ID to layout status (for approval workflow on existing files)
+    // PREPROCESS: Handle malformed FormData where layoutStatuses comes as array-like object with stringified JSON
+    layoutStatuses: z
       .preprocess(
         val => {
           // If it's already a proper record, return as-is
@@ -2731,16 +2731,16 @@ export const taskUpdateSchema = z
         z.record(
           z.string().uuid(),
           z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
-            errorMap: () => ({ message: 'Status de artwork inválido' }),
+            errorMap: () => ({ message: 'Status de layout inválido' }),
           }),
         ),
       )
       .optional(),
-    // New artwork statuses array - array of statuses for new files being uploaded (matches files array order)
-    newArtworkStatuses: z
+    // New layout statuses array - array of statuses for new files being uploaded (matches files array order)
+    newLayoutStatuses: z
       .array(
         z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
-          errorMap: () => ({ message: 'Status de artwork inválido' }),
+          errorMap: () => ({ message: 'Status de layout inválido' }),
         }),
       )
       .optional(),
@@ -2753,7 +2753,7 @@ export const taskUpdateSchema = z
     quote: taskQuoteCreateNestedSchema.optional().nullable(), // Nested quote creation (one-to-one: each task gets its own quote)
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
-    truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts
+    truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and implementMeasures
     cut: cutCreateNestedSchema.nullable().optional(),
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
     airbrushings: z.array(airbrushingCreateNestedSchema).optional(), // Support for multiple airbrushings
@@ -2789,7 +2789,7 @@ export const taskUpdateSchema = z
     removeInvoiceIds: z.array(z.string().uuid()).optional(),
     removeReceiptIds: z.array(z.string().uuid()).optional(),
     removeAirbrushingIds: z.array(z.string().uuid()).optional(),
-    removeArtworkIds: z.array(z.string().uuid()).optional(),
+    removeLayoutIds: z.array(z.string().uuid()).optional(),
     removeReimbursementIds: z.array(z.string().uuid()).optional(),
     removeReimbursementInvoiceIds: z.array(z.string().uuid()).optional(),
   })
@@ -2955,14 +2955,14 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   reimbursementInvoiceIds: task.invoiceReimbursements?.map(
     reimbursementInvoice => reimbursementInvoice.id,
   ),
-  // CRITICAL: artworkIds should be File IDs (artwork.fileId), not Artwork entity IDs
-  artworkIds: task.artworks?.map(artwork => artwork.fileId || (artwork as any).file?.id),
-  // Map artwork statuses (File ID → status)
-  artworkStatuses: task.artworks?.reduce(
-    (acc, artwork) => {
-      const fileId = artwork.fileId || (artwork as any).file?.id;
-      if (fileId && artwork.status) {
-        acc[fileId] = artwork.status as 'DRAFT' | 'APPROVED' | 'REPROVED';
+  // CRITICAL: layoutIds should be File IDs (layout.fileId), not Layout entity IDs
+  layoutIds: task.layouts?.map(layout => layout.fileId || (layout as any).file?.id),
+  // Map layout statuses (File ID → status)
+  layoutStatuses: task.layouts?.reduce(
+    (acc, layout) => {
+      const fileId = layout.fileId || (layout as any).file?.id;
+      if (fileId && layout.status) {
+        acc[fileId] = layout.status as 'DRAFT' | 'APPROVED' | 'REPROVED';
       }
       return acc;
     },

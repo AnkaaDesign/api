@@ -99,9 +99,13 @@ FROM node:18-alpine AS production
 
 # Install dumb-init and runtime dependencies
 # cairo, jpeg: Required for sharp image processing at runtime
+# ghostscript: EPS/PDF -> vector PDF crop + raster fallback (thumbnail pipeline)
+# poppler-utils: provides pdftocairo — preferred high-quality EPS/PDF rasterizer
+# imagemagick: last-resort EPS raster fallback
 # chromium + libs: Required for Playwright (SecullumBrowserSignerService)
 RUN apk add --no-cache \
     dumb-init cairo jpeg \
+    ghostscript poppler-utils imagemagick \
     chromium nss freetype harfbuzz ca-certificates ttf-freefont \
     && ln -sf /usr/bin/chromium-browser /usr/bin/chromium
 

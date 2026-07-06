@@ -14,7 +14,7 @@ import type { TASK_STATUS, BONIFICATION_STATUS } from '@constants';
 import type { Sector, SectorIncludes, SectorOrderBy } from './sector';
 import type { Customer, CustomerIncludes, CustomerOrderBy } from './customer';
 import type { File, FileIncludes } from './file';
-import type { Artwork, ArtworkIncludes } from './artwork';
+import type { Layout, LayoutIncludes } from './layout';
 import type { Observation, ObservationIncludes } from './observation';
 import type { Paint, PaintIncludes, PaintOrderBy } from './paint';
 import type { User, UserIncludes, UserOrderBy } from './user';
@@ -64,11 +64,11 @@ export interface Task extends BaseEntity {
   bankSlips?: File[];
   reimbursements?: File[];
   invoiceReimbursements?: File[];
-  baseFiles?: File[]; // Files used as base for artwork design
+  baseFiles?: File[]; // Files used as base for layout design
   observation?: Observation;
   generalPainting?: Paint;
   createdBy?: User;
-  artworks?: Artwork[];
+  layouts?: Layout[];
   logoPaints?: Paint[];
   serviceOrders?: ServiceOrder[]; // Prisma relation field
   quoteId?: string | null; // Foreign key to TaskQuote
@@ -230,7 +230,7 @@ export type TaskSelect = TaskSelectFields & {
   observation?: boolean | { select?: { id?: boolean; description?: boolean } };
   generalPainting?: boolean | { select?: { id?: boolean; name?: boolean; code?: boolean } };
   createdBy?: boolean | { select?: { id?: boolean; name?: boolean; email?: boolean } };
-  artworks?: boolean | { select?: { id?: boolean; fileId?: boolean; status?: boolean } };
+  layouts?: boolean | { select?: { id?: boolean; fileId?: boolean; status?: boolean } };
   logoPaints?: boolean | { select?: { id?: boolean; name?: boolean; code?: boolean } };
   serviceOrders?:
     | boolean
@@ -424,7 +424,7 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
   createdBy: {
     select: { id: true, name: true, email: true },
   },
-  artworks: {
+  layouts: {
     select: {
       id: true,
       fileId: true,
@@ -602,7 +602,7 @@ export interface TaskDetailed extends BaseEntity {
   observation?: { id: string; description: string } | null;
   generalPainting?: { id: string; name: string; code: string | null } | null;
   createdBy?: { id: string; name: string; email: string } | null;
-  artworks?: Array<{ id: string; fileId: string; status: string }>;
+  layouts?: Array<{ id: string; fileId: string; status: string }>;
   logoPaints?: Array<{ id: string; name: string; code: string | null }>;
   serviceOrders?: Array<{
     id: string;
@@ -742,10 +742,10 @@ export interface TaskIncludes {
     | {
         include?: UserIncludes;
       };
-  artworks?:
+  layouts?:
     | boolean
     | {
-        include?: ArtworkIncludes;
+        include?: LayoutIncludes;
       };
   logoPaints?:
     | boolean

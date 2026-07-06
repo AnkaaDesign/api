@@ -56,7 +56,7 @@ export class PaintPrismaRepository
     // Map database fields to API fields
     const mapped: any = { ...databaseEntity };
 
-    // Generate URL from colorPreview path (like task artworks workflow)
+    // Generate URL from colorPreview path (like task layouts workflow)
     // colorPreview stores the file path, URL is generated at retrieval time
     if (
       mapped.colorPreview &&

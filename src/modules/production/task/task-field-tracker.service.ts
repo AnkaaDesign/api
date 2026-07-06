@@ -39,10 +39,10 @@ export interface TaskFieldChangedEvent {
   isFileArray?: boolean;
   fileChange?: FileArrayChange;
   /**
-   * Present only on the synthetic 'truck.layout' consolidated event. Human-readable
-   * PT-BR summary listing which truck sides had their layout changed.
+   * Present only on the synthetic 'truck.implementMeasure' consolidated event. Human-readable
+   * PT-BR summary listing which truck sides had their implementMeasure changed.
    */
-  layoutChangeSummary?: string;
+  implementMeasureChangeSummary?: string;
 }
 
 /**
@@ -60,7 +60,7 @@ const TRACKED_FIELDS = [
   'sectorId',
   'bonification',
   'responsibles',
-  'artworks', // array of files
+  'layouts', // array of files
   'budgets', // array of files
   'invoices', // array of files
   'receipts', // array of files
@@ -83,28 +83,28 @@ const TRACKED_FIELDS = [
   'truck.category',
   'truck.implementType',
   'truck.spot',
-  // Truck layout references (tracks when layouts are assigned/changed)
-  'truck.leftSideLayoutId',
-  'truck.rightSideLayoutId',
-  'truck.backSideLayoutId',
+  // Truck implementMeasure references (tracks when implementMeasures are assigned/changed)
+  'truck.leftSideMeasureId',
+  'truck.rightSideMeasureId',
+  'truck.backSideMeasureId',
 ] as const;
 
 /**
- * Truck layout side fields. When more than one of these change in the same task
- * update, they are collapsed into a single synthetic 'truck.layout' field so that
+ * Truck implementMeasure side fields. When more than one of these change in the same task
+ * update, they are collapsed into a single synthetic 'truck.implementMeasure' field so that
  * only ONE consolidated notification is emitted (instead of one per side).
  */
-const TRUCK_LAYOUT_SIDE_FIELDS: Record<string, string> = {
-  'truck.leftSideLayoutId': 'Motorista',
-  'truck.rightSideLayoutId': 'Sapo',
-  'truck.backSideLayoutId': 'Traseira',
+const TRUCK_MEASURE_SIDE_FIELDS: Record<string, string> = {
+  'truck.leftSideMeasureId': 'Motorista',
+  'truck.rightSideMeasureId': 'Sapo',
+  'truck.backSideMeasureId': 'Traseira',
 };
 
 /**
  * File array fields that require special handling
  */
 const FILE_ARRAY_FIELDS = [
-  'artworks',
+  'layouts',
   'budgets',
   'invoices',
   'receipts',
@@ -512,39 +512,39 @@ export class TaskFieldTrackerService {
   async emitFieldChangeEvents(task: Task, changes: FieldChange[], oldTask?: Task): Promise<void> {
     this.logger.debug(`Emitting ${changes.length} field change events for task ${task.id}`);
 
-    // Detect truck layout side changes. When MORE THAN ONE side changed in the same
-    // update, collapse them into a single synthetic 'truck.layout' event so only ONE
+    // Detect truck implementMeasure side changes. When MORE THAN ONE side changed in the same
+    // update, collapse them into a single synthetic 'truck.implementMeasure' event so only ONE
     // consolidated notification fires instead of one per side.
-    // Collapse whenever ANY layout side changed (one OR more) so the legacy per-side
-    // configs (task.field.truck.*SideLayoutId) go fully dormant and we always emit the
-    // consolidated 'truck.layout' event instead.
-    const layoutSideChanges = changes.filter(c => TRUCK_LAYOUT_SIDE_FIELDS[c.field]);
-    const shouldCollapseLayout = layoutSideChanges.length >= 1;
+    // Collapse whenever ANY implementMeasure side changed (one OR more) so the legacy per-side
+    // configs (task.field.truck.*SideImplementMeasureId) go fully dormant and we always emit the
+    // consolidated 'truck.implementMeasure' event instead.
+    const implementMeasureSideChanges = changes.filter(c => TRUCK_MEASURE_SIDE_FIELDS[c.field]);
+    const shouldCollapseImplementMeasure = implementMeasureSideChanges.length >= 1;
 
     let remainingChanges = changes;
-    if (shouldCollapseLayout) {
-      const changedSideLabels = layoutSideChanges.map(c => TRUCK_LAYOUT_SIDE_FIELDS[c.field]);
-      const layoutChangeSummary = changedSideLabels.join(', ');
+    if (shouldCollapseImplementMeasure) {
+      const changedSideLabels = implementMeasureSideChanges.map(c => TRUCK_MEASURE_SIDE_FIELDS[c.field]);
+      const implementMeasureChangeSummary = changedSideLabels.join(', ');
 
       this.logger.log(
-        `Collapsing ${layoutSideChanges.length} truck layout side changes into a single 'truck.layout' event (${layoutChangeSummary})`,
+        `Collapsing ${implementMeasureSideChanges.length} truck implementMeasure side changes into a single 'truck.implementMeasure' event (${implementMeasureChangeSummary})`,
       );
 
-      // Emit one consolidated event for the truck layout
-      const layoutEvent: TaskFieldChangedEvent = {
+      // Emit one consolidated event for the truck implementMeasure
+      const implementMeasureEvent: TaskFieldChangedEvent = {
         task,
-        field: 'truck.layout',
+        field: 'truck.implementMeasure',
         oldValue: null,
         newValue: null,
-        changedBy: layoutSideChanges[0].changedBy,
+        changedBy: implementMeasureSideChanges[0].changedBy,
         isFileArray: false,
-        layoutChangeSummary,
+        implementMeasureChangeSummary,
       };
-      this.eventEmitter.emit('task.field.changed', layoutEvent);
-      this.logger.debug(`Emitted consolidated task.field.changed event for field: truck.layout`);
+      this.eventEmitter.emit('task.field.changed', implementMeasureEvent);
+      this.logger.debug(`Emitted consolidated task.field.changed event for field: truck.implementMeasure`);
 
       // Remove the per-side changes so they don't each emit their own notification
-      remainingChanges = changes.filter(c => !TRUCK_LAYOUT_SIDE_FIELDS[c.field]);
+      remainingChanges = changes.filter(c => !TRUCK_MEASURE_SIDE_FIELDS[c.field]);
     }
 
     for (const change of remainingChanges) {

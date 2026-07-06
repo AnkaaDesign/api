@@ -46,7 +46,7 @@ import { FispqModule } from './modules/inventory/fispq/fispq.module';
 import { TaskModule } from './modules/production/task/task.module';
 import { TaskQuoteModule } from './modules/production/task-quote/task-quote.module';
 import { ObservationModule } from './modules/production/task-observation/observation.module';
-import { LayoutModule } from './modules/production/layout/layout.module';
+import { ImplementMeasureModule } from './modules/production/implement-measure/implement-measure.module';
 import { TruckModule } from './modules/production/truck/truck.module';
 import { UserModule } from './modules/people/user/user.module';
 import { ProfileModule } from './modules/people/profile/profile.module';
@@ -136,7 +136,7 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     FispqModule,
     TaskModule,
     TaskQuoteModule,
-    LayoutModule,
+    ImplementMeasureModule,
     TruckModule,
     UserModule,
     ProfileModule,

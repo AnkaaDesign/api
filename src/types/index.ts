@@ -1,6 +1,6 @@
 export * from './activity';
 export * from './airbrushing';
-export * from './artwork';
+export * from './layout';
 export * from './bonus';
 export * from './bonusDiscount';
 export * from './bonusExtra';

@@ -1,103 +1,524 @@
 // packages/schemas/src/layout.ts
 
 import { z } from 'zod';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy,
+  normalizeSearchTerm,
+} from './common';
+import type { Layout } from '@types';
 
 // =====================
-// Layout Section Schema
+// Include Schema Based on Prisma Schema (Second Level Only)
 // =====================
 
-export const layoutSectionCreateSchema = z
+export const layoutIncludeSchema = z
   .object({
-    width: z.number().positive('Largura deve ser positiva').max(20, 'Largura máxima: 20 metros'),
-    isDoor: z.boolean().default(false),
-    doorHeight: z.number().min(0, 'Altura da porta deve ser positiva').nullable().optional(),
-    position: z.number().int().min(0),
+    // Direct Layout relations
+    file: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z
+            .object({
+              layouts: z.boolean().optional(),
+              customerLogo: z.boolean().optional(),
+              supplierLogo: z.boolean().optional(),
+              observations: z.boolean().optional(),
+              warning: z.boolean().optional(),
+              airbrushingReceipts: z.boolean().optional(),
+              airbrushingInvoices: z.boolean().optional(),
+              airbrushingLayouts: z.boolean().optional(),
+              orderReceipts: z.boolean().optional(),
+              taskBudgets: z.boolean().optional(),
+              taskInvoices: z.boolean().optional(),
+              taskReceipts: z.boolean().optional(),
+              externalOperationBudgets: z.boolean().optional(),
+              externalOperationInvoices: z.boolean().optional(),
+              externalOperationReceipts: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
+    task: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z
+            .object({
+              sector: z.boolean().optional(),
+              customer: z.boolean().optional(),
+              budgets: z.boolean().optional(),
+              invoices: z.boolean().optional(),
+              receipts: z.boolean().optional(),
+              reimbursements: z.boolean().optional(),
+              invoiceReimbursements: z.boolean().optional(),
+              baseFiles: z.boolean().optional(),
+              observation: z.boolean().optional(),
+              generalPainting: z.boolean().optional(),
+              createdBy: z.boolean().optional(),
+              layouts: z.boolean().optional(),
+              logoPaints: z.boolean().optional(),
+              serviceOrders: z.boolean().optional(),
+              quote: z.boolean().optional(),
+              airbrushings: z.boolean().optional(),
+              cuts: z.boolean().optional(),
+              truck: z.boolean().optional(),
+              relatedTasks: z.boolean().optional(),
+              relatedTo: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
+    airbrushing: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z
+            .object({
+              task: z.boolean().optional(),
+              budgets: z.boolean().optional(),
+              invoices: z.boolean().optional(),
+              receipts: z.boolean().optional(),
+              reimbursements: z.boolean().optional(),
+              invoiceReimbursements: z.boolean().optional(),
+              layouts: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
   })
-  .refine(
-    data => {
-      // If it's a door, doorHeight should have a value
-      // If it's not a door, doorHeight should be null
-      if (data.isDoor) {
-        return data.doorHeight !== null && data.doorHeight !== undefined;
-      } else {
-        return data.doorHeight === null || data.doorHeight === undefined;
-      }
-    },
-    {
-      message: 'Porta deve ter altura definida',
-      path: ['doorHeight'],
-    },
-  );
+  .partial();
 
-export const layoutSectionUpdateSchema = z.object({
-  width: z
-    .number()
-    .positive('Largura deve ser positiva')
-    .max(20, 'Largura máxima: 20 metros')
-    .optional(),
-  isDoor: z.boolean().optional(),
-  doorHeight: z.number().min(0, 'Altura da porta deve ser positiva').nullable().optional(),
-  position: z.number().int().min(0).optional(),
+// =====================
+// OrderBy Schema Based on Prisma Schema Fields
+// =====================
+
+export const layoutOrderBySchema = z
+  .union([
+    // Single ordering object
+    z
+      .object({
+        // Layout direct fields (matching Prisma model)
+        id: orderByDirectionSchema.optional(),
+        fileId: orderByDirectionSchema.optional(),
+        status: orderByDirectionSchema.optional(),
+        taskId: orderByDirectionSchema.optional(),
+        airbrushingId: orderByDirectionSchema.optional(),
+        createdAt: orderByDirectionSchema.optional(),
+        updatedAt: orderByDirectionSchema.optional(),
+
+        // Nested relation ordering
+        file: z
+          .object({
+            id: orderByDirectionSchema.optional(),
+            filename: orderByDirectionSchema.optional(),
+            originalName: orderByDirectionSchema.optional(),
+            mimetype: orderByDirectionSchema.optional(),
+            size: orderByDirectionSchema.optional(),
+            createdAt: orderByDirectionSchema.optional(),
+            updatedAt: orderByDirectionSchema.optional(),
+          })
+          .optional(),
+        task: z
+          .object({
+            id: orderByDirectionSchema.optional(),
+            name: orderByDirectionSchema.optional(),
+            status: orderByDirectionSchema.optional(),
+            entryDate: orderByDirectionSchema.optional(),
+            term: orderByDirectionSchema.optional(),
+            createdAt: orderByDirectionSchema.optional(),
+            updatedAt: orderByDirectionSchema.optional(),
+          })
+          .optional(),
+        airbrushing: z
+          .object({
+            id: orderByDirectionSchema.optional(),
+            startDate: orderByDirectionSchema.optional(),
+            finishDate: orderByDirectionSchema.optional(),
+            status: orderByDirectionSchema.optional(),
+            createdAt: orderByDirectionSchema.optional(),
+            updatedAt: orderByDirectionSchema.optional(),
+          })
+          .optional(),
+      })
+      .optional(),
+
+    // Array of ordering objects for multiple field ordering
+    z.array(
+      z
+        .object({
+          id: orderByDirectionSchema.optional(),
+          fileId: orderByDirectionSchema.optional(),
+          status: orderByDirectionSchema.optional(),
+          taskId: orderByDirectionSchema.optional(),
+          airbrushingId: orderByDirectionSchema.optional(),
+          createdAt: orderByDirectionSchema.optional(),
+          updatedAt: orderByDirectionSchema.optional(),
+          file: z
+            .object({
+              id: orderByDirectionSchema.optional(),
+              filename: orderByDirectionSchema.optional(),
+              originalName: orderByDirectionSchema.optional(),
+              mimetype: orderByDirectionSchema.optional(),
+              size: orderByDirectionSchema.optional(),
+              createdAt: orderByDirectionSchema.optional(),
+              updatedAt: orderByDirectionSchema.optional(),
+            })
+            .optional(),
+          task: z
+            .object({
+              id: orderByDirectionSchema.optional(),
+              name: orderByDirectionSchema.optional(),
+              status: orderByDirectionSchema.optional(),
+              entryDate: orderByDirectionSchema.optional(),
+              term: orderByDirectionSchema.optional(),
+              createdAt: orderByDirectionSchema.optional(),
+              updatedAt: orderByDirectionSchema.optional(),
+            })
+            .optional(),
+          airbrushing: z
+            .object({
+              id: orderByDirectionSchema.optional(),
+              startDate: orderByDirectionSchema.optional(),
+              finishDate: orderByDirectionSchema.optional(),
+              status: orderByDirectionSchema.optional(),
+              createdAt: orderByDirectionSchema.optional(),
+              updatedAt: orderByDirectionSchema.optional(),
+            })
+            .optional(),
+        })
+        .optional(),
+    ),
+  ])
+  .optional();
+
+// =====================
+// Where Schema Based on Prisma Schema Fields
+// =====================
+
+export const layoutWhereSchema: z.ZodSchema<any> = z.lazy(() =>
+  z
+    .object({
+      // Logical operators
+      AND: z.union([layoutWhereSchema, z.array(layoutWhereSchema)]).optional(),
+      OR: z.array(layoutWhereSchema).optional(),
+      NOT: z.union([layoutWhereSchema, z.array(layoutWhereSchema)]).optional(),
+
+      // Layout fields
+      id: z
+        .union([
+          z.string(),
+          z.object({
+            equals: z.string().optional(),
+            in: z.array(z.string()).optional(),
+            notIn: z.array(z.string()).optional(),
+            not: z.string().optional(),
+          }),
+        ])
+        .optional(),
+
+      fileId: z
+        .union([
+          z.string(),
+          z.object({
+            equals: z.string().optional(),
+            in: z.array(z.string()).optional(),
+            notIn: z.array(z.string()).optional(),
+            not: z.string().optional(),
+          }),
+        ])
+        .optional(),
+
+      status: z
+        .union([
+          z.enum(['DRAFT', 'APPROVED', 'REPROVED']),
+          z.object({
+            equals: z.enum(['DRAFT', 'APPROVED', 'REPROVED']).optional(),
+            in: z.array(z.enum(['DRAFT', 'APPROVED', 'REPROVED'])).optional(),
+            notIn: z.array(z.enum(['DRAFT', 'APPROVED', 'REPROVED'])).optional(),
+            not: z.enum(['DRAFT', 'APPROVED', 'REPROVED']).optional(),
+          }),
+        ])
+        .optional(),
+
+      taskId: z
+        .union([
+          z.string(),
+          z.null(),
+          z.object({
+            equals: z.string().nullable().optional(),
+            in: z.array(z.string()).optional(),
+            notIn: z.array(z.string()).optional(),
+            not: z.string().nullable().optional(),
+          }),
+        ])
+        .optional(),
+
+      airbrushingId: z
+        .union([
+          z.string(),
+          z.null(),
+          z.object({
+            equals: z.string().nullable().optional(),
+            in: z.array(z.string()).optional(),
+            notIn: z.array(z.string()).optional(),
+            not: z.string().nullable().optional(),
+          }),
+        ])
+        .optional(),
+
+      createdAt: z
+        .object({
+          equals: z.date().optional(),
+          gte: z.coerce.date().optional(),
+          gt: z.coerce.date().optional(),
+          lte: z.coerce.date().optional(),
+          lt: z.coerce.date().optional(),
+        })
+        .optional(),
+
+      updatedAt: z
+        .object({
+          equals: z.date().optional(),
+          gte: z.coerce.date().optional(),
+          gt: z.coerce.date().optional(),
+          lte: z.coerce.date().optional(),
+          lt: z.coerce.date().optional(),
+        })
+        .optional(),
+
+      // Relation filters
+      file: z
+        .object({
+          is: z.any().optional(),
+          isNot: z.any().optional(),
+        })
+        .optional(),
+
+      task: z
+        .object({
+          is: z.any().optional(),
+          isNot: z.any().optional(),
+        })
+        .optional(),
+
+      airbrushing: z
+        .object({
+          is: z.any().optional(),
+          isNot: z.any().optional(),
+        })
+        .optional(),
+    })
+    .strict(),
+);
+
+// =====================
+// Query Filters
+// =====================
+
+const layoutFilters = {
+  searchingFor: z.string().optional(),
+  taskIds: z.array(z.string()).optional(),
+  airbrushingIds: z.array(z.string()).optional(),
+  fileIds: z.array(z.string()).optional(),
+  statuses: z.array(z.enum(['DRAFT', 'APPROVED', 'REPROVED'])).optional(),
+};
+
+// =====================
+// Transform Function
+// =====================
+
+const layoutTransform = (data: any) => {
+  // Normalize orderBy to Prisma format
+  if (data.orderBy) {
+    data.orderBy = normalizeOrderBy(data.orderBy);
+  }
+
+  // Handle take/limit alias
+  if (data.take && !data.limit) {
+    data.limit = data.take;
+  }
+  delete data.take;
+
+  const { searchingFor, taskIds, airbrushingIds, fileIds, statuses, ...rest } = data;
+
+  const andConditions: any[] = [];
+
+  if (searchingFor) {
+    andConditions.push({
+      OR: [
+        { file: { filenameNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
+        { file: { originalNameNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
+        { task: { nameNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
+        { task: { serialNumberNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
+      ],
+    });
+  }
+
+  if (taskIds) {
+    andConditions.push({ taskId: { in: taskIds } });
+  }
+
+  if (airbrushingIds) {
+    andConditions.push({ airbrushingId: { in: airbrushingIds } });
+  }
+
+  if (fileIds) {
+    andConditions.push({ fileId: { in: fileIds } });
+  }
+
+  if (statuses) {
+    andConditions.push({ status: { in: statuses } });
+  }
+
+  if (andConditions.length > 0) {
+    if (rest.where) {
+      rest.where = rest.where.AND
+        ? { ...rest.where, AND: [...rest.where.AND, ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
+    } else {
+      rest.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+    }
+  }
+
+  return rest;
+};
+
+// =====================
+// Query Schema
+// =====================
+
+export const layoutGetManySchema = z
+  .object({
+    // Pagination
+    page: z.coerce.number().int().min(0).default(1).optional(),
+    limit: z.coerce.number().int().positive().max(100).default(20).optional(),
+
+    // Direct Prisma clauses
+    where: layoutWhereSchema.optional(),
+    orderBy: layoutOrderBySchema.optional(),
+    include: layoutIncludeSchema.optional(),
+
+    // Convenience filters
+    ...layoutFilters,
+
+    // Date filters
+    createdAt: z
+      .object({
+        gte: z.coerce.date().optional(),
+        lte: z.coerce.date().optional(),
+      })
+      .optional(),
+    updatedAt: z
+      .object({
+        gte: z.coerce.date().optional(),
+        lte: z.coerce.date().optional(),
+      })
+      .optional(),
+  })
+  .transform(layoutTransform);
+
+// =====================
+// Additional Query Schemas
+// =====================
+
+export const layoutGetByIdSchema = z.object({
+  include: layoutIncludeSchema.optional(),
+  id: z.string().uuid('Layout inválido'),
 });
+
+// =====================
+// Transform for Create/Update Schemas
+// =====================
+
+const toFormData = <T>(data: T) => data;
 
 // =====================
 // CRUD Schemas
 // =====================
 
-export const layoutCreateSchema = z.object({
-  height: z
-    .number({ required_error: 'Altura é obrigatória' })
-    .positive('Altura deve ser positiva')
-    .max(10, 'Altura deve ser menor que 10 metros'),
+export const layoutCreateSchema = z.preprocess(
+  toFormData,
+  z.object({
+    fileId: z.string().uuid('Arquivo inválido'),
+    status: z.enum(['DRAFT', 'APPROVED', 'REPROVED']).default('APPROVED'),
+    taskId: z.string().uuid('Tarefa inválida').optional().nullable(),
+    airbrushingId: z.string().uuid('Aerografia inválida').optional().nullable(),
+  }),
+);
 
-  layoutSections: z
-    .array(layoutSectionCreateSchema)
-    .min(1, 'Deve ter pelo menos uma seção')
-    .max(10, 'Máximo de 10 seções permitidas'),
+export const layoutUpdateSchema = z.preprocess(
+  toFormData,
+  z.object({
+    fileId: z.string().uuid('Arquivo inválido').optional(),
+    status: z.enum(['DRAFT', 'APPROVED', 'REPROVED']).optional(),
+    taskId: z.string().uuid('Tarefa inválida').optional().nullable(),
+    airbrushingId: z.string().uuid('Aerografia inválida').optional().nullable(),
+  }),
+);
 
-  photoId: z.string().uuid('Foto inválida').nullable().optional(),
+// =====================
+// Batch Operations Schemas
+// =====================
+
+export const layoutBatchCreateSchema = z.object({
+  layouts: z.array(layoutCreateSchema).min(1, 'Pelo menos um layout deve ser fornecido'),
 });
 
-export const layoutUpdateSchema = z.object({
-  height: z
-    .number()
-    .positive('Altura deve ser positiva')
-    .max(10, 'Altura deve ser menor que 10 metros')
-    .optional(),
+export const layoutBatchUpdateSchema = z.object({
+  layouts: z
+    .array(
+      z.object({
+        id: z.string().uuid('Layout inválido'),
+        data: layoutUpdateSchema,
+      }),
+    )
+    .min(1, 'Pelo menos um layout deve ser fornecido'),
+});
 
-  layoutSections: z
-    .array(layoutSectionCreateSchema)
-    .min(1, 'Deve ter pelo menos uma seção')
-    .max(10, 'Máximo de 10 seções permitidas')
-    .optional(),
+export const layoutBatchDeleteSchema = z.object({
+  layoutIds: z
+    .array(z.string().uuid('Layout inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
+});
 
-  photoId: z.string().uuid('Foto inválida').nullable().optional(),
+// Query schema for include parameter
+export const layoutQuerySchema = z.object({
+  include: layoutIncludeSchema.optional(),
 });
 
 // =====================
 // Type Inference
 // =====================
 
-export type LayoutSectionCreateFormData = z.infer<typeof layoutSectionCreateSchema>;
-export type LayoutSectionUpdateFormData = z.infer<typeof layoutSectionUpdateSchema>;
+export type LayoutGetManyFormData = z.infer<typeof layoutGetManySchema>;
+export type LayoutGetByIdFormData = z.infer<typeof layoutGetByIdSchema>;
+export type LayoutQueryFormData = z.infer<typeof layoutQuerySchema>;
+
 export type LayoutCreateFormData = z.infer<typeof layoutCreateSchema>;
 export type LayoutUpdateFormData = z.infer<typeof layoutUpdateSchema>;
+
+export type LayoutBatchCreateFormData = z.infer<typeof layoutBatchCreateSchema>;
+export type LayoutBatchUpdateFormData = z.infer<typeof layoutBatchUpdateSchema>;
+export type LayoutBatchDeleteFormData = z.infer<typeof layoutBatchDeleteSchema>;
+
+export type LayoutInclude = z.infer<typeof layoutIncludeSchema>;
+export type LayoutOrderBy = z.infer<typeof layoutOrderBySchema>;
+export type LayoutWhere = z.infer<typeof layoutWhereSchema>;
 
 // =====================
 // Helper Functions
 // =====================
 
-export function calculateTotalLength(layoutSections: LayoutSectionCreateFormData[]): number {
-  return layoutSections.reduce((sum, section) => sum + section.width, 0);
-}
-
-export function validateLayoutConsistency(
-  layoutSections: LayoutSectionCreateFormData[],
-  height: number,
-): boolean {
-  // All door heights should be less than or equal to layout height
-  return layoutSections.every(
-    s =>
-      !s.isDoor || (s.doorHeight !== null && s.doorHeight !== undefined && s.doorHeight <= height),
-  );
-}
+export const mapLayoutToFormData = createMapToFormDataHelper<Layout, LayoutUpdateFormData>(
+  layout => ({
+    fileId: layout.fileId,
+    status: layout.status,
+    taskId: layout.taskId,
+    airbrushingId: layout.airbrushingId,
+  }),
+);

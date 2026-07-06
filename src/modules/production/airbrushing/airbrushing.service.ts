@@ -137,11 +137,11 @@ export class AirbrushingService {
     try {
       const result = await this.airbrushingRepository.findMany(query);
 
-      // Filter artworks based on user role for each airbrushing
-      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all artworks
-      // Others can only see APPROVED artworks
+      // Filter layouts based on user role for each airbrushing
+      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all layouts
+      // Others can only see APPROVED layouts
       if (userRole) {
-        const canSeeAllArtworks = [
+        const canSeeAllLayouts = [
           'COMMERCIAL',
           'DESIGNER',
           'LOGISTIC',
@@ -149,13 +149,13 @@ export class AirbrushingService {
           'ADMIN',
         ].includes(userRole);
 
-        if (!canSeeAllArtworks) {
+        if (!canSeeAllLayouts) {
           result.data = result.data.map(airbrushing => {
-            if (airbrushing.artworks) {
+            if (airbrushing.layouts) {
               return {
                 ...airbrushing,
-                artworks: airbrushing.artworks.filter(
-                  artwork => artwork.status === 'APPROVED' || artwork.status === null,
+                layouts: airbrushing.layouts.filter(
+                  layout => layout.status === 'APPROVED' || layout.status === null,
                 ),
               };
             }
@@ -193,11 +193,11 @@ export class AirbrushingService {
         throw new NotFoundException('Aerografia não encontrada.');
       }
 
-      // Filter artworks based on user role
-      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all artworks
-      // Others can only see APPROVED artworks
-      if (airbrushing.artworks && userRole) {
-        const canSeeAllArtworks = [
+      // Filter layouts based on user role
+      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all layouts
+      // Others can only see APPROVED layouts
+      if (airbrushing.layouts && userRole) {
+        const canSeeAllLayouts = [
           'COMMERCIAL',
           'DESIGNER',
           'LOGISTIC',
@@ -205,9 +205,9 @@ export class AirbrushingService {
           'ADMIN',
         ].includes(userRole);
 
-        if (!canSeeAllArtworks) {
-          airbrushing.artworks = airbrushing.artworks.filter(
-            artwork => artwork.status === 'APPROVED' || artwork.status === null,
+        if (!canSeeAllLayouts) {
+          airbrushing.layouts = airbrushing.layouts.filter(
+            layout => layout.status === 'APPROVED' || layout.status === null,
           );
         }
       }
@@ -234,22 +234,57 @@ export class AirbrushingService {
     files?: {
       receipts?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
-      artworks?: Express.Multer.File[];
+      layouts?: Express.Multer.File[];
     },
+    userRole?: string,
   ): Promise<AirbrushingCreateResponse> {
     try {
       const airbrushing = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Validar entidade completa
         await this.validateAirbrushing(data, undefined, tx);
 
-        // Criar a aerografia
-        const newAirbrushing = await this.airbrushingRepository.createWithTransaction(tx, data, {
+        // Extract layoutStatuses (not a Prisma field) before create
+        const layoutStatuses = (data as any).layoutStatuses as
+          | Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>
+          | undefined;
+
+        // Criar a aerografia (layouts são tratadas separadamente abaixo)
+        let newAirbrushing = await this.airbrushingRepository.createWithTransaction(tx, data, {
           include,
         });
 
-        // Process file uploads if provided
-        if (files && (files.receipts?.length || files.invoices?.length || files.artworks?.length)) {
-          await this.processAirbrushingFileUploads(newAirbrushing.id, files, userId, tx);
+        // Process file uploads if provided. Receipts/invoices are linked inside;
+        // uploaded layout files come back as File IDs to convert into Layouts.
+        let uploadedLayoutFileIds: string[] = [];
+        if (files && (files.receipts?.length || files.invoices?.length || files.layouts?.length)) {
+          const uploaded = await this.processAirbrushingFileUploads(
+            newAirbrushing.id,
+            files,
+            userId,
+            tx,
+          );
+          uploadedLayoutFileIds = uploaded.layoutIds;
+        }
+
+        // CRITICAL: convert layout File IDs (payload + uploads) into Layout
+        // entities linked to this airbrushing. Without this, art uploaded at
+        // creation would be an orphaned File with no Layout row (mirrors update()).
+        const layoutFileIds = [...(data.layoutIds || []), ...uploadedLayoutFileIds];
+        if (layoutFileIds.length > 0) {
+          await this.convertFileIdsToLayoutIds(
+            layoutFileIds,
+            newAirbrushing.id,
+            layoutStatuses,
+            userRole,
+            tx,
+          );
+          // Re-fetch so the response reflects the newly created layouts + files
+          const refreshed = await this.airbrushingRepository.findByIdWithTransaction(
+            tx,
+            newAirbrushing.id,
+            { include },
+          );
+          if (refreshed) newAirbrushing = refreshed;
         }
 
         // Registrar no changelog
@@ -297,7 +332,7 @@ export class AirbrushingService {
     files?: {
       receipts?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
-      artworks?: Express.Multer.File[];
+      layouts?: Express.Multer.File[];
     },
     userRole?: string,
   ): Promise<AirbrushingUpdateResponse> {
@@ -316,55 +351,73 @@ export class AirbrushingService {
         // Validar entidade completa
         await this.validateAirbrushing(data, id, tx);
 
-        // Extract artworkStatuses from data before removing it
-        const artworkStatuses = (data as any).artworkStatuses as
+        // Extract layoutStatuses from data before removing it
+        const layoutStatuses = (data as any).layoutStatuses as
           | Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>
           | undefined;
         this.logger.log(
-          `[Airbrushing Update] artworkStatuses received: ${JSON.stringify(artworkStatuses)}`,
+          `[Airbrushing Update] layoutStatuses received: ${JSON.stringify(layoutStatuses)}`,
         );
 
         // Process file uploads if provided and get new file IDs
         let newFileIds = {
           receiptIds: [] as string[],
           invoiceIds: [] as string[],
-          artworkIds: [] as string[],
+          layoutIds: [] as string[],
         };
-        if (files && (files.receipts?.length || files.invoices?.length || files.artworks?.length)) {
+        if (files && (files.receipts?.length || files.invoices?.length || files.layouts?.length)) {
           newFileIds = await this.processAirbrushingFileUploads(id, files, userId, tx);
         }
 
-        // Combine existing fileIds from data with newly uploaded file IDs
-        const combinedReceiptIds = [...(data.receiptIds || []), ...newFileIds.receiptIds];
-        const combinedInvoiceIds = [...(data.invoiceIds || []), ...newFileIds.invoiceIds];
-        const combinedArtworkFileIds = [...(data.artworkIds || []), ...newFileIds.artworkIds];
+        // Build update data. layoutStatuses is not a Prisma field.
+        const updateData: any = { ...data };
+        delete updateData.layoutStatuses;
 
-        // CRITICAL: Convert File IDs to Artwork entity IDs
-        // artworkIds from frontend are File IDs, but the artworks relation expects Artwork entity IDs
-        let artworkEntityIds: string[] = [];
-        if (combinedArtworkFileIds.length > 0) {
-          artworkEntityIds = await this.convertFileIdsToArtworkIds(
-            combinedArtworkFileIds,
-            id,
-            artworkStatuses,
-            userRole,
-            tx,
-          );
-          this.logger.log(
-            `[Airbrushing Update] Converted ${combinedArtworkFileIds.length} File IDs to ${artworkEntityIds.length} Artwork entity IDs`,
-          );
+        // File-relation reconciliation must be INTENT-BASED. The repository maps every
+        // provided *Ids array to a Prisma `set` (a full replace). A partial update — e.g. an
+        // inline status/painter/price/paymentStatus edit from the detail page — provides none
+        // of these arrays, so the relations must be left untouched. Reconciling
+        // unconditionally would push `set: []` and wipe every attached receipt/invoice/layout.
+        // Only reconcile a collection when the payload explicitly provided its IDs OR new files
+        // of that type were uploaded in this request.
+        const reconcileReceipts = data.receiptIds !== undefined || newFileIds.receiptIds.length > 0;
+        const reconcileInvoices = data.invoiceIds !== undefined || newFileIds.invoiceIds.length > 0;
+        const reconcileLayouts = data.layoutIds !== undefined || newFileIds.layoutIds.length > 0;
+
+        if (reconcileReceipts) {
+          updateData.receiptIds = [...(data.receiptIds || []), ...newFileIds.receiptIds];
+        } else {
+          delete updateData.receiptIds;
         }
 
-        // Build update data with converted artwork IDs (removing artworkStatuses as it's not a Prisma field)
-        const updateData = {
-          ...data,
-          receiptIds: combinedReceiptIds,
-          invoiceIds: combinedInvoiceIds,
-          // Use converted Artwork entity IDs, not File IDs
-          artworkIds: artworkEntityIds,
-        };
-        // Remove artworkStatuses from updateData as it's not a Prisma field
-        delete (updateData as any).artworkStatuses;
+        if (reconcileInvoices) {
+          updateData.invoiceIds = [...(data.invoiceIds || []), ...newFileIds.invoiceIds];
+        } else {
+          delete updateData.invoiceIds;
+        }
+
+        if (reconcileLayouts) {
+          // layoutIds from the client are File IDs; the layouts relation expects Layout entity
+          // IDs. Convert (creating/looking up Layout rows) before handing them to the repository.
+          const combinedLayoutFileIds = [...(data.layoutIds || []), ...newFileIds.layoutIds];
+          let layoutEntityIds: string[] = [];
+          if (combinedLayoutFileIds.length > 0) {
+            layoutEntityIds = await this.convertFileIdsToLayoutIds(
+              combinedLayoutFileIds,
+              id,
+              layoutStatuses,
+              userRole,
+              tx,
+            );
+            this.logger.log(
+              `[Airbrushing Update] Converted ${combinedLayoutFileIds.length} File IDs to ${layoutEntityIds.length} Layout entity IDs`,
+            );
+          }
+          // Use converted Layout entity IDs, not File IDs.
+          updateData.layoutIds = layoutEntityIds;
+        } else {
+          delete updateData.layoutIds;
+        }
 
         // Atualizar a aerografia
         const updatedAirbrushing = await this.airbrushingRepository.updateWithTransaction(
@@ -460,6 +513,7 @@ export class AirbrushingService {
     data: AirbrushingBatchCreateFormData,
     include?: AirbrushingInclude,
     userId?: string,
+    userRole?: string,
   ): Promise<AirbrushingBatchCreateResponse<AirbrushingCreateFormData>> {
     try {
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -473,12 +527,31 @@ export class AirbrushingService {
             // Validar entidade completa
             await this.validateAirbrushing(airbrushingData, undefined, tx);
 
-            // Criar a aerografia
-            const newAirbrushing = await this.airbrushingRepository.createWithTransaction(
+            // Criar a aerografia (layouts tratadas separadamente abaixo)
+            let newAirbrushing = await this.airbrushingRepository.createWithTransaction(
               tx,
               airbrushingData,
               { include },
             );
+
+            // Convert layout File IDs into Layout entities linked to this
+            // airbrushing (batch has no multipart uploads — payload IDs only).
+            if (airbrushingData.layoutIds && airbrushingData.layoutIds.length > 0) {
+              await this.convertFileIdsToLayoutIds(
+                airbrushingData.layoutIds,
+                newAirbrushing.id,
+                (airbrushingData as any).layoutStatuses,
+                userRole,
+                tx,
+              );
+              const refreshed = await this.airbrushingRepository.findByIdWithTransaction(
+                tx,
+                newAirbrushing.id,
+                { include },
+              );
+              if (refreshed) newAirbrushing = refreshed;
+            }
+
             successfulCreations.push(newAirbrushing);
 
             // Registrar no changelog
@@ -733,15 +806,15 @@ export class AirbrushingService {
     files: {
       receipts?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
-      artworks?: Express.Multer.File[];
+      layouts?: Express.Multer.File[];
     },
     userId?: string,
     tx?: PrismaTransaction,
-  ): Promise<{ receiptIds: string[]; invoiceIds: string[]; artworkIds: string[] }> {
+  ): Promise<{ receiptIds: string[]; invoiceIds: string[]; layoutIds: string[] }> {
     const transaction = tx || this.prisma;
     const receiptIds: string[] = [];
     const invoiceIds: string[] = [];
-    const artworkIds: string[] = [];
+    const layoutIds: string[] = [];
 
     try {
       // Get airbrushing with task and customer info for folder organization
@@ -794,14 +867,14 @@ export class AirbrushingService {
         }
       }
 
-      // Process artwork files - NOTE: With Artwork entity, we just create Files here
-      // The Artwork entities will be created by the caller
-      if (files.artworks && files.artworks.length > 0) {
-        for (const file of files.artworks) {
+      // Process layout files - NOTE: With Layout entity, we just create Files here
+      // The Layout entities will be created by the caller
+      if (files.layouts && files.layouts.length > 0) {
+        for (const file of files.layouts) {
           const fileRecord = await this.fileService.createFromUploadWithTransaction(
             transaction,
             file,
-            'tasksArtworks',
+            'tasksLayouts',
             userId,
             {
               entityId: airbrushingId,
@@ -809,7 +882,7 @@ export class AirbrushingService {
               customerName,
             },
           );
-          artworkIds.push(fileRecord.id);
+          layoutIds.push(fileRecord.id);
         }
       }
     } catch (error) {
@@ -817,7 +890,7 @@ export class AirbrushingService {
       throw error;
     }
 
-    return { receiptIds, invoiceIds, artworkIds };
+    return { receiptIds, invoiceIds, layoutIds };
   }
 
   /**
@@ -851,7 +924,7 @@ export class AirbrushingService {
       );
 
       // Connect the file to the airbrushing using the appropriate relation
-      // NOTE: artworks are now handled via the Artwork entity, not direct File relations
+      // NOTE: layouts are now handled via the Layout entity, not direct File relations
       if (entityType === 'airbrushing_receipt') {
         await tx.file.update({
           where: { id: fileRecord.id },
@@ -877,68 +950,68 @@ export class AirbrushingService {
   }
 
   /**
-   * Helper: Check if user can approve/reprove artworks
-   * Only COMMERCIAL and ADMIN users can change artwork status
+   * Helper: Check if user can approve/reprove layouts
+   * Only COMMERCIAL and ADMIN users can change layout status
    */
-  private canApproveArtworks(userRole?: string): boolean {
+  private canApproveLayouts(userRole?: string): boolean {
     const allowedRoles = [SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN];
     return userRole ? allowedRoles.includes(userRole as any) : false;
   }
 
   /**
-   * Convert File IDs to Artwork entity IDs
-   * Creates Artwork entities if they don't exist for the given File IDs
+   * Convert File IDs to Layout entity IDs
+   * Creates Layout entities if they don't exist for the given File IDs
    * @param fileIds - Array of File IDs
-   * @param airbrushingId - Airbrushing ID for creating new Artwork records
-   * @param artworkStatuses - Map of File ID to artwork status
+   * @param airbrushingId - Airbrushing ID for creating new Layout records
+   * @param layoutStatuses - Map of File ID to layout status
    * @param userRole - User role for permission checking
    * @param tx - Prisma transaction
-   * @returns Array of Artwork IDs
+   * @returns Array of Layout IDs
    */
-  private async convertFileIdsToArtworkIds(
+  private async convertFileIdsToLayoutIds(
     fileIds: string[],
     airbrushingId: string,
-    artworkStatuses?: Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>,
+    layoutStatuses?: Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>,
     userRole?: string,
     tx?: PrismaTransaction,
   ): Promise<string[]> {
     const prisma = tx || this.prisma;
-    const artworkIds: string[] = [];
+    const layoutIds: string[] = [];
 
     // Debug: Log permission check info
-    const hasApprovalPermission = this.canApproveArtworks(userRole);
+    const hasApprovalPermission = this.canApproveLayouts(userRole);
     this.logger.log(
-      `[convertFileIdsToArtworkIds] Permission check: userRole=${userRole}, canApproveArtworks=${hasApprovalPermission}`,
+      `[convertFileIdsToLayoutIds] Permission check: userRole=${userRole}, canApproveLayouts=${hasApprovalPermission}`,
     );
     this.logger.log(
-      `[convertFileIdsToArtworkIds] Processing ${fileIds.length} files with statuses: ${JSON.stringify(artworkStatuses)}`,
+      `[convertFileIdsToLayoutIds] Processing ${fileIds.length} files with statuses: ${JSON.stringify(layoutStatuses)}`,
     );
 
     for (const fileId of fileIds) {
-      // Check if an Artwork record already exists for this file and airbrushing
-      let artwork = await prisma.artwork.findFirst({
-        where: {
-          fileId,
-          airbrushingId,
-        },
-      });
+      // fileId is GLOBALLY @unique on Layout, so look up by fileId alone. Looking up by
+      // (fileId + airbrushingId) would miss an existing Layout that is currently detached
+      // (airbrushingId=null, e.g. removed from this airbrushing earlier) or attached to a
+      // different airbrushing — and the fallback create() would then violate the fileId
+      // unique constraint (P2002 → 500). Task links live in the separate TaskLayouts join
+      // table and are independent of airbrushingId, so adopting is safe.
+      let layout = await prisma.layout.findUnique({ where: { fileId } });
 
       // Determine the status to use
-      const requestedStatus = artworkStatuses?.[fileId];
+      const requestedStatus = layoutStatuses?.[fileId];
       const status = requestedStatus || 'DRAFT'; // Default to DRAFT for new uploads
 
       this.logger.log(
-        `[convertFileIdsToArtworkIds] File ${fileId}: found=${!!artwork}, currentStatus=${artwork?.status}, requestedStatus=${requestedStatus}`,
+        `[convertFileIdsToLayoutIds] File ${fileId}: found=${!!layout}, currentStatus=${layout?.status}, requestedStatus=${requestedStatus}`,
       );
 
-      if (!artwork) {
-        // Create new Artwork with the provided or default status
+      if (!layout) {
+        // Create new Layout with the provided or default status
         // If status is APPROVED/REPROVED, check permissions
         if (status !== 'DRAFT' && !hasApprovalPermission) {
           this.logger.warn(
-            `[convertFileIdsToArtworkIds] User without approval permission tried to create artwork with status ${status}. Using DRAFT instead.`,
+            `[convertFileIdsToLayoutIds] User without approval permission tried to create layout with status ${status}. Using DRAFT instead.`,
           );
-          artwork = await prisma.artwork.create({
+          layout = await prisma.layout.create({
             data: {
               fileId,
               status: 'DRAFT', // Force DRAFT if user doesn't have permission
@@ -946,7 +1019,7 @@ export class AirbrushingService {
             },
           });
         } else {
-          artwork = await prisma.artwork.create({
+          layout = await prisma.layout.create({
             data: {
               fileId,
               status,
@@ -955,41 +1028,44 @@ export class AirbrushingService {
           });
         }
         this.logger.log(
-          `[convertFileIdsToArtworkIds] Created new Artwork record ${artwork.id} for File ${fileId} with status ${artwork.status}`,
+          `[convertFileIdsToLayoutIds] Created new Layout record ${layout.id} for File ${fileId} with status ${layout.status}`,
         );
-      } else if (requestedStatus && artwork.status !== requestedStatus) {
-        // Update existing Artwork status if it changed
-        const oldStatus = artwork.status;
-        // Check permissions for status changes
-        if (!hasApprovalPermission) {
+      } else {
+        // A Layout already exists for this file. Adopt it onto THIS airbrushing if it isn't
+        // already (it may have been detached or belong to another airbrushing) and apply any
+        // permitted status change. Never create a second row — fileId is unique.
+        const needsAdopt = layout.airbrushingId !== airbrushingId;
+        const wantsStatusChange = !!requestedStatus && layout.status !== requestedStatus;
+
+        if (wantsStatusChange && !hasApprovalPermission) {
           this.logger.warn(
-            `[convertFileIdsToArtworkIds] User without approval permission (role=${userRole}) tried to change artwork status from ${oldStatus} to ${requestedStatus}. Ignoring.`,
-          );
-        } else {
-          artwork = await prisma.artwork.update({
-            where: { id: artwork.id },
-            data: { status: requestedStatus },
-          });
-          this.logger.log(
-            `[convertFileIdsToArtworkIds] ✅ Updated Artwork ${artwork.id} status from ${oldStatus} to ${requestedStatus}`,
+            `[convertFileIdsToLayoutIds] User without approval permission (role=${userRole}) tried to change layout status from ${layout.status} to ${requestedStatus}. Ignoring status change.`,
           );
         }
-      } else {
-        // Log why we're not updating
-        if (!requestedStatus) {
+
+        const applyStatusChange = wantsStatusChange && hasApprovalPermission;
+        if (needsAdopt || applyStatusChange) {
+          const oldStatus = layout.status;
+          layout = await prisma.layout.update({
+            where: { id: layout.id },
+            data: {
+              ...(needsAdopt ? { airbrushingId } : {}),
+              ...(applyStatusChange ? { status: requestedStatus } : {}),
+            },
+          });
           this.logger.log(
-            `[convertFileIdsToArtworkIds] No status change for File ${fileId}: requestedStatus is undefined`,
+            `[convertFileIdsToLayoutIds] ✅ Reconciled Layout ${layout.id} (adopt=${needsAdopt}, status ${oldStatus}→${layout.status})`,
           );
         } else {
           this.logger.log(
-            `[convertFileIdsToArtworkIds] No status change for File ${fileId}: current status (${artwork.status}) already matches requested (${requestedStatus})`,
+            `[convertFileIdsToLayoutIds] No change for File ${fileId}: already on airbrushing ${airbrushingId} with status ${layout.status}`,
           );
         }
       }
 
-      artworkIds.push(artwork.id);
+      layoutIds.push(layout.id);
     }
 
-    return artworkIds;
+    return layoutIds;
   }
 }

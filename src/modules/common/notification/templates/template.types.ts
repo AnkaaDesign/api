@@ -102,7 +102,7 @@ export interface TaskSectorData {
   url?: string;
 }
 
-export interface TaskArtworkData {
+export interface TaskLayoutData {
   taskName: string;
   fileCount?: number;
   changedBy?: string;
@@ -346,9 +346,9 @@ export type TaskTemplateKey =
   | 'task.term'
   | 'task.forecastDate'
   | 'task.sector'
-  | 'task.artwork.added'
-  | 'task.artwork.updated'
-  | 'task.artwork.removed'
+  | 'task.layout.added'
+  | 'task.layout.updated'
+  | 'task.layout.removed'
   | 'task.budget.added'
   | 'task.budget.updated'
   | 'task.budget.approved'
@@ -428,7 +428,7 @@ export type TemplateData =
   | TaskOverdueData
   | TaskFieldUpdateData
   | TaskSectorData
-  | TaskArtworkData
+  | TaskLayoutData
   | TaskBudgetData
   | TaskInvoiceData
   | TaskReceiptData

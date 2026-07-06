@@ -557,10 +557,10 @@ export class NotificationPreferenceService {
         mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
 
-      // Atualização de Arte (Artwork Updated)
+      // Atualização de Arte (Layout Updated)
       {
         type: NOTIFICATION_TYPE.PRODUCTION,
-        eventType: 'task_artworks',
+        eventType: 'task_layouts',
         channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
         mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },

@@ -118,11 +118,11 @@ export function determineTaskStatusFromServiceOrders(
 export function calculateCorrectTaskStatus(
   serviceOrders: Array<{ status: SERVICE_ORDER_STATUS; type: SERVICE_ORDER_TYPE }>,
 ): TASK_STATUS {
-  const artworkOrders = serviceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.ARTWORK);
+  const layoutOrders = serviceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.ARTWORK);
   const productionOrders = serviceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.PRODUCTION);
 
   // Filter out CANCELLED orders
-  const activeArtworkOrders = artworkOrders.filter(
+  const activeLayoutOrders = layoutOrders.filter(
     so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
   );
   const activeProductionOrders = productionOrders.filter(
@@ -130,12 +130,12 @@ export function calculateCorrectTaskStatus(
   );
 
   // Check if any ARTWORK SO is completed
-  const anyArtworkCompleted = activeArtworkOrders.some(
+  const anyLayoutCompleted = activeLayoutOrders.some(
     so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
   );
 
   // If there are ARTWORK SOs and none are completed → PREPARATION
-  if (activeArtworkOrders.length > 0 && !anyArtworkCompleted) {
+  if (activeLayoutOrders.length > 0 && !anyLayoutCompleted) {
     return TASK_STATUS.PREPARATION;
   }
 
@@ -144,11 +144,11 @@ export function calculateCorrectTaskStatus(
 
   // If no active PRODUCTION SOs, default to WAITING_PRODUCTION
   if (activeProductionOrders.length === 0) {
-    // If there are artwork orders and at least one completed, task is waiting for production
-    if (activeArtworkOrders.length > 0 && anyArtworkCompleted) {
+    // If there are layout orders and at least one completed, task is waiting for production
+    if (activeLayoutOrders.length > 0 && anyLayoutCompleted) {
       return TASK_STATUS.WAITING_PRODUCTION;
     }
-    // If no artwork orders either, default to WAITING_PRODUCTION
+    // If no layout orders either, default to WAITING_PRODUCTION
     return TASK_STATUS.WAITING_PRODUCTION;
   }
 
@@ -611,11 +611,11 @@ export function areCommercialServiceOrdersComplete(
  * service order status change.
  *
  * This handles the PREPARATION → WAITING_PRODUCTION transition and its rollback:
- * - When at least ONE artwork SO is COMPLETED AND ALL commercial SOs are concluded
- *   → Task transitions to WAITING_PRODUCTION (triggered by either an artwork or a
+ * - When at least ONE layout SO is COMPLETED AND ALL commercial SOs are concluded
+ *   → Task transitions to WAITING_PRODUCTION (triggered by either an layout or a
  *   commercial SO completing; the commercial gate only blocks the AUTOMATIC
  *   transition — an explicit "Disponibilizar para produção" bypasses it)
- * - When ALL artwork SOs are rolled back (none remain COMPLETED) → Task rolls back to PREPARATION
+ * - When ALL layout SOs are rolled back (none remain COMPLETED) → Task rolls back to PREPARATION
  *
  * @param allServiceOrders - All service orders for the task (with their current/updated statuses)
  * @param changedServiceOrderId - The ID of the service order that changed
@@ -625,7 +625,7 @@ export function areCommercialServiceOrdersComplete(
  * @param currentTaskStatus - The current status of the task
  * @returns Update info if task should be updated, null otherwise
  */
-export function getTaskUpdateForArtworkServiceOrderStatusChange(
+export function getTaskUpdateForLayoutServiceOrderStatusChange(
   allServiceOrders: Array<{
     id: string;
     status: SERVICE_ORDER_STATUS;
@@ -654,21 +654,21 @@ export function getTaskUpdateForArtworkServiceOrderStatusChange(
     so.id === changedServiceOrderId ? { ...so, status: newServiceOrderStatus } : so,
   );
 
-  const artworkOrders = updatedServiceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.ARTWORK);
+  const layoutOrders = updatedServiceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.ARTWORK);
 
   // ===== FORWARD TRANSITION: PREPARATION → WAITING_PRODUCTION =====
-  // When an artwork or commercial SO becomes COMPLETED and task is in PREPARATION
+  // When an layout or commercial SO becomes COMPLETED and task is in PREPARATION
   if (
     newServiceOrderStatus === SERVICE_ORDER_STATUS.COMPLETED &&
     oldServiceOrderStatus !== SERVICE_ORDER_STATUS.COMPLETED &&
     currentTaskStatus === TASK_STATUS.PREPARATION
   ) {
-    const anyArtworkCompleted = artworkOrders.some(
+    const anyLayoutCompleted = layoutOrders.some(
       so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
     );
     const allCommercialCompleted = areCommercialServiceOrdersComplete(updatedServiceOrders);
 
-    if (anyArtworkCompleted && allCommercialCompleted) {
+    if (anyLayoutCompleted && allCommercialCompleted) {
       return {
         shouldUpdate: true,
         newTaskStatus: TASK_STATUS.WAITING_PRODUCTION,
@@ -684,7 +684,7 @@ export function getTaskUpdateForArtworkServiceOrderStatusChange(
   }
 
   // ===== BACKWARD TRANSITION: WAITING_PRODUCTION → PREPARATION =====
-  // When an artwork SO is rolled back from COMPLETED, check if task should rollback.
+  // When an layout SO is rolled back from COMPLETED, check if task should rollback.
   // Only ARTWORK rollbacks trigger this — a commercial SO reopening must not undo
   // an explicit "Disponibilizar para produção".
   if (
@@ -693,12 +693,12 @@ export function getTaskUpdateForArtworkServiceOrderStatusChange(
     newServiceOrderStatus !== SERVICE_ORDER_STATUS.COMPLETED &&
     currentTaskStatus === TASK_STATUS.WAITING_PRODUCTION
   ) {
-    // Only rollback task if NO artwork SOs remain completed
-    const anyArtworkCompleted = artworkOrders.some(
+    // Only rollback task if NO layout SOs remain completed
+    const anyLayoutCompleted = layoutOrders.some(
       so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
     );
 
-    if (!anyArtworkCompleted) {
+    if (!anyLayoutCompleted) {
       return {
         shouldUpdate: true,
         newTaskStatus: TASK_STATUS.PREPARATION,

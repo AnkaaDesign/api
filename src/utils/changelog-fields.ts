@@ -229,7 +229,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     observation: 'Observação',
     createdBy: 'Criado por',
     truck: 'Caminhão',
-    artworks: 'Artes',
+    layouts: 'Layouts',
     baseFiles: 'Arquivos Base',
     logoPaints: 'Tintas da Logomarca',
     paints: 'Tintas da Logomarca',
@@ -630,7 +630,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     size: 'Tamanho',
     thumbnailUrl: 'URL da Miniatura',
     // Relationship fields
-    tasksArtworks: 'Artes das Tarefas',
+    tasksLayouts: 'Layouts das Tarefas',
     customerLogo: 'Logo do Cliente',
     supplierLogo: 'Logo do Fornecedor',
     observations: 'Observações',
@@ -747,12 +747,12 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     year: 'Ano',
     color: 'Cor',
     notes: 'Observações',
-    // Truck layout (renamed from "Medidas do Caminhão" to "Layout do Caminhão").
+    // Truck implementMeasure (renamed from "Medidas do Caminhão" to "ImplementMeasure do Caminhão").
     // Sides standardized to Motorista / Sapo / Traseira to match the UI.
-    layout: 'Layout do Caminhão',
-    leftSideLayoutId: 'Motorista',
-    rightSideLayoutId: 'Sapo',
-    backSideLayoutId: 'Traseira',
+    implementMeasure: 'ImplementMeasure do Caminhão',
+    leftSideMeasureId: 'Motorista',
+    rightSideMeasureId: 'Sapo',
+    backSideMeasureId: 'Traseira',
   },
   [CHANGE_LOG_ENTITY_TYPE.TASK_QUOTE]: {
     subtotal: 'Subtotal',
@@ -767,7 +767,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     orderNumber: 'N° do Pedido',
     guaranteeYears: 'Anos de Garantia',
     customGuaranteeText: 'Texto Personalizado de Garantia',
-    layoutFileIds: 'Arquivos de Layout',
+    layoutFileIds: 'Arquivos de ImplementMeasure',
     budgetNumber: 'Número do Orçamento',
     customerSignatureId: 'Assinatura do Cliente',
     customForecastDays: 'Dias de Previsão Personalizados',
@@ -932,8 +932,8 @@ export function formatFieldValue(
 
     // Task-specific array handling
     if (entityType === CHANGE_LOG_ENTITY_TYPE.TASK) {
-      if (field === 'artworks') {
-        return `${value.length} ${value.length === 1 ? 'arte' : 'artes'}`;
+      if (field === 'layouts') {
+        return `${value.length} ${value.length === 1 ? 'layout' : 'layouts'}`;
       }
       if (field === 'baseFiles') {
         return `${value.length} ${value.length === 1 ? 'arquivo base' : 'arquivos base'}`;

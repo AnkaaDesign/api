@@ -1739,15 +1739,6 @@ export class ActivityService {
           }
           break;
 
-        case ACTIVITY_REASON.BORROW:
-          if (operation !== ACTIVITY_OPERATION.OUTBOUND) {
-            throw new BadRequestException('Empréstimo deve ser uma operação de saída');
-          }
-          if (!data.userId) {
-            throw new BadRequestException('Empréstimo deve ter um usuário associado');
-          }
-          break;
-
         case ACTIVITY_REASON.MANUAL_ADJUSTMENT:
           // Ajuste pode ser entrada ou saída
           break;

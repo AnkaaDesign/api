@@ -45,30 +45,30 @@ export class AirbrushingPrismaRepository
 
   // Abstract method implementations from BaseStringPrismaRepository
   protected mapDatabaseEntityToEntity(databaseEntity: any): Airbrushing {
-    // Transform artworks from nested Artwork+File structure to flattened File structure
+    // Transform layouts from nested Layout+File structure to flattened File structure
     // Frontend expects: { id: fileId, filename, size, mimetype, thumbnailUrl, status }
-    // Backend returns: { id: artworkId, fileId, status, file: { id, filename, ... } }
-    if (databaseEntity.artworks && Array.isArray(databaseEntity.artworks)) {
-      databaseEntity.artworks = databaseEntity.artworks.map((artwork: any) => {
-        if (artwork.file) {
+    // Backend returns: { id: layoutId, fileId, status, file: { id, filename, ... } }
+    if (databaseEntity.layouts && Array.isArray(databaseEntity.layouts)) {
+      databaseEntity.layouts = databaseEntity.layouts.map((layout: any) => {
+        if (layout.file) {
           return {
             // Use file ID as the primary identifier (needed for URL construction)
-            id: artwork.file.id,
-            // Include artwork-specific fields
-            artworkId: artwork.id,
-            status: artwork.status,
+            id: layout.file.id,
+            // Include layout-specific fields
+            layoutId: layout.id,
+            status: layout.status,
             // Spread all file properties
-            filename: artwork.file.filename,
-            originalName: artwork.file.originalName,
-            path: artwork.file.path,
-            mimetype: artwork.file.mimetype,
-            size: artwork.file.size,
-            thumbnailUrl: artwork.file.thumbnailUrl,
-            createdAt: artwork.file.createdAt,
-            updatedAt: artwork.file.updatedAt,
+            filename: layout.file.filename,
+            originalName: layout.file.originalName,
+            path: layout.file.path,
+            mimetype: layout.file.mimetype,
+            size: layout.file.size,
+            thumbnailUrl: layout.file.thumbnailUrl,
+            createdAt: layout.file.createdAt,
+            updatedAt: layout.file.updatedAt,
           };
         }
-        return artwork;
+        return layout;
       });
     }
     return databaseEntity as Airbrushing;
@@ -77,17 +77,11 @@ export class AirbrushingPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: AirbrushingCreateFormData,
   ): Prisma.AirbrushingCreateInput {
-    const {
-      taskId,
-      painterId,
-      budgetIds,
-      invoiceIds,
-      receiptIds,
-      reimbursementIds,
-      reimbursementInvoiceIds,
-      artworkIds,
-      ...rest
-    } = formData;
+    // NOTE: layoutIds are File IDs (not Layout entity IDs). Layout rows are
+    // created by the service (convertFileIdsToLayoutIds) AFTER the airbrushing
+    // exists, since Layout requires airbrushingId. They are intentionally not
+    // connected here.
+    const { taskId, painterId, invoiceIds, receiptIds, layoutIds: _layoutIds, ...rest } = formData;
 
     const createInput: Prisma.AirbrushingCreateInput = {
       ...rest,
@@ -96,17 +90,16 @@ export class AirbrushingPrismaRepository
       task: { connect: { id: taskId } },
     };
 
+    // Stamp paidAt when an airbrushing is created already PAID (mirrors update()).
+    if (formData.paymentStatus === 'PAID') {
+      createInput.paidAt = new Date();
+    }
+
     if (painterId) {
       createInput.painter = { connect: { id: painterId } };
     }
 
-    // Handle file attachments
-    if (budgetIds && budgetIds.length > 0) {
-      createInput.budgets = {
-        connect: budgetIds.map(id => ({ id })),
-      };
-    }
-
+    // Handle file attachments (File relations)
     if (invoiceIds && invoiceIds.length > 0) {
       createInput.invoices = {
         connect: invoiceIds.map(id => ({ id })),
@@ -119,42 +112,13 @@ export class AirbrushingPrismaRepository
       };
     }
 
-    if (reimbursementIds && reimbursementIds.length > 0) {
-      createInput.reimbursements = {
-        connect: reimbursementIds.map(id => ({ id })),
-      };
-    }
-
-    if (reimbursementInvoiceIds && reimbursementInvoiceIds.length > 0) {
-      createInput.invoiceReimbursements = {
-        connect: reimbursementInvoiceIds.map(id => ({ id })),
-      };
-    }
-
-    if (artworkIds && artworkIds.length > 0) {
-      createInput.artworks = {
-        connect: artworkIds.map(id => ({ id })),
-      };
-    }
-
     return createInput;
   }
 
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: AirbrushingUpdateFormData,
   ): Prisma.AirbrushingUpdateInput {
-    const {
-      taskId,
-      painterId,
-      status,
-      budgetIds,
-      invoiceIds,
-      receiptIds,
-      reimbursementIds,
-      reimbursementInvoiceIds,
-      artworkIds,
-      ...rest
-    } = formData;
+    const { taskId, painterId, status, invoiceIds, receiptIds, layoutIds, ...rest } = formData;
 
     const updateData: Prisma.AirbrushingUpdateInput = {
       ...rest,
@@ -182,12 +146,6 @@ export class AirbrushingPrismaRepository
     }
 
     // Handle file attachments - use set to replace all connections
-    if (budgetIds !== undefined) {
-      updateData.budgets = {
-        set: budgetIds.map(id => ({ id })),
-      };
-    }
-
     if (invoiceIds !== undefined) {
       updateData.invoices = {
         set: invoiceIds.map(id => ({ id })),
@@ -200,21 +158,9 @@ export class AirbrushingPrismaRepository
       };
     }
 
-    if (reimbursementIds !== undefined) {
-      updateData.reimbursements = {
-        set: reimbursementIds.map(id => ({ id })),
-      };
-    }
-
-    if (reimbursementInvoiceIds !== undefined) {
-      updateData.invoiceReimbursements = {
-        set: reimbursementInvoiceIds.map(id => ({ id })),
-      };
-    }
-
-    if (artworkIds !== undefined) {
-      updateData.artworks = {
-        set: artworkIds.map(id => ({ id })),
+    if (layoutIds !== undefined) {
+      updateData.layouts = {
+        set: layoutIds.map(id => ({ id })),
       };
     }
 
@@ -226,11 +172,11 @@ export class AirbrushingPrismaRepository
   ): Prisma.AirbrushingInclude | undefined {
     if (!include) return undefined;
 
-    // Ensure artworks always includes nested file data when artworks is requested
+    // Ensure layouts always includes nested file data when layouts is requested
     // This is required for proper frontend display (FileItem component needs file properties)
     const mappedInclude = { ...include } as Prisma.AirbrushingInclude;
-    if (mappedInclude.artworks === true) {
-      mappedInclude.artworks = {
+    if (mappedInclude.layouts === true) {
+      mappedInclude.layouts = {
         include: {
           file: true,
         },
@@ -258,7 +204,7 @@ export class AirbrushingPrismaRepository
       task: true,
       receipts: true,
       invoices: true,
-      artworks: {
+      layouts: {
         include: {
           file: true,
         },

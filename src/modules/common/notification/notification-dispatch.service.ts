@@ -2037,7 +2037,7 @@ export class NotificationDispatchService {
     if (configKey === 'task.overdue' || configKey === 'task.deadline_approaching') {
       return NOTIFICATION_ACTION_TYPE.VIEW_DETAILS;
     }
-    if (configKey.startsWith('artwork.') && configKey.includes('pending')) {
+    if (configKey.startsWith('layout.') && configKey.includes('pending')) {
       return NOTIFICATION_ACTION_TYPE.APPROVE_REQUEST;
     }
     if (configKey.startsWith('task.')) {

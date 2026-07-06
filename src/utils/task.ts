@@ -15,7 +15,7 @@ export function mapTaskStatusToPrisma(status: TASK_STATUS | string): TaskStatus 
 
 /**
  * Check if task status transition is valid
- * Note: Some transitions may require additional validation (e.g., artwork completion)
+ * Note: Some transitions may require additional validation (e.g., layout completion)
  * which should be checked in the service layer
  */
 export function isValidTaskStatusTransition(
@@ -25,7 +25,7 @@ export function isValidTaskStatusTransition(
   const validTransitions: Record<TASK_STATUS, TASK_STATUS[]> = {
     [TASK_STATUS.PREPARATION]: [
       TASK_STATUS.WAITING_PRODUCTION,
-      TASK_STATUS.IN_PRODUCTION, // Allow direct jump to production (service layer will validate artwork completion)
+      TASK_STATUS.IN_PRODUCTION, // Allow direct jump to production (service layer will validate layout completion)
       TASK_STATUS.CANCELLED,
     ],
     [TASK_STATUS.WAITING_PRODUCTION]: [
@@ -364,33 +364,33 @@ export function getTaskObservationTypeLabel(type: TASK_OBSERVATION_TYPE): string
 }
 
 /**
- * Get task dimensions (width x height) from truck layout.
- * Takes either left or right side layout (both sides have the same dimensions).
+ * Get task dimensions (width x height) from truck implementMeasure.
+ * Takes either left or right side implementMeasure (both sides have the same dimensions).
  *
- * @param task - The task object with truck and layout data
- * @returns Object with width and height in meters, or null if no layout data exists
+ * @param task - The task object with truck and implementMeasure data
+ * @returns Object with width and height in meters, or null if no implementMeasure data exists
  */
 export function getTaskDimensions(task: any): { width: number; height: number } | null {
   if (!task?.truck) return null;
 
   const { truck } = task;
 
-  // Try left side layout first, then right side (both have the same dimensions)
-  const layout = truck.leftSideLayout || truck.rightSideLayout;
+  // Try left side implementMeasure first, then right side (both have the same dimensions)
+  const implementMeasure = truck.leftSideMeasure || truck.rightSideMeasure;
 
-  if (!layout?.layoutSections || layout.layoutSections.length === 0) {
+  if (!implementMeasure?.sections || implementMeasure.sections.length === 0) {
     return null;
   }
 
   // Calculate total width by summing all section widths
-  const totalWidth = layout.layoutSections.reduce(
+  const totalWidth = implementMeasure.sections.reduce(
     (sum: number, section: any) => sum + (section.width || 0),
     0,
   );
 
   return {
     width: totalWidth,
-    height: layout.height,
+    height: implementMeasure.height,
   };
 }
 
@@ -398,8 +398,8 @@ export function getTaskDimensions(task: any): { width: number; height: number } 
  * Formats the measures for display as "WxH" in centimeters.
  * This format matches the task measure table column display.
  *
- * @param task - The task object with truck and layout data
- * @returns Formatted string (e.g., "850x244") or empty string if no layout data
+ * @param task - The task object with truck and implementMeasure data
+ * @returns Formatted string (e.g., "850x244") or empty string if no implementMeasure data
  */
 export function formatTaskMeasures(task: any): string {
   const dimensions = getTaskDimensions(task);
@@ -417,7 +417,7 @@ export function formatTaskMeasures(task: any): string {
  * Format: "{TaskName} {measures}.{extension}" or "{TaskName}.{extension}" if no measures
  *
  * @param taskName - The task name
- * @param task - The task object with truck and layout data (for measures)
+ * @param task - The task object with truck and implementMeasure data (for measures)
  * @param originalFilename - The original filename to extract extension from
  * @param fileIndex - Optional index for multiple files (1-based)
  * @returns Sanitized filename with task name and measures

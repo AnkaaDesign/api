@@ -70,8 +70,8 @@ export class FilePrismaRepository
     const mappedInclude: any = {};
 
     // Map valid File relations with explicit field validation
-    if (include.artworks !== undefined) {
-      mappedInclude.artworks = include.artworks;
+    if (include.layouts !== undefined) {
+      mappedInclude.layouts = include.layouts;
     }
     if (include.customerLogo !== undefined) {
       mappedInclude.customerLogo = include.customerLogo;
@@ -113,7 +113,7 @@ export class FilePrismaRepository
 
   protected getDefaultInclude(): Prisma.FileInclude {
     return {
-      artworks: {
+      layouts: {
         select: {
           id: true,
           status: true,

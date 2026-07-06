@@ -1,25 +1,25 @@
-// apps/api/src/modules/production/layout/repositories/layout-prisma.repository.ts
+// apps/api/src/modules/production/implement-measure/repositories/implement-measure-prisma.repository.ts
 
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { Layout } from '@prisma/client';
-import type { LayoutCreateFormData, LayoutUpdateFormData } from '../../../../schemas';
-import { LayoutRepository } from './layout.repository';
+import { ImplementMeasure } from '@prisma/client';
+import type { ImplementMeasureCreateFormData, ImplementMeasureUpdateFormData } from '../../../../schemas';
+import { ImplementMeasureRepository } from './implement-measure.repository';
 
 @Injectable()
-export class LayoutPrismaRepository implements LayoutRepository {
+export class ImplementMeasurePrismaRepository implements ImplementMeasureRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findById(id: string, include?: any): Promise<Layout | null> {
-    // Always include layoutSections by default, sorted by position
+  async findById(id: string, include?: any): Promise<ImplementMeasure | null> {
+    // Always include sections by default, sorted by position
     const defaultInclude = {
-      layoutSections: {
+      sections: {
         orderBy: { position: 'asc' as const },
       },
       ...include,
     };
 
-    return this.prisma.layout.findUnique({
+    return this.prisma.implementMeasure.findUnique({
       where: { id },
       include: defaultInclude,
     });
@@ -29,9 +29,9 @@ export class LayoutPrismaRepository implements LayoutRepository {
     truckId: string,
     options?: { includePhoto?: boolean },
   ): Promise<{
-    leftSideLayout: Layout | null;
-    rightSideLayout: Layout | null;
-    backSideLayout: Layout | null;
+    leftSideMeasure: ImplementMeasure | null;
+    rightSideMeasure: ImplementMeasure | null;
+    backSideMeasure: ImplementMeasure | null;
   }> {
     // Only include photo if explicitly requested (for library/detail views)
     // Preview views don't need photo data
@@ -40,26 +40,26 @@ export class LayoutPrismaRepository implements LayoutRepository {
     const truck = await this.prisma.truck.findUnique({
       where: { id: truckId },
       include: {
-        leftSideLayout: {
+        leftSideMeasure: {
           include: {
             ...(includePhoto && { photo: true }),
-            layoutSections: {
+            sections: {
               orderBy: { position: 'asc' },
             },
           },
         },
-        rightSideLayout: {
+        rightSideMeasure: {
           include: {
             ...(includePhoto && { photo: true }),
-            layoutSections: {
+            sections: {
               orderBy: { position: 'asc' },
             },
           },
         },
-        backSideLayout: {
+        backSideMeasure: {
           include: {
             ...(includePhoto && { photo: true }),
-            layoutSections: {
+            sections: {
               orderBy: { position: 'asc' },
             },
           },
@@ -69,26 +69,26 @@ export class LayoutPrismaRepository implements LayoutRepository {
 
     if (!truck) {
       return {
-        leftSideLayout: null,
-        rightSideLayout: null,
-        backSideLayout: null,
+        leftSideMeasure: null,
+        rightSideMeasure: null,
+        backSideMeasure: null,
       };
     }
 
     return {
-      leftSideLayout: truck.leftSideLayout,
-      rightSideLayout: truck.rightSideLayout,
-      backSideLayout: truck.backSideLayout,
+      leftSideMeasure: truck.leftSideMeasure,
+      rightSideMeasure: truck.rightSideMeasure,
+      backSideMeasure: truck.backSideMeasure,
     };
   }
 
-  async create(data: LayoutCreateFormData, userId?: string): Promise<Layout> {
-    const layout = await this.prisma.layout.create({
+  async create(data: ImplementMeasureCreateFormData, userId?: string): Promise<ImplementMeasure> {
+    const implementMeasure = await this.prisma.implementMeasure.create({
       data: {
         height: data.height,
         ...(data.photoId && { photo: { connect: { id: data.photoId } } }),
-        layoutSections: {
-          create: data.layoutSections.map((section, index) => ({
+        sections: {
+          create: data.sections.map((section, index) => ({
             width: section.width,
             isDoor: section.isDoor,
             doorHeight: section.doorHeight,
@@ -98,36 +98,36 @@ export class LayoutPrismaRepository implements LayoutRepository {
       },
       include: {
         photo: true,
-        layoutSections: {
+        sections: {
           orderBy: { position: 'asc' },
         },
       },
     });
 
-    return layout;
+    return implementMeasure;
   }
 
-  async update(id: string, data: LayoutUpdateFormData, userId?: string): Promise<Layout> {
-    // Use a transaction to update layout and replace all sections
-    const layout = await this.prisma.$transaction(async tx => {
+  async update(id: string, data: ImplementMeasureUpdateFormData, userId?: string): Promise<ImplementMeasure> {
+    // Use a transaction to update implementMeasure and replace all sections
+    const implementMeasure = await this.prisma.$transaction(async tx => {
       // Delete existing sections if we're updating them
-      if (data.layoutSections) {
-        await tx.layoutSection.deleteMany({
-          where: { layoutId: id },
+      if (data.sections) {
+        await tx.implementMeasureSection.deleteMany({
+          where: { implementMeasureId: id },
         });
       }
 
-      // Update layout with new sections
-      return await tx.layout.update({
+      // Update implementMeasure with new sections
+      return await tx.implementMeasure.update({
         where: { id },
         data: {
           ...(data.height !== undefined && { height: data.height }),
           ...(data.photoId !== undefined &&
             data.photoId && { photo: { connect: { id: data.photoId } } }),
           ...(data.photoId === null && { photo: { disconnect: true } }),
-          ...(data.layoutSections && {
-            layoutSections: {
-              create: data.layoutSections.map((section, index) => ({
+          ...(data.sections && {
+            sections: {
+              create: data.sections.map((section, index) => ({
                 width: section.width,
                 isDoor: section.isDoor,
                 doorHeight: section.doorHeight,
@@ -138,18 +138,18 @@ export class LayoutPrismaRepository implements LayoutRepository {
         },
         include: {
           photo: true,
-          layoutSections: {
+          sections: {
             orderBy: { position: 'asc' },
           },
         },
       });
     });
 
-    return layout;
+    return implementMeasure;
   }
 
   async delete(id: string, userId?: string): Promise<void> {
-    await this.prisma.layout.delete({
+    await this.prisma.implementMeasure.delete({
       where: { id },
     });
   }
