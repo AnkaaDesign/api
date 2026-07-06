@@ -185,6 +185,25 @@ export const taskQuoteOrderBySchema = z
           simultaneousTasks: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
+          // Nested task orderBy — mirrors the single-object branch above. Without
+          // it, zod silently STRIPS `task` from array entries (e.g. the mobile
+          // budget list's [{statusOrder:'asc'},{task:{term:'asc'}}]), degrading
+          // the sort instead of applying it.
+          task: z
+            .object({
+              id: orderByDirectionSchema.optional(),
+              name: orderByDirectionSchema.optional(),
+              status: orderByDirectionSchema.optional(),
+              statusOrder: orderByDirectionSchema.optional(),
+              serialNumber: orderByDirectionSchema.optional(),
+              entryDate: orderByDirectionSchema.optional(),
+              term: orderByDirectionSchema.optional(),
+              startedAt: orderByDirectionSchema.optional(),
+              finishedAt: orderByDirectionSchema.optional(),
+              createdAt: orderByDirectionSchema.optional(),
+              updatedAt: orderByDirectionSchema.optional(),
+            })
+            .optional(),
         })
         .partial(),
     ),
