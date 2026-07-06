@@ -26,7 +26,9 @@ export const manualMatchSchema = z
     // reason only (frete, seguro estendido, taxas de marketplace…) — NO
     // category tag. When present, the tx is reconciled and the reason is
     // appended to the notes. Omit to leave the remainder open (→ Parcial).
-    remainderReason: z.enum(['FRETE', 'SEGURO', 'TAXAS', 'OUTROS']).optional(),
+    remainderReason: z
+      .enum(['FRETE', 'SEGURO', 'TAXAS', 'ITEM_SEM_NOTA', 'OUTROS'])
+      .optional(),
     notes: z.string().max(500).optional(),
   })
   .refine(data => {

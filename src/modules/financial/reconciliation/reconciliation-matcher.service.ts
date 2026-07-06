@@ -10,6 +10,7 @@ import {
   OrderPaymentStatus,
   OrderStatus,
   Prisma,
+  ReconciliationAdjustmentReason,
   ReconciliationAlias,
   ReconciliationAliasSource,
   ReconciliationMatchType,
@@ -18,7 +19,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { OrderService } from '@modules/inventory/order/order.service';
-import { MatchCandidate } from './types/reconciliation.types';
+import { MatchCandidate, TransactionMatchCandidate } from './types/reconciliation.types';
 import { nameSimilarity } from './text-normalization';
 import { ReconciliationAliasService } from './reconciliation-alias.service';
 import { ItemCategoryClassifierService } from './item-category-classifier.service';
@@ -194,22 +195,6 @@ const SUBSET_OPTS = {
   maxSize: SUBSET_MAX_SIZE,
 } as const;
 
-// Marketplace multi-seller subset-sum. A single Mercado Livre/Shopee payment can
-// bundle items bought from several different sellers, each emitting its OWN NF —
-// so the debit equals the SUM of 2..N unmatched purchase NFs that share NO
-// supplier CNPJ. Unlike trySubsetSumMatch there is no CNPJ root to corroborate
-// members (sellers all differ), so this pass leans entirely on an EXACT-ish sum
-// (cents tolerance, same as the supplier pass) + confident uniqueness + a tight
-// date window. maxSize is capped lower than the supplier pass: real multi-seller
-// carts bundle a handful of sellers, and a smaller ceiling shrinks the surface
-// for a coincidental sum to look unique.
-const MARKETPLACE_SUBSET_MAX_SIZE = 4;
-const MARKETPLACE_SUBSET_OPTS = {
-  perItemTolerance: SUBSET_PER_ITEM_TOLERANCE,
-  maxTolerance: SUBSET_MAX_TOLERANCE,
-  minSize: SUBSET_MIN_SIZE,
-  maxSize: MARKETPLACE_SUBSET_MAX_SIZE,
-} as const;
 
 /**
  * Finds subsets of `items` whose values sum to `target` within a size-scaled
@@ -960,10 +945,18 @@ export class ReconciliationMatcherService {
       tx.type === BankTransactionType.DEBIT &&
       isMarketplaceTransaction(tx.memo, tx.counterpartyCnpjCpf)
     ) {
-      // First the single-NF value match; if no single purchase fits, try summing
-      // several NFs from different sellers bundled into one marketplace payment.
-      if (await this.tryMarketplaceValueMatch(tx)) return true;
-      return this.tryMarketplaceSubsetSum(tx);
+      // ONLY the single-NF value match auto-confirms: exactly one unmatched
+      // purchase of this exact value in the window is unambiguous. The
+      // multi-seller subset-sum (bundling several sellers' NFs by value alone,
+      // with NO CNPJ anchor tying them together) is deliberately NOT auto-
+      // confirmed — it produced false positives, e.g. a R$214,30 marketplace
+      // debit auto-linked to two unrelated sellers' NFs (R$140,19 + R$73,50)
+      // merely because their sum landed within R$1. Ground-truth analysis of
+      // every confirmed multi-NF payment in this ledger shows they are ALWAYS
+      // same-supplier (settled by the CNPJ-anchored order-group / subset-sum
+      // passes). A genuine multi-seller cart therefore stays PENDING and is
+      // offered as MANUAL candidates rather than silently mismatched.
+      return this.tryMarketplaceValueMatch(tx);
     }
 
     // Pass 1 — Exact (value + counterparty CNPJ + date ±5d)
@@ -2051,6 +2044,285 @@ export class ReconciliationMatcherService {
   }
 
   /**
+   * REVERSE of {@link getCandidatesForTransaction}: candidate bank transactions
+   * that could SETTLE a given fiscal document, so the user can conciliate from
+   * the NF side ("Conciliar a partir da nota") instead of the extrato side.
+   *
+   * Direction: a purchase note (ENTRADA) is paid by an OUTGOING debit, so we only
+   * ever surface `type: DEBIT` transactions. A SAIDA (sale) note is a receivable
+   * settled by an inbound CREDIT — handled by the receivable matcher, not here —
+   * so for v1 we return [] for SAIDA rather than surface wrong-direction debits
+   * (the mirror of the forward path's `tx.type === 'CREDIT' → []` short-circuit).
+   *
+   * Strategy mirrors the forward path, reversed:
+   *   1. Load the NF and compute its OPEN balance (total − non-reversed
+   *      allocations already pointing at it), so a partially-paid note only
+   *      attracts debits sized to what's LEFT.
+   *   2. Prefer debits whose OFX counterparty CNPJ matches the note's emit/dest
+   *      CNPJ (exact or same 8-digit root via {@link cnpjRoot}), in the wide ±60d
+   *      window BR B2B payment terms routinely fall in.
+   *   3. Fall back to value+date proximity (±10d, ±2% of the open balance) when
+   *      CNPJ yields nothing.
+   *   4. Score each with the shared {@link scoreCandidate} against the OPEN
+   *      balance, compute each debit's still-free amount, drop the exhausted
+   *      ones, rank by confidence and cap at 50.
+   */
+  async getTransactionCandidatesForFiscalDocument(
+    fiscalDocumentId: string,
+  ): Promise<TransactionMatchCandidate[]> {
+    const nf = await this.prisma.fiscalDocument.findUnique({
+      where: { id: fiscalDocumentId },
+      select: {
+        id: true,
+        totalValue: true,
+        issueDate: true,
+        emitCnpj: true,
+        emitName: true,
+        destCnpj: true,
+        destCpf: true,
+        destName: true,
+        operationType: true,
+        status: true,
+        nfNumber: true,
+        // Non-reversed allocations already pointing at THIS note, to derive its
+        // open balance — an installment note keeps attracting parcelas until the
+        // cumulative allocation + write-offs reach its total.
+        matches: {
+          where: { reversedAt: null },
+          select: { allocatedAmount: true, adjustmentAmount: true },
+        },
+      },
+    });
+    if (!nf) return [];
+
+    // Sale/receivable notes are settled by an inbound CREDIT owned by the
+    // receivable matcher — never by the outgoing debits this method surfaces.
+    if (nf.operationType === FiscalDocumentOperation.SAIDA) return [];
+
+    // Open balance: what the note still expects to be paid. A fully-open note
+    // equals its total; a partially-paid one only wants the remaining slice
+    // (settlement = allocatedAmount PAID + adjustmentAmount written off).
+    const nfTotal = Number(nf.totalValue);
+    const alreadyAllocated = (nf.matches ?? []).reduce(
+      (s, m) => s + Number(m.allocatedAmount) + Number(m.adjustmentAmount ?? 0),
+      0,
+    );
+    const nfOpenBalance = nfTotal - alreadyAllocated;
+    // Already settled (within cents): nothing left to conciliate from this side.
+    if (nfOpenBalance <= 0.05) return [];
+
+    // CNPJ identifiers the paying debit's counterparty should carry. A purchase
+    // (ENTRADA — the only case that reaches here) is paid to the SUPPLIER, i.e.
+    // the EMITTER, so match ONLY on emitCnpj. Do NOT match on destCnpj/destCpf:
+    // for an ENTRADA those are OUR OWN company, and OFX often records the account
+    // holder (us) as the debit's counterparty, so matching them would flood the
+    // note with unrelated debits (e.g. R$10.000 payments 160 days away against a
+    // R$65 note). Exclude our own CNPJ defensively in case a supplier field holds
+    // it. When emitCnpj is absent/ours, cnpjOr stays empty and the value+date
+    // proximity fallback (Pass 3) does the right thing.
+    const companyDigits = this.companyCnpj.replace(/\D/g, '');
+    const digitsOf = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '');
+    const identifiers = [nf.emitCnpj].filter(
+      (v): v is string => !!v && digitsOf(v) !== companyDigits,
+    );
+    const roots = Array.from(
+      new Set(identifiers.map(cnpjRoot).filter((r): r is string => !!r)),
+    );
+    const cnpjOr: Prisma.BankTransactionWhereInput[] = [
+      ...(identifiers.length ? [{ counterpartyCnpjCpf: { in: identifiers } }] : []),
+      ...roots.map(
+        r => ({ counterpartyCnpjCpf: { startsWith: r } }) as Prisma.BankTransactionWhereInput,
+      ),
+    ];
+
+    // Only outgoing debits still open (never fully RECONCILED), and never one
+    // already linked (non-reversed) to THIS note.
+    const baseTxWhere: Prisma.BankTransactionWhereInput = {
+      type: BankTransactionType.DEBIT,
+      reconciliationStatus: {
+        in: [ReconciliationStatus.PENDING, ReconciliationStatus.PARTIAL],
+      },
+      matches: { none: { reversedAt: null, fiscalDocumentId: nf.id } },
+    };
+
+    const txSelect = {
+      id: true,
+      postedAt: true,
+      amount: true,
+      type: true,
+      subtype: true,
+      counterpartyName: true,
+      counterpartyCnpjCpf: true,
+      memo: true,
+      bankName: true,
+      reconciliationStatus: true,
+      // This debit's OWN non-reversed allocations to OTHER fiscal documents, so we
+      // can compute what's still free to put toward THIS note (a PARTIAL debit may
+      // already be spread across several notes). adjustmentAmount is excluded — it
+      // reconciles the NOTE's settlement, not the transaction's allocation.
+      matches: {
+        where: { reversedAt: null, fiscalDocumentId: { not: null } },
+        select: { allocatedAmount: true },
+      },
+    } satisfies Prisma.BankTransactionSelect;
+
+    // Gather candidate debits from several passes, deduped by id. STRONG signals
+    // first — CNPJ-scoped, then exact value — then a BROAD date-proximity sweep so
+    // the manual UI ALWAYS offers the nearby unmatched payments to pick from. That
+    // sweep is essential for marketplace orders: Mercado Livre / Shopee charge ONE
+    // bundled debit while the sellers each emit their OWN NF, so the paying debit
+    // never CNPJ- or value-matches any single note — without the sweep the note
+    // that a real payment settled would show "Nenhuma transação candidata".
+    const byId = new Map<string, any>();
+    const collect = (rows: any[]) => {
+      for (const r of rows) if (!byId.has(r.id)) byId.set(r.id, r);
+    };
+
+    // Pass 1 — CNPJ-scoped, wide date window (BR B2B pays 30-60d after issue).
+    if (cnpjOr.length > 0) {
+      const lo = new Date(nf.issueDate.getTime() - CNPJ_CANDIDATE_DATE_WINDOW_DAYS * 86_400_000);
+      const hi = new Date(nf.issueDate.getTime() + CNPJ_CANDIDATE_DATE_WINDOW_DAYS * 86_400_000);
+      collect(
+        await this.prisma.bankTransaction.findMany({
+          where: { ...baseTxWhere, postedAt: { gte: lo, lte: hi }, OR: cnpjOr },
+          orderBy: { postedAt: 'desc' },
+          take: 100,
+          select: txSelect,
+        }),
+      );
+    }
+
+    // Pass 2 — widen the CNPJ search to the 1-year window ONLY when the 60-day
+    // scope found nothing (long duplicata terms / late boleto clearing).
+    if (byId.size === 0 && cnpjOr.length > 0) {
+      const lo = new Date(nf.issueDate.getTime() - PERFECT_MATCH_DATE_WINDOW_DAYS * 86_400_000);
+      const hi = new Date(nf.issueDate.getTime() + PERFECT_MATCH_DATE_WINDOW_DAYS * 86_400_000);
+      collect(
+        await this.prisma.bankTransaction.findMany({
+          where: { ...baseTxWhere, postedAt: { gte: lo, lte: hi }, OR: cnpjOr },
+          orderBy: { postedAt: 'desc' },
+          take: 100,
+          select: txSelect,
+        }),
+      );
+    }
+
+    // Pass 3 — exact value (±2%) within a tight date window: catches a single-note
+    // match even when the counterparty CNPJ is an intermediary's, not the seller's.
+    // DEBIT amounts are stored negative, so open balance B maps to [−B·1.02,−B·0.98].
+    {
+      const minAbs = nfOpenBalance * (1 - FUZZY_AMOUNT_TOLERANCE);
+      const maxAbs = nfOpenBalance * (1 + FUZZY_AMOUNT_TOLERANCE);
+      const lo = new Date(nf.issueDate.getTime() - FUZZY_DATE_WINDOW_DAYS * 86_400_000);
+      const hi = new Date(nf.issueDate.getTime() + FUZZY_DATE_WINDOW_DAYS * 86_400_000);
+      collect(
+        await this.prisma.bankTransaction.findMany({
+          where: { ...baseTxWhere, postedAt: { gte: lo, lte: hi }, amount: { gte: -maxAbs, lte: -minAbs } },
+          orderBy: { postedAt: 'desc' },
+          take: 50,
+          select: txSelect,
+        }),
+      );
+    }
+
+    // Pass 4 — broad proximity sweep. EVERY still-open NF-expecting debit within
+    // the fallback window becomes a low-confidence manual option, so marketplace /
+    // split / intermediary-routed payments (invisible to the strong passes) can
+    // still be linked by hand. Scoped to expectsFiscalDocument so bank fees, taxes
+    // and utilities — resolved by category, never by an NF — never pollute the
+    // list. Scored on DATE alone below and floored, so only genuinely-near payments
+    // survive (same-day ≈ 22%, ~3 weeks ≈ 9%); far/unrelated debits fall away.
+    {
+      const lo = new Date(nf.issueDate.getTime() - FALLBACK_SUGGESTION_DATE_WINDOW_DAYS * 86_400_000);
+      const hi = new Date(nf.issueDate.getTime() + FALLBACK_SUGGESTION_DATE_WINDOW_DAYS * 86_400_000);
+      collect(
+        await this.prisma.bankTransaction.findMany({
+          where: { ...baseTxWhere, expectsFiscalDocument: true, postedAt: { gte: lo, lte: hi } },
+          orderBy: { postedAt: 'desc' },
+          take: FALLBACK_SUGGESTION_SCAN,
+          select: txSelect,
+        }),
+      );
+    }
+
+    const txs = [...byId.values()];
+
+    // Score each surviving debit against the note's OPEN balance (reuse the
+    // shared scorer; no alias — the note carries real CNPJs), compute its still-
+    // free amount, and drop debits with nothing left to allocate.
+    const nfForScore = {
+      totalValue: nfOpenBalance,
+      issueDate: nf.issueDate,
+      emitCnpj: nf.emitCnpj,
+      // Identity scoring uses the SUPPLIER (emitter) only. The destination is our
+      // own company, so a debit whose counterparty was recorded as us must NOT
+      // earn a CNPJ/name proximity bonus — otherwise value+date fallback matches
+      // get inflated confidence purely for carrying our own CNPJ.
+      destCnpj: null,
+      destCpf: null,
+      emitName: nf.emitName,
+      destName: null,
+    };
+
+    const candidates: TransactionMatchCandidate[] = [];
+    for (const tx of txs) {
+      const absAmount = Math.abs(Number(tx.amount));
+      // What's still free on THIS debit = |amount| − what it already allocated to
+      // OTHER notes (adjustmentAmount never reduces the tx's own allocation).
+      const allocatedElsewhere = (tx.matches ?? []).reduce(
+        (s: number, m: { allocatedAmount: Prisma.Decimal | number }) =>
+          s + Number(m.allocatedAmount),
+        0,
+      );
+      const remainingValue = Number((absAmount - allocatedElsewhere).toFixed(2));
+      if (remainingValue <= 0.05) continue;
+
+      const score = scoreCandidate(
+        {
+          amount: tx.amount,
+          postedAt: tx.postedAt,
+          counterpartyCnpjCpf: tx.counterpartyCnpjCpf,
+          counterpartyName: tx.counterpartyName,
+        },
+        nfForScore,
+        null,
+      );
+      // Display floor: surface only candidates with a real signal. The strong
+      // passes (CNPJ / exact value) clear this easily; the broad proximity sweep
+      // is scored on DATE alone, so a genuinely-near unmatched debit still appears
+      // as a low-confidence MANUAL option (same-day ≈ 22%, ~3 weeks ≈ 9%) while a
+      // far/unrelated debit — the R$10.000-debit-161-days-from-a-R$65-note class —
+      // scores ~0 on every axis and is dropped. This is what lets the user hand-
+      // link a marketplace bundle to one of its notes, without flooding the list.
+      if (score.total < FALLBACK_SUGGESTION_MIN_DISPLAY) continue;
+
+      const daysDelta = Math.round(
+        Math.abs(nf.issueDate.getTime() - tx.postedAt.getTime()) / 86_400_000,
+      );
+      candidates.push({
+        transactionId: tx.id,
+        postedAt: tx.postedAt,
+        amount: Number(tx.amount),
+        absAmount,
+        type: tx.type,
+        subtype: tx.subtype ?? null,
+        counterpartyName: tx.counterpartyName ?? null,
+        counterpartyCnpjCpf: tx.counterpartyCnpjCpf ?? null,
+        memo: tx.memo ?? null,
+        bankName: tx.bankName ?? null,
+        reconciliationStatus: tx.reconciliationStatus,
+        confidence: score.total,
+        daysDelta,
+        amountDelta: Math.abs(absAmount - nfOpenBalance),
+        remainingValue,
+        rationale: score.reasons.join(' • ') || 'Aproximação por valor/data',
+      });
+    }
+
+    return candidates.sort((a, b) => b.confidence - a.confidence).slice(0, 50);
+  }
+
+  /**
    * CNPJ-independent proximity suggestions for the manual UI: still-open
    * AUTHORIZED purchase notes within ±{@link FALLBACK_SUGGESTION_DATE_WINDOW_DAYS}
    * of the payment, REAL-scored by {@link scoreCandidate} (value + date + any
@@ -2098,6 +2370,11 @@ export class ReconciliationMatcherService {
         // keeps the broad list purchase-focused instead of dumping every note.
         operationType: FiscalDocumentOperation.ENTRADA,
         issueDate: { gte: lower, lte: upper },
+        // Never re-offer a note already linked (non-reversed) to THIS transaction:
+        // the open-balance math below excludes the current tx's own allocation, so
+        // without this guard a note fully matched to this tx would reappear in its
+        // own candidate list at full value.
+        matches: { none: { reversedAt: null, transactionId } },
       },
       orderBy: { issueDate: 'desc' },
       take: FALLBACK_SUGGESTION_SCAN,
@@ -2737,11 +3014,24 @@ export class ReconciliationMatcherService {
           reconciliationSource: ReconciliationSource.AUTO,
         },
       });
+      // When the payment settles the note for slightly LESS than its total
+      // (centavo rounding / small negotiated discount inside the auto-match
+      // tolerance), record the shortfall as a settlement write-off so the note
+      // closes to a ~zero open balance. Without it the note keeps a phantom
+      // `remaining` (totalValue − allocatedAmount) and re-surfaces as a candidate
+      // for OTHER same-supplier transactions even though it is fully reconciled.
+      const cnpjShortfall = Number((Number(best.doc.totalValue) - absAmount).toFixed(2));
       await tx2.reconciliationMatch.create({
         data: {
           transactionId: tx.id,
           fiscalDocumentId: best.doc.id,
           allocatedAmount: absAmount,
+          ...(cnpjShortfall > 0.05
+            ? {
+                adjustmentAmount: cnpjShortfall,
+                adjustmentReason: ReconciliationAdjustmentReason.OUTROS,
+              }
+            : {}),
           matchType: best.score.matchType,
           confidenceScore: best.score.total,
           notes: `Pareamento automático: ${noteReasons.join(' • ')}`,
@@ -2843,11 +3133,22 @@ export class ReconciliationMatcherService {
           reconciliationSource: ReconciliationSource.AUTO,
         },
       });
+      // Close the note when the payment is slightly BELOW its total (note priced
+      // under the fee-inclusive marketplace debit): record the shortfall as a
+      // write-off so the note doesn't keep a phantom open balance and re-surface
+      // as a candidate elsewhere. (Payment ABOVE the note → no shortfall.)
+      const mktShortfall = Number((Number(doc.totalValue) - absAmount).toFixed(2));
       await tx2.reconciliationMatch.create({
         data: {
           transactionId: tx.id,
           fiscalDocumentId: doc.id,
           allocatedAmount: absAmount,
+          ...(mktShortfall > 0.05
+            ? {
+                adjustmentAmount: mktShortfall,
+                adjustmentReason: ReconciliationAdjustmentReason.OUTROS,
+              }
+            : {}),
           matchType: ReconciliationMatchType.VALUE_DATE,
           confidenceScore: MARKETPLACE_MATCH_CONFIDENCE,
           notes: `Pareamento marketplace por valor${
@@ -2859,91 +3160,6 @@ export class ReconciliationMatcherService {
       });
     });
 
-    return true;
-  }
-
-  /**
-   * Marketplace multi-seller subset-sum. One Mercado Livre/Shopee payment often
-   * settles a cart whose items came from SEVERAL sellers, each emitting its own
-   * NF — so the debit equals the sum of 2..N unmatched purchase NFs that share no
-   * supplier CNPJ. Runs only after the single-NF marketplace pass fails.
-   *
-   * Conservative by necessity — there is no CNPJ anchor tying the members
-   * together (sellers all differ), so every guard is load-bearing:
-   *   - scoped to OUR purchases (AUTHORIZED, ENTRADA, destCnpj = company);
-   *   - each member strictly smaller than the payment (a member ~= payment is the
-   *     single-NF case, already handled);
-   *   - EXACT-ish sum (cents tolerance, no 1% widening — without a CNPJ to
-   *     corroborate, a loose value-only multi-seller sum is too risky);
-   *   - the summing subset must be CONFIDENTLY unique (complete search, exactly
-   *     one result); 0 / ambiguous / over-budget all defer to manual;
-   *   - members issued close together (one cart ships around the same time);
-   *   - pool-cap hit defers (a truncated pool can make a coincidence look unique).
-   */
-  private async tryMarketplaceSubsetSum(tx: RawTransaction): Promise<boolean> {
-    const absAmount = Math.abs(Number(tx.amount));
-    const lower = new Date(tx.postedAt.getTime() - MARKETPLACE_DATE_WINDOW_DAYS * 86_400_000);
-    const upper = new Date(tx.postedAt.getTime() + MARKETPLACE_DATE_WINDOW_DAYS * 86_400_000);
-
-    const pool = await this.prisma.fiscalDocument.findMany({
-      where: {
-        status: 'AUTHORIZED',
-        operationType: FiscalDocumentOperation.ENTRADA,
-        destCnpj: this.companyCnpj,
-        matches: { none: {} },
-        issueDate: { gte: lower, lte: upper },
-        // Each member is a PART of the payment — strictly smaller than it.
-        totalValue: { gt: 0, lt: absAmount },
-      },
-      orderBy: { id: 'asc' },
-      take: AUTO_MATCH_POOL_CAP,
-      select: { id: true, totalValue: true, issueDate: true, emitName: true },
-    });
-    // Cap hit ⇒ the pool may be truncated; a missing member could make a
-    // coincidental subset look unique. Defer rather than risk it.
-    if (pool.length >= AUTO_MATCH_POOL_CAP || pool.length < SUBSET_MIN_SIZE) return false;
-
-    const { subsets, complete } = findSubsetSums(
-      pool.map(d => ({ id: d.id, value: Number(d.totalValue) })),
-      absAmount,
-      MARKETPLACE_SUBSET_OPTS,
-    );
-    // Confident uniqueness only: 0 = nothing fits, ≥2 = ambiguous, !complete =
-    // budget hit — all defer to the manual UI.
-    if (!complete || subsets.length !== 1) return false;
-
-    const memberIds = new Set(subsets[0].ids);
-    const members = pool.filter(d => memberIds.has(d.id));
-    const subtotal = subsets[0].sum;
-    const times = members.map(m => m.issueDate.getTime());
-    // Members of one cart are issued close together.
-    if (Math.max(...times) - Math.min(...times) > SUBSET_INTRA_SPAN_DAYS * 86_400_000) {
-      return false;
-    }
-
-    const allocations = allocateWithResidual(
-      members.map(m => ({ id: m.id, value: Number(m.totalValue) })),
-      absAmount,
-    );
-    if (!allocations) return false;
-
-    const residual = subtotal - absAmount;
-    const sellers = [...new Set(members.map(m => m.emitName ?? '—'))];
-    const committed = await this.writeMultiNfMatch({
-      transactionId: tx.id,
-      allocations,
-      confidenceScore: MARKETPLACE_MATCH_CONFIDENCE,
-      notes:
-        `Pareamento marketplace por soma de ${members.length} notas de ` +
-        `${sellers.length} vendedor${sellers.length === 1 ? '' : 'es'} ` +
-        `somando R$ ${subtotal.toFixed(2)}` +
-        (Math.abs(residual) > 0.005 ? ` (Δ R$ ${Math.abs(residual).toFixed(2)})` : ''),
-    });
-    if (!committed) return false;
-
-    this.logger.log(
-      `Marketplace subset-sum match: tx ${tx.id} → ${members.length} NFs (R$ ${subtotal.toFixed(2)})`,
-    );
     return true;
   }
 

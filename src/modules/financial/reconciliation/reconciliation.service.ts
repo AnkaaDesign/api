@@ -238,6 +238,16 @@ export class ReconciliationService {
   }
 
   /**
+   * Reverse of {@link getCandidates}: candidate bank transactions that could
+   * settle the given fiscal document, for conciliating from the NF side. Thin
+   * passthrough — the matcher owns the scoring/proximity logic and has no side
+   * effects here (unlike getCandidates, which refreshes topMatchScore).
+   */
+  getTransactionCandidatesForFiscalDocument(fiscalDocumentId: string) {
+    return this.matcher.getTransactionCandidatesForFiscalDocument(fiscalDocumentId);
+  }
+
+  /**
    * Single-transaction fetch with everything the detail modal needs in one
    * roundtrip: matched fiscal documents + linked bank slips. Required so deep
    * links (?txId=…) can hydrate even when the referenced row isn't on the
@@ -486,6 +496,7 @@ export class ReconciliationService {
       FRETE: 'Frete',
       SEGURO: 'Seguro',
       TAXAS: 'Taxas',
+      ITEM_SEM_NOTA: 'Item sem nota',
       OUTROS: 'Outros',
     };
     const remainder = Number((txAmount - sum).toFixed(2));

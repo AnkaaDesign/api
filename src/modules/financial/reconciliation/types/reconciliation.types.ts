@@ -120,6 +120,36 @@ export interface MatchCandidate {
   cleanGroup?: boolean;
 }
 
+/** A candidate BANK TRANSACTION that could settle a given fiscal document — the
+ *  reverse of {@link MatchCandidate} (which surfaces NFs for a transaction). Feeds
+ *  the "conciliate from the NF side" flow, where the user starts from an open
+ *  purchase note and picks the outgoing debit that paid it. */
+export interface TransactionMatchCandidate {
+  transactionId: string;
+  postedAt: Date;
+  /** Signed OFX amount — negative for the outgoing debits surfaced here. */
+  amount: number;
+  /** |amount| — the debit's magnitude. */
+  absAmount: number;
+  type: BankTransactionType;
+  subtype: string | null;
+  counterpartyName: string | null;
+  counterpartyCnpjCpf: string | null;
+  memo: string | null;
+  bankName: string | null;
+  reconciliationStatus: ReconciliationStatus;
+  /** 0-100 proximity score (value + date + CNPJ + name) to the NF open balance. */
+  confidence: number;
+  /** Whole-day difference between NF issue date and transaction posting date. */
+  daysDelta: number;
+  /** Absolute R$ difference between |amount| and the NF's open balance. */
+  amountDelta: number;
+  /** How much of this debit is still free to put toward THIS note: |amount| minus
+   *  its own non-reversed allocations to OTHER fiscal documents. */
+  remainingValue: number;
+  rationale: string;
+}
+
 export interface ImportSummary {
   /** Total .ofx/.qfx files processed (zip entries counted individually). */
   filesProcessed: number;
