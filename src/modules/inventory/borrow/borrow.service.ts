@@ -334,16 +334,14 @@ export class BorrowService {
 
   /**
    * Máquina de estados do empréstimo:
-   *   ACTIVE  → RETURNED | LOST | OVERDUE
-   *   OVERDUE → RETURNED | LOST | ACTIVE
+   *   ACTIVE  → RETURNED | LOST
    *   RETURNED → LOST (perda descoberta após a devolução)
    *   LOST → (estado final)
    * Qualquer outra transição (ex.: "desfazer" uma devolução) é rejeitada.
    */
   private validateBorrowStatusTransition(fromStatus: string, toStatus: string): void {
     const allowedTransitions: Record<string, string[]> = {
-      [BORROW_STATUS.ACTIVE]: [BORROW_STATUS.RETURNED, BORROW_STATUS.LOST, BORROW_STATUS.OVERDUE],
-      [BORROW_STATUS.OVERDUE]: [BORROW_STATUS.RETURNED, BORROW_STATUS.LOST, BORROW_STATUS.ACTIVE],
+      [BORROW_STATUS.ACTIVE]: [BORROW_STATUS.RETURNED, BORROW_STATUS.LOST],
       [BORROW_STATUS.RETURNED]: [BORROW_STATUS.LOST],
       [BORROW_STATUS.LOST]: [],
     };

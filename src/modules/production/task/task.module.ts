@@ -7,7 +7,7 @@ import { TaskAnalyticsService } from './task-analytics.service';
 import { TaskRepository } from './repositories/task.repository';
 import { TaskPrismaRepository } from './repositories/task-prisma.repository';
 import { TaskListener } from './task.listener';
-import { ArtworkListener } from './artwork.listener';
+import { LayoutListener } from './layout.listener';
 import { TaskNotificationScheduler } from './task-notification.scheduler';
 import { TaskFieldTrackerService } from './task-field-tracker.service';
 import { TaskNotificationService } from '@modules/common/notification/task-notification.service';
@@ -31,7 +31,7 @@ import { NfseModule } from '@modules/integrations/nfse/nfse.module';
     TaskService,
     TaskAnalyticsService,
     TaskListener,
-    ArtworkListener,
+    LayoutListener,
     TaskNotificationScheduler,
     TaskFieldTrackerService,
     TaskNotificationService,

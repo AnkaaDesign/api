@@ -287,14 +287,14 @@ export class FileController {
   @ReadRateLimit()
   async getFileSuggestions(
     @Query('customerId', ParseUUIDPipe) customerId: string,
-    @Query('fileContext') fileContext: 'tasksArtworks' | 'taskBaseFiles' | 'taskProjectFiles',
+    @Query('fileContext') fileContext: 'tasksLayouts' | 'taskBaseFiles' | 'taskProjectFiles',
     @Query('limit') limit?: string,
     @Query('excludeIds') excludeIds?: string,
   ): Promise<{ success: boolean; data: any[] }> {
-    const validContexts = ['tasksArtworks', 'taskBaseFiles', 'taskProjectFiles'];
+    const validContexts = ['tasksLayouts', 'taskBaseFiles', 'taskProjectFiles'];
     if (!validContexts.includes(fileContext)) {
       throw new BadRequestException(
-        'fileContext deve ser: tasksArtworks, taskBaseFiles ou taskProjectFiles',
+        'fileContext deve ser: tasksLayouts, taskBaseFiles ou taskProjectFiles',
       );
     }
     return this.fileService.getFileSuggestions({

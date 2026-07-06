@@ -128,7 +128,7 @@ import {
   DOCUMENT_CATEGORY,
   LINK_TYPE,
   FAVORITE_PAGES,
-  LAYOUT_SIDE,
+  MEASURE_SIDE,
   BONUS_DISCOUNT_REASON,
   BONUS_STATUS,
   DISCOUNT_TYPE,
@@ -257,7 +257,6 @@ export const AIRBRUSHING_STATUS_LABELS: Record<AIRBRUSHING_STATUS, string> = {
 
 export const AIRBRUSHING_PAYMENT_STATUS_LABELS: Record<AIRBRUSHING_PAYMENT_STATUS, string> = {
   [AIRBRUSHING_PAYMENT_STATUS.PENDING]: 'Pendente',
-  [AIRBRUSHING_PAYMENT_STATUS.PARTIALLY_PAID]: 'Parcialmente Pago',
   [AIRBRUSHING_PAYMENT_STATUS.PAID]: 'Pago',
 };
 
@@ -301,7 +300,6 @@ export const BORROW_STATUS_LABELS: Record<BORROW_STATUS, string> = {
   [BORROW_STATUS.ACTIVE]: 'Ativo',
   [BORROW_STATUS.RETURNED]: 'Devolvido',
   [BORROW_STATUS.LOST]: 'Perdido',
-  [BORROW_STATUS.OVERDUE]: 'Atrasado',
 };
 
 export const EXTERNAL_OPERATION_TYPE_LABELS: Record<EXTERNAL_OPERATION_TYPE, string> = {
@@ -1101,7 +1099,7 @@ export const ENTITY_TYPE_LABELS: Record<ENTITY_TYPE, string> = {
   [ENTITY_TYPE.ITEM]: 'Item',
   [ENTITY_TYPE.ITEM_BRAND]: 'Marca do Item',
   [ENTITY_TYPE.ITEM_CATEGORY]: 'Categoria do Item',
-  [ENTITY_TYPE.LAYOUT]: 'Layout',
+  [ENTITY_TYPE.IMPLEMENT_MEASURE]: 'Medidas do Implemento',
   [ENTITY_TYPE.MAINTENANCE]: 'Manutenção',
   [ENTITY_TYPE.MAINTENANCE_ITEM]: 'Item de Manutenção',
   [ENTITY_TYPE.MAINTENANCE_SCHEDULE]: 'Agendamento de Manutenção',
@@ -1198,7 +1196,6 @@ export const ACTIVITY_REASON_LABELS: Record<ACTIVITY_REASON, string> = {
   [ACTIVITY_REASON.ORDER_RECEIVED]: 'Order Received',
   [ACTIVITY_REASON.PRODUCTION_USAGE]: 'Uso em Produção',
   [ACTIVITY_REASON.PPE_DELIVERY]: 'Entrega de EPI',
-  [ACTIVITY_REASON.BORROW]: 'Empréstimo',
   [ACTIVITY_REASON.RETURN]: 'Devolução',
   [ACTIVITY_REASON.EXTERNAL_OPERATION]: 'Operação Externa',
   [ACTIVITY_REASON.INVENTORY_COUNT]: 'Contagem de Inventário',
@@ -1520,7 +1517,7 @@ export const CHANGE_LOG_ENTITY_TYPE_LABELS: Record<CHANGE_LOG_ENTITY_TYPE, strin
   [CHANGE_LOG_ENTITY_TYPE.ITEM]: 'Item',
   [CHANGE_LOG_ENTITY_TYPE.ITEM_BRAND]: 'Marca de Item',
   [CHANGE_LOG_ENTITY_TYPE.ITEM_CATEGORY]: 'Categoria de Item',
-  [CHANGE_LOG_ENTITY_TYPE.LAYOUT]: 'Layout',
+  [CHANGE_LOG_ENTITY_TYPE.IMPLEMENT_MEASURE]: 'Medidas do Implemento',
   [CHANGE_LOG_ENTITY_TYPE.MAINTENANCE]: 'Manutenção',
   [CHANGE_LOG_ENTITY_TYPE.MAINTENANCE_SCHEDULE]: 'Agendamento de Manutenção',
   [CHANGE_LOG_ENTITY_TYPE.NOTIFICATION]: 'Notificação',
@@ -1950,10 +1947,10 @@ export const FAVORITE_PAGES_LABELS: Record<FAVORITE_PAGES, string> = {
   [FAVORITE_PAGES.ADMINISTRACAO_SETORES_EDITAR_LOTE]: 'Editar Setores em Lote',
 };
 
-export const LAYOUT_SIDE_LABELS: Record<LAYOUT_SIDE, string> = {
-  [LAYOUT_SIDE.LEFT]: 'Lateral Esquerda',
-  [LAYOUT_SIDE.RIGHT]: 'Lateral Direita',
-  [LAYOUT_SIDE.BACK]: 'Traseira',
+export const MEASURE_SIDE_LABELS: Record<MEASURE_SIDE, string> = {
+  [MEASURE_SIDE.LEFT]: 'Lateral Esquerda',
+  [MEASURE_SIDE.RIGHT]: 'Lateral Direita',
+  [MEASURE_SIDE.BACK]: 'Traseira',
 };
 
 // =====================

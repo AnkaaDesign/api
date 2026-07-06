@@ -16,7 +16,7 @@ import type {
 } from '@constants';
 import type { Task, TaskIncludes, TaskOrderBy } from './task';
 import type { File, FileIncludes } from './file';
-import type { Artwork, ArtworkIncludes } from './artwork';
+import type { Layout, LayoutIncludes } from './layout';
 import type { User, UserIncludes, UserOrderBy } from './user';
 
 // =====================
@@ -33,27 +33,23 @@ export interface Airbrushing extends BaseEntity {
   /** Actual finish timestamp */
   finishedAt?: Date | null;
   price: number | null;
-  status: AIRBRUSHING_STATUS; // "Pendente", "Em Andamento", "Finalizado"
-  statusOrder: number; // 1=Pendente, 2=Em Andamento, 3=Finalizado
+  status: AIRBRUSHING_STATUS; // "Pendente", "Em Produção", "Finalizado", "Cancelado"
+  statusOrder: number; // 1=Pendente, 2=Em Produção, 3=Finalizado, 4=Cancelado
   paymentStatus?: AIRBRUSHING_PAYMENT_STATUS;
+  /** Stamped when paymentStatus becomes PAID — windows "paid this month" on Contas a Pagar. */
+  paidAt?: Date | null;
   taskId: string;
   painterId?: string | null;
-  budgetIds?: string[];
   invoiceIds?: string[];
   receiptIds?: string[];
-  reimbursementIds?: string[];
-  reimbursementInvoiceIds?: string[];
-  artworkIds?: string[];
+  layoutIds?: string[];
 
   // Relations (optional, populated based on query)
   task?: Task;
   painter?: User | null;
-  budgets?: File[];
   invoices?: File[];
   receipts?: File[];
-  reimbursements?: File[];
-  invoiceReimbursements?: File[];
-  artworks?: Artwork[];
+  layouts?: Layout[];
 }
 
 // =====================
@@ -71,11 +67,6 @@ export interface AirbrushingIncludes {
     | {
         include?: UserIncludes;
       };
-  budgets?:
-    | boolean
-    | {
-        include?: FileIncludes;
-      };
   invoices?:
     | boolean
     | {
@@ -86,20 +77,10 @@ export interface AirbrushingIncludes {
     | {
         include?: FileIncludes;
       };
-  reimbursements?:
+  layouts?:
     | boolean
     | {
-        include?: FileIncludes;
-      };
-  invoiceReimbursements?:
-    | boolean
-    | {
-        include?: FileIncludes;
-      };
-  artworks?:
-    | boolean
-    | {
-        include?: ArtworkIncludes;
+        include?: LayoutIncludes;
       };
 }
 

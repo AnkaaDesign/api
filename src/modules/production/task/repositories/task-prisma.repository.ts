@@ -64,7 +64,7 @@ const TASK_SELECT_MINIMAL: Prisma.TaskSelect = {
 
 /**
  * Card select for grid/card views - includes more context
- * Use for: Card-based layouts, Kanban boards
+ * Use for: Card-based implementMeasures, Kanban boards
  */
 const TASK_SELECT_CARD: Prisma.TaskSelect = {
   ...TASK_SELECT_MINIMAL,
@@ -348,7 +348,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       },
     },
   },
-  artworks: {
+  layouts: {
     select: {
       id: true,
       fileId: true,
@@ -441,12 +441,12 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       spot: true,
       category: true,
       implementType: true,
-      // Layout references for detail page
-      leftSideLayoutId: true,
-      rightSideLayoutId: true,
-      backSideLayoutId: true,
-      // Don't include full layout data by default - fetch separately when needed
-      // This reduces payload by 60-70% for tasks with layouts
+      // ImplementMeasure references for detail page
+      leftSideMeasureId: true,
+      rightSideMeasureId: true,
+      backSideMeasureId: true,
+      // Don't include full implementMeasure data by default - fetch separately when needed
+      // This reduces payload by 60-70% for tasks with implementMeasures
     },
   },
   airbrushings: {
@@ -471,7 +471,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
           thumbnailUrl: true,
         },
       },
-      artworks: {
+      layouts: {
         select: {
           id: true,
           fileId: true,
@@ -620,51 +620,51 @@ export class TaskPrismaRepository
       task.logoPaints = task.logoPaints.map((paint: any) => transformPaintColorPreview(paint));
     }
 
-    // Transform task artworks from nested Artwork+File structure to flattened File structure
-    if (task.artworks && Array.isArray(task.artworks)) {
-      task.artworks = task.artworks.map((artwork: any) => {
-        if (artwork.file) {
+    // Transform task layouts from nested Layout+File structure to flattened File structure
+    if (task.layouts && Array.isArray(task.layouts)) {
+      task.layouts = task.layouts.map((layout: any) => {
+        if (layout.file) {
           return {
-            id: artwork.file.id,
-            artworkId: artwork.id,
-            status: artwork.status,
-            filename: artwork.file.filename,
-            originalName: artwork.file.originalName,
-            path: artwork.file.path,
-            mimetype: artwork.file.mimetype,
-            size: artwork.file.size,
-            thumbnailUrl: artwork.file.thumbnailUrl,
-            createdAt: artwork.file.createdAt,
-            updatedAt: artwork.file.updatedAt,
+            id: layout.file.id,
+            layoutId: layout.id,
+            status: layout.status,
+            filename: layout.file.filename,
+            originalName: layout.file.originalName,
+            path: layout.file.path,
+            mimetype: layout.file.mimetype,
+            size: layout.file.size,
+            thumbnailUrl: layout.file.thumbnailUrl,
+            createdAt: layout.file.createdAt,
+            updatedAt: layout.file.updatedAt,
           };
         }
-        return artwork;
+        return layout;
       });
     }
 
-    // Transform airbrushing artworks
+    // Transform airbrushing layouts
     if (task.airbrushings && Array.isArray(task.airbrushings)) {
       task.airbrushings = task.airbrushings.map((airbrushing: any) => {
-        if (airbrushing.artworks && Array.isArray(airbrushing.artworks)) {
+        if (airbrushing.layouts && Array.isArray(airbrushing.layouts)) {
           return {
             ...airbrushing,
-            artworks: airbrushing.artworks.map((artwork: any) => {
-              if (artwork.file) {
+            layouts: airbrushing.layouts.map((layout: any) => {
+              if (layout.file) {
                 return {
-                  id: artwork.file.id,
-                  artworkId: artwork.id,
-                  status: artwork.status,
-                  filename: artwork.file.filename,
-                  originalName: artwork.file.originalName,
-                  path: artwork.file.path,
-                  mimetype: artwork.file.mimetype,
-                  size: artwork.file.size,
-                  thumbnailUrl: artwork.file.thumbnailUrl,
-                  createdAt: artwork.file.createdAt,
-                  updatedAt: artwork.file.updatedAt,
+                  id: layout.file.id,
+                  layoutId: layout.id,
+                  status: layout.status,
+                  filename: layout.file.filename,
+                  originalName: layout.file.originalName,
+                  path: layout.file.path,
+                  mimetype: layout.file.mimetype,
+                  size: layout.file.size,
+                  thumbnailUrl: layout.file.thumbnailUrl,
+                  createdAt: layout.file.createdAt,
+                  updatedAt: layout.file.updatedAt,
                 };
               }
-              return artwork;
+              return layout;
             }),
           };
         }
@@ -743,7 +743,7 @@ export class TaskPrismaRepository
       bankSlipIds,
       reimbursementIds,
       reimbursementInvoiceIds,
-      artworkIds,
+      layoutIds,
       baseFileIds,
       projectFileIds,
       checkinFileIds,
@@ -794,8 +794,8 @@ export class TaskPrismaRepository
     if (reimbursementInvoiceIds && reimbursementInvoiceIds.length > 0) {
       taskData.invoiceReimbursements = { connect: reimbursementInvoiceIds.map(id => ({ id })) };
     }
-    if (artworkIds && artworkIds.length > 0) {
-      taskData.artworks = { connect: artworkIds.map(id => ({ id })) };
+    if (layoutIds && layoutIds.length > 0) {
+      taskData.layouts = { connect: layoutIds.map(id => ({ id })) };
     }
     if (baseFileIds && baseFileIds.length > 0) {
       taskData.baseFiles = { connect: baseFileIds.map(id => ({ id })) };
@@ -964,9 +964,9 @@ export class TaskPrismaRepository
             item.invoiceIds && item.invoiceIds.length > 0
               ? { connect: item.invoiceIds.map((id: string) => ({ id })) }
               : undefined,
-          artworks:
-            item.artworkIds && item.artworkIds.length > 0
-              ? { connect: item.artworkIds.map((id: string) => ({ id })) }
+          layouts:
+            item.layoutIds && item.layoutIds.length > 0
+              ? { connect: item.layoutIds.map((id: string) => ({ id })) }
               : undefined,
         })),
       };
@@ -1053,7 +1053,7 @@ export class TaskPrismaRepository
       bankSlipIds,
       reimbursementIds,
       reimbursementInvoiceIds,
-      artworkIds,
+      layoutIds,
       baseFileIds,
       projectFileIds,
       checkinFileIds,
@@ -1134,8 +1134,8 @@ export class TaskPrismaRepository
     if (reimbursementInvoiceIds !== undefined) {
       updateData.invoiceReimbursements = { set: reimbursementInvoiceIds.map(id => ({ id })) };
     }
-    if (artworkIds !== undefined) {
-      updateData.artworks = { set: artworkIds.map(id => ({ id })) };
+    if (layoutIds !== undefined) {
+      updateData.layouts = { set: layoutIds.map(id => ({ id })) };
     }
     if (baseFileIds !== undefined) {
       updateData.baseFiles = { set: baseFileIds.map(id => ({ id })) };
@@ -1347,7 +1347,7 @@ export class TaskPrismaRepository
 
     const airbrushings = (extendedData as any).airbrushings;
     // The single-update SERVICE path handles airbrushing create/update itself
-    // (painter validation, File→Artwork resolution, per-entity changelog) and
+    // (painter validation, File→Layout resolution, per-entity changelog) and
     // delegates ONLY the notIn-delete to this mapper. The batch path has no such
     // service-layer airbrushing handling, so it opts into full create+update
     // here via the `_applyAirbrushingsFully` marker. Without the marker we keep
@@ -1384,11 +1384,11 @@ export class TaskPrismaRepository
           // Batch path: full create + update + notIn-delete in one nested write.
           //
           // Build a scalar/relation create payload for a new airbrushing.
-          // artworks: a NEW airbrushing has nothing to preserve, so connect the
-          // Artwork ids the form selected (mirrors the nested task-create path).
+          // layouts: a NEW airbrushing has nothing to preserve, so connect the
+          // Layout ids the form selected (mirrors the nested task-create path).
           // Without this, batch-created airbrushings silently dropped their
-          // artworks. (Existing-airbrushing UPDATES below still leave artworks
-          // untouched — resolving File→Artwork there needs the service helper the
+          // layouts. (Existing-airbrushing UPDATES below still leave layouts
+          // untouched — resolving File→Layout there needs the service helper the
           // repository can't reach, so absence = preserve.)
           const buildCreate = (item: any) => ({
             status: item.status || 'PENDING',
@@ -1399,9 +1399,9 @@ export class TaskPrismaRepository
             finishedAt: item.finishedAt || null,
             paymentStatus: item.paymentStatus || 'PENDING',
             painter: item.painterId ? { connect: { id: item.painterId } } : undefined,
-            artworks:
-              item.artworkIds && item.artworkIds.length > 0
-                ? { connect: item.artworkIds.map((aid: string) => ({ id: aid })) }
+            layouts:
+              item.layoutIds && item.layoutIds.length > 0
+                ? { connect: item.layoutIds.map((aid: string) => ({ id: aid })) }
                 : undefined,
             receipts:
               item.receiptIds && item.receiptIds.length > 0
@@ -1644,9 +1644,9 @@ export class TaskPrismaRepository
         });
         const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
 
-        // Clone any layout File owned by another quote so the new quote owns an
+        // Clone any implementMeasure File owned by another quote so the new quote owns an
         // INDEPENDENT copy — connecting the source ids would steal them (FK on File).
-        const resolvedLayoutIds =
+        const resolvedImplementMeasureIds =
           quoteData.layoutFileIds !== undefined
             ? await this.fileService.resolveLayoutFileIdsForQuote(
                 transaction,
@@ -1655,10 +1655,10 @@ export class TaskPrismaRepository
               )
             : undefined;
         const layoutFileConnect =
-          resolvedLayoutIds !== undefined
+          resolvedImplementMeasureIds !== undefined
             ? {
                 layoutFiles: {
-                  connect: resolvedLayoutIds.map((fid: string) => ({ id: fid })),
+                  connect: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })),
                 },
               }
             : {};
@@ -1858,7 +1858,7 @@ export class TaskPrismaRepository
           quoteData.services.length > 0;
         const hasConfigs =
           typeof quoteData === 'object' && quoteData.customerConfigs !== undefined;
-        const hasLayout =
+        const hasImplementMeasure =
           typeof quoteData === 'object' && quoteData.layoutFileIds !== undefined;
         const hasQuoteScalars =
           typeof quoteData === 'object' &&
@@ -1870,11 +1870,11 @@ export class TaskPrismaRepository
             quoteData.simultaneousTasks !== undefined);
 
         // Decouple the quote-write decision from `services` presence. A config /
-        // discount / layout / scalar-only edit (services stripped as no-ops
+        // discount / implementMeasure / scalar-only edit (services stripped as no-ops
         // upstream) must still persist — gating the whole branch on
         // services.length>0 silently dropped discount-only edits (200 OK, change
         // vanished on reload).
-        if (hasServices || hasConfigs || hasLayout || hasQuoteScalars) {
+        if (hasServices || hasConfigs || hasImplementMeasure || hasQuoteScalars) {
           const hasNewItems =
             hasServices && quoteData.services.some((item: any) => !item.id);
 
@@ -1884,9 +1884,9 @@ export class TaskPrismaRepository
           });
 
           if (currentTask?.quoteId) {
-            // Clone any layout File owned by ANOTHER quote so this quote owns an
+            // Clone any implementMeasure File owned by ANOTHER quote so this quote owns an
             // INDEPENDENT copy — a raw `set` of foreign ids would steal them.
-            const resolvedLayoutIds = hasLayout
+            const resolvedImplementMeasureIds = hasImplementMeasure
               ? await this.fileService.resolveLayoutFileIdsForQuote(
                   transaction,
                   currentTask.quoteId,
@@ -1894,8 +1894,8 @@ export class TaskPrismaRepository
                 )
               : undefined;
             const layoutFileUpdate =
-              resolvedLayoutIds !== undefined
-                ? { layoutFiles: { set: resolvedLayoutIds.map((fid: string) => ({ id: fid })) } }
+              resolvedImplementMeasureIds !== undefined
+                ? { layoutFiles: { set: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })) } }
                 : {};
 
             await transaction.taskQuote.update({
@@ -1922,7 +1922,7 @@ export class TaskPrismaRepository
                     : undefined,
                 ...layoutFileUpdate,
                 // Services: rewrite ONLY when actually sent. Omitting them (a
-                // config/layout-only edit) must never wipe the existing services.
+                // config/implementMeasure-only edit) must never wipe the existing services.
                 ...(hasServices && {
                   services: {
                     deleteMany: {},
@@ -1968,9 +1968,9 @@ export class TaskPrismaRepository
               0,
             );
 
-            // Clone any layout File owned by another quote so the new quote owns
+            // Clone any implementMeasure File owned by another quote so the new quote owns
             // an INDEPENDENT copy — connecting source ids would steal them.
-            const resolvedLayoutIds =
+            const resolvedImplementMeasureIds =
               quoteData.layoutFileIds !== undefined
                 ? await this.fileService.resolveLayoutFileIdsForQuote(
                     transaction,
@@ -1979,8 +1979,8 @@ export class TaskPrismaRepository
                   )
                 : undefined;
             const layoutFileConnect =
-              resolvedLayoutIds !== undefined
-                ? { layoutFiles: { connect: resolvedLayoutIds.map((fid: string) => ({ id: fid })) } }
+              resolvedImplementMeasureIds !== undefined
+                ? { layoutFiles: { connect: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })) } }
                 : {};
 
             const newQuote = await transaction.taskQuote.create({

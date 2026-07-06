@@ -32,7 +32,7 @@ export const truckIncludeSchema: z.ZodSchema = z.lazy(() =>
                 observation: z.boolean().optional(),
                 generalPainting: z.boolean().optional(),
                 createdBy: z.boolean().optional(),
-                artworks: z.boolean().optional(),
+                layouts: z.boolean().optional(),
                 logoPaints: z.boolean().optional(),
                 serviceOrders: z.boolean().optional(),
               })
@@ -40,37 +40,37 @@ export const truckIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      leftSideLayout: z
+      leftSideMeasure: z
         .union([
           z.boolean(),
           z.object({
             include: z
               .object({
-                layoutSections: z.boolean().optional(),
+                sections: z.boolean().optional(),
               })
               .optional(),
           }),
         ])
         .optional(),
-      rightSideLayout: z
+      rightSideMeasure: z
         .union([
           z.boolean(),
           z.object({
             include: z
               .object({
-                layoutSections: z.boolean().optional(),
+                sections: z.boolean().optional(),
               })
               .optional(),
           }),
         ])
         .optional(),
-      backSideLayout: z
+      backSideMeasure: z
         .union([
           z.boolean(),
           z.object({
             include: z
               .object({
-                layoutSections: z.boolean().optional(),
+                sections: z.boolean().optional(),
               })
               .optional(),
           }),
@@ -196,9 +196,9 @@ export const truckWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         .optional(),
       // Relations
       task: z.any().optional(),
-      leftSideLayout: z.any().optional(),
-      rightSideLayout: z.any().optional(),
-      backSideLayout: z.any().optional(),
+      leftSideMeasure: z.any().optional(),
+      rightSideMeasure: z.any().optional(),
+      backSideMeasure: z.any().optional(),
     })
     .strict(),
 );
@@ -508,9 +508,9 @@ export const truckCreateSchema = z.object({
 
   // Relations
   taskId: z.string().uuid('Tarefa inválida'),
-  leftSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
-  rightSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
-  backSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
+  leftSideMeasureId: z.string().uuid('ImplementMeasure inválido').nullable().optional(),
+  rightSideMeasureId: z.string().uuid('ImplementMeasure inválido').nullable().optional(),
+  backSideMeasureId: z.string().uuid('ImplementMeasure inválido').nullable().optional(),
 });
 
 // Update schema
@@ -541,9 +541,9 @@ export const truckUpdateSchema = z.object({
 
   // Relations
   taskId: z.string().uuid('Tarefa inválida').optional(),
-  leftSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
-  rightSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
-  backSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
+  leftSideMeasureId: z.string().uuid('ImplementMeasure inválido').nullable().optional(),
+  rightSideMeasureId: z.string().uuid('ImplementMeasure inválido').nullable().optional(),
+  backSideMeasureId: z.string().uuid('ImplementMeasure inválido').nullable().optional(),
 });
 
 // =====================
@@ -615,9 +615,9 @@ export const mapTruckToFormData = createMapToFormDataHelper<Truck, TruckUpdateFo
   implementType: truck.implementType,
   spot: truck.spot,
   taskId: truck.taskId,
-  leftSideLayoutId: truck.leftSideLayoutId,
-  rightSideLayoutId: truck.rightSideLayoutId,
-  backSideLayoutId: truck.backSideLayoutId,
+  leftSideMeasureId: truck.leftSideMeasureId,
+  rightSideMeasureId: truck.rightSideMeasureId,
+  backSideMeasureId: truck.backSideMeasureId,
 }));
 
 // =====================

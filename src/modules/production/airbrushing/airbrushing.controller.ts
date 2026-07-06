@@ -20,6 +20,7 @@ import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
 } from '@modules/common/pipes/zod-validation.pipe';
+import { ArrayFixPipe } from '@modules/common/pipes/array-fix.pipe';
 import {
   airbrushingGetManySchema,
   airbrushingGetByIdSchema,
@@ -88,23 +89,28 @@ export class AirbrushingController {
       [
         { name: 'receipts', maxCount: 10 },
         { name: 'invoices', maxCount: 10 },
-        { name: 'artworks', maxCount: 10 },
+        { name: 'layouts', maxCount: 10 },
       ],
       multerConfig,
     ),
   )
   async create(
-    @Body(new ZodValidationPipe(airbrushingCreateSchema)) data: AirbrushingCreateFormData,
+    // ArrayFixPipe MUST run before Zod: multipart/form-data has no null/array types, so the
+    // web form-data-helper encodes JS null as the string "null" and empty arrays as
+    // `<field>_empty=true`. ArrayFixPipe converts them back (→ null / → []) — without it,
+    // "null" reaches z.coerce.date() as Invalid Date (400). Mirrors order/warning/supplier.
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(airbrushingCreateSchema)) data: AirbrushingCreateFormData,
     @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
     @UserId() userId: string,
+    @User() user: UserPayload,
     @UploadedFiles()
     files?: {
       receipts?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
-      artworks?: Express.Multer.File[];
+      layouts?: Express.Multer.File[];
     },
   ): Promise<AirbrushingCreateResponse> {
-    return this.airbrushingService.create(data, query.include, userId, files);
+    return this.airbrushingService.create(data, query.include, userId, files, user.role);
   }
 
   // Batch Operations (must come before dynamic routes)
@@ -115,8 +121,9 @@ export class AirbrushingController {
     @Body(new ZodValidationPipe(airbrushingBatchCreateSchema)) data: AirbrushingBatchCreateFormData,
     @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
     @UserId() userId: string,
+    @User() user: UserPayload,
   ): Promise<AirbrushingBatchCreateResponse<AirbrushingCreateFormData>> {
-    return this.airbrushingService.batchCreate(data, query.include, userId);
+    return this.airbrushingService.batchCreate(data, query.include, userId, user.role);
   }
 
   @Put('batch')
@@ -171,14 +178,17 @@ export class AirbrushingController {
       [
         { name: 'receipts', maxCount: 10 },
         { name: 'invoices', maxCount: 10 },
-        { name: 'artworks', maxCount: 10 },
+        { name: 'layouts', maxCount: 10 },
       ],
       multerConfig,
     ),
   )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(airbrushingUpdateSchema)) data: AirbrushingUpdateFormData,
+    // ArrayFixPipe MUST run before Zod — see create() above. It converts the multipart
+    // "null" sentinel back to null (startedAt/finishedAt/startDate/finishDate/price) and
+    // `<field>_empty=true` back to [] so file-removal reconciliation persists.
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(airbrushingUpdateSchema)) data: AirbrushingUpdateFormData,
     @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
     @UserId() userId: string,
     @User() user: UserPayload,
@@ -186,7 +196,7 @@ export class AirbrushingController {
     files?: {
       receipts?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
-      artworks?: Express.Multer.File[];
+      layouts?: Express.Multer.File[];
     },
   ): Promise<AirbrushingUpdateResponse> {
     return this.airbrushingService.update(id, data, query.include, userId, files, user.role);

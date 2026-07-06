@@ -98,7 +98,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
   },
 
-  'task.artwork.added': {
+  'task.layout.added': {
     title: data => `Arte Adicionada à Tarefa`,
     body: data =>
       `Arquivos de arte foram adicionados à tarefa "${data.taskName}"${data.fileCount ? ` (${data.fileCount} ${data.fileCount === 1 ? 'arquivo' : 'arquivos'})` : ''}.`,
@@ -107,7 +107,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
     channels: [NOTIFICATION_CHANNEL.IN_APP],
   },
 
-  'task.artwork.updated': {
+  'task.layout.updated': {
     title: data => `Arte da Tarefa Atualizada`,
     body: data =>
       `Arquivos de arte da tarefa "${data.taskName}" foram atualizados.`,
@@ -116,7 +116,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
     channels: [NOTIFICATION_CHANNEL.IN_APP],
   },
 
-  'task.artwork.removed': {
+  'task.layout.removed': {
     title: data => `Arte Removida da Tarefa`,
     body: data =>
       `Arquivos de arte foram removidos da tarefa "${data.taskName}".`,
@@ -352,7 +352,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
     ],
   },
 
-  'service-order.artwork-waiting-approval': {
+  'service-order.layout-waiting-approval': {
     title: data => `Arte Aguardando Aprovação`,
     body: data =>
       `Ordem de serviço de arte "${data.serviceOrderDescription}" da tarefa "${data.taskName}" está aguardando aprovação.`,

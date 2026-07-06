@@ -14,7 +14,7 @@ export interface FileLimitConfig {
  */
 export const ENTITY_FILE_LIMITS: Record<string, FileLimitConfig> = {
   // Task relationships
-  taskArtworks: {
+  taskLayouts: {
     maxFiles: 10,
     description: 'Máximo de 10 arquivos de arte por tarefa',
   },
@@ -72,7 +72,7 @@ export const ENTITY_FILE_LIMITS: Record<string, FileLimitConfig> = {
     maxFiles: 10,
     description: 'Máximo de 10 notas fiscais por aerografia',
   },
-  airbrushingArtworks: {
+  airbrushingLayouts: {
     maxFiles: 10,
     description: 'Máximo de 10 arquivos de arte por aerografia',
   },
@@ -100,7 +100,7 @@ export const ENTITY_FILE_LIMITS: Record<string, FileLimitConfig> = {
 
 /**
  * Get file limit for a specific entity relationship
- * @param relationshipField - The file relationship field (e.g., 'taskArtworks', 'orderBudgets')
+ * @param relationshipField - The file relationship field (e.g., 'taskLayouts', 'orderBudgets')
  * @returns File limit configuration or default if not found
  */
 export function getFileLimitForRelationship(relationshipField: string): FileLimitConfig {

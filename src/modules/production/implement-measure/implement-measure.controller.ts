@@ -1,4 +1,4 @@
-// apps/api/src/modules/production/layout/layout.controller.ts
+// apps/api/src/modules/production/implement-measure/implement-measure.controller.ts
 
 import {
   Controller,
@@ -20,21 +20,21 @@ import { Response } from 'express';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { ZodValidationPipe } from '@modules/common/pipes/zod-validation.pipe';
 import { multerConfig } from '@modules/common/file/config/upload.config';
-import { LayoutService } from './layout.service';
+import { ImplementMeasureService } from './implement-measure.service';
 import {
-  layoutCreateSchema,
-  layoutUpdateSchema,
-  type LayoutCreateFormData,
-  type LayoutUpdateFormData,
+  implementMeasureCreateSchema,
+  implementMeasureUpdateSchema,
+  type ImplementMeasureCreateFormData,
+  type ImplementMeasureUpdateFormData,
 } from '../../../schemas';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 
-@Controller('layout')
-export class LayoutController {
-  constructor(private readonly layoutService: LayoutService) {}
+@Controller('implement-measure')
+export class ImplementMeasureController {
+  constructor(private readonly implementMeasureService: ImplementMeasureService) {}
 
-  // NEW: List all layouts (layout library)
+  // NEW: List all implementMeasures (implementMeasure library)
   @Get()
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
@@ -51,15 +51,15 @@ export class LayoutController {
     @Query('includeSections') includeSections?: string,
     @UserId() userId?: string,
   ) {
-    const layouts = await this.layoutService.findAll({
+    const implementMeasures = await this.implementMeasureService.findAll({
       includeUsage: includeUsage === 'true',
       includeSections: includeSections === 'true',
     });
 
     return {
       success: true,
-      message: 'Layouts encontrados com sucesso',
-      data: layouts,
+      message: 'ImplementMeasures encontrados com sucesso',
+      data: implementMeasures,
     };
   }
 
@@ -75,24 +75,24 @@ export class LayoutController {
     SECTOR_PRIVILEGES.ADMIN,
   )
   async findById(@Param('id') id: string, @Query() query: any, @UserId() userId: string) {
-    const layout = await this.layoutService.findById(id, query.include);
+    const implementMeasure = await this.implementMeasureService.findById(id, query.include);
 
-    if (!layout) {
+    if (!implementMeasure) {
       return {
         success: false,
-        message: 'Layout não encontrado',
+        message: 'ImplementMeasure não encontrado',
         data: null,
       };
     }
 
     return {
       success: true,
-      message: 'Layout encontrado com sucesso',
-      data: layout,
+      message: 'ImplementMeasure encontrado com sucesso',
+      data: implementMeasure,
     };
   }
 
-  // NEW: Get layout usage details
+  // NEW: Get implementMeasure usage details
   @Get(':id/usage')
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
@@ -104,12 +104,12 @@ export class LayoutController {
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
   )
-  async getLayoutUsage(@Param('id') id: string, @UserId() userId: string) {
-    const usage = await this.layoutService.getTrucksUsingLayout(id);
+  async getImplementMeasureUsage(@Param('id') id: string, @UserId() userId: string) {
+    const usage = await this.implementMeasureService.getTrucksUsingImplementMeasure(id);
 
     return {
       success: true,
-      message: 'Detalhes de uso do layout obtidos com sucesso',
+      message: 'Detalhes de uso do implementMeasure obtidos com sucesso',
       data: usage,
     };
   }
@@ -130,14 +130,14 @@ export class LayoutController {
     @Query('includePhoto') includePhoto: string,
     @UserId() userId: string,
   ) {
-    const layouts = await this.layoutService.findByTruckId(truckId, {
+    const implementMeasures = await this.implementMeasureService.findByTruckId(truckId, {
       includePhoto: includePhoto === 'true',
     });
 
     return {
       success: true,
-      message: 'Layouts do caminhão encontrados com sucesso',
-      data: layouts,
+      message: 'ImplementMeasures do caminhão encontrados com sucesso',
+      data: implementMeasures,
     };
   }
 
@@ -148,14 +148,14 @@ export class LayoutController {
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.ADMIN,
   )
-  @UsePipes(new ZodValidationPipe(layoutCreateSchema))
-  async create(@Body() data: LayoutCreateFormData, @UserId() userId: string) {
-    const layout = await this.layoutService.create(data, userId);
+  @UsePipes(new ZodValidationPipe(implementMeasureCreateSchema))
+  async create(@Body() data: ImplementMeasureCreateFormData, @UserId() userId: string) {
+    const implementMeasure = await this.implementMeasureService.create(data, userId);
 
     return {
       success: true,
-      message: 'Layout criado com sucesso',
-      data: layout,
+      message: 'ImplementMeasure criado com sucesso',
+      data: implementMeasure,
     };
   }
 
@@ -166,33 +166,33 @@ export class LayoutController {
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.ADMIN,
   )
-  @UsePipes(new ZodValidationPipe(layoutUpdateSchema))
+  @UsePipes(new ZodValidationPipe(implementMeasureUpdateSchema))
   async update(
     @Param('id') id: string,
-    @Body() data: LayoutUpdateFormData,
+    @Body() data: ImplementMeasureUpdateFormData,
     @UserId() userId: string,
   ) {
-    const layout = await this.layoutService.update(id, data, userId);
+    const implementMeasure = await this.implementMeasureService.update(id, data, userId);
 
     return {
       success: true,
-      message: 'Layout atualizado com sucesso',
-      data: layout,
+      message: 'ImplementMeasure atualizado com sucesso',
+      data: implementMeasure,
     };
   }
 
   @Delete(':id')
   @Roles(SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.ADMIN)
   async delete(@Param('id') id: string, @UserId() userId: string) {
-    await this.layoutService.delete(id, userId);
+    await this.implementMeasureService.delete(id, userId);
 
     return {
       success: true,
-      message: 'Layout excluído com sucesso',
+      message: 'ImplementMeasure excluído com sucesso',
     };
   }
 
-  // NEW: Assign existing layout to truck
+  // NEW: Assign existing implementMeasure to truck
   @Post(':id/assign-to-truck')
   @Roles(
     SECTOR_PRIVILEGES.DESIGNER,
@@ -200,20 +200,20 @@ export class LayoutController {
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.ADMIN,
   )
-  async assignLayoutToTruck(
-    @Param('id') layoutId: string,
+  async assignImplementMeasureToTruck(
+    @Param('id') implementMeasureId: string,
     @Body() data: { truckId: string; side: 'left' | 'right' | 'back' },
     @UserId() userId: string,
   ) {
-    await this.layoutService.assignLayoutToTruck(data.truckId, data.side, layoutId, userId);
+    await this.implementMeasureService.assignImplementMeasureToTruck(data.truckId, data.side, implementMeasureId, userId);
 
     return {
       success: true,
-      message: `Layout atribuído ao lado ${data.side === 'left' ? 'Motorista' : data.side === 'right' ? 'Sapo' : 'Traseira'} do caminhão com sucesso`,
+      message: `ImplementMeasure atribuído ao lado ${data.side === 'left' ? 'Motorista' : data.side === 'right' ? 'Sapo' : 'Traseira'} do caminhão com sucesso`,
     };
   }
 
-  // NEW: Batch-update multiple truck layout sides with a SINGLE consolidated notification
+  // NEW: Batch-update multiple truck implementMeasure sides with a SINGLE consolidated notification
   @Post('truck/:truckId/batch')
   @Roles(
     SECTOR_PRIVILEGES.DESIGNER,
@@ -221,30 +221,30 @@ export class LayoutController {
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.ADMIN,
   )
-  async updateTruckLayoutBatch(
+  async updateTruckImplementMeasureBatch(
     @Param('truckId') truckId: string,
     @Body()
     data: {
-      left?: LayoutCreateFormData;
-      right?: LayoutCreateFormData;
-      back?: LayoutCreateFormData;
+      left?: ImplementMeasureCreateFormData;
+      right?: ImplementMeasureCreateFormData;
+      back?: ImplementMeasureCreateFormData;
     },
     @UserId() userId: string,
   ) {
-    const layouts = await this.layoutService.updateTruckLayoutBatch(
+    const implementMeasures = await this.implementMeasureService.updateTruckImplementMeasureBatch(
       truckId,
       {
-        left: data.left ? layoutCreateSchema.parse(data.left) : undefined,
-        right: data.right ? layoutCreateSchema.parse(data.right) : undefined,
-        back: data.back ? layoutCreateSchema.parse(data.back) : undefined,
+        left: data.left ? implementMeasureCreateSchema.parse(data.left) : undefined,
+        right: data.right ? implementMeasureCreateSchema.parse(data.right) : undefined,
+        back: data.back ? implementMeasureCreateSchema.parse(data.back) : undefined,
       },
       userId,
     );
 
     return {
       success: true,
-      message: 'Layout do caminhão salvo com sucesso',
-      data: layouts,
+      message: 'ImplementMeasure do caminhão salvo com sucesso',
+      data: implementMeasures,
     };
   }
 
@@ -256,30 +256,30 @@ export class LayoutController {
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UseInterceptors(FileFieldsInterceptor([{ name: 'photo', maxCount: 1 }], multerConfig))
-  async createOrUpdateTruckLayout(
+  async createOrUpdateTruckImplementMeasure(
     @Param('truckId') truckId: string,
     @Param('side') side: 'left' | 'right' | 'back',
-    @Body(new ZodValidationPipe(layoutCreateSchema)) data: LayoutCreateFormData,
-    @Query('existingLayoutId') existingLayoutId: string | undefined, // NEW: Optional existing layout ID
+    @Body(new ZodValidationPipe(implementMeasureCreateSchema)) data: ImplementMeasureCreateFormData,
+    @Query('existingImplementMeasureId') existingImplementMeasureId: string | undefined, // NEW: Optional existing implementMeasure ID
     @UserId() userId: string,
     @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
   ) {
     // Extract photo file if uploaded
     const photoFile = files?.photo?.[0];
 
-    const layout = await this.layoutService.createOrUpdateTruckLayout(
+    const implementMeasure = await this.implementMeasureService.createOrUpdateTruckImplementMeasure(
       truckId,
       side,
       data,
       userId,
       photoFile,
-      existingLayoutId, // NEW: Pass existing layout ID
+      existingImplementMeasureId, // NEW: Pass existing implementMeasure ID
     );
 
     return {
       success: true,
-      message: `Layout ${side === 'left' ? 'Motorista' : side === 'right' ? 'Sapo' : 'Traseira'} do caminhão salvo com sucesso`,
-      data: layout,
+      message: `ImplementMeasure ${side === 'left' ? 'Motorista' : side === 'right' ? 'Sapo' : 'Traseira'} do caminhão salvo com sucesso`,
+      data: implementMeasure,
     };
   }
 
@@ -296,15 +296,15 @@ export class LayoutController {
   )
   async generateSVG(@Param('id') id: string, @Res() res: Response) {
     try {
-      const svgContent = await this.layoutService.generateSVG(id);
+      const svgContent = await this.implementMeasureService.generateSVG(id);
 
       res.setHeader('Content-Type', 'image/svg+xml');
-      res.setHeader('Content-Disposition', `attachment; filename="layout-${id}.svg"`);
+      res.setHeader('Content-Disposition', `attachment; filename="implementMeasure-${id}.svg"`);
       res.status(HttpStatus.OK).send(svgContent);
     } catch (error) {
       res.status(HttpStatus.NOT_FOUND).json({
         success: false,
-        message: 'Layout não encontrado',
+        message: 'ImplementMeasure não encontrado',
       });
     }
   }

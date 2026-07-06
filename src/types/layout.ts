@@ -1,32 +1,36 @@
-// packages/types/src/layout.ts
+// packages/interfaces/src/layout.ts
 
-import type { BaseEntity, ORDER_BY_DIRECTION } from './common';
-import type { File } from './file';
-import type { Truck } from './truck';
-import type { LayoutSection } from './layoutSection';
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
+import type { File, FileIncludes } from './file';
+import type { Task, TaskIncludes } from './task';
+import type { Airbrushing, AirbrushingIncludes } from './airbrushing';
+import type { ORDER_BY_DIRECTION } from '@constants';
 
 // =====================
 // Main Entity Interface
 // =====================
 
 export interface Layout extends BaseEntity {
-  // Dimensions
-  height: number;
+  fileId: string;
+  status: 'DRAFT' | 'APPROVED' | 'REPROVED';
+  taskId?: string | null;
+  airbrushingId?: string | null;
 
   // Relations
-  layoutSections?: LayoutSection[];
+  file?: File;
+  task?: Task | null;
+  airbrushing?: Airbrushing | null;
 
-  photoId: string | null;
-  photo?: File;
-
-  // Inverse relations (one-to-many - SHARED RESOURCE)
-  // Multiple trucks can use the same layout
-  trucksLeftSide?: Truck[]; // Changed from Truck to Truck[]
-  trucksRightSide?: Truck[]; // Changed from Truck to Truck[]
-  trucksBackSide?: Truck[]; // Changed from Truck to Truck[]
-
-  // Computed field for usage tracking
-  usageCount?: number; // Total number of trucks using this layout
+  // Index signature for compatibility
+  [key: string]: unknown;
 }
 
 // =====================
@@ -34,12 +38,12 @@ export interface Layout extends BaseEntity {
 // =====================
 
 export interface LayoutIncludes {
-  photo?: boolean;
-  layoutSections?: boolean;
-  trucksLeftSide?: boolean; // Changed from truckLeftSide
-  trucksRightSide?: boolean; // Changed from truckRightSide
-  trucksBackSide?: boolean; // Changed from truckBackSide
+  file?: boolean | { include?: FileIncludes };
+  task?: boolean | { include?: TaskIncludes };
+  airbrushing?: boolean | { include?: AirbrushingIncludes };
 }
+
+export type LayoutInclude = LayoutIncludes;
 
 // =====================
 // Order By Types
@@ -47,8 +51,10 @@ export interface LayoutIncludes {
 
 export interface LayoutOrderBy {
   id?: ORDER_BY_DIRECTION;
-  height?: ORDER_BY_DIRECTION;
-  photoId?: ORDER_BY_DIRECTION;
+  fileId?: ORDER_BY_DIRECTION;
+  status?: ORDER_BY_DIRECTION;
+  taskId?: ORDER_BY_DIRECTION;
+  airbrushingId?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;
   updatedAt?: ORDER_BY_DIRECTION;
 }
@@ -59,8 +65,66 @@ export interface LayoutOrderBy {
 
 export interface LayoutWhere {
   id?: string;
-  height?: number;
-  photoId?: string | null;
-  createdAt?: Date;
-  updatedAt?: Date;
+  fileId?: string;
+  status?: 'DRAFT' | 'APPROVED' | 'REPROVED';
+  taskId?: string | null;
+  airbrushingId?: string | null;
+  AND?: LayoutWhere[];
+  OR?: LayoutWhere[];
+  NOT?: LayoutWhere[];
 }
+
+// =====================
+// Form Data Types
+// =====================
+
+export interface LayoutCreateFormData {
+  fileId: string;
+  status?: 'DRAFT' | 'APPROVED' | 'REPROVED';
+  taskId?: string | null;
+  airbrushingId?: string | null;
+}
+
+export interface LayoutUpdateFormData {
+  fileId?: string;
+  status?: 'DRAFT' | 'APPROVED' | 'REPROVED';
+  taskId?: string | null;
+  airbrushingId?: string | null;
+}
+
+export interface LayoutQueryFormData {
+  include?: LayoutInclude;
+}
+
+export interface LayoutGetManyFormData {
+  page?: number;
+  limit?: number;
+  where?: LayoutWhere;
+  orderBy?: LayoutOrderBy | LayoutOrderBy[];
+  include?: LayoutInclude;
+}
+
+export interface LayoutBatchCreateFormData {
+  layouts: LayoutCreateFormData[];
+}
+
+export interface LayoutBatchUpdateFormData {
+  layouts: { id: string; data: LayoutUpdateFormData }[];
+}
+
+export interface LayoutBatchDeleteFormData {
+  layoutIds: string[];
+}
+
+// =====================
+// Response Types
+// =====================
+
+export type LayoutGetUniqueResponse = BaseGetUniqueResponse<Layout>;
+export type LayoutGetManyResponse = BaseGetManyResponse<Layout>;
+export type LayoutCreateResponse = BaseCreateResponse<Layout>;
+export type LayoutUpdateResponse = BaseUpdateResponse<Layout>;
+export type LayoutDeleteResponse = BaseDeleteResponse;
+export type LayoutBatchCreateResponse<T> = BaseBatchResponse<T>;
+export type LayoutBatchUpdateResponse<T> = BaseBatchResponse<T>;
+export type LayoutBatchDeleteResponse = BaseBatchResponse<string>;

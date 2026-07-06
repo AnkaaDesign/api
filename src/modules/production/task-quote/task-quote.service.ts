@@ -1296,7 +1296,7 @@ export class TaskQuoteService {
       // Reconcile the "Em Negociação" SO whenever this update changed the
       // quote status (explicit caller status, or the auto-revert-to-PENDING
       // branch above triggered by value-affecting edits) OR the layout files —
-      // uploading/clearing a layout flips the "has artwork" check.
+      // uploading/clearing a layout flips the "has layout" check.
       if (data.status !== undefined || (data as any).layoutFileIds !== undefined) {
         const task = await this.prisma.task.findFirst({
           where: { quoteId: id },

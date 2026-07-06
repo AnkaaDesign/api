@@ -237,7 +237,7 @@ export class TaskQuoteController {
 
   /**
    * POST /task-quotes/:id/sync-em-negociacao
-   * Force a reconciliation of the "Em Negociação" SO against current quote/artwork
+   * Force a reconciliation of the "Em Negociação" SO against current quote/layout
    * state. Idempotent — safe to call any time to recover from a stuck state.
    *
    * Access: ADMIN, FINANCIAL, COMMERCIAL

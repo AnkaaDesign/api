@@ -16,7 +16,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
  */
 export interface FilesFolderMapping {
   // Entity-specific folders - Tasks
-  tasksArtworks: string;
+  tasksLayouts: string;
   taskBudgets: string;
   taskInvoices: string;
   taskReceipts: string;
@@ -35,7 +35,7 @@ export interface FilesFolderMapping {
   orderReceipts: string;
 
   // Entity-specific folders - Airbrushing
-  airbrushingArtworks: string;
+  airbrushingLayouts: string;
   airbrushingBudgets: string;
   airbrushingInvoices: string;
   airbrushingReceipts: string;
@@ -62,7 +62,7 @@ export interface FilesFolderMapping {
   // Entity-specific folders - Other
   observations: string;
   warning: string;
-  layoutPhotos: string;
+  implementMeasurePhotos: string;
   'quote-layouts': string;
   plotterEspovo: string;
   plotterAdesivo: string;
@@ -115,7 +115,7 @@ export class FilesStorageService {
    */
   private readonly folderMapping: FilesFolderMapping = {
     // Task folders (under Clientes/{customerName}/)
-    tasksArtworks: 'Layouts',
+    tasksLayouts: 'Layouts',
     taskBudgets: 'Orcamentos',
     taskInvoices: 'Notas Fiscais',
     taskReceipts: 'Comprovantes',
@@ -134,7 +134,7 @@ export class FilesStorageService {
     orderReceipts: 'Comprovantes',
 
     // Airbrushing folders (under Clientes/{customerName}/)
-    airbrushingArtworks: 'Aerografias',
+    airbrushingLayouts: 'Aerografias',
     airbrushingBudgets: 'Aerografias/Orcamentos',
     airbrushingInvoices: 'Aerografias/Notas Fiscais',
     airbrushingReceipts: 'Aerografias/Comprovantes',
@@ -161,7 +161,7 @@ export class FilesStorageService {
     // Other entity folders
     observations: 'Observacoes',
     warning: 'Advertencias',
-    layoutPhotos: 'Traseiras',
+    implementMeasurePhotos: 'Traseiras',
     'quote-layouts': 'Layouts',
     plotterEspovo: 'Plotter',
     plotterAdesivo: 'Plotter',
@@ -233,7 +233,7 @@ export class FilesStorageService {
    * Contexts that belong under Clientes/{customerName}/
    */
   private readonly customerContexts: ReadonlySet<keyof FilesFolderMapping> = new Set([
-    'tasksArtworks',
+    'tasksLayouts',
     'taskBudgets',
     'taskInvoices',
     'taskReceipts',
@@ -247,7 +247,7 @@ export class FilesStorageService {
     'taskCheckoutFiles',
     'serviceOrderCheckinFiles',
     'serviceOrderCheckoutFiles',
-    'airbrushingArtworks',
+    'airbrushingLayouts',
     'airbrushingBudgets',
     'airbrushingInvoices',
     'airbrushingReceipts',
@@ -255,7 +255,7 @@ export class FilesStorageService {
     'airbrushingNfeReimbursements',
     'customerLogo',
     'observations',
-    'layoutPhotos',
+    'implementMeasurePhotos',
     'quote-layouts',
     'plotterEspovo',
     'plotterAdesivo',
@@ -339,7 +339,7 @@ export class FilesStorageService {
           contextSuffix = this.folderMapping.archives;
           break;
         case FileTypeCategory.ARTWORK:
-          contextSuffix = this.folderMapping.tasksArtworks;
+          contextSuffix = this.folderMapping.tasksLayouts;
           break;
         default:
           contextSuffix = this.folderMapping.general;
@@ -382,7 +382,7 @@ export class FilesStorageService {
       if (fileContext === 'plotterEspovo' || fileContext === 'plotterAdesivo') {
         const cutSubfolder = cutType === 'STENCIL' ? 'Espovo' : 'Adesivo';
         folderPath = join(folderPath, cutSubfolder);
-      } else if (fileContext === 'tasksArtworks' || fileContext === 'quote-layouts') {
+      } else if (fileContext === 'tasksLayouts' || fileContext === 'quote-layouts') {
         const isPdf = mimetype === 'application/pdf';
         folderPath = join(folderPath, isPdf ? 'PDFs' : 'Imagens');
       } else if (fileContext === 'taskBaseFiles') {
@@ -401,7 +401,7 @@ export class FilesStorageService {
     }
 
     // Add project-specific subfolder if provided
-    if (projectId && projectName && fileContext === 'tasksArtworks') {
+    if (projectId && projectName && fileContext === 'tasksLayouts') {
       const sanitizedProjectName = this.sanitizeFileName(projectName);
       folderPath = join(folderPath, sanitizedProjectName);
     }
@@ -663,7 +663,7 @@ export class FilesStorageService {
 
     const entityContextMap: Record<string, Array<keyof FilesFolderMapping>> = {
       task: [
-        'tasksArtworks',
+        'tasksLayouts',
         'taskBudgets',
         'taskInvoices',
         'taskReceipts',
@@ -678,9 +678,9 @@ export class FilesStorageService {
       supplier: ['supplierLogo'],
       observation: ['observations'],
       warning: ['warning'],
-      layout: ['layoutPhotos'],
+      implementMeasure: ['implementMeasurePhotos'],
       airbrushing: [
-        'airbrushingArtworks',
+        'airbrushingLayouts',
         'airbrushingBudgets',
         'airbrushingInvoices',
         'airbrushingReceipts',
@@ -717,7 +717,7 @@ export class FilesStorageService {
       if (entityType.toLowerCase() === 'task') {
         switch (category) {
           case FileTypeCategory.ARTWORK:
-            return 'tasksArtworks';
+            return 'tasksLayouts';
           case FileTypeCategory.DOCUMENT:
             return 'taskBudgets';
           default:
@@ -734,7 +734,7 @@ export class FilesStorageService {
 
     switch (category) {
       case FileTypeCategory.ARTWORK:
-        return 'tasksArtworks';
+        return 'tasksLayouts';
       case FileTypeCategory.IMAGE:
         return 'images';
       case FileTypeCategory.DOCUMENT:

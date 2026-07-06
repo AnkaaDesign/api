@@ -143,7 +143,7 @@ export class TaskController {
         { name: 'invoices', maxCount: 10 },
         { name: 'receipts', maxCount: 10 },
         { name: 'bankSlips', maxCount: 10 },
-        { name: 'artworks', maxCount: 10 },
+        { name: 'layouts', maxCount: 10 },
         { name: 'baseFiles', maxCount: 30 },
         { name: 'projectFiles', maxCount: 30 },
         { name: 'checkinFiles', maxCount: 20 },
@@ -152,34 +152,34 @@ export class TaskController {
         // Airbrushing files - support up to 10 airbrushings with multiple files each
         { name: 'airbrushings[0].receipts', maxCount: 10 },
         { name: 'airbrushings[0].invoices', maxCount: 10 },
-        { name: 'airbrushings[0].artworks', maxCount: 20 },
+        { name: 'airbrushings[0].layouts', maxCount: 20 },
         { name: 'airbrushings[1].receipts', maxCount: 10 },
         { name: 'airbrushings[1].invoices', maxCount: 10 },
-        { name: 'airbrushings[1].artworks', maxCount: 20 },
+        { name: 'airbrushings[1].layouts', maxCount: 20 },
         { name: 'airbrushings[2].receipts', maxCount: 10 },
         { name: 'airbrushings[2].invoices', maxCount: 10 },
-        { name: 'airbrushings[2].artworks', maxCount: 20 },
+        { name: 'airbrushings[2].layouts', maxCount: 20 },
         { name: 'airbrushings[3].receipts', maxCount: 10 },
         { name: 'airbrushings[3].invoices', maxCount: 10 },
-        { name: 'airbrushings[3].artworks', maxCount: 20 },
+        { name: 'airbrushings[3].layouts', maxCount: 20 },
         { name: 'airbrushings[4].receipts', maxCount: 10 },
         { name: 'airbrushings[4].invoices', maxCount: 10 },
-        { name: 'airbrushings[4].artworks', maxCount: 20 },
+        { name: 'airbrushings[4].layouts', maxCount: 20 },
         { name: 'airbrushings[5].receipts', maxCount: 10 },
         { name: 'airbrushings[5].invoices', maxCount: 10 },
-        { name: 'airbrushings[5].artworks', maxCount: 20 },
+        { name: 'airbrushings[5].layouts', maxCount: 20 },
         { name: 'airbrushings[6].receipts', maxCount: 10 },
         { name: 'airbrushings[6].invoices', maxCount: 10 },
-        { name: 'airbrushings[6].artworks', maxCount: 20 },
+        { name: 'airbrushings[6].layouts', maxCount: 20 },
         { name: 'airbrushings[7].receipts', maxCount: 10 },
         { name: 'airbrushings[7].invoices', maxCount: 10 },
-        { name: 'airbrushings[7].artworks', maxCount: 20 },
+        { name: 'airbrushings[7].layouts', maxCount: 20 },
         { name: 'airbrushings[8].receipts', maxCount: 10 },
         { name: 'airbrushings[8].invoices', maxCount: 10 },
-        { name: 'airbrushings[8].artworks', maxCount: 20 },
+        { name: 'airbrushings[8].layouts', maxCount: 20 },
         { name: 'airbrushings[9].receipts', maxCount: 10 },
         { name: 'airbrushings[9].invoices', maxCount: 10 },
-        { name: 'airbrushings[9].artworks', maxCount: 20 },
+        { name: 'airbrushings[9].layouts', maxCount: 20 },
       ],
       multerConfig,
     ),
@@ -194,11 +194,11 @@ export class TaskController {
   }
 
   // Diagnostic Endpoints (for debugging copy-from-task issues)
-  @Get(':id/artworks/diagnostic')
+  @Get(':id/layouts/diagnostic')
   @Roles(SECTOR_PRIVILEGES.ADMIN)
-  async diagnosticArtworks(@Param('id', ParseUUIDPipe) id: string): Promise<any> {
+  async diagnosticLayouts(@Param('id', ParseUUIDPipe) id: string): Promise<any> {
     const task: any = await this.tasksService.findById(id, {
-      artworks: { include: { file: true } },
+      layouts: { include: { file: true } },
     });
 
     if (!task || !task.data) {
@@ -209,17 +209,17 @@ export class TaskController {
     return {
       taskId: taskData.id,
       taskName: taskData.name,
-      artworkCount: taskData.artworks?.length || 0,
-      artworks:
-        taskData.artworks?.map((artwork: any) => ({
-          artworkId: artwork.id,
-          fileId: artwork.fileId,
-          status: artwork.status,
-          file: artwork.file
+      layoutCount: taskData.layouts?.length || 0,
+      layouts:
+        taskData.layouts?.map((layout: any) => ({
+          layoutId: layout.id,
+          fileId: layout.fileId,
+          status: layout.status,
+          file: layout.file
             ? {
-                id: artwork.file.id,
-                filename: artwork.file.filename,
-                originalName: artwork.file.originalName,
+                id: layout.file.id,
+                filename: layout.file.filename,
+                originalName: layout.file.originalName,
               }
             : null,
         })) || [],
@@ -256,16 +256,16 @@ export class TaskController {
         { name: 'invoices', maxCount: 10 },
         { name: 'receipts', maxCount: 10 },
         { name: 'bankSlips', maxCount: 10 },
-        { name: 'artworks', maxCount: 10 },
+        { name: 'layouts', maxCount: 10 },
         { name: 'baseFiles', maxCount: 30 },
         { name: 'projectFiles', maxCount: 30 },
         { name: 'checkinFiles', maxCount: 20 },
         { name: 'checkoutFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
-        // Layout photos for bulk layout operations
-        { name: 'layoutPhotos.leftSide', maxCount: 1 },
-        { name: 'layoutPhotos.rightSide', maxCount: 1 },
-        { name: 'layoutPhotos.backSide', maxCount: 1 },
+        // ImplementMeasure photos for bulk implementMeasure operations
+        { name: 'implementMeasurePhotos.leftSide', maxCount: 1 },
+        { name: 'implementMeasurePhotos.rightSide', maxCount: 1 },
+        { name: 'implementMeasurePhotos.backSide', maxCount: 1 },
       ],
       multerConfig,
     ),
@@ -297,7 +297,7 @@ export class TaskController {
   @Post('bulk/arts')
   @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
-  async bulkAddArtworks(
+  async bulkAddLayouts(
     @Body(new ZodValidationPipe(taskBulkArtsSchema)) data: TaskBulkArtsFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
     @UserId() userId: string,
@@ -307,7 +307,7 @@ export class TaskController {
     total: number;
     errors: Array<{ taskId: string; error: string }>;
   }> {
-    return this.tasksService.bulkAddArtworks(data.taskIds, data.artworkIds, userId, query.include);
+    return this.tasksService.bulkAddLayouts(data.taskIds, data.layoutIds, userId, query.include);
   }
 
   @Post('bulk/documents')
@@ -496,9 +496,9 @@ export class TaskController {
       include: {
         truck: {
           include: {
-            leftSideLayout: { include: { layoutSections: true } },
-            rightSideLayout: { include: { layoutSections: true } },
-            backSideLayout: { include: { layoutSections: true } },
+            leftSideMeasure: { include: { sections: true } },
+            rightSideMeasure: { include: { sections: true } },
+            backSideMeasure: { include: { sections: true } },
           },
         },
         serviceOrders: {
@@ -526,25 +526,25 @@ export class TaskController {
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<TaskGetManyResponse> {
-    // Get tasks with status PENDING or IN_PRODUCTION that have truck layouts (excludes PREPARATION)
+    // Get tasks with status PENDING or IN_PRODUCTION that have truck implementMeasures (excludes PREPARATION)
     return this.tasksService.findMany({
       ...query,
       where: {
         OR: [{ status: TASK_STATUS.WAITING_PRODUCTION }, { status: TASK_STATUS.IN_PRODUCTION }],
         truck: {
           OR: [
-            { leftSideLayoutId: { not: null } },
-            { rightSideLayoutId: { not: null } },
-            { backSideLayoutId: { not: null } },
+            { leftSideMeasureId: { not: null } },
+            { rightSideMeasureId: { not: null } },
+            { backSideMeasureId: { not: null } },
           ],
         },
       },
       include: {
         truck: {
           include: {
-            leftSideLayout: { include: { layoutSections: true } },
-            rightSideLayout: { include: { layoutSections: true } },
-            backSideLayout: { include: { layoutSections: true } },
+            leftSideMeasure: { include: { sections: true } },
+            rightSideMeasure: { include: { sections: true } },
+            backSideMeasure: { include: { sections: true } },
           },
         },
         ...query.include,
@@ -704,7 +704,7 @@ export class TaskController {
         { name: 'invoices', maxCount: 10 },
         { name: 'receipts', maxCount: 10 },
         { name: 'bankSlips', maxCount: 10 },
-        { name: 'artworks', maxCount: 10 },
+        { name: 'layouts', maxCount: 10 },
         { name: 'baseFiles', maxCount: 30 },
         { name: 'projectFiles', maxCount: 30 },
         { name: 'checkinFiles', maxCount: 20 },
@@ -713,43 +713,43 @@ export class TaskController {
         { name: 'soCheckoutFiles', maxCount: 60 },
         { name: 'cutFiles', maxCount: 20 },
         { name: 'observationFiles', maxCount: 10 },
-        // Quote layout file
+        // Quote implementMeasure file
         { name: 'quoteLayoutFile', maxCount: 2 },
         // Airbrushing files - support up to 10 airbrushings with multiple files each
         { name: 'airbrushings[0].receipts', maxCount: 10 },
         { name: 'airbrushings[0].invoices', maxCount: 10 },
-        { name: 'airbrushings[0].artworks', maxCount: 20 },
+        { name: 'airbrushings[0].layouts', maxCount: 20 },
         { name: 'airbrushings[1].receipts', maxCount: 10 },
         { name: 'airbrushings[1].invoices', maxCount: 10 },
-        { name: 'airbrushings[1].artworks', maxCount: 20 },
+        { name: 'airbrushings[1].layouts', maxCount: 20 },
         { name: 'airbrushings[2].receipts', maxCount: 10 },
         { name: 'airbrushings[2].invoices', maxCount: 10 },
-        { name: 'airbrushings[2].artworks', maxCount: 20 },
+        { name: 'airbrushings[2].layouts', maxCount: 20 },
         { name: 'airbrushings[3].receipts', maxCount: 10 },
         { name: 'airbrushings[3].invoices', maxCount: 10 },
-        { name: 'airbrushings[3].artworks', maxCount: 20 },
+        { name: 'airbrushings[3].layouts', maxCount: 20 },
         { name: 'airbrushings[4].receipts', maxCount: 10 },
         { name: 'airbrushings[4].invoices', maxCount: 10 },
-        { name: 'airbrushings[4].artworks', maxCount: 20 },
+        { name: 'airbrushings[4].layouts', maxCount: 20 },
         { name: 'airbrushings[5].receipts', maxCount: 10 },
         { name: 'airbrushings[5].invoices', maxCount: 10 },
-        { name: 'airbrushings[5].artworks', maxCount: 20 },
+        { name: 'airbrushings[5].layouts', maxCount: 20 },
         { name: 'airbrushings[6].receipts', maxCount: 10 },
         { name: 'airbrushings[6].invoices', maxCount: 10 },
-        { name: 'airbrushings[6].artworks', maxCount: 20 },
+        { name: 'airbrushings[6].layouts', maxCount: 20 },
         { name: 'airbrushings[7].receipts', maxCount: 10 },
         { name: 'airbrushings[7].invoices', maxCount: 10 },
-        { name: 'airbrushings[7].artworks', maxCount: 20 },
+        { name: 'airbrushings[7].layouts', maxCount: 20 },
         { name: 'airbrushings[8].receipts', maxCount: 10 },
         { name: 'airbrushings[8].invoices', maxCount: 10 },
-        { name: 'airbrushings[8].artworks', maxCount: 20 },
+        { name: 'airbrushings[8].layouts', maxCount: 20 },
         { name: 'airbrushings[9].receipts', maxCount: 10 },
         { name: 'airbrushings[9].invoices', maxCount: 10 },
-        { name: 'airbrushings[9].artworks', maxCount: 20 },
-        // Layout photos - one photo per side (matches backend service check at line 685)
-        { name: 'layoutPhotos.leftSide', maxCount: 1 },
-        { name: 'layoutPhotos.rightSide', maxCount: 1 },
-        { name: 'layoutPhotos.backSide', maxCount: 1 },
+        { name: 'airbrushings[9].layouts', maxCount: 20 },
+        // ImplementMeasure photos - one photo per side (matches backend service check at line 685)
+        { name: 'implementMeasurePhotos.leftSide', maxCount: 1 },
+        { name: 'implementMeasurePhotos.rightSide', maxCount: 1 },
+        { name: 'implementMeasurePhotos.backSide', maxCount: 1 },
       ],
       multerConfig,
     ),
@@ -838,13 +838,13 @@ export class TaskController {
     );
   }
 
-  @Post(':id/upload/artworks')
+  @Post(':id/upload/layouts')
   @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  async uploadArtwork() {
+  async uploadLayout() {
     throw new BadRequestException(
       'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
-        'Use PUT /tasks/:id com FormData incluindo o campo "artworks".',
+        'Use PUT /tasks/:id com FormData incluindo o campo "layouts".',
     );
   }
 

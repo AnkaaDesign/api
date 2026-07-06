@@ -24,7 +24,7 @@ export {
   getGarage,
   getLane,
   calculateTruckGarageLength,
-  calculateLayoutSectionsSum,
+  calculateSectionsSum,
   SPOT_LABELS,
   getSpotLabel,
 } from '@constants';

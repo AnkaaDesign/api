@@ -272,24 +272,24 @@ export function getLane(garageId: GarageId, laneId: LaneId): Lane | undefined {
  * - Trucks with body >= 7m and < 10m: add 2.4m cabin (larger trucks)
  * - Trucks with body >= 10m: no cabin added (semi-trailers)
  *
- * @param layoutSectionsWidthSum - Sum of all layout section widths (in meters)
+ * @param sectionsWidthSum - Sum of all section widths (in meters)
  * @returns Actual truck length in the garage (in meters)
  */
-export function calculateTruckGarageLength(layoutSectionsWidthSum: number): number {
-  if (layoutSectionsWidthSum < GARAGE_CONFIG.CABIN_THRESHOLD_SMALL) {
-    return layoutSectionsWidthSum + GARAGE_CONFIG.CABIN_LENGTH_SMALL;
+export function calculateTruckGarageLength(sectionsWidthSum: number): number {
+  if (sectionsWidthSum < GARAGE_CONFIG.CABIN_THRESHOLD_SMALL) {
+    return sectionsWidthSum + GARAGE_CONFIG.CABIN_LENGTH_SMALL;
   }
-  if (layoutSectionsWidthSum < GARAGE_CONFIG.CABIN_THRESHOLD_LARGE) {
-    return layoutSectionsWidthSum + GARAGE_CONFIG.CABIN_LENGTH_LARGE;
+  if (sectionsWidthSum < GARAGE_CONFIG.CABIN_THRESHOLD_LARGE) {
+    return sectionsWidthSum + GARAGE_CONFIG.CABIN_LENGTH_LARGE;
   }
-  return layoutSectionsWidthSum;
+  return sectionsWidthSum;
 }
 
 /**
  * Calculate the sum of layout sections widths from layout sections
  */
-export function calculateLayoutSectionsSum(layoutSections: { width: number }[]): number {
-  return layoutSections.reduce((sum, section) => sum + section.width, 0);
+export function calculateSectionsSum(sections: { width: number }[]): number {
+  return sections.reduce((sum, section) => sum + section.width, 0);
 }
 
 // =====================

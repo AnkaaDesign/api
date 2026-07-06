@@ -3026,7 +3026,8 @@ export class OrderService {
           payeeName: ab.painter?.name ?? 'Aerografia (sem pintor)',
           description: ab.task?.name ? `Aerografia — ${ab.task.name}` : 'Aerografia',
           amount: ab.price ?? 0,
-          paymentState: ab.paymentStatus === 'PARTIALLY_PAID' ? 'PARTIALLY_PAID' : 'AWAITING_PAYMENT',
+          // Airbrushing payment is binary (PENDING/PAID); open rows are always awaiting.
+          paymentState: 'AWAITING_PAYMENT',
           dueDate: ab.finishDate ?? null,
           method: null,
           taskId: ab.taskId,

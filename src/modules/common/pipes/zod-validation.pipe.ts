@@ -908,7 +908,7 @@ export class ZodQueryValidationPipe extends ZodValidationPipe {
               current[part] = {};
             } else if (typeof current[part] !== 'object' || Array.isArray(current[part])) {
               // If the current value is a primitive (like true) or an array, we need to convert it to an object
-              // This handles cases like include.truck=true being overridden by include.truck.include.leftSideLayout=...
+              // This handles cases like include.truck=true being overridden by include.truck.include.leftSideMeasure=...
               current[part] = {};
             }
             current = current[part];

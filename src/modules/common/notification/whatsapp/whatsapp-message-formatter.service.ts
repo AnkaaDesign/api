@@ -461,7 +461,7 @@ export class WhatsAppMessageFormatterService {
     return this.wrap(lines);
   }
 
-  formatArtworkWaitingApproval(data: {
+  formatLayoutWaitingApproval(data: {
     serviceOrderDescription: string;
     taskName: string;
     artistName?: string;
@@ -476,7 +476,7 @@ export class WhatsAppMessageFormatterService {
     lines.push('');
     lines.push(`*Tarefa:* ${data.taskName}`);
     // Actor names are never rendered in notification text (artistName is the
-    // user who submitted the artwork — kept in the payload, not displayed).
+    // user who submitted the layout — kept in the payload, not displayed).
     if (data.filesCount) {
       lines.push(`*Arquivos:* ${data.filesCount}`);
     }

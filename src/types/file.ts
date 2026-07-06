@@ -9,7 +9,7 @@ import type {
   BaseDeleteResponse,
   BaseBatchResponse,
 } from './common';
-import type { Artwork, ArtworkIncludes } from './artwork';
+import type { Layout, LayoutIncludes } from './layout';
 import type { Task, TaskIncludes } from './task';
 import type { Customer, CustomerIncludes } from './customer';
 import type { Supplier, SupplierIncludes } from './supplier';
@@ -34,15 +34,15 @@ export interface File extends BaseEntity {
   thumbnailUrl?: string | null; // URL for PDF thumbnails or image thumbnails
 
   // Relations
-  artworks?: Artwork[];
-  tasksArtworks?: Task[];
+  layouts?: Layout[];
+  tasksLayouts?: Task[];
   customerLogo?: Customer[];
   supplierLogo?: Supplier[];
   observations?: Observation[];
   warning?: Warning[];
   airbrushingReceipts?: Airbrushing[];
   airbrushingInvoices?: Airbrushing[];
-  airbrushingArtworks?: Airbrushing[];
+  airbrushingLayouts?: Airbrushing[];
   orderReceipts?: Order[];
   taskBudgets?: Task[];
   taskInvoices?: Task[];
@@ -60,7 +60,7 @@ export interface File extends BaseEntity {
 // =====================
 
 export interface FileIncludes {
-  tasksArtworks?:
+  tasksLayouts?:
     | boolean
     | {
         include?: TaskIncludes;
@@ -95,7 +95,7 @@ export interface FileIncludes {
     | {
         include?: AirbrushingIncludes;
       };
-  airbrushingArtworks?:
+  airbrushingLayouts?:
     | boolean
     | {
         include?: AirbrushingIncludes;

@@ -3,7 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TaskDeadlineApproachingEvent, TaskOverdueEvent } from './task.events';
-import { ArtworkPendingApprovalReminderEvent } from './artwork.events';
+import { LayoutPendingApprovalReminderEvent } from './layout.events';
 import { TASK_STATUS, SERVICE_ORDER_STATUS, SERVICE_ORDER_TYPE } from '../../../constants/enums';
 
 /**
@@ -460,7 +460,7 @@ export class TaskNotificationScheduler {
   }
 
   /**
-   * Check service orders for incomplete commercial or artwork orders
+   * Check service orders for incomplete commercial or layout orders
    */
   private checkServiceOrders(serviceOrders: Array<{ id: string; type: string; status: string }>): {
     hasIncompleteOrders: boolean;
@@ -485,14 +485,14 @@ export class TaskNotificationScheduler {
       incompleteTypes.push('COMMERCIAL');
     }
 
-    // Check artwork orders
-    const artworkOrders = serviceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.ARTWORK);
-    const hasIncompleteArtwork = artworkOrders.some(so =>
+    // Check layout orders
+    const layoutOrders = serviceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.ARTWORK);
+    const hasIncompleteLayout = layoutOrders.some(so =>
       incompleteStatuses.includes(so.status as SERVICE_ORDER_STATUS),
     );
-    const hasMissingArtwork = artworkOrders.length === 0;
+    const hasMissingLayout = layoutOrders.length === 0;
 
-    if (hasIncompleteArtwork || hasMissingArtwork) {
+    if (hasIncompleteLayout || hasMissingLayout) {
       incompleteTypes.push('ARTWORK');
     }
 
@@ -507,20 +507,20 @@ export class TaskNotificationScheduler {
   // =====================
 
   /**
-   * Run daily at 9:00 AM to check for artworks pending approval > 24 hours
-   * Sends reminders to COMMERCIAL and ADMIN users to approve/reject pending artworks
+   * Run daily at 9:00 AM to check for layouts pending approval > 24 hours
+   * Sends reminders to COMMERCIAL and ADMIN users to approve/reject pending layouts
    */
   @Cron('0 9 * * *', { timeZone: 'America/Sao_Paulo' })
-  async checkPendingArtworks() {
-    this.logger.log('Running daily pending artwork approval check...');
+  async checkPendingLayouts() {
+    this.logger.log('Running daily pending layout approval check...');
 
     try {
       const now = new Date();
       const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-      // Find artworks in DRAFT status created more than 24 hours ago,
+      // Find layouts in DRAFT status created more than 24 hours ago,
       // only where there is at least one active (non-CANCELLED) task associated
-      const pendingArtworks = await this.prisma.artwork.findMany({
+      const pendingLayouts = await this.prisma.layout.findMany({
         where: {
           status: 'DRAFT',
           createdAt: { lt: twentyFourHoursAgo },
@@ -553,12 +553,12 @@ export class TaskNotificationScheduler {
         },
       });
 
-      this.logger.log(`Found ${pendingArtworks.length} artworks pending approval for > 24 hours`);
+      this.logger.log(`Found ${pendingLayouts.length} layouts pending approval for > 24 hours`);
 
-      for (const artwork of pendingArtworks) {
+      for (const layout of pendingLayouts) {
         try {
           // Calculate days pending
-          const createdAt = new Date(artwork.createdAt);
+          const createdAt = new Date(layout.createdAt);
           const daysPending = Math.floor(
             (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24),
           );
@@ -574,32 +574,32 @@ export class TaskNotificationScheduler {
             (daysPending > 7 && daysPending % 7 === 0);
 
           if (shouldNotify) {
-            const task = artwork.tasks && artwork.tasks.length > 0 ? artwork.tasks[0] : null;
+            const task = layout.tasks && layout.tasks.length > 0 ? layout.tasks[0] : null;
 
             if (!task) {
-              this.logger.log(`Skipping artwork ${artwork.id} - no active task found`);
+              this.logger.log(`Skipping layout ${layout.id} - no active task found`);
               continue;
             }
 
             this.logger.log(
-              `Emitting pending_approval_reminder for artwork ${artwork.id} (${daysPending} days pending)`,
+              `Emitting pending_approval_reminder for layout ${layout.id} (${daysPending} days pending)`,
             );
             this.eventEmitter.emit(
               'artwork.pending_approval_reminder',
-              new ArtworkPendingApprovalReminderEvent(artwork as any, task as any, daysPending),
+              new LayoutPendingApprovalReminderEvent(layout as any, task as any, daysPending),
             );
           }
         } catch (error) {
           this.logger.error(
-            `Error emitting pending approval reminder for artwork ${artwork.id}:`,
+            `Error emitting pending approval reminder for layout ${layout.id}:`,
             error,
           );
         }
       }
 
-      this.logger.log('Completed pending artwork approval check');
+      this.logger.log('Completed pending layout approval check');
     } catch (error) {
-      this.logger.error('Error during pending artwork approval check:', error);
+      this.logger.error('Error during pending layout approval check:', error);
     }
   }
 

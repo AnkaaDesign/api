@@ -280,7 +280,7 @@ export class WhatsAppNotificationService {
       // Service Order notifications (check before generic "order" prefix)
       if (key.startsWith('service_order')) {
         if (key.includes('artwork') && key.includes('approval')) {
-          return this.formatter.formatArtworkWaitingApproval(data);
+          return this.formatter.formatLayoutWaitingApproval(data);
         }
         if (key.includes('status') || key.includes('completed') || key.includes('started')) {
           return this.formatter.formatServiceOrderStatusChanged(data);

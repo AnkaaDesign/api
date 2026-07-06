@@ -22,7 +22,7 @@ describe('TaskNotificationService', () => {
     details: 'Test details',
     sectorId: 'sector-1',
     term: new Date('2026-01-10'),
-    artworks: [],
+    layouts: [],
   } as Task;
 
   beforeEach(async () => {
@@ -111,16 +111,16 @@ describe('TaskNotificationService', () => {
     });
 
     it('should detect array changes', () => {
-      const oldTask = { ...mockTask, artworks: [] as any };
+      const oldTask = { ...mockTask, layouts: [] as any };
       const newTask = {
         ...mockTask,
-        artworks: [{ id: 'file-1' }, { id: 'file-2' }] as any,
+        layouts: [{ id: 'file-1' }, { id: 'file-2' }] as any,
       };
 
       const changes = service.trackTaskChanges(oldTask, newTask);
 
       expect(changes).toHaveLength(1);
-      expect(changes[0].field).toBe('artworks');
+      expect(changes[0].field).toBe('layouts');
       expect(changes[0].fieldLabel).toBe('Anexos');
     });
 
@@ -191,7 +191,7 @@ describe('TaskNotificationService', () => {
       expect(service.getFieldLabel('priority')).toBe('Prioridade');
       expect(service.getFieldLabel('sectorId')).toBe('Responsável');
       expect(service.getFieldLabel('term')).toBe('Prazo');
-      expect(service.getFieldLabel('artworks')).toBe('Anexos');
+      expect(service.getFieldLabel('layouts')).toBe('Anexos');
       expect(service.getFieldLabel('observation')).toBe('Comentários');
     });
 

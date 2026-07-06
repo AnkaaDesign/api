@@ -19,7 +19,7 @@ export const COPYABLE_TASK_FIELDS = [
   'quoteId',
   'paintId',
   // Shared file IDs (many-to-many relations)
-  'artworkIds',
+  'layoutIds',
   'baseFileIds',
   'projectFileIds',
   'logoPaintIds',
@@ -34,7 +34,7 @@ export const COPYABLE_TASK_FIELDS = [
   // Truck/Vehicle related
   'implementType',
   'category',
-  'layouts',
+  'implementMeasures',
   // Other relations
   'observation',
 ] as const;
@@ -153,8 +153,8 @@ export const COPYABLE_FIELD_PERMISSIONS: Record<
     SECTOR_PRIVILEGES.MAINTENANCE,
   ],
 
-  // Artworks (Layouts files) - hidden for Warehouse, Financial, Logistic
-  artworkIds: [
+  // Layouts (ImplementMeasures files) - hidden for Warehouse, Financial, Logistic
+  layoutIds: [
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.DESIGNER,
@@ -273,7 +273,7 @@ export const COPYABLE_FIELD_PERMISSIONS: Record<
   ],
 
   // Medidas do Caminhão - hidden for Warehouse, Financial, Designer, Commercial
-  layouts: [
+  implementMeasures: [
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,

@@ -8,7 +8,7 @@ import { z } from 'zod';
 // =====================
 export const taskBulkArtsSchema = z.object({
   taskIds: z.array(z.string().uuid()).min(1, 'Pelo menos uma tarefa deve ser selecionada'),
-  artworkIds: z.array(z.string().uuid()).min(1, 'Pelo menos uma arte deve ser selecionada'),
+  layoutIds: z.array(z.string().uuid()).min(1, 'Pelo menos uma arte deve ser selecionada'),
 });
 
 export type TaskBulkArtsFormData = z.infer<typeof taskBulkArtsSchema>;
@@ -76,7 +76,7 @@ export type BulkOperationResult = z.infer<typeof bulkOperationResultSchema>;
 // The files are uploaded once and their IDs are added to all selected tasks
 export const taskBulkFileUploadSchema = z.object({
   taskIds: z.array(z.string().uuid()).min(1, 'Pelo menos uma tarefa deve ser selecionada'),
-  fileType: z.enum(['budgets', 'invoices', 'receipts', 'artworks'], {
+  fileType: z.enum(['budgets', 'invoices', 'receipts', 'layouts'], {
     required_error: 'Tipo de arquivo é obrigatório',
   }),
 });

@@ -219,7 +219,7 @@ export class FileService {
    */
   async getFileSuggestions(params: {
     customerId: string;
-    fileContext: 'tasksArtworks' | 'taskBaseFiles' | 'taskProjectFiles';
+    fileContext: 'tasksLayouts' | 'taskBaseFiles' | 'taskProjectFiles';
     limit?: number;
     excludeIds?: string[];
   }): Promise<{ success: boolean; data: Array<File & { url: string }> }> {
@@ -237,7 +237,7 @@ export class FileService {
 
     const sanitizedName = this.filesStorageService.sanitizeFileName(customer.fantasyName);
     const folderMapping: Record<string, string> = {
-      tasksArtworks: 'Layouts',
+      tasksLayouts: 'Layouts',
       taskBaseFiles: 'Outros',
       taskProjectFiles: 'Projetos',
     };
@@ -374,7 +374,7 @@ export class FileService {
   /**
    * General-purpose file clone: byte-copies a source File to a NEW unique path
    * under `folder` and returns the new File id. Use whenever a record holds a
-   * SINGULAR / unique-fileId relation to a File (e.g. Artwork.fileId @unique)
+   * SINGULAR / unique-fileId relation to a File (e.g. Layout.fileId @unique)
    * and must be duplicated without `connect`-ing — which would STEAL the file
    * from its current owner. Runs inside the caller's transaction (rollback-safe).
    */
@@ -1094,7 +1094,7 @@ export class FileService {
   /**
    * Validate file attachment limits for an entity relationship
    * This method should be called before attaching files to entities
-   * @param relationshipField - The relationship field (e.g., 'taskArtworks', 'orderBudgets')
+   * @param relationshipField - The relationship field (e.g., 'taskLayouts', 'orderBudgets')
    * @param entityId - The ID of the entity
    * @param newFileIds - Array of file IDs being attached
    * @param tx - Optional transaction
@@ -1323,7 +1323,7 @@ export class FileService {
         const associations = await tx.file.findUnique({
           where: { id },
           include: {
-            artworks: true,
+            layouts: true,
             customerLogo: true,
             supplierLogo: true,
             observations: true,
@@ -1341,7 +1341,7 @@ export class FileService {
 
         if (associations) {
           const hasAssociations =
-            !!associations.artworks || // artworks is one-to-one, not array
+            !!associations.layouts || // layouts is one-to-one, not array
             (associations.customerLogo?.length || 0) > 0 ||
             (associations.supplierLogo?.length || 0) > 0 ||
             (associations.observations?.length || 0) > 0 ||
@@ -1628,7 +1628,7 @@ export class FileService {
           const associations = await tx.file.findUnique({
             where: { id: file.id },
             include: {
-              artworks: true,
+              layouts: true,
               customerLogo: true,
               supplierLogo: true,
               observations: true,
@@ -1646,7 +1646,7 @@ export class FileService {
 
           if (associations) {
             const hasAssociations =
-              !!associations.artworks || // artworks is one-to-one, not array
+              !!associations.layouts || // layouts is one-to-one, not array
               (associations.customerLogo?.length || 0) > 0 ||
               (associations.supplierLogo?.length || 0) > 0 ||
               (associations.observations?.length || 0) > 0 ||

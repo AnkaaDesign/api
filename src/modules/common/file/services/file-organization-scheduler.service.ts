@@ -40,7 +40,7 @@ interface OrganizationReport {
  */
 const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null> = {
   // Customer-based contexts
-  tasksArtworks: 'customer',
+  tasksLayouts: 'customer',
   taskBudgets: 'customer',
   taskInvoices: 'customer',
   taskReceipts: 'customer',
@@ -54,11 +54,11 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
   taskCheckoutFiles: 'customer',
   customerLogo: 'customer',
   observations: 'customer',
-  layoutPhotos: 'customer',
+  implementMeasurePhotos: 'customer',
   'quote-layouts': 'customer',
   plotterEspovo: 'customer',
   plotterAdesivo: 'customer',
-  airbrushingArtworks: 'customer',
+  airbrushingLayouts: 'customer',
   airbrushingBudgets: 'customer',
   airbrushingInvoices: 'customer',
   airbrushingReceipts: 'customer',
@@ -104,14 +104,14 @@ const FOLDER_TO_CONTEXT_MAP: Array<{ pattern: RegExp; context: keyof FilesFolder
   { pattern: /\/Clientes\/[^/]+\/Aerografias\/Orcamentos\//, context: 'airbrushingBudgets' },
   { pattern: /\/Clientes\/[^/]+\/Aerografias\/Comprovantes\//, context: 'airbrushingReceipts' },
   { pattern: /\/Clientes\/[^/]+\/Aerografias\/Reembolsos\//, context: 'airbrushingReimbursements' },
-  { pattern: /\/Clientes\/[^/]+\/Aerografias\//, context: 'airbrushingArtworks' },
+  { pattern: /\/Clientes\/[^/]+\/Aerografias\//, context: 'airbrushingLayouts' },
 
   // Customer contexts
-  { pattern: /\/Clientes\/[^/]+\/Layouts\//, context: 'tasksArtworks' },
+  { pattern: /\/Clientes\/[^/]+\/Layouts\//, context: 'tasksLayouts' },
   { pattern: /\/Clientes\/[^/]+\/Projetos\//, context: 'taskProjectFiles' },
   { pattern: /\/Clientes\/[^/]+\/Checkin\//, context: 'taskCheckinFiles' },
   { pattern: /\/Clientes\/[^/]+\/Checkout\//, context: 'taskCheckoutFiles' },
-  { pattern: /\/Clientes\/[^/]+\/Traseiras\//, context: 'layoutPhotos' },
+  { pattern: /\/Clientes\/[^/]+\/Traseiras\//, context: 'implementMeasurePhotos' },
   { pattern: /\/Clientes\/[^/]+\/Notas Fiscais Reembolso\//, context: 'taskNfeReimbursements' },
   { pattern: /\/Clientes\/[^/]+\/Notas Fiscais\//, context: 'taskInvoices' },
   { pattern: /\/Clientes\/[^/]+\/Orcamentos\//, context: 'taskBudgets' },
@@ -236,8 +236,8 @@ export class FileOrganizationSchedulerService {
    */
   private async getCustomerNameForFile(fileId: string): Promise<string | null> {
     try {
-      // Check artwork relationship (file -> artwork -> tasks -> customer)
-      const artwork = await this.prisma.artwork.findFirst({
+      // Check layout relationship (file -> layout -> tasks -> customer)
+      const layout = await this.prisma.layout.findFirst({
         where: { fileId },
         include: {
           tasks: {
@@ -248,8 +248,8 @@ export class FileOrganizationSchedulerService {
           },
         },
       });
-      if (artwork?.tasks?.[0]?.customer?.fantasyName) {
-        return artwork.tasks[0].customer.fantasyName;
+      if (layout?.tasks?.[0]?.customer?.fantasyName) {
+        return layout.tasks[0].customer.fantasyName;
       }
 
       // Check customer logo (Customer.logoId = fileId)
@@ -328,7 +328,6 @@ export class FileOrganizationSchedulerService {
           OR: [
             { receipts: { some: { id: fileId } } },
             { invoices: { some: { id: fileId } } },
-            { budgets: { some: { id: fileId } } },
           ],
         },
         include: {

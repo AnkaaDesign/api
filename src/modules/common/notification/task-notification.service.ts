@@ -34,7 +34,7 @@ export enum TaskField {
   ASSIGNED_TO = 'sectorId',
   DUE_DATE = 'term',
   TAGS = 'tags',
-  ATTACHMENTS = 'artworks',
+  ATTACHMENTS = 'layouts',
   COMMENTS = 'observation',
 }
 
@@ -49,7 +49,7 @@ const FIELD_LABELS: Record<string, string> = {
   sectorId: 'Responsável',
   term: 'Prazo',
   tags: 'Etiquetas',
-  artworks: 'Anexos',
+  layouts: 'Anexos',
   observation: 'Comentários',
   // Additional fields
   bonification: 'Bonificação',
@@ -79,10 +79,10 @@ const FIELD_LABELS: Record<string, string> = {
   'truck.category': 'Categoria do Caminhão',
   'truck.implementType': 'Tipo de Implemento',
   'truck.spot': 'Vaga do Caminhão',
-  'truck.leftSideLayoutId': 'Motorista',
-  'truck.rightSideLayoutId': 'Sapo',
-  'truck.backSideLayoutId': 'Traseira',
-  'truck.layout': 'Layout do Caminhão',
+  'truck.leftSideMeasureId': 'Motorista',
+  'truck.rightSideMeasureId': 'Sapo',
+  'truck.backSideMeasureId': 'Traseira',
+  'truck.implementMeasure': 'ImplementMeasure do Caminhão',
 };
 
 /**
@@ -97,7 +97,7 @@ export const TASK_FIELD_EVENT_TYPES = {
   ASSIGNED_TO_CHANGED: 'task.field.sectorId',
   DUE_DATE_CHANGED: 'task.field.term',
   TAGS_CHANGED: 'task.field.tags',
-  ATTACHMENTS_CHANGED: 'task.field.artworks',
+  ATTACHMENTS_CHANGED: 'task.field.layouts',
   COMMENTS_CHANGED: 'task.field.observation',
 };
 

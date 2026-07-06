@@ -677,7 +677,7 @@ const taskEventLabels: Record<string, { title: string; description: string }> = 
   assignment: { title: 'Tarefa Atribuída', description: 'Uma tarefa foi atribuída a você' },
   deadline: { title: 'Prazo Próximo', description: 'O prazo da tarefa está se aproximando' },
   comment: { title: 'Novo Comentário', description: 'Alguém comentou na tarefa' },
-  artwork: { title: 'Arte Atualizada', description: 'Os arquivos de arte foram modificados' },
+  layout: { title: 'Arte Atualizada', description: 'Os arquivos de arte foram modificados' },
   completion: { title: 'Tarefa Concluída', description: 'A tarefa foi concluída' },
   priority: { title: 'Prioridade Alterada', description: 'A prioridade da tarefa foi alterada' },
 };

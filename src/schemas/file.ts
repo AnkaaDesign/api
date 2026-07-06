@@ -13,15 +13,15 @@ import { orderByDirectionSchema, normalizeOrderBy,
 export const fileIncludeSchema = z
   .object({
     // File associations - matching the types file exactly
-    artworks: z.boolean().optional(),
-    tasksArtworks: z.boolean().optional(),
+    layouts: z.boolean().optional(),
+    tasksLayouts: z.boolean().optional(),
     customerLogo: z.boolean().optional(),
     supplierLogo: z.boolean().optional(),
     observations: z.boolean().optional(),
     warning: z.boolean().optional(),
     airbrushingReceipts: z.boolean().optional(),
     airbrushingInvoices: z.boolean().optional(),
-    airbrushingArtworks: z.boolean().optional(),
+    airbrushingLayouts: z.boolean().optional(),
     orderReceipts: z.boolean().optional(),
     taskBudgets: z.boolean().optional(),
     taskInvoices: z.boolean().optional(),
@@ -207,7 +207,7 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
         .optional(),
 
       // Relation filters - matching the types file exactly
-      tasksArtworks: z
+      tasksLayouts: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -454,7 +454,7 @@ const fileTransform = (data: any) => {
       // File is orphaned if it has no relations
       andConditions.push({
         AND: [
-          { tasksArtworks: { none: {} } },
+          { tasksLayouts: { none: {} } },
           { customerLogo: { none: {} } },
           { supplierLogo: { none: {} } },
           { observations: { none: {} } },
@@ -474,7 +474,7 @@ const fileTransform = (data: any) => {
       // File is not orphaned if it has at least one relation
       andConditions.push({
         OR: [
-          { tasksArtworks: { some: {} } },
+          { tasksLayouts: { some: {} } },
           { customerLogo: { some: {} } },
           { supplierLogo: { some: {} } },
           { observations: { some: {} } },
@@ -498,7 +498,7 @@ const fileTransform = (data: any) => {
     if (hasRelations) {
       andConditions.push({
         OR: [
-          { tasksArtworks: { some: {} } },
+          { tasksLayouts: { some: {} } },
           { customerLogo: { some: {} } },
           { supplierLogo: { some: {} } },
           { observations: { some: {} } },
@@ -517,7 +517,7 @@ const fileTransform = (data: any) => {
     } else {
       andConditions.push({
         AND: [
-          { tasksArtworks: { none: {} } },
+          { tasksLayouts: { none: {} } },
           { customerLogo: { none: {} } },
           { supplierLogo: { none: {} } },
           { observations: { none: {} } },

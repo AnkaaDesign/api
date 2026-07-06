@@ -398,17 +398,6 @@ export class AtomicStockCalculatorService {
             result.isValid = false;
           }
           break;
-
-        case ACTIVITY_REASON.BORROW:
-          if (operation.operation !== ACTIVITY_OPERATION.OUTBOUND) {
-            result.errors.push('Empréstimo deve ser uma operação de saída');
-            result.isValid = false;
-          }
-          if (!operation.userId) {
-            result.errors.push('Empréstimo deve ter um usuário associado');
-            result.isValid = false;
-          }
-          break;
       }
     }
 

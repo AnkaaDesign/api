@@ -63,6 +63,7 @@ export class ThumbnailService {
     imagemagick: false,
     inkscape: false,
     ffmpeg: false,
+    pdftocairo: false,
   };
 
   constructor(private readonly filesStorageService: FilesStorageService) {
@@ -106,6 +107,21 @@ export class ThumbnailService {
     } catch (e) {
       this.logger.log(
         'Inkscape não está disponível (opcional para melhor conversão EPS->SVG). Instale com: brew install inkscape',
+      );
+    }
+
+    try {
+      // Check pdftocairo (poppler-utils). Preferred EPS/PDF rasterizer: Cairo's
+      // anti-aliasing is markedly cleaner than Ghostscript's on vector line-art and
+      // it renders straight into a bounded pixel box, so it is both faster and sharper.
+      // When absent, the EPS pipeline transparently falls back to Ghostscript.
+      await execAsync('pdftocairo -v');
+      this.toolsAvailable.pdftocairo = true;
+      this.logger.log('pdftocairo (poppler) disponível — rasterização EPS/PDF de alta qualidade');
+    } catch (e) {
+      this.logger.warn(
+        'pdftocairo não está instalado (opcional, recomendado). Thumbnails de EPS usarão o Ghostscript. ' +
+          'Instale com: apk add poppler-utils / apt install poppler-utils / pacman -S poppler',
       );
     }
 
@@ -510,405 +526,79 @@ export class ThumbnailService {
   }
 
   /**
-   * Generate thumbnail for EPS files using EPS->SVG->PNG pipeline
+   * Generate a thumbnail for an EPS file.
+   *
+   * Pipeline (fast + high quality):
+   *   1. Ghostscript: EPS -> vector PDF, cropped to the true art bounding box
+   *      (`-dEPSCrop`). Handles CorelDRAW / Illustrator exports whose art lies outside
+   *      the declared page box.
+   *   2. pdftocairo: PDF -> PNG, rendered straight into a bounded pixel box
+   *      (`-scale-to`). Cairo's anti-aliasing is markedly cleaner than Ghostscript's on
+   *      vector line-art, and bounding the raster keeps even a 95"x122" canvas fast
+   *      (~150ms) instead of exploding into a billion-pixel intermediate. Falls back to
+   *      a bounded Ghostscript raster when poppler is unavailable — no regression.
+   *   3. Sharp: flatten onto white, trim margins, fit to the requested box (Lanczos)
+   *      and a light sharpen. Deliberately NO global contrast/darkening: Cairo already
+   *      renders strokes dark and crisp, and any darkening distorts colour fills
+   *      (it crushes dark backgrounds toward black).
    */
   private async generateEpsThumbnail(
     epsPath: string,
     fileId: string,
     options: ThumbnailOptions = {},
   ): Promise<ThumbnailResult> {
-    // Declare tempPdfPath at the function scope so it's accessible in all blocks
     const tempPdfPath = epsPath.replace(extname(epsPath), '_temp.pdf');
+    // pdftocairo appends ".png" to the output prefix, so keep the base name separate.
+    const tempPngBase = epsPath.replace(extname(epsPath), '_temp');
+    const tempPngPath = `${tempPngBase}.png`;
 
     try {
       const finalOptions = { ...this.defaultOptions, ...options };
-      const tempPngPath = epsPath.replace(extname(epsPath), '_temp.png');
       const thumbnailPath = await this.getThumbnailPath(epsPath, fileId, finalOptions);
+      const target = Math.max(finalOptions.width, finalOptions.height);
 
       this.logger.log(`Gerando thumbnail de EPS: ${epsPath} -> ${thumbnailPath}`);
-
-      // Ensure directory exists
       await fs.mkdir(dirname(tempPngPath), { recursive: true });
 
-      // Determine DPI based on requested size - use high-res DPI for large thumbnails
-      const isHighRes = finalOptions.width >= 1200 || finalOptions.height >= 1200;
-      const density = isHighRes
-        ? THUMBNAIL_CONFIG.generation.epsHighResDpi
-        : THUMBNAIL_CONFIG.generation.epsDpi;
+      // Produce a rasterized PNG (tempPngPath) via the best available pipeline.
+      let rasterized = false;
 
-      this.logger.log(
-        `Using ${isHighRes ? 'HIGH-RES' : 'standard'} DPI: ${density} for size ${finalOptions.width}x${finalOptions.height}`,
-      );
-
-      const targetSize = Math.max(finalOptions.width, finalOptions.height) * 3;
-
-      // DIRECT APPROACH: Convert EPS directly to PNG with proper cropping
-      this.logger.log('Converting EPS directly to PNG with EPSCrop...');
-
-      // Test if the EPS file can be read by Ghostscript first
+      // Step 1+2: EPS -> cropped PDF -> PNG (pdftocairo preferred, Ghostscript fallback).
       try {
-        const testCommand = `${GS_BINARY} -dNOPAUSE -dBATCH -dSAFER -sDEVICE=nullpage -dQuiet "${epsPath}"`;
-        this.logger.log(`Testing EPS file readability: ${testCommand}`);
-        await execAsync(testCommand, { timeout: 10000 });
-        this.logger.log(`EPS file ${epsPath} is readable by Ghostscript`);
-      } catch (testError: any) {
-        this.logger.warn(`EPS file test failed: ${testError.message}`);
-        // Continue anyway, might still work for conversion
+        await this.epsToCroppedPdf(epsPath, tempPdfPath);
+        rasterized = await this.rasterizeCroppedPdf(tempPdfPath, tempPngBase, tempPngPath, target);
+      } catch (pdfErr: any) {
+        this.logger.warn(`EPS->PDF->PNG stage failed, will try ImageMagick: ${pdfErr.message}`);
       }
 
-      // Primary method: Two-step conversion - EPS to PDF (with proper cropping), then PDF to PNG
-      // This approach handles EPS files with content outside page boundaries correctly
-      try {
-        // Step 1: Convert EPS to PDF with EPSCrop to properly handle bounding box
-        const epsToPdfCommand = [
-          GS_BINARY,
-          '-dNOPAUSE',
-          '-dBATCH',
-          '-dSAFER',
-          '-sDEVICE=pdfwrite',
-          '-dEPSCrop', // Critical: Crops to actual EPS content, not page boundaries
-          '-dAutoRotatePages=/None',
-          `-sOutputFile="${tempPdfPath}"`,
-          `"${epsPath}"`,
-        ].join(' ');
-
-        this.logger.log(`Step 1 - Converting EPS to PDF with proper cropping: ${epsToPdfCommand}`);
-
-        const pdfResult = await execAsync(epsToPdfCommand, {
-          timeout: 30000,
-          killSignal: 'SIGTERM',
-        });
-
-        this.logger.log(
-          `EPS to PDF conversion completed successfully. Output: ${pdfResult.stdout || 'No stdout'}`,
-        );
-
-        if (pdfResult.stderr && pdfResult.stderr.trim()) {
-          this.logger.warn(`EPS to PDF warnings: ${pdfResult.stderr}`);
-        }
-
-        // Step 2: Convert the cropped PDF to PNG with transparency support.
-        //
-        // CRITICAL: rasterize into a *bounded* pixel box instead of at a fixed DPI. EPS files
-        // from CorelDRAW/Illustrator can have enormous bounding boxes (e.g. a 95"x122" canvas);
-        // at a fixed 300 DPI that produces a ~28000x36000px (~1 billion pixel) PNG that takes
-        // ~60s and blows the queue timeout, so no thumbnail is ever produced. `-dPDFFitPage`
-        // + `-g${box}x${box}` scales the page to fit a fixed pixel box regardless of the source
-        // size (small EPS are upscaled crisply since vectors are resolution-independent), keeping
-        // generation fast (~7s) and the intermediate well under Sharp's pixel limit. `density` is
-        // still used by the ImageMagick / large-image fallback branches below.
-        const fitBox = Math.min(Math.max(finalOptions.width, finalOptions.height) * 8, 4096);
-        const pdfToPngCommand = [
-          GS_BINARY,
-          '-dNOPAUSE',
-          '-dBATCH',
-          '-dSAFER',
-          '-sDEVICE=pngalpha', // Use pngalpha for transparency support
-          '-r72', // Nominal resolution; content is scaled to the pixel box by -dPDFFitPage
-          `-g${fitBox}x${fitBox}`, // Bound the raster to a fixed pixel box (aspect preserved)
-          '-dPDFFitPage', // Scale the page to fit the pixel box
-          '-dTextAlphaBits=4',
-          '-dGraphicsAlphaBits=4',
-          '-dQuiet',
-          `-dFirstPage=1`,
-          `-dLastPage=1`,
-          `-sOutputFile="${tempPngPath}"`,
-          `"${tempPdfPath}"`,
-        ].join(' ');
-
-        this.logger.log(`Step 2 - Converting PDF to PNG: ${pdfToPngCommand}`);
-
-        const pngResult = await execAsync(pdfToPngCommand, {
-          timeout: 30000,
-          killSignal: 'SIGTERM',
-        });
-
-        this.logger.log(
-          `PDF to PNG conversion completed successfully. Output: ${pngResult.stdout || 'No stdout'}`,
-        );
-
-        if (pngResult.stderr && pngResult.stderr.trim()) {
-          this.logger.warn(`PDF to PNG warnings: ${pngResult.stderr}`);
-        }
-
-        // Note: Keep the PDF file for potential fallback use, will clean up at the end
-      } catch (gsError: any) {
-        this.logger.warn(`Ghostscript failed: ${gsError.message}`);
-        this.logger.log('Trying ImageMagick as fallback...');
-
-        // Fallback to ImageMagick with better EPS handling
-        // ImageMagick can sometimes handle EPS bounding boxes better than direct Ghostscript
-        const magickCommand = [
-          'magick',
-          '-density',
-          `${density}`,
-          `"${epsPath}[0]"`,
-          '-background',
-          'white',
-          '-alpha',
-          'remove',
-          '-alpha',
-          'off',
-          '-colorspace',
-          'sRGB',
-          '-trim', // Re-enabled trim as ImageMagick handles it differently than Ghostscript
-          '+repage', // Reset page geometry after trim
-          '-resize',
-          `${targetSize}x${targetSize}>`, // Only shrink if larger
-          '-gravity',
-          'center',
-          '-extent',
-          `${targetSize}x${targetSize}`, // Ensure consistent size with padding if needed
-          '-quality',
-          '95',
-          `"${tempPngPath}"`,
-        ].join(' ');
-
-        this.logger.log(`Converting EPS to PNG with ImageMagick: ${magickCommand}`);
-
-        const magickResult = await execAsync(magickCommand, {
-          timeout: 30000, // Also reduced timeout for ImageMagick
-          killSignal: 'SIGTERM',
-        });
-
-        this.logger.log(
-          `ImageMagick completed successfully for ${epsPath}. Output: ${magickResult.stdout || 'No stdout'}`,
-        );
-
-        if (magickResult.stderr && magickResult.stderr.trim()) {
-          this.logger.warn(`ImageMagick warnings for ${epsPath}: ${magickResult.stderr}`);
-        }
+      // Last resort: let ImageMagick rasterize the EPS directly.
+      if (!rasterized) {
+        rasterized = await this.imagemagickEpsToPng(epsPath, tempPngPath, target);
       }
 
-      // Verify temp file was created and has content
-      try {
-        const stats = await fs.stat(tempPngPath);
-        if (stats.size === 0) {
-          throw new Error('Arquivo temporário está vazio');
-        }
-        this.logger.log(
-          `Arquivo temporário criado com sucesso: ${tempPngPath} (${stats.size} bytes)`,
-        );
-      } catch (e) {
-        throw new Error(`Arquivo temporário não foi criado ou está vazio: ${tempPngPath}`);
+      if (!rasterized) {
+        throw new Error('Nenhum conversor disponível conseguiu rasterizar o EPS (gs/pdftocairo/magick)');
       }
 
-      // Post-process with sharp for optimization
-      // First, check image dimensions to avoid pixel limit errors
-      try {
-        const metadata = await sharp(tempPngPath).metadata();
-        this.logger.log(`Temp PNG dimensions: ${metadata.width}x${metadata.height}`);
+      // Step 3: finish with Sharp (white-flatten, trim, fit, light sharpen).
+      await this.finishEpsThumbnail(tempPngPath, thumbnailPath, finalOptions);
 
-        // If image is extremely large, resize in multiple steps to avoid pixel limit
-        const maxDimension = 16384; // Sharp's typical pixel limit per dimension
-
-        if (metadata.width > maxDimension || metadata.height > maxDimension) {
-          this.logger.warn(
-            `Image exceeds max dimension (${maxDimension}px), using alternative approach`,
-          );
-
-          // Use Ghostscript to create the final thumbnail directly from the cropped PDF
-          // This preserves the proper cropping from the EPS->PDF conversion
-          // Use half the density for large images to avoid memory issues while maintaining quality
-          const largeDensity = Math.floor(density / 2);
-          const finalGsCommand = [
-            GS_BINARY,
-            '-dNOPAUSE',
-            '-dBATCH',
-            '-dSAFER',
-            '-sDEVICE=pngalpha', // Use pngalpha for transparency support
-            `-r${largeDensity}`, // Use adjusted resolution based on requested size
-            '-dTextAlphaBits=4',
-            '-dGraphicsAlphaBits=4',
-            `-g${finalOptions.width * 2}x${finalOptions.height * 2}`, // Create larger image for better processing
-            '-dPDFFitPage', // Fit the PDF page to our desired size
-            '-dQuiet',
-            `-sOutputFile="${tempPngPath}"`, // Output to temp PNG for Sharp processing
-            `"${tempPdfPath}"`, // Use the cropped PDF, not original EPS
-          ].join(' ');
-
-          // Then process with Sharp for contrast enhancement
-          await execAsync(finalGsCommand, { timeout: 30000 });
-
-          // Apply Sharp processing with contrast enhancement and white background
-          await sharp(tempPngPath)
-            .flatten({ background: { r: 255, g: 255, b: 255 } }) // Add white background
-            .normalize() // Auto-adjust levels
-            .linear(1.3, -15) // Increase contrast more aggressively
-            .resize(finalOptions.width, finalOptions.height, {
-              fit: finalOptions.fit as any,
-              kernel: sharp.kernel.lanczos3,
-              background: { r: 255, g: 255, b: 255 }, // White background
-            })
-            .sharpen(1, 1, 2)
-            .webp({
-              // Use WebP format
-              quality: 100,
-              effort: 6,
-            })
-            .toFile(thumbnailPath);
-
-          // Note: Large temp PNG will be cleaned up at the end
-        } else {
-          // Normal processing with Sharp for reasonable-sized images.
-          //
-          // Adaptive, white-preserving contrast: sparse vector line-art (thin strokes on a mostly
-          // white canvas — common for cut/plotter files) gets washed out when downscaled, and the
-          // old `.normalize().linear(1.2, -10)` made it worse (normalize is a no-op whenever a
-          // single stray black pixel anchors the range, and the linear term *lightens* faint gray
-          // strokes into invisibility). Instead we measure how light the image is and pick a
-          // darkening slope, using an intercept of -(slope-1)*255 so pure white (255) stays white
-          // while mid/low tones are darkened — revealing faint art without crushing normal images.
-          // Map mean luminance -> darkening slope continuously: an ink-rich image (low mean, ~214)
-          // gets the gentle floor (1.15) while a near-white sparse line drawing (~254) gets the
-          // strong ceiling (3.0). Endpoints tuned against real CorelDRAW cut files.
-          let slope = 1.15; // gentle default for normal (ink-rich) EPS
-          try {
-            const st = await sharp(tempPngPath)
-              .flatten({ background: { r: 255, g: 255, b: 255 } })
-              .stats();
-            const meanLum = (st.channels[0].mean + st.channels[1].mean + st.channels[2].mean) / 3;
-            const MIN_SLOPE = 1.15;
-            const MAX_SLOPE = 3.0;
-            const LOW_LUM = 220; // at/below this, image is ink-rich -> minimal darkening
-            const HIGH_LUM = 254; // at/above this, image is near-blank -> maximum darkening
-            const t = (meanLum - LOW_LUM) / (HIGH_LUM - LOW_LUM);
-            slope = Math.max(MIN_SLOPE, Math.min(MAX_SLOPE, MIN_SLOPE + t * (MAX_SLOPE - MIN_SLOPE)));
-            this.logger.log(
-              `EPS enhancement: meanLum=${meanLum.toFixed(1)} -> contrast slope=${slope.toFixed(2)}`,
-            );
-          } catch (statErr: any) {
-            this.logger.warn(`Could not compute EPS luminance stats: ${statErr.message}`);
-          }
-
-          await sharp(tempPngPath)
-            .flatten({ background: { r: 255, g: 255, b: 255 } }) // Add white background
-            .trim({ background: '#ffffff', threshold: 12 }) // Trim white margins for a tight thumbnail
-            .resize(finalOptions.width, finalOptions.height, {
-              fit: finalOptions.fit as any,
-              withoutEnlargement: true,
-              kernel: sharp.kernel.lanczos3,
-              background: { r: 255, g: 255, b: 255 }, // White background
-            })
-            .linear(slope, -(slope - 1) * 255) // White-preserving darkening (255 -> 255)
-            .sharpen(1, 1, 2) // Add slight sharpening for better visibility in small thumbnails
-            .webp({
-              // Use WebP format
-              quality: 100,
-              effort: 6,
-            })
-            .toFile(thumbnailPath); // Use WebP extension from thumbnailPath
-        }
-      } catch (sharpError: any) {
-        this.logger.error(`Sharp processing failed: ${sharpError.message}`);
-
-        // Final fallback: Create a transparent PNG thumbnail from the cropped PDF
-        // This preserves the proper cropping we got from EPS->PDF conversion
-        const pngThumbnailPath = thumbnailPath.replace(/\.(webp|jpg|jpeg)$/, '.png');
-        const fallbackCommand = [
-          GS_BINARY,
-          '-dNOPAUSE',
-          '-dBATCH',
-          '-dSAFER',
-          '-sDEVICE=pngalpha', // Use pngalpha for transparency
-          '-r72',
-          `-g${finalOptions.width}x${finalOptions.height}`,
-          '-dPDFFitPage', // Fit the PDF content to our desired size
-          '-dTextAlphaBits=4',
-          '-dGraphicsAlphaBits=4',
-          `-sOutputFile="${pngThumbnailPath}"`,
-          `"${tempPdfPath}"`, // Use the cropped PDF, not original EPS
-        ].join(' ');
-
-        this.logger.log(
-          `Fallback: Creating transparent PNG thumbnail from cropped PDF with Ghostscript`,
-        );
-        try {
-          await execAsync(fallbackCommand, { timeout: 30000 });
-
-          // Apply contrast enhancement with Sharp if possible
-          try {
-            await sharp(pngThumbnailPath)
-              .flatten({ background: { r: 255, g: 255, b: 255 } }) // Add white background
-              .normalize()
-              .linear(1.2, -10) // Enhance contrast
-              .sharpen(1, 1, 2)
-              .webp({ quality: 100, effort: 6 }) // Use WebP format
-              .toFile(thumbnailPath);
-
-            // Remove the unenhanced PNG version
-            await fs.unlink(pngThumbnailPath);
-            this.logger.log(`Enhanced PNG thumbnail with Sharp successfully`);
-          } catch (enhanceError) {
-            // If enhancement fails, convert basic PNG to WebP
-            this.logger.warn(
-              `Failed to enhance PNG, converting basic version to WebP: ${enhanceError}`,
-            );
-            try {
-              // Try simple conversion to WebP
-              await sharp(pngThumbnailPath)
-                .flatten({ background: { r: 255, g: 255, b: 255 } }) // Add white background
-                .webp({ quality: 100 })
-                .toFile(thumbnailPath);
-              await fs.unlink(pngThumbnailPath);
-            } catch (convertError) {
-              // If even simple conversion fails, just keep the PNG
-              this.logger.error(`Failed to convert to WebP, keeping PNG: ${convertError}`);
-            }
-          }
-        } catch (fallbackError: any) {
-          this.logger.error(`Final fallback failed: ${fallbackError.message}`);
-          throw new Error(`Unable to generate thumbnail: ${fallbackError.message}`);
-        }
-      }
-
-      // Clean up temp files (but keep tempPdfPath for potential fallback use)
-      try {
-        await fs.access(tempPngPath);
-        await fs.unlink(tempPngPath);
-        this.logger.debug(`Cleaned up temporary PNG: ${tempPngPath}`);
-      } catch (error) {
-        this.logger.debug(`Temp PNG cleanup skipped (file may not exist): ${tempPngPath}`);
-      }
-
-      // Only clean up PDF after we're completely done
-      try {
-        await fs.access(tempPdfPath);
-        await fs.unlink(tempPdfPath);
-        this.logger.debug(`Cleaned up temporary PDF: ${tempPdfPath}`);
-      } catch (error) {
-        this.logger.debug(`Temp PDF cleanup skipped (file may not exist): ${tempPdfPath}`);
-      }
+      await this.safeUnlink(tempPngPath);
+      await this.safeUnlink(tempPdfPath);
 
       const thumbnailUrl = this.generateThumbnailUrl(thumbnailPath, fileId);
-
       this.logger.log(`Thumbnail de EPS gerado com sucesso: ${thumbnailUrl}`);
-
-      return {
-        success: true,
-        thumbnailPath,
-        thumbnailUrl,
-      };
+      return { success: true, thumbnailPath, thumbnailUrl };
     } catch (error: any) {
       this.logger.error(`Falha ao gerar thumbnail de EPS para ${epsPath}:`, error);
 
-      // Clean up any temp files in case of error
-      const tempPngPath = epsPath.replace(extname(epsPath), '_temp.png');
-      const tempFiles = [tempPngPath, tempPdfPath];
-      for (const tempFile of tempFiles) {
-        try {
-          await fs.access(tempFile);
-          await fs.unlink(tempFile);
-          this.logger.debug(`Cleaned up temp file after error: ${tempFile}`);
-        } catch (cleanupError) {
-          // Ignore cleanup errors
-        }
-      }
+      await this.safeUnlink(tempPngPath);
+      await this.safeUnlink(tempPdfPath);
 
       if (
-        error.message.includes('convert') ||
-        error.message.includes('magick') ||
-        error.message.includes('gs')
+        error.message?.includes('convert') ||
+        error.message?.includes('magick') ||
+        error.message?.includes('gs')
       ) {
         return {
           success: false,
@@ -921,6 +611,184 @@ export class ThumbnailService {
         success: false,
         error: error.message || 'Erro ao processar EPS',
       };
+    }
+  }
+
+  /**
+   * Convert an EPS to a vector PDF cropped to its true content bounding box.
+   * `-dEPSCrop` normalizes the page to the art, which is crucial for CorelDRAW /
+   * Illustrator exports whose content lives outside the declared page boundary.
+   */
+  private async epsToCroppedPdf(epsPath: string, pdfPath: string): Promise<void> {
+    const cmd = [
+      GS_BINARY,
+      '-dNOPAUSE',
+      '-dBATCH',
+      '-dSAFER',
+      '-sDEVICE=pdfwrite',
+      '-dEPSCrop',
+      '-dAutoRotatePages=/None',
+      `-sOutputFile="${pdfPath}"`,
+      `"${epsPath}"`,
+    ].join(' ');
+    this.logger.log(`EPS->PDF (crop): ${cmd}`);
+    await execAsync(cmd, { timeout: 30000, killSignal: 'SIGTERM' });
+  }
+
+  /**
+   * Rasterize a (cropped) PDF to a bounded PNG. Prefers pdftocairo for its superior
+   * anti-aliasing; falls back to a bounded Ghostscript raster. Returns true on success.
+   *
+   * The raster is bounded to `target * supersample` on the long side (capped) so the
+   * downstream Lanczos downscale gets clean super-sampled input while huge source
+   * canvases never explode into gigapixel intermediates. 3x for normal thumbnails, 2x
+   * for large (>=1200px) requests where the target itself already carries the detail.
+   */
+  private async rasterizeCroppedPdf(
+    pdfPath: string,
+    pngBase: string,
+    pngPath: string,
+    target: number,
+  ): Promise<boolean> {
+    const supersample = target > 600 ? 2 : 3;
+    const scaleTo = Math.min(target * supersample, 3600);
+
+    if (this.toolsAvailable.pdftocairo) {
+      try {
+        const cmd = `pdftocairo -png -scale-to ${scaleTo} -singlefile "${pdfPath}" "${pngBase}"`;
+        this.logger.log(`PDF->PNG (pdftocairo, scale-to ${scaleTo}): ${cmd}`);
+        await execAsync(cmd, { timeout: 30000, killSignal: 'SIGTERM' });
+        if (await this.isNonEmptyFile(pngPath)) return true;
+        this.logger.warn('pdftocairo produced an empty PNG, falling back to Ghostscript');
+      } catch (e: any) {
+        this.logger.warn(`pdftocairo failed, falling back to Ghostscript: ${e.message}`);
+      }
+    }
+
+    // Ghostscript fallback: render the page into a fixed pixel box (aspect preserved)
+    // so the output is bounded regardless of the source canvas size.
+    const box = Math.min(scaleTo, 4096);
+    try {
+      const cmd = [
+        GS_BINARY,
+        '-dNOPAUSE',
+        '-dBATCH',
+        '-dSAFER',
+        '-sDEVICE=pngalpha',
+        '-r72',
+        `-g${box}x${box}`,
+        '-dPDFFitPage',
+        '-dTextAlphaBits=4',
+        '-dGraphicsAlphaBits=4',
+        '-dQuiet',
+        '-dFirstPage=1',
+        '-dLastPage=1',
+        `-sOutputFile="${pngPath}"`,
+        `"${pdfPath}"`,
+      ].join(' ');
+      this.logger.log(`PDF->PNG (ghostscript, ${box}px box): ${cmd}`);
+      await execAsync(cmd, { timeout: 30000, killSignal: 'SIGTERM' });
+      return await this.isNonEmptyFile(pngPath);
+    } catch (e: any) {
+      this.logger.warn(`Ghostscript PDF->PNG failed: ${e.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Last-resort rasterization: ImageMagick straight from the EPS. Slower and lower
+   * quality than the cairo/gs path, but a useful safety net for odd EPS variants.
+   */
+  private async imagemagickEpsToPng(
+    epsPath: string,
+    pngPath: string,
+    target: number,
+  ): Promise<boolean> {
+    if (!this.toolsAvailable.imagemagick) return false;
+    const box = Math.min(target * 3, 3600);
+    try {
+      const cmd = [
+        'magick',
+        '-density',
+        '200',
+        `"${epsPath}[0]"`,
+        '-background',
+        'white',
+        '-alpha',
+        'remove',
+        '-alpha',
+        'off',
+        '-colorspace',
+        'sRGB',
+        '-trim',
+        '+repage',
+        '-resize',
+        `${box}x${box}>`,
+        '-quality',
+        '95',
+        `"${pngPath}"`,
+      ].join(' ');
+      this.logger.log(`EPS->PNG (imagemagick fallback): ${cmd}`);
+      await execAsync(cmd, { timeout: 30000, killSignal: 'SIGTERM' });
+      return await this.isNonEmptyFile(pngPath);
+    } catch (e: any) {
+      this.logger.warn(`ImageMagick EPS->PNG failed: ${e.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Finish an EPS thumbnail from the rasterized PNG: flatten onto white, trim margins,
+   * fit to the requested box with Lanczos, and lightly sharpen. On any Sharp error
+   * (e.g. trim on a perfectly uniform image) it retries once without the trim so a
+   * thumbnail is always produced.
+   */
+  private async finishEpsThumbnail(
+    pngPath: string,
+    thumbnailPath: string,
+    finalOptions: Required<ThumbnailOptions>,
+  ): Promise<void> {
+    const resizeOpts = {
+      fit: finalOptions.fit as any,
+      withoutEnlargement: true,
+      kernel: sharp.kernel.lanczos3,
+      background: { r: 255, g: 255, b: 255 },
+    };
+    try {
+      await sharp(pngPath)
+        .flatten({ background: { r: 255, g: 255, b: 255 } })
+        .trim({ background: '#ffffff', threshold: 12 })
+        .resize(finalOptions.width, finalOptions.height, resizeOpts)
+        .sharpen({ sigma: 1 })
+        .webp({ quality: 90, effort: 4 })
+        .toFile(thumbnailPath);
+    } catch (e: any) {
+      this.logger.warn(`Sharp finish failed (${e.message}), retrying without trim`);
+      await sharp(pngPath)
+        .flatten({ background: { r: 255, g: 255, b: 255 } })
+        .resize(finalOptions.width, finalOptions.height, resizeOpts)
+        .sharpen({ sigma: 1 })
+        .webp({ quality: 90, effort: 4 })
+        .toFile(thumbnailPath);
+    }
+  }
+
+  /** True when the path exists and is a non-empty file. */
+  private async isNonEmptyFile(path: string): Promise<boolean> {
+    try {
+      const stats = await fs.stat(path);
+      return stats.size > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Delete a file, ignoring any error (missing file, permissions, etc.). */
+  private async safeUnlink(path: string): Promise<void> {
+    try {
+      await fs.unlink(path);
+    } catch {
+      // ignore
     }
   }
 

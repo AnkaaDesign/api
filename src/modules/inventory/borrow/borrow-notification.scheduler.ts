@@ -59,9 +59,7 @@ export class BorrowNotificationScheduler {
       // Find all active (unreturned) borrows
       const unreturnedBorrows = await this.prisma.borrow.findMany({
         where: {
-          status: {
-            in: [BORROW_STATUS.ACTIVE, BORROW_STATUS.OVERDUE],
-          },
+          status: BORROW_STATUS.ACTIVE,
         },
         include: {
           item: {

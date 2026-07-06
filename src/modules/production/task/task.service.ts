@@ -82,7 +82,7 @@ import {
 import {
   getServiceOrderUpdatesForTaskStatusChange,
   getTaskUpdateForServiceOrderStatusChange,
-  getTaskUpdateForArtworkServiceOrderStatusChange,
+  getTaskUpdateForLayoutServiceOrderStatusChange,
   calculateCorrectTaskStatus,
   areCommercialServiceOrdersComplete,
 } from '../../../utils/task-service-order-sync';
@@ -97,7 +97,7 @@ import {
 } from '../../../utils/task-quote-service-order-sync';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
 import { TaskCreatedEvent, TaskStatusChangedEvent } from './task.events';
-import { ArtworkApprovedEvent, ArtworkReprovedEvent } from './artwork.events';
+import { LayoutApprovedEvent, LayoutReprovedEvent } from './layout.events';
 import { CutCreatedEvent, CutsAddedToTaskEvent } from '../cut/cut.events';
 import { TaskFieldTrackerService } from './task-field-tracker.service';
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
@@ -105,18 +105,18 @@ import { TaskQuoteService } from '../task-quote/task-quote.service';
 // NOTE: TaskNotificationService import removed - legacy notification path was deprecated
 
 /**
- * Converts a layout + sections into a displayable summary for changelog entries.
+ * Converts a implementMeasure + sections into a displayable summary for changelog entries.
  */
-function formatLayoutForChangelog(layout: any) {
-  if (!layout) return null;
-  const sections = layout.layoutSections || [];
+function formatImplementMeasureForChangelog(implementMeasure: any) {
+  if (!implementMeasure) return null;
+  const sections = implementMeasure.sections || [];
   return {
-    id: layout.id || null,
-    height: layout.height || 0,
+    id: implementMeasure.id || null,
+    height: implementMeasure.height || 0,
     totalWidth: sections.reduce((sum: number, s: any) => sum + (s.width || 0), 0),
     doorCount: sections.filter((s: any) => s.isDoor).length,
     sectionCount: sections.length,
-    layoutSections: sections.map((s: any) => ({
+    sections: sections.map((s: any) => ({
       width: s.width,
       isDoor: s.isDoor,
       doorHeight: s.doorHeight,
@@ -151,10 +151,10 @@ export class TaskService {
   ) {}
 
   /**
-   * Helper: Check if user has permission to approve/reprove artworks
-   * Only COMMERCIAL and ADMIN users can change artwork status
+   * Helper: Check if user has permission to approve/reprove layouts
+   * Only COMMERCIAL and ADMIN users can change layout status
    */
-  private canApproveArtworks(userRole?: string): boolean {
+  private canApproveLayouts(userRole?: string): boolean {
     const allowedRoles = [SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN];
     return userRole ? allowedRoles.includes(userRole as any) : false;
   }
@@ -677,71 +677,71 @@ export class TaskService {
   }
 
   /**
-   * Helper: Convert File IDs to Artwork entity IDs
-   * Finds existing Artwork records or creates new ones for the given File IDs.
+   * Helper: Convert File IDs to Layout entity IDs
+   * Finds existing Layout records or creates new ones for the given File IDs.
    *
-   * IMPORTANT: Artworks are SHARED across tasks (many-to-many relationship).
-   * - Each File has at most ONE Artwork entity (fileId is unique in Artwork)
-   * - Multiple Tasks can reference the same Artwork
-   * - Status changes on an Artwork reflect on ALL tasks that share it
+   * IMPORTANT: Layouts are SHARED across tasks (many-to-many relationship).
+   * - Each File has at most ONE Layout entity (fileId is unique in Layout)
+   * - Multiple Tasks can reference the same Layout
+   * - Status changes on an Layout reflect on ALL tasks that share it
    *
    * @param fileIds - Array of File IDs
-   * @param artworkStatuses - Map of File ID to artwork status
+   * @param layoutStatuses - Map of File ID to layout status
    * @param userRole - User role for permission checking
    * @param tx - Prisma transaction
-   * @param eventContext - Optional context for emitting artwork events (user, task)
-   * @returns Array of Artwork IDs (to be connected to Task via many-to-many)
+   * @param eventContext - Optional context for emitting layout events (user, task)
+   * @returns Array of Layout IDs (to be connected to Task via many-to-many)
    */
-  private async convertFileIdsToArtworkIds(
+  private async convertFileIdsToLayoutIds(
     fileIds: string[],
     _taskId?: string | null, // Deprecated: kept for backwards compatibility, not used
     airbrushingId?: string | null,
-    artworkStatuses?: Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>,
+    layoutStatuses?: Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>,
     userRole?: string,
     tx?: PrismaTransaction,
     eventContext?: { user?: any; task?: any },
   ): Promise<string[]> {
     const prisma = tx || this.prisma;
-    const artworkIds: string[] = [];
+    const layoutIds: string[] = [];
 
     // Debug: Log permission check info
-    const hasApprovalPermission = this.canApproveArtworks(userRole);
+    const hasApprovalPermission = this.canApproveLayouts(userRole);
     this.logger.log(
-      `[convertFileIdsToArtworkIds] Permission check: userRole=${userRole}, canApproveArtworks=${hasApprovalPermission}`,
+      `[convertFileIdsToLayoutIds] Permission check: userRole=${userRole}, canApproveLayouts=${hasApprovalPermission}`,
     );
     this.logger.log(
-      `[convertFileIdsToArtworkIds] Processing ${fileIds.length} files with statuses: ${JSON.stringify(artworkStatuses)}`,
+      `[convertFileIdsToLayoutIds] Processing ${fileIds.length} files with statuses: ${JSON.stringify(layoutStatuses)}`,
     );
 
     for (const fileId of fileIds) {
-      this.logger.log(`[convertFileIdsToArtworkIds] Processing fileId: ${fileId}`);
+      this.logger.log(`[convertFileIdsToLayoutIds] Processing fileId: ${fileId}`);
 
-      // Find existing Artwork by fileId only (since fileId is unique in the new schema)
-      // Artworks are now SHARED across tasks, so we don't filter by taskId
-      let artwork = await prisma.artwork.findUnique({
+      // Find existing Layout by fileId only (since fileId is unique in the new schema)
+      // Layouts are now SHARED across tasks, so we don't filter by taskId
+      let layout = await prisma.layout.findUnique({
         where: { fileId },
       });
 
       this.logger.log(
-        `[convertFileIdsToArtworkIds] Lookup result for ${fileId}: ${artwork ? `found (id: ${artwork.id})` : 'not found'}`,
+        `[convertFileIdsToLayoutIds] Lookup result for ${fileId}: ${layout ? `found (id: ${layout.id})` : 'not found'}`,
       );
 
       // Determine the status to use
-      const requestedStatus = artworkStatuses?.[fileId];
+      const requestedStatus = layoutStatuses?.[fileId];
       const status = requestedStatus || 'DRAFT'; // Default to DRAFT for new uploads
 
       this.logger.log(
-        `[convertFileIdsToArtworkIds] File ${fileId}: found=${!!artwork}, currentStatus=${artwork?.status}, requestedStatus=${requestedStatus}`,
+        `[convertFileIdsToLayoutIds] File ${fileId}: found=${!!layout}, currentStatus=${layout?.status}, requestedStatus=${requestedStatus}`,
       );
 
-      if (!artwork) {
-        // Create new Artwork (shared across all tasks that will reference it)
-        // Note: airbrushingId is only set for airbrushing-specific artworks
+      if (!layout) {
+        // Create new Layout (shared across all tasks that will reference it)
+        // Note: airbrushingId is only set for airbrushing-specific layouts
         if (status !== 'DRAFT' && !hasApprovalPermission) {
           this.logger.warn(
-            `[convertFileIdsToArtworkIds] User without approval permission tried to create artwork with status ${status}. Using DRAFT instead.`,
+            `[convertFileIdsToLayoutIds] User without approval permission tried to create layout with status ${status}. Using DRAFT instead.`,
           );
-          artwork = await prisma.artwork.create({
+          layout = await prisma.layout.create({
             data: {
               fileId,
               status: 'DRAFT', // Force DRAFT if user doesn't have permission
@@ -749,7 +749,7 @@ export class TaskService {
             },
           });
         } else {
-          artwork = await prisma.artwork.create({
+          layout = await prisma.layout.create({
             data: {
               fileId,
               status,
@@ -758,46 +758,46 @@ export class TaskService {
           });
         }
         this.logger.log(
-          `[convertFileIdsToArtworkIds] Created new shared Artwork record ${artwork.id} for File ${fileId} with status ${artwork.status}`,
+          `[convertFileIdsToLayoutIds] Created new shared Layout record ${layout.id} for File ${fileId} with status ${layout.status}`,
         );
-      } else if (requestedStatus && artwork.status !== requestedStatus) {
-        // Update existing Artwork status if it changed
-        // This will affect ALL tasks that share this artwork!
-        const oldStatus = artwork.status;
+      } else if (requestedStatus && layout.status !== requestedStatus) {
+        // Update existing Layout status if it changed
+        // This will affect ALL tasks that share this layout!
+        const oldStatus = layout.status;
         // Check permissions for status changes
         if (!hasApprovalPermission) {
           this.logger.warn(
-            `[convertFileIdsToArtworkIds] User without approval permission (role=${userRole}) tried to change artwork status from ${oldStatus} to ${requestedStatus}. Ignoring.`,
+            `[convertFileIdsToLayoutIds] User without approval permission (role=${userRole}) tried to change layout status from ${oldStatus} to ${requestedStatus}. Ignoring.`,
           );
         } else {
-          artwork = await prisma.artwork.update({
-            where: { id: artwork.id },
+          layout = await prisma.layout.update({
+            where: { id: layout.id },
             data: { status: requestedStatus },
           });
           this.logger.log(
-            `[convertFileIdsToArtworkIds] ✅ Updated shared Artwork ${artwork.id} status from ${oldStatus} to ${requestedStatus} (affects all connected tasks)`,
+            `[convertFileIdsToLayoutIds] ✅ Updated shared Layout ${layout.id} status from ${oldStatus} to ${requestedStatus} (affects all connected tasks)`,
           );
 
-          // Emit artwork status change events if context is provided
+          // Emit layout status change events if context is provided
           if (eventContext?.user) {
-            const artworkForEvent = { ...artwork, fileId };
+            const layoutForEvent = { ...layout, fileId };
             const taskForEvent = eventContext.task || null;
 
             if (requestedStatus === 'APPROVED') {
               this.logger.log(
-                `[convertFileIdsToArtworkIds] 🎨 Emitting artwork.approved event for artwork ${artwork.id}`,
+                `[convertFileIdsToLayoutIds] 🎨 Emitting artwork.approved event for layout ${layout.id}`,
               );
               this.eventEmitter.emit(
                 'artwork.approved',
-                new ArtworkApprovedEvent(artworkForEvent, taskForEvent, eventContext.user),
+                new LayoutApprovedEvent(layoutForEvent, taskForEvent, eventContext.user),
               );
             } else if (requestedStatus === 'REPROVED') {
               this.logger.log(
-                `[convertFileIdsToArtworkIds] 🎨 Emitting artwork.reproved event for artwork ${artwork.id}`,
+                `[convertFileIdsToLayoutIds] 🎨 Emitting artwork.reproved event for layout ${layout.id}`,
               );
               this.eventEmitter.emit(
                 'artwork.reproved',
-                new ArtworkReprovedEvent(artworkForEvent, taskForEvent, eventContext.user),
+                new LayoutReprovedEvent(layoutForEvent, taskForEvent, eventContext.user),
               );
             }
           }
@@ -806,32 +806,32 @@ export class TaskService {
         // Log why we're not updating
         if (!requestedStatus) {
           this.logger.log(
-            `[convertFileIdsToArtworkIds] No status change for File ${fileId}: requestedStatus is undefined`,
+            `[convertFileIdsToLayoutIds] No status change for File ${fileId}: requestedStatus is undefined`,
           );
         } else {
           this.logger.log(
-            `[convertFileIdsToArtworkIds] No status change for File ${fileId}: current status (${artwork.status}) already matches requested (${requestedStatus})`,
+            `[convertFileIdsToLayoutIds] No status change for File ${fileId}: current status (${layout.status}) already matches requested (${requestedStatus})`,
           );
         }
       }
 
-      artworkIds.push(artwork.id);
+      layoutIds.push(layout.id);
     }
 
-    return artworkIds;
+    return layoutIds;
   }
 
   /**
-   * Helper: Create Artwork entity when uploading a new artwork file
-   * Creates a shared Artwork that can be connected to multiple Tasks.
+   * Helper: Create Layout entity when uploading a new layout file
+   * Creates a shared Layout that can be connected to multiple Tasks.
    *
    * @param fileRecord - The uploaded File entity
-   * @param airbrushingId - Airbrushing ID (optional, for airbrushing-specific artworks)
-   * @param status - Initial artwork status
+   * @param airbrushingId - Airbrushing ID (optional, for airbrushing-specific layouts)
+   * @param status - Initial layout status
    * @param tx - Prisma transaction
-   * @returns Artwork entity ID
+   * @returns Layout entity ID
    */
-  private async createArtworkForFile(
+  private async createLayoutForFile(
     fileRecord: { id: string },
     _taskId?: string | null, // Deprecated: kept for backwards compatibility, not used
     airbrushingId?: string | null,
@@ -840,20 +840,20 @@ export class TaskService {
   ): Promise<string> {
     const prisma = tx || this.prisma;
 
-    // First check if artwork already exists for this file
-    const existing = await prisma.artwork.findUnique({
+    // First check if layout already exists for this file
+    const existing = await prisma.layout.findUnique({
       where: { fileId: fileRecord.id },
     });
 
     if (existing) {
       this.logger.log(
-        `[createArtworkForFile] Found existing shared Artwork ${existing.id} for File ${fileRecord.id}`,
+        `[createLayoutForFile] Found existing shared Layout ${existing.id} for File ${fileRecord.id}`,
       );
       return existing.id;
     }
 
-    // Create new shared Artwork (no taskId - tasks connect via many-to-many)
-    const artwork = await prisma.artwork.create({
+    // Create new shared Layout (no taskId - tasks connect via many-to-many)
+    const layout = await prisma.layout.create({
       data: {
         fileId: fileRecord.id,
         status,
@@ -862,10 +862,10 @@ export class TaskService {
     });
 
     this.logger.log(
-      `[createArtworkForFile] Created shared Artwork ${artwork.id} for File ${fileRecord.id} with status ${status}`,
+      `[createLayoutForFile] Created shared Layout ${layout.id} for File ${fileRecord.id} with status ${status}`,
     );
 
-    return artwork.id;
+    return layout.id;
   }
 
   /**
@@ -880,7 +880,7 @@ export class TaskService {
       invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
       bankSlips?: Express.Multer.File[];
-      artworks?: Express.Multer.File[];
+      layouts?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
       projectFiles?: Express.Multer.File[];
@@ -905,7 +905,7 @@ export class TaskService {
 
       // Capture pre-uploaded file IDs before any processing
       // These come from the web form when files are pre-uploaded (e.g., serial range creation)
-      const preUploadedArtworkFileIds = data.artworkIds ? [...(data.artworkIds as string[])] : [];
+      const preUploadedLayoutFileIds = data.layoutIds ? [...(data.layoutIds as string[])] : [];
       const preUploadedBaseFileIds = (data as any).baseFileIds
         ? [...((data as any).baseFileIds as string[])]
         : [];
@@ -918,16 +918,16 @@ export class TaskService {
       const preUploadedCheckoutFileIds = (data as any).checkoutFileIds
         ? [...((data as any).checkoutFileIds as string[])]
         : [];
-      const artworkStatusesMap = (data as any).artworkStatuses || null;
+      const layoutStatusesMap = (data as any).layoutStatuses || null;
 
       this.logger.log(`[Task Create] Incoming data keys: ${Object.keys(data).join(', ')}`);
       this.logger.log(
-        `[Task Create] preUploadedArtworkFileIds: ${JSON.stringify(preUploadedArtworkFileIds)}`,
+        `[Task Create] preUploadedLayoutFileIds: ${JSON.stringify(preUploadedLayoutFileIds)}`,
       );
       this.logger.log(
         `[Task Create] preUploadedBaseFileIds: ${JSON.stringify(preUploadedBaseFileIds)}`,
       );
-      this.logger.log(`[Task Create] artworkStatusesMap: ${JSON.stringify(artworkStatusesMap)}`);
+      this.logger.log(`[Task Create] layoutStatusesMap: ${JSON.stringify(layoutStatusesMap)}`);
 
       // ─────────────────────────────────────────────────────────────────────
       // Harden the default "Em Negociação" COMMERCIAL SO to start IN_PROGRESS.
@@ -1005,19 +1005,19 @@ export class TaskService {
           }
         }
 
-        // artworkIds/baseFileIds connection is handled AFTER task creation (post-create update).
+        // layoutIds/baseFileIds connection is handled AFTER task creation (post-create update).
         // Strip them from data before repository processing because:
-        // - artworkIds are File IDs but mapCreateFormDataToDatabaseCreateInput tries to connect them as Artwork entity IDs
+        // - layoutIds are File IDs but mapCreateFormDataToDatabaseCreateInput tries to connect them as Layout entity IDs
         // - baseFileIds are stripped too to avoid double-processing (post-create update handles them)
         // Create the task first
         // Add createdById to data for service orders creation
         const dataWithCreator = { ...data, createdById: userId } as typeof data;
-        delete (dataWithCreator as any).artworkIds;
+        delete (dataWithCreator as any).layoutIds;
         delete (dataWithCreator as any).baseFileIds;
         delete (dataWithCreator as any).projectFileIds;
         delete (dataWithCreator as any).checkinFileIds;
         delete (dataWithCreator as any).checkoutFileIds;
-        delete (dataWithCreator as any).artworkStatuses;
+        delete (dataWithCreator as any).layoutStatuses;
         const newTask = await this.tasksRepository.createWithTransaction(tx, dataWithCreator, {
           include: {
             ...include,
@@ -1025,14 +1025,14 @@ export class TaskService {
           },
         });
 
-        // ======= EXPLICIT POST-CREATION: Connect pre-uploaded artworks and base files =======
+        // ======= EXPLICIT POST-CREATION: Connect pre-uploaded layouts and base files =======
         // This guarantees the connection happens even if mapCreateFormDataToDatabaseCreateInput
         // doesn't handle these fields (e.g., when sent as JSON from serial range creation).
         this.logger.log(
-          `[Task Create] Post-creation check: artworkFileIds=${preUploadedArtworkFileIds.length}, baseFileIds=${preUploadedBaseFileIds.length}`,
+          `[Task Create] Post-creation check: layoutFileIds=${preUploadedLayoutFileIds.length}, baseFileIds=${preUploadedBaseFileIds.length}`,
         );
         const hasPreUploadedFiles =
-          preUploadedArtworkFileIds.length > 0 ||
+          preUploadedLayoutFileIds.length > 0 ||
           preUploadedBaseFileIds.length > 0 ||
           preUploadedProjectFileIds.length > 0 ||
           preUploadedCheckinFileIds.length > 0 ||
@@ -1040,18 +1040,18 @@ export class TaskService {
         if (hasPreUploadedFiles) {
           const postCreateUpdates: any = {};
 
-          // Convert artwork File IDs to Artwork entity IDs and connect
-          if (preUploadedArtworkFileIds.length > 0) {
-            const artworkEntityIds = await this.convertFileIdsToArtworkIds(
-              preUploadedArtworkFileIds,
+          // Convert layout File IDs to Layout entity IDs and connect
+          if (preUploadedLayoutFileIds.length > 0) {
+            const layoutEntityIds = await this.convertFileIdsToLayoutIds(
+              preUploadedLayoutFileIds,
               null,
               null,
-              artworkStatusesMap,
+              layoutStatusesMap,
               undefined,
               tx,
             );
-            if (artworkEntityIds.length > 0) {
-              postCreateUpdates.artworks = { connect: artworkEntityIds.map(id => ({ id })) };
+            if (layoutEntityIds.length > 0) {
+              postCreateUpdates.layouts = { connect: layoutEntityIds.map(id => ({ id })) };
             }
           }
 
@@ -1113,15 +1113,15 @@ export class TaskService {
           );
         }
 
-        // Handle truck layouts: create NEW individual layouts for each task
+        // Handle truck implementMeasures: create NEW individual implementMeasures for each task
         // Note: Basic truck creation (plate, chassisNumber, spot, category, implementType) is handled by the repository
         const truckData = (data as any).truck;
-        const hasLayouts =
+        const hasImplementMeasures =
           truckData &&
-          (truckData.leftSideLayout || truckData.rightSideLayout || truckData.backSideLayout);
+          (truckData.leftSideMeasure || truckData.rightSideMeasure || truckData.backSideMeasure);
 
-        if (hasLayouts) {
-          this.logger.log(`[Task Create] Creating truck with layouts for task ${newTask.id}`);
+        if (hasImplementMeasures) {
+          this.logger.log(`[Task Create] Creating truck with implementMeasures for task ${newTask.id}`);
 
           // Find the truck already created by the repository (via nested create)
           let truck = await tx.truck.findUnique({ where: { taskId: newTask.id } });
@@ -1138,23 +1138,23 @@ export class TaskService {
           }
           this.logger.log(`[Task Create] Truck found/created: ${truck.id}`);
 
-          // Helper function to create layout for a side
-          const createLayout = async (
-            layoutData: any,
-            layoutField: 'leftSideLayoutId' | 'rightSideLayoutId' | 'backSideLayoutId',
+          // Helper function to create implementMeasure for a side
+          const createImplementMeasure = async (
+            implementMeasureData: any,
+            implementMeasureField: 'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId',
             sideName: string,
           ) => {
-            if (!layoutData) return;
+            if (!implementMeasureData) return;
 
-            this.logger.log(`[Task Create] Creating ${sideName} layout`);
-            const layout = await tx.layout.create({
+            this.logger.log(`[Task Create] Creating ${sideName} implementMeasure`);
+            const implementMeasure = await tx.implementMeasure.create({
               data: {
-                height: layoutData.height,
-                ...(layoutData.photoId && {
-                  photo: { connect: { id: layoutData.photoId } },
+                height: implementMeasureData.height,
+                ...(implementMeasureData.photoId && {
+                  photo: { connect: { id: implementMeasureData.photoId } },
                 }),
-                layoutSections: {
-                  create: layoutData.layoutSections.map((section, index) => ({
+                sections: {
+                  create: implementMeasureData.sections.map((section, index) => ({
                     width: section.width,
                     isDoor: section.isDoor,
                     doorHeight: section.doorHeight,
@@ -1163,38 +1163,38 @@ export class TaskService {
                 },
               },
               include: {
-                layoutSections: true,
+                sections: true,
               },
             });
             await tx.truck.update({
               where: { id: truck.id },
-              data: { [layoutField]: layout.id },
+              data: { [implementMeasureField]: implementMeasure.id },
             });
 
-            // Create changelog for layout creation
+            // Create changelog for implementMeasure creation
             await logEntityChange({
               changeLogService: this.changeLogService,
-              entityType: ENTITY_TYPE.LAYOUT,
-              entityId: layout.id,
+              entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
+              entityId: implementMeasure.id,
               action: CHANGE_ACTION.CREATE,
-              entity: layout,
+              entity: implementMeasure,
               userId: userId || '',
               triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-              reason: `Layout ${layoutField} criado`,
+              reason: `ImplementMeasure ${implementMeasureField} criado`,
               transaction: tx,
             });
 
             this.logger.log(
-              `[Task Create] ${sideName} layout created: ${layout.id} with changelog`,
+              `[Task Create] ${sideName} implementMeasure created: ${implementMeasure.id} with changelog`,
             );
           };
 
-          // Create layouts for each side using the new consolidated format
-          await createLayout(truckData.leftSideLayout, 'leftSideLayoutId', 'left');
-          await createLayout(truckData.rightSideLayout, 'rightSideLayoutId', 'right');
-          await createLayout(truckData.backSideLayout, 'backSideLayoutId', 'back');
+          // Create implementMeasures for each side using the new consolidated format
+          await createImplementMeasure(truckData.leftSideMeasure, 'leftSideMeasureId', 'left');
+          await createImplementMeasure(truckData.rightSideMeasure, 'rightSideMeasureId', 'right');
+          await createImplementMeasure(truckData.backSideMeasure, 'backSideMeasureId', 'back');
 
-          this.logger.log(`[Task Create] Layouts created for truck ${truck.id}`);
+          this.logger.log(`[Task Create] ImplementMeasures created for truck ${truck.id}`);
         }
 
         // Log task creation
@@ -1299,15 +1299,15 @@ export class TaskService {
             fileUpdates.bankSlips = { connect: bankSlipIds.map(id => ({ id })) };
           }
 
-          // Artwork files - Create File entities and then Artwork entities
-          if (files.artworks && files.artworks.length > 0) {
-            const artworkEntityIds: string[] = [];
-            for (const artworkFile of files.artworks) {
+          // Layout files - Create File entities and then Layout entities
+          if (files.layouts && files.layouts.length > 0) {
+            const layoutEntityIds: string[] = [];
+            for (const layoutFile of files.layouts) {
               // First, create the File entity
               const fileRecord = await this.fileService.createFromUploadWithTransaction(
                 tx,
-                artworkFile,
-                'tasksArtworks',
+                layoutFile,
+                'tasksLayouts',
                 userId,
                 {
                   entityId: newTask.id,
@@ -1315,21 +1315,21 @@ export class TaskService {
                   customerName,
                 },
               );
-              // Then, create the Artwork entity that references this File
-              const artworkEntityId = await this.createArtworkForFile(
+              // Then, create the Layout entity that references this File
+              const layoutEntityId = await this.createLayoutForFile(
                 fileRecord,
                 newTask.id,
                 null,
                 'DRAFT', // Default status for new uploads
                 tx,
               );
-              artworkEntityIds.push(artworkEntityId);
+              layoutEntityIds.push(layoutEntityId);
             }
-            // Connect Artwork entities (not File entities) to the Task
-            fileUpdates.artworks = { connect: artworkEntityIds.map(id => ({ id })) };
+            // Connect Layout entities (not File entities) to the Task
+            fileUpdates.layouts = { connect: layoutEntityIds.map(id => ({ id })) };
           }
 
-          // Base files (files used as base for artwork design)
+          // Base files (files used as base for layout design)
           // Files are renamed to match task name with measures format
           if (files.baseFiles && files.baseFiles.length > 0) {
             const baseFileIds: string[] = [];
@@ -1337,13 +1337,13 @@ export class TaskService {
             // Get task name for file renaming
             const taskNameForFile = newTask.name || 'Tarefa';
 
-            // Construct task-like object with truck layout data for measures calculation
-            // The truck layouts come from the input data (truckData)
+            // Construct task-like object with truck implementMeasure data for measures calculation
+            // The truck implementMeasures come from the input data (truckData)
             const taskWithTruck = {
               truck: truckData
                 ? {
-                    leftSideLayout: truckData.leftSideLayout || null,
-                    rightSideLayout: truckData.rightSideLayout || null,
+                    leftSideMeasure: truckData.leftSideMeasure || null,
+                    rightSideMeasure: truckData.rightSideMeasure || null,
                   }
                 : null,
             };
@@ -1396,11 +1396,11 @@ export class TaskService {
 
             for (const fieldName of airbrushingFileFields) {
               // Parse field name: airbrushings[0].receipts -> index: 0, type: receipts
-              const match = fieldName.match(/airbrushings\[(\d+)\]\.(receipts|invoices|artworks)/);
+              const match = fieldName.match(/airbrushings\[(\d+)\]\.(receipts|invoices|layouts)/);
               if (!match) continue;
 
               const index = parseInt(match[1], 10);
-              const fileType = match[2] as 'receipts' | 'invoices' | 'artworks';
+              const fileType = match[2] as 'receipts' | 'invoices' | 'layouts';
               const airbrushingFiles = (files as any)[fieldName] as Express.Multer.File[];
 
               if (!airbrushingFiles || airbrushingFiles.length === 0) continue;
@@ -1414,15 +1414,15 @@ export class TaskService {
                 `[TaskService] Processing ${airbrushingFiles.length} ${fileType} for airbrushing ${index} (ID: ${airbrushing.id})`,
               );
 
-              // For artworks, we need to create both File AND Artwork entities
-              if (fileType === 'artworks') {
-                const artworkEntityIds: string[] = [];
+              // For layouts, we need to create both File AND Layout entities
+              if (fileType === 'layouts') {
+                const layoutEntityIds: string[] = [];
                 for (const file of airbrushingFiles) {
                   // Create File entity
                   const fileRecord = await this.fileService.createFromUploadWithTransaction(
                     tx,
                     file,
-                    'airbrushingArtworks',
+                    'airbrushingLayouts',
                     userId,
                     {
                       entityId: airbrushing.id,
@@ -1430,27 +1430,27 @@ export class TaskService {
                       customerName,
                     },
                   );
-                  // Create Artwork entity
-                  const artworkEntityId = await this.createArtworkForFile(
+                  // Create Layout entity
+                  const layoutEntityId = await this.createLayoutForFile(
                     fileRecord,
                     null,
                     airbrushing.id,
                     'DRAFT', // Default status for airbrushing uploads
                     tx,
                   );
-                  artworkEntityIds.push(artworkEntityId);
+                  layoutEntityIds.push(layoutEntityId);
                 }
 
-                // Update the airbrushing with Artwork entity IDs
-                if (artworkEntityIds.length > 0) {
+                // Update the airbrushing with Layout entity IDs
+                if (layoutEntityIds.length > 0) {
                   await tx.airbrushing.update({
                     where: { id: airbrushing.id },
                     data: {
-                      artworks: { connect: artworkEntityIds.map(id => ({ id })) },
+                      layouts: { connect: layoutEntityIds.map(id => ({ id })) },
                     },
                   });
                   console.log(
-                    `[TaskService] Connected ${artworkEntityIds.length} Artwork entities to airbrushing ${airbrushing.id}`,
+                    `[TaskService] Connected ${layoutEntityIds.length} Layout entities to airbrushing ${airbrushing.id}`,
                   );
                 }
               } else {
@@ -1511,10 +1511,10 @@ export class TaskService {
           });
         }
 
-        // Re-fetch task if layouts or artworks/baseFiles were created/connected so response includes them
+        // Re-fetch task if implementMeasures or layouts/baseFiles were created/connected so response includes them
         if (
-          hasLayouts ||
-          preUploadedArtworkFileIds.length > 0 ||
+          hasImplementMeasures ||
+          preUploadedLayoutFileIds.length > 0 ||
           preUploadedBaseFileIds.length > 0
         ) {
           const refetchedTask = await this.tasksRepository.findByIdWithTransaction(
@@ -1612,7 +1612,7 @@ export class TaskService {
           ...(files.invoices || []),
           ...(files.receipts || []),
           ...(files.bankSlips || []),
-          ...(files.artworks || []),
+          ...(files.layouts || []),
           ...(files.cutFiles || []),
         ];
 
@@ -1650,7 +1650,7 @@ export class TaskService {
       invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
       bankSlips?: Express.Multer.File[];
-      artworks?: Express.Multer.File[];
+      layouts?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
     },
@@ -1714,19 +1714,19 @@ export class TaskService {
         const successfulTasks: Task[] = [];
         const failedTasks: Array<{ index: number; error: string; data: any }> = [];
 
-        // Helper to create an individual layout from layout data
-        const createIndividualLayout = async (
-          layoutData: any,
+        // Helper to create an individual implementMeasure from implementMeasure data
+        const createIndividualImplementMeasure = async (
+          implementMeasureData: any,
           sideName: string,
           taskIndex: number,
         ): Promise<string | null> => {
-          if (!layoutData || !layoutData.layoutSections) return null;
-          const layout = await tx.layout.create({
+          if (!implementMeasureData || !implementMeasureData.sections) return null;
+          const implementMeasure = await tx.implementMeasure.create({
             data: {
-              height: layoutData.height,
-              ...(layoutData.photoId && { photo: { connect: { id: layoutData.photoId } } }),
-              layoutSections: {
-                create: layoutData.layoutSections.map((section: any, idx: number) => ({
+              height: implementMeasureData.height,
+              ...(implementMeasureData.photoId && { photo: { connect: { id: implementMeasureData.photoId } } }),
+              sections: {
+                create: implementMeasureData.sections.map((section: any, idx: number) => ({
                   width: section.width,
                   isDoor: section.isDoor,
                   doorHeight: section.doorHeight,
@@ -1736,60 +1736,60 @@ export class TaskService {
             },
           });
           this.logger.log(
-            `[batchCreate] Individual ${sideName} layout created: ${layout.id} for task index ${taskIndex}`,
+            `[batchCreate] Individual ${sideName} implementMeasure created: ${implementMeasure.id} for task index ${taskIndex}`,
           );
-          return layout.id;
+          return implementMeasure.id;
         };
 
-        // Save layout data from each task before it gets deleted by the repository
-        const taskLayoutDataMap = new Map<
+        // Save implementMeasure data from each task before it gets deleted by the repository
+        const taskImplementMeasureDataMap = new Map<
           number,
-          { leftSideLayout: any; rightSideLayout: any; backSideLayout: any }
+          { leftSideMeasure: any; rightSideMeasure: any; backSideMeasure: any }
         >();
         for (const [index, task] of data.tasks.entries()) {
           const truckData = (task as any).truck;
           if (
             truckData &&
-            (truckData.leftSideLayout || truckData.rightSideLayout || truckData.backSideLayout)
+            (truckData.leftSideMeasure || truckData.rightSideMeasure || truckData.backSideMeasure)
           ) {
-            taskLayoutDataMap.set(index, {
-              leftSideLayout: truckData.leftSideLayout ? { ...truckData.leftSideLayout } : null,
-              rightSideLayout: truckData.rightSideLayout ? { ...truckData.rightSideLayout } : null,
-              backSideLayout: truckData.backSideLayout ? { ...truckData.backSideLayout } : null,
+            taskImplementMeasureDataMap.set(index, {
+              leftSideMeasure: truckData.leftSideMeasure ? { ...truckData.leftSideMeasure } : null,
+              rightSideMeasure: truckData.rightSideMeasure ? { ...truckData.rightSideMeasure } : null,
+              backSideMeasure: truckData.backSideMeasure ? { ...truckData.backSideMeasure } : null,
             });
-            // Remove layout data from truck so repository doesn't try to handle it
-            delete truckData.leftSideLayout;
-            delete truckData.rightSideLayout;
-            delete truckData.backSideLayout;
+            // Remove implementMeasure data from truck so repository doesn't try to handle it
+            delete truckData.leftSideMeasure;
+            delete truckData.rightSideMeasure;
+            delete truckData.backSideMeasure;
           }
         }
 
-        // Pre-convert artworkIds from File IDs to Artwork entity IDs
-        // The web create form pre-uploads artwork files and sends File IDs as artworkIds.
-        // The repository expects Artwork entity IDs, so we need to convert them first.
-        // We do this ONCE and share the Artwork entities across all tasks (shared artworks).
-        if (data.tasks.length > 0 && (data.tasks[0] as any).artworkIds?.length > 0) {
-          const fileIds = (data.tasks[0] as any).artworkIds as string[];
-          const batchArtworkStatuses = (data.tasks[0] as any).artworkStatuses || undefined;
+        // Pre-convert layoutIds from File IDs to Layout entity IDs
+        // The web create form pre-uploads layout files and sends File IDs as layoutIds.
+        // The repository expects Layout entity IDs, so we need to convert them first.
+        // We do this ONCE and share the Layout entities across all tasks (shared layouts).
+        if (data.tasks.length > 0 && (data.tasks[0] as any).layoutIds?.length > 0) {
+          const fileIds = (data.tasks[0] as any).layoutIds as string[];
+          const batchLayoutStatuses = (data.tasks[0] as any).layoutStatuses || undefined;
           this.logger.log(
-            `[batchCreate] Converting ${fileIds.length} artwork File IDs to Artwork entity IDs`,
+            `[batchCreate] Converting ${fileIds.length} layout File IDs to Layout entity IDs`,
           );
-          const artworkEntityIds = await this.convertFileIdsToArtworkIds(
+          const layoutEntityIds = await this.convertFileIdsToLayoutIds(
             fileIds,
             null,
             null,
-            batchArtworkStatuses,
+            batchLayoutStatuses,
             undefined,
             tx,
           );
           this.logger.log(
-            `[batchCreate] Converted to ${artworkEntityIds.length} Artwork entity IDs`,
+            `[batchCreate] Converted to ${layoutEntityIds.length} Layout entity IDs`,
           );
-          // Replace File IDs with Artwork entity IDs in all tasks
-          // and remove artworkStatuses (already processed above)
+          // Replace File IDs with Layout entity IDs in all tasks
+          // and remove layoutStatuses (already processed above)
           for (const task of data.tasks) {
-            (task as any).artworkIds = artworkEntityIds;
-            delete (task as any).artworkStatuses;
+            (task as any).layoutIds = layoutEntityIds;
+            delete (task as any).layoutStatuses;
           }
         }
 
@@ -1814,34 +1814,34 @@ export class TaskService {
               },
             );
 
-            // Create individual layouts for this task and connect to the truck
-            const savedLayoutData = taskLayoutDataMap.get(index);
-            if (savedLayoutData) {
+            // Create individual implementMeasures for this task and connect to the truck
+            const savedImplementMeasureData = taskImplementMeasureDataMap.get(index);
+            if (savedImplementMeasureData) {
               const truck = await tx.truck.findUnique({ where: { taskId: createdTask.id } });
               if (truck) {
-                const layoutUpdate: any = {};
-                const leftId = await createIndividualLayout(
-                  savedLayoutData.leftSideLayout,
+                const implementMeasureUpdate: any = {};
+                const leftId = await createIndividualImplementMeasure(
+                  savedImplementMeasureData.leftSideMeasure,
                   'left',
                   index,
                 );
-                const rightId = await createIndividualLayout(
-                  savedLayoutData.rightSideLayout,
+                const rightId = await createIndividualImplementMeasure(
+                  savedImplementMeasureData.rightSideMeasure,
                   'right',
                   index,
                 );
-                const backId = await createIndividualLayout(
-                  savedLayoutData.backSideLayout,
+                const backId = await createIndividualImplementMeasure(
+                  savedImplementMeasureData.backSideMeasure,
                   'back',
                   index,
                 );
-                if (leftId) layoutUpdate.leftSideLayoutId = leftId;
-                if (rightId) layoutUpdate.rightSideLayoutId = rightId;
-                if (backId) layoutUpdate.backSideLayoutId = backId;
-                if (Object.keys(layoutUpdate).length > 0) {
-                  await tx.truck.update({ where: { id: truck.id }, data: layoutUpdate });
+                if (leftId) implementMeasureUpdate.leftSideMeasureId = leftId;
+                if (rightId) implementMeasureUpdate.rightSideMeasureId = rightId;
+                if (backId) implementMeasureUpdate.backSideMeasureId = backId;
+                if (Object.keys(implementMeasureUpdate).length > 0) {
+                  await tx.truck.update({ where: { id: truck.id }, data: implementMeasureUpdate });
                   this.logger.log(
-                    `[batchCreate] Created individual layouts for truck ${truck.id} on task ${createdTask.id}`,
+                    `[batchCreate] Created individual implementMeasures for truck ${truck.id} on task ${createdTask.id}`,
                   );
                 }
               }
@@ -1981,7 +1981,7 @@ export class TaskService {
       invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
       bankSlips?: Express.Multer.File[];
-      artworks?: Express.Multer.File[];
+      layouts?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       observationFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
@@ -2013,12 +2013,12 @@ export class TaskService {
       const transactionResult = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Get existing task - always include customer for file organization
         // Also include file relations for changelog tracking
-        // Include truck layouts with sections for file naming with measures
+        // Include truck implementMeasures with sections for file naming with measures
         const existingTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
           include: {
             ...include,
             customer: true, // Always include customer for file path organization
-            artworks: {
+            layouts: {
               include: {
                 file: {
                   select: {
@@ -2037,10 +2037,10 @@ export class TaskService {
             observation: { include: { files: true } }, // Include for changelog tracking
             truck: {
               include: {
-                leftSideLayout: { include: { layoutSections: true } },
-                rightSideLayout: { include: { layoutSections: true } },
+                leftSideMeasure: { include: { sections: true } },
+                rightSideMeasure: { include: { sections: true } },
               },
-            }, // Include truck with layouts for file naming with measures
+            }, // Include truck with implementMeasures for file naming with measures
             serviceOrders: {
               include: {
                 checkinFiles: { select: { id: true } },
@@ -2114,7 +2114,7 @@ export class TaskService {
         // Validate task data
         await this.validateTask(data, id, tx);
 
-        // Handle truck and layout updates (consolidated in single truck object)
+        // Handle truck and implementMeasure updates (consolidated in single truck object)
         const truckData = (data as any).truck;
         if (truckData !== undefined) {
           if (truckData === null) {
@@ -2123,63 +2123,63 @@ export class TaskService {
               this.logger.log(`[Task Update] Deleting truck for task ${id}`);
               const truck = existingTask.truck;
 
-              // Helper: only delete a layout if no other trucks reference it
-              const safeDeleteLayout = async (
-                layoutId: string,
+              // Helper: only delete a implementMeasure if no other trucks reference it
+              const safeDeleteImplementMeasure = async (
+                implementMeasureId: string,
                 relationName: 'trucksLeftSide' | 'trucksRightSide' | 'trucksBackSide',
                 fieldName: string,
               ) => {
-                // Count how many trucks reference this layout (excluding the one being deleted)
-                const layout = await tx.layout.findUnique({
-                  where: { id: layoutId },
-                  include: { layoutSections: true, [relationName]: { select: { id: true } } },
+                // Count how many trucks reference this implementMeasure (excluding the one being deleted)
+                const implementMeasure = await tx.implementMeasure.findUnique({
+                  where: { id: implementMeasureId },
+                  include: { sections: true, [relationName]: { select: { id: true } } },
                 });
-                if (!layout) return;
+                if (!implementMeasure) return;
 
-                const referencingTrucks = (layout as any)[relationName] || [];
+                const referencingTrucks = (implementMeasure as any)[relationName] || [];
                 const otherTrucks = referencingTrucks.filter((t: any) => t.id !== truck.id);
 
                 if (otherTrucks.length === 0) {
-                  // No other trucks reference this layout - safe to delete
-                  await tx.layoutSection.deleteMany({ where: { layoutId } });
-                  await tx.layout.delete({ where: { id: layoutId } });
+                  // No other trucks reference this implementMeasure - safe to delete
+                  await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId } });
+                  await tx.implementMeasure.delete({ where: { id: implementMeasureId } });
                   await logEntityChange({
                     changeLogService: this.changeLogService,
-                    entityType: ENTITY_TYPE.LAYOUT,
-                    entityId: layoutId,
+                    entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
+                    entityId: implementMeasureId,
                     action: CHANGE_ACTION.DELETE,
-                    entity: layout,
+                    entity: implementMeasure,
                     userId: userId || '',
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                    reason: `Layout ${fieldName} removido (caminhão deletado)`,
+                    reason: `ImplementMeasure ${fieldName} removido (caminhão deletado)`,
                     transaction: tx,
                   });
                 } else {
                   this.logger.log(
-                    `[Task Update] Layout ${layoutId} shared by ${otherTrucks.length} other truck(s), skipping deletion`,
+                    `[Task Update] ImplementMeasure ${implementMeasureId} shared by ${otherTrucks.length} other truck(s), skipping deletion`,
                   );
                 }
               };
 
-              if (truck.leftSideLayoutId) {
-                await safeDeleteLayout(
-                  truck.leftSideLayoutId,
+              if (truck.leftSideMeasureId) {
+                await safeDeleteImplementMeasure(
+                  truck.leftSideMeasureId,
                   'trucksLeftSide',
-                  'leftSideLayoutId',
+                  'leftSideMeasureId',
                 );
               }
-              if (truck.rightSideLayoutId) {
-                await safeDeleteLayout(
-                  truck.rightSideLayoutId,
+              if (truck.rightSideMeasureId) {
+                await safeDeleteImplementMeasure(
+                  truck.rightSideMeasureId,
                   'trucksRightSide',
-                  'rightSideLayoutId',
+                  'rightSideMeasureId',
                 );
               }
-              if (truck.backSideLayoutId) {
-                await safeDeleteLayout(
-                  truck.backSideLayoutId,
+              if (truck.backSideMeasureId) {
+                await safeDeleteImplementMeasure(
+                  truck.backSideMeasureId,
                   'trucksBackSide',
-                  'backSideLayoutId',
+                  'backSideMeasureId',
                 );
               }
 
@@ -2277,89 +2277,89 @@ export class TaskService {
               }
             }
 
-            // Handle layouts - helper function to process each side
-            const processLayout = async (
-              layoutData: any,
-              existingLayoutId: string | null,
-              layoutField: 'leftSideLayoutId' | 'rightSideLayoutId' | 'backSideLayoutId',
+            // Handle implementMeasures - helper function to process each side
+            const processImplementMeasure = async (
+              implementMeasureData: any,
+              existingImplementMeasureId: string | null,
+              implementMeasureField: 'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId',
             ) => {
-              if (layoutData === undefined) return; // Not in payload, skip
+              if (implementMeasureData === undefined) return; // Not in payload, skip
 
-              if (layoutData === null) {
-                // Remove layout from this truck
-                if (existingLayoutId) {
-                  this.logger.log(`[Task Update] Removing ${layoutField} from truck`);
+              if (implementMeasureData === null) {
+                // Remove implementMeasure from this truck
+                if (existingImplementMeasureId) {
+                  this.logger.log(`[Task Update] Removing ${implementMeasureField} from truck`);
 
-                  // Disconnect this truck from the layout first
-                  await tx.truck.update({ where: { id: truckId! }, data: { [layoutField]: null } });
+                  // Disconnect this truck from the implementMeasure first
+                  await tx.truck.update({ where: { id: truckId! }, data: { [implementMeasureField]: null } });
 
-                  // Check if other trucks still reference this layout
+                  // Check if other trucks still reference this implementMeasure
                   const relationName =
-                    layoutField === 'leftSideLayoutId'
+                    implementMeasureField === 'leftSideMeasureId'
                       ? 'trucksLeftSide'
-                      : layoutField === 'rightSideLayoutId'
+                      : implementMeasureField === 'rightSideMeasureId'
                         ? 'trucksRightSide'
                         : 'trucksBackSide';
-                  const layoutWithRefs = await tx.layout.findUnique({
-                    where: { id: existingLayoutId },
-                    include: { layoutSections: true, [relationName]: { select: { id: true } } },
+                  const implementMeasureWithRefs = await tx.implementMeasure.findUnique({
+                    where: { id: existingImplementMeasureId },
+                    include: { sections: true, [relationName]: { select: { id: true } } },
                   });
 
-                  if (layoutWithRefs) {
-                    // Log layout removal to TASK entity changelog
+                  if (implementMeasureWithRefs) {
+                    // Log implementMeasure removal to TASK entity changelog
                     await this.changeLogService.logChange({
                       entityType: ENTITY_TYPE.TASK,
                       entityId: id,
                       action: CHANGE_ACTION.UPDATE,
-                      field: 'layouts',
-                      oldValue: { [layoutField]: formatLayoutForChangelog(layoutWithRefs) },
-                      newValue: { [layoutField]: null },
-                      reason: `Layout ${layoutField} removido`,
+                      field: 'implementMeasures',
+                      oldValue: { [implementMeasureField]: formatImplementMeasureForChangelog(implementMeasureWithRefs) },
+                      newValue: { [implementMeasureField]: null },
+                      reason: `ImplementMeasure ${implementMeasureField} removido`,
                       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
                       triggeredById: id,
                       userId: userId || '',
                       transaction: tx,
                     });
 
-                    const remainingTrucks = (layoutWithRefs as any)[relationName] || [];
+                    const remainingTrucks = (implementMeasureWithRefs as any)[relationName] || [];
                     if (remainingTrucks.length === 0) {
-                      // No other trucks reference this layout - safe to delete
-                      await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
-                      await tx.layout.delete({ where: { id: existingLayoutId } });
+                      // No other trucks reference this implementMeasure - safe to delete
+                      await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: existingImplementMeasureId } });
+                      await tx.implementMeasure.delete({ where: { id: existingImplementMeasureId } });
 
                       await logEntityChange({
                         changeLogService: this.changeLogService,
-                        entityType: ENTITY_TYPE.LAYOUT,
-                        entityId: existingLayoutId,
+                        entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
+                        entityId: existingImplementMeasureId,
                         action: CHANGE_ACTION.DELETE,
-                        entity: layoutWithRefs,
+                        entity: implementMeasureWithRefs,
                         userId: userId || '',
                         triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                        reason: `Layout ${layoutField} removido`,
+                        reason: `ImplementMeasure ${implementMeasureField} removido`,
                         transaction: tx,
                       });
-                      this.logger.log(`[Task Update] Deleted ${layoutField} (no other references)`);
+                      this.logger.log(`[Task Update] Deleted ${implementMeasureField} (no other references)`);
                     } else {
                       this.logger.log(
-                        `[Task Update] Layout ${existingLayoutId} still shared by ${remainingTrucks.length} truck(s), only disconnected`,
+                        `[Task Update] ImplementMeasure ${existingImplementMeasureId} still shared by ${remainingTrucks.length} truck(s), only disconnected`,
                       );
                     }
                   }
                 }
               } else {
-                // Create or update layout
-                if (existingLayoutId) {
+                // Create or update implementMeasure
+                if (existingImplementMeasureId) {
                   const relationName =
-                    layoutField === 'leftSideLayoutId'
+                    implementMeasureField === 'leftSideMeasureId'
                       ? 'trucksLeftSide'
-                      : layoutField === 'rightSideLayoutId'
+                      : implementMeasureField === 'rightSideMeasureId'
                         ? 'trucksRightSide'
                         : 'trucksBackSide';
-                  // Get layout details before update — for changelog AND the
+                  // Get implementMeasure details before update — for changelog AND the
                   // copy-on-write sharing check.
-                  const existingLayout = await tx.layout.findUnique({
-                    where: { id: existingLayoutId },
-                    include: { layoutSections: true, [relationName]: { select: { id: true } } },
+                  const existingImplementMeasure = await tx.implementMeasure.findUnique({
+                    where: { id: existingImplementMeasureId },
+                    include: { sections: true, [relationName]: { select: { id: true } } },
                   });
 
                   // Only rewrite the sections (measures) when the payload actually
@@ -2367,16 +2367,16 @@ export class TaskService {
                   // measures. Blindly delete+recreate wiped them on partial saves
                   // (the "truck measures disappeared on save" bug).
                   const wantsSectionRewrite =
-                    Array.isArray(layoutData.layoutSections) && layoutData.layoutSections.length > 0;
+                    Array.isArray(implementMeasureData.sections) && implementMeasureData.sections.length > 0;
                   const sectionCreate = wantsSectionRewrite
-                    ? layoutData.layoutSections.map((section: any, index: number) => ({
+                    ? implementMeasureData.sections.map((section: any, index: number) => ({
                         width: section.width,
                         isDoor: section.isDoor,
                         doorHeight: section.doorHeight,
                         position: section.position ?? index,
                       }))
                     : null;
-                  const fallbackSections = ((existingLayout as any)?.layoutSections || []).map(
+                  const fallbackSections = ((existingImplementMeasure as any)?.sections || []).map(
                     (s: any, i: number) => ({
                       width: s.width,
                       isDoor: s.isDoor,
@@ -2385,83 +2385,83 @@ export class TaskService {
                     }),
                   );
 
-                  // Copy-on-write: if OTHER trucks share this Layout, editing it in
+                  // Copy-on-write: if OTHER trucks share this ImplementMeasure, editing it in
                   // place would corrupt theirs — fork a private copy for this truck.
-                  const otherTrucks = ((existingLayout as any)?.[relationName] || []).filter(
+                  const otherTrucks = ((existingImplementMeasure as any)?.[relationName] || []).filter(
                     (t: any) => t.id !== truckId,
                   );
 
-                  let updatedLayout: any;
+                  let updatedImplementMeasure: any;
                   if (otherTrucks.length > 0) {
-                    updatedLayout = await tx.layout.create({
+                    updatedImplementMeasure = await tx.implementMeasure.create({
                       data: {
                         height:
-                          layoutData.height !== undefined
-                            ? layoutData.height
-                            : (existingLayout as any)?.height,
-                        ...(layoutData.photoId !== undefined
-                          ? layoutData.photoId
-                            ? { photo: { connect: { id: layoutData.photoId } } }
+                          implementMeasureData.height !== undefined
+                            ? implementMeasureData.height
+                            : (existingImplementMeasure as any)?.height,
+                        ...(implementMeasureData.photoId !== undefined
+                          ? implementMeasureData.photoId
+                            ? { photo: { connect: { id: implementMeasureData.photoId } } }
                             : {}
-                          : (existingLayout as any)?.photoId
-                            ? { photo: { connect: { id: (existingLayout as any).photoId } } }
+                          : (existingImplementMeasure as any)?.photoId
+                            ? { photo: { connect: { id: (existingImplementMeasure as any).photoId } } }
                             : {}),
-                        layoutSections: { create: sectionCreate ?? fallbackSections },
+                        sections: { create: sectionCreate ?? fallbackSections },
                       },
-                      include: { layoutSections: true },
+                      include: { sections: true },
                     });
                     await tx.truck.update({
                       where: { id: truckId! },
-                      data: { [layoutField]: updatedLayout.id },
+                      data: { [implementMeasureField]: updatedImplementMeasure.id },
                     });
                     this.logger.log(
-                      `[Task Update] ${layoutField} shared by ${otherTrucks.length} other truck(s); forked to ${updatedLayout.id} (copy-on-write)`,
+                      `[Task Update] ${implementMeasureField} shared by ${otherTrucks.length} other truck(s); forked to ${updatedImplementMeasure.id} (copy-on-write)`,
                     );
                   } else {
                     // Sole owner: update in place. Rewrite sections only when sent,
                     // and preserve photoId when the payload omits it.
                     if (wantsSectionRewrite) {
-                      await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
+                      await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: existingImplementMeasureId } });
                     }
-                    updatedLayout = await tx.layout.update({
-                      where: { id: existingLayoutId },
+                    updatedImplementMeasure = await tx.implementMeasure.update({
+                      where: { id: existingImplementMeasureId },
                       data: {
-                        ...(layoutData.height !== undefined && { height: layoutData.height }),
-                        ...(layoutData.photoId !== undefined && {
-                          photoId: layoutData.photoId || null,
+                        ...(implementMeasureData.height !== undefined && { height: implementMeasureData.height }),
+                        ...(implementMeasureData.photoId !== undefined && {
+                          photoId: implementMeasureData.photoId || null,
                         }),
                         ...(wantsSectionRewrite && {
-                          layoutSections: { create: sectionCreate },
+                          sections: { create: sectionCreate },
                         }),
                       },
                       include: {
-                        layoutSections: true,
+                        sections: true,
                       },
                     });
                   }
 
-                  // Create changelog for layout update
+                  // Create changelog for implementMeasure update
                   await logEntityChange({
                     changeLogService: this.changeLogService,
-                    entityType: ENTITY_TYPE.LAYOUT,
-                    entityId: existingLayoutId,
+                    entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
+                    entityId: existingImplementMeasureId,
                     action: CHANGE_ACTION.UPDATE,
-                    entity: updatedLayout,
+                    entity: updatedImplementMeasure,
                     userId: userId || '',
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                    reason: `Layout ${layoutField} atualizado`,
+                    reason: `ImplementMeasure ${implementMeasureField} atualizado`,
                     transaction: tx,
                   });
 
-                  // Log layout update to TASK entity changelog
+                  // Log implementMeasure update to TASK entity changelog
                   await this.changeLogService.logChange({
                     entityType: ENTITY_TYPE.TASK,
                     entityId: id,
                     action: CHANGE_ACTION.UPDATE,
-                    field: 'layouts',
-                    oldValue: { [layoutField]: formatLayoutForChangelog(existingLayout) },
-                    newValue: { [layoutField]: formatLayoutForChangelog(updatedLayout) },
-                    reason: `Layout ${layoutField} atualizado`,
+                    field: 'implementMeasures',
+                    oldValue: { [implementMeasureField]: formatImplementMeasureForChangelog(existingImplementMeasure) },
+                    newValue: { [implementMeasureField]: formatImplementMeasureForChangelog(updatedImplementMeasure) },
+                    reason: `ImplementMeasure ${implementMeasureField} atualizado`,
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
                     triggeredById: id,
                     userId: userId || '',
@@ -2469,16 +2469,16 @@ export class TaskService {
                   });
 
                   this.logger.log(
-                    `[Task Update] ${layoutField} updated in-place: ${existingLayoutId} with changelog`,
+                    `[Task Update] ${implementMeasureField} updated in-place: ${existingImplementMeasureId} with changelog`,
                   );
                 } else {
-                  // No existing layout - create new one
-                  const newLayout = await tx.layout.create({
+                  // No existing implementMeasure - create new one
+                  const newImplementMeasure = await tx.implementMeasure.create({
                     data: {
-                      height: layoutData.height,
-                      ...(layoutData.photoId && { photo: { connect: { id: layoutData.photoId } } }),
-                      layoutSections: {
-                        create: layoutData.layoutSections.map((section: any, index: number) => ({
+                      height: implementMeasureData.height,
+                      ...(implementMeasureData.photoId && { photo: { connect: { id: implementMeasureData.photoId } } }),
+                      sections: {
+                        create: implementMeasureData.sections.map((section: any, index: number) => ({
                           width: section.width,
                           isDoor: section.isDoor,
                           doorHeight: section.doorHeight,
@@ -2487,36 +2487,36 @@ export class TaskService {
                       },
                     },
                     include: {
-                      layoutSections: true,
+                      sections: true,
                     },
                   });
                   await tx.truck.update({
                     where: { id: truckId! },
-                    data: { [layoutField]: newLayout.id },
+                    data: { [implementMeasureField]: newImplementMeasure.id },
                   });
 
-                  // Create changelog for new layout creation
+                  // Create changelog for new implementMeasure creation
                   await logEntityChange({
                     changeLogService: this.changeLogService,
-                    entityType: ENTITY_TYPE.LAYOUT,
-                    entityId: newLayout.id,
+                    entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
+                    entityId: newImplementMeasure.id,
                     action: CHANGE_ACTION.CREATE,
-                    entity: newLayout,
+                    entity: newImplementMeasure,
                     userId: userId || '',
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                    reason: `Layout ${layoutField} criado`,
+                    reason: `ImplementMeasure ${implementMeasureField} criado`,
                     transaction: tx,
                   });
 
-                  // Log layout creation to TASK entity changelog
+                  // Log implementMeasure creation to TASK entity changelog
                   await this.changeLogService.logChange({
                     entityType: ENTITY_TYPE.TASK,
                     entityId: id,
                     action: CHANGE_ACTION.UPDATE,
-                    field: 'layouts',
-                    oldValue: { [layoutField]: null },
-                    newValue: { [layoutField]: formatLayoutForChangelog(newLayout) },
-                    reason: `Layout ${layoutField} criado`,
+                    field: 'implementMeasures',
+                    oldValue: { [implementMeasureField]: null },
+                    newValue: { [implementMeasureField]: formatImplementMeasureForChangelog(newImplementMeasure) },
+                    reason: `ImplementMeasure ${implementMeasureField} criado`,
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
                     triggeredById: id,
                     userId: userId || '',
@@ -2524,36 +2524,36 @@ export class TaskService {
                   });
 
                   this.logger.log(
-                    `[Task Update] ${layoutField} created: ${newLayout.id} with changelog`,
+                    `[Task Update] ${implementMeasureField} created: ${newImplementMeasure.id} with changelog`,
                   );
                 }
               }
             };
 
-            // Process each layout side
-            await processLayout(
-              truckData.leftSideLayout,
-              existingTruck?.leftSideLayoutId || null,
-              'leftSideLayoutId',
+            // Process each implementMeasure side
+            await processImplementMeasure(
+              truckData.leftSideMeasure,
+              existingTruck?.leftSideMeasureId || null,
+              'leftSideMeasureId',
             );
-            await processLayout(
-              truckData.rightSideLayout,
-              existingTruck?.rightSideLayoutId || null,
-              'rightSideLayoutId',
+            await processImplementMeasure(
+              truckData.rightSideMeasure,
+              existingTruck?.rightSideMeasureId || null,
+              'rightSideMeasureId',
             );
-            await processLayout(
-              truckData.backSideLayout,
-              existingTruck?.backSideLayoutId || null,
-              'backSideLayoutId',
+            await processImplementMeasure(
+              truckData.backSideMeasure,
+              existingTruck?.backSideMeasureId || null,
+              'backSideMeasureId',
             );
 
-            // Handle layout photo uploads
+            // Handle implementMeasure photo uploads
             if (files) {
               const customerName = existingTask.customer?.fantasyName;
-              const layoutPhotoKeys = Object.keys(files).filter(k => k.startsWith('layoutPhotos.'));
+              const implementMeasurePhotoKeys = Object.keys(files).filter(k => k.startsWith('implementMeasurePhotos.'));
 
-              for (const key of layoutPhotoKeys) {
-                const side = key.replace('layoutPhotos.', '') as
+              for (const key of implementMeasurePhotoKeys) {
+                const side = key.replace('implementMeasurePhotos.', '') as
                   | 'leftSide'
                   | 'rightSide'
                   | 'backSide';
@@ -2565,27 +2565,27 @@ export class TaskService {
                   const uploadedPhoto = await this.fileService.createFromUploadWithTransaction(
                     tx,
                     photoFile,
-                    'layoutPhotos',
+                    'implementMeasurePhotos',
                     userId,
-                    { entityId: id, entityType: 'LAYOUT', customerName },
+                    { entityId: id, entityType: 'IMPLEMENT_MEASURE', customerName },
                   );
 
-                  const layoutFieldMap = {
-                    leftSide: 'leftSideLayoutId',
-                    rightSide: 'rightSideLayoutId',
-                    backSide: 'backSideLayoutId',
+                  const implementMeasureFieldMap = {
+                    leftSide: 'leftSideMeasureId',
+                    rightSide: 'rightSideMeasureId',
+                    backSide: 'backSideMeasureId',
                   } as const;
 
-                  const layoutId = await tx.truck
+                  const implementMeasureId = await tx.truck
                     .findUnique({
                       where: { id: truckId },
-                      select: { [layoutFieldMap[side]]: true },
+                      select: { [implementMeasureFieldMap[side]]: true },
                     })
-                    .then(t => t?.[layoutFieldMap[side]]);
+                    .then(t => t?.[implementMeasureFieldMap[side]]);
 
-                  if (layoutId) {
-                    await tx.layout.update({
-                      where: { id: layoutId },
+                  if (implementMeasureId) {
+                    await tx.implementMeasure.update({
+                      where: { id: implementMeasureId },
                       data: { photoId: uploadedPhoto.id },
                     });
                   }
@@ -2594,12 +2594,12 @@ export class TaskService {
             }
           }
 
-          // After processing layouts in service, remove layout fields from truck data
+          // After processing implementMeasures in service, remove implementMeasure fields from truck data
           // so the repository doesn't try to process them again
           if (truckData) {
-            delete truckData.leftSideLayout;
-            delete truckData.rightSideLayout;
-            delete truckData.backSideLayout;
+            delete truckData.leftSideMeasure;
+            delete truckData.rightSideMeasure;
+            delete truckData.backSideMeasure;
           }
         }
 
@@ -2638,16 +2638,16 @@ export class TaskService {
           // Additional validation for PREPARATION → IN_PRODUCTION
           // This transition requires all ARTWORK service orders to be completed
           if (fromStatus === TASK_STATUS.PREPARATION && toStatus === TASK_STATUS.IN_PRODUCTION) {
-            // Build the final state of artwork service orders by merging existing with updates
-            const existingArtworkSOs =
+            // Build the final state of layout service orders by merging existing with updates
+            const existingLayoutSOs =
               existingTask.serviceOrders?.filter(
                 (so: any) => so.type === SERVICE_ORDER_TYPE.ARTWORK,
               ) || [];
 
             // If user is submitting service order updates, apply them to get final state
-            let finalArtworkSOs: ServiceOrder[] = existingArtworkSOs;
+            let finalLayoutSOs: ServiceOrder[] = existingLayoutSOs;
             if (data.serviceOrders && Array.isArray(data.serviceOrders)) {
-              finalArtworkSOs = existingArtworkSOs.map(existingSO => {
+              finalLayoutSOs = existingLayoutSOs.map(existingSO => {
                 const update = data.serviceOrders!.find((so: any) => so.id === existingSO.id);
                 if (update && update.status) {
                   // User is updating this service order's status
@@ -2657,19 +2657,19 @@ export class TaskService {
               });
             }
 
-            if (finalArtworkSOs.length > 0) {
-              const incompleteArtworks = finalArtworkSOs.filter(
+            if (finalLayoutSOs.length > 0) {
+              const incompleteLayouts = finalLayoutSOs.filter(
                 (so: any) =>
                   so.status !== SERVICE_ORDER_STATUS.COMPLETED &&
                   so.status !== SERVICE_ORDER_STATUS.CANCELLED,
               );
 
-              if (incompleteArtworks.length > 0) {
+              if (incompleteLayouts.length > 0) {
                 this.logger.warn(
-                  `[VALIDATION] User attempted PREPARATION → IN_PRODUCTION with ${incompleteArtworks.length} incomplete artwork(s). IDs: ${incompleteArtworks.map((so: any) => so.id).join(', ')}`,
+                  `[VALIDATION] User attempted PREPARATION → IN_PRODUCTION with ${incompleteLayouts.length} incomplete layout(s). IDs: ${incompleteLayouts.map((so: any) => so.id).join(', ')}`,
                 );
                 throw new BadRequestException(
-                  `Não é possível iniciar produção: ${incompleteArtworks.length} ordem(ns) de serviço de arte ainda não foi(ram) concluída(s). Complete todas as artes antes de iniciar a produção.`,
+                  `Não é possível iniciar produção: ${incompleteLayouts.length} ordem(ns) de serviço de arte ainda não foi(ram) concluída(s). Complete todas as artes antes de iniciar a produção.`,
                 );
               }
             }
@@ -2912,11 +2912,11 @@ export class TaskService {
           );
         }
 
-        // Process quote layout file(s) BEFORE task update (to get the File ids for the quote).
-        // Up to 2 layout files (controller maxCount=2). Newly-uploaded File ids are merged,
+        // Process quote implementMeasure file(s) BEFORE task update (to get the File ids for the quote).
+        // Up to 2 implementMeasure files (controller maxCount=2). Newly-uploaded File ids are merged,
         // order-preserving, with any existing-selected ids the client sent in layoutFileIds.
         if (files?.quoteLayoutFile && files.quoteLayoutFile.length > 0 && (data as any).quote) {
-          console.log('[TaskService] Processing quote layout file(s)');
+          console.log('[TaskService] Processing quote implementMeasure file(s)');
           const customerName = existingTask.customer?.fantasyName;
 
           const uploadedLayoutIds: string[] = [];
@@ -2932,17 +2932,17 @@ export class TaskService {
                 customerName,
               },
             );
-            console.log('[TaskService] Uploaded quote layout file:', fileRecord.id);
+            console.log('[TaskService] Uploaded quote implementMeasure file:', fileRecord.id);
             uploadedLayoutIds.push(fileRecord.id);
           }
 
           // Merge client-sent existing ids with the newly uploaded ones (order preserved,
-          // de-duplicated), capped at 2 layout files.
-          const existingLayoutIds: string[] = Array.isArray((data as any).quote.layoutFileIds)
+          // de-duplicated), capped at 2 implementMeasure files.
+          const existingImplementMeasureIds: string[] = Array.isArray((data as any).quote.layoutFileIds)
             ? (data as any).quote.layoutFileIds
             : [];
           (data as any).quote.layoutFileIds = [
-            ...new Set([...existingLayoutIds, ...uploadedLayoutIds]),
+            ...new Set([...existingImplementMeasureIds, ...uploadedLayoutIds]),
           ].slice(0, 2);
         }
 
@@ -2962,12 +2962,12 @@ export class TaskService {
           }),
         };
 
-        // CRITICAL: Check for artwork data BEFORE deleting fields
+        // CRITICAL: Check for layout data BEFORE deleting fields
         // This flag determines if file processing block should run
-        const hasArtworkData =
-          !!(updateData as any).artworkIds ||
+        const hasLayoutData =
+          !!(updateData as any).layoutIds ||
           !!(updateData as any).fileIds ||
-          !!(updateData as any).artworkStatuses;
+          !!(updateData as any).layoutStatuses;
 
         // Remove service orders from updateData to prevent Prisma nested create
         // We'll handle them explicitly below (serviceOrdersData was already extracted at line 1393)
@@ -2983,15 +2983,15 @@ export class TaskService {
         delete (updateData as any)._soFileMapping;
 
         // Extract airbrushings data - we'll handle updates/creates explicitly
-        // The repository only handles deletions (via notIn), preserving existing airbrushings and their artworks
+        // The repository only handles deletions (via notIn), preserving existing airbrushings and their layouts
         const airbrushingsData = (updateData as any).airbrushings;
 
-        // CRITICAL FIX: Remove artwork-related fields from updateData
+        // CRITICAL FIX: Remove layout-related fields from updateData
         // These will be handled explicitly in the file processing section below (around line 1665)
-        delete (updateData as any).artworkIds;
-        delete (updateData as any).artworkStatuses;
-        delete (updateData as any).newArtworkStatuses;
-        delete (updateData as any).fileIds; // Legacy field name for artworkIds
+        delete (updateData as any).layoutIds;
+        delete (updateData as any).layoutStatuses;
+        delete (updateData as any).newLayoutStatuses;
+        delete (updateData as any).fileIds; // Legacy field name for layoutIds
 
         // Capture the task's current primary responsible before the update changes the relation.
         // Used below to sync the quote's responsibleId when the primary responsible changes.
@@ -3016,7 +3016,7 @@ export class TaskService {
             include: {
               ...include,
               customer: true, // Always include customer for file path organization
-              artworks: {
+              layouts: {
                 include: {
                   file: {
                     select: {
@@ -3317,7 +3317,7 @@ export class TaskService {
                         select: { id: true, status: true, type: true },
                       });
 
-                      const artworkSyncResult = getTaskUpdateForArtworkServiceOrderStatusChange(
+                      const layoutSyncResult = getTaskUpdateForLayoutServiceOrderStatusChange(
                         allServiceOrders.map(so => ({
                           id: so.id,
                           status: so.status as SERVICE_ORDER_STATUS,
@@ -3330,16 +3330,16 @@ export class TaskService {
                         currentTask.status as TASK_STATUS,
                       );
 
-                      if (artworkSyncResult?.shouldUpdate) {
+                      if (layoutSyncResult?.shouldUpdate) {
                         this.logger.log(
-                          `[ARTWORK→TASK SYNC] Artwork SO ${updatedServiceOrder.id} status changed, updating task ${id}: ${currentTask.status} → ${artworkSyncResult.newTaskStatus}`,
+                          `[ARTWORK→TASK SYNC] Layout SO ${updatedServiceOrder.id} status changed, updating task ${id}: ${currentTask.status} → ${layoutSyncResult.newTaskStatus}`,
                         );
 
                         await tx.task.update({
                           where: { id },
                           data: {
-                            status: artworkSyncResult.newTaskStatus,
-                            statusOrder: getTaskStatusOrder(artworkSyncResult.newTaskStatus),
+                            status: layoutSyncResult.newTaskStatus,
+                            statusOrder: getTaskStatusOrder(layoutSyncResult.newTaskStatus),
                           },
                         });
 
@@ -3350,8 +3350,8 @@ export class TaskService {
                           action: CHANGE_ACTION.UPDATE,
                           field: 'status',
                           oldValue: currentTask.status,
-                          newValue: artworkSyncResult.newTaskStatus,
-                          reason: artworkSyncResult.reason,
+                          newValue: layoutSyncResult.newTaskStatus,
+                          reason: layoutSyncResult.reason,
                           triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
                           triggeredById: updatedServiceOrder.id,
                           userId: userId || '',
@@ -3531,7 +3531,7 @@ export class TaskService {
                         select: { id: true, status: true, type: true },
                       });
 
-                      const artworkSyncResult = getTaskUpdateForArtworkServiceOrderStatusChange(
+                      const layoutSyncResult = getTaskUpdateForLayoutServiceOrderStatusChange(
                         allServiceOrders.map(so => ({
                           id: so.id,
                           status: so.status as SERVICE_ORDER_STATUS,
@@ -3544,16 +3544,16 @@ export class TaskService {
                         currentTask.status as TASK_STATUS,
                       );
 
-                      if (artworkSyncResult?.shouldUpdate) {
+                      if (layoutSyncResult?.shouldUpdate) {
                         this.logger.log(
-                          `[ARTWORK→TASK SYNC] Artwork SO ${updatedServiceOrder.id} status changed, updating task ${id}: ${currentTask.status} → ${artworkSyncResult.newTaskStatus}`,
+                          `[ARTWORK→TASK SYNC] Layout SO ${updatedServiceOrder.id} status changed, updating task ${id}: ${currentTask.status} → ${layoutSyncResult.newTaskStatus}`,
                         );
 
                         await tx.task.update({
                           where: { id },
                           data: {
-                            status: artworkSyncResult.newTaskStatus,
-                            statusOrder: getTaskStatusOrder(artworkSyncResult.newTaskStatus),
+                            status: layoutSyncResult.newTaskStatus,
+                            statusOrder: getTaskStatusOrder(layoutSyncResult.newTaskStatus),
                           },
                         });
 
@@ -3564,8 +3564,8 @@ export class TaskService {
                           action: CHANGE_ACTION.UPDATE,
                           field: 'status',
                           oldValue: currentTask.status,
-                          newValue: artworkSyncResult.newTaskStatus,
-                          reason: artworkSyncResult.reason,
+                          newValue: layoutSyncResult.newTaskStatus,
+                          reason: layoutSyncResult.reason,
                           triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
                           triggeredById: updatedServiceOrder.id,
                           userId: userId || '',
@@ -3660,7 +3660,7 @@ export class TaskService {
                     select: { id: true, status: true },
                   });
 
-                  // Evaluate the full preparation gate: ≥1 artwork completed AND all commercial concluded
+                  // Evaluate the full preparation gate: ≥1 layout completed AND all commercial concluded
                   const taskServiceOrdersForGate =
                     currentTask && currentTask.status === TASK_STATUS.PREPARATION
                       ? await tx.serviceOrder.findMany({
@@ -3687,7 +3687,7 @@ export class TaskService {
                     preparationGateSatisfied
                   ) {
                     this.logger.log(
-                      `[ARTWORK→TASK SYNC] New ${createdServiceOrder.type} SO ${createdServiceOrder.id} created with COMPLETED status (artwork done, commercial done), updating task ${id}: PREPARATION → WAITING_PRODUCTION`,
+                      `[ARTWORK→TASK SYNC] New ${createdServiceOrder.type} SO ${createdServiceOrder.id} created with COMPLETED status (layout done, commercial done), updating task ${id}: PREPARATION → WAITING_PRODUCTION`,
                     );
 
                     await tx.task.update({
@@ -3890,16 +3890,16 @@ export class TaskService {
             this.logger.log(`[Task Update] Deleted ${serviceOrdersToDelete.length} service orders`);
 
             // =====================================================================
-            // ARTWORK SYNC: Check if deleting artwork SOs should rollback task status
-            // If task is in WAITING_PRODUCTION and no completed artworks remain, rollback to PREPARATION
+            // ARTWORK SYNC: Check if deleting layout SOs should rollback task status
+            // If task is in WAITING_PRODUCTION and no completed layouts remain, rollback to PREPARATION
             // =====================================================================
-            const deletedArtworkSOs = serviceOrdersToDelete.filter(
+            const deletedLayoutSOs = serviceOrdersToDelete.filter(
               so =>
                 so.type === SERVICE_ORDER_TYPE.ARTWORK &&
                 so.status === SERVICE_ORDER_STATUS.COMPLETED,
             );
 
-            if (deletedArtworkSOs.length > 0) {
+            if (deletedLayoutSOs.length > 0) {
               // Get current task status
               const currentTask = await tx.task.findUnique({
                 where: { id },
@@ -3913,16 +3913,16 @@ export class TaskService {
                   select: { id: true, status: true, type: true },
                 });
 
-                // Check if any artwork SOs remain completed
-                const anyArtworkCompleted = remainingServiceOrders.some(
+                // Check if any layout SOs remain completed
+                const anyLayoutCompleted = remainingServiceOrders.some(
                   so =>
                     so.type === SERVICE_ORDER_TYPE.ARTWORK &&
                     so.status === SERVICE_ORDER_STATUS.COMPLETED,
                 );
 
-                if (!anyArtworkCompleted) {
+                if (!anyLayoutCompleted) {
                   this.logger.log(
-                    `[ARTWORK→TASK SYNC] Completed artwork SOs deleted, no completed artworks remain, rolling back task ${id}: WAITING_PRODUCTION → PREPARATION`,
+                    `[ARTWORK→TASK SYNC] Completed layout SOs deleted, no completed layouts remain, rolling back task ${id}: WAITING_PRODUCTION → PREPARATION`,
                   );
 
                   await tx.task.update({
@@ -3943,7 +3943,7 @@ export class TaskService {
                     newValue: TASK_STATUS.PREPARATION,
                     reason: `Tarefa retornada para preparação pois nenhuma ordem de serviço de arte permanece concluída`,
                     triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-                    triggeredById: deletedArtworkSOs[0].id,
+                    triggeredById: deletedLayoutSOs[0].id,
                     userId: userId || '',
                     transaction: tx,
                   });
@@ -3977,7 +3977,7 @@ export class TaskService {
             include: {
               ...include,
               customer: true,
-              artworks: true,
+              layouts: true,
               observation: { include: { files: true } },
               truck: true,
               serviceOrders:
@@ -4055,7 +4055,7 @@ export class TaskService {
                       include: {
                         ...include,
                         customer: true,
-                        artworks: true,
+                        layouts: true,
                         observation: { include: { files: true } },
                         truck: true,
                         serviceOrders: true,
@@ -4091,13 +4091,13 @@ export class TaskService {
           // "Disponibilizar para produção" (manual status change) bypasses it.
           if (updatedTask && updatedTask.status === TASK_STATUS.PREPARATION) {
             // Get all ARTWORK service orders for this task (from the refetched data)
-            const artworkServiceOrders = (updatedTask.serviceOrders || []).filter(
+            const layoutServiceOrders = (updatedTask.serviceOrders || []).filter(
               (so: any) => so.type === SERVICE_ORDER_TYPE.ARTWORK,
             );
 
-            // Check if there's at least 1 artwork service order and ALL are COMPLETED
-            const hasArtworkOrders = artworkServiceOrders.length > 0;
-            const allArtworkCompleted = artworkServiceOrders.every(
+            // Check if there's at least 1 layout service order and ALL are COMPLETED
+            const hasLayoutOrders = layoutServiceOrders.length > 0;
+            const allLayoutCompleted = layoutServiceOrders.every(
               (so: any) => so.status === SERVICE_ORDER_STATUS.COMPLETED,
             );
 
@@ -4109,9 +4109,9 @@ export class TaskService {
               })),
             );
 
-            if (hasArtworkOrders && allArtworkCompleted && allCommercialCompleted) {
+            if (hasLayoutOrders && allLayoutCompleted && allCommercialCompleted) {
               this.logger.log(
-                `[AUTO-TRANSITION Task Update] All ${artworkServiceOrders.length} ARTWORK service orders completed and all COMMERCIAL service orders concluded for task ${id}, transitioning PREPARATION → WAITING_PRODUCTION`,
+                `[AUTO-TRANSITION Task Update] All ${layoutServiceOrders.length} ARTWORK service orders completed and all COMMERCIAL service orders concluded for task ${id}, transitioning PREPARATION → WAITING_PRODUCTION`,
               );
 
               // Update task status to WAITING_PRODUCTION
@@ -4125,7 +4125,7 @@ export class TaskService {
                 include: {
                   ...include,
                   customer: true,
-                  artworks: true,
+                  layouts: true,
                   observation: { include: { files: true } },
                   truck: true,
                   serviceOrders: true,
@@ -4140,7 +4140,7 @@ export class TaskService {
                 field: 'status',
                 oldValue: TASK_STATUS.PREPARATION,
                 newValue: TASK_STATUS.WAITING_PRODUCTION,
-                reason: `Tarefa liberada automaticamente para produção quando todas as ${artworkServiceOrders.length} ordens de serviço de arte foram concluídas`,
+                reason: `Tarefa liberada automaticamente para produção quando todas as ${layoutServiceOrders.length} ordens de serviço de arte foram concluídas`,
                 triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
                 triggeredById: id,
                 userId: userId || '',
@@ -4180,7 +4180,7 @@ export class TaskService {
                 include: {
                   ...include,
                   customer: true,
-                  artworks: true,
+                  layouts: true,
                   observation: { include: { files: true } },
                   truck: true,
                   serviceOrders: true,
@@ -4268,7 +4268,7 @@ export class TaskService {
                 include: {
                   ...include,
                   customer: true,
-                  artworks: true,
+                  layouts: true,
                   observation: { include: { files: true } },
                   truck: true,
                   serviceOrders: true,
@@ -4349,7 +4349,7 @@ export class TaskService {
                     include: {
                       ...include,
                       customer: true,
-                      artworks: true,
+                      layouts: true,
                       observation: { include: { files: true } },
                       truck: true,
                       serviceOrders: true,
@@ -4685,7 +4685,7 @@ export class TaskService {
               include: {
                 ...include,
                 customer: true,
-                artworks: true,
+                layouts: true,
                 observation: { include: { files: true } },
                 truck: true,
                 serviceOrders: true,
@@ -4756,7 +4756,7 @@ export class TaskService {
               include: {
                 ...include,
                 customer: true,
-                artworks: true,
+                layouts: true,
                 observation: { include: { files: true } },
                 truck: true,
                 serviceOrders: true,
@@ -4772,7 +4772,7 @@ export class TaskService {
 
         // Handle airbrushings explicitly - update existing and create new ones
         // The repository only handles deletions (via notIn), we handle updates/creates here
-        // This prevents cascade deletion of artworks (which have onDelete: Cascade on airbrushing)
+        // This prevents cascade deletion of layouts (which have onDelete: Cascade on airbrushing)
         if (airbrushingsData && Array.isArray(airbrushingsData) && airbrushingsData.length > 0) {
           this.logger.log(
             `[Task Update] Processing ${airbrushingsData.length} airbrushings for task ${id}`,
@@ -4858,7 +4858,7 @@ export class TaskService {
                 );
               }
 
-              // UPDATE existing airbrushing - preserves artworks (no deletion)
+              // UPDATE existing airbrushing - preserves layouts (no deletion)
               this.logger.log(`[Task Update] Updating existing airbrushing ${airbrushingData.id}`);
 
               const updatePayload: any = {
@@ -4904,29 +4904,29 @@ export class TaskService {
                     : { set: [] };
               }
 
-              // Handle artworks (File IDs -> Artwork entity IDs)
-              // CRITICAL: This must be handled here to preserve artworks when no file uploads occur
-              if (airbrushingData.artworkIds !== undefined) {
-                if (airbrushingData.artworkIds.length > 0) {
-                  // Convert File IDs to Artwork entity IDs
-                  const artworkEntityIds = await this.convertFileIdsToArtworkIds(
-                    airbrushingData.artworkIds,
-                    null, // taskId - null for airbrushing artworks
+              // Handle layouts (File IDs -> Layout entity IDs)
+              // CRITICAL: This must be handled here to preserve layouts when no file uploads occur
+              if (airbrushingData.layoutIds !== undefined) {
+                if (airbrushingData.layoutIds.length > 0) {
+                  // Convert File IDs to Layout entity IDs
+                  const layoutEntityIds = await this.convertFileIdsToLayoutIds(
+                    airbrushingData.layoutIds,
+                    null, // taskId - null for airbrushing layouts
                     airbrushingData.id, // airbrushingId
-                    undefined, // artworkStatuses
+                    undefined, // layoutStatuses
                     userPrivilege,
                     tx,
                   );
-                  updatePayload.artworks = {
-                    set: artworkEntityIds.map((aid: string) => ({ id: aid })),
+                  updatePayload.layouts = {
+                    set: layoutEntityIds.map((aid: string) => ({ id: aid })),
                   };
                   this.logger.log(
-                    `[Task Update] Setting ${artworkEntityIds.length} artworks for airbrushing ${airbrushingData.id}`,
+                    `[Task Update] Setting ${layoutEntityIds.length} layouts for airbrushing ${airbrushingData.id}`,
                   );
                 } else {
-                  updatePayload.artworks = { set: [] };
+                  updatePayload.layouts = { set: [] };
                   this.logger.log(
-                    `[Task Update] Clearing artworks for airbrushing ${airbrushingData.id}`,
+                    `[Task Update] Clearing layouts for airbrushing ${airbrushingData.id}`,
                   );
                 }
               }
@@ -5017,7 +5017,7 @@ export class TaskService {
             include: {
               ...include,
               customer: true,
-              artworks: true,
+              layouts: true,
               observation: { include: { files: true } },
               truck: true,
               serviceOrders: true,
@@ -5032,11 +5032,11 @@ export class TaskService {
 
         // Process and save files WITHIN the transaction
         // This ensures files are only created if the task update succeeds
-        // CRITICAL: Also process if artworkStatuses is provided (even without file uploads)
-        // hasArtworkData was already computed at line 1393 BEFORE deleting fields
-        if (files || hasArtworkData) {
+        // CRITICAL: Also process if layoutStatuses is provided (even without file uploads)
+        // hasLayoutData was already computed at line 1393 BEFORE deleting fields
+        if (files || hasLayoutData) {
           // Ensure files is defined (set to empty object if undefined)
-          // This is needed when hasArtworkData is true but no files were uploaded
+          // This is needed when hasLayoutData is true but no files were uploaded
           if (!files) {
             files = {} as any;
           }
@@ -5232,105 +5232,105 @@ export class TaskService {
             );
           }
 
-          // Artwork files - CRITICAL FIX for Artwork entity
-          // Frontend sends artworkIds as File IDs, we need to convert to Artwork entity IDs
-          // Process if new files are being uploaded OR if artworkIds/fileIds is explicitly provided (for deletions)
-          let fileIdsFromRequest = (data as any).artworkIds || (data as any).fileIds;
-          const artworkStatuses = (data as any).artworkStatuses; // Status map: File ID → status (for existing files)
-          const newArtworkStatuses = (data as any).newArtworkStatuses; // Status array for new files (matches files array order)
+          // Layout files - CRITICAL FIX for Layout entity
+          // Frontend sends layoutIds as File IDs, we need to convert to Layout entity IDs
+          // Process if new files are being uploaded OR if layoutIds/fileIds is explicitly provided (for deletions)
+          let fileIdsFromRequest = (data as any).layoutIds || (data as any).fileIds;
+          const layoutStatuses = (data as any).layoutStatuses; // Status map: File ID → status (for existing files)
+          const newLayoutStatuses = (data as any).newLayoutStatuses; // Status array for new files (matches files array order)
 
           this.logger.log(`[Task Update] 🎨 ARTWORK DEBUG - Received data:`);
-          this.logger.log(`  - artworkIds in request: ${JSON.stringify((data as any).artworkIds)}`);
+          this.logger.log(`  - layoutIds in request: ${JSON.stringify((data as any).layoutIds)}`);
           this.logger.log(`  - fileIds in request: ${JSON.stringify((data as any).fileIds)}`);
           this.logger.log(`  - fileIdsFromRequest (final): ${JSON.stringify(fileIdsFromRequest)}`);
-          this.logger.log(`  - artworkStatuses: ${JSON.stringify(artworkStatuses)}`);
-          this.logger.log(`  - newArtworkStatuses: ${JSON.stringify(newArtworkStatuses)}`);
-          this.logger.log(`  - files.artworks: ${files.artworks?.length || 0} files`);
+          this.logger.log(`  - layoutStatuses: ${JSON.stringify(layoutStatuses)}`);
+          this.logger.log(`  - newLayoutStatuses: ${JSON.stringify(newLayoutStatuses)}`);
+          this.logger.log(`  - files.layouts: ${files.layouts?.length || 0} files`);
 
-          // SAFEGUARD: Only restore artworks if artworkStatuses was provided but artworkIds was completely missing (undefined).
-          // If artworkIds is an EMPTY ARRAY [], that's an intentional removal by the user - respect it.
-          // The frontend now cleans up artworkStatuses when files are removed, so this safeguard
+          // SAFEGUARD: Only restore layouts if layoutStatuses was provided but layoutIds was completely missing (undefined).
+          // If layoutIds is an EMPTY ARRAY [], that's an intentional removal by the user - respect it.
+          // The frontend now cleans up layoutStatuses when files are removed, so this safeguard
           // should only trigger in edge cases where frontend sends status changes without file IDs.
-          const hasArtworkStatusChanges =
-            artworkStatuses && Object.keys(artworkStatuses).length > 0;
-          const artworkIdsWasNotSent = fileIdsFromRequest === undefined;
-          const artworkIdsIsEmptyArray =
+          const hasLayoutStatusChanges =
+            layoutStatuses && Object.keys(layoutStatuses).length > 0;
+          const layoutIdsWasNotSent = fileIdsFromRequest === undefined;
+          const layoutIdsIsEmptyArray =
             Array.isArray(fileIdsFromRequest) && fileIdsFromRequest.length === 0;
 
-          // Only restore if artworkIds was completely missing (undefined), NOT if it was explicitly sent as empty array
-          if (hasArtworkStatusChanges && artworkIdsWasNotSent) {
+          // Only restore if layoutIds was completely missing (undefined), NOT if it was explicitly sent as empty array
+          if (hasLayoutStatusChanges && layoutIdsWasNotSent) {
             this.logger.warn(
-              `[Task Update] 🛡️ SAFEGUARD TRIGGERED: artworkStatuses provided (${Object.keys(artworkStatuses).length} statuses) but artworkIds was NOT sent (undefined). Fetching current artworks to prevent data loss.`,
+              `[Task Update] 🛡️ SAFEGUARD TRIGGERED: layoutStatuses provided (${Object.keys(layoutStatuses).length} statuses) but layoutIds was NOT sent (undefined). Fetching current layouts to prevent data loss.`,
             );
             const currentTask = await tx.task.findUnique({
               where: { id },
-              include: { artworks: { select: { fileId: true, id: true } } },
+              include: { layouts: { select: { fileId: true, id: true } } },
             });
-            if (currentTask && currentTask.artworks && currentTask.artworks.length > 0) {
+            if (currentTask && currentTask.layouts && currentTask.layouts.length > 0) {
               // Initialize array since it was undefined
               fileIdsFromRequest = [];
-              // Restore File IDs from current artworks
-              const currentFileIds = currentTask.artworks.map(a => a.fileId);
+              // Restore File IDs from current layouts
+              const currentFileIds = currentTask.layouts.map(a => a.fileId);
               fileIdsFromRequest.push(...currentFileIds);
               this.logger.log(
-                `[Task Update] 🛡️ SAFEGUARD: Restored ${fileIdsFromRequest.length} artwork File IDs: [${fileIdsFromRequest.join(', ')}]`,
+                `[Task Update] 🛡️ SAFEGUARD: Restored ${fileIdsFromRequest.length} layout File IDs: [${fileIdsFromRequest.join(', ')}]`,
               );
             } else {
               this.logger.warn(
-                `[Task Update] ⚠️ SAFEGUARD: Task ${id} has no current artworks, cannot restore.`,
+                `[Task Update] ⚠️ SAFEGUARD: Task ${id} has no current layouts, cannot restore.`,
               );
             }
-          } else if (artworkIdsIsEmptyArray) {
+          } else if (layoutIdsIsEmptyArray) {
             // Empty array was explicitly sent - this is intentional removal, log and allow it
             this.logger.log(
-              `[Task Update] 📋 artworkIds is empty array (intentional removal). hasArtworkStatusChanges: ${hasArtworkStatusChanges}, artworkStatuses entries: ${Object.keys(artworkStatuses || {}).length}`,
+              `[Task Update] 📋 layoutIds is empty array (intentional removal). hasLayoutStatusChanges: ${hasLayoutStatusChanges}, layoutStatuses entries: ${Object.keys(layoutStatuses || {}).length}`,
             );
           }
 
-          if ((files?.artworks && files.artworks.length > 0) || fileIdsFromRequest !== undefined) {
-            // Start with empty array for Artwork entity IDs
-            const artworkEntityIds: string[] = [];
+          if ((files?.layouts && files.layouts.length > 0) || fileIdsFromRequest !== undefined) {
+            // Start with empty array for Layout entity IDs
+            const layoutEntityIds: string[] = [];
 
-            // Fetch user for event context (if artworkStatuses are being processed)
-            let artworkEventUser: any = null;
-            if (artworkStatuses && Object.keys(artworkStatuses).length > 0 && userId) {
-              artworkEventUser = await tx.user.findUnique({
+            // Fetch user for event context (if layoutStatuses are being processed)
+            let layoutEventUser: any = null;
+            if (layoutStatuses && Object.keys(layoutStatuses).length > 0 && userId) {
+              layoutEventUser = await tx.user.findUnique({
                 where: { id: userId },
                 select: { id: true, name: true, email: true },
               });
             }
 
-            // Step 1: Convert existing File IDs to Artwork entity IDs (with status updates if provided)
+            // Step 1: Convert existing File IDs to Layout entity IDs (with status updates if provided)
             if (fileIdsFromRequest && fileIdsFromRequest.length > 0) {
               this.logger.log(
-                `[Task Update] Converting ${fileIdsFromRequest.length} File IDs to Artwork entity IDs: [${fileIdsFromRequest.join(', ')}]`,
+                `[Task Update] Converting ${fileIdsFromRequest.length} File IDs to Layout entity IDs: [${fileIdsFromRequest.join(', ')}]`,
               );
-              const existingArtworkIds = await this.convertFileIdsToArtworkIds(
+              const existingLayoutIds = await this.convertFileIdsToLayoutIds(
                 fileIdsFromRequest,
                 id,
                 null,
-                artworkStatuses,
+                layoutStatuses,
                 userPrivilege,
                 tx,
-                // Pass event context for artwork status change notifications
-                artworkEventUser ? { user: artworkEventUser, task: existingTask } : undefined,
+                // Pass event context for layout status change notifications
+                layoutEventUser ? { user: layoutEventUser, task: existingTask } : undefined,
               );
-              artworkEntityIds.push(...existingArtworkIds);
+              layoutEntityIds.push(...existingLayoutIds);
               this.logger.log(
-                `[Task Update] Converted to ${existingArtworkIds.length} Artwork entity IDs`,
+                `[Task Update] Converted to ${existingLayoutIds.length} Layout entity IDs`,
               );
             }
 
-            // Step 2: Upload new artwork files and create Artwork entities for them
-            if (files?.artworks && files.artworks.length > 0) {
-              this.logger.log(`[Task Update] Uploading ${files.artworks.length} new artwork files`);
-              for (let i = 0; i < files.artworks.length; i++) {
-                const artworkFile = files.artworks[i];
+            // Step 2: Upload new layout files and create Layout entities for them
+            if (files?.layouts && files.layouts.length > 0) {
+              this.logger.log(`[Task Update] Uploading ${files.layouts.length} new layout files`);
+              for (let i = 0; i < files.layouts.length; i++) {
+                const layoutFile = files.layouts[i];
                 // First, create the File entity
                 const fileRecord = await this.fileService.createFromUploadWithTransaction(
                   tx,
-                  artworkFile,
-                  'tasksArtworks',
+                  layoutFile,
+                  'tasksLayouts',
                   userId,
                   {
                     entityId: id,
@@ -5338,84 +5338,84 @@ export class TaskService {
                     customerName,
                   },
                 );
-                this.logger.log(`[Task Update] Created new artwork File with ID: ${fileRecord.id}`);
+                this.logger.log(`[Task Update] Created new layout File with ID: ${fileRecord.id}`);
 
                 // Determine status for new upload
-                // Use newArtworkStatuses array (by index) if provided, otherwise try artworkStatuses map, otherwise DRAFT
+                // Use newLayoutStatuses array (by index) if provided, otherwise try layoutStatuses map, otherwise DRAFT
                 let newFileStatus: 'DRAFT' | 'APPROVED' | 'REPROVED' = 'DRAFT';
                 if (
-                  newArtworkStatuses &&
-                  Array.isArray(newArtworkStatuses) &&
-                  newArtworkStatuses[i]
+                  newLayoutStatuses &&
+                  Array.isArray(newLayoutStatuses) &&
+                  newLayoutStatuses[i]
                 ) {
-                  newFileStatus = newArtworkStatuses[i];
+                  newFileStatus = newLayoutStatuses[i];
                   this.logger.log(
-                    `[Task Update] Using status from newArtworkStatuses[${i}]: ${newFileStatus}`,
+                    `[Task Update] Using status from newLayoutStatuses[${i}]: ${newFileStatus}`,
                   );
-                } else if (artworkStatuses?.[fileRecord.id]) {
-                  newFileStatus = artworkStatuses[fileRecord.id];
+                } else if (layoutStatuses?.[fileRecord.id]) {
+                  newFileStatus = layoutStatuses[fileRecord.id];
                   this.logger.log(
-                    `[Task Update] Using status from artworkStatuses map: ${newFileStatus}`,
+                    `[Task Update] Using status from layoutStatuses map: ${newFileStatus}`,
                   );
                 } else {
                   this.logger.log(`[Task Update] Using default status: DRAFT`);
                 }
 
-                // Then, create the Artwork entity for this File
-                const artworkEntityId = await this.createArtworkForFile(
+                // Then, create the Layout entity for this File
+                const layoutEntityId = await this.createLayoutForFile(
                   fileRecord,
                   id,
                   null,
                   newFileStatus,
                   tx,
                 );
-                artworkEntityIds.push(artworkEntityId);
+                layoutEntityIds.push(layoutEntityId);
                 this.logger.log(
-                  `[Task Update] Created Artwork entity with ID: ${artworkEntityId} and status: ${newFileStatus}`,
+                  `[Task Update] Created Layout entity with ID: ${layoutEntityId} and status: ${newFileStatus}`,
                 );
               }
             }
 
-            // Step 3: Merge with existing artworks if only new files were uploaded (no explicit artworkIds sent)
-            // This prevents replacing all existing artworks when the frontend only sends new file uploads
-            if (artworkIdsWasNotSent && artworkEntityIds.length > 0) {
+            // Step 3: Merge with existing layouts if only new files were uploaded (no explicit layoutIds sent)
+            // This prevents replacing all existing layouts when the frontend only sends new file uploads
+            if (layoutIdsWasNotSent && layoutEntityIds.length > 0) {
               const currentTaskForMerge = await tx.task.findUnique({
                 where: { id },
-                include: { artworks: { select: { id: true } } },
+                include: { layouts: { select: { id: true } } },
               });
-              if (currentTaskForMerge?.artworks?.length) {
-                const currentArtworkIds = currentTaskForMerge.artworks.map(a => a.id);
-                const mergedIds = [...new Set([...currentArtworkIds, ...artworkEntityIds])];
+              if (currentTaskForMerge?.layouts?.length) {
+                const currentLayoutIds = currentTaskForMerge.layouts.map(a => a.id);
+                const mergedIds = [...new Set([...currentLayoutIds, ...layoutEntityIds])];
                 this.logger.log(
-                  `[Task Update] 🔄 MERGE: artworkIds was not sent, merging ${currentArtworkIds.length} existing artworks with ${artworkEntityIds.length} new uploads (total: ${mergedIds.length})`,
+                  `[Task Update] 🔄 MERGE: layoutIds was not sent, merging ${currentLayoutIds.length} existing layouts with ${layoutEntityIds.length} new uploads (total: ${mergedIds.length})`,
                 );
-                artworkEntityIds.length = 0;
-                artworkEntityIds.push(...mergedIds);
+                layoutEntityIds.length = 0;
+                layoutEntityIds.push(...mergedIds);
               }
             }
 
-            // Step 4: Set the Artwork entities on the Task
+            // Step 4: Set the Layout entities on the Task
             this.logger.log(
-              `[Task Update] Final Artwork entity IDs array (${artworkEntityIds.length} total): [${artworkEntityIds.join(', ')}]`,
+              `[Task Update] Final Layout entity IDs array (${layoutEntityIds.length} total): [${layoutEntityIds.join(', ')}]`,
             );
 
-            // CRITICAL WARNING: Empty array will remove all artworks!
-            if (artworkEntityIds.length === 0 && fileIdsFromRequest !== undefined) {
+            // CRITICAL WARNING: Empty array will remove all layouts!
+            if (layoutEntityIds.length === 0 && fileIdsFromRequest !== undefined) {
               this.logger.warn(
-                `[Task Update] ⚠️ WARNING: About to set artworks to EMPTY ARRAY! This will disconnect all artworks from the task. ` +
+                `[Task Update] ⚠️ WARNING: About to set layouts to EMPTY ARRAY! This will disconnect all layouts from the task. ` +
                   `fileIdsFromRequest=${fileIdsFromRequest?.length || 0}, ` +
-                  `artworkStatuses=${artworkStatuses ? Object.keys(artworkStatuses).length : 0}, ` +
-                  `hasArtworkStatusChanges=${hasArtworkStatusChanges}`,
+                  `layoutStatuses=${layoutStatuses ? Object.keys(layoutStatuses).length : 0}, ` +
+                  `hasLayoutStatusChanges=${hasLayoutStatusChanges}`,
               );
             }
 
-            fileUpdates.artworks = { set: artworkEntityIds.map(id => ({ id })) };
+            fileUpdates.layouts = { set: layoutEntityIds.map(id => ({ id })) };
             this.logger.log(
-              `[Task Update] Setting artworks to ${artworkEntityIds.length} Artwork entities (${fileIdsFromRequest?.length || 0} existing + ${files.artworks?.length || 0} new)`,
+              `[Task Update] Setting layouts to ${layoutEntityIds.length} Layout entities (${fileIdsFromRequest?.length || 0} existing + ${files.layouts?.length || 0} new)`,
             );
           }
 
-          // Base files (files used as base for artwork design)
+          // Base files (files used as base for layout design)
           // Process if new files are being uploaded OR if baseFileIds is explicitly provided (for deletions)
           if ((files?.baseFiles && files.baseFiles.length > 0) || data.baseFileIds !== undefined) {
             // Start with the baseFileIds provided in the form data (files that should be kept)
@@ -5456,7 +5456,7 @@ export class TaskService {
                 // Pass file index (1-based) to add suffix for multiple files
                 const newFilename = generateBaseFileName(
                   taskNameForFile,
-                  existingTask, // existingTask has truck with layouts for measures
+                  existingTask, // existingTask has truck with implementMeasures for measures
                   baseFile.originalname,
                   i + 1, // 1-based index for file numbering
                 );
@@ -5664,11 +5664,11 @@ export class TaskService {
 
             for (const fieldName of airbrushingFileFields) {
               // Parse field name: airbrushings[0].receipts -> index: 0, type: receipts
-              const match = fieldName.match(/airbrushings\[(\d+)\]\.(receipts|invoices|artworks)/);
+              const match = fieldName.match(/airbrushings\[(\d+)\]\.(receipts|invoices|layouts)/);
               if (!match) continue;
 
               const index = parseInt(match[1], 10);
-              const fileType = match[2] as 'receipts' | 'invoices' | 'artworks';
+              const fileType = match[2] as 'receipts' | 'invoices' | 'layouts';
               const airbrushingFiles = (files as any)[fieldName] as Express.Multer.File[];
 
               if (!airbrushingFiles || airbrushingFiles.length === 0) continue;
@@ -5682,39 +5682,39 @@ export class TaskService {
                 `[TaskService.update] Processing ${airbrushingFiles.length} ${fileType} for airbrushing ${index} (ID: ${airbrushing.id})`,
               );
 
-              // Get existing file/artwork IDs from the form data for this airbrushing
+              // Get existing file/layout IDs from the form data for this airbrushing
               const airbrushingData = (data as any).airbrushings?.[index];
-              const fileIdKey = `${fileType === 'invoices' ? 'invoiceIds' : fileType === 'receipts' ? 'receiptIds' : 'artworkIds'}`;
+              const fileIdKey = `${fileType === 'invoices' ? 'invoiceIds' : fileType === 'receipts' ? 'receiptIds' : 'layoutIds'}`;
               const existingFileIds = airbrushingData?.[fileIdKey] || [];
 
-              // Special handling for artworks (need Artwork entities, not File entities)
-              if (fileType === 'artworks') {
-                // Start with empty array for Artwork entity IDs
-                const artworkEntityIds: string[] = [];
+              // Special handling for layouts (need Layout entities, not File entities)
+              if (fileType === 'layouts') {
+                // Start with empty array for Layout entity IDs
+                const layoutEntityIds: string[] = [];
 
-                // Step 1: Convert existing File IDs to Artwork entity IDs
+                // Step 1: Convert existing File IDs to Layout entity IDs
                 if (existingFileIds && existingFileIds.length > 0) {
                   console.log(
-                    `[TaskService.update] Converting ${existingFileIds.length} File IDs to Artwork entity IDs for airbrushing ${airbrushing.id}`,
+                    `[TaskService.update] Converting ${existingFileIds.length} File IDs to Layout entity IDs for airbrushing ${airbrushing.id}`,
                   );
-                  const existingArtworkIds = await this.convertFileIdsToArtworkIds(
+                  const existingLayoutIds = await this.convertFileIdsToLayoutIds(
                     existingFileIds,
                     null,
                     airbrushing.id,
-                    undefined, // No artwork statuses for airbrushing in this context
+                    undefined, // No layout statuses for airbrushing in this context
                     userPrivilege,
                     tx,
                   );
-                  artworkEntityIds.push(...existingArtworkIds);
+                  layoutEntityIds.push(...existingLayoutIds);
                 }
 
-                // Step 2: Upload new artwork files and create Artwork entities
+                // Step 2: Upload new layout files and create Layout entities
                 for (const file of airbrushingFiles) {
                   // Create File entity
                   const fileRecord = await this.fileService.createFromUploadWithTransaction(
                     tx,
                     file,
-                    'airbrushingArtworks',
+                    'airbrushingLayouts',
                     userId,
                     {
                       entityId: airbrushing.id,
@@ -5722,27 +5722,27 @@ export class TaskService {
                       customerName,
                     },
                   );
-                  // Create Artwork entity
-                  const artworkEntityId = await this.createArtworkForFile(
+                  // Create Layout entity
+                  const layoutEntityId = await this.createLayoutForFile(
                     fileRecord,
                     null,
                     airbrushing.id,
                     'DRAFT', // Default status for airbrushing uploads
                     tx,
                   );
-                  artworkEntityIds.push(artworkEntityId);
+                  layoutEntityIds.push(layoutEntityId);
                 }
 
-                // Update the airbrushing with Artwork entity IDs
-                if (artworkEntityIds.length > 0) {
+                // Update the airbrushing with Layout entity IDs
+                if (layoutEntityIds.length > 0) {
                   await tx.airbrushing.update({
                     where: { id: airbrushing.id },
                     data: {
-                      artworks: { set: artworkEntityIds.map(id => ({ id })) },
+                      layouts: { set: layoutEntityIds.map(id => ({ id })) },
                     },
                   });
                   console.log(
-                    `[TaskService.update] Set ${artworkEntityIds.length} Artwork entities for airbrushing ${airbrushing.id} (${existingFileIds.length} existing + ${airbrushingFiles.length} new)`,
+                    `[TaskService.update] Set ${layoutEntityIds.length} Layout entities for airbrushing ${airbrushing.id} (${existingFileIds.length} existing + ${airbrushingFiles.length} new)`,
                   );
                 }
               } else {
@@ -5796,7 +5796,7 @@ export class TaskService {
               include: {
                 ...include,
                 customer: true,
-                artworks: {
+                layouts: {
                   include: {
                     file: {
                       select: {
@@ -6152,7 +6152,7 @@ export class TaskService {
                 // Store field changes in database
                 for (const change of fieldChanges) {
                   const isFileArray = [
-                    'artworks',
+                    'layouts',
                     'baseFiles',
                     'budgets',
                     'invoices',
@@ -6226,52 +6226,52 @@ export class TaskService {
         // Previously this created a "serviceOrders" field changelog when services were removed,
         // but that was redundant and caused confusing "Nenhuma/Nenhuma" entries.
 
-        // Track artworks array changes
-        // CRITICAL: Only check if the request artworkIds are DIFFERENT from existing ones
-        // The frontend may send artworkIds even when not modifying them, so we need to compare
-        const requestedArtworkIds = (data as any).artworkIds || (data as any).fileIds;
+        // Track layouts array changes
+        // CRITICAL: Only check if the request layoutIds are DIFFERENT from existing ones
+        // The frontend may send layoutIds even when not modifying them, so we need to compare
+        const requestedLayoutIds = (data as any).layoutIds || (data as any).fileIds;
 
-        if (requestedArtworkIds !== undefined) {
-          const oldArtworks = existingTask.artworks || [];
+        if (requestedLayoutIds !== undefined) {
+          const oldLayouts = existingTask.layouts || [];
 
-          // Normalize existing artwork IDs to strings and sort
-          const oldArtworkIds = oldArtworks.map((f: any) => String(f.id)).sort();
+          // Normalize existing layout IDs to strings and sort
+          const oldLayoutIds = oldLayouts.map((f: any) => String(f.id)).sort();
 
           // Normalize requested IDs to strings and sort
-          const requestedIds = requestedArtworkIds.map((id: any) => String(id)).sort();
+          const requestedIds = requestedLayoutIds.map((id: any) => String(id)).sort();
 
           // Compare requested IDs with existing IDs - only proceed if different
-          const artworkIdsInRequestAreDifferent =
-            oldArtworkIds.length !== requestedIds.length ||
-            !oldArtworkIds.every((id, index) => id === requestedIds[index]);
+          const layoutIdsInRequestAreDifferent =
+            oldLayoutIds.length !== requestedIds.length ||
+            !oldLayoutIds.every((id, index) => id === requestedIds[index]);
 
           // Only check DB state if the request indicates a change
-          if (artworkIdsInRequestAreDifferent) {
-            const newArtworks = updatedTask?.artworks || [];
-            const newArtworkIds = newArtworks.map((f: any) => String(f.id)).sort();
+          if (layoutIdsInRequestAreDifferent) {
+            const newLayouts = updatedTask?.layouts || [];
+            const newLayoutIds = newLayouts.map((f: any) => String(f.id)).sort();
 
-            const addedArtworks = newArtworks.filter(
-              (f: any) => !oldArtworkIds.includes(String(f.id)),
+            const addedLayouts = newLayouts.filter(
+              (f: any) => !oldLayoutIds.includes(String(f.id)),
             );
-            const removedArtworks = oldArtworks.filter(
-              (f: any) => !newArtworkIds.includes(String(f.id)),
+            const removedLayouts = oldLayouts.filter(
+              (f: any) => !newLayoutIds.includes(String(f.id)),
             );
 
             // Only log if there are actual additions or removals
-            if (addedArtworks.length > 0 || removedArtworks.length > 0) {
+            if (addedLayouts.length > 0 || removedLayouts.length > 0) {
               const changeDescription = [];
-              if (addedArtworks.length > 0) {
+              if (addedLayouts.length > 0) {
                 changeDescription.push(
-                  addedArtworks.length === 1
+                  addedLayouts.length === 1
                     ? '1 arte adicionada'
-                    : `${addedArtworks.length} artes adicionadas`,
+                    : `${addedLayouts.length} artes adicionadas`,
                 );
               }
-              if (removedArtworks.length > 0) {
+              if (removedLayouts.length > 0) {
                 changeDescription.push(
-                  removedArtworks.length === 1
+                  removedLayouts.length === 1
                     ? '1 arte removida'
-                    : `${removedArtworks.length} artes removidas`,
+                    : `${removedLayouts.length} artes removidas`,
                 );
               }
 
@@ -6279,9 +6279,9 @@ export class TaskService {
                 entityType: ENTITY_TYPE.TASK,
                 entityId: id,
                 action: CHANGE_ACTION.UPDATE,
-                field: 'artworks',
-                oldValue: oldArtworks.length > 0 ? oldArtworks : null,
-                newValue: newArtworks.length > 0 ? newArtworks : null,
+                field: 'layouts',
+                oldValue: oldLayouts.length > 0 ? oldLayouts : null,
+                newValue: newLayouts.length > 0 ? newLayouts : null,
                 reason: changeDescription.join(', '),
                 triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
                 triggeredById: id,
@@ -6693,14 +6693,14 @@ export class TaskService {
         // caused DUPLICATE notifications for production users.
       }
 
-      // Reconcile the "Em Negociação" SO when artwork data changed — adding the
-      // first artwork on a budget-approved task closes the commercial handoff.
-      // Idempotent; uses post-commit prisma so it sees the final task.artworks set.
-      const artworkDataTouched =
-        (data as any).artworkIds !== undefined ||
+      // Reconcile the "Em Negociação" SO when layout data changed — adding the
+      // first layout on a budget-approved task closes the commercial handoff.
+      // Idempotent; uses post-commit prisma so it sees the final task.layouts set.
+      const layoutDataTouched =
+        (data as any).layoutIds !== undefined ||
         (data as any).fileIds !== undefined ||
-        (data as any).artworkStatuses !== undefined;
-      if (artworkDataTouched) {
+        (data as any).layoutStatuses !== undefined;
+      if (layoutDataTouched) {
         await syncEmNegociacaoForTask(this.prisma, id, userId);
       }
 
@@ -6719,7 +6719,7 @@ export class TaskService {
           ...(files.invoices || []),
           ...(files.receipts || []),
           ...(files.bankSlips || []),
-          ...(files.artworks || []),
+          ...(files.layouts || []),
           ...(files.cutFiles || []),
         ];
 
@@ -6754,7 +6754,7 @@ export class TaskService {
       invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
       bankSlips?: Express.Multer.File[];
-      artworks?: Express.Multer.File[];
+      layouts?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
     },
@@ -6785,14 +6785,14 @@ export class TaskService {
         this.logger.log('[batchUpdate] Inside transaction');
 
         // Look up the acting user's sector privilege for field-level access
-        // control and artwork status permission checks.
+        // control and layout status permission checks.
         // NOTE: the batch endpoint admits 8 privileges (task.controller.ts),
         // so the privilege MUST be resolved and enforced here. Least-privilege:
         // if the user or their sector cannot be resolved, the batch is denied —
         // never assume ADMIN.
         // Acting user (id/name/email) for artwork.approved/reproved event context — so the
-        // batch artwork-status path emits the SAME notifications as the single-update path.
-        let artworkEventUser: { id: string; name: string | null; email: string | null } | null =
+        // batch layout-status path emits the SAME notifications as the single-update path.
+        let layoutEventUser: { id: string; name: string | null; email: string | null } | null =
           null;
         if (!userId) {
           throw new ForbiddenException(
@@ -6809,7 +6809,7 @@ export class TaskService {
             'Não foi possível determinar o setor do usuário. Operação em lote negada.',
           );
         }
-        artworkEventUser = { id: actingUser!.id, name: actingUser!.name, email: actingUser!.email };
+        layoutEventUser = { id: actingUser!.id, name: actingUser!.name, email: actingUser!.email };
         this.logger.log(`[batchUpdate] User ${userId} privilege: ${userPrivilege}`);
 
         // Prepare updates with change tracking and validation
@@ -6836,7 +6836,7 @@ export class TaskService {
           const existingTask = await this.tasksRepository.findByIdWithTransaction(tx, update.id, {
             include: {
               ...include,
-              artworks: {
+              layouts: {
                 include: {
                   file: {
                     select: {
@@ -6861,7 +6861,7 @@ export class TaskService {
             // Store existing state for changelog comparison after update
             existingTaskStates.set(update.id, {
               ...existingTask,
-              artworks: existingTask.artworks ? [...existingTask.artworks] : [],
+              layouts: existingTask.layouts ? [...existingTask.layouts] : [],
               budgets: existingTask.budgets ? [...existingTask.budgets] : [],
               invoices: existingTask.invoices ? [...existingTask.invoices] : [],
               receipts: existingTask.receipts ? [...existingTask.receipts] : [],
@@ -7047,7 +7047,7 @@ export class TaskService {
           invoices?: string[];
           receipts?: string[];
           bankSlips?: string[];
-          artworks?: string[];
+          layouts?: string[];
           baseFiles?: string[];
         } = {};
 
@@ -7055,7 +7055,7 @@ export class TaskService {
           this.logger.log('[batchUpdate] Processing file uploads for batch operation');
           this.logger.log(`[batchUpdate] Files object keys: ${Object.keys(files).join(', ')}`);
           this.logger.log(
-            `[batchUpdate] Has artworks: ${!!files.artworks}, Count: ${files.artworks?.length || 0}`,
+            `[batchUpdate] Has layouts: ${!!files.layouts}, Count: ${files.layouts?.length || 0}`,
           );
 
           // Get customer name from first task for file metadata
@@ -7148,18 +7148,18 @@ export class TaskService {
             }
           }
 
-          // Upload artworks and create Artwork entities
-          if (files.artworks && files.artworks.length > 0) {
-            this.logger.log(`[batchUpdate] Uploading ${files.artworks.length} artwork files`);
-            uploadedFileIds.artworks = [];
-            const uploadedArtworkFileIds: string[] = [];
+          // Upload layouts and create Layout entities
+          if (files.layouts && files.layouts.length > 0) {
+            this.logger.log(`[batchUpdate] Uploading ${files.layouts.length} layout files`);
+            uploadedFileIds.layouts = [];
+            const uploadedLayoutFileIds: string[] = [];
 
             // Step 1: Upload files and get File IDs
-            for (const artworkFile of files.artworks) {
-              const artworkRecord = await this.fileService.createFromUploadWithTransaction(
+            for (const layoutFile of files.layouts) {
+              const layoutRecord = await this.fileService.createFromUploadWithTransaction(
                 tx,
-                artworkFile,
-                'tasksArtworks',
+                layoutFile,
+                'tasksLayouts',
                 userId,
                 {
                   entityId: data.tasks[0].id,
@@ -7167,31 +7167,31 @@ export class TaskService {
                   customerName,
                 },
               );
-              uploadedArtworkFileIds.push(artworkRecord.id);
+              uploadedLayoutFileIds.push(layoutRecord.id);
             }
 
-            // Step 2: Convert File IDs to Artwork entity IDs
-            // This creates Artwork entities that wrap the uploaded Files
+            // Step 2: Convert File IDs to Layout entity IDs
+            // This creates Layout entities that wrap the uploaded Files
             this.logger.log(
-              `[batchUpdate] Converting ${uploadedArtworkFileIds.length} File IDs to Artwork entity IDs`,
+              `[batchUpdate] Converting ${uploadedLayoutFileIds.length} File IDs to Layout entity IDs`,
             );
-            const artworkEntityIds = await this.convertFileIdsToArtworkIds(
-              uploadedArtworkFileIds,
-              null, // taskId - null since these artworks will be connected to multiple tasks
+            const layoutEntityIds = await this.convertFileIdsToLayoutIds(
+              uploadedLayoutFileIds,
+              null, // taskId - null since these layouts will be connected to multiple tasks
               null, // airbrushingId
-              undefined, // artworkStatuses - new uploads default to DRAFT (frontend doesn't know File IDs yet)
+              undefined, // layoutStatuses - new uploads default to DRAFT (frontend doesn't know File IDs yet)
               userPrivilege,
               tx,
             );
 
-            // Store Artwork entity IDs (not File IDs) for merging
-            uploadedFileIds.artworks = artworkEntityIds;
+            // Store Layout entity IDs (not File IDs) for merging
+            uploadedFileIds.layouts = layoutEntityIds;
             this.logger.log(
-              `[batchUpdate] Created ${artworkEntityIds.length} Artwork entities for uploaded files`,
+              `[batchUpdate] Created ${layoutEntityIds.length} Layout entities for uploaded files`,
             );
           }
 
-          // Upload base files (shared across all tasks, like artworks)
+          // Upload base files (shared across all tasks, like layouts)
           if (files.baseFiles && files.baseFiles.length > 0) {
             this.logger.log(`[batchUpdate] Uploading ${files.baseFiles.length} base files`);
             uploadedFileIds.baseFiles = [];
@@ -7251,26 +7251,26 @@ export class TaskService {
             }
           }
 
-          // Process layout photo files for bulk layout operations
+          // Process implementMeasure photo files for bulk implementMeasure operations
           // Upload photos and inject photoId into truck data for all tasks
           this.logger.log(`[batchUpdate] ===== LAYOUT PHOTO PROCESSING START =====`);
           this.logger.log(`[batchUpdate] All file keys: ${Object.keys(files).join(', ')}`);
-          const uploadedLayoutPhotoIds: {
+          const uploadedImplementMeasurePhotoIds: {
             leftSide?: string;
             rightSide?: string;
             backSide?: string;
           } = {};
-          const layoutPhotoKeys = Object.keys(files).filter(k => k.startsWith('layoutPhotos.'));
+          const implementMeasurePhotoKeys = Object.keys(files).filter(k => k.startsWith('implementMeasurePhotos.'));
           this.logger.log(
-            `[batchUpdate] Layout photo keys found: ${layoutPhotoKeys.length > 0 ? layoutPhotoKeys.join(', ') : 'NONE'}`,
+            `[batchUpdate] ImplementMeasure photo keys found: ${implementMeasurePhotoKeys.length > 0 ? implementMeasurePhotoKeys.join(', ') : 'NONE'}`,
           );
-          if (layoutPhotoKeys.length > 0) {
+          if (implementMeasurePhotoKeys.length > 0) {
             this.logger.log(
-              `[batchUpdate] Processing ${layoutPhotoKeys.length} layout photo files`,
+              `[batchUpdate] Processing ${implementMeasurePhotoKeys.length} implementMeasure photo files`,
             );
 
-            for (const key of layoutPhotoKeys) {
-              const side = key.replace('layoutPhotos.', '') as
+            for (const key of implementMeasurePhotoKeys) {
+              const side = key.replace('implementMeasurePhotos.', '') as
                 | 'leftSide'
                 | 'rightSide'
                 | 'backSide';
@@ -7279,174 +7279,174 @@ export class TaskService {
                 : (files as any)[key];
 
               if (photoFile) {
-                this.logger.log(`[batchUpdate] Uploading layout photo for ${side}`);
+                this.logger.log(`[batchUpdate] Uploading implementMeasure photo for ${side}`);
                 const uploadedPhoto = await this.fileService.createFromUploadWithTransaction(
                   tx,
                   photoFile,
-                  'layoutPhotos',
+                  'implementMeasurePhotos',
                   userId,
-                  { entityType: 'LAYOUT', customerName },
+                  { entityType: 'IMPLEMENT_MEASURE', customerName },
                 );
-                uploadedLayoutPhotoIds[side] = uploadedPhoto.id;
+                uploadedImplementMeasurePhotoIds[side] = uploadedPhoto.id;
                 this.logger.log(
-                  `[batchUpdate] Layout photo uploaded for ${side}: ${uploadedPhoto.id}`,
+                  `[batchUpdate] ImplementMeasure photo uploaded for ${side}: ${uploadedPhoto.id}`,
                 );
               }
             }
 
             // Inject uploaded photo IDs into truck data for all tasks
-            if (Object.keys(uploadedLayoutPhotoIds).length > 0) {
+            if (Object.keys(uploadedImplementMeasurePhotoIds).length > 0) {
               for (const task of data.tasks) {
                 const truckData = (task.data as any)?.truck;
                 if (truckData) {
-                  if (uploadedLayoutPhotoIds.leftSide && truckData.leftSideLayout) {
-                    truckData.leftSideLayout.photoId = uploadedLayoutPhotoIds.leftSide;
+                  if (uploadedImplementMeasurePhotoIds.leftSide && truckData.leftSideMeasure) {
+                    truckData.leftSideMeasure.photoId = uploadedImplementMeasurePhotoIds.leftSide;
                   }
-                  if (uploadedLayoutPhotoIds.rightSide && truckData.rightSideLayout) {
-                    truckData.rightSideLayout.photoId = uploadedLayoutPhotoIds.rightSide;
+                  if (uploadedImplementMeasurePhotoIds.rightSide && truckData.rightSideMeasure) {
+                    truckData.rightSideMeasure.photoId = uploadedImplementMeasurePhotoIds.rightSide;
                   }
-                  if (uploadedLayoutPhotoIds.backSide && truckData.backSideLayout) {
-                    truckData.backSideLayout.photoId = uploadedLayoutPhotoIds.backSide;
+                  if (uploadedImplementMeasurePhotoIds.backSide && truckData.backSideMeasure) {
+                    truckData.backSideMeasure.photoId = uploadedImplementMeasurePhotoIds.backSide;
                   }
                 }
               }
               this.logger.log(
-                '[batchUpdate] Injected layout photo IDs into truck data for all tasks',
+                '[batchUpdate] Injected implementMeasure photo IDs into truck data for all tasks',
               );
             }
           }
         }
 
-        // Extract artworkStatuses from each update before processing
-        // artworkStatuses is a map of File ID -> status ('DRAFT' | 'APPROVED' | 'REPROVED')
+        // Extract layoutStatuses from each update before processing
+        // layoutStatuses is a map of File ID -> status ('DRAFT' | 'APPROVED' | 'REPROVED')
         // IMPORTANT: This must run OUTSIDE the if(files) block so status-only updates work
-        const perUpdateArtworkStatuses = new Map<
+        const perUpdateLayoutStatuses = new Map<
           string,
           Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>
         >();
         for (const update of updatesWithChangeTracking) {
-          const artworkStatuses = (update.data as any).artworkStatuses;
-          if (artworkStatuses) {
-            perUpdateArtworkStatuses.set(update.id, artworkStatuses);
-            delete (update.data as any).artworkStatuses;
+          const layoutStatuses = (update.data as any).layoutStatuses;
+          if (layoutStatuses) {
+            perUpdateLayoutStatuses.set(update.id, layoutStatuses);
+            delete (update.data as any).layoutStatuses;
           }
         }
 
-        // Convert artworkIds from File IDs to Artwork entity IDs for ALL tasks
-        // DEFENSIVE: Handle both File IDs and Artwork entity IDs (in case frontend sends wrong type)
-        this.logger.log('[batchUpdate] Converting artworkIds from File IDs to Artwork entity IDs');
+        // Convert layoutIds from File IDs to Layout entity IDs for ALL tasks
+        // DEFENSIVE: Handle both File IDs and Layout entity IDs (in case frontend sends wrong type)
+        this.logger.log('[batchUpdate] Converting layoutIds from File IDs to Layout entity IDs');
         for (const update of updatesWithChangeTracking) {
-          const artworkStatuses = perUpdateArtworkStatuses.get(update.id);
+          const layoutStatuses = perUpdateLayoutStatuses.get(update.id);
 
           if (
-            update.data.artworkIds &&
-            Array.isArray(update.data.artworkIds) &&
-            update.data.artworkIds.length > 0
+            update.data.layoutIds &&
+            Array.isArray(update.data.layoutIds) &&
+            update.data.layoutIds.length > 0
           ) {
             this.logger.log(
-              `[batchUpdate] Task ${update.id}: Processing ${update.data.artworkIds.length} artwork IDs: ${JSON.stringify(update.data.artworkIds)}`,
+              `[batchUpdate] Task ${update.id}: Processing ${update.data.layoutIds.length} layout IDs: ${JSON.stringify(update.data.layoutIds)}`,
             );
 
-            // DEFENSIVE CHECK: Determine if these are File IDs or Artwork entity IDs
-            // Try to find them as Artwork entities first
-            const existingArtworks = await tx.artwork.findMany({
+            // DEFENSIVE CHECK: Determine if these are File IDs or Layout entity IDs
+            // Try to find them as Layout entities first
+            const existingLayouts = await tx.layout.findMany({
               where: {
-                id: { in: update.data.artworkIds },
+                id: { in: update.data.layoutIds },
               },
               select: { id: true, fileId: true },
             });
 
             this.logger.log(
-              `[batchUpdate] Task ${update.id}: Checked ${update.data.artworkIds.length} IDs as Artwork entities, found ${existingArtworks.length}`,
+              `[batchUpdate] Task ${update.id}: Checked ${update.data.layoutIds.length} IDs as Layout entities, found ${existingLayouts.length}`,
             );
 
-            if (existingArtworks.length === update.data.artworkIds.length) {
-              // All IDs were found as Artwork entities - frontend sent Artwork entity IDs directly
+            if (existingLayouts.length === update.data.layoutIds.length) {
+              // All IDs were found as Layout entities - frontend sent Layout entity IDs directly
               this.logger.log(
-                `[batchUpdate] Task ${update.id}: ✅ All ${existingArtworks.length} IDs are valid Artwork entity IDs (no conversion needed)`,
+                `[batchUpdate] Task ${update.id}: ✅ All ${existingLayouts.length} IDs are valid Layout entity IDs (no conversion needed)`,
               );
-              // Keep artworkIds as-is, but still apply artworkStatuses if present
-              // artworkStatuses keys are File IDs, so use existingArtworks to map fileId -> status
-              if (artworkStatuses && Object.keys(artworkStatuses).length > 0) {
-                const fileIds = existingArtworks.map(a => a.fileId);
+              // Keep layoutIds as-is, but still apply layoutStatuses if present
+              // layoutStatuses keys are File IDs, so use existingLayouts to map fileId -> status
+              if (layoutStatuses && Object.keys(layoutStatuses).length > 0) {
+                const fileIds = existingLayouts.map(a => a.fileId);
                 this.logger.log(
-                  `[batchUpdate] Task ${update.id}: Applying artworkStatuses to ${fileIds.length} existing artworks (File IDs: ${JSON.stringify(fileIds)})`,
+                  `[batchUpdate] Task ${update.id}: Applying layoutStatuses to ${fileIds.length} existing layouts (File IDs: ${JSON.stringify(fileIds)})`,
                 );
-                await this.convertFileIdsToArtworkIds(
+                await this.convertFileIdsToLayoutIds(
                   fileIds,
                   null,
                   null,
-                  artworkStatuses,
+                  layoutStatuses,
                   userPrivilege,
                   tx,
                   // Event context so artwork.approved/reproved fire on batch status changes
-                  artworkEventUser
-                    ? { user: artworkEventUser, task: existingTaskStates.get(update.id) }
+                  layoutEventUser
+                    ? { user: layoutEventUser, task: existingTaskStates.get(update.id) }
                     : undefined,
                 );
               }
-            } else if (existingArtworks.length > 0) {
-              // PARTIAL MATCH - some are Artwork IDs, some might be File IDs
+            } else if (existingLayouts.length > 0) {
+              // PARTIAL MATCH - some are Layout IDs, some might be File IDs
               this.logger.warn(
-                `[batchUpdate] Task ${update.id}: ⚠️ PARTIAL MATCH: Found ${existingArtworks.length}/${update.data.artworkIds.length} as Artwork entities`,
+                `[batchUpdate] Task ${update.id}: ⚠️ PARTIAL MATCH: Found ${existingLayouts.length}/${update.data.layoutIds.length} as Layout entities`,
               );
-              const foundIds = existingArtworks.map(a => a.id);
-              const missingIds = update.data.artworkIds.filter(id => !foundIds.includes(id));
+              const foundIds = existingLayouts.map(a => a.id);
+              const missingIds = update.data.layoutIds.filter(id => !foundIds.includes(id));
               this.logger.warn(
-                `[batchUpdate] Task ${update.id}: Missing Artwork entity IDs: ${JSON.stringify(missingIds)}`,
+                `[batchUpdate] Task ${update.id}: Missing Layout entity IDs: ${JSON.stringify(missingIds)}`,
               );
 
               // Try to convert missing IDs as File IDs
               this.logger.log(
                 `[batchUpdate] Task ${update.id}: Attempting to convert ${missingIds.length} missing IDs as File IDs`,
               );
-              const convertedIds = await this.convertFileIdsToArtworkIds(
+              const convertedIds = await this.convertFileIdsToLayoutIds(
                 missingIds,
                 null,
                 null,
-                artworkStatuses,
+                layoutStatuses,
                 userPrivilege,
                 tx,
                 // Event context so artwork.approved/reproved fire on batch status changes
-                artworkEventUser
-                  ? { user: artworkEventUser, task: existingTaskStates.get(update.id) }
+                layoutEventUser
+                  ? { user: layoutEventUser, task: existingTaskStates.get(update.id) }
                   : undefined,
               );
 
-              // Combine found Artwork IDs with newly converted ones
-              update.data.artworkIds = [...foundIds, ...convertedIds];
+              // Combine found Layout IDs with newly converted ones
+              update.data.layoutIds = [...foundIds, ...convertedIds];
               this.logger.log(
-                `[batchUpdate] Task ${update.id}: Combined result: ${foundIds.length} existing + ${convertedIds.length} converted = ${update.data.artworkIds.length} total`,
+                `[batchUpdate] Task ${update.id}: Combined result: ${foundIds.length} existing + ${convertedIds.length} converted = ${update.data.layoutIds.length} total`,
               );
             } else {
-              // Not all IDs were found as Artwork entities - they must be File IDs
+              // Not all IDs were found as Layout entities - they must be File IDs
               this.logger.log(
-                `[batchUpdate] Task ${update.id}: IDs are File IDs, converting to Artwork entity IDs (found ${existingArtworks.length} existing, converting ${update.data.artworkIds.length})`,
+                `[batchUpdate] Task ${update.id}: IDs are File IDs, converting to Layout entity IDs (found ${existingLayouts.length} existing, converting ${update.data.layoutIds.length})`,
               );
 
               try {
-                const artworkEntityIds = await this.convertFileIdsToArtworkIds(
-                  update.data.artworkIds,
-                  null, // taskId - null since these are shared artworks
+                const layoutEntityIds = await this.convertFileIdsToLayoutIds(
+                  update.data.layoutIds,
+                  null, // taskId - null since these are shared layouts
                   null, // airbrushingId
-                  artworkStatuses, // artworkStatuses from frontend
+                  layoutStatuses, // layoutStatuses from frontend
                   userPrivilege,
                   tx,
                   // Event context so artwork.approved/reproved fire on batch status changes
-                  artworkEventUser
-                    ? { user: artworkEventUser, task: existingTaskStates.get(update.id) }
+                  layoutEventUser
+                    ? { user: layoutEventUser, task: existingTaskStates.get(update.id) }
                     : undefined,
                 );
 
-                if (!artworkEntityIds || artworkEntityIds.length === 0) {
+                if (!layoutEntityIds || layoutEntityIds.length === 0) {
                   this.logger.error(
-                    `[batchUpdate] Task ${update.id}: Conversion returned empty array! Input IDs: ${JSON.stringify(update.data.artworkIds)}`,
+                    `[batchUpdate] Task ${update.id}: Conversion returned empty array! Input IDs: ${JSON.stringify(update.data.layoutIds)}`,
                   );
-                  // Keep original IDs as fallback (might be Artwork entity IDs that we missed)
+                  // Keep original IDs as fallback (might be Layout entity IDs that we missed)
                 } else {
-                  update.data.artworkIds = artworkEntityIds;
+                  update.data.layoutIds = layoutEntityIds;
                   this.logger.log(
-                    `[batchUpdate] Task ${update.id}: Successfully converted to ${artworkEntityIds.length} Artwork entity IDs: ${JSON.stringify(artworkEntityIds)}`,
+                    `[batchUpdate] Task ${update.id}: Successfully converted to ${layoutEntityIds.length} Layout entity IDs: ${JSON.stringify(layoutEntityIds)}`,
                   );
                 }
               } catch (conversionError) {
@@ -7454,63 +7454,63 @@ export class TaskService {
                   `[batchUpdate] Task ${update.id}: Conversion failed: ${conversionError.message}`,
                 );
                 this.logger.error(
-                  `[batchUpdate] Task ${update.id}: Input IDs that failed: ${JSON.stringify(update.data.artworkIds)}`,
+                  `[batchUpdate] Task ${update.id}: Input IDs that failed: ${JSON.stringify(update.data.layoutIds)}`,
                 );
                 // Try to verify if these IDs exist as Files
                 const files = await tx.file.findMany({
-                  where: { id: { in: update.data.artworkIds } },
+                  where: { id: { in: update.data.layoutIds } },
                   select: { id: true },
                 });
                 this.logger.error(
                   `[batchUpdate] Task ${update.id}: Found ${files.length} matching File records`,
                 );
                 throw new Error(
-                  `Failed to convert artwork IDs for task ${update.id}: ${conversionError.message}. ` +
-                    `IDs provided: ${update.data.artworkIds.join(', ')}. ` +
-                    `These might be invalid File IDs or Artwork entity IDs that don't exist.`,
+                  `Failed to convert layout IDs for task ${update.id}: ${conversionError.message}. ` +
+                    `IDs provided: ${update.data.layoutIds.join(', ')}. ` +
+                    `These might be invalid File IDs or Layout entity IDs that don't exist.`,
                 );
               }
             }
           }
         }
 
-        // Handle status-only updates (artworkStatuses present but no artworkIds changes)
-        // This applies status changes to existing artworks without changing which artworks are connected
+        // Handle status-only updates (layoutStatuses present but no layoutIds changes)
+        // This applies status changes to existing layouts without changing which layouts are connected
         for (const update of updatesWithChangeTracking) {
-          const artworkStatuses = perUpdateArtworkStatuses.get(update.id);
-          if (artworkStatuses && !update.data.artworkIds) {
+          const layoutStatuses = perUpdateLayoutStatuses.get(update.id);
+          if (layoutStatuses && !update.data.layoutIds) {
             const existingTask = existingTaskStates.get(update.id);
-            // mapDatabaseEntityToEntity flattens artworks: a.id=FileID, no a.fileId
+            // mapDatabaseEntityToEntity flattens layouts: a.id=FileID, no a.fileId
             const currentFileIds =
-              existingTask?.artworks?.map((a: any) => a.fileId || a.id).filter(Boolean) || [];
+              existingTask?.layouts?.map((a: any) => a.fileId || a.id).filter(Boolean) || [];
             this.logger.log(
-              `[batchUpdate] Task ${update.id}: Status-only update path - artworkStatuses=${JSON.stringify(artworkStatuses)}, currentFileIds=${JSON.stringify(currentFileIds)}, userPrivilege=${userPrivilege}`,
+              `[batchUpdate] Task ${update.id}: Status-only update path - layoutStatuses=${JSON.stringify(layoutStatuses)}, currentFileIds=${JSON.stringify(currentFileIds)}, userPrivilege=${userPrivilege}`,
             );
             if (currentFileIds.length > 0) {
               this.logger.log(
-                `[batchUpdate] Task ${update.id}: Applying status-only updates to ${currentFileIds.length} existing artworks (canApprove=${this.canApproveArtworks(userPrivilege)})`,
+                `[batchUpdate] Task ${update.id}: Applying status-only updates to ${currentFileIds.length} existing layouts (canApprove=${this.canApproveLayouts(userPrivilege)})`,
               );
-              const updatedArtworkIds = await this.convertFileIdsToArtworkIds(
+              const updatedLayoutIds = await this.convertFileIdsToLayoutIds(
                 currentFileIds,
                 null,
                 null,
-                artworkStatuses,
+                layoutStatuses,
                 userPrivilege,
                 tx,
                 // Event context so artwork.approved/reproved fire on batch status changes
-                artworkEventUser ? { user: artworkEventUser, task: existingTask } : undefined,
+                layoutEventUser ? { user: layoutEventUser, task: existingTask } : undefined,
               );
               this.logger.log(
-                `[batchUpdate] Task ${update.id}: Status-only update completed, ${updatedArtworkIds.length} artworks processed`,
+                `[batchUpdate] Task ${update.id}: Status-only update completed, ${updatedLayoutIds.length} layouts processed`,
               );
             } else {
               this.logger.warn(
-                `[batchUpdate] Task ${update.id}: No existing artworks found for status-only update`,
+                `[batchUpdate] Task ${update.id}: No existing layouts found for status-only update`,
               );
             }
-          } else if (artworkStatuses && update.data.artworkIds) {
+          } else if (layoutStatuses && update.data.layoutIds) {
             this.logger.log(
-              `[batchUpdate] Task ${update.id}: Skipping status-only path because artworkIds is set (${(update.data.artworkIds as string[]).length} IDs) - statuses applied during conversion`,
+              `[batchUpdate] Task ${update.id}: Skipping status-only path because layoutIds is set (${(update.data.layoutIds as string[]).length} IDs) - statuses applied during conversion`,
             );
           }
         }
@@ -7536,7 +7536,7 @@ export class TaskService {
                 invoices: true,
                 receipts: true,
                 bankSlips: true,
-                artworks: true,
+                layouts: true,
                 baseFiles: true,
                 logoPaints: true,
                 cuts: true,
@@ -7593,41 +7593,41 @@ export class TaskService {
               );
             }
 
-            if (uploadedFileIds.artworks && uploadedFileIds.artworks.length > 0) {
-              // Only merge uploaded artwork File IDs if artworkIds was NOT explicitly provided in the request
-              // If artworkIds is present, it means user wants to SET specific artworks (copy-from-task, bulk operations)
-              // If artworkIds is missing, it means user wants to ADD to existing artworks
-              const hasExplicitArtworkIds = update.data.artworkIds !== undefined;
+            if (uploadedFileIds.layouts && uploadedFileIds.layouts.length > 0) {
+              // Only merge uploaded layout File IDs if layoutIds was NOT explicitly provided in the request
+              // If layoutIds is present, it means user wants to SET specific layouts (copy-from-task, bulk operations)
+              // If layoutIds is missing, it means user wants to ADD to existing layouts
+              const hasExplicitLayoutIds = update.data.layoutIds !== undefined;
 
-              if (!hasExplicitArtworkIds) {
-                // ADD mode: Merge uploaded artwork entities with current artwork entities
-                // IMPORTANT: Both arrays must use Artwork ENTITY IDs (not File IDs)
-                // uploadedFileIds.artworks already contains Artwork entity IDs (from convertFileIdsToArtworkIds)
-                // mapDatabaseEntityToEntity flattens artworks: a.id=FileID, a.artworkId=EntityID
-                const currentArtworkEntityIds =
-                  currentTask.artworks?.map((a: any) => a.artworkId || a.id) || [];
-                const mergedArtworkIds = [
-                  ...new Set([...currentArtworkEntityIds, ...uploadedFileIds.artworks]),
+              if (!hasExplicitLayoutIds) {
+                // ADD mode: Merge uploaded layout entities with current layout entities
+                // IMPORTANT: Both arrays must use Layout ENTITY IDs (not File IDs)
+                // uploadedFileIds.layouts already contains Layout entity IDs (from convertFileIdsToLayoutIds)
+                // mapDatabaseEntityToEntity flattens layouts: a.id=FileID, a.layoutId=EntityID
+                const currentLayoutEntityIds =
+                  currentTask.layouts?.map((a: any) => a.layoutId || a.id) || [];
+                const mergedLayoutIds = [
+                  ...new Set([...currentLayoutEntityIds, ...uploadedFileIds.layouts]),
                 ];
-                update.data.artworkIds = mergedArtworkIds;
+                update.data.layoutIds = mergedLayoutIds;
                 this.logger.log(
-                  `[batchUpdate] Adding ${uploadedFileIds.artworks.length} artworks to task ${update.id} (merged with ${currentArtworkEntityIds.length} existing, total: ${mergedArtworkIds.length} Artwork entity IDs)`,
+                  `[batchUpdate] Adding ${uploadedFileIds.layouts.length} layouts to task ${update.id} (merged with ${currentLayoutEntityIds.length} existing, total: ${mergedLayoutIds.length} Layout entity IDs)`,
                 );
               } else {
-                // SET/REPLACE mode: artworkIds was explicitly provided, so just add uploaded files to it
-                // The existing update.data.artworkIds contains the explicit list the user wants
-                const currentArtworkIds = Array.isArray(update.data.artworkIds)
-                  ? update.data.artworkIds
+                // SET/REPLACE mode: layoutIds was explicitly provided, so just add uploaded files to it
+                // The existing update.data.layoutIds contains the explicit list the user wants
+                const currentLayoutIds = Array.isArray(update.data.layoutIds)
+                  ? update.data.layoutIds
                   : [];
-                const mergedIds = [...new Set([...currentArtworkIds, ...uploadedFileIds.artworks])];
-                update.data.artworkIds = mergedIds;
+                const mergedIds = [...new Set([...currentLayoutIds, ...uploadedFileIds.layouts])];
+                update.data.layoutIds = mergedIds;
                 this.logger.log(
-                  `[batchUpdate] Artwork IDs explicitly provided (${currentArtworkIds.length}), adding ${uploadedFileIds.artworks.length} uploaded files (total: ${mergedIds.length})`,
+                  `[batchUpdate] Layout IDs explicitly provided (${currentLayoutIds.length}), adding ${uploadedFileIds.layouts.length} uploaded files (total: ${mergedIds.length})`,
                 );
               }
             }
 
-            // Merge uploaded base files with each task (same SET/ADD pattern as artworks)
+            // Merge uploaded base files with each task (same SET/ADD pattern as layouts)
             if (uploadedFileIds.baseFiles && uploadedFileIds.baseFiles.length > 0) {
               const hasExplicitBaseFileIds = update.data.baseFileIds !== undefined;
 
@@ -7657,16 +7657,16 @@ export class TaskService {
             }
 
             // Process removals
-            // Remove artworks
-            if (update.data.removeArtworkIds && update.data.removeArtworkIds.length > 0) {
-              const currentArtworkIds = currentTask.artworks?.map(f => f.id) || [];
-              const filteredArtworkIds = currentArtworkIds.filter(
-                id => !update.data.removeArtworkIds.includes(id),
+            // Remove layouts
+            if (update.data.removeLayoutIds && update.data.removeLayoutIds.length > 0) {
+              const currentLayoutIds = currentTask.layouts?.map(f => f.id) || [];
+              const filteredLayoutIds = currentLayoutIds.filter(
+                id => !update.data.removeLayoutIds.includes(id),
               );
-              update.data.artworkIds = filteredArtworkIds;
-              delete update.data.removeArtworkIds;
+              update.data.layoutIds = filteredLayoutIds;
+              delete update.data.removeLayoutIds;
               this.logger.log(
-                `[batchUpdate] Removing ${update.data.removeArtworkIds.length} artworks from task ${update.id}`,
+                `[batchUpdate] Removing ${update.data.removeLayoutIds.length} layouts from task ${update.id}`,
               );
             }
 
@@ -7790,38 +7790,38 @@ export class TaskService {
           }
         }
 
-        // FINAL VALIDATION: Verify all artwork IDs exist before attempting Prisma update
-        this.logger.log('[batchUpdate] Final validation: Verifying all artwork IDs exist');
+        // FINAL VALIDATION: Verify all layout IDs exist before attempting Prisma update
+        this.logger.log('[batchUpdate] Final validation: Verifying all layout IDs exist');
         for (const update of updatesWithChangeTracking) {
           if (
-            update.data.artworkIds &&
-            Array.isArray(update.data.artworkIds) &&
-            update.data.artworkIds.length > 0
+            update.data.layoutIds &&
+            Array.isArray(update.data.layoutIds) &&
+            update.data.layoutIds.length > 0
           ) {
-            const finalCheck = await tx.artwork.findMany({
+            const finalCheck = await tx.layout.findMany({
               where: {
-                id: { in: update.data.artworkIds },
+                id: { in: update.data.layoutIds },
               },
               select: { id: true },
             });
 
-            if (finalCheck.length !== update.data.artworkIds.length) {
+            if (finalCheck.length !== update.data.layoutIds.length) {
               const foundIds = finalCheck.map(a => a.id);
-              const missingIds = update.data.artworkIds.filter(id => !foundIds.includes(id));
+              const missingIds = update.data.layoutIds.filter(id => !foundIds.includes(id));
               this.logger.error(
                 `[batchUpdate] ❌ VALIDATION FAILED for task ${update.id}: ` +
-                  `Expected ${update.data.artworkIds.length} artwork entities, found ${finalCheck.length}. ` +
+                  `Expected ${update.data.layoutIds.length} layout entities, found ${finalCheck.length}. ` +
                   `Missing IDs: ${JSON.stringify(missingIds)}`,
               );
 
               throw new Error(
-                `Cannot update task ${update.id}: ${missingIds.length} artwork ID(s) don't exist in database. ` +
+                `Cannot update task ${update.id}: ${missingIds.length} layout ID(s) don't exist in database. ` +
                   `Missing: ${missingIds.join(', ')}. These IDs were either deleted or never existed.`,
               );
             }
 
             this.logger.log(
-              `[batchUpdate] ✅ Task ${update.id}: All ${update.data.artworkIds.length} artwork IDs validated successfully`,
+              `[batchUpdate] ✅ Task ${update.id}: All ${update.data.layoutIds.length} layout IDs validated successfully`,
             );
           }
         }
@@ -7839,9 +7839,9 @@ export class TaskService {
           result.totalFailed = (result.totalFailed || 0) + failedItems.length;
         }
 
-        // Process consolidated truck data with layouts for each successfully updated task
-        // Phase 1: Collect all tasks that need layout updates
-        const tasksNeedingLayoutUpdate: Array<{
+        // Process consolidated truck data with implementMeasures for each successfully updated task
+        // Phase 1: Collect all tasks that need implementMeasure updates
+        const tasksNeedingImplementMeasureUpdate: Array<{
           taskId: string;
           truckData: any;
         }> = [];
@@ -7851,42 +7851,42 @@ export class TaskService {
           const truckData = (updateData as any)?.truck;
           if (
             truckData &&
-            (truckData.leftSideLayout || truckData.rightSideLayout || truckData.backSideLayout)
+            (truckData.leftSideMeasure || truckData.rightSideMeasure || truckData.backSideMeasure)
           ) {
-            tasksNeedingLayoutUpdate.push({ taskId: task.id, truckData });
+            tasksNeedingImplementMeasureUpdate.push({ taskId: task.id, truckData });
           }
         }
 
-        if (tasksNeedingLayoutUpdate.length > 0) {
+        if (tasksNeedingImplementMeasureUpdate.length > 0) {
           this.logger.log(
-            `[batchUpdate] Processing individual layouts for ${tasksNeedingLayoutUpdate.length} tasks`,
+            `[batchUpdate] Processing individual implementMeasures for ${tasksNeedingImplementMeasureUpdate.length} tasks`,
           );
 
-          // Helper to apply an individual layout for a side.
+          // Helper to apply an individual implementMeasure for a side.
           //
-          // I38 FIX: when the truck already owns a layout for this side, UPDATE it
-          // in place (preserving the Layout id + its LayoutSection ids unless the
-          // sections actually changed) instead of always creating a fresh Layout.
-          // Blindly recreating churned the layoutId FK every batch save → a false
-          // "layouts changed" event and broken external references. Mirrors the
+          // I38 FIX: when the truck already owns a implementMeasure for this side, UPDATE it
+          // in place (preserving the ImplementMeasure id + its ImplementMeasureSection ids unless the
+          // sections actually changed) instead of always creating a fresh ImplementMeasure.
+          // Blindly recreating churned the implementMeasureId FK every batch save → a false
+          // "implementMeasures changed" event and broken external references. Mirrors the
           // single-update in-place path (sole-owner update / copy-on-write fork /
-          // create-new). Returns the layout id the truck should point at.
-          const applyIndividualLayout = async (
-            layoutData: any,
+          // create-new). Returns the implementMeasure id the truck should point at.
+          const applyIndividualImplementMeasure = async (
+            implementMeasureData: any,
             sideName: string,
             taskId: string,
-            existingLayoutId: string | null,
+            existingImplementMeasureId: string | null,
             truckId: string,
             relationName: 'trucksLeftSide' | 'trucksRightSide' | 'trucksBackSide',
           ): Promise<string | null> => {
-            if (!layoutData) return null;
+            if (!implementMeasureData) return null;
 
             // Only rewrite sections when the payload actually carries them —
             // absence = preserve existing measures.
             const wantsSectionRewrite =
-              Array.isArray(layoutData.layoutSections) && layoutData.layoutSections.length > 0;
+              Array.isArray(implementMeasureData.sections) && implementMeasureData.sections.length > 0;
             const sectionCreate = wantsSectionRewrite
-              ? layoutData.layoutSections.map((section: any, index: number) => ({
+              ? implementMeasureData.sections.map((section: any, index: number) => ({
                   width: section.width,
                   isDoor: section.isDoor,
                   doorHeight: section.doorHeight,
@@ -7894,44 +7894,44 @@ export class TaskService {
                 }))
               : null;
 
-            if (existingLayoutId) {
-              const existingLayout = await tx.layout.findUnique({
-                where: { id: existingLayoutId },
-                include: { layoutSections: true, [relationName]: { select: { id: true } } },
+            if (existingImplementMeasureId) {
+              const existingImplementMeasure = await tx.implementMeasure.findUnique({
+                where: { id: existingImplementMeasureId },
+                include: { sections: true, [relationName]: { select: { id: true } } },
               });
 
-              // Copy-on-write: if OTHER trucks share this Layout, editing it in
+              // Copy-on-write: if OTHER trucks share this ImplementMeasure, editing it in
               // place would corrupt theirs — fork a private copy for this truck.
-              const otherTrucks = ((existingLayout as any)?.[relationName] || []).filter(
+              const otherTrucks = ((existingImplementMeasure as any)?.[relationName] || []).filter(
                 (t: any) => t.id !== truckId,
               );
 
-              if (existingLayout && otherTrucks.length === 0) {
-                // Sole owner → update IN PLACE, preserving the Layout id.
+              if (existingImplementMeasure && otherTrucks.length === 0) {
+                // Sole owner → update IN PLACE, preserving the ImplementMeasure id.
                 if (wantsSectionRewrite) {
-                  await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
+                  await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: existingImplementMeasureId } });
                 }
-                await tx.layout.update({
-                  where: { id: existingLayoutId },
+                await tx.implementMeasure.update({
+                  where: { id: existingImplementMeasureId },
                   data: {
-                    ...(layoutData.height !== undefined && { height: layoutData.height }),
-                    ...(layoutData.photoId !== undefined && {
-                      photoId: layoutData.photoId || null,
+                    ...(implementMeasureData.height !== undefined && { height: implementMeasureData.height }),
+                    ...(implementMeasureData.photoId !== undefined && {
+                      photoId: implementMeasureData.photoId || null,
                     }),
                     ...(wantsSectionRewrite && {
-                      layoutSections: { create: sectionCreate },
+                      sections: { create: sectionCreate },
                     }),
                   },
                 });
                 this.logger.log(
-                  `[batchUpdate] Individual ${sideName} layout updated in-place: ${existingLayoutId} for task ${taskId}`,
+                  `[batchUpdate] Individual ${sideName} implementMeasure updated in-place: ${existingImplementMeasureId} for task ${taskId}`,
                 );
-                return existingLayoutId;
+                return existingImplementMeasureId;
               }
 
               // Shared (or vanished) → fork a private copy, carrying over the
               // existing measures/height/photo when the payload omitted them.
-              const fallbackSections = ((existingLayout as any)?.layoutSections || []).map(
+              const fallbackSections = ((existingImplementMeasure as any)?.sections || []).map(
                 (s: any, i: number) => ({
                   width: s.width,
                   isDoor: s.isDoor,
@@ -7939,40 +7939,40 @@ export class TaskService {
                   position: s.position ?? i,
                 }),
               );
-              const forkedLayout = await tx.layout.create({
+              const forkedImplementMeasure = await tx.implementMeasure.create({
                 data: {
                   height:
-                    layoutData.height !== undefined
-                      ? layoutData.height
-                      : (existingLayout as any)?.height,
-                  ...(layoutData.photoId !== undefined
-                    ? layoutData.photoId
-                      ? { photo: { connect: { id: layoutData.photoId } } }
+                    implementMeasureData.height !== undefined
+                      ? implementMeasureData.height
+                      : (existingImplementMeasure as any)?.height,
+                  ...(implementMeasureData.photoId !== undefined
+                    ? implementMeasureData.photoId
+                      ? { photo: { connect: { id: implementMeasureData.photoId } } }
                       : {}
-                    : (existingLayout as any)?.photoId
-                      ? { photo: { connect: { id: (existingLayout as any).photoId } } }
+                    : (existingImplementMeasure as any)?.photoId
+                      ? { photo: { connect: { id: (existingImplementMeasure as any).photoId } } }
                       : {}),
-                  layoutSections: { create: sectionCreate ?? fallbackSections },
+                  sections: { create: sectionCreate ?? fallbackSections },
                 },
               });
               this.logger.log(
-                `[batchUpdate] Individual ${sideName} layout forked (copy-on-write): ${forkedLayout.id} for task ${taskId}`,
+                `[batchUpdate] Individual ${sideName} implementMeasure forked (copy-on-write): ${forkedImplementMeasure.id} for task ${taskId}`,
               );
-              return forkedLayout.id;
+              return forkedImplementMeasure.id;
             }
 
-            // No existing layout for this side → create new.
+            // No existing implementMeasure for this side → create new.
             this.logger.log(
-              `[batchUpdate] Creating individual ${sideName} layout for task ${taskId}`,
+              `[batchUpdate] Creating individual ${sideName} implementMeasure for task ${taskId}`,
             );
-            const newLayout = await tx.layout.create({
+            const newImplementMeasure = await tx.implementMeasure.create({
               data: {
-                height: layoutData.height,
-                ...(layoutData.photoId && {
-                  photo: { connect: { id: layoutData.photoId } },
+                height: implementMeasureData.height,
+                ...(implementMeasureData.photoId && {
+                  photo: { connect: { id: implementMeasureData.photoId } },
                 }),
-                layoutSections: {
-                  create: (layoutData.layoutSections || []).map((section: any, index: number) => ({
+                sections: {
+                  create: (implementMeasureData.sections || []).map((section: any, index: number) => ({
                     width: section.width,
                     isDoor: section.isDoor,
                     doorHeight: section.doorHeight,
@@ -7982,58 +7982,58 @@ export class TaskService {
               },
             });
             this.logger.log(
-              `[batchUpdate] Individual ${sideName} layout created: ${newLayout.id} for task ${taskId}`,
+              `[batchUpdate] Individual ${sideName} implementMeasure created: ${newImplementMeasure.id} for task ${taskId}`,
             );
-            return newLayout.id;
+            return newImplementMeasure.id;
           };
 
-          // Helper to safely disconnect a truck from a layout (check usage count before deleting)
-          const safeDisconnectLayout = async (
+          // Helper to safely disconnect a truck from a implementMeasure (check usage count before deleting)
+          const safeDisconnectImplementMeasure = async (
             truckId: string,
-            existingLayoutId: string | null,
-            layoutField: 'leftSideLayoutId' | 'rightSideLayoutId' | 'backSideLayoutId',
+            existingImplementMeasureId: string | null,
+            implementMeasureField: 'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId',
             sideName: string,
           ) => {
-            if (!existingLayoutId) return;
+            if (!existingImplementMeasureId) return;
 
-            // Disconnect this truck from the layout first
+            // Disconnect this truck from the implementMeasure first
             await tx.truck.update({
               where: { id: truckId },
-              data: { [layoutField]: null },
+              data: { [implementMeasureField]: null },
             });
 
-            // Check if other trucks still reference this layout
+            // Check if other trucks still reference this implementMeasure
             const relationName =
-              layoutField === 'leftSideLayoutId'
+              implementMeasureField === 'leftSideMeasureId'
                 ? 'trucksLeftSide'
-                : layoutField === 'rightSideLayoutId'
+                : implementMeasureField === 'rightSideMeasureId'
                   ? 'trucksRightSide'
                   : 'trucksBackSide';
-            const layoutWithRefs = await tx.layout.findUnique({
-              where: { id: existingLayoutId },
+            const implementMeasureWithRefs = await tx.implementMeasure.findUnique({
+              where: { id: existingImplementMeasureId },
               include: { [relationName]: { select: { id: true } } },
             });
 
-            if (layoutWithRefs) {
-              const remainingTrucks = (layoutWithRefs as any)[relationName] || [];
+            if (implementMeasureWithRefs) {
+              const remainingTrucks = (implementMeasureWithRefs as any)[relationName] || [];
               if (remainingTrucks.length === 0) {
-                // No other trucks reference this layout - safe to delete
-                await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
-                await tx.layout.delete({ where: { id: existingLayoutId } });
+                // No other trucks reference this implementMeasure - safe to delete
+                await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: existingImplementMeasureId } });
+                await tx.implementMeasure.delete({ where: { id: existingImplementMeasureId } });
                 this.logger.log(
-                  `[batchUpdate] Deleted orphaned ${sideName} layout: ${existingLayoutId}`,
+                  `[batchUpdate] Deleted orphaned ${sideName} implementMeasure: ${existingImplementMeasureId}`,
                 );
               } else {
                 this.logger.log(
-                  `[batchUpdate] Layout ${existingLayoutId} still shared by ${remainingTrucks.length} truck(s), only disconnected`,
+                  `[batchUpdate] ImplementMeasure ${existingImplementMeasureId} still shared by ${remainingTrucks.length} truck(s), only disconnected`,
                 );
               }
             }
           };
 
-          // Phase 2: For each task, ensure truck exists, safely disconnect old layouts, create individual layouts
-          for (const { taskId, truckData } of tasksNeedingLayoutUpdate) {
-            this.logger.log(`[batchUpdate] Processing truck layouts for task ${taskId}`);
+          // Phase 2: For each task, ensure truck exists, safely disconnect old implementMeasures, create individual implementMeasures
+          for (const { taskId, truckData } of tasksNeedingImplementMeasureUpdate) {
+            this.logger.log(`[batchUpdate] Processing truck implementMeasures for task ${taskId}`);
 
             // Get the task with truck info
             const taskWithTruck = await tx.task.findUnique({
@@ -8041,9 +8041,9 @@ export class TaskService {
               include: {
                 truck: {
                   include: {
-                    leftSideLayout: true,
-                    rightSideLayout: true,
-                    backSideLayout: true,
+                    leftSideMeasure: true,
+                    rightSideMeasure: true,
+                    backSideMeasure: true,
                   },
                 },
               },
@@ -8070,33 +8070,33 @@ export class TaskService {
               this.logger.log(`[batchUpdate] Using existing truck: ${truckId}`);
             }
 
-            // Safely disconnect from old layouts (check usage count before deleting)
-            const existingLeftId = taskWithTruck?.truck?.leftSideLayoutId ?? null;
-            const existingRightId = taskWithTruck?.truck?.rightSideLayoutId ?? null;
-            const existingBackId = taskWithTruck?.truck?.backSideLayoutId ?? null;
+            // Safely disconnect from old implementMeasures (check usage count before deleting)
+            const existingLeftId = taskWithTruck?.truck?.leftSideMeasureId ?? null;
+            const existingRightId = taskWithTruck?.truck?.rightSideMeasureId ?? null;
+            const existingBackId = taskWithTruck?.truck?.backSideMeasureId ?? null;
 
-            // Apply individual layouts for this task — update in place when the
-            // truck already owns the side's layout (I38: no id churn), else fork/
+            // Apply individual implementMeasures for this task — update in place when the
+            // truck already owns the side's implementMeasure (I38: no id churn), else fork/
             // create. When the returned id equals the existing id (in-place
             // update) the disconnect below is correctly skipped.
-            const newLeftId = await applyIndividualLayout(
-              truckData.leftSideLayout,
+            const newLeftId = await applyIndividualImplementMeasure(
+              truckData.leftSideMeasure,
               'left',
               taskId,
               existingLeftId,
               truckId,
               'trucksLeftSide',
             );
-            const newRightId = await applyIndividualLayout(
-              truckData.rightSideLayout,
+            const newRightId = await applyIndividualImplementMeasure(
+              truckData.rightSideMeasure,
               'right',
               taskId,
               existingRightId,
               truckId,
               'trucksRightSide',
             );
-            const newBackId = await applyIndividualLayout(
-              truckData.backSideLayout,
+            const newBackId = await applyIndividualImplementMeasure(
+              truckData.backSideMeasure,
               'back',
               taskId,
               existingBackId,
@@ -8105,118 +8105,118 @@ export class TaskService {
             );
 
             if (newLeftId && existingLeftId !== newLeftId) {
-              await safeDisconnectLayout(truckId, existingLeftId, 'leftSideLayoutId', 'left');
+              await safeDisconnectImplementMeasure(truckId, existingLeftId, 'leftSideMeasureId', 'left');
             }
             if (newRightId && existingRightId !== newRightId) {
-              await safeDisconnectLayout(truckId, existingRightId, 'rightSideLayoutId', 'right');
+              await safeDisconnectImplementMeasure(truckId, existingRightId, 'rightSideMeasureId', 'right');
             }
             if (newBackId && existingBackId !== newBackId) {
-              await safeDisconnectLayout(truckId, existingBackId, 'backSideLayoutId', 'back');
+              await safeDisconnectImplementMeasure(truckId, existingBackId, 'backSideMeasureId', 'back');
             }
 
-            // Point truck to the individual layouts
-            const layoutUpdate: any = {};
+            // Point truck to the individual implementMeasures
+            const implementMeasureUpdate: any = {};
             if (newLeftId) {
-              layoutUpdate.leftSideLayoutId = newLeftId;
+              implementMeasureUpdate.leftSideMeasureId = newLeftId;
             }
             if (newRightId) {
-              layoutUpdate.rightSideLayoutId = newRightId;
+              implementMeasureUpdate.rightSideMeasureId = newRightId;
             }
             if (newBackId) {
-              layoutUpdate.backSideLayoutId = newBackId;
+              implementMeasureUpdate.backSideMeasureId = newBackId;
             }
 
-            if (Object.keys(layoutUpdate).length > 0) {
+            if (Object.keys(implementMeasureUpdate).length > 0) {
               await tx.truck.update({
                 where: { id: truckId },
-                data: layoutUpdate,
+                data: implementMeasureUpdate,
               });
               this.logger.log(
-                `[batchUpdate] Truck ${truckId} pointed to individual layouts: ${JSON.stringify(layoutUpdate)}`,
+                `[batchUpdate] Truck ${truckId} pointed to individual implementMeasures: ${JSON.stringify(implementMeasureUpdate)}`,
               );
 
-              // Track layout changes in changelog with formatted summaries
+              // Track implementMeasure changes in changelog with formatted summaries
               const sides = [];
               const oldValues: Record<string, any> = {};
               const newValues: Record<string, any> = {};
 
-              // Fetch old layouts with sections for meaningful before data
-              const layoutSidePairs: Array<{
+              // Fetch old implementMeasures with sections for meaningful before data
+              const implementMeasureSidePairs: Array<{
                 field: string;
                 oldId: string | null;
                 newId: string;
                 sideName: string;
               }> = [];
-              if (layoutUpdate.leftSideLayoutId) {
-                layoutSidePairs.push({
-                  field: 'leftSideLayoutId',
+              if (implementMeasureUpdate.leftSideMeasureId) {
+                implementMeasureSidePairs.push({
+                  field: 'leftSideMeasureId',
                   oldId: existingLeftId,
-                  newId: layoutUpdate.leftSideLayoutId,
+                  newId: implementMeasureUpdate.leftSideMeasureId,
                   sideName: 'Motorista',
                 });
               }
-              if (layoutUpdate.rightSideLayoutId) {
-                layoutSidePairs.push({
-                  field: 'rightSideLayoutId',
+              if (implementMeasureUpdate.rightSideMeasureId) {
+                implementMeasureSidePairs.push({
+                  field: 'rightSideMeasureId',
                   oldId: existingRightId,
-                  newId: layoutUpdate.rightSideLayoutId,
+                  newId: implementMeasureUpdate.rightSideMeasureId,
                   sideName: 'Sapo',
                 });
               }
-              if (layoutUpdate.backSideLayoutId) {
-                layoutSidePairs.push({
-                  field: 'backSideLayoutId',
+              if (implementMeasureUpdate.backSideMeasureId) {
+                implementMeasureSidePairs.push({
+                  field: 'backSideMeasureId',
                   oldId: existingBackId,
-                  newId: layoutUpdate.backSideLayoutId,
+                  newId: implementMeasureUpdate.backSideMeasureId,
                   sideName: 'Traseira',
                 });
               }
 
-              for (const pair of layoutSidePairs) {
+              for (const pair of implementMeasureSidePairs) {
                 sides.push(pair.sideName);
-                // Fetch old layout with sections (if exists)
-                const oldLayout = pair.oldId
-                  ? await tx.layout.findUnique({
+                // Fetch old implementMeasure with sections (if exists)
+                const oldImplementMeasure = pair.oldId
+                  ? await tx.implementMeasure.findUnique({
                       where: { id: pair.oldId },
-                      include: { layoutSections: true },
+                      include: { sections: true },
                     })
                   : null;
-                // Fetch new layout with sections
-                const newLayout = await tx.layout.findUnique({
+                // Fetch new implementMeasure with sections
+                const newImplementMeasure = await tx.implementMeasure.findUnique({
                   where: { id: pair.newId },
-                  include: { layoutSections: true },
+                  include: { sections: true },
                 });
-                oldValues[pair.field] = formatLayoutForChangelog(oldLayout);
-                newValues[pair.field] = formatLayoutForChangelog(newLayout);
+                oldValues[pair.field] = formatImplementMeasureForChangelog(oldImplementMeasure);
+                newValues[pair.field] = formatImplementMeasureForChangelog(newImplementMeasure);
               }
 
               await this.changeLogService.logChange({
                 entityType: ENTITY_TYPE.TASK,
                 entityId: taskId,
                 action: CHANGE_ACTION.UPDATE,
-                field: 'layouts',
+                field: 'implementMeasures',
                 oldValue: oldValues,
                 newValue: newValues,
-                reason: `Layouts aplicados (${sides.join(', ')}) via operação em lote`,
+                reason: `ImplementMeasures aplicados (${sides.join(', ')}) via operação em lote`,
                 triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
                 triggeredById: taskId,
                 userId: userId || '',
                 transaction: tx,
                 metadata: {
                   sides: sides,
-                  layoutIds: layoutUpdate,
+                  implementMeasureIds: implementMeasureUpdate,
                 },
               });
 
               this.logger.log(
-                `[batchUpdate] Changelog created for task ${taskId}: layouts applied for ${sides.join(', ')}`,
+                `[batchUpdate] Changelog created for task ${taskId}: implementMeasures applied for ${sides.join(', ')}`,
               );
 
-              // Collect truck-layout side changes for post-commit notification emission.
+              // Collect truck-implementMeasure side changes for post-commit notification emission.
               // These are routed through fieldTracker.emitFieldChangeEvents which collapses
-              // the trio (truck.leftSideLayoutId/rightSideLayoutId/backSideLayoutId) into a
-              // SINGLE consolidated 'truck.layout' event — mirroring the single-update path.
-              for (const pair of layoutSidePairs) {
+              // the trio (truck.leftSideMeasureId/rightSideMeasureId/backSideMeasureId) into a
+              // SINGLE consolidated 'truck.implementMeasure' event — mirroring the single-update path.
+              for (const pair of implementMeasureSidePairs) {
                 if (pair.oldId === pair.newId) continue;
                 fieldChangesForEvents.push({
                   taskId,
@@ -8229,7 +8229,7 @@ export class TaskService {
               }
             }
 
-            this.logger.log(`[batchUpdate] Finished processing layouts for task ${taskId}`);
+            this.logger.log(`[batchUpdate] Finished processing implementMeasures for task ${taskId}`);
           }
         }
 
@@ -8241,7 +8241,7 @@ export class TaskService {
           // Fetch updated task with all relations for comparison
           const updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, task.id, {
             include: {
-              artworks: {
+              layouts: {
                 include: {
                   file: {
                     select: {
@@ -8265,38 +8265,38 @@ export class TaskService {
 
           // Track individual field changes for batch update
           if (existingTask && updateData && updatedTask) {
-            // Track artworks changes
-            const artworkIdsForChangelog =
-              (updateData as any).artworkIds || (updateData as any).fileIds;
-            if (artworkIdsForChangelog !== undefined) {
-              const oldArtworks = existingTask.artworks || [];
-              const newArtworks = updatedTask.artworks || [];
+            // Track layouts changes
+            const layoutIdsForChangelog =
+              (updateData as any).layoutIds || (updateData as any).fileIds;
+            if (layoutIdsForChangelog !== undefined) {
+              const oldLayouts = existingTask.layouts || [];
+              const newLayouts = updatedTask.layouts || [];
 
               // Normalize IDs to strings and sort for consistent comparison
-              const oldArtworkIds = oldArtworks.map((f: any) => String(f.id)).sort();
-              const newArtworkIds = newArtworks.map((f: any) => String(f.id)).sort();
+              const oldLayoutIds = oldLayouts.map((f: any) => String(f.id)).sort();
+              const newLayoutIds = newLayouts.map((f: any) => String(f.id)).sort();
 
               // Check if arrays are actually different
               const idsChanged =
-                oldArtworkIds.length !== newArtworkIds.length ||
-                !oldArtworkIds.every((id, index) => id === newArtworkIds[index]);
+                oldLayoutIds.length !== newLayoutIds.length ||
+                !oldLayoutIds.every((id, index) => id === newLayoutIds[index]);
 
               if (idsChanged) {
-                const addedArtworks = newArtworks.filter(
-                  (f: any) => !oldArtworkIds.includes(String(f.id)),
+                const addedLayouts = newLayouts.filter(
+                  (f: any) => !oldLayoutIds.includes(String(f.id)),
                 );
-                const removedArtworks = oldArtworks.filter(
-                  (f: any) => !newArtworkIds.includes(String(f.id)),
+                const removedLayouts = oldLayouts.filter(
+                  (f: any) => !newLayoutIds.includes(String(f.id)),
                 );
 
-                if (addedArtworks.length > 0 || removedArtworks.length > 0) {
+                if (addedLayouts.length > 0 || removedLayouts.length > 0) {
                   await this.changeLogService.logChange({
                     entityType: ENTITY_TYPE.TASK,
                     entityId: task.id,
                     action: CHANGE_ACTION.UPDATE,
-                    field: 'artworks',
-                    oldValue: oldArtworks.length > 0 ? oldArtworks : null,
-                    newValue: newArtworks.length > 0 ? newArtworks : null,
+                    field: 'layouts',
+                    oldValue: oldLayouts.length > 0 ? oldLayouts : null,
+                    newValue: newLayouts.length > 0 ? newLayouts : null,
                     reason: `Campo artes atualizado`,
                     triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
                     triggeredById: task.id,
@@ -8308,9 +8308,9 @@ export class TaskService {
                   fieldChangesForEvents.push({
                     taskId: task.id,
                     task: updatedTask,
-                    field: 'artworks',
-                    oldValue: oldArtworks,
-                    newValue: newArtworks,
+                    field: 'layouts',
+                    oldValue: oldLayouts,
+                    newValue: newLayouts,
                     isFileArray: true,
                   });
                 }
@@ -8802,7 +8802,7 @@ export class TaskService {
       // TaskFieldTrackerService), route every changed task through the SAME logic the
       // single-update path uses:
       //   (a) status changes -> dedicated 'task.status.changed' event (NOT a generic field),
-      //   (b) the truck-layout side trio -> ONE consolidated 'truck.layout' event,
+      //   (b) the truck-implementMeasure side trio -> ONE consolidated 'truck.implementMeasure' event,
       //   (c) all other tracked fields -> fieldTracker.emitFieldChangeEvents (with proper
       //       file-array add/remove analysis).
       if (result.fieldChangesForEvents && result.fieldChangesForEvents.length > 0) {
@@ -8823,7 +8823,7 @@ export class TaskService {
           }
         };
 
-        // Group changes by task so each task emits one consolidated truck.layout event.
+        // Group changes by task so each task emits one consolidated truck.implementMeasure event.
         const changesByTask = new Map<
           string,
           { task: any; changes: Array<{ field: string; oldValue: any; newValue: any }> }
@@ -8831,7 +8831,7 @@ export class TaskService {
         for (const change of result.fieldChangesForEvents) {
           const entry = changesByTask.get(change.taskId);
           // Prefer a task object that actually carries a name (full fetch) over the
-          // lightweight { id } placeholders pushed for truck-layout entries.
+          // lightweight { id } placeholders pushed for truck-implementMeasure entries.
           const candidateTask = change.task;
           if (entry) {
             if (!entry.task?.name && candidateTask?.name) {
@@ -8891,7 +8891,7 @@ export class TaskService {
           }
 
           // (b)+(c) Remaining tracked fields -> route through the field tracker so the
-          // truck-layout trio collapses into one event and file arrays get add/remove analysis.
+          // truck-implementMeasure trio collapses into one event and file arrays get add/remove analysis.
           const trackerChanges = group.changes
             .filter(c => c.field !== 'status')
             .map(c => ({
@@ -9015,7 +9015,7 @@ export class TaskService {
           ...(files.invoices || []),
           ...(files.receipts || []),
           ...(files.bankSlips || []),
-          ...(files.artworks || []),
+          ...(files.layouts || []),
           ...(files.cutFiles || []),
           ...(files.baseFiles || []),
         ];
@@ -9170,11 +9170,11 @@ export class TaskService {
         throw new NotFoundException('Tarefa não encontrada. Verifique se o ID está correto.');
       }
 
-      // Filter artworks based on user role
-      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all artworks
-      // Others can only see APPROVED artworks
-      if (task.artworks && userRole) {
-        const canSeeAllArtworks = [
+      // Filter layouts based on user role
+      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all layouts
+      // Others can only see APPROVED layouts
+      if (task.layouts && userRole) {
+        const canSeeAllLayouts = [
           'COMMERCIAL',
           'DESIGNER',
           'LOGISTIC',
@@ -9182,9 +9182,9 @@ export class TaskService {
           'ADMIN',
         ].includes(userRole);
 
-        if (!canSeeAllArtworks) {
-          task.artworks = task.artworks.filter(
-            artwork => artwork.status === 'APPROVED' || artwork.status === null,
+        if (!canSeeAllLayouts) {
+          task.layouts = task.layouts.filter(
+            layout => layout.status === 'APPROVED' || layout.status === null,
           );
         }
       }
@@ -9244,11 +9244,11 @@ export class TaskService {
 
       const result = await this.tasksRepository.findMany(params);
 
-      // Filter artworks based on user role for each task
-      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all artworks
-      // Others can only see APPROVED artworks
+      // Filter layouts based on user role for each task
+      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all layouts
+      // Others can only see APPROVED layouts
       if (userRole) {
-        const canSeeAllArtworks = [
+        const canSeeAllLayouts = [
           'COMMERCIAL',
           'DESIGNER',
           'LOGISTIC',
@@ -9256,13 +9256,13 @@ export class TaskService {
           'ADMIN',
         ].includes(userRole);
 
-        if (!canSeeAllArtworks) {
+        if (!canSeeAllLayouts) {
           result.data = result.data.map(task => {
-            if (task.artworks) {
+            if (task.layouts) {
               return {
                 ...task,
-                artworks: task.artworks.filter(
-                  artwork => artwork.status === 'APPROVED' || artwork.status === null,
+                layouts: task.layouts.filter(
+                  layout => layout.status === 'APPROVED' || layout.status === null,
                 ),
               };
             }
@@ -9329,7 +9329,7 @@ export class TaskService {
         bankSlips: true,
         reimbursements: true,
         invoiceReimbursements: true,
-        artworks: { include: { file: true } },
+        layouts: { include: { file: true } },
       },
     });
 
@@ -9349,10 +9349,10 @@ export class TaskService {
       ...(task.invoiceReimbursements || []),
     ];
 
-    // Add artwork files
-    for (const artwork of task.artworks || []) {
-      if ((artwork as any).file) {
-        allFiles.push((artwork as any).file);
+    // Add layout files
+    for (const layout of task.layouts || []) {
+      if ((layout as any).file) {
+        allFiles.push((layout as any).file);
       }
     }
 
@@ -9423,7 +9423,7 @@ export class TaskService {
         bankSlips: true,
         reimbursements: true,
         invoiceReimbursements: true,
-        artworks: { include: { file: true } },
+        layouts: { include: { file: true } },
       },
     });
 
@@ -9434,7 +9434,7 @@ export class TaskService {
       { rootPrefix: '/Checkin/', entitySuffix: '/Checkin/' },
       { rootPrefix: '/Checkout/', entitySuffix: '/Checkout/' },
       { rootPrefix: '/Projetos/', entitySuffix: '/Projetos/' },
-      { rootPrefix: '/Layouts/', entitySuffix: '/Layouts/' },
+      { rootPrefix: '/ImplementMeasures/', entitySuffix: '/ImplementMeasures/' },
       { rootPrefix: '/Outros/', entitySuffix: '/Outros/' },
       { rootPrefix: '/Observacoes/', entitySuffix: '/Observacoes/' },
       { rootPrefix: '/Traseiras/', entitySuffix: '/Traseiras/' },
@@ -9461,9 +9461,9 @@ export class TaskService {
       ...(task.invoiceReimbursements || []),
     ];
 
-    for (const artwork of task.artworks || []) {
-      if ((artwork as any).file) {
-        allFiles.push((artwork as any).file);
+    for (const layout of task.layouts || []) {
+      if ((layout as any).file) {
+        allFiles.push((layout as any).file);
       }
     }
 
@@ -10177,10 +10177,10 @@ export class TaskService {
         paintIds: 'logoPaints',
         reimbursementIds: 'reimbursements',
         reimbursementInvoiceIds: 'invoiceReimbursements',
-        artworkIds: 'artworks',
+        layoutIds: 'layouts',
       };
       const fileRelationFields = [
-        'artworks',
+        'layouts',
         'budgets',
         'invoices',
         'invoiceReimbursements',
@@ -10249,7 +10249,7 @@ export class TaskService {
               generalPainting: true,
               truck: true,
               createdBy: true,
-              artworks: true,
+              layouts: true,
             },
           },
         );
@@ -10364,11 +10364,11 @@ export class TaskService {
 
               this.logger.log(`[Rollback] Recreated TaskQuote ${recreatedQuote.id}`);
 
-              // Restore layout files by CLONING any that another quote now owns —
+              // Restore implementMeasure files by CLONING any that another quote now owns —
               // a raw `connect` of the snapshot ids would STEAL them from their
               // live owner (the FK lives on File.quoteLayoutId).
               if (Array.isArray(quoteData.layoutFileIds) && quoteData.layoutFileIds.length > 0) {
-                const resolvedLayoutIds = await this.fileService.resolveLayoutFileIdsForQuote(
+                const resolvedImplementMeasureIds = await this.fileService.resolveLayoutFileIdsForQuote(
                   tx,
                   quoteIdToRestore,
                   quoteData.layoutFileIds,
@@ -10376,7 +10376,7 @@ export class TaskService {
                 await tx.taskQuote.update({
                   where: { id: quoteIdToRestore },
                   data: {
-                    layoutFiles: { set: resolvedLayoutIds.map((fid: string) => ({ id: fid })) },
+                    layoutFiles: { set: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })) },
                   },
                 });
               }
@@ -10646,9 +10646,9 @@ export class TaskService {
         };
       }
 
-      // 5g. Special handling for layouts (composite relation on truck)
-      if (fieldToRevert === 'layouts') {
-        this.logger.log(`[Rollback] Starting layouts rollback for task ${changeLog.entityId}`);
+      // 5g. Special handling for implementMeasures (composite relation on truck)
+      if (fieldToRevert === 'implementMeasures') {
+        this.logger.log(`[Rollback] Starting implementMeasures rollback for task ${changeLog.entityId}`);
 
         let parsedOldValue = oldValue;
         if (typeof oldValue === 'string') {
@@ -10664,97 +10664,97 @@ export class TaskService {
         const truck = await tx.truck.findUnique({
           where: { taskId: changeLog.entityId },
           include: {
-            leftSideLayout: { include: { layoutSections: true } },
-            rightSideLayout: { include: { layoutSections: true } },
-            backSideLayout: { include: { layoutSections: true } },
+            leftSideMeasure: { include: { sections: true } },
+            rightSideMeasure: { include: { sections: true } },
+            backSideMeasure: { include: { sections: true } },
           },
         });
 
         if (!truck) {
           throw new BadRequestException(
-            'Tarefa não possui caminhão associado para reverter layouts',
+            'Tarefa não possui caminhão associado para reverter implementMeasures',
           );
         }
 
-        const layoutSides: Array<{
+        const implementMeasureSides: Array<{
           key: string;
-          field: 'leftSideLayoutId' | 'rightSideLayoutId' | 'backSideLayoutId';
+          field: 'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId';
           relationName: string;
           sideName: string;
         }> = [
           {
-            key: 'leftSideLayoutId',
-            field: 'leftSideLayoutId',
+            key: 'leftSideMeasureId',
+            field: 'leftSideMeasureId',
             relationName: 'trucksLeftSide',
             sideName: 'left',
           },
           {
-            key: 'rightSideLayoutId',
-            field: 'rightSideLayoutId',
+            key: 'rightSideMeasureId',
+            field: 'rightSideMeasureId',
             relationName: 'trucksRightSide',
             sideName: 'right',
           },
           {
-            key: 'backSideLayoutId',
-            field: 'backSideLayoutId',
+            key: 'backSideMeasureId',
+            field: 'backSideMeasureId',
             relationName: 'trucksBackSide',
             sideName: 'back',
           },
         ];
 
-        for (const { key, field, relationName, sideName } of layoutSides) {
+        for (const { key, field, relationName, sideName } of implementMeasureSides) {
           // Only process sides that appear in the old value
           if (parsedOldValue !== null && parsedOldValue[key] === undefined) continue;
 
-          const oldSideLayout = parsedOldValue?.[key] ?? null;
-          const currentLayoutId = truck[field] as string | null;
+          const oldSideImplementMeasure = parsedOldValue?.[key] ?? null;
+          const currentImplementMeasureId = truck[field] as string | null;
 
-          // Disconnect current layout with orphan cleanup
-          if (currentLayoutId) {
+          // Disconnect current implementMeasure with orphan cleanup
+          if (currentImplementMeasureId) {
             await tx.truck.update({
               where: { id: truck.id },
               data: { [field]: null },
             });
 
-            const layoutWithRefs = await tx.layout.findUnique({
-              where: { id: currentLayoutId },
+            const implementMeasureWithRefs = await tx.implementMeasure.findUnique({
+              where: { id: currentImplementMeasureId },
               include: { [relationName]: { select: { id: true } } },
             });
 
-            if (layoutWithRefs) {
-              const remainingTrucks = (layoutWithRefs as any)[relationName] || [];
+            if (implementMeasureWithRefs) {
+              const remainingTrucks = (implementMeasureWithRefs as any)[relationName] || [];
               if (remainingTrucks.length === 0) {
-                await tx.layoutSection.deleteMany({ where: { layoutId: currentLayoutId } });
-                await tx.layout.delete({ where: { id: currentLayoutId } });
+                await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: currentImplementMeasureId } });
+                await tx.implementMeasure.delete({ where: { id: currentImplementMeasureId } });
                 this.logger.log(
-                  `[Rollback] Deleted orphaned ${sideName} layout: ${currentLayoutId}`,
+                  `[Rollback] Deleted orphaned ${sideName} implementMeasure: ${currentImplementMeasureId}`,
                 );
               }
             }
           }
 
-          // Reconnect or recreate old layout
-          if (oldSideLayout) {
-            let targetLayoutId: string | null = null;
+          // Reconnect or recreate old implementMeasure
+          if (oldSideImplementMeasure) {
+            let targetImplementMeasureId: string | null = null;
 
-            // Try to reconnect by id if the layout still exists
-            if (oldSideLayout.id) {
-              const existing = await tx.layout.findUnique({ where: { id: oldSideLayout.id } });
+            // Try to reconnect by id if the implementMeasure still exists
+            if (oldSideImplementMeasure.id) {
+              const existing = await tx.implementMeasure.findUnique({ where: { id: oldSideImplementMeasure.id } });
               if (existing) {
-                targetLayoutId = existing.id;
+                targetImplementMeasureId = existing.id;
                 this.logger.log(
-                  `[Rollback] Reconnecting to existing ${sideName} layout: ${targetLayoutId}`,
+                  `[Rollback] Reconnecting to existing ${sideName} implementMeasure: ${targetImplementMeasureId}`,
                 );
               }
             }
 
-            // If layout doesn't exist anymore, recreate from stored sections
-            if (!targetLayoutId && oldSideLayout.layoutSections?.length > 0) {
-              const newLayout = await tx.layout.create({
+            // If implementMeasure doesn't exist anymore, recreate from stored sections
+            if (!targetImplementMeasureId && oldSideImplementMeasure.sections?.length > 0) {
+              const newImplementMeasure = await tx.implementMeasure.create({
                 data: {
-                  height: oldSideLayout.height || 0,
-                  layoutSections: {
-                    create: oldSideLayout.layoutSections.map((s: any, idx: number) => ({
+                  height: oldSideImplementMeasure.height || 0,
+                  sections: {
+                    create: oldSideImplementMeasure.sections.map((s: any, idx: number) => ({
                       width: s.width || 0,
                       isDoor: s.isDoor || false,
                       doorHeight: s.doorHeight ?? null,
@@ -10763,14 +10763,14 @@ export class TaskService {
                   },
                 },
               });
-              targetLayoutId = newLayout.id;
-              this.logger.log(`[Rollback] Recreated ${sideName} layout: ${targetLayoutId}`);
+              targetImplementMeasureId = newImplementMeasure.id;
+              this.logger.log(`[Rollback] Recreated ${sideName} implementMeasure: ${targetImplementMeasureId}`);
             }
 
-            if (targetLayoutId) {
+            if (targetImplementMeasureId) {
               await tx.truck.update({
                 where: { id: truck.id },
-                data: { [field]: targetLayoutId },
+                data: { [field]: targetImplementMeasureId },
               });
             }
           }
@@ -10786,9 +10786,9 @@ export class TaskService {
               generalPainting: true,
               truck: {
                 include: {
-                  leftSideLayout: { include: { layoutSections: true } },
-                  rightSideLayout: { include: { layoutSections: true } },
-                  backSideLayout: { include: { layoutSections: true } },
+                  leftSideMeasure: { include: { sections: true } },
+                  rightSideMeasure: { include: { sections: true } },
+                  backSideMeasure: { include: { sections: true } },
                 },
               },
               createdBy: true,
@@ -10924,9 +10924,9 @@ export class TaskService {
         include: {
           truck: {
             include: {
-              leftSideLayout: { include: { layoutSections: true } },
-              rightSideLayout: { include: { layoutSections: true } },
-              backSideLayout: { include: { layoutSections: true } },
+              leftSideMeasure: { include: { sections: true } },
+              rightSideMeasure: { include: { sections: true } },
+              backSideMeasure: { include: { sections: true } },
             },
           },
         },
@@ -10940,15 +10940,15 @@ export class TaskService {
         throw new BadRequestException(`Tarefa ${taskId} não possui caminhão associado`);
       }
 
-      // Validate that truck has layout before positioning
+      // Validate that truck has implementMeasure before positioning
       if (
         positionData.spot &&
-        !task.truck.leftSideLayout &&
-        !task.truck.rightSideLayout &&
-        !task.truck.backSideLayout
+        !task.truck.leftSideMeasure &&
+        !task.truck.rightSideMeasure &&
+        !task.truck.backSideMeasure
       ) {
         throw new BadRequestException(
-          `O caminhão da tarefa "${task.name}" não possui layout configurado. Configure pelo menos um layout (Motorista, Sapo ou Traseira) antes de posicionar o caminhão na garagem.`,
+          `O caminhão da tarefa "${task.name}" não possui implementMeasure configurado. Configure pelo menos um implementMeasure (Motorista, Sapo ou Traseira) antes de posicionar o caminhão na garagem.`,
         );
       }
 
@@ -11156,23 +11156,23 @@ export class TaskService {
   }
 
   /**
-   * Calculate truck width from layouts (sum of layout section widths)
+   * Calculate truck width from implementMeasures (sum of implementMeasure section widths)
    */
   private calculateTruckWidth(truck: any): number {
-    // Width is the sum of section widths from side layouts
+    // Width is the sum of section widths from side implementMeasures
     const leftWidth =
-      truck.leftSideLayout?.layoutSections?.reduce(
+      truck.leftSideMeasure?.sections?.reduce(
         (sum: number, section: any) => sum + section.width,
         0,
       ) || 0;
 
     const rightWidth =
-      truck.rightSideLayout?.layoutSections?.reduce(
+      truck.rightSideMeasure?.sections?.reduce(
         (sum: number, section: any) => sum + section.width,
         0,
       ) || 0;
 
-    // Use the maximum width from available layouts, default to 5m if no layout
+    // Use the maximum width from available implementMeasures, default to 5m if no implementMeasure
     const baseLength = Math.max(leftWidth, rightWidth) || 5;
 
     // Add cabin length for trucks under 10m
@@ -11183,15 +11183,15 @@ export class TaskService {
   }
 
   /**
-   * Calculate truck length from layouts
+   * Calculate truck length from implementMeasures
    */
   private calculateTruckLength(truck: any): number {
-    // Length is typically the height from layouts, use back layout as primary
-    const backLength = truck.backSideLayout?.height || 0;
-    const leftLength = truck.leftSideLayout?.height || 0;
-    const rightLength = truck.rightSideLayout?.height || 0;
+    // Length is typically the height from implementMeasures, use back implementMeasure as primary
+    const backLength = truck.backSideMeasure?.height || 0;
+    const leftLength = truck.leftSideMeasure?.height || 0;
+    const rightLength = truck.rightSideMeasure?.height || 0;
 
-    // Use the maximum length from available layouts, default to 12.5m if no layout
+    // Use the maximum length from available implementMeasures, default to 12.5m if no implementMeasure
     return Math.max(backLength, leftLength, rightLength) || 12.5;
   }
 
@@ -11200,11 +11200,11 @@ export class TaskService {
   // =====================
 
   /**
-   * Bulk add artworks to multiple tasks
+   * Bulk add layouts to multiple tasks
    */
-  async bulkAddArtworks(
+  async bulkAddLayouts(
     taskIds: string[],
-    artworkIds: string[],
+    layoutIds: string[],
     userId: string,
     include?: TaskInclude,
   ): Promise<{
@@ -11214,7 +11214,7 @@ export class TaskService {
     errors: Array<{ taskId: string; error: string }>;
   }> {
     this.logger.log(
-      `[bulkAddArtworks] Adding ${artworkIds.length} artworks to ${taskIds.length} tasks`,
+      `[bulkAddLayouts] Adding ${layoutIds.length} layouts to ${taskIds.length} tasks`,
     );
 
     const errors: Array<{ taskId: string; error: string }> = [];
@@ -11241,76 +11241,76 @@ export class TaskService {
         throw new NotFoundException(`Tarefas não encontradas: ${missingIds.join(', ')}`);
       }
 
-      // Verify all artwork files exist
-      const artworkFiles = await tx.file.findMany({
-        where: { id: { in: artworkIds } },
+      // Verify all layout files exist
+      const layoutFiles = await tx.file.findMany({
+        where: { id: { in: layoutIds } },
         select: { id: true },
       });
 
-      if (artworkFiles.length !== artworkIds.length) {
-        const foundIds = artworkFiles.map(a => a.id);
-        const missingIds = artworkIds.filter(id => !foundIds.includes(id));
+      if (layoutFiles.length !== layoutIds.length) {
+        const foundIds = layoutFiles.map(a => a.id);
+        const missingIds = layoutIds.filter(id => !foundIds.includes(id));
         throw new NotFoundException(`Artes não encontradas: ${missingIds.join(', ')}`);
       }
 
-      // Resolve acting user for artwork event context (consistency with single/batch paths).
-      // NOTE: artworkStatuses is undefined here (all default to DRAFT), so no status-change
+      // Resolve acting user for layout event context (consistency with single/batch paths).
+      // NOTE: layoutStatuses is undefined here (all default to DRAFT), so no status-change
       // events fire — but we pass the context for parity with the other call sites.
-      const artworkEventUser = userId
+      const layoutEventUser = userId
         ? await tx.user.findUnique({
             where: { id: userId },
             select: { id: true, name: true, email: true },
           })
         : null;
 
-      // Convert File IDs to Artwork entity IDs (creates Artwork records if needed)
-      const artworkEntityIds = await this.convertFileIdsToArtworkIds(
-        artworkIds, // File IDs from request
+      // Convert File IDs to Layout entity IDs (creates Layout records if needed)
+      const layoutEntityIds = await this.convertFileIdsToLayoutIds(
+        layoutIds, // File IDs from request
         null, // taskId not needed for bulk operation
         null, // airbrushingId
-        undefined, // artworkStatuses (all will default to DRAFT)
+        undefined, // layoutStatuses (all will default to DRAFT)
         undefined, // userRole
         tx, // transaction
         // Event context so artwork.approved/reproved fire if a status change ever occurs here
-        artworkEventUser ? { user: artworkEventUser, task: null } : undefined,
+        layoutEventUser ? { user: layoutEventUser, task: null } : undefined,
       );
 
-      // Add artworks to each task
+      // Add layouts to each task
       for (const task of tasks) {
         try {
-          // Get current artworks for this task
+          // Get current layouts for this task
           const currentTask = await tx.task.findUnique({
             where: { id: task.id },
-            include: { artworks: { select: { id: true, fileId: true } } },
+            include: { layouts: { select: { id: true, fileId: true } } },
           });
 
-          // Get current artwork entity IDs
-          const currentArtworkIds = currentTask?.artworks?.map(a => a.id) || [];
+          // Get current layout entity IDs
+          const currentLayoutIds = currentTask?.layouts?.map(a => a.id) || [];
           // Get current file IDs (for changelog)
-          const currentFileIds = currentTask?.artworks?.map(a => a.fileId) || [];
+          const currentFileIds = currentTask?.layouts?.map(a => a.fileId) || [];
 
-          // Merge current Artwork entity IDs with new ones (avoid duplicates)
-          const mergedArtworkIds = [...new Set([...currentArtworkIds, ...artworkEntityIds])];
+          // Merge current Layout entity IDs with new ones (avoid duplicates)
+          const mergedLayoutIds = [...new Set([...currentLayoutIds, ...layoutEntityIds])];
 
-          // Update task with merged Artwork entity IDs
+          // Update task with merged Layout entity IDs
           await tx.task.update({
             where: { id: task.id },
             data: {
-              artworks: {
-                set: mergedArtworkIds.map(id => ({ id })),
+              layouts: {
+                set: mergedLayoutIds.map(id => ({ id })),
               },
             },
           });
 
           // Merge File IDs for changelog (File IDs are what the UI expects)
-          const mergedFileIds = [...new Set([...currentFileIds, ...artworkIds])];
+          const mergedFileIds = [...new Set([...currentFileIds, ...layoutIds])];
 
-          // Log the change (use File IDs for changelog, not Artwork entity IDs)
+          // Log the change (use File IDs for changelog, not Layout entity IDs)
           await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.TASK,
             entityId: task.id,
             action: CHANGE_ACTION.UPDATE,
-            field: 'artworks',
+            field: 'layouts',
             oldValue: currentFileIds,
             newValue: mergedFileIds,
             reason: `Campo artes atualizado via operação em lote`,
@@ -11330,7 +11330,7 @@ export class TaskService {
 
           successCount++;
         } catch (error) {
-          this.logger.error(`[bulkAddArtworks] Error updating task ${task.id}:`, error);
+          this.logger.error(`[bulkAddLayouts] Error updating task ${task.id}:`, error);
           errors.push({
             taskId: task.id,
             error: error instanceof Error ? error.message : 'Erro desconhecido',
@@ -11342,14 +11342,14 @@ export class TaskService {
     // After transaction: Emit field change events for notifications
     if (fieldChangesForEvents.length > 0) {
       this.logger.log(
-        `[bulkAddArtworks] Emitting ${fieldChangesForEvents.length} field change event(s) for notifications`,
+        `[bulkAddLayouts] Emitting ${fieldChangesForEvents.length} field change event(s) for notifications`,
       );
 
       for (const change of fieldChangesForEvents) {
         try {
           this.eventEmitter.emit('task.field.changed', {
             task: change.task,
-            field: 'artworks',
+            field: 'layouts',
             oldValue: change.oldValue,
             newValue: change.newValue,
             changedBy: userId,
@@ -11357,15 +11357,15 @@ export class TaskService {
           });
         } catch (eventError) {
           this.logger.error(
-            `[bulkAddArtworks] Error emitting event for task ${change.taskId}:`,
+            `[bulkAddLayouts] Error emitting event for task ${change.taskId}:`,
             eventError,
           );
         }
       }
     }
 
-    // Reconcile "Em Negociação" for every task that got an artwork added.
-    // Tasks with a budget-approved quote and a previously-empty artwork list
+    // Reconcile "Em Negociação" for every task that got an layout added.
+    // Tasks with a budget-approved quote and a previously-empty layout list
     // need to flip from WAITING_ARTWORK to COMPLETED.
     for (const change of fieldChangesForEvents) {
       await syncEmNegociacaoForTask(this.prisma, change.taskId, userId);
@@ -11853,7 +11853,7 @@ export class TaskService {
    */
   async bulkUploadFiles(
     taskIds: string[],
-    fileType: 'budgets' | 'invoices' | 'receipts' | 'bankSlips' | 'artworks',
+    fileType: 'budgets' | 'invoices' | 'receipts' | 'bankSlips' | 'layouts',
     files: Express.Multer.File[],
     userId: string,
     include?: TaskInclude,
@@ -11876,7 +11876,7 @@ export class TaskService {
       invoices: 'invoices',
       receipts: 'receipts',
       bankSlips: 'bankSlips',
-      artworks: 'artworks',
+      layouts: 'layouts',
     };
     const relationName = relationMap[fileType];
 
@@ -11886,7 +11886,7 @@ export class TaskService {
       invoices: 'taskInvoices',
       receipts: 'taskReceipts',
       bankSlips: 'taskBankSlips',
-      artworks: 'tasksArtworks',
+      layouts: 'tasksLayouts',
     };
     const category = categoryMap[fileType];
 
@@ -11927,18 +11927,18 @@ export class TaskService {
         `[bulkUploadFiles] ${uploadedFileIds.length} files uploaded, adding to ${tasks.length} tasks`,
       );
 
-      // The Task.artworks relation points to Artwork rows (1:1 with a File via
-      // Artwork.fileId @unique), NOT to File rows — so for artworks each uploaded
-      // File must be wrapped in an Artwork and we connect those ids. `set`-ting
-      // raw File ids never matched an Artwork, so bulk artwork upload silently
+      // The Task.layouts relation points to Layout rows (1:1 with a File via
+      // Layout.fileId @unique), NOT to File rows — so for layouts each uploaded
+      // File must be wrapped in an Layout and we connect those ids. `set`-ting
+      // raw File ids never matched an Layout, so bulk layout upload silently
       // did nothing. Budgets/invoices/receipts/bankSlips ARE File[] relations and
       // connect by file id directly.
       let relationItemIds: string[] = uploadedFileIds;
-      if (fileType === 'artworks') {
+      if (fileType === 'layouts') {
         relationItemIds = [];
         for (const fid of uploadedFileIds) {
           relationItemIds.push(
-            await this.createArtworkForFile({ id: fid }, null, null, 'APPROVED', tx),
+            await this.createLayoutForFile({ id: fid }, null, null, 'APPROVED', tx),
           );
         }
       }
@@ -12060,11 +12060,11 @@ export class TaskService {
     });
     const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
 
-    // Clone the source quote's layout files so the new quote owns INDEPENDENT
+    // Clone the source quote's implementMeasure files so the new quote owns INDEPENDENT
     // copies — connecting the source ids would steal them (FK lives on File).
-    const clonedLayoutIds: string[] = [];
+    const clonedImplementMeasureIds: string[] = [];
     for (const f of ((sourceQuote as any).layoutFiles ?? [])) {
-      clonedLayoutIds.push(await this.fileService.cloneFileForQuoteLayout(tx, f.id));
+      clonedImplementMeasureIds.push(await this.fileService.cloneFileForQuoteLayout(tx, f.id));
     }
 
     const newQuote = await tx.taskQuote.create({
@@ -12083,10 +12083,10 @@ export class TaskService {
         customGuaranteeText: sourceQuote.customGuaranteeText,
         simultaneousTasks: sourceQuote.simultaneousTasks,
         customForecastDays: sourceQuote.customForecastDays,
-        ...(clonedLayoutIds.length
+        ...(clonedImplementMeasureIds.length
           ? {
               layoutFiles: {
-                connect: clonedLayoutIds.map((id) => ({ id })),
+                connect: clonedImplementMeasureIds.map((id) => ({ id })),
               },
             }
           : {}),
@@ -12193,16 +12193,16 @@ export class TaskService {
                 category: true,
                 implementType: true,
                 spot: true,
-                // Include full layout data for cloning individual instances
-                backSideLayoutId: true,
-                leftSideLayoutId: true,
-                rightSideLayoutId: true,
-                backSideLayout: {
+                // Include full implementMeasure data for cloning individual instances
+                backSideMeasureId: true,
+                leftSideMeasureId: true,
+                rightSideMeasureId: true,
+                backSideMeasure: {
                   select: {
                     id: true,
                     height: true,
                     photoId: true,
-                    layoutSections: {
+                    sections: {
                       select: {
                         width: true,
                         isDoor: true,
@@ -12212,12 +12212,12 @@ export class TaskService {
                     },
                   },
                 },
-                leftSideLayout: {
+                leftSideMeasure: {
                   select: {
                     id: true,
                     height: true,
                     photoId: true,
-                    layoutSections: {
+                    sections: {
                       select: {
                         width: true,
                         isDoor: true,
@@ -12227,12 +12227,12 @@ export class TaskService {
                     },
                   },
                 },
-                rightSideLayout: {
+                rightSideMeasure: {
                   select: {
                     id: true,
                     height: true,
                     photoId: true,
-                    layoutSections: {
+                    sections: {
                       select: {
                         width: true,
                         isDoor: true,
@@ -12245,7 +12245,7 @@ export class TaskService {
               },
             },
             observation: true,
-            artworks: {
+            layouts: {
               select: {
                 id: true,
                 fileId: true,
@@ -12293,7 +12293,7 @@ export class TaskService {
               include: {
                 receipts: { select: { id: true } },
                 invoices: { select: { id: true } },
-                artworks: { select: { id: true, fileId: true, status: true } },
+                layouts: { select: { id: true, fileId: true, status: true } },
               },
             },
             serviceOrders: {
@@ -12366,13 +12366,13 @@ export class TaskService {
                 category: true,
                 implementType: true,
                 spot: true,
-                backSideLayoutId: true,
-                leftSideLayoutId: true,
-                rightSideLayoutId: true,
+                backSideMeasureId: true,
+                leftSideMeasureId: true,
+                rightSideMeasureId: true,
               },
             },
             observation: true,
-            artworks: { select: { id: true } },
+            layouts: { select: { id: true } },
             baseFiles: { select: { id: true } },
             projectFiles: { select: { id: true } },
             logoPaints: { select: { id: true } },
@@ -12439,7 +12439,7 @@ export class TaskService {
               }
             : null,
           paintId: destinationTask.paintId,
-          artworkIds: destinationTask.artworks?.map(a => a.id) || [],
+          layoutIds: destinationTask.layouts?.map(a => a.id) || [],
           baseFileIds: destinationTask.baseFiles?.map(f => f.id) || [],
           projectFileIds: destinationTask.projectFiles?.map(f => f.id) || [],
           logoPaintIds: destinationTask.logoPaints?.map(p => p.id) || [],
@@ -12455,10 +12455,10 @@ export class TaskService {
             destinationTask.serviceOrders?.filter(so => so.type === 'ARTWORK').length || 0,
           implementType: destinationTask.truck?.implementType || null,
           category: destinationTask.truck?.category || null,
-          layouts: {
-            backSideLayoutId: destinationTask.truck?.backSideLayoutId || null,
-            leftSideLayoutId: destinationTask.truck?.leftSideLayoutId || null,
-            rightSideLayoutId: destinationTask.truck?.rightSideLayoutId || null,
+          implementMeasures: {
+            backSideMeasureId: destinationTask.truck?.backSideMeasureId || null,
+            leftSideMeasureId: destinationTask.truck?.leftSideMeasureId || null,
+            rightSideMeasureId: destinationTask.truck?.rightSideMeasureId || null,
           },
           observation: destinationTask.observation?.description || null,
         };
@@ -12626,15 +12626,15 @@ export class TaskService {
               break;
 
             // ===== SHARED FILE IDS =====
-            case 'artworkIds':
-              if (hasData(sourceTask.artworks)) {
-                const artworkIds = sourceTask.artworks.map(a => a.id);
-                updateData.artworks = {
-                  set: artworkIds.map(id => ({ id })),
+            case 'layoutIds':
+              if (hasData(sourceTask.layouts)) {
+                const layoutIds = sourceTask.layouts.map(a => a.id);
+                updateData.layouts = {
+                  set: layoutIds.map(id => ({ id })),
                 };
                 copiedFields.push(field);
                 // Store file info for changelog display
-                details.artworkIds = sourceTask.artworks.map(a => ({
+                details.layoutIds = sourceTask.layouts.map(a => ({
                   id: a.id,
                   fileId: a.fileId,
                   filename: a.file?.filename,
@@ -12745,21 +12745,21 @@ export class TaskService {
                 // Create new airbrushing records with PENDING status
                 const newAirbrushings = await Promise.all(
                   sourceTask.airbrushings.map(async airbrushing => {
-                    // Artwork is 1:1 with its File (Artwork.fileId @unique) and
+                    // Layout is 1:1 with its File (Layout.fileId @unique) and
                     // belongs to a SINGLE airbrushing (singular airbrushingId FK).
-                    // `connect`-ing the source's artworks would STEAL them from the
+                    // `connect`-ing the source's layouts would STEAL them from the
                     // source airbrushing — clone the underlying file + create a NEW
-                    // Artwork per copied airbrushing. (receipts/invoices are File[]
+                    // Layout per copied airbrushing. (receipts/invoices are File[]
                     // M2M, so sharing them via connect is safe.)
-                    const clonedArtworks = airbrushing.artworks?.length
+                    const clonedLayouts = airbrushing.layouts?.length
                       ? await Promise.all(
-                          (airbrushing.artworks as any[]).map(async a => ({
+                          (airbrushing.layouts as any[]).map(async a => ({
                             file: {
                               connect: {
                                 id: await this.fileService.cloneFile(
                                   tx,
                                   a.fileId,
-                                  'airbrushingArtworks',
+                                  'airbrushingLayouts',
                                 ),
                               },
                             },
@@ -12775,14 +12775,14 @@ export class TaskService {
                         status: AIRBRUSHING_STATUS.PENDING,
                         startDate: null,
                         finishDate: null,
-                        // Shared files (M2M) can be connected; artworks are cloned.
+                        // Shared files (M2M) can be connected; layouts are cloned.
                         receipts: airbrushing.receipts?.length
                           ? { connect: airbrushing.receipts.map(r => ({ id: r.id })) }
                           : undefined,
                         invoices: airbrushing.invoices?.length
                           ? { connect: airbrushing.invoices.map(i => ({ id: i.id })) }
                           : undefined,
-                        artworks: clonedArtworks.length ? { create: clonedArtworks } : undefined,
+                        layouts: clonedLayouts.length ? { create: clonedLayouts } : undefined,
                       },
                     });
                   }),
@@ -12848,29 +12848,29 @@ export class TaskService {
               break;
 
             // ===== LAYOUTS (Individual Clones) =====
-            case 'layouts':
+            case 'implementMeasures':
               if (hasData(sourceTask.truck)) {
                 const existingTruck = await tx.truck.findUnique({
                   where: { taskId: destinationTaskId },
                   select: {
                     id: true,
-                    leftSideLayoutId: true,
-                    rightSideLayoutId: true,
-                    backSideLayoutId: true,
+                    leftSideMeasureId: true,
+                    rightSideMeasureId: true,
+                    backSideMeasureId: true,
                   },
                 });
 
-                // Helper to clone a layout as a new individual instance
-                const cloneLayout = async (sourceLayout: any): Promise<string | null> => {
-                  if (!sourceLayout) return null;
-                  const cloned = await tx.layout.create({
+                // Helper to clone a implementMeasure as a new individual instance
+                const cloneImplementMeasure = async (sourceImplementMeasure: any): Promise<string | null> => {
+                  if (!sourceImplementMeasure) return null;
+                  const cloned = await tx.implementMeasure.create({
                     data: {
-                      height: sourceLayout.height,
-                      ...(sourceLayout.photoId && {
-                        photo: { connect: { id: sourceLayout.photoId } },
+                      height: sourceImplementMeasure.height,
+                      ...(sourceImplementMeasure.photoId && {
+                        photo: { connect: { id: sourceImplementMeasure.photoId } },
                       }),
-                      layoutSections: {
-                        create: (sourceLayout.layoutSections || []).map(
+                      sections: {
+                        create: (sourceImplementMeasure.sections || []).map(
                           (section: any, idx: number) => ({
                             width: section.width,
                             isDoor: section.isDoor,
@@ -12884,76 +12884,76 @@ export class TaskService {
                   return cloned.id;
                 };
 
-                // Helper to safely disconnect and clean up old layout
-                const safeDisconnectOldLayout = async (
+                // Helper to safely disconnect and clean up old implementMeasure
+                const safeDisconnectOldImplementMeasure = async (
                   truckId: string,
-                  oldLayoutId: string | null,
-                  layoutField: 'leftSideLayoutId' | 'rightSideLayoutId' | 'backSideLayoutId',
+                  oldImplementMeasureId: string | null,
+                  implementMeasureField: 'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId',
                 ) => {
-                  if (!oldLayoutId) return;
+                  if (!oldImplementMeasureId) return;
                   await tx.truck.update({
                     where: { id: truckId },
-                    data: { [layoutField]: null },
+                    data: { [implementMeasureField]: null },
                   });
                   const relationName =
-                    layoutField === 'leftSideLayoutId'
+                    implementMeasureField === 'leftSideMeasureId'
                       ? 'trucksLeftSide'
-                      : layoutField === 'rightSideLayoutId'
+                      : implementMeasureField === 'rightSideMeasureId'
                         ? 'trucksRightSide'
                         : 'trucksBackSide';
-                  const layoutWithRefs = await tx.layout.findUnique({
-                    where: { id: oldLayoutId },
+                  const implementMeasureWithRefs = await tx.implementMeasure.findUnique({
+                    where: { id: oldImplementMeasureId },
                     include: { [relationName]: { select: { id: true } } },
                   });
-                  if (layoutWithRefs) {
-                    const remainingTrucks = (layoutWithRefs as any)[relationName] || [];
+                  if (implementMeasureWithRefs) {
+                    const remainingTrucks = (implementMeasureWithRefs as any)[relationName] || [];
                     if (remainingTrucks.length === 0) {
-                      await tx.layoutSection.deleteMany({ where: { layoutId: oldLayoutId } });
-                      await tx.layout.delete({ where: { id: oldLayoutId } });
+                      await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: oldImplementMeasureId } });
+                      await tx.implementMeasure.delete({ where: { id: oldImplementMeasureId } });
                     }
                   }
                 };
 
-                // Clone each side's layout as an individual instance
-                const clonedLeftId = await cloneLayout(sourceTask.truck.leftSideLayout);
-                const clonedRightId = await cloneLayout(sourceTask.truck.rightSideLayout);
-                const clonedBackId = await cloneLayout(sourceTask.truck.backSideLayout);
+                // Clone each side's implementMeasure as an individual instance
+                const clonedLeftId = await cloneImplementMeasure(sourceTask.truck.leftSideMeasure);
+                const clonedRightId = await cloneImplementMeasure(sourceTask.truck.rightSideMeasure);
+                const clonedBackId = await cloneImplementMeasure(sourceTask.truck.backSideMeasure);
 
-                const layoutData: any = {};
-                if (clonedLeftId) layoutData.leftSideLayoutId = clonedLeftId;
-                if (clonedRightId) layoutData.rightSideLayoutId = clonedRightId;
-                if (clonedBackId) layoutData.backSideLayoutId = clonedBackId;
+                const implementMeasureData: any = {};
+                if (clonedLeftId) implementMeasureData.leftSideMeasureId = clonedLeftId;
+                if (clonedRightId) implementMeasureData.rightSideMeasureId = clonedRightId;
+                if (clonedBackId) implementMeasureData.backSideMeasureId = clonedBackId;
 
                 if (existingTruck) {
-                  // Safely disconnect old layouts before connecting new ones
+                  // Safely disconnect old implementMeasures before connecting new ones
                   if (clonedLeftId)
-                    await safeDisconnectOldLayout(
+                    await safeDisconnectOldImplementMeasure(
                       existingTruck.id,
-                      existingTruck.leftSideLayoutId,
-                      'leftSideLayoutId',
+                      existingTruck.leftSideMeasureId,
+                      'leftSideMeasureId',
                     );
                   if (clonedRightId)
-                    await safeDisconnectOldLayout(
+                    await safeDisconnectOldImplementMeasure(
                       existingTruck.id,
-                      existingTruck.rightSideLayoutId,
-                      'rightSideLayoutId',
+                      existingTruck.rightSideMeasureId,
+                      'rightSideMeasureId',
                     );
                   if (clonedBackId)
-                    await safeDisconnectOldLayout(
+                    await safeDisconnectOldImplementMeasure(
                       existingTruck.id,
-                      existingTruck.backSideLayoutId,
-                      'backSideLayoutId',
+                      existingTruck.backSideMeasureId,
+                      'backSideMeasureId',
                     );
 
                   await tx.truck.update({
                     where: { taskId: destinationTaskId },
-                    data: layoutData,
+                    data: implementMeasureData,
                   });
                 } else {
-                  // Create truck with cloned layouts if it doesn't exist
+                  // Create truck with cloned implementMeasures if it doesn't exist
                   await tx.truck.create({
                     data: {
-                      ...layoutData,
+                      ...implementMeasureData,
                       taskId: destinationTaskId,
                       spot: null,
                     },
@@ -12961,12 +12961,12 @@ export class TaskService {
                 }
                 copiedFields.push(field);
 
-                // Helper to calculate dimensions from layout
-                const getLayoutDimensions = (layout: any) => {
-                  if (!layout) return null;
-                  const height = layout.height ? Math.round(layout.height * 100) : 0;
-                  const totalWidth = layout.layoutSections
-                    ? layout.layoutSections.reduce(
+                // Helper to calculate dimensions from implementMeasure
+                const getImplementMeasureDimensions = (implementMeasure: any) => {
+                  if (!implementMeasure) return null;
+                  const height = implementMeasure.height ? Math.round(implementMeasure.height * 100) : 0;
+                  const totalWidth = implementMeasure.sections
+                    ? implementMeasure.sections.reduce(
                         (sum: number, s: any) => sum + (s.width || 0) * 100,
                         0,
                       )
@@ -12974,12 +12974,12 @@ export class TaskService {
                   return { height, width: Math.round(totalWidth) };
                 };
 
-                // Store cloned layout data with dimensions for changelog display
-                details.layouts = {
-                  ...layoutData,
-                  leftSideDimensions: getLayoutDimensions(sourceTask.truck.leftSideLayout),
-                  rightSideDimensions: getLayoutDimensions(sourceTask.truck.rightSideLayout),
-                  backSideDimensions: getLayoutDimensions(sourceTask.truck.backSideLayout),
+                // Store cloned implementMeasure data with dimensions for changelog display
+                details.implementMeasures = {
+                  ...implementMeasureData,
+                  leftSideDimensions: getImplementMeasureDimensions(sourceTask.truck.leftSideMeasure),
+                  rightSideDimensions: getImplementMeasureDimensions(sourceTask.truck.rightSideMeasure),
+                  backSideDimensions: getImplementMeasureDimensions(sourceTask.truck.backSideMeasure),
                 };
               }
               break;
@@ -13257,7 +13257,7 @@ export class TaskService {
                 oldValue: change.oldValue,
                 newValue: change.newValue,
                 changedBy: userId,
-                isFileArray: ['artworkIds', 'baseFileIds', 'logoPaintIds'].includes(change.field),
+                isFileArray: ['layoutIds', 'baseFileIds', 'logoPaintIds'].includes(change.field),
               });
 
               this.logger.debug(
