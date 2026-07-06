@@ -100,18 +100,24 @@ export class ZodValidationPipe implements PipeTransform {
         continue;
       }
 
+      // Free-text string fields (search, counterparty, barcode, cpf…) are kept
+      // verbatim: a term that happens to look like a boolean/number/date must NOT
+      // be coerced, or the `z.string()` field rejects it ("Parâmetros de consulta
+      // inválidos"). Every coercion branch below is gated on this.
+      const keepAsString = this.shouldKeepFieldAsString(key);
+
       // Handle boolean strings
-      if (val === 'true') {
+      if (!keepAsString && val === 'true') {
         transformed[key] = true;
         continue;
       }
-      if (val === 'false') {
+      if (!keepAsString && val === 'false') {
         transformed[key] = false;
         continue;
       }
 
       // Handle number strings (but skip fields that should remain as strings)
-      if (this.isNumericString(val) && !this.shouldKeepFieldAsString(key)) {
+      if (!keepAsString && this.isNumericString(val)) {
         const numValue = Number(val);
         if (!isNaN(numValue)) {
           transformed[key] = numValue;
@@ -120,7 +126,7 @@ export class ZodValidationPipe implements PipeTransform {
       }
 
       // Handle date strings
-      if (this.isDateString(val)) {
+      if (!keepAsString && this.isDateString(val)) {
         const date = new Date(val);
         if (!isNaN(date.getTime())) {
           transformed[key] = date;
@@ -448,6 +454,10 @@ export class ZodValidationPipe implements PipeTransform {
       'uniCode', // Various code fields
       'serialNumber', // Serial numbers
       'searchingFor', // Search fields should remain as strings
+      'search', // Free-text search (also covers `searchText`); a purely numeric
+      // term (FITID, document number, CNPJ digits) must NOT be coerced to a number
+      // or the `z.string()` query field rejects it ("Parâmetros de consulta inválidos").
+      'counterparty', // Free-text counterparty (name or CNPJ digits) — same reason.
     ];
 
     // Check if the field name contains any of these string-only field names

@@ -137,6 +137,14 @@ export class ReconciliationController {
     return this.service.getFiscalDocument(id);
   }
 
+  // Reverse of `transactions/:id/candidates`: candidate bank transactions that
+  // could settle this fiscal document, so the user can conciliate from the NF
+  // side. Same class-wide @Roles (ADMIN/FINANCIAL/ACCOUNTING) apply.
+  @Get('fiscal-documents/:id/transaction-candidates')
+  getTransactionCandidates(@Param('id') id: string) {
+    return this.service.getTransactionCandidatesForFiscalDocument(id);
+  }
+
   @Post('fiscal-documents/:id/unmatch')
   unmatchFiscalDocument(@Param('id') id: string, @Req() req: Request & { user?: { id?: string } }) {
     return this.service.unmatchFiscalDocument(id, req.user?.id);
