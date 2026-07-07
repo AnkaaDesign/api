@@ -214,9 +214,8 @@ export const CONTRACT_STATUS_ORDER: Record<string, number> = {
 export const EMPLOYEE_TYPE_ORDER: Record<string, number> = {
   [EMPLOYEE_TYPE.CLT]: 1,
   [EMPLOYEE_TYPE.INTERN]: 2,
-  [EMPLOYEE_TYPE.TERCEIRIZADO]: 3,
-  [EMPLOYEE_TYPE.PJ]: 4,
-  [EMPLOYEE_TYPE.AUTONOMOUS]: 5,
+  [EMPLOYEE_TYPE.PJ]: 3,
+  [EMPLOYEE_TYPE.AUTONOMOUS]: 4,
 };
 
 export const MAINTENANCE_STATUS_ORDER: Record<string, number> = {

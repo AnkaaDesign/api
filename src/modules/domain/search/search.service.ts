@@ -115,7 +115,6 @@ const applyDateMatch = (
 
 const OFF_PAYROLL_LABELS: Record<string, string> = {
   INTERN: 'Estagiário',
-  TERCEIRIZADO: 'Terceirizado',
   PJ: 'PJ',
   AUTONOMOUS: 'Autônomo',
 };
