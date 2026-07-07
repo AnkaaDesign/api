@@ -85,7 +85,9 @@ async function main(): Promise<void> {
       `Reverting contract ${ACTIVE_CONTRACT_ID}: employeeType -> TERCEIRIZADO, contractType -> null, sectorId -> Administração, effectedAt -> null`,
     );
     const contract = await employmentContractService.update(ACTIVE_CONTRACT_ID, {
-      employeeType: EMPLOYEE_TYPE.TERCEIRIZADO,
+      // TERCEIRIZADO category was removed (migration 20260706120000); PJ is the
+      // sole remaining off-folha provider category.
+      employeeType: EMPLOYEE_TYPE.PJ,
       contractType: null,
       sectorId: ADMINISTRACAO_SECTOR_ID,
       effectedAt: null,

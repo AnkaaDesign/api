@@ -148,6 +148,10 @@ export class SicrediWebhookService {
           valorJuros: valorJuros ?? event.valorJuros,
           valorMulta: valorMulta ?? event.valorMulta,
           valorAbatimento: valorAbatimento ?? event.valorAbatimento,
+          // Real payment moment reported by Sicredi (parseSicrediDate of payload.dataEvento).
+          // handleLiquidation persists this as paidAt so the installment reflects the actual
+          // liquidation date, not the webhook-processing time.
+          dataEvento: dataEvento ?? event.dataEvento,
         });
       } else if (REVERSAL_MOVEMENTS.includes(movimento)) {
         await this.handleReversal({ nossoNumero: event.nossoNumero });
@@ -191,6 +195,9 @@ export class SicrediWebhookService {
     valorJuros: Decimal | null;
     valorMulta: Decimal | null;
     valorAbatimento: Decimal | null;
+    // Actual payment/liquidation timestamp from Sicredi (webhook payload.dataEvento or the
+    // SicrediWebhookEvent.dataEvento column on the retry path). Null only when Sicredi omits it.
+    dataEvento?: Date | null;
   }): Promise<void> {
     const { nossoNumero } = event;
 
@@ -226,7 +233,9 @@ export class SicrediWebhookService {
     const paidAmount = event.valorLiquidacao
       ? new Decimal(event.valorLiquidacao.toString())
       : bankSlip.amount;
-    const now = new Date();
+    // Use the real payment date Sicredi reports (dataEvento). Fall back to the processing
+    // time only if the payload omitted it, so paidAt is never left null.
+    const paidAt = event.dataEvento ?? new Date();
 
     // I23: a Sicredi boleto is registered at a fixed face value and is normally paid in full.
     // If the credited value is LESS than the installment amount (anomalous underpayment), we
@@ -254,7 +263,7 @@ export class SicrediWebhookService {
         data: {
           ...(fullyPaid ? { status: 'PAID' } : {}),
           paidAmount,
-          paidAt: now,
+          paidAt,
           liquidationData: {
             valorLiquidacao: event.valorLiquidacao?.toString() ?? null,
             valorDesconto: event.valorDesconto?.toString() ?? null,
@@ -273,7 +282,7 @@ export class SicrediWebhookService {
         data: {
           ...(fullyPaid ? { status: 'PAID' } : {}),
           paidAmount,
-          paidAt: now,
+          paidAt,
           paymentMethod: 'BANK_SLIP',
         },
       });
@@ -297,7 +306,7 @@ export class SicrediWebhookService {
       // Bridge to bank-statement reconciliation (OFX-imported transactions)
       this.events.emit('banking.bankslip.paid', {
         bankSlipId: bankSlip.id,
-        paidAt: now,
+        paidAt,
         paidAmount: Number(paidAmount),
       });
 

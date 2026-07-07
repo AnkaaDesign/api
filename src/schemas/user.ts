@@ -1700,16 +1700,19 @@ export const userCreateSchema = z
     // coerce a null/empty field to the 1970 epoch and pass.
     admissionDate: createDateSchema('Data de admissão'),
 
-    // Payroll info — required at create time (Secullum NumeroFolha + payroll
-    // computations). userUpdateSchema keeps it nullable.optional for editing
-    // existing rows that pre-date this constraint.
+    // Payroll info — required at create time for on-folha (CLT) collaborators
+    // (Secullum NumeroFolha + payroll computations). Off-payroll providers
+    // (terceirizado/PJ) don't occupy a folha, so it's exempted via the refine
+    // below. userUpdateSchema keeps it nullable.optional for editing existing
+    // rows that pre-date this constraint.
     payrollNumber: z
       .number({
-        required_error: 'Número da folha é obrigatório',
         invalid_type_error: 'Número da folha deve ser numérico',
       })
       .int()
-      .positive('Número da folha deve ser positivo'),
+      .positive('Número da folha deve ser positivo')
+      .nullable()
+      .optional(),
 
     // Nested PPE size creation for new users
     ppeSize: ppeSizeCreateNestedSchema.optional(),
@@ -1735,15 +1738,27 @@ export const userCreateSchema = z
   .refine(
     data => {
       // Cargo is required for on-folha collaborators. Off-payroll providers
-      // (terceirizado/PJ) don't occupy a cargo, so it stays optional for them.
+      // (PJ) don't occupy a cargo, so it stays optional for them.
       const employeeType = data.contract?.employeeType;
-      const isProvider =
-        employeeType === EMPLOYEE_TYPE.TERCEIRIZADO || employeeType === EMPLOYEE_TYPE.PJ;
+      const isProvider = employeeType === EMPLOYEE_TYPE.PJ;
       return isProvider || !!data.positionId;
     },
     {
       message: 'Cargo é obrigatório',
       path: ['positionId'],
+    },
+  )
+  .refine(
+    data => {
+      // Número da folha é obrigatório apenas para colaboradores CLT (on-folha).
+      // PJ não ocupa folha, então fica opcional para eles.
+      const employeeType = data.contract?.employeeType;
+      const isProvider = employeeType === EMPLOYEE_TYPE.PJ;
+      return isProvider || (data.payrollNumber !== null && data.payrollNumber !== undefined);
+    },
+    {
+      message: 'Número da folha é obrigatório',
+      path: ['payrollNumber'],
     },
   );
 
@@ -1857,6 +1872,13 @@ export const userUpdateSchema = z
       .nullable()
       .optional(),
 
+    // Prestador de serviço (off-folha) — stored on the current EmploymentContract.
+    // The web edit form submits these flat (top-level); the service routes them to
+    // the contract via data.hasOwnProperty('providerName'/'providerCnpj'). Without
+    // them here Zod would strip the keys and the CNPJ/name would never persist.
+    providerName: z.string().nullable().optional(),
+    providerCnpj: z.string().nullable().optional(),
+
     verificationCode: z.string().nullable().optional(),
     verificationExpiresAt: z.date().nullable().optional(),
     verificationType: z
@@ -1918,7 +1940,7 @@ export const userUpdateSchema = z
     },
     {
       message:
-        'Categoria e modalidade incompatíveis: CLT exige uma modalidade CLT; terceirizado/PJ/autônomo/estagiário não devem ter modalidade. Aprendiz só com CLT.',
+        'Categoria e modalidade incompatíveis: CLT exige uma modalidade CLT; PJ/autônomo/estagiário não devem ter modalidade. Aprendiz só com CLT.',
       path: ['contractType'],
     },
   )

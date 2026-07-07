@@ -210,7 +210,6 @@ export const CONTRACT_STATUS_LABELS: Record<CONTRACT_STATUS, string> = {
 export const EMPLOYEE_TYPE_LABELS: Record<EMPLOYEE_TYPE, string> = {
   [EMPLOYEE_TYPE.CLT]: 'CLT',
   [EMPLOYEE_TYPE.INTERN]: 'Estagiário',
-  [EMPLOYEE_TYPE.TERCEIRIZADO]: 'Terceirizado',
   [EMPLOYEE_TYPE.PJ]: 'Pessoa Jurídica (PJ)',
   [EMPLOYEE_TYPE.AUTONOMOUS]: 'Autônomo',
 };
