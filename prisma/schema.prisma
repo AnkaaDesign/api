@@ -2957,7 +2957,6 @@ enum ContractStatus {
 enum EmployeeType {
   CLT
   INTERN
-  TERCEIRIZADO
   PJ
   AUTONOMOUS
 }
@@ -4277,6 +4276,25 @@ enum ReconciliationSource {
   MANUAL
 }
 
+// Why a received (ENTRADA) fiscal document is settled WITHOUT a bank
+// transaction — i.e. it will never match a bank statement line, so it's closed
+// off-bank with a reason instead of staying "Pendente" forever.
+//   BONIFICACAO    — free goods (remessa em doação/bonificação/brinde/amostra);
+//                    tPag 90 "Sem pagamento". No money moves.
+//   CARTAO_CREDITO — paid by credit card; the card BILL is later settled by a
+//                    boleto, so the individual NF never hits the bank statement.
+//   SEM_PAGAMENTO  — other no-payment notes (comodato, remessa p/ conserto…).
+//   OUTROS         — manual catch-all with a free-text note.
+enum FiscalDocOffBankResolution {
+  BONIFICACAO
+  CARTAO_CREDITO
+  SEM_PAGAMENTO
+  // Paid outside the company bank account (personal card, personal cash, another
+  // account) — a real payment happened, just never on this statement.
+  PAGO_OUTRA_FORMA
+  OUTROS
+}
+
 // Nature of a TransactionCategory.
 //   ITEM_DERIVED    — mirrors an inventory ItemCategory (Verniz, Tinta…); set
 //                     automatically from a matched NF's line items. Enrichment
@@ -4481,6 +4499,16 @@ model FiscalDocument {
   destName       String?
   nfNumber       String?
   paymentMethods Json?
+  // Off-bank settlement: a received note that will NEVER match a bank line
+  // (credit-card-paid, bonificação/doação, no-payment) is closed with a reason
+  // so it drops out of "Pendente" and out of every transaction's candidate pool.
+  // Null = still expects a bank match. Auto-detected on import from tPag/natOp,
+  // or set manually. See {@link FiscalDocOffBankResolution}.
+  offBankResolution       FiscalDocOffBankResolution?
+  offBankResolvedAt       DateTime?
+  offBankResolutionSource ReconciliationSource?
+  offBankResolvedById     String?
+  offBankResolutionNotes  String?                     @db.Text
   siegId         String?
   rawXmlFileId   String?
   // Direction-aware "vinculada" for SAIDA (outgoing/emitted) notes: an emitted

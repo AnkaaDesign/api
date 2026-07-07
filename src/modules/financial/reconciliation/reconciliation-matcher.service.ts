@@ -24,7 +24,7 @@ import { nameSimilarity } from './text-normalization';
 import { ReconciliationAliasService } from './reconciliation-alias.service';
 import { ItemCategoryClassifierService } from './item-category-classifier.service';
 import { FiscalDerivedLearnerService } from './fiscal-derived-learner.service';
-import { isMarketplaceTransaction } from './marketplace';
+import { isMarketplaceTransaction, MARKETPLACE_INTERMEDIARY_CNPJS } from './marketplace';
 import { resolveOrderIdsForFiscalDocs } from './order-clearance';
 
 const FUZZY_DATE_WINDOW_DAYS = 10;
@@ -88,6 +88,29 @@ const MARKETPLACE_CANDIDATE_CONFIDENCE_MAX = 70;
 // Company CNPJ fallback, mirrored from SiegXmlParserService so marketplace
 // matching scopes to our own purchases even when COMPANY_CNPJ is unset in dev.
 const DEFAULT_COMPANY_CNPJ = '13636938000144';
+// --- Learned "direct-settler" suppliers --------------------------------------
+// A supplier whose ENTRADA notes have been reconciled at least this many times by
+// a bank transaction carrying its OWN CNPJ (a direct PIX/transfer/boleto) and
+// NEVER through a marketplace intermediary is a "direct-settler": we KNOW its
+// notes are paid directly, so they must not be offered as value-only candidates
+// for an intermediary-routed (marketplace) payment — whose statement CNPJ can
+// never carry that supplier's identity. Farben, for instance, settles 36/36 via
+// its own CNPJ and 0 via marketplace, yet its notes were surfacing (by raw
+// value+date proximity) as candidates for Mercado Livre debits. This is learned
+// from match history, so the exclusion strengthens automatically as the user
+// keeps reconciling. A manual search ("Buscar nota manualmente") always bypasses
+// it — the exclusion only touches the automatic proximity suggestions.
+const DIRECT_SETTLER_MIN_DIRECT_MATCHES = 3;
+const DIRECT_SETTLER_CACHE_TTL_MS = 5 * 60_000;
+// docTypes that are goods invoices (what a marketplace purchase always is —
+// observed: 27/27 real marketplace matches are NF-e, zero services/transport).
+// Used to keep service (NFS-e) and freight (CT-e) notes out of the value-only
+// marketplace candidate passes, where they are pure noise.
+const MARKETPLACE_CANDIDATE_DOC_TYPES: ReadonlySet<FiscalDocumentType> = new Set([
+  FiscalDocumentType.NFE,
+  FiscalDocumentType.NFCE,
+  FiscalDocumentType.CFE,
+]);
 // --- Broad "last-resort" suggestions -----------------------------------------
 // When the normal passes surface NO confident candidate, offer the user ANY
 // still-open AUTHORIZED NF within a 2-month window — ignoring value AND CNPJ — at
@@ -523,6 +546,63 @@ export class ReconciliationMatcherService {
   private readonly companyCnpj: string;
   /** Memoized id of the seeded service-revenue category (slug is immutable). */
   private serviceRevenueCategoryId: string | null = null;
+  /** Memoized set of learned "direct-settler" supplier CNPJ roots (TTL-cached). */
+  private directSettlerCache: { roots: Set<string>; at: number } | null = null;
+
+  /**
+   * Learned set of supplier CNPJ *roots* (first 8 digits) that settle their
+   * ENTRADA notes DIRECTLY — i.e. a reconciled bank transaction carrying that
+   * supplier's own CNPJ paid the note — and NEVER through a marketplace
+   * intermediary. Derived from ReconciliationMatch history so it self-reinforces
+   * as reconciliation continues; TTL-cached because it changes slowly and is
+   * consulted on every manual candidate lookup.
+   *
+   * A root qualifies when direct matches ≥ {@link DIRECT_SETTLER_MIN_DIRECT_MATCHES}
+   * AND marketplace matches = 0. Roots on this list are suppressed from the
+   * value-only marketplace / broad proximity passes (a manual search still finds
+   * them), because for an intermediary-routed payment their appearance is almost
+   * always a false positive: if it were really their note, the debit would carry
+   * their CNPJ and the ordinary CNPJ pass would have matched it.
+   */
+  private async getDirectSettlerRoots(): Promise<Set<string>> {
+    const now = Date.now();
+    if (this.directSettlerCache && now - this.directSettlerCache.at < DIRECT_SETTLER_CACHE_TTL_MS) {
+      return this.directSettlerCache.roots;
+    }
+    try {
+      const mktCnpjs = [...MARKETPLACE_INTERMEDIARY_CNPJS];
+      const rows = await this.prisma.$queryRaw<Array<{ root: string }>>`
+        SELECT left(fd."emitCnpj", 8) AS root
+        FROM "ReconciliationMatch" rm
+        JOIN "FiscalDocument" fd ON fd.id = rm."fiscalDocumentId"
+        JOIN "BankTransaction" bt ON bt.id = rm."transactionId"
+        WHERE rm."reversedAt" IS NULL
+          AND fd."operationType" = 'ENTRADA'
+          AND fd."emitCnpj" IS NOT NULL
+          AND length(fd."emitCnpj") = 14
+        GROUP BY left(fd."emitCnpj", 8)
+        HAVING
+          count(*) FILTER (
+            WHERE left(regexp_replace(bt."counterpartyCnpjCpf", '\\D', '', 'g'), 8) = left(fd."emitCnpj", 8)
+          ) >= ${DIRECT_SETTLER_MIN_DIRECT_MATCHES}
+          AND count(*) FILTER (
+            WHERE bt.memo ~* '\\mmarketplace\\M|\\mshopee\\M|\\mshpp\\M'
+               OR regexp_replace(bt."counterpartyCnpjCpf", '\\D', '', 'g') IN (${Prisma.join(mktCnpjs)})
+          ) = 0
+      `;
+      const roots = new Set(rows.map(r => r.root).filter(Boolean));
+      this.directSettlerCache = { roots, at: now };
+      return roots;
+    } catch (err) {
+      this.logger.warn(
+        `getDirectSettlerRoots() failed, proceeding without exclusion: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      // Fail open: an empty set just means no extra suppression this call.
+      return this.directSettlerCache?.roots ?? new Set<string>();
+    }
+  }
 
   /**
    * Tag a reconciled CREDIT boleto with the service-revenue category, so the
@@ -1060,6 +1140,7 @@ export class ReconciliationMatcherService {
     const docs = await this.prisma.fiscalDocument.findMany({
       where: {
         status: 'AUTHORIZED',
+        offBankResolvedAt: null,
         matches: { none: {} },
         issueDate: { gte: lower, lte: upper },
         orderCodes: { some: {} },
@@ -1259,6 +1340,7 @@ export class ReconciliationMatcherService {
     const docs = await this.prisma.fiscalDocument.findMany({
       where: {
         status: 'AUTHORIZED',
+        offBankResolvedAt: null,
         operationType: FiscalDocumentOperation.ENTRADA,
         matches: { none: {} },
         issueDate: { gte: lower, lte: upper },
@@ -1400,6 +1482,7 @@ export class ReconciliationMatcherService {
     const supplierNfsRaw = await this.prisma.fiscalDocument.findMany({
       where: {
         status: 'AUTHORIZED',
+        offBankResolvedAt: null,
         operationType: FiscalDocumentOperation.ENTRADA,
         matches: { none: {} },
         issueDate: { gte: lower, lte: upper },
@@ -1674,10 +1757,23 @@ export class ReconciliationMatcherService {
       : tx.counterpartyCnpjCpf || aliasContext?.effectiveCnpj || null;
     const root = cnpjRoot(counterparty);
 
+    // Learned direct-settler suppliers (Farben, VMD, …): their notes are paid by
+    // a transaction carrying their own CNPJ, so they must not surface in the
+    // value-only proximity passes (marketplace band + broad suggestions) for a
+    // payment that doesn't carry that CNPJ. A note is still allowed when its
+    // emitter root equals THIS payment's counterparty root (that's a legitimate
+    // direct match). A manual search bypasses this entirely (handled below).
+    const directSettlers = await this.getDirectSettlerRoots();
+    const isSuppressedDirectSettler = (emitCnpj: string | null | undefined): boolean => {
+      const r = cnpjRoot(emitCnpj);
+      return !!r && directSettlers.has(r) && r !== root;
+    };
+
     const baseWhere: Prisma.FiscalDocumentWhereInput = {
       totalValue: { gte: minAmount, lte: maxAmount },
       issueDate: { gte: dateLower, lte: dateUpper },
       status: 'AUTHORIZED',
+      offBankResolvedAt: null,
       matches: { none: {} },
     };
 
@@ -1728,6 +1824,7 @@ export class ReconciliationMatcherService {
       docs = await this.prisma.fiscalDocument.findMany({
         where: {
           status: 'AUTHORIZED',
+          offBankResolvedAt: null,
           matches: { none: {} },
           issueDate: { gte: wideLower, lte: wideUpper },
           OR: [
@@ -1764,6 +1861,7 @@ export class ReconciliationMatcherService {
       docs = await this.prisma.fiscalDocument.findMany({
         where: {
           status: 'AUTHORIZED',
+          offBankResolvedAt: null,
           matches: { none: {} },
           issueDate: { gte: widestLower, lte: widestUpper },
           OR: [
@@ -1795,10 +1893,15 @@ export class ReconciliationMatcherService {
     if (marketplace && docs.length === 0) {
       const mktLower = new Date(tx.postedAt.getTime() - MARKETPLACE_DATE_WINDOW_DAYS * 86_400_000);
       const mktUpper = new Date(tx.postedAt.getTime() + MARKETPLACE_DATE_WINDOW_DAYS * 86_400_000);
-      docs = await this.prisma.fiscalDocument.findMany({
+      const bandDocs = await this.prisma.fiscalDocument.findMany({
         where: {
           status: 'AUTHORIZED',
+          offBankResolvedAt: null,
           operationType: FiscalDocumentOperation.ENTRADA,
+          // A marketplace purchase is always a goods invoice — never a service
+          // (NFS-e) or freight (CT-e) note. Restricting the band keeps Google
+          // Cloud / monitoring / vale-refeição service notes out of it.
+          docType: { in: [...MARKETPLACE_CANDIDATE_DOC_TYPES] },
           destCnpj: this.companyCnpj,
           matches: { none: {} },
           issueDate: { gte: mktLower, lte: mktUpper },
@@ -1811,6 +1914,9 @@ export class ReconciliationMatcherService {
         take: 50,
         select,
       });
+      // Drop notes from learned direct-settler suppliers — a marketplace debit
+      // never carries their CNPJ, so their appearance here is a false positive.
+      docs = bandDocs.filter(d => !isSuppressedDirectSettler(d.emitCnpj));
       for (const d of docs) marketplaceBandIds.add(d.id);
     }
 
@@ -1850,6 +1956,7 @@ export class ReconciliationMatcherService {
       const partialDocs = await this.prisma.fiscalDocument.findMany({
         where: {
           status: 'AUTHORIZED',
+          offBankResolvedAt: null,
           issueDate: { gte: partLower, lte: partUpper },
           // Already partially settled by a DIFFERENT transaction (an installment
           // sibling), never the one we're matching now.
@@ -1919,7 +2026,7 @@ export class ReconciliationMatcherService {
         );
       }
       const searchDocs = await this.prisma.fiscalDocument.findMany({
-        where: { status: 'AUTHORIZED', matches: { none: {} }, OR: or },
+        where: { status: 'AUTHORIZED', offBankResolvedAt: null, matches: { none: {} }, OR: or },
         orderBy: { issueDate: 'desc' },
         take: 30,
         select,
@@ -2039,6 +2146,7 @@ export class ReconciliationMatcherService {
       baseline,
       groupMemberIds,
       aliasContext,
+      { marketplace, isSuppressedDirectSettler },
     );
     return [...baseline, ...fallback].sort((a, b) => b.confidence - a.confidence);
   }
@@ -2083,6 +2191,7 @@ export class ReconciliationMatcherService {
         destName: true,
         operationType: true,
         status: true,
+        offBankResolvedAt: true,
         nfNumber: true,
         // Non-reversed allocations already pointing at THIS note, to derive its
         // open balance — an installment note keeps attracting parcelas until the
@@ -2094,6 +2203,10 @@ export class ReconciliationMatcherService {
       },
     });
     if (!nf) return [];
+
+    // Off-bank settled (credit-card / bonificação / no-payment): the note will
+    // never match a bank line, so it has no transaction candidates to offer.
+    if (nf.offBankResolvedAt) return [];
 
     // Sale/receivable notes are settled by an inbound CREDIT owned by the
     // receivable matcher — never by the outgoing debits this method surfaces.
@@ -2348,6 +2461,12 @@ export class ReconciliationMatcherService {
     existing: MatchCandidate[],
     groupMemberIds: Set<string>,
     aliasContext: AliasContext | null,
+    opts: {
+      /** Whether the payment is intermediary-routed (marketplace/Shopee). */
+      marketplace: boolean;
+      /** Emitter roots we KNOW settle directly → not valid value-only candidates. */
+      isSuppressedDirectSettler: (emitCnpj: string | null | undefined) => boolean;
+    },
   ): Promise<MatchCandidate[]> {
     const excluded = new Set<string>([
       ...existing.map(c => c.fiscalDocumentId).filter((id): id is string => !!id),
@@ -2365,6 +2484,7 @@ export class ReconciliationMatcherService {
     const scan = await this.prisma.fiscalDocument.findMany({
       where: {
         status: 'AUTHORIZED',
+        offBankResolvedAt: null,
         // A payment (saída) settles a PURCHASE note; our own sales notes (SAIDA)
         // are receivables matched against credits elsewhere. Scoping to ENTRADA
         // keeps the broad list purchase-focused instead of dumping every note.
@@ -2412,6 +2532,13 @@ export class ReconciliationMatcherService {
     }[] = [];
     for (const doc of scan) {
       if (excluded.has(doc.id)) continue;
+      // Learned direct-settler suppliers (Farben, VMD, …) are paid by a debit
+      // carrying their own CNPJ — never a value-only proximity guess. Suppress
+      // them here (a manual search still finds them).
+      if (opts.isSuppressedDirectSettler(doc.emitCnpj)) continue;
+      // A marketplace purchase is always a goods invoice; drop service (NFS-e)
+      // and freight (CT-e) notes that only coincide by value/date.
+      if (opts.marketplace && !MARKETPLACE_CANDIDATE_DOC_TYPES.has(doc.docType)) continue;
       const docTotal = Number(doc.totalValue);
       const allocated = (doc.matches ?? []).reduce(
         (s: number, m: { allocatedAmount: Prisma.Decimal | number; adjustmentAmount?: Prisma.Decimal | number | null }) =>
@@ -2567,6 +2694,7 @@ export class ReconciliationMatcherService {
     const docs = await this.prisma.fiscalDocument.findMany({
       where: {
         status: 'AUTHORIZED',
+        offBankResolvedAt: null,
         matches: { none: {} },
         issueDate: { gte: lower, lte: upper },
         orderCodes: { some: {} },
@@ -2902,6 +3030,7 @@ export class ReconciliationMatcherService {
     const candidates = await this.prisma.fiscalDocument.findMany({
       where: {
         status: 'AUTHORIZED',
+        offBankResolvedAt: null,
         totalValue: {
           gte: absAmount - AUTO_MATCH_VALUE_TOLERANCE,
           lte: absAmount + AUTO_MATCH_VALUE_TOLERANCE,
@@ -3088,6 +3217,7 @@ export class ReconciliationMatcherService {
     const candidates = await this.prisma.fiscalDocument.findMany({
       where: {
         status: 'AUTHORIZED',
+        offBankResolvedAt: null,
         operationType: FiscalDocumentOperation.ENTRADA,
         destCnpj: this.companyCnpj,
         totalValue: {
