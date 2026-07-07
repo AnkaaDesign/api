@@ -23,13 +23,20 @@ export interface ReceivableRow {
   taskId: string | null;
   customerId: string | null;
   customerName: string;
+  /** The task (faturamento) name — the row's primary label. Falls back to the
+   *  customer/parcela description for non-task receivables. */
   description: string;
   amount: number;
   paidAmount: number;
   state: ReceivableState;
   dueDate: Date | null;
   paidAt: Date | null;
+  /** This installment's position (1-based). */
   number: number;
+  /** How many installments the parent has, so the UI can show "2/3". */
+  totalInstallments: number;
+  /** Free-form payment method (BANK_SLIP / PIX / CASH / ...). Null until paid. */
+  paymentMethod: string | null;
   /** A Sicredi boleto exists — receipt reconciles via the boleto bridge. */
   hasBankSlip: boolean;
   /** Already conciliated against a bank credit. */

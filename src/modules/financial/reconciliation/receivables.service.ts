@@ -40,16 +40,29 @@ export class ReceivablesService {
             where: { reversedAt: null },
             select: { id: true, transactionId: true, allocatedAmount: true, matchedAt: true },
           },
-          invoice: { select: { id: true, taskId: true, customer: { select: { id: true, fantasyName: true } } } },
+          invoice: {
+            select: {
+              id: true,
+              taskId: true,
+              task: { select: { name: true } },
+              customer: { select: { id: true, fantasyName: true } },
+              _count: { select: { installments: true } },
+            },
+          },
           customerConfig: {
             select: {
               orderNumber: true,
               customer: { select: { id: true, fantasyName: true } },
-              quote: { select: { task: { select: { id: true } } } },
+              quote: { select: { task: { select: { id: true, name: true } } } },
+              _count: { select: { installments: true } },
             },
           },
           externalOperation: {
-            select: { id: true, customer: { select: { id: true, fantasyName: true } } },
+            select: {
+              id: true,
+              customer: { select: { id: true, fantasyName: true } },
+              _count: { select: { installments: true } },
+            },
           },
         },
         orderBy: { dueDate: 'asc' },
@@ -82,6 +95,20 @@ export class ReceivablesService {
           inst.customerConfig?.orderNumber ??
           'Cliente';
 
+        // Primary row label is the task (faturamento) name; non-task receivables
+        // (external ops / standalone invoices) fall back to the customer / parcela.
+        const taskName =
+          inst.invoice?.task?.name ??
+          inst.customerConfig?.quote?.task?.name ??
+          null;
+        const description =
+          taskName ?? customer?.fantasyName ?? `Parcela ${inst.number}`;
+        const totalInstallments =
+          inst.invoice?._count?.installments ??
+          inst.customerConfig?._count?.installments ??
+          inst.externalOperation?._count?.installments ??
+          1;
+
         // Axis B — derive clearance from the (non-reversed) match + amount drift.
         const match = inst.reconciliationMatches[0] ?? null;
         let clearanceState: 'UNCLEARED' | 'CLEARED' | 'DISPUTED' = 'UNCLEARED';
@@ -99,13 +126,15 @@ export class ReceivablesService {
           taskId: inst.invoice?.taskId ?? inst.customerConfig?.quote?.task?.id ?? null,
           customerId: customer?.id ?? null,
           customerName: label,
-          description: `Parcela ${inst.number}${customer ? ` — ${customer.fantasyName}` : ''}`,
+          description,
           amount,
           paidAmount,
           state,
           dueDate: inst.dueDate,
           paidAt: inst.paidAt ?? null,
           number: inst.number,
+          totalInstallments,
+          paymentMethod: inst.paymentMethod ?? null,
           hasBankSlip: !!inst.bankSlip,
           reconciled: inst.reconciliationMatches.length > 0,
           // The bank transaction this receipt was conciliated against (if any),

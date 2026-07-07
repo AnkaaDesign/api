@@ -9,7 +9,28 @@ import {
   normalizeSearchTerm,
 } from './common';
 import type { Maintenance, MaintenanceItem } from '@types';
-import { MAINTENANCE_STATUS, SCHEDULE_FREQUENCY } from '@constants';
+import { MAINTENANCE_STATUS, SCHEDULE_FREQUENCY, MONTH_OCCURRENCE, WEEK_DAY } from '@constants';
+
+// Inline nested-create payload for the schedule's MonthlyScheduleConfig
+// ("nth weekday of month", e.g. 1st Thursday). Wire name `monthlySchedule`
+// matches the repository's create/update destructure. Mirrors order-schedule.
+const monthlyScheduleInlineSchema = z
+  .object({
+    occurrence: z.nativeEnum(MONTH_OCCURRENCE, { errorMap: () => ({ message: 'Ocorrência inválida' }) }),
+    dayOfWeek: z.nativeEnum(WEEK_DAY, { errorMap: () => ({ message: 'Dia da semana inválido' }) }),
+  })
+  .strict();
+
+// Collapse an all-empty positional object to `undefined` so an untouched pair
+// ({ occurrence: undefined, dayOfWeek: undefined }) is skipped by `.optional()`
+// instead of failing both required enums. Partial objects still validate.
+const optionalMonthlyScheduleSchema = z.preprocess((val) => {
+  if (val && typeof val === 'object') {
+    const v = val as { occurrence?: unknown; dayOfWeek?: unknown };
+    if (!v.occurrence && !v.dayOfWeek) return undefined;
+  }
+  return val;
+}, monthlyScheduleInlineSchema.optional());
 
 // =====================
 // Maintenance Include Schemas
@@ -1623,6 +1644,10 @@ export const maintenanceScheduleCreateSchema = z
     monthlyConfigId: z.string().uuid('Configuração mensal inválida').optional(),
     yearlyConfigId: z.string().uuid('Configuração anual inválida').optional(),
 
+    // Inline positional config (sibling to monthlyConfigId). When set, dayOfMonth
+    // must be omitted — repo creates a MonthlyScheduleConfig row + links it.
+    monthlySchedule: optionalMonthlyScheduleSchema,
+
     // Runtime fields
     nextRun: z.coerce.date().optional(),
   })
@@ -1642,7 +1667,7 @@ export const maintenanceScheduleCreateSchema = z
         case SCHEDULE_FREQUENCY.TRIANNUAL:
         case SCHEDULE_FREQUENCY.QUADRIMESTRAL:
         case SCHEDULE_FREQUENCY.SEMI_ANNUAL:
-          return !!data.dayOfMonth || !!data.monthlyConfigId || !!data.nextRun;
+          return !!data.dayOfMonth || !!data.monthlyConfigId || !!data.monthlySchedule || !!data.nextRun;
         case SCHEDULE_FREQUENCY.ANNUAL:
           return (!!data.dayOfMonth && !!data.month) || !!data.yearlyConfigId || !!data.nextRun;
         case SCHEDULE_FREQUENCY.CUSTOM:
@@ -1694,6 +1719,9 @@ export const maintenanceScheduleUpdateSchema = z
     weeklyConfigId: z.string().uuid().nullable().optional(),
     monthlyConfigId: z.string().uuid().nullable().optional(),
     yearlyConfigId: z.string().uuid().nullable().optional(),
+
+    // Inline positional config — repo upserts the linked MonthlyScheduleConfig.
+    monthlySchedule: optionalMonthlyScheduleSchema,
 
     // Auto-creation fields
     finishedAt: z.coerce.date().nullable().optional(),
