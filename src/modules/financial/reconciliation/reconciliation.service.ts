@@ -12,6 +12,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TransactionsFilterDto } from './dto/transactions-filter.dto';
 import { FiscalDocumentsFilterDto } from './dto/fiscal-documents-filter.dto';
 import { ManualMatchDto } from './dto/manual-match.dto';
+import { OffBankResolutionDto } from './dto/off-bank-resolution.dto';
 import { IgnoreTransactionDto } from './dto/ignore-transaction.dto';
 import { ChangeCategoryDto } from './dto/change-category.dto';
 import { ChangeItemCategoryDto } from './dto/change-item-category.dto';
@@ -797,6 +798,58 @@ export class ReconciliationService {
    * transaction's status from its remaining non-reversed matches — never blindly
    * resetting a transaction that still has other valid links.
    */
+  /**
+   * Close a received note WITHOUT a bank transaction (credit-card / bonificação /
+   * no-payment), or clear that resolution (`resolution: null`). A MANUAL override
+   * of the import-time auto-detection: source=MANUAL so it's distinguishable and
+   * a later re-import never clobbers it. Rejected while the note still has a live
+   * bank match — desvincule first.
+   */
+  async setOffBankResolution(
+    fiscalDocumentId: string,
+    payload: OffBankResolutionDto,
+    userId: string | undefined,
+  ) {
+    const doc = await this.prisma.fiscalDocument.findUnique({
+      where: { id: fiscalDocumentId },
+      select: {
+        id: true,
+        matches: { where: { reversedAt: null }, select: { id: true } },
+      },
+    });
+    if (!doc) throw new NotFoundException('Nota fiscal não encontrada');
+
+    if (payload.resolution) {
+      if (doc.matches.length > 0) {
+        throw new BadRequestException(
+          'A nota já possui vínculo bancário; desvincule antes de marcá-la como sem transação.',
+        );
+      }
+      await this.prisma.fiscalDocument.update({
+        where: { id: fiscalDocumentId },
+        data: {
+          offBankResolution: payload.resolution,
+          offBankResolvedAt: new Date(),
+          offBankResolutionSource: ReconciliationSource.MANUAL,
+          offBankResolvedById: userId ?? null,
+          offBankResolutionNotes: payload.notes ?? null,
+        },
+      });
+    } else {
+      await this.prisma.fiscalDocument.update({
+        where: { id: fiscalDocumentId },
+        data: {
+          offBankResolution: null,
+          offBankResolvedAt: null,
+          offBankResolutionSource: null,
+          offBankResolvedById: null,
+          offBankResolutionNotes: null,
+        },
+      });
+    }
+    return this.getFiscalDocument(fiscalDocumentId);
+  }
+
   async unmatchFiscalDocument(fiscalDocumentId: string, userId: string | undefined) {
     const doc = await this.prisma.fiscalDocument.findUnique({
       where: { id: fiscalDocumentId },
@@ -1263,7 +1316,13 @@ export class ReconciliationService {
         OR: [
           {
             operationType: FiscalDocumentOperation.ENTRADA,
-            matches: { some: { reversedAt: null } },
+            // Linked = settled by a bank match OR closed off-bank (credit-card /
+            // bonificação / no-payment). Both count as "resolved" for the
+            // Pendentes/Vinculadas split.
+            OR: [
+              { matches: { some: { reversedAt: null } } },
+              { offBankResolvedAt: { not: null } },
+            ],
           },
           {
             operationType: FiscalDocumentOperation.SAIDA,
@@ -1313,7 +1372,7 @@ export class ReconciliationService {
       ...doc,
       linked:
         doc.operationType === FiscalDocumentOperation.ENTRADA
-          ? doc.matches.length > 0
+          ? doc.matches.length > 0 || doc.offBankResolvedAt != null
           : doc.nfseDocument?.invoiceId != null || doc.nfseDocument?.taskId != null,
     }));
     return {

@@ -15,6 +15,7 @@ import {
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { detectOffBankResolution } from '@modules/financial/reconciliation/off-bank-resolution';
 import { ParsedFiscalDocument } from './types/sieg.types';
 
 export interface IngestedFiscalDocument {
@@ -247,6 +248,11 @@ export class SiegIngestionService {
         rawXmlFileId,
         nfseDocumentId: nfseDocumentId ?? undefined,
         ...this.mapHeaderFields(parsed),
+        // Auto-close notes that will never match a bank line (credit-card /
+        // bonificação / no-payment). Only on CREATE — re-imports (the update path)
+        // never touch it, so a manual resolve/clear is preserved. See
+        // off-bank-resolution.ts. AUTO source keeps it distinguishable in audit.
+        ...this.buildOffBankResolution(parsed),
         items:
           parsed.items && parsed.items.length > 0
             ? { create: parsed.items.map(it => this.mapItemFields(it)) }
@@ -376,6 +382,26 @@ export class SiegIngestionService {
    */
   private itemFingerprint(code: string | null, description: string): string {
     return `${code ?? ''} ${description}`;
+  }
+
+  /**
+   * Off-bank settlement (credit-card / bonificação / no-payment) auto-detected
+   * from the parsed note. Returns the fields to spread onto a CREATE, or `{}`
+   * when the note still expects a bank match. Never applied on update.
+   */
+  private buildOffBankResolution(parsed: ParsedFiscalDocument) {
+    const resolution = detectOffBankResolution({
+      operationType: parsed.operationType,
+      naturezaOperacao: parsed.naturezaOperacao ?? null,
+      paymentMethods: parsed.paymentMethods ?? null,
+      emitCnpj: parsed.emitCnpj ?? null,
+    });
+    if (!resolution) return {};
+    return {
+      offBankResolution: resolution,
+      offBankResolvedAt: new Date(),
+      offBankResolutionSource: ReconciliationSource.AUTO,
+    };
   }
 
   private mapHeaderFields(parsed: ParsedFiscalDocument) {

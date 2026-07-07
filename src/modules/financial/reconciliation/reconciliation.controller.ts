@@ -55,6 +55,10 @@ import {
 } from './dto/fiscal-documents-filter.dto';
 import { statisticsFilterSchema, StatisticsFilterDto } from './dto/statistics-filter.dto';
 import { manualMatchSchema, ManualMatchDto } from './dto/manual-match.dto';
+import {
+  offBankResolutionSchema,
+  OffBankResolutionDto,
+} from './dto/off-bank-resolution.dto';
 import { ignoreTransactionSchema, IgnoreTransactionDto } from './dto/ignore-transaction.dto';
 import { rerunMatchingSchema, RerunMatchingDto } from './dto/rerun-matching.dto';
 import { changeCategorySchema, ChangeCategoryDto } from './dto/change-category.dto';
@@ -148,6 +152,19 @@ export class ReconciliationController {
   @Post('fiscal-documents/:id/unmatch')
   unmatchFiscalDocument(@Param('id') id: string, @Req() req: Request & { user?: { id?: string } }) {
     return this.service.unmatchFiscalDocument(id, req.user?.id);
+  }
+
+  // Close a received note WITHOUT a bank transaction (credit-card / bonificação /
+  // no-payment), or CLEAR that resolution (resolution: null) so it expects a
+  // match again. Manual override of the import-time auto-detection.
+  @Post('fiscal-documents/:id/off-bank-resolution')
+  @UsePipes(new ZodValidationPipe(offBankResolutionSchema))
+  resolveOffBank(
+    @Param('id') id: string,
+    @Body() payload: OffBankResolutionDto,
+    @Req() req: Request & { user?: { id?: string } },
+  ) {
+    return this.service.setOffBankResolution(id, payload, req.user?.id);
   }
 
   @Post('transactions/:id/match')
