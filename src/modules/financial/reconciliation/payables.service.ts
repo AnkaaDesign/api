@@ -12,6 +12,12 @@ const CLEAR_TOLERANCE_PCT = 0.005;
 /** One calendar day in ms — recurrent bills stay "Previsto" until this close to due. */
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Grace window past SP-midnight before a due-today obligation flips to OVERDUE —
+ * gives the day itself a chance to be paid before it's flagged as late.
+ */
+const OVERDUE_GRACE_MS = 18 * 60 * 60 * 1000;
+
 /** One non-reversed match on a payable anchor, reduced to what clearance needs. */
 type AnchorMatch = { allocatedAmount: number; transactionId: string; matchedAt: Date };
 
@@ -140,7 +146,7 @@ export class PayablesService {
           !row.ignored &&
           (row.paymentState === 'AWAITING_PAYMENT' || row.paymentState === 'PARTIALLY_PAID') &&
           row.dueDate != null &&
-          new Date(row.dueDate) < now
+          new Date(row.dueDate).getTime() + OVERDUE_GRACE_MS < now.getTime()
         ) {
           row.paymentState = 'OVERDUE';
         }

@@ -35,7 +35,17 @@ export class ReceivablesService {
           ],
         },
         include: {
-          bankSlip: { select: { id: true } },
+          bankSlip: {
+            select: {
+              id: true,
+              // Boleto receipts are matched via bankSlipId, not installmentId —
+              // without this, a Sicredi-liquidated parcela never clears below.
+              reconciliationMatches: {
+                where: { reversedAt: null },
+                select: { id: true, transactionId: true, allocatedAmount: true, matchedAt: true },
+              },
+            },
+          },
           reconciliationMatches: {
             where: { reversedAt: null },
             select: { id: true, transactionId: true, allocatedAmount: true, matchedAt: true },
@@ -110,7 +120,10 @@ export class ReceivablesService {
           1;
 
         // Axis B — derive clearance from the (non-reversed) match + amount drift.
-        const match = inst.reconciliationMatches[0] ?? null;
+        // Matches land on installmentId (PIX/TED direct) OR bankSlipId (boleto) —
+        // merge both anchors so boleto-cleared parcelas count as reconciled too.
+        const allMatches = [...inst.reconciliationMatches, ...(inst.bankSlip?.reconciliationMatches ?? [])];
+        const match = allMatches[0] ?? null;
         let clearanceState: 'UNCLEARED' | 'CLEARED' | 'DISPUTED' = 'UNCLEARED';
         if (match) {
           const tol = Math.max(2, amount * 0.005);
@@ -136,10 +149,10 @@ export class ReceivablesService {
           totalInstallments,
           paymentMethod: inst.paymentMethod ?? null,
           hasBankSlip: !!inst.bankSlip,
-          reconciled: inst.reconciliationMatches.length > 0,
+          reconciled: allMatches.length > 0,
           // The bank transaction this receipt was conciliated against (if any),
           // so the list row can link straight to its reconciliation detail.
-          transactionId: inst.reconciliationMatches[0]?.transactionId ?? null,
+          transactionId: match?.transactionId ?? null,
           clearanceState,
           clearedAt: match?.matchedAt ?? null,
         };
