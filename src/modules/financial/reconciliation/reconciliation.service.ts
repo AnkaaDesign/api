@@ -76,12 +76,64 @@ const INSTALLMENT_RECEIVABLE_SELECT = {
       id: true,
       totalAmount: true,
       status: true,
-      customer: { select: { id: true, fantasyName: true } },
+      customer: { select: { id: true, fantasyName: true, corporateName: true, cnpj: true } },
       task: { select: { id: true, name: true, serialNumber: true } },
       installments: { select: { id: true } },
     },
   },
+  // Faturamento (task-quote) receivables have no Invoice row — they hang off a
+  // TaskQuoteCustomerConfig instead. Selected so normalizeInstallmentInvoice()
+  // below can synthesize the same shape the detail page reads off `invoice`.
+  customerConfig: {
+    select: {
+      id: true,
+      total: true,
+      customer: { select: { id: true, fantasyName: true, corporateName: true, cnpj: true } },
+      quote: { select: { task: { select: { id: true, name: true, serialNumber: true } } } },
+      _count: { select: { installments: true } },
+    },
+  },
 } satisfies Prisma.InstallmentSelect;
+
+type InstallmentReceivable = Prisma.InstallmentGetPayload<{ select: typeof INSTALLMENT_RECEIVABLE_SELECT }>;
+
+/**
+ * Normalizes a receivable installment onto a single `invoice`-shaped view,
+ * regardless of whether it's backed by a classic Invoice or a Faturamento
+ * TaskQuoteCustomerConfig — so the detail page can read `installment.invoice`
+ * without caring which source it came from (mirrors the fallback pattern in
+ * receivable-match.service.ts / receivables.service.ts).
+ */
+function normalizeInstallmentInvoice(inst: InstallmentReceivable) {
+  const { customerConfig, invoice, ...rest } = inst;
+  if (invoice) {
+    return {
+      ...rest,
+      invoice: {
+        id: invoice.id,
+        totalAmount: invoice.totalAmount,
+        status: invoice.status,
+        customer: invoice.customer,
+        task: invoice.task,
+        installmentsCount: invoice.installments.length,
+      },
+    };
+  }
+  if (customerConfig) {
+    return {
+      ...rest,
+      invoice: {
+        id: customerConfig.id,
+        totalAmount: customerConfig.total,
+        status: rest.status,
+        customer: customerConfig.customer,
+        task: customerConfig.quote?.task ?? null,
+        installmentsCount: customerConfig._count.installments,
+      },
+    };
+  }
+  return { ...rest, invoice: null };
+}
 
 @Injectable()
 export class ReconciliationService {
@@ -320,7 +372,21 @@ export class ReconciliationService {
       },
     });
     if (!tx) throw new NotFoundException('Transação não encontrada');
-    return tx;
+    return {
+      ...tx,
+      matches: tx.matches.map(m => ({
+        ...m,
+        installment: m.installment ? normalizeInstallmentInvoice(m.installment) : m.installment,
+        bankSlip: m.bankSlip
+          ? {
+              ...m.bankSlip,
+              installment: m.bankSlip.installment
+                ? normalizeInstallmentInvoice(m.bankSlip.installment)
+                : m.bankSlip.installment,
+            }
+          : m.bankSlip,
+      })),
+    };
   }
 
   /**
