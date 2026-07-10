@@ -392,6 +392,36 @@ export class OrderController {
     return this.orderService.markPaid(id, userId);
   }
 
+  @Put(':id/receipts')
+  // Attaching the comprovante de pagamento is a payment-side action, so it follows
+  // the financial roles (like mark-paid) — NOT the WAREHOUSE/ADMIN gate of the generic
+  // PUT :id. This lets ACCOUNTING/FINANCIAL index a receipt when settling a payable
+  // without granting them full order-edit rights. Existing files are preserved.
+  @Roles(
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+  )
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'receipts', maxCount: 10 },
+      ],
+      multerConfig,
+    ),
+  )
+  async attachReceipts(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+    @UploadedFiles()
+    files?: {
+      receipts?: Express.Multer.File[];
+    },
+  ): Promise<OrderUpdateResponse> {
+    return this.orderService.attachReceipts(id, files, userId);
+  }
+
   @Put(':id/request-payment')
   // "Requisitar Pagamento" (PENDING → AWAITING_PAYMENT) is ADMIN-only.
   @Roles(SECTOR_PRIVILEGES.ADMIN)
