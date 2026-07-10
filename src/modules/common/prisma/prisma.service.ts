@@ -195,8 +195,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         position: {
           nameNormalized: true,
         },
-        postit: {
+        note: {
           contentNormalized: true,
+          titleNormalized: true,
         },
         ppeDelivery: {
           reasonNormalized: true,

@@ -276,6 +276,644 @@ export class PaintProductionService {
     };
   }
 
+  // =====================================================
+  // PRODUCTION AVAILABILITY (multi-paint stock planner)
+  // =====================================================
+  // Powers the "Disponibilidade de Produção" page: given a set of paints and how
+  // much of each we intend to produce, aggregate the component demand across ALL
+  // of them (shared components compete for the same stock) and compare it to the
+  // current inventory to see what can actually be produced.
+
+  /** A scheduled task plans 3 gallons of its general painting; 1 gallon = 3.6 L. */
+  private static readonly LITERS_PER_TASK = 3 * 3.6; // 10.8 L
+
+  /**
+   * Default selections for the availability planner: every general painting on
+   * tasks currently in the schedule (PREPARATION / WAITING_PRODUCTION /
+   * IN_PRODUCTION), aggregated per paint. Each task contributes LITERS_PER_TASK
+   * of its general painting, so a paint used by N tasks defaults to N × 10.8 L.
+   */
+  async getScheduleDefaultSelections(forecastDate?: Date): Promise<{
+    litersPerTask: number;
+    selections: Array<{
+      paintId: string;
+      paintName: string;
+      hex: string;
+      finish: string;
+      typeName: string | null;
+      brandName: string | null;
+      taskCount: number;
+      volumeLiters: number;
+      hasFormula: boolean;
+    }>;
+  }> {
+    const litersPerTask = PaintProductionService.LITERS_PER_TASK;
+
+    // When a forecast date is given, only count tasks forecast to be produced on or
+    // before the end of that day (so the plan covers everything due up to then).
+    let forecastFilter: { lte: Date } | undefined;
+    if (forecastDate && !isNaN(forecastDate.getTime())) {
+      const end = new Date(forecastDate);
+      end.setHours(23, 59, 59, 999);
+      forecastFilter = { lte: end };
+    }
+
+    const tasks = await this.prisma.task.findMany({
+      where: {
+        status: { in: ['PREPARATION', 'WAITING_PRODUCTION', 'IN_PRODUCTION'] },
+        paintId: { not: null },
+        ...(forecastFilter ? { forecastDate: forecastFilter } : {}),
+      },
+      select: {
+        paintId: true,
+        generalPainting: {
+          select: {
+            id: true,
+            name: true,
+            hex: true,
+            finish: true,
+            paintType: { select: { name: true } },
+            paintBrand: { select: { name: true } },
+            formulas: { select: { id: true }, take: 1 },
+          },
+        },
+      },
+    });
+
+    const byPaint = new Map<
+      string,
+      {
+        paintId: string;
+        paintName: string;
+        hex: string;
+        finish: string;
+        typeName: string | null;
+        brandName: string | null;
+        taskCount: number;
+        volumeLiters: number;
+        hasFormula: boolean;
+      }
+    >();
+
+    for (const task of tasks) {
+      const paint = task.generalPainting;
+      if (!paint) continue;
+
+      const existing = byPaint.get(paint.id);
+      if (existing) {
+        existing.taskCount += 1;
+        existing.volumeLiters += litersPerTask;
+      } else {
+        byPaint.set(paint.id, {
+          paintId: paint.id,
+          paintName: paint.name,
+          hex: paint.hex,
+          finish: paint.finish,
+          typeName: paint.paintType?.name ?? null,
+          brandName: paint.paintBrand?.name ?? null,
+          taskCount: 1,
+          volumeLiters: litersPerTask,
+          hasFormula: paint.formulas.length > 0,
+        });
+      }
+    }
+
+    const selections = Array.from(byPaint.values())
+      // Float accumulation (N × 10.8) can drift; keep volumes at 2 decimals.
+      .map((s) => ({ ...s, volumeLiters: Math.round(s.volumeLiters * 100) / 100 }))
+      .sort((a, b) => a.paintName.localeCompare(b.paintName));
+
+    return { litersPerTask, selections };
+  }
+
+  /**
+   * Aggregate the component demand of several paints against current stock.
+   *
+   * For each selection we take the paint's primary formula, scale it to the
+   * requested volume (weight = volume × density, per-component weight = ratio),
+   * and accumulate the required amount per inventory item. Two paints that share
+   * a component therefore SUM their demand on that item. The limiting component
+   * (lowest stock-vs-demand ratio) caps how much of the whole plan can be made.
+   *
+   * Degrades gracefully: an item without a usable weight measure is flagged
+   * (`measured: false`) instead of throwing, so the page still renders.
+   */
+  async calculateProductionAvailability(
+    // Accept the loose shape the Zod pipe infers (fields optional) and narrow it
+    // via the type guard in `valid` below, so no cast is needed at the controller.
+    selections: Array<{ paintId?: string; volumeLiters?: number }>,
+  ): Promise<{
+    summary: {
+      canProduceAll: boolean;
+      totalRequestedLiters: number;
+      maxProducibleLiters: number | null;
+      limitingRatio: number | null;
+      limitingItemName: string | null;
+      hasUnmeasured: boolean;
+    };
+    components: Array<{
+      itemId: string;
+      itemName: string;
+      uniCode: string | null;
+      requiredGrams: number;
+      requiredUnits: number | null;
+      availableGrams: number | null;
+      availableUnits: number;
+      weightPerUnitGrams: number | null;
+      availableRatio: number | null;
+      measured: boolean;
+      isLimiting: boolean;
+      contributions: Array<{
+        paintId: string;
+        paintName: string;
+        hex: string;
+        grams: number;
+        units: number;
+      }>;
+    }>;
+    paints: Array<{
+      paintId: string;
+      paintName: string;
+      hex: string;
+      finish: string;
+      typeName: string | null;
+      brandName: string | null;
+      volumeLiters: number;
+      hasFormula: boolean;
+      canProduce: boolean;
+      limitingItemName: string | null;
+    }>;
+  }> {
+    const valid = selections.filter(
+      (s): s is { paintId: string; volumeLiters: number } =>
+        !!s.paintId && (s.volumeLiters ?? 0) > 0,
+    );
+    const paintIds = [...new Set(valid.map((s) => s.paintId))];
+
+    const emptySummary = {
+      canProduceAll: false,
+      totalRequestedLiters: 0,
+      maxProducibleLiters: null,
+      limitingRatio: null,
+      limitingItemName: null,
+      hasUnmeasured: false,
+    };
+
+    if (paintIds.length === 0) {
+      return { summary: emptySummary, components: [], paints: [] };
+    }
+
+    const paints = await this.prisma.paint.findMany({
+      where: { id: { in: paintIds } },
+      include: {
+        paintType: { select: { name: true } },
+        paintBrand: { select: { name: true } },
+        formulas: {
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+          include: {
+            components: {
+              include: { item: { include: { measures: true } } },
+            },
+          },
+        },
+      },
+    });
+    const paintMap = new Map(paints.map((p) => [p.id, p]));
+
+    type ComponentAgg = {
+      itemId: string;
+      itemName: string;
+      uniCode: string | null;
+      weightPerUnitGrams: number;
+      availableUnits: number;
+      requiredGrams: number;
+      requiredUnits: number;
+      measured: boolean;
+      contributions: Array<{ paintId: string; paintName: string; hex: string; grams: number; units: number }>;
+    };
+    const componentMap = new Map<string, ComponentAgg>();
+
+    const paintResults: Array<{
+      paintId: string;
+      paintName: string;
+      hex: string;
+      finish: string;
+      typeName: string | null;
+      brandName: string | null;
+      volumeLiters: number;
+      hasFormula: boolean;
+      canProduce: boolean;
+      limitingItemName: string | null;
+      componentItemIds: string[];
+    }> = [];
+
+    for (const sel of valid) {
+      const paint = paintMap.get(sel.paintId);
+      if (!paint) continue;
+
+      const brandName = paint.paintBrand?.name ?? null;
+      const typeName = paint.paintType?.name ?? null;
+      const formula = paint.formulas[0];
+
+      if (!formula || !formula.components || formula.components.length === 0) {
+        paintResults.push({
+          paintId: paint.id,
+          paintName: paint.name,
+          hex: paint.hex,
+          finish: paint.finish,
+          typeName,
+          brandName,
+          volumeLiters: sel.volumeLiters,
+          hasFormula: false,
+          canProduce: false,
+          limitingItemName: null,
+          componentItemIds: [],
+        });
+        continue;
+      }
+
+      const formulaDensity = Number(formula.density) || 1.0; // g/ml
+      const volumeMl = sel.volumeLiters * 1000;
+      const itemIds: string[] = [];
+
+      for (const component of formula.components) {
+        if (!component.item) continue;
+        const item = component.item;
+        const componentVolumeMl = volumeMl * (component.ratio / 100);
+
+        const weightMeasure = item.measures?.find((m) => m.measureType === 'WEIGHT');
+        const volumeMeasure = item.measures?.find((m) => m.measureType === 'VOLUME');
+
+        let weightPerUnitGrams = weightMeasure?.value ?? 0;
+        if (weightMeasure?.unit === 'KILOGRAM') weightPerUnitGrams *= 1000;
+
+        let volumePerUnitMl = volumeMeasure?.value ?? 0;
+        if (volumeMeasure?.unit === 'LITER') volumePerUnitMl *= 1000;
+
+        // Weight this component contributes to the requested volume. Prefer the
+        // item's own density (weight/volume measures); fall back to the formula
+        // density when the item has no volume measure.
+        let weightNeededGrams: number;
+        if (weightPerUnitGrams > 0 && volumePerUnitMl > 0) {
+          weightNeededGrams = componentVolumeMl * (weightPerUnitGrams / volumePerUnitMl);
+        } else {
+          weightNeededGrams = componentVolumeMl * formulaDensity;
+        }
+
+        const measured = weightPerUnitGrams > 0;
+        const unitsNeeded = measured ? weightNeededGrams / weightPerUnitGrams : 0;
+
+        itemIds.push(item.id);
+
+        const entry = componentMap.get(item.id);
+        if (entry) {
+          entry.requiredGrams += weightNeededGrams;
+          entry.requiredUnits += unitsNeeded;
+          entry.measured = entry.measured && measured;
+          entry.contributions.push({
+            paintId: paint.id,
+            paintName: paint.name,
+            hex: paint.hex,
+            grams: weightNeededGrams,
+            units: unitsNeeded,
+          });
+        } else {
+          componentMap.set(item.id, {
+            itemId: item.id,
+            itemName: item.name,
+            uniCode: item.uniCode ?? null,
+            weightPerUnitGrams,
+            availableUnits: item.quantity,
+            requiredGrams: weightNeededGrams,
+            requiredUnits: unitsNeeded,
+            measured,
+            contributions: [
+              {
+                paintId: paint.id,
+                paintName: paint.name,
+                hex: paint.hex,
+                grams: weightNeededGrams,
+                units: unitsNeeded,
+              },
+            ],
+          });
+        }
+      }
+
+      paintResults.push({
+        paintId: paint.id,
+        paintName: paint.name,
+        hex: paint.hex,
+        finish: paint.finish,
+        typeName,
+        brandName,
+        volumeLiters: sel.volumeLiters,
+        hasFormula: true,
+        canProduce: true, // provisional; resolved below from global ratios
+        limitingItemName: null,
+        componentItemIds: itemIds,
+      });
+    }
+
+    const components = Array.from(componentMap.values()).map((c) => {
+      const availableGrams = c.measured ? c.availableUnits * c.weightPerUnitGrams : null;
+      const availableRatio =
+        c.measured && c.requiredGrams > 0 ? (availableGrams as number) / c.requiredGrams : null;
+      return {
+        itemId: c.itemId,
+        itemName: c.itemName,
+        uniCode: c.uniCode,
+        requiredGrams: c.requiredGrams,
+        requiredUnits: c.measured ? c.requiredUnits : null,
+        availableGrams,
+        availableUnits: c.availableUnits,
+        weightPerUnitGrams: c.measured ? c.weightPerUnitGrams : null,
+        availableRatio,
+        measured: c.measured,
+        isLimiting: false,
+        contributions: c.contributions,
+      };
+    });
+
+    const ratioByItem = new Map(components.map((c) => [c.itemId, c.availableRatio] as const));
+    const nameByItem = new Map(components.map((c) => [c.itemId, c.itemName] as const));
+
+    // Limiting component = lowest stock-vs-demand ratio among measured components.
+    let limitingRatio: number | null = null;
+    let limitingItemName: string | null = null;
+    for (const c of components) {
+      if (c.availableRatio == null) continue;
+      if (limitingRatio === null || c.availableRatio < limitingRatio) {
+        limitingRatio = c.availableRatio;
+        limitingItemName = c.itemName;
+      }
+    }
+    if (limitingRatio !== null) {
+      for (const c of components) {
+        if (c.availableRatio != null && Math.abs(c.availableRatio - limitingRatio) < 1e-9) {
+          c.isLimiting = true;
+        }
+      }
+    }
+
+    // Per-paint feasibility: producible only when every one of its components has
+    // a (globally aggregated) ratio >= 1.
+    for (const pr of paintResults) {
+      if (!pr.hasFormula) {
+        pr.canProduce = false;
+        continue;
+      }
+      let ok = true;
+      let worst: number | null = null;
+      let worstName: string | null = null;
+      for (const itemId of pr.componentItemIds) {
+        const r = ratioByItem.get(itemId);
+        if (r == null) {
+          ok = false;
+          continue;
+        }
+        if (r < 1) ok = false;
+        if (worst === null || r < worst) {
+          worst = r;
+          worstName = nameByItem.get(itemId) ?? null;
+        }
+      }
+      pr.canProduce = ok;
+      pr.limitingItemName = worstName;
+    }
+
+    const hasUnmeasured = components.some((c) => !c.measured);
+    const measuredRatios = components
+      .map((c) => c.availableRatio)
+      .filter((r): r is number => r != null);
+    const canProduceAll =
+      !hasUnmeasured &&
+      paintResults.every((p) => p.hasFormula) &&
+      measuredRatios.every((r) => r >= 1);
+
+    const totalRequestedLiters = valid.reduce((sum, s) => sum + s.volumeLiters, 0);
+    // How much of the requested mix the current stock supports. >= requested when
+    // there's surplus capacity; < requested when a component is short.
+    const maxProducibleLiters =
+      limitingRatio != null ? totalRequestedLiters * limitingRatio : null;
+
+    const paintsOut = paintResults.map(({ componentItemIds: _ignored, ...rest }) => rest);
+
+    return {
+      summary: {
+        canProduceAll,
+        totalRequestedLiters,
+        maxProducibleLiters,
+        limitingRatio,
+        limitingItemName,
+        hasUnmeasured,
+      },
+      components,
+      paints: paintsOut,
+    };
+  }
+
+  /**
+   * Detail for a single paint, shown in the planner's "click a paint" modal:
+   * the scheduled tasks that use it, its primary formula broken down per component,
+   * and — for the requested volume — how much of each component is required, in
+   * stock and missing (standalone, i.e. this paint alone against current stock).
+   */
+  async getPaintPlanDetail(
+    paintId: string,
+    volumeLiters: number,
+    forecastDate?: Date,
+  ): Promise<{
+    paint: {
+      id: string;
+      name: string;
+      hex: string;
+      finish: string;
+      typeName: string | null;
+      brandName: string | null;
+      code: string | null;
+    };
+    volumeLiters: number;
+    formula: {
+      id: string;
+      density: number;
+      components: Array<{
+        itemId: string;
+        itemName: string;
+        uniCode: string | null;
+        ratio: number;
+        requiredGrams: number;
+        requiredUnits: number | null;
+        availableUnits: number;
+        availableGrams: number | null;
+        availableRatio: number | null;
+        measured: boolean;
+        missingGrams: number | null;
+        missingUnits: number | null;
+      }>;
+    } | null;
+    tasks: Array<{
+      id: string;
+      name: string;
+      serialNumber: string | null;
+      status: string;
+      forecastDate: string | null;
+      customerName: string | null;
+      plate: string | null;
+    }>;
+  }> {
+    const paint = await this.prisma.paint.findUnique({
+      where: { id: paintId },
+      include: {
+        paintType: { select: { name: true } },
+        paintBrand: { select: { name: true } },
+        formulas: {
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+          include: {
+            components: { include: { item: { include: { measures: true } } } },
+          },
+        },
+      },
+    });
+
+    if (!paint) {
+      throw new NotFoundException('Tinta não encontrada.');
+    }
+
+    const vol = volumeLiters > 0 ? volumeLiters : PaintProductionService.LITERS_PER_TASK;
+    const formula = paint.formulas[0];
+
+    let formulaOut: {
+      id: string;
+      density: number;
+      components: Array<{
+        itemId: string;
+        itemName: string;
+        uniCode: string | null;
+        ratio: number;
+        requiredGrams: number;
+        requiredUnits: number | null;
+        availableUnits: number;
+        availableGrams: number | null;
+        availableRatio: number | null;
+        measured: boolean;
+        missingGrams: number | null;
+        missingUnits: number | null;
+      }>;
+    } | null = null;
+
+    if (formula && formula.components && formula.components.length > 0) {
+      const density = Number(formula.density) || 1.0;
+      const volumeMl = vol * 1000;
+
+      const components = formula.components
+        .filter((c) => c.item)
+        .map((component) => {
+          const item = component.item;
+          const componentVolumeMl = volumeMl * (component.ratio / 100);
+
+          const weightMeasure = item.measures?.find((m) => m.measureType === 'WEIGHT');
+          const volumeMeasure = item.measures?.find((m) => m.measureType === 'VOLUME');
+
+          let weightPerUnitGrams = weightMeasure?.value ?? 0;
+          if (weightMeasure?.unit === 'KILOGRAM') weightPerUnitGrams *= 1000;
+
+          let volumePerUnitMl = volumeMeasure?.value ?? 0;
+          if (volumeMeasure?.unit === 'LITER') volumePerUnitMl *= 1000;
+
+          const requiredGrams =
+            weightPerUnitGrams > 0 && volumePerUnitMl > 0
+              ? componentVolumeMl * (weightPerUnitGrams / volumePerUnitMl)
+              : componentVolumeMl * density;
+
+          const measured = weightPerUnitGrams > 0;
+          const requiredUnits = measured ? requiredGrams / weightPerUnitGrams : null;
+          const availableUnits = item.quantity;
+          const availableGrams = measured ? availableUnits * weightPerUnitGrams : null;
+          const availableRatio =
+            measured && requiredGrams > 0 ? (availableGrams as number) / requiredGrams : null;
+          const missingGrams =
+            availableGrams == null ? null : Math.max(0, requiredGrams - availableGrams);
+          const missingUnits =
+            requiredUnits == null ? null : Math.max(0, requiredUnits - availableUnits);
+
+          return {
+            itemId: item.id,
+            itemName: item.name,
+            uniCode: item.uniCode ?? null,
+            ratio: component.ratio,
+            requiredGrams,
+            requiredUnits,
+            availableUnits,
+            availableGrams,
+            availableRatio,
+            measured,
+            missingGrams,
+            missingUnits,
+          };
+        });
+
+      formulaOut = { id: formula.id, density, components };
+    }
+
+    let forecastFilter: { lte: Date } | undefined;
+    if (forecastDate && !isNaN(forecastDate.getTime())) {
+      const end = new Date(forecastDate);
+      end.setHours(23, 59, 59, 999);
+      forecastFilter = { lte: end };
+    }
+
+    const tasks = await this.prisma.task.findMany({
+      where: {
+        status: { in: ['PREPARATION', 'WAITING_PRODUCTION', 'IN_PRODUCTION'] },
+        paintId,
+        ...(forecastFilter ? { forecastDate: forecastFilter } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        serialNumber: true,
+        status: true,
+        forecastDate: true,
+        term: true,
+        customer: { select: { fantasyName: true } },
+        truck: { select: { plate: true } },
+      },
+      orderBy: [{ forecastDate: 'asc' }, { name: 'asc' }],
+    });
+
+    const tasksOut = tasks.map((t) => ({
+      id: t.id,
+      name: t.name ?? 'Tarefa sem nome',
+      serialNumber: t.serialNumber ?? null,
+      status: t.status as string,
+      forecastDate: t.forecastDate
+        ? t.forecastDate.toISOString()
+        : t.term
+          ? t.term.toISOString()
+          : null,
+      customerName: t.customer?.fantasyName ?? null,
+      plate: t.truck?.plate ?? null,
+    }));
+
+    return {
+      paint: {
+        id: paint.id,
+        name: paint.name,
+        hex: paint.hex,
+        finish: paint.finish,
+        typeName: paint.paintType?.name ?? null,
+        brandName: paint.paintBrand?.name ?? null,
+        code: paint.code ?? null,
+      },
+      volumeLiters: vol,
+      formula: formulaOut,
+      tasks: tasksOut,
+    };
+  }
+
   private async paintProductionVolumeValidation(
     paintId: string,
     formulaId: string,

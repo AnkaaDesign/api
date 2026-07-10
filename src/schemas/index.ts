@@ -156,6 +156,6 @@ export * from './fispq';
 export * from './leave';
 export * from './work-accident-report';
 export * from './dependent';
-// Calendário/agenda + post-its (a5-calendar)
+// Calendário/agenda + notas (a5-calendar)
 export * from './agenda-event';
-export * from './postit';
+export * from './note';

@@ -59,6 +59,7 @@ import {
 } from '../../../utils/task-quote-service-order-sync';
 import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
+import { syncTaskLayoutsFromQuote } from '../../../utils/sync-quote-task-layouts';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
 import { reconcileQuoteCustomerConfigs } from '../../../utils/task-quote-customer-config-sync';
 import {
@@ -354,6 +355,12 @@ export class TaskQuoteService {
           where: { id: data.taskId },
           data: { quoteId: newQuote.id },
         });
+
+        // Any layout file added straight onto the quote must also exist as an
+        // APPROVED task layout (now that the task↔quote link is set).
+        if (data.layoutFileIds !== undefined) {
+          await syncTaskLayoutsFromQuote(tx, newQuote.id, userId);
+        }
 
         // Log change
         await this.changeLogService.logChange({
@@ -939,6 +946,13 @@ export class TaskQuoteService {
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION as any,
           transaction: tx,
         });
+
+        // Any layout file added straight onto the quote (batch "Layout do
+        // Orçamento", billing editor, clones, …) must also exist as an APPROVED
+        // task layout. The quote is already linked to its task here.
+        if (data.layoutFileIds !== undefined) {
+          await syncTaskLayoutsFromQuote(tx, id, userId);
+        }
 
         // Handle customerConfigs changes
         if (data.customerConfigs !== undefined) {

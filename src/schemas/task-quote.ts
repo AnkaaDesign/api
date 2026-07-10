@@ -88,7 +88,19 @@ export const taskQuoteIncludeSchema = z
               observation: z.boolean().optional(),
               generalPainting: z.boolean().optional(),
               createdBy: z.boolean().optional(),
-              layouts: z.boolean().optional(),
+              // `layouts` (renamed Artwork relation) carries a File. The mobile
+              // budget/quote detail sends `layouts: { include: { file: true } }`
+              // to render the layout thumbnail, so accept the nested form as well
+              // as the plain boolean — a bare boolean here broke the whole `task`
+              // union with invalid_union.
+              layouts: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    include: z.object({ file: z.boolean().optional() }).optional(),
+                  }),
+                ])
+                .optional(),
               logoPaints: z.boolean().optional(),
               serviceOrders: z.boolean().optional(),
               truck: z.boolean().optional(),
@@ -278,6 +290,19 @@ export const taskQuoteWhereSchema: z.ZodSchema = z.lazy(() =>
             not: z.string().optional(),
           }),
         ])
+        .optional(),
+      // Relation filter for the parent Task (to-one, nullable). The mobile budget
+      // list sends `task: { isNot: null }` to fetch only quotes that still have a
+      // task — the same shape the internal `hasTask` transform produces. Without
+      // this the strict() where rejected it with unrecognized_keys: 'task'. Nested
+      // Task fields are passed through (Prisma validates them) to avoid a circular
+      // import with taskWhereSchema.
+      task: z
+        .object({
+          is: z.record(z.any()).nullable().optional(),
+          isNot: z.record(z.any()).nullable().optional(),
+        })
+        .partial()
         .optional(),
       simultaneousTasks: z
         .union([

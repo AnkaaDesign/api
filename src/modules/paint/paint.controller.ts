@@ -21,6 +21,7 @@ import {
   ZodQueryValidationPipe,
 } from '@modules/common/pipes/zod-validation.pipe';
 import { ArrayFixPipe } from '@modules/common/pipes/array-fix.pipe';
+import { z } from 'zod';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../constants/enums';
@@ -210,6 +211,19 @@ import type {
   PaintProductionBatchUpdateResponse,
   PaintProductionBatchDeleteResponse,
 } from '../../types';
+
+// Body schema for the multi-paint production-availability planner.
+const paintProductionAvailabilitySchema = z.object({
+  selections: z
+    .array(
+      z.object({
+        paintId: z.string().uuid(),
+        volumeLiters: z.number().positive(),
+      }),
+    )
+    .max(100),
+});
+type PaintProductionAvailabilityBody = z.infer<typeof paintProductionAvailabilitySchema>;
 
 @Controller('paints')
 export class PaintUnifiedController {
@@ -821,6 +835,81 @@ export class PaintUnifiedController {
   // =====================
   // PAINT PRODUCTION OPERATIONS
   // =====================
+
+  // Declared before the dynamic `productions/:id` route so the static path wins.
+  @Get('productions/schedule-defaults')
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  async getProductionScheduleDefaults(@Query('forecastDate') forecastDate?: string) {
+    try {
+      const parsedDate = forecastDate ? new Date(forecastDate) : undefined;
+      const data = await this.paintProductionService.getScheduleDefaultSelections(parsedDate);
+      return {
+        success: true,
+        message: 'Tintas do cronograma carregadas',
+        data,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error?.message || 'Erro ao carregar tintas do cronograma',
+        data: null,
+      };
+    }
+  }
+
+  @Post('productions/availability')
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async calculateProductionAvailability(
+    @Body(new ZodValidationPipe(paintProductionAvailabilitySchema))
+    body: PaintProductionAvailabilityBody,
+  ) {
+    try {
+      const data = await this.paintProductionService.calculateProductionAvailability(body.selections);
+      return {
+        success: true,
+        message: 'Disponibilidade de produção calculada',
+        data,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error?.message || 'Erro ao calcular disponibilidade de produção',
+        data: null,
+      };
+    }
+  }
+
+  // Detail for the planner's "click a paint" modal: tasks + formula + missing.
+  @Get('productions/paint-plan-detail')
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  async getPaintPlanDetail(
+    @Query('paintId') paintId: string,
+    @Query('volumeLiters') volumeLiters?: string,
+    @Query('forecastDate') forecastDate?: string,
+  ) {
+    try {
+      if (!paintId) {
+        return { success: false, message: 'paintId é obrigatório', data: null };
+      }
+      const data = await this.paintProductionService.getPaintPlanDetail(
+        paintId,
+        volumeLiters ? Number(volumeLiters) : 0,
+        forecastDate ? new Date(forecastDate) : undefined,
+      );
+      return {
+        success: true,
+        message: 'Detalhe da tinta carregado',
+        data,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error?.message || 'Erro ao carregar detalhe da tinta',
+        data: null,
+      };
+    }
+  }
 
   @Get('productions')
   @Roles(

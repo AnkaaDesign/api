@@ -767,7 +767,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     orderNumber: 'N° do Pedido',
     guaranteeYears: 'Anos de Garantia',
     customGuaranteeText: 'Texto Personalizado de Garantia',
-    layoutFileIds: 'Arquivos de ImplementMeasure',
+    layoutFileIds: 'Arquivos de Layout',
     budgetNumber: 'Número do Orçamento',
     customerSignatureId: 'Assinatura do Cliente',
     customForecastDays: 'Dias de Previsão Personalizados',

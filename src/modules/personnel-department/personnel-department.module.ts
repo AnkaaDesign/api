@@ -15,7 +15,7 @@ import { MedicalExamModule } from './medical-exam/medical-exam.module';
 import { LeaveModule } from './leave/leave.module';
 import { WorkAccidentModule } from './work-accident/work-accident.module';
 import { AgendaEventModule } from './agenda-event/agenda-event.module';
-import { PostitModule } from './postit/postit.module';
+import { NoteModule } from './note/note.module';
 import { ThirteenthModule } from './thirteenth/thirteenth.module';
 import { VacationModule } from './vacation/vacation.module';
 import { VacationGroupModule } from './vacation-group/vacation-group.module';
@@ -36,7 +36,7 @@ import { VacationGroupModule } from './vacation-group/vacation-group.module';
     LeaveModule,
     WorkAccidentModule,
     AgendaEventModule,
-    PostitModule,
+    NoteModule,
     ThirteenthModule,
     VacationModule,
     VacationGroupModule,
@@ -55,7 +55,7 @@ import { VacationGroupModule } from './vacation-group/vacation-group.module';
     LeaveModule,
     DependentModule,
     AgendaEventModule,
-    PostitModule,
+    NoteModule,
     ThirteenthModule,
     VacationModule,
     VacationGroupModule,

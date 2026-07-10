@@ -34,6 +34,7 @@ import {
   SECTOR_PRIVILEGES,
   BANK_SLIP_STATUS,
   INSTALLMENT_STATUS,
+  INSTALLMENT_PAYMENT_METHOD,
   TASK_QUOTE_STATUS,
   TASK_QUOTE_STATUS_ORDER,
 } from '@constants';
@@ -744,6 +745,14 @@ export class InvoiceController {
     if (!body.paymentMethod) {
       throw new BadRequestException('Método de pagamento é obrigatório.');
     }
+    // paymentMethod is now the InstallmentPaymentMethod enum — reject anything outside it
+    // at the boundary so an invalid string can never reach the (enum-typed) column.
+    const paymentMethod = body.paymentMethod as INSTALLMENT_PAYMENT_METHOD;
+    if (!Object.values(INSTALLMENT_PAYMENT_METHOD).includes(paymentMethod)) {
+      throw new BadRequestException(
+        `Método de pagamento inválido: ${body.paymentMethod}.`,
+      );
+    }
     if (body.receiptFileIds && !Array.isArray(body.receiptFileIds)) {
       throw new BadRequestException('receiptFileIds deve ser uma lista.');
     }
@@ -797,7 +806,7 @@ export class InvoiceController {
           where: { id: installment.bankSlip.id },
           data: {
             status: BANK_SLIP_STATUS.CANCELLED,
-            sicrediStatus: `PAID_${body.paymentMethod}`,
+            sicrediStatus: `PAID_${paymentMethod}`,
           },
         });
       }
@@ -809,7 +818,7 @@ export class InvoiceController {
           status: INSTALLMENT_STATUS.PAID,
           paidAmount: installment.amount,
           paidAt: now,
-          paymentMethod: body.paymentMethod,
+          paymentMethod,
           observations: body.observations ?? undefined,
           ...(body.receiptFileIds && body.receiptFileIds.length > 0
             ? {
@@ -860,7 +869,7 @@ export class InvoiceController {
       }
     }
 
-    return { message: `Parcela marcada como paga via ${body.paymentMethod}.` };
+    return { message: `Parcela marcada como paga via ${paymentMethod}.` };
   }
 
   /**

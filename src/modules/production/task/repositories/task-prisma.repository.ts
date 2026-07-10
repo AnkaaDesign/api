@@ -31,6 +31,7 @@ import {
 } from '../../../../utils';
 import { recalcQuoteTotals } from '../../../../utils/task-quote-totals';
 import { reconcileQuoteCustomerConfigs } from '../../../../utils/task-quote-customer-config-sync';
+import { syncTaskLayoutsFromQuote } from '../../../../utils/sync-quote-task-layouts';
 
 // =====================
 // Query Pattern Definitions
@@ -1740,6 +1741,12 @@ export class TaskPrismaRepository
         include: includeInput,
       });
 
+      // Task↔quote link now exists: materialize any quote layout file as an
+      // APPROVED task layout.
+      if (createdPricingId && quoteData?.layoutFileIds !== undefined) {
+        await syncTaskLayoutsFromQuote(transaction, createdPricingId, undefined);
+      }
+
       return this.mapDatabaseEntityToEntity(result);
     } catch (error) {
       super.logError('criar tarefa', error, { data });
@@ -1850,6 +1857,9 @@ export class TaskPrismaRepository
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
       const quoteData = (data as any).quote;
+      // Quote whose layout files must be reconciled into APPROVED task layouts
+      // once the task↔quote link is settled (set below in whichever branch runs).
+      let quoteIdForLayoutSync: string | null = null;
 
       if (quoteData !== undefined && quoteData !== null) {
         const hasServices =
@@ -1939,6 +1949,8 @@ export class TaskPrismaRepository
                 }),
               },
             });
+
+            if (hasImplementMeasure) quoteIdForLayoutSync = currentTask.quoteId;
 
             // Configs: non-destructive upsert by (quoteId, customerId) — preserves
             // issued Invoice/Installments and DB-owned fields (customerSignatureId,
@@ -2037,6 +2049,8 @@ export class TaskPrismaRepository
             // Recompute discount-aware totals from the freshly-created rows.
             await recalcQuoteTotals(transaction, newQuote.id);
 
+            if (hasImplementMeasure) quoteIdForLayoutSync = newQuote.id;
+
             updateInput.quote = {
               connect: { id: newQuote.id },
             };
@@ -2049,6 +2063,13 @@ export class TaskPrismaRepository
         data: updateInput,
         include: includeInput,
       });
+
+      // Task↔quote link is now settled (existing quote, or the new one connected
+      // via updateInput.quote above): materialize quote layout files as APPROVED
+      // task layouts.
+      if (quoteIdForLayoutSync) {
+        await syncTaskLayoutsFromQuote(transaction, quoteIdForLayoutSync, undefined);
+      }
 
       // When cleared becomes true, move truck to YARD_WAIT if spot is currently null
       if (data.cleared === true) {
