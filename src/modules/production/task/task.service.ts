@@ -59,6 +59,7 @@ import {
   validateQuoteStatusChangeRole,
 } from '../task-quote/task-quote.guards';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
+import { syncTaskLayoutsFromQuote } from '../../../utils/sync-quote-task-layouts';
 import { TaskRepository, PrismaTransaction } from './repositories/task.repository';
 import {
   TaskCreateFormData,
@@ -10416,6 +10417,12 @@ export class TaskService {
           data: { quoteId: quoteIdToRestore },
         });
 
+        // Task↔quote link restored: re-materialize the quote's layout files as
+        // APPROVED task layouts.
+        if (quoteIdToRestore) {
+          await syncTaskLayoutsFromQuote(tx, quoteIdToRestore, userId);
+        }
+
         const updatedTask = await this.tasksRepository.findByIdWithTransaction(
           tx,
           changeLog.entityId,
@@ -13134,6 +13141,13 @@ export class TaskService {
             data: updateData,
           });
           this.logger.log(`[copyFromTask] Task update successful`);
+
+          // A copied quote brings its own (cloned) layout files but no task
+          // Layout rows — materialize them as APPROVED task layouts now that the
+          // destination task↔quote link is set.
+          if (updateData.quoteId) {
+            await syncTaskLayoutsFromQuote(tx, updateData.quoteId as string, userId);
+          }
         } else {
           this.logger.log(`[copyFromTask] No fields to update via task.update()`);
         }

@@ -62,15 +62,15 @@ model Airbrushing {
 }
 
 model Layout {
-  id            String        @id @default(uuid())
-  fileId        String        @unique
-  status        LayoutStatus  @default(APPROVED)
+  id            String       @id @default(uuid())
+  fileId        String       @unique
+  status        LayoutStatus @default(APPROVED)
   airbrushingId String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  airbrushing   Airbrushing?  @relation(fields: [airbrushingId], references: [id], onDelete: Cascade)
-  file          File          @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  tasks         Task[]        @relation("TaskLayouts")
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  airbrushing   Airbrushing? @relation(fields: [airbrushingId], references: [id], onDelete: Cascade)
+  file          File         @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  tasks         Task[]       @relation("TaskLayouts")
 
   @@index([fileId])
   @@index([airbrushingId])
@@ -2015,22 +2015,22 @@ model Cut {
 }
 
 model Truck {
-  id                String         @id @default(uuid())
-  plate             String?        @unique
-  chassisNumber     String?
-  category          TruckCategory?
-  implementType     ImplementType?
-  spot              TRUCK_SPOT?    @default(YARD_WAIT)
-  taskId            String         @unique
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  id                 String            @id @default(uuid())
+  plate              String?           @unique
+  chassisNumber      String?
+  category           TruckCategory?
+  implementType      ImplementType?
+  spot               TRUCK_SPOT?       @default(YARD_WAIT)
+  taskId             String            @unique
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
   backSideMeasureId  String?
   leftSideMeasureId  String?
   rightSideMeasureId String?
   backSideMeasure    ImplementMeasure? @relation("TRUCK_BACK_SIDE", fields: [backSideMeasureId], references: [id])
   leftSideMeasure    ImplementMeasure? @relation("TRUCK_LEFT_SIDE", fields: [leftSideMeasureId], references: [id])
   rightSideMeasure   ImplementMeasure? @relation("TRUCK_RIGHT_SIDE", fields: [rightSideMeasureId], references: [id])
-  task              Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task               Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   chassisNumberNormalized String? /// accent-insensitive search (generated column, see migration)
   plateNormalized         String? /// accent-insensitive search (generated column, see migration)
@@ -2043,16 +2043,16 @@ model Truck {
 }
 
 model ImplementMeasure {
-  id              String                     @id @default(uuid())
+  id              String                    @id @default(uuid())
   height          Float
   photoId         String?
-  createdAt       DateTime                   @default(now())
-  updatedAt       DateTime                   @updatedAt
-  photo           File?                      @relation("IMPLEMENT_MEASURE_PHOTO", fields: [photoId], references: [id])
-  sections        ImplementMeasureSection[]  @relation("ImplementMeasureSections")
-  trucksBackSide  Truck[]                    @relation("TRUCK_BACK_SIDE")
-  trucksLeftSide  Truck[]                    @relation("TRUCK_LEFT_SIDE")
-  trucksRightSide Truck[]                    @relation("TRUCK_RIGHT_SIDE")
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  photo           File?                     @relation("IMPLEMENT_MEASURE_PHOTO", fields: [photoId], references: [id])
+  sections        ImplementMeasureSection[] @relation("ImplementMeasureSections")
+  trucksBackSide  Truck[]                   @relation("TRUCK_BACK_SIDE")
+  trucksLeftSide  Truck[]                   @relation("TRUCK_LEFT_SIDE")
+  trucksRightSide Truck[]                   @relation("TRUCK_RIGHT_SIDE")
 }
 
 model ImplementMeasureSection {
@@ -2283,7 +2283,8 @@ model User {
   payrollDiscounts               PayrollDiscount[]            @relation("PAYROLL_DISCOUNT_USER")
   workAccidentReports            WorkAccidentReport[]         @relation("WORK_ACCIDENT_REPORT_USER")
   agendaEventsCreated            AgendaEvent[]                @relation("AGENDA_EVENT_CREATED_BY")
-  postits                        Postit[]                     @relation("POSTIT_USER")
+  notesOwned                     Note[]                       @relation("NOTE_OWNER")
+  noteShares                     NoteShare[]                  @relation("NOTE_SHARED_WITH")
   secullumSmokeRuns              SecullumSmokeTestRun[]       @relation("SecullumSmokeRuns")
 
   addressNormalized      String? /// accent-insensitive search (generated column, see migration)
@@ -3148,6 +3149,23 @@ enum PaymentMethod {
   CREDIT_CARD
 }
 
+/// How a receivable Installment was actually settled. Distinct from PaymentMethod
+/// (which describes how an Order/Payable is billed): this set is the "already paid"
+/// vocabulary offered by the invoice "marcar como paga" action plus the system-set
+/// values (BANK_SLIP for Sicredi-settled boletos, MANUAL for external operations).
+/// ACCOUNT_GENIVALDO / ACCOUNT_SERGIO cover customers who pay a company owner
+/// directly instead of the company account.
+enum InstallmentPaymentMethod {
+  PIX
+  BANK_SLIP
+  CASH
+  TRANSFER
+  ACCOUNT_GENIVALDO
+  ACCOUNT_SERGIO
+  MANUAL
+  OTHER
+}
+
 enum MaintenanceScheduleStatus {
   PENDING
   FINISHED
@@ -3679,7 +3697,7 @@ enum ChangeLogEntityType {
   PAYROLL
   PIECE
   POSITION
-  POSTIT
+  NOTE
   PPE_CONFIG
   PPE_DELIVERY
   PPE_DELIVERY_ITEM
@@ -4092,7 +4110,7 @@ model Installment {
   paidAmount            Decimal                  @default(0) @db.Decimal(10, 2)
   paidAt                DateTime?
   status                InstallmentStatus        @default(PENDING)
-  paymentMethod         String?
+  paymentMethod         InstallmentPaymentMethod?
   observations          String?
   createdAt             DateTime                 @default(now())
   updatedAt             DateTime                 @updatedAt
@@ -4484,21 +4502,21 @@ model BankTransaction {
 }
 
 model FiscalDocument {
-  id             String                  @id @default(uuid())
-  accessKey      String                  @unique
-  docType        FiscalDocumentType
-  operationType  FiscalDocumentOperation
-  status         FiscalDocumentStatus    @default(AUTHORIZED)
-  source         FiscalDocumentSource    @default(MANUAL_UPLOAD)
-  issueDate      DateTime
-  totalValue     Decimal                 @db.Decimal(14, 2)
-  emitCnpj       String
-  emitName       String?
-  destCnpj       String?
-  destCpf        String?
-  destName       String?
-  nfNumber       String?
-  paymentMethods Json?
+  id                      String                      @id @default(uuid())
+  accessKey               String                      @unique
+  docType                 FiscalDocumentType
+  operationType           FiscalDocumentOperation
+  status                  FiscalDocumentStatus        @default(AUTHORIZED)
+  source                  FiscalDocumentSource        @default(MANUAL_UPLOAD)
+  issueDate               DateTime
+  totalValue              Decimal                     @db.Decimal(14, 2)
+  emitCnpj                String
+  emitName                String?
+  destCnpj                String?
+  destCpf                 String?
+  destName                String?
+  nfNumber                String?
+  paymentMethods          Json?
   // Off-bank settlement: a received note that will NEVER match a bank line
   // (credit-card-paid, bonificação/doação, no-payment) is closed with a reason
   // so it drops out of "Pendente" and out of every transaction's candidate pool.
@@ -4509,8 +4527,8 @@ model FiscalDocument {
   offBankResolutionSource ReconciliationSource?
   offBankResolvedById     String?
   offBankResolutionNotes  String?                     @db.Text
-  siegId         String?
-  rawXmlFileId   String?
+  siegId                  String?
+  rawXmlFileId            String?
   // Direction-aware "vinculada" for SAIDA (outgoing/emitted) notes: an emitted
   // NFS-e can never get a bank ReconciliationMatch (the matcher only considers
   // ENTRADA docs), so its "link" is to the NfseDocument it was generated from —
@@ -4518,11 +4536,11 @@ model FiscalDocument {
   // on SIEG import by number+CNPJ. Nullable + @unique (one NfseDocument ⇄ one
   // FiscalDocument). onDelete: SetNull so removing the emission record never
   // deletes the imported SIEG document.
-  nfseDocumentId String?                 @unique
-  fetchedAt      DateTime                @default(now())
-  cancelledAt    DateTime?
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
+  nfseDocumentId          String?                     @unique
+  fetchedAt               DateTime                    @default(now())
+  cancelledAt             DateTime?
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
 
   // --- Rich data extracted from the source XML (backfilled from rawXmlFile) ---
   // Document identification (NFe ide block / NFSe header)
@@ -4645,7 +4663,7 @@ model FiscalDocumentOrderCode {
 }
 
 model ReconciliationMatch {
-  id                       String                      @id @default(uuid())
+  id                       String                          @id @default(uuid())
   transactionId            String
   fiscalDocumentId         String?
   bankSlipId               String?
@@ -4659,31 +4677,31 @@ model ReconciliationMatch {
   recurrentOccurrenceId    String?
   airbrushingId            String?
   payrollMonthSettlementId String?
-  allocatedAmount          Decimal                     @db.Decimal(14, 2)
+  allocatedAmount          Decimal                         @db.Decimal(14, 2)
   // Signed per-note settlement adjustment reconciling what was PAID (allocated)
   // for this note with the note's total, with a reason. POSITIVE = paid LESS
   // (discount): unpaid slice written off. NEGATIVE = paid MORE (frete/seguro on
   // top): the extra payment is a surcharge, not note value. Note settled once
   // allocatedAmount + adjustmentAmount ≈ its total. Does NOT change the
   // transaction's allocation (still allocatedAmount) — only the note's settlement.
-  adjustmentAmount         Decimal?                    @db.Decimal(14, 2)
+  adjustmentAmount         Decimal?                        @db.Decimal(14, 2)
   adjustmentReason         ReconciliationAdjustmentReason?
   matchType                ReconciliationMatchType
-  confidenceScore          Int                         @default(100)
+  confidenceScore          Int                             @default(100)
   matchedByUserId          String?
   notes                    String?
-  matchedAt                DateTime                    @default(now())
+  matchedAt                DateTime                        @default(now())
   reversedAt               DateTime?
   reversedById             String?
-  transaction              BankTransaction             @relation("TransactionMatches", fields: [transactionId], references: [id], onDelete: Cascade)
-  fiscalDocument           FiscalDocument?             @relation("DocumentMatches", fields: [fiscalDocumentId], references: [id], onDelete: Restrict)
-  bankSlip                 BankSlip?                   @relation("BankSlipMatches", fields: [bankSlipId], references: [id])
-  installment              Installment?                @relation("InstallmentMatches", fields: [installmentId], references: [id], onDelete: Restrict)
-  orderInstallment         OrderInstallment?           @relation("OrderInstallmentMatches", fields: [orderInstallmentId], references: [id], onDelete: Restrict)
-  recurrentOccurrence      RecurrentPayableOccurrence? @relation("RecurrentOccurrenceMatches", fields: [recurrentOccurrenceId], references: [id], onDelete: Restrict)
-  airbrushing              Airbrushing?                @relation("AirbrushingMatches", fields: [airbrushingId], references: [id], onDelete: Restrict)
-  payrollMonthSettlement   PayrollMonthSettlement?     @relation("PayrollMonthSettlementMatches", fields: [payrollMonthSettlementId], references: [id], onDelete: Restrict)
-  matchedBy                User?                       @relation("MatchedBy", fields: [matchedByUserId], references: [id])
+  transaction              BankTransaction                 @relation("TransactionMatches", fields: [transactionId], references: [id], onDelete: Cascade)
+  fiscalDocument           FiscalDocument?                 @relation("DocumentMatches", fields: [fiscalDocumentId], references: [id], onDelete: Restrict)
+  bankSlip                 BankSlip?                       @relation("BankSlipMatches", fields: [bankSlipId], references: [id])
+  installment              Installment?                    @relation("InstallmentMatches", fields: [installmentId], references: [id], onDelete: Restrict)
+  orderInstallment         OrderInstallment?               @relation("OrderInstallmentMatches", fields: [orderInstallmentId], references: [id], onDelete: Restrict)
+  recurrentOccurrence      RecurrentPayableOccurrence?     @relation("RecurrentOccurrenceMatches", fields: [recurrentOccurrenceId], references: [id], onDelete: Restrict)
+  airbrushing              Airbrushing?                    @relation("AirbrushingMatches", fields: [airbrushingId], references: [id], onDelete: Restrict)
+  payrollMonthSettlement   PayrollMonthSettlement?         @relation("PayrollMonthSettlementMatches", fields: [payrollMonthSettlementId], references: [id], onDelete: Restrict)
+  matchedBy                User?                           @relation("MatchedBy", fields: [matchedByUserId], references: [id])
 
   notesNormalized String? /// accent-insensitive search (generated column, see migration)
 
@@ -6730,28 +6748,47 @@ model AgendaEvent {
   @@index([isActive])
 }
 
-// Post-its pessoais (mural de lembretes) — módulo na fase 2
-model Postit {
-  id         String   @id @default(uuid())
-  userId     String
+// Notas pessoais (mural de lembretes) — com compartilhamento e arquivamento.
+// Renderizável como mural de post-its (canvas livre) ou quadro de cards organizado.
+model Note {
+  id         String      @id @default(uuid())
+  ownerId    String
+  title      String?
   content    String
-  color      String   @default("yellow")
-  position   Int      @default(0)
-  // Free-canvas placement + size (nullable; legacy/un-placed notes fall back to a grid layout)
+  color      String      @default("yellow")
+  position   Int         @default(0)
+  // Free-canvas placement + size (nullable; un-placed notes fall back to a grid layout)
   positionX  Float?
   positionY  Float?
   width      Float?
   height     Float?
-  isArchived Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  user       User     @relation("POSTIT_USER", fields: [userId], references: [id], onDelete: Cascade)
+  isArchived Boolean     @default(false)
+  archivedAt DateTime?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  owner      User        @relation("NOTE_OWNER", fields: [ownerId], references: [id], onDelete: Cascade)
+  shares     NoteShare[]
 
   contentNormalized String? /// accent-insensitive search (generated column, see migration)
+  titleNormalized   String? /// accent-insensitive search (generated column, see migration)
 
-  @@index([userId])
+  @@index([ownerId])
   @@index([isArchived])
   @@index([position])
+}
+
+// Compartilhamento de uma nota com outros usuários (visualizador ou editor).
+model NoteShare {
+  noteId   String
+  userId   String
+  canEdit  Boolean  @default(false)
+  sharedAt DateTime @default(now())
+  note     Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  user     User     @relation("NOTE_SHARED_WITH", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([noteId, userId])
+  @@index([noteId])
+  @@index([userId])
 }
 
 // Order payment (contas a pagar)

@@ -516,10 +516,26 @@ export class FileService {
     for (const id of uniqueIds) {
       const file = await tx.file.findUnique({
         where: { id },
-        select: { id: true, quoteLayoutId: true },
+        // `layouts` is the to-one Layout back-relation (Layout.fileId is @unique):
+        // a non-null value means this File is a TASK layout, shared across every
+        // task that references it.
+        select: { id: true, quoteLayoutId: true, layouts: { select: { id: true } } },
       });
       if (!file) continue; // drop ids that no longer exist
-      if (file.quoteLayoutId && file.quoteLayoutId !== targetQuoteId) {
+
+      const isOwnByThisQuote = targetQuoteId !== null && file.quoteLayoutId === targetQuoteId;
+      const isTaskLayout = !!file.layouts;
+      const ownedByAnotherQuote = !!file.quoteLayoutId && file.quoteLayoutId !== targetQuoteId;
+
+      // Give this quote its OWN private copy whenever the File is shared — either a
+      // task layout (referenced by Task.layouts, possibly across sibling tasks) or
+      // already owned by another quote. `File.quoteLayoutId` is a single-owner FK,
+      // so connecting a shared File directly lets the next quote STEAL it, silently
+      // emptying this quote's approved layout. Cloning gives each quote an
+      // independent copy (same image, own record) that can never be stolen; the
+      // original stays the task layout. Skip cloning only when this quote already
+      // owns the File (a plain re-save) or the File is an unshared fresh upload.
+      if (!isOwnByThisQuote && (isTaskLayout || ownedByAnotherQuote)) {
         resolved.push(await this.cloneFileForQuoteLayout(tx, id, userId));
       } else {
         resolved.push(id);

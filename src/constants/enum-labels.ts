@@ -1156,7 +1156,7 @@ export const ENTITY_TYPE_LABELS: Record<ENTITY_TYPE, string> = {
   [ENTITY_TYPE.LEAVE]: 'Afastamento',
   [ENTITY_TYPE.DEPENDENT]: 'Dependente',
   [ENTITY_TYPE.AGENDA_EVENT]: 'Evento de Agenda',
-  [ENTITY_TYPE.POSTIT]: 'Post-it',
+  [ENTITY_TYPE.NOTE]: 'Nota',
 };
 
 export const FILE_ENTITY_TYPE_LABELS: Record<FILE_ENTITY_TYPE, string> = {
@@ -1579,7 +1579,7 @@ export const CHANGE_LOG_ENTITY_TYPE_LABELS: Record<CHANGE_LOG_ENTITY_TYPE, strin
   [CHANGE_LOG_ENTITY_TYPE.LEAVE]: 'Afastamento',
   [CHANGE_LOG_ENTITY_TYPE.DEPENDENT]: 'Dependente',
   [CHANGE_LOG_ENTITY_TYPE.AGENDA_EVENT]: 'Evento de Agenda',
-  [CHANGE_LOG_ENTITY_TYPE.POSTIT]: 'Post-it',
+  [CHANGE_LOG_ENTITY_TYPE.NOTE]: 'Nota',
 };
 
 export const CHANGE_LOG_ACTION_LABELS: Record<CHANGE_LOG_ACTION, string> = {

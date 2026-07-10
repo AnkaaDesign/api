@@ -38,6 +38,24 @@ export enum PAYMENT_METHOD {
   CREDIT_CARD = 'CREDIT_CARD',
 }
 
+/**
+ * How a receivable Installment was actually settled. Mirrors the Prisma
+ * `InstallmentPaymentMethod` enum. Distinct from PAYMENT_METHOD (Order/Payable
+ * billing): this is the "already paid" vocabulary of the invoice mark-paid action.
+ * BANK_SLIP / MANUAL are system-set (Sicredi settlement / external operation);
+ * ACCOUNT_GENIVALDO / ACCOUNT_SERGIO cover customers paying a company owner directly.
+ */
+export enum INSTALLMENT_PAYMENT_METHOD {
+  PIX = 'PIX',
+  BANK_SLIP = 'BANK_SLIP',
+  CASH = 'CASH',
+  TRANSFER = 'TRANSFER',
+  ACCOUNT_GENIVALDO = 'ACCOUNT_GENIVALDO',
+  ACCOUNT_SERGIO = 'ACCOUNT_SERGIO',
+  MANUAL = 'MANUAL',
+  OTHER = 'OTHER',
+}
+
 export const BANK_SLIP_DUE_DAYS_OPTIONS = [30, 60, 90, 120] as const;
 
 export enum SECTOR_PRIVILEGES {
@@ -1384,7 +1402,7 @@ export enum ENTITY_TYPE {
   LEAVE = 'LEAVE',
   DEPENDENT = 'DEPENDENT',
   AGENDA_EVENT = 'AGENDA_EVENT',
-  POSTIT = 'POSTIT',
+  NOTE = 'NOTE',
 }
 
 export enum CHANGE_ACTION {
@@ -1986,7 +2004,7 @@ export enum CHANGE_LOG_ENTITY_TYPE {
   PAYROLL = 'PAYROLL',
   PIECE = 'PIECE',
   POSITION = 'POSITION',
-  POSTIT = 'POSTIT',
+  NOTE = 'NOTE',
   PPE_CONFIG = 'PPE_CONFIG',
   PPE_DELIVERY = 'PPE_DELIVERY',
   PPE_DELIVERY_ITEM = 'PPE_DELIVERY_ITEM',
