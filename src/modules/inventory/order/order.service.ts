@@ -352,10 +352,14 @@ export class OrderService {
             totalOverride: orderData.totalOverride,
             items: (orderData.items || []) as any[],
           });
+          const isBankSlip = orderData.paymentMethod === PAYMENT_METHOD.BANK_SLIP;
           await this.generateInstallmentsForOrder(tx, newOrder.id, {
             total,
             count: installmentCount,
-            intervalDays: orderData.paymentDueDays ?? null,
+            // Pay-on-request methods (PIX/CREDIT_CARD) get a D+1 placeholder instead
+            // of the boleto 30-day default; anchorPayOnRequestDueDate re-anchors it
+            // to the real request moment once payment is actually requested.
+            intervalDays: isBankSlip ? (orderData.paymentDueDays ?? null) : 1,
             firstDueDate: (orderData.paymentFirstDueDate as Date) ?? null,
           });
           await this.recomputeOrderPaymentRollup(tx, newOrder.id);
@@ -1197,8 +1201,15 @@ export class OrderService {
             });
             const nextTotal = this.computeOrderPayableTotal(postUpdate);
             const totalChanged = Math.round(prevTotal * 100) !== Math.round(nextTotal * 100);
-            // The client clears the first-due anchor by explicitly sending null.
-            const firstDueExplicitlyCleared = (data as any).paymentFirstDueDate === null;
+            // Only BANK_SLIP exposes a real first-due-date field. PIX / CREDIT_CARD
+            // are pay-on-request (no due-date UI at all — see anchorPayOnRequestDueDate),
+            // so the edit form always submits paymentFirstDueDate: null for them; that is
+            // NOT a user-initiated "clear the anchor" the way it is for boleto. Treating it
+            // as one would silently reset the D+1 anchor back to a now+30 placeholder on
+            // every unrelated edit (item price, freight, discount, ...).
+            const isBankSlip = postUpdate.paymentMethod === PAYMENT_METHOD.BANK_SLIP;
+            const firstDueExplicitlyCleared =
+              isBankSlip && (data as any).paymentFirstDueDate === null;
             const paymentFieldChanged =
               hasNoSchedule ||
               prevCount !== wantCount ||
@@ -1221,7 +1232,9 @@ export class OrderService {
               await this.generateInstallmentsForOrder(tx, id, {
                 total,
                 count: wantCount,
-                intervalDays: postUpdate.paymentDueDays ?? null,
+                // Pay-on-request methods are always single-payment with a D+1-style
+                // anchor, never the boleto 30-day fallback.
+                intervalDays: isBankSlip ? (postUpdate.paymentDueDays ?? null) : 1,
                 firstDueDate: firstDueForRegen,
               });
               await this.recomputeOrderPaymentRollup(tx, id);
@@ -3145,6 +3158,44 @@ export class OrderService {
     );
   }
 
+  /**
+   * Attach receipt files (comprovantes de pagamento) to an existing order.
+   * Kept separate from the generic update() so the payment-side roles
+   * (FINANCIAL/ACCOUNTING) can index a comprovante when settling a payable
+   * without being granted full order-edit rights (which stay WAREHOUSE/ADMIN).
+   * Existing files are preserved — the new receipts are connected on top.
+   */
+  async attachReceipts(
+    orderId: string,
+    files: { receipts?: Express.Multer.File[] } | undefined,
+    userId?: string,
+  ): Promise<OrderUpdateResponse> {
+    try {
+      const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+      if (!order) {
+        throw new NotFoundException('Pedido não encontrado. Verifique se o ID está correto.');
+      }
+
+      if (files?.receipts && files.receipts.length > 0) {
+        await this.processOrderFileUploads(orderId, files, userId);
+      }
+
+      return {
+        success: true,
+        message: 'Comprovante anexado ao pedido.',
+        data: order as unknown as Order,
+      };
+    } catch (error: any) {
+      if (error instanceof NotFoundException) throw error;
+      // Remove temp uploads so a failed attach doesn't leave orphaned files on disk.
+      if (files) await this.cleanupFailedUploads(files);
+      this.logger.error(`Erro ao anexar comprovante ao pedido ${orderId}:`, error);
+      throw new InternalServerErrorException(
+        'Erro ao anexar comprovante. Por favor, tente novamente.',
+      );
+    }
+  }
+
   async batchMarkAwaitingPayment(
     orderIds: string[],
     userId?: string,
@@ -3262,7 +3313,7 @@ export class OrderService {
     try {
       const order = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         await this.assertPaymentRequestTransition(tx, orderId, fromStatus, toStatus);
-        return this.updatePaymentStatusWithTransaction(
+        const updated = await this.updatePaymentStatusWithTransaction(
           tx,
           orderId,
           toStatus,
@@ -3270,6 +3321,10 @@ export class OrderService {
           CHANGE_TRIGGERED_BY.USER_ACTION,
           { allowRequestWorkflow: true },
         );
+        if (toStatus === ORDER_PAYMENT_STATUS.AWAITING_PAYMENT) {
+          await this.anchorPayOnRequestDueDate(tx, orderId);
+        }
+        return updated;
       });
 
       return { success: true, message: successMessage, data: order };
@@ -3282,6 +3337,57 @@ export class OrderService {
         'Erro ao alterar a requisição de pagamento. Por favor, tente novamente.',
       );
     }
+  }
+
+  /**
+   * PIX and CREDIT_CARD orders are paid on demand (no due-date field in the UI at
+   * all): the "vencimento" is only meaningful once the payment is actually
+   * requested. So when one of these orders transitions PENDING → AWAITING_PAYMENT
+   * we (re-)anchor its single parcela's dueDate to the request moment + 1 day
+   * (D+1), re-anchoring on every fresh request. Boleto keeps its user-picked
+   * schedule and is a no-op here, as is any cancelled / already-settled order.
+   */
+  private async anchorPayOnRequestDueDate(
+    tx: PrismaTransaction,
+    orderId: string,
+  ): Promise<void> {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: {
+        status: true,
+        paymentMethod: true,
+        freight: true,
+        discount: true,
+        totalOverride: true,
+        items: {
+          select: { orderedQuantity: true, price: true, icms: true, ipi: true },
+        },
+        installments: { select: { status: true, paidAmount: true } },
+      },
+    });
+    if (
+      !order ||
+      (order.paymentMethod !== PAYMENT_METHOD.PIX &&
+        order.paymentMethod !== PAYMENT_METHOD.CREDIT_CARD)
+    )
+      return;
+    if (order.status === ORDER_STATUS.CANCELLED) return;
+
+    // Never move a schedule that already has money against it.
+    const anySettled = (order.installments || []).some(
+      i => i.status === ORDER_INSTALLMENT_STATUS.PAID || (i.paidAmount || 0) > 0,
+    );
+    if (anySettled) return;
+
+    const total = this.computeOrderPayableTotal(order);
+    await this.generateInstallmentsForOrder(tx, orderId, {
+      total,
+      count: 1, // PIX is always a single payment
+      intervalDays: 1, // firstDue = base + 1 day (D+1)
+      firstDueDate: null,
+      from: new Date(), // the payment-request moment
+    });
+    await this.recomputeOrderPaymentRollup(tx, orderId);
   }
 
   async batchRequestPayment(
@@ -3333,6 +3439,9 @@ export class OrderService {
               CHANGE_TRIGGERED_BY.BATCH_UPDATE,
               { allowRequestWorkflow: true },
             );
+            if (toStatus === ORDER_PAYMENT_STATUS.AWAITING_PAYMENT) {
+              await this.anchorPayOnRequestDueDate(tx, orderId);
+            }
             success.push(updated);
           } catch (error: any) {
             failed.push({
@@ -3503,10 +3612,13 @@ export class OrderService {
     if (totalChanged || (order.installments || []).length === 0) {
       const existingFirstDue =
         (order.installments || []).find(i => i.number === 1)?.dueDate ?? null;
+      const isBankSlip = order.paymentMethod === PAYMENT_METHOD.BANK_SLIP;
       await this.generateInstallmentsForOrder(tx, orderId, {
         total: newTotal,
         count: wantCount,
-        intervalDays: order.paymentDueDays ?? null,
+        // Pay-on-request methods (PIX/CREDIT_CARD) never fall back to the boleto
+        // 30-day default — see anchorPayOnRequestDueDate.
+        intervalDays: isBankSlip ? (order.paymentDueDays ?? null) : 1,
         firstDueDate: order.paymentFirstDueDate ?? existingFirstDue ?? null,
       });
       await this.recomputeOrderPaymentRollup(tx, orderId);
