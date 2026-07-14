@@ -8,6 +8,7 @@ import {
   Injectable,
   NotFoundException,
   InternalServerErrorException,
+  UnauthorizedException,
   Logger,
 } from '@nestjs/common';
 import { EventEmitter } from 'events';
@@ -199,7 +200,19 @@ export class UserService {
       where: { id: actorId },
       select: { sector: { select: { privileges: true } } },
     });
-    if (actor?.sector?.privileges === SECTOR_PRIVILEGES.ADMIN) return;
+    // ADMIN, HR and ACCOUNTING sectors are trusted to manage privileged user
+    // fields (their own included) and bypass the escalation guards below.
+    const privilegedManagerSectors: SECTOR_PRIVILEGES[] = [
+      SECTOR_PRIVILEGES.ADMIN,
+      SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+      SECTOR_PRIVILEGES.ACCOUNTING,
+    ];
+    if (
+      actor?.sector?.privileges &&
+      privilegedManagerSectors.includes(actor.sector.privileges as SECTOR_PRIVILEGES)
+    ) {
+      return;
+    }
 
     const anyData = data as Record<string, any>;
 
@@ -1017,7 +1030,12 @@ export class UserService {
       return response;
     } catch (error: any) {
       this.logger.error('Erro ao criar usuário:', error);
-      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException ||
+        error instanceof UnauthorizedException
+      ) {
         throw error;
       }
 
@@ -1578,7 +1596,12 @@ export class UserService {
       return response;
     } catch (error: any) {
       this.logger.error('Erro ao atualizar usuário:', error);
-      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException ||
+        error instanceof UnauthorizedException
+      ) {
         throw error;
       }
 
@@ -2108,7 +2131,12 @@ export class UserService {
       };
     } catch (error: unknown) {
       this.logger.error('Erro ao mesclar usuários:', error);
-      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException ||
+        error instanceof UnauthorizedException
+      ) {
         throw error;
       }
       throw new InternalServerErrorException(
