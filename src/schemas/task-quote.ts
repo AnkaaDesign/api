@@ -366,15 +366,38 @@ const taskQuoteFilters = {
 const taskQuoteTransform = (data: any) => {
   const transformed: any = { ...data };
 
-  // Handle searchingFor filter
-  if (data.searchingFor) {
+  // Handle searchingFor filter — search across logomarca (task name), série
+  // (task serial number / truck plate), cliente (task customer + billing
+  // customer configs) and the quote's service descriptions. Mirrors the Task
+  // search surface so the Orçamentos/Faturamento list honours its
+  // "Buscar por logomarca, série, cliente..." placeholder (previously it only
+  // matched service descriptions, so a logomarca/série/cliente search found
+  // nothing).
+  if (typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
+    const term = normalizeSearchTerm(data.searchingFor.trim());
     transformed.where = {
       ...transformed.where,
-      services: {
-        some: {
-          descriptionNormalized: { contains: normalizeSearchTerm(data.searchingFor) },
+      OR: [
+        // Logomarca + série (direct task fields)
+        { task: { nameNormalized: { contains: term } } },
+        { task: { serialNumberNormalized: { contains: term } } },
+        { task: { truck: { plateNormalized: { contains: term } } } },
+        // Cliente — task's own customer and each billing customer config
+        { task: { customer: { fantasyNameNormalized: { contains: term } } } },
+        { task: { customer: { corporateNameNormalized: { contains: term } } } },
+        {
+          customerConfigs: {
+            some: { customer: { fantasyNameNormalized: { contains: term } } },
+          },
         },
-      },
+        {
+          customerConfigs: {
+            some: { customer: { corporateNameNormalized: { contains: term } } },
+          },
+        },
+        // Service descriptions (original behaviour, preserved)
+        { services: { some: { descriptionNormalized: { contains: term } } } },
+      ],
     };
     delete transformed.searchingFor;
   }
