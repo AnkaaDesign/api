@@ -294,12 +294,42 @@ export class SecullumService {
           formData.append('client_secret', this.clientSecret);
         }
 
-        const authResponse = await axios.post(this.authUrl, formData.toString(), {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          timeout: 10000,
-        });
+        // Secullum's OAuth token endpoint intermittently returns 500 (empty body)
+        // or drops the connection for a second or two — observed in bursts even
+        // when credentials are valid. The password grant is stateless, so a short
+        // backoff + identical retry recovers. Retry ONLY transient failures
+        // (5xx / network); a 400/401 (invalid_grant, bad client_id) is a real
+        // credential error and must fail fast without hammering the endpoint.
+        const AUTH_MAX_ATTEMPTS = 3;
+        let authResponse: any;
+        let lastAuthError: any;
+        for (let attempt = 0; attempt < AUTH_MAX_ATTEMPTS; attempt++) {
+          try {
+            authResponse = await axios.post(this.authUrl, formData.toString(), {
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              timeout: 10000,
+            });
+            break;
+          } catch (err: any) {
+            lastAuthError = err;
+            const status = err.response?.status;
+            const isTransient = (status != null && status >= 500) || err.response == null;
+            if (isTransient && attempt < AUTH_MAX_ATTEMPTS - 1) {
+              const waitMs = 500 * 2 ** attempt;
+              this.logger.warn(
+                `Secullum auth transient error (status ${status ?? 'network'}); backing off ${waitMs}ms (attempt ${attempt + 1}/${AUTH_MAX_ATTEMPTS}).`,
+              );
+              await new Promise(res => setTimeout(res, waitMs));
+              continue;
+            }
+            throw err;
+          }
+        }
+        if (!authResponse) {
+          throw lastAuthError ?? new Error('Secullum authentication produced no response');
+        }
 
         if (!authResponse.data || !authResponse.data.access_token) {
           throw new Error('Invalid authentication response from Secullum');
