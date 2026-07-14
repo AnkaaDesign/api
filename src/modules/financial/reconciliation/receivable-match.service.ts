@@ -128,6 +128,14 @@ type ScoredCandidate = {
   totalInstallments: number | null;
 };
 
+/** How the paying customer was resolved from a credit:
+ *  - `cnpj`      exact 14/11-digit document on file → auto-appliable.
+ *  - `cnpj-raiz` the payer is a different branch (filial) of a known client —
+ *                same 8-digit company root, different /000X branch. A strong
+ *                SUGGESTION, never auto (a sibling entity may be billed apart).
+ *  - `name`      fuzzy corporate/fantasy-name similarity. */
+type MatchVia = 'cnpj' | 'cnpj-raiz' | 'name';
+
 /** A minimal customer row for in-memory identity resolution. */
 type CustomerIdentity = {
   id: string;
@@ -314,7 +322,7 @@ export class ReceivableMatchService {
     wouldAutoMatch: {
       count: number;
       value: number;
-      byVia: Record<'cnpj' | 'name', number>;
+      byVia: Record<MatchVia, number>;
       byKind: Record<string, number>;
     };
     suggestion: { count: number; value: number };
@@ -323,7 +331,7 @@ export class ReceivableMatchService {
     samples: Array<{
       amount: number;
       counterparty: string | null;
-      via: 'cnpj' | 'name' | null;
+      via: MatchVia | null;
       auto: boolean;
       kind: string | null;
       installments: number;
@@ -339,14 +347,19 @@ export class ReceivableMatchService {
     const report = {
       totalPending: credits.length,
       totalPendingValue: 0,
-      wouldAutoMatch: { count: 0, value: 0, byVia: { cnpj: 0, name: 0 }, byKind: {} as Record<string, number> },
+      wouldAutoMatch: {
+        count: 0,
+        value: 0,
+        byVia: { cnpj: 0, 'cnpj-raiz': 0, name: 0 } as Record<MatchVia, number>,
+        byKind: {} as Record<string, number>,
+      },
       suggestion: { count: 0, value: 0 },
       resolvedNoValue: { count: 0, value: 0 },
       unresolved: { count: 0, value: 0 },
       samples: [] as Array<{
         amount: number;
         counterparty: string | null;
-        via: 'cnpj' | 'name' | null;
+        via: MatchVia | null;
         auto: boolean;
         kind: string | null;
         installments: number;
@@ -357,7 +370,7 @@ export class ReceivableMatchService {
       const amount = Math.abs(Number(tx.amount));
       report.totalPendingValue += amount;
       const resolved = this.resolveCustomer(tx, index);
-      let via: 'cnpj' | 'name' | null = resolved?.via ?? null;
+      let via: MatchVia | null = resolved?.via ?? null;
       let auto = false;
       let kind: string | null = null;
       let installments = 0;
@@ -407,7 +420,7 @@ export class ReceivableMatchService {
     suggestion: {
       customerId: string;
       customerName: string | null;
-      via: 'cnpj' | 'name';
+      via: MatchVia;
       auto: boolean;
       confidence: number;
       kind: string;
@@ -556,42 +569,52 @@ export class ReceivableMatchService {
     }
 
     // ── Identity-first path ────────────────────────────────────────────────
+    let identityFloor: number | null = null;
     if (identity) {
       const resolved = this.resolveCustomer(tx, identity);
-      if (resolved && resolved.auto) {
-        const plan = await this.planCustomerMatch(tx, resolved.customerId, resolved.via);
-        if (plan) {
-          await this.applyReceivableAllocation(
-            tx,
-            plan.allocations,
-            ReconciliationSource.AUTO,
-            undefined,
-            plan.confidence,
-          );
-          await this.learnCustomerDocument(resolved.customerId, tx.counterpartyCnpjCpf);
-          this.logger.log(
-            `Inflow tx ${tx.id} auto-matched to customer ${resolved.customerId} ` +
-              `via ${resolved.via} (${plan.kind}, ${plan.allocations.length} parcela(s), conf ${plan.confidence})`,
-          );
-          return true;
+      if (resolved) {
+        if (resolved.auto) {
+          const plan = await this.planCustomerMatch(tx, resolved.customerId, resolved.via);
+          if (plan) {
+            await this.applyReceivableAllocation(
+              tx,
+              plan.allocations,
+              ReconciliationSource.AUTO,
+              undefined,
+              plan.confidence,
+            );
+            await this.learnCustomerDocument(resolved.customerId, tx.counterpartyCnpjCpf);
+            this.logger.log(
+              `Inflow tx ${tx.id} auto-matched to customer ${resolved.customerId} ` +
+                `via ${resolved.via} (${plan.kind}, ${plan.allocations.length} parcela(s), conf ${plan.confidence})`,
+            );
+            return true;
+          }
+          // Customer resolved but value doesn't reconcile → record the near-miss.
+          await this.stampTopScore(tx.id, resolved.score);
+          return false;
         }
-        // Customer resolved but value doesn't reconcile → record the near-miss.
-        await this.stampTopScore(tx.id, resolved.score);
-        return false;
+        // Resolved below the auto bar (raiz branch or fuzzy name): a one-click
+        // suggestion is available. Carry its score as the triage floor so the
+        // credit still surfaces as a near-miss when value-first finds nothing.
+        identityFloor = resolved.score;
       }
     }
 
     // ── Legacy value-first fallback (kept so identity-off can't regress) ────
-    return this.tryValueFirstMatch(tx);
+    return this.tryValueFirstMatch(tx, identityFloor);
   }
 
   /** The original value-first auto-match: an open NON-boleto installment whose
    *  exact value+date is unique (or a clear scored winner). Retained as a
    *  fallback for credits where no customer could be resolved. */
-  private async tryValueFirstMatch(tx: RawCredit): Promise<boolean> {
+  private async tryValueFirstMatch(
+    tx: RawCredit,
+    floorScore: number | null = null,
+  ): Promise<boolean> {
     const candidates = await this.findScoredCandidates(tx, { exactValueOnly: true });
     if (candidates.length === 0) {
-      await this.stampTopScore(tx.id, null);
+      await this.stampTopScore(tx.id, floorScore);
       return false;
     }
 
@@ -609,8 +632,9 @@ export class ReceivableMatchService {
       return true;
     }
 
-    // Ambiguous → leave for manual, but surface how close the best one is.
-    await this.stampTopScore(tx.id, best.confidence);
+    // Ambiguous → leave for manual, but surface how close the best one is
+    // (the higher of the value-first best and any identity near-miss).
+    await this.stampTopScore(tx.id, Math.max(best.confidence, floorScore ?? 0));
     return false;
   }
 
@@ -645,11 +669,26 @@ export class ReceivableMatchService {
   private resolveCustomer(
     tx: RawCredit,
     index: CustomerIdentityIndex,
-  ): { customerId: string; via: 'cnpj' | 'name'; score: number; auto: boolean } | null {
+  ): { customerId: string; via: MatchVia; score: number; auto: boolean } | null {
     const txDoc = onlyDigits(tx.counterpartyCnpjCpf);
     if (txDoc) {
       const byDoc = index.byDocument.get(txDoc);
       if (byDoc) return { customerId: byDoc, via: 'cnpj', score: 100, auto: true };
+
+      // Payer is a different branch (filial) of a known client: two CNPJs of the
+      // same company share the 8-digit raiz (root) and differ only in the /000X
+      // branch + check digits. Resolve on the raiz when it points at EXACTLY one
+      // customer — a strong suggestion, but never auto (a distinct sibling entity
+      // in the same group could legitimately own that branch).
+      if (txDoc.length === 14) {
+        const raiz = txDoc.slice(0, 8);
+        const roots = index.customers.filter(
+          c => !!c.cnpjCpf && c.cnpjCpf.length === 14 && c.cnpjCpf.slice(0, 8) === raiz,
+        );
+        if (roots.length === 1) {
+          return { customerId: roots[0].id, via: 'cnpj-raiz', score: 90, auto: false };
+        }
+      }
     }
 
     const name = tx.counterpartyName;
@@ -678,7 +717,7 @@ export class ReceivableMatchService {
   private async planCustomerMatch(
     tx: RawCredit,
     customerId: string,
-    via: 'cnpj' | 'name',
+    via: MatchVia,
   ): Promise<{ allocations: ReceivableAllocation[]; kind: string; confidence: number } | null> {
     const creditAbs = Math.abs(Number(tx.amount));
     const matchable = await this.gatherMatchableInstallments(customerId, tx.postedAt);
@@ -698,7 +737,18 @@ export class ReceivableMatchService {
       amount: i.isPaid ? i.amount : i.remaining,
       linkOnly: i.isPaid,
     }));
-    const confidence = via === 'cnpj' ? (isBatch ? 95 : 97) : isBatch ? 85 : 90;
+    const confidence =
+      via === 'cnpj'
+        ? isBatch
+          ? 95
+          : 97
+        : via === 'cnpj-raiz'
+          ? isBatch
+            ? 88
+            : 93
+          : isBatch
+            ? 85
+            : 90;
     return { allocations, kind: best.kind, confidence };
   }
 
@@ -976,7 +1026,6 @@ export class ReceivableMatchService {
     creditAbs: number,
   ): Promise<boolean> {
     const abs = new Decimal(creditAbs);
-    const share = new Decimal(creditAbs).div(slips.length);
     const cob = (tx.memo ?? '').match(/COB\d+/i)?.[0] ?? null;
 
     const committed = await this.prisma.$transaction(async db => {
@@ -1009,7 +1058,10 @@ export class ReceivableMatchService {
           data: {
             transactionId: tx.id,
             bankSlipId: s.id,
-            allocatedAmount: slips.length === 1 ? abs : share,
+            // Each bridge match carries the value THIS slip actually settled — a
+            // batch (LIQ.COBRANCA lote) is the sum of its boletos, not an even
+            // split of the credit. A 1:1 bridge uses the credit amount (== slip).
+            allocatedAmount: slips.length === 1 ? abs : new Decimal(s.amount),
             matchType: ReconciliationMatchType.BANK_SLIP_BRIDGE,
             confidenceScore: slips.length === 1 ? 98 : 90,
             notes:
