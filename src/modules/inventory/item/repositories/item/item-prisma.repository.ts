@@ -13,7 +13,7 @@ import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '@
 import { ItemRepository } from './item.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { Item as PrismaItem, Prisma } from '@prisma/client';
-import { mapPpeTypeToPrisma, mapPpeSizeToPrisma, mapPpeDeliveryModeToPrisma } from '@utils';
+import { mapPpeTypeToPrisma, mapPpeDeliveryModeToPrisma } from '@utils';
 import { PPE_SIZE, PPE_SIZE_ORDER } from '@constants';
 
 @Injectable()
@@ -75,21 +75,13 @@ export class ItemPrismaRepository
     // Ensure barcodes is an array
     const barcodesArray = Array.isArray(barcodes) ? barcodes : [];
 
-    // Extract PPE size from measures array if not provided directly
-    let effectivePpeSize = ppeSize;
-    if (!effectivePpeSize && measures && Array.isArray(measures)) {
-      const sizeMeasure = measures.find((m: any) => m.measureType === 'SIZE');
-      if (sizeMeasure) {
-        // If unit is a letter size (P, M, G, GG, XG), use it directly
-        if (sizeMeasure.unit && ['P', 'M', 'G', 'GG', 'XG'].includes(sizeMeasure.unit)) {
-          effectivePpeSize = sizeMeasure.unit;
-        }
-        // If value is a numeric size (36, 38, 40, etc.), convert to SIZE_XX format
-        else if (sizeMeasure.value) {
-          effectivePpeSize = `SIZE_${sizeMeasure.value}`;
-        }
-      }
-    }
+    // NOTE: `ppeSize` is intentionally destructured out and NOT written here.
+    // Item has no `ppeSize` column (it exists only on User) — an item's size is
+    // stored as a SIZE measure. The service layer converts the legacy top-level
+    // `ppeSize` into that measure. Writing it onto the Prisma input throws
+    // PrismaClientValidationError ("unknown argument ppeSize").
+    void ppeSize;
+    void measures;
 
     const createInput: Prisma.ItemCreateInput = {
       ...rest,
@@ -104,9 +96,9 @@ export class ItemPrismaRepository
       ...(categoryId ? { category: { connect: { id: categoryId } } } : {}),
       // Warehouse cells (JSON array); null clears via Prisma.JsonNull
       ...(locationCells !== undefined && { locationCells: locationCells ?? Prisma.JsonNull }),
-      // Map PPE fields if present - ensure they are properly typed
+      // Map PPE fields if present - ensure they are properly typed.
+      // (ppeSize is NOT a column — it is persisted as a SIZE measure; see above.)
       ...(ppeType && { ppeType: mapPpeTypeToPrisma(ppeType) }),
-      ...(effectivePpeSize && { ppeSize: mapPpeSizeToPrisma(effectivePpeSize) }),
       ...(ppeDeliveryMode && { ppeDeliveryMode: mapPpeDeliveryModeToPrisma(ppeDeliveryMode) }),
       // Handle price through relation if provided
       ...(price !== undefined && {
@@ -149,31 +141,20 @@ export class ItemPrismaRepository
       ...rest
     } = formData;
 
-    // Extract PPE size from measures array if not provided directly
-    let effectivePpeSize = ppeSize;
-    if (effectivePpeSize === undefined && measures && Array.isArray(measures)) {
-      const sizeMeasure = measures.find((m: any) => m.measureType === 'SIZE');
-      if (sizeMeasure) {
-        // If unit is a letter size (P, M, G, GG, XG), use it directly
-        if (sizeMeasure.unit && ['P', 'M', 'G', 'GG', 'XG'].includes(sizeMeasure.unit)) {
-          effectivePpeSize = sizeMeasure.unit;
-        }
-        // If value is a numeric size (36, 38, 40, etc.), convert to SIZE_XX format
-        else if (sizeMeasure.value) {
-          effectivePpeSize = `SIZE_${sizeMeasure.value}`;
-        }
-      }
-    }
+    // NOTE: `ppeSize` is intentionally destructured out and NOT written here.
+    // Item has no `ppeSize` column — the size is stored as a SIZE measure and the
+    // service layer derives it from the legacy top-level `ppeSize`. Writing it
+    // onto the Prisma input (even as `null`) throws PrismaClientValidationError,
+    // which is what broke every non-PPE item edit.
+    void ppeSize;
+    void measures;
 
     const updateInput: Prisma.ItemUpdateInput = {
       ...rest,
       // Warehouse cells (JSON array); null clears via Prisma.JsonNull
       ...(locationCells !== undefined && { locationCells: locationCells ?? Prisma.JsonNull }),
-      // Map PPE fields if present
+      // Map PPE fields if present (ppeSize excluded — it is a SIZE measure).
       ...(ppeType !== undefined && { ppeType: ppeType ? mapPpeTypeToPrisma(ppeType) : null }),
-      ...(effectivePpeSize !== undefined && {
-        ppeSize: effectivePpeSize ? mapPpeSizeToPrisma(effectivePpeSize) : null,
-      }),
       ...(ppeDeliveryMode !== undefined && {
         ppeDeliveryMode: ppeDeliveryMode ? mapPpeDeliveryModeToPrisma(ppeDeliveryMode) : null,
       }),

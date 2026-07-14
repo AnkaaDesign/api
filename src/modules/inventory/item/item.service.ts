@@ -701,6 +701,40 @@ export class ItemService {
   }
 
   /**
+   * An item's PPE size is stored as a SIZE **measure** — Item has no `ppeSize`
+   * column (that exists only on User). Clients still send the size as a legacy
+   * top-level `ppeSize` enum; this converts it into the SIZE measure the rest of
+   * the pipeline (validation, storage, read-back) expects: letter sizes
+   * (P/M/G/GG/XG) go in `unit`, numeric sizes (`SIZE_38` → 38) go in `value`.
+   * Returns null when there is no usable size.
+   */
+  private ppeSizeToSizeMeasure(
+    ppeSize: unknown,
+  ): { measureType: MEASURE_TYPE; value: number | null; unit: string | null } | null {
+    if (ppeSize === undefined || ppeSize === null || ppeSize === '') return null;
+    const raw = String(ppeSize);
+    const numeric = /^SIZE_(\d+(?:\.\d+)?)$/.exec(raw);
+    if (numeric) {
+      return { measureType: MEASURE_TYPE.SIZE, value: Number(numeric[1]), unit: null };
+    }
+    // Letter size (P, M, G, GG, XG) — stored in `unit`.
+    return { measureType: MEASURE_TYPE.SIZE, value: null, unit: raw };
+  }
+
+  /**
+   * Fold the legacy top-level `ppeSize` into the measures array as a SIZE measure
+   * (see {@link ppeSizeToSizeMeasure}). Only applies to PPE items (`ppeType` set);
+   * a fresh SIZE measure replaces any existing one. Returns the possibly-updated
+   * measures array (or the original when there is nothing to add).
+   */
+  private foldPpeSizeIntoMeasures(itemData: any, measuresArray: any[] | null): any[] | null {
+    const sizeMeasure = this.ppeSizeToSizeMeasure(itemData?.ppeSize);
+    if (!itemData?.ppeType || !sizeMeasure) return measuresArray;
+    const withoutSize = (measuresArray ?? []).filter((m: any) => m.measureType !== 'SIZE');
+    return [...withoutSize, sizeMeasure];
+  }
+
+  /**
    * Create default measure from legacy measureValue/measureUnit fields
    */
   private async createDefaultMeasureFromLegacyFields(
@@ -811,6 +845,10 @@ export class ItemService {
         // valores explícitos do cliente sempre vencem)
         await this.applyCategoryCapabilityDefaults(itemData, tx);
 
+        // An item's PPE size lives as a SIZE measure (there is no ppeSize column);
+        // fold the legacy top-level ppeSize in before validation + persistence.
+        measuresArray = this.foldPpeSizeIntoMeasures(itemData, measuresArray);
+
         // Pass measures for validation
         const dataForValidation = {
           ...itemData,
@@ -901,6 +939,10 @@ export class ItemService {
             measuresArray = Object.values(measures);
           }
         }
+
+        // An item's PPE size lives as a SIZE measure (there is no ppeSize column);
+        // fold the legacy top-level ppeSize in before validation + persistence.
+        measuresArray = this.foldPpeSizeIntoMeasures(itemData, measuresArray);
 
         // Pass measures for validation
         const dataForValidation = {
