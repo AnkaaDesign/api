@@ -274,7 +274,9 @@ export class RecurrentPayableService {
     if (cadenceChanged && willBeActive) {
       // Drop only future, untouched occurrences (no payment, no bank/NF link, no
       // reconciliation match) — paid/linked history is preserved. The cron then
-      // re-materializes them under the new cadence.
+      // re-materializes them under the new cadence (picking up the fresh amount/
+      // paymentMethod/expectsNf snapshot below in the same pass), so no separate
+      // sync is needed here.
       const today = startOfDaySaoPaulo(new Date());
       await this.prisma.recurrentPayableOccurrence.deleteMany({
         where: {
@@ -285,6 +287,40 @@ export class RecurrentPayableService {
           fiscalDocumentId: null,
         },
       });
+    } else {
+      // Non-cadence fields (amount, paymentMethod, expectsNf) are snapshotted onto
+      // each occurrence at materialization time — name/category/supplier/payee are
+      // read live via the relation, so those already reflect edits everywhere.
+      // Sync the snapshotted ones into already-materialized future occurrences so
+      // an edit takes effect immediately instead of waiting for the next
+      // materialization. Past occurrences and anything already paid or linked to a
+      // bank transaction / NF are frozen — real money or reconciliation already
+      // happened against the old snapshot.
+      const snapshotChanged =
+        dto.amountKind !== undefined ||
+        dto.fixedAmount !== undefined ||
+        dto.estimatedAmount !== undefined ||
+        dto.paymentMethod !== undefined ||
+        dto.expectsNf !== undefined;
+
+      if (snapshotChanged) {
+        const today = startOfDaySaoPaulo(new Date());
+        const estimatedAmount = await this.computeEstimate(updated);
+        await this.prisma.recurrentPayableOccurrence.updateMany({
+          where: {
+            recurrentPayableId: id,
+            dueDate: { gte: today },
+            status: { in: ['PENDING', 'OVERDUE'] },
+            bankTransactionId: null,
+            fiscalDocumentId: null,
+          },
+          data: {
+            estimatedAmount,
+            paymentMethod: updated.paymentMethod,
+            expectsNf: updated.expectsNf,
+          },
+        });
+      }
     }
 
     return { success: true, message: 'Conta recorrente atualizada.', data: updated };
