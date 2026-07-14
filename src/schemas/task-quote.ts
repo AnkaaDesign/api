@@ -297,13 +297,6 @@ export const taskQuoteWhereSchema: z.ZodSchema = z.lazy(() =>
       // this the strict() where rejected it with unrecognized_keys: 'task'. Nested
       // Task fields are passed through (Prisma validates them) to avoid a circular
       // import with taskWhereSchema.
-      task: z
-        .object({
-          is: z.record(z.any()).nullable().optional(),
-          isNot: z.record(z.any()).nullable().optional(),
-        })
-        .partial()
-        .optional(),
       simultaneousTasks: z
         .union([
           z.number(),
@@ -342,6 +335,19 @@ export const taskQuoteWhereSchema: z.ZodSchema = z.lazy(() =>
             not: z.date().optional(),
           }),
         ])
+        .optional(),
+      // To-one relation filter for the linked Task. Accepts Prisma's
+      // is/isNot form (e.g. { isNot: null } to require a linked task, as the
+      // budget list sends) as well as a direct nested where (e.g. { id }).
+      task: z
+        .union([
+          z.object({
+            is: z.record(z.any()).nullable().optional(),
+            isNot: z.record(z.any()).nullable().optional(),
+          }),
+          z.record(z.any()),
+        ])
+        .nullable()
         .optional(),
     })
     .partial()
