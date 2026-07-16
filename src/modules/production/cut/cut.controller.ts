@@ -150,7 +150,12 @@ export class CutController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.PLOTTING, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.PLOTTING,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+  )
   async batchUpdate(
     @Body(new ZodValidationPipe(cutBatchUpdateSchema)) data: CutBatchUpdateFormData,
     @UserId() userId: string,
@@ -192,7 +197,12 @@ export class CutController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.PLOTTING, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.PLOTTING,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+  )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(cutUpdateSchema)) data: CutUpdateFormData,
