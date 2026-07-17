@@ -2217,7 +2217,6 @@ export class TaskQuoteService {
       where: {
         installment: { invoice: { taskId: task.id } },
         status: { notIn: ['CANCELLED', 'PAID'] },
-        nossoNumero: { not: null },
       },
       select: { id: true, nossoNumero: true, status: true },
     });
@@ -2471,7 +2470,6 @@ export class TaskQuoteService {
         where: {
           installment: { invoice: { taskId } },
           status: { notIn: ['CANCELLED', 'PAID'] },
-          nossoNumero: { not: null },
         },
         select: { nossoNumero: true },
       });

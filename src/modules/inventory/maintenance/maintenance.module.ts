@@ -8,6 +8,7 @@ import { MaintenanceService } from './maintenance.service';
 import { MaintenanceItemService } from './maintenance-item.service';
 import { MaintenanceScheduleService } from './maintenance-schedule.service';
 import { MaintenanceNotificationScheduler } from './maintenance-notification.scheduler';
+import { MaintenanceScheduleScheduler } from './maintenance-schedule.scheduler';
 import { MaintenanceRepository } from './repositories/maintenance/maintenance.repository';
 import { MaintenancePrismaRepository } from './repositories/maintenance/maintenance-prisma.repository';
 import { MaintenanceItemRepository } from './repositories/maintenance-item/maintenance-item.repository';
@@ -27,6 +28,7 @@ import { NotificationModule } from '@modules/common/notification/notification.mo
     MaintenanceItemService,
     MaintenanceScheduleService,
     MaintenanceNotificationScheduler,
+    MaintenanceScheduleScheduler,
     {
       provide: MaintenanceRepository,
       useClass: MaintenancePrismaRepository,
