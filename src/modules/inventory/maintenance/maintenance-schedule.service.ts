@@ -79,22 +79,40 @@ export class MaintenanceScheduleService {
 
       case SCHEDULE_FREQUENCY.WEEKLY:
         // Weekly with interval (every X weeks)
-        nextRun.setDate(nextRun.getDate() + 7 * interval);
-        if (schedule.dayOfWeek) {
-          // Adjust to specific day of week
-          const targetDay = this.getDayOfWeekNumber(schedule.dayOfWeek);
-          const currentDay = nextRun.getDay();
-          const daysToAdd = (targetDay - currentDay + 7) % 7;
-          nextRun.setDate(nextRun.getDate() + daysToAdd);
-        }
+        nextRun = this.applyWeeklyInterval(nextRun, interval, schedule.dayOfWeek);
+        break;
+
+      case SCHEDULE_FREQUENCY.BIWEEKLY:
+        // Biweekly with interval (every X * 2 weeks)
+        nextRun = this.applyWeeklyInterval(nextRun, 2 * interval, schedule.dayOfWeek);
         break;
 
       case SCHEDULE_FREQUENCY.MONTHLY:
         // Monthly with interval (every X months)
-        nextRun.setMonth(nextRun.getMonth() + interval);
-        if (schedule.dayOfMonth) {
-          nextRun.setDate(Math.min(schedule.dayOfMonth, this.getDaysInMonth(nextRun)));
-        }
+        nextRun = this.applyMonthlyInterval(nextRun, interval, schedule.dayOfMonth);
+        break;
+
+      case SCHEDULE_FREQUENCY.BIMONTHLY:
+        // Bimonthly with interval (every X * 2 months)
+        nextRun = this.applyMonthlyInterval(nextRun, 2 * interval, schedule.dayOfMonth);
+        break;
+
+      case SCHEDULE_FREQUENCY.QUARTERLY:
+        // Quarterly with interval (every X * 3 months)
+        nextRun = this.applyMonthlyInterval(nextRun, 3 * interval, schedule.dayOfMonth);
+        break;
+
+      case SCHEDULE_FREQUENCY.QUADRIMESTRAL:
+      case SCHEDULE_FREQUENCY.TRIANNUAL:
+        // TRIANNUAL is this codebase's alias for QUADRIMESTRAL (every X * 4 months,
+        // i.e. 3x/year) — see the same pairing in ppe-delivery-schedule.service.ts,
+        // api/src/utils/order.ts, and frequency-and-schedule-form.tsx.
+        nextRun = this.applyMonthlyInterval(nextRun, 4 * interval, schedule.dayOfMonth);
+        break;
+
+      case SCHEDULE_FREQUENCY.SEMI_ANNUAL:
+        // Semi-annual with interval (every X * 6 months)
+        nextRun = this.applyMonthlyInterval(nextRun, 6 * interval, schedule.dayOfMonth);
         break;
 
       case SCHEDULE_FREQUENCY.ANNUAL:
@@ -117,8 +135,11 @@ export class MaintenanceScheduleService {
         return null;
 
       default:
-        this.logger.warn(`Unknown schedule frequency: ${schedule.frequency}`);
-        nextRun.setMonth(nextRun.getMonth() + 1); // Default to monthly
+        // Every SCHEDULE_FREQUENCY member is handled above; reaching here means
+        // the enum gained a new value that this switch wasn't updated for.
+        // Fail loudly instead of silently defaulting to monthly (see incident
+        // where SEMI_ANNUAL schedules were advanced by 1 month instead of 6).
+        throw new Error(`Unhandled schedule frequency: ${schedule.frequency}`);
     }
 
     // Set time to 13:00 (1 PM)
@@ -166,6 +187,28 @@ export class MaintenanceScheduleService {
 
   private getDaysInMonth(date: Date): number {
     return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  }
+
+  private applyWeeklyInterval(date: Date, weeks: number, dayOfWeek?: string): Date {
+    const nextRun = new Date(date);
+    nextRun.setDate(nextRun.getDate() + 7 * weeks);
+    if (dayOfWeek) {
+      // Adjust to specific day of week
+      const targetDay = this.getDayOfWeekNumber(dayOfWeek);
+      const currentDay = nextRun.getDay();
+      const daysToAdd = (targetDay - currentDay + 7) % 7;
+      nextRun.setDate(nextRun.getDate() + daysToAdd);
+    }
+    return nextRun;
+  }
+
+  private applyMonthlyInterval(date: Date, months: number, dayOfMonth?: number): Date {
+    const nextRun = new Date(date);
+    nextRun.setMonth(nextRun.getMonth() + months);
+    if (dayOfMonth) {
+      nextRun.setDate(Math.min(dayOfMonth, this.getDaysInMonth(nextRun)));
+    }
+    return nextRun;
   }
 
   /**
@@ -286,9 +329,24 @@ export class MaintenanceScheduleService {
           transaction: tx,
         });
 
-        // Create the first maintenance if nextRun is set and schedule is active
-        if (newMaintenanceSchedule.isActive && newMaintenanceSchedule.nextRun) {
-          await this.createInitialMaintenanceFromSchedule(newMaintenanceSchedule, userId, tx);
+        // Create the first maintenance only if its due date already falls within the
+        // lead-time window (see getLeadTimeDays) — otherwise the daily cron
+        // (processDueSchedules) will create it closer to when it's actually due.
+        if (
+          newMaintenanceSchedule.isActive &&
+          newMaintenanceSchedule.nextRun &&
+          this.isWithinLeadTime(newMaintenanceSchedule)
+        ) {
+          try {
+            await this.createMaintenanceFromSchedule(newMaintenanceSchedule, userId, tx);
+          } catch (error) {
+            this.logger.error(
+              `Failed to create initial maintenance for schedule ${newMaintenanceSchedule.id}:`,
+              error,
+            );
+            // Don't fail schedule creation — the schedule still exists and the
+            // cron will pick it up as overdue if this keeps failing.
+          }
         }
 
         return newMaintenanceSchedule;
@@ -560,9 +618,23 @@ export class MaintenanceScheduleService {
               transaction: tx,
             });
 
-            // Create the first maintenance if nextRun is set and schedule is active
-            if (newMaintenanceSchedule.isActive && newMaintenanceSchedule.nextRun) {
-              await this.createInitialMaintenanceFromSchedule(newMaintenanceSchedule, userId, tx);
+            // Create the first maintenance only if its due date already falls within the
+            // lead-time window — otherwise the daily cron creates it closer to due date.
+            if (
+              newMaintenanceSchedule.isActive &&
+              newMaintenanceSchedule.nextRun &&
+              this.isWithinLeadTime(newMaintenanceSchedule)
+            ) {
+              try {
+                await this.createMaintenanceFromSchedule(newMaintenanceSchedule, userId, tx);
+              } catch (error) {
+                this.logger.error(
+                  `Failed to create initial maintenance for schedule ${newMaintenanceSchedule.id}:`,
+                  error,
+                );
+                // Don't fail the batch item — the schedule still exists and the
+                // cron will pick it up as overdue if this keeps failing.
+              }
             }
 
             // If include is specified, fetch the maintenance schedule with included relations
@@ -1031,53 +1103,74 @@ export class MaintenanceScheduleService {
   }
 
   /**
-   * Create the initial maintenance from a newly created schedule
+   * Lead time (in days) before `nextRun` when a schedule's next Maintenance
+   * should be created — mirrors PpeDeliveryScheduleService.getLeadTimeDays.
+   * Short cadences get a short lead so they don't sit pending too long;
+   * everything else gets a week of notice.
    */
-  private async createInitialMaintenanceFromSchedule(
+  private getLeadTimeDays(frequency: string): number {
+    switch (frequency) {
+      case SCHEDULE_FREQUENCY.DAILY:
+      case SCHEDULE_FREQUENCY.WEEKLY:
+      case SCHEDULE_FREQUENCY.BIWEEKLY:
+        return 1;
+      default:
+        return 7;
+    }
+  }
+
+  private isWithinLeadTime(schedule: MaintenanceSchedule, now: Date = new Date()): boolean {
+    if (!schedule.nextRun) return false;
+    const leadTimeDays = this.getLeadTimeDays(schedule.frequency);
+    const preparationDate = new Date(now);
+    preparationDate.setDate(preparationDate.getDate() + leadTimeDays);
+    return schedule.nextRun <= preparationDate;
+  }
+
+  /**
+   * Create the next Maintenance for a schedule (used both for a schedule's very
+   * first occurrence and for cron-driven creation once nextRun enters the lead
+   * time window — see processDueSchedules).
+   */
+  private async createMaintenanceFromSchedule(
     schedule: MaintenanceSchedule,
     userId?: string,
     tx?: PrismaTransaction,
   ): Promise<void> {
-    try {
-      this.logger.log(
-        `Creating initial maintenance for schedule ${schedule.id} with nextRun: ${schedule.nextRun}`,
-      );
+    this.logger.log(
+      `Creating maintenance for schedule ${schedule.id} with nextRun: ${schedule.nextRun}`,
+    );
 
-      // Generate unique name by appending scheduled date
-      const formattedDate = schedule.nextRun.toLocaleDateString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-      });
-      const uniqueName = `${schedule.name} - ${formattedDate}`;
+    // Generate unique name by appending scheduled date
+    const formattedDate = schedule.nextRun.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+    const uniqueName = `${schedule.name} - ${formattedDate}`;
 
-      // Prepare maintenance data based on the schedule configuration
-      const maintenanceData: any = {
-        name: uniqueName,
-        description: schedule.description
-          ? `${schedule.description}\n\nManutenção criada automaticamente pelo agendamento.`
-          : 'Manutenção criada automaticamente pelo agendamento.',
-        itemId: schedule.itemId,
-        status: MAINTENANCE_STATUS.PENDING,
-        scheduledFor: schedule.nextRun,
-        maintenanceScheduleId: schedule.id,
-        itemsNeeded: schedule.maintenanceItemsConfig || [],
-      };
+    // Prepare maintenance data based on the schedule configuration
+    const maintenanceData: any = {
+      name: uniqueName,
+      description: schedule.description
+        ? `${schedule.description}\n\nManutenção criada automaticamente pelo agendamento.`
+        : 'Manutenção criada automaticamente pelo agendamento.',
+      itemId: schedule.itemId,
+      status: MAINTENANCE_STATUS.PENDING,
+      scheduledFor: schedule.nextRun,
+      maintenanceScheduleId: schedule.id,
+      itemsNeeded: schedule.maintenanceItemsConfig || [],
+    };
 
-      // Create the maintenance using the maintenance service within the same transaction
-      await this.maintenanceService.createWithinTransaction(
-        maintenanceData,
-        tx || this.prisma,
-        undefined,
-        userId,
-      );
+    // Create the maintenance using the maintenance service within the same transaction
+    await this.maintenanceService.createWithinTransaction(
+      maintenanceData,
+      tx || this.prisma,
+      undefined,
+      userId,
+    );
 
-      this.logger.log(`Successfully created initial maintenance for schedule ${schedule.id}`);
-    } catch (error) {
-      this.logger.error(`Failed to create initial maintenance for schedule ${schedule.id}:`, error);
-      // Don't throw error to prevent schedule creation from failing
-      // The schedule is still created, but the first maintenance wasn't
-    }
+    this.logger.log(`Successfully created maintenance for schedule ${schedule.id}`);
   }
 
   /**
@@ -1149,8 +1242,11 @@ export class MaintenanceScheduleService {
 
       // Update the schedule's date configuration fields based on the completion date
       // This ensures the schedule adjusts to when maintenances are actually completed
-      if (schedule.frequency === SCHEDULE_FREQUENCY.WEEKLY) {
-        // For weekly schedules, update dayOfWeek to match the completion date's day of week
+      if (
+        schedule.frequency === SCHEDULE_FREQUENCY.WEEKLY ||
+        schedule.frequency === SCHEDULE_FREQUENCY.BIWEEKLY
+      ) {
+        // For (bi)weekly schedules, update dayOfWeek to match the completion date's day of week
         const completionDay = baseDate.getDay();
         const dayNames = [
           'SUNDAY',
@@ -1165,8 +1261,15 @@ export class MaintenanceScheduleService {
         this.logger.log(
           `[MAINTENANCE COMPLETION] Updating schedule dayOfWeek to ${scheduleUpdateData.dayOfWeek} based on completion date`,
         );
-      } else if (schedule.frequency === SCHEDULE_FREQUENCY.MONTHLY) {
-        // For monthly schedules, update dayOfMonth to match the completion date's day
+      } else if (
+        schedule.frequency === SCHEDULE_FREQUENCY.MONTHLY ||
+        schedule.frequency === SCHEDULE_FREQUENCY.BIMONTHLY ||
+        schedule.frequency === SCHEDULE_FREQUENCY.QUARTERLY ||
+        schedule.frequency === SCHEDULE_FREQUENCY.TRIANNUAL ||
+        schedule.frequency === SCHEDULE_FREQUENCY.QUADRIMESTRAL ||
+        schedule.frequency === SCHEDULE_FREQUENCY.SEMI_ANNUAL
+      ) {
+        // For month-multiple schedules, update dayOfMonth to match the completion date's day
         scheduleUpdateData.dayOfMonth = baseDate.getDate();
         this.logger.log(
           `[MAINTENANCE COMPLETION] Updating schedule dayOfMonth to ${scheduleUpdateData.dayOfMonth} based on completion date`,
@@ -1204,42 +1307,24 @@ export class MaintenanceScheduleService {
         `[MAINTENANCE COMPLETION] Schedule updated: nextRun=${updatedSchedule.nextRun?.toISOString()}, lastRun=${updatedSchedule.lastRun?.toISOString()}`,
       );
 
-      // Prepare maintenance data for the next occurrence
-      // Generate unique name by appending scheduled date
-      const formattedDate = nextRunDate.toLocaleDateString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-      });
-      const uniqueName = `${schedule.name} - ${formattedDate}`;
-
-      const maintenanceData: any = {
-        name: uniqueName,
-        description: schedule.description
-          ? `${schedule.description}\n\nManutenção criada automaticamente pelo agendamento.`
-          : 'Manutenção criada automaticamente pelo agendamento.',
-        itemId: schedule.itemId,
-        status: MAINTENANCE_STATUS.PENDING,
-        scheduledFor: nextRunDate,
-        maintenanceScheduleId: schedule.id,
-        itemsNeeded: schedule.maintenanceItemsConfig || [],
-      };
-
-      this.logger.log(
-        `[MAINTENANCE COMPLETION] Creating next maintenance: ${maintenanceData.name} for ${nextRunDate.toISOString()}`,
-      );
-
-      // Create the next maintenance using the maintenance service within the same transaction
-      const createdMaintenance = await this.maintenanceService.createWithinTransaction(
-        maintenanceData,
-        tx || this.prisma,
-        undefined,
-        userId,
-      );
-
-      this.logger.log(
-        `[MAINTENANCE COMPLETION] ✅ SUCCESS! Created next maintenance ${createdMaintenance.id} for schedule ${scheduleId}, scheduled for ${nextRunDate.toISOString()}`,
-      );
+      // Don't create the next Maintenance yet — only the schedule's nextRun/lastRun
+      // are advanced here. The next Maintenance is created by processDueSchedules
+      // (daily cron) once nextRun enters its lead-time window (see getLeadTimeDays).
+      // Creating it eagerly here regardless of horizon was the bug: a SEMI_ANNUAL
+      // schedule would get its next occurrence sitting PENDING for 6 months.
+      // Exception: if the newly computed nextRun is ALREADY within the lead-time
+      // window (e.g. a DAILY/WEEKLY schedule), create it now instead of waiting
+      // for the next cron tick.
+      if (this.isWithinLeadTime(updatedSchedule as any)) {
+        await this.createMaintenanceFromSchedule(updatedSchedule as any, userId, tx);
+        this.logger.log(
+          `[MAINTENANCE COMPLETION] ✅ Next maintenance already within lead time — created for schedule ${scheduleId}, scheduled for ${nextRunDate.toISOString()}`,
+        );
+      } else {
+        this.logger.log(
+          `[MAINTENANCE COMPLETION] Next run (${nextRunDate.toISOString()}) is outside the lead-time window — the cron will create it closer to due date.`,
+        );
+      }
     } catch (error) {
       this.logger.error(`[MAINTENANCE COMPLETION] ❌ FAILED for schedule ${scheduleId}:`, error);
       this.logger.error(`[MAINTENANCE COMPLETION] Error stack:`, error.stack);
@@ -1247,5 +1332,58 @@ export class MaintenanceScheduleService {
       // The maintenance is still completed, but the next one wasn't created
       // Log the error for investigation
     }
+  }
+
+  /**
+   * Create the next Maintenance for every active schedule whose nextRun has
+   * entered its lead-time window (see getLeadTimeDays) — called by the daily
+   * cron (MaintenanceScheduleScheduler). Mirrors
+   * PpeDeliveryScheduleService.processDueSchedules.
+   */
+  async processDueSchedules(): Promise<{
+    totalProcessed: number;
+    totalCreated: number;
+    errors: Array<{ scheduleId: string; error: string }>;
+  }> {
+    const now = new Date();
+    // Widest possible lead time across all frequencies (see getLeadTimeDays) —
+    // used to keep the initial DB query cheap; the exact per-schedule window is
+    // re-checked below via isWithinLeadTime.
+    const maxLeadDate = new Date(now);
+    maxLeadDate.setDate(maxLeadDate.getDate() + 7);
+
+    const candidateSchedules = await this.getDueSchedules(maxLeadDate);
+
+    let totalProcessed = 0;
+    let totalCreated = 0;
+    const errors: Array<{ scheduleId: string; error: string }> = [];
+
+    for (const schedule of candidateSchedules) {
+      try {
+        if (!this.isWithinLeadTime(schedule, now)) {
+          continue; // Not yet time to prepare this schedule's next maintenance
+        }
+
+        // Idempotency: a Maintenance for this exact schedule + nextRun may already
+        // exist (created eagerly at schedule-creation/completion time, or by a
+        // previous run of this same cron before nextRun advanced again).
+        const existing = await this.prisma.maintenance.findFirst({
+          where: { maintenanceScheduleId: schedule.id, scheduledFor: schedule.nextRun },
+        });
+        if (existing) {
+          continue;
+        }
+
+        totalProcessed++;
+        await this.createMaintenanceFromSchedule(schedule, 'system');
+        totalCreated++;
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Failed to create maintenance for schedule ${schedule.id}: ${errorMsg}`);
+        errors.push({ scheduleId: schedule.id, error: errorMsg });
+      }
+    }
+
+    return { totalProcessed, totalCreated, errors };
   }
 }

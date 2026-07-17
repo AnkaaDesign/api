@@ -995,7 +995,6 @@ export class ExternalOperationService {
         where: {
           installment: { externalOperationId: withdrawalId },
           status: { in: [BANK_SLIP_STATUS.ACTIVE, BANK_SLIP_STATUS.OVERDUE] },
-          nossoNumero: { not: null },
         },
         select: { id: true, nossoNumero: true },
       });
