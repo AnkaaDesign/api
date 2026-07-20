@@ -147,6 +147,9 @@ export class AirbrushingService {
           'LOGISTIC',
           'PRODUCTION_MANAGER',
           'ADMIN',
+          // Painters own the airbrushing work — they must see all its layouts (which carry
+          // no approval workflow and are always DRAFT), not just APPROVED ones.
+          'AIRBRUSHING',
         ].includes(userRole);
 
         if (!canSeeAllLayouts) {
@@ -203,6 +206,9 @@ export class AirbrushingService {
           'LOGISTIC',
           'PRODUCTION_MANAGER',
           'ADMIN',
+          // Painters own the airbrushing work — they must see all its layouts (which carry
+          // no approval workflow and are always DRAFT), not just APPROVED ones.
+          'AIRBRUSHING',
         ].includes(userRole);
 
         if (!canSeeAllLayouts) {
@@ -359,19 +365,39 @@ export class AirbrushingService {
           `[Airbrushing Update] layoutStatuses received: ${JSON.stringify(layoutStatuses)}`,
         );
 
+        // AIRBRUSHING (painters) may only drive the job's workflow. The @Roles gate lets
+        // the role reach this endpoint; this restricts what it can write to
+        // status/startedAt/finishedAt. Files and every money/relation field are ignored,
+        // so a painter can start/finish a job but never touch price, paymentStatus,
+        // painterId, or attachments — even via a hand-crafted request.
+        const isPainterRestricted = userRole === SECTOR_PRIVILEGES.AIRBRUSHING;
+
         // Process file uploads if provided and get new file IDs
         let newFileIds = {
           receiptIds: [] as string[],
           invoiceIds: [] as string[],
           layoutIds: [] as string[],
         };
-        if (files && (files.receipts?.length || files.invoices?.length || files.layouts?.length)) {
+        if (
+          !isPainterRestricted &&
+          files &&
+          (files.receipts?.length || files.invoices?.length || files.layouts?.length)
+        ) {
           newFileIds = await this.processAirbrushingFileUploads(id, files, userId, tx);
         }
 
         // Build update data. layoutStatuses is not a Prisma field.
         const updateData: any = { ...data };
         delete updateData.layoutStatuses;
+
+        if (isPainterRestricted) {
+          const PAINTER_WRITABLE_FIELDS = new Set(['status', 'startedAt', 'finishedAt']);
+          for (const key of Object.keys(updateData)) {
+            if (!PAINTER_WRITABLE_FIELDS.has(key)) {
+              delete updateData[key];
+            }
+          }
+        }
 
         // File-relation reconciliation must be INTENT-BASED. The repository maps every
         // provided *Ids array to a Prisma `set` (a full replace). A partial update — e.g. an
@@ -380,9 +406,12 @@ export class AirbrushingService {
         // unconditionally would push `set: []` and wipe every attached receipt/invoice/layout.
         // Only reconcile a collection when the payload explicitly provided its IDs OR new files
         // of that type were uploaded in this request.
-        const reconcileReceipts = data.receiptIds !== undefined || newFileIds.receiptIds.length > 0;
-        const reconcileInvoices = data.invoiceIds !== undefined || newFileIds.invoiceIds.length > 0;
-        const reconcileLayouts = data.layoutIds !== undefined || newFileIds.layoutIds.length > 0;
+        const reconcileReceipts =
+          !isPainterRestricted && (data.receiptIds !== undefined || newFileIds.receiptIds.length > 0);
+        const reconcileInvoices =
+          !isPainterRestricted && (data.invoiceIds !== undefined || newFileIds.invoiceIds.length > 0);
+        const reconcileLayouts =
+          !isPainterRestricted && (data.layoutIds !== undefined || newFileIds.layoutIds.length > 0);
 
         if (reconcileReceipts) {
           updateData.receiptIds = [...(data.receiptIds || []), ...newFileIds.receiptIds];

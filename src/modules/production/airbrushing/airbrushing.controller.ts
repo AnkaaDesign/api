@@ -73,6 +73,8 @@ export class AirbrushingController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    // AIRBRUSHING (painters) list their own airbrushing jobs (filtered by painterId).
+    SECTOR_PRIVILEGES.AIRBRUSHING,
   )
   async findMany(
     @Query(new ZodQueryValidationPipe(airbrushingGetManySchema)) query: AirbrushingGetManyFormData,
@@ -160,6 +162,8 @@ export class AirbrushingController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    // AIRBRUSHING (painters) open the detail of their own airbrushing job.
+    SECTOR_PRIVILEGES.AIRBRUSHING,
   )
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -172,7 +176,10 @@ export class AirbrushingController {
   @Put(':id')
   // ACCOUNTING settles airbrushing painter payments from Contas a Pagar (sets
   // paymentStatus) — same finance role that settles order payables.
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  // AIRBRUSHING (painters) may update their job's workflow only — status/startedAt/
+  // finishedAt. The service (update) strips every other field for this role, so a
+  // painter can start/finish a job but never touch price, paymentStatus, or files.
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.AIRBRUSHING)
   @UseInterceptors(
     FileFieldsInterceptor(
       [

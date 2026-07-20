@@ -172,12 +172,20 @@ export class AirbrushingPrismaRepository
   ): Prisma.AirbrushingInclude | undefined {
     if (!include) return undefined;
 
-    // Ensure layouts always includes nested file data when layouts is requested
-    // This is required for proper frontend display (FileItem component needs file properties)
+    // Ensure layouts ALWAYS includes nested file data whenever layouts is requested — in
+    // ANY form (`layouts: true`, `layouts: {}`, or `layouts: { include: {...} }`). The query
+    // validation can strip a nested `{ include: { file: true } }` down to `layouts: {}`, which
+    // Prisma treats as "relation scalars only" (no file). Without the file relation the entity
+    // mapper can't flatten Layout→File, so the frontend receives a row with no filename/mimetype/
+    // thumbnailUrl → FileItem shows a fallback icon and cannot preview. Force it here.
     const mappedInclude = { ...include } as Prisma.AirbrushingInclude;
-    if (mappedInclude.layouts === true) {
+    if (mappedInclude.layouts) {
+      const existing =
+        typeof mappedInclude.layouts === 'object' ? (mappedInclude.layouts as any) : {};
       mappedInclude.layouts = {
+        ...existing,
         include: {
+          ...(existing.include || {}),
           file: true,
         },
       };

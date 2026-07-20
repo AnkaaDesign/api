@@ -690,6 +690,10 @@ export const cutCreateNestedSchema = z
       .nullable()
       .optional(),
     parentCutId: z.string().uuid('Corte pai inválido').nullable().optional(),
+    // Transient create-only field: how many identical Cut rows to create. Not a column on Cut —
+    // the service/repository fan this out into N rows (for (i < quantity) tx.cut.create). Without
+    // declaring it here Zod strips it, so `quantity || 1` always collapsed to 1 cut.
+    quantity: z.number().int().min(1).max(100).optional(),
     _fileIndex: z.number().optional(), // Temporary field for file mapping (frontend optimization)
   })
   .superRefine(requestOriginRefine)
