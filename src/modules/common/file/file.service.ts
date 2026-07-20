@@ -880,7 +880,17 @@ export class FileService {
                     absoluteFilePath,
                     file.mimetype,
                     file.id,
-                    { format: 'webp', quality: 80 },
+                    {
+                      // Honor the requested preset so the generated file lands at the
+                      // `<id>_WxH.webp` path the serve check looks for. Without width/height
+                      // generation falls back to defaultOptions (300x300), so any size other
+                      // than `medium` would be regenerated on every request and never cached,
+                      // and larger presets (large/xlarge) were effectively unreachable.
+                      width: thumbnailSize.width,
+                      height: thumbnailSize.height,
+                      format: 'webp',
+                      quality: 80,
+                    },
                   );
 
                   if (result.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
