@@ -57,6 +57,7 @@ import {
   CHANGE_TRIGGERED_BY,
   CONTRACT_TYPE,
   CONTRACT_STATUS,
+  BORROW_STATUS,
   EMPLOYEE_TYPE,
   ENTITY_TYPE,
   CHANGE_ACTION,
@@ -435,11 +436,12 @@ export class UserService {
 
     // Validar que ao demitir (status do vínculo → TERMINATED), o usuário não tenha pendências
     if (isUpdate && (data as any).contractStatus === CONTRACT_STATUS.TERMINATED) {
-      // Verificar empréstimos não devolvidos
+      // Verificar empréstimos não devolvidos (apenas ATIVOS — perdidos/PERDIDO também têm
+      // returnedAt = null por design, mas não bloqueiam a demissão)
       const unreturnedBorrows = await transaction.borrow.count({
         where: {
           userId: existingId,
-          returnedAt: null,
+          status: BORROW_STATUS.ACTIVE,
         },
       });
 

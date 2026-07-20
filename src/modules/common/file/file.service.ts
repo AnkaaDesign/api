@@ -219,7 +219,7 @@ export class FileService {
    */
   async getFileSuggestions(params: {
     customerId: string;
-    fileContext: 'tasksLayouts' | 'taskBaseFiles' | 'taskProjectFiles';
+    fileContext: 'tasksLayouts' | 'taskBaseFiles' | 'taskProjectFiles' | 'airbrushingLayouts';
     limit?: number;
     excludeIds?: string[];
   }): Promise<{ success: boolean; data: Array<File & { url: string }> }> {
@@ -235,20 +235,6 @@ export class FileService {
       throw new NotFoundException('Cliente não encontrado.');
     }
 
-    const sanitizedName = this.filesStorageService.sanitizeFileName(customer.fantasyName);
-    const folderMapping: Record<string, string> = {
-      tasksLayouts: 'Layouts',
-      taskBaseFiles: 'Outros',
-      taskProjectFiles: 'Projetos',
-    };
-
-    const pathPrefix = join('Clientes', sanitizedName, folderMapping[fileContext]).replace(
-      /\\/g,
-      '/',
-    );
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
     // A reused file is a CLONE that SHARES its source's path. The result is distinct by
     // path, so excluding only the clone's id would leave the source (same path) in the
     // result and it would reappear as a suggestion. Resolve the excluded ids to their
@@ -261,6 +247,58 @@ export class FileService {
       });
       excludePaths = [...new Set(excludedFiles.map((f) => f.path))];
     }
+
+    // ── Layout contexts are separated by their DB RELATION, not by folder. ────────────
+    // Task layouts and airbrushing layouts both live under Clientes/<cliente>/Layouts, so a
+    // path prefix can't tell them apart. A Layout row belongs to an airbrushing when
+    // `airbrushingId` is set; otherwise it's a task layout (connected to a Task via TaskLayouts).
+    // tasksLayouts   → only files that were used as a TASK layout for this customer.
+    // airbrushingLayouts → only files that were used as an AIRBRUSHING layout for this customer.
+    if (fileContext === 'tasksLayouts' || fileContext === 'airbrushingLayouts') {
+      const layoutWhere =
+        fileContext === 'airbrushingLayouts'
+          ? { airbrushingId: { not: null }, airbrushing: { task: { customerId } } }
+          : { airbrushingId: null, tasks: { some: { customerId } } };
+
+      const layouts = await this.prisma.layout.findMany({
+        where: {
+          ...(layoutWhere as any),
+          file: {
+            ...(excludeIds.length > 0 ? { id: { notIn: excludeIds } } : {}),
+            ...(excludePaths.length > 0 ? { path: { notIn: excludePaths } } : {}),
+          },
+        },
+        include: { file: true },
+        orderBy: { createdAt: 'desc' },
+        take: limit * 3, // over-fetch so the path-dedupe below can still fill `limit`
+      });
+
+      // Dedupe by the backing file's path (clones share a path), newest first.
+      const seenPaths = new Set<string>();
+      const deduped: File[] = [];
+      for (const l of layouts) {
+        if (!l.file || seenPaths.has(l.file.path)) continue;
+        seenPaths.add(l.file.path);
+        deduped.push(l.file as File);
+        if (deduped.length >= limit) break;
+      }
+
+      return { success: true, data: this.transformFilesWithUrls(deduped) };
+    }
+
+    // ── Path-based contexts (base files, project files) — unchanged. ──────────────────
+    const sanitizedName = this.filesStorageService.sanitizeFileName(customer.fantasyName);
+    const folderMapping: Record<string, string> = {
+      taskBaseFiles: 'Outros',
+      taskProjectFiles: 'Projetos',
+    };
+
+    const pathPrefix = join('Clientes', sanitizedName, folderMapping[fileContext]).replace(
+      /\\/g,
+      '/',
+    );
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const files = await this.prisma.file.findMany({
       where: {

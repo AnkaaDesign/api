@@ -7176,11 +7176,29 @@ export class TaskService {
             this.logger.log(
               `[batchUpdate] Converting ${uploadedLayoutFileIds.length} File IDs to Layout entity IDs`,
             );
+            // The uploaded `layouts` files are shared across every task in the batch, so the chosen
+            // per-file statuses are identical on each task entry — read them from the first task and
+            // map array-by-index (upload order) onto the freshly created File IDs. Mirrors the single
+            // update path (which honours newLayoutStatuses[i]); without this new batch uploads always
+            // fell back to DRAFT regardless of what the user picked.
+            const newLayoutStatuses = (
+              data.tasks[0]?.data as { newLayoutStatuses?: Array<'DRAFT' | 'APPROVED' | 'REPROVED'> }
+            )?.newLayoutStatuses;
+            const layoutStatusMap: Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'> | undefined =
+              Array.isArray(newLayoutStatuses)
+                ? uploadedLayoutFileIds.reduce(
+                    (acc, fileId, i) => {
+                      if (newLayoutStatuses[i]) acc[fileId] = newLayoutStatuses[i];
+                      return acc;
+                    },
+                    {} as Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>,
+                  )
+                : undefined;
             const layoutEntityIds = await this.convertFileIdsToLayoutIds(
               uploadedLayoutFileIds,
               null, // taskId - null since these layouts will be connected to multiple tasks
               null, // airbrushingId
-              undefined, // layoutStatuses - new uploads default to DRAFT (frontend doesn't know File IDs yet)
+              layoutStatusMap, // per-file statuses (upload order) chosen in "Adicionar Layouts"
               userPrivilege,
               tx,
             );
@@ -7787,6 +7805,60 @@ export class TaskService {
             this.logger.log(
               `[batchUpdate] After merge and removals - update.data:`,
               JSON.stringify(update.data),
+            );
+          }
+        }
+
+        // Process cut removals AND additive cut creation for EVERY batch request. The files-gated
+        // block above only runs for MULTIPART uploads, but the "Adicionar Plano de Corte" flow
+        // uploads cut files separately and then sends plain JSON — so with no `files` that block was
+        // skipped and BOTH removeCutIds and the additive `cuts` were silently dropped (the cut
+        // stayed / the new cut was never created, even though the transaction reported success).
+        // The repository mapper is create-only and never removes cuts, and — as the JSON path proved
+        // in production — its nested `cuts.create` was not persisting here either; so this loop is
+        // the single authoritative place cuts are added/removed. For MULTIPART requests the block
+        // above already handled and `delete`d these fields, so this no-ops (no double-processing).
+        for (const update of updatesWithChangeTracking) {
+          // Removals first.
+          const removeCutIds = (update.data as any).removeCutIds;
+          if (Array.isArray(removeCutIds) && removeCutIds.length > 0) {
+            await tx.cut.deleteMany({
+              where: { id: { in: removeCutIds }, taskId: update.id },
+            });
+            delete (update.data as any).removeCutIds;
+            this.logger.log(
+              `[batchUpdate] Removed ${removeCutIds.length} cuts from task ${update.id} (json path)`,
+            );
+          }
+
+          // Additive creation (quantity-expanded, one Cut row per unit, per-task FK). Mirrors the
+          // multipart path so a plan created/edited without a fresh upload still persists.
+          const cutsToAdd = (update.data as any).cuts;
+          if (Array.isArray(cutsToAdd) && cutsToAdd.length > 0) {
+            for (const cutItem of cutsToAdd) {
+              if (!cutItem.fileId) continue;
+              const quantity = (cutItem as any).quantity || 1;
+              for (let i = 0; i < quantity; i++) {
+                const createdCut = await tx.cut.create({
+                  data: {
+                    fileId: cutItem.fileId,
+                    type: cutItem.type as any,
+                    origin: (cutItem.origin || 'PLAN') as any,
+                    reason: cutItem.reason || null,
+                    status: CUT_STATUS.PENDING as any,
+                    statusOrder: 1,
+                    taskId: update.id,
+                  },
+                });
+                const existingCuts = cutsCreatedByTask.get(update.id) || [];
+                existingCuts.push(createdCut);
+                cutsCreatedByTask.set(update.id, existingCuts);
+              }
+            }
+            // Remove from update data so the repository mapper doesn't also try to create them.
+            delete (update.data as any).cuts;
+            this.logger.log(
+              `[batchUpdate] Added ${cutsToAdd.length} cut group(s) to task ${update.id} (json path)`,
             );
           }
         }

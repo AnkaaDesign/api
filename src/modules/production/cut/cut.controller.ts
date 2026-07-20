@@ -76,6 +76,8 @@ export class CutController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
     SECTOR_PRIVILEGES.WAREHOUSE,
+    // AIRBRUSHING (painters) read cuts of the task their airbrushing job belongs to.
+    SECTOR_PRIVILEGES.AIRBRUSHING,
   )
   async getMany(
     @Query(new ZodQueryValidationPipe(cutGetManySchema)) query: CutGetManyFormData,
@@ -188,6 +190,8 @@ export class CutController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
     SECTOR_PRIVILEGES.WAREHOUSE,
+    // AIRBRUSHING (painters) read a cut of the task their airbrushing job belongs to.
+    SECTOR_PRIVILEGES.AIRBRUSHING,
   )
   async getUnique(
     @Param('id', ParseUUIDPipe) id: string,

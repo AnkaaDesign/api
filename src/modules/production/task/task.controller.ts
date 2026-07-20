@@ -114,6 +114,8 @@ export class TaskController {
     SECTOR_PRIVILEGES.ADMIN,
     // ACCOUNTING reads tasks for the Faturamento (billing) page.
     SECTOR_PRIVILEGES.ACCOUNTING,
+    // AIRBRUSHING (painters) read tasks to open the parent task of their airbrushing jobs.
+    SECTOR_PRIVILEGES.AIRBRUSHING,
   )
   async findMany(
     @Query(new ZodQueryValidationPipe(taskGetManySchema)) query: TaskGetManyFormData,
@@ -642,6 +644,8 @@ export class TaskController {
     SECTOR_PRIVILEGES.ADMIN,
     // ACCOUNTING reads a task for the Faturamento (billing) detail page.
     SECTOR_PRIVILEGES.ACCOUNTING,
+    // AIRBRUSHING (painters) read a task to see its details/cuts for their airbrushing job.
+    SECTOR_PRIVILEGES.AIRBRUSHING,
   )
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
