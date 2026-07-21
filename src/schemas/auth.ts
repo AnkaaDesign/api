@@ -23,6 +23,22 @@ export const signInSchema = z.object({
 
 export type SignInFormData = z.infer<typeof signInSchema>;
 
+// Refresh token exchange schema — the client presents its opaque refresh token
+// to obtain a fresh access token. Public endpoint (no access token required).
+export const refreshTokenSchema = z.object({
+  refreshToken: z.string().min(1, 'Refresh token é obrigatório'),
+});
+
+export type RefreshTokenFormData = z.infer<typeof refreshTokenSchema>;
+
+// Logout schema — optionally carries the refresh token so only that device's
+// session is revoked. Absent → all of the user's sessions are revoked.
+export const logoutSchema = z.object({
+  refreshToken: z.string().optional(),
+});
+
+export type LogoutFormData = z.infer<typeof logoutSchema>;
+
 // Register schema with simple password validation
 export const signUpSchema = z
   .object({

@@ -43,6 +43,8 @@ import type {
   AdminToggleUserStatusFormData,
   AdminResetUserPasswordFormData,
   AdminLogoutUserFormData,
+  RefreshTokenFormData,
+  LogoutFormData,
 } from '../../../schemas';
 import {
   signInSchema,
@@ -55,6 +57,8 @@ import {
   adminToggleUserStatusSchema,
   adminResetUserPasswordSchema,
   adminLogoutUserSchema,
+  refreshTokenSchema,
+  logoutSchema,
 } from '../../../schemas';
 
 @Controller('auth')
@@ -93,7 +97,8 @@ export class AuthController {
   @UsePipes(new ZodValidationPipe(signInSchema))
   async login(@Body() data: SignInFormData, @Request() req: ExpressRequest) {
     const clientIp = this.getClientIp(req);
-    return this.authService.signIn(data);
+    const userAgent = req.headers['user-agent'];
+    return this.authService.signIn(data, userAgent);
   }
 
   @Public()
@@ -109,8 +114,9 @@ export class AuthController {
   @Post('logout')
   @AuthRateLimit()
   @HttpCode(HttpStatus.OK)
-  async logout(@UserId() userId: string) {
-    return this.authService.logout(userId);
+  @UsePipes(new ZodValidationPipe(logoutSchema))
+  async logout(@UserId() userId: string, @Body() data: LogoutFormData) {
+    return this.authService.logout(userId, data?.refreshToken);
   }
 
   @Get('me')
@@ -129,15 +135,22 @@ export class AuthController {
     };
   }
 
+  // Public: a refresh token (NOT an access token) authenticates this call, so an
+  // already-expired access token can still be renewed. This is what keeps users
+  // logged in silently instead of being bounced to the login screen.
+  //
+  // Uses the high-frequency (per-IP 500/min) limit like /auth/me, NOT the tight
+  // login limit (5/min): refresh is a routine op and the per-IP bucket is shared
+  // by everyone behind an office NAT — a wave of simultaneous refreshes (e.g.
+  // right after a secret rotation) must not 429. The refresh token is a 384-bit
+  // opaque secret, so a generous limit poses no brute-force risk.
+  @Public()
+  @HighFrequencyRateLimit()
   @Post('refresh')
-  @AuthRateLimit()
   @HttpCode(HttpStatus.OK)
-  async refreshToken(@UserId() userId: string) {
-    if (!userId) {
-      throw new UnauthorizedException('User ID not found in token');
-    }
-
-    return this.authService.refreshToken(userId);
+  @UsePipes(new ZodValidationPipe(refreshTokenSchema))
+  async refreshToken(@Body() data: RefreshTokenFormData) {
+    return this.authService.refreshToken(data.refreshToken);
   }
 
   @Put('change-password')

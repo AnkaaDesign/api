@@ -690,104 +690,71 @@ export class SupplierService {
     userId?: string,
   ): Promise<SupplierBatchUpdateResponse<SupplierUpdateFormData>> {
     try {
-      const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // Validar cada atualização individualmente
-        const validationResults: Array<{
-          index: number;
-          id: string;
-          data: SupplierUpdateFormData;
-          error?: string;
-        }> = [];
+      const successfulUpdates: any[] = [];
+      const failedUpdates: any[] = [];
 
-        for (let i = 0; i < data.suppliers.length; i++) {
-          const update = data.suppliers[i];
-          try {
-            await this.validateSupplier(update.data, update.id, tx);
-            validationResults.push({
-              index: i,
-              id: update.id,
-              data: update.data,
-            });
-          } catch (error: unknown) {
-            validationResults.push({
-              index: i,
-              id: update.id,
-              data: update.data,
-              error: error instanceof Error ? error.message : 'Erro ao validar fornecedor.',
-            });
-          }
-        }
+      // Cada fornecedor é atualizado em sua PRÓPRIA transação para que um erro de
+      // banco (unique/FK) não envenene os demais (Postgres 25P02) — o sucesso
+      // parcial passa a ser real e o changelog de cada linha commita atomicamente.
+      for (let index = 0; index < data.suppliers.length; index++) {
+        const update = data.suppliers[index];
+        try {
+          const updatedSupplier = await this.prisma.$transaction(
+            async (tx: PrismaTransaction) => {
+              // Validar individualmente dentro da transação da própria linha
+              await this.validateSupplier(update.data, update.id, tx);
 
-        // Separar atualizações válidas das inválidas
-        const validUpdates = validationResults
-          .filter(r => !r.error)
-          .map(r => ({ id: r.id, data: r.data }));
-        const invalidUpdates = validationResults.filter(r => r.error);
+              // Buscar fornecedor antigo para comparação de changelog
+              const oldSupplier = await this.supplierRepository.findByIdWithTransaction(
+                tx,
+                update.id,
+              );
 
-        // Se não houver atualizações válidas, retornar erro
-        if (validUpdates.length === 0) {
-          return {
-            success: [],
-            failed: invalidUpdates.map(r => ({
-              index: r.index,
-              id: r.id,
-              data: { ...r.data, id: r.id },
-              error: r.error!,
-              errorCode: 'VALIDATION_ERROR',
-            })),
-            totalUpdated: 0,
-            totalFailed: invalidUpdates.length,
-          };
-        }
+              // Atualizar o fornecedor
+              const updated = await this.supplierRepository.updateWithTransaction(
+                tx,
+                update.id,
+                update.data,
+                { include },
+              );
 
-        // Atualizar apenas fornecedores válidos
-        const result = await this.supplierRepository.updateManyWithTransaction(tx, validUpdates, {
-          include,
-        });
+              // Registrar mudanças de campos no changelog (commita junto com a linha)
+              if (oldSupplier && updated) {
+                await trackAndLogFieldChanges({
+                  changeLogService: this.changeLogService,
+                  entityType: ENTITY_TYPE.SUPPLIER,
+                  entityId: update.id,
+                  oldEntity: oldSupplier,
+                  newEntity: updated,
+                  fieldsToTrack: this.SUPPLIER_FIELDS_TO_TRACK,
+                  userId: userId || null,
+                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                  transaction: tx,
+                });
+              }
 
-        // Combinar resultados de validação com resultados de atualização
-        const finalFailed = [
-          ...invalidUpdates.map(r => ({
-            index: r.index,
-            id: r.id,
-            data: { ...r.data, id: r.id },
-            error: r.error!,
-            errorCode: 'VALIDATION_ERROR' as const,
-          })),
-          ...result.failed,
-        ];
-
-        // Registrar atualizações bem-sucedidas com tracking de campos
-        for (const updateData of validUpdates) {
-          // Buscar fornecedor antigo para comparação
-          const oldSupplier = await this.supplierRepository.findByIdWithTransaction(
-            tx,
-            updateData.id,
+              return updated;
+            },
           );
-          const updatedSupplier = result.success.find(s => s.id === updateData.id);
 
-          if (oldSupplier && updatedSupplier) {
-            await trackAndLogFieldChanges({
-              changeLogService: this.changeLogService,
-              entityType: ENTITY_TYPE.SUPPLIER,
-              entityId: updateData.id,
-              oldEntity: oldSupplier,
-              newEntity: updatedSupplier,
-              fieldsToTrack: this.SUPPLIER_FIELDS_TO_TRACK,
-              userId: userId || null,
-              triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-              transaction: tx,
-            });
-          }
+          successfulUpdates.push(updatedSupplier);
+        } catch (error: unknown) {
+          failedUpdates.push({
+            index,
+            id: update.id,
+            data: { ...update.data, id: update.id },
+            error: error instanceof Error ? error.message : 'Erro ao atualizar fornecedor.',
+            errorCode: error instanceof Error ? error.name : 'UNKNOWN_ERROR',
+          });
         }
+      }
 
-        return {
-          success: result.success,
-          failed: finalFailed,
-          totalUpdated: result.totalUpdated,
-          totalFailed: finalFailed.length,
-        };
-      });
+      const result = {
+        success: successfulUpdates,
+        failed: failedUpdates,
+        totalUpdated: successfulUpdates.length,
+        totalFailed: failedUpdates.length,
+      };
 
       const successMessage =
         result.totalUpdated === 1
@@ -814,7 +781,7 @@ export class SupplierService {
       };
 
       return {
-        success: true,
+        success: result.totalFailed === 0,
         message: `${successMessage}${failureMessage}`,
         data: batchOperationResult,
       };

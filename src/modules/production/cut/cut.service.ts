@@ -690,6 +690,7 @@ export class CutService {
           'reason',
           'parentCutId',
           'status',
+          'priority',
           'startedAt',
           'completedAt',
         ];
@@ -1106,6 +1107,7 @@ export class CutService {
               'reason',
               'parentCutId',
               'status',
+              'priority',
               'startedAt',
               'completedAt',
             ];

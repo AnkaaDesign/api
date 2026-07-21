@@ -803,8 +803,23 @@ export class FileService {
   /**
    * Serve file thumbnail by ID
    */
-  async serveThumbnailById(id: string, res: Response, size?: string): Promise<void> {
+  async serveThumbnailById(id: string, res: Response, size?: string, format?: string): Promise<void> {
     try {
+      // Resolve the requested output format. Default is webp (backward compatible with
+      // the web app); png/jpeg are for clients that cannot decode webp (e.g. iOS 12).
+      const requestedFormat = (format || '').toLowerCase();
+      let outputFormat: 'png' | 'jpg' | 'webp' = 'webp';
+      let requestedContentType = 'image/webp';
+      let requestedExt = 'webp';
+      if (requestedFormat === 'png') {
+        outputFormat = 'png';
+        requestedContentType = 'image/png';
+        requestedExt = 'png';
+      } else if (requestedFormat === 'jpeg' || requestedFormat === 'jpg') {
+        outputFormat = 'jpg';
+        requestedContentType = 'image/jpeg';
+        requestedExt = 'jpg';
+      }
       // Check environment configuration
       const filesRoot = env.FILES_ROOT;
       const useXAccelRedirect = process.env.USE_X_ACCEL_REDIRECT === 'true';
@@ -851,28 +866,41 @@ export class FileService {
         thumbnailSizeStr, // Pass thumbnail size - folder already includes this
       );
 
-      // Thumbnail filename (matches generation)
-      const thumbnailFilename = `${file.id}_${thumbnailSizeStr}.webp`;
+      // Thumbnail filename (matches generation). Cache is keyed by requested format so
+      // png/jpeg and webp variants live side by side (e.g. `<id>_WxH.png` vs `.webp`).
+      const thumbnailFilename = `${file.id}_${thumbnailSizeStr}.${requestedExt}`;
       const thumbnailPath = join(thumbnailFolder, thumbnailFilename);
 
-      // Fallback to other formats if webp doesn't exist
       let actualPath = thumbnailPath;
-      let contentType = 'image/webp';
+      let contentType = requestedContentType;
+      let needsGeneration = false;
 
       if (!existsSync(actualPath)) {
-        // Try PNG
-        actualPath = thumbnailPath.replace('.webp', '.png');
-        contentType = 'image/png';
+        if (outputFormat === 'webp') {
+          // Backward-compatible fallback: an older thumbnail may already exist on disk as
+          // png/jpg. Only applies to the default webp request so behavior is unchanged for
+          // the web app. An explicit png/jpeg request must never be served a different type.
+          const pngPath = thumbnailPath.replace('.webp', '.png');
+          const jpgPath = thumbnailPath.replace('.webp', '.jpg');
+          if (existsSync(pngPath)) {
+            actualPath = pngPath;
+            contentType = 'image/png';
+          } else if (existsSync(jpgPath)) {
+            actualPath = jpgPath;
+            contentType = 'image/jpeg';
+          } else {
+            needsGeneration = true;
+          }
+        } else {
+          needsGeneration = true;
+        }
+      }
 
-        if (!existsSync(actualPath)) {
-          // Try JPG
-          actualPath = thumbnailPath.replace('.webp', '.jpg');
-          contentType = 'image/jpeg';
-
-          if (!existsSync(actualPath)) {
-            // Thumbnail doesn't exist - try to generate it on-demand
-            // Use lock mechanism to prevent multiple concurrent generations for the same file
-            const lockKey = `${file.id}-${thumbnailSizeStr}`;
+      if (needsGeneration) {
+        // Thumbnail doesn't exist - try to generate it on-demand
+        // Use lock mechanism to prevent multiple concurrent generations for the same file
+        // Lock key includes the format so concurrent png/webp requests don't dedup wrongly.
+        const lockKey = `${file.id}-${thumbnailSizeStr}-${requestedExt}`;
 
             // Check if generation is already in progress for this file
             const existingLock = this.thumbnailGenerationLocks.get(lockKey);
@@ -884,7 +912,7 @@ export class FileService {
                 const result = await existingLock;
                 if (result?.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
                   actualPath = result.thumbnailPath;
-                  contentType = 'image/webp';
+                  contentType = requestedContentType;
                 } else {
                   throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
                 }
@@ -919,14 +947,15 @@ export class FileService {
                     file.mimetype,
                     file.id,
                     {
-                      // Honor the requested preset so the generated file lands at the
-                      // `<id>_WxH.webp` path the serve check looks for. Without width/height
+                      // Honor the requested preset AND format so the generated file lands at
+                      // the `<id>_WxH.<ext>` path the serve check looks for. Without width/height
                       // generation falls back to defaultOptions (300x300), so any size other
                       // than `medium` would be regenerated on every request and never cached,
-                      // and larger presets (large/xlarge) were effectively unreachable.
+                      // and larger presets (large/xlarge) were effectively unreachable. Format
+                      // drives the encoder + extension so png/jpeg are cached separately.
                       width: thumbnailSize.width,
                       height: thumbnailSize.height,
-                      format: 'webp',
+                      format: outputFormat,
                       quality: 80,
                     },
                   );
@@ -960,7 +989,7 @@ export class FileService {
 
                 if (result.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
                   actualPath = result.thumbnailPath;
-                  contentType = 'image/webp';
+                  contentType = requestedContentType;
                 } else {
                   this.logger.warn(
                     `Thumbnail generation failed for ${file.id}. Result: ${JSON.stringify({ success: result.success, error: result.error })}`,
@@ -975,8 +1004,6 @@ export class FileService {
                 throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
               }
             }
-          }
-        }
       }
 
       // Set headers for thumbnail
@@ -986,7 +1013,13 @@ export class FileService {
         `inline; filename="thumbnail-${encodeURIComponent(file.filename)}.${contentType.split('/')[1]}"`,
       );
       res.setHeader('Cache-Control', 'public, max-age=31536000');
-      res.setHeader('ETag', `"${file.id}-thumb-${thumbnailSize.width}x${thumbnailSize.height}"`);
+      // Keep the webp ETag exactly as before (backward compatible); vary it by format for
+      // png/jpeg so distinct formats never share a cache validator.
+      const etagFormatSuffix = outputFormat === 'webp' ? '' : `-${requestedExt}`;
+      res.setHeader(
+        'ETag',
+        `"${file.id}-thumb-${thumbnailSize.width}x${thumbnailSize.height}${etagFormatSuffix}"`,
+      );
 
       // Add CORS headers for cross-origin image loading
       res.setHeader('Access-Control-Allow-Origin', '*');

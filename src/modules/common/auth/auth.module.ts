@@ -26,7 +26,12 @@ import { MailerModule } from '@modules/common/mailer/mailer.module';
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
-      signOptions: { expiresIn: process.env.JWT_EXPIRATION || '7d' },
+      // Access tokens are now short-lived and backed by refresh tokens. AuthService
+      // signs each access token with an explicit expiresIn (JWT_ACCESS_EXPIRATION,
+      // default 1h), so this module default only applies to any stray signAsync
+      // call without options. The old JWT_EXPIRATION ("7d"/"365d") is no longer the
+      // access-token lifetime.
+      signOptions: { expiresIn: process.env.JWT_ACCESS_EXPIRATION || '1h' },
     }),
   ],
   providers: [

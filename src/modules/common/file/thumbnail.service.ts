@@ -755,22 +755,39 @@ export class ThumbnailService {
       background: { r: 255, g: 255, b: 255 },
     };
     try {
-      await sharp(pngPath)
-        .flatten({ background: { r: 255, g: 255, b: 255 } })
-        .trim({ background: '#ffffff', threshold: 12 })
-        .resize(finalOptions.width, finalOptions.height, resizeOpts)
-        .sharpen({ sigma: 1 })
-        .webp({ quality: 90, effort: 4 })
-        .toFile(thumbnailPath);
+      await this.applyOutputFormat(
+        sharp(pngPath)
+          .flatten({ background: { r: 255, g: 255, b: 255 } })
+          .trim({ background: '#ffffff', threshold: 12 })
+          .resize(finalOptions.width, finalOptions.height, resizeOpts)
+          .sharpen({ sigma: 1 }),
+        finalOptions.format,
+      ).toFile(thumbnailPath);
     } catch (e: any) {
       this.logger.warn(`Sharp finish failed (${e.message}), retrying without trim`);
-      await sharp(pngPath)
-        .flatten({ background: { r: 255, g: 255, b: 255 } })
-        .resize(finalOptions.width, finalOptions.height, resizeOpts)
-        .sharpen({ sigma: 1 })
-        .webp({ quality: 90, effort: 4 })
-        .toFile(thumbnailPath);
+      await this.applyOutputFormat(
+        sharp(pngPath)
+          .flatten({ background: { r: 255, g: 255, b: 255 } })
+          .resize(finalOptions.width, finalOptions.height, resizeOpts)
+          .sharpen({ sigma: 1 }),
+        finalOptions.format,
+      ).toFile(thumbnailPath);
     }
+  }
+
+  /**
+   * Apply the requested output encoding to a Sharp pipeline.
+   * Defaults to WebP (`quality: 90, effort: 4`) so existing callers are byte-identical;
+   * `png`/`jpg` are used by clients (e.g. iOS 12) that cannot decode WebP.
+   */
+  private applyOutputFormat(pipeline: any, format: 'png' | 'jpg' | 'webp'): any {
+    if (format === 'png') {
+      return pipeline.png();
+    }
+    if (format === 'jpg') {
+      return pipeline.jpeg({ quality: 90 });
+    }
+    return pipeline.webp({ quality: 90, effort: 4 });
   }
 
   /** True when the path exists and is a non-empty file. */

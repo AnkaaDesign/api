@@ -973,67 +973,88 @@ export class WarningService {
         data: warning.data,
       }));
 
-      const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // Buscar advertências existentes antes de atualizar para comparação
-        const existingWarnings = await this.warningRepository.findByIdsWithTransaction(
-          tx,
-          updates.map(u => u.id),
-          { include: { witness: true } },
-        );
-        const existingWarningsMap = new Map(existingWarnings.map(w => [w.id, w]));
+      const successfulUpdates: any[] = [];
+      const failedUpdates: any[] = [];
 
-        const result = await this.warningRepository.updateManyWithTransaction(tx, updates, {
-          include,
-        });
-
-        // Registrar atualizações bem-sucedidas com rastreamento de campos
-        for (const warning of result.success) {
-          const existingWarning = existingWarningsMap.get(warning.id);
-          if (existingWarning) {
-            // Rastrear mudanças em campos individuais
-            await trackAndLogFieldChanges({
-              changeLogService: this.changeLogService,
-              entityType: ENTITY_TYPE.WARNING,
-              entityId: warning.id,
-              oldEntity: existingWarning,
-              newEntity: warning,
-              fieldsToTrack: [
-                'severity',
-                'reason',
-                'description',
-                'date',
-                'collaboratorId',
-                'supervisorId',
-              ],
-              userId: userId || null,
-              triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-              transaction: tx,
+      // Cada advertência é atualizada em sua PRÓPRIA transação para que um erro de
+      // banco (unique/FK) não envenene as demais (Postgres 25P02) — o sucesso
+      // parcial é real e as linhas bem-sucedidas realmente persistem.
+      for (let index = 0; index < updates.length; index++) {
+        const { id, data: updateData } = updates[index];
+        try {
+          const updatedWarning = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+            // Buscar advertência existente antes de atualizar para comparação
+            const existingWarning = await this.warningRepository.findByIdWithTransaction(tx, id, {
+              include: { witness: true },
             });
 
-            // Rastrear mudanças nas testemunhas se houver
-            const oldWitnessIds = existingWarning.witness?.map((w: any) => w.id).sort() || [];
-            const newWitnessIds = warning.witness?.map((w: any) => w.id).sort() || [];
+            const warning = await this.warningRepository.updateWithTransaction(tx, id, updateData, {
+              include,
+            });
 
-            if (JSON.stringify(oldWitnessIds) !== JSON.stringify(newWitnessIds)) {
-              await this.changeLogService.logChange({
+            if (existingWarning) {
+              // Rastrear mudanças em campos individuais
+              await trackAndLogFieldChanges({
+                changeLogService: this.changeLogService,
                 entityType: ENTITY_TYPE.WARNING,
                 entityId: warning.id,
-                action: CHANGE_ACTION.UPDATE,
-                field: 'witness',
-                oldValue: oldWitnessIds,
-                newValue: newWitnessIds,
-                reason: 'Testemunhas atualizadas em lote',
-                triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-                triggeredById: warning.id,
+                oldEntity: existingWarning,
+                newEntity: warning,
+                fieldsToTrack: [
+                  'severity',
+                  'reason',
+                  'description',
+                  'date',
+                  'collaboratorId',
+                  'supervisorId',
+                ],
                 userId: userId || null,
+                triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
                 transaction: tx,
               });
-            }
-          }
-        }
 
-        return result;
-      });
+              // Rastrear mudanças nas testemunhas se houver
+              const oldWitnessIds = existingWarning.witness?.map((w: any) => w.id).sort() || [];
+              const newWitnessIds = warning.witness?.map((w: any) => w.id).sort() || [];
+
+              if (JSON.stringify(oldWitnessIds) !== JSON.stringify(newWitnessIds)) {
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.WARNING,
+                  entityId: warning.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'witness',
+                  oldValue: oldWitnessIds,
+                  newValue: newWitnessIds,
+                  reason: 'Testemunhas atualizadas em lote',
+                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                  triggeredById: warning.id,
+                  userId: userId || null,
+                  transaction: tx,
+                });
+              }
+            }
+
+            return warning;
+          });
+
+          successfulUpdates.push(updatedWarning);
+        } catch (error: any) {
+          failedUpdates.push({
+            index,
+            id,
+            error: error.message || 'Erro ao atualizar advertência.',
+            errorCode: error.name || 'UNKNOWN_ERROR',
+            data: updateData,
+          });
+        }
+      }
+
+      const result = {
+        success: successfulUpdates,
+        failed: failedUpdates,
+        totalUpdated: successfulUpdates.length,
+        totalFailed: failedUpdates.length,
+      };
 
       const successMessage =
         result.totalUpdated === 1
@@ -1060,7 +1081,7 @@ export class WarningService {
       };
 
       return {
-        success: true,
+        success: result.totalFailed === 0,
         message: `${successMessage}${failureMessage}`,
         data: batchOperationResult,
       };

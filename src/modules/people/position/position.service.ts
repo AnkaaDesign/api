@@ -505,144 +505,195 @@ export class PositionService {
     userId?: string,
   ): Promise<PositionBatchUpdateResponse<PositionUpdateFormData>> {
     try {
-      const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // Preparar atualizações
-        const updates: UpdateData<PositionUpdateFormData>[] = data.positions.map(item => ({
-          id: item.id,
-          data: item.data,
-        }));
+      // Preparar atualizações
+      const updates: UpdateData<PositionUpdateFormData>[] = data.positions.map(item => ({
+        id: item.id,
+        data: item.data,
+      }));
 
-        // Validar unicidade de nomes
-        const namesToCheck: { id: string; name: string }[] = [];
-        for (const update of data.positions) {
-          if (update.data.name) {
-            namesToCheck.push({ id: update.id, name: update.data.name });
-          }
+      // Validar unicidade de nomes (guarda de lote — falha tudo antes de escrever)
+      const namesToCheck: { id: string; name: string }[] = [];
+      for (const update of data.positions) {
+        if (update.data.name) {
+          namesToCheck.push({ id: update.id, name: update.data.name });
         }
+      }
 
-        if (namesToCheck.length > 0) {
-          const names = namesToCheck.map(n => n.name);
-          const uniqueNames = new Set(names);
-          if (names.length !== uniqueNames.size) {
-            throw new BadRequestException('Existem nomes duplicados na lista de atualizações.');
-          }
-
-          // Validar cada atualização individualmente
-          const errors: Array<{ index: number; id: string; error: string }> = [];
-          for (let i = 0; i < data.positions.length; i++) {
-            const update = data.positions[i];
-            try {
-              await this.validatePosition(update.data, update.id, tx);
-            } catch (error: unknown) {
-              const errorMessage =
-                error instanceof Error ? error.message : 'Erro desconhecido durante validação';
-              errors.push({ index: i, id: update.id, error: errorMessage });
-            }
-          }
-
-          if (errors.length > 0) {
-            const errorMessages = errors
-              .map(e => `Item ${e.index + 1} (ID: ${e.id}): ${e.error}`)
-              .join('; ');
-            throw new BadRequestException(`Erros de validação: ${errorMessages}`);
-          }
+      if (namesToCheck.length > 0) {
+        const names = namesToCheck.map(n => n.name);
+        const uniqueNames = new Set(names);
+        if (names.length !== uniqueNames.size) {
+          throw new BadRequestException('Existem nomes duplicados na lista de atualizações.');
         }
+      }
 
-        // Obter cargos existentes para verificar mudanças de remuneração
-        const ids = updates.map(u => u.id);
-        const existingPositions = await this.positionRepository.findByIdsWithTransaction(tx, ids, {
-          include: { remunerations: true },
-        });
-        const existingMap = new Map(existingPositions.map(p => [p.id, p]));
+      // Obter cargos existentes ANTES de validar — necessário para checar o piso salarial
+      // (que depende da remuneração atual) já na fase de pré-escrita.
+      const ids = updates.map(u => u.id);
+      const existingPositions = await this.positionRepository.findByIds(ids, {
+        include: { remunerations: true },
+      });
+      const existingMap = new Map(existingPositions.map(p => [p.id, p]));
 
-        // Atualizar cargos em lote
-        const batchResult = await this.positionRepository.updateManyWithTransaction(tx, updates, {
-          include,
-        });
+      // Validar cada atualização individualmente ANTES de qualquer escrita, para que uma
+      // falha nunca deixe um lote parcialmente gravado. O PISO SALARIAL é verificado AQUI
+      // (não só dentro da transação por item) para preservar a semântica original de abortar
+      // o LOTE INTEIRO numa violação de piso — do contrário grava-se folha parcial reportada
+      // como sucesso (HTTP 200).
+      const validationErrors: Array<{ index: number; id: string; error: string }> = [];
+      for (let i = 0; i < data.positions.length; i++) {
+        const update = data.positions[i];
+        try {
+          await this.validatePosition(update.data, update.id, this.prisma);
 
-        // Criar registros de remuneração para mudanças bem-sucedidas
-        for (const position of batchResult.success) {
-          const existing = existingMap.get(position.id);
-          const updateData = data.positions.find(d => d.id === position.id);
-
-          if (existing && updateData?.data.remuneration) {
-            // Get current remuneration from latest remuneration record
+          const existing = existingMap.get(update.id);
+          if (existing && update.data.remuneration) {
             const currentRemuneration =
               existing.remunerations && existing.remunerations.length > 0
                 ? existing.remunerations[0].value
                 : existing.remuneration || 0;
-
-            if (updateData.data.remuneration !== currentRemuneration) {
+            if (update.data.remuneration !== currentRemuneration) {
               const effectiveFloor =
-                (updateData.data as any).salaryFloor !== undefined
-                  ? toNumberOrNull((updateData.data as any).salaryFloor)
+                (update.data as any).salaryFloor !== undefined
+                  ? toNumberOrNull((update.data as any).salaryFloor)
                   : toNumberOrNull((existing as any).salaryFloor);
               this.enforceSalaryFloor(
-                updateData.data.remuneration,
+                update.data.remuneration,
                 effectiveFloor,
-                (updateData.data as any).allowBelowFloor === true,
+                (update.data as any).allowBelowFloor === true,
               );
-
-              // Mark existing monetary values as not current
-              await tx.monetaryValue.updateMany({
-                where: { positionId: position.id, current: true },
-                data: { current: false },
-              });
-
-              // Create new monetary value marked as current
-              await tx.monetaryValue.create({
-                data: {
-                  value: updateData.data.remuneration,
-                  current: true,
-                  positionId: position.id,
-                  effectiveDate: new Date(),
-                },
-              });
-
-              // Registrar mudança de remuneração
-              await this.changeLogService.logChange({
-                entityType: ENTITY_TYPE.POSITION,
-                entityId: position.id,
-                action: CHANGE_ACTION.UPDATE,
-                field: 'remuneration',
-                oldValue: currentRemuneration,
-                newValue: updateData.data.remuneration,
-                reason: 'Remuneração atualizada em lote',
-                triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-                triggeredById: position.id,
-                userId: userId || null,
-                transaction: tx,
-              });
             }
           }
+        } catch (error: unknown) {
+          const errorMessage =
+            error instanceof Error ? error.message : 'Erro desconhecido durante validação';
+          validationErrors.push({ index: i, id: update.id, error: errorMessage });
+        }
+      }
+      if (validationErrors.length > 0) {
+        const errorMessages = validationErrors
+          .map(e => `Item ${e.index + 1} (ID: ${e.id}): ${e.error}`)
+          .join('; ');
+        throw new BadRequestException(`Erros de validação: ${errorMessages}`);
+      }
 
-          // Track field-level changes
-          const fieldsToTrack = [
-            'name',
-            'level',
-            'sectorId',
-            'privileges',
-            'bonificationEligible',
-            'hierarchy',
-            'bonifiable',
-            'salaryFloor',
-          ];
+      // Cada cargo é atualizado em sua PRÓPRIA transação, de modo que a
+      // atualização da linha + a troca de MonetaryValue (desativar o atual e
+      // criar o novo `current`) + o changelog sejam atômicos por cargo. Assim um
+      // erro de banco em uma linha nunca reverte as demais (Postgres 25P02) e
+      // nenhum cargo fica sem MonetaryValue `current`.
+      const successPositions: any[] = [];
+      const failedPositions: any[] = [];
 
-          await trackAndLogFieldChanges({
-            changeLogService: this.changeLogService,
-            entityType: ENTITY_TYPE.POSITION,
-            entityId: position.id,
-            oldEntity: existing,
-            newEntity: position,
-            fieldsToTrack,
-            userId: userId || null,
-            triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-            transaction: tx,
+      for (let index = 0; index < data.positions.length; index++) {
+        const updateData = data.positions[index];
+        try {
+          const position = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+            const updated = await this.positionRepository.updateWithTransaction(
+              tx,
+              updateData.id,
+              updateData.data,
+              { include },
+            );
+
+            const existing = existingMap.get(updateData.id);
+
+            if (existing && updateData.data.remuneration) {
+              // Get current remuneration from latest remuneration record
+              const currentRemuneration =
+                existing.remunerations && existing.remunerations.length > 0
+                  ? existing.remunerations[0].value
+                  : existing.remuneration || 0;
+
+              if (updateData.data.remuneration !== currentRemuneration) {
+                const effectiveFloor =
+                  (updateData.data as any).salaryFloor !== undefined
+                    ? toNumberOrNull((updateData.data as any).salaryFloor)
+                    : toNumberOrNull((existing as any).salaryFloor);
+                this.enforceSalaryFloor(
+                  updateData.data.remuneration,
+                  effectiveFloor,
+                  (updateData.data as any).allowBelowFloor === true,
+                );
+
+                // Mark existing monetary values as not current
+                await tx.monetaryValue.updateMany({
+                  where: { positionId: updated.id, current: true },
+                  data: { current: false },
+                });
+
+                // Create new monetary value marked as current
+                await tx.monetaryValue.create({
+                  data: {
+                    value: updateData.data.remuneration,
+                    current: true,
+                    positionId: updated.id,
+                    effectiveDate: new Date(),
+                  },
+                });
+
+                // Registrar mudança de remuneração
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.POSITION,
+                  entityId: updated.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'remuneration',
+                  oldValue: currentRemuneration,
+                  newValue: updateData.data.remuneration,
+                  reason: 'Remuneração atualizada em lote',
+                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                  triggeredById: updated.id,
+                  userId: userId || null,
+                  transaction: tx,
+                });
+              }
+            }
+
+            // Track field-level changes
+            const fieldsToTrack = [
+              'name',
+              'level',
+              'sectorId',
+              'privileges',
+              'bonificationEligible',
+              'hierarchy',
+              'bonifiable',
+              'salaryFloor',
+            ];
+
+            await trackAndLogFieldChanges({
+              changeLogService: this.changeLogService,
+              entityType: ENTITY_TYPE.POSITION,
+              entityId: updated.id,
+              oldEntity: existing,
+              newEntity: updated,
+              fieldsToTrack,
+              userId: userId || null,
+              triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+              transaction: tx,
+            });
+
+            return updated;
+          });
+
+          successPositions.push(position);
+        } catch (error: any) {
+          failedPositions.push({
+            index,
+            id: updateData.id,
+            data: updateData.data,
+            error: error?.message || 'Erro ao atualizar cargo.',
+            errorCode: error?.name || 'UNKNOWN_ERROR',
           });
         }
+      }
 
-        return batchResult;
-      });
+      const result = {
+        success: successPositions,
+        failed: failedPositions,
+        totalUpdated: successPositions.length,
+        totalFailed: failedPositions.length,
+      };
 
       const successMessage =
         result.totalUpdated === 1

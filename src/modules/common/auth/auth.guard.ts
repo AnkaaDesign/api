@@ -175,10 +175,27 @@ export class AuthGuard implements CanActivate {
         }
       }
     } catch (err) {
+      // Deliberate auth decisions (bad/missing user, insufficient role) keep
+      // their status.
       if (err instanceof UnauthorizedException || err instanceof ForbiddenException) {
         throw err;
       }
-      throw new UnauthorizedException('Token inválido ou expirado.');
+
+      // Only a genuine JWT verification failure (bad signature, expired token)
+      // is a 401. Everything else in the try block — notably the per-request
+      // user lookup (userRepository.findById) — can fail TRANSIENTLY (DB pool
+      // exhaustion, a brief Postgres blip, a network hiccup between API and DB).
+      // Collapsing those into a 401 makes every client treat a momentary backend
+      // fault as "session dead" and force a re-login. Instead, rethrow so Nest
+      // surfaces a 5xx: clients already keep the session and retry on 5xx.
+      const isJwtError =
+        err instanceof Error &&
+        ['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'].includes(err.name);
+      if (isJwtError) {
+        throw new UnauthorizedException('Token inválido ou expirado.');
+      }
+
+      throw err;
     }
     return true;
   }

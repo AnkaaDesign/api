@@ -531,6 +531,120 @@ export class TaskService {
     }
   }
 
+  /**
+   * Regenerate a task's PRODUCTION service orders to match its (freshly copied) quote's services.
+   *
+   * A PRODUCTION service order is tied to a quote service ONLY by matching description(+observation) —
+   * there is no FK between them. The normal quote create/edit paths keep the two sides in sync, but
+   * `copyFromTask` REPLACES the whole quote and never re-ran that sync, so the destination kept its OLD
+   * quote's service orders and got none for the new services (the "SO didn't update" bug). We can't use
+   * `syncQuoteServicesAndServiceOrders` here — it's bidirectional and would recreate quote services from
+   * the stale old SOs, polluting the just-copied quote.
+   *
+   * This is the same delete-orphaned + create-missing diff the quote UPDATE path runs, but driven by the
+   * new quote: DELETE production SOs the new quote no longer contains, CREATE one for every new service
+   * that has no matching SO, and PRESERVE any SO that still matches (keeps its in-progress status).
+   * COMMERCIAL/LOGISTIC/ARTWORK service orders are never touched. Non-fatal — a sync error must not roll
+   * back the copy (mirrors `syncQuoteServicesAndServiceOrders`).
+   */
+  private async regenerateProductionServiceOrdersFromQuote(
+    tx: PrismaTransaction,
+    taskId: string,
+    quoteId: string,
+    userId: string | undefined,
+    persistedTaskStatus: TASK_STATUS,
+  ): Promise<void> {
+    try {
+      const quote = await tx.taskQuote.findUnique({
+        where: { id: quoteId },
+        include: { services: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] } },
+      });
+      const services = quote?.services ?? [];
+
+      const existingProductionSOs = await tx.serviceOrder.findMany({
+        where: { taskId, type: SERVICE_ORDER_TYPE.PRODUCTION },
+      });
+
+      // Desc/obs keys the new quote expects. `coveredKeys` tracks which are already satisfied by a
+      // preserved SO (or an earlier duplicate service) so we neither delete a still-valid SO nor create
+      // two SOs for two identically-described services.
+      const quoteKeys = new Set(
+        services.map((s: any) => makeDescObsKey(s.description, s.observation)),
+      );
+      const coveredKeys = new Set<string>();
+
+      // DELETE the production SOs the new quote no longer contains (orphaned by the replacement).
+      for (const so of existingProductionSOs) {
+        const key = makeDescObsKey(so.description, so.observation);
+        if (quoteKeys.has(key)) {
+          coveredKeys.add(key);
+          continue;
+        }
+        await tx.serviceOrder.delete({ where: { id: so.id } });
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.SERVICE_ORDER,
+          entityId: so.id,
+          action: CHANGE_ACTION.DELETE,
+          reason: 'Ordem de serviço removida — orçamento copiado de outra tarefa',
+          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+          triggeredById: taskId,
+          userId: userId || '',
+          transaction: tx,
+        });
+      }
+
+      // CREATE a production SO for every new service still missing one.
+      const isTaskCompleted = persistedTaskStatus === TASK_STATUS.COMPLETED;
+      for (let i = 0; i < services.length; i++) {
+        const service: any = services[i];
+        if (!service.description) continue;
+        const key = makeDescObsKey(service.description, service.observation);
+        if (coveredKeys.has(key)) continue;
+        coveredKeys.add(key);
+
+        const newServiceOrder = await tx.serviceOrder.create({
+          data: {
+            taskId,
+            description: service.description,
+            observation: service.observation ?? null,
+            type: SERVICE_ORDER_TYPE.PRODUCTION,
+            status: isTaskCompleted
+              ? SERVICE_ORDER_STATUS.COMPLETED
+              : SERVICE_ORDER_STATUS.PENDING,
+            statusOrder: isTaskCompleted
+              ? 4
+              : getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
+            position: service.position ?? i,
+            createdById: userId || '',
+            ...(isTaskCompleted && {
+              startedAt: new Date(),
+              startedById: userId || '',
+              finishedAt: new Date(),
+              completedById: userId || '',
+            }),
+          },
+        });
+
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.SERVICE_ORDER,
+          entityId: newServiceOrder.id,
+          action: CHANGE_ACTION.CREATE,
+          reason: 'Ordem de serviço criada automaticamente a partir do orçamento copiado',
+          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+          triggeredById: taskId,
+          userId: userId || '',
+          transaction: tx,
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        '[copyFromTask] Error regenerating production service orders from copied quote:',
+        error,
+      );
+      // Non-fatal — SO regeneration must not roll back the quote copy.
+    }
+  }
+
   private filterNoOpQuoteFields(existing: any, incoming: any): any | null {
     const filtered: any = {};
     for (const key of Object.keys(incoming)) {
@@ -12851,6 +12965,10 @@ export class TaskService {
                       data: {
                         taskId: destinationTaskId,
                         price: airbrushing.price,
+                        // Assigned painter carries over with the airbrushing definition.
+                        painterId: airbrushing.painterId ?? null,
+                        // Fresh work item: status resets and start/finish clear — those are
+                        // runtime progress, not template data to copy.
                         status: AIRBRUSHING_STATUS.PENDING,
                         startDate: null,
                         finishDate: null,
@@ -13219,6 +13337,16 @@ export class TaskService {
           // destination task↔quote link is set.
           if (updateData.quoteId) {
             await syncTaskLayoutsFromQuote(tx, updateData.quoteId as string, userId);
+            // The PRODUCTION service orders are derived from the quote's services (by matching
+            // description) — regenerate them to match the copied quote, since the old quote's SOs
+            // are now orphaned and the new services have none. (The "SO didn't update" fix.)
+            await this.regenerateProductionServiceOrdersFromQuote(
+              tx,
+              destinationTaskId,
+              updateData.quoteId as string,
+              userId,
+              (destinationTask.status as TASK_STATUS) ?? TASK_STATUS.PREPARATION,
+            );
           }
         } else {
           this.logger.log(`[copyFromTask] No fields to update via task.update()`);

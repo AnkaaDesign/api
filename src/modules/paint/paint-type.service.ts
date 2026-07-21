@@ -331,39 +331,34 @@ export class PaintTypeService {
     userId?: string,
   ): Promise<PaintTypeBatchUpdateResponse<PaintTypeUpdateFormData>> {
     try {
-      const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // First fetch all existing entities for comparison
-        const idsToUpdate = data.paintTypes.map(item => item.id);
-        const existingEntities = await tx.paintType.findMany({
-          where: { id: { in: idsToUpdate } },
-        });
+      const successfulUpdates: any[] = [];
+      const failedUpdates: any[] = [];
 
-        // Create a map for quick lookup
-        const existingMap = new Map(existingEntities.map(entity => [entity.id, entity]));
+      // Each paint type is updated in its OWN transaction so one DB error can never
+      // poison the others (Postgres 25P02) — partial success is real.
+      for (let index = 0; index < data.paintTypes.length; index++) {
+        const item = data.paintTypes[index];
+        const id = item.id!;
+        const updateData = item.data!;
+        try {
+          const updatedPaintType = await this.prisma.$transaction(
+            async (tx: PrismaTransaction) => {
+              // Fetch existing entity for comparison
+              const existing = await this.paintTypeRepository.findByIdWithTransaction(tx, id);
+              if (!existing) {
+                throw new NotFoundException('Tipo de tinta não encontrado.');
+              }
 
-        // Ensure all items have required id and data fields
-        const validatedItems = data.paintTypes.map(item => ({
-          id: item.id!,
-          data: item.data!,
-        }));
-        const result = await this.paintTypeRepository.updateManyWithTransaction(
-          tx,
-          validatedItems,
-          { include },
-        );
+              // Update the paint type
+              const paintType = await this.paintTypeRepository.updateWithTransaction(
+                tx,
+                id,
+                updateData,
+                { include },
+              );
 
-        // Log successful updates with field-level tracking
-        for (const paintType of result.success) {
-          const existing = existingMap.get(paintType.id);
-          if (existing) {
-            // Track field-level changes for: name, type
-            const fieldsToTrack: string[] = ['name', 'type'];
-
-            // Find which update data corresponds to this paintType
-            const updateData = data.paintTypes.find(item => item.id === paintType.id)?.data;
-
-            if (updateData) {
-              // Only track fields that were actually provided in the update data
+              // Log successful update with field-level tracking for: name, type
+              const fieldsToTrack: string[] = ['name', 'type'];
               const fieldsToTrackFiltered = fieldsToTrack.filter(field => field in updateData);
 
               if (fieldsToTrackFiltered.length > 0) {
@@ -379,12 +374,29 @@ export class PaintTypeService {
                   transaction: tx,
                 });
               }
-            }
-          }
-        }
 
-        return result;
-      });
+              return paintType;
+            },
+          );
+
+          successfulUpdates.push(updatedPaintType);
+        } catch (error: any) {
+          failedUpdates.push({
+            index,
+            id,
+            error: error.message || 'Erro ao atualizar tipo de tinta.',
+            errorCode: error.name || 'UNKNOWN_ERROR',
+            data: { id, ...updateData },
+          });
+        }
+      }
+
+      const result = {
+        success: successfulUpdates,
+        failed: failedUpdates,
+        totalUpdated: successfulUpdates.length,
+        totalFailed: failedUpdates.length,
+      };
 
       const successMessage =
         result.totalUpdated === 1
@@ -408,7 +420,7 @@ export class PaintTypeService {
       };
 
       return {
-        success: true,
+        success: result.totalFailed === 0,
         message: `${successMessage}${failureMessage}`,
         data: batchOperationResult,
       };

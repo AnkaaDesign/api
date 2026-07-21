@@ -28,6 +28,7 @@ export interface Cut extends BaseEntity {
   type: CUT_TYPE;
   status: CUT_STATUS;
   statusOrder: number;
+  priority: number; // User-defined queue order within a status group (lower = higher in the list)
   startedAt: Date | null;
   completedAt: Date | null;
 
@@ -81,6 +82,7 @@ export interface CutOrderBy {
   type?: ORDER_BY_DIRECTION;
   status?: ORDER_BY_DIRECTION;
   statusOrder?: ORDER_BY_DIRECTION;
+  priority?: ORDER_BY_DIRECTION;
   startedAt?: ORDER_BY_DIRECTION;
   completedAt?: ORDER_BY_DIRECTION;
   taskId?: ORDER_BY_DIRECTION;
@@ -103,6 +105,7 @@ export interface CutWhere {
   type?: CUT_TYPE | { in: CUT_TYPE[] };
   status?: CUT_STATUS | { in: CUT_STATUS[] };
   statusOrder?: number | { gte?: number; lte?: number };
+  priority?: number | { gte?: number; lte?: number };
   startedAt?: Date | { gte?: Date; lte?: Date } | null;
   completedAt?: Date | { gte?: Date; lte?: Date } | null;
   taskId?: string | { in: string[] } | null;
@@ -150,6 +153,7 @@ export interface CutBatchUpdateData {
   fileId?: string;
   type?: CUT_TYPE;
   status?: CUT_STATUS;
+  priority?: number;
   startedAt?: Date | null;
   completedAt?: Date | null;
   taskId?: string | null;
