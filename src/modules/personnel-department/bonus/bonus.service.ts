@@ -229,6 +229,133 @@ function formatAbsenceDaysSuffix(
   return ` — ${labels.join(', ')}`;
 }
 
+/**
+ * Structured sibling of formatAbsenceDaysSuffix: returns the same matched days
+ * as `{ date: 'YYYY-MM-DD', hours }` objects instead of a display string. The
+ * frontend uses this to make each absence date individually clickable (deep-link
+ * into the timesheet) without re-parsing the reference string. Date extraction
+ * mirrors formatAbsenceDaysSuffix exactly (local getFullYear/getMonth/getDate)
+ * so the ISO date and the ` — DD/MM` suffix always agree.
+ */
+function collectAbsenceDays(
+  breakdown: Array<{ date: string; [k: string]: any }> | undefined,
+  predicate: (d: { date: string; [k: string]: any }) => boolean,
+  hoursField: 'unjustifiedAbsenceHours' | 'atestadoHours',
+): Array<{ date: string; hours: number }> {
+  if (!breakdown || breakdown.length === 0) return [];
+  const out: Array<{ date: string; hours: number }> = [];
+  for (const raw of breakdown) {
+    if (!predicate(raw)) continue;
+    if (!raw.date) continue;
+    const parsed = new Date(raw.date);
+    if (isNaN(parsed.getTime())) continue;
+    const iso = `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(
+      2,
+      '0',
+    )}-${String(parsed.getDate()).padStart(2, '0')}`;
+    out.push({ date: iso, hours: Math.round(Number(raw[hoursField] ?? 0) * 100) / 100 });
+  }
+  return out;
+}
+
+/** One absence-based discount line built from a SecullumBonusAnalysis. */
+export interface AbsenceDiscountLine {
+  kind: 'atestado' | 'unjustified';
+  reference: string;
+  ruleReference: string;
+  dates: Array<{ date: string; hours: number }>;
+  percentage: number | null;
+  value: number | null;
+  noDiscountNote?: string;
+  calculationOrder: number;
+}
+
+/**
+ * SINGLE SOURCE OF TRUTH for the "Faltas - Atestado" / "Faltas - Sem Justificativa"
+ * discount lines. Every bonus code path — the single-user live view, the batch
+ * live list (saved-enriched and pure-live), AND the persisted/cron save — MUST
+ * build these lines through here so live and saved bonuses never drift.
+ *
+ * Rules:
+ *  • Atestado (justified) is emitted whenever there ARE atestado days, even when
+ *    the discount is 0% (first-offense forgiven or below the 4h threshold), so
+ *    justified absences are always visible and SEPARATED from unjustified ones.
+ *    When there is no %, `noDiscountNote` explains why ("perdoado"/"sem desconto").
+ *  • Sem Justificativa is emitted only when it produces a discount (> 0%).
+ *  • `percentage` is null (never 0) for a display-only line so netBonus recalcs
+ *    that gate on `percentage !== null` correctly skip it.
+ *
+ * The persisted BonusDiscount row stores only `reference`/`percentage`/`value`/
+ * `calculationOrder`; `reference` fully encodes the label+tier+day list, so the
+ * frontend's reference-string fallback reproduces the same view for saved rows.
+ */
+function buildAbsenceDiscountLines(analysis: {
+  atestadoDiscountPercentage: number;
+  atestadoTierLabel: string;
+  unjustifiedDiscountPercentage: number;
+  unjustifiedTierLabel: string;
+  atestadoForgiven?: boolean;
+  dailyBreakdown: Array<{ date: string; [k: string]: any }>;
+}): AbsenceDiscountLine[] {
+  const lines: AbsenceDiscountLine[] = [];
+
+  const atestadoPredicate = (d: any) => d.isAtestado || (d.atestadoHours ?? 0) > 0;
+  const atestadoDates = collectAbsenceDays(
+    analysis.dailyBreakdown,
+    atestadoPredicate,
+    'atestadoHours',
+  );
+  if (atestadoDates.length > 0) {
+    const tierLabel = analysis.atestadoTierLabel;
+    const daysSuffix = formatAbsenceDaysSuffix(
+      analysis.dailyBreakdown,
+      atestadoPredicate,
+      'atestadoHours',
+    );
+    const base = tierLabel ? `Faltas - Atestado (${tierLabel})` : 'Faltas - Atestado';
+    const pct = analysis.atestadoDiscountPercentage;
+    lines.push({
+      kind: 'atestado',
+      reference: base + daysSuffix,
+      ruleReference: 'Faltas - Atestado',
+      dates: atestadoDates,
+      percentage: pct > 0 ? pct : null,
+      value: null,
+      noDiscountNote: pct > 0 ? undefined : analysis.atestadoForgiven ? 'perdoado' : 'sem desconto',
+      calculationOrder: 2,
+    });
+  }
+
+  if (analysis.unjustifiedDiscountPercentage > 0) {
+    const tierLabel = analysis.unjustifiedTierLabel;
+    const unjustifiedPredicate = (d: any) =>
+      d.isUnjustifiedAbsence || (d.unjustifiedAbsenceHours ?? 0) > 0;
+    const daysSuffix = formatAbsenceDaysSuffix(
+      analysis.dailyBreakdown,
+      unjustifiedPredicate,
+      'unjustifiedAbsenceHours',
+    );
+    const base = tierLabel
+      ? `Faltas - Sem Justificativa (${tierLabel})`
+      : 'Faltas - Sem Justificativa';
+    lines.push({
+      kind: 'unjustified',
+      reference: base + daysSuffix,
+      ruleReference: 'Faltas - Sem Justificativa',
+      dates: collectAbsenceDays(
+        analysis.dailyBreakdown,
+        unjustifiedPredicate,
+        'unjustifiedAbsenceHours',
+      ),
+      percentage: analysis.unjustifiedDiscountPercentage,
+      value: null,
+      calculationOrder: 3,
+    });
+  }
+
+  return lines;
+}
+
 @Injectable()
 export class BonusService {
   private readonly logger = new Logger(BonusService.name);
@@ -716,6 +843,8 @@ export class BonusService {
           id: `live-discount-suspended-${userId}-${year}-${month}`,
           bonusId: liveBonusId,
           reference: 'Tarefas Suspensas',
+          ruleReference: 'Tarefas Suspensas',
+          dates: [],
           value: suspendedTasksDiscount,
           percentage: null,
           calculationOrder: 1,
@@ -731,45 +860,27 @@ export class BonusService {
             id: `live-extra-ponto-${userId}-${year}-${month}`,
             bonusId: liveBonusId,
             reference: 'Assiduidade do Ponto Eletrônico',
+            ruleReference: 'Assiduidade do Ponto Eletrônico',
+            dates: [],
             percentage: bonusExtraPercentage,
             value: bonusExtraValue,
             calculationOrder: 1,
           });
         }
-        if (secullumAnalysis.atestadoDiscountPercentage > 0) {
-          const tierLabel = secullumAnalysis.atestadoTierLabel;
-          const daysSuffix = formatAbsenceDaysSuffix(
-            secullumAnalysis.dailyBreakdown,
-            d => d.isAtestado || (d.atestadoHours ?? 0) > 0,
-            'atestadoHours',
-          );
-          const base = tierLabel ? `Faltas - Atestado (${tierLabel})` : 'Faltas - Atestado';
+        // Absence discount lines (atestado + sem justificativa) come from the
+        // shared builder so the live view, the batch list and the persisted save
+        // are always identical.
+        for (const line of buildAbsenceDiscountLines(secullumAnalysis)) {
           bonusDiscounts.push({
-            id: `live-discount-atestado-${userId}-${year}-${month}`,
+            id: `live-discount-${line.kind}-${userId}-${year}-${month}`,
             bonusId: liveBonusId,
-            reference: base + daysSuffix,
-            percentage: secullumAnalysis.atestadoDiscountPercentage,
-            value: null,
-            calculationOrder: 2,
-          });
-        }
-        if (secullumAnalysis.unjustifiedDiscountPercentage > 0) {
-          const tierLabel = secullumAnalysis.unjustifiedTierLabel;
-          const daysSuffix = formatAbsenceDaysSuffix(
-            secullumAnalysis.dailyBreakdown,
-            d => d.isUnjustifiedAbsence || (d.unjustifiedAbsenceHours ?? 0) > 0,
-            'unjustifiedAbsenceHours',
-          );
-          const base = tierLabel
-            ? `Faltas - Sem Justificativa (${tierLabel})`
-            : 'Faltas - Sem Justificativa';
-          bonusDiscounts.push({
-            id: `live-discount-unjustified-${userId}-${year}-${month}`,
-            bonusId: liveBonusId,
-            reference: base + daysSuffix,
-            percentage: secullumAnalysis.unjustifiedDiscountPercentage,
-            value: null,
-            calculationOrder: 3,
+            reference: line.reference,
+            ruleReference: line.ruleReference,
+            dates: line.dates,
+            percentage: line.percentage,
+            value: line.value,
+            ...(line.noDiscountNote ? { noDiscountNote: line.noDiscountNote } : {}),
+            calculationOrder: line.calculationOrder,
           });
         }
       }
@@ -1373,11 +1484,14 @@ export class BonusService {
     const bonus = await client.bonus.findUnique({
       where: { id: bonusId },
       include: {
+        // Secondary sort by createdAt so the cascade is deterministic when a
+        // manual discount ties calculationOrder with an auto line (order of a
+        // percentage vs a fixed-value discount changes the result).
         bonusDiscounts: {
-          orderBy: { calculationOrder: 'asc' },
+          orderBy: [{ calculationOrder: 'asc' }, { createdAt: 'asc' }],
         },
         bonusExtras: {
-          orderBy: { calculationOrder: 'asc' },
+          orderBy: [{ calculationOrder: 'asc' }, { createdAt: 'asc' }],
         },
       },
     });
@@ -2344,7 +2458,9 @@ export class BonusService {
 
             // Sort by calculationOrder and apply cascading
             discounts.sort(
-              (a: any, b: any) => (a.calculationOrder || 0) - (b.calculationOrder || 0),
+              (a: any, b: any) =>
+                (a.calculationOrder || 0) - (b.calculationOrder || 0) ||
+                String(a.id || '').localeCompare(String(b.id || '')),
             );
             for (const discount of discounts) {
               if (discount.percentage !== null && discount.percentage !== undefined) {
@@ -2590,42 +2706,19 @@ export class BonusService {
               });
             }
 
-            // Add live Secullum discounts (with per-day attribution suffix)
-            if (liveBonus.secullumAnalysis.atestadoDiscountPercentage > 0) {
-              const tierLabel = liveBonus.secullumAnalysis.atestadoTierLabel;
-              const daysSuffix = formatAbsenceDaysSuffix(
-                liveBonus.secullumAnalysis.dailyBreakdown,
-                d => d.isAtestado || (d.atestadoHours ?? 0) > 0,
-                'atestadoHours',
-              );
-              const base = tierLabel ? `Faltas - Atestado (${tierLabel})` : 'Faltas - Atestado';
+            // Add live Secullum discounts via the shared builder (identical to
+            // the live detail view and the persisted save).
+            for (const line of buildAbsenceDiscountLines(liveBonus.secullumAnalysis)) {
               mergedDiscounts.push({
-                id: `live-discount-atestado-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+                id: `live-discount-${line.kind}-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
                 bonusId: liveBonusId,
-                reference: base + daysSuffix,
-                percentage: liveBonus.secullumAnalysis.atestadoDiscountPercentage,
-                value: null,
-                calculationOrder: 2,
-              });
-            }
-
-            if (liveBonus.secullumAnalysis.unjustifiedDiscountPercentage > 0) {
-              const tierLabel = liveBonus.secullumAnalysis.unjustifiedTierLabel;
-              const daysSuffix = formatAbsenceDaysSuffix(
-                liveBonus.secullumAnalysis.dailyBreakdown,
-                d => d.isUnjustifiedAbsence || (d.unjustifiedAbsenceHours ?? 0) > 0,
-                'unjustifiedAbsenceHours',
-              );
-              const base = tierLabel
-                ? `Faltas - Sem Justificativa (${tierLabel})`
-                : 'Faltas - Sem Justificativa';
-              mergedDiscounts.push({
-                id: `live-discount-unjustified-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
-                bonusId: liveBonusId,
-                reference: base + daysSuffix,
-                percentage: liveBonus.secullumAnalysis.unjustifiedDiscountPercentage,
-                value: null,
-                calculationOrder: 3,
+                reference: line.reference,
+                ruleReference: line.ruleReference,
+                dates: line.dates,
+                percentage: line.percentage,
+                value: line.value,
+                ...(line.noDiscountNote ? { noDiscountNote: line.noDiscountNote } : {}),
+                calculationOrder: line.calculationOrder,
               });
             }
           }
@@ -2644,7 +2737,9 @@ export class BonusService {
             let calculatedNet = savedBaseBonus + totalExtras;
 
             const sortedDiscounts = [...mergedDiscounts].sort(
-              (a: any, b: any) => (a.calculationOrder || 0) - (b.calculationOrder || 0),
+              (a: any, b: any) =>
+                (a.calculationOrder || 0) - (b.calculationOrder || 0) ||
+                String(a.id || '').localeCompare(String(b.id || '')),
             );
 
             for (const discount of sortedDiscounts) {
@@ -2706,40 +2801,17 @@ export class BonusService {
                 calculationOrder: 1,
               });
             }
-            if (liveBonus.secullumAnalysis.atestadoDiscountPercentage > 0) {
-              const tierLabel = liveBonus.secullumAnalysis.atestadoTierLabel;
-              const daysSuffix = formatAbsenceDaysSuffix(
-                liveBonus.secullumAnalysis.dailyBreakdown,
-                d => d.isAtestado || (d.atestadoHours ?? 0) > 0,
-                'atestadoHours',
-              );
-              const base = tierLabel ? `Faltas - Atestado (${tierLabel})` : 'Faltas - Atestado';
+            for (const line of buildAbsenceDiscountLines(liveBonus.secullumAnalysis)) {
               liveBonusDiscounts.push({
-                id: `live-discount-atestado-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+                id: `live-discount-${line.kind}-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
                 bonusId: liveBonusId,
-                reference: base + daysSuffix,
-                percentage: liveBonus.secullumAnalysis.atestadoDiscountPercentage,
-                value: null,
-                calculationOrder: 2,
-              });
-            }
-            if (liveBonus.secullumAnalysis.unjustifiedDiscountPercentage > 0) {
-              const tierLabel = liveBonus.secullumAnalysis.unjustifiedTierLabel;
-              const daysSuffix = formatAbsenceDaysSuffix(
-                liveBonus.secullumAnalysis.dailyBreakdown,
-                d => d.isUnjustifiedAbsence || (d.unjustifiedAbsenceHours ?? 0) > 0,
-                'unjustifiedAbsenceHours',
-              );
-              const base = tierLabel
-                ? `Faltas - Sem Justificativa (${tierLabel})`
-                : 'Faltas - Sem Justificativa';
-              liveBonusDiscounts.push({
-                id: `live-discount-unjustified-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
-                bonusId: liveBonusId,
-                reference: base + daysSuffix,
-                percentage: liveBonus.secullumAnalysis.unjustifiedDiscountPercentage,
-                value: null,
-                calculationOrder: 3,
+                reference: line.reference,
+                ruleReference: line.ruleReference,
+                dates: line.dates,
+                percentage: line.percentage,
+                value: line.value,
+                ...(line.noDiscountNote ? { noDiscountNote: line.noDiscountNote } : {}),
+                calculationOrder: line.calculationOrder,
               });
             }
           }
@@ -3171,91 +3243,52 @@ export class BonusService {
                 );
               }
 
-              // Create absence discount for ATESTADO (persisted reference carries
-              // the per-day suffix so finalized bonuses show the same detail as
-              // the live view — future admin review of past months stays informative).
-              if (analysis.atestadoDiscountPercentage > 0) {
+              // Persist the atestado + sem-justificativa lines from the SHARED
+              // builder, so a finalized (saved/cron) bonus shows exactly what the
+              // live view shows — including a forgiven atestado (percentage=null,
+              // display-only). The DB row stores only reference/percentage/value;
+              // `reference` fully encodes the label+tier+day list, so the
+              // frontend's reference-string fallback reproduces the same view.
+              for (const line of buildAbsenceDiscountLines(analysis)) {
                 // Inline validation mirroring BonusDiscountService (percentage 0-100).
                 if (
-                  analysis.atestadoDiscountPercentage < 0 ||
-                  analysis.atestadoDiscountPercentage > 100
+                  line.percentage !== null &&
+                  (line.percentage < 0 || line.percentage > 100)
                 ) {
                   throw new BadRequestException('O percentual deve estar entre 0% e 100%');
                 }
-                const atestadoDaysSuffix = formatAbsenceDaysSuffix(
-                  analysis.dailyBreakdown,
-                  d => d.isAtestado || (d.atestadoHours ?? 0) > 0,
-                  'atestadoHours',
-                );
-                const atestadoBase = analysis.atestadoTierLabel
-                  ? `Faltas - Atestado (${analysis.atestadoTierLabel})`
-                  : 'Faltas - Atestado';
-                const atestadoRef = atestadoBase + atestadoDaysSuffix;
-                const atestadoDiscount = await tx.bonusDiscount.create({
+                const reasonPct =
+                  line.percentage != null
+                    ? `${line.percentage}%`
+                    : (line.noDiscountNote ?? 'sem desconto');
+                const created = await tx.bonusDiscount.create({
                   data: {
                     bonusId,
-                    reference: atestadoRef,
-                    percentage: analysis.atestadoDiscountPercentage,
-                    value: null,
-                    calculationOrder: 2,
+                    reference: line.reference,
+                    percentage: line.percentage,
+                    value: line.value,
+                    calculationOrder: line.calculationOrder,
                   },
                 });
-                await logEntityChange({
-                  changeLogService: this.changeLogService,
-                  entityType: ENTITY_TYPE.BONUS,
-                  entityId: bonusId,
-                  action: CHANGE_ACTION.UPDATE,
-                  entity: { discountCreated: atestadoDiscount, reference: atestadoRef },
-                  reason: `Desconto "${atestadoRef}" criado: ${analysis.atestadoDiscountPercentage}%`,
-                  userId: userId || null,
-                  triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
-                  transaction: tx,
-                });
-                this.logger.debug(
-                  `Created "${atestadoRef}" discount for user ${user.name}: ${analysis.atestadoDiscountPercentage}% (${analysis.atestadoHours}h)`,
-                );
-              }
-
-              // Create absence discount for unjustified
-              if (analysis.unjustifiedDiscountPercentage > 0) {
-                // Inline validation mirroring BonusDiscountService (percentage 0-100).
-                if (
-                  analysis.unjustifiedDiscountPercentage < 0 ||
-                  analysis.unjustifiedDiscountPercentage > 100
-                ) {
-                  throw new BadRequestException('O percentual deve estar entre 0% e 100%');
+                // Only log a real, value-bearing discount. The display-only line
+                // (a forgiven/below-threshold atestado, percentage=null) carries no
+                // money effect and is re-created on every save/cron run — logging
+                // it would spam the changelog with no-op "criado" entries.
+                if (line.percentage != null || (line.value ?? 0) > 0) {
+                  await logEntityChange({
+                    changeLogService: this.changeLogService,
+                    entityType: ENTITY_TYPE.BONUS,
+                    entityId: bonusId,
+                    action: CHANGE_ACTION.UPDATE,
+                    entity: { discountCreated: created, reference: line.reference },
+                    reason: `Desconto "${line.reference}" criado: ${reasonPct}`,
+                    userId: userId || null,
+                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+                    transaction: tx,
+                  });
                 }
-                const unjustifiedDaysSuffix = formatAbsenceDaysSuffix(
-                  analysis.dailyBreakdown,
-                  d => d.isUnjustifiedAbsence || (d.unjustifiedAbsenceHours ?? 0) > 0,
-                  'unjustifiedAbsenceHours',
-                );
-                const unjustifiedBase = analysis.unjustifiedTierLabel
-                  ? `Faltas - Sem Justificativa (${analysis.unjustifiedTierLabel})`
-                  : 'Faltas - Sem Justificativa';
-                const unjustifiedRef = unjustifiedBase + unjustifiedDaysSuffix;
-                const unjustifiedDiscount = await tx.bonusDiscount.create({
-                  data: {
-                    bonusId,
-                    reference: unjustifiedRef,
-                    percentage: analysis.unjustifiedDiscountPercentage,
-                    value: null,
-                    calculationOrder: 3,
-                  },
-                });
-                await logEntityChange({
-                  changeLogService: this.changeLogService,
-                  entityType: ENTITY_TYPE.BONUS,
-                  entityId: bonusId,
-                  action: CHANGE_ACTION.UPDATE,
-                  entity: { discountCreated: unjustifiedDiscount, reference: unjustifiedRef },
-                  reason: `Desconto "${unjustifiedRef}" criado: ${analysis.unjustifiedDiscountPercentage}%`,
-                  userId: userId || null,
-                  triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
-                  transaction: tx,
-                });
                 this.logger.debug(
-                  `Created "${unjustifiedRef}" discount for user ${user.name}: ${analysis.unjustifiedDiscountPercentage}% (${analysis.unjustifiedAbsenceHours}h)`,
+                  `Created "${line.reference}" discount for user ${user.name}: ${reasonPct}`,
                 );
               }
 

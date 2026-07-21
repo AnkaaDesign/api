@@ -257,9 +257,10 @@ export class FileController {
   async serveThumbnail(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('size') size: string,
+    @Query('format') format: string,
     @Res() res: Response,
   ): Promise<void> {
-    await this.fileService.serveThumbnailById(id, res, size);
+    await this.fileService.serveThumbnailById(id, res, size, format);
   }
 
   // Basic CRUD Operations - Static routes first

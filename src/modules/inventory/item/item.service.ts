@@ -2002,92 +2002,104 @@ export class ItemService {
       // single-item update path.
       const itemsToCheckThresholds = new Map<string, number>();
 
-      const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        const successItems: any[] = [];
-        const failedItems: any[] = [];
+      // Each item is updated in its OWN transaction so a DB error on one row
+      // (e.g. a unique/FK violation → Postgres 25P02 "current transaction is
+      // aborted") can never poison and roll back the others. Partial success is
+      // therefore real — the rows that pass actually persist.
+      const successItems: any[] = [];
+      const failedItems: any[] = [];
 
-        // Processar cada atualização individualmente para capturar erros específicos
-        for (let index = 0; index < updateData.length; index++) {
-          const update = updateData[index];
-          try {
-            // Buscar item existente antes de atualizar
-            const existingItem = await this.itemRepository.findByIdWithTransaction(tx, update.id);
-            if (!existingItem) {
-              throw new NotFoundException('Item não encontrado');
-            }
-
-            // Use comprehensive validation for each item
-            await this.validateItem(update.data, update.id, tx);
-
-            const updatedItem = await this.itemRepository.updateWithTransaction(
-              tx,
-              update.id,
-              update.data,
-              { include },
-            );
-            successItems.push(updatedItem);
-
-            // Flag for post-commit threshold check if a stock-relevant field
-            // (quantity / reorderPoint / maxQuantity) actually changed.
-            const stockFields: Array<keyof ItemUpdateFormData> = [
-              'quantity',
-              'reorderPoint',
-              'maxQuantity',
-            ];
-            const stockFieldChanged = stockFields.some(
-              field =>
-                update.data[field] !== undefined &&
-                hasValueChanged(
-                  existingItem[field as keyof typeof existingItem],
-                  updatedItem[field as keyof typeof updatedItem],
-                ),
-            );
-            if (stockFieldChanged) {
-              itemsToCheckThresholds.set(updatedItem.id, existingItem.quantity);
-            }
-
-            // Registrar no changelog - track individual field changes
-            const fieldsToTrack = Object.keys(update.data) as Array<keyof ItemUpdateFormData>;
-
-            for (const field of fieldsToTrack) {
-              const oldValue = existingItem[field as keyof typeof existingItem];
-              const newValue = updatedItem[field as keyof typeof updatedItem];
-
-              // Only log if the value actually changed
-              if (hasValueChanged(oldValue, newValue)) {
-                await this.changeLogService.logChange({
-                  entityType: ENTITY_TYPE.ITEM,
-                  entityId: updatedItem.id,
-                  action: CHANGE_ACTION.UPDATE,
-                  field: field,
-                  oldValue: oldValue,
-                  newValue: newValue,
-                  reason: `Campo ${field} atualizado em lote`,
-                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-                  triggeredById: updatedItem.id,
-                  userId: userId || null,
-                  transaction: tx,
-                });
+      // Processar cada atualização individualmente para capturar erros específicos
+      for (let index = 0; index < updateData.length; index++) {
+        const update = updateData[index];
+        try {
+          const { updatedItem, previousQuantity, stockFieldChanged } =
+            await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+              // Buscar item existente antes de atualizar
+              const existingItem = await this.itemRepository.findByIdWithTransaction(tx, update.id);
+              if (!existingItem) {
+                throw new NotFoundException('Item não encontrado');
               }
-            }
-          } catch (error: any) {
-            failedItems.push({
-              index,
-              id: update.id,
-              data: update.data,
-              error: error.message || 'Erro desconhecido ao atualizar item',
-              errorCode: error.name || 'UNKNOWN_ERROR',
-            });
-          }
-        }
 
-        return {
-          success: successItems,
-          failed: failedItems,
-          totalUpdated: successItems.length,
-          totalFailed: failedItems.length,
-        };
-      });
+              // Use comprehensive validation for each item
+              await this.validateItem(update.data, update.id, tx);
+
+              const item = await this.itemRepository.updateWithTransaction(
+                tx,
+                update.id,
+                update.data,
+                { include },
+              );
+
+              // Flag for post-commit threshold check if a stock-relevant field
+              // (quantity / reorderPoint / maxQuantity) actually changed.
+              const stockFields: Array<keyof ItemUpdateFormData> = [
+                'quantity',
+                'reorderPoint',
+                'maxQuantity',
+              ];
+              const stockChanged = stockFields.some(
+                field =>
+                  update.data[field] !== undefined &&
+                  hasValueChanged(
+                    existingItem[field as keyof typeof existingItem],
+                    item[field as keyof typeof item],
+                  ),
+              );
+
+              // Registrar no changelog - track individual field changes
+              const fieldsToTrack = Object.keys(update.data) as Array<keyof ItemUpdateFormData>;
+
+              for (const field of fieldsToTrack) {
+                const oldValue = existingItem[field as keyof typeof existingItem];
+                const newValue = item[field as keyof typeof item];
+
+                // Only log if the value actually changed
+                if (hasValueChanged(oldValue, newValue)) {
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.ITEM,
+                    entityId: item.id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: field,
+                    oldValue: oldValue,
+                    newValue: newValue,
+                    reason: `Campo ${field} atualizado em lote`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                    triggeredById: item.id,
+                    userId: userId || null,
+                    transaction: tx,
+                  });
+                }
+              }
+
+              return {
+                updatedItem: item,
+                previousQuantity: existingItem.quantity,
+                stockFieldChanged: stockChanged,
+              };
+            });
+
+          successItems.push(updatedItem);
+          if (stockFieldChanged) {
+            itemsToCheckThresholds.set(updatedItem.id, previousQuantity);
+          }
+        } catch (error: any) {
+          failedItems.push({
+            index,
+            id: update.id,
+            data: update.data,
+            error: error.message || 'Erro desconhecido ao atualizar item',
+            errorCode: error.name || 'UNKNOWN_ERROR',
+          });
+        }
+      }
+
+      const result = {
+        success: successItems,
+        failed: failedItems,
+        totalUpdated: successItems.length,
+        totalFailed: failedItems.length,
+      };
 
       // Check stock thresholds AFTER commit for items whose stock-relevant
       // fields changed, mirroring the single-item update path. Wrapped per item.
@@ -2122,7 +2134,7 @@ export class ItemService {
       );
 
       return {
-        success: true,
+        success: batchOperationResult.totalFailed === 0,
         message,
         data: batchOperationResult,
       };

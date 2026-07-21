@@ -7,6 +7,8 @@ export interface AuthTokenResponse {
   message: string;
   data: {
     token: string;
+    /** Opaque long-lived refresh token. Present on login; omitted on /auth/refresh. */
+    refreshToken?: string;
     user: AuthUser;
   };
 }

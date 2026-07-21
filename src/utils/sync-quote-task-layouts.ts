@@ -151,3 +151,142 @@ export async function syncTaskLayoutsFromQuote(
     // Swallow — best-effort sync; must never break the caller's flow.
   }
 }
+
+/**
+ * Subtractive counterpart to {@link syncTaskLayoutsFromQuote}: when a quote
+ * reference (`TaskQuote.layoutFiles`) is UNSELECTED — dropped from the quote —
+ * mark the corresponding task `Layout` REPROVED. This flows an unselect in the
+ * budget editor / "Layout do Orçamento" modal through to the task layout gallery
+ * (the commercial rule: "unselect the reference → the task layout is reproved").
+ *
+ * `previousLayoutFiles` MUST be captured BEFORE the quote write, because the
+ * `set:` replacement disconnects the dropped clones. Each quote file is a private
+ * clone of a task layout, so it is image-matched (originalName + size), not by
+ * File id.
+ *
+ * Guards so this can never corrupt a still-in-use reference:
+ *   - Skip if the same image is STILL referenced by THIS quote (reorder / no-op).
+ *   - Skip if ANY OTHER quote still references the same image (a sibling quote is
+ *     actively displaying it — reproving would silently break its reference).
+ *   - Only ever downgrades APPROVED → REPROVED; never touches DRAFT or an
+ *     already-REPROVED layout.
+ * Best-effort + tx-atomic, mirroring syncTaskLayoutsFromQuote. Returns the ids of
+ * the task layouts it reproved, so the caller can fire downstream reconciliation
+ * (e.g. Em Negociação service-order sync / artwork.reproved events).
+ */
+export async function reproveDroppedTaskLayoutsFromQuote(
+  prisma: PrismaContext,
+  quoteId: string,
+  previousLayoutFiles: Array<{
+    id: string;
+    originalName?: string | null;
+    filename?: string | null;
+    size?: number | null;
+  }>,
+  _userId?: string | null,
+): Promise<string[]> {
+  const reprovedLayoutIds: string[] = [];
+  try {
+    if (!previousLayoutFiles || previousLayoutFiles.length === 0) {
+      return reprovedLayoutIds;
+    }
+
+    const quote = await (prisma as any).taskQuote.findUnique({
+      where: { id: quoteId },
+      select: {
+        task: {
+          select: {
+            id: true,
+            layouts: {
+              select: {
+                id: true,
+                fileId: true,
+                status: true,
+                file: { select: { originalName: true, filename: true, size: true } },
+              },
+            },
+          },
+        },
+        layoutFiles: {
+          select: { id: true, originalName: true, filename: true, size: true },
+        },
+      },
+    });
+    if (!quote?.task) return reprovedLayoutIds;
+
+    // Images the quote STILL references after the write — never reprove these.
+    const currentImageKeys = new Set<string>(
+      (quote.layoutFiles || []).map((f: any) => imageKey(f)),
+    );
+
+    // Task layouts of THIS task, indexed by image identity.
+    const taskLayoutByImage = new Map<string, { id: string; status: string }>();
+    for (const l of quote.task.layouts || []) {
+      taskLayoutByImage.set(imageKey(l.file || {}), { id: l.id, status: l.status });
+    }
+
+    // The genuinely-dropped images (de-duped, still-referenced removed).
+    const droppedKeys = new Set<string>();
+    for (const pf of previousLayoutFiles) {
+      const k = imageKey(pf);
+      if (!currentImageKeys.has(k)) droppedKeys.add(k);
+    }
+    if (droppedKeys.size === 0) return reprovedLayoutIds;
+
+    for (const k of droppedKeys) {
+      const match = taskLayoutByImage.get(k);
+      // Only reprove an APPROVED task layout for this exact image on this task.
+      if (!match || match.status !== 'APPROVED') continue;
+
+      // Guard against corrupting a still-in-use reference. This Layout row can be
+      // shared (m2m) across sibling tasks; reprove it only if NO OTHER quote —
+      // among the tasks connected to THIS Layout row — still references the same
+      // image. (Scoping to the Layout row, not the image, means a sibling task
+      // with its OWN separate row for the same picture does NOT block the
+      // reprove, while a genuinely shared row is protected until every quote on
+      // it has dropped the image — e.g. the last task in a bulk apply.)
+      const layoutRow = await (prisma as any).layout.findUnique({
+        where: { id: match.id },
+        select: {
+          tasks: {
+            select: {
+              quote: {
+                select: {
+                  id: true,
+                  layoutFiles: {
+                    select: { originalName: true, filename: true, size: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+      const referencedElsewhere = (layoutRow?.tasks || []).some(
+        (t: any) =>
+          t.quote &&
+          t.quote.id !== quoteId &&
+          (t.quote.layoutFiles || []).some((f: any) => imageKey(f) === k),
+      );
+      if (referencedElsewhere) continue;
+
+      await (prisma as any).layout.update({
+        where: { id: match.id },
+        data: { status: 'REPROVED' },
+      });
+      reprovedLayoutIds.push(match.id);
+    }
+
+    if (reprovedLayoutIds.length > 0) {
+      logger.log(
+        `[Quote→Task Layout Reprove] Quote ${quoteId} / Task ${quote.task.id}: reproved ${reprovedLayoutIds.length} dropped reference layout(s).`,
+      );
+    }
+  } catch (error) {
+    logger.error(
+      `[Quote→Task Layout Reprove] Error reconciling quote ${quoteId}: ${(error as Error).message}`,
+    );
+    // Swallow — best-effort; must never break the caller's flow.
+  }
+  return reprovedLayoutIds;
+}

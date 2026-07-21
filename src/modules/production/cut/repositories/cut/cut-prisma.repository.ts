@@ -78,6 +78,10 @@ export class CutPrismaRepository
       input.parentCut = { connect: { id: formData.parentCutId } };
     }
 
+    if (formData.priority !== undefined) {
+      input.priority = formData.priority;
+    }
+
     if (formData.startedAt) {
       input.startedAt = formData.startedAt;
     }
@@ -124,6 +128,9 @@ export class CutPrismaRepository
       updateInput.status = formData.status;
       // Update statusOrder when status changes
       updateInput.statusOrder = getCutStatusOrder(formData.status);
+    }
+    if (formData.priority !== undefined) {
+      updateInput.priority = formData.priority;
     }
     if (formData.startedAt !== undefined) {
       updateInput.startedAt = formData.startedAt;
@@ -236,7 +243,12 @@ export class CutPrismaRepository
       }),
       transaction.cut.findMany({
         where: this.mapWhereToDatabaseWhere(where),
-        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { statusOrder: 'asc' },
+        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || [
+          { statusOrder: 'asc' },
+          { priority: 'asc' },
+          { createdAt: 'asc' },
+          { id: 'asc' },
+        ],
         skip,
         take,
         include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),

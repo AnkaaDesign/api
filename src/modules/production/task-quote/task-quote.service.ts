@@ -59,7 +59,10 @@ import {
 } from '../../../utils/task-quote-service-order-sync';
 import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
-import { syncTaskLayoutsFromQuote } from '../../../utils/sync-quote-task-layouts';
+import {
+  syncTaskLayoutsFromQuote,
+  reproveDroppedTaskLayoutsFromQuote,
+} from '../../../utils/sync-quote-task-layouts';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
 import { reconcileQuoteCustomerConfigs } from '../../../utils/task-quote-customer-config-sync';
 import {
@@ -647,6 +650,9 @@ export class TaskQuoteService {
         include: {
           services: { orderBy: { position: 'asc' } },
           customerConfigs: true,
+          // Captured BEFORE the write so an UNSELECTED reference (dropped from
+          // layoutFiles) can be reproved on the task layout afterwards.
+          layoutFiles: true,
         },
       });
 
@@ -952,6 +958,16 @@ export class TaskQuoteService {
         // task layout. The quote is already linked to its task here.
         if (data.layoutFileIds !== undefined) {
           await syncTaskLayoutsFromQuote(tx, id, userId);
+          // …and the mirror image: a reference UNSELECTED here (dropped from
+          // layoutFiles) reproves its task layout — unless another quote still
+          // references that image. previousLayoutFiles was snapshotted before
+          // the `set:` replacement above disconnected the dropped clones.
+          await reproveDroppedTaskLayoutsFromQuote(
+            tx,
+            id,
+            ((existing as any).layoutFiles || []) as any[],
+            userId,
+          );
         }
 
         // Handle customerConfigs changes

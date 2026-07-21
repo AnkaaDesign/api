@@ -7,6 +7,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { createHash, randomBytes } from 'crypto';
+import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { UserRepository } from '@modules/people/user/repositories/user.repository';
 import { SectorRepository } from '@modules/people/sector/repositories/sector.repository';
 import { SectorService } from '@modules/people/sector/sector.service';
@@ -40,6 +42,13 @@ import {
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
+  // Short-lived access token. The refresh token (below) keeps the user logged in
+  // silently, so a short access TTL is invisible to users but limits the blast
+  // radius of a leaked access token. Overridable via env.
+  private readonly accessTokenTtl = process.env.JWT_ACCESS_EXPIRATION || '1h';
+  // Long-lived refresh token TTL, in days.
+  private readonly refreshTokenTtlDays = Number(process.env.JWT_REFRESH_EXPIRATION_DAYS) || 60;
+
   constructor(
     private readonly usersRepository: UserRepository,
     private readonly sectorRepository: SectorRepository,
@@ -50,7 +59,54 @@ export class AuthService {
     private readonly verificationService: VerificationService,
     private readonly smsService: SmsService,
     private readonly emailService: EmailService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  // =====================
+  // Token helpers
+  // =====================
+
+  private hashRefreshToken(raw: string): string {
+    return createHash('sha256').update(raw).digest('hex');
+  }
+
+  /** Sign a short-lived access JWT for the given user. */
+  private async signAccessToken(user: {
+    id: string;
+    email: string | null;
+    phone: string | null;
+    sector?: { privileges?: string } | null;
+  }): Promise<string> {
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      phone: user.phone,
+      role: user.sector?.privileges,
+    };
+    return this.jwtService.signAsync(payload, { expiresIn: this.accessTokenTtl });
+  }
+
+  /**
+   * Create a new refresh-token row for a user's device/session and return the
+   * RAW opaque token (only its hash is persisted). The caller returns the raw
+   * token to the client, which stores it and later presents it to /auth/refresh.
+   */
+  private async issueRefreshToken(userId: string, userAgent?: string): Promise<string> {
+    const raw = randomBytes(48).toString('base64url');
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + this.refreshTokenTtlDays);
+
+    await this.prisma.refreshToken.create({
+      data: {
+        tokenHash: this.hashRefreshToken(raw),
+        userId,
+        expiresAt,
+        userAgent: userAgent?.slice(0, 255) ?? null,
+      },
+    });
+
+    return raw;
+  }
 
   private async findOrCreateGuestSector(userId?: string): Promise<any> {
     try {
@@ -80,7 +136,7 @@ export class AuthService {
     }
   }
 
-  async signIn(signInDTO: SignInFormData): Promise<any> {
+  async signIn(signInDTO: SignInFormData, userAgent?: string): Promise<any> {
     const { contact, password } = signInDTO;
 
     if (!contact || !password) {
@@ -128,13 +184,8 @@ export class AuthService {
       throw new ForbiddenException('Sua conta está inativa. Entre em contato com o administrador.');
     }
 
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      phone: user.phone,
-      role: user.sector?.privileges,
-    };
-    const accessToken = await this.jwtService.signAsync(payload);
+    const accessToken = await this.signAccessToken(user);
+    const refreshToken = await this.issueRefreshToken(user.id, userAgent);
 
     const oldLastLoginAt = user.lastLoginAt;
     const oldSessionToken = user.sessionToken;
@@ -179,6 +230,7 @@ export class AuthService {
       message: 'Login realizado com sucesso',
       data: {
         token: accessToken,
+        refreshToken,
         user: {
           id: user.id,
           email: user.email,
@@ -320,7 +372,7 @@ export class AuthService {
     };
   }
 
-  async logout(userId: string): Promise<any> {
+  async logout(userId: string, rawRefreshToken?: string): Promise<any> {
     if (!userId) {
       throw new BadRequestException('ID do usuário é obrigatório.');
     }
@@ -331,6 +383,21 @@ export class AuthService {
     }
 
     const oldSessionToken = user.sessionToken;
+
+    // Revoke refresh token(s). If the client sends the refresh token it holds,
+    // revoke only that device's session; otherwise revoke all of the user's
+    // sessions as a safe fallback.
+    if (rawRefreshToken) {
+      await this.prisma.refreshToken.updateMany({
+        where: { userId, tokenHash: this.hashRefreshToken(rawRefreshToken), revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    } else {
+      await this.prisma.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    }
 
     // Clear the logged in token
     await this.usersRepository.update(userId, {
@@ -882,6 +949,13 @@ export class AuthService {
       throw new BadRequestException('Usuário já está desconectado.');
     }
 
+    // Revoke every refresh token so the user cannot silently renew their access
+    // token after being forced out.
+    await this.prisma.refreshToken.updateMany({
+      where: { userId: targetUserId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
     // Clear the logged in token
     await this.usersRepository.update(targetUserId, {
       sessionToken: null,
@@ -992,12 +1066,33 @@ export class AuthService {
     };
   }
 
-  async refreshToken(userId: string): Promise<any> {
-    if (!userId) {
-      throw new BadRequestException('ID do usuário é obrigatório.');
+  /**
+   * Exchange a valid opaque refresh token for a fresh short-lived access token.
+   * This is a PUBLIC endpoint — it does NOT require a valid access token, so it
+   * can renew a session whose access token has already expired (the whole point
+   * of a refresh token). Non-rotating: the same refresh token stays valid until
+   * it expires or is revoked (logout), which keeps concurrent refreshes from
+   * multiple in-flight requests on mobile from racing each other into a logout.
+   *
+   * IMPORTANT: this path intentionally writes NO changelog and does NO extra DB
+   * writes beyond the lookup — it runs roughly once per access-token TTL per
+   * device, so it must stay cheap.
+   */
+  async refreshToken(rawRefreshToken: string): Promise<any> {
+    if (!rawRefreshToken) {
+      throw new UnauthorizedException('Refresh token ausente.');
     }
 
-    const user = await this.usersRepository.findById(userId, {
+    const record = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash: this.hashRefreshToken(rawRefreshToken) },
+    });
+
+    // Unknown, already revoked, or expired → force a full re-login.
+    if (!record || record.revokedAt || record.expiresAt.getTime() <= Date.now()) {
+      throw new UnauthorizedException('Sessão expirada. Faça login novamente.');
+    }
+
+    const user = await this.usersRepository.findById(record.userId, {
       include: {
         sector: true,
         ledSector: true,
@@ -1005,48 +1100,30 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new NotFoundException('Usuário não encontrado.');
+      // Orphaned token — clean it up and reject.
+      await this.prisma.refreshToken.update({
+        where: { id: record.id },
+        data: { revokedAt: new Date() },
+      });
+      throw new UnauthorizedException('Sessão expirada. Faça login novamente.');
     }
 
-    // Check if user is active
+    // Inactive/terminated account: kill the session.
     if (!isUserEmployed(user)) {
+      await this.prisma.refreshToken.update({
+        where: { id: record.id },
+        data: { revokedAt: new Date() },
+      });
       throw new ForbiddenException('Sua conta está inativa. Entre em contato com o administrador.');
     }
 
-    // Generate new token with updated payload
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      phone: user.phone,
-      role: user.sector?.privileges,
-    };
-
-    const newToken = await this.jwtService.signAsync(payload);
-
-    // Update session token in database
-    await this.usersRepository.update(user.id, {
-      sessionToken: newToken,
-    });
-
-    // Log the token refresh
-    await this.changeLogService.logChange({
-      entityType: ENTITY_TYPE.USER,
-      entityId: user.id,
-      action: CHANGE_ACTION.UPDATE,
-      field: 'sessionToken',
-      oldValue: '[REDACTED]',
-      newValue: '[REDACTED]',
-      reason: 'Token renovado',
-      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-      triggeredById: user.id,
-      userId: user.id,
-    });
+    const newAccessToken = await this.signAccessToken(user);
 
     return {
       success: true,
       message: 'Token renovado com sucesso',
       data: {
-        token: newToken,
+        token: newAccessToken,
         user: {
           id: user.id,
           email: user.email,

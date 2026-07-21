@@ -1998,6 +1998,10 @@ model Cut {
   parentCutId String?
   status      CutStatus         @default(PENDING)
   statusOrder Int               @default(1)
+  // User-defined queue priority WITHIN a status group (lower = higher in the list). Float so a
+  // drag-reorder can drop a cut between two neighbours by writing a single midpoint value instead
+  // of renumbering the whole queue. Ordering is always (statusOrder, priority, createdAt).
+  priority    Float             @default(0)
   startedAt   DateTime?
   completedAt DateTime?
   createdAt   DateTime          @default(now())
@@ -2009,6 +2013,7 @@ model Cut {
 
   @@index([status])
   @@index([statusOrder])
+  @@index([priority])
   @@index([taskId])
   @@index([parentCutId])
   @@index([origin])
@@ -2286,6 +2291,7 @@ model User {
   notesOwned                     Note[]                       @relation("NOTE_OWNER")
   noteShares                     NoteShare[]                  @relation("NOTE_SHARED_WITH")
   secullumSmokeRuns              SecullumSmokeTestRun[]       @relation("SecullumSmokeRuns")
+  refreshTokens                  RefreshToken[]               @relation("USER_REFRESH_TOKENS")
 
   addressNormalized      String? /// accent-insensitive search (generated column, see migration)
   cityNormalized         String? /// accent-insensitive search (generated column, see migration)
@@ -2308,6 +2314,27 @@ model User {
   @@index([verificationType])
   @@index([sessionToken])
   @@index([verified])
+}
+
+/// Long-lived refresh tokens backing the short-lived access JWTs. One row per
+/// device/session so a user can stay logged in on many devices independently.
+/// Only a SHA-256 hash of the opaque token is stored — the raw token lives only
+/// on the client. A row is valid when revokedAt IS NULL AND expiresAt > now().
+model RefreshToken {
+  id        String    @id @default(uuid())
+  /// SHA-256 hex hash of the opaque refresh token (never the raw value).
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation("USER_REFRESH_TOKENS", fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  /// Optional client hint (User-Agent) to help users identify sessions.
+  userAgent String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Preferences {

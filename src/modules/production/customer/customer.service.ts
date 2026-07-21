@@ -713,71 +713,82 @@ export class CustomerService {
     userId?: string,
   ): Promise<CustomerBatchUpdateResponse> {
     try {
-      const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        const successfulUpdates: Customer[] = [];
-        const failedUpdates: Array<{
-          index: number;
-          id: string;
-          error: string;
-          errorCode: string;
-          data: CustomerUpdateFormData & { id: string };
-        }> = [];
+      const successfulUpdates: Customer[] = [];
+      const failedUpdates: Array<{
+        index: number;
+        id: string;
+        error: string;
+        errorCode: string;
+        data: CustomerUpdateFormData & { id: string };
+      }> = [];
 
-        // Processar cada atualização individualmente para validação detalhada
-        for (let index = 0; index < data.customers.length; index++) {
-          const { id, data: updateData } = data.customers[index];
-          try {
-            // Buscar cliente existente
-            const existingCustomer = await this.customerRepository.findByIdWithTransaction(tx, id);
-            if (!existingCustomer) {
-              throw new NotFoundException('Cliente não encontrado.');
-            }
+      // Processar cada atualização individualmente para validação detalhada.
+      // Cada cliente é atualizado em sua PRÓPRIA transação para que um erro de
+      // banco (unique/FK) não envenene os demais (Postgres 25P02) — sucesso
+      // parcial é real e o commit final não sofre rollback global.
+      for (let index = 0; index < data.customers.length; index++) {
+        const { id, data: updateData } = data.customers[index];
+        try {
+          const updatedCustomer = await this.prisma.$transaction(
+            async (tx: PrismaTransaction) => {
+              // Buscar cliente existente
+              const existingCustomer = await this.customerRepository.findByIdWithTransaction(
+                tx,
+                id,
+              );
+              if (!existingCustomer) {
+                throw new NotFoundException('Cliente não encontrado.');
+              }
 
-            // Validar cliente completo
-            await this.validateCustomer(updateData, id, tx);
+              // Validar cliente completo
+              await this.validateCustomer(updateData, id, tx);
 
-            // Atualizar o cliente
-            const updatedCustomer = await this.customerRepository.updateWithTransaction(
-              tx,
-              id,
-              updateData,
-              { include },
-            );
-            successfulUpdates.push(updatedCustomer);
+              // Atualizar o cliente
+              const customer = await this.customerRepository.updateWithTransaction(
+                tx,
+                id,
+                updateData,
+                { include },
+              );
 
-            // Registrar no changelog com rastreamento por campo
-            await trackAndLogFieldChanges({
-              changeLogService: this.changeLogService,
-              entityType: ENTITY_TYPE.CUSTOMER,
-              entityId: id,
-              oldEntity: existingCustomer,
-              newEntity: updatedCustomer,
-              fieldsToTrack: this.TRACKED_FIELDS,
-              userId: userId || null,
-              triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-              transaction: tx,
-            });
-          } catch (error: unknown) {
-            const errorMessage =
-              error instanceof Error ? error.message : 'Erro ao atualizar cliente.';
-            const errorName = error instanceof Error ? error.name : 'UNKNOWN_ERROR';
-            failedUpdates.push({
-              index,
-              id,
-              error: errorMessage,
-              errorCode: errorName,
-              data: { id, ...updateData },
-            });
-          }
+              // Registrar no changelog com rastreamento por campo
+              await trackAndLogFieldChanges({
+                changeLogService: this.changeLogService,
+                entityType: ENTITY_TYPE.CUSTOMER,
+                entityId: id,
+                oldEntity: existingCustomer,
+                newEntity: customer,
+                fieldsToTrack: this.TRACKED_FIELDS,
+                userId: userId || null,
+                triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                transaction: tx,
+              });
+
+              return customer;
+            },
+          );
+
+          successfulUpdates.push(updatedCustomer);
+        } catch (error: unknown) {
+          const errorMessage =
+            error instanceof Error ? error.message : 'Erro ao atualizar cliente.';
+          const errorName = error instanceof Error ? error.name : 'UNKNOWN_ERROR';
+          failedUpdates.push({
+            index,
+            id,
+            error: errorMessage,
+            errorCode: errorName,
+            data: { id, ...updateData },
+          });
         }
+      }
 
-        return {
-          success: successfulUpdates,
-          failed: failedUpdates,
-          totalUpdated: successfulUpdates.length,
-          totalFailed: failedUpdates.length,
-        };
-      });
+      const result = {
+        success: successfulUpdates,
+        failed: failedUpdates,
+        totalUpdated: successfulUpdates.length,
+        totalFailed: failedUpdates.length,
+      };
 
       const successMessage =
         result.totalUpdated === 1
@@ -801,7 +812,7 @@ export class CustomerService {
       };
 
       return {
-        success: true,
+        success: result.totalFailed === 0,
         message: `${successMessage}${failureMessage}`,
         data: batchOperationResult,
       };

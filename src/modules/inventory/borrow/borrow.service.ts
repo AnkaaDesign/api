@@ -785,53 +785,73 @@ export class BorrowService {
         data: borrow.data,
       }));
 
-      const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // Buscar empréstimos antigos antes de atualizar para o changelog
-        const oldBorrows = new Map<string, any>();
-        for (const update of updates) {
-          const oldBorrow = await tx.borrow.findUnique({ where: { id: update.id } });
-          if (oldBorrow) {
-            oldBorrows.set(update.id, oldBorrow);
-          }
+      const successfulUpdates: any[] = [];
+      const failedUpdates: any[] = [];
+
+      // Each borrow is updated in its OWN transaction so one DB error (unique/FK)
+      // can never poison the others (Postgres 25P02) — partial success is real.
+      // The return/state-machine logic reads committed DB state, not sibling rows,
+      // so per-item isolation is safe.
+      for (let index = 0; index < updates.length; index++) {
+        const update = updates[index];
+        try {
+          const updatedBorrow = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+            // Buscar empréstimo antigo antes de atualizar para o changelog
+            const oldBorrow = await tx.borrow.findUnique({ where: { id: update.id } });
+
+            if (oldBorrow) {
+              // Aplicar máquina de estados + returnedAt controlado pelo servidor
+              update.data = this.normalizeBorrowStatusUpdate(oldBorrow, update.data);
+            }
+
+            // Validar (mesmos gates do update individual)
+            await this.borrowValidation(update.data, tx, update.id);
+
+            const borrow = await this.borrowRepository.updateWithTransaction(
+              tx,
+              update.id,
+              update.data,
+              { include },
+            );
+
+            // Registrar alterações no changelog
+            if (oldBorrow) {
+              const fieldsToTrack = ['status', 'itemId', 'userId', 'quantity', 'returnedAt'];
+
+              await trackAndLogFieldChanges({
+                changeLogService: this.changeLogService,
+                entityType: ENTITY_TYPE.BORROW,
+                entityId: borrow.id,
+                oldEntity: oldBorrow,
+                newEntity: borrow,
+                fieldsToTrack,
+                userId: userId || null,
+                triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                transaction: tx,
+              });
+            }
+
+            return borrow;
+          });
+
+          successfulUpdates.push(updatedBorrow);
+        } catch (error: any) {
+          failedUpdates.push({
+            index,
+            id: update.id,
+            error: error.message || 'Erro ao atualizar empréstimo',
+            errorCode: error.name || 'UNKNOWN_ERROR',
+            data: { ...update.data, id: update.id },
+          });
         }
+      }
 
-        // Validar cada atualização antes de aplicar (mesmos gates do update individual)
-        for (const update of updates) {
-          const oldBorrow = oldBorrows.get(update.id);
-          if (oldBorrow) {
-            // Aplicar máquina de estados + returnedAt controlado pelo servidor
-            update.data = this.normalizeBorrowStatusUpdate(oldBorrow, update.data);
-          }
-          await this.borrowValidation(update.data, tx, update.id);
-        }
-
-        const result = await this.borrowRepository.updateManyWithTransaction(tx, updates, {
-          include,
-        });
-
-        // Registrar atualizações bem-sucedidas
-        for (const updatedBorrow of result.success) {
-          const oldBorrow = oldBorrows.get(updatedBorrow.id);
-
-          if (oldBorrow) {
-            const fieldsToTrack = ['status', 'itemId', 'userId', 'quantity', 'returnedAt'];
-
-            await trackAndLogFieldChanges({
-              changeLogService: this.changeLogService,
-              entityType: ENTITY_TYPE.BORROW,
-              entityId: updatedBorrow.id,
-              oldEntity: oldBorrow,
-              newEntity: updatedBorrow,
-              fieldsToTrack,
-              userId: userId || null,
-              triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-              transaction: tx,
-            });
-          }
-        }
-
-        return result;
-      });
+      const result = {
+        success: successfulUpdates,
+        failed: failedUpdates,
+        totalUpdated: successfulUpdates.length,
+        totalFailed: failedUpdates.length,
+      };
 
       const successMessage =
         result.totalUpdated === 1
@@ -858,7 +878,7 @@ export class BorrowService {
       };
 
       return {
-        success: true,
+        success: result.totalFailed === 0,
         message: `${successMessage}${failureMessage}`,
         data: batchOperationResult,
       };
