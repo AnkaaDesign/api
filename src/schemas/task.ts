@@ -21,6 +21,7 @@ import {
   TRUCK_CATEGORY,
   IMPLEMENT_TYPE,
   TRUCK_SPOT,
+  AIRBRUSHING_DESCRIPTION_PREFIX,
 } from '@constants';
 import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
@@ -1429,6 +1430,32 @@ const taskTransform = (data: any): any => {
     delete data.hasServices;
   }
 
+  // Airbrushing task picker: only tasks carrying >=1 PRODUCTION service order whose description is
+  // an airbrushing one ("Aerografia Lateral/Laterais/Parcial/Traseira"). Prefix-matched on the
+  // accent-insensitive generated column, because ServiceOrder.description is free text and the four
+  // canonical values are only combobox suggestions (see AIRBRUSHING_SERVICE_DESCRIPTIONS).
+  if (data.hasAirbrushingServiceOrder === true) {
+    andConditions.push({
+      serviceOrders: {
+        some: {
+          type: SERVICE_ORDER_TYPE.PRODUCTION,
+          descriptionNormalized: { startsWith: AIRBRUSHING_DESCRIPTION_PREFIX },
+        },
+      },
+    });
+    delete data.hasAirbrushingServiceOrder;
+  } else if (data.hasAirbrushingServiceOrder === false) {
+    andConditions.push({
+      serviceOrders: {
+        none: {
+          type: SERVICE_ORDER_TYPE.PRODUCTION,
+          descriptionNormalized: { startsWith: AIRBRUSHING_DESCRIPTION_PREFIX },
+        },
+      },
+    });
+    delete data.hasAirbrushingServiceOrder;
+  }
+
   // For financial users: show tasks with ANY incomplete service orders (all types)
   if (data.hasIncompleteServiceOrders === true) {
     andConditions.push({
@@ -2060,6 +2087,8 @@ export const taskGetManySchema = z
     hasLayouts: z.boolean().optional(),
     hasPaints: z.boolean().optional(),
     hasServices: z.boolean().optional(),
+    // Only tasks with >=1 PRODUCTION service order whose description starts with "Aerografia".
+    hasAirbrushingServiceOrder: z.boolean().optional(),
     hasIncompleteServiceOrders: z.boolean().optional(), // For financial: tasks with ANY incomplete service orders
     hasIncompleteNonFinancialServiceOrders: z.boolean().optional(), // For admin: tasks with incomplete COMMERCIAL/PRODUCTION/ARTWORK service orders
     shouldDisplayInPreparation: z.boolean().optional(), // Preparation display logic: excludes CANCELLED and fully completed tasks

@@ -88,6 +88,26 @@ export const PRODUCTION_SERVICE_DESCRIPTIONS = [
 ] as const;
 
 // =====================
+// AIRBRUSHING - the PRODUCTION descriptions that mark a task as an airbrushing job
+// =====================
+export const AIRBRUSHING_SERVICE_DESCRIPTIONS = [
+  'Aerografia Lateral',
+  'Aerografia Laterais',
+  'Aerografia Parcial',
+  'Aerografia Traseira',
+] as const;
+
+/**
+ * Accent/case-insensitive prefix shared by every airbrushing description. Matched against
+ * ServiceOrder.descriptionNormalized (lower(immutable_unaccent(description))) rather than the exact
+ * four values above, because ServiceOrder.description is free text — the list is only a combobox
+ * suggestion set, so variants like "Aerografia Completa" or "aerografia lateral direita" must count.
+ */
+export const AIRBRUSHING_DESCRIPTION_PREFIX = 'aerografia';
+
+export type AirbrushingServiceDescription = (typeof AIRBRUSHING_SERVICE_DESCRIPTIONS)[number];
+
+// =====================
 // COMMERCIAL - Sales Actions (52 items including Em Negociação + Outros)
 // =====================
 export const COMMERCIAL_SERVICE_DESCRIPTIONS = [

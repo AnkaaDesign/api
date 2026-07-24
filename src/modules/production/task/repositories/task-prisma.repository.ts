@@ -954,6 +954,7 @@ export class TaskPrismaRepository
         create: airbrushings.map((item: any) => ({
           status: item.status || 'PENDING',
           price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
+          description: item.description || null,
           startDate: item.startDate || null,
           finishDate: item.finishDate || null,
           startedAt: item.startedAt || null,
@@ -1401,6 +1402,7 @@ export class TaskPrismaRepository
           const buildCreate = (item: any) => ({
             status: item.status || 'PENDING',
             price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
+            description: item.description || null,
             startDate: item.startDate || null,
             finishDate: item.finishDate || null,
             startedAt: item.startedAt || null,
@@ -1430,6 +1432,7 @@ export class TaskPrismaRepository
             if (item.price !== undefined) {
               d.price = item.price !== null ? Number(item.price) : null;
             }
+            if (item.description !== undefined) d.description = item.description || null;
             if (item.startDate !== undefined) d.startDate = item.startDate || null;
             if (item.finishDate !== undefined) d.finishDate = item.finishDate || null;
             if (item.startedAt !== undefined) d.startedAt = item.startedAt || null;

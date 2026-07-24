@@ -779,6 +779,20 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'services.length': 'Quantidade de Serviços',
     services_snapshot: 'Serviços do Orçamento',
   },
+  [CHANGE_LOG_ENTITY_TYPE.AIRBRUSHING]: {
+    description: 'Descrição',
+    price: 'Preço',
+    painterId: 'Pintor',
+    status: 'Status',
+    statusOrder: 'Ordem do Status',
+    paymentStatus: 'Status do Pagamento',
+    paidAt: 'Pago em',
+    startDate: 'Início Previsto',
+    finishDate: 'Término Previsto',
+    startedAt: 'Iniciado em',
+    finishedAt: 'Finalizado em',
+    taskId: 'Tarefa',
+  },
   // Add more entity-specific mappings as needed
 };
 
