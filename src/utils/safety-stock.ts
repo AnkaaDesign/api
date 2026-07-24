@@ -29,7 +29,6 @@ import {
   LEAD_TIME_BUFFER_CYCLE_CAP,
   LEAD_TIME_BUFFER_DAYS_BY_ABC,
   SafetyTargetCell,
-  SERVICE_LEVEL_MULTIPLIER_BY_ABC,
   STATISTICAL_LAYER_MIN_MONTHS,
   UNCLASSIFIED_LOWDATA,
   Z_BY_ABC,
@@ -137,10 +136,10 @@ export function calculateSafetyStock(input: SafetyStockInput): SafetyStockResult
     const cell: SafetyTargetCell =
       ABC_XYZ_MATRIX_LOWDATA[key] ?? UNCLASSIFIED_LOWDATA;
     const adjustedSF = applyTrendAdjustment(cell.safetyFactor, input.trendPercent ?? 0);
-    const slMult =
-      SERVICE_LEVEL_MULTIPLIER_BY_ABC[input.abcCategory] ??
-      SERVICE_LEVEL_MULTIPLIER_BY_ABC.DEFAULT;
-    const demandSS = cycleStock * adjustedSF * slMult;
+    // NOTE: ABC is already differentiated by the LOW-DATA matrix itself
+    // (e.g. AX=0.30 vs CX=0.18). The former SERVICE_LEVEL_MULTIPLIER_BY_ABC
+    // applied ABC a SECOND time here → double-count; removed.
+    const demandSS = cycleStock * adjustedSF;
     const ss = demandSS + ltBufferSS;
     return {
       safetyStock: Math.max(0, ss),
@@ -148,7 +147,7 @@ export function calculateSafetyStock(input: SafetyStockInput): SafetyStockResult
       effectiveSafetyFactor: cycleStock > 0 ? ss / cycleStock : adjustedSF,
       components: {
         safetyFactor: adjustedSF,
-        serviceLevelMultiplier: slMult,
+        serviceLevelMultiplier: 1,
         demandSS,
         ltBufferSS,
         ltBufferDays,

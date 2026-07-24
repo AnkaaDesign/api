@@ -2770,6 +2770,12 @@ export const itemCreateSchemaBase = z.object({
     .positive('Quantidade alvo deve ser positiva')
     .nullable()
     .optional(),
+  targetCoverageDays: z
+    .number()
+    .int('Cobertura deve ser um número inteiro de dias')
+    .positive('Cobertura deve ser positiva')
+    .nullable()
+    .optional(),
   abcCategory: z.nativeEnum(ABC_CATEGORY).nullable().optional(),
   xyzCategory: z.nativeEnum(XYZ_CATEGORY).nullable().optional(),
   brandIds: z.array(z.string().uuid({ message: 'Marca inválida' })).optional(),
@@ -2881,6 +2887,12 @@ export const itemUpdateSchemaBase = z.object({
   fixedTargetQuantity: z
     .number()
     .positive('Quantidade alvo deve ser positiva')
+    .nullable()
+    .optional(),
+  targetCoverageDays: z
+    .number()
+    .int('Cobertura deve ser um número inteiro de dias')
+    .positive('Cobertura deve ser positiva')
     .nullable()
     .optional(),
   abcCategory: z.nativeEnum(ABC_CATEGORY).nullable().optional(),
@@ -3244,6 +3256,7 @@ export const mapItemToFormData = createMapToFormDataHelper<Item, ItemUpdateFormD
   isBorrowable: item.isBorrowable ?? undefined,
   stockModel: item.stockModel ?? undefined,
   fixedTargetQuantity: item.fixedTargetQuantity ?? undefined,
+  targetCoverageDays: item.targetCoverageDays ?? undefined,
   brandIds: item.brands?.map(b => b.id) ?? [],
   categoryId: item.categoryId || undefined,
   supplierId: item.supplierId || undefined,

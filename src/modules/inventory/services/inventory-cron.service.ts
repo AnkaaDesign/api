@@ -33,6 +33,7 @@ import {
   isLegacyBulkReceipt,
   leadTimeClockStart,
   resolveSafetyTargetCell,
+  winsorizeConsumptionSeries,
   type ItemLike,
   type SeasonalContext,
 } from '@/utils/stock-health';
@@ -44,6 +45,7 @@ import {
 } from '@/utils/seasonality';
 import {
   detectSaturdayShifts,
+  isVacationDistortedMonth,
   workingDaysForMonth,
 } from '@/utils/working-days';
 
@@ -132,75 +134,7 @@ export class InventoryCronService {
 
       const promises = batch.map(async item => {
         try {
-          // Pull all qualifying outbound activity for the target month so we
-          // can compute working-day-normalized totals. PPE_DELIVERY is included
-          // so ON_DEMAND PPE items accumulate accurate snapshot history (they
-          // generate PPE_DELIVERY, not PRODUCTION_USAGE). REGULAR items never
-          // have PPE_DELIVERY activities, so this is additive-only.
-          const snapshotReasons = [
-            ...new Set([...REGULAR_CONSUMPTION_REASONS, ACTIVITY_REASON.PPE_DELIVERY]),
-          ] as ACTIVITY_REASON[];
-          const activities = await this.prisma.activity.findMany({
-            where: {
-              itemId: item.id,
-              operation: ACTIVITY_OPERATION.OUTBOUND,
-              reason: { in: snapshotReasons },
-              createdAt: { gte: monthStart, lte: monthEnd },
-            },
-            select: { quantity: true, reason: true, operation: true, createdAt: true },
-          });
-
-          const totalConsumption = activities.reduce((sum, a) => sum + a.quantity, 0);
-          const consumptionCount = activities.length;
-
-          // Working-day count: respect Saturday-shift detection over the
-          // month's own activity stream.
-          const saturdayShifts = detectSaturdayShifts(
-            activities.map(a => ({
-              operation: a.operation,
-              reason: a.reason,
-              createdAt: a.createdAt,
-            })),
-            REGULAR_CONSUMPTION_REASONS,
-          );
-          const workingDays = workingDaysForMonth(year, month, saturdayShifts);
-
-          // Per-item seasonal factor: derived from the rolling history of
-          // monthly snapshots + the current month's totals, falling through
-          // the spec §6.4 chain when eligibility fails.
-          const seasonalFactor = await this.computeItemSeasonalFactor(
-            item.id,
-            year,
-            month,
-            totalConsumption,
-            workingDays,
-          );
-
-          const normalizedConsumption = workingDays > 0
-            ? (totalConsumption / workingDays) * 20
-            : totalConsumption;
-
-          await this.prisma.consumptionSnapshot.upsert({
-            where: { itemId_year_month: { itemId: item.id, year, month } },
-            create: {
-              itemId: item.id,
-              year,
-              month,
-              totalConsumption,
-              consumptionCount,
-              normalizedConsumption,
-              workingDays,
-              seasonalFactor,
-            },
-            update: {
-              totalConsumption,
-              consumptionCount,
-              normalizedConsumption,
-              workingDays,
-              seasonalFactor,
-            },
-          });
-
+          await this.buildSnapshotForItemMonth(item.id, year, month);
           created++;
         } catch (error) {
           errors++;
@@ -218,6 +152,80 @@ export class InventoryCronService {
     );
 
     return { total: activeItems.length, created, errors };
+  }
+
+  /**
+   * Build (upsert) the ConsumptionSnapshot for one item + one calendar month
+   * (0-indexed `month`, JS getMonth() convention). Single source of truth for
+   * the snapshot aggregation — reused by `createMonthlyConsumptionSnapshots`
+   * (previous month) and by the backfill script (arbitrary months). Reads
+   * Activity only; NEVER writes stock. Idempotent (upsert on itemId_year_month).
+   */
+  async buildSnapshotForItemMonth(itemId: string, year: number, month: number): Promise<void> {
+    const monthStart = new Date(year, month, 1);
+    const monthEnd = new Date(year, month + 1, 0, 23, 59, 59, 999);
+
+    // PPE_DELIVERY is included so ON_DEMAND PPE items accumulate accurate
+    // history; REGULAR items never carry it, so this is additive-only.
+    const snapshotReasons = [
+      ...new Set([...REGULAR_CONSUMPTION_REASONS, ACTIVITY_REASON.PPE_DELIVERY]),
+    ] as ACTIVITY_REASON[];
+    const activities = await this.prisma.activity.findMany({
+      where: {
+        itemId,
+        operation: ACTIVITY_OPERATION.OUTBOUND,
+        reason: { in: snapshotReasons },
+        createdAt: { gte: monthStart, lte: monthEnd },
+      },
+      select: { quantity: true, reason: true, operation: true, createdAt: true },
+    });
+
+    const totalConsumption = activities.reduce((sum, a) => sum + a.quantity, 0);
+    const consumptionCount = activities.length;
+
+    // Working-day count respects Saturday-shift detection + the vacation
+    // calendar (workingDaysForMonth subtracts VACATION_PERIOD days).
+    const saturdayShifts = detectSaturdayShifts(
+      activities.map(a => ({
+        operation: a.operation,
+        reason: a.reason,
+        createdAt: a.createdAt,
+      })),
+      REGULAR_CONSUMPTION_REASONS,
+    );
+    const workingDays = workingDaysForMonth(year, month, saturdayShifts);
+
+    const seasonalFactor = await this.computeItemSeasonalFactor(
+      itemId,
+      year,
+      month,
+      totalConsumption,
+      workingDays,
+    );
+
+    const normalizedConsumption =
+      workingDays > 0 ? (totalConsumption / workingDays) * 20 : totalConsumption;
+
+    await this.prisma.consumptionSnapshot.upsert({
+      where: { itemId_year_month: { itemId, year, month } },
+      create: {
+        itemId,
+        year,
+        month,
+        totalConsumption,
+        consumptionCount,
+        normalizedConsumption,
+        workingDays,
+        seasonalFactor,
+      },
+      update: {
+        totalConsumption,
+        consumptionCount,
+        normalizedConsumption,
+        workingDays,
+        seasonalFactor,
+      },
+    });
   }
 
   /**
@@ -498,6 +506,9 @@ export class InventoryCronService {
           leadTimeDays: p.leadTime,
           reorderPoint,
           targetStockDays: baseCell.targetStockDays,
+          // Per-item absolute coverage override (e.g. "hold ~2 months") wins over
+          // the matrix, even during the transient UNCLASSIFIED window.
+          overrideCoverageDays: p.item.targetCoverageDays ?? null,
           seasonalCtx,
           now,
         });
@@ -931,11 +942,18 @@ export class InventoryCronService {
     const sorted = [...history].sort(
       (a, b) => (a.year - b.year) * 12 + (a.month - b.month),
     );
-    // Keep at most the trailing 12 calendar months from `now`.
+    // Keep at most the trailing 12 calendar months from `now`, EXCLUDING
+    // vacation-shortened months whose ×20/workingDays normalization inflates
+    // them (not representative demand — would corrupt σ and the XYZ CV).
     const cutoff = new Date(now.getFullYear(), now.getMonth() - 12, 1);
-    return sorted
-      .filter(r => new Date(r.year, r.month, 1) >= cutoff)
-      .map(r => ({ year: r.year, month: r.month, consumption: r.normalizedConsumption }));
+    const kept = sorted.filter(
+      r => new Date(r.year, r.month, 1) >= cutoff && !isVacationDistortedMonth(r.year, r.month),
+    );
+    // Winsorize the consumption values so a single contaminated/vacation-
+    // inflated month can't dominate the XYZ coefficient-of-variation or the
+    // safety-stock σ. Zeros are preserved; year/month alignment is unchanged.
+    const winsorized = winsorizeConsumptionSeries(kept.map(r => r.normalizedConsumption));
+    return kept.map((r, i) => ({ year: r.year, month: r.month, consumption: winsorized[i] }));
   }
 
   /**
