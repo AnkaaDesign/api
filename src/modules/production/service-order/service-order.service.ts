@@ -1657,12 +1657,33 @@ export class ServiceOrderService {
     try {
       const task = await this.prisma.task.findUnique({
         where: { id: taskId },
-        select: { quote: { select: { id: true, status: true } } },
+        select: {
+          quote: {
+            select: {
+              id: true,
+              status: true,
+              layoutFiles: { select: { id: true } },
+            },
+          },
+        },
       });
       const quote = (task as any)?.quote;
       // Only advance from the pre-approval state — never downgrade an already
       // budget/billing-approved quote, and never touch a cancelled one.
       if (!quote || quote.status !== TASK_QUOTE_STATUS.PENDING) return;
+
+      // Required-layout gate: the budget cannot be approved (here, by completing
+      // the commercial "Em Negociação" step) until an approved layout
+      // (TaskQuote.layoutFiles) has been selected in Step 2. Skip the auto-
+      // approval when none is selected — the quote stays PENDING, and the
+      // caller's syncEmNegociacaoForTask then reverts the just-completed SO out
+      // of COMPLETED, so the commercial step cannot close without a layout.
+      if ((quote.layoutFiles || []).length === 0) {
+        this.logger.log(
+          `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: budget-approve skipped — no approved layout selected on quote ${quote.id}.`,
+        );
+        return;
+      }
 
       await this.prisma.taskQuote.update({
         where: { id: quote.id },

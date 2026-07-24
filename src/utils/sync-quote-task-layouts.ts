@@ -49,6 +49,7 @@ export async function syncTaskLayoutsFromQuote(
   prisma: PrismaContext,
   quoteId: string,
   _userId?: string | null,
+  reapproveReprovedSelection = false,
 ): Promise<void> {
   try {
     const quote = await (prisma as any).taskQuote.findUnique({
@@ -101,8 +102,13 @@ export async function syncTaskLayoutsFromQuote(
       if (match) {
         // Already a task layout on THIS task (it came from task.layouts, so it is
         // connected). Promote a DRAFT so the quote's approved layout is never a
-        // DRAFT task layout.
-        if (match.status === 'DRAFT') {
+        // DRAFT task layout. On the authoritative quote-selection path also
+        // re-approve a previously-REPROVED layout that has been re-selected
+        // (selection is authoritative: selected ⇒ APPROVED).
+        const shouldPromote =
+          match.status === 'DRAFT' ||
+          (reapproveReprovedSelection && match.status === 'REPROVED');
+        if (shouldPromote) {
           await (prisma as any).layout.update({
             where: { id: match.id },
             data: { status: 'APPROVED' },
@@ -124,7 +130,10 @@ export async function syncTaskLayoutsFromQuote(
         });
         layoutIdsToConnect.push(created.id);
       } else {
-        if (existing.status === 'DRAFT') {
+        const shouldPromote =
+          existing.status === 'DRAFT' ||
+          (reapproveReprovedSelection && existing.status === 'REPROVED');
+        if (shouldPromote) {
           await (prisma as any).layout.update({
             where: { id: existing.id },
             data: { status: 'APPROVED' },
@@ -280,6 +289,118 @@ export async function reproveDroppedTaskLayoutsFromQuote(
     if (reprovedLayoutIds.length > 0) {
       logger.log(
         `[Quote→Task Layout Reprove] Quote ${quoteId} / Task ${quote.task.id}: reproved ${reprovedLayoutIds.length} dropped reference layout(s).`,
+      );
+    }
+  } catch (error) {
+    logger.error(
+      `[Quote→Task Layout Reprove] Error reconciling quote ${quoteId}: ${(error as Error).message}`,
+    );
+    // Swallow — best-effort; must never break the caller's flow.
+  }
+  return reprovedLayoutIds;
+}
+
+/**
+ * AUTHORITATIVE reconciler — the stronger counterpart to
+ * {@link reproveDroppedTaskLayoutsFromQuote}. When a quote's approved-layout
+ * selection (`TaskQuote.layoutFiles`) is set, the SELECTION IS AUTHORITATIVE:
+ * every APPROVED task layout of the quote's task whose image is NOT in the
+ * current selection is REPROVED — not just the ones that were previously
+ * selected and dropped. (Commercial rule: "whatever is picked in Step 2 stays
+ * approved; all non-selected task layouts are reproved.")
+ *
+ * Pair with {@link syncTaskLayoutsFromQuote} (called first, with
+ * `reapproveReprovedSelection = true`) so the SELECTED images are promoted to
+ * APPROVED before this reproves the rest — net result: selected ⇒ APPROVED,
+ * everything else ⇒ REPROVED.
+ *
+ * Guards (identical spirit to reproveDropped):
+ *   - No-op when the quote has NO selected layoutFiles — never mass-reprove an
+ *     empty selection (nothing authoritative to enforce).
+ *   - Only ever downgrades APPROVED → REPROVED; never touches DRAFT or an
+ *     already-REPROVED layout.
+ *   - Layout-ROW-scoped shared guard: skip a Layout row still referenced by
+ *     ANOTHER quote's current selection (a sibling quote actively displaying it).
+ * Best-effort + tx-atomic. Returns the reproved task-layout ids for downstream
+ * reconciliation (Em Negociação / artwork.reproved).
+ */
+export async function reproveNonSelectedTaskLayoutsFromQuote(
+  prisma: PrismaContext,
+  quoteId: string,
+  _userId?: string | null,
+): Promise<string[]> {
+  const reprovedLayoutIds: string[] = [];
+  try {
+    const quote = await (prisma as any).taskQuote.findUnique({
+      where: { id: quoteId },
+      select: {
+        task: {
+          select: {
+            id: true,
+            layouts: {
+              select: {
+                id: true,
+                fileId: true,
+                status: true,
+                file: { select: { originalName: true, filename: true, size: true } },
+              },
+            },
+          },
+        },
+        layoutFiles: {
+          select: { id: true, originalName: true, filename: true, size: true },
+        },
+      },
+    });
+    if (!quote?.task) return reprovedLayoutIds;
+
+    const selected: any[] = quote.layoutFiles || [];
+    // Authoritative only when there IS a selection — never mass-reprove empty.
+    if (selected.length === 0) return reprovedLayoutIds;
+
+    const selectedImageKeys = new Set<string>(selected.map((f: any) => imageKey(f)));
+
+    for (const l of quote.task.layouts || []) {
+      if (l.status !== 'APPROVED') continue; // only downgrade APPROVED
+      const k = imageKey(l.file || {});
+      if (selectedImageKeys.has(k)) continue; // this layout IS the approved selection
+
+      // Shared m2m row guard: skip if ANOTHER quote still selects this image.
+      const layoutRow = await (prisma as any).layout.findUnique({
+        where: { id: l.id },
+        select: {
+          tasks: {
+            select: {
+              quote: {
+                select: {
+                  id: true,
+                  layoutFiles: {
+                    select: { originalName: true, filename: true, size: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+      const referencedElsewhere = (layoutRow?.tasks || []).some(
+        (t: any) =>
+          t.quote &&
+          t.quote.id !== quoteId &&
+          (t.quote.layoutFiles || []).some((f: any) => imageKey(f) === k),
+      );
+      if (referencedElsewhere) continue;
+
+      await (prisma as any).layout.update({
+        where: { id: l.id },
+        data: { status: 'REPROVED' },
+      });
+      reprovedLayoutIds.push(l.id);
+    }
+
+    if (reprovedLayoutIds.length > 0) {
+      logger.log(
+        `[Quote→Task Layout Reprove] Quote ${quoteId} / Task ${quote.task.id}: reproved ${reprovedLayoutIds.length} non-selected task layout(s).`,
       );
     }
   } catch (error) {
