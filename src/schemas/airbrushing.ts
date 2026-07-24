@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   createMapToFormDataHelper,
   orderByDirectionSchema,
+  orderByWithNullsSchema,
   normalizeOrderBy,
   nullableDate,
   toFormData,
@@ -49,7 +50,29 @@ export const airbrushingIncludeSchema = z
               logoPaints: z.boolean().optional(),
               bonifications: z.boolean().optional(),
               serviceOrders: z.boolean().optional(),
-              truck: z.boolean().optional(),
+              // `truck` is a KNOWN key, so a nested include here is an invalid_type error (a 400 on
+              // the whole list), not a silent strip. The airbrushing table's "Medidas" column needs
+              // truck.leftSideMeasure/rightSideMeasure + their sections, so accept the nested form.
+              truck: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    include: z
+                      .object({
+                        leftSideMeasure: z
+                          .union([z.boolean(), z.object({ include: z.object({ sections: z.boolean().optional() }).optional() })])
+                          .optional(),
+                        rightSideMeasure: z
+                          .union([z.boolean(), z.object({ include: z.object({ sections: z.boolean().optional() }).optional() })])
+                          .optional(),
+                        backSideMeasure: z
+                          .union([z.boolean(), z.object({ include: z.object({ sections: z.boolean().optional() }).optional() })])
+                          .optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
               airbrushing: z.boolean().optional(),
             })
             .optional(),
@@ -164,6 +187,7 @@ export const airbrushingOrderBySchema = z
         startedAt: orderByDirectionSchema.optional(),
         finishedAt: orderByDirectionSchema.optional(),
         price: orderByDirectionSchema.optional(),
+        description: orderByDirectionSchema.optional(),
         status: orderByDirectionSchema.optional(),
         statusOrder: orderByDirectionSchema.optional(),
         paymentStatus: orderByDirectionSchema.optional(),
@@ -175,6 +199,9 @@ export const airbrushingOrderBySchema = z
           .object({
             id: orderByDirectionSchema.optional(),
             name: orderByDirectionSchema.optional(),
+            // "Identificador" sorts on the serial with NULLS LAST in both directions — the
+            // plate-fallback rows would otherwise jump to the top on DESC (Postgres default).
+            serialNumber: orderByWithNullsSchema.optional(),
             status: orderByDirectionSchema.optional(),
             createdAt: orderByDirectionSchema.optional(),
             updatedAt: orderByDirectionSchema.optional(),
@@ -209,6 +236,7 @@ export const airbrushingOrderBySchema = z
           startedAt: orderByDirectionSchema.optional(),
           finishedAt: orderByDirectionSchema.optional(),
           price: orderByDirectionSchema.optional(),
+          description: orderByDirectionSchema.optional(),
           status: orderByDirectionSchema.optional(),
           statusOrder: orderByDirectionSchema.optional(),
           paymentStatus: orderByDirectionSchema.optional(),
@@ -220,6 +248,7 @@ export const airbrushingOrderBySchema = z
             .object({
               id: orderByDirectionSchema.optional(),
               name: orderByDirectionSchema.optional(),
+              serialNumber: orderByWithNullsSchema.optional(),
               status: orderByDirectionSchema.optional(),
               createdAt: orderByDirectionSchema.optional(),
               updatedAt: orderByDirectionSchema.optional(),
@@ -390,6 +419,20 @@ export const airbrushingWhereSchema: z.ZodSchema = z.lazy(() =>
         .optional(),
 
       // String fields
+      description: z
+        .union([
+          z.string(),
+          z.null(),
+          z.object({
+            equals: z.string().nullable().optional(),
+            not: z.string().nullable().optional(),
+            contains: z.string().optional(),
+            startsWith: z.string().optional(),
+            endsWith: z.string().optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
+          }),
+        ])
+        .optional(),
       status: z
         .union([
           z.nativeEnum(AIRBRUSHING_STATUS),
@@ -459,6 +502,7 @@ const airbrushingFilters = {
   paymentStatuses: z.array(z.nativeEnum(AIRBRUSHING_PAYMENT_STATUS)).optional(),
   taskIds: z.array(z.string()).optional(),
   painterIds: z.array(z.string()).optional(),
+  customerIds: z.array(z.string()).optional(),
   priceRange: z
     .object({
       min: z.number().optional(),
@@ -467,6 +511,20 @@ const airbrushingFilters = {
     .optional(),
   hasStartDate: z.boolean().optional(),
   hasFinishDate: z.boolean().optional(),
+  // "Período de Início" / "Período de Término" — de/até ranges over the PLANNED dates.
+  // Named *Range so they never collide with the `startDate`/`finishDate` where-clause fields.
+  startDateRange: z
+    .object({
+      gte: z.coerce.date().optional(),
+      lte: z.coerce.date().optional(),
+    })
+    .optional(),
+  finishDateRange: z
+    .object({
+      gte: z.coerce.date().optional(),
+      lte: z.coerce.date().optional(),
+    })
+    .optional(),
 };
 
 // =====================
@@ -493,6 +551,12 @@ const airbrushingTransform = (data: any): any => {
       OR: [
         { task: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
         { task: { customer: { fantasyNameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } } },
+        // The airbrushing's own description.
+        { descriptionNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
+        // "Identificador" — the task serial, falling back to the truck plate (both are what the
+        // Identificador column renders, so searching either must find the row).
+        { task: { serialNumberNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
+        { task: { truck: { plateNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } } },
       ],
     });
     delete data.searchingFor;
@@ -516,6 +580,13 @@ const airbrushingTransform = (data: any): any => {
   if (data.painterIds?.length) {
     andConditions.push({ painterId: { in: data.painterIds } });
     delete data.painterIds;
+  }
+
+  // "Cliente" filter — the customer hangs off the task, so filter through the relation.
+  // Shorthand (no `is:`) matches the style used by the searchingFor block below.
+  if (data.customerIds?.length) {
+    andConditions.push({ task: { customerId: { in: data.customerIds } } });
+    delete data.customerIds;
   }
 
   if (data.priceRange) {
@@ -544,6 +615,26 @@ const airbrushingTransform = (data: any): any => {
       andConditions.push({ finishDate: null });
     }
     delete data.hasFinishDate;
+  }
+
+  if (data.startDateRange) {
+    const startDateCondition: any = {};
+    if (data.startDateRange.gte) startDateCondition.gte = data.startDateRange.gte;
+    if (data.startDateRange.lte) startDateCondition.lte = data.startDateRange.lte;
+    if (Object.keys(startDateCondition).length > 0) {
+      andConditions.push({ startDate: startDateCondition });
+    }
+    delete data.startDateRange;
+  }
+
+  if (data.finishDateRange) {
+    const finishDateCondition: any = {};
+    if (data.finishDateRange.gte) finishDateCondition.gte = data.finishDateRange.gte;
+    if (data.finishDateRange.lte) finishDateCondition.lte = data.finishDateRange.lte;
+    if (Object.keys(finishDateCondition).length > 0) {
+      andConditions.push({ finishDate: finishDateCondition });
+    }
+    delete data.finishDateRange;
   }
 
   if (data.createdAt) {
@@ -627,6 +718,9 @@ export const airbrushingCreateSchema = z.preprocess(
   z.object({
     startDate: nullableDate.optional(),
     finishDate: nullableDate.optional(),
+    // MUST stay .nullable(): the web FormData helper encodes JS null as the literal string "null",
+    // which ArrayFixPipe turns back into null — clearing the field would otherwise 400.
+    description: z.string().trim().max(500, 'Descrição deve ter no máximo 500 caracteres').nullable().optional(),
     price: z
       .number({
         invalid_type_error: 'Preço inválido',
@@ -687,6 +781,7 @@ export const airbrushingUpdateSchema = z.preprocess(
   z.object({
     startDate: nullableDate.optional(),
     finishDate: nullableDate.optional(),
+    description: z.string().trim().max(500, 'Descrição deve ter no máximo 500 caracteres').nullable().optional(),
     price: z
       .number({
         invalid_type_error: 'Preço inválido',
@@ -810,6 +905,7 @@ export const airbrushingCreateNestedSchema = z
     id: z.string().optional(),
     startDate: nullableDate.optional(),
     finishDate: nullableDate.optional(),
+    description: z.string().trim().max(500, 'Descrição deve ter no máximo 500 caracteres').nullable().optional(),
     price: z
       .number({
         invalid_type_error: 'Preço inválido',
@@ -843,6 +939,7 @@ export const mapAirbrushingToFormData = createMapToFormDataHelper<
   startedAt: airbrushing.startedAt,
   finishedAt: airbrushing.finishedAt,
   price: airbrushing.price,
+  description: airbrushing.description,
   status: airbrushing.status,
   paymentStatus: airbrushing.paymentStatus,
   taskId: airbrushing.taskId,

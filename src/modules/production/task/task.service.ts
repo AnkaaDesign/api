@@ -4989,6 +4989,10 @@ export class TaskService {
                 finishDate: airbrushingData.finishDate || null,
               };
 
+              if (airbrushingData.description !== undefined) {
+                updatePayload.description = airbrushingData.description || null;
+              }
+
               if (airbrushingData.startedAt !== undefined) {
                 updatePayload.startedAt = airbrushingData.startedAt || null;
               }
@@ -5094,6 +5098,7 @@ export class TaskService {
                     airbrushingData.price !== undefined && airbrushingData.price !== null
                       ? Number(airbrushingData.price)
                       : null,
+                  description: airbrushingData.description || null,
                   startDate: airbrushingData.startDate || null,
                   finishDate: airbrushingData.finishDate || null,
                   startedAt: airbrushingData.startedAt || null,
@@ -12969,6 +12974,8 @@ export class TaskService {
                       data: {
                         taskId: destinationTaskId,
                         price: airbrushing.price,
+                        // Job spec, not runtime progress — copies with the definition.
+                        description: airbrushing.description ?? null,
                         // Assigned painter carries over with the airbrushing definition.
                         painterId: airbrushing.painterId ?? null,
                         // Fresh work item: status resets and start/finish clear — those are

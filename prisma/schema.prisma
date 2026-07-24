@@ -41,6 +41,8 @@ model Airbrushing {
   startedAt             DateTime?
   finishedAt            DateTime?
   price                 Float?
+  /// Free-text job spec / notes for the airbrushing (e.g. "dragão na lateral direita").
+  description           String?
   paymentStatus         AirbrushingPaymentStatus @default(PENDING)
   /// Stamped when paymentStatus becomes PAID — windows "paid this month" on Contas a Pagar.
   paidAt                DateTime?
@@ -56,6 +58,8 @@ model Airbrushing {
   invoices              File[]                   @relation("AIRBRUSHING_INVOICES")
   receipts              File[]                   @relation("AIRBRUSHING_RECEIPTS")
   reconciliationMatches ReconciliationMatch[]    @relation("AirbrushingMatches")
+
+  descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
 
   @@index([statusOrder])
   @@index([painterId])
