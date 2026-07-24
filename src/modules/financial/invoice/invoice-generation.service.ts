@@ -156,14 +156,11 @@ export class InvoiceGenerationService {
           `[INVOICE_GEN] CustomerConfig ${config.id}: customer=${config.customer?.fantasyName} (${config.customer?.cnpj}), total=${totalAmount}`,
         );
 
-        // Generate installments from payment condition and task.finishedAt
-        const finishedAt = task.finishedAt;
-        if (!finishedAt) {
-          this.logger.warn(
-            `[INVOICE_GEN] Task ${taskId} has no finishedAt date, skipping invoice generation for customerConfig ${config.id}.`,
-          );
-          continue;
-        }
+        // Due dates anchor on approvalDate (the billing-approval moment); task.finishedAt
+        // is only a legacy fallback (the installment generators use `approvalDate ?? finishedAt`).
+        // Billing can now be approved BEFORE the task is finished, so fall back to
+        // approvalDate/now instead of skipping generation when finishedAt is null.
+        const finishedAt = task.finishedAt ?? approvalDate ?? new Date();
 
         const paymentConfig = (config as any).paymentConfig ?? null;
         const generatedInstallments = paymentConfig
@@ -697,7 +694,7 @@ export class InvoiceGenerationService {
                 quote: {
                   select: {
                     services: {
-                      select: { description: true, invoiceToCustomerId: true },
+                      select: { description: true, observation: true, invoiceToCustomerId: true },
                       orderBy: { position: 'asc' },
                     },
                   },
@@ -974,7 +971,13 @@ export class InvoiceGenerationService {
     );
     const remaining = 5 - parts.length;
     if (services.length > 0 && remaining > 0) {
-      const descriptions = services.map((s: any) => s.description as string);
+      // "Outros" is a generic catch-all description; the real service text lives in the
+      // observation. Mirror the NFS-e discriminacao so the boleto matches the emitted NF.
+      const descriptions = services.map((s: any) =>
+        s.description === 'Outros' && s.observation?.trim()
+          ? s.observation.trim()
+          : (s.description as string),
+      );
       if (descriptions.length > 0 && descriptions[0]) {
         descriptions[0] = descriptions[0].charAt(0).toUpperCase() + descriptions[0].slice(1);
       }

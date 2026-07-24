@@ -1575,18 +1575,32 @@ const taskTransform = (data: any): any => {
   }
 
   // Financial-specific display logic:
-  // Show only COMPLETED tasks that have a quote and quote status from BUDGET_APPROVED onwards
-  // (excludes only PENDING)
+  // Show tasks that have a quote with status from BUDGET_APPROVED onwards (excludes PENDING).
+  // The task-status scope is controlled by financialTaskStatus (default 'finished').
   if (data.shouldDisplayForFinancial === true) {
+    // financialTaskStatus scopes which task statuses are billable-visible:
+    //   'finished'   (default) → only COMPLETED tasks
+    //   'unfinished'           → not-yet-finished tasks (PREPARATION/WAITING_PRODUCTION/IN_PRODUCTION)
+    //   'all'        (both)    → finished + unfinished (still excludes CANCELLED)
+    // Billing can now be approved before a task is finished (due dates anchor on the
+    // approval moment), so the financial sector can bill any of these scopes.
+    const taskStatusFilter =
+      data.financialTaskStatus === 'unfinished'
+        ? { status: { in: ['PREPARATION', 'WAITING_PRODUCTION', 'IN_PRODUCTION'] } }
+        : data.financialTaskStatus === 'all'
+          ? { status: { notIn: ['CANCELLED'] } }
+          : { status: 'COMPLETED' };
     andConditions.push({
       AND: [
-        { status: 'COMPLETED' },
+        taskStatusFilter,
         { quote: { isNot: null } },
         { quote: { status: { notIn: ['PENDING'] } } },
       ],
     });
     delete data.shouldDisplayForFinancial;
   }
+  // Companion flag to shouldDisplayForFinancial — never a standalone Prisma filter.
+  delete data.financialTaskStatus;
 
   if (data.hasAirbrushing === true) {
     andConditions.push({ airbrushings: { some: {} } });
@@ -2052,6 +2066,7 @@ export const taskGetManySchema = z
     preparationExcludeLogistic: z.boolean().optional(), // When true, excludes LOGISTIC SO from preparation completion check
     shouldDisplayForDesigner: z.boolean().optional(), // Designer display logic: shows tasks with incomplete ARTWORK SOs or no ARTWORK SOs
     shouldDisplayForFinancial: z.boolean().optional(), // Financial display logic: completed tasks with quote that is not settled
+    financialTaskStatus: z.enum(['finished', 'unfinished', 'all']).optional(), // With shouldDisplayForFinancial: task-status scope — 'finished' (default, COMPLETED only), 'unfinished' (PREPARATION/WAITING_PRODUCTION/IN_PRODUCTION), or 'all'
     hasAirbrushing: z.boolean().optional(),
     hasNfe: z.boolean().optional(),
     hasReceipt: z.boolean().optional(),
