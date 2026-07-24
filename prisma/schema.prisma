@@ -2444,6 +2444,26 @@ model SeenNotification {
   @@unique([userId, notificationId])
 }
 
+// Attention system — server-side acknowledge / cooldown state (cross-device).
+// Isolated by design: `userId` is a plain String + index, with NO @relation to User,
+// so the large User model is never touched. Orphaned acks are harmless and pruned by
+// the client's stale-record cleanup. See api/docs/attention-server-side.md.
+model AttentionAck {
+  id           String    @id @default(uuid())
+  userId       String
+  ruleId       String // rule id, or `push:{warningId}` for manual warnings
+  entityType   String
+  entityId     String
+  snoozeUntil  DateTime?
+  acknowledged Boolean   @default(false)
+  lastFiredAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([userId, ruleId, entityId])
+  @@index([userId])
+}
+
 model DeviceToken {
   id        String   @id @default(uuid())
   userId    String
