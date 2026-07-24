@@ -442,6 +442,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 id: z.boolean().optional(),
                 plate: z.boolean().optional(),
                 chassisNumber: z.boolean().optional(),
+                vinPlate: z.boolean().optional(),
                 spot: z.boolean().optional(),
                 category: z.boolean().optional(),
                 implementType: z.boolean().optional(),
@@ -751,6 +752,7 @@ export const taskSelectDetail = {
       id: true,
       plate: true,
       chassisNumber: true,
+      vinPlate: true,
       spot: true,
       category: true,
       implementType: true,
@@ -1341,9 +1343,10 @@ const taskTransform = (data: any): any => {
         { generalPainting: { codeNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
         { logoPaints: { some: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
         { logoPaints: { some: { codeNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
-        // Truck search - plate, chassisNumber
+        // Truck search - plate, chassisNumber, vinPlate
         { truck: { plateNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
         { truck: { chassisNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+        { truck: { vinPlateNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
       ],
     });
     delete data.searchingFor;
@@ -2375,6 +2378,7 @@ const taskTruckSchema = z
           message: 'Número do chassi deve ter exatamente 17 caracteres alfanuméricos',
         },
       ),
+    vinPlate: z.string().nullable().optional(),
     spot: z.string().nullable().optional(), // TRUCK_SPOT enum value or null
     // Note: Garage is now static config - garage info is encoded in the spot (B1_F1_V1 = Garage B1, Lane F1, Spot V1)
     // Truck specifications

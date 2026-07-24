@@ -2023,6 +2023,7 @@ model Truck {
   id                 String            @id @default(uuid())
   plate              String?           @unique
   chassisNumber      String?
+  vinPlate           String?
   category           TruckCategory?
   implementType      ImplementType?
   spot               TRUCK_SPOT?       @default(YARD_WAIT)
@@ -2038,6 +2039,7 @@ model Truck {
   task               Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   chassisNumberNormalized String? /// accent-insensitive search (generated column, see migration)
+  vinPlateNormalized      String? /// accent-insensitive search (generated column, see migration)
   plateNormalized         String? /// accent-insensitive search (generated column, see migration)
 
   @@index([spot])

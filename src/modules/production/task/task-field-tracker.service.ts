@@ -80,6 +80,7 @@ const TRACKED_FIELDS = [
   // Truck fields (will be tracked when truck is updated as part of task)
   'truck.plate',
   'truck.chassisNumber',
+  'truck.vinPlate',
   'truck.category',
   'truck.implementType',
   'truck.spot',

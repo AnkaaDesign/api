@@ -2744,7 +2744,7 @@ export class TaskQuoteService {
                 orderBy: { createdAt: 'asc' },
               },
               truck: {
-                select: { id: true, plate: true, chassisNumber: true, category: true, implementType: true },
+                select: { id: true, plate: true, chassisNumber: true, vinPlate: true, category: true, implementType: true },
               },
               serviceOrders: {
                 orderBy: { position: 'asc' },

@@ -251,6 +251,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'sector.name': 'Nome do Setor',
     'truck.plate': 'Placa do Caminhão',
     'truck.chassisNumber': 'Chassi do Caminhão',
+    'truck.vinPlate': 'Plaqueta',
     'truck.category': 'Categoria do Caminhão',
     'truck.implementType': 'Tipo de Implemento',
     'createdBy.name': 'Nome do Criador',
@@ -739,6 +740,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
   [CHANGE_LOG_ENTITY_TYPE.TRUCK]: {
     plate: 'Placa',
     chassisNumber: 'Número do Chassi',
+    vinPlate: 'Plaqueta',
     category: 'Categoria',
     implementType: 'Tipo de Implemento',
     spot: 'Localização',

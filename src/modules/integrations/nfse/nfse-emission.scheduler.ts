@@ -226,6 +226,7 @@ export class NfseEmissionScheduler {
                     select: {
                       plate: true,
                       chassisNumber: true,
+                      vinPlate: true,
                       category: true,
                       implementType: true,
                     },
@@ -235,6 +236,7 @@ export class NfseEmissionScheduler {
                       services: {
                         select: {
                           description: true,
+                          observation: true,
                           amount: true,
                           invoiceToCustomerId: true,
                         },
@@ -308,6 +310,7 @@ export class NfseEmissionScheduler {
             | {
                 plate?: string;
                 chassisNumber?: string;
+                vinPlate?: string;
                 category?: string;
                 implementType?: string;
               }
@@ -337,6 +340,7 @@ export class NfseEmissionScheduler {
             const allServices = (task as any).quote?.services as
               | Array<{
                   description: string;
+                  observation: string | null;
                   amount: any;
                   invoiceToCustomerId: string | null;
                 }>
@@ -345,7 +349,13 @@ export class NfseEmissionScheduler {
             services = allServices
               ?.filter(s => !s.invoiceToCustomerId || s.invoiceToCustomerId === customer.id)
               .map(s => ({
-                description: s.description,
+                // "Outros" is a generic catch-all description; the real service text
+                // lives in the observation. Use it so Elotech gets the actual service
+                // instead of the literal word "Outros".
+                description:
+                  s.description === 'Outros' && s.observation?.trim()
+                    ? s.observation.trim()
+                    : s.description,
                 amount: Number(s.amount),
               }));
 
@@ -367,6 +377,7 @@ export class NfseEmissionScheduler {
               ? {
                   plate: truck.plate || undefined,
                   chassisNumber: truck.chassisNumber || undefined,
+                  vinPlate: truck.vinPlate || undefined,
                   category: truck.category || undefined,
                   implementType: truck.implementType || undefined,
                 }
@@ -505,6 +516,7 @@ export class NfseEmissionScheduler {
                   select: {
                     plate: true,
                     chassisNumber: true,
+                    vinPlate: true,
                     category: true,
                     implementType: true,
                   },
@@ -563,6 +575,7 @@ export class NfseEmissionScheduler {
           | {
               plate?: string;
               chassisNumber?: string;
+              vinPlate?: string;
               category?: string;
               implementType?: string;
             }
@@ -621,6 +634,7 @@ export class NfseEmissionScheduler {
             ? {
                 plate: truck.plate || undefined,
                 chassisNumber: truck.chassisNumber || undefined,
+                vinPlate: truck.vinPlate || undefined,
                 category: truck.category || undefined,
                 implementType: truck.implementType || undefined,
               }
