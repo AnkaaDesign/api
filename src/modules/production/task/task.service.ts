@@ -1247,6 +1247,7 @@ export class TaskService {
                 taskId: newTask.id,
                 plate: truckData.plate || null,
                 chassisNumber: truckData.chassisNumber || null,
+                vinPlate: truckData.vinPlate || null,
                 spot: truckData.spot !== undefined ? truckData.spot : null,
               },
             });
@@ -2328,6 +2329,7 @@ export class TaskService {
                   taskId: id,
                   plate: truckData.plate || null,
                   chassisNumber: truckData.chassisNumber || null,
+                  vinPlate: truckData.vinPlate || null,
                   category: truckData.category || null,
                   implementType: truckData.implementType || null,
                   spot: truckData.spot !== undefined ? truckData.spot : null,
@@ -2355,6 +2357,7 @@ export class TaskService {
               if (truckData.plate !== undefined) updateFields.plate = truckData.plate;
               if (truckData.chassisNumber !== undefined)
                 updateFields.chassisNumber = truckData.chassisNumber;
+              if (truckData.vinPlate !== undefined) updateFields.vinPlate = truckData.vinPlate;
               if (truckData.category !== undefined) updateFields.category = truckData.category;
               if (truckData.implementType !== undefined)
                 updateFields.implementType = truckData.implementType;
@@ -8246,6 +8249,7 @@ export class TaskService {
                   taskId: taskId,
                   plate: truckData.plate || null,
                   chassisNumber: truckData.chassisNumber || null,
+                  vinPlate: truckData.vinPlate || null,
                   category: truckData.category || null,
                   implementType: truckData.implementType || null,
                   spot: truckData.spot !== undefined ? truckData.spot : null,

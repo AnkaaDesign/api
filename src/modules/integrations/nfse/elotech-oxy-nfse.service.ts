@@ -33,6 +33,7 @@ export interface MunicipalEmitNfseInput {
   truck?: {
     plate?: string;
     chassisNumber?: string;
+    vinPlate?: string;
     category?: string; // TruckCategory enum value
     implementType?: string; // ImplementType enum value
   };
@@ -1020,6 +1021,7 @@ export class ElotechOxyNfseService {
     if (invoice.task.serialNumber) vehicleIdParts.push(`n série: ${invoice.task.serialNumber}`);
     if (invoice.truck?.plate) vehicleIdParts.push(`placa: ${invoice.truck.plate}`);
     if (invoice.truck?.chassisNumber) vehicleIdParts.push(`chassi: ${invoice.truck.chassisNumber}`);
+    if (invoice.truck?.vinPlate) vehicleIdParts.push(`plaqueta: ${invoice.truck.vinPlate}`);
 
     const typePart = vehicleTypeParts.join(' ');
     const idPart = vehicleIdParts.join(', ');

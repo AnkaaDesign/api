@@ -76,6 +76,7 @@ const FIELD_LABELS: Record<string, string> = {
   bankSlips: 'Boletos',
   'truck.plate': 'Placa do Caminhão',
   'truck.chassisNumber': 'Número do Chassi',
+  'truck.vinPlate': 'Plaqueta',
   'truck.category': 'Categoria do Caminhão',
   'truck.implementType': 'Tipo de Implemento',
   'truck.spot': 'Vaga do Caminhão',

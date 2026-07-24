@@ -281,15 +281,22 @@ export class StockNotificationService {
         overrides: {
           title,
           body,
-          // 'Supplier' isn't in the deep-link switch — point the tap at the
-          // supplier detail page directly. Skip the link when the bucket has no
-          // real supplier ('unassigned') so we never emit /detalhes/unassigned.
-          ...(bucket.supplierId
+          // Stock notifications are about ITEMS — the tap must land on the item,
+          // never the supplier. A single-item bucket deep-links straight to the
+          // item detail by overriding the entity to Item: the dispatcher's
+          // ITEM/STOCK switch (generateDeepLinksForEntity → generateItemLinks)
+          // then emits web `/estoque/produtos/detalhes/<id>` + mobile `item/<id>`.
+          // A multi-item bucket can't target a single item, so send it to the
+          // products list instead of the (previous) supplier detail page.
+          ...(firstItem
             ? {
-                webUrl: `/estoque/fornecedores/detalhes/${bucket.supplierId}`,
-                mobileUrl: `/(tabs)/estoque/fornecedores/detalhes/${bucket.supplierId}`,
+                relatedEntityType: 'Item',
+                relatedEntityId: firstItem.itemId,
               }
-            : {}),
+            : {
+                webUrl: `/estoque/produtos`,
+                mobileUrl: `/(tabs)/estoque/produtos`,
+              }),
         },
       });
     } catch (error: any) {

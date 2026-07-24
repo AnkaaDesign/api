@@ -312,6 +312,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         },
         truck: {
           chassisNumberNormalized: true,
+          vinPlateNormalized: true,
           plateNormalized: true,
         },
         user: {

@@ -210,6 +210,7 @@ const taskSearcher: EntitySearcher = {
           { logoPaints: { some: { codeNormalized: { contains: t } } } },
           { truck: { plateNormalized: { contains: t } } },
           { truck: { chassisNumberNormalized: { contains: t } } },
+          { truck: { vinPlateNormalized: { contains: t } } },
               { serviceOrders: { some: { descriptionNormalized: { contains: t } } } },
             ]),
           },
@@ -239,7 +240,7 @@ const taskSearcher: EntitySearcher = {
         createdAt: true,
         quote: { select: { budgetNumber: true } },
         customer: { select: { fantasyName: true, corporateName: true } },
-        truck: { select: { plate: true, chassisNumber: true } },
+        truck: { select: { plate: true, chassisNumber: true, vinPlate: true } },
         generalPainting: { select: { name: true } },
         // Only the relation rows that actually matched, so the "matched by"
         // hint can show them when the reason isn't visible in the row.
@@ -267,6 +268,7 @@ const taskSearcher: EntitySearcher = {
           { value: task.customer?.fantasyName, weight: 1 },
           { value: task.customer?.corporateName, weight: 1, label: 'Razão social', hidden: true },
           { value: task.truck?.chassisNumber, weight: 1.5, label: 'Chassi', hidden: true },
+          { value: task.truck?.vinPlate, weight: 1.5, label: 'Plaqueta', hidden: true },
           { value: task.generalPainting?.name, weight: 1, label: 'Tinta geral', hidden: true },
           ...task.logoPaints.map((paint) => ({ value: paint.name, weight: 1, label: 'Tinta do logo', hidden: true })),
           ...task.serviceOrders.map((so) => ({ value: so.description, weight: 0.8, label: 'Ordem de serviço', hidden: true })),

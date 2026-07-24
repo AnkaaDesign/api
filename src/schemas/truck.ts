@@ -90,6 +90,7 @@ export const truckOrderBySchema = z
       id: orderByDirectionSchema.optional(),
       plate: orderByDirectionSchema.optional(),
       chassisNumber: orderByDirectionSchema.optional(),
+      vinPlate: orderByDirectionSchema.optional(),
       category: orderByDirectionSchema.optional(),
       implementType: orderByDirectionSchema.optional(),
       spot: orderByDirectionSchema.optional(),
@@ -102,6 +103,7 @@ export const truckOrderBySchema = z
         id: orderByDirectionSchema.optional(),
         plate: orderByDirectionSchema.optional(),
         chassisNumber: orderByDirectionSchema.optional(),
+        vinPlate: orderByDirectionSchema.optional(),
         category: orderByDirectionSchema.optional(),
         implementType: orderByDirectionSchema.optional(),
         spot: orderByDirectionSchema.optional(),
@@ -149,6 +151,9 @@ export const truckWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         ])
         .optional(),
       chassisNumber: z
+        .union([z.string(), z.object({ contains: z.string().optional() })])
+        .optional(),
+      vinPlate: z
         .union([z.string(), z.object({ contains: z.string().optional() })])
         .optional(),
       category: z
@@ -229,6 +234,7 @@ const truckTransform = (data: any): any => {
         // Direct truck fields
         { plateNormalized: { contains: normalizeSearchTerm(searchTerm) } },
         { chassisNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { vinPlateNormalized: { contains: normalizeSearchTerm(searchTerm) } },
         // Related task
         { task: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
         { task: { serialNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
@@ -498,6 +504,11 @@ export const truckCreateSchema = z.object({
     .nullable()
     .optional()
     .transform(val => (val === '' ? null : val)),
+  vinPlate: z
+    .string()
+    .nullable()
+    .optional()
+    .transform(val => (val === '' ? null : val)),
 
   // Truck specifications
   category: truckCategorySchema.nullable().optional(),
@@ -527,6 +538,11 @@ export const truckUpdateSchema = z.object({
     .optional()
     .transform(val => (val === '' ? null : val)),
   chassisNumber: z
+    .string()
+    .nullable()
+    .optional()
+    .transform(val => (val === '' ? null : val)),
+  vinPlate: z
     .string()
     .nullable()
     .optional()
@@ -611,6 +627,7 @@ export type TruckWhere = z.infer<typeof truckWhereSchema>;
 export const mapTruckToFormData = createMapToFormDataHelper<Truck, TruckUpdateFormData>(truck => ({
   plate: truck.plate,
   chassisNumber: truck.chassisNumber,
+  vinPlate: truck.vinPlate,
   category: truck.category,
   implementType: truck.implementType,
   spot: truck.spot,

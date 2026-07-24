@@ -213,6 +213,7 @@ const TASK_SELECT_PREPARATION: Prisma.TaskSelect = {
       id: true,
       plate: true,
       chassisNumber: true,
+      vinPlate: true,
       spot: true,
       category: true,
       implementType: true,
@@ -439,6 +440,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       id: true,
       plate: true,
       chassisNumber: true,
+      vinPlate: true,
       spot: true,
       category: true,
       implementType: true,
@@ -868,6 +870,7 @@ export class TaskPrismaRepository
       const truckData: any = {};
       if (truck.plate !== undefined) truckData.plate = truck.plate;
       if (truck.chassisNumber !== undefined) truckData.chassisNumber = truck.chassisNumber;
+      if (truck.vinPlate !== undefined) truckData.vinPlate = truck.vinPlate;
       // Spot starts as null — only set to YARD_WAIT when task is cleared
       truckData.spot = truck.spot !== undefined ? truck.spot : null;
       if (truck.category !== undefined && truck.category !== null) {
@@ -1261,6 +1264,10 @@ export class TaskPrismaRepository
         if (truck.chassisNumber !== undefined) {
           truckCreateData.chassisNumber = truck.chassisNumber;
           truckUpdateData.chassisNumber = truck.chassisNumber;
+        }
+        if (truck.vinPlate !== undefined) {
+          truckCreateData.vinPlate = truck.vinPlate;
+          truckUpdateData.vinPlate = truck.vinPlate;
         }
         if (truck.spot !== undefined) {
           truckCreateData.spot = truck.spot;

@@ -371,11 +371,13 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   // Truck fields
   plate: 'placa',
   chassisNumber: 'chassi',
+  vinPlate: 'plaqueta',
   category: 'categoria do caminhão',
   implementType: 'tipo de implemento',
   spot: 'vaga',
   'truck.plate': 'placa do caminhão',
   'truck.chassisNumber': 'chassi do caminhão',
+  'truck.vinPlate': 'plaqueta',
   'truck.category': 'categoria do caminhão',
   'truck.implementType': 'tipo de implemento do caminhão',
   'truck.spot': 'vaga do caminhão',
