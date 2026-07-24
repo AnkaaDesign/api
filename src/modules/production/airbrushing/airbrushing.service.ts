@@ -112,7 +112,7 @@ export class AirbrushingService {
     // A non-PENDING payment status may never coexist with a non-COMPLETED
     // airbrushing (blocks un-completing a paid airbrushing without first
     // resetting the payment).
-    const effectiveStatus = data.status ?? persistedStatus ?? AIRBRUSHING_STATUS.PENDING;
+    const effectiveStatus = data.status ?? persistedStatus ?? AIRBRUSHING_STATUS.PREPARATION;
     const effectivePaymentStatus = data.paymentStatus ?? persistedPaymentStatus;
 
     if (
@@ -125,6 +125,68 @@ export class AirbrushingService {
     }
 
     // Aerografia não tem campos únicos para validar
+  }
+
+  /**
+   * Transições de status permitidas ao pintor (SECTOR_PRIVILEGES.AIRBRUSHING).
+   *
+   * The painter owns the work, not the schedule: they may start a job that was
+   * released to the floor, conclude it, and reopen a job they concluded by
+   * mistake. Moving a job into (or out of) Em Preparação / Aguardando Produção,
+   * and cancelling, stay with admin/commercial.
+   */
+  private static readonly PAINTER_STATUS_TRANSITIONS: Record<string, AIRBRUSHING_STATUS[]> = {
+    [AIRBRUSHING_STATUS.WAITING_PRODUCTION]: [AIRBRUSHING_STATUS.IN_PRODUCTION],
+    [AIRBRUSHING_STATUS.IN_PRODUCTION]: [AIRBRUSHING_STATUS.COMPLETED],
+    [AIRBRUSHING_STATUS.COMPLETED]: [AIRBRUSHING_STATUS.IN_PRODUCTION],
+  };
+
+  private assertPainterStatusTransition(currentStatus: string, nextStatus: unknown): void {
+    // No status in the payload, or a no-op write — nothing to gate.
+    if (nextStatus === undefined || nextStatus === null || nextStatus === currentStatus) return;
+
+    if (currentStatus === AIRBRUSHING_STATUS.PREPARATION) {
+      throw new BadRequestException(
+        'Esta aerografia ainda não foi disponibilizada para produção. Peça ao setor comercial ou a um administrador para liberá-la.',
+      );
+    }
+
+    const allowed = AirbrushingService.PAINTER_STATUS_TRANSITIONS[currentStatus] ?? [];
+    if (!allowed.includes(nextStatus as AIRBRUSHING_STATUS)) {
+      throw new BadRequestException(
+        'O pintor só pode iniciar ou concluir a aerografia. Solicite a alteração ao setor comercial ou a um administrador.',
+      );
+    }
+  }
+
+  /**
+   * Preenche startedAt/finishedAt a partir da transição de status (espelha o
+   * [AUTO-FILL] de Task). Mutates `updateData` in place.
+   */
+  private applyStatusTimestamps(
+    existing: { status: string; startedAt?: Date | null; finishedAt?: Date | null },
+    updateData: Record<string, any>,
+  ): void {
+    const nextStatus = updateData.status;
+    if (!nextStatus || nextStatus === existing.status) return;
+
+    const stampStart = () => {
+      if (!existing.startedAt && updateData.startedAt === undefined) {
+        updateData.startedAt = new Date();
+      }
+    };
+
+    if (nextStatus === AIRBRUSHING_STATUS.IN_PRODUCTION) {
+      stampStart();
+    }
+
+    if (nextStatus === AIRBRUSHING_STATUS.COMPLETED) {
+      if (!existing.finishedAt && updateData.finishedAt === undefined) {
+        updateData.finishedAt = new Date();
+      }
+      // A job completed without ever passing through Em Produção still needs a start.
+      stampStart();
+    }
   }
 
   /**
@@ -398,6 +460,22 @@ export class AirbrushingService {
             }
           }
         }
+
+        // Releasing a job to the floor ("Disponibilizar para Produção") is an
+        // admin/commercial decision — a painter may only drive the work itself.
+        // The @Roles gate + the field strip above already keep painters off every
+        // other column; this keeps them off the release gate too, so a painter
+        // cannot self-release a job that is still being prepared (nor pull a
+        // released one back).
+        if (isPainterRestricted) {
+          this.assertPainterStatusTransition(existingAirbrushing.status, updateData.status);
+        }
+
+        // Auto-stamp the actual start/finish timestamps from the status transition —
+        // mirrors the task's [AUTO-FILL] behaviour so "Iniciado em"/"Finalizado em"
+        // are populated by simply advancing the job. An explicitly supplied value
+        // always wins; an already-stamped timestamp is never overwritten.
+        this.applyStatusTimestamps(existingAirbrushing, updateData);
 
         // File-relation reconciliation must be INTENT-BASED. The repository maps every
         // provided *Ids array to a Prisma `set` (a full replace). A partial update — e.g. an

@@ -730,7 +730,7 @@ export const airbrushingCreateSchema = z.preprocess(
       .optional(),
     startedAt: nullableDate.optional(),
     finishedAt: nullableDate.optional(),
-    status: z.nativeEnum(AIRBRUSHING_STATUS).default(AIRBRUSHING_STATUS.PENDING),
+    status: z.nativeEnum(AIRBRUSHING_STATUS).default(AIRBRUSHING_STATUS.PREPARATION),
     paymentStatus: z
       .nativeEnum(AIRBRUSHING_PAYMENT_STATUS)
       .default(AIRBRUSHING_PAYMENT_STATUS.PENDING),
@@ -915,7 +915,7 @@ export const airbrushingCreateNestedSchema = z
       .optional(),
     startedAt: nullableDate.optional(),
     finishedAt: nullableDate.optional(),
-    status: z.nativeEnum(AIRBRUSHING_STATUS).default(AIRBRUSHING_STATUS.PENDING),
+    status: z.nativeEnum(AIRBRUSHING_STATUS).default(AIRBRUSHING_STATUS.PREPARATION),
     paymentStatus: z.nativeEnum(AIRBRUSHING_PAYMENT_STATUS).optional(),
     painterId: z.string().uuid('Pintor inválido').nullable().optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),

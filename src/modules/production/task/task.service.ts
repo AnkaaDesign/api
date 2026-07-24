@@ -77,6 +77,7 @@ import {
   isValidTaskStatusTransition,
   getTaskStatusLabel,
   getTaskStatusOrder,
+  getAirbrushingStatusOrder,
   getBonificationStatusOrder,
   generateBaseFileName,
 } from '../../../utils';
@@ -4965,7 +4966,8 @@ export class TaskService {
               }
               // Un-completing a paid airbrushing is blocked (mirror of
               // AirbrushingService.validateAirbrushing).
-              const targetAirbrushingStatus = airbrushingData.status || 'PENDING';
+              const targetAirbrushingStatus =
+                airbrushingData.status || AIRBRUSHING_STATUS.PREPARATION;
               const targetPaymentStatus =
                 airbrushingData.paymentStatus !== undefined
                   ? airbrushingData.paymentStatus
@@ -4979,8 +4981,13 @@ export class TaskService {
               // UPDATE existing airbrushing - preserves layouts (no deletion)
               this.logger.log(`[Task Update] Updating existing airbrushing ${airbrushingData.id}`);
 
+              // statusOrder must be re-stamped with the status: it drives the airbrushing
+              // list's default sort, and these raw tx.airbrushing writes bypass the
+              // repository that normally derives it.
+              const airbrushingStatus = airbrushingData.status || AIRBRUSHING_STATUS.PREPARATION;
               const updatePayload: any = {
-                status: airbrushingData.status || 'PENDING',
+                status: airbrushingStatus,
+                statusOrder: getAirbrushingStatusOrder(airbrushingStatus),
                 price:
                   airbrushingData.price !== undefined && airbrushingData.price !== null
                     ? Number(airbrushingData.price)
@@ -5090,10 +5097,14 @@ export class TaskService {
                 );
               }
 
+              const newAirbrushingStatus =
+                airbrushingData.status || AIRBRUSHING_STATUS.PREPARATION;
               const newAirbrushing = await tx.airbrushing.create({
                 data: {
                   taskId: id,
-                  status: airbrushingData.status || 'PENDING',
+                  status: newAirbrushingStatus,
+                  // See the update branch: statusOrder is not defaulted per-status by Prisma.
+                  statusOrder: getAirbrushingStatusOrder(newAirbrushingStatus),
                   price:
                     airbrushingData.price !== undefined && airbrushingData.price !== null
                       ? Number(airbrushingData.price)
@@ -12979,8 +12990,10 @@ export class TaskService {
                         // Assigned painter carries over with the airbrushing definition.
                         painterId: airbrushing.painterId ?? null,
                         // Fresh work item: status resets and start/finish clear — those are
-                        // runtime progress, not template data to copy.
-                        status: AIRBRUSHING_STATUS.PENDING,
+                        // runtime progress, not template data to copy. A copy must be
+                        // released to the floor again, so it starts in Em Preparação.
+                        status: AIRBRUSHING_STATUS.PREPARATION,
+                        statusOrder: getAirbrushingStatusOrder(AIRBRUSHING_STATUS.PREPARATION),
                         startDate: null,
                         finishDate: null,
                         // Shared files (M2M) can be connected; layouts are cloned.

@@ -196,8 +196,11 @@ export enum SERVICE_ORDER_TYPE {
   LOGISTIC = 'LOGISTIC',
 }
 
+// Mirrors TASK_STATUS: prepared → released to the floor ("Disponibilizar para
+// Produção", admin/commercial only) → painted → concluded.
 export enum AIRBRUSHING_STATUS {
-  PENDING = 'PENDING',
+  PREPARATION = 'PREPARATION',
+  WAITING_PRODUCTION = 'WAITING_PRODUCTION',
   IN_PRODUCTION = 'IN_PRODUCTION',
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
