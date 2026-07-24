@@ -29,6 +29,7 @@ import { ItemModule } from './modules/inventory/item/item.module';
 import { MailerModule } from './modules/common/mailer/mailer.module';
 import { MaintenanceModule } from './modules/inventory/maintenance/maintenance.module';
 import { NotificationModule } from './modules/common/notification/notification.module';
+import { AttentionModule } from './modules/common/attention/attention.module';
 import { OrderModule } from './modules/inventory/order/order.module';
 import { PaintModule } from './modules/paint/paint.module';
 import { PositionModule } from './modules/people/position/position.module';
@@ -119,6 +120,7 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     MailerModule,
     MaintenanceModule,
     NotificationModule,
+    AttentionModule,
     ObservationModule,
     OrderModule,
     PaintModule,
