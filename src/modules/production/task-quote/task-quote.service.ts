@@ -61,7 +61,7 @@ import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 import {
   syncTaskLayoutsFromQuote,
-  reproveDroppedTaskLayoutsFromQuote,
+  reproveNonSelectedTaskLayoutsFromQuote,
 } from '../../../utils/sync-quote-task-layouts';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
 import { reconcileQuoteCustomerConfigs } from '../../../utils/task-quote-customer-config-sync';
@@ -360,9 +360,12 @@ export class TaskQuoteService {
         });
 
         // Any layout file added straight onto the quote must also exist as an
-        // APPROVED task layout (now that the task↔quote link is set).
+        // APPROVED task layout (now that the task↔quote link is set). The Step-2
+        // selection is authoritative: promote the selected images (re-approving a
+        // re-selected REPROVED one), then reprove every non-selected task layout.
         if (data.layoutFileIds !== undefined) {
-          await syncTaskLayoutsFromQuote(tx, newQuote.id, userId);
+          await syncTaskLayoutsFromQuote(tx, newQuote.id, userId, true);
+          await reproveNonSelectedTaskLayoutsFromQuote(tx, newQuote.id, userId);
         }
 
         // Log change
@@ -957,17 +960,15 @@ export class TaskQuoteService {
         // Orçamento", billing editor, clones, …) must also exist as an APPROVED
         // task layout. The quote is already linked to its task here.
         if (data.layoutFileIds !== undefined) {
-          await syncTaskLayoutsFromQuote(tx, id, userId);
-          // …and the mirror image: a reference UNSELECTED here (dropped from
-          // layoutFiles) reproves its task layout — unless another quote still
-          // references that image. previousLayoutFiles was snapshotted before
-          // the `set:` replacement above disconnected the dropped clones.
-          await reproveDroppedTaskLayoutsFromQuote(
-            tx,
-            id,
-            ((existing as any).layoutFiles || []) as any[],
-            userId,
-          );
+          // Promote the selected images to APPROVED task layouts (re-approving a
+          // re-selected REPROVED one — selection is authoritative), then…
+          await syncTaskLayoutsFromQuote(tx, id, userId, true);
+          // …reprove EVERY non-selected APPROVED task layout of this task. The
+          // approved-layout selection (Step 2 / "Layout do Orçamento") is
+          // authoritative: whatever is picked stays APPROVED, all others are
+          // REPROVED — unless a sibling quote still references the image. No-op
+          // when the selection is empty (never mass-reprove).
+          await reproveNonSelectedTaskLayoutsFromQuote(tx, id, userId);
         }
 
         // Handle customerConfigs changes
@@ -1902,6 +1903,21 @@ export class TaskQuoteService {
    * approve billing directly, regardless of whether the task is finished yet.
    */
   async budgetApprove(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
+    // Required-layout gate: a budget can only be approved once an approved layout
+    // (TaskQuote.layoutFiles) has been selected in Step 2. This gates ONLY the
+    // manual commercial approval; the automated Em Negociação auto-approval path
+    // writes the status directly (service-order.service) and is intentionally not
+    // subject to this gate.
+    const quoteForGate = await this.prisma.taskQuote.findUnique({
+      where: { id },
+      select: { layoutFiles: { select: { id: true } } },
+    });
+    if (!quoteForGate || (quoteForGate.layoutFiles || []).length === 0) {
+      throw new BadRequestException(
+        'Selecione um layout aprovado antes de aprovar o orçamento.',
+      );
+    }
+
     const result = await this.updateStatus(id, TASK_QUOTE_STATUS.BUDGET_APPROVED, userId);
 
     // Budget approved -> notify financial that billing can now be approved.
