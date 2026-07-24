@@ -213,7 +213,8 @@ export class TaskQuoteController {
   /**
    * PUT /task-quotes/:id/internal-approve
    * Financial/admin final approval → triggers invoices + NFS-e (BUDGET_APPROVED → BILLING_APPROVED).
-   * Requires the linked task to be COMPLETED.
+   * Does NOT require the linked task to be finished — installment due dates anchor on the
+   * approval moment, so billing can be approved at any gate once the budget is approved.
    *
    * Access: FINANCIAL, ADMIN
    */

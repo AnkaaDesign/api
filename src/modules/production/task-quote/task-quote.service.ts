@@ -1538,12 +1538,13 @@ export class TaskQuoteService {
         select: { id: true, finishedAt: true },
       });
 
-      // Can only auto-generate a financial record from a FINISHED task. Without one
-      // there is nothing legitimate to settle.
-      if (!task?.id || !task.finishedAt) {
+      // A linked task is required to generate the financial record. finishedAt is no
+      // longer required — installment due dates anchor on now(), so a direct settle can
+      // generate invoices before the task is finished.
+      if (!task?.id) {
         throw new BadRequestException(
-          'Não é possível liquidar este orçamento: a tarefa ainda não foi concluída e ' +
-            'não há parcelas a quitar. Conclua a tarefa (ou aprove o faturamento) antes de liquidar.',
+          'Não é possível liquidar este orçamento: nenhuma tarefa vinculada e ' +
+            'não há parcelas a quitar.',
         );
       }
 
@@ -1897,13 +1898,13 @@ export class TaskQuoteService {
    *
    * This is the single commercial approval gate. Once the budget is approved
    * (blue "Orçamento Aprovado" badge) the commercial sector is done — there is
-   * no separate second commercial double-check. As soon as the linked task is
-   * COMPLETED, financial can approve billing directly from this state.
+   * no separate second commercial double-check. From this state financial can
+   * approve billing directly, regardless of whether the task is finished yet.
    */
   async budgetApprove(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
     const result = await this.updateStatus(id, TASK_QUOTE_STATUS.BUDGET_APPROVED, userId);
 
-    // Budget approved -> notify financial that, once the task is completed, billing can be approved.
+    // Budget approved -> notify financial that billing can now be approved.
     try {
       const { label: quoteLabel, taskId } = await this.buildQuoteLabel(id);
       await this.dispatchService.dispatchByConfiguration('task_quote.budget_approved', userId, {
@@ -1913,7 +1914,7 @@ export class TaskQuoteService {
         data: { quoteLabel },
         overrides: {
           title: 'Orçamento Aprovado',
-          body: `O orçamento ${quoteLabel} foi aprovado. Assim que a tarefa for concluída, o faturamento poderá ser aprovado.`,
+          body: `O orçamento ${quoteLabel} foi aprovado e já está pronto para aprovação de faturamento.`,
           relatedEntityType: 'TASK_QUOTE',
           ...(taskId
             ? {
@@ -2004,7 +2005,7 @@ export class TaskQuoteService {
     // 2. Atomically claim the status transition (prevents concurrent approvals)
     // Only one request can win: the one that finds status=BUDGET_APPROVED and sets it to BILLING_APPROVED.
     // (The separate COMMERCIAL_APPROVED double-check step was removed — billing is approved directly
-    //  from the budget-approved state once the task is completed.)
+    //  from the budget-approved state, regardless of whether the task is finished.)
     const claimed = await this.prisma.taskQuote.updateMany({
       where: { id, status: TASK_QUOTE_STATUS.BUDGET_APPROVED },
       data: {
@@ -2960,8 +2961,8 @@ export class TaskQuoteService {
     // /revert-billing first (which gates on bank-slip + NFS-e cleanup).
     //
     // The separate COMMERCIAL_APPROVED double-check step was removed: the budget
-    // is approved once (blue "Orçamento Aprovado"), and once the task is COMPLETED
-    // billing is approved directly from BUDGET_APPROVED → BILLING_APPROVED.
+    // is approved once (blue "Orçamento Aprovado"), then billing is approved directly
+    // from BUDGET_APPROVED → BILLING_APPROVED (no task-completion requirement).
     // BUDGET_APPROVED → SETTLED covers "direct" quotes (orçamento direto) paid
     // upfront with no billing/installment phase — the FINANCIAL sector settles
     // them without generating invoices/boletos. settleManually has no installments
@@ -3064,17 +3065,10 @@ export class TaskQuoteService {
           );
         }
 
-        // Check that the task is finished (finishedAt is set) — needed for installment due date calculation
-        const taskForValidation = await this.prisma.task.findFirst({
-          where: { quoteId },
-          select: { finishedAt: true },
-        });
-
-        if (!taskForValidation?.finishedAt) {
-          throw new BadRequestException(
-            'A tarefa precisa estar finalizada para aprovar o faturamento. A data de finalização é usada para calcular os vencimentos das parcelas.',
-          );
-        }
+        // Billing approval no longer requires the task to be finished. Installment
+        // due dates are anchored on the billing-approval moment (approvalDate passed
+        // to internalApprove/generateInvoicesForTask), NOT on task.finishedAt, so
+        // invoices/boletos can be generated at any gate once the budget is approved.
 
         // Validate services: none may have negative amounts
         const services = await this.prisma.taskQuoteService.findMany({
