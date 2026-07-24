@@ -42,8 +42,10 @@ export class AttentionGateway implements OnGatewayInit, OnGatewayConnection, OnG
 
   private readonly logger = new Logger(AttentionGateway.name);
 
-  /** entityKey (`TYPE:id`) → socketId → editor info. */
-  private presence: Map<string, Map<string, { userId: string; userName: string }>> = new Map();
+  /** entityKey (`TYPE:id`) → socketId → editor info. `clientId` is a STABLE per-tab id
+   * the client generates once (survives socket reconnects, unlike socket.id) so the
+   * client can reliably recognise and exclude its OWN announcements. */
+  private presence: Map<string, Map<string, { userId: string; userName: string; clientId: string }>> = new Map();
   /** socketId → set of entityKeys it is present on (fast disconnect cleanup). */
   private socketPresence: Map<string, Set<string>> = new Map();
 
@@ -110,20 +112,19 @@ export class AttentionGateway implements OnGatewayInit, OnGatewayConnection, OnG
 
   @SubscribeMessage('presence:enter')
   async handlePresenceEnter(
-    @MessageBody() data: { entityType: string; entityId: string },
+    @MessageBody() data: { entityType: string; entityId: string; clientId?: string },
     @ConnectedSocket() client: Socket,
   ) {
     const userId = client.data.userId as string | undefined;
     if (!userId || !data?.entityType || !data?.entityId) return { success: false };
     const key = `${data.entityType}:${data.entityId}`;
 
-    await client.join(`presence:${key}`);
     let editors = this.presence.get(key);
     if (!editors) {
       editors = new Map();
       this.presence.set(key, editors);
     }
-    editors.set(client.id, { userId, userName: (client.data.userName as string) ?? 'Alguém' });
+    editors.set(client.id, { userId, userName: (client.data.userName as string) ?? 'Alguém', clientId: data.clientId ?? client.id });
 
     let keys = this.socketPresence.get(client.id);
     if (!keys) {
@@ -150,7 +151,6 @@ export class AttentionGateway implements OnGatewayInit, OnGatewayConnection, OnG
       this.emitPresence(key);
     }
     this.socketPresence.get(client.id)?.delete(key);
-    await client.leave(`presence:${key}`);
     return { success: true };
   }
 
@@ -174,17 +174,22 @@ export class AttentionGateway implements OnGatewayInit, OnGatewayConnection, OnG
     return { success: true };
   }
 
-  /** Broadcast the current editor list for an entity to everyone viewing it. */
+  /**
+   * Broadcast the current editor list for an entity to EVERY connected client — not
+   * just those in a per-entity room. Viewers (the detail page, table rows) never
+   * "enter" as editors, so a room-scoped emit would never reach them and the badge
+   * would never show. Presence changes are rare (a form opening/closing), so a global
+   * emit is cheap; each client stores it keyed by entity and renders only what it shows.
+   * Each entry carries the editor's stable `clientId` so a client can exclude its own
+   * announcement reliably (socket.id is unstable across reconnects).
+   */
   private emitPresence(key: string) {
     const editors = this.presence.get(key);
     const [entityType, entityId] = key.split(':');
-    // De-dupe by userId (a user may edit from several tabs).
-    const byUser = new Map<string, string>();
-    editors?.forEach((e) => byUser.set(e.userId, e.userName));
-    this.server.to(`presence:${key}`).emit('presence:update', {
+    this.server.emit('presence:update', {
       entityType,
       entityId,
-      editors: [...byUser.entries()].map(([userId, userName]) => ({ userId, userName })),
+      editors: [...(editors?.values() ?? [])].map((e) => ({ clientId: e.clientId, userId: e.userId, userName: e.userName })),
     });
   }
 
