@@ -17,9 +17,9 @@ export class AttentionController {
   ) {}
 
   @Post('warnings')
-  sendWarning(@UserId() userId: string, @Body() body: SendWarningInput) {
+  async sendWarning(@UserId() userId: string, @Body() body: SendWarningInput) {
     // The client supplies fromUserName (display only) inside the body when available.
-    const result = this.attentionService.sendWarning(userId, body.fromUserName, body);
+    const result = await this.attentionService.sendWarning(userId, body.fromUserName, body);
     return { success: true, ...result };
   }
 
@@ -27,6 +27,16 @@ export class AttentionController {
   @Get('ack')
   listAcks(@UserId() userId: string) {
     return this.ackService.list(userId);
+  }
+
+  /**
+   * Global attention counts for the caller's sector — independent of what the
+   * client currently has loaded/registered. Drives the nav-menu blink from pages
+   * (e.g. the dashboard) that never load the underlying entities themselves.
+   */
+  @Get('summary')
+  getSummary(@UserId() userId: string) {
+    return this.attentionService.getSummary(userId);
   }
 
   /** Upsert one ack (snooze / acknowledged / lastFired) for the caller. */
