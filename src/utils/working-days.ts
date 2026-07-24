@@ -8,11 +8,12 @@ import {
   SATURDAY_SHIFT_DETECTION_THRESHOLD,
   isInVacationPeriod,
   getVacationDaysInMonth,
+  isVacationDistortedMonth,
 } from '@/constants/working-days-config';
 import { differenceInCalendarDays } from 'date-fns';
 
-/** Re-export the vacation predicate so callers don't need two import sources. */
-export { isInVacationPeriod, getVacationDaysInMonth };
+/** Re-export the vacation predicates so callers don't need two import sources. */
+export { isInVacationPeriod, getVacationDaysInMonth, isVacationDistortedMonth };
 
 interface ActivityLike {
   operation: string;

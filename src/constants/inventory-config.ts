@@ -121,7 +121,11 @@ export const ABC_XYZ_MATRIX: Record<AbcXyzKey, SafetyTargetCell> = {
   CX: { safetyFactor: 0.1,  targetStockDays: 60 },
   CY: { safetyFactor: 0.15, targetStockDays: 90 },
   CZ: { safetyFactor: 0.25, targetStockDays: 120 },
-  UNCLASSIFIED: { safetyFactor: 0.2, targetStockDays: 180 },
+  // Unclassified = UNKNOWN demand pattern, not "slowest-moving". A 180-day
+  // fallback treated every unclassified item as a 6-month hold and produced
+  // grossly inflated order recommendations. 45 days (~6 weeks) is a neutral
+  // default; the order-frequency floor still lifts genuinely slow items.
+  UNCLASSIFIED: { safetyFactor: 0.2, targetStockDays: 45 },
 };
 
 /** LOW-DATA variant of the matrix — used by safety-stock Layer 2 (items with
@@ -140,7 +144,9 @@ export const ABC_XYZ_MATRIX_LOWDATA: Record<AbcXyzKey, SafetyTargetCell> = {
   CX: { safetyFactor: 0.18, targetStockDays: 60 },
   CY: { safetyFactor: 0.25, targetStockDays: 90 },
   CZ: { safetyFactor: 0.38, targetStockDays: 120 },
-  UNCLASSIFIED: { safetyFactor: 0.30, targetStockDays: 180 },
+  // See ABC_XYZ_MATRIX.UNCLASSIFIED — 180→45 fixes the inflated-recommendation
+  // footgun. Safety factor (0.30) is unchanged; only the coverage horizon drops.
+  UNCLASSIFIED: { safetyFactor: 0.30, targetStockDays: 45 },
 };
 
 /** Layer-3 (UNCLASSIFIED) fallback when the item has no ABC or XYZ at all. */
@@ -195,6 +201,12 @@ export const STATISTICAL_LAYER_MIN_MONTHS = 6;
  *  (item-recompute, inventory-cron, auto-order) inherit it. Set to 1.0 to
  *  remove the uplift entirely once data quality is verified clean. */
 export const CONSERVATIVE_RP_UPLIFT = 1.10;
+
+/** Minimum gap (in days of average daily demand) that maxQuantity must keep
+ *  above reorderPoint. Guarantees a non-degenerate reorder band so an item
+ *  whose coverage target falls at/below its reorderPoint (e.g. long-lead items)
+ *  never collapses to maxQuantity == reorderPoint (which causes order storms). */
+export const MIN_REORDER_BAND_DAYS = 7;
 
 /** Order-frequency bucket → minimum targetStockDays. Combined with the
  *  ABC/XYZ matrix by taking the HIGHER of the two days values. A bucket of
@@ -277,7 +289,11 @@ export const INVENTORY_COUNT_SHARE_CAP = 0;
  *  A CV computed from 2–5 points is statistically meaningless and flips the
  *  class nightly; below the minimum the item stays unclassified (null →
  *  UNCLASSIFIED matrix row, the existing fallback). */
-export const XYZ_MIN_MONTHS = 6;
+// 5 (was 6): after excluding vacation-distorted months from the CV series, a
+// full non-vacation half-year (e.g. Feb–Jun) should still classify rather than
+// fall back to UNCLASSIFIED. The winsorized + vacation-excluded series keeps a
+// 5-point CV stable enough. Statistical safety still needs 6 (STATISTICAL_LAYER_MIN_MONTHS).
+export const XYZ_MIN_MONTHS = 5;
 
 /** Reorder-point floor = this factor × the max observed single-week demand
  *  in the lookback window (CONSUMPTION-model items only). Guarantees rp

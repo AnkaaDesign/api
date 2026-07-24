@@ -88,3 +88,15 @@ export function getVacationDaysInMonth(month: number, year: number): number {
   return 0;
 }
 
+/** Calendar days of shutdown at/above which a month's `(total/workingDays)×20`
+ *  normalization materially inflates it (the short working-day denominator).
+ *  Such months are unrepresentative of steady demand and are excluded from the
+ *  σ / coefficient-of-variation history that drives safety stock + XYZ. */
+export const VACATION_MONTH_EXCLUDE_MIN_DAYS = 5;
+
+/** True when `month` (0-indexed) of `year` loses enough weekdays to the annual
+ *  shutdown that its normalized consumption should NOT feed σ/CV. */
+export function isVacationDistortedMonth(year: number, month: number): boolean {
+  return getVacationDaysInMonth(month, year) >= VACATION_MONTH_EXCLUDE_MIN_DAYS;
+}
+

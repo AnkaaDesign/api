@@ -28,6 +28,7 @@ import {
   ABC_XYZ_MATRIX,
   AbcXyzKey,
   CONSERVATIVE_RP_UPLIFT,
+  MIN_REORDER_BAND_DAYS,
   CONSUMPTION_LOOKBACK_MONTHS,
   LEAD_TIME_LEGACY_BULK_RECEIVED_AT,
   CONSUMPTION_MIN_DISTINCT_MONTHS,
@@ -375,7 +376,6 @@ export function calculateReorderPoint(input: ReorderPointInput): number {
   // Single line to flip when data quality is verified — set CONSERVATIVE_RP_UPLIFT = 1.0.
   const raw = (cycleStock + safety) * CONSERVATIVE_RP_UPLIFT;
   const rp = Math.ceil(raw);
-  if (rp > 0 && rp < 1) return 1;
   // Peak-week floor: rp must cover the max single-week demand actually
   // observed in the lookback (× tunable factor; 0 disables the floor).
   const peakFloor =
@@ -409,7 +409,12 @@ export function calculatePeakWeekDemand(
     const idx = Math.floor((now.getTime() - ev.createdAt.getTime()) / WEEK_MS);
     byWeek.set(idx, (byWeek.get(idx) ?? 0) + ev.quantity);
   }
-  return Math.max(...byWeek.values());
+  // Winsorize the weekly buckets (cap at 3× median of active weeks) before
+  // taking the peak, so a single outlier week can't drive the reorderPoint
+  // floor. Without this the floor bypasses the same contamination controls the
+  // mean enforces and can nearly double rp for lumpy items.
+  const capped = winsorizeConsumptionSeries([...byWeek.values()]);
+  return capped.length > 0 ? Math.max(...capped) : 0;
 }
 
 export interface MaxQuantityInput {
@@ -420,6 +425,16 @@ export interface MaxQuantityInput {
   targetStockDays: number;
   seasonalCtx?: SeasonalContext;
   now?: Date;
+  /**
+   * Per-item ABSOLUTE coverage override (days of consumption the total on-hand
+   * target should represent). When set (> 0), `maxQuantity` becomes
+   * `max(reorderPoint, avgDaily × overrideCoverageDays × seasonal)` — i.e. a
+   * total "N days of usage" target, NOT the matrix's reorderPoint + horizon.
+   * This is the knob for "hold ~2 months of this item" (60 → ~2× monthly usage).
+   * Floored at reorderPoint so the order-up-to level is never below the reorder
+   * trigger. Null/unset → normal matrix behaviour.
+   */
+  overrideCoverageDays?: number | null;
 }
 
 export function calculateMaxQuantity(input: MaxQuantityInput): number {
@@ -432,6 +447,25 @@ export function calculateMaxQuantity(input: MaxQuantityInput): number {
   const projectionStart = new Date(now);
   projectionStart.setDate(projectionStart.getDate() + input.leadTimeDays);
 
+  // Minimum reorder band: maxQuantity (order-up-to) must sit at least this far
+  // above reorderPoint, else the two collapse (maxQuantity == reorderPoint) and
+  // every consumption tick below rp triggers a ~1-box top-up → order storms.
+  // Reachable when a coverage target ≤ reorderPoint (e.g. long-lead items whose
+  // rp already covers more days than the target). At least ~1 week of demand.
+  const minBand = Math.max(1, Math.ceil(avgDaily * MIN_REORDER_BAND_DAYS));
+
+  // Absolute per-item coverage override: total target = N days of usage,
+  // floored at reorderPoint + minBand. Overrides the matrix reorderPoint + horizon model.
+  if (input.overrideCoverageDays != null && input.overrideCoverageDays > 0) {
+    const seasonalOverride = blendedFactorAcrossDays(
+      projectionStart,
+      input.overrideCoverageDays,
+      input.seasonalCtx,
+    );
+    const target = Math.ceil(avgDaily * input.overrideCoverageDays * seasonalOverride);
+    return Math.max(target, input.reorderPoint + minBand);
+  }
+
   const seasonalAtTarget = blendedFactorAcrossDays(
     projectionStart,
     input.targetStockDays,
@@ -439,7 +473,7 @@ export function calculateMaxQuantity(input: MaxQuantityInput): number {
   );
 
   const stockHorizon = Math.ceil(avgDaily * input.targetStockDays * seasonalAtTarget);
-  return input.reorderPoint + stockHorizon;
+  return input.reorderPoint + Math.max(stockHorizon, minBand);
 }
 
 // ============================================================================
@@ -579,6 +613,24 @@ function median(values: ReadonlyArray<number>): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+/**
+ * Winsorize a monthly consumption series: cap each value at
+ * `WINSORIZE_FACTOR × median(non-zero values)`, leaving zeros intact. Mirrors
+ * the winsorization already applied to `monthlyConsumption`, so the σ (safety
+ * stock) and coefficient-of-variation (XYZ classification) computed from the
+ * trailing history are not dominated by a single contaminated month — e.g. a
+ * vacation-normalized (×20/11) or migration-loaded creation month. Passes the
+ * series through unchanged below `WINSORIZE_MIN_NONZERO_MONTHS` non-zero points
+ * (not enough signal for a stable median).
+ */
+export function winsorizeConsumptionSeries(values: ReadonlyArray<number>): number[] {
+  const nonZero = values.filter(v => v > 0);
+  if (nonZero.length < WINSORIZE_MIN_NONZERO_MONTHS) return [...values];
+  const cap = WINSORIZE_FACTOR * median(nonZero);
+  if (!(cap > 0)) return [...values];
+  return values.map(v => (v > cap ? cap : v));
 }
 
 /** Caps the INVENTORY_COUNT contribution to the demand series at

@@ -40,11 +40,13 @@ import {
   isLegacyBulkReceipt,
   leadTimeClockStart,
   resolveSafetyTargetCell,
+  winsorizeConsumptionSeries,
   type ItemLike,
   type SeasonalContext,
 } from '@/utils/stock-health';
 import { calculateSafetyStock } from '@/utils/safety-stock';
 import { type SeasonalCurve } from '@/utils/seasonality';
+import { isVacationDistortedMonth } from '@/utils/working-days';
 
 export interface ItemRecomputeResult {
   mc: number;
@@ -337,6 +339,9 @@ export class ItemRecomputeService {
       leadTimeDays: leadTime,
       reorderPoint,
       targetStockDays: cell.targetStockDays,
+      // Per-item absolute coverage override (e.g. "hold ~2 months") wins over the
+      // matrix, even during the transient UNCLASSIFIED window.
+      overrideCoverageDays: item.targetCoverageDays ?? null,
       seasonalCtx,
       now,
     });
@@ -448,9 +453,14 @@ export class ItemRecomputeService {
     // Trailing 12 months, oldest-first, only non-vacation already since
     // backfill skips full-vacation months.
     const cutoff = new Date(now.getFullYear(), now.getMonth() - 12, 1);
-    return history
-      .filter(r => new Date(r.year, r.month, 1) >= cutoff)
+    const series = history
+      .filter(
+        r => new Date(r.year, r.month, 1) >= cutoff && !isVacationDistortedMonth(r.year, r.month),
+      )
       .sort((a, b) => (a.year - b.year) * 12 + (a.month - b.month))
       .map(r => r.normalizedConsumption);
+    // Exclude vacation-distorted months (above) + winsorize so a contaminated
+    // month doesn't blow up σ.
+    return winsorizeConsumptionSeries(series);
   }
 }

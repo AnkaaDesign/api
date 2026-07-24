@@ -1139,7 +1139,16 @@ export class OrderScheduleService {
       // bad-data σ can't balloon stock (worst case ≈ 2× the cycle) while volatile
       // items still get a generous buffer.
       const safetyStock = Math.min(ssRaw, demandOverProtection);
-      const orderUpTo = demandOverProtection + safetyStock;
+      // Periodic-review order-up-to level over the protection interval. Used
+      // only as a SAFETY FLOOR so long-interval schedules (e.g. quarterly)
+      // never understock relative to what the review cadence requires.
+      const periodicReviewFloor = demandOverProtection + safetyStock;
+      // Single source of truth = the item's stored maxQuantity, the SAME target
+      // the low-stock recommendation (reorderQuantity) fills to. Both engines
+      // now converge on it; the floor only raises the target for long cycles.
+      // Null/0 maxQuantity (brand-new items) degrades gracefully to the floor.
+      const storedMax = Number(item.maxQuantity ?? 0);
+      const orderUpTo = Math.max(storedMax, periodicReviewFloor);
 
       if (effectiveStock + incoming >= orderUpTo) {
         pushPassive('Estoque projetado já cobre a cobertura + segurança', false);
@@ -1148,10 +1157,10 @@ export class OrderScheduleService {
 
       const matchingRule =
         item.orderRules.find(r => r.supplierId === item.supplierId) ?? item.orderRules[0] ?? null;
-      // Order up to the computed order-up-to level (demand over the protection
-      // interval + statistical safety stock), box/orderRule-rounded. This level
-      // — not the stored maxQuantity (which used a weaker safety model) — is the
-      // variability-aware ceiling for the scheduled path.
+      // Order up to `orderUpTo` = max(stored maxQuantity, periodic-review floor),
+      // box/orderRule-rounded. The stored maxQuantity is the shared target with
+      // the low-stock recommendation; the floor only kicks in for long review
+      // cycles where the cadence demands more than the stored ceiling.
       const proposedQty = calculateReorderQuantity({
         currentStock: effectiveStock,
         maxQuantity: orderUpTo,

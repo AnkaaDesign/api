@@ -792,6 +792,12 @@ model Item {
   stockModel                     StockModel              @default(CONSUMPTION)
   // Target on-hand quantity when stockModel = FIXED_TARGET (engine falls back to 1).
   fixedTargetQuantity            Float?
+  // Explicit per-item coverage horizon (days) that OVERRIDES the ABC/XYZ matrix
+  // targetStockDays when computing maxQuantity. Null = use the matrix. Only
+  // meaningful for stockModel = CONSUMPTION (ignored for FIXED_TARGET). Both the
+  // low-stock recommendation and the order schedule fill up to the resulting
+  // maxQuantity, so this is the single knob for "how much of this item to hold".
+  targetCoverageDays             Int?
   ppeType                        PpeType?
   ppeCA                          String?
   // Validade do Certificado de Aprovação (CA) do EPI. Entrega de EPI com CA vencido
