@@ -46,7 +46,7 @@ model Airbrushing {
   paymentStatus         AirbrushingPaymentStatus @default(PENDING)
   /// Stamped when paymentStatus becomes PAID — windows "paid this month" on Contas a Pagar.
   paidAt                DateTime?
-  status                AirbrushingStatus        @default(PENDING)
+  status                AirbrushingStatus        @default(PREPARATION)
   statusOrder           Int                      @default(1)
   taskId                String
   painterId             String?
@@ -3256,8 +3256,11 @@ enum ServiceOrderStatus {
   CANCELLED
 }
 
+/// Mirrors TaskStatus: an airbrushing is prepared, then released to the floor
+/// ("Disponibilizar para Produção" — admin/commercial only), then painted.
 enum AirbrushingStatus {
-  PENDING
+  PREPARATION
+  WAITING_PRODUCTION
   IN_PRODUCTION
   COMPLETED
   CANCELLED
