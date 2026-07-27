@@ -1,7 +1,7 @@
 {
-  "buildTime": "2026-07-27T02:06:29.964Z",
+  "buildTime": "2026-07-27T10:07:35.697Z",
   "version": "0.0.1",
-  "commit": "d3ee473c68efb125224459c6cb88a79ba6d91088",
-  "branch": "main",
+  "commit": "f223998e35d93709ca2285dc491f1ffa9fbe8e1d",
+  "branch": "feat/assinatura-orcamento-dossie",
   "node": "v26.4.0"
 }

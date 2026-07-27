@@ -1726,6 +1726,55 @@ export class SignatureEnvelopeService {
     return this.renderServedDocument(env.id);
   }
 
+  /**
+   * Orçamento renderizado a partir dos dados ATUAIS, SEM envelope.
+   *
+   * Existe para o histórico: tarefa cujo orçamento nunca passou pela assinatura
+   * eletrônica não tem artefato assinado, e recusar o dossiê nesse caso deixaria
+   * sem documento justamente as tarefas antigas — que são a maioria hoje.
+   *
+   * O que sai daqui é o orçamento com as LINHAS DE ASSINATURA EM BRANCO, como um
+   * orçamento impresso: nenhum selo é estampado (não há assinatura), não há
+   * código de verificação e nada é congelado. Quem consome precisa dizer ao
+   * leitor que este documento não está assinado — ver o rótulo do componente no
+   * `DossierAssemblerService`.
+   */
+  async renderUnsignedQuoteDocument(quoteId: string): Promise<Buffer> {
+    const { quote } = await this.snapshots.buildForQuote(quoteId);
+
+    const responsibles = quote.task?.responsibles ?? [];
+    const seeds: Array<{
+      id: string;
+      name: string;
+      subtitle: string;
+      side: 'ANKAA' | 'CUSTOMER';
+    }> = responsibles.map(r => ({
+      id: `unsigned-${r.id}`,
+      name: r.name,
+      subtitle: quote.task?.customer?.corporateName ?? quote.task?.customer?.fantasyName ?? '',
+      side: 'CUSTOMER' as const,
+    }));
+
+    // Best-effort: orçamento antigo pode não ter representante comercial nem
+    // diretor cadastrado, e isso não pode impedir a renderização.
+    try {
+      const ankaa = await this.resolveAnkaaSigner(quote);
+      seeds.push({
+        id: 'unsigned-ankaa',
+        name: ankaa.name,
+        subtitle: `${COMPANY.directorTitle} — ${COMPANY.name}`,
+        side: 'ANKAA',
+      });
+    } catch {
+      /* segue sem a linha da Ankaa */
+    }
+
+    // Código vazio: sem envelope não há o que verificar, e imprimir um código
+    // inexistente no rodapé convidaria o cliente a consultar algo que não existe.
+    const rendered = await this.renderQuoteDocument(quote, seeds, '');
+    return rendered.pdf;
+  }
+
   /** Envelopes de um orçamento, do mais recente para o mais antigo. */
   async listForQuote(quoteId: string) {
     const envelopes = await this.prisma.signatureEnvelope.findMany({

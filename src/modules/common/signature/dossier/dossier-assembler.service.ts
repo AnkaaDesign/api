@@ -35,6 +35,13 @@
  * 5. **Ordem: orçamento, dossiê fotográfico, notas, boletos.** É a ordem da
  *    conversa com o cliente — o que foi combinado, o que foi feito, o que se
  *    cobra e como pagar.
+ *
+ * 6. **Sem envelope concluído, o dossiê existe assim mesmo.** O orçamento é
+ *    renderizado sob demanda, com as linhas de assinatura em branco, e o
+ *    componente é rotulado "SEM assinatura eletrônica". Recusar nesse caso
+ *    deixaria sem documento justamente as tarefas antigas — que nunca passaram
+ *    pela assinatura e são a maioria hoje. Nesse modo não há anexo: não existe
+ *    artefato assinado para preservar.
  */
 
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
@@ -47,6 +54,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { COMPANY, BRAND_COLORS } from '@/config/company';
 import { winAnsi } from '../document/quote-assembler.service';
+import { SignatureEnvelopeService } from '../services/signature-envelope.service';
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 
@@ -69,7 +77,8 @@ export interface DossierResult {
   components: DossierComponent[];
   /** Nome do anexo que carrega o orçamento assinado; null quando omitido. */
   attachmentName: string | null;
-  verificationCode: string;
+  /** Null quando o orçamento ainda não foi assinado. */
+  verificationCode: string | null;
   budgetNumber: number;
 }
 
@@ -80,6 +89,7 @@ export class DossierAssemblerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly envelopes: SignatureEnvelopeService,
     private readonly elotech: ElotechOxyNfseService,
     private readonly sicredi: SicrediService,
   ) {}
@@ -134,21 +144,22 @@ export class DossierAssemblerService {
         originalFile: { select: { path: true } },
       },
     });
-    if (!envelope?.finalFile) {
-      throw new BadRequestException(
-        'Este orçamento ainda não tem documento assinado. O dossiê só existe depois de concluída a coleta de assinaturas.',
-      );
-    }
-
-    const signedPdf = this.readSignedDocument(envelope.finalFile.path, envelope.finalSha256);
+    // SEM envelope concluído o dossiê continua existindo, com o orçamento
+    // renderizado sob demanda e as linhas de assinatura em branco. Recusar aqui
+    // deixaria sem documento justamente as tarefas antigas, que nunca passaram
+    // pela assinatura eletrônica — e são a maioria. O rótulo do componente diz
+    // que não está assinado, e não há anexo a preservar.
+    const assinado = Boolean(envelope?.finalFile);
+    const signedPdf = assinado
+      ? this.readSignedDocument(envelope!.finalFile!.path, envelope!.finalSha256)
+      : await this.envelopes.renderUnsignedQuoteDocument(quoteId);
 
     // Régua para cortar a trilha, quando pedido: o montador acrescenta as páginas
     // de trilha ao fim do original, então `original.pdf` marca onde o orçamento
     // termina. Sem a régua (arquivo sumiu do disco), copiam-se todas — melhor um
     // dossiê com trilha do que um truncado no lugar errado.
-    const contentPageCount = dropAuditTrail
-      ? await this.countPages(envelope.originalFile?.path)
-      : undefined;
+    const contentPageCount =
+      assinado && dropAuditTrail ? await this.countPages(envelope!.originalFile?.path) : undefined;
 
     const components: DossierComponent[] = [];
     const bodies: Array<{ bytes: Buffer; component: DossierComponent; maxPages?: number }> = [];
@@ -156,8 +167,10 @@ export class DossierAssemblerService {
     // ---- 1. Orçamento assinado (cópia legível) ----
     const budgetComponent: DossierComponent = {
       kind: 'ORCAMENTO',
-      label: `Orçamento nº ${quote.budgetNumber} — assinado eletronicamente`,
-      sha256: envelope.finalSha256,
+      label: assinado
+        ? `Orçamento nº ${quote.budgetNumber} — assinado eletronicamente`
+        : `Orçamento nº ${quote.budgetNumber} — SEM assinatura eletrônica`,
+      sha256: assinado ? envelope!.finalSha256 : sha256(signedPdf),
       pages: 0,
       included: true,
     };
@@ -245,15 +258,15 @@ export class DossierAssemblerService {
     // ---- 6. O documento assinado, byte a byte ----
     // DEPOIS das páginas e ANTES do save: o anexo é um objeto do documento, e é
     // ele que preserva a assinatura A1 e a cadeia de auditoria intactas.
-    if (attachSigned) {
+    if (attachSigned && assinado) {
       await container.attach(new Uint8Array(signedPdf), attachmentName, {
         mimeType: 'application/pdf',
         description:
           `Orçamento nº ${quote.budgetNumber} assinado eletronicamente — ` +
-          `envelope ${envelope.verificationCode}. Este é o documento com validade ` +
+          `envelope ${envelope!.verificationCode}. Este é o documento com validade ` +
           `jurídica: extraia-o para validar a assinatura ICP-Brasil.`,
-        creationDate: envelope.sealedAt ?? undefined,
-        modificationDate: envelope.sealedAt ?? undefined,
+        creationDate: envelope!.sealedAt ?? undefined,
+        modificationDate: envelope!.sealedAt ?? undefined,
       });
     }
 
@@ -263,8 +276,8 @@ export class DossierAssemblerService {
       pdf,
       filename: `dossie-orcamento-${quote.budgetNumber}.pdf`,
       components,
-      attachmentName: attachSigned ? attachmentName : null,
-      verificationCode: envelope.verificationCode,
+      attachmentName: attachSigned && assinado ? attachmentName : null,
+      verificationCode: envelope?.verificationCode ?? null,
       budgetNumber: quote.budgetNumber,
     };
   }
