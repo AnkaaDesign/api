@@ -309,6 +309,11 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   brandId: 'marca',
   supplierId: 'fornecedor',
 
+  // Multi-role: a Responsible now holds a list of roles instead of a single one.
+  // 'role' kept for historical changelog entries created before the migration.
+  roles: 'funções',
+  role: 'função',
+
   // Supplier fields (fornecedor)
   fantasyName: 'nome fantasia',
   corporateName: 'razão social',

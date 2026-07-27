@@ -16,6 +16,9 @@ import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { FileModule } from '@modules/common/file/file.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
 import { NfseModule } from '@modules/integrations/nfse/nfse.module';
+// Exclusão de tarefa precisa purgar a trilha append-only do envelope de
+// assinatura antes do cascade — ver SignatureDeletionService.
+import { SignatureModule } from '@modules/common/signature/signature.module';
 
 @Module({
   imports: [
@@ -25,6 +28,7 @@ import { NfseModule } from '@modules/integrations/nfse/nfse.module';
     NotificationModule,
     NfseModule,
     forwardRef(() => TaskQuoteModule),
+    forwardRef(() => SignatureModule),
   ],
   controllers: [TaskController],
   providers: [

@@ -10,6 +10,8 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { SignatureEnvelopeService } from '@modules/common/signature/services/signature-envelope.service';
+import { SignatureDeletionService } from '@modules/common/signature/services/signature-deletion.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { TaskQuoteRepository } from './repositories/task-quote.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
@@ -106,6 +108,10 @@ export class TaskQuoteService {
     private readonly sicrediService: SicrediService,
     private readonly dispatchService: NotificationDispatchService,
     private readonly elotechNfseService: ElotechOxyNfseService,
+    @Inject(forwardRef(() => SignatureEnvelopeService))
+    private readonly signatureEnvelopes: SignatureEnvelopeService,
+    @Inject(forwardRef(() => SignatureDeletionService))
+    private readonly signatureDeletion: SignatureDeletionService,
   ) {}
 
   /**
@@ -185,7 +191,7 @@ export class TaskQuoteService {
       // Validate task exists; load responsibles so we can default the budget responsible
       const task = await this.prisma.task.findUnique({
         where: { id: data.taskId },
-        include: { responsibles: { select: { id: true, role: true }, orderBy: { createdAt: 'asc' } } },
+        include: { responsibles: { select: { id: true, roles: true }, orderBy: { createdAt: 'asc' } } },
       });
 
       if (!task) {
@@ -195,7 +201,7 @@ export class TaskQuoteService {
       // Default each customerConfig's responsibleId to the best task responsible if missing.
       // Priority: OWNER > first by createdAt (matches the public budget page display logic).
       const taskResponsibles = (task as any).responsibles ?? [];
-      const ownerResp = taskResponsibles.find((r: any) => r.role === 'OWNER');
+      const ownerResp = taskResponsibles.find((r: any) => r.roles?.includes('OWNER'));
       const defaultResponsibleId = (ownerResp ?? taskResponsibles[0])?.id || null;
       if (defaultResponsibleId) {
         for (const config of data.customerConfigs) {
@@ -469,7 +475,7 @@ export class TaskQuoteService {
                   select: { id: true, fantasyName: true, cnpj: true },
                 },
                 installments: { orderBy: { number: 'asc' } },
-                responsible: { select: { id: true, name: true, role: true } },
+                responsible: { select: { id: true, name: true, roles: true } },
                 customerSignature: true,
               },
             },
@@ -788,10 +794,10 @@ export class TaskQuoteService {
         // The TaskQuote↔Task relation lives on Task.quoteId — query via that side.
         const taskWithResp = await this.prisma.task.findFirst({
           where: { quoteId: id },
-          include: { responsibles: { select: { id: true, role: true }, orderBy: { createdAt: 'asc' } } },
+          include: { responsibles: { select: { id: true, roles: true }, orderBy: { createdAt: 'asc' } } },
         });
         const taskWithRespList = (taskWithResp as any)?.responsibles ?? [];
-        const ownerRespForUpdate = taskWithRespList.find((r: any) => r.role === 'OWNER');
+        const ownerRespForUpdate = taskWithRespList.find((r: any) => r.roles?.includes('OWNER'));
         const defaultResponsibleId = (ownerRespForUpdate ?? taskWithRespList[0])?.id || null;
         if (defaultResponsibleId) {
           for (const config of data.customerConfigs) {
@@ -1316,7 +1322,7 @@ export class TaskQuoteService {
                   select: { id: true, fantasyName: true, cnpj: true },
                 },
                 installments: { orderBy: { number: 'asc' } },
-                responsible: { select: { id: true, name: true, role: true } },
+                responsible: { select: { id: true, name: true, roles: true } },
                 customerSignature: true,
               },
             },
@@ -1336,6 +1342,21 @@ export class TaskQuoteService {
         if (task) {
           await syncEmNegociacaoForTask(this.prisma, task.id, userId);
         }
+      }
+
+      // Pós-commit: se algo que o documento EXIBE mudou, a coleta de assinaturas
+      // em andamento deixa de valer. O cliente assinou uma versão específica do
+      // orçamento; mantê-la de pé após uma alteração material vincularia alguém a
+      // um documento que se moveu por baixo dele (CC art. 431; OWASP Transaction
+      // Authorization §2.6). Best-effort: nunca derruba a atualização em si.
+      try {
+        await this.signatureEnvelopes.onQuoteContentChanged(id, userId || null);
+      } catch (sigError) {
+        this.logger.error(
+          `Falha ao reavaliar assinaturas do orçamento ${id}: ${
+            sigError instanceof Error ? sigError.message : sigError
+          }`,
+        );
       }
 
       return {
@@ -1411,7 +1432,19 @@ export class TaskQuoteService {
 
       const taskId = existing.task?.id;
 
-      await this.prisma.$transaction(async tx => {
+      // Assinatura eletrônica: recusa a exclusão quando já existe assinatura
+      // coletada ou envelope selado (a política e o porquê estão em
+      // `SignatureDeletionService`). Fica ANTES da transação para que o
+      // BadRequestException chegue ao usuário com a mensagem correta.
+      await this.signatureDeletion.assertQuotesDeletable([id]);
+
+      const purged = await this.prisma.$transaction(async tx => {
+        // A trilha de auditoria é append-only por trigger; o `onDelete: Cascade`
+        // de TaskQuote → SignatureEnvelope → SignatureAuditEvent estouraria em
+        // `restrict_violation` (500). A purga explícita esvazia o cascade antes
+        // do delete, abrindo a válvula da migration só dentro desta transação.
+        const result = await this.signatureDeletion.purgeForQuotes(tx, [id]);
+
         // Nullify quoteId on the associated task before deleting
         if (taskId) {
           await tx.task.update({
@@ -1448,7 +1481,14 @@ export class TaskQuoteService {
           triggeredById: userId,
           transaction: tx,
         });
+
+        return result;
       });
+
+      // Só depois do commit: `unlink` não faz rollback, e apagar os bytes antes
+      // de o banco confirmar é exatamente como os envelopes órfãos dos
+      // orçamentos #580-582 ficaram em ENOENT permanente.
+      await this.signatureDeletion.unlinkFrozenDocuments(purged.frozenDocumentPaths);
 
       return {
         success: true,
@@ -2680,6 +2720,10 @@ export class TaskQuoteService {
               observation: true,
               amount: true,
               position: true,
+              // The FK itself — without it the public budget/dossiê pages cannot
+              // tell WHICH customer a service bills to, so their per-customer
+              // links (/cliente/:customerId/...) fall back to showing everything.
+              invoiceToCustomerId: true,
               invoiceToCustomer: {
                 select: { id: true, corporateName: true, fantasyName: true, cnpj: true, cpf: true },
               },
@@ -2688,6 +2732,12 @@ export class TaskQuoteService {
           customerConfigs: {
             select: {
               id: true,
+              // The FK itself — the public budget/dossiê pages match the
+              // /cliente/:customerId/... URL against it to decide whether they
+              // render one customer's view or the "Completo" one. Without it
+              // nothing ever matches and every per-customer link renders
+              // Completo.
+              customerId: true,
               subtotal: true,
               total: true,
               discountType: true,
@@ -2700,7 +2750,7 @@ export class TaskQuoteService {
               paymentCondition: true,
               paymentConfig: true,
               responsible: {
-                select: { id: true, name: true, role: true },
+                select: { id: true, name: true, roles: true },
               },
               customer: {
                 select: { id: true, corporateName: true, fantasyName: true, cnpj: true, cpf: true },
@@ -2716,6 +2766,7 @@ export class TaskQuoteService {
                   amount: true,
                   dueDate: true,
                   status: true,
+                  paymentMethod: true,
                   // Bank slip: ONLY surface non-sensitive presentation fields. No barcode/PIX/
                   // nossoNumero/sicrediStatus/errorMessage/liquidationData/pdfFileId.
                   bankSlip: {
@@ -2757,7 +2808,7 @@ export class TaskQuoteService {
                 select: { id: true, corporateName: true, fantasyName: true, cnpj: true, cpf: true },
               },
               responsibles: {
-                select: { id: true, name: true, role: true },
+                select: { id: true, name: true, roles: true },
                 orderBy: { createdAt: 'asc' },
               },
               truck: {

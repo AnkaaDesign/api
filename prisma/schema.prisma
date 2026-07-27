@@ -711,6 +711,8 @@ model File {
   leaves                                 Leave[]                   @relation("FileToLeave")
   workAccidentReports                    WorkAccidentReport[]      @relation("WORK_ACCIDENT_REPORT_FILE")
   fispqPdfs                              Fispq[]                   @relation("FISPQ_PDF")
+  signatureEnvelopeOriginals             SignatureEnvelope[]       @relation("ENVELOPE_ORIGINAL_FILE")
+  signatureEnvelopeFinals                SignatureEnvelope[]       @relation("ENVELOPE_FINAL_FILE")
 
   filenameNormalized     String? /// accent-insensitive search (generated column, see migration)
   mimetypeNormalized     String? /// accent-insensitive search (generated column, see migration)
@@ -1763,28 +1765,37 @@ model ServiceOrder {
 }
 
 model TaskQuote {
-  id                  String                    @id @default(uuid())
-  subtotal            Decimal                   @db.Decimal(10, 2)
-  total               Decimal                   @db.Decimal(10, 2)
+  id                  String          @id @default(uuid())
+  subtotal            Decimal         @db.Decimal(10, 2)
+  total               Decimal         @db.Decimal(10, 2)
   expiresAt           DateTime
-  status              TaskQuoteStatus           @default(PENDING)
-  statusOrder         Int                       @default(1)
+  status              TaskQuoteStatus @default(PENDING)
+  statusOrder         Int             @default(1)
   guaranteeYears      Int?
   customGuaranteeText String?
-  createdAt           DateTime                  @default(now())
-  updatedAt           DateTime                  @updatedAt
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
   billingApprovedAt   DateTime?
-  budgetNumber        Int                       @unique
+  budgetNumber        Int             @unique
   customForecastDays  Int?
   simultaneousTasks   Int?
-  task                Task?                     @relation("TASK_QUOTE")
-  layoutFiles         File[]                    @relation("QUOTE_LAYOUT")
-  services            TaskQuoteService[]        @relation("QUOTE_SERVICES")
-  customerConfigs     TaskQuoteCustomerConfig[] @relation("QuoteCustomerConfig")
+
+  /// Ankaa-side signer of the budget (the commercial representative). Nullable so
+  /// existing quotes keep working; resolved at envelope creation with a fallback to
+  /// the configured director. There is no other User relation on TaskQuote.
+  commercialUserId String? @map("commercialUserId")
+
+  task               Task?                     @relation("TASK_QUOTE")
+  layoutFiles        File[]                    @relation("QUOTE_LAYOUT")
+  services           TaskQuoteService[]        @relation("QUOTE_SERVICES")
+  customerConfigs    TaskQuoteCustomerConfig[] @relation("QuoteCustomerConfig")
+  commercialUser     User?                     @relation("QUOTE_COMMERCIAL_USER", fields: [commercialUserId], references: [id], onDelete: SetNull)
+  signatureEnvelopes SignatureEnvelope[]       @relation("QUOTE_SIGNATURE_ENVELOPES")
 
   @@index([status])
   @@index([statusOrder])
   @@index([expiresAt])
+  @@index([commercialUserId])
 }
 
 model TaskQuoteService {
@@ -2235,6 +2246,8 @@ model User {
   ppeDeliveries                  PpeDelivery[]                @relation("PPE_DELIVERY_USER")
   ppeSignatures                  PpeDeliverySignature[]       @relation("PPE_SIGNATURE_USER")
   ppeSignatureEvents             PpeDeliverySignatureEvent[]  @relation("PPE_SIGNATURE_EVENT_ACTOR")
+  quotesAsCommercial             TaskQuote[]                  @relation("QUOTE_COMMERCIAL_USER")
+  envelopeSignatures             EnvelopeSigner[]             @relation("ENVELOPE_SIGNER_USER")
   warningSignatures              WarningSignature[]           @relation("WARNING_SIGNATURE_USER")
   warningSignaturesRegistered    WarningSignature[]           @relation("WARNING_SIGNATURE_REGISTRAR")
   warningSignatureEvents         WarningSignatureEvent[]      @relation("WARNING_SIGNATURE_EVENT_ACTOR")
@@ -2950,7 +2963,11 @@ model Responsible {
   email                 String?                   @unique
   phone                 String                    @unique
   password              String?
-  role                  ResponsibleRole
+  /// A contact can hold SEVERAL roles at once (e.g. OWNER + FINANCIAL), so
+  /// employees know which areas that contact actually handles. Always kept
+  /// non-empty by the validation layer and sorted in enum-declaration order
+  /// (see responsibleRolesSchema) so changelog diffs stay stable.
+  roles                 ResponsibleRole[]         @default([])
   companyId             String?                   @map("customerId")
   isActive              Boolean                   @default(true)
   verified              Boolean                   @default(false)
@@ -2965,6 +2982,7 @@ model Responsible {
   company               Customer?                 @relation("CompanyResponsibles", fields: [companyId], references: [id])
   tasks                 Task[]                    @relation("TaskResponsibles")
   customerConfigs       TaskQuoteCustomerConfig[] @relation("CUSTOMER_CONFIG_RESPONSIBLE")
+  envelopeSignatures    EnvelopeSigner[]          @relation("ENVELOPE_SIGNER_RESPONSIBLE")
 
   emailNormalized String? /// accent-insensitive search (generated column, see migration)
   nameNormalized  String? /// accent-insensitive search (generated column, see migration)
@@ -2973,7 +2991,9 @@ model Responsible {
   @@index([email])
   @@index([phone])
   @@index([companyId])
-  @@index([role])
+  // GIN, not btree: `roles` is a scalar list, so filters compile to @> / &&
+  // (Prisma has / hasSome / hasEvery). A btree over an array cannot serve those.
+  @@index([roles], type: Gin)
   @@map("Representative")
 }
 
@@ -4162,26 +4182,26 @@ model Invoice {
 }
 
 model Installment {
-  id                    String                   @id @default(uuid())
+  id                    String                    @id @default(uuid())
   customerConfigId      String?
   externalOperationId   String?
   invoiceId             String?
   number                Int
   dueDate               DateTime
-  amount                Decimal                  @db.Decimal(10, 2)
-  paidAmount            Decimal                  @default(0) @db.Decimal(10, 2)
+  amount                Decimal                   @db.Decimal(10, 2)
+  paidAmount            Decimal                   @default(0) @db.Decimal(10, 2)
   paidAt                DateTime?
-  status                InstallmentStatus        @default(PENDING)
+  status                InstallmentStatus         @default(PENDING)
   paymentMethod         InstallmentPaymentMethod?
   observations          String?
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
-  customerConfig        TaskQuoteCustomerConfig? @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Cascade)
-  externalOperation     ExternalOperation?       @relation("ExternalOperationInstallments", fields: [externalOperationId], references: [id], onDelete: Cascade)
-  invoice               Invoice?                 @relation("InvoiceInstallments", fields: [invoiceId], references: [id], onDelete: SetNull)
-  bankSlip              BankSlip?                @relation("InstallmentBankSlip")
-  receiptFiles          File[]                   @relation("InstallmentReceipts")
-  reconciliationMatches ReconciliationMatch[]    @relation("InstallmentMatches")
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+  customerConfig        TaskQuoteCustomerConfig?  @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Cascade)
+  externalOperation     ExternalOperation?        @relation("ExternalOperationInstallments", fields: [externalOperationId], references: [id], onDelete: Cascade)
+  invoice               Invoice?                  @relation("InvoiceInstallments", fields: [invoiceId], references: [id], onDelete: SetNull)
+  bankSlip              BankSlip?                 @relation("InstallmentBankSlip")
+  receiptFiles          File[]                    @relation("InstallmentReceipts")
+  reconciliationMatches ReconciliationMatch[]     @relation("InstallmentMatches")
 
   @@unique([customerConfigId, number])
   @@unique([externalOperationId, number])
@@ -6869,4 +6889,292 @@ enum OrderInstallmentStatus {
   PAID
   OVERDUE
   CANCELLED
+}
+
+// =============================================================================
+// ASSINATURA ELETRÔNICA DO ORÇAMENTO
+// -----------------------------------------------------------------------------
+// Assinatura eletrônica AVANÇADA (Lei 14.063/2020, art. 4º, II como régua de
+// qualidade) de orçamentos por contatos externos do cliente, fundada em
+// MP 2.200-2/2001, art. 10, §2º. Os signatários NÃO possuem certificado: o ato
+// de cada um é capturado como evidência (OTP + IP + UA + timestamp + geo),
+// escrito numa trilha anexada ao PDF, e o artefato montado recebe UM selo PAdES
+// com o certificado A1 ICP-Brasil da empresa.
+//
+// Invariantes que o código depende:
+//  · original.pdf é imutável. Nunca re-renderize o que foi assinado.
+//  · quoteSnapshotSha256 cobre exatamente o que o documento exibe. Se mudar, o
+//    envelope é INVALIDATED e as assinaturas coletadas deixam de valer.
+//  · SignatureAuditEvent é append-only (trigger + RLS na migration) e encadeado
+//    por hash. Nunca faça UPDATE/DELETE nessa tabela.
+// =============================================================================
+
+model SignatureEnvelope {
+  id      String         @id @default(uuid())
+  quoteId String
+  status  EnvelopeStatus @default(DRAFT)
+
+  /// Versão da cerimônia. Toda alteração material do orçamento invalida o
+  /// envelope corrente; a reemissão cria version+1 apontando para o anterior.
+  version            Int     @default(1)
+  previousEnvelopeId String? @unique
+
+  /// Ordem: grupo 0 (cliente) assina em paralelo; grupo 1 (Ankaa) só libera
+  /// depois que todos do grupo 0 assinaram.
+  sequential Boolean  @default(true)
+  deadlineAt DateTime
+
+  /// Bytes CONGELADOS no envio. É o que é assinado e hasheado.
+  originalFileId String
+  originalSha256 String
+
+  /// Retângulos dos slots de assinatura, medidos no navegador no momento do
+  /// render: { [signerId]: { page, x, y, width, height } } em pontos PDF.
+  anchors Json
+
+  /// Recorte canônico (RFC 8785) de tudo que o documento exibe. O hash abaixo é
+  /// a definição operacional de "alteração material".
+  quoteSnapshot       Json
+  quoteSnapshotSha256 String
+
+  /// Artefato final: original + selos visuais + trilha de auditoria + PAdES.
+  finalFileId String?
+  finalSha256 String?
+  sealedAt    DateTime?
+
+  padesLevel       String?
+  certSubject      String?
+  certIssuer       String?
+  certSerialNumber String?
+  certCnpj         String?
+  certNotAfter     DateTime?
+  tsaUrl           String?
+  tsaGenTime       DateTime?
+
+  /// Código público, curto e transcrevível, para o portal de verificação.
+  verificationCode String @unique
+
+  legalBasis        String  @default("MP 2.200-2/2001, art. 10, §2º")
+  acceptanceClause  String
+  invalidatedReason String?
+
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  sentAt      DateTime?
+  completedAt DateTime?
+
+  quote            TaskQuote             @relation("QUOTE_SIGNATURE_ENVELOPES", fields: [quoteId], references: [id], onDelete: Cascade)
+  originalFile     File                  @relation("ENVELOPE_ORIGINAL_FILE", fields: [originalFileId], references: [id])
+  finalFile        File?                 @relation("ENVELOPE_FINAL_FILE", fields: [finalFileId], references: [id])
+  previousEnvelope SignatureEnvelope?    @relation("ENVELOPE_VERSION_CHAIN", fields: [previousEnvelopeId], references: [id], onDelete: SetNull)
+  nextEnvelope     SignatureEnvelope?    @relation("ENVELOPE_VERSION_CHAIN")
+  signers          EnvelopeSigner[]      @relation("ENVELOPE_SIGNERS")
+  events           SignatureAuditEvent[] @relation("ENVELOPE_AUDIT_EVENTS")
+
+  @@index([quoteId])
+  @@index([status])
+  @@index([deadlineAt])
+}
+
+model EnvelopeSigner {
+  id         String @id @default(uuid())
+  envelopeId String
+
+  /// Exatamente um dos dois é preenchido: contato do cliente OU usuário Ankaa.
+  responsibleId String?
+  userId        String?
+
+  orderGroup Int @default(0)
+
+  /// O que a ANKAA afirma (vem do cadastro; o signatário não edita).
+  declaredName  String
+  declaredPhone String
+  declaredCpf   String?
+  declaredEmail String?
+  phoneSource   String  @default("customer_registry")
+
+  /// O que o SIGNATÁRIO informa no ato. Guardar ambos é o que dá evidência de
+  /// dois lados — é o padrão Clicksign.
+  informedCpf   String?
+  informedCargo String?
+  cpfMatch      Boolean?
+  cpfRfbStatus  String?
+  qsaMatch      Boolean?
+
+  status         EnvelopeSignerStatus @default(PENDING)
+  authMethod     SignatureAuthMethod  @default(WHATSAPP_OTP)
+  accessToken    String               @unique
+  tokenExpiresAt DateTime
+
+  firstViewedAt  DateTime?
+  lastViewedAt   DateTime?
+  timesViewed    Int       @default(0)
+  maxPageReached Int?
+
+  /// signedAt = relógio do SERVIDOR (é o que vale). clientSignedAt = relógio do
+  /// dispositivo, guardado só como evidência de skew.
+  signedAt       DateTime?
+  clientSignedAt DateTime?
+  refusedAt      DateTime?
+  refusalReason  String?
+
+  ipAddress    String?
+  userAgent    String?
+  geoLat       Decimal? @db.Decimal(9, 6)
+  geoLon       Decimal? @db.Decimal(9, 6)
+  geoAccuracyM Int?
+  geoSource    String?
+
+  /// Texto EXATO de cada declaração exibida, com timestamp. Nunca um booleano:
+  /// o texto muda entre versões e o que importa é o que aquela pessoa leu.
+  declarations Json?
+
+  evidenceJson  Json?
+  evidenceHash  String?
+  hmacSignature String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  envelope    SignatureEnvelope  @relation("ENVELOPE_SIGNERS", fields: [envelopeId], references: [id], onDelete: Cascade)
+  responsible Responsible?       @relation("ENVELOPE_SIGNER_RESPONSIBLE", fields: [responsibleId], references: [id], onDelete: SetNull)
+  user        User?              @relation("ENVELOPE_SIGNER_USER", fields: [userId], references: [id], onDelete: SetNull)
+  challenges  SigningChallenge[] @relation("SIGNER_CHALLENGES")
+
+  @@unique([envelopeId, responsibleId])
+  @@unique([envelopeId, userId])
+  @@index([envelopeId])
+  @@index([accessToken])
+  @@index([status])
+}
+
+model SigningChallenge {
+  id       String @id @default(uuid())
+  signerId String
+
+  channel         String
+  destinationMask String
+
+  /// HMAC-SHA256(código, SIGNATURE_OTP_PEPPER). O código em claro nunca é
+  /// persistido nem logado.
+  codeHash String
+
+  /// Vincula o desafio a ESTE documento (ASVS 6.6.2). Se o envelope for
+  /// invalidado, o hash muda e o desafio morre junto.
+  documentSha256 String
+
+  status      SigningChallengeStatus @default(PENDING)
+  attempts    Int                    @default(0)
+  maxAttempts Int                    @default(5)
+  expiresAt   DateTime
+
+  providerMessageId String?
+  providerStatus    String?
+  deliveredAt       DateTime?
+
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  signer EnvelopeSigner @relation("SIGNER_CHALLENGES", fields: [signerId], references: [id], onDelete: Cascade)
+
+  @@index([signerId, status])
+  @@index([expiresAt])
+}
+
+/// APPEND-ONLY. A migration instala trigger + RLS que rejeitam UPDATE/DELETE.
+/// Encadeada por hash: hash = SHA256(prevHash || JCS(campos canônicos)).
+model SignatureAuditEvent {
+  id         String @id @default(uuid())
+  envelopeId String
+  sequence   Int
+
+  eventType  SignatureEventType
+  occurredAt DateTime           @default(now())
+
+  actorType  String
+  actorId    String?
+  actorLabel String?
+
+  ipAddress String?
+  userAgent String?
+
+  documentHash String?
+  payload      Json?
+
+  prevHash String
+  hash     String @unique
+
+  envelope SignatureEnvelope @relation("ENVELOPE_AUDIT_EVENTS", fields: [envelopeId], references: [id], onDelete: Cascade)
+
+  @@unique([envelopeId, sequence])
+  @@index([envelopeId, sequence])
+  @@index([occurredAt])
+}
+
+enum EnvelopeStatus {
+  DRAFT
+  RUNNING
+  COMPLETED
+  REFUSED
+  EXPIRED
+  CANCELLED
+  INVALIDATED
+  SUPERSEDED
+}
+
+enum EnvelopeSignerStatus {
+  PENDING
+  VIEWED
+  AUTHENTICATED
+  SIGNED
+  REFUSED
+  EXPIRED
+  VOIDED
+}
+
+enum SignatureAuthMethod {
+  WHATSAPP_OTP
+  SMS_OTP
+  INTERNAL_SESSION
+}
+
+enum SigningChallengeStatus {
+  PENDING
+  CONSUMED
+  LOCKED
+  EXPIRED
+  SUPERSEDED
+}
+
+enum SignatureEventType {
+  ENVELOPE_CREATED
+  DOCUMENT_FROZEN
+  INVITATION_SENT
+  INVITATION_FAILED
+  DOCUMENT_VIEWED
+  DOCUMENT_SCROLLED_END
+  CPF_SUBMITTED
+  CPF_MISMATCH
+  OTP_SENT
+  OTP_DELIVERY_FAILED
+  OTP_VERIFIED
+  OTP_FAILED
+  OTP_LOCKED
+  DECLARATIONS_ACCEPTED
+  SIGNATURE_APPLIED
+  SIGNATURE_REFUSED
+  SIGNER_VOIDED
+  CONTACT_CHANGED
+  ENVELOPE_INVALIDATED
+  ENVELOPE_EXPIRED
+  ENVELOPE_CANCELLED
+  DOCUMENT_ASSEMBLED
+  PADES_SEALED
+  PADES_FAILED
+  TSA_STAMPED
+  TSA_FAILED
+  DOCUMENT_FINALIZED
+  DOCUMENT_DOWNLOADED
+  VERIFICATION_VIEWED
 }

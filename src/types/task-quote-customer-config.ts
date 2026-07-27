@@ -40,6 +40,6 @@ export interface TaskQuoteCustomerConfig extends BaseEntity {
   // Relations
   quote?: TaskQuote;
   customer?: Customer;
-  responsible?: { id: string; name: string; role: string };
+  responsible?: { id: string; name: string; roles: string[] };
   installments?: Installment[];
 }

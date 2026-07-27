@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/com
 import { randomUUID } from 'crypto';
 import { AttentionGateway } from './attention.gateway';
 import { PrismaService } from '../prisma/prisma.service';
-import { TaskStatus, SectorPrivileges, Prisma } from '@prisma/client';
+import { TaskStatus, CutStatus, SectorPrivileges, Prisma } from '@prisma/client';
 
 /** Only these sectors may send a manual attention warning — mirrors the client
  * gate (web/src/lib/attention/send-warning.tsx `SEND_WARNING_PRIVILEGES`); this is
@@ -16,8 +16,6 @@ export interface SendWarningInput {
   target: { level: 'row' | 'detail' | 'field'; field?: string };
   recipientUserIds: string[];
   message?: string;
-  /** Display-only sender name supplied by the client. */
-  fromUserName?: string;
   tone?: 'harsh' | 'soft' | 'none';
   blinkCount?: number;
   cooldownMs?: number;
@@ -38,8 +36,14 @@ export class AttentionService {
     private readonly prisma: PrismaService,
   ) {}
 
-  async sendWarning(fromUserId: string, fromUserName: string | undefined, input: SendWarningInput): Promise<{ id: string }> {
-    const sender = await this.prisma.user.findUnique({ where: { id: fromUserId }, select: { sector: { select: { privileges: true } } } });
+  async sendWarning(fromUserId: string, input: SendWarningInput): Promise<{ id: string; delivered: number; offline: number }> {
+    // The sender's NAME is resolved here, never taken from the request body: a
+    // client-supplied `fromUserName` let any authorized sender attribute a blinking,
+    // beeping warning to someone else entirely.
+    const sender = await this.prisma.user.findUnique({
+      where: { id: fromUserId },
+      select: { name: true, sector: { select: { privileges: true } } },
+    });
     if (!sender?.sector || !SEND_WARNING_PRIVILEGES.includes(sender.sector.privileges)) {
       throw new ForbiddenException('Apenas ADMIN e COMERCIAL podem enviar avisos');
     }
@@ -51,6 +55,7 @@ export class AttentionService {
       throw new BadRequestException('Alvo de campo requer o nome do campo');
     }
 
+    const fromUserName = sender.name;
     const id = randomUUID();
     const blinkCount = clamp(input.blinkCount ?? 5, 1, 20);
     const cooldownMs = clamp(input.cooldownMs ?? 30 * 60 * 1000, 60 * 1000, 24 * 60 * 60 * 1000);
@@ -79,8 +84,14 @@ export class AttentionService {
 
     // Don't nag the sender.
     const recipients = input.recipientUserIds.filter((uid) => uid !== fromUserId);
-    if (recipients.length > 0) this.gateway.pushToUsers(recipients, payload);
-    return { id };
+    if (recipients.length === 0) return { id, delivered: 0, offline: 0 };
+
+    // A pushed warning is ephemeral — an offline recipient's socket room is empty and
+    // the emit is silently dropped. Report that back so the sender is told the truth
+    // ("2 de 3 entregues") instead of an unconditional "aviso enviado".
+    const online = await this.gateway.filterOnlineUserIds(recipients);
+    this.gateway.pushToUsers(online, payload);
+    return { id, delivered: online.length, offline: recipients.length - online.length };
   }
 
   /** Public hook for domain services to signal a change (invalidation + re-eval). */
@@ -89,70 +100,112 @@ export class AttentionService {
   }
 
   /**
-   * Global attention count, independent of what's currently loaded in the caller's
-   * browser tab. The web engine (lib/attention/engine.ts) only evaluates entities a
-   * mounted page has registered, so e.g. the Produção dashboard — which loads no
-   * tasks — never lights the Agenda/Cronograma nav entries even when matching tasks
-   * exist. This mirrors the same 4 TASK rules (web/src/lib/attention/rules.ts R1-R3b)
-   * as efficient Prisma counts instead of re-implementing the generic predicate DSL
-   * server-side (Phase 1 — see api/docs/attention-server-side.md §6). Keep the
-   * `whileInFlight` exclusion and the 4 conditions in sync with rules.ts by hand for
-   * now; a shared rule source is Phase 3 work (§4.2).
+   * Global attention state per entity type, independent of what's loaded in the caller's
+   * browser tab. The web engine (lib/attention/engine.ts) only evaluates entities a mounted
+   * page has registered, so e.g. the Produção dashboard — which loads neither tasks nor cuts —
+   * would never light the Agenda/Cronograma/Recorte nav entries even when matching records
+   * exist. This mirrors the rules in `web/src/lib/attention/rules.ts` as efficient Prisma
+   * counts instead of re-implementing the generic predicate DSL server-side (Phase 1 — see
+   * api/docs/attention-server-side.md §6). Keep the conditions in sync with rules.ts by hand
+   * for now; a shared rule source is Phase 3 work (§4.2).
+   *
+   * The response shape is `{ [entityType]: { count, armed, harsh } }` — the SAME triple the
+   * client engine's `getAttentionSnapshot()` produces, so the sidebar merges local and server
+   * state without translating between two vocabularies. That translation is precisely where
+   * the nav and the rows used to disagree: cuts had a bespoke count-only poll with `armed`
+   * hardcoded true, so the cut nav could never mirror a resting cut row.
    */
-  async getSummary(userId: string): Promise<{ counts: { TASK: number }; armed: { TASK: boolean }; harsh: { TASK: boolean } }> {
+  async getSummary(userId: string): Promise<Record<string, AttentionSummaryEntry>> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { sector: { select: { privileges: true } } },
     });
     const privilege = user?.sector?.privileges;
-    // R1-R3b are all targeted at LOGISTIC + PRODUCTION_MANAGER; ADMIN inherits everyone's view.
-    const canSee =
-      privilege === SectorPrivileges.ADMIN ||
-      privilege === SectorPrivileges.LOGISTIC ||
-      privilege === SectorPrivileges.PRODUCTION_MANAGER;
-    if (!canSee) return { counts: { TASK: 0 }, armed: { TASK: false }, harsh: { TASK: false } };
+    if (!privilege) return {};
+    const isAdmin = privilege === SectorPrivileges.ADMIN; // ADMIN inherits every sector's view
 
     const now = new Date();
-    const inFlight: Prisma.TaskWhereInput = { status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] } };
-    // Empty-string chassis/plate count as "missing" (the client's isNullish treats "" as null),
-    // so mirror that here or the nav under-counts vs an on-screen row.
-    const noChassis: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { chassisNumber: null } }, { truck: { chassisNumber: "" } }] };
-    const noPlate: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { vinPlate: null } }, { truck: { vinPlate: "" } }] };
+    const summary: Record<string, AttentionSummaryEntry> = {};
 
-    // The nav must "follow" the row: a task the user has VIEWED (acknowledged) or is in its
-    // cooldown (snoozeUntil in the future) is resting/static — NOT blinking — so it must NOT
-    // light the nav. Exclude those task ids (per this user's AttentionAck) from the counts.
-    // (Suppressing at task granularity — if a task is acked/snoozed for ANY of its rules it's
-    // resting; the same coarse "is anything blinking" signal the nav needs.)
-    const acks = await this.prisma.attentionAck.findMany({
-      where: { userId, OR: [{ acknowledged: true }, { snoozeUntil: { gt: now } }] },
-      select: { entityId: true },
-    });
-    const suppressedIds = [...new Set(acks.map((a) => a.entityId))];
-    const notSuppressed: Prisma.TaskWhereInput = suppressedIds.length ? { id: { notIn: suppressedIds } } : {};
+    // ---- TASK (R1-R3b, targeted at LOGISTIC + PRODUCTION_MANAGER) ----
+    if (isAdmin || privilege === SectorPrivileges.LOGISTIC || privilege === SectorPrivileges.PRODUCTION_MANAGER) {
+      const inFlight: Prisma.TaskWhereInput = { status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] } };
+      // Empty-string chassis/plate count as "missing" (the client's isNullish treats "" as null),
+      // so mirror that here or the nav under-counts vs an on-screen row.
+      const noChassis: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { chassisNumber: null } }, { truck: { chassisNumber: '' } }] };
+      const noPlate: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { vinPlate: null } }, { truck: { vinPlate: '' } }] };
+      const anyRule: Prisma.TaskWhereInput = {
+        OR: [
+          { cleared: true, entryDate: null }, // R1 — cleared without entry
+          { forecastDate: { lt: now }, cleared: false }, // R2 — forecast overdue, not cleared
+          { entryDate: { not: null }, ...noChassis }, // R3a — entry given, no chassis
+          { entryDate: { not: null }, ...noPlate }, // R3b — entry given, no plate
+        ],
+      };
+      const notSuppressed = await this.restingIdFilter(userId, 'TASK', now);
+      const [count, armed, harsh] = await this.prisma.$transaction([
+        // count = EVERY matching task (armed OR resting) → the nav shows an indicator at all.
+        this.prisma.task.count({ where: { AND: [inFlight, anyRule] } }),
+        // armed = matching tasks still inside their cooldown → these BLINK (the rest are
+        // resting: nav shows a static border instead). This is how the nav "follows" the row.
+        this.prisma.task.count({ where: { AND: [inFlight, notSuppressed, anyRule] } }),
+        // harsh (R2) → red vs amber.
+        this.prisma.task.count({ where: { AND: [inFlight, { forecastDate: { lt: now }, cleared: false }] } }),
+      ]);
+      summary.TASK = { count, armed: armed > 0, harsh: harsh > 0 };
+    }
 
-    // The "any rule matches" predicate (drives the nav indicator at all).
-    const anyRule: Prisma.TaskWhereInput = {
-      OR: [
-        { cleared: true, entryDate: null }, // R1 — cleared without entry
-        { forecastDate: { lt: now }, cleared: false }, // R2 — forecast overdue, not cleared
-        { entryDate: { not: null }, ...noChassis }, // R3a — entry given, no chassis
-        { entryDate: { not: null }, ...noPlate }, // R3b — entry given, no plate
-      ],
-    };
+    // ---- CUT (R0 `cut.pending`, targeted at WAREHOUSE) ----
+    if (isAdmin || privilege === SectorPrivileges.WAREHOUSE) {
+      const pending: Prisma.CutWhereInput = { status: CutStatus.PENDING };
+      const notSuppressed = await this.restingIdFilter(userId, 'CUT', now);
+      const [count, armed] = await this.prisma.$transaction([
+        this.prisma.cut.count({ where: pending }),
+        this.prisma.cut.count({ where: { AND: [pending, notSuppressed] } }),
+      ]);
+      // `cut.pending` has tone `harsh`, so any match is red.
+      summary.CUT = { count, armed: armed > 0, harsh: count > 0 };
+    }
 
-    const [totalCount, armedCount, harshCount] = await this.prisma.$transaction([
-      // count = EVERY matching task (armed OR resting) → the nav shows an indicator at all.
-      this.prisma.task.count({ where: { AND: [inFlight, anyRule] } }),
-      // armed = matching tasks the user has NOT viewed/snoozed → these BLINK (the rest are
-      // resting: nav shows a static border instead). This is how the nav "follows" the row.
-      this.prisma.task.count({ where: { AND: [inFlight, notSuppressed, anyRule] } }),
-      // harsh (R2) → red vs amber.
-      this.prisma.task.count({ where: { AND: [inFlight, { forecastDate: { lt: now }, cleared: false }] } }),
-    ]);
-
-    return { counts: { TASK: totalCount }, armed: { TASK: armedCount > 0 }, harsh: { TASK: harshCount > 0 } };
+    return summary;
   }
+
+  /**
+   * `{ id: { notIn: [...] } }` for records this user has viewed and that are still inside
+   * their cooldown, i.e. RESTING rather than blinking. Suppressing at record granularity: if
+   * a record is snoozed for ANY of its rules it's resting, which is the coarse "is anything
+   * blinking" signal the nav needs.
+   *
+   * `acknowledged` deliberately does NOT suppress. There is one quiet axis — the cooldown —
+   * shared with the client engine (see web `markViewed`). Treating `acknowledged` as a
+   * permanent mute here is what made the nav go dark for good on a record whose row had
+   * already re-armed.
+   *
+   * Bounded: without a cap this list grows for the life of the account and is spliced
+   * verbatim into `id NOT IN ($1..$n)` on a 60s poll — eventually a multi-thousand-parameter
+   * query, and past ~65k bind params Postgres refuses outright. Only records inside an active
+   * cooldown can appear, so a few thousand is far above the ceiling this legitimately needs.
+   */
+  private async restingIdFilter(userId: string, entityType: string, now: Date): Promise<{ id?: { notIn: string[] } }> {
+    const acks = await this.prisma.attentionAck.findMany({
+      where: { userId, entityType, snoozeUntil: { gt: now } },
+      select: { entityId: true },
+      orderBy: { updatedAt: 'desc' },
+      take: 5000,
+    });
+    const ids = [...new Set(acks.map((a) => a.entityId))];
+    return ids.length ? { id: { notIn: ids } } : {};
+  }
+}
+
+/** Per-entity-type triple, mirroring the web engine's `AttentionTypeSnapshot`. */
+export interface AttentionSummaryEntry {
+  /** Records with any unresolved match (armed OR resting). 0 ⇒ the nav shows nothing. */
+  count: number;
+  /** At least one is actively blinking ⇒ the nav blinks; otherwise a static border. */
+  armed: boolean;
+  /** Highest severity present ⇒ red vs amber. */
+  harsh: boolean;
 }
 
 function clamp(n: number, min: number, max: number): number {

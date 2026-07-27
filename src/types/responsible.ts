@@ -13,7 +13,7 @@ export interface ResponsibleCreateFormData {
   name: string;
   password?: string | null; // Optional - only required for system access
   companyId?: string | null; // Optional - responsible can exist without company
-  role: ResponsibleRole;
+  roles: ResponsibleRole[]; // Non-empty; a contact may hold several roles at once
   isActive?: boolean;
 }
 
@@ -21,7 +21,7 @@ export interface ResponsibleUpdateFormData {
   email?: string | null;
   phone?: string;
   name?: string;
-  role?: ResponsibleRole;
+  roles?: ResponsibleRole[];
   isActive?: boolean;
   companyId?: string | null;
 }
@@ -53,9 +53,9 @@ export interface ResponsibleInclude {
       };
 }
 
+// `roles` is intentionally not sortable: Prisma cannot orderBy a scalar list.
 export interface ResponsibleOrderBy {
   name?: 'asc' | 'desc';
-  role?: 'asc' | 'desc';
   createdAt?: 'asc' | 'desc';
   email?: 'asc' | 'desc';
 }
@@ -66,7 +66,12 @@ export interface ResponsibleWhere {
   phone?: string | { contains?: string };
   name?: { contains?: string; mode?: 'insensitive' | 'default' };
   companyId?: string;
-  role?: ResponsibleRole;
+  roles?: {
+    has?: ResponsibleRole;
+    hasSome?: ResponsibleRole[];
+    hasEvery?: ResponsibleRole[];
+    isEmpty?: boolean;
+  };
   isActive?: boolean;
   verified?: boolean;
   company?: {

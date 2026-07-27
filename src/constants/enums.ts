@@ -2666,6 +2666,18 @@ export const RESPONSIBLE_ROLE_LABELS = {
   [RESPONSIBLE_ROLE.DRIVER]: 'Motorista',
 };
 
+/**
+ * Human-readable label for a contact's set of roles, e.g. "Comercial, Financeiro".
+ *
+ * Joined with ", " -- the same separator the export and changelog layers use.
+ * Keep every character Latin-1 safe: the Flutter PDF generators draw with base
+ * Helvetica and throw on anything above U+00FF (an em dash crashes the dossie).
+ */
+export const formatResponsibleRoles = (roles: readonly string[] | null | undefined): string =>
+  (roles ?? [])
+    .map(role => RESPONSIBLE_ROLE_LABELS[role as RESPONSIBLE_ROLE] ?? role)
+    .join(', ');
+
 export enum TASK_QUOTE_STATUS {
   PENDING = 'PENDING',
   BUDGET_APPROVED = 'BUDGET_APPROVED',

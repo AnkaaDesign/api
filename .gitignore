@@ -72,3 +72,11 @@ config/firebase*.json
 
 # Stock-correction / data-correction CSV reports (local artifacts)
 scripts/output/
+
+# Certificados ICP-Brasil (A1). NUNCA versionar.
+# `certs/certificate.pfx` esteve versionado — apos remover daqui, ele continua
+# recuperavel no historico do git, entao o certificado precisa ser REVOGADO e
+# reemitido, nao apenas apagado.
+certs/
+*.pfx
+*.p12

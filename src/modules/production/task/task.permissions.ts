@@ -8,8 +8,24 @@ import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 export const TASK_FIELD_DOMAINS = {
   /** Task identity: name, customer, vehicle info (incl. create-only serial range helpers) */
   identity: ['name', 'details', 'customerId', 'serialNumber', 'chassis', 'serialNumberFrom', 'serialNumberTo'],
-  /** Scheduling dates */
-  dates: ['entryDate', 'term', 'forecastDate', 'forecastReason', 'cleared'],
+  /**
+   * Scheduling dates that every date-capable sector shares: the internal
+   * forecast (Previsão de Liberação) and the "cleared" release flag.
+   * `entryDate` and `term` are DELIBERATELY split out below — they belong to
+   * different desks and are granted separately.
+   */
+  dates: ['forecastDate', 'forecastReason', 'cleared'],
+  /**
+   * Data de Entrada — when the vehicle physically arrived at the yard.
+   * Owned by the desks that receive it (LOGISTIC / PRODUCTION_MANAGER) + ADMIN;
+   * COMMERCIAL must NOT write it.
+   */
+  entryDate: ['entryDate'],
+  /**
+   * Prazo de Entrega — the delivery deadline negotiated with the customer.
+   * COMMERCIAL + ADMIN only; PRODUCTION_MANAGER and LOGISTIC must NOT write it.
+   */
+  term: ['term'],
   /** Task lifecycle status */
   status: ['status', 'startedAt', 'finishedAt'],
   /** Free-text observation */
@@ -78,6 +94,9 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
   [SECTOR_PRIVILEGES.COMMERCIAL]: [
     'identity',
     'dates',
+    // 'entryDate' is intentionally ABSENT — the commercial desk does not record
+    // when the vehicle arrived; logistics/production management does.
+    'term',
     'status',
     'bonification',
     'truck',
@@ -99,6 +118,9 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
   [SECTOR_PRIVILEGES.LOGISTIC]: [
     'identity',
     'dates',
+    'entryDate',
+    // 'term' is intentionally ABSENT — the delivery deadline is the commercial
+    // desk's (and ADMIN's) to negotiate and change.
     'status',
     'truck',
     'responsibles',
@@ -116,6 +138,8 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
   [SECTOR_PRIVILEGES.PRODUCTION_MANAGER]: [
     'identity',
     'dates',
+    'entryDate',
+    // 'term' is intentionally ABSENT — see LOGISTIC above.
     'status',
     'truck',
     'serviceOrders',
@@ -143,6 +167,9 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
  * task snapshot (dates, status default, sector, default "Em Negociação" SO,
  * truck, files...), so every creator role needs the structural domains.
  * What stays restricted at create:
+ * - term (Prazo de Entrega): COMMERCIAL only (same rule as update)
+ * - entryDate (Data de Entrada): LOGISTIC + PRODUCTION_MANAGER only (same rule
+ *   as update). No create form exposes it today, so this is belt-and-braces.
  * - bonification: COMMERCIAL only (payroll-adjacent)
  * - quote/airbrushings (money): COMMERCIAL + FINANCIAL only
  * - financialDocs/reimbursements: FINANCIAL only
@@ -154,6 +181,8 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
   [SECTOR_PRIVILEGES.COMMERCIAL]: [
     'identity',
     'dates',
+    // No 'entryDate' — commercial never records the vehicle's arrival.
+    'term',
     'status',
     'bonification',
     'truck',
@@ -175,6 +204,8 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
   [SECTOR_PRIVILEGES.FINANCIAL]: [
     'identity',
     'dates',
+    // Neither 'entryDate' nor 'term': the financial desk creates a task purely to
+    // hang a quote off it; both dates belong to other desks.
     'status',
     'truck',
     'responsibles',
@@ -197,6 +228,8 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
   [SECTOR_PRIVILEGES.LOGISTIC]: [
     'identity',
     'dates',
+    'entryDate',
+    // No 'term' — the deadline is COMMERCIAL/ADMIN's to set.
     'status',
     'truck',
     'responsibles',
@@ -216,6 +249,8 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
   [SECTOR_PRIVILEGES.PRODUCTION_MANAGER]: [
     'identity',
     'dates',
+    'entryDate',
+    // No 'term' — see LOGISTIC above.
     'status',
     'truck',
     'responsibles',
@@ -236,7 +271,9 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
 /** Portuguese labels for error messages */
 const FIELD_DOMAIN_LABELS: Record<FieldDomain, string> = {
   identity: 'identidade (nome, cliente, veículo)',
-  dates: 'datas',
+  dates: 'datas (previsão)',
+  entryDate: 'data de entrada',
+  term: 'prazo de entrega',
   status: 'status',
   observation: 'observação',
   bonification: 'bonificação',

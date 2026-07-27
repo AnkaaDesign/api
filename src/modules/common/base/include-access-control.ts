@@ -110,7 +110,7 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'receipts',
     'activities',
   ],
-  Responsible: ['id', 'name', 'phone', 'email', 'role', 'isActive', 'company', 'tasks'],
+  Responsible: ['id', 'name', 'phone', 'email', 'roles', 'isActive', 'company', 'tasks'],
 };
 
 /**
@@ -226,7 +226,7 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'name',
     'phone',
     'email',
-    'role',
+    'roles',
     'isActive',
     'companyId',
     'createdAt',

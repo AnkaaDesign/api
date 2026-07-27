@@ -1,0 +1,1956 @@
+/**
+ * Orquestração da cerimônia de assinatura do orçamento.
+ *
+ * Ciclo de vida:
+ *
+ *   DRAFT ──create──▶ RUNNING ──todos assinam──▶ COMPLETED ──▶ budgetApprove()
+ *                        │
+ *                        ├── recusa ─────────▶ REFUSED   (congela os demais)
+ *                        ├── deadlineAt ─────▶ EXPIRED
+ *                        ├── alteração material ▶ INVALIDATED (assinaturas VOIDED)
+ *                        └── cancelamento ───▶ CANCELLED
+ *
+ * Invariantes:
+ *  · `original.pdf` é imutável. Nunca re-renderize o que foi assinado.
+ *  · Todo ato probatório grava evento encadeado ANTES de responder ao cliente.
+ *  · O telefone de destino do OTP vem do cadastro e o signatário não o edita —
+ *    é isso que dá peso probatório ao código.
+ */
+
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { createHmac, randomBytes, randomUUID } from 'crypto';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { join, resolve as resolvePath } from 'path';
+import {
+  EnvelopeSignerStatus,
+  EnvelopeStatus,
+  Prisma,
+  SignatureAuthMethod,
+} from '@prisma/client';
+import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { COMPANY } from '@/config/company';
+import { formatResponsibleRoles } from '@constants/enums';
+import { SignatureAuditService } from './signature-audit.service';
+import { SigningChallengeService } from './signing-challenge.service';
+import { QuoteSnapshotService, QuoteWithSnapshotGraph } from './quote-snapshot.service';
+import { QuoteRendererService } from '../document/quote-renderer.service';
+import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
+import { PadesSignerService } from '../pades/pades-signer.service';
+import {
+  ACCEPTANCE_CLAUSE,
+  AUTH_METHOD_LABELS,
+  DECLARATIONS,
+  DECLARATIONS_VERSION,
+  EVENT_DESCRIPTIONS,
+  LEGAL_BASIS,
+  renderDeclaration,
+} from '../signature.constants';
+import {
+  formatCnpj,
+  formatVerificationCode,
+  maskCpf,
+  isCpfWellFormed,
+  maskPhone,
+  onlyDigits,
+  phoneMaskParts,
+  cpfMaskParts,
+} from '../utils/identity';
+import { sha256Hex } from '../utils/canonical';
+import {
+  describeSignatureSecretProblems,
+  inspectSignatureSecrets,
+} from '../utils/secrets';
+import { formatCurrencyBRL, generateGuaranteeText, generatePaymentText } from '../document/quote-text';
+
+export interface RequestContext {
+  ipAddress: string | null;
+  userAgent: string | null;
+}
+
+interface WhatsAppSender {
+  sendMessage(phone: string, message: string): Promise<boolean>;
+}
+
+@Injectable()
+export class SignatureEnvelopeService {
+  private readonly logger = new Logger(SignatureEnvelopeService.name);
+
+  /**
+   * Problemas de configuração dos segredos, apurados uma vez na construção.
+   *
+   * O `SignatureModule` já derruba o boot quando há algum — isto aqui é a
+   * segunda barreira, para o caso de o módulo ser instanciado por um caminho que
+   * não passe pelo `onModuleInit` (teste, script, `app.get()` fora do ciclo).
+   * Nenhum ato da cerimônia acontece com a lista não-vazia.
+   */
+  private readonly secretProblems: ReturnType<typeof inspectSignatureSecrets>;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+    private readonly audit: SignatureAuditService,
+    private readonly challenges: SigningChallengeService,
+    private readonly snapshots: QuoteSnapshotService,
+    private readonly renderer: QuoteRendererService,
+    private readonly assembler: QuoteAssemblerService,
+    private readonly pades: PadesSignerService,
+  ) {
+    this.secretProblems = inspectSignatureSecrets(key => this.config.get<string>(key));
+    if (this.secretProblems.length) {
+      this.logger.error(describeSignatureSecretProblems(this.secretProblems));
+    }
+  }
+
+  /**
+   * Recusa qualquer ato da cerimônia enquanto os segredos não estiverem sãos.
+   *
+   * Chamado ANTES de qualquer efeito colateral — antes de emitir código, antes
+   * de consumir OTP, antes de congelar documento. O texto devolvido ao público é
+   * genérico de propósito: qual variável falta é assunto do log do servidor, não
+   * de um endpoint sem autenticação.
+   */
+  private assertCeremonyConfigured(): void {
+    if (!this.secretProblems.length) return;
+    this.logger.error(describeSignatureSecretProblems(this.secretProblems));
+    throw new ServiceUnavailableException(
+      'Assinatura eletrônica temporariamente indisponível (configuração do servidor). ' +
+        'Entre em contato com a Ankaa.',
+    );
+  }
+
+  /** Injetado tardiamente para não acoplar o módulo ao transporte de WhatsApp. */
+  private whatsapp: WhatsAppSender | null = null;
+  setWhatsAppSender(sender: WhatsAppSender): void {
+    this.whatsapp = sender;
+  }
+
+  /**
+   * Registrado pelo TaskQuoteModule. Evita que o módulo de assinatura conheça o
+   * domínio de orçamento: a conclusão do envelope apenas avisa, e quem decide o
+   * que isso significa para o status da quote é o dono daquele domínio.
+   */
+  private onCompleted: ((quoteId: string, envelopeId: string, actorUserId: string | null) => Promise<void>) | null =
+    null;
+  setOnEnvelopeCompleted(
+    cb: (quoteId: string, envelopeId: string, actorUserId: string | null) => Promise<void>,
+  ): void {
+    this.onCompleted = cb;
+  }
+
+  // ===========================================================================
+  // CRIAÇÃO
+  // ===========================================================================
+
+  /**
+   * Congela o documento e cria o envelope.
+   *
+   * Recusa-se a congelar quando o render sinaliza transbordo da página de
+   * assinaturas: seria assinar um documento com uma linha de assinatura clipada.
+   */
+  async createEnvelope(args: {
+    quoteId: string;
+    actorUserId: string;
+    ctx: RequestContext;
+  }): Promise<{ envelopeId: string; verificationCode: string }> {
+    this.assertCeremonyConfigured();
+
+    const loaded = await this.snapshots.buildForQuote(args.quoteId);
+    if (!loaded) throw new NotFoundException('Orçamento não encontrado.');
+    const { quote, snapshot, hash } = loaded;
+
+    const existing = await this.prisma.signatureEnvelope.findFirst({
+      where: { quoteId: args.quoteId, status: EnvelopeStatus.RUNNING },
+    });
+    if (existing) {
+      throw new BadRequestException(
+        'Já existe uma coleta de assinaturas em andamento para este orçamento. ' +
+          'Cancele-a antes de emitir outra.',
+      );
+    }
+
+    // O prazo do envelope é a validade do orçamento. Criar uma coleta sobre um
+    // orçamento já vencido produzia um envelope nascido expirado: a página abria
+    // com "esta coleta não está mais ativa" e o operador não entendia por quê.
+    if (quote.expiresAt.getTime() <= Date.now()) {
+      throw new BadRequestException(
+        `A validade deste orçamento venceu em ${quote.expiresAt.toLocaleDateString('pt-BR')}. ` +
+          'Atualize a data de validade antes de enviar para assinatura.',
+      );
+    }
+
+    const responsibles = quote.task?.responsibles ?? [];
+    if (responsibles.length === 0) {
+      throw new BadRequestException(
+        'Selecione ao menos um responsável na tarefa antes de enviar o orçamento para assinatura.',
+      );
+    }
+
+    const missingPhone = responsibles.filter(r => onlyDigits(r.phone).length < 10);
+    if (missingPhone.length) {
+      throw new BadRequestException(
+        `Responsáveis sem telefone válido no cadastro: ${missingPhone
+          .map(r => r.name)
+          .join(', ')}. O código de assinatura é enviado ao número cadastrado.`,
+      );
+    }
+
+    const ankaaUser = await this.resolveAnkaaSigner(quote);
+
+    const previous = await this.prisma.signatureEnvelope.findFirst({
+      where: { quoteId: args.quoteId },
+      orderBy: { version: 'desc' },
+      select: { id: true, version: true },
+    });
+
+    const verificationCode = formatVerificationCode(randomBytes(24));
+
+    // Ids dos signatários são necessários ANTES do render (viram os
+    // `data-signature-slot`), então são gerados aqui e reusados na persistência.
+    const signerSeeds = [
+      ...responsibles.map(r => ({
+        id: randomUUID(),
+        responsibleId: r.id,
+        userId: null as string | null,
+        name: r.name,
+        phone: onlyDigits(r.phone),
+        email: r.email,
+        orderGroup: 0,
+        side: 'CUSTOMER' as const,
+        subtitle: quote.task?.customer?.corporateName ?? quote.task?.customer?.fantasyName ?? '',
+      })),
+      {
+        id: randomUUID(),
+        responsibleId: null as string | null,
+        userId: ankaaUser.id,
+        name: ankaaUser.name,
+        phone: onlyDigits(ankaaUser.phone ?? COMPANY.phoneClean),
+        email: ankaaUser.email,
+        orderGroup: 1,
+        side: 'ANKAA' as const,
+        subtitle: `${COMPANY.directorTitle} — ${COMPANY.name}`,
+      },
+    ];
+
+    const rendered = await this.renderQuoteDocument(quote, signerSeeds, verificationCode);
+
+    if (rendered.overflowed) {
+      throw new BadRequestException(
+        'A página de assinaturas não comporta todos os signatários selecionados. ' +
+          'Reduza o número de responsáveis ou fale com o suporte.',
+      );
+    }
+
+    const originalSha256 = sha256Hex(rendered.pdf);
+    const fileId = await this.persistPdf(quote, rendered.pdf, 'original', verificationCode);
+
+    const deadlineAt = quote.expiresAt;
+
+    const envelope = await this.prisma.$transaction(async tx => {
+      const created = await tx.signatureEnvelope.create({
+        data: {
+          quoteId: args.quoteId,
+          status: EnvelopeStatus.RUNNING,
+          version: (previous?.version ?? 0) + 1,
+          previousEnvelopeId: previous?.id ?? null,
+          sequential: true,
+          deadlineAt,
+          originalFileId: fileId,
+          originalSha256,
+          anchors: rendered.anchors as unknown as Prisma.InputJsonValue,
+          quoteSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+          quoteSnapshotSha256: hash,
+          verificationCode,
+          legalBasis: LEGAL_BASIS,
+          acceptanceClause: ACCEPTANCE_CLAUSE,
+          createdById: args.actorUserId,
+          sentAt: new Date(),
+        },
+      });
+
+      for (const seed of signerSeeds) {
+        await tx.envelopeSigner.create({
+          data: {
+            id: seed.id,
+            envelopeId: created.id,
+            responsibleId: seed.responsibleId,
+            userId: seed.userId,
+            orderGroup: seed.orderGroup,
+            declaredName: seed.name,
+            declaredPhone: seed.phone,
+            declaredEmail: seed.email ?? null,
+            phoneSource: 'customer_registry',
+            // Também o signatário Ankaa assina pelo link com código no WhatsApp.
+            // Um OTP no telefone do diretor é evidência melhor do que "estava
+            // logado no sistema", e mantém uma única cerimônia para todos.
+            authMethod: SignatureAuthMethod.WHATSAPP_OTP,
+            accessToken: randomBytes(32).toString('base64url'),
+            tokenExpiresAt: deadlineAt,
+          },
+        });
+      }
+
+      return created;
+    });
+
+    await this.audit.record(envelope.id, {
+      eventType: 'ENVELOPE_CREATED',
+      actorType: 'OPERATOR',
+      actorId: args.actorUserId,
+      documentHash: originalSha256,
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+      payload: {
+        version: envelope.version,
+        signers: signerSeeds.length,
+        contentPages: rendered.contentPages,
+        snapshotHash: hash,
+      },
+    });
+    await this.audit.record(envelope.id, {
+      eventType: 'DOCUMENT_FROZEN',
+      actorType: 'SYSTEM',
+      documentHash: originalSha256,
+    });
+
+    await this.dispatchInvitations(envelope.id);
+
+    return { envelopeId: envelope.id, verificationCode };
+  }
+
+  private async resolveAnkaaSigner(quote: QuoteWithSnapshotGraph) {
+    if (quote.commercialUserId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: quote.commercialUserId },
+        select: { id: true, name: true, phone: true, email: true },
+      });
+      if (user) return user;
+    }
+    // Sem representante comercial atribuído, cai no diretor configurado. Não há
+    // hoje nenhum campo de vendedor responsável em Task/TaskQuote além deste.
+    const director = await this.prisma.user.findFirst({
+      where: { name: { contains: COMPANY.directorName, mode: 'insensitive' } },
+      select: { id: true, name: true, phone: true, email: true },
+    });
+    if (!director) {
+      throw new BadRequestException(
+        'Não foi possível determinar o representante comercial da Ankaa para assinar. ' +
+          'Defina o responsável comercial no orçamento.',
+      );
+    }
+    return director;
+  }
+
+  private async renderQuoteDocument(
+    quote: QuoteWithSnapshotGraph,
+    signers: Array<{ id: string; name: string; subtitle: string; side: 'ANKAA' | 'CUSTOMER' }>,
+    verificationCode: string,
+  ) {
+    const firstConfig = quote.customerConfigs[0] ?? null;
+    const total = Number(quote.total);
+    const subtotal = Number(quote.subtotal);
+
+    const discountValue = firstConfig?.discountValue != null ? Number(firstConfig.discountValue) : null;
+    const discountType = firstConfig?.discountType ?? 'NONE';
+    let discountAmount = 0;
+    let discountLabel: string | null = null;
+    if (discountType === 'PERCENTAGE' && discountValue) {
+      discountAmount = Math.round(subtotal * discountValue) / 100;
+      discountLabel = `${discountValue}%`;
+    } else if (discountType === 'FIXED_VALUE' && discountValue) {
+      discountAmount = Math.min(discountValue, subtotal);
+      discountLabel = firstConfig?.discountReference ?? null;
+    }
+
+    const layoutImages = quote.layoutFiles
+      .map(f => this.renderer.resolveLayoutImageDataUri(f))
+      .filter((v): v is string => Boolean(v));
+
+    const customer = quote.task?.customer ?? null;
+
+    return this.renderer.render({
+      budgetNumber: quote.budgetNumber,
+      issuedAt: quote.createdAt,
+      expiresAt: quote.expiresAt,
+      corporateName: customer?.corporateName ?? customer?.fantasyName ?? null,
+      customerDocumentFormatted: customer?.cnpj
+        ? formatCnpj(customer.cnpj)
+        : customer?.cpf ?? null,
+      contactName: quote.task?.responsibles?.[0]?.name ?? null,
+      serialNumber: quote.task?.serialNumber ?? null,
+      plate: quote.task?.truck?.plate ?? null,
+      chassisNumber: quote.task?.truck?.chassisNumber ?? null,
+      vinPlate: quote.task?.truck?.vinPlate ?? null,
+      truckCategoryLabel: quote.task?.truck?.category ?? null,
+      truckImplementLabel: quote.task?.truck?.implementType ?? null,
+      services: quote.services.map(s => ({
+        description: s.description,
+        amount: Number(s.amount),
+        observation: s.observation ?? null,
+      })),
+      subtotal,
+      total,
+      discountLabel,
+      // O builder prefere estes dois e só cai no `discountLabel` legado se faltarem.
+      // Sem eles, um desconto PERCENTAGE saía como `Desconto (5%)`, perdendo a
+      // referência (`— ESPECIAL`) que o FIXED_VALUE já exibia.
+      discountPercent: discountType === 'PERCENTAGE' ? discountValue : null,
+      discountReference: firstConfig?.discountReference ?? null,
+      discountAmount,
+      deliveryDays: quote.customForecastDays ?? null,
+      simultaneousTasks: quote.simultaneousTasks ?? null,
+      paymentText: generatePaymentText({
+        customPaymentText: firstConfig?.customPaymentText ?? null,
+        paymentConfig: (firstConfig?.paymentConfig as any) ?? null,
+        paymentCondition: firstConfig?.paymentCondition ?? null,
+        total,
+      }),
+      guaranteeText: generateGuaranteeText({
+        customGuaranteeText: quote.customGuaranteeText ?? null,
+        guaranteeYears: quote.guaranteeYears ?? null,
+      }),
+      layoutImages,
+      signers: signers.map(s => ({
+        id: s.id,
+        name: s.name,
+        subtitle: s.subtitle,
+        side: s.side,
+      })),
+      acceptanceClause: ACCEPTANCE_CLAUSE,
+      verificationCode,
+      verificationUrl: this.verificationUrl(verificationCode),
+    });
+  }
+
+  // ===========================================================================
+  // CONVITES
+  // ===========================================================================
+
+  private async dispatchInvitations(envelopeId: string): Promise<void> {
+    const envelope = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: envelopeId },
+      include: { signers: true, quote: true },
+    });
+    if (!envelope) return;
+
+    // Sequencial: só o grupo 0 é convidado agora. A Ankaa (grupo 1) assina depois
+    // de ver quem assinou do outro lado.
+    for (const signer of envelope.signers.filter(s => s.orderGroup === 0)) {
+      const url = this.signingUrl(signer.accessToken);
+      const message =
+        `*Orçamento nº ${envelope.quote.budgetNumber} — ${COMPANY.name}*\n\n` +
+        `Olá, ${signer.declaredName}.\n` +
+        `Seu orçamento está pronto para revisão e assinatura eletrônica.\n\n` +
+        `${url}\n\n` +
+        `O link é pessoal e válido até ${envelope.deadlineAt.toLocaleDateString('pt-BR')}.`;
+
+      const ok = await this.sendWhatsApp(signer.declaredPhone, message);
+      await this.audit.recordBestEffort(envelopeId, {
+        eventType: ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
+        actorType: 'SYSTEM',
+        actorId: signer.id,
+        actorLabel: signer.declaredName,
+        payload: { channel: 'whatsapp', destination: maskPhone(signer.declaredPhone) },
+      });
+    }
+  }
+
+  private async sendWhatsApp(phone: string, message: string): Promise<boolean> {
+    if (!this.whatsapp) {
+      this.logger.error('Transporte de WhatsApp não configurado — convite não enviado.');
+      return false;
+    }
+    try {
+      return await this.whatsapp.sendMessage(phone, message);
+    } catch (error) {
+      this.logger.error(
+        `Falha ao enviar WhatsApp: ${error instanceof Error ? error.message : error}`,
+      );
+      return false;
+    }
+  }
+
+  // ===========================================================================
+  // VISÃO PÚBLICA / ASSINATURA
+  // ===========================================================================
+
+  /**
+   * Resolve o signatário pelo token do link — o ponto único por onde passam TODAS
+   * as rotas públicas por token (estado, PDF, código, assinatura e recusa).
+   *
+   * É aqui que o prazo do token é conferido, e é de propósito que seja aqui: a
+   * validação estava escrita no banco (`tokenExpiresAt`) e nunca era lida em
+   * lugar nenhum, o que fazia do link uma capability de leitura PERMANENTE. Um
+   * link vazado (encaminhado num grupo de WhatsApp, indexado num histórico de
+   * navegador, colado num chamado) continuava servindo o orçamento com preço
+   * anos depois de a coleta acabar.
+   */
+  async getByToken(token: string) {
+    const signer = await this.prisma.envelopeSigner.findUnique({
+      where: { accessToken: token },
+      include: {
+        responsible: { select: { roles: true } },
+        envelope: { include: { quote: { include: { task: { include: { customer: true } } } } } },
+      },
+    });
+    if (!signer) throw new NotFoundException('Link de assinatura inválido.');
+    this.assertTokenFresh(signer);
+    return signer;
+  }
+
+  /**
+   * Prazo do TOKEN — distinto do prazo do ENVELOPE.
+   *
+   * Hoje os dois nascem com o mesmo valor (a validade do orçamento), mas são
+   * coisas diferentes e a mensagem precisa dizer qual delas venceu:
+   *  · envelope vencido  → a coleta acabou para todo mundo;
+   *  · token vencido     → este link específico morreu (e é o que acontece
+   *    quando um link é revogado individualmente, encurtando `tokenExpiresAt`).
+   *
+   * Sem a distinção, o operador que revoga um link e o cliente que perdeu o
+   * prazo recebem a mesma frase e ninguém sabe o que fazer a seguir.
+   */
+  private assertTokenFresh(signer: { tokenExpiresAt: Date | null }): void {
+    const expiresAt = signer.tokenExpiresAt;
+    if (!expiresAt) return;
+    if (expiresAt.getTime() >= Date.now()) return;
+    throw new ForbiddenException(
+      `Este link de assinatura expirou em ${expiresAt.toLocaleDateString('pt-BR')}. ` +
+        'Solicite um novo link à Ankaa.',
+    );
+  }
+
+  /**
+   * Estado que a página pública precisa. Devolve apenas o necessário — o link é
+   * a credencial, então nada além do próprio documento e da identificação do
+   * signatário é exposto.
+   */
+  async getPublicState(token: string, ctx: RequestContext) {
+    const signer = await this.getByToken(token);
+    const env = signer.envelope;
+
+    await this.prisma.envelopeSigner.update({
+      where: { id: signer.id },
+      data: {
+        timesViewed: { increment: 1 },
+        lastViewedAt: new Date(),
+        firstViewedAt: signer.firstViewedAt ?? new Date(),
+        status:
+          signer.status === EnvelopeSignerStatus.PENDING
+            ? EnvelopeSignerStatus.VIEWED
+            : signer.status,
+      },
+    });
+
+    await this.audit.recordBestEffort(env.id, {
+      eventType: 'DOCUMENT_VIEWED',
+      actorType: 'SIGNER',
+      actorId: signer.id,
+      actorLabel: signer.declaredName,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      documentHash: env.originalSha256,
+    });
+
+    const customer = env.quote.task?.customer ?? null;
+
+    return {
+      envelope: {
+        id: env.id,
+        status: env.status,
+        budgetNumber: env.quote.budgetNumber,
+        total: formatCurrencyBRL(Number(env.quote.total)),
+        deadlineAt: env.deadlineAt,
+        verificationCode: env.verificationCode,
+        acceptanceClause: env.acceptanceClause,
+      },
+      signer: {
+        id: signer.id,
+        name: signer.declaredName,
+        phoneMasked: maskPhone(signer.declaredPhone),
+        phoneParts: phoneMaskParts(signer.declaredPhone),
+        cpfParts: signer.declaredCpf ? cpfMaskParts(signer.declaredCpf) : null,
+        status: signer.status,
+        cargo: signer.informedCargo,
+        // Cargo vem do CADASTRO (Responsible.roles), como nome e telefone. O
+        // signatário confirma, não digita — mesma lógica que dá peso ao OTP:
+        // o que a Ankaa afirma fica registrado ao lado do que ele aceita.
+        registryCargo: formatResponsibleRoles(signer.responsible?.roles ?? []) || null,
+        signedAt: signer.signedAt,
+      },
+      company: {
+        name: customer?.corporateName ?? customer?.fantasyName ?? '',
+        cnpj: customer?.cnpj ? formatCnpj(customer.cnpj) : null,
+      },
+      declarations: DECLARATIONS.map(d => ({
+        key: d.key,
+        text: renderDeclaration(d.template, {
+          budgetNumber: env.quote.budgetNumber,
+          total: formatCurrencyBRL(Number(env.quote.total)),
+          cargo: signer.informedCargo ?? '{cargo}',
+          company: customer?.corporateName ?? customer?.fantasyName ?? '',
+        }),
+      })),
+      canSign: this.canSignNow(env.status, signer.status, env.deadlineAt),
+    };
+  }
+
+  private canSignNow(
+    envStatus: EnvelopeStatus,
+    signerStatus: EnvelopeSignerStatus,
+    deadlineAt?: Date,
+  ): boolean {
+    // Inclui o prazo: sem isso a página oferecia o formulário inteiro e só
+    // recusava depois de o signatário digitar CPF e cargo.
+    if (deadlineAt && deadlineAt.getTime() < Date.now()) return false;
+    return (
+      envStatus === EnvelopeStatus.RUNNING &&
+      (signerStatus === EnvelopeSignerStatus.PENDING ||
+        signerStatus === EnvelopeSignerStatus.VIEWED ||
+        signerStatus === EnvelopeSignerStatus.AUTHENTICATED)
+    );
+  }
+
+  /** Etapa 1: identificação + emissão do código. */
+  async requestOtp(args: {
+    token: string;
+    cpf: string;
+    cargo: string;
+    /** Dígitos ocultos do telefone, digitados pelo signatário para confirmação. */
+    phoneConfirm?: string | null;
+    ctx: RequestContext;
+  }): Promise<{ challengeId: string; destinationMask: string; expiresAt: Date }> {
+    this.assertCeremonyConfigured();
+
+    const signer = await this.getByToken(args.token);
+    const env = signer.envelope;
+
+    await this.assertSignable(env, signer);
+
+    const cpfDigits = onlyDigits(args.cpf);
+    if (!isCpfWellFormed(cpfDigits)) {
+      throw new BadRequestException('CPF inválido.');
+    }
+    if (!args.cargo?.trim()) {
+      throw new BadRequestException('Informe seu cargo na empresa.');
+    }
+
+    // Confirmação do telefone ANTES de disparar o código.
+    //
+    // O número é do cadastro e o signatário não pode alterá-lo — é isso que dá
+    // peso probatório ao OTP. Mas ele pode CONFIRMAR que conhece o número,
+    // digitando os dígitos que a máscara esconde. Isso detecta cedo um cadastro
+    // errado (o código iria para o telefone de outra pessoa) e é mais um dado
+    // ligando o signatário ao canal.
+    const phoneDigits = onlyDigits(signer.declaredPhone);
+    const hidden = phoneDigits.slice(-8, -4); // os 4 escondidos pela máscara
+    if (hidden.length === 4) {
+      const typed = onlyDigits(args.phoneConfirm ?? '');
+      if (typed !== hidden) {
+        throw new BadRequestException(
+          'Os dígitos do telefone não conferem. Confirme o número cadastrado ou fale com a Ankaa.',
+        );
+      }
+    }
+
+    const declaredCpf = signer.declaredCpf ? onlyDigits(signer.declaredCpf) : null;
+    const cpfMatch = declaredCpf ? declaredCpf === cpfDigits : null;
+    if (declaredCpf && !cpfMatch) {
+      throw new BadRequestException(
+        'Os dígitos do CPF não conferem com o cadastro. Confira ou fale com a Ankaa.',
+      );
+    }
+
+    // ORDEM IMPORTA: emitir o desafio ANTES de gravar a identidade.
+    //
+    // Era o contrário, e isso abria dois furos de uma vez. O primeiro é o M3: a
+    // gravação de `informedCpf` acontecia antes de `issue()` recusar por
+    // cooldown, então, com um código já em trânsito, uma segunda chamada com
+    // OUTRO CPF trocava a identidade sob o código vivo. O segundo é mais
+    // prosaico: cada chamada barrada pelo limite ainda assim escrevia no banco e
+    // gravava um evento na trilha — que é APPEND-ONLY, ou seja, marteladas no
+    // endpoint inchavam a cadeia de auditoria para sempre.
+    //
+    // Com `issue()` primeiro, cooldown e teto horário barram tudo antes de
+    // qualquer escrita, e a identidade só é persistida quando existe um código
+    // atado a ela.
+    const challenge = await this.challenges.issue({
+      signerId: signer.id,
+      channel: 'whatsapp',
+      destinationMask: maskPhone(signer.declaredPhone),
+      documentSha256: env.originalSha256,
+      identity: cpfDigits,
+    });
+
+    await this.prisma.envelopeSigner.update({
+      where: { id: signer.id },
+      data: { informedCpf: cpfDigits, informedCargo: args.cargo.trim(), cpfMatch },
+    });
+
+    await this.audit.record(env.id, {
+      eventType: 'CPF_SUBMITTED',
+      actorType: 'SIGNER',
+      actorId: signer.id,
+      actorLabel: signer.declaredName,
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+      payload: { cargo: args.cargo.trim(), cpfMatch: cpfMatch === null ? 'unknown' : String(cpfMatch) },
+    });
+
+    if (cpfMatch === false) {
+      // Divergência é FATO AUDITÁVEL, não bloqueio: a Ankaa pode ter cadastrado o
+      // CPF errado, e barrar aqui destruiria conversão sem ganho probatório.
+      await this.audit.record(env.id, {
+        eventType: 'CPF_MISMATCH',
+        actorType: 'SYSTEM',
+        actorId: signer.id,
+        payload: { informed: cpfDigits.slice(-4) },
+      });
+    }
+
+    const message =
+      `*${challenge.code}* é o seu código de assinatura do orçamento nº ${env.quote.budgetNumber}.\n\n` +
+      `Ele expira em 5 minutos. Nunca compartilhe este código.`;
+
+    // Modo de desenvolvimento: ecoa o código no log em vez de enviar.
+    // DUAS travas: só fora de produção E com a flag explícita. Existe para
+    // permitir testar a cerimônia inteira sem disparar mensagem para o telefone
+    // real de um cliente. Em produção esta condição é inalcançável.
+    const devEcho =
+      process.env.NODE_ENV !== 'production' &&
+      this.config.get<string>('SIGNATURE_DEV_ECHO_OTP') === 'true';
+
+    let ok: boolean;
+    if (devEcho) {
+      this.logger.warn(
+        `[DEV] Código de assinatura de ${signer.declaredName} (${maskPhone(signer.declaredPhone)}): ` +
+          `${challenge.code} — NENHUMA mensagem foi enviada.`,
+      );
+      ok = true;
+    } else {
+      ok = await this.sendWhatsApp(signer.declaredPhone, message);
+    }
+    await this.challenges.markDelivered(challenge.challengeId, null, ok ? 'sent' : 'failed');
+
+    await this.audit.record(env.id, {
+      eventType: ok ? 'OTP_SENT' : 'OTP_DELIVERY_FAILED',
+      actorType: 'SYSTEM',
+      actorId: signer.id,
+      payload: { channel: 'whatsapp', destination: maskPhone(signer.declaredPhone) },
+    });
+
+    if (!ok) {
+      throw new BadRequestException(
+        'Não foi possível enviar o código pelo WhatsApp. Entre em contato com a Ankaa.',
+      );
+    }
+
+    return {
+      challengeId: challenge.challengeId,
+      destinationMask: maskPhone(signer.declaredPhone),
+      expiresAt: challenge.expiresAt,
+    };
+  }
+
+  /** Etapa 2: validação do código + aplicação da assinatura. */
+  async signWithOtp(args: {
+    token: string;
+    challengeId: string;
+    code: string;
+    acceptedDeclarationKeys: string[];
+    clientTimestamp?: string | null;
+    /**
+     * Tipo frouxo de propósito: `strictNullChecks` está desligado no projeto, o
+     * que faz `z.infer` marcar TODA chave como opcional, e este método também é
+     * chamado por script. `normalizeGeo` é quem impõe a forma.
+     */
+    geo?: { lat?: number; lon?: number; accuracy?: number | null } | null;
+    ctx: RequestContext;
+  }): Promise<{ status: EnvelopeSignerStatus; envelopeStatus: EnvelopeStatus }> {
+    this.assertCeremonyConfigured();
+
+    const signer = await this.getByToken(args.token);
+    const env = signer.envelope;
+
+    await this.assertSignable(env, signer);
+
+    const required = DECLARATIONS.map(d => d.key);
+    const missing = required.filter(k => !args.acceptedDeclarationKeys.includes(k));
+    if (missing.length) {
+      throw new BadRequestException('É necessário aceitar todas as declarações para assinar.');
+    }
+    if (!signer.informedCpf || !signer.informedCargo) {
+      throw new BadRequestException('Informe CPF e cargo antes de assinar.');
+    }
+
+    // GUARANTIA DE FRESCOR — verificada no momento do ato, não confiando na
+    // cobertura dos hooks de escrita.
+    //
+    // `onQuoteContentChanged` é chamado de UM ponto (TaskQuoteService.update),
+    // mas dezenas de caminhos alteram o que o documento exibe: escrita aninhada
+    // via PUT /tasks/:id, service-order renomeando serviços, rollback de campo,
+    // truck.service, customer.service, responsible.service (que pode até TROCAR
+    // O TELEFONE que recebe o OTP), e o backfill automático de CNPJ da
+    // conciliação bancária. Perseguir call site por call site não se sustenta.
+    //
+    // Aqui a pergunta é feita uma vez, no único instante em que a resposta é
+    // juridicamente decisiva: o snapshot atual ainda é o que foi congelado?
+    // Se não for, ninguém assina — e o envelope é invalidado na hora.
+    const fresh = await this.snapshots.buildForQuote(env.quoteId);
+    if (fresh && fresh.hash !== env.quoteSnapshotSha256) {
+      await this.onQuoteContentChanged(env.quoteId, null);
+      throw new BadRequestException(
+        'O orçamento foi alterado desde o envio. Uma nova versão será enviada para sua revisão.',
+      );
+    }
+
+    const verdict = await this.challenges.verify({
+      signerId: signer.id,
+      challengeId: args.challengeId,
+      code: args.code,
+      expectedDocumentSha256: env.originalSha256,
+      // O código só vale para a identidade que o pediu (ver `codeHashFor`).
+      identity: signer.informedCpf,
+    });
+
+    if (!verdict.ok) {
+      const eventType =
+        verdict.reason === 'LOCKED'
+          ? 'OTP_LOCKED'
+          : verdict.reason === 'DOCUMENT_CHANGED'
+            ? 'ENVELOPE_INVALIDATED'
+            : 'OTP_FAILED';
+      await this.audit.record(env.id, {
+        eventType: eventType as any,
+        actorType: 'SIGNER',
+        actorId: signer.id,
+        ipAddress: args.ctx.ipAddress,
+        userAgent: args.ctx.userAgent,
+        payload: { reason: verdict.reason },
+      });
+
+      if (verdict.reason === 'LOCKED') {
+        throw new BadRequestException(
+          'Código bloqueado por excesso de tentativas. Solicite um novo código.',
+        );
+      }
+      if (verdict.reason === 'DOCUMENT_CHANGED') {
+        throw new BadRequestException(
+          'O orçamento foi alterado. Uma nova versão será enviada para sua revisão.',
+        );
+      }
+      const left = verdict.attemptsLeft ?? 0;
+      throw new BadRequestException(
+        left > 0 ? `Código inválido. Tentativas restantes: ${left}.` : 'Código inválido ou expirado.',
+      );
+    }
+
+    await this.audit.record(env.id, {
+      eventType: 'OTP_VERIFIED',
+      actorType: 'SIGNER',
+      actorId: signer.id,
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+    });
+
+    const customer = env.quote.task?.customer ?? null;
+    const declarations = DECLARATIONS.map(d => ({
+      key: d.key,
+      // Texto EXATO exibido, nunca um booleano: o que importa em juízo é o que
+      // aquela pessoa leu, e o template pode mudar entre versões.
+      text: renderDeclaration(d.template, {
+        budgetNumber: env.quote.budgetNumber,
+        total: formatCurrencyBRL(Number(env.quote.total)),
+        cargo: signer.informedCargo,
+        company: customer?.corporateName ?? customer?.fantasyName ?? '',
+      }),
+      acceptedAt: new Date().toISOString(),
+      version: DECLARATIONS_VERSION,
+    }));
+
+    await this.audit.record(env.id, {
+      eventType: 'DECLARATIONS_ACCEPTED',
+      actorType: 'SIGNER',
+      actorId: signer.id,
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+      payload: { version: DECLARATIONS_VERSION, count: declarations.length },
+    });
+
+    const serverTimestamp = new Date();
+    // O carimbo do dispositivo é evidência de skew, não fonte de verdade — e uma
+    // string que o `Date` não parseia vira `Invalid Date`, que o driver do Prisma
+    // rejeita no meio da gravação da assinatura (500 DEPOIS de o OTP ter sido
+    // consumido). O Zod da rota já barra isso; aqui é a rede de baixo, porque
+    // este método também é chamado por script e por teste.
+    const clientSignedAt = this.parseClientTimestamp(args.clientTimestamp);
+    const geo = this.normalizeGeo(args.geo);
+    const evidence = {
+      envelopeId: env.id,
+      signerId: signer.id,
+      documentSha256: env.originalSha256,
+      declaredName: signer.declaredName,
+      declaredPhone: signer.declaredPhone,
+      informedCpf: signer.informedCpf,
+      informedCargo: signer.informedCargo,
+      authMethod: signer.authMethod,
+      challengeId: args.challengeId,
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+      clientTimestamp: clientSignedAt ? clientSignedAt.toISOString() : null,
+      serverTimestamp: serverTimestamp.toISOString(),
+      // Arredondado a 4 casas (~11m) por minimização — LGPD art. 6º, III.
+      geoLat: geo ? Number(geo.lat.toFixed(4)) : null,
+      geoLon: geo ? Number(geo.lon.toFixed(4)) : null,
+      declarations,
+    };
+
+    const evidenceHash = sha256Hex(evidence);
+    // Sem `?? ''` e sem ternário: a ausência do segredo NÃO pode virar
+    // `hmacSignature = null` em silêncio. `assertCeremonyConfigured()` no topo
+    // deste método já garantiu que ele existe; se alguém remover aquela guarda,
+    // isto aqui estoura em vez de gravar evidência sem prova de origem.
+    const pepper = this.config.get<string>('SIGNATURE_HMAC_SECRET');
+    if (!pepper) {
+      throw new ServiceUnavailableException(
+        'Assinatura eletrônica temporariamente indisponível (configuração do servidor). ' +
+          'Entre em contato com a Ankaa.',
+      );
+    }
+    const hmacSignature = createHmac('sha256', pepper).update(evidenceHash).digest('hex');
+
+    await this.prisma.envelopeSigner.update({
+      where: { id: signer.id },
+      data: {
+        status: EnvelopeSignerStatus.SIGNED,
+        signedAt: serverTimestamp,
+        clientSignedAt,
+        ipAddress: args.ctx.ipAddress,
+        userAgent: args.ctx.userAgent,
+        geoLat: geo ? new Prisma.Decimal(geo.lat.toFixed(6)) : null,
+        geoLon: geo ? new Prisma.Decimal(geo.lon.toFixed(6)) : null,
+        geoAccuracyM: geo?.accuracy ? Math.round(geo.accuracy) : null,
+        geoSource: geo ? 'gps' : 'denied',
+        declarations: declarations as unknown as Prisma.InputJsonValue,
+        evidenceJson: evidence as unknown as Prisma.InputJsonValue,
+        evidenceHash,
+        hmacSignature,
+      },
+    });
+
+    await this.audit.record(env.id, {
+      eventType: 'SIGNATURE_APPLIED',
+      actorType: 'SIGNER',
+      actorId: signer.id,
+      actorLabel: signer.declaredName,
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+      documentHash: env.originalSha256,
+      payload: { evidenceHash, cargo: signer.informedCargo },
+    });
+
+    const envelopeStatus = await this.advanceEnvelope(env.id);
+
+    return { status: EnvelopeSignerStatus.SIGNED, envelopeStatus };
+  }
+
+  /**
+   * Recusa explícita — mesma cerimônia da assinatura, sentido oposto.
+   *
+   * **Exige OTP verificado.** Antes não exigia nada além do link: um POST com
+   * `{reason:"x"}` levava o envelope a estado TERMINAL, e como o envelope
+   * terminal bloqueia toda assinatura (`assertSignable`) e a criação de uma nova
+   * coleta exige cancelar a anterior, qualquer pessoa que recebesse o link
+   * encaminhado matava o negócio — anonimamente, e sem que ninguém pudesse
+   * depois dizer quem foi.
+   *
+   * A recusa é um ato jurídico do mesmo peso que a aceitação (CC art. 431: a
+   * aceitação fora do prazo ou com modificações importa nova proposta), e a
+   * evidência que ela produz precisa ser da mesma qualidade: quem recusou, com
+   * qual CPF, de qual IP, com qual motivo, provando posse do telefone cadastrado.
+   *
+   * O que NÃO é feito de propósito: mexer no status dos demais signatários. O
+   * PENDING/VIEWED de quem não fez nada é registro verdadeiro do que aquela
+   * pessoa fez, e sobrescrevê-lo com VOIDED apagaria isso. O congelamento vem do
+   * envelope em estado terminal, que `assertSignable` já impõe a todos.
+   */
+  async refuse(args: {
+    token: string;
+    challengeId: string;
+    code: string;
+    reason: string;
+    ctx: RequestContext;
+  }): Promise<void> {
+    this.assertCeremonyConfigured();
+
+    const signer = await this.getByToken(args.token);
+    const env = signer.envelope;
+    await this.assertSignable(env, signer);
+
+    const reason = (args.reason ?? '').trim();
+    if (!reason) {
+      throw new BadRequestException('Informe o motivo da recusa.');
+    }
+    if (!signer.informedCpf || !signer.informedCargo) {
+      throw new BadRequestException('Informe CPF e cargo, e solicite o código, antes de recusar.');
+    }
+
+    const verdict = await this.challenges.verify({
+      signerId: signer.id,
+      challengeId: args.challengeId,
+      code: args.code,
+      expectedDocumentSha256: env.originalSha256,
+      identity: signer.informedCpf,
+    });
+
+    if (!verdict.ok) {
+      await this.audit.record(env.id, {
+        eventType: verdict.reason === 'LOCKED' ? 'OTP_LOCKED' : 'OTP_FAILED',
+        actorType: 'SIGNER',
+        actorId: signer.id,
+        ipAddress: args.ctx.ipAddress,
+        userAgent: args.ctx.userAgent,
+        payload: { reason: verdict.reason, stage: 'refusal' },
+      });
+
+      if (verdict.reason === 'LOCKED') {
+        throw new BadRequestException(
+          'Código bloqueado por excesso de tentativas. Solicite um novo código.',
+        );
+      }
+      if (verdict.reason === 'DOCUMENT_CHANGED') {
+        throw new BadRequestException(
+          'O orçamento foi alterado. Uma nova versão será enviada para sua revisão.',
+        );
+      }
+      const left = verdict.attemptsLeft ?? 0;
+      throw new BadRequestException(
+        left > 0 ? `Código inválido. Tentativas restantes: ${left}.` : 'Código inválido ou expirado.',
+      );
+    }
+
+    await this.audit.record(env.id, {
+      eventType: 'OTP_VERIFIED',
+      actorType: 'SIGNER',
+      actorId: signer.id,
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+      payload: { stage: 'refusal' },
+    });
+
+    // A recusa é atribuída ao SIGNATÁRIO e registrada na trilha encadeada ANTES
+    // de o envelope ir para o estado terminal: se a gravação da prova falhar
+    // (`record` lança, ao contrário de `recordBestEffort`), o negócio não é
+    // morto por um ato que não conseguimos documentar.
+    await this.audit.record(env.id, {
+      eventType: 'SIGNATURE_REFUSED',
+      actorType: 'SIGNER',
+      actorId: signer.id,
+      actorLabel: signer.declaredName,
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+      documentHash: env.originalSha256,
+      payload: {
+        reason,
+        cpf: maskCpf(signer.informedCpf),
+        cargo: signer.informedCargo,
+        challengeId: args.challengeId,
+      },
+    });
+
+    await this.prisma.$transaction(async tx => {
+      await tx.envelopeSigner.update({
+        where: { id: signer.id },
+        data: {
+          status: EnvelopeSignerStatus.REFUSED,
+          refusedAt: new Date(),
+          refusalReason: reason,
+          ipAddress: args.ctx.ipAddress,
+          userAgent: args.ctx.userAgent,
+        },
+      });
+      // Reivindicação condicionada ao estado atual, como em `advanceEnvelope`:
+      // duas recusas simultâneas (ou uma recusa concorrente com a conclusão) não
+      // podem sobrescrever um envelope que já saiu de RUNNING.
+      await tx.signatureEnvelope.updateMany({
+        where: { id: env.id, status: EnvelopeStatus.RUNNING },
+        data: { status: EnvelopeStatus.REFUSED },
+      });
+    });
+
+    await this.challenges.supersedeAllForEnvelope(env.id);
+  }
+
+  /**
+   * Geolocalização utilizável ou nada.
+   *
+   * Meia coordenada não é evidência: `geoSource: 'gps'` com latitude nula
+   * afirmaria no dossiê que houve captura de posição quando não houve. Ou os
+   * dois números são finitos e estão na faixa, ou o ato é registrado como
+   * `denied`, que é o que de fato aconteceu.
+   */
+  private normalizeGeo(
+    geo: { lat?: number; lon?: number; accuracy?: number | null } | null | undefined,
+  ): { lat: number; lon: number; accuracy: number | null } | null {
+    if (!geo) return null;
+    const lat = typeof geo.lat === 'number' && Number.isFinite(geo.lat) ? geo.lat : null;
+    const lon = typeof geo.lon === 'number' && Number.isFinite(geo.lon) ? geo.lon : null;
+    if (lat === null || lon === null) return null;
+    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+    const accuracy =
+      typeof geo.accuracy === 'number' && Number.isFinite(geo.accuracy) && geo.accuracy >= 0
+        ? geo.accuracy
+        : null;
+    return { lat, lon, accuracy };
+  }
+
+  /**
+   * Carimbo do relógio do dispositivo. Devolve `null` para qualquer coisa que o
+   * `Date` não parseie — nunca um `Invalid Date`, que o Prisma rejeita.
+   */
+  private parseClientTimestamp(value: string | null | undefined): Date | null {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      this.logger.warn('clientTimestamp inválido recebido na assinatura — ignorado.');
+      return null;
+    }
+    return parsed;
+  }
+
+  private async assertSignable(
+    env: { status: EnvelopeStatus; deadlineAt: Date; sequential?: boolean },
+    signer: { status: EnvelopeSignerStatus; orderGroup: number; envelopeId: string },
+  ): Promise<void> {
+    if (env.status !== EnvelopeStatus.RUNNING) {
+      throw new ForbiddenException('Esta coleta de assinaturas não está mais ativa.');
+    }
+    if (env.deadlineAt.getTime() < Date.now()) {
+      throw new ForbiddenException('O prazo para assinatura deste orçamento expirou.');
+    }
+    if (signer.status === EnvelopeSignerStatus.SIGNED) {
+      throw new BadRequestException('Você já assinou este orçamento.');
+    }
+    if (
+      signer.status === EnvelopeSignerStatus.REFUSED ||
+      signer.status === EnvelopeSignerStatus.VOIDED ||
+      signer.status === EnvelopeSignerStatus.EXPIRED
+    ) {
+      throw new ForbiddenException('Este link de assinatura não está mais válido.');
+    }
+
+    // `sequential` era gravado e nunca verificado: o signatário Ankaa (grupo 1)
+    // conseguia assinar antes do cliente, justamente o contrário da intenção
+    // documentada de assinar por último tendo visto quem assinou do outro lado.
+    if (env.sequential !== false && signer.orderGroup > 0) {
+      const blocking = await this.prisma.envelopeSigner.count({
+        where: {
+          envelopeId: signer.envelopeId,
+          orderGroup: { lt: signer.orderGroup },
+          status: { not: EnvelopeSignerStatus.SIGNED },
+        },
+      });
+      if (blocking > 0) {
+        throw new ForbiddenException(
+          'Aguarde os responsáveis do cliente assinarem antes de prosseguir.',
+        );
+      }
+    }
+  }
+
+  // ===========================================================================
+  // AVANÇO / FINALIZAÇÃO
+  // ===========================================================================
+
+  /** Libera o grupo seguinte ou finaliza quando todos assinaram. */
+  private async advanceEnvelope(envelopeId: string): Promise<EnvelopeStatus> {
+    const env = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: envelopeId },
+      include: { signers: true },
+    });
+    if (!env) return EnvelopeStatus.CANCELLED;
+
+    const pending = env.signers.filter(s => s.status !== EnvelopeSignerStatus.SIGNED);
+    if (pending.length === 0) {
+      // Reivindicação ATÔMICA. Dois signatários concluindo ao mesmo tempo liam
+      // `pending.length === 0` os dois e chamavam finalize() em paralelo — dois
+      // selos PAdES, duas linhas File no MESMO caminho em disco, e
+      // `budgetApprove` disparado duas vezes. O updateMany condicionado ao
+      // estado atual só deixa um vencer.
+      const claim = await this.prisma.signatureEnvelope.updateMany({
+        where: { id: envelopeId, status: EnvelopeStatus.RUNNING },
+        data: { status: EnvelopeStatus.COMPLETED, completedAt: new Date() },
+      });
+      if (claim.count === 0) return EnvelopeStatus.COMPLETED;
+      await this.finalize(envelopeId);
+      return EnvelopeStatus.COMPLETED;
+    }
+
+    // Grupo 0 completo → convida o grupo 1 (Ankaa assina por último, vendo quem
+    // assinou do outro lado).
+    const group0Pending = pending.filter(s => s.orderGroup === 0);
+    if (group0Pending.length === 0) {
+      const ankaa = pending.find(s => s.orderGroup === 1);
+      if (ankaa && !ankaa.firstViewedAt) {
+        await this.notifyAnkaaSigner(env.id, ankaa.id);
+      }
+    }
+
+    return EnvelopeStatus.RUNNING;
+  }
+
+  private async notifyAnkaaSigner(envelopeId: string, signerId: string): Promise<void> {
+    const signer = await this.prisma.envelopeSigner.findUnique({
+      where: { id: signerId },
+      include: { envelope: { include: { quote: true } } },
+    });
+    if (!signer) return;
+    const url = this.signingUrl(signer.accessToken);
+    const message =
+      `*Orçamento nº ${signer.envelope.quote.budgetNumber}* — todos os responsáveis do cliente ` +
+      `já assinaram.\nRevise os signatários e assine: ${url}`;
+    const ok = await this.sendWhatsApp(signer.declaredPhone, message);
+    await this.audit.recordBestEffort(envelopeId, {
+      eventType: ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
+      actorType: 'SYSTEM',
+      actorId: signerId,
+      payload: { stage: 'ankaa' },
+    });
+  }
+
+  /**
+   * Monta o artefato final e aplica o selo PAdES.
+   *
+   * O selo é o ÚLTIMO passo. Falha na selagem não perde a assinatura: o documento
+   * montado é persistido mesmo assim, com evento PADES_FAILED, para retentativa.
+   */
+  async finalize(envelopeId: string): Promise<void> {
+    const env = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: envelopeId },
+      include: {
+        signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] },
+        quote: { include: { task: { include: { customer: true } } } },
+        originalFile: true,
+      },
+    });
+    if (!env) throw new NotFoundException('Envelope não encontrado.');
+
+    const { readFileSync } = await import('fs');
+    const originalPdf = readFileSync(env.originalFile.path);
+
+    // Confere que os bytes em disco continuam sendo os que foram assinados.
+    const onDiskHash = sha256Hex(originalPdf);
+    if (onDiskHash !== env.originalSha256) {
+      await this.audit.record(envelopeId, {
+        eventType: 'PADES_FAILED',
+        actorType: 'SYSTEM',
+        payload: { reason: 'original_hash_mismatch', onDisk: onDiskHash },
+      });
+      throw new BadRequestException(
+        'O documento original em disco não confere com o hash registrado. Selagem abortada.',
+      );
+    }
+
+    // Mesma guarda antes de SELAR: um selo PAdES sobre um snapshot obsoleto
+    // seria uma afirmação criptográfica falsa sobre o conteúdo do contrato.
+    const freshAtSeal = await this.snapshots.buildForQuote(env.quoteId);
+    if (freshAtSeal && freshAtSeal.hash !== env.quoteSnapshotSha256) {
+      await this.audit.record(envelopeId, {
+        eventType: 'PADES_FAILED',
+        actorType: 'SYSTEM',
+        payload: { reason: 'snapshot_stale_at_seal' },
+      });
+      await this.onQuoteContentChanged(env.quoteId, null);
+      throw new BadRequestException(
+        'O orçamento foi alterado antes da conclusão. A coleta foi invalidada.',
+      );
+    }
+
+    const customer = env.quote.task?.customer ?? null;
+    const companyLabel = customer?.corporateName ?? customer?.fantasyName ?? null;
+
+    const assemblerSigners: AssemblerSigner[] = env.signers.map(s => ({
+      id: s.id,
+      name: s.declaredName,
+      cargo: s.informedCargo,
+      companyLabel: s.orderGroup === 1 ? COMPANY.name : companyLabel,
+      cpf: s.informedCpf,
+      phone: s.declaredPhone,
+      signedAt: s.signedAt,
+      status: s.status,
+      authMethodLabel: AUTH_METHOD_LABELS[s.authMethod] ?? s.authMethod,
+      ipAddress: s.ipAddress,
+      side: s.orderGroup === 1 ? 'ANKAA' : 'CUSTOMER',
+    }));
+
+    const anchors = env.anchors as any;
+    const verificationUrl = this.verificationUrl(env.verificationCode);
+
+    const stamped = await this.assembler.stampSeals({
+      originalPdf,
+      anchors,
+      signers: assemblerSigners,
+      budgetNumber: env.quote.budgetNumber,
+      verificationCode: env.verificationCode,
+      verificationUrl,
+      originalSha256: env.originalSha256,
+    });
+
+    const events = await this.audit.getTrail(envelopeId);
+    const chainTip = await this.audit.getChainTip(envelopeId);
+
+    const auditPages = await this.assembler.buildAuditPages({
+      originalPdf,
+      anchors,
+      signers: assemblerSigners,
+      events: events.map(e => ({
+        sequence: e.sequence,
+        occurredAt: e.occurredAt,
+        description: EVENT_DESCRIPTIONS[e.eventType] ?? e.eventType,
+        ipAddress: e.ipAddress,
+        hash: e.hash,
+      })),
+      budgetNumber: env.quote.budgetNumber,
+      envelopeId: env.id,
+      verificationCode: env.verificationCode,
+      verificationUrl,
+      originalSha256: env.originalSha256,
+      chainTip,
+      acceptanceClause: env.acceptanceClause,
+    });
+
+    let finalPdf = await this.assembler.mergeWithAudit(stamped, auditPages);
+
+    await this.audit.record(envelopeId, {
+      eventType: 'DOCUMENT_ASSEMBLED',
+      actorType: 'SYSTEM',
+      payload: { bytes: finalPdf.length },
+    });
+
+    // ---- Selo PAdES (último passo) ----
+    let padesLevel: string | null = null;
+    let certMeta: Record<string, unknown> = {};
+    if (this.pades.isEnabled()) {
+      try {
+        const sealed = await this.pades.sealPdf(finalPdf, {
+          reason: `Orçamento nº ${env.quote.budgetNumber} — envelope ${env.verificationCode}`,
+          location: COMPANY.signatureLocation,
+          signerName: this.pades.getCertMetadata()?.subjectCommonName ?? COMPANY.corporateName,
+          contactInfo: COMPANY.email,
+        });
+        finalPdf = sealed.signedPdf;
+        padesLevel = sealed.level;
+        certMeta = {
+          certSubject: sealed.cert.subject,
+          certIssuer: sealed.cert.issuer,
+          certSerialNumber: sealed.cert.serialNumber,
+          certCnpj: sealed.cert.cnpj,
+          certNotAfter: sealed.cert.notAfter,
+          tsaUrl: sealed.tsaUrl,
+          tsaGenTime: sealed.tsaGenTime,
+        };
+        await this.audit.record(envelopeId, {
+          eventType: 'PADES_SEALED',
+          actorType: 'SYSTEM',
+          payload: { level: sealed.level, serial: sealed.cert.serialNumber },
+        });
+        if (sealed.level === 'B-T') {
+          await this.audit.record(envelopeId, {
+            eventType: 'TSA_STAMPED',
+            actorType: 'SYSTEM',
+            payload: { tsa: sealed.tsaUrl ?? '', genTime: sealed.tsaGenTime?.toISOString() ?? '' },
+          });
+        } else if (sealed.tsaError) {
+          await this.audit.record(envelopeId, {
+            eventType: 'TSA_FAILED',
+            actorType: 'SYSTEM',
+            payload: { error: sealed.tsaError },
+          });
+        }
+      } catch (error) {
+        this.logger.error(
+          `Falha ao selar o envelope ${envelopeId}: ${error instanceof Error ? error.message : error}`,
+        );
+        await this.audit.record(envelopeId, {
+          eventType: 'PADES_FAILED',
+          actorType: 'SYSTEM',
+          payload: { error: error instanceof Error ? error.message : String(error) },
+        });
+      }
+    }
+
+    const finalSha256 = sha256Hex(finalPdf);
+    const finalFileId = await this.persistPdf(
+      env.quote as any,
+      finalPdf,
+      'assinado',
+      env.verificationCode,
+    );
+
+    await this.prisma.signatureEnvelope.update({
+      where: { id: envelopeId },
+      data: {
+        status: EnvelopeStatus.COMPLETED,
+        completedAt: new Date(),
+        finalFileId,
+        finalSha256,
+        sealedAt: padesLevel ? new Date() : null,
+        padesLevel,
+        ...certMeta,
+      },
+    });
+
+    await this.audit.record(envelopeId, {
+      eventType: 'DOCUMENT_FINALIZED',
+      actorType: 'SYSTEM',
+      documentHash: finalSha256,
+      payload: { padesLevel: padesLevel ?? 'none' },
+    });
+
+    // A assinatura do cliente É a aprovação do orçamento. Roteia pelo
+    // `budgetApprove()` do domínio, e não por uma escrita direta de status, para
+    // que o gate de layout, o dispatch de `task_quote.budget_approved` e o
+    // `syncEmNegociacaoForTask` continuem valendo. Best-effort: um erro aqui não
+    // pode desfazer assinaturas já coletadas e seladas.
+    if (this.onCompleted) {
+      try {
+        await this.onCompleted(env.quoteId, envelopeId, env.createdById);
+      } catch (error) {
+        this.logger.error(
+          `Envelope ${envelopeId} concluído, mas a aprovação do orçamento falhou: ${
+            error instanceof Error ? error.message : error
+          }`,
+        );
+      }
+    }
+  }
+
+  // ===========================================================================
+  // INVALIDAÇÃO POR ALTERAÇÃO MATERIAL
+  // ===========================================================================
+
+  /**
+   * Chamado após qualquer escrita no orçamento.
+   *
+   * Compara o hash do recorte canônico atual com o congelado. Divergiu ⇒ o
+   * documento que os signatários viram não é mais o que o sistema guarda, então o
+   * envelope é invalidado, as assinaturas coletadas viram VOIDED (mas continuam
+   * registradas — alguém DE FATO assinou a v1, e isso é um fato que importa) e
+   * quem já havia assinado é avisado.
+   *
+   * Base: OWASP Transaction Authorization §2.6 e CC art. 431 (aceitação com
+   * modificações importa nova proposta).
+   */
+  async onQuoteContentChanged(quoteId: string, actorUserId: string | null): Promise<boolean> {
+    const running = await this.prisma.signatureEnvelope.findFirst({
+      where: { quoteId, status: EnvelopeStatus.RUNNING },
+      include: { signers: true },
+    });
+    if (!running) return false;
+
+    const loaded = await this.snapshots.buildForQuote(quoteId);
+    if (!loaded) return false;
+
+    if (loaded.hash === running.quoteSnapshotSha256) return false;
+
+    const before = running.quoteSnapshot as any;
+    const changes = this.snapshots.diff(before, loaded.snapshot);
+    const reason = changes.length
+      ? `Alteração em: ${changes.join(', ')}.`
+      : 'Alteração material no orçamento.';
+
+    await this.prisma.$transaction(async tx => {
+      await tx.envelopeSigner.updateMany({
+        where: { envelopeId: running.id, status: { not: EnvelopeSignerStatus.REFUSED } },
+        data: { status: EnvelopeSignerStatus.VOIDED },
+      });
+      await tx.signatureEnvelope.update({
+        where: { id: running.id },
+        data: { status: EnvelopeStatus.INVALIDATED, invalidatedReason: reason },
+      });
+    });
+
+    await this.challenges.supersedeAllForEnvelope(running.id);
+
+    await this.audit.record(running.id, {
+      eventType: 'ENVELOPE_INVALIDATED',
+      actorType: actorUserId ? 'OPERATOR' : 'SYSTEM',
+      actorId: actorUserId,
+      payload: { reason, newSnapshotHash: loaded.hash, changes: changes.join(', ') },
+    });
+
+    // Avisa quem já tinha assinado — é o "manter o cliente ciente de que algo
+    // mudou" e é também a conduta que sustenta boa-fé numa eventual disputa.
+    const alreadySigned = running.signers.filter(s => s.signedAt);
+    for (const s of alreadySigned) {
+      await this.sendWhatsApp(
+        s.declaredPhone,
+        `*Orçamento alterado*\n\nO orçamento que você assinou foi alterado pela ${COMPANY.name}. ` +
+          `${reason}\n\nSua assinatura anterior foi invalidada e uma nova versão será enviada ` +
+          `para sua revisão.`,
+      );
+      await this.audit.recordBestEffort(running.id, {
+        eventType: 'SIGNER_VOIDED',
+        actorType: 'SYSTEM',
+        actorId: s.id,
+        actorLabel: s.declaredName,
+      });
+    }
+
+    this.logger.warn(`Envelope ${running.id} invalidado — ${reason}`);
+    return true;
+  }
+
+  /** Cancelamento manual pelo operador. */
+  async cancel(envelopeId: string, actorUserId: string, ctx: RequestContext): Promise<void> {
+    const env = await this.prisma.signatureEnvelope.findUnique({ where: { id: envelopeId } });
+    if (!env) throw new NotFoundException('Envelope não encontrado.');
+    if (env.status !== EnvelopeStatus.RUNNING) {
+      throw new BadRequestException('Somente uma coleta em andamento pode ser cancelada.');
+    }
+    await this.prisma.$transaction(async tx => {
+      await tx.envelopeSigner.updateMany({
+        where: { envelopeId, status: { not: EnvelopeSignerStatus.SIGNED } },
+        data: { status: EnvelopeSignerStatus.VOIDED },
+      });
+      await tx.signatureEnvelope.update({
+        where: { id: envelopeId },
+        data: { status: EnvelopeStatus.CANCELLED },
+      });
+    });
+    await this.challenges.supersedeAllForEnvelope(envelopeId);
+    await this.audit.record(envelopeId, {
+      eventType: 'ENVELOPE_CANCELLED',
+      actorType: 'OPERATOR',
+      actorId: actorUserId,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    });
+  }
+
+  // ===========================================================================
+  // DOCUMENTO SERVIDO
+  // ===========================================================================
+
+  /**
+   * PDF servido "ao vivo": os bytes congelados + os selos de quem já assinou.
+   *
+   * Os slots pendentes continuam em branco, então o documento sempre mostra o
+   * estado real da coleta — que é o que o cliente precisa ver. O original nunca
+   * muda; a sobreposição é recalculada a cada requisição.
+   */
+  async renderServedDocument(envelopeId: string): Promise<{ pdf: Buffer; etag: string }> {
+    const env = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: envelopeId },
+      include: {
+        signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] },
+        quote: { include: { task: { include: { customer: true } } } },
+        originalFile: true,
+        finalFile: true,
+      },
+    });
+    if (!env) throw new NotFoundException('Envelope não encontrado.');
+
+    const { readFileSync, existsSync } = await import('fs');
+
+    if (!existsSync(env.originalFile.path)) {
+      throw new NotFoundException(
+        'O documento congelado deste envelope não está mais disponível em disco. ' +
+          'Reemita a coleta de assinaturas.',
+      );
+    }
+
+    // Concluído: serve o artefato selado, nunca uma remontagem.
+    if (env.status === EnvelopeStatus.COMPLETED && env.finalFile) {
+      const pdf = readFileSync(env.finalFile.path);
+      return { pdf, etag: `"${env.finalSha256}"` };
+    }
+
+    const originalPdf = readFileSync(env.originalFile.path);
+    const customer = env.quote.task?.customer ?? null;
+    const companyLabel = customer?.corporateName ?? customer?.fantasyName ?? null;
+
+    const pdf = await this.assembler.stampSeals({
+      originalPdf,
+      anchors: env.anchors as any,
+      signers: env.signers.map(s => ({
+        id: s.id,
+        name: s.declaredName,
+        cargo: s.informedCargo,
+        companyLabel: s.orderGroup === 1 ? COMPANY.name : companyLabel,
+        cpf: s.informedCpf,
+        phone: s.declaredPhone,
+        signedAt: s.signedAt,
+        status: s.status,
+        authMethodLabel: AUTH_METHOD_LABELS[s.authMethod] ?? s.authMethod,
+        ipAddress: s.ipAddress,
+        side: s.orderGroup === 1 ? 'ANKAA' : 'CUSTOMER',
+      })),
+      budgetNumber: env.quote.budgetNumber,
+      verificationCode: env.verificationCode,
+      verificationUrl: this.verificationUrl(env.verificationCode),
+      originalSha256: env.originalSha256,
+    });
+
+    // ETag deriva do original + do estado de assinatura, então muda exatamente
+    // quando o documento servido muda.
+    const stateKey = env.signers
+      .map(s => `${s.id}:${s.signedAt?.toISOString() ?? ''}`)
+      .join('|');
+    return { pdf, etag: `"${sha256Hex(env.originalSha256 + stateKey).slice(0, 32)}"` };
+  }
+
+  // ===========================================================================
+  // VERIFICAÇÃO PÚBLICA
+  // ===========================================================================
+
+  async getVerificationByCode(code: string, ctx: RequestContext) {
+    const env = await this.prisma.signatureEnvelope.findUnique({
+      where: { verificationCode: code },
+      include: {
+        signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] },
+        quote: { include: { task: { include: { customer: true } } } },
+      },
+    });
+    if (!env) throw new NotFoundException('Código de verificação não encontrado.');
+
+    await this.audit.recordBestEffort(env.id, {
+      eventType: 'VERIFICATION_VIEWED',
+      actorType: 'SYSTEM',
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    });
+
+    const chain = await this.audit.verifyChain(env.id);
+    const customer = env.quote.task?.customer ?? null;
+
+    return {
+      verificationCode: env.verificationCode,
+      status: env.status,
+      budgetNumber: env.quote.budgetNumber,
+      issuer: { name: COMPANY.corporateName, cnpj: COMPANY.cnpjFormatted },
+      customer: {
+        name: customer?.corporateName ?? customer?.fantasyName ?? null,
+        cnpj: customer?.cnpj ? formatCnpj(customer.cnpj) : null,
+      },
+      originalSha256: env.originalSha256,
+      finalSha256: env.finalSha256,
+      sealedAt: env.sealedAt,
+      padesLevel: env.padesLevel,
+      certSerialNumber: env.certSerialNumber,
+      auditChain: { valid: chain.valid, events: chain.eventCount, reason: chain.reason },
+      // CPF sempre MASCARADO aqui: esta página é pública e o orçamento contém preço.
+      signers: env.signers.map(s => ({
+        name: s.declaredName,
+        cargo: s.informedCargo,
+        cpfMasked: s.informedCpf ? maskCpf(s.informedCpf) : null,
+        status: s.status,
+        signedAt: s.signedAt,
+        authMethod: AUTH_METHOD_LABELS[s.authMethod] ?? s.authMethod,
+      })),
+    };
+  }
+
+  /**
+   * Resumo público da coleta, chaveado pelo id do orçamento.
+   *
+   * Alimenta a página `/cliente/orcamento/:id`, cuja capability já é o próprio
+   * UUID do orçamento — e que já exibe preço. Por isso este resumo é servido no
+   * mesmo escopo, e NÃO pelo código de verificação: aquele código é impresso em
+   * todas as páginas do PDF e circula muito mais longe.
+   *
+   * Devolve apenas nome e estado de cada signatário. Nada de CPF, telefone ou
+   * token de acesso.
+   */
+  async getPublicQuoteSummary(quoteId: string) {
+    const env = await this.prisma.signatureEnvelope.findFirst({
+      where: { quoteId },
+      orderBy: { version: 'desc' },
+      include: { signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] } },
+    });
+    if (!env) return { hasEnvelope: false as const };
+
+    return {
+      hasEnvelope: true as const,
+      status: env.status,
+      version: env.version,
+      verificationCode: env.verificationCode,
+      deadlineAt: env.deadlineAt,
+      completedAt: env.completedAt,
+      sealedAt: env.sealedAt,
+      padesLevel: env.padesLevel,
+      invalidatedReason: env.invalidatedReason,
+      signers: env.signers.map(s => ({
+        name: s.declaredName,
+        cargo: s.informedCargo,
+        side: s.orderGroup === 1 ? 'ANKAA' : 'CUSTOMER',
+        status: s.status,
+        signedAt: s.signedAt,
+      })),
+    };
+  }
+
+  /** Documento da coleta corrente do orçamento (selado quando concluída). */
+  async renderPublicQuoteDocument(quoteId: string): Promise<{ pdf: Buffer; etag: string }> {
+    // Prefere a coleta CONCLUÍDA: uma reemissão invalidada não pode fazer o
+    // artefato assinado sumir da vista do cliente. E, para coletas em
+    // andamento, o prazo é respeitado — o `GET /task-quotes/public/:id`
+    // pré-existente recusa orçamento expirado, e esta rota tem a MESMA
+    // capability, então não pode ser mais permissiva.
+    const completed = await this.prisma.signatureEnvelope.findFirst({
+      where: { quoteId, status: EnvelopeStatus.COMPLETED },
+      orderBy: { version: 'desc' },
+      select: { id: true },
+    });
+    if (completed) return this.renderServedDocument(completed.id);
+
+    // Sem filtro de estado aqui. A página que consome isto já exibe o estado da
+    // coleta (aguardando / invalidada / expirada), e recusar o documento só
+    // porque a coleta não está ativa deixava o cliente sem NADA para ver — o
+    // orçamento em si continua visível na mesma página, com a mesma capability.
+    const env = await this.prisma.signatureEnvelope.findFirst({
+      where: { quoteId },
+      orderBy: { version: 'desc' },
+      select: { id: true },
+    });
+    if (!env) {
+      throw new NotFoundException('Este orçamento ainda não foi enviado para assinatura.');
+    }
+    return this.renderServedDocument(env.id);
+  }
+
+  /**
+   * Orçamento renderizado a partir dos dados ATUAIS, SEM envelope.
+   *
+   * Existe para o histórico: tarefa cujo orçamento nunca passou pela assinatura
+   * eletrônica não tem artefato assinado, e recusar o dossiê nesse caso deixaria
+   * sem documento justamente as tarefas antigas — que são a maioria hoje.
+   *
+   * O que sai daqui é o orçamento com as LINHAS DE ASSINATURA EM BRANCO, como um
+   * orçamento impresso: nenhum selo é estampado (não há assinatura), não há
+   * código de verificação e nada é congelado. Quem consome precisa dizer ao
+   * leitor que este documento não está assinado — ver o rótulo do componente no
+   * `DossierAssemblerService`.
+   */
+  async renderUnsignedQuoteDocument(quoteId: string): Promise<Buffer> {
+    const { quote } = await this.snapshots.buildForQuote(quoteId);
+
+    const responsibles = quote.task?.responsibles ?? [];
+    const seeds: Array<{
+      id: string;
+      name: string;
+      subtitle: string;
+      side: 'ANKAA' | 'CUSTOMER';
+    }> = responsibles.map(r => ({
+      id: `unsigned-${r.id}`,
+      name: r.name,
+      subtitle: quote.task?.customer?.corporateName ?? quote.task?.customer?.fantasyName ?? '',
+      side: 'CUSTOMER' as const,
+    }));
+
+    // Best-effort: orçamento antigo pode não ter representante comercial nem
+    // diretor cadastrado, e isso não pode impedir a renderização.
+    try {
+      const ankaa = await this.resolveAnkaaSigner(quote);
+      seeds.push({
+        id: 'unsigned-ankaa',
+        name: ankaa.name,
+        subtitle: `${COMPANY.directorTitle} — ${COMPANY.name}`,
+        side: 'ANKAA',
+      });
+    } catch {
+      /* segue sem a linha da Ankaa */
+    }
+
+    // Código vazio: sem envelope não há o que verificar, e imprimir um código
+    // inexistente no rodapé convidaria o cliente a consultar algo que não existe.
+    const rendered = await this.renderQuoteDocument(quote, seeds, '');
+    return rendered.pdf;
+  }
+
+  /** Envelopes de um orçamento, do mais recente para o mais antigo. */
+  async listForQuote(quoteId: string) {
+    const envelopes = await this.prisma.signatureEnvelope.findMany({
+      where: { quoteId },
+      orderBy: { version: 'desc' },
+      include: {
+        signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] },
+      },
+    });
+
+    const inviteEvents = await this.prisma.signatureAuditEvent.findMany({
+      where: {
+        envelopeId: { in: envelopes.map(e => e.id) },
+        eventType: { in: ['INVITATION_SENT', 'INVITATION_FAILED'] },
+      },
+      orderBy: { sequence: 'asc' },
+      select: { envelopeId: true, eventType: true, actorId: true },
+    });
+    const inviteBySigner = new Map<string, string>();
+    for (const ev of inviteEvents) {
+      if (ev.actorId) inviteBySigner.set(ev.actorId, ev.eventType);
+    }
+
+    return envelopes.map(env => ({
+      id: env.id,
+      version: env.version,
+      status: env.status,
+      verificationCode: env.verificationCode,
+      deadlineAt: env.deadlineAt,
+      sentAt: env.sentAt,
+      completedAt: env.completedAt,
+      invalidatedReason: env.invalidatedReason,
+      originalSha256: env.originalSha256,
+      finalSha256: env.finalSha256,
+      padesLevel: env.padesLevel,
+      sealedAt: env.sealedAt,
+      signers: env.signers.map(s => ({
+        id: s.id,
+        name: s.declaredName,
+        phoneMasked: maskPhone(s.declaredPhone),
+        phone: s.declaredPhone,
+        // Link pessoal, exposto SOMENTE na rota interna (ADMIN/COMMERCIAL/FINANCIAL).
+        // Sem isto o operador não tinha como entregar o convite quando o envio
+        // automático falha — e ele falha silenciosamente sempre que a sessão do
+        // WhatsApp não está pareada.
+        signingUrl: this.signingUrl(s.accessToken),
+        cpfMasked: s.informedCpf ? maskCpf(s.informedCpf) : null,
+        cargo: s.informedCargo,
+        cpfMatch: s.cpfMatch,
+        side: s.orderGroup === 1 ? 'ANKAA' : 'CUSTOMER',
+        status: s.status,
+        signedAt: s.signedAt,
+        refusedAt: s.refusedAt,
+        refusalReason: s.refusalReason,
+        timesViewed: s.timesViewed,
+        lastViewedAt: s.lastViewedAt,
+        ipAddress: s.ipAddress,
+        inviteState: inviteBySigner.get(s.id) ?? null,
+      })),
+    }));
+  }
+
+  /**
+   * Reenvia o convite de um signatário.
+   *
+   * O envio automático depende da sessão Baileys estar pareada; quando não está,
+   * `sendWhatsApp` devolve false e o evento fica INVITATION_FAILED. Sem uma ação
+   * de reenvio o operador ficava sem saída a não ser cancelar e reemitir.
+   */
+  async resendInvitation(signerId: string, actorUserId: string, ctx: RequestContext): Promise<boolean> {
+    const signer = await this.prisma.envelopeSigner.findUnique({
+      where: { id: signerId },
+      include: { envelope: { include: { quote: true } } },
+    });
+    if (!signer) throw new NotFoundException('Signatário não encontrado.');
+    if (signer.envelope.status !== EnvelopeStatus.RUNNING) {
+      throw new BadRequestException('Esta coleta não está mais ativa.');
+    }
+
+    const url = this.signingUrl(signer.accessToken);
+    const message =
+      `*Orçamento nº ${signer.envelope.quote.budgetNumber} — ${COMPANY.name}*\n\n` +
+      `Olá, ${signer.declaredName}.\n` +
+      `Seu orçamento está pronto para revisão e assinatura eletrônica.\n\n` +
+      `${url}\n\n` +
+      `O link é pessoal e válido até ${signer.envelope.deadlineAt.toLocaleDateString('pt-BR')}.`;
+
+    const ok = await this.sendWhatsApp(signer.declaredPhone, message);
+    await this.audit.record(signer.envelopeId, {
+      eventType: ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
+      actorType: 'OPERATOR',
+      actorId: signer.id,
+      actorLabel: signer.declaredName,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      payload: { channel: 'whatsapp', resentBy: actorUserId },
+    });
+    return ok;
+  }
+
+  // ===========================================================================
+  // AUXILIARES
+  // ===========================================================================
+
+  /**
+   * Base das URLs públicas de assinatura.
+   *
+   * `SIGNATURE_WEB_URL` existe separada de `WEB_APP_URL` porque esta última
+   * aponta para produção mesmo em desenvolvimento (o DeepLinkService e as
+   * notificações dependem disso). Sem a separação, todo link gerado localmente
+   * apontava para ankaadesign.com.br e dava 404, já que o código ainda não está
+   * publicado lá.
+   */
+  private webBase(): string {
+    const base =
+      this.config.get<string>('SIGNATURE_WEB_URL') ||
+      this.config.get<string>('WEB_APP_URL') ||
+      COMPANY.websiteUrl;
+    return base.replace(/\/$/, '');
+  }
+
+  private verificationUrl(code: string): string {
+    return `${this.webBase()}/v/${code}`;
+  }
+
+  private signingUrl(token: string): string {
+    // Namespace /cliente é obrigatório: o MobileUsageGuard do web redireciona
+    // qualquer outra rota para /install em dispositivos móveis — que é justamente
+    // onde o cliente vai assinar.
+    return `${this.webBase()}/cliente/assinar/${token}`;
+  }
+
+  /**
+   * Persiste o PDF e cria o registro `File`.
+   *
+   * Segue o padrão do fluxo de admissão (hasheia e sela os bytes que estão em
+   * disco), não o de EPI — cujo `documentSha256` é o hash de um render que foi
+   * descartado e nunca pode ser recomputado.
+   */
+  private async persistPdf(
+    quote: { budgetNumber: number; task?: { customer?: { fantasyName?: string } | null } | null },
+    pdf: Buffer,
+    kind: 'original' | 'assinado',
+    verificationCode: string,
+  ): Promise<string> {
+    // ABSOLUTO. `FILES_ROOT` é `./files` em dev, então `join()` produzia um
+    // caminho relativo ao cwd: qualquer processo iniciado de outro diretório
+    // (cron, script, worker) lia o File.path e estourava ENOENT.
+    const filesRoot = resolvePath(
+      process.cwd(),
+      this.config.get<string>('FILES_ROOT') ?? './files',
+    );
+    const customerName = quote.task?.customer?.fantasyName ?? 'Sem Cliente';
+    const sanitized = customerName
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-zA-Z0-9\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const dir = join(filesRoot, 'Clientes', sanitized, 'Orcamentos', 'Assinaturas');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+    const filename = `orcamento_${quote.budgetNumber}_${verificationCode}_${kind}.pdf`;
+    const path = join(dir, filename);
+    writeFileSync(path, pdf);
+
+    const file = await this.prisma.file.create({
+      data: {
+        filename,
+        originalName: `Orçamento ${quote.budgetNumber} — ${kind}.pdf`,
+        mimetype: 'application/pdf',
+        path,
+        size: pdf.length,
+      },
+    });
+    return file.id;
+  }
+}
