@@ -2962,6 +2962,10 @@ model Responsible {
   name                  String
   email                 String?                   @unique
   phone                 String                    @unique
+  /// Âncora de identidade da assinatura eletrônica. NÃO é @unique: a unicidade
+  /// da pessoa já vem do telefone, e o CPF passa a ser gravado durante a
+  /// cerimônia — uma colisão ali derrubaria a assinatura do cliente.
+  cpf                   String?
   password              String?
   /// A contact can hold SEVERAL roles at once (e.g. OWNER + FINANCIAL), so
   /// employees know which areas that contact actually handles. Always kept
@@ -2984,12 +2988,14 @@ model Responsible {
   customerConfigs       TaskQuoteCustomerConfig[] @relation("CUSTOMER_CONFIG_RESPONSIBLE")
   envelopeSignatures    EnvelopeSigner[]          @relation("ENVELOPE_SIGNER_RESPONSIBLE")
 
+  cpfNormalized   String? /// accent-insensitive search (generated column, see migration)
   emailNormalized String? /// accent-insensitive search (generated column, see migration)
   nameNormalized  String? /// accent-insensitive search (generated column, see migration)
   phoneNormalized String? /// accent-insensitive search (generated column, see migration)
 
   @@index([email])
   @@index([phone])
+  @@index([cpf])
   @@index([companyId])
   // GIN, not btree: `roles` is a scalar list, so filters compile to @> / &&
   // (Prisma has / hasSome / hasEvery). A btree over an array cannot serve those.

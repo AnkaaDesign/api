@@ -10,37 +10,15 @@ import type {
   AbsenteeismSummary,
 } from '../../../types/hr-analytics';
 import type { AbsenteeismFilters } from '../../../schemas/hr-analytics';
+import {
+  mapWithConcurrency,
+  SECULLUM_FETCH_CONCURRENCY,
+} from './secullum-concurrency.util';
 
 const MONTH_NAMES_PT = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
 ];
-
-// Cap concurrent /Calculos calls so a wide sector filter doesn't fan out
-// hundreds of simultaneous requests against the upstream Secullum API.
-const SECULLUM_FETCH_CONCURRENCY = 5;
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  worker: (item: T, index: number) => Promise<R>,
-): Promise<PromiseSettledResult<R>[]> {
-  const results: PromiseSettledResult<R>[] = new Array(items.length);
-  let cursor = 0;
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (true) {
-      const i = cursor++;
-      if (i >= items.length) return;
-      try {
-        results[i] = { status: 'fulfilled', value: await worker(items[i], i) };
-      } catch (reason) {
-        results[i] = { status: 'rejected', reason };
-      }
-    }
-  });
-  await Promise.all(runners);
-  return results;
-}
 
 type PeriodBucket = { key: string; label: string; start: Date; end: Date };
 

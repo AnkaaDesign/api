@@ -1064,12 +1064,22 @@ export interface SecullumAbsenceDayRow {
   carga: string | null; // "HH:MM" from Carga column
   isPartialDay: boolean; // true when employee clocked some time but still has Faltas
   absenceRecordId?: number; // afastamento Id if the day was matched to an afastamento
+  // Set when /FuncionariosAfastamentos could not be read for this employee, so
+  // the JustificativaId 3 ("Falta sem Justificativa") on this row is a fallback,
+  // NOT a statement that no justification exists. Consumers must not present it
+  // as an unjustified absence.
+  justificativaUnavailable?: boolean;
 }
 
 export interface SecullumAbsenceDaysResponse {
   success: boolean;
   message: string;
   data?: SecullumAbsenceDayRow[];
+  // True when at least one employee's upstream data could not be read, so the
+  // rows are an UNDER-count. Callers must surface this rather than let an empty
+  // or short list read as "no absences".
+  partial?: boolean;
+  incompleteEmployees?: string[];
 }
 
 // ============================================================================

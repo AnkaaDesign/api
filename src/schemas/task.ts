@@ -11,6 +11,7 @@ import {
   nullableDate,
   moneySchema,
   normalizeSearchTerm,
+  cpfSchema,
 } from './common';
 import type { Task } from '@types';
 import {
@@ -2505,6 +2506,10 @@ export const taskCreateSchema = z
           name: z.string().min(1, 'Nome é obrigatório'),
           phone: z.string().min(10, 'Telefone inválido'),
           email: z.string().email('Email inválido').optional().or(z.literal('')),
+          // CPF opcional: o cadastro inline pode informá-lo, e é ele que permite
+          // a conferência PARCIAL do documento na assinatura eletrônica. Sem esta
+          // chave o Zod descartava o campo em silêncio (z.object faz strip).
+          cpf: cpfSchema.optional().nullable(),
           // Was a hand-written z.enum listing TECHNICAL / ADMINISTRATIVE, which
           // are not ResponsibleRole members -- they passed Zod and then failed
           // at insert time. Now the single source of truth, and multi-valued.
@@ -2745,6 +2750,10 @@ export const taskUpdateSchema = z
           name: z.string().min(1, 'Nome é obrigatório'),
           phone: z.string().min(10, 'Telefone inválido'),
           email: z.string().email('Email inválido').optional().or(z.literal('')),
+          // CPF opcional: o cadastro inline pode informá-lo, e é ele que permite
+          // a conferência PARCIAL do documento na assinatura eletrônica. Sem esta
+          // chave o Zod descartava o campo em silêncio (z.object faz strip).
+          cpf: cpfSchema.optional().nullable(),
           // Was a hand-written z.enum listing TECHNICAL / ADMINISTRATIVE, which
           // are not ResponsibleRole members -- they passed Zod and then failed
           // at insert time. Now the single source of truth, and multi-valued.

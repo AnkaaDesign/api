@@ -12,6 +12,10 @@
  *
  * Invariantes:
  *  · `original.pdf` é imutável. Nunca re-renderize o que foi assinado.
+ *  · `COMPLETED` ⇒ existe `finalFileId`. A reivindicação de conclusão escreve
+ *    COMPLETED antes de o artefato existir; se a montagem falha, o estado é
+ *    devolvido para RUNNING (`releaseFinalizationClaim`). Nada no sistema pode
+ *    ver "concluído" sem documento — o portal público chega a atestá-lo.
  *  · Todo ato probatório grava evento encadeado ANTES de responder ao cliente.
  *  · O telefone de destino do OTP vem do cadastro e o signatário não o edita —
  *    é isso que dá peso probatório ao código.
@@ -20,6 +24,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -218,6 +223,11 @@ export class SignatureEnvelopeService {
       ...responsibles.map(r => ({
         id: randomUUID(),
         responsibleId: r.id,
+        // Âncora de identidade: quando o contato já tem CPF no cadastro, o
+        // signatário completa só os dígitos ocultos, e completar certo é o que
+        // vale como conferência. Sem CPF cadastrado ele digita o número inteiro
+        // — e a primeira assinatura o grava (ver `persistCpfToResponsible`).
+        cpf: r.cpf ?? null,
         userId: null as string | null,
         name: r.name,
         phone: onlyDigits(r.phone),
@@ -229,6 +239,10 @@ export class SignatureEnvelopeService {
       {
         id: randomUUID(),
         responsibleId: null as string | null,
+        // O signatário da Ankaa é um User, que tem CPF próprio — mesma âncora.
+        // Não há write-back aqui: o CPF do colaborador é gerido no DP, não numa
+        // cerimônia de assinatura.
+        cpf: ankaaUser.cpf ?? null,
         userId: ankaaUser.id,
         name: ankaaUser.name,
         phone: onlyDigits(ankaaUser.phone ?? COMPANY.phoneClean),
@@ -248,12 +262,35 @@ export class SignatureEnvelopeService {
       );
     }
 
+    const supersededIds: Array<{ id: string; version: number }> = [];
     const originalSha256 = sha256Hex(rendered.pdf);
     const fileId = await this.persistPdf(quote, rendered.pdf, 'original', verificationCode);
 
     const deadlineAt = quote.expiresAt;
 
     const envelope = await this.prisma.$transaction(async tx => {
+      // Reemissão sobre um orçamento JÁ ASSINADO: o anterior passa a
+      // `SUPERSEDED`. Sem isto ficavam dois envelopes selados vivos para o mesmo
+      // número de orçamento, e `getPublicQuoteSummary` — que ordena por versão —
+      // passava a dizer "aguardando assinatura" ao cliente que já tinha
+      // assinado, convidando-o a assinar de novo. Se a v2 concluísse, existiriam
+      // DOIS artefatos selados com conteúdo diferente para o mesmo orçamento, e
+      // `budgetApprove` dispararia duas vezes.
+      //
+      // Nada é perdido: o artefato do superado continua no disco e todas as
+      // leituras de documento chaveiam por `finalFileId`, não por status.
+      const supersedable = await tx.signatureEnvelope.findMany({
+        where: { quoteId: args.quoteId, status: EnvelopeStatus.COMPLETED },
+        select: { id: true, version: true },
+      });
+      if (supersedable.length) {
+        await tx.signatureEnvelope.updateMany({
+          where: { id: { in: supersedable.map(e => e.id) } },
+          data: { status: EnvelopeStatus.SUPERSEDED },
+        });
+        supersededIds.push(...supersedable);
+      }
+
       const created = await tx.signatureEnvelope.create({
         data: {
           quoteId: args.quoteId,
@@ -281,6 +318,7 @@ export class SignatureEnvelopeService {
             id: seed.id,
             envelopeId: created.id,
             responsibleId: seed.responsibleId,
+            declaredCpf: seed.cpf ?? null,
             userId: seed.userId,
             orderGroup: seed.orderGroup,
             declaredName: seed.name,
@@ -299,6 +337,31 @@ export class SignatureEnvelopeService {
 
       return created;
     });
+
+    // Trilha do envelope SUPERADO, fora da transação: `SignatureAuditEvent` é
+    // append-only com trigger, e a cadeia de hash é encadeada por envelope — o
+    // registro pertence ao antigo, não ao novo. Best-effort: a substituição já
+    // está persistida, e falhar aqui não pode desfazer a emissão.
+    for (const old of supersededIds) {
+      try {
+        await this.audit.record(old.id, {
+          eventType: 'ENVELOPE_INVALIDATED',
+          actorType: 'SYSTEM',
+          payload: {
+            reason: 'superseded',
+            supersededBy: envelope.id,
+            supersededByVersion: envelope.version,
+            note: 'Nova coleta emitida para o mesmo orçamento. O artefato assinado deste envelope permanece íntegro e verificável.',
+          },
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Envelope ${old.id} marcado SUPERSEDED, mas o evento de trilha falhou: ${
+            error instanceof Error ? error.message : error
+          }`,
+        );
+      }
+    }
 
     await this.audit.record(envelope.id, {
       eventType: 'ENVELOPE_CREATED',
@@ -329,7 +392,7 @@ export class SignatureEnvelopeService {
     if (quote.commercialUserId) {
       const user = await this.prisma.user.findUnique({
         where: { id: quote.commercialUserId },
-        select: { id: true, name: true, phone: true, email: true },
+        select: { id: true, name: true, phone: true, email: true, cpf: true },
       });
       if (user) return user;
     }
@@ -337,7 +400,7 @@ export class SignatureEnvelopeService {
     // hoje nenhum campo de vendedor responsável em Task/TaskQuote além deste.
     const director = await this.prisma.user.findFirst({
       where: { name: { contains: COMPANY.directorName, mode: 'insensitive' } },
-      select: { id: true, name: true, phone: true, email: true },
+      select: { id: true, name: true, phone: true, email: true, cpf: true },
     });
     if (!director) {
       throw new BadRequestException(
@@ -691,8 +754,18 @@ export class SignatureEnvelopeService {
 
     await this.prisma.envelopeSigner.update({
       where: { id: signer.id },
-      data: { informedCpf: cpfDigits, informedCargo: args.cargo.trim(), cpfMatch },
+      data: {
+        informedCpf: cpfDigits,
+        informedCargo: args.cargo.trim(),
+        cpfMatch,
+        // Primeira vez: o cadastro não tinha CPF, então o que ele digitou passa
+        // a SER o declarado deste envelope. Sem isto o gate continuaria aceitando
+        // qualquer CPF válido nas próximas tentativas do mesmo link.
+        ...(declaredCpf ? {} : { declaredCpf: cpfDigits }),
+      },
     });
+
+    if (!declaredCpf) await this.persistCpfToResponsible(signer, cpfDigits);
 
     await this.audit.record(env.id, {
       eventType: 'CPF_SUBMITTED',
@@ -747,8 +820,12 @@ export class SignatureEnvelopeService {
     });
 
     if (!ok) {
+      // O código não chegou a ninguém: invalida-o em vez de deixá-lo PENDENTE.
+      // Um desafio vivo que o signatário nunca viu só serve para confundir a
+      // verificação e para bloquear a próxima emissão.
+      await this.challenges.supersedeAllForSigner(signer.id);
       throw new BadRequestException(
-        'Não foi possível enviar o código pelo WhatsApp. Entre em contato com a Ankaa.',
+        'Não foi possível enviar o código pelo WhatsApp. Tente novamente em instantes ou fale com a Ankaa.',
       );
     }
 
@@ -1179,18 +1256,22 @@ export class SignatureEnvelopeService {
 
     const pending = env.signers.filter(s => s.status !== EnvelopeSignerStatus.SIGNED);
     if (pending.length === 0) {
-      // Reivindicação ATÔMICA. Dois signatários concluindo ao mesmo tempo liam
-      // `pending.length === 0` os dois e chamavam finalize() em paralelo — dois
-      // selos PAdES, duas linhas File no MESMO caminho em disco, e
-      // `budgetApprove` disparado duas vezes. O updateMany condicionado ao
-      // estado atual só deixa um vencer.
-      const claim = await this.prisma.signatureEnvelope.updateMany({
-        where: { id: envelopeId, status: EnvelopeStatus.RUNNING },
-        data: { status: EnvelopeStatus.COMPLETED, completedAt: new Date() },
-      });
-      if (claim.count === 0) return EnvelopeStatus.COMPLETED;
-      await this.finalize(envelopeId);
-      return EnvelopeStatus.COMPLETED;
+      const outcome = await this.claimAndFinalize(envelopeId);
+      if (!outcome.error) return outcome.status;
+
+      // Falha TÉCNICA com a assinatura intacta (o envelope voltou para RUNNING):
+      // o ato do signatário está registrado e não deve ser refeito. Dizer-lhe
+      // "erro" sem mais nada o faria tentar assinar de novo e receber
+      // "Você já assinou este orçamento" — a pior sequência possível.
+      if (outcome.status === EnvelopeStatus.RUNNING) {
+        throw new ServiceUnavailableException(
+          'Sua assinatura foi registrada, mas a emissão do documento final falhou. ' +
+            'NÃO é necessário assinar novamente — entre em contato com a Ankaa para concluir a emissão.',
+        );
+      }
+      // Estado terminal (invalidação por alteração material, por exemplo): a
+      // mensagem original é a que o signatário precisa ler.
+      throw outcome.error;
     }
 
     // Grupo 0 completo → convida o grupo 1 (Ankaa assina por último, vendo quem
@@ -1204,6 +1285,154 @@ export class SignatureEnvelopeService {
     }
 
     return EnvelopeStatus.RUNNING;
+  }
+
+  /**
+   * Reivindica a conclusão e monta o artefato.
+   *
+   * A reivindicação é ATÔMICA (`updateMany` condicionado a `RUNNING`): dois
+   * signatários concluindo ao mesmo tempo liam `pending.length === 0` os dois e
+   * chamavam `finalize()` em paralelo — dois selos PAdES, duas linhas `File` no
+   * MESMO caminho em disco e `budgetApprove` disparado duas vezes.
+   *
+   * Mas a reivindicação escreve `COMPLETED` ANTES de o documento existir, e é
+   * isso que precisa ser desfeito quando a montagem falha. Sem a liberação
+   * abaixo, um `finalize()` que estoura (bytes congelados sumidos do disco,
+   * pdf-lib recusando um glifo, disco cheio) deixava o envelope **COMPLETED sem
+   * artefato nenhum**, para sempre: `cancel()` recusa (só aceita RUNNING),
+   * nenhuma rota reexecuta o `finalize()`, `budgetApprove` nunca roda, o
+   * orçamento fica inapagável pela política de exclusão — e o portal público
+   * `/v/<código>` passa a afirmar "concluído" com `finalSha256` nulo, ou seja,
+   * a plataforma atesta um documento selado que não existe.
+   *
+   * Devolve o erro em vez de propagá-lo para que cada chamador escolha a
+   * mensagem: o signatário precisa saber que a assinatura DELE valeu; o
+   * operador precisa da causa técnica.
+   */
+  private async claimAndFinalize(
+    envelopeId: string,
+  ): Promise<{ status: EnvelopeStatus; error: unknown | null }> {
+    const claim = await this.prisma.signatureEnvelope.updateMany({
+      where: { id: envelopeId, status: EnvelopeStatus.RUNNING },
+      data: { status: EnvelopeStatus.COMPLETED, completedAt: new Date() },
+    });
+    if (claim.count === 0) {
+      // Alguém já reivindicou (ou o envelope saiu de RUNNING por recusa/
+      // invalidação). Devolve o estado REAL, não um COMPLETED presumido.
+      const current = await this.prisma.signatureEnvelope.findUnique({
+        where: { id: envelopeId },
+        select: { status: true },
+      });
+      return { status: current?.status ?? EnvelopeStatus.CANCELLED, error: null };
+    }
+
+    try {
+      await this.finalize(envelopeId);
+      return { status: EnvelopeStatus.COMPLETED, error: null };
+    } catch (error) {
+      this.logger.error(
+        `Falha ao concluir o envelope ${envelopeId}: ${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+      const status = await this.releaseFinalizationClaim(envelopeId);
+      if (status === EnvelopeStatus.RUNNING) {
+        // Só registra quando a causa é técnica: a invalidação por alteração
+        // material já gravou o seu próprio PADES_FAILED dentro do `finalize()`.
+        await this.audit.recordBestEffort(envelopeId, {
+          eventType: 'PADES_FAILED',
+          actorType: 'SYSTEM',
+          payload: {
+            stage: 'finalize',
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
+      }
+      return { status: status ?? EnvelopeStatus.CANCELLED, error };
+    }
+  }
+
+  /**
+   * Desfaz a reivindicação de conclusão quando não há artefato para sustentá-la.
+   *
+   * Idempotente e conservadora por construção: se o `finalize()` chegou a gravar
+   * `finalFileId`, a conclusão é REAL e nada é tocado; se o envelope já saiu de
+   * COMPLETED (invalidado no meio do caminho), o estado atual é respeitado.
+   */
+  private async releaseFinalizationClaim(envelopeId: string): Promise<EnvelopeStatus | null> {
+    const current = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: envelopeId },
+      select: { status: true, finalFileId: true },
+    });
+    if (!current) return null;
+    if (current.finalFileId) return current.status;
+    if (current.status !== EnvelopeStatus.COMPLETED) return current.status;
+
+    const released = await this.prisma.signatureEnvelope.updateMany({
+      where: { id: envelopeId, status: EnvelopeStatus.COMPLETED, finalFileId: null },
+      data: { status: EnvelopeStatus.RUNNING, completedAt: null },
+    });
+    return released.count ? EnvelopeStatus.RUNNING : current.status;
+  }
+
+  /**
+   * Retentativa da montagem/selagem, para o operador.
+   *
+   * Existe porque `finalize()` não tinha NENHUM caminho de reexecução: era
+   * chamado de um único ponto, dentro da assinatura do último signatário. Uma
+   * falha ali (ou o processo morrendo no meio da selagem) era definitiva.
+   *
+   * Também REPARA o estado deixado por um processo interrompido: a reivindicação
+   * fica `COMPLETED` sem artefato e ninguém a devolve para `RUNNING`.
+   */
+  async retryFinalize(
+    envelopeId: string,
+    actorUserId: string,
+  ): Promise<{ status: EnvelopeStatus; padesLevel: string | null }> {
+    this.assertCeremonyConfigured();
+
+    const env = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: envelopeId },
+      include: { signers: { select: { status: true } } },
+    });
+    if (!env) throw new NotFoundException('Envelope não encontrado.');
+    if (env.finalFileId) {
+      throw new BadRequestException(
+        'Este envelope já tem o documento final emitido. Nada a reprocessar.',
+      );
+    }
+
+    const pending = env.signers.filter(s => s.status !== EnvelopeSignerStatus.SIGNED);
+    if (pending.length) {
+      throw new BadRequestException(
+        `Ainda há ${pending.length} signatário(s) sem assinar — a emissão do documento ` +
+          'final só acontece depois que todos assinarem.',
+      );
+    }
+    if (env.status !== EnvelopeStatus.RUNNING && env.status !== EnvelopeStatus.COMPLETED) {
+      throw new BadRequestException(
+        `Esta coleta está em ${env.status} e não pode ser concluída. Emita uma nova.`,
+      );
+    }
+
+    await this.releaseFinalizationClaim(envelopeId);
+
+    const outcome = await this.claimAndFinalize(envelopeId);
+    if (outcome.error) {
+      if (outcome.error instanceof HttpException) throw outcome.error;
+      throw new ServiceUnavailableException(
+        `Não foi possível emitir o documento final: ${
+          outcome.error instanceof Error ? outcome.error.message : String(outcome.error)
+        }`,
+      );
+    }
+
+    const after = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: envelopeId },
+      select: { status: true, padesLevel: true },
+    });
+    this.logger.log(`Envelope ${envelopeId} concluído em retentativa por ${actorUserId}.`);
+    return { status: after?.status ?? outcome.status, padesLevel: after?.padesLevel ?? null };
   }
 
   private async notifyAnkaaSigner(envelopeId: string, signerId: string): Promise<void> {
@@ -1267,6 +1496,14 @@ export class SignatureEnvelopeService {
         actorType: 'SYSTEM',
         payload: { reason: 'snapshot_stale_at_seal' },
       });
+      // A liberação vem ANTES da invalidação, e não é opcional:
+      // `onQuoteContentChanged` só enxerga envelopes `RUNNING`, e a
+      // reivindicação de `claimAndFinalize` já tirou este daqui desse estado.
+      // Sem esta linha a invalidação era um no-op silencioso — o envelope ficava
+      // COMPLETED, sem artefato, com as assinaturas ainda válidas sobre um
+      // conteúdo que mudou, e a mensagem abaixo ("a coleta foi invalidada")
+      // simplesmente mentia.
+      await this.releaseFinalizationClaim(envelopeId);
       await this.onQuoteContentChanged(env.quoteId, null);
       throw new BadRequestException(
         'O orçamento foi alterado antes da conclusão. A coleta foi invalidada.',
@@ -1704,8 +1941,13 @@ export class SignatureEnvelopeService {
     // andamento, o prazo é respeitado — o `GET /task-quotes/public/:id`
     // pré-existente recusa orçamento expirado, e esta rota tem a MESMA
     // capability, então não pode ser mais permissiva.
+    // Chave: EXISTE ARTEFATO (`finalFileId`), não `status COMPLETED`. Só o
+    // `finalize()` grava esse campo, junto do selo e do `finalSha256`. O status
+    // segue se movendo depois — um envelope selado vira `SUPERSEDED` quando uma
+    // reemissão é aberta —, e chavear por ele faria o documento assinado sumir
+    // da vista do cliente no momento em que uma v2 fosse emitida.
     const completed = await this.prisma.signatureEnvelope.findFirst({
-      where: { quoteId, status: EnvelopeStatus.COMPLETED },
+      where: { quoteId, finalFileId: { not: null } },
       orderBy: { version: 'desc' },
       select: { id: true },
     });
@@ -1740,7 +1982,11 @@ export class SignatureEnvelopeService {
    * `DossierAssemblerService`.
    */
   async renderUnsignedQuoteDocument(quoteId: string): Promise<Buffer> {
-    const { quote } = await this.snapshots.buildForQuote(quoteId);
+    // `buildForQuote` devolve null para orçamento inexistente; desestruturar
+    // direto virava `TypeError` — 500 opaco onde cabe um 404 honesto.
+    const loaded = await this.snapshots.buildForQuote(quoteId);
+    if (!loaded?.quote) throw new NotFoundException('Orçamento não encontrado.');
+    const { quote } = loaded;
 
     const responsibles = quote.task?.responsibles ?? [];
     const seeds: Array<{
@@ -1773,6 +2019,43 @@ export class SignatureEnvelopeService {
     // inexistente no rodapé convidaria o cliente a consultar algo que não existe.
     const rendered = await this.renderQuoteDocument(quote, seeds, '');
     return rendered.pdf;
+  }
+
+  /**
+   * Grava no cadastro o CPF que o signatário informou, quando ele ainda não
+   * tinha um.
+   *
+   * É o que faz a segunda assinatura ser mais curta que a primeira: com o CPF no
+   * `Responsible`, todo envelope seguinte nasce com `declaredCpf` preenchido e o
+   * signatário completa apenas os dígitos que a máscara esconde.
+   *
+   * BEST-EFFORT de propósito. Isto roda no meio da cerimônia, e nada aqui pode
+   * derrubar o envio do código: se o contato foi apagado, se outro cadastro já
+   * tem aquele CPF, se o banco recusar por qualquer motivo, o envelope segue —
+   * ele já tem o CPF em `declaredCpf` e em `informedCpf`, que é o que a prova
+   * exige. O cadastro é conveniência para a próxima vez, não requisito desta.
+   */
+  private async persistCpfToResponsible(
+    signer: { responsibleId: string | null },
+    cpfDigits: string,
+  ): Promise<void> {
+    if (!signer.responsibleId) return;
+    try {
+      // `updateMany` com `cpf: null` no where, não `update` por id: assim um
+      // cadastro que ganhou CPF entre a emissão do envelope e este momento NÃO é
+      // sobrescrito. (O comentário anterior descrevia esta guarda, mas o `where`
+      // era só `{ id }` — o código não fazia o que dizia.)
+      await this.prisma.responsible.updateMany({
+        where: { id: signer.responsibleId, cpf: null },
+        data: { cpf: cpfDigits },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Não foi possível gravar o CPF no contato ${signer.responsibleId}: ${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+    }
   }
 
   /** Envelopes de um orçamento, do mais recente para o mais antigo. */

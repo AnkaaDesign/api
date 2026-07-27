@@ -130,8 +130,16 @@ export class DossierAssemblerService {
     });
     if (!quote) throw new NotFoundException('Orçamento não encontrado.');
 
+    // A chave é `finalFileId`, NÃO `status: COMPLETED`. O que o dossiê precisa
+    // saber é "existe artefato assinado", e só o `finalize()` grava esse campo —
+    // junto do selo PAdES, do `finalSha256` e do `sealedAt`. O status é uma
+    // dimensão à parte que continua se movendo depois: um envelope selado passa a
+    // `SUPERSEDED` quando uma reemissão é aberta, e chavear por `COMPLETED` faria
+    // o dossiê perder o orçamento assinado EM SILÊNCIO, caindo no render não
+    // assinado e entregando ao cliente um "SEM assinatura eletrônica" de um
+    // documento que foi assinado e selado.
     const envelope = await this.prisma.signatureEnvelope.findFirst({
-      where: { quoteId, status: 'COMPLETED', finalFileId: { not: null } },
+      where: { quoteId, finalFileId: { not: null } },
       orderBy: { version: 'desc' },
       select: {
         id: true,

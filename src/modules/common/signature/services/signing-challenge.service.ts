@@ -113,8 +113,19 @@ export class SigningChallengeService {
 
     const now = new Date();
 
+    // O cooldown ignora desafios cuja ENTREGA FALHOU.
+    //
+    // Ele existe para não bombardear o telefone do signatário. Se a mensagem não
+    // saiu, não há nada para espaçar — e prender o signatário 60s por um código
+    // que ninguém recebeu é punir o usuário pela falha do transporte. Isso
+    // acontecia de verdade: `requestOtp` emite o desafio e só depois estoura no
+    // envio, então o cliente ficava sem `challengeId` E em cooldown.
+    //
+    // O teto horário abaixo continua contando TODAS as emissões, inclusive as
+    // que falharam: ele é a trava anti-abuso, e afrouxá-la seria dar ao atacante
+    // um caminho de emissão ilimitada bastando forçar a falha do envio.
     const recent = await this.prisma.signingChallenge.findFirst({
-      where: { signerId: args.signerId },
+      where: { signerId: args.signerId, providerStatus: { not: 'failed' } },
       orderBy: { createdAt: 'desc' },
       select: { createdAt: true },
     });

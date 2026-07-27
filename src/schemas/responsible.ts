@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ResponsibleRole } from '@prisma/client';
+import { cpfSchema } from './common';
 
 export const responsibleRoleSchema = z.nativeEnum(ResponsibleRole);
 
@@ -67,6 +68,9 @@ export const responsibleCreateObjectSchema = z.object({
   name: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
   email: z.string().email('Email inválido').optional().nullable(), // Optional for contact-only responsibles
   phone: z.string().regex(/^\d{10,11}$/, 'Telefone inválido'),
+  // Âncora de identidade da assinatura eletrônica. Opcional: contato sem CPF
+  // continua valendo, e a primeira assinatura preenche o campo.
+  cpf: cpfSchema.optional().nullable(),
   password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres').optional().nullable(), // Optional if no system access needed
   companyId: z.string().uuid('ID da empresa inválido').optional().nullable(), // Optional - can create responsible without company
   roles: responsibleRolesSchema,
@@ -78,6 +82,7 @@ export const responsibleCreateSchema = withLegacyRole(responsibleCreateObjectSch
 export const responsibleUpdateObjectSchema = z.object({
   name: z.string().min(3).optional(),
   email: z.string().email().optional().nullable(),
+  cpf: cpfSchema.optional().nullable(),
   phone: z
     .string()
     .regex(/^\d{10,11}$/)

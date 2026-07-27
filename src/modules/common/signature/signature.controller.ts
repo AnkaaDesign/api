@@ -115,6 +115,27 @@ export class SignatureController {
     return { success: true, message: 'Coleta de assinaturas cancelada.' };
   }
 
+  /**
+   * Reprocessa a emissão do documento final.
+   *
+   * Existe para o envelope cujo `finalize()` falhou (bytes congelados sumidos do
+   * disco, erro do pdf-lib, processo derrubado no meio da selagem): todos
+   * assinaram, mas não há artefato. Sem esta rota não havia NENHUMA forma de
+   * reexecutar a montagem — `finalize()` era chamado de um único ponto, dentro
+   * da assinatura do último signatário.
+   */
+  @Post(':id/retry-finalize')
+  @HttpCode(200)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
+  async retryFinalize(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
+    const data = await this.envelopes.retryFinalize(id, userId);
+    return {
+      success: true,
+      message: `Documento final emitido${data.padesLevel ? ` (selo ${data.padesLevel})` : ''}.`,
+      data,
+    };
+  }
+
   @Post('signers/:signerId/resend')
   @HttpCode(200)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)

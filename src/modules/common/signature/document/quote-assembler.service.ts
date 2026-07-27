@@ -95,6 +95,36 @@ export function winAnsi(text: string): string {
     .replace(/[^\x00-\xFF]/g, '?');
 }
 
+/** Piso de legibilidade para o encolhimento de uma linha do selo. */
+const SEAL_MIN_FONT_SIZE = 5;
+
+/**
+ * Ajusta uma linha do selo à largura útil da moldura: encolhe até o piso de
+ * legibilidade e, só então, corta com reticências.
+ *
+ * Truncar uma razão social é ruim; deixá-la atravessar a moldura e colidir com o
+ * selo do signatário ao lado, num documento que alguém assinou, é pior — e era o
+ * que acontecia, porque `drawText` não recorta nem quebra linha.
+ */
+function fitToWidth(
+  font: PDFFont,
+  text: string,
+  size: number,
+  maxWidth: number,
+): { text: string; size: number } {
+  let fontSize = size;
+  while (fontSize > SEAL_MIN_FONT_SIZE && font.widthOfTextAtSize(text, fontSize) > maxWidth) {
+    fontSize = Math.max(fontSize - 0.25, SEAL_MIN_FONT_SIZE);
+  }
+  if (font.widthOfTextAtSize(text, fontSize) <= maxWidth) return { text, size: fontSize };
+
+  let clipped = text;
+  while (clipped.length > 1 && font.widthOfTextAtSize(`${clipped}...`, fontSize) > maxWidth) {
+    clipped = clipped.slice(0, -1);
+  }
+  return { text: `${clipped.trimEnd()}...`, size: fontSize };
+}
+
 @Injectable()
 export class QuoteAssemblerService {
   private readonly logger = new Logger(QuoteAssemblerService.name);
@@ -240,23 +270,57 @@ export class QuoteAssemblerService {
       lines.push({ text: winAnsi(`IP ${signer.ipAddress}`), size: 6, color: GRAY });
     lines.push({ text: winAnsi(`Envelope ${verificationCode}`), size: 6, color: GRAY });
 
+    // Espaçamento entre linhas DERIVADO da altura disponível, não fixo em 1,8pt.
+    //
+    // Com o valor fixo, um selo na altura padrão (`--seal-height: 26mm`, que dá
+    // 69,7pt úteis) comportava 7 das 9 linhas: as duas últimas — o IP e o CÓDIGO
+    // DO ENVELOPE, que a §5.8 exige dentro do selo — desapareciam sem qualquer
+    // sinal. Medido: percurso útil de 55,7pt contra 74,7pt necessários.
+    // Derivando o espaçamento, as nove linhas cabem e o selo passa a dizer o que
+    // deveria dizer. O piso de 0,4pt e o teto de 1,8pt preservam o ritmo quando
+    // há folga (poucas linhas) e impedem que os glifos se toquem quando não há.
+    const travel = h - pad * 2 - 6;
+    const sizesBeforeLast = lines.slice(0, -1).reduce((acc, l) => acc + l.size, 0);
+    const leading =
+      lines.length > 1
+        ? Math.min(Math.max((travel - sizesBeforeLast) / (lines.length - 1), 0.4), 1.8)
+        : 1.8;
+
+    const innerWidth = Math.max(w - pad * 2, 1);
+
+    // Tolerância de meio ponto no teste de corte. Quando o espaçamento é
+    // derivado, a última linha aterrissa EXATAMENTE em `y + pad` em aritmética
+    // real — e o ruído de ponto flutuante decidia, a cada documento, se ela
+    // aparecia ou não. Meio ponto abaixo do respiro a baseline ainda deixa o
+    // descendente de uma linha de 6pt a ~2,3pt da moldura, então nada encosta na
+    // borda; o que se ganha é determinismo.
+    const cutoff = y + pad - 0.5;
+
     // Distribui de cima para baixo dentro do retângulo, cortando o que não couber
     // em vez de vazar para fora da moldura.
     let cursor = y + h - pad - 6;
     for (const line of lines) {
-      if (cursor < y + pad) break;
+      if (cursor < cutoff) break;
       const font = line.bold ? helvBold : helv;
-      const text = line.text;
-      const tw = font.widthOfTextAtSize(text, line.size);
+      // Cada linha é ajustada à largura ÚTIL da moldura. Sem isso, um `cargo` ou
+      // uma razão social longa escapava do retângulo pelos dois lados: na grade
+      // de 3 colunas (4+ signatários) a caixa tem 154,9pt e "TRANSPORTES ...
+      // RODOVIARIOS LTDA" mede 200,6pt a 6,5pt, ou seja 26,8pt para fora de cada
+      // lado — mais que os 22,7pt de vão entre caixas. O texto de um signatário
+      // invadia literalmente o selo do signatário vizinho.
+      const fitted = fitToWidth(font, line.text, line.size, innerWidth);
+      const tw = font.widthOfTextAtSize(fitted.text, fitted.size);
       const tx = x + Math.max((w - tw) / 2, pad);
-      page.drawText(text, {
+      page.drawText(fitted.text, {
         x: tx,
         y: cursor,
-        size: line.size,
+        size: fitted.size,
         font,
         color: line.color ?? DARK,
       });
-      cursor -= line.size + 1.8;
+      // Avança pelo tamanho ORIGINAL: encolher uma linha não pode desalinhar as
+      // demais nem desfazer o cálculo de entrelinha feito acima.
+      cursor -= line.size + leading;
     }
   }
 

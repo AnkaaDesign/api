@@ -7,6 +7,10 @@ import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import archiver from 'archiver';
 import { randomUUID } from 'crypto';
 import { SecullumBrowserSignerService } from './secullum-browser-signer.service';
+import {
+  mapWithConcurrency,
+  SECULLUM_FETCH_CONCURRENCY,
+} from './secullum-concurrency.util';
 import { SecullumToken } from '@prisma/client';
 import { EMPLOYED_USER_WHERE } from '@utils/contract';
 import {
@@ -6078,15 +6082,23 @@ export class SecullumService {
         return s.includes(':') ? s : null;
       };
 
-      // Expand an afastamento date range to individual YYYY-MM-DD strings
-      // clipped to the requested period.
+      // Expand an afastamento date range to individual YYYY-MM-DD strings,
+      // clamped to the requested period BEFORE iterating — an open-ended record
+      // (e.g. Fim in 2099) would otherwise spin through tens of thousands of
+      // days just to keep the same ~30 that fall inside the window.
       const expandDateRange = (inicio: string, fim: string): string[] => {
+        const from = inicio.substring(0, 10);
+        const to = fim.substring(0, 10);
+        const clampedFrom = from > params.startDate ? from : params.startDate;
+        const clampedTo = to < params.endDate ? to : params.endDate;
+        if (clampedFrom > clampedTo) return [];
+
         const result: string[] = [];
-        const cur = new Date(inicio.substring(0, 10) + 'T12:00:00Z');
-        const end = new Date(fim.substring(0, 10) + 'T12:00:00Z');
+        const cur = new Date(clampedFrom + 'T12:00:00Z');
+        const end = new Date(clampedTo + 'T12:00:00Z');
+        if (isNaN(cur.getTime()) || isNaN(end.getTime())) return [];
         while (cur <= end) {
-          const d = cur.toISOString().substring(0, 10);
-          if (d >= params.startDate && d <= params.endDate) result.push(d);
+          result.push(cur.toISOString().substring(0, 10));
           cur.setUTCDate(cur.getUTCDate() + 1);
         }
         return result;
@@ -6094,13 +6106,21 @@ export class SecullumService {
 
       const allRows: SecullumAbsenceDayRow[] = [];
 
-      const settled = await Promise.allSettled(
-        linkedUsers.map(async (u) => {
+      // Bounded fan-out: firing 2 upstream calls × every employee at once trips
+      // Secullum's rate limiter, and a throttled-away /Calculos silently drops
+      // that employee's faltas from the result.
+      const settled = await mapWithConcurrency(
+        linkedUsers,
+        SECULLUM_FETCH_CONCURRENCY,
+        async (u) => {
           const empId = u.secullumEmployeeId!;
           const rows: SecullumAbsenceDayRow[] = [];
 
           // 1. Fetch calculations
           let calcsRaw: any = null;
+          // When /Calculos is unreadable this employee's derived falta days are
+          // missing entirely — the caller must not present that as "no faltas".
+          let calculosFailed = false;
           try {
             calcsRaw = await this.makeAuthenticatedRequest<any>(
               'GET',
@@ -6110,25 +6130,47 @@ export class SecullumService {
               { secullumbancoselecionado: this.databaseId || '4c8681f2e79a4b7ab58cc94503106736' },
             );
           } catch (err) {
+            calculosFailed = true;
             this.logger.warn(
               `AbsenceDays: /Calculos failed for ${u.name} (${empId}): ${this.getErrorMessage(err)}`,
             );
           }
 
-          // 2. Fetch afastamentos for the user, filter to overlapping period
-          const afastamentosMap = new Map<string, SecullumAbsence>();
+          // 2. Fetch afastamentos for the user, filter to overlapping period.
+          //    A day can legitimately carry more than one afastamento (e.g. a
+          //    half-day atestado on top of a dispensa), so keep them ALL — the
+          //    previous Map<date, absence> silently kept only the last one read.
+          const afastamentosByDate = new Map<string, SecullumAbsence[]>();
+          // When this source is unreachable we must not claim the day is an
+          // unjustified falta: an atestado would be mislabelled as "Falta sem
+          // Justificativa", which is the worst possible way to be wrong here.
+          let afastamentosUnavailable = false;
           try {
             const absRes = await this.getAbsencesByEmployee(empId);
-            if (absRes.success && absRes.data) {
-              for (const a of absRes.data) {
-                if (a.Fim.substring(0, 10) >= params.startDate && a.Inicio.substring(0, 10) <= params.endDate) {
-                  for (const d of expandDateRange(a.Inicio, a.Fim)) {
-                    afastamentosMap.set(d, a);
-                  }
+            // getAbsencesByEmployee swallows its own errors and reports
+            // success:false — check the flag, not just the throw.
+            if (!absRes.success) {
+              afastamentosUnavailable = true;
+              this.logger.warn(
+                `AbsenceDays: /FuncionariosAfastamentos unavailable for ${u.name} (${empId}): ${absRes.message}`,
+              );
+            }
+            for (const a of absRes.data ?? []) {
+              if (!a?.Inicio || !a?.Fim) continue;
+              if (a.Fim.substring(0, 10) >= params.startDate && a.Inicio.substring(0, 10) <= params.endDate) {
+                for (const d of expandDateRange(a.Inicio, a.Fim)) {
+                  const bucket = afastamentosByDate.get(d);
+                  if (bucket) bucket.push(a);
+                  else afastamentosByDate.set(d, [a]);
                 }
               }
             }
+            // Stable ordering so repeated calls return rows in the same order.
+            for (const bucket of afastamentosByDate.values()) {
+              bucket.sort((a, b) => (a.Id ?? 0) - (b.Id ?? 0));
+            }
           } catch (err) {
+            afastamentosUnavailable = true;
             this.logger.warn(
               `AbsenceDays: /FuncionariosAfastamentos failed for ${u.name} (${empId}): ${this.getErrorMessage(err)}`,
             );
@@ -6211,67 +6253,114 @@ export class SecullumService {
 
           // 4. Build union: calculations absence days + afastamento-only days
           const processedDates = new Set<string>();
+          const baseRow = {
+            userId: u.id,
+            userName: u.name,
+            sectorId: u.sectorId ?? null,
+            sectorName: u.sector?.name ?? null,
+            FuncionarioId: empId,
+          };
 
           for (const [datePart, calData] of calDatesWithFaltas) {
             processedDates.add(datePart);
-            const afastamento = afastamentosMap.get(datePart);
-            rows.push({
-              date: datePart,
-              userId: u.id,
-              userName: u.name,
-              sectorId: u.sectorId ?? null,
-              sectorName: u.sector?.name ?? null,
-              FuncionarioId: empId,
-              JustificativaId: afastamento?.JustificativaId ?? 3,
-              JustificativaDescricao: afastamento?.JustificativaDescricao ?? 'Falta sem Justificativa',
-              Motivo: afastamento?.Motivo ?? '',
-              faltas: calData.faltas,
-              normais: calData.normais,
-              carga: calData.carga,
-              isPartialDay: calData.isPartialDay,
-              absenceRecordId: afastamento?.Id,
-            });
+            const afastamentos = afastamentosByDate.get(datePart) ?? [];
+
+            if (afastamentos.length === 0) {
+              rows.push({
+                ...baseRow,
+                date: datePart,
+                JustificativaId: 3,
+                JustificativaDescricao: 'Falta sem Justificativa',
+                Motivo: '',
+                faltas: calData.faltas,
+                normais: calData.normais,
+                carga: calData.carga,
+                isPartialDay: calData.isPartialDay,
+                ...(afastamentosUnavailable ? { justificativaUnavailable: true } : {}),
+              });
+              continue;
+            }
+
+            for (const afastamento of afastamentos) {
+              rows.push({
+                ...baseRow,
+                date: datePart,
+                JustificativaId: afastamento.JustificativaId,
+                JustificativaDescricao: afastamento.JustificativaDescricao ?? '',
+                Motivo: afastamento.Motivo ?? '',
+                faltas: calData.faltas,
+                normais: calData.normais,
+                carga: calData.carga,
+                isPartialDay: calData.isPartialDay,
+                absenceRecordId: afastamento.Id,
+              });
+            }
           }
 
           // Days only in afastamentos (e.g. Férias with Abono applied = Faltas=0 in calculations)
-          for (const [datePart, afastamento] of afastamentosMap) {
+          for (const [datePart, afastamentos] of afastamentosByDate) {
             if (processedDates.has(datePart)) continue;
             processedDates.add(datePart);
-            rows.push({
-              date: datePart,
-              userId: u.id,
-              userName: u.name,
-              sectorId: u.sectorId ?? null,
-              sectorName: u.sector?.name ?? null,
-              FuncionarioId: empId,
-              JustificativaId: afastamento.JustificativaId,
-              JustificativaDescricao: afastamento.JustificativaDescricao ?? '',
-              Motivo: afastamento.Motivo ?? '',
-              faltas: null,
-              normais: null,
-              carga: null,
-              isPartialDay: false,
-              absenceRecordId: afastamento.Id,
-            });
+            for (const afastamento of afastamentos) {
+              rows.push({
+                ...baseRow,
+                date: datePart,
+                JustificativaId: afastamento.JustificativaId,
+                JustificativaDescricao: afastamento.JustificativaDescricao ?? '',
+                Motivo: afastamento.Motivo ?? '',
+                faltas: null,
+                normais: null,
+                carga: null,
+                isPartialDay: false,
+                absenceRecordId: afastamento.Id,
+              });
+            }
           }
 
-          return rows;
-        }),
+          return { rows, calculosFailed, afastamentosUnavailable };
+        },
       );
 
-      settled.forEach((r) => {
-        if (r.status === 'fulfilled') allRows.push(...r.value);
+      // Any employee whose upstream data was incomplete. Reporting these as
+      // clean zeros is the dangerous failure mode: HR reads an empty Ausências
+      // table as "nobody was absent" rather than "Secullum did not answer".
+      const incompleteEmployees: string[] = [];
+      settled.forEach((r, i) => {
+        const name =
+          linkedUsers[i]?.name ?? `secEmp ${linkedUsers[i]?.secullumEmployeeId}`;
+        if (r.status === 'fulfilled') {
+          allRows.push(...r.value.rows);
+          if (r.value.calculosFailed || r.value.afastamentosUnavailable) {
+            incompleteEmployees.push(name);
+          }
+        } else {
+          incompleteEmployees.push(name);
+        }
       });
+
+      if (incompleteEmployees.length > 0) {
+        this.logger.warn(
+          `AbsenceDays: incomplete upstream data for ${incompleteEmployees.length} employee(s): ${incompleteEmployees.slice(0, 5).join(', ')}${incompleteEmployees.length > 5 ? '...' : ''}`,
+        );
+      }
 
       allRows.sort((a, b) => {
         if (a.date !== b.date) return b.date.localeCompare(a.date);
-        return a.userName.localeCompare(b.userName);
+        if (a.userName !== b.userName) return a.userName.localeCompare(b.userName);
+        return a.JustificativaId - b.JustificativaId;
       });
 
+      const okCount = linkedUsers.length - incompleteEmployees.length;
       return {
         success: true,
-        message: `Found ${allRows.length} absence day(s) across ${linkedUsers.length} employees`,
+        message:
+          incompleteEmployees.length > 0
+            ? `Found ${allRows.length} absence day(s) across ${okCount}/${linkedUsers.length} employees — dados incompletos para ${incompleteEmployees.length}`
+            : `Found ${allRows.length} absence day(s) across ${linkedUsers.length} employees`,
         data: allRows,
+        partial: incompleteEmployees.length > 0,
+        incompleteEmployees:
+          incompleteEmployees.length > 0 ? incompleteEmployees : undefined,
       };
     } catch (error) {
       this.logger.error('Error fetching absence days', error);
