@@ -7,10 +7,6 @@ import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import archiver from 'archiver';
 import { randomUUID } from 'crypto';
 import { SecullumBrowserSignerService } from './secullum-browser-signer.service';
-import {
-  mapWithConcurrency,
-  SECULLUM_FETCH_CONCURRENCY,
-} from './secullum-concurrency.util';
 import { SecullumToken } from '@prisma/client';
 import { EMPLOYED_USER_WHERE } from '@utils/contract';
 import {
@@ -6106,13 +6102,8 @@ export class SecullumService {
 
       const allRows: SecullumAbsenceDayRow[] = [];
 
-      // Bounded fan-out: firing 2 upstream calls × every employee at once trips
-      // Secullum's rate limiter, and a throttled-away /Calculos silently drops
-      // that employee's faltas from the result.
-      const settled = await mapWithConcurrency(
-        linkedUsers,
-        SECULLUM_FETCH_CONCURRENCY,
-        async (u) => {
+      const settled = await Promise.allSettled(
+        linkedUsers.map(async (u) => {
           const empId = u.secullumEmployeeId!;
           const rows: SecullumAbsenceDayRow[] = [];
 
@@ -6318,7 +6309,7 @@ export class SecullumService {
           }
 
           return { rows, calculosFailed, afastamentosUnavailable };
-        },
+        }),
       );
 
       // Any employee whose upstream data was incomplete. Reporting these as
