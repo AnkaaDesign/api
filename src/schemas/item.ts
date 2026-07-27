@@ -2035,8 +2035,6 @@ const itemTransform = (data: any) => {
         { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
         { uniCodeNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } },
         { barcodes: { has: data.searchingFor.trim() } },
-        { brands: { some: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } } },
-        { category: { nameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
         { supplier: { fantasyNameNormalized: { contains: normalizeSearchTerm(data.searchingFor.trim()) } } },
       ],
     });
