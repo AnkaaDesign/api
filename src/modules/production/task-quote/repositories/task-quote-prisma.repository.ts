@@ -234,7 +234,7 @@ export class TaskQuotePrismaRepository
                   },
                 },
                 responsible: {
-                  select: { id: true, name: true, role: true },
+                  select: { id: true, name: true, roles: true },
                 },
               },
             }
@@ -274,7 +274,7 @@ export class TaskQuotePrismaRepository
             select: { id: true, fantasyName: true, cnpj: true },
           },
           responsible: {
-            select: { id: true, name: true, role: true },
+            select: { id: true, name: true, roles: true },
           },
           installments: {
             include: {
@@ -461,7 +461,7 @@ export class TaskQuotePrismaRepository
               },
             },
             responsible: {
-              select: { id: true, name: true, role: true },
+              select: { id: true, name: true, roles: true },
             },
             installments: {
               orderBy: { number: 'asc' },
@@ -496,7 +496,7 @@ export class TaskQuotePrismaRepository
               select: { id: true, fantasyName: true, cnpj: true },
             },
             responsible: {
-              select: { id: true, name: true, role: true },
+              select: { id: true, name: true, roles: true },
             },
           },
         },
@@ -539,7 +539,7 @@ export class TaskQuotePrismaRepository
               select: { id: true, fantasyName: true, cnpj: true },
             },
             responsible: {
-              select: { id: true, name: true, role: true },
+              select: { id: true, name: true, roles: true },
             },
           },
         },
@@ -581,7 +581,7 @@ export class TaskQuotePrismaRepository
               select: { id: true, fantasyName: true, cnpj: true },
             },
             responsible: {
-              select: { id: true, name: true, role: true },
+              select: { id: true, name: true, roles: true },
             },
           },
         },

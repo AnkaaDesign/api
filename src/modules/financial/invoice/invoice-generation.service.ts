@@ -235,6 +235,7 @@ export class InvoiceGenerationService {
         }
 
         // Create installments and optionally create BankSlips
+        const installmentPaymentMethod = this.resolveInstallmentPaymentMethod(paymentConfig);
         for (const instData of generatedInstallments) {
           const inst = await tx.installment.create({
             data: {
@@ -245,6 +246,7 @@ export class InvoiceGenerationService {
               amount: instData.amount,
               paidAmount: 0,
               status: 'PENDING',
+              paymentMethod: installmentPaymentMethod,
             },
           });
 
@@ -537,6 +539,7 @@ export class InvoiceGenerationService {
       }
 
       // Create installments and optionally create BankSlips
+      const installmentPaymentMethod = this.resolveInstallmentPaymentMethod(paymentConfig);
       for (const instData of generatedInstallments) {
         const inst = await tx.installment.create({
           data: {
@@ -547,6 +550,7 @@ export class InvoiceGenerationService {
             amount: instData.amount,
             paidAmount: 0,
             status: 'PENDING',
+            paymentMethod: installmentPaymentMethod,
           },
         });
 
@@ -1046,6 +1050,23 @@ export class InvoiceGenerationService {
    * "first payment in N days" always means N days from the moment billing was approved.
    * Falls back to `finishedAt` when `approvalDate` is not provided (backward compat).
    */
+  /**
+   * The intended settlement method for every installment a customerConfig (or
+   * external-operation withdrawal) generates — stamped onto `Installment.paymentMethod`
+   * at creation so the "Forma" column (internal tables) and the customer-facing dossiê
+   * page have something to show before anyone manually marks an installment paid.
+   *
+   * CASH configs carry an explicit choice (`À Vista - Boleto` / `À Vista - Pix`, set by
+   * PaymentConfigField on the web). INSTALLMENTS configs — and any config predating this
+   * field — default to BANK_SLIP, matching the historical behavior (boletos were the only
+   * mechanism before `method` existed).
+   */
+  private resolveInstallmentPaymentMethod(
+    paymentConfig: { method?: string } | null | undefined,
+  ): 'PIX' | 'BANK_SLIP' {
+    return paymentConfig?.method === 'PIX' ? 'PIX' : 'BANK_SLIP';
+  }
+
   private generateInstallmentsFromPaymentConfig(
     paymentConfig: {
       type: string;

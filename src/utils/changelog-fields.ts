@@ -6,6 +6,7 @@ import {
   TRUCK_CATEGORY_LABELS,
   IMPLEMENT_TYPE_LABELS,
   STOCK_MODEL_LABELS,
+  formatResponsibleRoles,
 } from '@constants';
 import { formatDateTime } from './date';
 import { formatCurrency } from './number';
@@ -147,6 +148,9 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     name: 'Nome',
     email: 'E-mail',
     phone: 'Telefone',
+    roles: 'Funções',
+    // Kept for changelog rows written before the roles-array migration, which
+    // still carry the singular field name.
     role: 'Função',
     customerId: 'Cliente',
     isActive: 'Ativo',
@@ -901,6 +905,11 @@ export function formatFieldValue(
   // Handle arrays
   if (Array.isArray(value)) {
     if (value.length === 0) return 'Nenhum';
+    // Without this branch a responsible's roles would fall through to the
+    // generic "N itens" fallback at the bottom of this block.
+    if (field === 'roles') {
+      return formatResponsibleRoles(value as string[]);
+    }
     if (field === 'barcodes' || field === 'barcode') {
       const stringValues = (value as string[]).filter(Boolean);
       if (stringValues.length > 3) {
@@ -979,7 +988,7 @@ export function formatFieldValue(
         // Format responsibles with name and phone
         if (value.length > 0 && typeof value[0] === 'object' && value[0].name) {
           return value
-            .map((rep: { name?: string; phone?: string; role?: string }) => {
+            .map((rep: { name?: string; phone?: string; roles?: string[] }) => {
               const name = rep.name || 'Responsável';
               const phone = rep.phone ? formatBrazilianPhone(rep.phone) : '';
               return phone ? `${name} - ${phone}` : name;

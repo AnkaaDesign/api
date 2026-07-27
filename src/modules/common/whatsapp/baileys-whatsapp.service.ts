@@ -203,6 +203,25 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
           (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
         const reason = (lastDisconnect?.error as Boom)?.output?.statusCode;
 
+        // 515 (restartRequired) NÃO é falha: é a etapa obrigatória logo após o
+        // pareamento por QR — o WhatsApp encerra o stream e exige que o socket
+        // seja recriado com as MESMAS credenciais. Tratar como erro (limpar auth,
+        // ou gastar tentativa de reconexão com recuo exponencial) transforma um
+        // pareamento bem-sucedido em laço infinito de QR.
+        if (reason === DisconnectReason.restartRequired) {
+          this.logger.log('Restart required (515) — recriando o socket com as mesmas credenciais');
+          this.reconnectAttempts = 0;
+          await this.updateConnectionStatus(WhatsAppConnectionStatus.CONNECTING);
+
+          if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+          this.reconnectTimeout = setTimeout(() => {
+            this.initializeSocket().catch(error =>
+              this.logger.error(`Failed to restart socket after 515: ${error.message}`),
+            );
+          }, 500);
+          return;
+        }
+
         this.logger.warn(
           `Connection closed. Reason: ${reason}, shouldReconnect: ${shouldReconnect}`,
         );
@@ -213,7 +232,15 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
         if (shouldReconnect) {
           this.handleReconnection();
         } else {
-          this.logger.error('Logged out from WhatsApp. Manual re-authentication required.');
+          this.logger.error('Logged out from WhatsApp. Clearing auth state to allow re-pairing.');
+          // Sem isto o `creds` inutilizado permanece no Redis e todo "Conectar"
+          // seguinte volta pelo caminho de login (Baileys ramifica só por
+          // `creds.me`), falhando sem nunca emitir QR.
+          try {
+            await this.authStateStore.clearAuthState();
+          } catch (error) {
+            this.logger.error(`Failed to clear auth state after logout: ${error.message}`);
+          }
           await this.updateConnectionStatus(WhatsAppConnectionStatus.AUTH_FAILURE);
           this.eventEmitter.emit('whatsapp.auth_failure', {
             error: 'Logged out',

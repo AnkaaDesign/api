@@ -420,6 +420,9 @@ export class ZodValidationPipe implements PipeTransform {
       'categoryIds',
       'brandIds',
       'supplierIds',
+      // Responsible.roles is a scalar list, so `?roles=OWNER,DRIVER` must be
+      // split rather than reaching Zod as a single string.
+      'roles',
     ];
 
     return arrayFields.some(field => fieldName.includes(field));
@@ -646,6 +649,9 @@ export class ZodValidationPipe implements PipeTransform {
       'state',
       'status',
       'currentContractStatus',
+      // Matched exactly, so this covers User.role / a legacy Responsible.role
+      // only -- never Responsible.roles, which must stay an array and must not
+      // be collapsed to null when empty.
       'role',
       'sector',
       'priority',

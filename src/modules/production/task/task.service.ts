@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -104,6 +105,7 @@ import { CutCreatedEvent, CutsAddedToTaskEvent } from '../cut/cut.events';
 import { TaskFieldTrackerService } from './task-field-tracker.service';
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
 import { TaskQuoteService } from '../task-quote/task-quote.service';
+import { SignatureDeletionService } from '@modules/common/signature/services/signature-deletion.service';
 // NOTE: TaskNotificationService import removed - legacy notification path was deprecated
 
 /**
@@ -150,6 +152,8 @@ export class TaskService {
     private readonly nfseEmissionScheduler: NfseEmissionScheduler,
     @Inject(forwardRef(() => TaskQuoteService))
     private readonly taskQuoteService: TaskQuoteService,
+    @Inject(forwardRef(() => SignatureDeletionService))
+    private readonly signatureDeletion: SignatureDeletionService,
   ) {}
 
   /**
@@ -2111,6 +2115,16 @@ export class TaskService {
     },
   ): Promise<TaskUpdateResponse> {
     try {
+      // Optimistic-concurrency precondition. Split off BEFORE anything else: it is
+      // a control field, not a column, and would blow up Prisma as an unknown arg.
+      const expectedUpdatedAt = (data as { expectedUpdatedAt?: Date })?.expectedUpdatedAt;
+      if (expectedUpdatedAt) {
+        const { expectedUpdatedAt: _omit, ...rest } = data as TaskUpdateFormData & {
+          expectedUpdatedAt?: Date;
+        };
+        data = rest as TaskUpdateFormData;
+      }
+
       // DEBUG: Log what data actually enters the service
       this.logger.log('[Task Update] === SERVICE METHOD ENTRY ===');
       this.logger.log('[Task Update] Full data received:', JSON.stringify(data, null, 2));
@@ -2128,6 +2142,30 @@ export class TaskService {
       let taskOldStatusForQuoteCancel: TASK_STATUS | null = null;
 
       const transactionResult = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        // ── Optimistic concurrency (opt-in) ──────────────────────────────────
+        // `SELECT … FOR UPDATE` rather than a plain read-then-compare: under READ
+        // COMMITTED a bare comparison leaves a window where both writers see the
+        // same `updatedAt`, both pass, and the second still clobbers the first.
+        // The lock serialises writers on this row for the rest of the transaction,
+        // so the check and the write are genuinely atomic.
+        //
+        // Only taken when the caller opted in, so every existing code path — and
+        // every client that has not shipped the field yet — behaves exactly as it
+        // did, with no new lock contention and no deadlock surface.
+        if (expectedUpdatedAt) {
+          const locked = await tx.$queryRaw<Array<{ updatedAt: Date }>>`
+            SELECT "updatedAt" FROM "Task" WHERE "id" = ${id}::uuid FOR UPDATE
+          `;
+          if (locked.length === 0) {
+            throw new NotFoundException('Tarefa não encontrada.');
+          }
+          if (locked[0].updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+            throw new ConflictException(
+              'Esta tarefa foi alterada por outra pessoa enquanto você editava. Recarregue para ver a versão atual antes de salvar.',
+            );
+          }
+        }
+
         // Get existing task - always include customer for file organization
         // Also include file relations for changelog tracking
         // Include truck implementMeasures with sections for file naming with measures
@@ -3118,10 +3156,10 @@ export class TaskService {
         if (data.responsibleIds !== undefined && existingTask.quote?.id) {
           const oldResps = await tx.responsible.findMany({
             where: { tasks: { some: { id } } },
-            select: { id: true, role: true },
+            select: { id: true, roles: true },
             orderBy: { createdAt: 'asc' },
           });
-          const oldOwner = oldResps.find((r) => r.role === 'OWNER');
+          const oldOwner = oldResps.find((r) => r.roles.includes('OWNER'));
           oldBestResponsibleId = oldOwner?.id ?? oldResps[0]?.id ?? null;
         }
 
@@ -3171,11 +3209,11 @@ export class TaskService {
             newRespIds.length > 0
               ? await tx.responsible.findMany({
                   where: { id: { in: newRespIds } },
-                  select: { id: true, role: true },
+                  select: { id: true, roles: true },
                   orderBy: { createdAt: 'asc' },
                 })
               : [];
-          const newOwner = newResps.find((r) => r.role === 'OWNER');
+          const newOwner = newResps.find((r) => r.roles.includes('OWNER'));
           const newBestId = newOwner?.id ?? newResps[0]?.id ?? null;
 
           if (oldBestResponsibleId !== newBestId) {
@@ -6867,7 +6905,14 @@ export class TaskService {
         }
       }
 
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException ||
+        // A concurrency conflict is a meaningful answer the client acts on (offer
+        // reload/overwrite), not a server fault — without this it was flattened
+        // into a generic 500 and the UI could not tell the two apart.
+        error instanceof ConflictException
+      ) {
         throw error;
       }
       throw new InternalServerErrorException(
@@ -9252,13 +9297,25 @@ export class TaskService {
    * Delete a task
    */
   async delete(id: string, userId?: string): Promise<TaskDeleteResponse> {
+    // Assinatura eletrônica: recusa quando o orçamento da tarefa já tem
+    // assinatura coletada ou envelope selado. Fora do try porque o catch abaixo
+    // converte tudo em 500 — e esta recusa precisa chegar como 400 legível.
+    await this.signatureDeletion.assertTasksDeletable([id]);
+
     try {
-      await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      const purged = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const task = await this.tasksRepository.findByIdWithTransaction(tx, id);
 
         if (!task) {
           throw new NotFoundException('Tarefa não encontrada. Verifique se o ID está correto.');
         }
+
+        // O envelope congela nº de série, placa, serviços e responsáveis DESTA
+        // tarefa. Sem a tarefa, um envelope RUNNING seguiria mandando link de
+        // assinatura por WhatsApp e sendo varrido pelo scheduler de expiração —
+        // apontando para um documento cujo objeto não existe mais. Só envelopes
+        // não vinculantes chegam aqui: os assinados já foram barrados acima.
+        const purgeResult = await this.signatureDeletion.purgeForTasks(tx, [id]);
 
         // Log deletion
         await logEntityChange({
@@ -9277,7 +9334,11 @@ export class TaskService {
         });
 
         await this.tasksRepository.deleteWithTransaction(tx, id);
+
+        return purgeResult;
       });
+
+      await this.signatureDeletion.unlinkFrozenDocuments(purged.frozenDocumentPaths);
 
       return {
         success: true,
@@ -9285,7 +9346,7 @@ export class TaskService {
       };
     } catch (error) {
       this.logger.error('Erro ao excluir tarefa:', error);
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
       throw new InternalServerErrorException(
@@ -9301,8 +9362,16 @@ export class TaskService {
     data: TaskBatchDeleteFormData,
     userId?: string,
   ): Promise<TaskBatchDeleteResponse> {
+    // Recusa o LOTE INTEIRO se qualquer tarefa tiver orçamento assinado. A
+    // alternativa (pular as bloqueadas) é pior: o lote reportaria sucesso
+    // parcial num fluxo em que o operador quase sempre selecionou tudo por
+    // engano, e o item recusado passaria despercebido no meio do resumo.
+    await this.signatureDeletion.assertTasksDeletable(data.taskIds);
+
     try {
-      const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      const { result, purged } = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        const purgeResult = await this.signatureDeletion.purgeForTasks(tx, data.taskIds);
+
         // Get tasks before deletion for logging
         const tasks = await this.tasksRepository.findByIdsWithTransaction(tx, data.taskIds);
 
@@ -9325,8 +9394,13 @@ export class TaskService {
         }
 
         // Batch delete
-        return this.tasksRepository.deleteManyWithTransaction(tx, data.taskIds);
+        return {
+          result: await this.tasksRepository.deleteManyWithTransaction(tx, data.taskIds),
+          purged: purgeResult,
+        };
       });
+
+      await this.signatureDeletion.unlinkFrozenDocuments(purged.frozenDocumentPaths);
 
       const successMessage =
         result.totalDeleted === 1
@@ -12539,7 +12613,7 @@ export class TaskService {
                 name: true,
                 phone: true,
                 email: true,
-                role: true,
+                roles: true,
               },
             },
           },
@@ -12616,7 +12690,7 @@ export class TaskService {
                 name: true,
                 phone: true,
                 email: true,
-                role: true,
+                roles: true,
               },
             },
           },
@@ -12792,7 +12866,7 @@ export class TaskService {
                 details.responsibles = sourceTask.responsibles.map(r => ({
                   id: r.id,
                   name: r.name,
-                  role: r.role,
+                  roles: r.roles,
                   phone: r.phone,
                   email: r.email,
                 }));
@@ -13394,6 +13468,22 @@ export class TaskService {
           });
 
           if (activeInvoiceCount === 0) {
+            // Mesmo cascade append-only do delete de orçamento: sem a purga
+            // explícita este `taskQuote.delete` estoura `restrict_violation` e
+            // derruba a cópia inteira. Aqui a purga é incondicional de
+            // propósito — a quote está sendo descartada por já ter sido
+            // substituída, e um envelope dela não vincula ninguém a nada. Se
+            // houvesse assinatura colhida, o gate de `delete()` é quem recusa;
+            // este caminho não é acionável pelo usuário como "excluir".
+            const purgedQuote = await this.signatureDeletion.purgeForQuotes(tx, [
+              orphanedOldQuoteId,
+            ]);
+            if (purgedQuote.envelopesRemoved) {
+              this.logger.warn(
+                `[copyFromTask] Purgados ${purgedQuote.envelopesRemoved} envelope(s) de assinatura ` +
+                  `do orçamento órfão ${orphanedOldQuoteId}`,
+              );
+            }
             await tx.taskQuote.delete({ where: { id: orphanedOldQuoteId } });
             this.logger.log(
               `[copyFromTask] Deleted orphaned previous quote ${orphanedOldQuoteId} (no active invoice)`,

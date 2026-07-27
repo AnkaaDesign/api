@@ -1,7 +1,9 @@
 // api/src/modules/production/task-quote/task-quote.module.ts
 
-import { Module, forwardRef } from '@nestjs/common';
+import { Module, forwardRef, Inject, OnModuleInit } from '@nestjs/common';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
+import { SignatureModule } from '@modules/common/signature/signature.module';
+import { SignatureEnvelopeService } from '@modules/common/signature/services/signature-envelope.service';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
 import { FileModule } from '@modules/common/file/file.module';
@@ -44,6 +46,7 @@ import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.servi
     // forwardRef: SicrediModule imports this module back (cascade service); a direct
     // reference is undefined when the ESM cycle is entered from the Invoice/Sicredi side.
     forwardRef(() => SicrediModule),
+    forwardRef(() => SignatureModule),
   ],
   controllers: [TaskQuoteController],
   providers: [
@@ -57,4 +60,22 @@ import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.servi
   ],
   exports: [TaskQuoteService, TaskQuoteRepository, TaskQuoteStatusCascadeService],
 })
-export class TaskQuoteModule {}
+/**
+ * Liga a conclusão de um envelope de assinatura à aprovação do orçamento.
+ *
+ * O registro acontece daqui — e não de dentro do módulo de assinatura — porque é
+ * este domínio que sabe o que "todos assinaram" significa para o `TaskQuote`.
+ */
+export class TaskQuoteModule implements OnModuleInit {
+  constructor(
+    @Inject(forwardRef(() => SignatureEnvelopeService))
+    private readonly signatureEnvelopes: SignatureEnvelopeService,
+    private readonly taskQuoteService: TaskQuoteService,
+  ) {}
+
+  onModuleInit(): void {
+    this.signatureEnvelopes.setOnEnvelopeCompleted(async (quoteId, _envelopeId, actorUserId) => {
+      await this.taskQuoteService.budgetApprove(quoteId, actorUserId ?? '');
+    });
+  }
+}

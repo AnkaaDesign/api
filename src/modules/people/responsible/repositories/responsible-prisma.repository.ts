@@ -10,7 +10,29 @@ import {
   ResponsibleWhere,
 } from '@/types/responsible';
 import { PrismaTransaction } from '@/modules/common/base/base.repository';
-import { Prisma } from '@prisma/client';
+import { Prisma, ResponsibleRole } from '@prisma/client';
+
+/**
+ * `where` arrives already Prisma-shaped from responsibleWhereSchema, but a
+ * legacy client (or a stale persisted filter) may still carry a scalar
+ * `role: 'OWNER'`. Prisma would reject that on a scalar-list field with a
+ * validation error surfacing as a 500, so translate it to `{ has }` here
+ * rather than letting it through.
+ */
+function normalizeRolesFilter(rest: Record<string, unknown>): void {
+  if ('role' in rest) {
+    const legacy = rest.role;
+    delete rest.role;
+    if (rest.roles === undefined && typeof legacy === 'string') {
+      rest.roles = { has: legacy as ResponsibleRole };
+    }
+  }
+  if (typeof rest.roles === 'string') {
+    rest.roles = { has: rest.roles as ResponsibleRole };
+  } else if (Array.isArray(rest.roles)) {
+    rest.roles = { hasSome: rest.roles as ResponsibleRole[] };
+  }
+}
 
 @Injectable()
 export class ResponsiblePrismaRepository extends ResponsibleRepository {
@@ -64,17 +86,20 @@ export class ResponsiblePrismaRepository extends ResponsibleRepository {
     });
   }
 
+  // Returns a LIST: now that a contact can hold several roles, "the COMMERCIAL
+  // responsible of company X" is no longer unique.
   async findByCompanyIdAndRole(
     companyId: string,
-    role: string,
+    role: ResponsibleRole,
     tx?: PrismaTransaction,
-  ): Promise<Responsible | null> {
+  ): Promise<Responsible[]> {
     const client = tx || this.prisma;
-    return await client.responsible.findFirst({
+    return await client.responsible.findMany({
       where: {
         companyId,
-        role: role as any,
+        roles: { has: role },
       },
+      orderBy: { name: 'asc' },
     });
   }
 
@@ -90,7 +115,10 @@ export class ResponsiblePrismaRepository extends ResponsibleRepository {
     return await client.responsible.findMany({
       where: { companyId },
       include: options?.include,
-      orderBy: options?.orderBy || { role: 'asc' },
+      // Was `{ role: 'asc' }`. Prisma cannot orderBy a scalar list, and this
+      // default fires on every GET /responsibles/company/:id, so leaving it
+      // would 500 the endpoint unconditionally.
+      orderBy: options?.orderBy || { name: 'asc' },
     });
   }
 
@@ -109,6 +137,7 @@ export class ResponsiblePrismaRepository extends ResponsibleRepository {
     const where: Prisma.ResponsibleWhereInput = {};
     if (options?.where) {
       const { name, company, OR, ...rest } = options.where as any;
+      normalizeRolesFilter(rest);
       Object.assign(where, rest);
 
       if (name?.contains) {
@@ -166,6 +195,7 @@ export class ResponsiblePrismaRepository extends ResponsibleRepository {
     const prismaWhere: Prisma.ResponsibleWhereInput = {};
     if (where) {
       const { name, company, OR, ...rest } = where as any;
+      normalizeRolesFilter(rest);
       Object.assign(prismaWhere, rest);
 
       if (name?.contains) {

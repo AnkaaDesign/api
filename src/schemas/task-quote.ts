@@ -495,6 +495,11 @@ export const installmentInputSchema = z.object({
 // Structured payment config (replaces paymentCondition going forward)
 export const paymentConfigSchema = z.object({
   type: z.enum(['CASH', 'INSTALLMENTS']),
+  // Intended settlement method — stamped onto every Installment this config generates
+  // (invoice-generation.service.ts `resolveInstallmentPaymentMethod`). CASH configs carry
+  // an explicit choice (web: "À Vista - Boleto" / "À Vista - Pix"); INSTALLMENTS configs
+  // default to BANK_SLIP when omitted.
+  method: z.enum(['PIX', 'BANK_SLIP']).optional(),
   cashDays: z.number().int().min(1).max(365).optional(),
   installmentCount: z.number().int().min(2).max(6).optional(),
   installmentStep: z.number().int().min(1).max(365).optional(),

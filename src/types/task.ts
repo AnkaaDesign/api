@@ -286,7 +286,7 @@ export type TaskSelect = TaskSelectFields & {
   responsibles?:
     | boolean
     | {
-        select?: { id?: boolean; name?: boolean; phone?: boolean; email?: boolean; role?: boolean };
+        select?: { id?: boolean; name?: boolean; phone?: boolean; email?: boolean; roles?: boolean };
       };
 };
 
@@ -487,7 +487,7 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
       name: true,
       phone: true,
       email: true,
-      role: true,
+      roles: true,
     },
   },
 };
@@ -642,7 +642,7 @@ export interface TaskDetailed extends BaseEntity {
     name: string;
     phone: string;
     email: string | null;
-    role: string;
+    roles: string[];
   }>;
 }
 

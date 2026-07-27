@@ -75,6 +75,12 @@ export class BaileysAuthStateStore {
       if (stored) {
         // Parse with BufferJSON to handle Buffer objects
         const parsed = JSON.parse(stored, BufferJSON.reviver);
+
+        // NÃO descartar credenciais por `registered !== true`: esse campo só é
+        // escrito no pareamento por CÓDIGO DE TELEFONE (`messages-recv.js:697`).
+        // Numa sessão pareada por QR ele fica `false` permanentemente, e usá-lo
+        // como sinal de corrupção apaga a credencial recém-pareada na janela do
+        // `stream:error 515`, prendendo a conexão num laço de QR infinito.
         this.logger.log('Loaded existing credentials from Redis');
         return parsed;
       }
@@ -163,11 +169,34 @@ export class BaileysAuthStateStore {
    */
   async clearAuthState(): Promise<void> {
     try {
-      // Delete credentials
-      await this.cacheService.del(this.CREDS_KEY);
+      const redis = this.cacheService['redis'];
 
-      // Delete all keys (would need pattern matching - implement if needed)
-      this.logger.log('Cleared auth state from Redis');
+      // ARMADILHA: o cliente é criado com `keyPrefix: 'cache:'`, e o ioredis
+      // aplica esse prefixo aos ARGUMENTOS DE CHAVE (get/setex/del) mas NÃO ao
+      // padrão do SCAN. Então o SCAN precisa do prefixo explícito e o DEL precisa
+      // dele removido — senão o alvo vira `cache:cache:...` e nada é apagado.
+      // (É o mesmo defeito que deixa `CacheService.clearPattern` sem efeito.)
+      const prefix: string = redis.options?.keyPrefix ?? '';
+      const pattern = `${prefix}${this.KEY_PREFIX}*`;
+
+      const toDelete: string[] = [];
+      let cursor = '0';
+      do {
+        const [next, batch] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 500);
+        cursor = next;
+        for (const key of batch) {
+          toDelete.push(prefix && key.startsWith(prefix) ? key.slice(prefix.length) : key);
+        }
+      } while (cursor !== '0');
+
+      // Apaga creds E as chaves de signal. Deixar as chaves para trás produz o
+      // mesmo híbrido corrompido que este método existe para resolver: creds novo
+      // convivendo com pre-keys/sessions da sessão anterior.
+      for (let i = 0; i < toDelete.length; i += 500) {
+        await redis.del(...toDelete.slice(i, i + 500));
+      }
+
+      this.logger.log(`Cleared auth state from Redis (${toDelete.length} chaves)`);
     } catch (error) {
       this.logger.error(`Failed to clear auth state: ${error.message}`);
       throw error;
@@ -179,8 +208,13 @@ export class BaileysAuthStateStore {
    */
   async hasAuthState(): Promise<boolean> {
     try {
-      const creds = await this.cacheService.get(this.CREDS_KEY);
-      return !!creds;
+      // Mesmo caminho raw de `loadCreds` — `cacheService.get` faz parse próprio e
+      // divergia da escrita. O sinal de sessão pareada é `me.id`; `registered`
+      // NÃO serve (fica `false` para sempre em pareamento por QR).
+      const stored = await this.cacheService['redis'].get(this.CREDS_KEY);
+      if (!stored) return false;
+      const parsed = JSON.parse(stored, BufferJSON.reviver);
+      return Boolean(parsed?.me?.id);
     } catch (error) {
       return false;
     }

@@ -23,6 +23,7 @@ import {
   TRUCK_SPOT,
   AIRBRUSHING_DESCRIPTION_PREFIX,
 } from '@constants';
+import { responsibleRolesSchema } from './responsible';
 import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
 import { taskQuoteCreateNestedSchema } from './task-quote';
@@ -591,7 +592,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 name: z.boolean().optional(),
                 phone: z.boolean().optional(),
                 email: z.boolean().optional(),
-                role: z.boolean().optional(),
+                roles: z.boolean().optional(),
                 isActive: z.boolean().optional(),
                 companyId: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
@@ -892,7 +893,7 @@ export const taskSelectDetail = {
       name: true,
       phone: true,
       email: true,
-      role: true,
+      roles: true,
       isActive: true,
     },
   },
@@ -2504,7 +2505,10 @@ export const taskCreateSchema = z
           name: z.string().min(1, 'Nome é obrigatório'),
           phone: z.string().min(10, 'Telefone inválido'),
           email: z.string().email('Email inválido').optional().or(z.literal('')),
-          role: z.enum(['COMMERCIAL', 'TECHNICAL', 'FINANCIAL', 'ADMINISTRATIVE']),
+          // Was a hand-written z.enum listing TECHNICAL / ADMINISTRATIVE, which
+          // are not ResponsibleRole members -- they passed Zod and then failed
+          // at insert time. Now the single source of truth, and multi-valued.
+          roles: responsibleRolesSchema,
           isActive: z.boolean().default(true),
           companyId: z.string().uuid('ID da empresa inválido').optional(),
         }),
@@ -2686,6 +2690,19 @@ export const taskCreateSchema = z
 // Base task update schema with all relations
 export const taskUpdateSchema = z
   .object({
+    /**
+     * Optimistic-concurrency precondition: the `updatedAt` the client loaded.
+     *
+     * When present, the service takes a row lock and refuses the write with 409 if
+     * the record moved since — the backstop under the presence guard. Presence only
+     * protects writers who participate in it; this also covers offline outbox
+     * replays, crons and any client that never opened a socket.
+     *
+     * Optional so existing callers are completely unaffected: with it absent the
+     * update behaves exactly as before, no lock taken.
+     */
+    expectedUpdatedAt: z.coerce.date().optional(),
+
     // Basic fields
     name: createNameSchema(3, 200, 'nome da tarefa').nullable().optional(),
     status: z
@@ -2728,7 +2745,10 @@ export const taskUpdateSchema = z
           name: z.string().min(1, 'Nome é obrigatório'),
           phone: z.string().min(10, 'Telefone inválido'),
           email: z.string().email('Email inválido').optional().or(z.literal('')),
-          role: z.enum(['COMMERCIAL', 'TECHNICAL', 'FINANCIAL', 'ADMINISTRATIVE']),
+          // Was a hand-written z.enum listing TECHNICAL / ADMINISTRATIVE, which
+          // are not ResponsibleRole members -- they passed Zod and then failed
+          // at insert time. Now the single source of truth, and multi-valued.
+          roles: responsibleRolesSchema,
           isActive: z.boolean().default(true),
           companyId: z.string().uuid('ID da empresa inválido').optional(),
         }),

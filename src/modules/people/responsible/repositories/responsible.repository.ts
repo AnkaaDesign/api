@@ -8,6 +8,7 @@ import {
   ResponsibleWhere,
 } from '@/types/responsible';
 import { PrismaTransaction } from '@/modules/common/base/base.repository';
+import { ResponsibleRole } from '@prisma/client';
 
 /**
  * Abstract repository for Responsible entity.
@@ -34,11 +35,12 @@ export abstract class ResponsibleRepository {
 
   abstract findByPhone(phone: string, tx?: PrismaTransaction): Promise<Responsible | null>;
 
+  /** Every contact of `companyId` that holds `role` (a contact may hold several). */
   abstract findByCompanyIdAndRole(
     companyId: string,
-    role: string,
+    role: ResponsibleRole,
     tx?: PrismaTransaction,
-  ): Promise<Responsible | null>;
+  ): Promise<Responsible[]>;
 
   abstract findByCompanyId(
     companyId: string,

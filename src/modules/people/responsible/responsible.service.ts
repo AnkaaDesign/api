@@ -20,36 +20,22 @@ import {
   ResponsibleLoginFormData,
   ResponsibleRegisterFormData,
 } from '@/schemas/responsible';
-import { ENTITY_TYPE, CHANGE_ACTION } from '@/constants/enums';
+import {
+  ENTITY_TYPE,
+  CHANGE_ACTION,
+  RESPONSIBLE_ROLE,
+  RESPONSIBLE_ROLE_LABELS,
+  formatResponsibleRoles,
+} from '@/constants/enums';
+import { ResponsibleRole } from '@prisma/client';
 import { PrismaService } from '@/modules/common/prisma/prisma.service';
 import { v4 as uuidv4 } from 'uuid';
 import { JwtService } from '@nestjs/jwt';
 
-export const RESPONSIBLE_ROLE = {
-  COMMERCIAL: 'COMMERCIAL',
-  OWNER: 'OWNER',
-  SELLER: 'SELLER',
-  REPRESENTATIVE: 'REPRESENTATIVE',
-  COORDINATOR: 'COORDINATOR',
-  MARKETING: 'MARKETING',
-  FINANCIAL: 'FINANCIAL',
-  FLEET_MANAGER: 'FLEET_MANAGER',
-  DRIVER: 'DRIVER',
-} as const;
-
-export type ResponsibleRole = (typeof RESPONSIBLE_ROLE)[keyof typeof RESPONSIBLE_ROLE];
-
-export const RESPONSIBLE_ROLE_LABELS: Record<ResponsibleRole, string> = {
-  COMMERCIAL: 'Comercial',
-  OWNER: 'Proprietário',
-  SELLER: 'Vendedor',
-  REPRESENTATIVE: 'Representante',
-  COORDINATOR: 'Coordenador',
-  MARKETING: 'Marketing',
-  FINANCIAL: 'Financeiro',
-  FLEET_MANAGER: 'Gestor de Frota',
-  DRIVER: 'Motorista',
-};
+// Re-exported for backwards compatibility. The values and labels live in
+// @/constants/enums; this file used to keep a second copy that shadowed the
+// Prisma `ResponsibleRole` type of the same name.
+export { RESPONSIBLE_ROLE, RESPONSIBLE_ROLE_LABELS, formatResponsibleRoles };
 
 @Injectable()
 export class ResponsibleService {
@@ -127,10 +113,11 @@ export class ResponsibleService {
     return await this.repository.findByPhone(phone);
   }
 
+  /** Every contact of `companyId` holding `role` -- no longer at most one. */
   async findByCompanyIdAndRole(
     companyId: string,
-    role: string,
-  ): Promise<ResponsibleResponse | null> {
+    role: ResponsibleRole,
+  ): Promise<ResponsibleResponse[]> {
     return await this.repository.findByCompanyIdAndRole(companyId, role);
   }
 
@@ -151,7 +138,7 @@ export class ResponsibleService {
     pageSize?: number;
     search?: string;
     companyId?: string;
-    role?: string;
+    roles?: ResponsibleRole[];
     isActive?: boolean;
     where?: ResponsibleWhere;
     orderBy?: ResponsibleOrderBy;
@@ -178,8 +165,10 @@ export class ResponsibleService {
     if (options?.companyId) {
       where.companyId = options.companyId;
     }
-    if (options?.role) {
-      where.role = options.role as any;
+    // Any-of: selecting FINANCIAL + FLEET_MANAGER lists every contact that
+    // holds either. Backed by the GIN index on "Representative"."roles".
+    if (options?.roles?.length) {
+      where.roles = { hasSome: options.roles };
     }
     if (options?.isActive !== undefined) {
       where.isActive = options.isActive;
@@ -414,10 +403,13 @@ export class ResponsibleService {
     await this.repository.updateSessionToken(responsible.id, sessionToken);
 
     // Generate JWT
+    // Deliberately claimed as `roles`, not `role`: AuthGuard reads a `role`
+    // claim as a User SECTOR_PRIVILEGES value, and ResponsibleRole shares the
+    // literal COMMERCIAL/FINANCIAL with that enum.
     const token = this.jwtService.sign({
       id: responsible.id,
       email: responsible.email,
-      role: responsible.role,
+      roles: responsible.roles,
       companyId: responsible.companyId,
       type: 'responsible',
     });
@@ -574,24 +566,44 @@ export class ResponsibleService {
   }
 
   private getRoleLabel(role: string): string {
-    return RESPONSIBLE_ROLE_LABELS[role as ResponsibleRole] || role;
+    return RESPONSIBLE_ROLE_LABELS[role as RESPONSIBLE_ROLE] || role;
   }
 
+  /**
+   * `roles` is an array, so `!==` would compare references and report a change
+   * on every single update. Values are canonically ordered by the Zod layer, so
+   * an element-wise comparison is enough, and both sides are rendered through
+   * the pt-BR labels rather than a raw `String(array)`.
+   */
   private getChangedFields(
     oldData: any,
     newData: any,
   ): Array<{ field: string; oldValue: string; newValue: string }> {
     const changes: Array<{ field: string; oldValue: string; newValue: string }> = [];
-    const fields = ['name', 'email', 'phone', 'role', 'isActive', 'companyId'];
+    const fields = ['name', 'email', 'phone', 'roles', 'isActive', 'companyId'];
+
+    const serialize = (field: string, value: unknown): string =>
+      field === 'roles' ? formatResponsibleRoles(value as string[]) : String(value ?? '');
+
+    const isEqual = (a: unknown, b: unknown): boolean => {
+      if (Array.isArray(a) || Array.isArray(b)) {
+        const left = Array.isArray(a) ? a : [];
+        const right = Array.isArray(b) ? b : [];
+        return left.length === right.length && left.every((item, i) => item === right[i]);
+      }
+      return a === b;
+    };
 
     for (const field of fields) {
-      if (oldData[field] !== newData[field]) {
-        changes.push({
-          field,
-          oldValue: String(oldData[field] || ''),
-          newValue: String(newData[field] || ''),
-        });
-      }
+      // `undefined` on a partial update means "not touched", not "cleared".
+      if (newData[field] === undefined) continue;
+      if (isEqual(oldData[field], newData[field])) continue;
+
+      changes.push({
+        field,
+        oldValue: serialize(field, oldData[field]),
+        newValue: serialize(field, newData[field]),
+      });
     }
 
     return changes;

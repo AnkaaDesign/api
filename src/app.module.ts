@@ -69,6 +69,7 @@ import { AppsModule } from './modules/system/app/app.module';
 import { UpdateModule } from './modules/system/update/update.module';
 import { InstallModule } from './modules/system/install/install.module';
 import { WhatsAppModule } from './modules/common/whatsapp/whatsapp.module';
+import { SignatureModule } from './modules/common/signature/signature.module';
 import { MessageModule } from './modules/system/message/message.module';
 import { DeepLinkModule } from './modules/common/deep-link/deep-link.module';
 import { SicrediModule } from './modules/integrations/sicredi/sicredi.module';
@@ -158,6 +159,7 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     UpdateModule,
     InstallModule,
     WhatsAppModule,
+    SignatureModule,
     MessageModule,
     DeepLinkModule,
     SicrediModule,
