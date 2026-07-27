@@ -215,9 +215,8 @@ polling cut source and unify on the engine.
 
 ### Known deployment constraints
 
-1. **Migrations are not applied automatically.** `20260724130000_add_attention_ack` (and
-   `20260724120000_truck_vin_plate`, which rule R3b needs) must be applied with
-   `pnpm db:migrate:deploy` BEFORE restarting the API. Run `npx prisma migrate status` first.
+1. **Migrations are not applied automatically.** `20260724130000_add_attention_ack` must be
+   applied with `pnpm db:migrate:deploy` BEFORE restarting the API. Run `npx prisma migrate status` first.
    Without the table, ack endpoints 500; the client degrades to localStorage and — since
    `/attention` is now skip-listed in the web axios interceptor — does so silently.
 2. **Single API instance only.** Presence lives in process memory and every broadcast is

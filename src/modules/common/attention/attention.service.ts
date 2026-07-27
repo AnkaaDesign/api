@@ -130,16 +130,19 @@ export class AttentionService {
     // ---- TASK (R1-R3b, targeted at LOGISTIC + PRODUCTION_MANAGER) ----
     if (isAdmin || privilege === SectorPrivileges.LOGISTIC || privilege === SectorPrivileges.PRODUCTION_MANAGER) {
       const inFlight: Prisma.TaskWhereInput = { status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] } };
-      // Empty-string chassis/plate count as "missing" (the client's isNullish treats "" as null),
-      // so mirror that here or the nav under-counts vs an on-screen row.
+      // Empty-string chassis/plate/serial count as "missing" (the client's isNullish treats ""
+      // as null), so mirror that here or the nav under-counts vs an on-screen row.
       const noChassis: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { chassisNumber: null } }, { truck: { chassisNumber: '' } }] };
-      const noPlate: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { vinPlate: null } }, { truck: { vinPlate: '' } }] };
+      const noPlate: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { plate: null } }, { truck: { plate: '' } }] };
+      const noSerial: Prisma.TaskWhereInput = { OR: [{ serialNumber: null }, { serialNumber: '' }] };
+      // Each branch nests its own OR under `AND` — spreading two `OR` keys into one object
+      // would silently drop the first.
       const anyRule: Prisma.TaskWhereInput = {
         OR: [
           { cleared: true, entryDate: null }, // R1 — cleared without entry
           { forecastDate: { lt: now }, cleared: false }, // R2 — forecast overdue, not cleared
-          { entryDate: { not: null }, ...noChassis }, // R3a — entry given, no chassis
-          { entryDate: { not: null }, ...noPlate }, // R3b — entry given, no plate
+          { entryDate: { not: null }, AND: [noChassis] }, // R3a — entry given, no chassis
+          { entryDate: { not: null }, AND: [noSerial, noPlate] }, // R3b — entry given, no serial AND no plate
         ],
       };
       const notSuppressed = await this.restingIdFilter(userId, 'TASK', now);
