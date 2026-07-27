@@ -427,6 +427,10 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
     padding: 1.1mm 0; border-bottom: .5px dotted #ccc;
     break-inside: avoid;
   }
+  /* A ultima linha nao leva pontilhado: logo abaixo dela vem a regua do bloco de
+     totais (verde no Total, cinza no Subtotal quando ha desconto), e as duas
+     empilhadas liam como um erro de impressao. */
+  .service-row:last-child { border-bottom: none; }
   .service-desc { flex: 1; }
   /* tabular-nums para que 9 e 10 alinhem a coluna do texto num orcamento longo. */
   .service-index { font-variant-numeric: tabular-nums; }
