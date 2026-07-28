@@ -1,9 +1,11 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { BullModule } from '@nestjs/bull';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { MoneyRedactionInterceptor } from './modules/common/interceptors/money-redaction.interceptor';
 import { getRedisConfig } from './common/config/redis.config';
 
 import {
@@ -172,7 +174,14 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     WasteCertificateModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Global: strips monetary fields from every response for sectors outside
+    // MONEY_PRIVILEGES. Registered app-wide on purpose — per-controller opt-in
+    // is what let `GET /items` and `GET /users` ship prices and salaries to
+    // every sector for as long as they did.
+    { provide: APP_INTERCEPTOR, useClass: MoneyRedactionInterceptor },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

@@ -475,3 +475,80 @@ export const toTitleCase = (str: string): string => {
     })
     .join(' ');
 };
+
+/**
+ * Connectives that stay lowercase inside a Brazilian person name.
+ * Deliberately NARROWER than PORTUGUESE_LOWERCASE_WORDS above: articles like
+ * "a"/"o"/"as"/"os" are legitimate given names/surnames particles here and must
+ * NOT be forced lowercase.
+ *
+ * Keep in sync with web/src/utils/formatters.ts → BR_NAME_LOWERCASE_WORDS.
+ */
+const BR_NAME_LOWERCASE_WORDS = new Set([
+  'de',
+  'da',
+  'do',
+  'das',
+  'dos',
+  'e',
+  'di',
+  'du',
+  'del',
+]);
+
+/**
+ * Capitalize a Brazilian person name with proper casing. This is the canonical
+ * storage format for `User.name` — applied by userCreateSchema/userUpdateSchema
+ * so every client (web, mobile, Flutter, direct API) persists the same shape.
+ *
+ * Rules:
+ *  - First word is always capitalized
+ *  - Connectives (de, da, do, das, dos, e, di, du, del) stay lowercase
+ *  - All other words get first-letter capitalized, rest lowercase
+ *  - Single-letter words (initials) are uppercased
+ *  - Compound separators (-, ') capitalize the segment that follows them
+ *  - Handles ALL-CAPS and all-lowercase input gracefully; collapses whitespace
+ *
+ * Examples:
+ *  "MARIA DOS SANTOS"        -> "Maria dos Santos"
+ *  "joão DA SILVA dos santos" -> "João da Silva dos Santos"
+ *  "ana-maria d'ávila"       -> "Ana-Maria D'Ávila"
+ *  "  FULANO  DE  TAL  "     -> "Fulano de Tal"
+ *
+ * NOTE: unlike toTitleCase, this never uppercases 2-3 letter words — "Ana", "Rui"
+ * and "Ivo" are names, not acronyms.
+ */
+export const toBrazilianNameCase = (str: string): string => {
+  if (!str) return '';
+
+  // Capitalize the first letter of each hyphen/apostrophe-separated segment, so
+  // "ana-maria" -> "Ana-Maria" and "d'avila" -> "D'Avila".
+  const capitalizeSegments = (word: string): string =>
+    word.replace(
+      /(^|[-'’])(\p{L})/gu,
+      (_m, sep: string, letter: string) => sep + letter.toUpperCase(),
+    );
+
+  return str
+    .trim()
+    .replace(/\s+/g, ' ') // collapse multiple spaces
+    .split(' ')
+    .map((word, index) => {
+      if (word.length === 0) return word;
+
+      const lower = word.toLowerCase();
+
+      // Connectives stay lowercase, except when the name starts with one
+      if (index > 0 && BR_NAME_LOWERCASE_WORDS.has(lower)) {
+        return lower;
+      }
+
+      // Single-letter initial -> uppercase
+      if (word.length === 1) {
+        return word.toUpperCase();
+      }
+
+      return capitalizeSegments(lower);
+    })
+    .join(' ');
+};

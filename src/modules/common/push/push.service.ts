@@ -6,6 +6,19 @@ import { DeepLinkService } from '../notification/deep-link.service';
 import { ExpoPushService } from './expo-push.service';
 import { Platform, DeviceToken } from '@prisma/client';
 
+/**
+ * Android notification channel every FCM message is posted to.
+ *
+ * MUST match the channel the app creates (`push_notification_service.dart` →
+ * `_channel`) and `com.google.firebase.messaging.default_notification_channel_id`
+ * in its AndroidManifest. Naming a channel the app never created makes FCM fall
+ * back to the manifest value and, failing that, to a system "Miscellaneous"
+ * channel with no heads-up — every notification silently downgraded to a
+ * status-bar line. This was previously hardcoded to 'default', which no app has
+ * ever created.
+ */
+const ANDROID_NOTIFICATION_CHANNEL_ID = 'ankaa_default';
+
 export interface PushNotificationResult {
   success: boolean;
   messageId?: string;
@@ -178,7 +191,7 @@ export class PushService implements OnModuleInit {
         android: {
           priority: 'high',
           notification: {
-            channelId: 'default',
+            channelId: ANDROID_NOTIFICATION_CHANNEL_ID,
             priority: 'high',
             defaultSound: true,
             defaultVibrateTimings: true,
@@ -265,7 +278,7 @@ export class PushService implements OnModuleInit {
         android: {
           priority: 'high',
           notification: {
-            channelId: 'default',
+            channelId: ANDROID_NOTIFICATION_CHANNEL_ID,
             priority: 'high',
             defaultSound: true,
             defaultVibrateTimings: true,
@@ -356,7 +369,7 @@ export class PushService implements OnModuleInit {
         android: {
           priority: 'high',
           notification: {
-            channelId: 'default',
+            channelId: ANDROID_NOTIFICATION_CHANNEL_ID,
             priority: 'high',
             defaultSound: true,
             defaultVibrateTimings: true,
@@ -744,13 +757,28 @@ export class PushService implements OnModuleInit {
     if (!error) return false;
 
     const errorCode = error.code || error.errorInfo?.code;
-    const invalidCodes = [
-      'messaging/invalid-registration-token',
-      'messaging/registration-token-not-registered',
-      'messaging/invalid-argument',
-    ];
 
-    return invalidCodes.includes(errorCode);
+    // Unambiguous: the token itself is dead (app uninstalled, token rotated).
+    if (
+      errorCode === 'messaging/invalid-registration-token' ||
+      errorCode === 'messaging/registration-token-not-registered'
+    ) {
+      return true;
+    }
+
+    // `messaging/invalid-argument` is ALSO what FCM returns for a malformed
+    // *message* — a bad channel id, an oversized data payload, a bad APNs
+    // header. Treating it as a dead token deactivated every recipient's device
+    // at once on a single bad payload, and the apps only re-register on a cold
+    // start, so those users went silent indefinitely. Only act on it when the
+    // error actually blames the token. (The client also re-asserts its
+    // registration periodically now, so a wrong deactivation self-heals.)
+    if (errorCode === 'messaging/invalid-argument') {
+      const message = `${error.message ?? error.errorInfo?.message ?? ''}`.toLowerCase();
+      return message.includes('registration token') || message.includes('not a valid fcm');
+    }
+
+    return false;
   }
 
   /**
@@ -1015,7 +1043,7 @@ export class PushService implements OnModuleInit {
       message.android = {
         priority: 'high',
         notification: {
-          channelId: 'default',
+          channelId: ANDROID_NOTIFICATION_CHANNEL_ID,
           priority: 'high' as any,
           defaultSound: true,
           defaultVibrateTimings: true,
@@ -1112,7 +1140,7 @@ export class PushService implements OnModuleInit {
       android: {
         priority: 'high',
         notification: {
-          channelId: 'default',
+          channelId: ANDROID_NOTIFICATION_CHANNEL_ID,
           priority: 'high' as any,
           defaultSound: true,
           defaultVibrateTimings: true,

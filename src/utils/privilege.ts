@@ -111,6 +111,49 @@ export const canAccessAllPrivileges = (
 };
 
 // =====================
+// Privilege Groups
+// =====================
+
+/**
+ * The ONLY sectors allowed to see monetary values.
+ *
+ * This is the single authority for "may this user see money?" across the whole
+ * product — item/order prices, quote and billing totals, freight, discounts,
+ * payables, salaries and other people's bonuses. Every client gate and every
+ * server-side redaction derives from this list; do not restate it inline.
+ *
+ * It is an ALLOWLIST on purpose. It replaced `privilege !== WAREHOUSE`, which
+ * was an exclusion of exactly one sector and therefore leaked prices to
+ * PRODUCTION, MAINTENANCE, LOGISTIC, HUMAN_RESOURCES, DESIGNER, PLOTTING,
+ * PRODUCTION_MANAGER, EXTERNAL and BASIC. Any privilege added to the enum in
+ * future is denied by default, which is the correct direction to fail.
+ *
+ * NOTE this governs the VISIBILITY of monetary fields, not access to a module.
+ * ACCOUNTING may see money wherever it already has access (bonuses, PPE,
+ * ferramentas); it does not gain the Faturamento module by being listed here —
+ * that is enforced separately by `@Roles` on the task-quote controller.
+ */
+export const MONEY_PRIVILEGES: SECTOR_PRIVILEGES[] = [
+  SECTOR_PRIVILEGES.ADMIN,
+  SECTOR_PRIVILEGES.ACCOUNTING,
+  SECTOR_PRIVILEGES.COMMERCIAL,
+  SECTOR_PRIVILEGES.FINANCIAL,
+];
+
+/**
+ * Whether this user may see monetary values at all.
+ *
+ * A user with no sector (and therefore no privilege) is denied — money is the
+ * one place where an unknown privilege must not fall through to "allowed".
+ */
+export const canViewMonetaryValues = (
+  userPrivilege: SECTOR_PRIVILEGES | null | undefined,
+): boolean => {
+  if (!userPrivilege) return false;
+  return MONEY_PRIVILEGES.includes(userPrivilege);
+};
+
+// =====================
 // Team Management Privilege Utilities
 // =====================
 

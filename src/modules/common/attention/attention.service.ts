@@ -2,7 +2,16 @@ import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/com
 import { randomUUID } from 'crypto';
 import { AttentionGateway } from './attention.gateway';
 import { PrismaService } from '../prisma/prisma.service';
-import { TaskStatus, CutStatus, SectorPrivileges, Prisma } from '@prisma/client';
+import {
+  TaskStatus,
+  CutStatus,
+  OrderStatus,
+  PpeDeliveryStatus,
+  AirbrushingStatus,
+  TaskQuoteStatus,
+  SectorPrivileges,
+  Prisma,
+} from '@prisma/client';
 
 /** Only these sectors may send a manual attention warning — mirrors the client
  * gate (web/src/lib/attention/send-warning.tsx `SEND_WARNING_PRIVILEGES`); this is
@@ -146,18 +155,32 @@ export class AttentionService {
     const now = new Date();
     const visible = RULE_QUERIES.filter(
       // ADMIN inherits every sector's view (mirrors the client's canAccessAnyPrivilege).
-      (r) => privilege === SectorPrivileges.ADMIN || r.privileges.includes(privilege),
+      // An EMPTY audience means "every sector" — the same semantics the client engine
+      // gives `targetSectors: []` — which is how the personal ("mine") rules reach the
+      // sectors that have no shared-entity screens at all.
+      (r) =>
+        r.privileges.length === 0 ||
+        privilege === SectorPrivileges.ADMIN ||
+        r.privileges.includes(privilege),
     );
     const evaluatedRuleIds = visible.map((r) => r.ruleId);
     if (visible.length === 0) return { matches: [], evaluatedRuleIds, truncatedTypes: [] };
 
     // One round trip for every rule. `take: MATCH_LIMIT + 1` is how truncation is detected
     // without a second count query.
+    //
+    // The delegate comes from ENTITY_DELEGATES rather than a `entityType === 'CUT' ? … : …`
+    // ternary. That ternary silently ran ANY non-CUT rule against `prisma.task`, so a rule
+    // on a third entity type would have queried Task with a foreign `where` — which is why
+    // rules could not leave TASK/CUT, and therefore why eleven of fifteen sectors had no
+    // attention at all.
     const rows = await this.prisma.$transaction(
       visible.map((rule) =>
-        rule.entityType === 'CUT'
-          ? this.prisma.cut.findMany({ where: rule.where(now) as Prisma.CutWhereInput, select: { id: true }, take: MATCH_LIMIT + 1 })
-          : this.prisma.task.findMany({ where: rule.where(now) as Prisma.TaskWhereInput, select: { id: true }, take: MATCH_LIMIT + 1 }),
+        ENTITY_DELEGATES[rule.entityType](this.prisma).findMany({
+          where: rule.where({ now, userId }),
+          select: { id: true },
+          take: MATCH_LIMIT + 1,
+        }),
       ),
     );
 
@@ -199,13 +222,58 @@ export interface AttentionMatchesResponse {
  */
 const MATCH_LIMIT = 200;
 
+/**
+ * Entity types that can carry a rule. A subset of `ATTENTION_ENTITY_TYPES`
+ * (api/src/schemas/attention.ts) — the wire accepts sixteen types for presence,
+ * this is the smaller set that has a query delegate below.
+ */
+type RuleEntityType = 'TASK' | 'CUT' | 'ORDER' | 'PPE_DELIVERY' | 'AIRBRUSHING' | 'TASK_QUOTE';
+
+/** What a rule's `where` may depend on. */
+interface RuleContext {
+  now: Date;
+  /** The CALLER. Present so a rule can scope itself to the user's own records. */
+  userId: string;
+}
+
+/**
+ * The minimal shape every Prisma model delegate satisfies, for the dispatch table.
+ *
+ * The return type must be `PrismaPromise`, not `Promise`: `$transaction([...])`
+ * only accepts the former, and that brand is how Prisma knows the calls can be
+ * batched into one round trip instead of awaited independently.
+ */
+interface IdFindMany {
+  findMany(args: {
+    where: unknown;
+    select: { id: true };
+    take: number;
+  }): Prisma.PrismaPromise<Array<{ id: string }>>;
+}
+
+/**
+ * entityType → Prisma delegate. Adding a rule on a new entity means adding one
+ * line here and one descriptor on the clients; nothing else in this file changes.
+ */
+const ENTITY_DELEGATES: Record<RuleEntityType, (prisma: PrismaService) => IdFindMany> = {
+  TASK: (p) => p.task as unknown as IdFindMany,
+  CUT: (p) => p.cut as unknown as IdFindMany,
+  ORDER: (p) => p.order as unknown as IdFindMany,
+  PPE_DELIVERY: (p) => p.ppeDelivery as unknown as IdFindMany,
+  AIRBRUSHING: (p) => p.airbrushing as unknown as IdFindMany,
+  TASK_QUOTE: (p) => p.taskQuote as unknown as IdFindMany,
+};
+
 interface RuleQuery {
   /** Same id as the client rule (web/src/lib/attention/rules.ts). */
   ruleId: string;
-  entityType: 'TASK' | 'CUT';
-  /** Sectors the client rule targets (`AttentionRule.targetSectors`). */
+  entityType: RuleEntityType;
+  /**
+   * Sectors the client rule targets (`AttentionRule.targetSectors`).
+   * EMPTY means every sector, matching the client engine's semantics.
+   */
   privileges: SectorPrivileges[];
-  where: (now: Date) => Prisma.TaskWhereInput | Prisma.CutWhereInput;
+  where: (ctx: RuleContext) => unknown;
 }
 
 /** Every TASK rule is implicitly "…and still in flight" (see `whileInFlight` in rules.ts). */
@@ -222,7 +290,25 @@ const NO_VIN_PLATE_PHOTO: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truc
 
 const TASK_AUDIENCE = [SectorPrivileges.LOGISTIC, SectorPrivileges.PRODUCTION_MANAGER];
 
-/** The server-side mirror of `ATTENTION_RULES`, one entry per rule id. */
+/** Cutting is operated by the almoxarifado and by plotagem. */
+const CUT_AUDIENCE = [SectorPrivileges.WAREHOUSE, SectorPrivileges.PLOTTING];
+
+/** Faturamento/orçamento — the commercial and financial owners of a quote. */
+const QUOTE_AUDIENCE = [SectorPrivileges.COMMERCIAL, SectorPrivileges.FINANCIAL];
+
+/**
+ * The server-side mirror of `ATTENTION_RULES`, one entry per rule id.
+ *
+ * Every rule here MUST exist with the SAME id in `web/src/lib/attention/rules.ts`
+ * and `mobile_migration/lib/core/attention/attention_rules.dart`. `evaluatedRuleIds`
+ * exists to make drift survivable, not acceptable.
+ *
+ * Rule selection principle: a rule must name work its audience can actually DO,
+ * and must stop matching once that work is done. A permanently-unresolvable
+ * alert teaches people to ignore the whole system, which is why there is (for
+ * example) no "budget still pending" rule — every budget is legitimately pending
+ * for a while — only "budget pending PAST ITS EXPIRY", which is a real backlog.
+ */
 const RULE_QUERIES: RuleQuery[] = [
   {
     ruleId: 'task.cleared-without-entry',
@@ -234,7 +320,7 @@ const RULE_QUERIES: RuleQuery[] = [
     ruleId: 'task.forecast-overdue-not-cleared',
     entityType: 'TASK',
     privileges: TASK_AUDIENCE,
-    where: (now) => ({ AND: [IN_FLIGHT, { forecastDate: { lt: now }, cleared: false }] }),
+    where: ({ now }) => ({ AND: [IN_FLIGHT, { forecastDate: { lt: now }, cleared: false }] }),
   },
   {
     ruleId: 'task.entry-without-chassis',
@@ -257,8 +343,82 @@ const RULE_QUERIES: RuleQuery[] = [
   {
     ruleId: 'cut.pending',
     entityType: 'CUT',
-    privileges: [SectorPrivileges.WAREHOUSE],
+    privileges: CUT_AUDIENCE,
     where: () => ({ status: CutStatus.PENDING }),
+  },
+
+  // ── Almoxarifado ──────────────────────────────────────────────────────────
+  {
+    // The forecast passed and the order is still not in. Resolves on receipt or
+    // cancellation; RECEIVED and CANCELLED are excluded rather than listing the
+    // open statuses so a new OrderStatus member defaults to "still open".
+    ruleId: 'order.forecast-overdue',
+    entityType: 'ORDER',
+    privileges: [SectorPrivileges.WAREHOUSE],
+    where: ({ now }) => ({
+      forecast: { lt: now },
+      status: { notIn: [OrderStatus.RECEIVED, OrderStatus.CANCELLED] },
+    }),
+  },
+  {
+    // Approved but never handed over — the almoxarifado owns `mark-delivered`.
+    ruleId: 'ppe-delivery.approved-not-delivered',
+    entityType: 'PPE_DELIVERY',
+    privileges: [SectorPrivileges.WAREHOUSE],
+    where: () => ({ status: PpeDeliveryStatus.APPROVED }),
+  },
+
+  // ── Contabilidade ─────────────────────────────────────────────────────────
+  {
+    // Awaiting approve/reject. Targeted at ACCOUNTING alone even though
+    // HUMAN_RESOURCES shares the approval permission: DP has no menu entry for
+    // PPE deliveries, and a rule whose nav home the audience cannot open bips
+    // with nowhere to go. Give DP the route first, then add it here.
+    ruleId: 'ppe-delivery.pending-review',
+    entityType: 'PPE_DELIVERY',
+    privileges: [SectorPrivileges.ACCOUNTING],
+    where: () => ({ status: PpeDeliveryStatus.PENDING }),
+  },
+
+  // ── Produção ──────────────────────────────────────────────────────────────
+  {
+    // Queued for the airbrushing bench.
+    ruleId: 'airbrushing.waiting-production',
+    entityType: 'AIRBRUSHING',
+    privileges: [SectorPrivileges.PRODUCTION],
+    where: () => ({ status: AirbrushingStatus.WAITING_PRODUCTION }),
+  },
+
+  // ── Comercial / Financeiro ────────────────────────────────────────────────
+  {
+    // Still PENDING after its own expiry date — renew it or cancel it.
+    ruleId: 'task-quote.expired-pending',
+    entityType: 'TASK_QUOTE',
+    privileges: QUOTE_AUDIENCE,
+    where: ({ now }) => ({ status: TaskQuoteStatus.PENDING, expiresAt: { lt: now } }),
+  },
+  {
+    // An installment has come due.
+    ruleId: 'task-quote.due',
+    entityType: 'TASK_QUOTE',
+    privileges: QUOTE_AUDIENCE,
+    where: () => ({ status: TaskQuoteStatus.DUE }),
+  },
+
+  // ── Every sector ──────────────────────────────────────────────────────────
+  {
+    // The one rule with an EMPTY audience, and the reason the feature now
+    // reaches every sector rather than three.
+    //
+    // Sectors like MANUTENÇÃO, AEROGRAFIA, DESIGNER, BÁSICO and EXTERNO have no
+    // shared-entity screens at all — only the "Pessoal" block — so no rule over
+    // tasks, cuts or orders could ever have reached them. This one is scoped to
+    // the CALLER's own records (`userId`), lives on /pessoal/meus-epis, and names
+    // something only that person can do: sign for the PPE they received.
+    ruleId: 'ppe-delivery.awaiting-my-signature',
+    entityType: 'PPE_DELIVERY',
+    privileges: [],
+    where: ({ userId }) => ({ status: PpeDeliveryStatus.WAITING_SIGNATURE, userId }),
   },
 ];
 

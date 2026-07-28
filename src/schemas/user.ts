@@ -16,6 +16,7 @@ import {
   normalizeSearchTerm,
 } from './common';
 import { cleanCPF } from '../utils/cleaners';
+import { toBrazilianNameCase } from '../utils/formatters';
 import { isValidCPF } from '../utils/validators';
 import { validateEmployeeContractTypeIntegrity } from '../utils/contract';
 import type { User } from '@types';
@@ -1608,7 +1609,11 @@ export const userContractCreateNestedSchema = z.object({
 export const userCreateSchema = z
   .object({
     email: emailSchema.nullable().optional(),
-    name: createNameSchema(2, 200, 'Nome'),
+    // Normalized to Brazilian name case on the way in ("JOAO DA SILVA" -> "Joao da
+    // Silva") so `User.name` has ONE canonical shape regardless of which client
+    // (web, mobile, Flutter, direct API) created it. Display-time casing (e.g. the
+    // ACCOUNTING colaboradores table renders it uppercase) is a view concern.
+    name: createNameSchema(2, 200, 'Nome').transform(toBrazilianNameCase),
     avatarId: z.string().uuid('ID de avatar inválido').nullable().optional(),
     // First vínculo (EmploymentContract) created with the collaborator. Optional;
     // the service defaults CLT to contractType=EXPERIENCE_PERIOD_1 + status=ACTIVE.
@@ -1765,7 +1770,8 @@ export const userCreateSchema = z
 export const userUpdateSchema = z
   .object({
     email: emailSchema.nullable().optional(),
-    name: createNameSchema(2, 200, 'Nome').optional(),
+    // Same canonical casing as create — see userCreateSchema.name.
+    name: createNameSchema(2, 200, 'Nome').transform(toBrazilianNameCase).optional(),
     avatarId: z.string().uuid('ID de avatar inválido').nullable().optional(),
     // Current vínculo edit — these update the user's CURRENT EmploymentContract
     // (and re-sync the User cache). The contract is the source of truth.
