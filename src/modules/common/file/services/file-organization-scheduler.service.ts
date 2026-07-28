@@ -104,6 +104,9 @@ const FOLDER_TO_CONTEXT_MAP: Array<{ pattern: RegExp; context: keyof FilesFolder
   { pattern: /\/Clientes\/[^/]+\/Aerografias\/Orcamentos\//, context: 'airbrushingBudgets' },
   { pattern: /\/Clientes\/[^/]+\/Aerografias\/Comprovantes\//, context: 'airbrushingReceipts' },
   { pattern: /\/Clientes\/[^/]+\/Aerografias\/Reembolsos\//, context: 'airbrushingReimbursements' },
+  { pattern: /\/Clientes\/[^/]+\/Aerografias\/Layouts\//, context: 'airbrushingLayouts' },
+  // Catch-all for legacy files dropped flat into Aerografias/ (pre-Aerografias/Layouts).
+  // Resolves to airbrushingLayouts so the organizer re-files them into Aerografias/Layouts/{PDFs|Imagens}/.
   { pattern: /\/Clientes\/[^/]+\/Aerografias\//, context: 'airbrushingLayouts' },
 
   // Customer contexts
@@ -140,6 +143,14 @@ const FOLDER_TO_CONTEXT_MAP: Array<{ pattern: RegExp; context: keyof FilesFolder
   { pattern: /\/Colaboradores\/[^/]+\/EPIs\//, context: 'signedPpeDocuments' },
   { pattern: /\/Colaboradores\/[^/]+\/Advertencias\//, context: 'warning' },
   { pattern: /\/Colaboradores\/[^/]+\/Fotos\//, context: 'userAvatar' },
+
+  // Root-level strays — MUST STAY LAST. Matching is first-match-wins, so the
+  // entity-first patterns above always win for /Clientes/... paths; this only
+  // catches files written directly to {filesRoot}/Layouts/, which is where an
+  // upload with an unrecognised fileContext used to land. Mapping it to a customer
+  // context makes such files visible to the organizer so they get pulled back into
+  // Clientes/{cliente}/Layouts/ as soon as their owner is resolvable.
+  { pattern: /\/Layouts\//, context: 'tasksLayouts' },
 ];
 
 @Injectable()
@@ -237,6 +248,10 @@ export class FileOrganizationSchedulerService {
   private async getCustomerNameForFile(fileId: string): Promise<string | null> {
     try {
       // Check layout relationship (file -> layout -> tasks -> customer)
+      // A Layout is EITHER a task layout (connected via the TaskLayouts M2M) OR an
+      // airbrushing layout (airbrushingId set, tasks empty) — never both. Resolve the
+      // airbrushing branch too, otherwise airbrushing layouts return null here and the
+      // organizer silently skips them forever.
       const layout = await this.prisma.layout.findFirst({
         where: { fileId },
         include: {
@@ -246,10 +261,40 @@ export class FileOrganizationSchedulerService {
             },
             take: 1,
           },
+          airbrushing: {
+            include: {
+              task: {
+                include: {
+                  customer: { select: { fantasyName: true } },
+                },
+              },
+            },
+          },
         },
       });
       if (layout?.tasks?.[0]?.customer?.fantasyName) {
         return layout.tasks[0].customer.fantasyName;
+      }
+      if (layout?.airbrushing?.task?.customer?.fantasyName) {
+        return layout.airbrushing.task.customer.fantasyName;
+      }
+
+      // Quote layout (File.quoteLayoutId -> TaskQuote -> task -> customer).
+      // These are uploaded standalone and attached to the quote afterwards, so the
+      // upload itself has no customer to route by; this lets the organizer re-file
+      // them into Clientes/{cliente}/Layouts/ once the attachment exists.
+      const quoteLayoutFile = await this.prisma.file.findFirst({
+        where: { id: fileId, quoteLayoutId: { not: null } },
+        select: {
+          quoteLayout: {
+            select: {
+              task: { select: { customer: { select: { fantasyName: true } } } },
+            },
+          },
+        },
+      });
+      if (quoteLayoutFile?.quoteLayout?.task?.customer?.fantasyName) {
+        return quoteLayoutFile.quoteLayout.task.customer.fantasyName;
       }
 
       // Check customer logo (Customer.logoId = fileId)

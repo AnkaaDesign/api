@@ -249,8 +249,10 @@ export class FileService {
     }
 
     // ── Layout contexts are separated by their DB RELATION, not by folder. ────────────
-    // Task layouts and airbrushing layouts both live under Clientes/<cliente>/Layouts, so a
-    // path prefix can't tell them apart. A Layout row belongs to an airbrushing when
+    // Task layouts live under Clientes/<cliente>/Layouts/ and airbrushing layouts under
+    // Clientes/<cliente>/Aerografias/Layouts/, but the split is NOT relied on here: files
+    // predating that separation still sit in the shared Layouts/ folder, so matching by
+    // path prefix would silently miss them. A Layout row belongs to an airbrushing when
     // `airbrushingId` is set; otherwise it's a task layout (connected to a Task via TaskLayouts).
     // tasksLayouts   → only files that were used as a TASK layout for this customer.
     // airbrushingLayouts → only files that were used as an AIRBRUSHING layout for this customer.
@@ -421,6 +423,7 @@ export class FileService {
     sourceFileId: string,
     folder: keyof FilesFolderMapping,
     userId?: string,
+    customerName?: string,
   ): Promise<string> {
     const source = await this.fileRepository.findByIdWithTransaction(tx, sourceFileId);
     if (!source) {
@@ -430,10 +433,17 @@ export class FileService {
     // Distinct destination path per clone (generateFilePath's only uniqueness
     // token is a seconds-resolution timestamp + File.path is not unique-
     // constrained + copyToStorage overwrites silently → inject a uuid suffix).
+    // customerName is required for customer-scoped contexts, otherwise the clone
+    // lands in the Clientes/Outros/ catch-all instead of the owning customer folder.
     const generatedPath = this.filesStorageService.generateFilePath(
       source.originalName,
       folder,
       source.mimetype,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      customerName,
     );
     const generatedExt = extname(generatedPath);
     const newPath = `${generatedPath.slice(0, generatedPath.length - generatedExt.length)}_${uuidv4().slice(0, 8)}${generatedExt}`;
@@ -1156,6 +1166,18 @@ export class FileService {
       );
       // Don't throw - thumbnail generation is optional
     }
+  }
+
+  /**
+   * Delete a file's bytes + thumbnails when its DB row has ALREADY been removed.
+   *
+   * For callers that delete File rows inside their own transaction (e.g. cascading an
+   * airbrushing deletion) and must purge the bytes only after that transaction commits —
+   * an unlink cannot be rolled back. Best-effort by design: failures are logged, never
+   * thrown, because the row is already gone and leftover bytes are recoverable garbage.
+   */
+  async purgePhysicalFile(filePath: string, fileId?: string): Promise<void> {
+    await this.deletePhysicalFile(filePath, fileId);
   }
 
   /**

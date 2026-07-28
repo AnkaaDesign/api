@@ -537,14 +537,191 @@ export class AirbrushingService {
   /**
    * Excluir aerografia
    */
+  /**
+   * (table, column) pairs of every FK that points at File.id, read from the Postgres
+   * catalog rather than hand-listed.
+   *
+   * File has ~35 back-relations. A hand-written "is this file still in use?" check would
+   * silently rot the day someone adds relation 36 — and the failure mode is deleting a file
+   * that is still referenced. Asking the catalog keeps the check correct by construction.
+   * Cached per process: the schema cannot change while the app runs.
+   */
+  private fileReferenceColumns: Array<{ table: string; column: string }> | null = null;
+
+  private async getFileReferenceColumns(
+    tx: PrismaTransaction,
+  ): Promise<Array<{ table: string; column: string }>> {
+    if (this.fileReferenceColumns) return this.fileReferenceColumns;
+
+    const rows = await tx.$queryRaw<Array<{ table_name: string; column_name: string }>>`
+      SELECT tc.table_name, kcu.column_name
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu
+        ON kcu.constraint_name = tc.constraint_name
+       AND kcu.table_schema = tc.table_schema
+      JOIN information_schema.constraint_column_usage ccu
+        ON ccu.constraint_name = tc.constraint_name
+       AND ccu.table_schema = tc.table_schema
+      WHERE tc.constraint_type = 'FOREIGN KEY'
+        AND tc.table_schema = 'public'
+        AND ccu.table_name = 'File'
+        AND ccu.column_name = 'id'
+    `;
+
+    this.fileReferenceColumns = rows.map(r => ({ table: r.table_name, column: r.column_name }));
+    return this.fileReferenceColumns;
+  }
+
+  /**
+   * True when anything OTHER than the airbrushing being deleted still points at this File.
+   * Errs on the side of "referenced" — any failure means we keep the file.
+   */
+  private async fileHasOtherReferences(
+    tx: PrismaTransaction,
+    fileId: string,
+    airbrushingId: string,
+  ): Promise<boolean> {
+    try {
+      // The catalog query below finds FKs pointing AT File.id. File.quoteLayoutId points the
+      // other way (File -> TaskQuote), so it is invisible there — check it explicitly, or a
+      // file that is also a quote layout could be deleted out from under the quote.
+      const self = await tx.file.findUnique({
+        where: { id: fileId },
+        select: { quoteLayoutId: true },
+      });
+      if (self?.quoteLayoutId) return true;
+
+      const columns = await this.getFileReferenceColumns(tx);
+
+      for (const { table, column } of columns) {
+        // Identifiers come from the catalog, not from user input.
+        let sql = `SELECT 1 FROM "${table}" WHERE "${column}" = $1`;
+        const params: any[] = [fileId];
+
+        // Ignore this airbrushing's OWN links — they are what we are tearing down.
+        if (table === '_AIRBRUSHING_RECEIPTS' || table === '_AIRBRUSHING_INVOICES') {
+          sql += ` AND "A" <> $2`;
+          params.push(airbrushingId);
+        } else if (table === 'Layout') {
+          sql += ` AND ("airbrushingId" IS DISTINCT FROM $2)`;
+          params.push(airbrushingId);
+        }
+
+        const hit = await tx.$queryRawUnsafe<Array<{ '?column?': number }>>(
+          `${sql} LIMIT 1`,
+          ...params,
+        );
+        if (hit.length > 0) return true;
+      }
+      return false;
+    } catch (error: any) {
+      this.logger.error(
+        `[Airbrushing Delete] Reference check failed for file ${fileId}: ${error.message}. Keeping the file.`,
+      );
+      return true;
+    }
+  }
+
+  /**
+   * Release an airbrushing's files before the row (and its cascades) disappear.
+   *
+   * Two distinct problems this solves:
+   *
+   *  1. SHARED LAYOUTS WERE BEING DESTROYED. Layout.airbrushingId is onDelete: Cascade, so
+   *     deleting an airbrushing deletes its Layout rows outright — including any Layout that
+   *     is ALSO connected to tasks through the TaskLayouts join table, silently removing the
+   *     layout from those tasks. Such layouts are detached (airbrushingId = null) instead, so
+   *     the cascade cannot reach them and the tasks keep their art.
+   *  2. FILES AND BYTES WERE LEAKING. delete() never touched files, so the File rows became
+   *     unreachable orphans and their bytes stayed on disk forever — and because
+   *     'Aerografias' is in FileCleanupSchedulerService.sambaExcludedFolders, the nightly
+   *     orphan reaper never walks that tree to reclaim them.
+   *
+   * Deletion is deliberately conservative: a file is removed only when nothing outside this
+   * airbrushing still references it (checked against the live FK catalog), and any error in
+   * that check keeps the file.
+   */
+  private async cleanUpAirbrushingFiles(
+    tx: PrismaTransaction,
+    airbrushingId: string,
+    _userId?: string,
+  ): Promise<Array<{ id: string; path: string }>> {
+    const owned = await tx.airbrushing.findUnique({
+      where: { id: airbrushingId },
+      select: {
+        layouts: {
+          select: { id: true, fileId: true, tasks: { select: { id: true }, take: 1 } },
+        },
+        receipts: { select: { id: true } },
+        invoices: { select: { id: true } },
+      },
+    });
+    if (!owned) return [];
+
+    // (1) Protect layouts shared with tasks from the cascade.
+    const sharedLayoutIds = owned.layouts
+      .filter(l => (l.tasks?.length ?? 0) > 0)
+      .map(l => l.id);
+    if (sharedLayoutIds.length > 0) {
+      await tx.layout.updateMany({
+        where: { id: { in: sharedLayoutIds } },
+        data: { airbrushingId: null },
+      });
+      this.logger.log(
+        `[Airbrushing Delete] Detached ${sharedLayoutIds.length} task-linked layout(s) from airbrushing ${airbrushingId} so the cascade cannot delete them.`,
+      );
+    }
+
+    // (2) Reclaim files that nothing else references.
+    const candidateFileIds = [
+      ...owned.layouts.filter(l => (l.tasks?.length ?? 0) === 0).map(l => l.fileId),
+      ...owned.receipts.map(f => f.id),
+      ...owned.invoices.map(f => f.id),
+    ];
+
+    const purge: Array<{ id: string; path: string }> = [];
+    for (const fileId of new Set(candidateFileIds)) {
+      if (await this.fileHasOtherReferences(tx, fileId, airbrushingId)) {
+        this.logger.log(
+          `[Airbrushing Delete] Keeping file ${fileId} — still referenced outside airbrushing ${airbrushingId}.`,
+        );
+        continue;
+      }
+      try {
+        const file = await tx.file.findUnique({ where: { id: fileId }, select: { path: true } });
+        // Deleting the File row cascades its Layout row and its join-table entries.
+        await tx.file.delete({ where: { id: fileId } });
+        if (file?.path) purge.push({ id: fileId, path: file.path });
+      } catch (error: any) {
+        // Never fail the airbrushing deletion over a file cleanup problem.
+        this.logger.error(`[Airbrushing Delete] Failed to delete file ${fileId}: ${error.message}`);
+      }
+    }
+
+    if (purge.length > 0) {
+      this.logger.log(
+        `[Airbrushing Delete] Removed ${purge.length} exclusively-owned file row(s) for airbrushing ${airbrushingId}; bytes purged after commit.`,
+      );
+    }
+
+    // Bytes are deleted only AFTER the transaction commits — an unlink cannot be rolled
+    // back, so purging inside the tx would destroy files that a later rollback restores
+    // rows for.
+    return purge;
+  }
+
   async delete(id: string, userId?: string): Promise<AirbrushingDeleteResponse> {
     try {
+      let filesToPurge: Array<{ id: string; path: string }> = [];
+
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const airbrushing = await this.airbrushingRepository.findByIdWithTransaction(tx, id);
 
         if (!airbrushing) {
           throw new NotFoundException('Aerografia não encontrada.');
         }
+
+        filesToPurge = await this.cleanUpAirbrushingFiles(tx, id, userId);
 
         // Registrar exclusão
         await this.changeLogService.logChange({
@@ -563,6 +740,12 @@ export class AirbrushingService {
 
         await this.airbrushingRepository.deleteWithTransaction(tx, id);
       });
+
+      // Post-commit: the DB rows are gone for good, so the bytes and thumbnails can go too.
+      // Best-effort — a failure here leaves recoverable garbage, never a broken record.
+      for (const file of filesToPurge) {
+        await this.fileService.purgePhysicalFile(file.path, file.id);
+      }
 
       return {
         success: true,
@@ -964,13 +1147,17 @@ export class AirbrushingService {
       }
 
       // Process layout files - NOTE: With Layout entity, we just create Files here
-      // The Layout entities will be created by the caller
+      // The Layout entities will be created by the caller.
+      // Context is 'airbrushingLayouts' (→ Clientes/{cliente}/Aerografias/Layouts/{PDFs|Imagens})
+      // so airbrushing layouts sit alongside the airbrushing's own Comprovantes/Notas
+      // Fiscais instead of being mixed into the task's Layouts folder. Must match the
+      // context used by task.service.ts on the task-create/update/copy paths.
       if (files.layouts && files.layouts.length > 0) {
         for (const file of files.layouts) {
           const fileRecord = await this.fileService.createFromUploadWithTransaction(
             transaction,
             file,
-            'tasksLayouts',
+            'airbrushingLayouts',
             userId,
             {
               entityId: airbrushingId,
@@ -1199,14 +1386,50 @@ export class AirbrushingService {
       `[convertFileIdsToLayoutIds] Processing ${fileIds.length} files with statuses: ${JSON.stringify(layoutStatuses)}`,
     );
 
-    for (const fileId of fileIds) {
+    for (const rawFileId of fileIds) {
+      let fileId = rawFileId;
       // fileId is GLOBALLY @unique on Layout, so look up by fileId alone. Looking up by
       // (fileId + airbrushingId) would miss an existing Layout that is currently detached
       // (airbrushingId=null, e.g. removed from this airbrushing earlier) or attached to a
       // different airbrushing — and the fallback create() would then violate the fileId
-      // unique constraint (P2002 → 500). Task links live in the separate TaskLayouts join
-      // table and are independent of airbrushingId, so adopting is safe.
-      let layout = await prisma.layout.findUnique({ where: { fileId } });
+      // unique constraint (P2002 → 500).
+      let layout: any = await prisma.layout.findUnique({
+        where: { fileId },
+        include: { tasks: { select: { id: true }, take: 1 } },
+      });
+
+      // OWNERSHIP: because fileId is unique and airbrushingId is a single FK, a File backs
+      // exactly ONE airbrushing layout. Re-pointing an already-owned Layout at this
+      // airbrushing silently STEALS it from its current owner, so clone the file and give
+      // this airbrushing its own copy instead. Only a genuinely free Layout (no airbrushing,
+      // no task links) is adopted — that is the re-attach-what-you-just-removed case.
+      // Mirrors task.service.ts convertFileIdsToLayoutIds; keep the two in sync.
+      if (layout) {
+        const ownedByOtherAirbrushing =
+          !!layout.airbrushingId && layout.airbrushingId !== airbrushingId;
+        const ownedByTask = (layout.tasks?.length ?? 0) > 0;
+
+        if (ownedByOtherAirbrushing || ownedByTask) {
+          const current = await prisma.airbrushing.findUnique({
+            where: { id: airbrushingId },
+            select: { task: { select: { customer: { select: { fantasyName: true } } } } },
+          });
+          const clonedFileId = await this.fileService.cloneFile(
+            prisma as PrismaTransaction,
+            fileId,
+            'airbrushingLayouts',
+            undefined,
+            current?.task?.customer?.fantasyName ?? undefined,
+          );
+          this.logger.warn(
+            `[convertFileIdsToLayoutIds] File ${fileId} already backs Layout ${layout.id} ` +
+              `(${ownedByOtherAirbrushing ? `owned by airbrushing ${layout.airbrushingId}` : 'linked to a task'}). ` +
+              `Cloned to File ${clonedFileId} for airbrushing ${airbrushingId} instead of reassigning it.`,
+          );
+          fileId = clonedFileId;
+          layout = null;
+        }
+      }
 
       // Determine the status to use
       const requestedStatus = layoutStatuses?.[fileId];

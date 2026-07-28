@@ -101,6 +101,26 @@ export class FileController {
     private readonly fileMigrationService: FileMigrationService,
   ) {}
 
+  /**
+   * Reject an unrecognised fileContext instead of silently misrouting the upload.
+   *
+   * getFolderPath treats an unknown context as "no context": it falls back to
+   * MIME-based routing AND skips the Clientes/{cliente}/ prefix, so the file is
+   * written to a root-level folder. That is how uploads sent with the singular
+   * "quote-layout" (the mapping key is "quote-layouts") ended up in {root}/Layouts/
+   * instead of Clientes/{cliente}/Layouts/PDFs/ — with no error anywhere.
+   */
+  private assertValidFileContext(fileContext?: string): void {
+    if (!fileContext) return;
+    if (!this.filesStorageService.isValidFileContext(fileContext)) {
+      throw new BadRequestException(
+        `Contexto de arquivo inválido: "${fileContext}". Contextos válidos: ${this.filesStorageService
+          .getKnownFileContexts()
+          .join(', ')}.`,
+      );
+    }
+  }
+
   // File Upload Endpoints - Static routes first
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
@@ -124,6 +144,7 @@ export class FileController {
     if (!file) {
       throw new BadRequestException('Nenhum arquivo enviado.');
     }
+    this.assertValidFileContext(fileContext);
     return this.fileService.createFromUpload(file, query?.include, userId, {
       fileContext: fileContext as any,
       entityId,
@@ -158,6 +179,7 @@ export class FileController {
     if (!files || files.length === 0) {
       throw new BadRequestException('Nenhum arquivo enviado.');
     }
+    this.assertValidFileContext(fileContext);
     const successful: any[] = [];
     const failed: any[] = [];
     for (const file of files) {

@@ -91,7 +91,7 @@ export class AirbrushingController {
       [
         { name: 'receipts', maxCount: 10 },
         { name: 'invoices', maxCount: 10 },
-        { name: 'layouts', maxCount: 10 },
+        { name: 'layouts', maxCount: 20 },
       ],
       multerConfig,
     ),
@@ -189,7 +189,7 @@ export class AirbrushingController {
       [
         { name: 'receipts', maxCount: 10 },
         { name: 'invoices', maxCount: 10 },
-        { name: 'layouts', maxCount: 10 },
+        { name: 'layouts', maxCount: 20 },
       ],
       multerConfig,
     ),

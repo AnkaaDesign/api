@@ -73,8 +73,12 @@ export const ENTITY_FILE_LIMITS: Record<string, FileLimitConfig> = {
     description: 'Máximo de 10 notas fiscais por aerografia',
   },
   airbrushingLayouts: {
-    maxFiles: 10,
-    description: 'Máximo de 10 arquivos de arte por aerografia',
+    // 20, matching the airbrushing controller's `layouts` maxCount, the task controller's
+    // `airbrushings[N].layouts` maxCount and maxFiles in both upload UIs. These four must
+    // agree: a UI that offers more than multer's maxCount fails the whole request with
+    // LIMIT_UNEXPECTED_FILE instead of rejecting the extra files.
+    maxFiles: 20,
+    description: 'Máximo de 20 arquivos de arte por aerografia',
   },
 
   // Order relationships

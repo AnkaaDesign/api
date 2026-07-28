@@ -135,7 +135,7 @@ export class FilesStorageService {
     orderReceipts: 'Comprovantes',
 
     // Airbrushing folders (under Clientes/{customerName}/)
-    airbrushingLayouts: 'Aerografias',
+    airbrushingLayouts: 'Aerografias/Layouts',
     airbrushingBudgets: 'Aerografias/Orcamentos',
     airbrushingInvoices: 'Aerografias/Notas Fiscais',
     airbrushingReceipts: 'Aerografias/Comprovantes',
@@ -305,6 +305,24 @@ export class FilesStorageService {
   }
 
   /**
+   * All recognised file contexts (the keys of folderMapping).
+   */
+  getKnownFileContexts(): string[] {
+    return Object.keys(this.folderMapping);
+  }
+
+  /**
+   * Whether a client-supplied fileContext string maps to a known storage folder.
+   * An unknown context is NOT harmless: getFolderPath falls back to MIME-based
+   * routing AND skips the entity-root prefix, so the file lands in a root-level
+   * folder (e.g. an .eps posted with a typo'd context ends up in {root}/Layouts/
+   * instead of Clientes/{cliente}/Layouts/PDFs/). Callers should reject early.
+   */
+  isValidFileContext(fileContext: string): boolean {
+    return Object.prototype.hasOwnProperty.call(this.folderMapping, fileContext);
+  }
+
+  /**
    * Get files storage folder path based on file context
    */
   getFolderPath(
@@ -329,6 +347,15 @@ export class FilesStorageService {
     }
     // Priority 2: File type-based routing
     else {
+      if (fileContext) {
+        // Unknown context: we still fall back to MIME routing, but this is almost
+        // always a caller bug (typo / singular-vs-plural key) and the result is a
+        // root-level dump with no Clientes/{cliente}/ prefix. Make it loud.
+        this.logger.error(
+          `[getFolderPath] Unknown fileContext "${fileContext}" — falling back to MIME-based routing. The file will NOT be placed in an entity folder. Valid contexts: ${Object.keys(this.folderMapping).join(', ')}`,
+        );
+      }
+
       const category = this.mimeToCategory[mimetype] || FileTypeCategory.OTHER;
 
       switch (category) {
@@ -385,7 +412,11 @@ export class FilesStorageService {
       if (fileContext === 'plotterEspovo' || fileContext === 'plotterAdesivo') {
         const cutSubfolder = cutType === 'STENCIL' ? 'Espovo' : 'Adesivo';
         folderPath = join(folderPath, cutSubfolder);
-      } else if (fileContext === 'tasksLayouts' || fileContext === 'quote-layouts') {
+      } else if (
+        fileContext === 'tasksLayouts' ||
+        fileContext === 'quote-layouts' ||
+        fileContext === 'airbrushingLayouts'
+      ) {
         const isPdf = mimetype === 'application/pdf';
         folderPath = join(folderPath, isPdf ? 'PDFs' : 'Imagens');
       } else if (fileContext === 'taskBaseFiles') {

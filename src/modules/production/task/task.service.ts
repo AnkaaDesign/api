@@ -812,6 +812,23 @@ export class TaskService {
    * @param eventContext - Optional context for emitting layout events (user, task)
    * @returns Array of Layout IDs (to be connected to Task via many-to-many)
    */
+  /**
+   * fantasyName of the customer owning an airbrushing's task — the folder segment a
+   * cloned airbrushing layout must land under. Returns undefined when the task has no
+   * customer yet, which routes the clone to the Clientes/Outros/ catch-all (and
+   * migrateTaskFilesToCustomerFolder relocates it once a customer is assigned).
+   */
+  private async resolveAirbrushingCustomerName(
+    prisma: any,
+    airbrushingId: string,
+  ): Promise<string | undefined> {
+    const airbrushing = await prisma.airbrushing.findUnique({
+      where: { id: airbrushingId },
+      select: { task: { select: { customer: { select: { fantasyName: true } } } } },
+    });
+    return airbrushing?.task?.customer?.fantasyName ?? undefined;
+  }
+
   private async convertFileIdsToLayoutIds(
     fileIds: string[],
     _taskId?: string | null, // Deprecated: kept for backwards compatibility, not used
@@ -833,14 +850,50 @@ export class TaskService {
       `[convertFileIdsToLayoutIds] Processing ${fileIds.length} files with statuses: ${JSON.stringify(layoutStatuses)}`,
     );
 
-    for (const fileId of fileIds) {
+    for (const rawFileId of fileIds) {
+      let fileId = rawFileId;
       this.logger.log(`[convertFileIdsToLayoutIds] Processing fileId: ${fileId}`);
 
       // Find existing Layout by fileId only (since fileId is unique in the new schema)
       // Layouts are now SHARED across tasks, so we don't filter by taskId
-      let layout = await prisma.layout.findUnique({
+      let layout: any = await prisma.layout.findUnique({
         where: { fileId },
+        include: { tasks: { select: { id: true }, take: 1 } },
       });
+
+      // OWNERSHIP: Layout.fileId is globally @unique and Layout.airbrushingId is a single
+      // FK, so a File can back exactly ONE airbrushing layout. Binding an already-owned
+      // Layout to `airbrushingId` therefore STEALS it from its current owner — silently,
+      // with no changelog on the victim. This is reachable from the UI: the airbrushing
+      // layout suggestions list is built from files that already belong to ANOTHER
+      // airbrushing of the same customer, so every pick would move it.
+      //
+      // Give this airbrushing its own copy instead — the same defence cloneFileForQuoteLayout
+      // provides for quote layouts and cloneFile provides for task copy. Adoption is kept
+      // only for a genuinely free Layout (no airbrushing, no task links), which is the
+      // re-attach-what-you-just-removed case.
+      if (airbrushingId && layout) {
+        const ownedByOtherAirbrushing =
+          !!layout.airbrushingId && layout.airbrushingId !== airbrushingId;
+        const ownedByTask = (layout.tasks?.length ?? 0) > 0;
+
+        if (ownedByOtherAirbrushing || ownedByTask) {
+          const clonedFileId = await this.fileService.cloneFile(
+            prisma as PrismaTransaction,
+            fileId,
+            'airbrushingLayouts',
+            undefined,
+            await this.resolveAirbrushingCustomerName(prisma, airbrushingId),
+          );
+          this.logger.warn(
+            `[convertFileIdsToLayoutIds] File ${fileId} already backs Layout ${layout.id} ` +
+              `(${ownedByOtherAirbrushing ? `owned by airbrushing ${layout.airbrushingId}` : 'linked to a task'}). ` +
+              `Cloned to File ${clonedFileId} for airbrushing ${airbrushingId} instead of reassigning it.`,
+          );
+          fileId = clonedFileId;
+          layout = null;
+        }
+      }
 
       this.logger.log(
         `[convertFileIdsToLayoutIds] Lookup result for ${fileId}: ${layout ? `found (id: ${layout.id})` : 'not found'}`,
@@ -5147,20 +5200,40 @@ export class TaskService {
                 updatePayload.paymentStatus = airbrushingData.paymentStatus;
               }
 
-              // Handle receipts (File IDs)
+              // Handle receipts / invoices (File IDs).
+              //
+              // An EMPTY array is deliberately treated as "no change", not "clear", on this
+              // path only. The task form's airbrushing section is layout-only — it renders no
+              // receipt/invoice control — so it can never express the intent "remove every
+              // receipt". An empty array arriving here therefore always means the client
+              // failed to round-trip the existing ids, and honouring it as `set: []` silently
+              // detached every attached receipt/invoice on an unrelated task edit.
+              // Genuine clearing goes through AirbrushingService.reconcileFileRelations,
+              // which gates it behind an explicit intent flag.
+              // NOTE: layouts below intentionally KEEP their clear-on-empty behaviour — the
+              // task form does render layouts, so removing the last one is real intent.
               if (airbrushingData.receiptIds !== undefined) {
-                updatePayload.receipts =
-                  airbrushingData.receiptIds.length > 0
-                    ? { set: airbrushingData.receiptIds.map((fid: string) => ({ id: fid })) }
-                    : { set: [] };
+                if (airbrushingData.receiptIds.length > 0) {
+                  updatePayload.receipts = {
+                    set: airbrushingData.receiptIds.map((fid: string) => ({ id: fid })),
+                  };
+                } else {
+                  this.logger.warn(
+                    `[Task Update] Ignoring empty receiptIds for airbrushing ${airbrushingData.id} — the task form cannot clear receipts; leaving the relation untouched.`,
+                  );
+                }
               }
 
-              // Handle invoices (File IDs)
               if (airbrushingData.invoiceIds !== undefined) {
-                updatePayload.invoices =
-                  airbrushingData.invoiceIds.length > 0
-                    ? { set: airbrushingData.invoiceIds.map((fid: string) => ({ id: fid })) }
-                    : { set: [] };
+                if (airbrushingData.invoiceIds.length > 0) {
+                  updatePayload.invoices = {
+                    set: airbrushingData.invoiceIds.map((fid: string) => ({ id: fid })),
+                  };
+                } else {
+                  this.logger.warn(
+                    `[Task Update] Ignoring empty invoiceIds for airbrushing ${airbrushingData.id} — the task form cannot clear invoices; leaving the relation untouched.`,
+                  );
+                }
               }
 
               // Handle layouts (File IDs -> Layout entity IDs)
@@ -5183,10 +5256,30 @@ export class TaskService {
                     `[Task Update] Setting ${layoutEntityIds.length} layouts for airbrushing ${airbrushingData.id}`,
                   );
                 } else {
+                  // Clearing IS legitimate here (unlike receipts/invoices above): the task
+                  // form renders the layout uploader, so removing the last layout is real
+                  // intent. But this path writes raw Prisma, bypassing both
+                  // AirbrushingService.reconcileFileRelations and the repository's
+                  // _allowRelationClear guard — so nothing else would record the loss.
+                  // Count what is actually detached and log it at ERROR, mirroring the
+                  // "DETACHING FILES" alarm in reconcileFileRelations, so a wipe caused by a
+                  // stale/unhydrated client snapshot is greppable after the fact.
+                  const attached = await tx.layout.count({
+                    where: { airbrushingId: airbrushingData.id },
+                  });
                   updatePayload.layouts = { set: [] };
-                  this.logger.log(
-                    `[Task Update] Clearing layouts for airbrushing ${airbrushingData.id}`,
-                  );
+                  if (attached > 0) {
+                    this.logger.error(
+                      `[Task Update] DETACHING FILES from airbrushing ${airbrushingData.id}: ` +
+                        `layoutIds=${attached}→0. This is only correct if the user actually removed ` +
+                        `those layouts; if it fired on a save that never touched them, the client sent ` +
+                        `a stale/unhydrated snapshot (see mapFieldValueToItem in multi-airbrushing-selector).`,
+                    );
+                  } else {
+                    this.logger.log(
+                      `[Task Update] Clearing layouts for airbrushing ${airbrushingData.id} (none attached)`,
+                    );
+                  }
                 }
               }
 
@@ -9706,6 +9799,17 @@ export class TaskService {
         reimbursements: true,
         invoiceReimbursements: true,
         layouts: { include: { file: true } },
+        // Airbrushing files live under Clientes/{cliente}/Aerografias/ and are NOT
+        // reachable via task.layouts (an airbrushing Layout has airbrushingId set and
+        // is not connected to the TaskLayouts M2M), so they must be collected
+        // explicitly or they stay behind in the OLD customer's folder.
+        airbrushings: {
+          include: {
+            layouts: { include: { file: true } },
+            receipts: true,
+            invoices: true,
+          },
+        },
       },
     });
 
@@ -9730,6 +9834,14 @@ export class TaskService {
       if ((layout as any).file) {
         allFiles.push((layout as any).file);
       }
+    }
+
+    // Add airbrushing files (layouts + receipts + invoices)
+    for (const airbrushing of (task as any).airbrushings || []) {
+      for (const layout of airbrushing.layouts || []) {
+        if (layout.file) allFiles.push(layout.file);
+      }
+      allFiles.push(...(airbrushing.receipts || []), ...(airbrushing.invoices || []));
     }
 
     let migratedCount = 0;
@@ -9800,6 +9912,15 @@ export class TaskService {
         reimbursements: true,
         invoiceReimbursements: true,
         layouts: { include: { file: true } },
+        // See migrateTaskFilesOnCustomerChange — airbrushing files are not reachable
+        // through task.layouts and must be collected explicitly.
+        airbrushings: {
+          include: {
+            layouts: { include: { file: true } },
+            receipts: true,
+            invoices: true,
+          },
+        },
       },
     });
 
@@ -9821,7 +9942,10 @@ export class TaskService {
       { rootPrefix: '/Comprovantes/', entitySuffix: '/Comprovantes/' },
       { rootPrefix: '/Boletos/', entitySuffix: '/Boletos/' },
       { rootPrefix: '/Reembolsos/', entitySuffix: '/Reembolsos/' },
+      // '/Aerografias/' MUST precede '/Layouts/': a legacy '/Aerografias/Layouts/...'
+      // path has to remap as an airbrushing folder, not as a task layout folder.
       { rootPrefix: '/Aerografias/', entitySuffix: '/Aerografias/' },
+      { rootPrefix: '/Layouts/', entitySuffix: '/Layouts/' },
     ];
 
     const allFiles: Array<{ id: string; path: string }> = [
@@ -9841,6 +9965,13 @@ export class TaskService {
       if ((layout as any).file) {
         allFiles.push((layout as any).file);
       }
+    }
+
+    for (const airbrushing of (task as any).airbrushings || []) {
+      for (const layout of airbrushing.layouts || []) {
+        if (layout.file) allFiles.push(layout.file);
+      }
+      allFiles.push(...(airbrushing.receipts || []), ...(airbrushing.invoices || []));
     }
 
     let migratedCount = 0;
@@ -12754,6 +12885,9 @@ export class TaskService {
               },
             },
             observation: true,
+            // fantasyName drives the Clientes/{cliente}/ storage folder for any file
+            // cloned into the destination task (e.g. airbrushing layouts below).
+            customer: { select: { id: true, fantasyName: true } },
             layouts: { select: { id: true } },
             baseFiles: { select: { id: true } },
             projectFiles: { select: { id: true } },
@@ -13142,6 +13276,8 @@ export class TaskService {
                                   tx,
                                   a.fileId,
                                   'airbrushingLayouts',
+                                  userId,
+                                  destinationTask.customer?.fantasyName,
                                 ),
                               },
                             },
