@@ -100,116 +100,167 @@ export class AttentionService {
   }
 
   /**
-   * Global attention state per entity type, independent of what's loaded in the caller's
-   * browser tab. The web engine (lib/attention/engine.ts) only evaluates entities a mounted
-   * page has registered, so e.g. the Produção dashboard — which loads neither tasks nor cuts —
-   * would never light the Agenda/Cronograma/Recorte nav entries even when matching records
-   * exist. This mirrors the rules in `web/src/lib/attention/rules.ts` as efficient Prisma
-   * counts instead of re-implementing the generic predicate DSL server-side (Phase 1 — see
-   * api/docs/attention-server-side.md §6). Keep the conditions in sync with rules.ts by hand
-   * for now; a shared rule source is Phase 3 work (§4.2).
+   * WHICH records match WHICH rule right now, for the caller's sector — independent of what
+   * their browser tab happens to have loaded.
    *
-   * The response shape is `{ [entityType]: { count, armed, harsh } }` — the SAME triple the
-   * client engine's `getAttentionSnapshot()` produces, so the sidebar merges local and server
-   * state without translating between two vocabularies. That translation is precisely where
-   * the nav and the rows used to disagree: cuts had a bespoke count-only poll with `armed`
-   * hardcoded true, so the cut nav could never mirror a resting cut row.
+   * The web engine (lib/attention/engine.ts) only evaluates entities a mounted page has
+   * registered, so on any page that loads neither tasks nor cuts it had NOTHING to build a
+   * blink/bip cycle from: the sound was structurally unreachable off the Agenda / Cronograma /
+   * Recorte pages and their detail pages. This is the other half of that signal — the client
+   * feeds these matches into the same cycle machinery as its locally-evaluated ones, so a
+   * bip reaches the user wherever they are.
+   *
+   * IDS, not counts. It used to return `{ count, armed, harsh }` per entity type, which the
+   * nav merged with the engine's own triple. Two implementations of "is this armed?" — one
+   * here over `AttentionAck` rows, one in the client's ack store — is precisely how the nav
+   * and the rows came to contradict each other. Now the server answers only the question it
+   * can answer authoritatively (does this record match this rule?) and the CLIENT ENGINE is
+   * the single authority on armed vs resting, for loaded and unloaded records alike.
+   *
+   * For the same reason the response deliberately does NOT filter out records the caller has
+   * already acked: a match that vanished would look RESOLVED to the engine, which clears the
+   * cooldown and re-arms — an ack would have caused an instant re-bip.
+   *
+   * Two fields tell the client how far to TRUST an absence, because "not in the list" has to be
+   * distinguishable from "not looked for":
+   *   • `evaluatedRuleIds` — the rules actually run for this caller. A client rule missing from
+   *     the server mirror is then simply local-only; it can never have its cooldown cleared by
+   *     an absence the server never checked for. That matters because these conditions are
+   *     hand-mirrored: without it, every drift became re-blinking and re-bipping.
+   *   • `truncatedTypes`   — entity types whose list hit `MATCH_LIMIT`, where a missing record
+   *     may just be past the cap.
+   *
+   * Rule conditions mirror `web/src/lib/attention/rules.ts` and are keyed by the SAME rule
+   * ids, so a rule present there and missing here is visible at a glance — R3c (foto da
+   * plaqueta) had been added to the client and never here, and the nav silently under-counted.
+   * A shared rule source is Phase 3 work (api/docs/attention-server-side.md §4.2).
    */
-  async getSummary(userId: string): Promise<Record<string, AttentionSummaryEntry>> {
+  async getSummary(userId: string): Promise<AttentionMatchesResponse> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { sector: { select: { privileges: true } } },
     });
     const privilege = user?.sector?.privileges;
-    if (!privilege) return {};
-    const isAdmin = privilege === SectorPrivileges.ADMIN; // ADMIN inherits every sector's view
+    if (!privilege) return { matches: [], evaluatedRuleIds: [], truncatedTypes: [] };
 
     const now = new Date();
-    const summary: Record<string, AttentionSummaryEntry> = {};
+    const visible = RULE_QUERIES.filter(
+      // ADMIN inherits every sector's view (mirrors the client's canAccessAnyPrivilege).
+      (r) => privilege === SectorPrivileges.ADMIN || r.privileges.includes(privilege),
+    );
+    const evaluatedRuleIds = visible.map((r) => r.ruleId);
+    if (visible.length === 0) return { matches: [], evaluatedRuleIds, truncatedTypes: [] };
 
-    // ---- TASK (R1-R3b, targeted at LOGISTIC + PRODUCTION_MANAGER) ----
-    if (isAdmin || privilege === SectorPrivileges.LOGISTIC || privilege === SectorPrivileges.PRODUCTION_MANAGER) {
-      const inFlight: Prisma.TaskWhereInput = { status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] } };
-      // Empty-string chassis/plate/serial count as "missing" (the client's isNullish treats ""
-      // as null), so mirror that here or the nav under-counts vs an on-screen row.
-      const noChassis: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { chassisNumber: null } }, { truck: { chassisNumber: '' } }] };
-      const noPlate: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { plate: null } }, { truck: { plate: '' } }] };
-      const noSerial: Prisma.TaskWhereInput = { OR: [{ serialNumber: null }, { serialNumber: '' }] };
-      // Each branch nests its own OR under `AND` — spreading two `OR` keys into one object
-      // would silently drop the first.
-      const anyRule: Prisma.TaskWhereInput = {
-        OR: [
-          { cleared: true, entryDate: null }, // R1 — cleared without entry
-          { forecastDate: { lt: now }, cleared: false }, // R2 — forecast overdue, not cleared
-          { entryDate: { not: null }, AND: [noChassis] }, // R3a — entry given, no chassis
-          { entryDate: { not: null }, AND: [noSerial, noPlate] }, // R3b — entry given, no serial AND no plate
-        ],
-      };
-      const notSuppressed = await this.restingIdFilter(userId, 'TASK', now);
-      const [count, armed, harsh] = await this.prisma.$transaction([
-        // count = EVERY matching task (armed OR resting) → the nav shows an indicator at all.
-        this.prisma.task.count({ where: { AND: [inFlight, anyRule] } }),
-        // armed = matching tasks still inside their cooldown → these BLINK (the rest are
-        // resting: nav shows a static border instead). This is how the nav "follows" the row.
-        this.prisma.task.count({ where: { AND: [inFlight, notSuppressed, anyRule] } }),
-        // harsh (R2) → red vs amber.
-        this.prisma.task.count({ where: { AND: [inFlight, { forecastDate: { lt: now }, cleared: false }] } }),
-      ]);
-      summary.TASK = { count, armed: armed > 0, harsh: harsh > 0 };
-    }
+    // One round trip for every rule. `take: MATCH_LIMIT + 1` is how truncation is detected
+    // without a second count query.
+    const rows = await this.prisma.$transaction(
+      visible.map((rule) =>
+        rule.entityType === 'CUT'
+          ? this.prisma.cut.findMany({ where: rule.where(now) as Prisma.CutWhereInput, select: { id: true }, take: MATCH_LIMIT + 1 })
+          : this.prisma.task.findMany({ where: rule.where(now) as Prisma.TaskWhereInput, select: { id: true }, take: MATCH_LIMIT + 1 }),
+      ),
+    );
 
-    // ---- CUT (R0 `cut.pending`, targeted at WAREHOUSE) ----
-    if (isAdmin || privilege === SectorPrivileges.WAREHOUSE) {
-      const pending: Prisma.CutWhereInput = { status: CutStatus.PENDING };
-      const notSuppressed = await this.restingIdFilter(userId, 'CUT', now);
-      const [count, armed] = await this.prisma.$transaction([
-        this.prisma.cut.count({ where: pending }),
-        this.prisma.cut.count({ where: { AND: [pending, notSuppressed] } }),
-      ]);
-      // `cut.pending` has tone `harsh`, so any match is red.
-      summary.CUT = { count, armed: armed > 0, harsh: count > 0 };
-    }
-
-    return summary;
-  }
-
-  /**
-   * `{ id: { notIn: [...] } }` for records this user has viewed and that are still inside
-   * their cooldown, i.e. RESTING rather than blinking. Suppressing at record granularity: if
-   * a record is snoozed for ANY of its rules it's resting, which is the coarse "is anything
-   * blinking" signal the nav needs.
-   *
-   * `acknowledged` deliberately does NOT suppress. There is one quiet axis — the cooldown —
-   * shared with the client engine (see web `markViewed`). Treating `acknowledged` as a
-   * permanent mute here is what made the nav go dark for good on a record whose row had
-   * already re-armed.
-   *
-   * Bounded: without a cap this list grows for the life of the account and is spliced
-   * verbatim into `id NOT IN ($1..$n)` on a 60s poll — eventually a multi-thousand-parameter
-   * query, and past ~65k bind params Postgres refuses outright. Only records inside an active
-   * cooldown can appear, so a few thousand is far above the ceiling this legitimately needs.
-   */
-  private async restingIdFilter(userId: string, entityType: string, now: Date): Promise<{ id?: { notIn: string[] } }> {
-    const acks = await this.prisma.attentionAck.findMany({
-      where: { userId, entityType, snoozeUntil: { gt: now } },
-      select: { entityId: true },
-      orderBy: { updatedAt: 'desc' },
-      take: 5000,
+    const matches: AttentionMatchRef[] = [];
+    const truncatedTypes = new Set<string>();
+    visible.forEach((rule, i) => {
+      const ids = rows[i];
+      if (ids.length > MATCH_LIMIT) truncatedTypes.add(rule.entityType);
+      for (const { id } of ids.slice(0, MATCH_LIMIT)) {
+        matches.push({ ruleId: rule.ruleId, entityType: rule.entityType, entityId: id });
+      }
     });
-    const ids = [...new Set(acks.map((a) => a.entityId))];
-    return ids.length ? { id: { notIn: ids } } : {};
+
+    return { matches, evaluatedRuleIds, truncatedTypes: [...truncatedTypes] };
   }
 }
 
-/** Per-entity-type triple, mirroring the web engine's `AttentionTypeSnapshot`. */
-export interface AttentionSummaryEntry {
-  /** Records with any unresolved match (armed OR resting). 0 ⇒ the nav shows nothing. */
-  count: number;
-  /** At least one is actively blinking ⇒ the nav blinks; otherwise a static border. */
-  armed: boolean;
-  /** Highest severity present ⇒ red vs amber. */
-  harsh: boolean;
+/** One rule↔record hit, addressed exactly as the web engine's `matchKey` addresses it. */
+export interface AttentionMatchRef {
+  /** Must equal an `AttentionRule.id` in web `rules.ts` — the client looks the rule up by it
+   * to recover the target (row/field), cadence and priority, so none of that travels. */
+  ruleId: string;
+  entityType: string;
+  entityId: string;
 }
+
+export interface AttentionMatchesResponse {
+  matches: AttentionMatchRef[];
+  /** Rules actually run for this caller — absence from `matches` only means "resolved" for these. */
+  evaluatedRuleIds: string[];
+  /** Types whose list was capped — absence from `matches` is NOT resolution for these. */
+  truncatedTypes: string[];
+}
+
+/**
+ * Per-rule id cap. Bounds the payload and the `id NOT IN`-free query cost; a sector with
+ * more than this many unresolved records of one kind has a backlog problem, not a nav problem,
+ * and the client still blinks/bips for the capped subset.
+ */
+const MATCH_LIMIT = 200;
+
+interface RuleQuery {
+  /** Same id as the client rule (web/src/lib/attention/rules.ts). */
+  ruleId: string;
+  entityType: 'TASK' | 'CUT';
+  /** Sectors the client rule targets (`AttentionRule.targetSectors`). */
+  privileges: SectorPrivileges[];
+  where: (now: Date) => Prisma.TaskWhereInput | Prisma.CutWhereInput;
+}
+
+/** Every TASK rule is implicitly "…and still in flight" (see `whileInFlight` in rules.ts). */
+const IN_FLIGHT: Prisma.TaskWhereInput = { status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] } };
+
+// Empty string counts as missing — the client's isNull treats "" as null, and mirroring it
+// here is what keeps an on-screen row and the nav from disagreeing about the same record.
+const NO_CHASSIS: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { chassisNumber: null } }, { truck: { chassisNumber: '' } }] };
+const NO_PLATE: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { plate: null } }, { truck: { plate: '' } }] };
+const NO_SERIAL: Prisma.TaskWhereInput = { OR: [{ serialNumber: null }, { serialNumber: '' }] };
+/** R3c tests the SCALAR `vinPlateId`, like the client rule — the `vinPlate` relation only
+ * exists when included, so testing the relation would match every task. */
+const NO_VIN_PLATE_PHOTO: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { vinPlateId: null } }] };
+
+const TASK_AUDIENCE = [SectorPrivileges.LOGISTIC, SectorPrivileges.PRODUCTION_MANAGER];
+
+/** The server-side mirror of `ATTENTION_RULES`, one entry per rule id. */
+const RULE_QUERIES: RuleQuery[] = [
+  {
+    ruleId: 'task.cleared-without-entry',
+    entityType: 'TASK',
+    privileges: TASK_AUDIENCE,
+    where: () => ({ AND: [IN_FLIGHT, { cleared: true, entryDate: null }] }),
+  },
+  {
+    ruleId: 'task.forecast-overdue-not-cleared',
+    entityType: 'TASK',
+    privileges: TASK_AUDIENCE,
+    where: (now) => ({ AND: [IN_FLIGHT, { forecastDate: { lt: now }, cleared: false }] }),
+  },
+  {
+    ruleId: 'task.entry-without-chassis',
+    entityType: 'TASK',
+    privileges: TASK_AUDIENCE,
+    where: () => ({ AND: [IN_FLIGHT, { entryDate: { not: null } }, NO_CHASSIS] }),
+  },
+  {
+    ruleId: 'task.entry-without-plate',
+    entityType: 'TASK',
+    privileges: TASK_AUDIENCE,
+    where: () => ({ AND: [IN_FLIGHT, { entryDate: { not: null } }, NO_SERIAL, NO_PLATE] }),
+  },
+  {
+    ruleId: 'task.entry-without-vin-plate-photo',
+    entityType: 'TASK',
+    privileges: TASK_AUDIENCE,
+    where: () => ({ AND: [IN_FLIGHT, { entryDate: { not: null } }, NO_VIN_PLATE_PHOTO] }),
+  },
+  {
+    ruleId: 'cut.pending',
+    entityType: 'CUT',
+    privileges: [SectorPrivileges.WAREHOUSE],
+    where: () => ({ status: CutStatus.PENDING }),
+  },
+];
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));

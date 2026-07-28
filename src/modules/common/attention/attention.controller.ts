@@ -37,9 +37,10 @@ export class AttentionController {
   }
 
   /**
-   * Global attention counts for the caller's sector — independent of what the
-   * client currently has loaded/registered. Drives the nav-menu blink from pages
-   * (e.g. the dashboard) that never load the underlying entities themselves.
+   * Which records currently match which rule, for the caller's sector — independent of what
+   * the client has loaded/registered. The client engine feeds these into the same blink/bip
+   * cycles as its locally-evaluated matches, so the nav lights AND the bip fires from pages
+   * (a dashboard, Observações) that never load a task or a cut themselves.
    */
   @Get('summary')
   getSummary(@UserId() userId: string) {

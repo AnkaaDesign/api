@@ -186,12 +186,45 @@ badge).
 
 ---
 
-## 6. Server attention summary / nav unification (PLANNED)
+## 6. Server attention matches — the off-screen half of the signal (IMPLEMENTED)
 
-`GET /attention/summary` → per-user counts of entities matching attention rules (evaluated
-server-side using the user's `Sector.privileges`), pushed on change + cron. Feeds the nav-menu
-blink for entities not on screen, letting `web/src/hooks/common/use-nav-activity.ts` drop its
-polling cut source and unify on the engine.
+`GET /attention/summary` → **which records match which rule** for the caller, evaluated
+server-side against their `Sector.privileges`:
+
+```jsonc
+{
+  "matches": [{ "ruleId": "task.forecast-overdue-not-cleared", "entityType": "TASK", "entityId": "…" }],
+  "evaluatedRuleIds": ["task.forecast-overdue-not-cleared", "…"],  // what was actually looked for
+  "truncatedTypes": []                                              // hit MATCH_LIMIT (200/rule)
+}
+```
+
+**Why ids and not counts.** The web engine can only evaluate records a mounted page registered,
+and a blink/bip cycle only exists for a match — so on any page that loads neither tasks nor cuts
+there was *nothing in existence* to make a sound. The nav ring still lit up (it consumed counts),
+so the signal was audible only where the rows were already visible and silent everywhere it was
+the sole channel. Match refs give those records real cycles, and the sound follows the user.
+
+**One authority on armed vs resting.** The endpoint used to return `{count, armed, harsh}` and
+derive `armed` from `AttentionAck` rows, while the client derived it from its ack store. Two
+implementations of one concept is how the nav and the rows kept contradicting each other. The
+server now answers only what it can answer authoritatively — does this record match this rule —
+and the client engine decides armed/resting for loaded and unloaded records alike.
+
+Two consequences worth keeping in mind when editing this:
+
+- **Acked records are still returned.** Filtering them out would make the match vanish, which
+  the engine reads as *resolved* → it clears the cooldown and re-arms. An ack would cause an
+  instant re-bip.
+- **`evaluatedRuleIds` bounds trust in an absence.** The conditions in `RULE_QUERIES` mirror
+  `web/src/lib/attention/rules.ts` by hand, in a different language. Without this field every
+  drift became re-blinking and re-bipping; with it, a rule the server does not implement is
+  simply local-only. (R3c, *foto da plaqueta*, had been added client-side and never here — the
+  nav silently under-counted. Rule ids are now the map's keys so the gap is visible.)
+
+Freshness is driven by the socket: `entity:changed` on a rule-carrying type invalidates the
+query (debounced ~300ms), with a 60s poll as backstop. A shared rule source that removes the
+hand-mirroring altogether is §4.2.
 
 ---
 
@@ -206,12 +239,13 @@ polling cut source and unify on the engine.
 | `GET /attention/presence/:type/:id` (save-time guard) | ✅ implemented |
 | `AttentionAck` model + `GET/PUT /attention/ack` + service | ✅ implemented — **migration NOT applied**, see below |
 | Web server-backed ack store | ✅ implemented (localStorage stays as offline cache) |
-| Server summary `GET /attention/summary` | ✅ implemented (TASK only, hand-written Prisma counts) |
+| Server matches `GET /attention/summary` | ✅ implemented — match refs per rule (TASK + CUT), hand-written Prisma mirror of `rules.ts` |
+| Off-screen blink + **bip** (engine consumes server matches) | ✅ implemented (§6) |
 | `AttentionRule`/`Preference` DB + admin config UI | ⬜ planned (§4.2) |
 | Time-trigger cron (R2) | ⬜ planned (§5) |
 | Per-user mute / sound preference | ⬜ **not built — no off switch exists** |
 | Server-emitted `entity:changed` from domain services | ⬜ `notifyEntityChanged` exists but has no callers |
-| Nav unification (retire the polling cut source) | ⬜ planned (§6) |
+| Nav unification (single source: `getAttentionSnapshot()`) | ✅ implemented (§6) |
 
 ### Known deployment constraints
 

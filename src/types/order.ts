@@ -631,15 +631,22 @@ export interface PayableRow {
    */
   ignored?: boolean;
   /**
-   * ORDER rows only — whether the order's payment has been requested (PENDING
-   * orders are false: they render as muted, non-payable "expected" rows; an ADMIN
-   * presses "Requisitar Pagamento" to make them payable). Always true once
-   * requested. Other sources leave this undefined.
+   * ORDER and AIRBRUSHING rows — whether the row is a real, payable debt yet.
+   * PENDING orders are false until an ADMIN presses "Requisitar Pagamento";
+   * airbrushing rows are false until the job is COMPLETED. False renders the row
+   * muted/non-payable and hides its PIX key. Other sources leave this undefined.
    */
   paymentRequested?: boolean;
-  /** ORDER rows — the supplier's CNPJ (shown in the "Tomador" column). */
+  /**
+   * The counterparty's CNPJ, shown in the "Tomador" column: the supplier's on ORDER
+   * rows, the terceirizado/PJ painter's provider CNPJ on AIRBRUSHING rows. Null for a
+   * painter with no provider vínculo (CLT/autônomo — they have only a CPF).
+   */
   payeeCnpj?: string | null;
-  /** ORDER rows — the order's PIX key, set only when paymentMethod is PIX. */
+  /**
+   * The key used to pay this row: the order's PIX key (ORDER rows, only when
+   * paymentMethod is PIX) or the painter's provider CNPJ / own CPF (AIRBRUSHING rows).
+   */
   pixKey?: string | null;
   /** Competence the row belongs to (YYYY-MM) — payroll/tax/recurring. */
   competence?: string | null;

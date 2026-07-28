@@ -2842,6 +2842,58 @@ export class OrderService {
     return new Date(Date.UTC(y, m - 1, d + 1, 21, 0, 0));
   }
 
+  /** Payment term granted to a painter after an airbrushing job is finished. */
+  private static readonly AIRBRUSHING_PAYMENT_TERM_DAYS = 7;
+
+  /**
+   * Who an airbrushing painter is paid AS, for the Contas a Pagar "Tomador" /
+   * "Chave Pix" cells. A terceirizado/PJ painter invoices through the provider on
+   * their current vínculo (`EmploymentContract.provider*`), so the razão social is
+   * the Tomador and its CNPJ is both the Tomador document and the PIX key. A
+   * CLT/autônomo painter has no provider — they are the payee under their own name
+   * and paid against their CPF, which is the PIX key but NOT a CNPJ (the Tomador
+   * column formats that field as a CNPJ, so it stays null there).
+   */
+  private painterPayeeDoc(
+    painter:
+      | {
+          name?: string | null;
+          cpf?: string | null;
+          currentContract?: { providerCnpj?: string | null; providerName?: string | null } | null;
+        }
+      | null
+      | undefined,
+  ): { name: string | null; cnpj: string | null; pixKey: string | null } {
+    const providerCnpj = painter?.currentContract?.providerCnpj ?? null;
+    const providerName = painter?.currentContract?.providerName ?? null;
+    return {
+      name: providerName ?? painter?.name ?? null,
+      cnpj: providerCnpj,
+      pixKey: providerCnpj ?? painter?.cpf ?? null,
+    };
+  }
+
+  /**
+   * Contas a Pagar due date for an airbrushing: {@link AIRBRUSHING_PAYMENT_TERM_DAYS}
+   * days after the job's finish date, at 18:00 São Paulo time (same SP-midnight-ish
+   * convention as {@link payableDueFromCreatedAt}; Brazil has no DST since 2019, so
+   * 18:00 SP = 21:00 UTC). The reference is the ACTUAL finish (`finishedAt`) when the
+   * job is done, falling back to the PLANNED `finishDate` so a not-yet-finished job
+   * still forecasts a vencimento. Null when neither date is known.
+   */
+  private airbrushingPayableDue(finish: Date | string | null | undefined): Date | null {
+    if (!finish) return null;
+    const finished = new Date(finish);
+    if (isNaN(finished.getTime())) return null;
+    const [y, m, d] = finished
+      .toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })
+      .split('-')
+      .map(Number);
+    return new Date(
+      Date.UTC(y, m - 1, d + OrderService.AIRBRUSHING_PAYMENT_TERM_DAYS, 21, 0, 0),
+    );
+  }
+
   async getPayables(): Promise<PayablesResponse> {
     try {
       // "Paid this month" window — orders/airbrushing settled in the current
@@ -2883,12 +2935,25 @@ export class OrderService {
       const airbrushingSelect = {
         id: true,
         price: true,
+        status: true,
         paymentStatus: true,
         paidAt: true,
+        // Planned finish (forecast, set upfront) + actual finish (stamped on COMPLETED).
+        // The due date is derived from the actual one when available.
         finishDate: true,
+        finishedAt: true,
         taskId: true,
         painterId: true,
-        painter: { select: { id: true, name: true } },
+        // Painter identity for payment: a terceirizado/PJ painter is paid against the
+        // provider CNPJ on their current vínculo; a CLT/autônomo one against their CPF.
+        painter: {
+          select: {
+            id: true,
+            name: true,
+            cpf: true,
+            currentContract: { select: { providerCnpj: true, providerName: true } },
+          },
+        },
         task: { select: { name: true } },
       } as const;
 
@@ -2914,8 +2979,12 @@ export class OrderService {
         }),
         this.prisma.airbrushing.findMany({
           where: {
-            // Only owed once the work is COMPLETED (and not already fully paid).
-            status: 'COMPLETED',
+            // Every live airbrushing with a price shows up, mirroring SCHEDULED
+            // outflows and PENDING orders: work still in progress renders as a muted,
+            // non-payable "Previsto" row so finance can see the upcoming outflow, and
+            // only becomes payable once the job is COMPLETED. Cancelled jobs owe
+            // nothing; PAID ones come from the paid-this-month window below.
+            status: { not: 'CANCELLED' },
             paymentStatus: { not: 'PAID' },
             price: { not: null, gt: 0 },
           },
@@ -3031,19 +3100,34 @@ export class OrderService {
       }
 
       // --- AIRBRUSHING rows ---
+      // The painter is owed 7 days after the job finishes. Until it is COMPLETED the
+      // row is a forecast (muted "Previsto", no settle action, PIX key hidden) — the
+      // same treatment SCHEDULED outflows and not-yet-requisitados orders get.
       for (const ab of airbrushings) {
+        const finished = ab.status === 'COMPLETED';
+        const painterDoc = this.painterPayeeDoc(ab.painter);
         rows.push({
           source: 'AIRBRUSHING',
           id: ab.id,
           payeeId: ab.painterId ?? null,
-          payeeName: ab.painter?.name ?? 'Aerografia (sem pintor)',
+          // Terceirizado/PJ painters are invoiced by their provider — the razão social
+          // is the Tomador, not the person. Falls back to the painter's own name.
+          payeeName: painterDoc.name ?? 'Aerografia (sem pintor)',
           description: ab.task?.name ? `Aerografia — ${ab.task.name}` : 'Aerografia',
           amount: ab.price ?? 0,
-          // Airbrushing payment is binary (PENDING/PAID); open rows are always awaiting.
-          paymentState: 'AWAITING_PAYMENT',
-          dueDate: ab.finishDate ?? null,
+          // Airbrushing payment is binary (PENDING/PAID); an unfinished job is not a
+          // debt yet, a finished one is awaiting payment (the OVERDUE sweep in
+          // PayablesService promotes it once the 7-day term lapses).
+          paymentState: finished ? 'AWAITING_PAYMENT' : 'EXPECTED',
+          dueDate: this.airbrushingPayableDue(ab.finishedAt ?? ab.finishDate),
           method: null,
           taskId: ab.taskId,
+          // Gates the settle action + the Chave Pix cell on the web/mobile lists,
+          // exactly like a PENDING order awaiting "Requisitar Pagamento".
+          paymentRequested: finished,
+          settleVia: finished ? 'AIRBRUSHING' : 'NONE',
+          payeeCnpj: painterDoc.cnpj,
+          pixKey: painterDoc.pixKey,
         });
       }
 
@@ -3094,18 +3178,25 @@ export class OrderService {
         });
       }
       for (const ab of paidAirbrushings) {
+        const painterDoc = this.painterPayeeDoc(ab.painter);
         rows.push({
           source: 'AIRBRUSHING',
           id: ab.id,
           payeeId: ab.painterId ?? null,
-          payeeName: ab.painter?.name ?? 'Aerografia (sem pintor)',
+          // Terceirizado/PJ painters are invoiced by their provider — the razão social
+          // is the Tomador, not the person. Falls back to the painter's own name.
+          payeeName: painterDoc.name ?? 'Aerografia (sem pintor)',
           description: ab.task?.name ? `Aerografia — ${ab.task.name}` : 'Aerografia',
           amount: ab.price ?? 0,
           paymentState: 'PAID',
-          dueDate: ab.finishDate ?? null,
+          dueDate: this.airbrushingPayableDue(ab.finishedAt ?? ab.finishDate),
           method: null,
           paidAt: ab.paidAt ?? null,
           taskId: ab.taskId,
+          // Paid rows were necessarily payable; keep the painter's PIX key visible.
+          paymentRequested: true,
+          payeeCnpj: painterDoc.cnpj,
+          pixKey: painterDoc.pixKey,
         });
       }
 
