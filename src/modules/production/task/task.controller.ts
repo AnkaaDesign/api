@@ -151,6 +151,8 @@ export class TaskController {
         { name: 'checkinFiles', maxCount: 20 },
         { name: 'checkoutFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
+        // Foto da plaqueta de identificação (VIN) do caminhão — imagem única.
+        { name: 'truckVinPlate', maxCount: 1 },
         // Airbrushing files - support up to 10 airbrushings with multiple files each
         { name: 'airbrushings[0].receipts', maxCount: 10 },
         { name: 'airbrushings[0].invoices', maxCount: 10 },
@@ -264,6 +266,8 @@ export class TaskController {
         { name: 'checkinFiles', maxCount: 20 },
         { name: 'checkoutFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
+        // Foto da plaqueta de identificação (VIN) do caminhão — imagem única.
+        { name: 'truckVinPlate', maxCount: 1 },
         // ImplementMeasure photos for bulk implementMeasure operations
         { name: 'implementMeasurePhotos.leftSide', maxCount: 1 },
         { name: 'implementMeasurePhotos.rightSide', maxCount: 1 },
@@ -717,6 +721,8 @@ export class TaskController {
         { name: 'soCheckoutFiles', maxCount: 60 },
         { name: 'cutFiles', maxCount: 20 },
         { name: 'observationFiles', maxCount: 10 },
+        // Foto da plaqueta de identificação (VIN) do caminhão — imagem única.
+        { name: 'truckVinPlate', maxCount: 1 },
         // Quote implementMeasure file
         { name: 'quoteLayoutFile', maxCount: 2 },
         // Airbrushing files - support up to 10 airbrushings with multiple files each

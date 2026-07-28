@@ -668,6 +668,7 @@ model File {
   customerLogo                           Customer[]                @relation("CUSTOMER_LOGO")
   taskCuts                               Cut[]                     @relation("TASK_CUTS")
   implementMeasurePhotos                 ImplementMeasure[]        @relation("IMPLEMENT_MEASURE_PHOTO")
+  truckVinPlates                         Truck[]                   @relation("TRUCK_VIN_PLATE")
   ppeDeliveryDocuments                   PpeDelivery[]             @relation("PPE_DELIVERY_DOCUMENT")
   ppeSignatureDocuments                  PpeDeliverySignature[]    @relation("PPE_SIGNATURE_DOCUMENT")
   warningSignatureDocuments              WarningSignature[]        @relation("WARNING_SIGNATURE_DOCUMENT")
@@ -2044,7 +2045,6 @@ model Truck {
   id                 String            @id @default(uuid())
   plate              String?           @unique
   chassisNumber      String?
-  vinPlate           String?
   category           TruckCategory?
   implementType      ImplementType?
   spot               TRUCK_SPOT?       @default(YARD_WAIT)
@@ -2054,17 +2054,22 @@ model Truck {
   backSideMeasureId  String?
   leftSideMeasureId  String?
   rightSideMeasureId String?
+  /// Foto da plaqueta de identificação (VIN) rebitada no veículo. Imagem, não texto:
+  /// a plaqueta era um campo de texto que ninguém preenchia — o que a produção precisa
+  /// é da foto legível da plaqueta. Ver migration 20260727150000_truck_vin_plate_image.
+  vinPlateId         String?
+  vinPlate           File?             @relation("TRUCK_VIN_PLATE", fields: [vinPlateId], references: [id], onDelete: SetNull)
   backSideMeasure    ImplementMeasure? @relation("TRUCK_BACK_SIDE", fields: [backSideMeasureId], references: [id])
   leftSideMeasure    ImplementMeasure? @relation("TRUCK_LEFT_SIDE", fields: [leftSideMeasureId], references: [id])
   rightSideMeasure   ImplementMeasure? @relation("TRUCK_RIGHT_SIDE", fields: [rightSideMeasureId], references: [id])
   task               Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   chassisNumberNormalized String? /// accent-insensitive search (generated column, see migration)
-  vinPlateNormalized      String? /// accent-insensitive search (generated column, see migration)
   plateNormalized         String? /// accent-insensitive search (generated column, see migration)
 
   @@index([spot])
   @@index([plate])
+  @@index([vinPlateId])
   @@index([backSideMeasureId])
   @@index([leftSideMeasureId])
   @@index([rightSideMeasureId])

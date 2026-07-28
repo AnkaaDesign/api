@@ -1006,6 +1006,8 @@ export class TaskService {
       projectFiles?: Express.Multer.File[];
       checkinFiles?: Express.Multer.File[];
       checkoutFiles?: Express.Multer.File[];
+      /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no Truck. */
+      truckVinPlate?: Express.Multer.File[];
     },
   ): Promise<TaskCreateResponse> {
     try {
@@ -1252,7 +1254,7 @@ export class TaskService {
                 taskId: newTask.id,
                 plate: truckData.plate || null,
                 chassisNumber: truckData.chassisNumber || null,
-                vinPlate: truckData.vinPlate || null,
+                vinPlateId: truckData.vinPlateId || null,
                 spot: truckData.spot !== undefined ? truckData.spot : null,
               },
             });
@@ -1504,6 +1506,37 @@ export class TaskService {
             fileUpdates.baseFiles = { connect: baseFileIds.map(id => ({ id })) };
           }
 
+          // Foto da plaqueta de identificação (VIN). Imagem ÚNICA e gravada no Truck, não na
+          // Task — por isso não entra em `fileUpdates` (que conecta arquivos à tarefa).
+          const vinPlateUpload = files.truckVinPlate?.[0];
+          if (vinPlateUpload) {
+            const truckForVinPlate = await tx.truck.findUnique({
+              where: { taskId: newTask.id },
+              select: { id: true },
+            });
+
+            if (truckForVinPlate) {
+              const vinPlateFile = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                vinPlateUpload,
+                'truckVinPlate',
+                userId,
+                { entityId: truckForVinPlate.id, entityType: 'TRUCK', customerName },
+              );
+              await tx.truck.update({
+                where: { id: truckForVinPlate.id },
+                data: { vinPlateId: vinPlateFile.id },
+              });
+              this.logger.log(
+                `[Task Create] Foto da plaqueta ${vinPlateFile.id} vinculada ao caminhão ${truckForVinPlate.id}`,
+              );
+            } else {
+              this.logger.warn(
+                `[Task Create] Foto da plaqueta enviada para a tarefa ${newTask.id}, mas nenhum caminhão foi criado — arquivo ignorado`,
+              );
+            }
+          }
+
           // Airbrushing files - process files for each airbrushing
           const airbrushingFileFields = Object.keys(files).filter(key =>
             key.startsWith('airbrushings['),
@@ -1735,6 +1768,7 @@ export class TaskService {
           ...(files.bankSlips || []),
           ...(files.layouts || []),
           ...(files.cutFiles || []),
+          ...(files.truckVinPlate || []),
         ];
 
         for (const file of allFiles) {
@@ -1774,6 +1808,8 @@ export class TaskService {
       layouts?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
+      /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no Truck. */
+      truckVinPlate?: Express.Multer.File[];
     },
   ): Promise<TaskCreateResponse> {
     // Calculate number of tasks to create
@@ -2112,6 +2148,8 @@ export class TaskService {
       soCheckinFiles?: Express.Multer.File[];
       soCheckoutFiles?: Express.Multer.File[];
       quoteLayoutFile?: Express.Multer.File[];
+      /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no Truck. */
+      truckVinPlate?: Express.Multer.File[];
     },
   ): Promise<TaskUpdateResponse> {
     try {
@@ -2368,7 +2406,7 @@ export class TaskService {
                   taskId: id,
                   plate: truckData.plate || null,
                   chassisNumber: truckData.chassisNumber || null,
-                  vinPlate: truckData.vinPlate || null,
+                  vinPlateId: truckData.vinPlateId || null,
                   category: truckData.category || null,
                   implementType: truckData.implementType || null,
                   spot: truckData.spot !== undefined ? truckData.spot : null,
@@ -2396,7 +2434,7 @@ export class TaskService {
               if (truckData.plate !== undefined) updateFields.plate = truckData.plate;
               if (truckData.chassisNumber !== undefined)
                 updateFields.chassisNumber = truckData.chassisNumber;
-              if (truckData.vinPlate !== undefined) updateFields.vinPlate = truckData.vinPlate;
+              if (truckData.vinPlateId !== undefined) updateFields.vinPlateId = truckData.vinPlateId;
               if (truckData.category !== undefined) updateFields.category = truckData.category;
               if (truckData.implementType !== undefined)
                 updateFields.implementType = truckData.implementType;
@@ -2757,6 +2795,60 @@ export class TaskService {
             delete truckData.leftSideMeasure;
             delete truckData.rightSideMeasure;
             delete truckData.backSideMeasure;
+          }
+        }
+
+        // Foto da plaqueta de identificação (VIN) enviada por multipart. Fica FORA do bloco
+        // `truckData !== undefined` de propósito: trocar só a foto é uma edição legítima e o
+        // payload não precisa carregar um objeto `truck` de fachada só para o upload valer.
+        //
+        // Substitui a anterior — o campo é uma imagem só. O arquivo antigo NÃO é apagado:
+        // continua acessível pelo changelog e o File pode estar referenciado em outro lugar.
+        const vinPlateUpload = files?.truckVinPlate?.[0];
+        if (vinPlateUpload) {
+          const vinPlateTruckId =
+            (await tx.truck.findUnique({ where: { taskId: id }, select: { id: true } }))?.id ?? null;
+
+          if (vinPlateTruckId) {
+            const previousVinPlateId = existingTask.truck?.vinPlateId ?? null;
+            const vinPlateFile = await this.fileService.createFromUploadWithTransaction(
+              tx,
+              vinPlateUpload,
+              'truckVinPlate',
+              userId,
+              {
+                entityId: vinPlateTruckId,
+                entityType: 'TRUCK',
+                customerName: existingTask.customer?.fantasyName,
+              },
+            );
+            const truckWithVinPlate = await tx.truck.update({
+              where: { id: vinPlateTruckId },
+              data: { vinPlateId: vinPlateFile.id },
+            });
+
+            await logEntityChange({
+              changeLogService: this.changeLogService,
+              entityType: ENTITY_TYPE.TRUCK,
+              entityId: vinPlateTruckId,
+              action: CHANGE_ACTION.UPDATE,
+              entity: truckWithVinPlate,
+              userId: userId || '',
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              reason: 'Foto da plaqueta atualizada',
+              field: 'vinPlateId',
+              oldValue: previousVinPlateId,
+              newValue: vinPlateFile.id,
+              transaction: tx,
+            });
+
+            this.logger.log(
+              `[Task Update] Foto da plaqueta ${vinPlateFile.id} vinculada ao caminhão ${vinPlateTruckId}`,
+            );
+          } else {
+            this.logger.warn(
+              `[Task Update] Foto da plaqueta enviada para a tarefa ${id}, que não tem caminhão — arquivo ignorado`,
+            );
           }
         }
 
@@ -6893,6 +6985,7 @@ export class TaskService {
           ...(files.bankSlips || []),
           ...(files.layouts || []),
           ...(files.cutFiles || []),
+          ...(files.truckVinPlate || []),
         ];
 
         for (const file of allFiles) {
@@ -6936,6 +7029,8 @@ export class TaskService {
       layouts?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
+      /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no Truck. */
+      truckVinPlate?: Express.Multer.File[];
     },
   ): Promise<TaskBatchUpdateResponse<TaskUpdateFormData>> {
     this.logger.log('[batchUpdate] ========== BATCH UPDATE STARTED ==========');
@@ -8310,7 +8405,7 @@ export class TaskService {
                   taskId: taskId,
                   plate: truckData.plate || null,
                   chassisNumber: truckData.chassisNumber || null,
-                  vinPlate: truckData.vinPlate || null,
+                  vinPlateId: truckData.vinPlateId || null,
                   category: truckData.category || null,
                   implementType: truckData.implementType || null,
                   spot: truckData.spot !== undefined ? truckData.spot : null,

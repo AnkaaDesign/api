@@ -274,7 +274,6 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                     select: {
                       plate: true,
                       chassisNumber: true,
-                      vinPlate: true,
                       category: true,
                       implementType: true,
                     },
@@ -783,7 +782,6 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     else if (truck?.plate) identifiers.push(`Placa: ${truck.plate}`);
     if (task?.serialNumber && truck?.plate) identifiers.push(`placa: ${truck.plate}`);
     if (truck?.chassisNumber) identifiers.push(`chassi: ${truck.chassisNumber}`);
-    if (truck?.vinPlate) identifiers.push(`plaqueta: ${truck.vinPlate}`);
     const idStr = identifiers.join(', ');
 
     if (vehicleType || idStr) {

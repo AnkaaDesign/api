@@ -276,7 +276,7 @@ export type TaskSelect = TaskSelectFields & {
           id?: boolean;
           plate?: boolean;
           chassisNumber?: boolean;
-          vinPlate?: boolean;
+          vinPlateId?: boolean;
           spot?: boolean;
           category?: boolean;
         };
@@ -476,7 +476,7 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
       id: true,
       plate: true,
       chassisNumber: true,
-      vinPlate: true,
+      vinPlateId: true,
       spot: true,
       category: true,
     },
@@ -633,7 +633,7 @@ export interface TaskDetailed extends BaseEntity {
     id: string;
     plate: string | null;
     chassisNumber: string | null;
-    vinPlate: string | null;
+    vinPlateId: string | null;
     spot: string | null;
     category: string | null;
   } | null;

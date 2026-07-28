@@ -63,6 +63,7 @@ export interface FilesFolderMapping {
   observations: string;
   warning: string;
   implementMeasurePhotos: string;
+  truckVinPlate: string;
   'quote-layouts': string;
   plotterEspovo: string;
   plotterAdesivo: string;
@@ -162,6 +163,7 @@ export class FilesStorageService {
     observations: 'Observacoes',
     warning: 'Advertencias',
     implementMeasurePhotos: 'Traseiras',
+    truckVinPlate: 'Plaquetas',
     'quote-layouts': 'Layouts',
     plotterEspovo: 'Plotter',
     plotterAdesivo: 'Plotter',
@@ -256,6 +258,7 @@ export class FilesStorageService {
     'customerLogo',
     'observations',
     'implementMeasurePhotos',
+    'truckVinPlate',
     'quote-layouts',
     'plotterEspovo',
     'plotterAdesivo',
@@ -679,6 +682,7 @@ export class FilesStorageService {
       observation: ['observations'],
       warning: ['warning'],
       implementMeasure: ['implementMeasurePhotos'],
+      truck: ['truckVinPlate'],
       airbrushing: [
         'airbrushingLayouts',
         'airbrushingBudgets',

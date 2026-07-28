@@ -226,7 +226,6 @@ export class NfseEmissionScheduler {
                     select: {
                       plate: true,
                       chassisNumber: true,
-                      vinPlate: true,
                       category: true,
                       implementType: true,
                     },
@@ -310,7 +309,6 @@ export class NfseEmissionScheduler {
             | {
                 plate?: string;
                 chassisNumber?: string;
-                vinPlate?: string;
                 category?: string;
                 implementType?: string;
               }
@@ -377,7 +375,6 @@ export class NfseEmissionScheduler {
               ? {
                   plate: truck.plate || undefined,
                   chassisNumber: truck.chassisNumber || undefined,
-                  vinPlate: truck.vinPlate || undefined,
                   category: truck.category || undefined,
                   implementType: truck.implementType || undefined,
                 }
@@ -516,7 +513,6 @@ export class NfseEmissionScheduler {
                   select: {
                     plate: true,
                     chassisNumber: true,
-                    vinPlate: true,
                     category: true,
                     implementType: true,
                   },
@@ -576,7 +572,6 @@ export class NfseEmissionScheduler {
           | {
               plate?: string;
               chassisNumber?: string;
-              vinPlate?: string;
               category?: string;
               implementType?: string;
             }
@@ -642,7 +637,6 @@ export class NfseEmissionScheduler {
             ? {
                 plate: truck.plate || undefined,
                 chassisNumber: truck.chassisNumber || undefined,
-                vinPlate: truck.vinPlate || undefined,
                 category: truck.category || undefined,
                 implementType: truck.implementType || undefined,
               }

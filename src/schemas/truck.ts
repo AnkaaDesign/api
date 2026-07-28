@@ -76,6 +76,8 @@ export const truckIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
+      // Foto da plaqueta de identificação (VIN) — File, não texto.
+      vinPlate: z.boolean().optional(),
     })
     .partial(),
 );
@@ -90,7 +92,7 @@ export const truckOrderBySchema = z
       id: orderByDirectionSchema.optional(),
       plate: orderByDirectionSchema.optional(),
       chassisNumber: orderByDirectionSchema.optional(),
-      vinPlate: orderByDirectionSchema.optional(),
+      vinPlateId: orderByDirectionSchema.optional(),
       category: orderByDirectionSchema.optional(),
       implementType: orderByDirectionSchema.optional(),
       spot: orderByDirectionSchema.optional(),
@@ -103,7 +105,7 @@ export const truckOrderBySchema = z
         id: orderByDirectionSchema.optional(),
         plate: orderByDirectionSchema.optional(),
         chassisNumber: orderByDirectionSchema.optional(),
-        vinPlate: orderByDirectionSchema.optional(),
+        vinPlateId: orderByDirectionSchema.optional(),
         category: orderByDirectionSchema.optional(),
         implementType: orderByDirectionSchema.optional(),
         spot: orderByDirectionSchema.optional(),
@@ -153,8 +155,9 @@ export const truckWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       chassisNumber: z
         .union([z.string(), z.object({ contains: z.string().optional() })])
         .optional(),
-      vinPlate: z
-        .union([z.string(), z.object({ contains: z.string().optional() })])
+      vinPlateId: z
+        .union([z.string(), z.object({ equals: z.string().nullable().optional(), not: z.string().nullable().optional() })])
+        .nullable()
         .optional(),
       category: z
         .union([
@@ -234,7 +237,6 @@ const truckTransform = (data: any): any => {
         // Direct truck fields
         { plateNormalized: { contains: normalizeSearchTerm(searchTerm) } },
         { chassisNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } },
-        { vinPlateNormalized: { contains: normalizeSearchTerm(searchTerm) } },
         // Related task
         { task: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
         { task: { serialNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
@@ -504,11 +506,7 @@ export const truckCreateSchema = z.object({
     .nullable()
     .optional()
     .transform(val => (val === '' ? null : val)),
-  vinPlate: z
-    .string()
-    .nullable()
-    .optional()
-    .transform(val => (val === '' ? null : val)),
+  vinPlateId: z.string().uuid('Foto da plaqueta inválida').nullable().optional(),
 
   // Truck specifications
   category: truckCategorySchema.nullable().optional(),
@@ -542,11 +540,7 @@ export const truckUpdateSchema = z.object({
     .nullable()
     .optional()
     .transform(val => (val === '' ? null : val)),
-  vinPlate: z
-    .string()
-    .nullable()
-    .optional()
-    .transform(val => (val === '' ? null : val)),
+  vinPlateId: z.string().uuid('Foto da plaqueta inválida').nullable().optional(),
 
   // Truck specifications
   category: truckCategorySchema.nullable().optional(),
@@ -627,7 +621,7 @@ export type TruckWhere = z.infer<typeof truckWhereSchema>;
 export const mapTruckToFormData = createMapToFormDataHelper<Truck, TruckUpdateFormData>(truck => ({
   plate: truck.plate,
   chassisNumber: truck.chassisNumber,
-  vinPlate: truck.vinPlate,
+  vinPlateId: truck.vinPlateId,
   category: truck.category,
   implementType: truck.implementType,
   spot: truck.spot,

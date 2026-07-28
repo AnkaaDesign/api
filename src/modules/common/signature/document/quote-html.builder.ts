@@ -72,7 +72,6 @@ export interface QuoteHtmlInput {
   serialNumber: string | null;
   plate: string | null;
   chassisNumber: string | null;
-  vinPlate: string | null;
   /**
    * Aceita o valor CRU do enum (`SEMI_TRAILER_2_AXLES`) ou o rótulo já
    * resolvido. O builder mapeia com `@constants/enum-labels` — ver
@@ -180,7 +179,6 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   if (data.plate) vehicleParts.push(` placa: <strong>${escapeHtml(data.plate)}</strong>`);
   if (data.chassisNumber)
     vehicleParts.push(` chassi: <strong>${escapeHtml(data.chassisNumber)}</strong>`);
-  if (data.vinPlate) vehicleParts.push(` plaqueta: <strong>${escapeHtml(data.vinPlate)}</strong>`);
   // Rótulo humano, não o enum cru. Ver `truckCategoryLabel()` em quote-text.ts.
   const categoryLabel = truckCategoryLabel(data.truckCategoryLabel);
   const implementLabel = implementTypeLabel(data.truckImplementLabel);

@@ -450,7 +450,6 @@ export class SignatureEnvelopeService {
       serialNumber: quote.task?.serialNumber ?? null,
       plate: quote.task?.truck?.plate ?? null,
       chassisNumber: quote.task?.truck?.chassisNumber ?? null,
-      vinPlate: quote.task?.truck?.vinPlate ?? null,
       truckCategoryLabel: quote.task?.truck?.category ?? null,
       truckImplementLabel: quote.task?.truck?.implementType ?? null,
       services: quote.services.map(s => ({

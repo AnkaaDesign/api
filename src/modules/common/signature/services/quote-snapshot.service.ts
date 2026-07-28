@@ -60,7 +60,6 @@ export interface QuoteSnapshot {
   truck: {
     plate: string | null;
     chassisNumber: string | null;
-    vinPlate: string | null;
     category: string | null;
     implementType: string | null;
   } | null;
@@ -157,7 +156,6 @@ export class QuoteSnapshotService {
         ? {
             plate: truck.plate ?? null,
             chassisNumber: truck.chassisNumber ?? null,
-            vinPlate: truck.vinPlate ?? null,
             category: truck.category ?? null,
             implementType: truck.implementType ?? null,
           }

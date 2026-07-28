@@ -35,7 +35,6 @@ import { join } from 'path';
     serialNumber: 'SN-99120',
     plate: 'ABC1D23',
     chassisNumber: '9BWZZZ377VT004251',
-    vinPlate: null,
     // Enum CRU de propósito: é o que `SignatureEnvelopeService` entrega hoje, e
     // o template precisa imprimir "Semirreboque 2 Eixos" / "Sider".
     truckCategoryLabel: 'SEMI_TRAILER_2_AXLES',

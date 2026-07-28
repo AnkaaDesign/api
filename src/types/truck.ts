@@ -12,6 +12,7 @@ import type {
 } from './common';
 import type { Task, TaskIncludes, TaskOrderBy, TaskWhere } from './task';
 import type { ImplementMeasure, ImplementMeasureIncludes, ImplementMeasureOrderBy, ImplementMeasureWhere } from './implement-measure';
+import type { File } from './file';
 import type { TRUCK_SPOT, TRUCK_CATEGORY, IMPLEMENT_TYPE } from '@constants';
 
 // =====================
@@ -21,7 +22,8 @@ import type { TRUCK_SPOT, TRUCK_CATEGORY, IMPLEMENT_TYPE } from '@constants';
 export interface Truck extends BaseEntity {
   plate: string | null;
   chassisNumber: string | null;
-  vinPlate: string | null;
+  /** Foto da plaqueta de identificação (VIN). Imagem, não texto — ver `vinPlate`. */
+  vinPlateId: string | null;
   category: TRUCK_CATEGORY | null; // Type of truck (mini, vuc, 3/4, toco, truck, semi-trailer, b-double)
   implementType: IMPLEMENT_TYPE | null; // Type of body/implement (dry-cargo, refrigerated, insulated, curtain-side, tank, flatbed)
   spot: TRUCK_SPOT | null; // Parking spot in garage (B1_F1_V1, B1_F2_V1, etc.) — null means patio
@@ -32,6 +34,7 @@ export interface Truck extends BaseEntity {
 
   // Relations (optional, populated based on query)
   task?: Task;
+  vinPlate?: File | null;
   backSideMeasure?: ImplementMeasure | null;
   leftSideMeasure?: ImplementMeasure | null;
   rightSideMeasure?: ImplementMeasure | null;
@@ -62,6 +65,8 @@ export interface TruckIncludes {
     | {
         include?: ImplementMeasureIncludes;
       };
+  /** Foto da plaqueta de identificação (VIN). */
+  vinPlate?: boolean;
 }
 
 // =====================
@@ -72,7 +77,7 @@ export interface TruckOrderBy {
   id?: ORDER_BY_DIRECTION;
   plate?: ORDER_BY_DIRECTION;
   chassisNumber?: ORDER_BY_DIRECTION;
-  vinPlate?: ORDER_BY_DIRECTION;
+  vinPlateId?: ORDER_BY_DIRECTION;
   category?: ORDER_BY_DIRECTION;
   implementType?: ORDER_BY_DIRECTION;
   spot?: ORDER_BY_DIRECTION;
@@ -138,15 +143,11 @@ export interface TruckWhere {
         notIn?: string[];
       }
     | null;
-  vinPlate?:
+  vinPlateId?:
     | string
     | {
-        equals?: string;
-        not?: string;
-        contains?: string;
-        startsWith?: string;
-        endsWith?: string;
-        mode?: 'default' | 'insensitive';
+        equals?: string | null;
+        not?: string | null;
         in?: string[];
         notIn?: string[];
       }
