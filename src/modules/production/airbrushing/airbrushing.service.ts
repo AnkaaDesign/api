@@ -484,47 +484,13 @@ export class AirbrushingService {
         // unconditionally would push `set: []` and wipe every attached receipt/invoice/layout.
         // Only reconcile a collection when the payload explicitly provided its IDs OR new files
         // of that type were uploaded in this request.
-        const reconcileReceipts =
-          !isPainterRestricted && (data.receiptIds !== undefined || newFileIds.receiptIds.length > 0);
-        const reconcileInvoices =
-          !isPainterRestricted && (data.invoiceIds !== undefined || newFileIds.invoiceIds.length > 0);
-        const reconcileLayouts =
-          !isPainterRestricted && (data.layoutIds !== undefined || newFileIds.layoutIds.length > 0);
-
-        if (reconcileReceipts) {
-          updateData.receiptIds = [...(data.receiptIds || []), ...newFileIds.receiptIds];
-        } else {
-          delete updateData.receiptIds;
-        }
-
-        if (reconcileInvoices) {
-          updateData.invoiceIds = [...(data.invoiceIds || []), ...newFileIds.invoiceIds];
-        } else {
-          delete updateData.invoiceIds;
-        }
-
-        if (reconcileLayouts) {
-          // layoutIds from the client are File IDs; the layouts relation expects Layout entity
-          // IDs. Convert (creating/looking up Layout rows) before handing them to the repository.
-          const combinedLayoutFileIds = [...(data.layoutIds || []), ...newFileIds.layoutIds];
-          let layoutEntityIds: string[] = [];
-          if (combinedLayoutFileIds.length > 0) {
-            layoutEntityIds = await this.convertFileIdsToLayoutIds(
-              combinedLayoutFileIds,
-              id,
-              layoutStatuses,
-              userRole,
-              tx,
-            );
-            this.logger.log(
-              `[Airbrushing Update] Converted ${combinedLayoutFileIds.length} File IDs to ${layoutEntityIds.length} Layout entity IDs`,
-            );
-          }
-          // Use converted Layout entity IDs, not File IDs.
-          updateData.layoutIds = layoutEntityIds;
-        } else {
-          delete updateData.layoutIds;
-        }
+        await this.reconcileFileRelations(tx, id, data, updateData, {
+          newFileIds,
+          layoutStatuses,
+          userRole,
+          skipAll: isPainterRestricted,
+          logPrefix: '[Airbrushing Update]',
+        });
 
         // Atualizar a aerografia
         const updatedAirbrushing = await this.airbrushingRepository.updateWithTransaction(
@@ -734,6 +700,7 @@ export class AirbrushingService {
     data: AirbrushingBatchUpdateFormData,
     include?: AirbrushingInclude,
     userId?: string,
+    userRole?: string,
   ): Promise<AirbrushingBatchUpdateResponse<AirbrushingUpdateFormData>> {
     try {
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -756,11 +723,33 @@ export class AirbrushingService {
             // Validar entidade completa
             await this.validateAirbrushing(updateData, id, tx);
 
+            // BATCH IS A BULK *SCALAR* EDIT SURFACE — it never rewrites file relations.
+            //
+            // This endpoint is JSON-only, so it cannot carry an upload: the only thing it
+            // could ever do to an attachment list is DESTROY entries. An operation that can
+            // only destroy, applied to N entities at once, is how 15 airbrushings lost every
+            // layout in a week — one task-edit save shipped `layoutIds: []` per row and the
+            // repository turned each into `layouts: { set: [] }`. Nothing distinguishes "the
+            // user removed the files" from "the client built an empty snapshot", so the
+            // ambiguity is removed instead of arbitrated: attachment changes belong to the
+            // single PUT /airbrushings/:id, which owns the upload + reconciliation path.
+            const batchUpdateData: any = { ...updateData };
+            const droppedRelations = ['receiptIds', 'invoiceIds', 'layoutIds', 'layoutStatuses']
+              .filter(k => batchUpdateData[k] !== undefined);
+            for (const k of droppedRelations) delete batchUpdateData[k];
+            if (droppedRelations.length > 0) {
+              this.logger.warn(
+                `[Airbrushing BatchUpdate] Ignoring file-relation fields for airbrushing ${id}: ` +
+                  `${droppedRelations.join(', ')}. Attachments must be changed through ` +
+                  `PUT /airbrushings/:id — the batch endpoint only edits scalar fields.`,
+              );
+            }
+
             // Atualizar a aerografia
             const updatedAirbrushing = await this.airbrushingRepository.updateWithTransaction(
               tx,
               id,
-              updateData,
+              batchUpdateData,
               { include },
             );
             successfulUpdates.push(updatedAirbrushing);
@@ -1053,6 +1042,122 @@ export class AirbrushingService {
     } catch (error) {
       this.logger.error(`Error saving file to storage:`, error);
       throw error;
+    }
+  }
+
+  /**
+   * Reconcile the receipt/invoice/layout file relations of an airbrushing update.
+   *
+   * THE SINGLE PLACE where an airbrushing's file relations may be rewritten. Every
+   * write path (single update, batch update) MUST go through here — a payload that
+   * reaches the repository with a raw `*Ids` array bypasses three invariants at once:
+   *
+   *  1. INTENT. The repository maps any provided `*Ids` array to a Prisma `set` (a full
+   *     replace), so an *absent* array must stay absent. A partial update (inline
+   *     status/painter/price edit) provides none of them and must leave the relations
+   *     untouched — pushing `set: []` silently detaches every attached file.
+   *  2. ID DOMAIN. `layoutIds` from clients are FILE ids; the `layouts` relation stores
+   *     LAYOUT entity ids. They must be converted (creating/adopting Layout rows) first,
+   *     or Prisma is handed ids that do not exist in the target table.
+   *  3. EXPLICIT CLEAR. Emptying a relation is a destructive, irreversible-looking
+   *     operation, so it is only ever performed when this method decided the payload
+   *     genuinely carries that intent — signalled downstream via `_allowRelationClear`.
+   *
+   * Mutates `updateData` in place: sets the reconciled arrays, deletes the ones that must
+   * not be touched, and strips `layoutStatuses` (not a Prisma field).
+   */
+  private async reconcileFileRelations(
+    tx: PrismaTransaction,
+    id: string,
+    data: any,
+    updateData: any,
+    opts: {
+      newFileIds?: { receiptIds: string[]; invoiceIds: string[]; layoutIds: string[] };
+      layoutStatuses?: Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>;
+      userRole?: string;
+      skipAll?: boolean;
+      logPrefix: string;
+    },
+  ): Promise<void> {
+    const newFileIds = opts.newFileIds ?? { receiptIds: [], invoiceIds: [], layoutIds: [] };
+
+    // layoutStatuses drives Layout.status but is not a column on Airbrushing — reaching
+    // the repository with it makes Prisma reject the whole write with an unknown-arg error.
+    delete updateData.layoutStatuses;
+
+    // A relation is reconciled only when the payload explicitly provided its IDs OR new
+    // files of that type were uploaded in this request. Anything else: leave it alone.
+    const reconcile = {
+      receipts: !opts.skipAll && (data.receiptIds !== undefined || newFileIds.receiptIds.length > 0),
+      invoices: !opts.skipAll && (data.invoiceIds !== undefined || newFileIds.invoiceIds.length > 0),
+      layouts: !opts.skipAll && (data.layoutIds !== undefined || newFileIds.layoutIds.length > 0),
+    };
+
+    if (reconcile.receipts) {
+      updateData.receiptIds = [...(data.receiptIds || []), ...newFileIds.receiptIds];
+    } else {
+      delete updateData.receiptIds;
+    }
+
+    if (reconcile.invoices) {
+      updateData.invoiceIds = [...(data.invoiceIds || []), ...newFileIds.invoiceIds];
+    } else {
+      delete updateData.invoiceIds;
+    }
+
+    if (reconcile.layouts) {
+      const combinedLayoutFileIds = [...(data.layoutIds || []), ...newFileIds.layoutIds];
+      let layoutEntityIds: string[] = [];
+      if (combinedLayoutFileIds.length > 0) {
+        layoutEntityIds = await this.convertFileIdsToLayoutIds(
+          combinedLayoutFileIds,
+          id,
+          opts.layoutStatuses,
+          opts.userRole,
+          tx,
+        );
+        this.logger.log(
+          `${opts.logPrefix} Converted ${combinedLayoutFileIds.length} File IDs to ${layoutEntityIds.length} Layout entity IDs`,
+        );
+      }
+      updateData.layoutIds = layoutEntityIds;
+    } else {
+      delete updateData.layoutIds;
+    }
+
+    // Tell the repository that the arrays surviving above are a deliberate, complete
+    // snapshot — including an empty one, which is the caller asking to detach everything.
+    // Without this marker the repository refuses to empty a relation (see its mapper).
+    const clearing = (['receiptIds', 'invoiceIds', 'layoutIds'] as const).filter(
+      k => Array.isArray(updateData[k]) && updateData[k].length === 0,
+    );
+    if (clearing.length === 0) return;
+
+    updateData._allowRelationClear = true;
+
+    // A clear that detaches nothing is noise; one that detaches real rows is the exact
+    // event that went unnoticed for weeks (files stay on disk, the Layout row just loses
+    // its airbrushingId, and nothing in the UI says so). Count what is actually about to
+    // be lost and log it at ERROR so it is greppable/alertable after the fact.
+    const current = await tx.airbrushing.findUnique({
+      where: { id },
+      select: {
+        _count: { select: { receipts: true, invoices: true, layouts: true } },
+      },
+    });
+    const counts: Record<string, number> = {
+      receiptIds: current?._count.receipts ?? 0,
+      invoiceIds: current?._count.invoices ?? 0,
+      layoutIds: current?._count.layouts ?? 0,
+    };
+    const destructive = clearing.filter(k => counts[k] > 0);
+    if (destructive.length > 0) {
+      this.logger.error(
+        `${opts.logPrefix} DETACHING FILES from airbrushing ${id}: ` +
+          destructive.map(k => `${k}=${counts[k]}→0`).join(', ') +
+          '. This is only correct if the user actually removed those files; if it fired on a ' +
+          'save that never touched them, the caller sent a stale/unhydrated snapshot.',
+      );
     }
   }
 

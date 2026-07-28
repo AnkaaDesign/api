@@ -134,8 +134,12 @@ export class AirbrushingController {
     @Body(new ZodValidationPipe(airbrushingBatchUpdateSchema)) data: AirbrushingBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
     @UserId() userId: string,
+    @User() user: UserPayload,
   ): Promise<AirbrushingBatchUpdateResponse<AirbrushingUpdateFormData>> {
-    return this.airbrushingService.batchUpdate(data, query.include, userId);
+    // userRole is needed for the layout approval-permission check inside the shared
+    // file-relation reconciliation (a non-COMMERCIAL/ADMIN caller cannot set a layout
+    // status), so the batch path must pass it through exactly like the single PUT does.
+    return this.airbrushingService.batchUpdate(data, query.include, userId, user.role);
   }
 
   @Delete('batch')

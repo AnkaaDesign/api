@@ -34,18 +34,17 @@ import { ConfigService } from '@nestjs/config';
 import { createHmac, randomBytes, randomUUID } from 'crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join, resolve as resolvePath } from 'path';
-import {
-  EnvelopeSignerStatus,
-  EnvelopeStatus,
-  Prisma,
-  SignatureAuthMethod,
-} from '@prisma/client';
+import { EnvelopeSignerStatus, EnvelopeStatus, Prisma, SignatureAuthMethod } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { COMPANY } from '@/config/company';
 import { formatResponsibleRoles } from '@constants/enums';
 import { SignatureAuditService } from './signature-audit.service';
 import { SigningChallengeService } from './signing-challenge.service';
-import { QuoteSnapshotService, QuoteWithSnapshotGraph } from './quote-snapshot.service';
+import {
+  QuoteSnapshot,
+  QuoteSnapshotService,
+  QuoteWithSnapshotGraph,
+} from './quote-snapshot.service';
 import { QuoteRendererService } from '../document/quote-renderer.service';
 import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
 import { PadesSignerService } from '../pades/pades-signer.service';
@@ -69,11 +68,12 @@ import {
   cpfMaskParts,
 } from '../utils/identity';
 import { sha256Hex } from '../utils/canonical';
+import { describeSignatureSecretProblems, inspectSignatureSecrets } from '../utils/secrets';
 import {
-  describeSignatureSecretProblems,
-  inspectSignatureSecrets,
-} from '../utils/secrets';
-import { formatCurrencyBRL, generateGuaranteeText, generatePaymentText } from '../document/quote-text';
+  formatCurrencyBRL,
+  generateGuaranteeText,
+  generatePaymentText,
+} from '../document/quote-text';
 
 export interface RequestContext {
   ipAddress: string | null;
@@ -142,8 +142,9 @@ export class SignatureEnvelopeService {
    * domínio de orçamento: a conclusão do envelope apenas avisa, e quem decide o
    * que isso significa para o status da quote é o dono daquele domínio.
    */
-  private onCompleted: ((quoteId: string, envelopeId: string, actorUserId: string | null) => Promise<void>) | null =
-    null;
+  private onCompleted:
+    | ((quoteId: string, envelopeId: string, actorUserId: string | null) => Promise<void>)
+    | null = null;
   setOnEnvelopeCompleted(
     cb: (quoteId: string, envelopeId: string, actorUserId: string | null) => Promise<void>,
   ): void {
@@ -169,7 +170,7 @@ export class SignatureEnvelopeService {
 
     const loaded = await this.snapshots.buildForQuote(args.quoteId);
     if (!loaded) throw new NotFoundException('Orçamento não encontrado.');
-    const { quote, snapshot, hash } = loaded;
+    const { quote, snapshot, hash, materialHash } = loaded;
 
     const existing = await this.prisma.signatureEnvelope.findFirst({
       where: { quoteId: args.quoteId, status: EnvelopeStatus.RUNNING },
@@ -304,6 +305,7 @@ export class SignatureEnvelopeService {
           anchors: rendered.anchors as unknown as Prisma.InputJsonValue,
           quoteSnapshot: snapshot as unknown as Prisma.InputJsonValue,
           quoteSnapshotSha256: hash,
+          quoteTermsSha256: materialHash,
           verificationCode,
           legalBasis: LEGAL_BASIS,
           acceptanceClause: ACCEPTANCE_CLAUSE,
@@ -420,7 +422,8 @@ export class SignatureEnvelopeService {
     const total = Number(quote.total);
     const subtotal = Number(quote.subtotal);
 
-    const discountValue = firstConfig?.discountValue != null ? Number(firstConfig.discountValue) : null;
+    const discountValue =
+      firstConfig?.discountValue != null ? Number(firstConfig.discountValue) : null;
     const discountType = firstConfig?.discountType ?? 'NONE';
     let discountAmount = 0;
     let discountLabel: string | null = null;
@@ -445,7 +448,7 @@ export class SignatureEnvelopeService {
       corporateName: customer?.corporateName ?? customer?.fantasyName ?? null,
       customerDocumentFormatted: customer?.cnpj
         ? formatCnpj(customer.cnpj)
-        : customer?.cpf ?? null,
+        : (customer?.cpf ?? null),
       contactName: quote.task?.responsibles?.[0]?.name ?? null,
       serialNumber: quote.task?.serialNumber ?? null,
       plate: quote.task?.truck?.plate ?? null,
@@ -773,7 +776,10 @@ export class SignatureEnvelopeService {
       actorLabel: signer.declaredName,
       ipAddress: args.ctx.ipAddress,
       userAgent: args.ctx.userAgent,
-      payload: { cargo: args.cargo.trim(), cpfMatch: cpfMatch === null ? 'unknown' : String(cpfMatch) },
+      payload: {
+        cargo: args.cargo.trim(),
+        cpfMatch: cpfMatch === null ? 'unknown' : String(cpfMatch),
+      },
     });
 
     if (cpfMatch === false) {
@@ -877,14 +883,20 @@ export class SignatureEnvelopeService {
     // conciliação bancária. Perseguir call site por call site não se sustenta.
     //
     // Aqui a pergunta é feita uma vez, no único instante em que a resposta é
-    // juridicamente decisiva: o snapshot atual ainda é o que foi congelado?
-    // Se não for, ninguém assina — e o envelope é invalidado na hora.
+    // juridicamente decisiva: as CONDIÇÕES ainda são as que foram congeladas?
+    //
+    // A pergunta era "o snapshot inteiro ainda é o mesmo?", e por isso qualquer
+    // correção de cadastro barrava a assinatura. Quem decide agora é
+    // `onQuoteContentChanged`, que só devolve `true` quando de fato invalidou —
+    // deriva cosmética é registrada lá dentro e a cerimônia continua.
     const fresh = await this.snapshots.buildForQuote(env.quoteId);
     if (fresh && fresh.hash !== env.quoteSnapshotSha256) {
-      await this.onQuoteContentChanged(env.quoteId, null);
-      throw new BadRequestException(
-        'O orçamento foi alterado desde o envio. Uma nova versão será enviada para sua revisão.',
-      );
+      const invalidated = await this.onQuoteContentChanged(env.quoteId, null);
+      if (invalidated) {
+        throw new BadRequestException(
+          'O orçamento foi alterado desde o envio. Uma nova versão será enviada para sua revisão.',
+        );
+      }
     }
 
     const verdict = await this.challenges.verify({
@@ -924,7 +936,9 @@ export class SignatureEnvelopeService {
       }
       const left = verdict.attemptsLeft ?? 0;
       throw new BadRequestException(
-        left > 0 ? `Código inválido. Tentativas restantes: ${left}.` : 'Código inválido ou expirado.',
+        left > 0
+          ? `Código inválido. Tentativas restantes: ${left}.`
+          : 'Código inválido ou expirado.',
       );
     }
 
@@ -1108,7 +1122,9 @@ export class SignatureEnvelopeService {
       }
       const left = verdict.attemptsLeft ?? 0;
       throw new BadRequestException(
-        left > 0 ? `Código inválido. Tentativas restantes: ${left}.` : 'Código inválido ou expirado.',
+        left > 0
+          ? `Código inválido. Tentativas restantes: ${left}.`
+          : 'Código inválido ou expirado.',
       );
     }
 
@@ -1486,10 +1502,32 @@ export class SignatureEnvelopeService {
       );
     }
 
-    // Mesma guarda antes de SELAR: um selo PAdES sobre um snapshot obsoleto
-    // seria uma afirmação criptográfica falsa sobre o conteúdo do contrato.
+    // Mesma guarda antes de SELAR: um selo PAdES sobre condições obsoletas seria
+    // uma afirmação criptográfica falsa sobre o conteúdo do contrato.
+    //
+    // Aqui NÃO dá para delegar a `onQuoteContentChanged`: `claimAndFinalize` já
+    // tirou o envelope de `RUNNING`, e aquele método só enxerga `RUNNING`. Então
+    // o nível é decidido no local, com o mesmo recorte material.
     const freshAtSeal = await this.snapshots.buildForQuote(env.quoteId);
-    if (freshAtSeal && freshAtSeal.hash !== env.quoteSnapshotSha256) {
+    const frozenTermsAtSeal =
+      env.quoteTermsSha256 ??
+      this.snapshots.materialHash(env.quoteSnapshot as unknown as QuoteSnapshot);
+
+    if (
+      freshAtSeal &&
+      freshAtSeal.hash !== env.quoteSnapshotSha256 &&
+      freshAtSeal.materialHash === frozenTermsAtSeal
+    ) {
+      // Deriva cosmética às vésperas do selo: o PDF em disco é o mesmo, o hash
+      // do arquivo confere (a guarda acima já verificou) e as condições não se
+      // moveram. Registra e SELA — abortar aqui deixaria um envelope com todas
+      // as assinaturas colhidas e nenhum artefato, por causa de um typo.
+      const cosmetic = this.snapshots.classify(
+        env.quoteSnapshot as unknown as QuoteSnapshot,
+        freshAtSeal.snapshot,
+      ).cosmetic;
+      await this.recordDriftOnce(envelopeId, freshAtSeal.hash, cosmetic, null);
+    } else if (freshAtSeal && freshAtSeal.materialHash !== frozenTermsAtSeal) {
       await this.audit.record(envelopeId, {
         eventType: 'PADES_FAILED',
         actorType: 'SYSTEM',
@@ -1694,12 +1732,34 @@ export class SignatureEnvelopeService {
     const loaded = await this.snapshots.buildForQuote(quoteId);
     if (!loaded) return false;
 
+    // Atalho barato: nada no documento mudou, nem cosmético nem material.
     if (loaded.hash === running.quoteSnapshotSha256) return false;
 
     const before = running.quoteSnapshot as any;
-    const changes = this.snapshots.diff(before, loaded.snapshot);
-    const reason = changes.length
-      ? `Alteração em: ${changes.join(', ')}.`
+    const changes = this.snapshots.classify(before, loaded.snapshot);
+
+    // O baseline material dos envelopes criados antes desta coluna existir é
+    // derivado do snapshot congelado — o mesmo cálculo que a migração faz. Sem
+    // este fallback um envelope pré-migração cairia no ramo cosmético e NUNCA
+    // invalidaria, que é o erro perigoso desta mudança (o outro só irrita).
+    const frozenTermsHash =
+      running.quoteTermsSha256 ?? this.snapshots.materialHash(before as QuoteSnapshot);
+
+    if (loaded.materialHash === frozenTermsHash) {
+      // DERIVA COSMÉTICA — o documento congelado em disco não mudou uma vírgula,
+      // e as condições aceitas continuam as mesmas. Registra e segue.
+      //
+      // Este é exatamente o caminho do nº 590: "Paulo Cvarvalho" → "Paulo
+      // Carvalho" derrubava uma assinatura válida. Corrigir cadastro não pode
+      // custar assinatura.
+      if (changes.cosmetic.length) {
+        await this.recordDriftOnce(running.id, loaded.hash, changes.cosmetic, actorUserId);
+      }
+      return false;
+    }
+
+    const reason = changes.material.length
+      ? `Alteração em: ${changes.material.join(', ')}.`
       : 'Alteração material no orçamento.';
 
     await this.prisma.$transaction(async tx => {
@@ -1719,7 +1779,15 @@ export class SignatureEnvelopeService {
       eventType: 'ENVELOPE_INVALIDATED',
       actorType: actorUserId ? 'OPERATOR' : 'SYSTEM',
       actorId: actorUserId,
-      payload: { reason, newSnapshotHash: loaded.hash, changes: changes.join(', ') },
+      payload: {
+        reason,
+        newSnapshotHash: loaded.hash,
+        newTermsHash: loaded.materialHash,
+        changes: changes.material.join(', '),
+        // Cosméticas viajam junto para que a trilha explique a mudança INTEIRA,
+        // e não só a parte que puxou o gatilho.
+        cosmeticChanges: changes.cosmetic.join(', ') || undefined,
+      },
     });
 
     // Avisa quem já tinha assinado — é o "manter o cliente ciente de que algo
@@ -1742,6 +1810,42 @@ export class SignatureEnvelopeService {
 
     this.logger.warn(`Envelope ${running.id} invalidado — ${reason}`);
     return true;
+  }
+
+  /**
+   * Registra deriva cosmética UMA vez por hash.
+   *
+   * A checagem de frescor roda a cada visualização, submissão de CPF e tentativa
+   * de assinatura. Sem esta deduplicação, um nome corrigido gravaria um evento a
+   * cada abertura do link — e a trilha é APPEND-ONLY, com hash encadeado: lixo
+   * ali fica para sempre e ainda encarece toda verificação futura da cadeia.
+   */
+  private async recordDriftOnce(
+    envelopeId: string,
+    newSnapshotHash: string,
+    cosmeticChanges: string[],
+    actorUserId: string | null,
+  ): Promise<void> {
+    const already = await this.prisma.signatureAuditEvent.findFirst({
+      where: {
+        envelopeId,
+        eventType: 'SNAPSHOT_DRIFTED',
+        payload: { path: ['newSnapshotHash'], equals: newSnapshotHash },
+      },
+      select: { id: true },
+    });
+    if (already) return;
+
+    await this.audit.recordBestEffort(envelopeId, {
+      eventType: 'SNAPSHOT_DRIFTED',
+      actorType: actorUserId ? 'OPERATOR' : 'SYSTEM',
+      actorId: actorUserId,
+      payload: { newSnapshotHash, changes: cosmeticChanges.join(', ') },
+    });
+
+    this.logger.log(
+      `Envelope ${envelopeId}: deriva cosmética registrada, coleta preservada — ${cosmeticChanges.join(', ')}`,
+    );
   }
 
   /** Cancelamento manual pelo operador. */
@@ -1837,9 +1941,7 @@ export class SignatureEnvelopeService {
 
     // ETag deriva do original + do estado de assinatura, então muda exatamente
     // quando o documento servido muda.
-    const stateKey = env.signers
-      .map(s => `${s.id}:${s.signedAt?.toISOString() ?? ''}`)
-      .join('|');
+    const stateKey = env.signers.map(s => `${s.id}:${s.signedAt?.toISOString() ?? ''}`).join('|');
     return { pdf, etag: `"${sha256Hex(env.originalSha256 + stateKey).slice(0, 32)}"` };
   }
 
@@ -1933,7 +2035,14 @@ export class SignatureEnvelopeService {
     };
   }
 
-  /** Documento da coleta corrente do orçamento (selado quando concluída). */
+  /**
+   * Documento da coleta corrente do orçamento (selado quando concluída).
+   *
+   * SEM envelope nenhum, cai no orçamento renderizado sob demanda — mesma
+   * decisão já tomada no dossiê. Um 404 aqui deixava sem download justamente os
+   * orçamentos antigos, que nunca passaram pela assinatura eletrônica e são a
+   * maioria; nenhum deles vai ganhar envelope retroativamente.
+   */
   async renderPublicQuoteDocument(quoteId: string): Promise<{ pdf: Buffer; etag: string }> {
     // Prefere a coleta CONCLUÍDA: uma reemissão invalidada não pode fazer o
     // artefato assinado sumir da vista do cliente. E, para coletas em
@@ -1962,7 +2071,13 @@ export class SignatureEnvelopeService {
       select: { id: true },
     });
     if (!env) {
-      throw new NotFoundException('Este orçamento ainda não foi enviado para assinatura.');
+      // Orçamento que nunca foi para assinatura: entrega o documento impresso,
+      // com as linhas de assinatura em branco. `renderUnsignedQuoteDocument` já
+      // devolve 404 quando o orçamento em si não existe.
+      const pdf = await this.renderUnsignedQuoteDocument(quoteId);
+      // ETag sobre os bytes servidos: a renderização é feita a partir dos dados
+      // ATUAIS, então não há hash congelado de onde derivar.
+      return { pdf, etag: `"${sha256Hex(pdf).slice(0, 32)}"` };
     }
     return this.renderServedDocument(env.id);
   }
@@ -2126,7 +2241,11 @@ export class SignatureEnvelopeService {
    * `sendWhatsApp` devolve false e o evento fica INVITATION_FAILED. Sem uma ação
    * de reenvio o operador ficava sem saída a não ser cancelar e reemitir.
    */
-  async resendInvitation(signerId: string, actorUserId: string, ctx: RequestContext): Promise<boolean> {
+  async resendInvitation(
+    signerId: string,
+    actorUserId: string,
+    ctx: RequestContext,
+  ): Promise<boolean> {
     const signer = await this.prisma.envelopeSigner.findUnique({
       where: { id: signerId },
       include: { envelope: { include: { quote: true } } },

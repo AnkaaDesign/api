@@ -6,14 +6,33 @@
  * "o orçamento mudou?" decidível por igualdade de hash em vez de por uma lista de
  * campos mantida à mão, que inevitavelmente ficaria dessincronizada do template.
  *
- * Se algo aparece no PDF, entra aqui. Se entra aqui e muda, o envelope é
- * invalidado e as assinaturas coletadas param de valer — o cliente jamais fica
- * vinculado a um documento que se moveu por baixo dele (CC art. 431: aceitação
- * com modificações importa nova proposta; OWASP Transaction Authorization §2.6).
+ * Se algo aparece no PDF, entra aqui. O que fica DE FORA de propósito: status,
+ * statusOrder, billingApprovedAt, createdAt/updatedAt, ids internos de linha.
+ * Nada disso é exibido, e incluí-los geraria invalidações espúrias a cada toque
+ * administrativo no registro.
  *
- * O que fica DE FORA de propósito: status, statusOrder, billingApprovedAt,
- * createdAt/updatedAt, ids internos de linha. Nada disso é exibido, e incluí-los
- * geraria invalidações espúrias a cada toque administrativo no registro.
+ * DOIS NÍVEIS, DUAS CONSEQUÊNCIAS
+ * ------------------------------------------------------------------------
+ * "Aparece no documento" e "muda a proposta" não são a mesma coisa, e tratar as
+ * duas como uma só foi o que fez o orçamento nº 590 ser invalidado porque alguém
+ * corrigiu "Paulo Cvarvalho" para "Paulo Carvalho". Uma assinatura juridicamente
+ * válida foi destruída por um typo.
+ *
+ * - MATERIAL (`materialProjection`): as condições comerciais — preços, desconto,
+ *   pagamento, garantia, prazo, validade, layout, quem se vincula e sobre qual
+ *   veículo. Mudou ⇒ o envelope é INVALIDADO e as assinaturas viram VOIDED. É o
+ *   CC art. 431 (aceitação com modificações importa nova proposta) e a OWASP
+ *   Transaction Authorization §2.6: ninguém fica preso a termos que se moveram.
+ *
+ * - COSMÉTICO (todo o resto do snapshot): grafia de nomes, nome fantasia do
+ *   cliente, nome/série da tarefa, categoria do veículo. Mudou ⇒ apenas um
+ *   evento `SNAPSHOT_DRIFTED` na trilha. Nada é invalidado: o PDF assinado já
+ *   está congelado em disco e continua exibindo exatamente o que o signatário
+ *   viu — corrigir o cadastro depois não reescreve o documento nem altera uma
+ *   vírgula das condições aceitas.
+ *
+ * A regra prática: se a correção não daria ao cliente motivo para reconsiderar a
+ * assinatura, ela não pode custar a assinatura.
  */
 
 import { Injectable } from '@nestjs/common';
@@ -31,6 +50,19 @@ function money(value: Prisma.Decimal | number | null | undefined): string {
 
 function isoDate(d: Date | null | undefined): string | null {
   return d ? d.toISOString() : null;
+}
+
+/**
+ * Texto livre normalizado para COMPARAÇÃO — nunca para exibição.
+ *
+ * Espaço no fim de uma descrição de serviço, espaço duplo no meio, um \r\n que
+ * virou \n: nada disso muda o que o cliente leu, mas todos mudam o sha256. Sem
+ * isto, salvar o formulário sem editar nada podia invalidar a coleta.
+ */
+function normText(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const collapsed = value.replace(/\s+/g, ' ').trim();
+  return collapsed.length ? collapsed : null;
 }
 
 export interface QuoteSnapshotSigner {
@@ -87,7 +119,56 @@ export interface QuoteSnapshot {
   commercialUserId: string | null;
 }
 
-export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 1;
+export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 2;
+
+/**
+ * Versão do RECORTE MATERIAL — versionada à parte de propósito.
+ *
+ * `QUOTE_SNAPSHOT_SCHEMA_VERSION` sobe sempre que o template muda o que exibe,
+ * inclusive por mexidas cosméticas. Se o hash material dependesse dela, um ajuste
+ * de layout invalidaria toda coleta em andamento no país. Só incrementar aqui
+ * quando o CONJUNTO de campos materiais mudar — aí a invalidação em massa é
+ * exatamente o comportamento correto.
+ */
+export const QUOTE_MATERIAL_SCHEMA_VERSION = 1;
+
+/**
+ * O recorte que decide invalidação. Espelha a regra de negócio: condições
+ * comerciais, identidade de quem se vincula e do objeto, e o layout.
+ */
+export interface QuoteMaterialProjection {
+  materialVersion: number;
+  services: Array<{
+    description: string | null;
+    amount: string;
+    observation: string | null;
+    position: number;
+  }>;
+  subtotal: string;
+  total: string;
+  discount: { type: string; value: string | null; reference: string | null };
+  paymentCondition: string | null;
+  customPaymentText: string | null;
+  guaranteeYears: number | null;
+  customGuaranteeText: string | null;
+  customForecastDays: number | null;
+  simultaneousTasks: number | null;
+  expiresAt: string;
+  layoutFileIds: string[];
+  /** Quem se vincula: id + documento. Razão social e nome fantasia são cosméticos. */
+  customer: { id: string | null; document: string | null } | null;
+  /** O objeto do contrato. Categoria e tipo de implemento são cosméticos. */
+  truck: { plate: string | null; chassisNumber: string | null } | null;
+  /**
+   * Identidade dos signatários e o CANAL do OTP — não a grafia do nome.
+   *
+   * O telefone entra por segurança, não por exibição: ele não aparece no
+   * documento, mas é para onde vai o código de assinatura. Trocá-lo durante uma
+   * coleta redireciona a prova de autoria para outro aparelho, e isso PRECISA
+   * derrubar o envelope.
+   */
+  signers: Array<{ responsibleId: string; phoneDigits: string }>;
+}
 
 /** Include compartilhado — o renderizador e o snapshot precisam ver o MESMO grafo. */
 export const QUOTE_SNAPSHOT_INCLUDE = {
@@ -151,7 +232,9 @@ export class QuoteSnapshotService {
             document: onlyDigits(customer.cnpj ?? customer.cpf ?? '') || null,
           }
         : null,
-      task: task ? { id: task.id, name: task.name ?? null, serialNumber: task.serialNumber ?? null } : null,
+      task: task
+        ? { id: task.id, name: task.name ?? null, serialNumber: task.serialNumber ?? null }
+        : null,
       truck: truck
         ? {
             plate: truck.plate ?? null,
@@ -200,50 +283,222 @@ export class QuoteSnapshotService {
     return sha256Hex(snapshot as unknown as object);
   }
 
+  /**
+   * Extrai do snapshot completo apenas o que, mudando, justifica derrubar
+   * assinaturas já coletadas.
+   *
+   * Deriva do snapshot em vez de reler o banco: assim o recorte material de um
+   * envelope antigo pode ser recalculado a partir do JSONB congelado, sem
+   * depender do estado atual do orçamento — o que é o que torna a migração
+   * possível e a auditoria reproduzível.
+   */
+  materialProjection(s: QuoteSnapshot): QuoteMaterialProjection {
+    return {
+      materialVersion: QUOTE_MATERIAL_SCHEMA_VERSION,
+      services: s.services.map(svc => ({
+        description: normText(svc.description),
+        amount: svc.amount,
+        observation: normText(svc.observation),
+        position: svc.position,
+      })),
+      subtotal: s.subtotal,
+      total: s.total,
+      discount: {
+        type: s.discount.type,
+        value: s.discount.value,
+        reference: normText(s.discount.reference),
+      },
+      paymentCondition: s.paymentCondition,
+      customPaymentText: normText(s.customPaymentText),
+      guaranteeYears: s.guaranteeYears,
+      customGuaranteeText: normText(s.customGuaranteeText),
+      customForecastDays: s.customForecastDays,
+      simultaneousTasks: s.simultaneousTasks,
+      expiresAt: s.expiresAt,
+      layoutFileIds: [...s.layoutFileIds].sort(),
+      customer: s.customer ? { id: s.customer.id, document: s.customer.document } : null,
+      truck: s.truck
+        ? {
+            plate: normText(s.truck.plate),
+            chassisNumber: normText(s.truck.chassisNumber),
+          }
+        : null,
+      signers: s.signers
+        .map(sig => ({ responsibleId: sig.responsibleId, phoneDigits: sig.phoneDigits }))
+        .sort((a, b) => a.responsibleId.localeCompare(b.responsibleId)),
+    };
+  }
+
+  materialHash(snapshot: QuoteSnapshot): string {
+    return sha256Hex(this.materialProjection(snapshot) as unknown as object);
+  }
+
   /** Carrega, monta e hasheia num passo — o caminho usado pela detecção de mudança. */
-  async buildForQuote(
-    quoteId: string,
-  ): Promise<{ snapshot: QuoteSnapshot; hash: string; quote: QuoteWithSnapshotGraph } | null> {
+  async buildForQuote(quoteId: string): Promise<{
+    snapshot: QuoteSnapshot;
+    hash: string;
+    materialHash: string;
+    quote: QuoteWithSnapshotGraph;
+  } | null> {
     const quote = await this.loadQuoteGraph(quoteId);
     if (!quote) return null;
     const snapshot = this.build(quote);
-    return { snapshot, hash: this.hash(snapshot), quote };
+    return {
+      snapshot,
+      hash: this.hash(snapshot),
+      materialHash: this.materialHash(snapshot),
+      quote,
+    };
   }
 
   /**
-   * Diferença legível entre dois snapshots, para dizer ao signatário o que mudou
-   * em vez de um genérico "o documento foi alterado".
+   * Diferença legível entre dois snapshots, separada por consequência.
+   *
+   * Antes isto devolvia uma lista plana de rótulos e o chamador invalidava se ela
+   * não estivesse vazia — foi assim que "responsáveis" (um typo corrigido) matou
+   * uma assinatura. Agora cada mudança sai classificada, e só `material` derruba
+   * o envelope.
+   *
+   * Os rótulos trazem ANTES → DEPOIS quando o valor é escalar. O nº 590 relatou
+   * apenas "Alteração em: responsáveis." ao cliente e ao operador, e nenhum dos
+   * dois tinha como descobrir que a mudança fora uma letra num nome.
    */
-  diff(before: QuoteSnapshot, after: QuoteSnapshot): string[] {
-    const changes: string[] = [];
+  classify(before: QuoteSnapshot, after: QuoteSnapshot): SnapshotChanges {
+    const material: string[] = [];
+    const cosmetic: string[] = [];
+
     // canonicalize(), NUNCA JSON.stringify: o snapshot anterior volta do JSONB do
     // Postgres com a ordem das chaves alterada, e uma comparação sensível à ordem
     // apontaria "cliente, veículo, responsáveis" como alterados quando só o preço
     // mudou. O hash sempre esteve certo (ele canonicaliza); era a mensagem ao
     // cliente que mentia — e é exatamente ela que sustenta a boa-fé da Ankaa.
-    const cmp = (label: string, a: unknown, b: unknown) => {
-      if (canonicalize(a ?? null) !== canonicalize(b ?? null)) changes.push(label);
+    const differs = (a: unknown, b: unknown) => canonicalize(a ?? null) !== canonicalize(b ?? null);
+
+    const cmp = (into: string[], label: string, a: unknown, b: unknown) => {
+      if (!differs(a, b)) return;
+      // Só escalares ganham "antes → depois"; despejar um array de serviços
+      // inteiro numa mensagem de WhatsApp não ajuda ninguém.
+      const scalar = (v: unknown) => v === null || v === undefined || typeof v !== 'object';
+      into.push(scalar(a) && scalar(b) ? `${label} (${fmt(a)} → ${fmt(b)})` : label);
     };
 
-    cmp('valor total', before.total, after.total);
-    cmp('subtotal', before.subtotal, after.subtotal);
-    cmp('serviços', before.services, after.services);
-    cmp('desconto', before.discount, after.discount);
-    cmp('condição de pagamento', [before.paymentCondition, before.customPaymentText], [
-      after.paymentCondition,
-      after.customPaymentText,
-    ]);
-    cmp('garantia', [before.guaranteeYears, before.customGuaranteeText], [
-      after.guaranteeYears,
-      after.customGuaranteeText,
-    ]);
-    cmp('prazo de entrega', before.customForecastDays, after.customForecastDays);
-    cmp('validade', before.expiresAt, after.expiresAt);
-    cmp('veículo', before.truck, after.truck);
-    cmp('cliente', before.customer, after.customer);
-    cmp('layout', before.layoutFileIds, after.layoutFileIds);
-    cmp('responsáveis', before.signers, after.signers);
+    // ---- MATERIAL: as condições comerciais ---------------------------------
+    cmp(material, 'valor total', before.total, after.total);
+    cmp(material, 'subtotal', before.subtotal, after.subtotal);
+    cmp(material, 'serviços', normServices(before), normServices(after));
+    cmp(material, 'desconto', normDiscount(before), normDiscount(after));
+    cmp(material, 'condição de pagamento', before.paymentCondition, after.paymentCondition);
+    cmp(
+      material,
+      'texto de pagamento',
+      normText(before.customPaymentText),
+      normText(after.customPaymentText),
+    );
+    cmp(material, 'garantia', before.guaranteeYears, after.guaranteeYears);
+    cmp(
+      material,
+      'texto de garantia',
+      normText(before.customGuaranteeText),
+      normText(after.customGuaranteeText),
+    );
+    cmp(material, 'prazo de entrega', before.customForecastDays, after.customForecastDays);
+    cmp(material, 'tarefas simultâneas', before.simultaneousTasks, after.simultaneousTasks);
+    cmp(material, 'validade', before.expiresAt, after.expiresAt);
+    cmp(material, 'layout', before.layoutFileIds, after.layoutFileIds);
+    cmp(
+      material,
+      'cliente contratante',
+      before.customer?.document ?? null,
+      after.customer?.document ?? null,
+    );
+    cmp(material, 'placa do veículo', normText(before.truck?.plate), normText(after.truck?.plate));
+    cmp(
+      material,
+      'chassi',
+      normText(before.truck?.chassisNumber),
+      normText(after.truck?.chassisNumber),
+    );
+    cmp(material, 'lista de responsáveis', ids(before.signers), ids(after.signers));
+    cmp(material, 'telefone de assinatura', phones(before.signers), phones(after.signers));
 
-    return changes;
+    // ---- COSMÉTICO: aparece no documento, não muda a proposta --------------
+    cmp(
+      cosmetic,
+      'razão social',
+      before.customer?.corporateName ?? null,
+      after.customer?.corporateName ?? null,
+    );
+    cmp(
+      cosmetic,
+      'nome fantasia',
+      before.customer?.fantasyName ?? null,
+      after.customer?.fantasyName ?? null,
+    );
+    cmp(cosmetic, 'nome da tarefa', before.task?.name ?? null, after.task?.name ?? null);
+    cmp(
+      cosmetic,
+      'número de série',
+      before.task?.serialNumber ?? null,
+      after.task?.serialNumber ?? null,
+    );
+    cmp(
+      cosmetic,
+      'categoria do veículo',
+      before.truck?.category ?? null,
+      after.truck?.category ?? null,
+    );
+    cmp(
+      cosmetic,
+      'tipo de implemento',
+      before.truck?.implementType ?? null,
+      after.truck?.implementType ?? null,
+    );
+    cmp(cosmetic, 'vendedor responsável', before.commercialUserId, after.commercialUserId);
+    // Grafia do nome e papéis do contato: o caso do nº 590.
+    for (const b of before.signers) {
+      const a = after.signers.find(s => s.responsibleId === b.responsibleId);
+      if (!a) continue; // remoção já contabilizada em "lista de responsáveis"
+      cmp(cosmetic, 'nome do responsável', b.name, a.name);
+      cmp(cosmetic, 'papéis do responsável', b.roles, a.roles);
+    }
+
+    return { material, cosmetic };
   }
+}
+
+export interface SnapshotChanges {
+  /** Muda a proposta ⇒ invalida o envelope. */
+  material: string[];
+  /** Aparece no documento congelado, mas não muda a proposta ⇒ só registra. */
+  cosmetic: string[];
+}
+
+function fmt(v: unknown): string {
+  if (v === null || v === undefined || v === '') return 'vazio';
+  return String(v);
+}
+
+function ids(signers: QuoteSnapshotSigner[]): string[] {
+  return signers.map(s => s.responsibleId).sort();
+}
+
+function phones(signers: QuoteSnapshotSigner[]): string[] {
+  return signers.map(s => `${s.responsibleId}:${s.phoneDigits}`).sort();
+}
+
+function normServices(s: QuoteSnapshot) {
+  return s.services.map(svc => ({
+    description: normText(svc.description),
+    amount: svc.amount,
+    observation: normText(svc.observation),
+    position: svc.position,
+  }));
+}
+
+function normDiscount(s: QuoteSnapshot) {
+  return {
+    type: s.discount.type,
+    value: s.discount.value,
+    reference: normText(s.discount.reference),
+  };
 }

@@ -714,36 +714,21 @@ export class NotificationQueueProcessor implements OnModuleInit {
     messageId?: string,
     error?: string,
   ): Promise<void> {
-    try {
-      // Check if notification exists
-      const notification = await this.prisma.notification.findUnique({
-        where: { id: notificationId },
-      });
-
-      if (!notification) {
-        this.logger.warn(`Notification ${notificationId} not found in database`);
-        return;
-      }
-
-      // Update notification sentAt timestamp if successful
-      if (success && !notification.sentAt) {
-        await this.prisma.notification.update({
-          where: { id: notificationId },
-          data: { sentAt: new Date() },
-        });
-      }
-
-      // TODO: Store delivery status in a separate table (notification_deliveries)
-      // This would track each delivery attempt per channel
-      this.logger.log(
-        `Notification ${notificationId} delivery status updated: ${channel} - ${success ? 'SUCCESS' : 'FAILED'}${error ? ` (${error})` : ''}`,
-      );
-    } catch (err: any) {
-      this.logger.error(
-        `Failed to update delivery status for notification ${notificationId}: ${err.message}`,
-        err.stack,
-      );
-    }
+    // Delegates to the full implementation, which also persists the per-channel
+    // NotificationDelivery row. This used to be a stub that only stamped
+    // `sentAt` and logged (the "TODO: store delivery status in a separate
+    // table" never landed), while WhatsApp alone called the real writer. The
+    // result was that PUSH, EMAIL and IN_APP never recorded a DELIVERED/FAILED
+    // row, so the deliveries table reported zero successful pushes even while
+    // FCM was accepting every message — the channel looked dead in every
+    // report and dashboard built on that table.
+    await this.updateDeliveryStatusWithRetry(
+      notificationId,
+      channel,
+      success,
+      messageId,
+      error,
+    );
   }
 
   /**

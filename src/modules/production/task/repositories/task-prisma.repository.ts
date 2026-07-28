@@ -526,6 +526,130 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   },
 };
 
+// =====================
+// Vencimento (first installment due date) sorting
+// =====================
+
+/**
+ * Computed orderBy key used by the billing list ("VENCIMENTO" column). The value
+ * lives two relations deep (task -> quote -> customerConfigs -> installments),
+ * which Prisma cannot express in orderBy. Sorting it over the already-paginated
+ * page only reorders those rows, which makes every page look sorted while the
+ * global order is wrong (rows with a due date pile up at the top of *each* page).
+ * So the repository scans every matching row with a light select, sorts the whole
+ * set in memory, and only then slices the requested page.
+ */
+const DUE_DATE_SORT_KEY = 'currentInstallmentDueDate';
+
+/** Light select used for the full scan that backs the due-date sort. */
+const TASK_SELECT_DUE_DATE_SORT: Prisma.TaskSelect = {
+  id: true,
+  name: true,
+  status: true,
+  statusOrder: true,
+  serialNumber: true,
+  bonificationOrder: true,
+  entryDate: true,
+  term: true,
+  startedAt: true,
+  finishedAt: true,
+  forecastDate: true,
+  cleared: true,
+  createdAt: true,
+  updatedAt: true,
+  quote: {
+    select: {
+      statusOrder: true,
+      total: true,
+      customerConfigs: {
+        select: {
+          installments: { select: { number: true, dueDate: true } },
+        },
+      },
+    },
+  },
+};
+
+interface FlatSortEntry {
+  path: string;
+  direction: 'asc' | 'desc';
+  nulls?: 'first' | 'last';
+}
+
+/**
+ * Flattens a Prisma-style orderBy (object, array of objects, or nested relation
+ * objects) into an ordered list of { path, direction } entries. Priority order is
+ * preserved, so the first entry is the primary sort.
+ */
+function flattenOrderBy(orderBy: any): FlatSortEntry[] {
+  const entries: FlatSortEntry[] = [];
+
+  const visit = (node: any, prefix: string[]) => {
+    if (!node || typeof node !== 'object') return;
+    for (const [key, value] of Object.entries(node)) {
+      const path = [...prefix, key];
+      if (value === 'asc' || value === 'desc') {
+        entries.push({ path: path.join('.'), direction: value });
+      } else if (value && typeof value === 'object') {
+        const sortValue = (value as any).sort;
+        if (sortValue === 'asc' || sortValue === 'desc') {
+          entries.push({ path: path.join('.'), direction: sortValue, nulls: (value as any).nulls });
+        } else {
+          visit(value, path);
+        }
+      }
+    }
+  };
+
+  if (Array.isArray(orderBy)) orderBy.forEach(item => visit(item, []));
+  else visit(orderBy, []);
+
+  return entries;
+}
+
+/**
+ * Due date of the FIRST installment (parcela nº 1) across every customer config of
+ * the quote, falling back to the earliest due date when parcelas aren't numbered
+ * from 1. Mirrors `findFirstInstallmentDueDate` in the web billing columns so the
+ * rendered value and the sort key never disagree.
+ */
+function resolveFirstInstallmentDueDate(row: any): Date | null {
+  const configs = row?.quote?.customerConfigs;
+  if (!Array.isArray(configs) || configs.length === 0) return null;
+
+  let best: { number: number; due: Date } | null = null;
+  for (const config of configs) {
+    for (const installment of config?.installments || []) {
+      if (!installment?.dueDate) continue;
+      const due = new Date(installment.dueDate);
+      if (Number.isNaN(due.getTime())) continue;
+      const number = installment.number ?? Number.MAX_SAFE_INTEGER;
+      if (
+        !best ||
+        number < best.number ||
+        (number === best.number && due.getTime() < best.due.getTime())
+      ) {
+        best = { number, due };
+      }
+    }
+  }
+  return best?.due ?? null;
+}
+
+function resolveSortValue(row: any, path: string): any {
+  return path.split('.').reduce((acc, key) => (acc == null ? acc : acc[key]), row);
+}
+
+function compareSortValues(a: any, b: any): number {
+  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
+  if (typeof a === 'boolean' || typeof b === 'boolean') return Number(a) - Number(b);
+  if (typeof a === 'string' && typeof b === 'string') return a.localeCompare(b, 'pt-BR');
+  const aNum = Number(a);
+  const bNum = Number(b);
+  if (!Number.isNaN(aNum) && !Number.isNaN(bNum)) return aNum - bNum;
+  return String(a).localeCompare(String(b), 'pt-BR');
+}
+
 @Injectable()
 export class TaskPrismaRepository
   extends BaseStringPrismaRepository<
@@ -1827,6 +1951,21 @@ export class TaskPrismaRepository
     const useProvidedSelect = select && Object.keys(select).length > 0;
     const queryPattern = useProvidedSelect ? { select } : this.getOptimalQueryPattern(options);
 
+    // "Vencimento" can't be ordered by in SQL (see DUE_DATE_SORT_KEY) — sort the
+    // whole matching set in memory, then paginate, so page 2 really continues page 1.
+    const sortEntries = flattenOrderBy(orderBy);
+    if (sortEntries.some(entry => entry.path === DUE_DATE_SORT_KEY)) {
+      return this.findManyWithDueDateSort(transaction, {
+        mappedWhere,
+        sortEntries,
+        queryPattern,
+        useProvidedSelect,
+        page,
+        take,
+        skip,
+      });
+    }
+
     const baseOrderBy = this.mapOrderByToDatabaseOrderBy(orderBy) || { statusOrder: 'asc' };
     // Always append id as tiebreaker to guarantee stable pagination when sort values are equal
     const stableOrderBy: any = Array.isArray(baseOrderBy)
@@ -1855,6 +1994,84 @@ export class TaskPrismaRepository
       data: useProvidedSelect
         ? (tasks as any[])
         : tasks.map(task => this.mapDatabaseEntityToEntity(task)),
+      meta: super.calculatePagination(total, page, take),
+    };
+  }
+
+  /**
+   * findMany variant for sorts that include the computed "Vencimento" key
+   * (DUE_DATE_SORT_KEY). Scans every matching task with a light select, sorts the
+   * full set in memory honouring the requested sort priority, then hydrates only
+   * the requested page with the caller's include/select.
+   */
+  private async findManyWithDueDateSort(
+    transaction: PrismaTransaction,
+    params: {
+      mappedWhere: Prisma.TaskWhereInput | undefined;
+      sortEntries: FlatSortEntry[];
+      queryPattern: any;
+      useProvidedSelect: boolean;
+      page: number;
+      take: number;
+      skip: number;
+    },
+  ): Promise<FindManyResult<Task>> {
+    const { mappedWhere, sortEntries, queryPattern, useProvidedSelect, page, take, skip } = params;
+
+    const scanned = await transaction.task.findMany({
+      where: mappedWhere,
+      select: TASK_SELECT_DUE_DATE_SORT,
+    });
+
+    const rows = scanned.map(row => ({
+      row,
+      dueDate: resolveFirstInstallmentDueDate(row),
+    }));
+
+    rows.sort((a, b) => {
+      for (const entry of sortEntries) {
+        const aValue = entry.path === DUE_DATE_SORT_KEY ? a.dueDate : resolveSortValue(a.row, entry.path);
+        const bValue = entry.path === DUE_DATE_SORT_KEY ? b.dueDate : resolveSortValue(b.row, entry.path);
+
+        const aNull = aValue === null || aValue === undefined;
+        const bNull = bValue === null || bValue === undefined;
+        if (aNull && bNull) continue;
+        // Nulls last by default regardless of direction — a task without a due date
+        // never outranks one that has it, in either direction.
+        if (aNull || bNull) {
+          const nullsFirst = entry.nulls === 'first';
+          return aNull ? (nullsFirst ? -1 : 1) : nullsFirst ? 1 : -1;
+        }
+
+        const comparison = compareSortValues(aValue, bValue);
+        if (comparison !== 0) return entry.direction === 'desc' ? -comparison : comparison;
+      }
+      // Stable tiebreaker, mirroring the id tiebreaker of the SQL-ordered path
+      return a.row.id < b.row.id ? -1 : a.row.id > b.row.id ? 1 : 0;
+    });
+
+    const total = rows.length;
+    const pageIds = rows.slice(skip, skip + take).map(item => item.row.id);
+
+    if (pageIds.length === 0) {
+      return { data: [], meta: super.calculatePagination(total, page, take) };
+    }
+
+    // Hydrating by id loses SQL ordering, so restore the in-memory order afterwards.
+    const hydratePattern = queryPattern?.select
+      ? { select: { ...queryPattern.select, id: true } }
+      : queryPattern;
+
+    const tasks = await transaction.task.findMany({
+      where: { id: { in: pageIds } },
+      ...hydratePattern,
+    });
+
+    const byId = new Map(tasks.map(task => [(task as any).id, task]));
+    const ordered = pageIds.map(id => byId.get(id)).filter(Boolean) as any[];
+
+    return {
+      data: useProvidedSelect ? ordered : ordered.map(task => this.mapDatabaseEntityToEntity(task)),
       meta: super.calculatePagination(total, page, take),
     };
   }

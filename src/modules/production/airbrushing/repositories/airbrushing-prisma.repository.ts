@@ -118,7 +118,20 @@ export class AirbrushingPrismaRepository
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: AirbrushingUpdateFormData,
   ): Prisma.AirbrushingUpdateInput {
-    const { taskId, painterId, status, invoiceIds, receiptIds, layoutIds, ...rest } = formData;
+    // `layoutStatuses` (a Layout.status map) and `_allowRelationClear` (the service's
+    // destructive-write marker, consumed below) are transport-only fields — leaving them
+    // in `rest` makes Prisma reject the whole write with an unknown-argument error.
+    const {
+      taskId,
+      painterId,
+      status,
+      invoiceIds,
+      receiptIds,
+      layoutIds,
+      layoutStatuses: _layoutStatuses,
+      _allowRelationClear: _clearMarker,
+      ...rest
+    } = formData as any;
 
     const updateData: Prisma.AirbrushingUpdateInput = {
       ...rest,
@@ -145,24 +158,35 @@ export class AirbrushingPrismaRepository
       updateData.painter = painterId ? { connect: { id: painterId } } : { disconnect: true };
     }
 
-    // Handle file attachments - use set to replace all connections
-    if (invoiceIds !== undefined) {
-      updateData.invoices = {
-        set: invoiceIds.map(id => ({ id })),
-      };
-    }
+    // File attachments use `set` — a FULL REPLACE. An empty array therefore detaches
+    // everything, which is data loss that leaves no trace on the parent row. It is only
+    // honoured when the service layer explicitly vouched for the payload by setting
+    // `_allowRelationClear` in reconcileFileRelations(); a caller that hands us a bare
+    // `*Ids: []` (a form that failed to hydrate, a batch payload built from stale state)
+    // gets a loud no-op instead of a silent wipe. Mirrors the `_applyAirbrushingsFully`
+    // marker the task repository uses to gate its destructive airbrushing writes.
+    const allowClear = _clearMarker === true;
 
-    if (receiptIds !== undefined) {
-      updateData.receipts = {
-        set: receiptIds.map(id => ({ id })),
-      };
-    }
+    const setRelation = (
+      ids: string[] | undefined,
+      relation: 'invoices' | 'receipts' | 'layouts',
+    ): void => {
+      if (ids === undefined) return;
+      if (ids.length === 0 && !allowClear) {
+        this.logger.error(
+          `[mapUpdateFormDataToDatabaseUpdateInput] Refusing to clear '${relation}': received an ` +
+            `empty ${relation === 'layouts' ? 'layoutIds' : relation.slice(0, -1) + 'Ids'} array ` +
+            `without the _allowRelationClear marker. The relation was left untouched — route this ` +
+            `write through AirbrushingService.reconcileFileRelations().`,
+        );
+        return;
+      }
+      (updateData as any)[relation] = { set: ids.map(id => ({ id })) };
+    };
 
-    if (layoutIds !== undefined) {
-      updateData.layouts = {
-        set: layoutIds.map(id => ({ id })),
-      };
-    }
+    setRelation(invoiceIds, 'invoices');
+    setRelation(receiptIds, 'receipts');
+    setRelation(layoutIds, 'layouts');
 
     return updateData;
   }

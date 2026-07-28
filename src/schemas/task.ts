@@ -1156,6 +1156,10 @@ const taskOrderByFieldsSchema = z.object({
   cleared: orderByDirectionSchema.optional(),
   createdAt: orderByDirectionSchema.optional(),
   updatedAt: orderByDirectionSchema.optional(),
+  // Computed sort (billing "Vencimento"): due date of the first installment across
+  // the quote's customer configs. Not a Prisma field — the repository resolves and
+  // sorts it in memory over the whole result set before paginating.
+  currentInstallmentDueDate: orderByWithNullsSchema.optional(),
   // Nested relation sorting (for billing/financial views)
   quote: z
     .object({
