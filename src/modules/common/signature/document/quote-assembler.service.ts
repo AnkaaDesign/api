@@ -212,13 +212,24 @@ export class QuoteAssemblerService {
       this.drawVoidWatermark(pages, helvBold, input.voidedLabel);
     }
 
+    // Um documento JÁ marcado como sem validade pode — e deve — mostrar quem
+    // havia assinado antes da invalidação.
+    //
+    // O gate por status existe para não estampar "ASSINADO ELETRONICAMENTE"
+    // sobre uma assinatura anulada num documento que, fora de contexto, passaria
+    // por válido. A marca d'água remove esse risco: ela já diz, no próprio
+    // artefato e em todas as páginas, que aquilo não vale. Continuar escondendo
+    // o selo aqui apagaria o fato histórico que o histórico de versões existe
+    // para preservar — quem assinou, quando, por qual canal —, e essa é
+    // exatamente a pergunta que se faz ao abrir uma versão anterior.
+    //
+    // Sem marca d'água o gate segue estrito: num envelope ainda vivo, um
+    // signatário VOIDED individualmente não pode aparecer como assinado.
+    const documentIsVoided = !!input.voidedLabel;
+
     for (const signer of input.signers) {
-      // Gate por STATUS, não só por signedAt: a invalidação por alteração
-      // material marca o signatário como VOIDED mas preserva `signedAt` como
-      // fato histórico. Só olhar signedAt estampava "ASSINADO ELETRONICAMENTE"
-      // sobre uma assinatura anulada.
       if (!signer.signedAt) continue; // slot pendente permanece em branco
-      if (signer.status !== 'SIGNED') continue;
+      if (signer.status !== 'SIGNED' && !documentIsVoided) continue;
       const anchor = input.anchors[signer.id];
       if (!anchor) {
         this.logger.warn(`Signatário ${signer.id} sem âncora — selo não desenhado.`);
