@@ -1,9 +1,8 @@
 import { Injectable, Logger, OnModuleInit, NotFoundException } from '@nestjs/common';
 import * as admin from 'firebase-admin';
-import { Expo } from 'expo-server-sdk';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { DeepLinkService } from '../notification/deep-link.service';
-import { ExpoPushService } from './expo-push.service';
+import { DeviceTokenService, DEACTIVATION_REASON, FailureKind } from './device-token.service';
 import { Platform, DeviceToken } from '@prisma/client';
 
 /**
@@ -67,7 +66,7 @@ export class PushService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly deepLinkService: DeepLinkService,
-    private readonly expoPushService: ExpoPushService,
+    private readonly deviceTokenService: DeviceTokenService,
   ) {}
 
   onModuleInit() {
@@ -137,9 +136,7 @@ export class PushService implements OnModuleInit {
   }
 
   /**
-   * Send push notification to a single device token (HYBRID - supports both Expo and FCM tokens)
-   * This is the recommended method for sending to a single token as it automatically
-   * routes Expo tokens to Expo Push Service and FCM tokens to Firebase.
+   * Send push notification to a single FCM device token.
    */
   async sendPushNotification(
     token: string,
@@ -147,32 +144,6 @@ export class PushService implements OnModuleInit {
     body: string,
     data?: any,
   ): Promise<PushNotificationResult> {
-    // Check if this is an Expo token - route to Expo Push Service
-    if (this.isExpoPushToken(token)) {
-      this.logger.log(`[PUSH] Detected Expo token, routing to Expo Push Service`);
-      const expoResult = await this.expoPushService.sendPushNotification(token, title, body, data);
-
-      if (expoResult.success) {
-        return {
-          success: true,
-          messageId: expoResult.ticket?.status === 'ok' ? (expoResult.ticket as any).id : undefined,
-        };
-      } else {
-        // Check if we should deactivate the token
-        if (
-          expoResult.error?.includes('DeviceNotRegistered') ||
-          expoResult.error?.includes('InvalidCredentials')
-        ) {
-          await this.deactivateToken(token);
-        }
-        return {
-          success: false,
-          error: expoResult.error,
-        };
-      }
-    }
-
-    // FCM token - send via Firebase
     if (!this.firebaseApp) {
       this.logger.warn('Firebase not initialized. Cannot send notification.');
       return { success: false, error: 'Firebase not initialized' };
@@ -221,6 +192,7 @@ export class PushService implements OnModuleInit {
       const messageId = await admin.messaging().send(message);
 
       this.logger.log(`Successfully sent FCM notification: ${messageId}`);
+      await this.deviceTokenService.recordSuccess([token]);
 
       return {
         success: true,
@@ -229,10 +201,11 @@ export class PushService implements OnModuleInit {
     } catch (error) {
       this.logger.error(`Failed to send FCM notification: ${error.message}`, error.stack);
 
-      // Check if token is invalid and mark it as inactive
-      if (this.isInvalidTokenError(error)) {
-        await this.deactivateToken(token);
-      }
+      await this.deviceTokenService.recordFailure(
+        [token],
+        this.classifyFcmError(error),
+        error.code ?? error.message,
+      );
 
       return {
         success: false,
@@ -315,22 +288,45 @@ export class PushService implements OnModuleInit {
         `Multicast result - Success: ${response.successCount}, Failure: ${response.failureCount}`,
       );
 
-      // Collect failed tokens and deactivate them
-      const failedTokens: string[] = [];
+      // Bookkeep every token individually: a dead token is retired at once, an
+      // unexplained failure only advances that token's failure streak, and a
+      // transient provider error is not held against the device at all.
+      const deliveredTokens: string[] = [];
+      const byKind: Record<FailureKind, Array<{ token: string; detail?: string }>> = {
+        DEAD: [],
+        TRANSIENT: [],
+        UNKNOWN: [],
+      };
+
       response.responses.forEach((resp, idx) => {
-        if (!resp.success && this.isInvalidTokenError(resp.error)) {
-          failedTokens.push(tokens[idx]);
+        const token = tokens[idx];
+
+        if (resp.success) {
+          deliveredTokens.push(token);
+          return;
         }
+
+        const kind = this.classifyFcmError(resp.error);
+        byKind[kind].push({ token, detail: (resp.error as any)?.code ?? resp.error?.message });
       });
 
-      if (failedTokens.length > 0) {
-        await this.deactivateTokens(failedTokens);
+      await this.deviceTokenService.recordSuccess(deliveredTokens);
+      for (const kind of ['DEAD', 'UNKNOWN'] as const) {
+        if (byKind[kind].length > 0) {
+          await this.deviceTokenService.recordFailure(
+            byKind[kind].map(f => f.token),
+            kind,
+            byKind[kind][0].detail,
+          );
+        }
       }
+
+      const deadTokens = byKind.DEAD.map(f => f.token);
 
       return {
         success: response.successCount,
         failure: response.failureCount,
-        failedTokens: failedTokens.length > 0 ? failedTokens : undefined,
+        failedTokens: deadTokens.length > 0 ? deadTokens : undefined,
       };
     } catch (error) {
       this.logger.error(`Failed to send multicast notification: ${error.message}`, error.stack);
@@ -461,6 +457,7 @@ export class PushService implements OnModuleInit {
     userId: string,
     token: string,
     platform: 'IOS' | 'ANDROID' | 'WEB',
+    deviceId?: string | null,
   ): Promise<boolean> {
     this.logger.log('========================================');
     this.logger.log('[PUSH] Registering device token');
@@ -468,6 +465,7 @@ export class PushService implements OnModuleInit {
     this.logger.log(`[PUSH] Platform: ${platform}`);
     this.logger.log(`[PUSH] Token: ${token.substring(0, 30)}...`);
     this.logger.log(`[PUSH] Token length: ${token.length}`);
+    this.logger.log(`[PUSH] Device ID: ${deviceId ?? 'not supplied'}`);
 
     try {
       // Check if token already exists
@@ -483,21 +481,14 @@ export class PushService implements OnModuleInit {
         this.logger.log(`[PUSH] New token - creating database entry...`);
       }
 
-      await this.prisma.deviceToken.upsert({
-        where: { token },
-        create: {
-          userId,
-          token,
-          platform,
-          isActive: true,
-        },
-        update: {
-          userId,
-          platform,
-          isActive: true,
-          updatedAt: new Date(),
-        },
-      });
+      // Registration also retires the tokens this one supersedes, so a user who
+      // reinstalls or upgrades the app does not keep collecting dead devices.
+      const { retired } = await this.deviceTokenService.register(
+        userId,
+        token,
+        platform as Platform,
+        deviceId,
+      );
 
       // Get total active tokens for this user
       const userTokenCount = await this.prisma.deviceToken.count({
@@ -505,6 +496,9 @@ export class PushService implements OnModuleInit {
       });
 
       this.logger.log(`[PUSH] ✅ Device token registered successfully`);
+      if (retired > 0) {
+        this.logger.log(`[PUSH] Retired ${retired} superseded token(s)`);
+      }
       this.logger.log(`[PUSH] User now has ${userTokenCount} active device(s)`);
       this.logger.log('========================================');
       return true;
@@ -527,9 +521,9 @@ export class PushService implements OnModuleInit {
 
   async unregisterDeviceToken(token: string): Promise<boolean> {
     try {
-      await this.prisma.deviceToken.delete({
-        where: { token },
-      });
+      // Deactivated rather than deleted: the row records WHY the device stopped
+      // receiving, and a later re-registration just flips it back to active.
+      await this.deviceTokenService.unregister(token);
 
       this.logger.log(`Device token unregistered: ${token.substring(0, 10)}...`);
       return true;
@@ -568,17 +562,7 @@ export class PushService implements OnModuleInit {
    */
   async getUserTokens(userId: string): Promise<string[]> {
     try {
-      const devices = await this.prisma.deviceToken.findMany({
-        where: {
-          userId,
-          isActive: true,
-        },
-        select: {
-          token: true,
-        },
-      });
-
-      return devices.map(d => d.token);
+      return await this.deviceTokenService.getActiveTokens(userId);
     } catch (error) {
       this.logger.error(`Failed to get user tokens: ${error.message}`, error.stack);
       return [];
@@ -586,14 +570,7 @@ export class PushService implements OnModuleInit {
   }
 
   /**
-   * Detect if a token is an Expo push token
-   */
-  private isExpoPushToken(token: string): boolean {
-    return Expo.isExpoPushToken(token);
-  }
-
-  /**
-   * Send notification to all devices of a user (HYBRID - supports both Expo and FCM tokens)
+   * Send notification to every active device of a user.
    */
   async sendToUser(
     userId: string,
@@ -602,7 +579,7 @@ export class PushService implements OnModuleInit {
     data?: any,
   ): Promise<MulticastNotificationResult> {
     this.logger.log('========================================');
-    this.logger.log('[PUSH] Sending notification to user (HYBRID MODE)');
+    this.logger.log('[PUSH] Sending notification to user');
     this.logger.log(`[PUSH] User ID: ${userId}`);
     this.logger.log(`[PUSH] Title: ${title}`);
     this.logger.log(`[PUSH] Body: ${body.substring(0, 100)}${body.length > 100 ? '...' : ''}`);
@@ -628,133 +605,41 @@ export class PushService implements OnModuleInit {
       return { success: 0, failure: 0 };
     }
 
-    // Separate Expo tokens from FCM tokens
-    const expoTokens: string[] = [];
-    const fcmTokens: string[] = [];
-
     tokens.forEach((token, idx) => {
-      const isExpo = this.isExpoPushToken(token);
-      this.logger.log(
-        `[PUSH] Device ${idx + 1}: ${token.substring(0, 30)}... [${isExpo ? 'EXPO' : 'FCM'}]`,
-      );
-
-      if (isExpo) {
-        expoTokens.push(token);
-      } else {
-        fcmTokens.push(token);
-      }
+      this.logger.log(`[PUSH] Device ${idx + 1}: ${token.substring(0, 30)}...`);
     });
 
-    this.logger.log(`[PUSH] Token breakdown:`);
-    this.logger.log(`[PUSH]   📱 Expo tokens: ${expoTokens.length}`);
-    this.logger.log(`[PUSH]   🔥 FCM tokens: ${fcmTokens.length}`);
-
-    let totalSuccess = 0;
-    let totalFailure = 0;
-    const allFailedTokens: string[] = [];
-
-    // Send to Expo tokens via Expo Push Service
-    if (expoTokens.length > 0) {
-      this.logger.log('[PUSH] ----------------------------------------');
-      this.logger.log('[PUSH] Sending to Expo tokens via Expo Push Service...');
-      const expoResult = await this.expoPushService.sendMulticastNotification(
-        expoTokens,
-        title,
-        body,
-        data,
-        badge,
-      );
-
-      totalSuccess += expoResult.success;
-      totalFailure += expoResult.failure;
-      allFailedTokens.push(...expoResult.failedTokens);
-
-      this.logger.log(
-        `[PUSH] Expo result: ✅ ${expoResult.success} success, ❌ ${expoResult.failure} failure`,
-      );
-
-      // Deactivate failed Expo tokens
-      if (expoResult.failedTokens.length > 0) {
-        await this.deactivateTokens(expoResult.failedTokens);
-      }
-    }
-
-    // Send to FCM tokens via Firebase
-    if (fcmTokens.length > 0) {
-      this.logger.log('[PUSH] ----------------------------------------');
-      this.logger.log('[PUSH] Sending to FCM tokens via Firebase...');
-      const fcmResult = await this.sendMulticastNotification(fcmTokens, title, body, data, badge);
-
-      totalSuccess += fcmResult.success;
-      totalFailure += fcmResult.failure;
-      if (fcmResult.failedTokens) {
-        allFailedTokens.push(...fcmResult.failedTokens);
-      }
-
-      this.logger.log(
-        `[PUSH] FCM result: ✅ ${fcmResult.success} success, ❌ ${fcmResult.failure} failure`,
-      );
-    }
+    const result = await this.sendMulticastNotification(tokens, title, body, data, badge);
 
     this.logger.log('[PUSH] ========================================');
-    this.logger.log('[PUSH] FINAL HYBRID RESULT:');
-    this.logger.log(`[PUSH]   ✅ Total Success: ${totalSuccess}`);
-    this.logger.log(`[PUSH]   ❌ Total Failure: ${totalFailure}`);
-    if (allFailedTokens.length > 0) {
-      this.logger.warn(`[PUSH]   🗑️  Deactivated ${allFailedTokens.length} invalid token(s)`);
+    this.logger.log('[PUSH] FINAL RESULT:');
+    this.logger.log(`[PUSH]   ✅ Total Success: ${result.success}`);
+    this.logger.log(`[PUSH]   ❌ Total Failure: ${result.failure}`);
+    if (result.failedTokens?.length) {
+      this.logger.warn(`[PUSH]   🗑️  Deactivated ${result.failedTokens.length} invalid token(s)`);
     }
     this.logger.log('========================================');
 
-    return {
-      success: totalSuccess,
-      failure: totalFailure,
-      failedTokens: allFailedTokens.length > 0 ? allFailedTokens : undefined,
-    };
+    return result;
   }
 
   /**
-   * Deactivate a single token in the database
+   * Deactivate tokens the provider rejected outright.
+   * Kept as a thin passthrough for callers outside this module.
    */
-  private async deactivateToken(token: string): Promise<void> {
-    try {
-      await this.prisma.deviceToken.update({
-        where: { token },
-        data: { isActive: false },
-      });
-
-      this.logger.log(`Deactivated invalid token: ${token.substring(0, 10)}...`);
-    } catch (error) {
-      this.logger.error(`Failed to deactivate token: ${error.message}`);
-    }
+  async deactivateTokens(tokens: string[]): Promise<void> {
+    await this.deviceTokenService.deactivate(tokens, DEACTIVATION_REASON.PROVIDER_REJECTED);
   }
 
   /**
-   * Deactivate multiple tokens in the database
+   * Classify an FCM send error for the token that produced it.
+   *
+   * The distinction matters: `DEAD` retires the token on the spot, `UNKNOWN`
+   * only advances its failure streak, and `TRANSIENT` is not held against the
+   * device at all — an FCM outage must not wipe out every user's registration.
    */
-  private async deactivateTokens(tokens: string[]): Promise<void> {
-    try {
-      await this.prisma.deviceToken.updateMany({
-        where: {
-          token: {
-            in: tokens,
-          },
-        },
-        data: {
-          isActive: false,
-        },
-      });
-
-      this.logger.log(`Deactivated ${tokens.length} invalid tokens`);
-    } catch (error) {
-      this.logger.error(`Failed to deactivate tokens: ${error.message}`);
-    }
-  }
-
-  /**
-   * Check if error is due to invalid token
-   */
-  private isInvalidTokenError(error: any): boolean {
-    if (!error) return false;
+  private classifyFcmError(error: any): FailureKind {
+    if (!error) return 'TRANSIENT';
 
     const errorCode = error.code || error.errorInfo?.code;
 
@@ -763,7 +648,22 @@ export class PushService implements OnModuleInit {
       errorCode === 'messaging/invalid-registration-token' ||
       errorCode === 'messaging/registration-token-not-registered'
     ) {
-      return true;
+      return 'DEAD';
+    }
+
+    // Ours or Google's problem, never the device's.
+    if (
+      errorCode === 'messaging/server-unavailable' ||
+      errorCode === 'messaging/internal-error' ||
+      errorCode === 'messaging/quota-exceeded' ||
+      errorCode === 'messaging/message-rate-exceeded' ||
+      errorCode === 'messaging/authentication-error' ||
+      errorCode === 'messaging/third-party-auth-error' ||
+      errorCode === 'messaging/payload-size-limit-exceeded' ||
+      errorCode === 'app/network-error' ||
+      errorCode === 'messaging/unknown-error'
+    ) {
+      return 'TRANSIENT';
     }
 
     // `messaging/invalid-argument` is ALSO what FCM returns for a malformed
@@ -775,10 +675,12 @@ export class PushService implements OnModuleInit {
     // registration periodically now, so a wrong deactivation self-heals.)
     if (errorCode === 'messaging/invalid-argument') {
       const message = `${error.message ?? error.errorInfo?.message ?? ''}`.toLowerCase();
-      return message.includes('registration token') || message.includes('not a valid fcm');
+      const blamesToken =
+        message.includes('registration token') || message.includes('not a valid fcm');
+      return blamesToken ? 'DEAD' : 'TRANSIENT';
     }
 
-    return false;
+    return 'UNKNOWN';
   }
 
   /**
@@ -827,6 +729,7 @@ export class PushService implements OnModuleInit {
       const messageId = await admin.messaging().send(message);
 
       this.logger.log(`Successfully sent notification: ${messageId}`);
+      await this.deviceTokenService.recordSuccess([token]);
 
       // Track delivery status if notificationId provided
       if (notificationId) {
@@ -841,10 +744,11 @@ export class PushService implements OnModuleInit {
     } catch (error) {
       this.logger.error(`Failed to send notification: ${error.message}`, error.stack);
 
-      // Check if token is invalid and mark it as inactive
-      if (this.isInvalidTokenError(error)) {
-        await this.deactivateToken(token);
-      }
+      await this.deviceTokenService.recordFailure(
+        [token],
+        this.classifyFcmError(error),
+        error.code ?? error.message,
+      );
 
       // Track failure if notificationId provided
       if (notificationId) {

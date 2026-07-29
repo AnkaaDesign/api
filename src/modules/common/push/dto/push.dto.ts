@@ -3,9 +3,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RegisterDeviceTokenDto {
   @ApiProperty({
-    description:
-      'Push notification token (supports both Expo tokens like ExponentPushToken[xxx] and FCM tokens)',
-    example: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]',
+    description: 'FCM registration token',
+    example: 'cXQx...:APA91bGKPy...',
   })
   @IsString()
   @IsNotEmpty()
@@ -19,6 +18,16 @@ export class RegisterDeviceTokenDto {
   @IsEnum(['IOS', 'ANDROID', 'WEB'])
   @IsNotEmpty()
   platform: 'IOS' | 'ANDROID' | 'WEB';
+
+  @ApiPropertyOptional({
+    description:
+      'Stable per-install identifier. When supplied, registering a new token retires the ' +
+      'previous token of the same install immediately instead of waiting for it to go stale.',
+    example: '6f6c1f3a-6d1e-4a2a-9f2f-6a0f0f0b1c22',
+  })
+  @IsString()
+  @IsOptional()
+  deviceId?: string;
 }
 
 export class UnregisterDeviceTokenDto {
@@ -33,9 +42,8 @@ export class UnregisterDeviceTokenDto {
 
 export class SendTestNotificationDto {
   @ApiProperty({
-    description:
-      'Push notification token (supports both Expo tokens like ExponentPushToken[xxx] and FCM tokens)',
-    example: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]',
+    description: 'FCM registration token',
+    example: 'cXQx...:APA91bGKPy...',
   })
   @IsString()
   @IsNotEmpty()

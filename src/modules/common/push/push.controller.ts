@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { PushService } from './push.service';
+import { DeviceTokenService } from './device-token.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants';
@@ -27,7 +28,10 @@ import {
 export class PushController {
   private readonly logger = new Logger(PushController.name);
 
-  constructor(private readonly pushService: PushService) {}
+  constructor(
+    private readonly pushService: PushService,
+    private readonly deviceTokenService: DeviceTokenService,
+  ) {}
 
   @Post('device-token')
   @HttpCode(HttpStatus.OK)
@@ -47,7 +51,12 @@ export class PushController {
   async registerDeviceToken(@UserId() userId: string, @Body() dto: RegisterDeviceTokenDto) {
     this.logger.log(`Registering device token for user: ${userId}`);
 
-    const success = await this.pushService.registerDeviceToken(userId, dto.token, dto.platform);
+    const success = await this.pushService.registerDeviceToken(
+      userId,
+      dto.token,
+      dto.platform,
+      dto.deviceId,
+    );
 
     if (!success) {
       throw new BadRequestException('Failed to register device token');
@@ -115,6 +124,40 @@ export class PushController {
       success: true,
       data: devices,
       count: devices.length,
+    };
+  }
+
+  @Get('device-tokens/health')
+  @HttpCode(HttpStatus.OK)
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @ApiOperation({
+    summary: 'Device token health overview (Admin only)',
+  })
+  async getDeviceTokenHealth() {
+    return {
+      success: true,
+      data: await this.deviceTokenService.getHealthSummary(),
+    };
+  }
+
+  @Post('device-tokens/prune')
+  @HttpCode(HttpStatus.OK)
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @ApiOperation({
+    summary: 'Retire stale/superseded device tokens now (Admin only)',
+    description:
+      'Runs the same sweep as the nightly job. Safe to repeat: a device that is still ' +
+      'alive re-registers itself within 12 hours and becomes active again.',
+  })
+  async pruneDeviceTokens() {
+    const before = await this.deviceTokenService.getHealthSummary();
+    const result = await this.deviceTokenService.pruneStaleTokens();
+    const after = await this.deviceTokenService.getHealthSummary();
+
+    return {
+      success: true,
+      message: `${result.abandoned + result.stale} token(s) retired`,
+      data: { ...result, before, after },
     };
   }
 
