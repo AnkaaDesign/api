@@ -437,9 +437,18 @@ function diffSigners(before: QuoteSnapshot, after: QuoteSnapshot): QuoteChange[]
     // O E-MAIL é o canal do código de assinatura. Trocá-lo no meio de uma coleta
     // redireciona a prova de autoria para outra caixa, então é MATERIAL — é o
     // mesmo critério que o recorte material v2 usa para derrubar o envelope.
+    //
+    // AUSÊNCIA NÃO É MUDANÇA. `emailNormalized` só passou a existir na v2 do
+    // snapshot; todo envelope congelado antes disso não tem a chave. Ler o
+    // `undefined` como "" e comparar com o endereço real relatava uma troca de
+    // e-mail que nunca aconteceu — em TODOS os envelopes anteriores à migração
+    // de canal, e bem no texto que explica ao cliente por que a assinatura dele
+    // foi anulada. Só compara quando os dois lados de fato carregam o campo.
     const prevEmail = (prev.emailNormalized ?? '').trim().toLowerCase();
     const nextEmail = (next.emailNormalized ?? '').trim().toLowerCase();
-    if (prevEmail !== nextEmail) {
+    const bothHaveEmailField =
+      prev.emailNormalized !== undefined && next.emailNormalized !== undefined;
+    if (bothHaveEmailField && prevEmail !== nextEmail) {
       out.push({
         key: `signer:email:${id}`,
         severity: 'MATERIAL',

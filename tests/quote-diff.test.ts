@@ -275,6 +275,30 @@ console.log('\nSnapshot antigo, sem os campos novos');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nSignatário congelado antes da v2 não inventa troca de e-mail');
+{
+  // Forma real de um snapshot anterior à migração de canal: tem `phoneDigits`,
+  // não tem `emailNormalized`. Lido como "" e comparado com o endereço atual,
+  // rendia uma linha "E-mail do responsável" MATERIAL em todo envelope antigo —
+  // dizendo ao cliente que o e-mail dele mudou quando ninguém tocou nele.
+  const before = clone(baseSnapshot());
+  delete (before.signers[0] as Partial<(typeof before.signers)[0]>).emailNormalized;
+
+  const after = clone(baseSnapshot());
+  after.services[0].amount = '520.00'; // uma mudança REAL para o diff ter o que dizer
+
+  const changes = diffQuoteSnapshots(before, after);
+  check('nenhuma linha de e-mail', find(changes, 'signer:email') === undefined);
+  check('a mudança real continua sendo relatada', changes.some(c => c.group === 'SERVICES'));
+
+  // E quando os dois lados TÊM o campo, a troca real segue material.
+  const b2 = clone(baseSnapshot());
+  const a2 = clone(baseSnapshot());
+  a2.signers[0].emailNormalized = 'outro@dominio.com.br';
+  check('troca real ainda é material', find(diffQuoteSnapshots(b2, a2), 'signer:email')?.severity === 'MATERIAL');
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nFrase de resumo');
 {
   const after = clone(baseSnapshot());
