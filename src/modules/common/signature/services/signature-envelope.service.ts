@@ -2176,7 +2176,18 @@ export class SignatureEnvelopeService {
     const env = await this.prisma.signatureEnvelope.findUnique({
       where: { verificationCode: code },
       include: {
-        signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] },
+        signers: {
+          orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }],
+          include: {
+            responsible: { select: { roles: true } },
+            user: {
+              select: {
+                position: { select: { name: true } },
+                sector: { select: { name: true } },
+              },
+            },
+          },
+        },
         quote: { include: { task: { include: { customer: true } } } },
       },
     });
@@ -2210,15 +2221,16 @@ export class SignatureEnvelopeService {
       // CPF sempre MASCARADO aqui: esta página é pública e o orçamento contém preço.
       signers: env.signers.map(s => ({
         name: s.declaredName,
-        cargo: s.informedCargo,
+        // Informado no ato > cargo do cadastro. Cliente vem das funções do
+        // contato; Ankaa, da posição do colaborador (ou do setor, quando a
+        // posição está vazia).
+        cargo:
+          s.informedCargo ||
+          formatResponsibleRoles(s.responsible?.roles ?? []) ||
+          s.user?.position?.name?.trim() ||
+          s.user?.sector?.name?.trim() ||
+          null,
         cpfMasked: s.informedCpf ? maskCpf(s.informedCpf) : null,
-        // O CPF do CADASTRO, separado do informado. O painel só lia
-        // `informedCpf` — que só existe DEPOIS da cerimônia —, então um
-        // signatário que ainda não assinou aparecia como "CPF não informado"
-        // mesmo com o documento gravado no cadastro desde a emissão. São dois
-        // fatos diferentes e a tela precisa distinguir: o que a Ankaa afirma, e
-        // o que o signatário confirmou.
-        declaredCpfMasked: s.declaredCpf ? maskCpf(s.declaredCpf) : null,
         status: s.status,
         signedAt: s.signedAt,
         authMethod: AUTH_METHOD_LABELS[s.authMethod] ?? s.authMethod,
@@ -2417,7 +2429,22 @@ export class SignatureEnvelopeService {
       where: { quoteId },
       orderBy: { version: 'desc' },
       include: {
-        signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] },
+        signers: {
+          orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }],
+          // O cargo de CADASTRO. `informedCargo` só existe depois que a pessoa
+          // assina, então sem estes includes o painel dizia "Cargo não
+          // informado" para todo signatário pendente — inclusive o da Ankaa,
+          // cujo cargo o sistema conhece desde sempre.
+          include: {
+            responsible: { select: { roles: true } },
+            user: {
+              select: {
+                position: { select: { name: true } },
+                sector: { select: { name: true } },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -2471,7 +2498,17 @@ export class SignatureEnvelopeService {
         // errado ou o servidor de e-mail recusa a entrega.
         signingUrl: this.signingUrl(s.accessToken),
         cpfMasked: s.informedCpf ? maskCpf(s.informedCpf) : null,
-        cargo: s.informedCargo,
+        // Informado no ato > cargo do cadastro. Sem o fallback o painel dizia
+        // "Cargo não informado" para todo signatário que ainda não assinou —
+        // inclusive o da Ankaa, cujo cargo o sistema conhece desde sempre.
+        // Cliente vem das funções do contato; Ankaa, da posição do colaborador
+        // (ou do setor, quando a posição está vazia).
+        cargo:
+          s.informedCargo ||
+          formatResponsibleRoles(s.responsible?.roles ?? []) ||
+          s.user?.position?.name?.trim() ||
+          s.user?.sector?.name?.trim() ||
+          null,
         cpfMatch: s.cpfMatch,
         side: s.orderGroup === 1 ? 'ANKAA' : 'CUSTOMER',
         status: s.status,
