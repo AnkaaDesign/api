@@ -22,6 +22,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { NotificationService } from './notification.service';
 import { NotificationReminderScheduler } from './notification-reminder.scheduler';
 import { NOTIFICATION_CHANNEL } from '../../../constants';
+import { NOTIFICATION_UUID_PARAM } from './notification.constants';
 
 /**
  * DTO for marking notification as seen
@@ -62,7 +63,7 @@ export class NotificationTrackingController {
    * POST /notifications/:id/seen
    * Mark a notification as seen by the authenticated user
    */
-  @Post(':id/seen')
+  @Post(`${NOTIFICATION_UUID_PARAM}/seen`)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Mark notification as seen',
@@ -92,7 +93,7 @@ export class NotificationTrackingController {
    * POST /notifications/:id/remind
    * Set a reminder for a notification
    */
-  @Post(':id/remind')
+  @Post(`${NOTIFICATION_UUID_PARAM}/remind`)
   @HttpCode(HttpStatus.OK)
   async setReminder(
     @Param('id') notificationId: string,
@@ -127,7 +128,7 @@ export class NotificationTrackingController {
    * Mark a notification as delivered on a specific channel
    * (Internal endpoint, typically called by notification dispatchers)
    */
-  @Post(':id/delivered')
+  @Post(`${NOTIFICATION_UUID_PARAM}/delivered`)
   @HttpCode(HttpStatus.OK)
   async markAsDelivered(@Param('id') notificationId: string, @Body() dto: MarkAsDeliveredDto) {
     // Validate channel
@@ -152,7 +153,7 @@ export class NotificationTrackingController {
    * GET /notifications/:id/delivery-status
    * Get delivery status for a notification across all channels
    */
-  @Get(':id/delivery-status')
+  @Get(`${NOTIFICATION_UUID_PARAM}/delivery-status`)
   async getDeliveryStatus(@Param('id') notificationId: string) {
     const deliveries = await this.notificationService.getDeliveryStatus(notificationId);
 
@@ -167,7 +168,7 @@ export class NotificationTrackingController {
    * GET /notifications/:id/stats
    * Get delivery statistics for a notification
    */
-  @Get(':id/stats')
+  @Get(`${NOTIFICATION_UUID_PARAM}/stats`)
   async getNotificationStats(@Param('id') notificationId: string) {
     const stats = await this.notificationService.getDeliveryStats(notificationId);
 

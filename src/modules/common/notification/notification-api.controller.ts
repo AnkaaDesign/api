@@ -41,6 +41,7 @@ import {
   AnalyticsQueryDto,
 } from './dto/notification-api.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { NOTIFICATION_UUID_PARAM } from './notification.constants';
 
 /**
  * Main Notification API Controller
@@ -139,7 +140,7 @@ export class NotificationApiController {
    * GET /notifications/:id
    * Get notification details
    */
-  @Get(':id')
+  @Get(NOTIFICATION_UUID_PARAM)
   @ApiOperation({
     summary: 'Get notification by ID',
     description: 'Retrieve detailed information about a specific notification',
@@ -273,7 +274,7 @@ export class NotificationApiController {
    * POST /notifications/:id/remind-later
    * Set reminder for notification
    */
-  @Post(':id/remind-later')
+  @Post(`${NOTIFICATION_UUID_PARAM}/remind-later`)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Set reminder for notification',

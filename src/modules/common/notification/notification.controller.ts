@@ -80,6 +80,7 @@ import {
   SeenNotificationBatchUpdateResponse,
   SeenNotificationBatchDeleteResponse,
 } from '../../../types';
+import { NOTIFICATION_UUID_PARAM as UUID_PARAM } from './notification.constants';
 
 @ApiTags('Notifications')
 @ApiBearerAuth()
@@ -252,7 +253,7 @@ export class NotificationController {
   // Dynamic routes (must come after static routes)
   // =====================
 
-  @Get(':id')
+  @Get(UUID_PARAM)
   @ApiOperation({
     summary: 'Get notification by ID',
     description: 'Retrieve a specific notification by its unique identifier',
@@ -278,7 +279,7 @@ export class NotificationController {
     return this.notificationService.getNotificationById(id, query.include, userId);
   }
 
-  @Put(':id')
+  @Put(UUID_PARAM)
   @Roles(SECTOR_PRIVILEGES.ADMIN)
   @ApiOperation({
     summary: 'Update notification',
@@ -306,7 +307,7 @@ export class NotificationController {
     return this.notificationService.updateNotification(id, data, query.include, userId);
   }
 
-  @Delete(':id')
+  @Delete(UUID_PARAM)
   @Roles(SECTOR_PRIVILEGES.ADMIN)
   @ApiOperation({
     summary: 'Delete notification',
@@ -336,7 +337,7 @@ export class NotificationController {
   // Notification Tracking Routes
   // =====================
 
-  @Post(':id/seen')
+  @Post(`${UUID_PARAM}/seen`)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Mark notification as seen',
@@ -366,7 +367,7 @@ export class NotificationController {
     };
   }
 
-  @Post(':id/mark-as-read')
+  @Post(`${UUID_PARAM}/mark-as-read`)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Mark notification as read',
@@ -396,7 +397,7 @@ export class NotificationController {
     };
   }
 
-  @Get(':id/delivery-status')
+  @Get(`${UUID_PARAM}/delivery-status`)
   @ApiOperation({
     summary: 'Get delivery status',
     description: 'Get delivery status for a notification across all channels',
@@ -419,7 +420,7 @@ export class NotificationController {
     };
   }
 
-  @Get(':id/stats')
+  @Get(`${UUID_PARAM}/stats`)
   @ApiOperation({
     summary: 'Get notification statistics',
     description: 'Get delivery statistics for a specific notification',
