@@ -148,8 +148,8 @@ export class SignatureController {
     return {
       success: ok,
       message: ok
-        ? 'Convite reenviado pelo WhatsApp.'
-        : 'Não foi possível enviar pelo WhatsApp. Copie o link e envie manualmente.',
+        ? 'Convite reenviado por e-mail.'
+        : 'Não foi possível enviar o e-mail. Copie o link e envie manualmente.',
     };
   }
 
@@ -288,7 +288,7 @@ export class PublicSignatureController {
       token,
       cpf: body.cpf,
       cargo: body.cargo,
-      phoneConfirm: body.phoneConfirm,
+      emailConfirm: body.emailConfirm,
       ctx: ctxOf(req),
     });
     return { success: true, data };
@@ -382,7 +382,7 @@ export class PublicSignatureController {
    * Devolve apenas metadados, hashes e o roster de signatários com CPF
    * MASCARADO. O corpo do documento NÃO é servido aqui: o orçamento contém
    * preço comercial e o código de verificação é impresso em todas as páginas do
-   * PDF, que circula por WhatsApp e e-mail.
+   * PDF, que circula por e-mail.
    */
   @Get('verificar/:code')
   @Public()

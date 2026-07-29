@@ -50,84 +50,170 @@ interface WelcomeTemplateData extends BaseTemplateData {
   loginUrl: string;
 }
 
+/**
+ * Logotipo servido pelo app web (`web/public/logo.png`).
+ *
+ * Referenciado por URL, não embutido. Duas razões:
+ *  1. O Gmail descarta `<img src="data:...">`, então data URI simplesmente não
+ *     aparece — e o cabeçalho ficaria vazio justamente no cliente mais usado.
+ *  2. O transporte de e-mail (`MailerRepository.sendMail`) aceita só
+ *     `(to, subject, html)`; não há suporte a anexo, logo `cid:` está fora.
+ *
+ * Usa o PNG e não os `.webp` do mesmo diretório: o Outlook para desktop
+ * renderiza com o motor do Word e não suporta WebP.
+ */
+export const EMAIL_LOGO_URL = `${process.env.WEB_APP_URL || 'https://ankaadesign.com.br'}/logo.png`;
+
+const BRAND = {
+  green: '#16802B',
+  greenDark: '#125a1f',
+  ink: '#1a1a1a',
+  muted: '#5f6b60',
+  line: '#e2e8e3',
+  pageBg: '#f4f6f4',
+} as const;
+
 const baseEmailStyle = `
   body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     line-height: 1.6;
-    color: #333;
+    color: ${BRAND.ink};
+    background: ${BRAND.pageBg};
     max-width: 600px;
     margin: 0 auto;
     padding: 20px;
+    -webkit-font-smoothing: antialiased;
   }
+  /* O logotipo é verde sobre fundo transparente, então o cabeçalho é BRANCO.
+     Sobre a faixa verde que existia aqui antes ele sumia. */
   .header {
-    background: #16802B;
-    color: white;
-    padding: 20px;
+    background: #ffffff;
+    color: ${BRAND.ink};
+    padding: 28px 24px 22px;
     text-align: center;
+    border: 1px solid ${BRAND.line};
+    border-bottom: 3px solid ${BRAND.green};
     border-radius: 8px 8px 0 0;
+  }
+  .header img.logo {
+    display: block;
+    margin: 0 auto 14px;
+    width: 180px;
+    max-width: 60%;
+    height: auto;
+    border: 0;
+  }
+  .header h1 {
+    margin: 0 0 4px;
+    font-size: 21px;
+    line-height: 1.3;
+    font-weight: 600;
+    color: ${BRAND.ink};
+  }
+  .header p {
+    margin: 0;
+    font-size: 14px;
+    color: ${BRAND.muted};
   }
   .content {
     background: white;
     padding: 30px;
-    border: 1px solid #ddd;
+    border: 1px solid ${BRAND.line};
     border-top: none;
+  }
+  .content h2 {
+    margin-top: 0;
+    font-size: 18px;
+    font-weight: 600;
   }
   .footer {
     background: #f8f9fa;
     padding: 20px;
     text-align: center;
-    border: 1px solid #ddd;
+    border: 1px solid ${BRAND.line};
     border-top: none;
     border-radius: 0 0 8px 8px;
-    font-size: 14px;
-    color: #666;
+    font-size: 13px;
+    color: ${BRAND.muted};
   }
+  .footer p { margin: 4px 0; }
+  .footer a { color: ${BRAND.green}; }
   .button {
     display: inline-block;
-    padding: 12px 30px;
-    background: #16802B;
-    color: white;
+    padding: 13px 32px;
+    background: ${BRAND.green};
+    color: white !important;
     text-decoration: none;
-    border-radius: 5px;
+    border-radius: 6px;
     font-weight: bold;
     margin: 20px 0;
   }
   .button:hover {
-    background: #125a1f;
+    background: ${BRAND.greenDark};
   }
   .alert {
     background: #fff3cd;
     border: 1px solid #ffeaa7;
-    border-radius: 5px;
+    border-radius: 6px;
     padding: 15px;
     margin: 20px 0;
   }
   .warning {
     background: #f8d7da;
     border: 1px solid #f5c6cb;
-    border-radius: 5px;
+    border-radius: 6px;
     padding: 15px;
     margin: 20px 0;
   }
   .success {
     background: #d4edda;
     border: 1px solid #c3e6cb;
-    border-radius: 5px;
+    border-radius: 6px;
     padding: 15px;
     margin: 20px 0;
   }
+  /* Bloco do código de uso único. Grande, espaçado e selecionável: quem lê no
+     celular precisa conseguir bater dígito a dígito ou copiar de uma vez. */
   .code {
-    background: #f1f3f4;
-    border: 1px solid #dadce0;
-    border-radius: 5px;
-    padding: 15px;
-    font-family: 'Courier New', monospace;
-    font-size: 18px;
+    background: #f2f7f3;
+    border: 1px solid #cfe3d4;
+    border-left: 4px solid ${BRAND.green};
+    border-radius: 6px;
+    padding: 20px 15px;
+    font-family: 'SFMono-Regular', Consolas, 'Courier New', monospace;
+    font-size: 34px;
+    letter-spacing: 8px;
     font-weight: bold;
+    color: ${BRAND.green};
     text-align: center;
-    margin: 20px 0;
+    margin: 24px 0;
   }
 `;
+
+/**
+ * Cabeçalho branco com o logotipo. `alt` importa: a maioria dos clientes
+ * bloqueia imagem por padrão, e sem ele o e-mail abre com um retângulo vazio
+ * onde deveria estar a identificação de quem enviou.
+ */
+function emailHeader(title: string, subtitle: string): string {
+  return `
+      <div class="header">
+        <img class="logo" src="${EMAIL_LOGO_URL}" width="180" alt="Ankaa Design"
+             style="display:block;margin:0 auto 14px;width:180px;max-width:60%;height:auto;border:0;">
+        <h1>${title}</h1>
+        <p>${subtitle}</p>
+      </div>`;
+}
+
+function emailFooter(data: BaseTemplateData, note: string): string {
+  return `
+      <div class="footer">
+        <p>${note}</p>
+        <p>Precisa de ajuda? <a href="${data.supportUrl}">Entre em contato conosco</a></p>
+        <p>${data.supportEmail} &nbsp;|&nbsp; ${data.supportPhone}</p>
+        <p style="margin-top:10px;color:#9aa89d;">${data.companyName}</p>
+      </div>`;
+}
 
 export function generatePasswordResetTemplate(data: PasswordResetTemplateData): string {
   return `
@@ -140,10 +226,7 @@ export function generatePasswordResetTemplate(data: PasswordResetTemplateData): 
       <style>${baseEmailStyle}</style>
     </head>
     <body>
-      <div class="header">
-        <h1>🔒 Redefinir Senha</h1>
-        <p>Solicitação de redefinição de senha</p>
-      </div>
+      ${emailHeader(`Redefinir Senha`, `Solicitação de redefinição de senha`)}
       
       <div class="content">
         <h2>Olá${data.userName ? `, ${data.userName}` : ''}!</h2>
@@ -192,10 +275,7 @@ export function generateTemporaryPasswordTemplate(data: TemporaryPasswordTemplat
       <style>${baseEmailStyle}</style>
     </head>
     <body>
-      <div class="header">
-        <h1>🔑 Senha Temporária</h1>
-        <p>Sua nova senha temporária</p>
-      </div>
+      ${emailHeader(`Senha Temporária`, `Sua nova senha temporária`)}
       
       <div class="content">
         <h2>Olá${data.userName ? `, ${data.userName}` : ''}!</h2>
@@ -244,10 +324,7 @@ export function generateAccountVerificationTemplate(data: AccountVerificationTem
       <style>${baseEmailStyle}</style>
     </head>
     <body>
-      <div class="header">
-        <h1>✅ Verificar Conta</h1>
-        <p>Confirme seu endereço de email</p>
-      </div>
+      ${emailHeader(`Verificar Conta`, `Confirme seu endereço de email`)}
       
       <div class="content">
         <h2>Olá${data.userName ? `, ${data.userName}` : ''}!</h2>
@@ -297,10 +374,7 @@ export function generatePasswordChangedNotificationTemplate(
       <style>${baseEmailStyle}</style>
     </head>
     <body>
-      <div class="header">
-        <h1>🔐 Senha Alterada</h1>
-        <p>Confirmação de alteração de senha</p>
-      </div>
+      ${emailHeader(`Senha Alterada`, `Confirmação de alteração de senha`)}
       
       <div class="content">
         <h2>Olá${data.userName ? `, ${data.userName}` : ''}!</h2>
@@ -358,10 +432,7 @@ export function generateAccountStatusChangeTemplate(data: AccountStatusChangeTem
       <style>${baseEmailStyle}</style>
     </head>
     <body>
-      <div class="header">
-        <h1>👤 Status da Conta</h1>
-        <p>Alteração no status da sua conta</p>
-      </div>
+      ${emailHeader(`Status da Conta`, `Alteração no status da sua conta`)}
       
       <div class="content">
         <h2>Olá${data.userName ? `, ${data.userName}` : ''}!</h2>
@@ -424,48 +495,35 @@ export function generateEmailVerificationCodeTemplate(
       <style>${baseEmailStyle}</style>
     </head>
     <body>
-      <div class="header">
-        <h1>🔐 Código de Verificação</h1>
-        <p>Confirme seu endereço de email</p>
-      </div>
-      
+      ${emailHeader('Código de verificação', 'Confirme seu endereço de e-mail')}
+
       <div class="content">
         <h2>Olá${data.userName ? `, ${data.userName}` : ''}!</h2>
-        
-        <p>Para verificar sua conta no ${data.companyName}, use o código de verificação abaixo:</p>
-        
-        <div class="code">
-          ${data.verificationCode}
-        </div>
-        
+
+        <p>Para verificar sua conta na ${data.companyName}, use o código abaixo:</p>
+
+        <div class="code">${data.verificationCode}</div>
+
+        <p style="text-align:center;color:#5f6b60;font-size:14px;margin-top:-10px;">
+          Válido por <strong>${data.expiryMinutes} minutos</strong>.
+        </p>
+
         <div class="alert">
-          <strong>📋 Informações importantes:</strong>
-          <ul>
-            <li>Este código é válido por <strong>${data.expiryMinutes} minutos</strong></li>
-            <li>Digite o código exatamente como mostrado acima</li>
-            <li>Se você não solicitou este código, ignore este email</li>
-            <li>Por segurança, não compartilhe este código com outras pessoas</li>
-          </ul>
+          <strong>Nunca compartilhe este código.</strong>
+          A ${data.companyName} não solicita este código por telefone, WhatsApp ou e-mail.
+          Se alguém pedir, é golpe.
         </div>
-        
-        <div class="success">
-          <p><strong>✅ Próximos passos:</strong></p>
-          <ol>
-            <li>Volte para a tela de verificação</li>
-            <li>Digite o código de 6 dígitos acima</li>
-            <li>Clique em "Verificar Código"</li>
-            <li>Sua conta será verificada automaticamente</li>
-          </ol>
-        </div>
-        
-        <p>Após a verificação, você poderá fazer login e usar todas as funcionalidades do sistema.</p>
+
+        <p style="color:#5f6b60;font-size:14px;">
+          Se você não solicitou este código, ignore esta mensagem — ele perde a
+          validade sozinho e nenhuma alteração será feita na sua conta.
+        </p>
       </div>
-      
-      <div class="footer">
-        <p>Se você não se cadastrou no ${data.companyName}, pode ignorar este email com segurança.</p>
-        <p>Precisa de ajuda? <a href="${data.supportUrl}">Entre em contato conosco</a></p>
-        <p>📧 ${data.supportEmail} | 📱 ${data.supportPhone}</p>
-      </div>
+
+      ${emailFooter(
+        data,
+        `Se você não se cadastrou na ${data.companyName}, pode ignorar este e-mail com segurança.`,
+      )}
     </body>
     </html>
   `;
@@ -482,49 +540,35 @@ export function generatePasswordResetCodeTemplate(data: PasswordResetCodeTemplat
       <style>${baseEmailStyle}</style>
     </head>
     <body>
-      <div class="header">
-        <h1>🔒 Redefinir Senha</h1>
-        <p>Código de verificação para redefinir sua senha</p>
-      </div>
-      
+      ${emailHeader('Redefinir senha', 'Código para criar uma nova senha')}
+
       <div class="content">
         <h2>Olá${data.userName ? `, ${data.userName}` : ''}!</h2>
-        
-        <p>Você solicitou a redefinição da sua senha no sistema ${data.companyName}. Use o código abaixo:</p>
-        
-        <div class="code">
-          ${data.resetCode}
-        </div>
-        
+
+        <p>Você solicitou a redefinição da sua senha na ${data.companyName}. Use o código abaixo:</p>
+
+        <div class="code">${data.resetCode}</div>
+
+        <p style="text-align:center;color:#5f6b60;font-size:14px;margin-top:-10px;">
+          Válido por <strong>${data.expiryMinutes} minutos</strong>.
+        </p>
+
         <div class="alert">
-          <strong>⚠️ Importante:</strong>
-          <ul>
-            <li>Este código é válido por <strong>${data.expiryMinutes} minutos</strong></li>
-            <li>Digite o código exatamente como mostrado acima</li>
-            <li>Se você não solicitou esta redefinição, ignore este email</li>
-            <li>Por segurança, não compartilhe este código com outras pessoas</li>
-          </ul>
+          <strong>Nunca compartilhe este código.</strong>
+          A ${data.companyName} não solicita este código por telefone, WhatsApp ou e-mail.
+          Se alguém pedir, é golpe.
         </div>
-        
-        <div class="success">
-          <p><strong>🔄 Como redefinir sua senha:</strong></p>
-          <ol>
-            <li>Volte para a tela de redefinição de senha</li>
-            <li>Digite o código de 6 dígitos acima</li>
-            <li>Crie sua nova senha</li>
-            <li>Confirme a nova senha</li>
-            <li>Clique em "Redefinir Senha"</li>
-          </ol>
-        </div>
-        
-        <p>Após redefinir, você poderá fazer login com sua nova senha.</p>
+
+        <p style="color:#5f6b60;font-size:14px;">
+          Se você não pediu para redefinir a senha, ignore esta mensagem — sua
+          senha atual continua valendo e nada será alterado.
+        </p>
       </div>
-      
-      <div class="footer">
-        <p>Se você não solicitou esta redefinição, pode ignorar este email com segurança.</p>
-        <p>Precisa de ajuda? <a href="${data.supportUrl}">Entre em contato conosco</a></p>
-        <p>📧 ${data.supportEmail} | 📱 ${data.supportPhone}</p>
-      </div>
+
+      ${emailFooter(
+        data,
+        'Se você não solicitou esta redefinição, pode ignorar este e-mail com segurança.',
+      )}
     </body>
     </html>
   `;
@@ -1072,10 +1116,7 @@ export function generateWelcomeEmailTemplate(data: WelcomeTemplateData): string 
       <style>${baseEmailStyle}</style>
     </head>
     <body>
-      <div class="header">
-        <h1>🎉 Bem-vindo!</h1>
-        <p>Seja bem-vindo ao ${data.companyName}</p>
-      </div>
+      ${emailHeader(`Bem-vindo!`, `Seja bem-vindo ao ${data.companyName}`)}
       
       <div class="content">
         <h2>Olá${data.userName ? `, ${data.userName}` : ''}!</h2>

@@ -11,10 +11,11 @@
  * podem coexistir, pois produzem arquivos independentes.
  */
 
-import { Module, OnModuleInit, Inject, Logger, forwardRef } from '@nestjs/common';
+import { Module, OnModuleInit, Logger, forwardRef } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
-import { WhatsAppModule } from '@modules/common/whatsapp/whatsapp.module';
+import { MailerModule } from '@modules/common/mailer/mailer.module';
+import { EmailService } from '@modules/common/mailer/services/email.service';
 import { assertSignatureSecrets } from './utils/secrets';
 
 import { PadesSignerService } from './pades/pades-signer.service';
@@ -35,7 +36,11 @@ import { SignatureController, PublicSignatureController } from './signature.cont
   imports: [
     ConfigModule,
     PrismaModule,
-    forwardRef(() => WhatsAppModule),
+    // MailerModule é folha (imports: []) e exporta por token de CLASSE, então
+    // não há ciclo a evitar e nenhum forwardRef é necessário — ao contrário do
+    // transporte de WhatsApp, que vinha sob token string e arrastava o
+    // NotificationModule inteiro junto.
+    MailerModule,
     // O dossiê busca NFS-e na Elotech e boleto no Sicredi quando não há cópia
     // local. forwardRef nos dois: são módulos de integração grandes e o custo de
     // um ciclo futuro é um boot quebrado.
@@ -70,10 +75,7 @@ export class SignatureModule implements OnModuleInit {
   constructor(
     private readonly envelopes: SignatureEnvelopeService,
     private readonly config: ConfigService,
-    // O transporte de WhatsApp é registrado sob um token string, e o módulo dele
-    // depende de NotificationModule — injetar por setter mantém o grafo de
-    // dependências raso e evita ciclo.
-    @Inject('WhatsAppService') private readonly whatsapp: { sendMessage(p: string, m: string): Promise<boolean> },
+    private readonly email: EmailService,
   ) {}
 
   onModuleInit(): void {
@@ -88,7 +90,20 @@ export class SignatureModule implements OnModuleInit {
     // Preferir derrubar o boot a operar degradado é a mesma escolha que a trilha
     // append-only faz: em prova, falhar é melhor do que fingir.
     this.assertSecretsOrDie();
-    this.envelopes.setWhatsAppSender(this.whatsapp);
+
+    // Adapta o EmailService ao port booleano do serviço. `sendEmailWithRetry`
+    // devolve `{ success, messageId?, error? }` e NUNCA lança; achatar para
+    // boolean aqui preserva o contrato de que cada chamador escolhe entre
+    // INVITATION_SENT e INVITATION_FAILED sem precisar de try/catch.
+    this.envelopes.setEmailSender({
+      sendEmail: async (to, subject, html) => {
+        const r = await this.email.sendEmailWithRetry(to, subject, html, 'SIGNATURE');
+        if (!r.success) {
+          this.logger.error(`Falha ao enviar e-mail de assinatura: ${r.error ?? 'motivo desconhecido'}`);
+        }
+        return r.success;
+      },
+    });
   }
 
   private assertSecretsOrDie(): void {

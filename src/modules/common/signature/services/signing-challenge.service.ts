@@ -33,10 +33,33 @@ import { hmacSha256Hex, safeEqualHex } from '../utils/canonical';
 
 /** NIST §5.1.3.2: ≥20 bits de entropia. 6 dígitos ≈ 19,93 bits — é o piso. */
 const CODE_DIGITS = 6;
-/** NIST §5.1.3.2 impõe teto de 10 min; 5 equilibra latência do WhatsApp e exposição. */
-const TTL_MS = 5 * 60 * 1000;
+/**
+ * NIST §5.1.3.2 impõe teto de 10 min. Usamos o teto.
+ *
+ * Com WhatsApp, 5 min sobravam — a mensagem chegava em segundos. E-mail passa
+ * por fila de MTA, varredura antispam e, no primeiro contato com um domínio,
+ * greylisting (RFC 6647), cujo retry típico é de 5 a 15 minutos. Com 5 min o
+ * código expirava antes de ser entregue, de forma silenciosa e determinística.
+ *
+ * O custo de dobrar a janela é contido: `issue` supersede todos os PENDING, ou
+ * seja, existe UM código vivo por signatário, e o orçamento de tentativas é por
+ * desafio (não por tempo). A probabilidade de acerto online não muda.
+ */
+const TTL_MS = 10 * 60 * 1000;
+/**
+ * Exportado para que o texto do e-mail e da tela ("expira em N minutos") saia
+ * daqui, e não de um número digitado à mão que silenciosamente diverge do TTL
+ * real quando alguém ajusta o valor acima.
+ */
+export const SIGNING_CODE_TTL_MINUTES = TTL_MS / 60_000;
 const MAX_ATTEMPTS = 5;
-const RESEND_COOLDOWN_MS = 60 * 1000;
+/**
+ * 60 s era calibrado para um canal que entrega em segundos. Em e-mail, no
+ * minuto seguinte a primeira mensagem provavelmente ainda está na fila; o
+ * signatário pede outro código, `issue` supersede o anterior, e o que enfim
+ * chega já nasce inválido — o clássico "recebi o código e ele diz inválido".
+ */
+const RESEND_COOLDOWN_MS = 120 * 1000;
 const MAX_CHALLENGES_PER_HOUR = 5;
 
 export interface IssuedChallenge {
@@ -96,7 +119,11 @@ export class SigningChallengeService {
    */
   async issue(args: {
     signerId: string;
-    channel: 'whatsapp' | 'sms';
+    /**
+     * `whatsapp` e `sms` seguem no tipo por causa das linhas históricas e do
+     * retorno do WhatsApp pela API oficial da Meta. Emissões novas usam `email`.
+     */
+    channel: 'email' | 'whatsapp' | 'sms';
     destinationMask: string;
     documentSha256: string;
     /**

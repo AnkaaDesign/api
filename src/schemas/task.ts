@@ -2524,7 +2524,15 @@ export const taskCreateSchema = z
         z.object({
           name: z.string().min(1, 'Nome é obrigatório'),
           phone: z.string().min(10, 'Telefone inválido'),
-          email: z.string().email('Email inválido').optional().or(z.literal('')),
+          // E-mail OBRIGATÓRIO no cadastro inline: a assinatura eletrônica de
+          // orçamento (convite e código de uso único) sai por e-mail, então um
+          // contato criado sem ele nasce impedido de assinar. Este é o ponto de
+          // autoridade — o formulário web também barra, mas só isto vale.
+          email: z
+            .string()
+            .min(1, 'E-mail é obrigatório')
+            .email('E-mail inválido')
+            .transform(v => v.trim().toLowerCase()),
           // CPF opcional: o cadastro inline pode informá-lo, e é ele que permite
           // a conferência PARCIAL do documento na assinatura eletrônica. Sem esta
           // chave o Zod descartava o campo em silêncio (z.object faz strip).
@@ -2768,7 +2776,15 @@ export const taskUpdateSchema = z
         z.object({
           name: z.string().min(1, 'Nome é obrigatório'),
           phone: z.string().min(10, 'Telefone inválido'),
-          email: z.string().email('Email inválido').optional().or(z.literal('')),
+          // E-mail OBRIGATÓRIO no cadastro inline: a assinatura eletrônica de
+          // orçamento (convite e código de uso único) sai por e-mail, então um
+          // contato criado sem ele nasce impedido de assinar. Este é o ponto de
+          // autoridade — o formulário web também barra, mas só isto vale.
+          email: z
+            .string()
+            .min(1, 'E-mail é obrigatório')
+            .email('E-mail inválido')
+            .transform(v => v.trim().toLowerCase()),
           // CPF opcional: o cadastro inline pode informá-lo, e é ele que permite
           // a conferência PARCIAL do documento na assinatura eletrônica. Sem esta
           // chave o Zod descartava o campo em silêncio (z.object faz strip).

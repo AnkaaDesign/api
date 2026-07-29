@@ -39,7 +39,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { COMPANY } from '@/config/company';
 import { formatResponsibleRoles } from '@constants/enums';
 import { SignatureAuditService } from './signature-audit.service';
-import { SigningChallengeService } from './signing-challenge.service';
+import { SigningChallengeService, SIGNING_CODE_TTL_MINUTES } from './signing-challenge.service';
 import {
   QuoteSnapshot,
   QuoteSnapshotService,
@@ -62,11 +62,18 @@ import {
   formatVerificationCode,
   maskCpf,
   isCpfWellFormed,
+  maskEmail,
   maskPhone,
+  emailMaskParts,
   onlyDigits,
-  phoneMaskParts,
   cpfMaskParts,
 } from '../utils/identity';
+import {
+  generateSignatureInvitationEmail,
+  generateSignatureOtpEmail,
+  generateAnkaaCountersignEmail,
+  generateEnvelopeVoidedEmail,
+} from '../../../../templates/signature-emails';
 import { sha256Hex } from '../utils/canonical';
 import { describeSignatureSecretProblems, inspectSignatureSecrets } from '../utils/secrets';
 import {
@@ -80,8 +87,9 @@ export interface RequestContext {
   userAgent: string | null;
 }
 
-interface WhatsAppSender {
-  sendMessage(phone: string, message: string): Promise<boolean>;
+interface EmailSender {
+  /** Devolve `false` em qualquer falha; nunca lança. */
+  sendEmail(to: string, subject: string, html: string): Promise<boolean>;
 }
 
 @Injectable()
@@ -131,10 +139,10 @@ export class SignatureEnvelopeService {
     );
   }
 
-  /** Injetado tardiamente para não acoplar o módulo ao transporte de WhatsApp. */
-  private whatsapp: WhatsAppSender | null = null;
-  setWhatsAppSender(sender: WhatsAppSender): void {
-    this.whatsapp = sender;
+  /** Injetado tardiamente para não acoplar o módulo ao transporte de e-mail. */
+  private mailer: EmailSender | null = null;
+  setEmailSender(sender: EmailSender): void {
+    this.mailer = sender;
   }
 
   /**
@@ -199,16 +207,30 @@ export class SignatureEnvelopeService {
       );
     }
 
-    const missingPhone = responsibles.filter(r => onlyDigits(r.phone).length < 10);
-    if (missingPhone.length) {
+    // O e-mail é o canal do convite E do código. Sem ele o responsável entra
+    // numa coleta que nunca vai conseguir concluir, e a falha só apareceria
+    // lá na frente como INVITATION_FAILED. Barrar aqui é o que mantém o erro
+    // perto da causa: falta cadastro.
+    const missingEmail = responsibles.filter(r => !r.email?.includes('@'));
+    if (missingEmail.length) {
       throw new BadRequestException(
-        `Responsáveis sem telefone válido no cadastro: ${missingPhone
+        `Responsáveis sem e-mail válido no cadastro: ${missingEmail
           .map(r => r.name)
-          .join(', ')}. O código de assinatura é enviado ao número cadastrado.`,
+          .join(', ')}. O convite e o código de assinatura são enviados ao e-mail cadastrado.`,
       );
     }
 
     const ankaaUser = await this.resolveAnkaaSigner(quote);
+
+    // O signatário da Ankaa cai no mesmo critério. Não existe fallback para um
+    // e-mail institucional aqui de propósito: uma caixa compartilhada enfraquece
+    // o argumento de posse do canal que sustenta o valor probatório do código.
+    if (!ankaaUser.email?.includes('@')) {
+      throw new BadRequestException(
+        `O representante da Ankaa (${ankaaUser.name}) está sem e-mail no cadastro. ` +
+          'Cadastre o e-mail antes de enviar o orçamento para assinatura.',
+      );
+    }
 
     const previous = await this.prisma.signatureEnvelope.findFirst({
       where: { quoteId: args.quoteId },
@@ -324,13 +346,13 @@ export class SignatureEnvelopeService {
             userId: seed.userId,
             orderGroup: seed.orderGroup,
             declaredName: seed.name,
-            declaredPhone: seed.phone,
+            declaredPhone: seed.phone || null,
             declaredEmail: seed.email ?? null,
-            phoneSource: 'customer_registry',
-            // Também o signatário Ankaa assina pelo link com código no WhatsApp.
-            // Um OTP no telefone do diretor é evidência melhor do que "estava
+            contactSource: 'customer_registry',
+            // Também o signatário Ankaa assina pelo link com código no e-mail.
+            // Um OTP na caixa do diretor é evidência melhor do que "estava
             // logado no sistema", e mantém uma única cerimônia para todos.
-            authMethod: SignatureAuthMethod.WHATSAPP_OTP,
+            authMethod: SignatureAuthMethod.EMAIL_OTP,
             accessToken: randomBytes(32).toString('base64url'),
             tokenExpiresAt: deadlineAt,
           },
@@ -508,35 +530,56 @@ export class SignatureEnvelopeService {
     // Sequencial: só o grupo 0 é convidado agora. A Ankaa (grupo 1) assina depois
     // de ver quem assinou do outro lado.
     for (const signer of envelope.signers.filter(s => s.orderGroup === 0)) {
-      const url = this.signingUrl(signer.accessToken);
-      const message =
-        `*Orçamento nº ${envelope.quote.budgetNumber} — ${COMPANY.name}*\n\n` +
-        `Olá, ${signer.declaredName}.\n` +
-        `Seu orçamento está pronto para revisão e assinatura eletrônica.\n\n` +
-        `${url}\n\n` +
-        `O link é pessoal e válido até ${envelope.deadlineAt.toLocaleDateString('pt-BR')}.`;
+      const { subject, html } = generateSignatureInvitationEmail({
+        signerName: signer.declaredName,
+        budgetNumber: envelope.quote.budgetNumber,
+        signingUrl: this.signingUrl(signer.accessToken),
+        deadlineDate: envelope.deadlineAt.toLocaleDateString('pt-BR'),
+      });
 
-      const ok = await this.sendWhatsApp(signer.declaredPhone, message);
+      const ok = await this.sendEmail(signer.declaredEmail, subject, html, 'SIGNATURE_INVITATION');
       await this.audit.recordBestEffort(envelopeId, {
         eventType: ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
         actorType: 'SYSTEM',
         actorId: signer.id,
         actorLabel: signer.declaredName,
-        payload: { channel: 'whatsapp', destination: maskPhone(signer.declaredPhone) },
+        payload: { channel: 'email', destination: maskEmail(signer.declaredEmail) },
       });
     }
   }
 
-  private async sendWhatsApp(phone: string, message: string): Promise<boolean> {
-    if (!this.whatsapp) {
-      this.logger.error('Transporte de WhatsApp não configurado — convite não enviado.');
+  /**
+   * Único ponto de saída de mensagem do fluxo.
+   *
+   * Devolve boolean e nunca lança: cada chamador decide entre gravar
+   * INVITATION_SENT ou INVITATION_FAILED a partir daqui.
+   *
+   * Atenção ao que `true` significa: o servidor de e-mail ACEITOU a mensagem.
+   * Não há webhook de bounce, então uma devolução assíncrona (DSN) é invisível
+   * para o sistema. Só rejeição síncrona no SMTP vira `false`.
+   */
+  private async sendEmail(
+    to: string | null | undefined,
+    subject: string,
+    html: string,
+    kind: string,
+  ): Promise<boolean> {
+    // Guarda explícita: sem ela um destinatário vazio seguiria para o
+    // transporte e poderia render um INVITATION_SENT para mensagem que não foi
+    // a lugar nenhum.
+    if (!to || !to.includes('@')) {
+      this.logger.error('Signatário sem e-mail válido — mensagem não enviada.');
+      return false;
+    }
+    if (!this.mailer) {
+      this.logger.error('Transporte de e-mail não configurado — mensagem não enviada.');
       return false;
     }
     try {
-      return await this.whatsapp.sendMessage(phone, message);
+      return await this.mailer.sendEmail(to, subject, html);
     } catch (error) {
       this.logger.error(
-        `Falha ao enviar WhatsApp: ${error instanceof Error ? error.message : error}`,
+        `Falha ao enviar e-mail (${kind}): ${error instanceof Error ? error.message : error}`,
       );
       return false;
     }
@@ -639,8 +682,8 @@ export class SignatureEnvelopeService {
       signer: {
         id: signer.id,
         name: signer.declaredName,
-        phoneMasked: maskPhone(signer.declaredPhone),
-        phoneParts: phoneMaskParts(signer.declaredPhone),
+        emailMasked: maskEmail(signer.declaredEmail),
+        emailParts: emailMaskParts(signer.declaredEmail),
         cpfParts: signer.declaredCpf ? cpfMaskParts(signer.declaredCpf) : null,
         status: signer.status,
         cargo: signer.informedCargo,
@@ -688,8 +731,8 @@ export class SignatureEnvelopeService {
     token: string;
     cpf: string;
     cargo: string;
-    /** Dígitos ocultos do telefone, digitados pelo signatário para confirmação. */
-    phoneConfirm?: string | null;
+    /** Caracteres ocultos do e-mail, digitados pelo signatário para confirmação. */
+    emailConfirm?: string | null;
     ctx: RequestContext;
   }): Promise<{ challengeId: string; destinationMask: string; expiresAt: Date }> {
     this.assertCeremonyConfigured();
@@ -707,20 +750,34 @@ export class SignatureEnvelopeService {
       throw new BadRequestException('Informe seu cargo na empresa.');
     }
 
-    // Confirmação do telefone ANTES de disparar o código.
+    // Confirmação do e-mail ANTES de disparar o código.
     //
-    // O número é do cadastro e o signatário não pode alterá-lo — é isso que dá
-    // peso probatório ao OTP. Mas ele pode CONFIRMAR que conhece o número,
-    // digitando os dígitos que a máscara esconde. Isso detecta cedo um cadastro
-    // errado (o código iria para o telefone de outra pessoa) e é mais um dado
-    // ligando o signatário ao canal.
-    const phoneDigits = onlyDigits(signer.declaredPhone);
-    const hidden = phoneDigits.slice(-8, -4); // os 4 escondidos pela máscara
-    if (hidden.length === 4) {
-      const typed = onlyDigits(args.phoneConfirm ?? '');
+    // O endereço é do cadastro e o signatário não pode alterá-lo — é isso que dá
+    // peso probatório ao OTP. Mas ele pode CONFIRMAR que o conhece, digitando os
+    // caracteres que a máscara esconde. Isso detecta cedo um cadastro errado (o
+    // código iria para a caixa de outra pessoa) e é mais um dado ligando o
+    // signatário ao canal.
+    //
+    // Diferente da versão que checava telefone, aqui NÃO se faz fail-open: se o
+    // endereço não for mascarável, o pedido é recusado. A checagem anterior era
+    // pulada em silêncio quando o telefone era curto ou vazio, e o segundo fator
+    // desaparecia sem log nem evento de auditoria.
+    const parts = emailMaskParts(signer.declaredEmail);
+    if (!parts.domain) {
+      this.logger.error(
+        `Signatário ${signer.id} sem e-mail mascarável — confirmação impossível.`,
+      );
+      throw new BadRequestException(
+        'O e-mail cadastrado para este signatário é inválido. Fale com a Ankaa.',
+      );
+    }
+    if (parts.hiddenLength > 0) {
+      const local = (signer.declaredEmail ?? '').trim().toLowerCase().split('@')[0];
+      const hidden = local.slice(parts.prefix.length, local.length - parts.suffix.length);
+      const typed = (args.emailConfirm ?? '').trim().toLowerCase();
       if (typed !== hidden) {
         throw new BadRequestException(
-          'Os dígitos do telefone não conferem. Confirme o número cadastrado ou fale com a Ankaa.',
+          'Os caracteres do e-mail não conferem. Confirme o endereço cadastrado ou fale com a Ankaa.',
         );
       }
     }
@@ -748,8 +805,8 @@ export class SignatureEnvelopeService {
     // atado a ela.
     const challenge = await this.challenges.issue({
       signerId: signer.id,
-      channel: 'whatsapp',
-      destinationMask: maskPhone(signer.declaredPhone),
+      channel: 'email',
+      destinationMask: maskEmail(signer.declaredEmail),
       documentSha256: env.originalSha256,
       identity: cpfDigits,
     });
@@ -793,13 +850,16 @@ export class SignatureEnvelopeService {
       });
     }
 
-    const message =
-      `*${challenge.code}* é o seu código de assinatura do orçamento nº ${env.quote.budgetNumber}.\n\n` +
-      `Ele expira em 5 minutos. Nunca compartilhe este código.`;
+    const otpEmail = generateSignatureOtpEmail({
+      signerName: signer.declaredName,
+      budgetNumber: env.quote.budgetNumber,
+      code: challenge.code,
+      expiryMinutes: SIGNING_CODE_TTL_MINUTES,
+    });
 
     // Modo de desenvolvimento: ecoa o código no log em vez de enviar.
     // DUAS travas: só fora de produção E com a flag explícita. Existe para
-    // permitir testar a cerimônia inteira sem disparar mensagem para o telefone
+    // permitir testar a cerimônia inteira sem disparar mensagem para o e-mail
     // real de um cliente. Em produção esta condição é inalcançável.
     const devEcho =
       process.env.NODE_ENV !== 'production' &&
@@ -808,12 +868,17 @@ export class SignatureEnvelopeService {
     let ok: boolean;
     if (devEcho) {
       this.logger.warn(
-        `[DEV] Código de assinatura de ${signer.declaredName} (${maskPhone(signer.declaredPhone)}): ` +
+        `[DEV] Código de assinatura de ${signer.declaredName} (${maskEmail(signer.declaredEmail)}): ` +
           `${challenge.code} — NENHUMA mensagem foi enviada.`,
       );
       ok = true;
     } else {
-      ok = await this.sendWhatsApp(signer.declaredPhone, message);
+      ok = await this.sendEmail(
+        signer.declaredEmail,
+        otpEmail.subject,
+        otpEmail.html,
+        'SIGNATURE_OTP',
+      );
     }
     await this.challenges.markDelivered(challenge.challengeId, null, ok ? 'sent' : 'failed');
 
@@ -821,7 +886,7 @@ export class SignatureEnvelopeService {
       eventType: ok ? 'OTP_SENT' : 'OTP_DELIVERY_FAILED',
       actorType: 'SYSTEM',
       actorId: signer.id,
-      payload: { channel: 'whatsapp', destination: maskPhone(signer.declaredPhone) },
+      payload: { channel: 'email', destination: maskEmail(signer.declaredEmail) },
     });
 
     if (!ok) {
@@ -830,7 +895,7 @@ export class SignatureEnvelopeService {
       // verificação e para bloquear a próxima emissão.
       await this.challenges.supersedeAllForSigner(signer.id);
       throw new BadRequestException(
-        'Não foi possível enviar o código pelo WhatsApp. Tente novamente em instantes ou fale com a Ankaa.',
+        'Não foi possível enviar o código para o seu e-mail. Tente novamente em instantes ou fale com a Ankaa.',
       );
     }
 
@@ -1456,16 +1521,23 @@ export class SignatureEnvelopeService {
       include: { envelope: { include: { quote: true } } },
     });
     if (!signer) return;
-    const url = this.signingUrl(signer.accessToken);
-    const message =
-      `*Orçamento nº ${signer.envelope.quote.budgetNumber}* — todos os responsáveis do cliente ` +
-      `já assinaram.\nRevise os signatários e assine: ${url}`;
-    const ok = await this.sendWhatsApp(signer.declaredPhone, message);
+    const { subject, html } = generateAnkaaCountersignEmail({
+      signerName: signer.declaredName,
+      budgetNumber: signer.envelope.quote.budgetNumber,
+      signingUrl: this.signingUrl(signer.accessToken),
+    });
+    const ok = await this.sendEmail(
+      signer.declaredEmail,
+      subject,
+      html,
+      'SIGNATURE_ANKAA_NOTICE',
+    );
     await this.audit.recordBestEffort(envelopeId, {
       eventType: ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
       actorType: 'SYSTEM',
       actorId: signerId,
-      payload: { stage: 'ankaa' },
+      actorLabel: signer.declaredName,
+      payload: { stage: 'ankaa', channel: 'email', destination: maskEmail(signer.declaredEmail) },
     });
   }
 
@@ -1725,7 +1797,9 @@ export class SignatureEnvelopeService {
   async onQuoteContentChanged(quoteId: string, actorUserId: string | null): Promise<boolean> {
     const running = await this.prisma.signatureEnvelope.findFirst({
       where: { quoteId, status: EnvelopeStatus.RUNNING },
-      include: { signers: true },
+      // `quote` entra aqui porque o aviso de invalidação identifica o orçamento
+      // pelo número; sem o include ele sairia com um travessão no lugar.
+      include: { signers: true, quote: true },
     });
     if (!running) return false;
 
@@ -1794,17 +1868,27 @@ export class SignatureEnvelopeService {
     // mudou" e é também a conduta que sustenta boa-fé numa eventual disputa.
     const alreadySigned = running.signers.filter(s => s.signedAt);
     for (const s of alreadySigned) {
-      await this.sendWhatsApp(
-        s.declaredPhone,
-        `*Orçamento alterado*\n\nO orçamento que você assinou foi alterado pela ${COMPANY.name}. ` +
-          `${reason}\n\nSua assinatura anterior foi invalidada e uma nova versão será enviada ` +
-          `para sua revisão.`,
+      const { subject, html } = generateEnvelopeVoidedEmail({
+        signerName: s.declaredName,
+        budgetNumber: running.quote?.budgetNumber ?? '—',
+        reason,
+        hadSigned: true,
+      });
+      const notified = await this.sendEmail(
+        s.declaredEmail,
+        subject,
+        html,
+        'SIGNATURE_VOIDED',
       );
       await this.audit.recordBestEffort(running.id, {
         eventType: 'SIGNER_VOIDED',
         actorType: 'SYSTEM',
         actorId: s.id,
         actorLabel: s.declaredName,
+        // Antes o resultado do envio era descartado e o evento gravado de
+        // qualquer forma: a trilha afirmava que o signatário foi avisado sem
+        // que nada garantisse isso.
+        payload: { channel: 'email', notified },
       });
     }
 
@@ -2211,12 +2295,14 @@ export class SignatureEnvelopeService {
       signers: env.signers.map(s => ({
         id: s.id,
         name: s.declaredName,
+        emailMasked: maskEmail(s.declaredEmail),
+        email: s.declaredEmail,
         phoneMasked: maskPhone(s.declaredPhone),
         phone: s.declaredPhone,
         // Link pessoal, exposto SOMENTE na rota interna (ADMIN/COMMERCIAL/FINANCIAL).
         // Sem isto o operador não tinha como entregar o convite quando o envio
-        // automático falha — e ele falha silenciosamente sempre que a sessão do
-        // WhatsApp não está pareada.
+        // automático falha — e ele falha sempre que o endereço cadastrado está
+        // errado ou o servidor de e-mail recusa a entrega.
         signingUrl: this.signingUrl(s.accessToken),
         cpfMasked: s.informedCpf ? maskCpf(s.informedCpf) : null,
         cargo: s.informedCargo,
@@ -2237,9 +2323,9 @@ export class SignatureEnvelopeService {
   /**
    * Reenvia o convite de um signatário.
    *
-   * O envio automático depende da sessão Baileys estar pareada; quando não está,
-   * `sendWhatsApp` devolve false e o evento fica INVITATION_FAILED. Sem uma ação
-   * de reenvio o operador ficava sem saída a não ser cancelar e reemitir.
+   * O envio automático depende do servidor de e-mail aceitar a mensagem; quando
+   * ele recusa, `sendEmail` devolve false e o evento fica INVITATION_FAILED. Sem
+   * uma ação de reenvio o operador ficava sem saída a não ser cancelar e reemitir.
    */
   async resendInvitation(
     signerId: string,
@@ -2255,15 +2341,20 @@ export class SignatureEnvelopeService {
       throw new BadRequestException('Esta coleta não está mais ativa.');
     }
 
-    const url = this.signingUrl(signer.accessToken);
-    const message =
-      `*Orçamento nº ${signer.envelope.quote.budgetNumber} — ${COMPANY.name}*\n\n` +
-      `Olá, ${signer.declaredName}.\n` +
-      `Seu orçamento está pronto para revisão e assinatura eletrônica.\n\n` +
-      `${url}\n\n` +
-      `O link é pessoal e válido até ${signer.envelope.deadlineAt.toLocaleDateString('pt-BR')}.`;
+    const { subject, html } = generateSignatureInvitationEmail({
+      signerName: signer.declaredName,
+      budgetNumber: signer.envelope.quote.budgetNumber,
+      signingUrl: this.signingUrl(signer.accessToken),
+      deadlineDate: signer.envelope.deadlineAt.toLocaleDateString('pt-BR'),
+      isResend: true,
+    });
 
-    const ok = await this.sendWhatsApp(signer.declaredPhone, message);
+    const ok = await this.sendEmail(
+      signer.declaredEmail,
+      subject,
+      html,
+      'SIGNATURE_INVITATION_RESEND',
+    );
     await this.audit.record(signer.envelopeId, {
       eventType: ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
       actorType: 'OPERATOR',
@@ -2271,7 +2362,7 @@ export class SignatureEnvelopeService {
       actorLabel: signer.declaredName,
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
-      payload: { channel: 'whatsapp', resentBy: actorUserId },
+      payload: { channel: 'email', destination: maskEmail(signer.declaredEmail), resentBy: actorUserId },
     });
     return ok;
   }

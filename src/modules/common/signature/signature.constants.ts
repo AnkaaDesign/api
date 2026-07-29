@@ -6,7 +6,16 @@
  * booleano. Alterar qualquer texto aqui exige incrementar a versão.
  */
 
-export const DECLARATIONS_VERSION = 1;
+/**
+ * v2 (2026-07-29): o código de uso único passou a ser entregue por e-mail, não
+ * mais por WhatsApp. Mudaram a `ACCEPTANCE_CLAUSE` e a declaração `identity`,
+ * e a regra do topo deste arquivo obriga a incrementar a versão junto.
+ *
+ * Envelopes assinados sob a v1 não são afetados: `EnvelopeSigner.declarations`
+ * guarda o texto exato que aquela pessoa leu, e `SignatureEnvelope.acceptanceClause`
+ * é persistida por envelope. Nenhum dos dois pode ser retroalimentado.
+ */
+export const DECLARATIONS_VERSION = 2;
 
 /**
  * Cláusula impressa no corpo do orçamento.
@@ -22,7 +31,7 @@ export const ACCEPTANCE_CLAUSE =
   'ACEITAÇÃO DO MEIO ELETRÔNICO. As partes reconhecem e aceitam, para todos os fins do ' +
   'art. 10, § 2º, da Medida Provisória nº 2.200-2/2001, a assinatura eletrônica deste ' +
   'orçamento por meio da plataforma da CONTRATADA, mediante autenticação por código de uso ' +
-  'único enviado ao telefone cadastrado do signatário e registro de trilha de auditoria, ' +
+  'único enviado ao endereço de e-mail cadastrado do signatário e registro de trilha de auditoria, ' +
   'admitindo tal método como meio válido de comprovação de autoria e integridade, com os ' +
   'mesmos efeitos da assinatura manuscrita, e renunciando a impugná-lo exclusivamente em ' +
   'razão de sua forma eletrônica ou da ausência de certificação ICP-Brasil.';
@@ -53,7 +62,7 @@ export const DECLARATIONS: DeclarationDef[] = [
   {
     key: 'identity',
     template:
-      'Declaro que os dados de identificação por mim informados (nome, CPF e telefone) são ' +
+      'Declaro que os dados de identificação por mim informados (nome, CPF e e-mail) são ' +
       'verdadeiros e me pertencem.',
   },
   {
@@ -81,8 +90,16 @@ export function renderDeclaration(
 /** Base legal registrada em cada envelope (LGPD art. 7º IX + VI; nunca consentimento). */
 export const LEGAL_BASIS = 'MP 2.200-2/2001, art. 10, §2º';
 
-/** Rótulos de método de autenticação impressos no selo e na trilha. */
+/**
+ * Rótulos de método de autenticação impressos no selo e na trilha.
+ *
+ * WHATSAPP_OTP e SMS_OTP ficam aqui PARA SEMPRE. O selo é reestampado a cada
+ * download do PDF interno (`stampSeals`), lendo este mapa ao vivo — remover a
+ * chave faria um documento antigo passar a imprimir o nome cru do enum no lugar
+ * do método que de fato autenticou aquela pessoa.
+ */
 export const AUTH_METHOD_LABELS: Record<string, string> = {
+  EMAIL_OTP: 'Código de uso único via e-mail',
   WHATSAPP_OTP: 'Código de uso único via WhatsApp',
   SMS_OTP: 'Código de uso único via SMS',
   INTERNAL_SESSION: 'Sessão autenticada Ankaa',

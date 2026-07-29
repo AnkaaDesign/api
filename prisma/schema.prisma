@@ -2494,17 +2494,38 @@ model AttentionAck {
 }
 
 model DeviceToken {
-  id        String   @id @default(uuid())
-  userId    String
-  token     String   @unique
-  platform  Platform
-  isActive  Boolean  @default(true)
+  id       String   @id @default(uuid())
+  userId   String
+  token    String   @unique
+  platform Platform
+  isActive Boolean  @default(true)
+
+  /// Stable per-install identifier supplied by the client, when it sends one.
+  /// Two tokens sharing a deviceId are the same physical install, so the older
+  /// one is dead the moment the newer one registers.
+  deviceId String?
+
+  /// Last time the CLIENT asserted this token (register endpoint). This is the
+  /// liveness signal used for staleness pruning — `updatedAt` cannot be used
+  /// because delivery bookkeeping writes to the row too.
+  lastRegisteredAt DateTime @default(now())
+
+  /// Delivery health, maintained by PushService/DeviceTokenService.
+  lastSuccessAt      DateTime?
+  lastFailureAt      DateTime?
+  /// Consecutive delivery failures; reset to 0 on any success.
+  failureCount       Int       @default(0)
+  deactivatedAt      DateTime?
+  deactivationReason String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User     @relation("USER_DEVICE_TOKENS", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([platform])
+  @@index([userId, isActive])
+  @@index([deviceId])
 }
 
 model UserNotificationPreference {
@@ -7010,11 +7031,15 @@ model EnvelopeSigner {
   orderGroup Int @default(0)
 
   /// O que a ANKAA afirma (vem do cadastro; o signatário não edita).
+  /// `declaredEmail` é o canal do convite e do código — na prática obrigatório
+  /// para EMAIL_OTP, garantido pela CHECK `contact_matches_auth_method`.
+  /// `declaredPhone` virou opcional: continua sendo identidade do contato e sai
+  /// impresso no selo, mas não é mais condição para assinar.
   declaredName  String
-  declaredPhone String
+  declaredPhone String?
   declaredCpf   String?
   declaredEmail String?
-  phoneSource   String  @default("customer_registry")
+  contactSource String  @default("customer_registry")
 
   /// O que o SIGNATÁRIO informa no ato. Guardar ambos é o que dá evidência de
   /// dois lados — é o padrão Clicksign.
@@ -7025,7 +7050,7 @@ model EnvelopeSigner {
   qsaMatch      Boolean?
 
   status         EnvelopeSignerStatus @default(PENDING)
-  authMethod     SignatureAuthMethod  @default(WHATSAPP_OTP)
+  authMethod     SignatureAuthMethod  @default(EMAIL_OTP)
   accessToken    String               @unique
   tokenExpiresAt DateTime
 
@@ -7155,8 +7180,13 @@ enum EnvelopeSignerStatus {
   VOIDED
 }
 
+/// WHATSAPP_OTP e SMS_OTP NUNCA são removidos: envelopes já assinados carregam
+/// esses valores na evidência selada e na trilha append-only. Apagar o rótulo
+/// não apaga o fato — só faria o selo de um documento antigo imprimir outra
+/// coisa. WHATSAPP_OTP volta a ser emitido quando a API oficial da Meta entrar.
 enum SignatureAuthMethod {
   WHATSAPP_OTP
+  EMAIL_OTP
   SMS_OTP
   INTERNAL_SESSION
 }

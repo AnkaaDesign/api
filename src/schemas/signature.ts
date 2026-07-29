@@ -98,8 +98,8 @@ const clientTimestampSchema = z
 /**
  * Etapa 1 — identificação e emissão do código.
  *
- * `phoneConfirm` são apenas os dígitos que a máscara esconde: o número é o do
- * cadastro e o signatário NÃO o edita (é isso que dá peso probatório ao OTP);
+ * `emailConfirm` são apenas os caracteres que a máscara esconde: o endereço é o
+ * do cadastro e o signatário NÃO o edita (é isso que dá peso probatório ao OTP);
  * ele só confirma que o conhece.
  */
 export const signatureRequestCodeSchema = z.object({
@@ -112,11 +112,11 @@ export const signatureRequestCodeSchema = z.object({
     .trim()
     .min(2, 'Informe seu cargo na empresa.')
     .max(100, 'Cargo deve ter no máximo 100 caracteres.'),
-  phoneConfirm: z
+  emailConfirm: z
     .string()
-    .max(20, 'Confirmação de telefone inválida.')
+    .max(254, 'Confirmação de e-mail inválida.')
     .nullish()
-    .transform(value => value ?? ''),
+    .transform(value => (value ?? '').trim().toLowerCase()),
 });
 
 export type SignatureRequestCodeFormData = z.infer<typeof signatureRequestCodeSchema>;

@@ -118,6 +118,64 @@ export function phoneMaskParts(phone: string | null | undefined): {
   };
 }
 
+/**
+ * `joao.silva@empresa.com.br` → `j***a@empresa.com.br`
+ *
+ * Preserva a primeira letra da parte local, a última quando há folga, e o
+ * domínio inteiro. Esconder o domínio custaria reconhecimento e não protegeria
+ * nada: ele é quase sempre o da própria contratante, já impresso ao lado do
+ * CNPJ na mesma página.
+ *
+ * O número de asteriscos é FIXO de propósito. Um `'*'.repeat(local.length - 2)`
+ * publicaria o comprimento exato da parte local — atributo de baixa
+ * cardinalidade que, somado ao nome do signatário que o selo já imprime,
+ * estreita bastante um palpite. Mesma razão de `maskCpf` usar `***` fixo.
+ *
+ * Como toda máscara deste arquivo: vale para EXIBIÇÃO. O endereço completo
+ * continua em `EnvelopeSigner.declaredEmail`.
+ */
+export function maskEmail(email: string | null | undefined): string {
+  const raw = (email ?? '').trim().toLowerCase();
+  const at = raw.lastIndexOf('@');
+  if (at <= 0 || at === raw.length - 1) return '***@***';
+  const local = raw.slice(0, at);
+  const domain = raw.slice(at + 1);
+  if (!domain.includes('.')) return '***@***';
+  const tail = local.length >= 4 ? local[local.length - 1] : '';
+  return `${local[0]}***${tail}@${domain}`;
+}
+
+/**
+ * Partes da máscara do e-mail, para a confirmação parcial na tela.
+ * `joao.silva@empresa.com.br` → { prefix: 'j', hidden: 8, suffix: 'a', domain: 'empresa.com.br' }
+ *
+ * O signatário completa só os caracteres ocultos da parte local — o domínio
+ * aparece inteiro. Digitar o endereço todo não provaria nada além de saber ler
+ * a própria tela; o que liga a assinatura à pessoa é ela conhecer o endereço
+ * que a Ankaa tem no cadastro.
+ */
+export function emailMaskParts(email: string | null | undefined): {
+  prefix: string;
+  hiddenLength: number;
+  suffix: string;
+  domain: string;
+} {
+  const raw = (email ?? '').trim().toLowerCase();
+  const at = raw.lastIndexOf('@');
+  if (at <= 0 || at === raw.length - 1) {
+    return { prefix: '', hiddenLength: 0, suffix: '', domain: '' };
+  }
+  const local = raw.slice(0, at);
+  const domain = raw.slice(at + 1);
+  const hasTail = local.length >= 4;
+  return {
+    prefix: local.slice(0, 1),
+    hiddenLength: Math.max(local.length - (hasTail ? 2 : 1), 0),
+    suffix: hasTail ? local.slice(-1) : '',
+    domain,
+  };
+}
+
 /** `43984283228` → `(43) 98428-3228` (uso interno, não exibir ao público). */
 export function formatPhone(phone: string | null | undefined): string {
   const d = onlyDigits(phone);

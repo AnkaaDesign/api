@@ -1,0 +1,14 @@
+-- Adiciona EMAIL_OTP ao enum de método de autenticação da assinatura.
+--
+-- Esta migration contém SOMENTE o ADD VALUE, e isso é obrigatório: no Postgres
+-- um valor recém-adicionado a um enum preexistente não pode ser REFERENCIADO
+-- (em DEFAULT, CHECK, UPDATE ou cast) na mesma transação que o adicionou. O
+-- Prisma roda cada migration.sql numa transação implícita, então usar
+-- 'EMAIL_OTP' exige um segundo arquivo — ver 20260729140100.
+--
+-- WHATSAPP_OTP e SMS_OTP permanecem no enum PARA SEMPRE. Envelopes já assinados
+-- carregam WHATSAPP_OTP na evidência selada (evidenceJson + evidenceHash +
+-- hmacSignature) e na cadeia append-only de auditoria. Remover o valor exigiria
+-- reescrever aquelas linhas para algo diferente do que de fato aconteceu, e a
+-- linha passaria a contradizer a própria evidência que ela sela.
+ALTER TYPE "SignatureAuthMethod" ADD VALUE IF NOT EXISTS 'EMAIL_OTP' AFTER 'WHATSAPP_OTP';
