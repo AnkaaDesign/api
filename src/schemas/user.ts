@@ -1926,6 +1926,19 @@ export const userUpdateSchema = z
   )
   .refine(
     data => {
+      // ...and the converse: a vínculo declared TERMINATED cannot be left without a
+      // termination date. Only fires when the caller explicitly nulls the date while
+      // sending the status (the "Data de Demissão" field on the collaborator form) —
+      // an update that omits either field is untouched.
+      return !(data.contractStatus === CONTRACT_STATUS.TERMINATED && data.terminationDate === null);
+    },
+    {
+      message: 'Um vínculo desligado precisa de uma data de demissão',
+      path: ['terminationDate'],
+    },
+  )
+  .refine(
+    data => {
       // EmployeeType ↔ ContractType integrity: CLT requires a CLT modality;
       // off-folha (terceirizado/PJ/autônomo/estagiário) must NOT carry a modality.
       // Only validated when both are present in this update (partial edits OK —
