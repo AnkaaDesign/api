@@ -223,10 +223,16 @@ export class NotificationSchedulerService {
   }
 
   /**
-   * Clean old notifications monthly
-   * Removes notifications older than 30 days
+   * Clean old notifications — DAILY (was monthly, `0 0 1 * *`).
+   *
+   * Monthly meant the table only ever shrank once every ~30 days, so between
+   * runs it carried up to two full retention windows. Running at 03:00 every day
+   * keeps each pass small (one day's worth of expiry) and the table flat.
+   *
+   * Retention window is unchanged for the normal path: sent notifications older
+   * than 30 days. See `deleteOldNotifications` for the never-sent arm.
    */
-  @Cron('0 0 1 * *', { timeZone: 'America/Sao_Paulo' })
+  @Cron('0 3 * * *', { timeZone: 'America/Sao_Paulo' })
   async cleanOldNotifications(): Promise<void> {
     const startTime = Date.now();
     let deletedCount = 0;
@@ -381,19 +387,49 @@ export class NotificationSchedulerService {
   }
 
   /**
-   * Delete notifications older than the specified date
+   * Delete notifications older than the specified date.
+   *
+   * Two arms, deliberately asymmetric:
+   *
+   *  1. SENT notifications past the normal retention window (`beforeDate`, today
+   *     30 days). Unchanged behaviour.
+   *
+   *  2. NEVER-SENT notifications older than {@link NEVER_SENT_RETENTION_DAYS}.
+   *     The old `sentAt: { not: null }` guard was absolute, so a notification
+   *     whose deliveries all failed (or that was scheduled and never dispatched)
+   *     was NEVER purged — it accumulated forever. The guard existed to protect
+   *     rows still waiting to go out, so the replacement keeps that protection
+   *     with a much longer, separate window: three months is far beyond any
+   *     legitimate scheduled-send horizon or retry budget, so anything still
+   *     unsent by then is dead weight.
+   *
+   * Conservative by construction: arm 2 never touches anything younger than
+   * 90 days, and both arms only ever look at `createdAt` in the past.
    */
   private async deleteOldNotifications(beforeDate: Date): Promise<number> {
+    // Separate, deliberately generous window for notifications that never left
+    // the building. Keep it well above the normal 30-day retention.
+    const NEVER_SENT_RETENTION_DAYS = 90;
+
+    const neverSentBefore = new Date();
+    neverSentBefore.setDate(neverSentBefore.getDate() - NEVER_SENT_RETENTION_DAYS);
+
     try {
       const result = await this.prisma.notification.deleteMany({
         where: {
-          createdAt: {
-            lt: beforeDate,
-          },
-          // Only delete notifications that have been sent
-          sentAt: {
-            not: null,
-          },
+          OR: [
+            {
+              // Normal path: delivered/sent notifications past retention.
+              createdAt: { lt: beforeDate },
+              sentAt: { not: null },
+            },
+            {
+              // Never sent (all delivery attempts failed, or never dispatched)
+              // and old enough that it will never be sent.
+              createdAt: { lt: neverSentBefore },
+              sentAt: null,
+            },
+          ],
         },
       });
 

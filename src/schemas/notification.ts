@@ -345,6 +345,19 @@ export const seenNotificationWhereSchema: z.ZodType<any> = z
 // Convenience Filters
 // =====================
 
+/**
+ * Placeholder user id emitted by the `unread` convenience filter.
+ *
+ * "Unread" only means anything relative to the requesting user, but the
+ * requester is unknown while the query schema is being parsed. The transform
+ * therefore emits `seenBy: { none: { userId: UNREAD_FILTER_REQUESTER } }` and the
+ * notification service replaces the sentinel with the authenticated user id
+ * before the where reaches Prisma. It is deliberately not uuid-shaped so that an
+ * unresolved sentinel is obvious in a query log rather than looking like a real
+ * user id.
+ */
+export const UNREAD_FILTER_REQUESTER = '__unread-filter-requester__';
+
 const notificationFilters = {
   searchingFor: z.string().optional(),
   types: z.array(z.nativeEnum(NOTIFICATION_TYPE)).optional(),
@@ -430,10 +443,20 @@ const notificationTransform = (data: any) => {
   }
 
   if (data.unread !== undefined) {
+    // "Unread" is per-requester. The previous shape (`seenBy: { none: {} }`)
+    // meant "seen by NOBODY", so a sector-wide notification that any single
+    // colleague opened dropped off everyone's unread list — and `some: {}` meant
+    // "seen by ANYONE".
+    //
+    // The requesting user is not known at schema-parse time (the controller
+    // merges the authenticated id into `where` only after validation), so the
+    // canonical shape `seenBy: { none: { userId: <requester> } }` is emitted with
+    // a sentinel that the service swaps for the real id — see
+    // `resolveUnreadFilterScope` in notification.service.ts.
     if (data.unread) {
-      andConditions.push({ seenBy: { none: {} } });
+      andConditions.push({ seenBy: { none: { userId: UNREAD_FILTER_REQUESTER } } });
     } else {
-      andConditions.push({ seenBy: { some: {} } });
+      andConditions.push({ seenBy: { some: { userId: UNREAD_FILTER_REQUESTER } } });
     }
     delete data.unread;
   }

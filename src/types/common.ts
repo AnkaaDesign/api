@@ -172,6 +172,17 @@ export interface FindManyOptions<OrderBy = any, Where = any, Include = any, Sele
   where?: Where;
   include?: Include;
   select?: Select;
+  /**
+   * Run the `count()` that fills `meta.totalRecords`.
+   *
+   * Only honoured by repositories that opted into it (today: Notification). When
+   * omitted/false those repositories skip the count and instead probe one extra
+   * row, so `hasNextPage` stays exact while `totalRecords` becomes a LOWER BOUND
+   * (exact whenever the result set fits in the requested page). Pass `true` from
+   * any caller that needs a real total — page numbers, "x de y", or a
+   * `loaded < totalRecords` style hasMore.
+   */
+  withTotal?: boolean;
 }
 
 export interface CreateOptions<Include = any, Select = any> {

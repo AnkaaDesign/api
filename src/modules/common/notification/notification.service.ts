@@ -52,6 +52,7 @@ import {
   SeenNotificationBatchUpdateFormData,
   SeenNotificationBatchDeleteFormData,
   SeenNotificationInclude,
+  UNREAD_FILTER_REQUESTER,
 } from '../../../schemas';
 import {
   NOTIFICATION_CHANNEL,
@@ -188,6 +189,81 @@ export class NotificationService {
     // Remove metadata validation as it doesn't exist in the schema
   }
 
+  /**
+   * Replace the `unread` convenience filter sentinel with the requesting user id.
+   *
+   * `notificationTransform` cannot know who is asking, so it emits
+   * `seenBy: { none: { userId: UNREAD_FILTER_REQUESTER } }`. Everything that runs
+   * a notification list must pass the where through here first, otherwise the
+   * sentinel reaches Prisma and "unread" degrades to "not seen by a user that
+   * does not exist" (i.e. everything).
+   *
+   * The scope user is taken from `where.userId` — every list endpoint pins it to
+   * the authenticated user — with an explicit override for the specialized
+   * per-user methods. When no scope can be determined the condition is dropped
+   * (and logged) rather than left dangling.
+   */
+  private resolveUnreadFilterScope<T>(where: T, scopeUserId?: string): T {
+    if (!where || typeof where !== 'object') return where;
+
+    let sawSentinel = false;
+
+    const walk = (node: any): any => {
+      if (Array.isArray(node)) {
+        return node.map(walk).filter(entry => entry !== undefined);
+      }
+      if (!node || typeof node !== 'object' || node instanceof Date) {
+        return node;
+      }
+
+      const result: Record<string, any> = {};
+      for (const [key, value] of Object.entries(node)) {
+        if (key === 'seenBy' && value && typeof value === 'object') {
+          const relation = value as Record<string, any>;
+          const scoped: Record<string, any> = {};
+          let dropped = false;
+
+          for (const [op, condition] of Object.entries(relation)) {
+            const conditionUserId = (condition as any)?.userId;
+            if (conditionUserId === UNREAD_FILTER_REQUESTER) {
+              sawSentinel = true;
+              if (!scopeUserId) {
+                dropped = true;
+                continue;
+              }
+              scoped[op] = { ...(condition as object), userId: scopeUserId };
+            } else {
+              scoped[op] = condition;
+            }
+          }
+
+          // Every operator was an unresolvable sentinel — drop the relation
+          // filter entirely instead of emitting a where that matches nothing
+          // (or, worse, everything).
+          if (dropped && Object.keys(scoped).length === 0) {
+            continue;
+          }
+          result[key] = scoped;
+          continue;
+        }
+
+        result[key] = walk(value);
+      }
+      return result;
+    };
+
+    const resolved = walk(where);
+
+    if (sawSentinel && !scopeUserId) {
+      this.logger.warn(
+        'Filtro "unread" recebido sem usuário para escopo — condição ignorada. ' +
+          'Informe where.userId ou o usuário autenticado.',
+      );
+    }
+
+    return resolved as T;
+  }
+
   // =====================
   // Notification CRUD Operations
   // =====================
@@ -196,12 +272,23 @@ export class NotificationService {
     params: NotificationGetManyFormData,
   ): Promise<NotificationGetManyResponse> {
     try {
+      const where = this.resolveUnreadFilterScope(
+        params.where,
+        typeof (params.where as any)?.userId === 'string'
+          ? ((params.where as any).userId as string)
+          : undefined,
+      );
+
       const result = await this.notificationRepository.findMany({
-        where: params.where,
+        where,
         orderBy: params.orderBy || { createdAt: 'desc' },
         page: params.page,
         take: params.limit,
         include: params.include,
+        // Client-facing list: the notification center derives `hasMore` from
+        // `data.length < meta.totalRecords` and the admin table paginates by it,
+        // so this endpoint opts into the real count.
+        withTotal: true,
       });
 
       return {
@@ -785,14 +872,19 @@ export class NotificationService {
   ): Promise<NotificationGetManyResponse> {
     try {
       const result = await this.notificationRepository.findMany({
-        where: {
-          ...params.where,
-          userId: userId,
-        },
+        where: this.resolveUnreadFilterScope(
+          {
+            ...params.where,
+            userId: userId,
+          },
+          userId,
+        ),
         orderBy: params.orderBy || { createdAt: 'desc' },
         page: params.page,
         take: params.limit,
         include: params.include,
+        // Client-facing list — clients page on meta.totalRecords.
+        withTotal: true,
       });
 
       return {
@@ -823,7 +915,9 @@ export class NotificationService {
     try {
       const result = await this.notificationRepository.findMany({
         where: {
-          ...params.where,
+          // Any `unread` sentinel in params.where is resolved first; the explicit
+          // `seenBy` below then wins, which is the same scoping anyway.
+          ...this.resolveUnreadFilterScope(params.where, userId),
           userId: userId,
           seenBy: {
             none: {
@@ -835,6 +929,8 @@ export class NotificationService {
         page: params.page,
         take: params.limit,
         include: params.include,
+        // Client-facing list — clients page on meta.totalRecords.
+        withTotal: true,
       });
 
       return {
@@ -883,28 +979,34 @@ export class NotificationService {
           );
         }
 
-        // Check if already marked as read
-        const existingSeen = await (tx as any).seenNotification.findFirst({
+        // Mark as read. UPSERT (not findFirst → create) on the
+        // `userId_notificationId` unique index: the read-then-write pair raced on
+        // a double-click and surfaced the resulting P2002 as a generic 500.
+        const seenAt = new Date();
+        const seen = await (tx as any).seenNotification.upsert({
           where: {
+            userId_notificationId: {
+              userId: userId!,
+              notificationId,
+            },
+          },
+          create: {
             notificationId,
             userId: userId!,
+            seenAt,
           },
+          // Already seen — keep the original seenAt, this call is a no-op.
+          update: {},
+          include: { notification: true, user: true },
         });
 
-        if (existingSeen) {
-          return existingSeen;
+        // `seenAt` is only written on create, so an unchanged timestamp means the
+        // row already existed and this call marked nothing new. Skip the audit
+        // entries in that case, matching the previous early-return behaviour.
+        const isNewlySeen = seen.seenAt?.getTime() === seenAt.getTime();
+        if (!isNewlySeen) {
+          return seen;
         }
-
-        // Mark as read
-        const seen = await this.seenNotificationRepository.createWithTransaction(
-          tx,
-          {
-            notificationId,
-            userId: userId!,
-            seenAt: new Date(),
-          },
-          { include: { notification: true, user: true } },
-        );
 
         // Log the action for notification with field-level tracking
         await this.changeLogService.logChange({
@@ -962,91 +1064,95 @@ export class NotificationService {
     }
   }
 
+  /**
+   * Mark every unread notification of a user as read.
+   *
+   * Rewritten (notification plan, phase 1.1). The previous implementation ran a
+   * serial per-row loop (one `create` + one ChangeLog write per notification —
+   * roughly 2 round-trips per row) inside a SINGLE 60s transaction capped at
+   * 1000 rows. On an accumulated inbox it blew the transaction timeout and
+   * rolled back atomically: the user waited, got a 500, and NOTHING was written.
+   *
+   * Now: page over the unread ids with a projection-only `findMany`, write each
+   * page with ONE `createMany({ skipDuplicates: true })`, and emit ONE aggregate
+   * ChangeLog entry at the end. Pagination happens OUTSIDE any transaction, so a
+   * huge inbox degrades into several fast statements instead of one doomed one,
+   * and a partial failure leaves the already-marked pages persisted.
+   *
+   * `skipDuplicates` also makes the whole operation idempotent, so a concurrent
+   * single mark-as-read (or a double-click on "mark all") can no longer race into
+   * a P2002 on the `userId_notificationId` unique index.
+   */
   async markAllAsRead(userId: string): Promise<{ count: number }> {
+    // Page size for the id projection. Large enough that a normal inbox is a
+    // single round-trip, small enough that one INSERT stays well inside any
+    // statement timeout.
+    const BATCH_SIZE = 5000;
+
     try {
-      this.logger.log(`markAllAsRead called for userId: ${userId}`);
+      let markedCount = 0;
 
-      const count = await this.prisma.$transaction(async tx => {
-        // First, let's count total notifications for this user
-        const totalNotifications = await (tx as any).notification.count({
-          where: { userId },
-        });
-        this.logger.log(`Total notifications for user ${userId}: ${totalNotifications}`);
-
-        // Count notifications already seen by this user
-        const seenCount = await (tx as any).notification.count({
+      for (;;) {
+        const unreadIds = await this.prisma.notification.findMany({
           where: {
             userId,
             seenBy: {
-              some: {
-                userId,
-              },
+              none: { userId },
             },
           },
-        });
-        this.logger.log(`Already seen notifications for user ${userId}: ${seenCount}`);
-
-        // Get all unread notifications (no pagination - we need ALL of them)
-        const unreadNotifications = await this.notificationRepository.findManyWithTransaction(tx, {
-          where: {
-            userId: userId!,
-            seenBy: {
-              none: {
-                userId: userId!,
-              },
-            },
-          },
-          take: 1000, // Fetch up to 1000 notifications at once
+          select: { id: true },
+          take: BATCH_SIZE,
         });
 
-        this.logger.log(
-          `Found ${unreadNotifications.data.length} unread notifications for user ${userId}`,
-        );
+        if (unreadIds.length === 0) {
+          break;
+        }
 
-        // Mark all as read
-        let markedCount = 0;
-        const createdSeenNotifications: SeenNotification[] = [];
-
-        for (const notification of unreadNotifications.data) {
-          const seen = await this.seenNotificationRepository.createWithTransaction(tx, {
+        const seenAt = new Date();
+        const result = await this.prisma.seenNotification.createMany({
+          data: unreadIds.map(notification => ({
             notificationId: notification.id,
-            userId: userId!,
-            seenAt: new Date(),
-          });
-          createdSeenNotifications.push(seen);
-          markedCount++;
+            userId,
+            seenAt,
+          })),
+          skipDuplicates: true,
+        });
 
-          // Log individual SeenNotification creation
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.SEEN_NOTIFICATION,
-            entityId: seen.id,
-            action: CHANGE_ACTION.CREATE,
-            reason: 'Visualização de notificação criada em lote',
-            triggeredBy: CHANGE_TRIGGERED_BY.USER,
-            triggeredById: userId,
-            userId: userId || null,
-            transaction: tx,
-          });
+        markedCount += result.count;
+
+        // Last (or only) page.
+        if (unreadIds.length < BATCH_SIZE) {
+          break;
         }
 
-        if (markedCount > 0) {
-          // Log the batch action
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.NOTIFICATION,
-            entityId: 'BATCH',
-            action: CHANGE_ACTION.BATCH_UPDATE,
-            reason: `${markedCount} notificações marcadas como lidas`,
-            triggeredBy: CHANGE_TRIGGERED_BY.USER,
-            triggeredById: userId,
-            userId: userId || null,
-            transaction: tx,
-          });
+        // Defensive: if a full page produced zero inserts, every row was already
+        // seen by someone else's concurrent write and the same page would be
+        // returned forever. Stop instead of spinning.
+        if (result.count === 0) {
+          break;
         }
+      }
 
-        return markedCount;
-      });
+      if (markedCount > 0) {
+        // ONE aggregate audit entry for the whole bulk action. The previous code
+        // wrote one SEEN_NOTIFICATION ChangeLog row per notification (plus this
+        // one), which is what made the operation quadratic in round-trips and
+        // which flooded the ChangeLog table with unqueried read-state noise.
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.NOTIFICATION,
+          entityId: 'BATCH',
+          action: CHANGE_ACTION.BATCH_UPDATE,
+          reason: `${markedCount} notificações marcadas como lidas`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER,
+          triggeredById: userId,
+          userId: userId || null,
+          // NOTE: ChangeLogService.logChange builds its own metadata and ignores a
+          // `metadata` param, so the count lives in `reason`; the acting user is
+          // already carried by userId/triggeredById.
+        });
+      }
 
-      return { count };
+      return { count: markedCount };
     } catch (error) {
       this.logger.error('Erro ao marcar todas notificações como lidas:', error);
       throw new InternalServerErrorException(
@@ -1659,8 +1765,8 @@ export class NotificationService {
    * Get unseen notifications for a user
    * @deprecated Use trackingService directly
    */
-  async getUnseenNotifications(userId: string): Promise<Notification[]> {
-    return this.trackingService.getUnseenNotifications(userId);
+  async getUnseenNotifications(userId: string, limit?: number): Promise<Notification[]> {
+    return this.trackingService.getUnseenNotifications(userId, limit);
   }
 
   /**

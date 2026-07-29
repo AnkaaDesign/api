@@ -601,18 +601,16 @@ export class NotificationGateway
    */
   async getUnreadCount(userId: string): Promise<number> {
     try {
-      const result = await this.notificationRepository.findMany({
-        where: {
-          userId,
-          seenBy: {
-            none: {
-              userId,
-            },
+      // Plain count: this used to run a full findMany (with the default include
+      // graph and take=20) purely to read meta.totalRecords off it.
+      return await this.notificationRepository.count({
+        userId,
+        seenBy: {
+          none: {
+            userId,
           },
         },
       });
-
-      return result.meta.totalRecords;
     } catch (error) {
       this.logger.error(`Failed to get unread count for user ${userId}: ${error.message}`);
       return 0;

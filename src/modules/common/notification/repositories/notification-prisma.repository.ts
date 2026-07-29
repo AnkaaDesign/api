@@ -276,25 +276,37 @@ export class NotificationPrismaRepository
     transaction: PrismaTransaction,
     options?: FindManyOptions<NotificationOrderBy, NotificationWhere, NotificationInclude>,
   ): Promise<FindManyResult<Notification>> {
-    const { where, orderBy, page = 1, take = 20, include } = options || {};
+    const { where, orderBy, page = 1, take = 20, include, withTotal = false } = options || {};
     const skip = Math.max(0, (page - 1) * take);
+    const databaseWhere = this.mapWhereToDatabaseWhere(where);
 
+    // The `count()` is opt-in. On an accumulated inbox it is the expensive half of
+    // this query — the unread variants count through the `seenBy` sub-select — and
+    // most callers throw `meta` away. When it is skipped we fetch one extra row
+    // instead, which keeps `hasNextPage` exact and makes `totalRecords` a lower
+    // bound (exact whenever the whole result set fits on the requested page).
     const [total, notifications] = await Promise.all([
-      transaction.notification.count({
-        where: this.mapWhereToDatabaseWhere(where),
-      }),
+      withTotal
+        ? transaction.notification.count({ where: databaseWhere })
+        : Promise.resolve(null),
       transaction.notification.findMany({
-        where: this.mapWhereToDatabaseWhere(where),
+        where: databaseWhere,
         orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { createdAt: 'desc' },
         skip,
-        take,
+        take: withTotal ? take : take + 1,
         include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),
       }),
     ]);
 
+    const hasProbedNextPage = !withTotal && notifications.length > take;
+    const pageRows = hasProbedNextPage ? notifications.slice(0, take) : notifications;
+    // Lower bound: everything already skipped, this page, and — if the probe row
+    // came back — at least one more.
+    const totalRecords = total ?? skip + pageRows.length + (hasProbedNextPage ? 1 : 0);
+
     return {
-      data: notifications.map(notification => this.mapDatabaseEntityToEntity(notification)),
-      meta: this.calculatePagination(total, page, take),
+      data: pageRows.map(notification => this.mapDatabaseEntityToEntity(notification)),
+      meta: this.calculatePagination(totalRecords, page, take),
     };
   }
 

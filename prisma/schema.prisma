@@ -2457,6 +2457,9 @@ model Notification {
 
   @@index([userId])
   @@index([scheduledAt])
+  // The notification list/center always orders by createdAt DESC scoped to a user;
+  // without the composite index Postgres sorts the whole per-user partition.
+  @@index([userId, createdAt])
 }
 
 model SeenNotification {
@@ -2471,6 +2474,9 @@ model SeenNotification {
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, notificationId])
+  // `seenBy: { none: { userId } }` / cascade deletes probe by notificationId, which is
+  // the trailing column of the unique index and therefore not usable on its own.
+  @@index([notificationId])
 }
 
 // Attention system — server-side acknowledge / cooldown state (cross-device).

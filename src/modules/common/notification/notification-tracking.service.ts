@@ -22,6 +22,10 @@ import {
   CHANGE_ACTION,
 } from '../../../constants';
 
+/** Default/maximum page size for the unpaginated `unseen notifications` endpoint. */
+const UNSEEN_NOTIFICATIONS_DEFAULT_LIMIT = 100;
+const UNSEEN_NOTIFICATIONS_MAX_LIMIT = 500;
+
 /**
  * Service responsible for tracking notification interactions
  * Handles seen status, reminders, delivery tracking, and statistics
@@ -56,28 +60,32 @@ export class NotificationTrackingService {
           throw new NotFoundException('Notificação não encontrada.');
         }
 
-        // Check if already marked as seen
-        const existingSeen = await (tx as any).seenNotification.findFirst({
+        // UPSERT (not findFirst → create) on the `userId_notificationId` unique
+        // index: the read-then-write pair raced on a double-click and surfaced
+        // the resulting P2002 as a generic 500.
+        const seenAt = new Date();
+        const seenNotification = await (tx as any).seenNotification.upsert({
           where: {
+            userId_notificationId: {
+              userId,
+              notificationId,
+            },
+          },
+          create: {
             notificationId,
             userId,
+            seenAt,
           },
+          // Already seen — keep the original seenAt, this call is a no-op.
+          update: {},
+          include: { notification: true, user: true },
         });
 
-        if (existingSeen) {
-          return; // Already seen, no action needed
+        // `seenAt` is only written on create, so an unchanged timestamp means the
+        // row already existed; skip the audit entry as the old early-return did.
+        if (seenNotification.seenAt?.getTime() !== seenAt.getTime()) {
+          return;
         }
-
-        // Create SeenNotification record
-        const seenNotification = await this.seenNotificationRepository.createWithTransaction(
-          tx,
-          {
-            notificationId,
-            userId,
-            seenAt: new Date(),
-          },
-          { include: { notification: true, user: true } },
-        );
 
         // Log the action
         await this.changeLogService.logChange({
@@ -286,7 +294,16 @@ export class NotificationTrackingService {
   /**
    * Get unseen notifications for a user
    */
-  async getUnseenNotifications(userId: string): Promise<Notification[]> {
+  async getUnseenNotifications(userId: string, limit?: number): Promise<Notification[]> {
+    // Hard bound. This used to be an unbounded findMany with three nested
+    // includes: on an accumulated inbox (thousands of unread rows) it hydrated
+    // the whole backlog into memory and serialised it into one response.
+    // Nobody paginates this endpoint, so cap it at the newest N.
+    const take = Math.min(
+      Math.max(1, limit ?? UNSEEN_NOTIFICATIONS_DEFAULT_LIMIT),
+      UNSEEN_NOTIFICATIONS_MAX_LIMIT,
+    );
+
     try {
       const notifications = await this.prisma.notification.findMany({
         where: {
@@ -300,6 +317,7 @@ export class NotificationTrackingService {
         orderBy: {
           createdAt: 'desc',
         },
+        take,
         select: {
           id: true,
           title: true,
