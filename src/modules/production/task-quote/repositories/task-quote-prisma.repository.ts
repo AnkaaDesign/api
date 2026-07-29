@@ -4,6 +4,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
+import { allocateBudgetNumber } from '../../../../utils/budget-number';
 import { TaskQuoteRepository } from './task-quote.repository';
 import type {
   TaskQuote,
@@ -302,10 +303,8 @@ export class TaskQuotePrismaRepository
     const include = this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
     // Generate budgetNumber - required field that must be auto-generated
-    const maxBudgetNumber = await transaction.taskQuote.aggregate({
-      _max: { budgetNumber: true },
-    });
-    const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
+    // (advisory-locked; the bare MAX+1 read raced itself into P2002 under concurrency)
+    const nextBudgetNumber = await allocateBudgetNumber(transaction);
 
     // Inject budgetNumber into create input
     (createInput as any).budgetNumber = nextBudgetNumber;

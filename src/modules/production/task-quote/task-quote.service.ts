@@ -66,6 +66,7 @@ import {
   reproveNonSelectedTaskLayoutsFromQuote,
 } from '../../../utils/sync-quote-task-layouts';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
+import { allocateBudgetNumber } from '../../../utils/budget-number';
 import { reconcileQuoteCustomerConfigs } from '../../../utils/task-quote-customer-config-sync';
 import {
   QUOTE_STATUS_LOCKED,
@@ -267,11 +268,8 @@ export class TaskQuoteService {
 
       // Create quote with items in transaction
       const quote = await this.prisma.$transaction(async tx => {
-        // Get next budget number (auto-increment)
-        const maxBudgetNumber = await tx.taskQuote.aggregate({
-          _max: { budgetNumber: true },
-        });
-        const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
+        // Get next budget number (auto-increment, advisory-locked against concurrent minters)
+        const nextBudgetNumber = await allocateBudgetNumber(tx);
 
         const newQuote = await tx.taskQuote.create({
           data: {

@@ -32,6 +32,7 @@ import {
 import { recalcQuoteTotals } from '../../../../utils/task-quote-totals';
 import { reconcileQuoteCustomerConfigs } from '../../../../utils/task-quote-customer-config-sync';
 import { syncTaskLayoutsFromQuote } from '../../../../utils/sync-quote-task-layouts';
+import { allocateBudgetNumber } from '../../../../utils/budget-number';
 
 // =====================
 // Query Pattern Definitions
@@ -1789,10 +1790,7 @@ export class TaskPrismaRepository
           quoteData.subtotal !== undefined ? Number(quoteData.subtotal) : calculatedSubtotal;
         const total = quoteData.total !== undefined ? Number(quoteData.total) : calculatedSubtotal;
 
-        const maxBudgetNumber = await transaction.taskQuote.aggregate({
-          _max: { budgetNumber: true },
-        });
-        const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
+        const nextBudgetNumber = await allocateBudgetNumber(transaction);
 
         // Clone any implementMeasure File owned by another quote so the new quote owns an
         // INDEPENDENT copy — connecting the source ids would steal them (FK on File).
@@ -2212,10 +2210,7 @@ export class TaskPrismaRepository
               await recalcQuoteTotals(transaction, currentTask.quoteId);
             }
           } else if (hasNewItems) {
-            const maxBudgetNumber = await transaction.taskQuote.aggregate({
-              _max: { budgetNumber: true },
-            });
-            const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
+            const nextBudgetNumber = await allocateBudgetNumber(transaction);
 
             const calculatedSubtotal = quoteData.services.reduce(
               (sum: number, item: any) => sum + Number(item.amount || 0),

@@ -61,6 +61,7 @@ import {
 } from '../task-quote/task-quote.guards';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 import { syncTaskLayoutsFromQuote } from '../../../utils/sync-quote-task-layouts';
+import { allocateBudgetNumber } from '../../../utils/budget-number';
 import { TaskRepository, PrismaTransaction } from './repositories/task.repository';
 import {
   TaskCreateFormData,
@@ -12567,11 +12568,9 @@ export class TaskService {
       throw new NotFoundException(`Precificação de origem não encontrada (ID: ${sourceQuoteId})`);
     }
 
-    // Get next budget number
-    const maxBudgetNumber = await tx.taskQuote.aggregate({
-      _max: { budgetNumber: true },
-    });
-    const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
+    // Get next budget number (advisory-locked — a bulk copy mints one per target
+    // and the bare MAX+1 read raced itself into P2002).
+    const nextBudgetNumber = await allocateBudgetNumber(tx);
 
     // Clone the source quote's implementMeasure files so the new quote owns INDEPENDENT
     // copies — connecting the source ids would steal them (FK lives on File).
@@ -12669,6 +12668,19 @@ export class TaskService {
     copiedFields: CopyableTaskField[];
     details: Record<string, any>;
   }> {
+    // A task can never be its own source. Beyond being a pure no-op for every
+    // scalar field, the quote branch is actively DESTRUCTIVE: it deep-copies the
+    // quote, repoints `task.quoteId` at the copy, then deletes the task's previous
+    // quote as "orphaned" — which, when source === destination, is the very quote
+    // it just copied FROM. The user's original quote is deleted and any editor
+    // still holding its id 404s on save (PUT /task-quotes/<id>). The UI must not
+    // offer this, but the guard belongs here: this is where the damage happens.
+    if (destinationTaskId === sourceTaskId) {
+      throw new BadRequestException(
+        'A tarefa de origem não pode ser a mesma tarefa de destino.',
+      );
+    }
+
     this.logger.log(
       `[copyFromTask] Copying ${fields.length} field(s) from task ${sourceTaskId} to ${destinationTaskId}`,
     );
@@ -13687,9 +13699,32 @@ export class TaskService {
         // must be preserved for the financial record. Quote children (services,
         // customer configs) cascade on delete; the financial guard prevents
         // wiping a quote that still anchors a live invoice/installment.
+        // Belt-and-braces: `taskQuote.delete` below is unconditional by design, so a
+        // stale `orphanedOldQuoteId` silently destroys real data. Two ways it can be
+        // stale, both refusing the delete rather than trusting the caller:
+        //  - it IS the source's quote (the self-copy shape guarded at the top of this
+        //    method — the destination's FK has already been repointed by now, so a
+        //    "still attached?" test alone comes back clean and deletes the original);
+        //  - some other task still points at it (quotes are never meant to be shared,
+        //    but deleting one out from under a live task is unrecoverable).
+        const orphanIsSourceQuote =
+          !!orphanedOldQuoteId && orphanedOldQuoteId === sourceTask.quoteId;
+        const orphanIsStillAttached =
+          !!orphanedOldQuoteId &&
+          (await tx.task.count({ where: { quoteId: orphanedOldQuoteId } })) > 0;
+
+        if (orphanIsSourceQuote || orphanIsStillAttached) {
+          this.logger.warn(
+            `[copyFromTask] Skipped deleting previous quote ${orphanedOldQuoteId}: ` +
+              `${orphanIsSourceQuote ? 'it is the source task quote' : 'still referenced by a task'}`,
+          );
+        }
+
         if (
           orphanedOldQuoteId &&
-          orphanedOldQuoteId !== updateData.quoteId
+          orphanedOldQuoteId !== updateData.quoteId &&
+          !orphanIsSourceQuote &&
+          !orphanIsStillAttached
         ) {
           const activeInvoiceCount = await tx.invoice.count({
             where: {
