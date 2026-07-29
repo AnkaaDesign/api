@@ -137,3 +137,24 @@ export const EVENT_DESCRIPTIONS: Record<string, string> = {
   DOCUMENT_DOWNLOADED: 'Documento baixado',
   VERIFICATION_VIEWED: 'Consulta pública de verificação',
 };
+
+/**
+ * Marca d'água do PDF servido, por status de envelope.
+ *
+ * O histórico de versões continua acessível: é ele que mostra o que foi
+ * colhido, quando, e por que caiu. O risco é o artefato circular sozinho — um
+ * PDF antigo tem os mesmos selos "ASSINADO ELETRONICAMENTE" de um válido e,
+ * fora da tela que o listou, nada o distingue. A marca resolve no próprio
+ * arquivo.
+ *
+ * COMPLETED não aparece aqui de propósito: aquele caminho serve o artefato
+ * selado em PAdES, byte a byte, e carimbar qualquer coisa por cima quebraria a
+ * assinatura criptográfica.
+ */
+export const VOID_WATERMARK_LABELS: Record<string, string> = {
+  INVALIDATED: 'Sem validade',
+  SUPERSEDED: 'Versão substituída',
+  CANCELLED: 'Coleta cancelada',
+  EXPIRED: 'Prazo expirado',
+  REFUSED: 'Assinatura recusada',
+};

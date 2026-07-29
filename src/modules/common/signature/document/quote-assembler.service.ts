@@ -20,7 +20,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, degrees, PDFFont, PDFPage } from 'pdf-lib';
 // Alias obrigatorio: pdf-lib tambem exporta `PDFDocument`.
 import PDFKitDocument from 'pdfkit';
 import { COMPANY, BRAND_COLORS } from '@/config/company';
@@ -136,6 +136,54 @@ export class QuoteAssemblerService {
    * (com os slots já assinados marcados e os pendentes ainda em branco), que é o
    * que o cliente vê enquanto a cerimônia corre.
    */
+  /**
+   * Marca d'água diagonal em TODAS as páginas.
+   *
+   * Desenhada ANTES dos selos: assim ela fica sob a assinatura, que continua
+   * legível — a marca diz que o documento não vale, não apaga o que foi
+   * colhido. A opacidade é o equilíbrio entre as duas coisas: alta o bastante
+   * para ninguém confundir o artefato com um válido ao abri-lo fora de
+   * contexto, baixa o bastante para o orçamento continuar legível por baixo.
+   *
+   * O tamanho deriva da diagonal da página, então funciona em A4 retrato,
+   * paisagem ou qualquer formato que o orçamento venha a usar, sem constante
+   * mágica que quebra no primeiro documento fora do padrão.
+   */
+  private drawVoidWatermark(pages: PDFPage[], font: PDFFont, label: string): void {
+    const text = label.toUpperCase();
+    for (const page of pages) {
+      const { width, height } = page.getSize();
+      const diagonal = Math.sqrt(width * width + height * height);
+      // Ocupa ~78% da diagonal; o resto é respiro nas bordas.
+      const target = diagonal * 0.78;
+      let size = 72;
+      const measured = font.widthOfTextAtSize(text, size);
+      if (measured > 0) size = (size * target) / measured;
+      // Teto para um rótulo curto ("RECUSADO") não virar uma letra por página.
+      size = Math.min(size, height * 0.18);
+
+      const w = font.widthOfTextAtSize(text, size);
+      const h = font.heightAtSize(size);
+      const angle = (Math.atan2(height, width) * 180) / Math.PI;
+      const rad = (angle * Math.PI) / 180;
+
+      // Centraliza a caixa girada: recua metade do texto ao longo do próprio
+      // eixo e meia altura na perpendicular.
+      const x = width / 2 - (w / 2) * Math.cos(rad) + (h / 2) * Math.sin(rad);
+      const y = height / 2 - (w / 2) * Math.sin(rad) - (h / 2) * Math.cos(rad);
+
+      page.drawText(text, {
+        x,
+        y,
+        size,
+        font,
+        color: rgb(0.78, 0.09, 0.09),
+        opacity: 0.22,
+        rotate: degrees(angle),
+      });
+    }
+  }
+
   async stampSeals(input: {
     originalPdf: Buffer;
     anchors: SignatureAnchorMap;
@@ -144,11 +192,25 @@ export class QuoteAssemblerService {
     verificationCode: string;
     verificationUrl: string;
     originalSha256: string;
+    /**
+     * Marca d'água diagonal vermelha, quando o envelope não vale mais.
+     *
+     * O histórico de versões continua acessível de propósito — é ele que mostra
+     * o que foi colhido e quando. Mas um PDF antigo aberto fora de contexto é
+     * indistinguível de um válido: ele tem os mesmos selos "ASSINADO
+     * ELETRONICAMENTE" nas mesmas posições. A marca resolve isso no próprio
+     * artefato, e não só na tela que o listou.
+     */
+    voidedLabel?: string | null;
   }): Promise<Buffer> {
     const doc = await PDFDocument.load(input.originalPdf, { updateMetadata: false });
     const helv = await doc.embedFont(StandardFonts.Helvetica);
     const helvBold = await doc.embedFont(StandardFonts.HelveticaBold);
     const pages = doc.getPages();
+
+    if (input.voidedLabel) {
+      this.drawVoidWatermark(pages, helvBold, input.voidedLabel);
+    }
 
     for (const signer of input.signers) {
       // Gate por STATUS, não só por signedAt: a invalidação por alteração

@@ -37,7 +37,7 @@ import { join, resolve as resolvePath } from 'path';
 import { EnvelopeSignerStatus, EnvelopeStatus, Prisma, SignatureAuthMethod } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { COMPANY } from '@/config/company';
-import { formatResponsibleRoles } from '@constants/enums';
+import { formatResponsibleRoles, RESPONSIBLE_ROLE_LABELS, RESPONSIBLE_ROLE } from '@constants/enums';
 import { SignatureAuditService } from './signature-audit.service';
 import { SigningChallengeService, SIGNING_CODE_TTL_MINUTES } from './signing-challenge.service';
 import {
@@ -52,6 +52,7 @@ import { PadesSignerService } from '../pades/pades-signer.service';
 import {
   ACCEPTANCE_CLAUSE,
   AUTH_METHOD_LABELS,
+  VOID_WATERMARK_LABELS,
   DECLARATIONS,
   DECLARATIONS_VERSION,
   EVENT_DESCRIPTIONS,
@@ -707,6 +708,12 @@ export class SignatureEnvelopeService {
         emailMasked: maskEmail(signer.declaredEmail),
         emailParts: emailMaskParts(signer.declaredEmail),
         cpfParts: signer.declaredCpf ? cpfMaskParts(signer.declaredCpf) : null,
+        // CPF do CADASTRO, já mascarado. A página só tinha `cpfParts` (que serve
+        // para montar as caixas de conferência) e caía no placeholder
+        // `***.***.***-**` até o signatário digitar — mostrando um documento
+        // vazio para alguém que tem CPF cadastrado desde a emissão. Máscara CGU:
+        // os seis do meio aparecem, que é o bastante para a pessoa se reconhecer.
+        cpfMasked: signer.declaredCpf ? maskCpf(signer.declaredCpf) : null,
         status: signer.status,
         cargo: signer.informedCargo,
         // Cargo vem do CADASTRO (Responsible.roles), como nome e telefone. O
@@ -2160,12 +2167,22 @@ export class SignatureEnvelopeService {
       verificationCode: env.verificationCode,
       verificationUrl: this.verificationUrl(env.verificationCode),
       originalSha256: env.originalSha256,
+      voidedLabel: VOID_WATERMARK_LABELS[env.status] ?? null,
     });
 
-    // ETag deriva do original + do estado de assinatura, então muda exatamente
-    // quando o documento servido muda.
-    const stateKey = env.signers.map(s => `${s.id}:${s.signedAt?.toISOString() ?? ''}`).join('|');
-    return { pdf, etag: `"${sha256Hex(env.originalSha256 + stateKey).slice(0, 32)}"` };
+    // ETag deriva do original + do estado de assinatura E DO STATUS do envelope.
+    //
+    // O status entrava de fora: invalidar preserva `signedAt` (é fato
+    // histórico) e só muda o status, então a chave anterior não se movia e o
+    // cliente seguia recebendo do cache a versão SEM marca d'água — exatamente
+    // o PDF que a marca existe para não deixar circular.
+    const stateKey = env.signers
+      .map(s => `${s.id}:${s.signedAt?.toISOString() ?? ''}:${s.status}`)
+      .join('|');
+    return {
+      pdf,
+      etag: `"${sha256Hex(env.originalSha256 + env.status + stateKey).slice(0, 32)}"`,
+    };
   }
 
   // ===========================================================================
@@ -2509,6 +2526,20 @@ export class SignatureEnvelopeService {
           s.user?.position?.name?.trim() ||
           s.user?.sector?.name?.trim() ||
           null,
+        // A MESMA informação em lista, para o painel mostrar os dois primeiros
+        // e um "+N". Um contato pode acumular nove funções, e a string pronta
+        // não dá para cortar sem risco: o cargo informado no ato é texto livre
+        // e pode conter vírgula ("Diretor, comercial e financeiro"), então
+        // quebrá-la no cliente inventaria papéis que não existem.
+        cargoList: s.informedCargo
+          ? [s.informedCargo]
+          : (s.responsible?.roles ?? []).length
+            ? (s.responsible?.roles ?? []).map(
+                r => RESPONSIBLE_ROLE_LABELS[r as RESPONSIBLE_ROLE] ?? r,
+              )
+            : [s.user?.position?.name?.trim() || s.user?.sector?.name?.trim() || ''].filter(
+                Boolean,
+              ),
         cpfMatch: s.cpfMatch,
         side: s.orderGroup === 1 ? 'ANKAA' : 'CUSTOMER',
         status: s.status,
