@@ -80,3 +80,9 @@ scripts/output/
 certs/
 *.pfx
 *.p12
+
+# Dumps manuais do banco — nunca versionados.
+# Contêm dados de pessoal (nome, status de contrato) e folha (remuneração base,
+# INSS, IRRF, abono). São instantâneos operacionais: envelhecem sozinhos e, uma
+# vez no histórico do git, não saem mais. Mesma razão pela qual .env* é ignorado.
+prisma/manual/
