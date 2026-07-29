@@ -119,35 +119,66 @@ export function phoneMaskParts(phone: string | null | undefined): {
 }
 
 /**
- * `joao.silva@empresa.com.br` → `j***a@empresa.com.br`
+ * Recorte da parte local do e-mail: o que se mostra, o que se esconde.
  *
- * Preserva a primeira letra da parte local, a última quando há folga, e o
- * domínio inteiro. Esconder o domínio custaria reconhecimento e não protegeria
- * nada: ele é quase sempre o da própria contratante, já impresso ao lado do
- * CNPJ na mesma página.
+ * REGRA: ~40% do início visível, o resto mascarado, e SEMPRE o último
+ * caractere antes do `@`. O domínio nunca é escondido.
  *
- * O número de asteriscos é FIXO de propósito. Um `'*'.repeat(local.length - 2)`
- * publicaria o comprimento exato da parte local — atributo de baixa
- * cardinalidade que, somado ao nome do signatário que o selo já imprime,
- * estreita bastante um palpite. Mesma razão de `maskCpf` usar `***` fixo.
+ * O número de asteriscos acompanha o comprimento real. A versão anterior usava
+ * `***` fixo para não publicar o tamanho da parte local, mas o custo era alto e
+ * o ganho pequeno: `k***a@gmail.com` fica idêntico para um endereço de 5 e um
+ * de 25 caracteres, então o signatário não consegue reconhecer o próprio
+ * e-mail — que é exatamente para isso que a máscara existe na cerimônia. O
+ * comprimento também não é segredo real aqui: o domínio sai inteiro e o nome da
+ * pessoa já vai impresso ao lado.
+ *
+ * As duas funções públicas (`maskEmail` e `emailMaskParts`) saem daqui, e não
+ * cada uma da sua conta: elas alimentam a MESMA conferência — uma desenha a
+ * máscara, a outra diz quantas caixas o signatário precisa preencher. Se
+ * divergissem, a tela pediria um número de caracteres diferente do que a
+ * máscara mostra e a conferência ficaria impossível de acertar.
+ */
+function splitEmailLocal(local: string): { head: string; hiddenLength: number; tail: string } {
+  const n = local.length;
+  // Curto demais para revelar qualquer coisa sem entregar o endereço inteiro.
+  if (n <= 2) return { head: '', hiddenLength: n, tail: '' };
+
+  // 40% do início, nunca menos de um caractere.
+  let head = Math.max(1, Math.floor(n * 0.4));
+  // Garante ao menos UM asterisco entre o início visível e o último caractere;
+  // sem isto um endereço de 3 letras sairia sem máscara nenhuma.
+  if (head > n - 2) head = n - 2;
+
+  return { head: local.slice(0, head), hiddenLength: n - head - 1, tail: local.slice(-1) };
+}
+
+/** Separa `local@dominio`, devolvendo `null` quando não é um endereço utilizável. */
+function splitEmail(email: string | null | undefined): { local: string; domain: string } | null {
+  const raw = (email ?? '').trim().toLowerCase();
+  const at = raw.lastIndexOf('@');
+  if (at <= 0 || at === raw.length - 1) return null;
+  const domain = raw.slice(at + 1);
+  if (!domain.includes('.')) return null;
+  return { local: raw.slice(0, at), domain };
+}
+
+/**
+ * `kennedy.ankaa@gmail.com` → `kenne*******a@gmail.com`
+ * `joao.silva@empresa.com.br` → `joao.****a@empresa.com.br`
  *
  * Como toda máscara deste arquivo: vale para EXIBIÇÃO. O endereço completo
  * continua em `EnvelopeSigner.declaredEmail`.
  */
 export function maskEmail(email: string | null | undefined): string {
-  const raw = (email ?? '').trim().toLowerCase();
-  const at = raw.lastIndexOf('@');
-  if (at <= 0 || at === raw.length - 1) return '***@***';
-  const local = raw.slice(0, at);
-  const domain = raw.slice(at + 1);
-  if (!domain.includes('.')) return '***@***';
-  const tail = local.length >= 4 ? local[local.length - 1] : '';
-  return `${local[0]}***${tail}@${domain}`;
+  const parts = splitEmail(email);
+  if (!parts) return '***@***';
+  const { head, hiddenLength, tail } = splitEmailLocal(parts.local);
+  return `${head}${'*'.repeat(hiddenLength)}${tail}@${parts.domain}`;
 }
 
 /**
  * Partes da máscara do e-mail, para a confirmação parcial na tela.
- * `joao.silva@empresa.com.br` → { prefix: 'j', hidden: 8, suffix: 'a', domain: 'empresa.com.br' }
+ * `kennedy.ankaa@gmail.com` → { prefix: 'kenne', hidden: 7, suffix: 'a', domain: 'gmail.com' }
  *
  * O signatário completa só os caracteres ocultos da parte local — o domínio
  * aparece inteiro. Digitar o endereço todo não provaria nada além de saber ler
@@ -160,20 +191,10 @@ export function emailMaskParts(email: string | null | undefined): {
   suffix: string;
   domain: string;
 } {
-  const raw = (email ?? '').trim().toLowerCase();
-  const at = raw.lastIndexOf('@');
-  if (at <= 0 || at === raw.length - 1) {
-    return { prefix: '', hiddenLength: 0, suffix: '', domain: '' };
-  }
-  const local = raw.slice(0, at);
-  const domain = raw.slice(at + 1);
-  const hasTail = local.length >= 4;
-  return {
-    prefix: local.slice(0, 1),
-    hiddenLength: Math.max(local.length - (hasTail ? 2 : 1), 0),
-    suffix: hasTail ? local.slice(-1) : '',
-    domain,
-  };
+  const parts = splitEmail(email);
+  if (!parts) return { prefix: '', hiddenLength: 0, suffix: '', domain: '' };
+  const { head, hiddenLength, tail } = splitEmailLocal(parts.local);
+  return { prefix: head, hiddenLength, suffix: tail, domain: parts.domain };
 }
 
 /** `43984283228` → `(43) 98428-3228` (uso interno, não exibir ao público). */

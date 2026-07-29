@@ -606,6 +606,10 @@ export class SignatureEnvelopeService {
       where: { accessToken: token },
       include: {
         responsible: { select: { roles: true } },
+        // O signatário da Ankaa é um User, não um Responsible: sem isto ele não
+        // tem cargo de cadastro nenhum e a cerimônia obriga o diretor a digitar
+        // o próprio cargo, que o sistema já sabe.
+        user: { select: { position: { select: { name: true } }, sector: { select: { name: true } } } },
         envelope: { include: { quote: { include: { task: { include: { customer: true } } } } } },
       },
     });
@@ -708,7 +712,16 @@ export class SignatureEnvelopeService {
         // Cargo vem do CADASTRO (Responsible.roles), como nome e telefone. O
         // signatário confirma, não digita — mesma lógica que dá peso ao OTP:
         // o que a Ankaa afirma fica registrado ao lado do que ele aceita.
-        registryCargo: formatResponsibleRoles(signer.responsible?.roles ?? []) || null,
+        // Cliente: as funções do contato no cadastro. Ankaa: o cargo do
+        // colaborador (posição, ou o setor quando a posição está vazia). Sem o
+        // ramo do User, o signatário da Ankaa caía no campo livre e digitava um
+        // cargo que o próprio sistema já conhece — e que, digitado à mão, entra
+        // na declaração de poderes de representação.
+        registryCargo:
+          formatResponsibleRoles(signer.responsible?.roles ?? []) ||
+          signer.user?.position?.name?.trim() ||
+          signer.user?.sector?.name?.trim() ||
+          null,
         signedAt: signer.signedAt,
       },
       company: {
@@ -2199,6 +2212,13 @@ export class SignatureEnvelopeService {
         name: s.declaredName,
         cargo: s.informedCargo,
         cpfMasked: s.informedCpf ? maskCpf(s.informedCpf) : null,
+        // O CPF do CADASTRO, separado do informado. O painel só lia
+        // `informedCpf` — que só existe DEPOIS da cerimônia —, então um
+        // signatário que ainda não assinou aparecia como "CPF não informado"
+        // mesmo com o documento gravado no cadastro desde a emissão. São dois
+        // fatos diferentes e a tela precisa distinguir: o que a Ankaa afirma, e
+        // o que o signatário confirmou.
+        declaredCpfMasked: s.declaredCpf ? maskCpf(s.declaredCpf) : null,
         status: s.status,
         signedAt: s.signedAt,
         authMethod: AUTH_METHOD_LABELS[s.authMethod] ?? s.authMethod,
