@@ -42,3 +42,18 @@ export const BRAND_COLORS = {
   textDark: '#1a1a1a',
   textGray: '#666666',
 } as const;
+
+/**
+ * Clientes com regra de negócio própria, referenciados pelo **id** (UUID imutável) e não pelo CNPJ:
+ * o CNPJ de um Customer já foi sobrescrito em produção uma vez, então não é chave estável.
+ *
+ * Espelhado em `web/src/config/company.ts`.
+ */
+export const PINNED_CUSTOMERS = {
+  /**
+   * Ibiporã Implementos Rodoviários — "Industria de Carrocerias Metalicas Ibipora LTDA",
+   * CNPJ 85462471000174. Fatura contra pedido de compra, portanto
+   * `TaskQuoteCustomerConfig.orderNumber` é obrigatório para ela.
+   */
+  IBIPORA: '93dfbeb1-aec0-4829-a297-6a2f09fcfe08',
+} as const;

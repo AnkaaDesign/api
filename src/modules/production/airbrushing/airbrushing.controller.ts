@@ -213,6 +213,36 @@ export class AirbrushingController {
     return this.airbrushingService.update(id, data, query.include, userId, files, user.role);
   }
 
+  @Put(':id/receipts')
+  // Anexar o comprovante de pagamento é ação do lado financeiro, então segue os papéis
+  // que liquidam a aerografia em Contas a Pagar — NÃO o gate de edição do PUT :id. Os
+  // arquivos já anexados são preservados (append), diferente do PUT :id, que substitui
+  // a relação inteira quando recebe receiptIds.
+  @Roles(
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+  )
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'receipts', maxCount: 10 },
+      ],
+      multerConfig,
+    ),
+  )
+  async attachReceipts(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+    @UploadedFiles()
+    files?: {
+      receipts?: Express.Multer.File[];
+    },
+  ): Promise<AirbrushingUpdateResponse> {
+    return this.airbrushingService.attachReceipts(id, files, userId);
+  }
+
   @Delete(':id')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
   async delete(

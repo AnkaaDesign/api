@@ -1160,11 +1160,24 @@ const taskOrderByFieldsSchema = z.object({
   // the quote's customer configs. Not a Prisma field — the repository resolves and
   // sorts it in memory over the whole result set before paginating.
   currentInstallmentDueDate: orderByWithNullsSchema.optional(),
-  // Nested relation sorting (for billing/financial views)
+  // Nested relation sorting (for billing/financial views). Both are to-ONE relations, so Prisma
+  // orders by them directly; the repository's flattenOrderBy dot-joins the path and preserves
+  // multi-sort priority.
   quote: z
     .object({
       statusOrder: orderByDirectionSchema.optional(),
       total: orderByDirectionSchema.optional(),
+      subtotal: orderByDirectionSchema.optional(),
+      // Nº do Orçamento — the number people actually quote at each other on the phone.
+      budgetNumber: orderByDirectionSchema.optional(),
+      expiresAt: orderByDirectionSchema.optional(),
+      billingApprovedAt: orderByWithNullsSchema.optional(),
+    })
+    .optional(),
+  customer: z
+    .object({
+      fantasyName: orderByDirectionSchema.optional(),
+      corporateName: orderByWithNullsSchema.optional(),
     })
     .optional(),
 });

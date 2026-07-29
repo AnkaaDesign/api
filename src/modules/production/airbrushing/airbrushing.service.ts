@@ -535,6 +535,50 @@ export class AirbrushingService {
   }
 
   /**
+   * Anexar comprovante(s) de pagamento a uma aerografia — APPEND-ONLY.
+   *
+   * Payment-side counterpart of `PUT /orders/:id/receipts`: Contas a Pagar settles a
+   * painter's aerografia and indexes the comprovante without going through the generic
+   * PUT :id. That matters for correctness, not just for roles: the generic update maps
+   * any provided `receiptIds` to a Prisma `set` (full replace), so a caller that uploads
+   * a receipt WITHOUT first hydrating the existing ones — which the payables list, that
+   * only holds a PayableRow, never has — would detach every comprovante already
+   * attached. Here the files are simply connected (see saveFileTostorage), so whatever
+   * is attached stays attached.
+   */
+  async attachReceipts(
+    id: string,
+    files: { receipts?: Express.Multer.File[] } | undefined,
+    userId?: string,
+  ): Promise<AirbrushingUpdateResponse> {
+    try {
+      const airbrushing = await this.prisma.airbrushing.findUnique({ where: { id } });
+      if (!airbrushing) {
+        throw new NotFoundException('Aerografia não encontrada.');
+      }
+
+      if (files?.receipts?.length) {
+        // saveFileTostorage requires a transaction (file row + relation connect).
+        await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+          await this.processAirbrushingFileUploads(id, { receipts: files.receipts }, userId, tx);
+        });
+      }
+
+      return {
+        success: true,
+        message: 'Comprovante anexado à aerografia.',
+        data: airbrushing as unknown as Airbrushing,
+      };
+    } catch (error: any) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.error(`Erro ao anexar comprovante à aerografia ${id}:`, error);
+      throw new InternalServerErrorException(
+        'Erro ao anexar comprovante. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  /**
    * Excluir aerografia
    */
   /**

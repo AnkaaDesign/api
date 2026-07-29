@@ -557,10 +557,19 @@ const TASK_SELECT_DUE_DATE_SORT: Prisma.TaskSelect = {
   cleared: true,
   createdAt: true,
   updatedAt: true,
+  // Every key `taskOrderByFieldsSchema` accepts under `quote` / `customer` has to be selected
+  // here, not just the ones the due-date sort itself needs. `resolveSortValue` returns undefined
+  // for an unselected path, the comparator then treats both sides as null and SKIPS the key —
+  // so a secondary (or even primary) sort by Cliente or Nº Orçamento was silently doing nothing
+  // whenever Vencimento was part of the sort, which a plain shift-click reaches.
   quote: {
     select: {
       statusOrder: true,
       total: true,
+      subtotal: true,
+      budgetNumber: true,
+      expiresAt: true,
+      billingApprovedAt: true,
       customerConfigs: {
         select: {
           installments: { select: { number: true, dueDate: true } },
@@ -568,6 +577,7 @@ const TASK_SELECT_DUE_DATE_SORT: Prisma.TaskSelect = {
       },
     },
   },
+  customer: { select: { fantasyName: true, corporateName: true } },
 };
 
 interface FlatSortEntry {

@@ -237,9 +237,9 @@ hand-mirroring altogether is §4.2.
 | Payload validation (Zod, closed entityType enum) on socket + HTTP | ✅ implemented |
 | Manual warnings `POST /attention/warnings` (+ delivered/offline reporting) | ✅ implemented |
 | `GET /attention/presence/:type/:id` (save-time guard) | ✅ implemented |
-| `AttentionAck` model + `GET/PUT /attention/ack` + service | ✅ implemented — **migration NOT applied**, see below |
+| `AttentionAck` model + `GET/PUT /attention/ack` + service | ✅ implemented — migration `20260724130000_add_attention_ack` APPLIED (verified 2026-07-28) |
 | Web server-backed ack store | ✅ implemented (localStorage stays as offline cache) |
-| Server matches `GET /attention/summary` | ✅ implemented — match refs per rule (TASK + CUT), hand-written Prisma mirror of `rules.ts` |
+| Server matches `GET /attention/summary` | ✅ implemented — match refs per rule over TASK / CUT / ORDER / PPE_DELIVERY / AIRBRUSHING / TASK_QUOTE, hand-written Prisma mirror of `rules.ts` |
 | Off-screen blink + **bip** (engine consumes server matches) | ✅ implemented (§6) |
 | `AttentionRule`/`Preference` DB + admin config UI | ⬜ planned (§4.2) |
 | Time-trigger cron (R2) | ⬜ planned (§5) |
@@ -249,10 +249,14 @@ hand-mirroring altogether is §4.2.
 
 ### Known deployment constraints
 
-1. **Migrations are not applied automatically.** `20260724130000_add_attention_ack` must be
-   applied with `pnpm db:migrate:deploy` BEFORE restarting the API. Run `npx prisma migrate status` first.
-   Without the table, ack endpoints 500; the client degrades to localStorage and — since
-   `/attention` is now skip-listed in the web axios interceptor — does so silently.
+1. **Migrations are not applied automatically.** `20260724130000_add_attention_ack` is applied
+   locally (verified 2026-07-28); check any other environment with `npx prisma migrate status`
+   and apply with `pnpm db:migrate:deploy` BEFORE restarting the API. Without the table, ack
+   endpoints 500; the client degrades to localStorage and — since `/attention` is now
+   skip-listed in the web axios interceptor — does so silently.
+   **Rules themselves need no migration but DO need a restart**: `RULE_QUERIES` is a
+   module-level constant compiled into the bundle, so a new or edited rule only takes effect
+   after `npm run build && pm2 restart`. Clients pick it up on their next 60s summary poll.
 2. **Single API instance only.** Presence lives in process memory and every broadcast is
    `server.emit`. With pm2 `instances > 1` and no `@socket.io/redis-adapter`, users on
    different workers cannot see each other's presence — and the guard would report

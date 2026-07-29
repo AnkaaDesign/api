@@ -12,6 +12,7 @@ import {
   SectorPrivileges,
   Prisma,
 } from '@prisma/client';
+import { PINNED_CUSTOMERS } from '../../../config/company';
 
 /** Only these sectors may send a manual attention warning — mirrors the client
  * gate (web/src/lib/attention/send-warning.tsx `SEND_WARNING_PRIVILEGES`); this is
@@ -297,6 +298,82 @@ const CUT_AUDIENCE = [SectorPrivileges.WAREHOUSE, SectorPrivileges.PLOTTING];
 const QUOTE_AUDIENCE = [SectorPrivileges.COMMERCIAL, SectorPrivileges.FINANCIAL];
 
 /**
+ * The quote has not been billed yet — the only window in which a missing invoicing field still
+ * BLOCKS anything. Mirrors `notYetInvoiced()` in the client rules, and is written as the two
+ * pre-billing statuses for the same reason: the negative form ("not CANCELLED") let every
+ * post-invoice status through, so quotes whose nota was issued and paid months ago kept matching.
+ */
+const NOT_YET_INVOICED: Prisma.TaskQuoteWhereInput = {
+  status: { in: [TaskQuoteStatus.PENDING, TaskQuoteStatus.BUDGET_APPROVED] },
+};
+
+/**
+ * A NULLABLE `Customer` text column that is null or empty — the client's `isNull` treats "" as
+ * missing, and mirroring that here is what keeps an on-screen row and the nav agreeing.
+ *
+ * Spelled as an `OR` of two equalities rather than `{ in: [null, ''] }`: Prisma passes that
+ * through as SQL `IN (NULL, '')`, and `NULL IN (NULL, '')` is NULL, not TRUE — so the null half,
+ * which is the common one, would never have matched.
+ */
+function missingText(field: keyof Prisma.CustomerWhereInput): Prisma.CustomerWhereInput {
+  return { OR: [{ [field]: null }, { [field]: '' }] } as Prisma.CustomerWhereInput;
+}
+
+/**
+ * Same, for a NON-NULLABLE column. `Customer.fantasyName` is `String @unique`, and Prisma REJECTS
+ * `{ fantasyName: null }` at validation time ("Argument `fantasyName` is missing") rather than
+ * ignoring it — one such clause throws, `getSummary` 500s, and the whole nav goes dark. Empty
+ * string is the only way it can be missing anyway.
+ */
+function missingRequiredText(field: keyof Prisma.CustomerWhereInput): Prisma.CustomerWhereInput {
+  return { [field]: '' } as Prisma.CustomerWhereInput;
+}
+
+/**
+ * Ibiporã bills against a purchase order, so its `orderNumber` is mandatory rather than optional.
+ * `generateInvoice` gates it: with no nota there is nowhere to print the pedido de compra.
+ *
+ * The `OR` MUST stay inside `some`: lifted out, it would match a quote where Ibiporã's own config
+ * is filled but a DIFFERENT customer's config on the same quote is empty — and multi-customer
+ * quotes are exactly the normal case here.
+ */
+const IBIPORA_MISSING_ORDER_NUMBER: Prisma.TaskQuoteCustomerConfigWhereInput = {
+  customerId: PINNED_CUSTOMERS.IBIPORA,
+  generateInvoice: true,
+  OR: [{ orderNumber: null }, { orderNumber: '' }],
+};
+
+/**
+ * The client twin carries a `notNull id` guard inside its `some` so an unselected `orderNumber`
+ * cannot read as an EMPTY one. There is nothing to guard against on this side — a row always has
+ * every column — so this comment is the whole mirror of it. Do not "simplify" the client's guard
+ * away on the grounds that the server does not need one.
+ */
+
+/**
+ * The customer cannot receive an NFS-e yet.
+ *
+ * MIRRORS `NFSE_REQUIRED_CUSTOMER_FIELDS` in `web/src/lib/billing-customer-data.ts`, which is the
+ * same list the wizard's `validateCustomerData` refuses BILLING_APPROVED over. Keep the two in
+ * step: a field required there and missing here means the nav under-counts silently, and a field
+ * required here and not there means the row blinks over something the form will happily save.
+ */
+const CUSTOMER_MISSING_BILLING_DATA: Prisma.CustomerWhereInput = {
+  OR: [
+    // The document is satisfied by EITHER — only missing when both are.
+    { AND: [missingText('cnpj'), missingText('cpf')] },
+    missingRequiredText('fantasyName'),
+    missingText('corporateName'),
+    missingText('zipCode'),
+    missingText('city'),
+    missingText('state'),
+    missingText('address'),
+    missingText('addressNumber'),
+    missingText('neighborhood'),
+  ],
+};
+
+/**
  * The server-side mirror of `ATTENTION_RULES`, one entry per rule id.
  *
  * Every rule here MUST exist with the SAME id in `web/src/lib/attention/rules.ts`
@@ -390,19 +467,47 @@ const RULE_QUERIES: RuleQuery[] = [
   },
 
   // ── Comercial / Financeiro ────────────────────────────────────────────────
+  //
+  // `task-quote.expired-pending` and `task-quote.due` used to live here and were REMOVED with
+  // their client twins. Between them they matched 171 of ~250 quotes: DUE is a status the table
+  // already prints in red and only the CUSTOMER can clear by paying, and expired-pending was a
+  // 147-record backlog, half of it over three months old. Neither named work this audience could
+  // do, which is the bar stated above. What is left is the two conditions that actually BLOCK an
+  // invoice, each pointing at the field that unblocks it.
   {
-    // Still PENDING after its own expiry date — renew it or cancel it.
-    ruleId: 'task-quote.expired-pending',
+    // The work is DONE and the Ibiporã pedido number is still missing, so the invoice cannot be
+    // issued — someone has to go ask for it. Resolves the moment the field is filled, which is
+    // what makes it a backlog rather than a permanent alert.
+    //
+    // This is the ONE task-derived rule whose trigger is COMPLETED, so it deliberately does NOT
+    // use IN_FLIGHT (which exists to exclude exactly that). While the task is still running the
+    // gap is a cadastro detail, not blocked money.
+    ruleId: 'task-quote.ibipora-missing-order-number',
     entityType: 'TASK_QUOTE',
     privileges: QUOTE_AUDIENCE,
-    where: ({ now }) => ({ status: TaskQuoteStatus.PENDING, expiresAt: { lt: now } }),
+    where: (): Prisma.TaskQuoteWhereInput => ({
+      // Task.quoteId is @unique, so this is a to-one relation filter; it also implicitly requires
+      // the task to exist, which is what we want (a quote with no task bills nothing).
+      task: { status: TaskStatus.COMPLETED },
+      ...NOT_YET_INVOICED,
+      customerConfigs: { some: IBIPORA_MISSING_ORDER_NUMBER },
+    }),
   },
   {
-    // An installment has come due.
-    ruleId: 'task-quote.due',
+    // The work is DONE, the budget is approved, and the customer's cadastro still cannot carry an
+    // NFS-e. Same shape as the rule above and the same reason: money held up by one empty field.
+    // BUDGET_APPROVED is the whole window — before it the quote may not even be approved, after
+    // it the nota has already gone out, so the cadastro was necessarily fine.
+    ruleId: 'task-quote.billing-customer-incomplete',
     entityType: 'TASK_QUOTE',
     privileges: QUOTE_AUDIENCE,
-    where: () => ({ status: TaskQuoteStatus.DUE }),
+    where: (): Prisma.TaskQuoteWhereInput => ({
+      task: { status: TaskStatus.COMPLETED },
+      status: TaskQuoteStatus.BUDGET_APPROVED,
+      customerConfigs: {
+        some: { generateInvoice: true, customer: CUSTOMER_MISSING_BILLING_DATA },
+      },
+    }),
   },
 
   // ── Every sector ──────────────────────────────────────────────────────────
