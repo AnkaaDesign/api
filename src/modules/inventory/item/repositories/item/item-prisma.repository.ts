@@ -171,7 +171,9 @@ export class ItemPrismaRepository
 
     // Note: ppeSizeOrder is calculated dynamically, not stored in the database
 
-    // totalPrice is calculated based on quantity and latest price, not updated directly
+    // totalPrice is never written from here: the `item_total_price_sync` /
+    // `monetary_value_item_total_price_sync` DB triggers derive it from
+    // (latest price x quantity) on every write, whichever path performs it.
 
     if (brandIds !== undefined) {
       // `set` replaces the entire brand list (empty array clears all brands)
@@ -353,7 +355,7 @@ export class ItemPrismaRepository
       warehouseLocation: true,
       prices: {
         orderBy: {
-          updatedAt: 'desc',
+          createdAt: 'desc',
         },
         take: 1,
       },
@@ -420,7 +422,7 @@ export class ItemPrismaRepository
           updatedAt: true,
         },
         orderBy: {
-          updatedAt: 'desc',
+          createdAt: 'desc',
         },
         take: 1,
       },
@@ -515,7 +517,7 @@ export class ItemPrismaRepository
           updatedAt: true,
         },
         orderBy: {
-          updatedAt: 'desc',
+          createdAt: 'desc',
         },
         take: 5,
       },
@@ -615,7 +617,7 @@ export class ItemPrismaRepository
           updatedAt: true,
         },
         orderBy: {
-          updatedAt: 'desc',
+          createdAt: 'desc',
         },
         take: 10,
       },
@@ -658,25 +660,17 @@ export class ItemPrismaRepository
         include: includeInput,
       });
 
-      // Calculate and update totalPrice based on quantity and latest price
-      if (
-        'prices' in result &&
-        result.prices &&
-        Array.isArray(result.prices) &&
-        result.prices.length > 0 &&
-        result.quantity
-      ) {
-        const latestPrice = result.prices[0]?.value ?? 0;
-        const totalPrice = result.quantity * latestPrice;
-
-        // Update the totalPrice
-        const updatedResult = await transaction.item.update({
+      // totalPrice is maintained by the DB triggers (item_total_price_trigger
+      // migration), so nothing writes it here. The nested price row is inserted
+      // after the Item's own INSERT though, so the row we just got back was
+      // stamped before any price existed — re-read it so the caller sees the
+      // synced value rather than 0.
+      if ((createInput as any).prices) {
+        const synced = await transaction.item.findUnique({
           where: { id: result.id },
-          data: { totalPrice },
-          include: includeInput as any,
+          include: includeInput,
         });
-
-        return this.mapDatabaseEntityToEntity(updatedResult);
+        if (synced) return this.mapDatabaseEntityToEntity(synced);
       }
 
       return this.mapDatabaseEntityToEntity(result);
@@ -988,33 +982,10 @@ export class ItemPrismaRepository
       const mappedInclude = this.mapIncludeToDatabaseInclude(options?.include);
       const includeInput = mappedInclude ? { ...defaultInclude, ...mappedInclude } : defaultInclude;
 
-      // If quantity is being updated, we need to recalculate totalPrice
-      if (data.quantity !== undefined) {
-        // Get the current item with its latest price
-        const currentItem = await transaction.item.findUnique({
-          where: { id },
-          include: {
-            prices: {
-              orderBy: {
-                updatedAt: 'desc',
-              },
-              take: 1,
-            },
-          },
-        });
-
-        if (
-          currentItem &&
-          currentItem.prices &&
-          Array.isArray(currentItem.prices) &&
-          currentItem.prices.length > 0
-        ) {
-          updateInput.totalPrice = (currentItem.prices[0]?.value ?? 0) * data.quantity;
-        } else {
-          updateInput.totalPrice = 0;
-        }
-      }
-
+      // totalPrice is recalculated by the item_total_price_sync DB trigger on any
+      // write that touches quantity, and by monetary_value_item_total_price_sync
+      // when a price row changes. Recomputing it here as well was both redundant
+      // and wrong for a price-only edit, which never entered this branch.
       const result = await transaction.item.update({
         where: { id },
         data: updateInput as any,

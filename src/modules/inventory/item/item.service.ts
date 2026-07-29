@@ -3647,24 +3647,10 @@ export class ItemService {
       // otherwise stay stale. recomputeItemMetrics is transaction-safe.
       await this.itemRecomputeService.recomputeItemMetrics(data.targetItemId, tx);
 
-      // 14c. Recompute totalPrice (denormalized = latest price × final quantity),
-      // which no recompute helper covers. Read the post-merge latest price and
-      // quantity directly so it reflects the merged price history.
-      {
-        const latestPrice = await tx.monetaryValue.findFirst({
-          where: { itemId: data.targetItemId },
-          orderBy: { createdAt: 'desc' },
-          select: { value: true },
-        });
-        const finalItem = await tx.item.findUnique({
-          where: { id: data.targetItemId },
-          select: { quantity: true },
-        });
-        await tx.item.update({
-          where: { id: data.targetItemId },
-          data: { totalPrice: (latestPrice?.value ?? 0) * (finalItem?.quantity ?? 0) },
-        });
-      }
+      // 14c. totalPrice needs no explicit recompute here: step 3's quantity write
+      // and step 4's re-pointing of the source price history both fire the
+      // totalPrice DB triggers (item_total_price_trigger migration), on the
+      // survivor and on each drained source alike.
 
       // 15. Delete source items
       await tx.item.deleteMany({
