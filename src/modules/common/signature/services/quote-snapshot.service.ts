@@ -38,31 +38,24 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { canonicalize, sha256Hex } from '../utils/canonical';
+import { sha256Hex } from '../utils/canonical';
 import { onlyDigits } from '../utils/identity';
+// `normText` mora em `quote-diff` para que aquele módulo não precise importar
+// nada de runtime daqui — o import de lá para cá é só de tipos, e é isso que
+// mantém o ciclo entre os dois arquivos inofensivo.
+import {
+  describeQuoteChange,
+  describeQuoteChanges,
+  diffQuoteSnapshots,
+  normText,
+  type QuoteChange,
+} from './quote-diff';
 
 /** Dinheiro sempre como string de 2 casas — nunca float. */
 function money(value: Prisma.Decimal | number | null | undefined): string {
   if (value === null || value === undefined) return '0.00';
   const n = typeof value === 'number' ? value : Number(value.toString());
   return n.toFixed(2);
-}
-
-function isoDate(d: Date | null | undefined): string | null {
-  return d ? d.toISOString() : null;
-}
-
-/**
- * Texto livre normalizado para COMPARAÇÃO — nunca para exibição.
- *
- * Espaço no fim de uma descrição de serviço, espaço duplo no meio, um \r\n que
- * virou \n: nada disso muda o que o cliente leu, mas todos mudam o sha256. Sem
- * isto, salvar o formulário sem editar nada podia invalidar a coleta.
- */
-function normText(value: string | null | undefined): string | null {
-  if (value === null || value === undefined) return null;
-  const collapsed = value.replace(/\s+/g, ' ').trim();
-  return collapsed.length ? collapsed : null;
 }
 
 export interface QuoteSnapshotSigner {
@@ -359,146 +352,41 @@ export class QuoteSnapshotService {
    * uma assinatura. Agora cada mudança sai classificada, e só `material` derruba
    * o envelope.
    *
-   * Os rótulos trazem ANTES → DEPOIS quando o valor é escalar. O nº 590 relatou
-   * apenas "Alteração em: responsáveis." ao cliente e ao operador, e nenhum dos
-   * dois tinha como descobrir que a mudança fora uma letra num nome.
+   * O DETALHE VIVE EM `entries`. As duas listas de string continuam existindo
+   * porque a trilha append-only e o e-mail as consomem, mas elas são um RESUMO:
+   * "serviços" nunca disse se um item entrou, saiu ou mudou de preço. `entries`
+   * traz cada diferença separada, com assunto e antes/depois formatados, e é o
+   * que as telas e a página pública renderizam.
    */
   classify(before: QuoteSnapshot, after: QuoteSnapshot): SnapshotChanges {
-    const material: string[] = [];
-    const cosmetic: string[] = [];
-
-    // canonicalize(), NUNCA JSON.stringify: o snapshot anterior volta do JSONB do
-    // Postgres com a ordem das chaves alterada, e uma comparação sensível à ordem
-    // apontaria "cliente, veículo, responsáveis" como alterados quando só o preço
-    // mudou. O hash sempre esteve certo (ele canonicaliza); era a mensagem ao
-    // cliente que mentia — e é exatamente ela que sustenta a boa-fé da Ankaa.
-    const differs = (a: unknown, b: unknown) => canonicalize(a ?? null) !== canonicalize(b ?? null);
-
-    const cmp = (into: string[], label: string, a: unknown, b: unknown) => {
-      if (!differs(a, b)) return;
-      // Só escalares ganham "antes → depois"; despejar um array de serviços
-      // inteiro numa mensagem de WhatsApp não ajuda ninguém.
-      const scalar = (v: unknown) => v === null || v === undefined || typeof v !== 'object';
-      into.push(scalar(a) && scalar(b) ? `${label} (${fmt(a)} → ${fmt(b)})` : label);
+    const entries = diffQuoteSnapshots(before, after);
+    return {
+      entries,
+      material: entries.filter(c => c.severity === 'MATERIAL').map(describeQuoteChange),
+      cosmetic: entries.filter(c => c.severity === 'COSMETIC').map(describeQuoteChange),
     };
+  }
 
-    // ---- MATERIAL: as condições comerciais ---------------------------------
-    cmp(material, 'valor total', before.total, after.total);
-    cmp(material, 'subtotal', before.subtotal, after.subtotal);
-    cmp(material, 'serviços', normServices(before), normServices(after));
-    cmp(material, 'desconto', normDiscount(before), normDiscount(after));
-    cmp(material, 'condição de pagamento', before.paymentCondition, after.paymentCondition);
-    cmp(
-      material,
-      'texto de pagamento',
-      normText(before.customPaymentText),
-      normText(after.customPaymentText),
-    );
-    cmp(material, 'garantia', before.guaranteeYears, after.guaranteeYears);
-    cmp(
-      material,
-      'texto de garantia',
-      normText(before.customGuaranteeText),
-      normText(after.customGuaranteeText),
-    );
-    cmp(material, 'prazo de entrega', before.customForecastDays, after.customForecastDays);
-    cmp(material, 'tarefas simultâneas', before.simultaneousTasks, after.simultaneousTasks);
-    cmp(material, 'validade', before.expiresAt, after.expiresAt);
-    cmp(material, 'layout', before.layoutFileIds, after.layoutFileIds);
-    cmp(
-      material,
-      'cliente contratante',
-      before.customer?.document ?? null,
-      after.customer?.document ?? null,
-    );
-    cmp(material, 'placa do veículo', normText(before.truck?.plate), normText(after.truck?.plate));
-    cmp(
-      material,
-      'chassi',
-      normText(before.truck?.chassisNumber),
-      normText(after.truck?.chassisNumber),
-    );
-    cmp(material, 'lista de responsáveis', ids(before.signers), ids(after.signers));
-    cmp(material, 'telefone de assinatura', phones(before.signers), phones(after.signers));
+  /** Só as diferenças estruturadas — o caminho que as interfaces consomem. */
+  changes(before: QuoteSnapshot, after: QuoteSnapshot): QuoteChange[] {
+    return diffQuoteSnapshots(before, after);
+  }
 
-    // ---- COSMÉTICO: aparece no documento, não muda a proposta --------------
-    cmp(
-      cosmetic,
-      'razão social',
-      before.customer?.corporateName ?? null,
-      after.customer?.corporateName ?? null,
-    );
-    cmp(
-      cosmetic,
-      'nome fantasia',
-      before.customer?.fantasyName ?? null,
-      after.customer?.fantasyName ?? null,
-    );
-    cmp(cosmetic, 'nome da tarefa', before.task?.name ?? null, after.task?.name ?? null);
-    cmp(
-      cosmetic,
-      'número de série',
-      before.task?.serialNumber ?? null,
-      after.task?.serialNumber ?? null,
-    );
-    cmp(
-      cosmetic,
-      'categoria do veículo',
-      before.truck?.category ?? null,
-      after.truck?.category ?? null,
-    );
-    cmp(
-      cosmetic,
-      'tipo de implemento',
-      before.truck?.implementType ?? null,
-      after.truck?.implementType ?? null,
-    );
-    cmp(cosmetic, 'vendedor responsável', before.commercialUserId, after.commercialUserId);
-    // Grafia do nome e papéis do contato: o caso do nº 590.
-    for (const b of before.signers) {
-      const a = after.signers.find(s => s.responsibleId === b.responsibleId);
-      if (!a) continue; // remoção já contabilizada em "lista de responsáveis"
-      cmp(cosmetic, 'nome do responsável', b.name, a.name);
-      cmp(cosmetic, 'papéis do responsável', b.roles, a.roles);
-    }
-
-    return { material, cosmetic };
+  /** O motivo em uma frase, a partir das diferenças materiais. */
+  describeMaterial(entries: QuoteChange[]): string {
+    return describeQuoteChanges(entries.filter(c => c.severity === 'MATERIAL'));
   }
 }
 
 export interface SnapshotChanges {
+  /**
+   * A lista estruturada, material e cosmética juntas e já ordenada para leitura.
+   * É esta que as telas renderizam; as duas abaixo são o resumo em texto que a
+   * trilha append-only e o e-mail consomem.
+   */
+  entries: QuoteChange[];
   /** Muda a proposta ⇒ invalida o envelope. */
   material: string[];
   /** Aparece no documento congelado, mas não muda a proposta ⇒ só registra. */
   cosmetic: string[];
-}
-
-function fmt(v: unknown): string {
-  if (v === null || v === undefined || v === '') return 'vazio';
-  return String(v);
-}
-
-function ids(signers: QuoteSnapshotSigner[]): string[] {
-  return signers.map(s => s.responsibleId).sort();
-}
-
-function phones(signers: QuoteSnapshotSigner[]): string[] {
-  return signers.map(s => `${s.responsibleId}:${s.phoneDigits}`).sort();
-}
-
-function normServices(s: QuoteSnapshot) {
-  return s.services.map(svc => ({
-    description: normText(svc.description),
-    amount: svc.amount,
-    observation: normText(svc.observation),
-    position: svc.position,
-  }));
-}
-
-function normDiscount(s: QuoteSnapshot) {
-  return {
-    type: s.discount.type,
-    value: s.discount.value,
-    reference: normText(s.discount.reference),
-  };
 }

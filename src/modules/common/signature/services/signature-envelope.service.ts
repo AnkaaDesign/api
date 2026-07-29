@@ -45,6 +45,7 @@ import {
   QuoteSnapshotService,
   QuoteWithSnapshotGraph,
 } from './quote-snapshot.service';
+import type { QuoteChange } from './quote-diff';
 import { QuoteRendererService } from '../document/quote-renderer.service';
 import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
 import { PadesSignerService } from '../pades/pades-signer.service';
@@ -669,6 +670,21 @@ export class SignatureEnvelopeService {
 
     const customer = env.quote.task?.customer ?? null;
 
+    // O signatário que abre um link morto precisa saber POR QUE ele morreu. Sem
+    // isto a página dizia apenas "esta coleta não está mais ativa", e quem tinha
+    // assinado — e recebeu o e-mail de anulação — não tinha onde conferir o que
+    // exatamente havia mudado no orçamento que já lera.
+    //
+    // Só fora de RUNNING: enquanto a coleta está viva a página mostra o
+    // formulário e nunca esta lista (uma divergência MATERIAL já teria tirado o
+    // envelope de RUNNING; o que sobra é deriva cosmética, que não é assunto do
+    // signatário). Calcular assim mesmo custaria uma leitura do grafo inteiro do
+    // orçamento em cada abertura do link — o caminho mais quente da cerimônia.
+    const changes =
+      env.status === EnvelopeStatus.RUNNING
+        ? []
+        : (await this.changesSinceFrozen(env.quoteId, [env])).get(env.id) ?? [];
+
     return {
       envelope: {
         id: env.id,
@@ -678,6 +694,8 @@ export class SignatureEnvelopeService {
         deadlineAt: env.deadlineAt,
         verificationCode: env.verificationCode,
         acceptanceClause: env.acceptanceClause,
+        invalidatedReason: env.invalidatedReason,
+        changes,
       },
       signer: {
         id: signer.id,
@@ -1783,6 +1801,68 @@ export class SignatureEnvelopeService {
   // ===========================================================================
 
   /**
+   * O que mudou no orçamento desde que cada envelope foi congelado.
+   *
+   * CALCULADO NA LEITURA, NÃO GUARDADO. Poderia ser uma coluna gravada no
+   * momento da invalidação, e a primeira versão disto era — mas essa lista
+   * envelhece errado em três situações que acontecem toda semana:
+   *
+   *  · o operador invalida, corrige mais três coisas e só então reemite: a
+   *    coluna contaria a primeira alteração e esconderia as outras três;
+   *  · o envelope já está CONCLUÍDO e o orçamento muda depois: nada invalida
+   *    (e está certo, o PDF assinado é imutável), mas ninguém ficava sabendo
+   *    que o registro atual não é mais o que foi assinado;
+   *  · envelopes anteriores ao recurso não teriam coluna nenhuma.
+   *
+   * Sempre comparando contra o snapshot ATUAL, as três se resolvem sozinhas e
+   * não há migração. O custo é uma leitura do grafo do orçamento por chamada —
+   * a mesma que a cerimônia já faz a cada assinatura.
+   *
+   * Best-effort por construção: esta lista é informativa. Se o snapshot
+   * congelado for de um formato que o diff não entende, a resposta sai sem ela
+   * em vez de derrubar a página.
+   */
+  private async changesSinceFrozen(
+    quoteId: string,
+    envelopes: Array<{ id: string; quoteSnapshot: unknown; quoteSnapshotSha256: string }>,
+  ): Promise<Map<string, QuoteChange[]>> {
+    const out = new Map<string, QuoteChange[]>();
+    if (!envelopes.length) return out;
+
+    let fresh: Awaited<ReturnType<QuoteSnapshotService['buildForQuote']>> = null;
+    try {
+      fresh = await this.snapshots.buildForQuote(quoteId);
+    } catch (error) {
+      this.logger.warn(
+        `Não foi possível recalcular o snapshot do orçamento ${quoteId}: ${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+    }
+    if (!fresh) return out;
+
+    for (const env of envelopes) {
+      // Atalho: hash igual ⇒ nada no documento mudou, nem cosmético.
+      if (env.quoteSnapshotSha256 === fresh.hash) {
+        out.set(env.id, []);
+        continue;
+      }
+      try {
+        out.set(
+          env.id,
+          this.snapshots.changes(env.quoteSnapshot as QuoteSnapshot, fresh.snapshot),
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Diff do envelope ${env.id} falhou: ${error instanceof Error ? error.message : error}`,
+        );
+        out.set(env.id, []);
+      }
+    }
+    return out;
+  }
+
+  /**
    * Chamado após qualquer escrita no orçamento.
    *
    * Compara o hash do recorte canônico atual com o congelado. Divergiu ⇒ o
@@ -1832,9 +1912,11 @@ export class SignatureEnvelopeService {
       return false;
     }
 
-    const reason = changes.material.length
-      ? `Alteração em: ${changes.material.join(', ')}.`
-      : 'Alteração material no orçamento.';
+    const materialEntries = changes.entries.filter(c => c.severity === 'MATERIAL');
+    // Uma frase, com no máximo quatro itens — cabe no aviso de uma linha da tela
+    // e no parágrafo do e-mail. A lista inteira e detalhada é servida pelas
+    // rotas de leitura (`changes`), que é onde há espaço para ela.
+    const reason = this.snapshots.describeMaterial(changes.entries);
 
     await this.prisma.$transaction(async tx => {
       await tx.envelopeSigner.updateMany({
@@ -1857,10 +1939,18 @@ export class SignatureEnvelopeService {
         reason,
         newSnapshotHash: loaded.hash,
         newTermsHash: loaded.materialHash,
-        changes: changes.material.join(', '),
+        // Uma linha por alteração, com assunto e antes → depois — o mesmo texto
+        // que o e-mail e a tela mostram, agora que `describeQuoteChange` o
+        // produz. Antes daqui saía "serviços", e a trilha, que é append-only,
+        // ficava para sempre sem dizer QUAL serviço nem o quê nele mudou.
+        //
+        // Continua sendo TEXTO, não o objeto estruturado: o payload da trilha é
+        // escalar por construção (é ele que entra no hash encadeado), e a lista
+        // estruturada as rotas de leitura recalculam quando alguém pergunta.
+        changes: changes.material.join(' | '),
         // Cosméticas viajam junto para que a trilha explique a mudança INTEIRA,
         // e não só a parte que puxou o gatilho.
-        cosmeticChanges: changes.cosmetic.join(', ') || undefined,
+        cosmeticChanges: changes.cosmetic.join(' | ') || undefined,
       },
     });
 
@@ -1873,6 +1963,15 @@ export class SignatureEnvelopeService {
         budgetNumber: running.quote?.budgetNumber ?? '—',
         reason,
         hadSigned: true,
+        // O e-mail leva a lista item a item. Quem assinou e teve a assinatura
+        // anulada não deveria precisar abrir um link para descobrir qual preço
+        // mudou — a informação vai junto com a notícia.
+        changes: materialEntries.map(c => ({
+          label: c.label,
+          subject: c.subject,
+          before: c.before,
+          after: c.after,
+        })),
       });
       const notified = await this.sendEmail(
         s.declaredEmail,
@@ -1924,11 +2023,11 @@ export class SignatureEnvelopeService {
       eventType: 'SNAPSHOT_DRIFTED',
       actorType: actorUserId ? 'OPERATOR' : 'SYSTEM',
       actorId: actorUserId,
-      payload: { newSnapshotHash, changes: cosmeticChanges.join(', ') },
+      payload: { newSnapshotHash, changes: cosmeticChanges.join(' | ') },
     });
 
     this.logger.log(
-      `Envelope ${envelopeId}: deriva cosmética registrada, coleta preservada — ${cosmeticChanges.join(', ')}`,
+      `Envelope ${envelopeId}: deriva cosmética registrada, coleta preservada — ${cosmeticChanges.join(' | ')}`,
     );
   }
 
@@ -2099,6 +2198,8 @@ export class SignatureEnvelopeService {
     });
     if (!env) return { hasEnvelope: false as const };
 
+    const changes = (await this.changesSinceFrozen(quoteId, [env])).get(env.id) ?? [];
+
     return {
       hasEnvelope: true as const,
       status: env.status,
@@ -2109,6 +2210,13 @@ export class SignatureEnvelopeService {
       sealedAt: env.sealedAt,
       padesLevel: env.padesLevel,
       invalidatedReason: env.invalidatedReason,
+      /**
+       * O cliente vê a MESMA lista que o operador vê. Não há versão suavizada:
+       * quem teve a assinatura anulada tem direito de saber exatamente qual
+       * preço mudou, e esconder o detalhe é o oposto da boa-fé que sustenta a
+       * cerimônia inteira.
+       */
+      changes,
       signers: env.signers.map(s => ({
         name: s.declaredName,
         cargo: s.informedCargo,
@@ -2279,6 +2387,8 @@ export class SignatureEnvelopeService {
       if (ev.actorId) inviteBySigner.set(ev.actorId, ev.eventType);
     }
 
+    const changesByEnvelope = await this.changesSinceFrozen(quoteId, envelopes);
+
     return envelopes.map(env => ({
       id: env.id,
       version: env.version,
@@ -2288,6 +2398,15 @@ export class SignatureEnvelopeService {
       sentAt: env.sentAt,
       completedAt: env.completedAt,
       invalidatedReason: env.invalidatedReason,
+      /**
+       * Diferenças entre o documento congelado neste envelope e o orçamento
+       * como ele está AGORA. Vazio quando nada mudou.
+       *
+       * Num envelope INVALIDATED explica a invalidação; num COMPLETED avisa que
+       * o registro se moveu depois da assinatura — que não invalida nada, mas o
+       * operador precisa saber antes de mandar o dossiê ao cliente.
+       */
+      changes: changesByEnvelope.get(env.id) ?? [],
       originalSha256: env.originalSha256,
       finalSha256: env.finalSha256,
       padesLevel: env.padesLevel,

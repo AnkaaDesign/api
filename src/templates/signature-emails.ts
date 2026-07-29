@@ -215,6 +215,53 @@ export function generateAnkaaCountersignEmail(data: AnkaaNoticeEmailData): {
 export interface VoidedEmailData extends SignatureEmailBase {
   reason: string;
   hadSigned: boolean;
+  /**
+   * O que mudou, item a item. Opcional só para não quebrar chamadores antigos —
+   * quando vem preenchida, é ela que o leitor lê, e o `reason` fica sendo o
+   * resumo de uma linha.
+   */
+  changes?: Array<{
+    label: string;
+    subject: string | null;
+    before: string | null;
+    after: string | null;
+  }>;
+}
+
+/**
+ * Tabela "antes → depois" das alterações.
+ *
+ * `<table>` e estilos inline, não flexbox: Outlook desktop ignora display:flex e
+ * empilharia tudo numa coluna só. É feio de escrever e é o que funciona nos
+ * clientes que os clientes usam.
+ */
+function changesTable(changes: NonNullable<VoidedEmailData['changes']>): string {
+  if (!changes.length) return '';
+  const rows = changes
+    .map(c => {
+      const title = c.subject ? `${esc(c.label)} — ${esc(c.subject)}` : esc(c.label);
+      // Uma inclusão não tem "antes" e uma remoção não tem "depois"; escrever
+      // uma seta com um dos lados vazio parece dado faltando, não novidade.
+      const value =
+        c.before && c.after
+          ? `<span style="text-decoration:line-through;color:${MUTED};">${esc(c.before)}</span>
+             <span style="color:${MUTED};">&nbsp;→&nbsp;</span>
+             <strong>${esc(c.after)}</strong>`
+          : c.after
+            ? `<strong>${esc(c.after)}</strong>`
+            : c.before
+              ? `<span style="text-decoration:line-through;color:${MUTED};">${esc(c.before)}</span>`
+              : '<span style="color:#6b7280;">alterado</span>';
+      return `<tr>
+  <td style="padding:8px 12px;border-bottom:1px solid ${LINE};font-size:14px;color:${MUTED};white-space:nowrap;">${title}</td>
+  <td style="padding:8px 12px;border-bottom:1px solid ${LINE};font-size:14px;text-align:right;">${value}</td>
+</tr>`;
+    })
+    .join('\n');
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%"
+  style="border-collapse:collapse;border:1px solid ${LINE};border-radius:6px;margin:18px 0;">
+${rows}
+</table>`;
 }
 
 export function generateEnvelopeVoidedEmail(data: VoidedEmailData): {
@@ -230,7 +277,10 @@ export function generateEnvelopeVoidedEmail(data: VoidedEmailData): {
       footerNote: 'E-mail automático da cerimônia de assinatura.',
       body: `
 <p>Olá, ${esc(data.signerName)}.</p>
-<p>O orçamento nº <strong>${esc(data.budgetNumber)}</strong> foi alterado pela ${COMPANY.name}. ${esc(data.reason)}</p>
+<p>O orçamento nº <strong>${esc(data.budgetNumber)}</strong> foi alterado pela ${COMPANY.name}.${
+        data.changes?.length ? ' Veja o que mudou:' : ` ${esc(data.reason)}`
+      }</p>
+${changesTable(data.changes ?? [])}
 ${
   data.hadSigned
     ? `<div class="alert"><strong>A assinatura que você já havia registrado foi invalidada.</strong>

@@ -1,0 +1,283 @@
+/**
+ * Guarda do diff do orçamento — o que o cliente e o operador leem quando uma
+ * coleta de assinaturas é invalidada.
+ *
+ * O bug que originou este módulo: a invalidação relatava "Alteração em: valor
+ * total (12000.00 → 13500.00), serviços, desconto." Nem o signatário que teve a
+ * assinatura anulada nem o operador conseguiam descobrir QUAL serviço mudou, se
+ * um item entrou ou saiu, ou de quanto para quanto foi o desconto.
+ *
+ * O que este arquivo protege é a leitura, não o hash. A decisão de invalidar
+ * continua sendo por `materialHash` (ver `QuoteSnapshotService`); aqui se
+ * verifica que a EXPLICAÇÃO dessa decisão é fiel e legível:
+ *
+ *  · um preço alterado não pode virar "removido + incluído";
+ *  · uma correção de grafia não pode ser reportada como alteração material —
+ *    foi assim que o orçamento nº 590 perdeu uma assinatura válida;
+ *  · inclusão e remoção precisam sair com o nome do serviço e o valor.
+ *
+ * Rodar: pnpm tsx tests/quote-diff.test.ts
+ */
+
+import {
+  describeQuoteChanges,
+  diffQuoteSnapshots,
+  type QuoteChange,
+} from '../src/modules/common/signature/services/quote-diff';
+import type { QuoteSnapshot } from '../src/modules/common/signature/services/quote-snapshot.service';
+
+let failures = 0;
+
+function check(name: string, condition: boolean, detail?: string) {
+  if (condition) {
+    console.log(`  ✓ ${name}`);
+  } else {
+    failures++;
+    console.error(`  ✗ ${name}${detail ? ` — ${detail}` : ''}`);
+  }
+}
+
+function baseSnapshot(): QuoteSnapshot {
+  return {
+    schemaVersion: 2,
+    budgetNumber: 590,
+    issuedAt: '2026-07-01T12:00:00.000Z',
+    expiresAt: '2026-08-01T12:00:00.000Z',
+    customer: {
+      id: 'cust-1',
+      corporateName: 'Transportes Andrade LTDA',
+      fantasyName: 'Andrade',
+      document: '13636938000144',
+    },
+    task: { id: 'task-1', name: 'Baú 14m', serialNumber: 'SN-1' },
+    truck: { plate: 'ABC1D23', chassisNumber: '9BW', category: 'CARRETA', implementType: 'BAU' },
+    services: [
+      { description: 'Pintura completa do baú', amount: '12000.00', observation: null, position: 0 },
+      { description: 'Aplicação de faixas', amount: '1800.00', observation: 'Vinil 3M', position: 1 },
+    ],
+    subtotal: '13800.00',
+    total: '13800.00',
+    discount: { type: 'NONE', value: null, reference: null },
+    paymentCondition: '30/60 dias',
+    customPaymentText: null,
+    guaranteeYears: 3,
+    customGuaranteeText: null,
+    customForecastDays: 15,
+    simultaneousTasks: 1,
+    layoutFileIds: ['file-a'],
+    signers: [
+      { responsibleId: 'resp-1', name: 'Paulo Cvarvalho', phoneDigits: '5543999992403', roles: ['COMMERCIAL'] },
+    ],
+    commercialUserId: 'user-1',
+  };
+}
+
+/** Clona fundo o bastante para os testes mexerem sem contaminar o vizinho. */
+function clone(s: QuoteSnapshot): QuoteSnapshot {
+  return JSON.parse(JSON.stringify(s)) as QuoteSnapshot;
+}
+
+function find(changes: QuoteChange[], key: string): QuoteChange | undefined {
+  return changes.find(c => c.key === key || c.key.startsWith(`${key}:`));
+}
+
+console.log('\nquote-diff — leitura das alterações do orçamento\n');
+
+// ---------------------------------------------------------------------------
+console.log('Nada mudou');
+{
+  const changes = diffQuoteSnapshots(baseSnapshot(), baseSnapshot());
+  check('snapshots idênticos não produzem linha alguma', changes.length === 0, `${changes.length}`);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nPreço de um serviço');
+{
+  const after = clone(baseSnapshot());
+  after.services[0].amount = '13500.00';
+  after.subtotal = '15300.00';
+  after.total = '15300.00';
+  const changes = diffQuoteSnapshots(baseSnapshot(), after);
+
+  const price = find(changes, 'service:amount');
+  check('sai como alteração de preço, não como troca de item', !!price, JSON.stringify(changes.map(c => c.key)));
+  check('nomeia o serviço', price?.subject === 'Pintura completa do baú', price?.subject ?? 'null');
+  check(
+    'traz antes e depois em reais',
+    price?.before?.includes('12.000,00') === true && price?.after?.includes('13.500,00') === true,
+    `${price?.before} → ${price?.after}`,
+  );
+  check('calcula a variação com sinal', price?.amountDelta === 1500, String(price?.amountDelta));
+  check('é material', price?.severity === 'MATERIAL');
+  check('reporta o total junto', !!find(changes, 'total'));
+  check(
+    'nenhuma linha de inclusão ou remoção',
+    !changes.some(c => c.kind === 'ADDED' || c.kind === 'REMOVED'),
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nServiço incluído e serviço removido');
+{
+  const after = clone(baseSnapshot());
+  after.services = [
+    after.services[0],
+    { description: 'Adesivagem da cabine', amount: '900.00', observation: null, position: 1 },
+  ];
+  after.subtotal = '12900.00';
+  after.total = '12900.00';
+  const changes = diffQuoteSnapshots(baseSnapshot(), after);
+
+  const added = changes.find(c => c.kind === 'ADDED' && c.group === 'SERVICES');
+  const removed = changes.find(c => c.kind === 'REMOVED' && c.group === 'SERVICES');
+  check('inclusão nomeada com o valor', added?.subject === 'Adesivagem da cabine' && added?.after?.includes('900,00') === true);
+  check('inclusão soma no delta', added?.amountDelta === 900, String(added?.amountDelta));
+  check('remoção nomeada com o valor', removed?.subject === 'Aplicação de faixas' && removed?.before?.includes('1.800,00') === true);
+  check('remoção subtrai no delta', removed?.amountDelta === -1800, String(removed?.amountDelta));
+  check(
+    'a reordenação mecânica não é reportada junto',
+    !changes.some(c => c.key === 'service:order'),
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nServiço reescrito — parecido o bastante para ser o mesmo');
+{
+  const after = clone(baseSnapshot());
+  after.services[0].description = 'Pintura completa do baú e do chassi';
+  after.services[0].amount = '13000.00';
+  after.subtotal = '14800.00';
+  after.total = '14800.00';
+  const changes = diffQuoteSnapshots(baseSnapshot(), after);
+
+  check(
+    'não vira remoção + inclusão',
+    !changes.some(c => c.group === 'SERVICES' && c.kind !== 'CHANGED'),
+    JSON.stringify(changes.map(c => `${c.kind}:${c.key}`)),
+  );
+  check('reporta a descrição nova', find(changes, 'service:description')?.after?.includes('chassi') === true);
+  check('e o preço junto', find(changes, 'service:amount')?.amountDelta === 1000);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nDesconto');
+{
+  const after = clone(baseSnapshot());
+  after.discount = { type: 'PERCENTAGE', value: '10.00', reference: 'Cliente fiel' };
+  after.total = '12420.00';
+  const changes = diffQuoteSnapshots(baseSnapshot(), after);
+
+  const discount = find(changes, 'discount');
+  check('sai em uma linha só', !!discount);
+  check('antes legível', discount?.before === 'Sem desconto', discount?.before ?? 'null');
+  check('depois com percentual e motivo', discount?.after === '10% · Cliente fiel', discount?.after ?? 'null');
+  check('é material', discount?.severity === 'MATERIAL');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nCorreção de grafia — o caso do orçamento nº 590');
+{
+  const after = clone(baseSnapshot());
+  after.signers[0].name = 'Paulo Carvalho';
+  const changes = diffQuoteSnapshots(baseSnapshot(), after);
+
+  check('produz exatamente uma linha', changes.length === 1, String(changes.length));
+  check('classificada como cosmética', changes[0]?.severity === 'COSMETIC', changes[0]?.severity);
+  check(
+    'nenhuma alteração material — a assinatura sobrevive',
+    !changes.some(c => c.severity === 'MATERIAL'),
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nResponsável entra e sai');
+{
+  const after = clone(baseSnapshot());
+  after.signers = [
+    { responsibleId: 'resp-2', name: 'Marina Alves', phoneDigits: '5543999991111', roles: ['ADMIN'] },
+  ];
+  const changes = diffQuoteSnapshots(baseSnapshot(), after);
+
+  check('remoção nomeada', changes.some(c => c.kind === 'REMOVED' && c.subject === 'Paulo Cvarvalho'));
+  check('inclusão nomeada', changes.some(c => c.kind === 'ADDED' && c.subject === 'Marina Alves'));
+  check(
+    'ambas materiais — quem assina o documento mudou',
+    changes.filter(c => c.group === 'SIGNERS').every(c => c.severity === 'MATERIAL'),
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTelefone do responsável');
+{
+  const after = clone(baseSnapshot());
+  after.signers[0].phoneDigits = '5543988887777';
+  const changes = diffQuoteSnapshots(baseSnapshot(), after);
+  const phone = find(changes, 'signer:phone');
+  check('é material', phone?.severity === 'MATERIAL');
+  check('sai mascarado', phone?.after?.includes('*') === true, phone?.after ?? 'null');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nGarantia, prazo e validade');
+{
+  const after = clone(baseSnapshot());
+  after.guaranteeYears = 1;
+  after.customForecastDays = 30;
+  after.expiresAt = '2026-09-01T12:00:00.000Z';
+  const changes = diffQuoteSnapshots(baseSnapshot(), after);
+
+  check('garantia em anos', find(changes, 'guaranteeYears')?.before === '3 anos');
+  check('singular correto', find(changes, 'guaranteeYears')?.after === '1 ano');
+  check('prazo em dias', find(changes, 'customForecastDays')?.after === '30 dias');
+  check(
+    'validade como data pt-BR',
+    /^\d{2}\/\d{2}\/\d{4}$/.test(find(changes, 'expiresAt')?.after ?? ''),
+    find(changes, 'expiresAt')?.after ?? 'null',
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nEspaço em branco não é alteração');
+{
+  const after = clone(baseSnapshot());
+  after.services[0].description = '  Pintura   completa do baú ';
+  after.paymentCondition = '30/60 dias ';
+  const changes = diffQuoteSnapshots(baseSnapshot(), after);
+  check('nenhuma linha', changes.length === 0, JSON.stringify(changes.map(c => c.key)));
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nSnapshot antigo, sem os campos novos');
+{
+  const legacy = clone(baseSnapshot());
+  delete (legacy as Partial<QuoteSnapshot>).services;
+  delete (legacy as Partial<QuoteSnapshot>).signers;
+  delete (legacy as Partial<QuoteSnapshot>).layoutFileIds;
+  let threw = false;
+  try {
+    diffQuoteSnapshots(legacy, baseSnapshot());
+  } catch {
+    threw = true;
+  }
+  check('não explode — a lista é informativa, nunca pode derrubar a página', !threw);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nFrase de resumo');
+{
+  const after = clone(baseSnapshot());
+  after.services[0].amount = '13500.00';
+  after.total = '15300.00';
+  after.subtotal = '15300.00';
+  const reason = describeQuoteChanges(
+    diffQuoteSnapshots(baseSnapshot(), after).filter(c => c.severity === 'MATERIAL'),
+  );
+  check('nomeia o serviço em vez de dizer só "serviços"', reason.includes('Pintura completa do baú'), reason);
+  check('mostra o valor', reason.includes('13.500,00'), reason);
+  check('termina em ponto', reason.endsWith('.'), reason);
+}
+
+console.log(
+  failures === 0 ? '\n✅ Todas as verificações passaram.\n' : `\n❌ ${failures} verificação(ões) falharam.\n`,
+);
+process.exit(failures === 0 ? 0 : 1);
