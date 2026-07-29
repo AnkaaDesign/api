@@ -1603,11 +1603,14 @@ export class SignatureEnvelopeService {
       env.quoteTermsSha256 ??
       this.snapshots.materialHash(env.quoteSnapshot as unknown as QuoteSnapshot);
 
-    if (
-      freshAtSeal &&
-      freshAtSeal.hash !== env.quoteSnapshotSha256 &&
-      freshAtSeal.materialHash === frozenTermsAtSeal
-    ) {
+    // Mesma razão do `checkAndInvalidate`: aceitar qualquer versão conhecida,
+    // senão um envelope pré-v2 se recusaria a selar com TODAS as assinaturas já
+    // colhidas — o pior desfecho possível deste fluxo.
+    const sealTermsUnchanged =
+      !!freshAtSeal &&
+      this.snapshots.matchesFrozenTerms(freshAtSeal.snapshot, frozenTermsAtSeal) !== null;
+
+    if (freshAtSeal && freshAtSeal.hash !== env.quoteSnapshotSha256 && sealTermsUnchanged) {
       // Deriva cosmética às vésperas do selo: o PDF em disco é o mesmo, o hash
       // do arquivo confere (a guarda acima já verificou) e as condições não se
       // moveram. Registra e SELA — abortar aqui deixaria um envelope com todas
@@ -1617,7 +1620,7 @@ export class SignatureEnvelopeService {
         freshAtSeal.snapshot,
       ).cosmetic;
       await this.recordDriftOnce(envelopeId, freshAtSeal.hash, cosmetic, null);
-    } else if (freshAtSeal && freshAtSeal.materialHash !== frozenTermsAtSeal) {
+    } else if (freshAtSeal && !sealTermsUnchanged) {
       await this.audit.record(envelopeId, {
         eventType: 'PADES_FAILED',
         actorType: 'SYSTEM',
@@ -1899,7 +1902,15 @@ export class SignatureEnvelopeService {
     const frozenTermsHash =
       running.quoteTermsSha256 ?? this.snapshots.materialHash(before as QuoteSnapshot);
 
-    if (loaded.materialHash === frozenTermsHash) {
+    // Casa em QUALQUER versão conhecida do recorte material, não só na atual.
+    //
+    // A v2 trocou o canal do OTP de telefone para e-mail. Comparar um envelope
+    // congelado sob a v1 contra a projeção v2 daria diferença sempre — e todos
+    // os envelopes vivos seriam invalidados no deploy por uma mudança que, para
+    // eles, nunca foi material.
+    const matchedVersion = this.snapshots.matchesFrozenTerms(loaded.snapshot, frozenTermsHash);
+
+    if (matchedVersion !== null) {
       // DERIVA COSMÉTICA — o documento congelado em disco não mudou uma vírgula,
       // e as condições aceitas continuam as mesmas. Registra e segue.
       //
@@ -1954,15 +1965,22 @@ export class SignatureEnvelopeService {
       },
     });
 
-    // Avisa quem já tinha assinado — é o "manter o cliente ciente de que algo
-    // mudou" e é também a conduta que sustenta boa-fé numa eventual disputa.
-    const alreadySigned = running.signers.filter(s => s.signedAt);
-    for (const s of alreadySigned) {
+    // Avisa TODOS os signatários ainda ativos, não só quem já tinha assinado.
+    //
+    // Quem estava pendente recebeu um convite e continua com um link na caixa de
+    // entrada — link que acabou de morrer. Sem aviso, essa pessoa volta ao
+    // endereço mais tarde e encontra "esta coleta não está mais ativa", sem
+    // nenhuma explicação e sem saber que uma nova versão está a caminho.
+    //
+    // REFUSED fica de fora: quem recusou já encerrou a participação, e é o mesmo
+    // recorte que o `updateMany` acima usa para não sobrescrever a recusa.
+    const toNotify = running.signers.filter(s => s.status !== EnvelopeSignerStatus.REFUSED);
+    for (const s of toNotify) {
       const { subject, html } = generateEnvelopeVoidedEmail({
         signerName: s.declaredName,
         budgetNumber: running.quote?.budgetNumber ?? '—',
         reason,
-        hadSigned: true,
+        hadSigned: !!s.signedAt,
         // O e-mail leva a lista item a item. Quem assinou e teve a assinatura
         // anulada não deveria precisar abrir um link para descobrir qual preço
         // mudou — a informação vai junto com a notícia.
@@ -1979,16 +1997,25 @@ export class SignatureEnvelopeService {
         html,
         'SIGNATURE_VOIDED',
       );
-      await this.audit.recordBestEffort(running.id, {
-        eventType: 'SIGNER_VOIDED',
-        actorType: 'SYSTEM',
-        actorId: s.id,
-        actorLabel: s.declaredName,
-        // Antes o resultado do envio era descartado e o evento gravado de
-        // qualquer forma: a trilha afirmava que o signatário foi avisado sem
-        // que nada garantisse isso.
-        payload: { channel: 'email', notified },
-      });
+      // SIGNER_VOIDED só para quem tinha assinatura a perder: é esse o fato
+      // probatório. Para os pendentes o aviso é cortesia, e o ENVELOPE_INVALIDATED
+      // já registra a mudança de estado da coleta inteira.
+      if (s.signedAt) {
+        await this.audit.recordBestEffort(running.id, {
+          eventType: 'SIGNER_VOIDED',
+          actorType: 'SYSTEM',
+          actorId: s.id,
+          actorLabel: s.declaredName,
+          // Antes o resultado do envio era descartado e o evento gravado de
+          // qualquer forma: a trilha afirmava que o signatário foi avisado sem
+          // que nada garantisse isso.
+          payload: { channel: 'email', notified },
+        });
+      } else if (!notified) {
+        this.logger.warn(
+          `Signatário pendente ${s.id} não pôde ser avisado da invalidação do envelope ${running.id}.`,
+        );
+      }
     }
 
     this.logger.warn(`Envelope ${running.id} invalidado — ${reason}`);

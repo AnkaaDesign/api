@@ -66,7 +66,7 @@ function baseSnapshot(): QuoteSnapshot {
     simultaneousTasks: 1,
     layoutFileIds: ['file-a'],
     signers: [
-      { responsibleId: 'resp-1', name: 'Paulo Cvarvalho', phoneDigits: '5543999992403', roles: ['COMMERCIAL'] },
+      { responsibleId: 'resp-1', name: 'Paulo Cvarvalho', phoneDigits: '5543999992403', emailNormalized: 'paulo@transportes.com.br', roles: ['COMMERCIAL'] },
     ],
     commercialUserId: 'user-1',
   };
@@ -194,7 +194,7 @@ console.log('\nResponsável entra e sai');
 {
   const after = clone(baseSnapshot());
   after.signers = [
-    { responsibleId: 'resp-2', name: 'Marina Alves', phoneDigits: '5543999991111', roles: ['ADMIN'] },
+    { responsibleId: 'resp-2', name: 'Marina Alves', phoneDigits: '5543999991111', emailNormalized: 'marina@transportes.com.br', roles: ['ADMIN'] },
   ];
   const changes = diffQuoteSnapshots(baseSnapshot(), after);
 
@@ -207,14 +207,26 @@ console.log('\nResponsável entra e sai');
 }
 
 // ---------------------------------------------------------------------------
-console.log('\nTelefone do responsável');
+console.log('\nCanal do código: e-mail é material, telefone não é mais');
 {
-  const after = clone(baseSnapshot());
-  after.signers[0].phoneDigits = '5543988887777';
-  const changes = diffQuoteSnapshots(baseSnapshot(), after);
-  const phone = find(changes, 'signer:phone');
-  check('é material', phone?.severity === 'MATERIAL');
-  check('sai mascarado', phone?.after?.includes('*') === true, phone?.after ?? 'null');
+  // O e-mail passou a ser o canal do OTP. Trocá-lo no meio da coleta manda o
+  // código para outra caixa, e isso tem de derrubar as assinaturas.
+  const afterEmail = clone(baseSnapshot());
+  afterEmail.signers[0].emailNormalized = 'outra.pessoa@gmail.com';
+  const emailChanges = diffQuoteSnapshots(baseSnapshot(), afterEmail);
+  const email = find(emailChanges, 'signer:email');
+  check('e-mail é material', email?.severity === 'MATERIAL');
+  check('e-mail sai mascarado', email?.after?.includes('*') === true, email?.after ?? 'null');
+  check('não vaza o endereço inteiro', email?.after !== 'outra.pessoa@gmail.com');
+
+  // O telefone deixou de receber o código quando a cerimônia migrou. Continua
+  // sendo identidade do contato, mas corrigi-lo não pode custar uma assinatura.
+  const afterPhone = clone(baseSnapshot());
+  afterPhone.signers[0].phoneDigits = '5543988887777';
+  const phoneChanges = diffQuoteSnapshots(baseSnapshot(), afterPhone);
+  const phone = find(phoneChanges, 'signer:phone');
+  check('telefone é cosmético', phone?.severity === 'COSMETIC');
+  check('telefone sai mascarado', phone?.after?.includes('*') === true, phone?.after ?? 'null');
 }
 
 // ---------------------------------------------------------------------------

@@ -62,6 +62,8 @@ export interface QuoteSnapshotSigner {
   responsibleId: string;
   name: string;
   phoneDigits: string;
+  /** Minúsculo e sem espaços — é o CANAL do OTP desde a troca de WhatsApp para e-mail. */
+  emailNormalized: string;
   roles: string[];
 }
 
@@ -123,7 +125,19 @@ export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 2;
  * quando o CONJUNTO de campos materiais mudar — aí a invalidação em massa é
  * exatamente o comportamento correto.
  */
-export const QUOTE_MATERIAL_SCHEMA_VERSION = 1;
+/**
+ * v2 (2026-07-29): o canal do OTP passou de telefone para e-mail, então o que
+ * entra no recorte material passou de `phoneDigits` para `emailNormalized`.
+ *
+ * A v1 continua calculável — `materialProjection` aceita a versão — porque
+ * envelope congelado sob a v1 tinha o telefone como canal de verdade, e
+ * reavaliá-lo pela regra nova derrubaria assinaturas por uma troca que, para
+ * ele, nunca foi material.
+ */
+export const QUOTE_MATERIAL_SCHEMA_VERSION = 2;
+
+/** Versões de recorte material que ainda sabemos recalcular. Ordem: mais nova primeiro. */
+export const SUPPORTED_MATERIAL_VERSIONS = [2, 1] as const;
 
 /**
  * O recorte que decide invalidação. Espelha a regra de negócio: condições
@@ -155,12 +169,17 @@ export interface QuoteMaterialProjection {
   /**
    * Identidade dos signatários e o CANAL do OTP — não a grafia do nome.
    *
-   * O telefone entra por segurança, não por exibição: ele não aparece no
-   * documento, mas é para onde vai o código de assinatura. Trocá-lo durante uma
-   * coleta redireciona a prova de autoria para outro aparelho, e isso PRECISA
-   * derrubar o envelope.
+   * O canal entra por segurança, não por exibição: ele não aparece no documento,
+   * mas é para onde vai o código de assinatura. Trocá-lo durante uma coleta
+   * redireciona a prova de autoria para outra caixa, e isso PRECISA derrubar o
+   * envelope.
+   *
+   * Na v1 o canal era o telefone (OTP por WhatsApp). Na v2 é o e-mail. A
+   * projeção é calculada na versão em que o envelope foi CONGELADO — ver
+   * `materialProjection` —, porque avaliar um envelope antigo pela regra nova
+   * derrubaria assinaturas por uma mudança que, à época dele, não era material.
    */
-  signers: Array<{ responsibleId: string; phoneDigits: string }>;
+  signers: Array<{ responsibleId: string; phoneDigits?: string; emailNormalized?: string }>;
 }
 
 /** Include compartilhado — o renderizador e o snapshot precisam ver o MESMO grafo. */
@@ -265,6 +284,7 @@ export class QuoteSnapshotService {
           responsibleId: r.id,
           name: r.name,
           phoneDigits: onlyDigits(r.phone),
+          emailNormalized: (r.email ?? '').trim().toLowerCase(),
           roles: [...r.roles].sort(),
         }))
         .sort((a, b) => a.responsibleId.localeCompare(b.responsibleId)),
@@ -285,9 +305,12 @@ export class QuoteSnapshotService {
    * depender do estado atual do orçamento — o que é o que torna a migração
    * possível e a auditoria reproduzível.
    */
-  materialProjection(s: QuoteSnapshot): QuoteMaterialProjection {
+  materialProjection(
+    s: QuoteSnapshot,
+    version: number = QUOTE_MATERIAL_SCHEMA_VERSION,
+  ): QuoteMaterialProjection {
     return {
-      materialVersion: QUOTE_MATERIAL_SCHEMA_VERSION,
+      materialVersion: version,
       services: s.services.map(svc => ({
         description: normText(svc.description),
         amount: svc.amount,
@@ -316,14 +339,44 @@ export class QuoteSnapshotService {
             chassisNumber: normText(s.truck.chassisNumber),
           }
         : null,
+      // O canal muda com a versão. Emitir a chave da OUTRA versão quebraria a
+      // reprodutibilidade do hash antigo, que é justamente o que permite
+      // reconhecer um envelope não-alterado depois da migração de canal.
       signers: s.signers
-        .map(sig => ({ responsibleId: sig.responsibleId, phoneDigits: sig.phoneDigits }))
+        .map(sig =>
+          version >= 2
+            ? {
+                responsibleId: sig.responsibleId,
+                emailNormalized: (sig.emailNormalized ?? '').trim().toLowerCase(),
+              }
+            : { responsibleId: sig.responsibleId, phoneDigits: sig.phoneDigits },
+        )
         .sort((a, b) => a.responsibleId.localeCompare(b.responsibleId)),
     };
   }
 
-  materialHash(snapshot: QuoteSnapshot): string {
-    return sha256Hex(this.materialProjection(snapshot) as unknown as object);
+  materialHash(
+    snapshot: QuoteSnapshot,
+    version: number = QUOTE_MATERIAL_SCHEMA_VERSION,
+  ): string {
+    return sha256Hex(this.materialProjection(snapshot, version) as unknown as object);
+  }
+
+  /**
+   * O recorte material bate com o hash congelado em ALGUMA versão conhecida?
+   *
+   * Existe porque o envelope não guarda sob qual versão foi congelado: a
+   * `materialVersion` vive dentro da projeção (que é hasheada), não numa coluna.
+   * Testar as versões conhecidas responde a pergunta que de fato importa — "isto
+   * mudou?" — sem precisar de migração de dados nem de adivinhação.
+   *
+   * Devolve a versão que casou, ou `null` quando nenhuma casa (aí mudou mesmo).
+   */
+  matchesFrozenTerms(snapshot: QuoteSnapshot, frozenHash: string): number | null {
+    for (const version of SUPPORTED_MATERIAL_VERSIONS) {
+      if (this.materialHash(snapshot, version) === frozenHash) return version;
+    }
+    return null;
   }
 
   /** Carrega, monta e hasheia num passo — o caminho usado pela detecção de mudança. */

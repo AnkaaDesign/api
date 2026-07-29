@@ -39,7 +39,7 @@
 
 import type { QuoteSnapshot, QuoteSnapshotSigner } from './quote-snapshot.service';
 import { formatCurrencyBRL } from '../document/quote-text';
-import { maskPhone, onlyDigits } from '../utils/identity';
+import { maskEmail, maskPhone, onlyDigits } from '../utils/identity';
 
 // =============================================================================
 // TIPOS — espelhados em web/src/api-client/signature.ts e no Dart
@@ -434,13 +434,31 @@ function diffSigners(before: QuoteSnapshot, after: QuoteSnapshot): QuoteChange[]
       });
       continue;
     }
-    // O telefone não é impresso no documento, mas é para onde ia o código de
-    // assinatura na versão WhatsApp da cerimônia e segue sendo identidade do
-    // contato: trocá-lo no meio de uma coleta redireciona a prova de autoria.
+    // O E-MAIL é o canal do código de assinatura. Trocá-lo no meio de uma coleta
+    // redireciona a prova de autoria para outra caixa, então é MATERIAL — é o
+    // mesmo critério que o recorte material v2 usa para derrubar o envelope.
+    const prevEmail = (prev.emailNormalized ?? '').trim().toLowerCase();
+    const nextEmail = (next.emailNormalized ?? '').trim().toLowerCase();
+    if (prevEmail !== nextEmail) {
+      out.push({
+        key: `signer:email:${id}`,
+        severity: 'MATERIAL',
+        kind: 'CHANGED',
+        group: 'SIGNERS',
+        label: 'E-mail do responsável',
+        subject: normText(next.name),
+        before: prevEmail ? maskEmail(prevEmail) : null,
+        after: nextEmail ? maskEmail(nextEmail) : null,
+      });
+    }
+    // O telefone deixou de ser o canal do OTP quando a cerimônia migrou para
+    // e-mail. Continua sendo identidade do contato e sai impresso no selo, mas
+    // corrigi-lo não pode mais custar uma assinatura já colhida — mantê-lo
+    // MATERIAL derrubaria envelopes por uma correção de cadastro inócua.
     if (onlyDigits(prev.phoneDigits) !== onlyDigits(next.phoneDigits)) {
       out.push({
         key: `signer:phone:${id}`,
-        severity: 'MATERIAL',
+        severity: 'COSMETIC',
         kind: 'CHANGED',
         group: 'SIGNERS',
         label: 'Telefone do responsável',
