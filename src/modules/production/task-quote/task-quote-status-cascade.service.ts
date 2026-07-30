@@ -9,6 +9,7 @@ import {
 } from '@constants';
 import { Decimal } from '@prisma/client/runtime/library';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
+import { isDueDateOverdue, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
 
 /**
  * Service for cascading invoice/installment payment status changes
@@ -314,8 +315,17 @@ export class TaskQuoteStatusCascadeService {
         return;
       }
 
-      // Only cascade for quotes that are in UPCOMING, DUE, PARTIAL, or SETTLED state
+      // Cascade for quotes already in the receivables lifecycle, PLUS BILLING_APPROVED.
+      //
+      // BILLING_APPROVED belongs here because it is meant to be transient: `internalApprove`
+      // generates the invoice, registers the boletos and only THEN flips the quote to
+      // UPCOMING ("A Vencer"). If the process dies in between — a deploy, a restart, a
+      // Sicredi timeout — the quote is left reading "Faturamento Aprovado" forever, with
+      // installments already issued and nothing able to move it: this guard used to skip
+      // it, so no cascade, no recovery, no button. Including it lets any later cascade
+      // finish the transition the interrupted approval never got to.
       const cascadableStatuses = [
+        TASK_QUOTE_STATUS.BILLING_APPROVED,
         TASK_QUOTE_STATUS.UPCOMING,
         TASK_QUOTE_STATUS.DUE,
         TASK_QUOTE_STATUS.PARTIAL,
@@ -334,7 +344,7 @@ export class TaskQuoteStatusCascadeService {
         return; // No installments, keep current status
       }
 
-      const now = new Date();
+      const today = todayInSaoPauloAtNoonUtc();
       const paidCount = allInstallments.filter(inst => inst.status === 'PAID').length;
       const cancelledInstallments = allInstallments.filter(inst => inst.status === 'CANCELLED');
       const activeInstallments = allInstallments.filter(inst => inst.status !== 'CANCELLED');
@@ -344,7 +354,10 @@ export class TaskQuoteStatusCascadeService {
       // slip (e.g. PIX/ENTRADA receivables) keep counting as overdue when past due.
       const overdueCount = allInstallments.filter(inst => {
         if (inst.status === 'PAID' || inst.status === 'CANCELLED') return false;
-        if (new Date(inst.dueDate) >= now) return false;
+        // Calendar-day comparison in SP: a parcela due TODAY is not overdue. Comparing raw
+        // instants flipped the quote to DUE at 09:00 SP on the parcela's own due date
+        // (stored noon UTC), before the customer could possibly have missed it.
+        if (!isDueDateOverdue(new Date(inst.dueDate), today)) return false;
         const slipStatus = (inst as any).bankSlip?.status;
         if (slipStatus === 'CANCELLED') return false;
         return true;

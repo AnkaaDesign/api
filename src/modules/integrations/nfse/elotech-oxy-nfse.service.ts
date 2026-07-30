@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ElotechOxyAuthService, ElotechCity } from './elotech-oxy-auth.service';
@@ -430,6 +430,174 @@ export class ElotechOxyNfseService {
    *   the NF that replaces this one. The municipality requires it in the request motivo;
    *   omitting it is a common rejection cause.
    */
+  /**
+   * Reconcile a document stranded in PROCESSING (or parked in ERROR) against the LIVE
+   * state at the prefeitura, and resolve it.
+   *
+   * Emission is a non-transactional HTTP POST. If the process dies between the request
+   * leaving and the response being persisted — a deploy, a restart, a crash, a dropped
+   * connection — the note can be live at the prefeitura while our row still says
+   * PROCESSING with no `elotechNfseId`. That state has no exit on its own: `emitNfse`
+   * refuses a PROCESSING doc (correctly, to avoid double-emitting), so the "Emitir"
+   * button becomes a no-op and the invoice is stuck.
+   *
+   * Blind re-emission is NOT an option: it would mint a SECOND live municipal note that
+   * then has to be cancelled with a justification at the prefeitura. So the live state
+   * decides:
+   *
+   *  · exactly one unclaimed live note matching this invoice's NET value → LINK it;
+   *  · none → nothing was ever minted, reset to PENDING so emission can be retried;
+   *  · more than one → AMBIGUOUS. Never guess between two live notes; report both and
+   *    let a human pick, because picking wrong links the invoice to another task's note.
+   *
+   * Matching is on the NET value (`valorLiquidoNota`) because that is what the invoice
+   * total and the parcela carry — `valorDoc` is the gross figure before discount.
+   * A candidate already referenced by another NfseDocument is excluded, which is what
+   * keeps two same-value tasks from stealing each other's note.
+   */
+  async reconcileStuckDocument(nfseDocumentId: string): Promise<{
+    outcome: 'LINKED' | 'RESET_TO_PENDING' | 'ALREADY_AUTHORIZED' | 'AMBIGUOUS';
+    elotechNfseId?: number;
+    nfseNumber?: number;
+    candidates?: Array<{ elotechNfseId: number; nfseNumber: number; valorLiquido: number }>;
+    message: string;
+  }> {
+    const doc = await this.prisma.nfseDocument.findUnique({
+      where: { id: nfseDocumentId },
+      include: {
+        invoice: { include: { customer: { select: { cnpj: true } } } },
+      },
+    });
+
+    if (!doc) {
+      throw new NotFoundException(`Documento de NFS-e ${nfseDocumentId} não encontrado.`);
+    }
+    if (doc.status === NfseStatus.AUTHORIZED) {
+      return {
+        outcome: 'ALREADY_AUTHORIZED',
+        elotechNfseId: doc.elotechNfseId ?? undefined,
+        nfseNumber: doc.nfseNumber ?? undefined,
+        message: `NFS-e já autorizada (nº ${doc.nfseNumber ?? '?'}). Nada a reconciliar.`,
+      };
+    }
+    if (
+      doc.status === NfseStatus.CANCELLED ||
+      doc.status === NfseStatus.CANCEL_REQUESTED ||
+      doc.status === NfseStatus.CANCEL_REJECTED
+    ) {
+      throw new BadRequestException(
+        `A NFS-e está em ${doc.status} — a reconciliação vale para documentos travados em PROCESSING ou ERROR.`,
+      );
+    }
+    if (!this.authService.isConfigured()) {
+      throw new BadRequestException('Credenciais do Elotech não configuradas.');
+    }
+
+    const invoice = doc.invoice;
+    const cnpj = invoice?.customer?.cnpj ?? null;
+    const target = Number(invoice?.totalAmount ?? 0);
+
+    // A day either side of the attempt — enough for a prefeitura timestamp that
+    // disagrees slightly with our clock, without widening into unrelated notes.
+    const ymd = (d: Date): string => d.toISOString().slice(0, 10);
+    const from = new Date(doc.createdAt.getTime() - 24 * 60 * 60 * 1000);
+    const to = new Date(doc.createdAt.getTime() + 24 * 60 * 60 * 1000);
+
+    const listed = await this.listNfses({
+      dataEmissaoInicial: ymd(from),
+      dataEmissaoFinal: ymd(to),
+      cpfCnpj: cnpj,
+      maxResult: 100,
+    });
+
+    const byId = new Map<number, any>();
+    for (const n of listed.data) {
+      const id = Number(n.id ?? n.idNotaFiscal);
+      if (Number.isFinite(id) && id > 0 && !byId.has(id)) byId.set(id, n);
+    }
+
+    // Exclude notes already claimed by another local document.
+    const claimed = await this.prisma.nfseDocument.findMany({
+      where: { elotechNfseId: { in: [...byId.keys()] }, id: { not: doc.id } },
+      select: { elotechNfseId: true },
+    });
+    const claimedIds = new Set(claimed.map(c => Number(c.elotechNfseId)));
+
+    const candidates: Array<{ elotechNfseId: number; nfseNumber: number; valorLiquido: number }> = [];
+    for (const [id, n] of byId) {
+      if (claimedIds.has(id)) continue;
+      if (n.cancelada === true) continue;
+      // NET value — `valorDoc` is gross (pre-discount) and would never match the invoice.
+      const net = Number(n.valorLiquidoNota ?? n.valorServico ?? NaN);
+      if (!Number.isFinite(net)) continue;
+      if (Math.abs(net - target) >= 0.01) continue;
+      candidates.push({
+        elotechNfseId: id,
+        nfseNumber: Number(n.numeroNotaFiscal ?? 0),
+        valorLiquido: net,
+      });
+    }
+
+    if (candidates.length === 1) {
+      const hit = candidates[0];
+      await this.prisma.nfseDocument.update({
+        where: { id: doc.id },
+        data: {
+          elotechNfseId: hit.elotechNfseId,
+          nfseNumber: hit.nfseNumber,
+          status: NfseStatus.AUTHORIZED,
+          errorMessage: null,
+          errorCount: 0,
+          retryAfter: null,
+        },
+      });
+      this.logger.log(
+        `[MUNICIPAL] Reconciled stuck doc ${doc.id} → live NFS-e nº ${hit.nfseNumber} (id=${hit.elotechNfseId})`,
+      );
+      return {
+        outcome: 'LINKED',
+        elotechNfseId: hit.elotechNfseId,
+        nfseNumber: hit.nfseNumber,
+        message: `NFS-e nº ${hit.nfseNumber} já estava emitida na prefeitura e foi vinculada. Nenhuma nota nova foi gerada.`,
+      };
+    }
+
+    if (candidates.length === 0) {
+      await this.prisma.nfseDocument.update({
+        where: { id: doc.id },
+        data: {
+          status: NfseStatus.PENDING,
+          errorMessage: null,
+          errorCount: 0,
+          retryAfter: null,
+        },
+      });
+      this.logger.log(
+        `[MUNICIPAL] Reconciled stuck doc ${doc.id}: nothing live at the prefeitura, reset to PENDING`,
+      );
+      return {
+        outcome: 'RESET_TO_PENDING',
+        message:
+          'Nenhuma nota correspondente encontrada na prefeitura — a emissão não chegou a ser concluída. ' +
+          'O documento voltou para pendente e pode ser emitido novamente.',
+      };
+    }
+
+    // Two or more live, unclaimed notes with the same net value. Linking the wrong one
+    // would attach another task's note to this invoice, so stop and report.
+    this.logger.warn(
+      `[MUNICIPAL] Reconciliation of doc ${doc.id} is ambiguous: ${candidates.length} candidate notes`,
+    );
+    return {
+      outcome: 'AMBIGUOUS',
+      candidates,
+      message:
+        `${candidates.length} notas emitidas na prefeitura batem com o valor líquido de R$ ${target.toFixed(2)} ` +
+        `e não estão vinculadas: nº ${candidates.map(c => c.nfseNumber).join(', ')}. ` +
+        'A vinculação precisa ser feita manualmente para não associar a nota de outra tarefa.',
+    };
+  }
+
   async cancelNfse(
     nfseDocumentId: string,
     reason: string,

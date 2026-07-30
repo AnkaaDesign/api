@@ -26,6 +26,7 @@ import { FilesStorageService } from '@modules/common/file/services/files-storage
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 import { SicrediBoletoScheduler } from '@modules/integrations/sicredi/sicredi-boleto.scheduler';
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
+import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
@@ -39,22 +40,11 @@ import {
   TASK_QUOTE_STATUS_ORDER,
 } from '@constants';
 import type { InvoiceGetManyFormData } from '@types';
-
-/**
- * Parse a YYYY-MM-DD string into a Date at noon UTC.
- * This prevents timezone shifts — noon UTC is the same calendar day in every timezone.
- */
-function parseDateNoonUTC(dateStr: string): Date {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
-}
-
-/**
- * Format a Date to YYYY-MM-DD using UTC components (timezone-safe).
- */
-function formatDateUTC(date: Date): string {
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
-}
+import {
+  formatDueDateYMD,
+  parseDueDateYMD,
+  todayInSaoPauloAtNoonUtc,
+} from '@utils/due-date.util';
 
 /**
  * Controller for Invoice endpoints.
@@ -76,6 +66,7 @@ export class InvoiceController {
     private readonly nfseEmissionScheduler: NfseEmissionScheduler,
     private readonly dispatchService: NotificationDispatchService,
     private readonly filesStorageService: FilesStorageService,
+    private readonly cascadeService: TaskQuoteStatusCascadeService,
   ) {}
 
   /**
@@ -418,23 +409,31 @@ export class InvoiceController {
 
     const bankSlip = installmentWithBankSlip.bankSlip;
 
+    // CREATING is included deliberately: it means the slip was never registered at
+    // Sicredi (it still carries a `TMP-` nossoNumero), usually because the inline
+    // registration died mid-flight on a deploy or crash. Excluding it left the operator
+    // with a parcela showing "Criando" forever and no button that would move it.
+    // ACTIVE/OVERDUE/PAID stay excluded — those have a real boleto in the customer's
+    // hands and must be cancelled, not silently replaced.
     if (
       bankSlip &&
       bankSlip.status !== BANK_SLIP_STATUS.ERROR &&
       bankSlip.status !== BANK_SLIP_STATUS.REJECTED &&
-      bankSlip.status !== BANK_SLIP_STATUS.CANCELLED
+      bankSlip.status !== BANK_SLIP_STATUS.CANCELLED &&
+      bankSlip.status !== BANK_SLIP_STATUS.CREATING
     ) {
       throw new BadRequestException(
-        'Somente boletos com erro, rejeitados ou cancelados podem ser regenerados.',
+        'Somente boletos com erro, rejeitados, cancelados ou ainda não registrados podem ser regenerados.',
       );
     }
 
     // Validate and resolve due date
     let resolvedDueDate = bankSlip?.dueDate ?? installmentWithBankSlip.dueDate;
     if (body?.newDueDate) {
-      const newDate = parseDateNoonUTC(body.newDueDate);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const newDate = parseDueDateYMD(body.newDueDate);
+      // "Today" must be the São Paulo calendar day, not the server's — both sides are
+      // noon-UTC calendar dates, so a date chosen for today always passes.
+      const today = todayInSaoPauloAtNoonUtc();
 
       if (isNaN(newDate.getTime())) {
         throw new BadRequestException('Data de vencimento inválida.');
@@ -1010,9 +1009,10 @@ export class InvoiceController {
       throw new BadRequestException('Nova data de vencimento é obrigatória.');
     }
 
-    const newDate = parseDateNoonUTC(body.newDueDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const newDate = parseDueDateYMD(body.newDueDate);
+    // "Today" must be the São Paulo calendar day, not the server's — both sides are
+    // noon-UTC calendar dates, so a date chosen for today always passes.
+    const today = todayInSaoPauloAtNoonUtc();
 
     if (isNaN(newDate.getTime())) {
       throw new BadRequestException('Data de vencimento inválida.');
@@ -1046,7 +1046,7 @@ export class InvoiceController {
       throw new BadRequestException('Boleto ainda não foi registrado no Sicredi.');
     }
 
-    const formattedDate = formatDateUTC(newDate);
+    const formattedDate = formatDueDateYMD(newDate);
 
     try {
       await this.sicrediService.changeDueDate(bankSlip.nossoNumero, formattedDate);
@@ -1074,71 +1074,13 @@ export class InvoiceController {
         where: { id: installmentId },
         select: { invoiceId: true },
       });
+      // Re-derive the quote status from the corrected dates. This delegates to the
+      // shared cascade instead of recomputing inline: the copy that lived here compared
+      // raw instants (so a parcela due TODAY read as overdue and pushed the quote to
+      // "Vencido" on its own due date) and omitted BILLING_APPROVED from the statuses it
+      // would act on. One implementation, one set of rules.
       if (invoiceLink?.invoiceId) {
-        const invoiceForCascade = await this.prisma.invoice.findUnique({
-          where: { id: invoiceLink.invoiceId },
-          select: { customerConfig: { select: { quoteId: true } } },
-        });
-        const quoteId = invoiceForCascade?.customerConfig?.quoteId;
-        if (quoteId) {
-          const cascadeableStatuses: string[] = [
-            TASK_QUOTE_STATUS.UPCOMING,
-            TASK_QUOTE_STATUS.DUE,
-            TASK_QUOTE_STATUS.PARTIAL,
-            TASK_QUOTE_STATUS.SETTLED,
-          ];
-          const currentQuote = await this.prisma.taskQuote.findUnique({
-            where: { id: quoteId },
-            select: { status: true },
-          });
-          if (currentQuote && cascadeableStatuses.includes(currentQuote.status as string)) {
-            const now = new Date();
-            const allInstallments = await this.prisma.installment.findMany({
-              where: { customerConfig: { quoteId } },
-              select: { id: true, status: true, dueDate: true },
-            });
-            const active = allInstallments.filter(i => i.status !== 'CANCELLED');
-            const paidCount = active.filter(i => i.status === INSTALLMENT_STATUS.PAID).length;
-            const overdueCount = active.filter(
-              // Use the newly set dueDate for the changed installment in case the DB
-              // returns its old (overdue) dueDate before the write is visible.
-              i => i.status !== INSTALLMENT_STATUS.PAID && new Date(i.id === installmentId ? newDate : i.dueDate) < now,
-            ).length;
-
-            let newQuoteStatus: TASK_QUOTE_STATUS;
-            if (active.length > 0 && paidCount === active.length) {
-              newQuoteStatus = TASK_QUOTE_STATUS.SETTLED;
-            } else if (overdueCount > 0) {
-              newQuoteStatus = TASK_QUOTE_STATUS.DUE;
-            } else if (paidCount > 0) {
-              newQuoteStatus = TASK_QUOTE_STATUS.PARTIAL;
-            } else {
-              newQuoteStatus = TASK_QUOTE_STATUS.UPCOMING;
-            }
-
-            if (newQuoteStatus !== currentQuote.status) {
-              await this.prisma.taskQuote.update({
-                where: { id: quoteId },
-                data: {
-                  status: newQuoteStatus as any,
-                  statusOrder: TASK_QUOTE_STATUS_ORDER[newQuoteStatus],
-                },
-              });
-              this.logger.log(
-                `[BOLETO] Cascaded TaskQuote ${quoteId} status: ${currentQuote.status} → ${newQuoteStatus}`,
-              );
-
-              // Notify if the due-date change settled the whole quote (mirrors task_quote.settled).
-              if (newQuoteStatus === TASK_QUOTE_STATUS.SETTLED) {
-                const settledTask = await this.prisma.task.findFirst({
-                  where: { quoteId },
-                  select: { id: true },
-                });
-                await this.dispatchTaskQuoteSettled(quoteId, settledTask?.id ?? null);
-              }
-            }
-          }
-        }
+        await this.cascadeService.cascadeFromInvoice(invoiceLink.invoiceId);
       }
 
       this.logger.log(
@@ -1324,6 +1266,110 @@ export class InvoiceController {
   }
 
   // ─── NFS-e Endpoints ──────────────────────────────────────────
+
+  /**
+   * POST /invoices/:invoiceId/nfse/reconcile
+   *
+   * Unstick an NFS-e stranded in PROCESSING (or parked in ERROR) by reconciling it against
+   * the prefeitura's live state.
+   *
+   * "Emitir" cannot rescue this state on purpose: `emitNfse` refuses a PROCESSING document
+   * so it never double-emits, which leaves the invoice with no exit when the process died
+   * mid-POST. This endpoint reads the live state instead — it links a note that already
+   * exists, or rewinds the document to PENDING when nothing was minted, and refuses to
+   * guess when two live notes tie. It never emits.
+   */
+  @Post(':invoiceId/nfse/reconcile')
+  @HttpCode(HttpStatus.OK)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  async reconcileNfse(@Param('invoiceId', ParseUUIDPipe) invoiceId: string) {
+    const doc = await this.prisma.nfseDocument.findFirst({
+      where: { invoiceId, status: { notIn: ['CANCELLED'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+
+    if (!doc) {
+      throw new NotFoundException('Nenhum documento de NFS-e encontrado para esta fatura.');
+    }
+
+    const result = await this.municipalNfseService.reconcileStuckDocument(doc.id);
+
+    this.logger.log(
+      `[NFSE_RECONCILE] Invoice ${invoiceId} doc ${doc.id}: ${result.outcome} — ${result.message}`,
+    );
+
+    return {
+      success: result.outcome !== 'AMBIGUOUS',
+      message: result.message,
+      data: result,
+    };
+  }
+
+  /**
+   * POST /invoices/:invoiceId/boletos/register
+   *
+   * Register this invoice's still-unregistered bank slips at Sicredi, now.
+   *
+   * Registration normally runs inline right after billing approval. If that call dies
+   * mid-flight (deploy, restart, crash) the BankSlip is left at CREATING with a `TMP-`
+   * nossoNumero — and `boleto/regenerate` rejects CREATING, so the operator had no way to
+   * re-drive it. The scheduled sweep does pick CREATING up, but only within 5 days of the
+   * due date, so a parcela due further out sat unregistered and invisible until then.
+   */
+  @Post(':invoiceId/boletos/register')
+  @HttpCode(HttpStatus.OK)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  async registerInvoiceBoletos(@Param('invoiceId', ParseUUIDPipe) invoiceId: string) {
+    const pending = await this.prisma.installment.findMany({
+      where: {
+        invoiceId,
+        status: { in: [INSTALLMENT_STATUS.PENDING, INSTALLMENT_STATUS.OVERDUE] },
+        bankSlip: { is: { status: { in: [BANK_SLIP_STATUS.CREATING, BANK_SLIP_STATUS.ERROR] } } },
+      },
+      select: { id: true, number: true },
+    });
+
+    if (pending.length === 0) {
+      return {
+        success: true,
+        message: 'Nenhum boleto pendente de registro nesta fatura.',
+        data: { registered: 0 },
+      };
+    }
+
+    await this.invoiceGenerationService.registerBankSlipsAtSicredi([invoiceId]);
+
+    const after = await this.prisma.installment.findMany({
+      where: { id: { in: pending.map(p => p.id) } },
+      select: {
+        number: true,
+        bankSlip: { select: { nossoNumero: true, status: true, errorMessage: true } },
+      },
+      orderBy: { number: 'asc' },
+    });
+    const registered = after.filter(a => a.bankSlip?.status === BANK_SLIP_STATUS.ACTIVE).length;
+    const failed = after.filter(a => a.bankSlip?.status !== BANK_SLIP_STATUS.ACTIVE);
+
+    this.logger.log(
+      `[BOLETO_REGISTER_MANUAL] Invoice ${invoiceId}: ${registered}/${after.length} registered`,
+    );
+
+    // Finish what the interrupted approval could not: a quote stranded at
+    // BILLING_APPROVED still reads "Faturamento Aprovado" even though its parcelas exist.
+    // The cascade derives the real state ("A Vencer" / "Vencido" / …) from them.
+    await this.cascadeService.cascadeFromInvoice(invoiceId);
+
+    return {
+      success: failed.length === 0,
+      message:
+        failed.length === 0
+          ? `${registered} boleto(s) registrado(s) no Sicredi.`
+          : `${registered} de ${after.length} boleto(s) registrado(s). ` +
+            `Falhou: ${failed.map(f => `parcela ${f.number} (${f.bankSlip?.errorMessage ?? f.bankSlip?.status})`).join('; ')}`,
+      data: { registered, total: after.length },
+    };
+  }
 
   /**
    * POST /invoices/:invoiceId/nfse/emit

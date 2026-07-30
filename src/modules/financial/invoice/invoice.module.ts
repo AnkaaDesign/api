@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { InvoiceController } from './invoice.controller';
 import { InvoiceService } from './invoice.service';
@@ -10,9 +10,19 @@ import { SicrediModule } from '@modules/integrations/sicredi/sicredi.module';
 import { NfseModule } from '@modules/integrations/nfse/nfse.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
 import { FilesStorageModule } from '@modules/common/file/services/files-storage.module';
+// forwardRef: TaskQuoteModule imports this module back (invoice generation on approval),
+// so the pair is circular by design.
+import { TaskQuoteModule } from '@modules/production/task-quote/task-quote.module';
 
 @Module({
-  imports: [PrismaModule, SicrediModule, NfseModule, NotificationModule, FilesStorageModule],
+  imports: [
+    PrismaModule,
+    SicrediModule,
+    NfseModule,
+    NotificationModule,
+    FilesStorageModule,
+    forwardRef(() => TaskQuoteModule),
+  ],
   controllers: [InvoiceController],
   providers: [
     InvoiceService,

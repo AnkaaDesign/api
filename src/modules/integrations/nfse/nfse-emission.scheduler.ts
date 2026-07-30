@@ -19,6 +19,7 @@ import { NfseStatus } from '@prisma/client';
 export class NfseEmissionScheduler {
   private readonly logger = new Logger(NfseEmissionScheduler.name);
   private isProcessing = false;
+  private isRecovering = false;
   private isReconcilingCancellations = false;
 
   constructor(
@@ -118,6 +119,84 @@ export class NfseEmissionScheduler {
     }
   }
 
+  /**
+   * Rescue documents stranded in PROCESSING — deliberately NOT behind
+   * `NFSE_SCHEDULER_ENABLED`.
+   *
+   * That flag gates BULK AUTO-EMISSION, which mints live municipal notes and must stay
+   * opt-in. Recovery mints nothing: it reads the prefeitura's live state and either links
+   * a note that already exists or rewinds the document to PENDING. Leaving recovery
+   * behind the emission flag is what turned a 5-second crash window into an invoice
+   * stuck in "Processando" with no error, no retry and no button — `emitNfse` refuses a
+   * PROCESSING doc by design, so nothing could move it.
+   *
+   * Runs every 10 minutes against docs untouched for >5 minutes: emission takes seconds,
+   * so anything older than that lost its process.
+   */
+  @Cron('*/10 * * * *', {
+    name: 'nfse-stuck-recovery',
+    timeZone: 'America/Sao_Paulo',
+  })
+  async recoverStuckNfseDocuments(): Promise<void> {
+    if (process.env.NODE_ENV !== 'production') return;
+    if (this.isRecovering) {
+      this.logger.warn('[NFSE_RECOVERY] Already running, skipping');
+      return;
+    }
+    this.isRecovering = true;
+
+    try {
+      const stuckThreshold = new Date(Date.now() - 5 * 60 * 1000);
+      const stuck = await this.prisma.nfseDocument.findMany({
+        where: {
+          status: NfseStatus.PROCESSING,
+          updatedAt: { lt: stuckThreshold },
+          invoice: { is: { status: { not: 'CANCELLED' } } },
+        },
+        select: { id: true, invoiceId: true, createdAt: true },
+      });
+
+      if (stuck.length === 0) return;
+
+      this.logger.warn(
+        `[NFSE_RECOVERY] ${stuck.length} document(s) stranded in PROCESSING — reconciling against the prefeitura`,
+      );
+
+      for (const doc of stuck) {
+        try {
+          const result = await this.municipalNfseService.reconcileStuckDocument(doc.id);
+          this.logger.log(`[NFSE_RECOVERY] ${doc.id}: ${result.outcome} — ${result.message}`);
+
+          // AMBIGUOUS is the only outcome a human must resolve. Park it as ERROR so it
+          // surfaces in the UI with the reason, and push retryAfter out so the emission
+          // sweep never silently re-emits it.
+          if (result.outcome === 'AMBIGUOUS') {
+            await this.prisma.nfseDocument.update({
+              where: { id: doc.id },
+              data: {
+                status: NfseStatus.ERROR,
+                errorMessage: result.message,
+                errorCount: 3,
+                retryAfter: new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000),
+              },
+            });
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.error(`[NFSE_RECOVERY] ${doc.id} failed: ${message}`);
+          // Could not reach the prefeitura — leave it PROCESSING so the next pass retries.
+          // Parking it as ERROR here would hide a note that may well be live.
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        `[NFSE_RECOVERY] Sweep failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      this.isRecovering = false;
+    }
+  }
+
   @Cron('0 9 * * *', {
     name: 'nfse-emission',
     timeZone: 'America/Sao_Paulo',
@@ -140,36 +219,13 @@ export class NfseEmissionScheduler {
 
       const now = new Date();
 
-      // I22: A doc stuck in PROCESSING (>5min) may have ALREADY been emitted at Elotech —
-      // emission is a non-transactional HTTP call, so the note can be live at the prefeitura
-      // even though our claim never flipped to AUTHORIZED (process crash, network drop after
-      // the POST). Auto-flipping PROCESSING→PENDING and re-emitting would mint a DUPLICATE
-      // live municipal note. Park it as ERROR so a human/relink script reconciles it against
-      // the live Elotech state instead of silently re-emitting. The retryAfter is set far in
-      // the future so the ERROR-retry sweep below does NOT auto-pick it up.
-      const stuckThreshold = new Date(now.getTime() - 5 * 60 * 1000);
-      const farFuture = new Date(now.getTime() + 100 * 365 * 24 * 60 * 60 * 1000);
-      const unstuck = await this.prisma.nfseDocument.updateMany({
-        where: {
-          status: NfseStatus.PROCESSING,
-          updatedAt: { lt: stuckThreshold },
-        },
-        data: {
-          status: NfseStatus.ERROR,
-          errorMessage:
-            'Travado em PROCESSING — pode já ter sido emitido no Elotech. ' +
-            'Requer reconciliação manual contra a prefeitura antes de reemitir (não reemitido automaticamente).',
-          // Park errorCount past the retry ceiling AND push retryAfter far out so neither
-          // this sweep nor any retry re-emits it without human intervention.
-          errorCount: 3,
-          retryAfter: farFuture,
-        },
-      });
-      if (unstuck.count > 0) {
-        this.logger.warn(
-          `Parked ${unstuck.count} NFS-e document(s) stuck in PROCESSING as ERROR (needs manual reconcile — NOT auto-re-emitted)`,
-        );
-      }
+      // Docs stranded in PROCESSING are handled by `recoverStuckNfseDocuments()` above,
+      // which runs every 10 minutes and is NOT gated behind NFSE_SCHEDULER_ENABLED.
+      // It reconciles against the prefeitura's live state — linking a note that already
+      // exists, or rewinding to PENDING when nothing was minted — and only parks a doc as
+      // ERROR when two live notes genuinely tie. Blanket-parking every stuck doc as ERROR
+      // here (the previous behaviour) left invoices with no exit even when the live state
+      // was unambiguous.
 
       // Find NfseDocuments that are PENDING, or ERROR with retryAfter passed and < 3 errors.
       // I33: NEVER emit a note for a CANCELLED invoice or an opted-out customer
