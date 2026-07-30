@@ -276,6 +276,46 @@ export class QuoteAssemblerService {
     return Buffer.from(bytes);
   }
 
+  /**
+   * Rodapé de página do orçamento renderizado SOB DEMANDA (sem envelope).
+   *
+   * O artefato assinado leva, em TODAS as páginas, a faixa
+   * `Orcamento no N · Envelope … · SHA-256 … · Verifique em … · pag. i/n`
+   * (ver o fim de `stampSeals`). O orçamento sob demanda sai do MESMO template,
+   * com a mesma folha de assinaturas, e ainda assim saía sem faixa nenhuma —
+   * nem o número da página. Num orçamento de duas folhas entregue solto, ou
+   * dentro de um dossiê de vinte, isso é a diferença entre um documento
+   * paginado e um maço de folhas.
+   *
+   * Vai aqui só o que EXISTE sem coleta: número do orçamento e paginação. Não há
+   * código de verificação nem hash congelado, e imprimir qualquer um dos dois
+   * convidaria o cliente a conferir uma prova que não foi produzida. Posição,
+   * corpo e cor são os mesmos da faixa assinada, de modo que as duas versões do
+   * documento se sobrepõem.
+   */
+  async stampPlainFooter(originalPdf: Buffer, budgetNumber: number): Promise<Buffer> {
+    const doc = await PDFDocument.load(originalPdf, { updateMetadata: false });
+    const helv = await doc.embedFont(StandardFonts.Helvetica);
+    const pages = doc.getPages();
+    const prefix = winAnsi(`Orcamento no ${budgetNumber}`);
+
+    pages.forEach((page, index) => {
+      const { width } = page.getSize();
+      const size = 6;
+      const text = `${prefix} · pag. ${index + 1}/${pages.length}`;
+      const w = helv.widthOfTextAtSize(text, size);
+      page.drawText(text, {
+        x: Math.max((width - w) / 2, 8),
+        y: 12,
+        size,
+        font: helv,
+        color: GRAY,
+      });
+    });
+
+    return Buffer.from(await doc.save({ useObjectStreams: false }));
+  }
+
   private drawSeal(
     page: PDFPage,
     anchor: SignatureAnchorMap[string],

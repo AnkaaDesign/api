@@ -54,6 +54,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { COMPANY, BRAND_COLORS } from '@/config/company';
 import { winAnsi } from '../document/quote-assembler.service';
+import { dossierPdfFilename } from '../document/document-filename';
 import { SignatureEnvelopeService } from '../services/signature-envelope.service';
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
@@ -282,7 +283,9 @@ export class DossierAssemblerService {
 
     return {
       pdf,
-      filename: `dossie-orcamento-${quote.budgetNumber}.pdf`,
+      // Razão social + "Dossiê" + número: ver `document-filename.ts`. O número é
+      // o `budgetNumber` porque não existe sequência separada para o dossiê.
+      filename: dossierPdfFilename(quote.task?.customer, quote.budgetNumber),
       components,
       attachmentName: attachSigned && assinado ? attachmentName : null,
       verificationCode: envelope?.verificationCode ?? null,

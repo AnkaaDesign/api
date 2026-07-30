@@ -293,6 +293,12 @@ export const securityConfig = {
       'x-ratelimit-limit',
       'x-ratelimit-remaining',
       'x-ratelimit-reset',
+      // `content-disposition` está em `allowedHeaders` (upload) mas faltava aqui:
+      // sem EXPOR o cabeçalho, download cross-origin buscado como blob não
+      // consegue LER o nome que o servidor escolheu, e o cliente tem de
+      // reinventar um. É o que fazia o PDF do orçamento cair como
+      // `orcamento-assinado-3f2a1b8c.pdf` no fallback do bloqueador de pop-up.
+      'content-disposition',
     ],
     credentials: true,
     maxAge: 86400, // 24 hours

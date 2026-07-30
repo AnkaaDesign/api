@@ -48,6 +48,7 @@ import {
 import type { QuoteChange } from './quote-diff';
 import { QuoteRendererService } from '../document/quote-renderer.service';
 import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
+import { budgetPdfFilename } from '../document/document-filename';
 import { PadesSignerService } from '../pades/pades-signer.service';
 import {
   ACCEPTANCE_CLAUSE,
@@ -2115,8 +2116,15 @@ export class SignatureEnvelopeService {
    * Os slots pendentes continuam em branco, então o documento sempre mostra o
    * estado real da coleta — que é o que o cliente precisa ver. O original nunca
    * muda; a sobreposição é recalculada a cada requisição.
+   *
+   * `filename` sai daqui, e não de quem chama: as três rotas que servem este PDF
+   * (interna, do signatário e pública do orçamento) precisam do MESMO nome, e
+   * cada uma delas montá-lo por conta própria era o que fazia o mesmo documento
+   * chegar com quatro nomes diferentes. Ver `document/document-filename.ts`.
    */
-  async renderServedDocument(envelopeId: string): Promise<{ pdf: Buffer; etag: string }> {
+  async renderServedDocument(
+    envelopeId: string,
+  ): Promise<{ pdf: Buffer; etag: string; filename: string }> {
     const env = await this.prisma.signatureEnvelope.findUnique({
       where: { id: envelopeId },
       include: {
@@ -2137,10 +2145,12 @@ export class SignatureEnvelopeService {
       );
     }
 
+    const filename = budgetPdfFilename(env.quote.task?.customer, env.quote.budgetNumber);
+
     // Concluído: serve o artefato selado, nunca uma remontagem.
     if (env.status === EnvelopeStatus.COMPLETED && env.finalFile) {
       const pdf = readFileSync(env.finalFile.path);
-      return { pdf, etag: `"${env.finalSha256}"` };
+      return { pdf, etag: `"${env.finalSha256}"`, filename };
     }
 
     const originalPdf = readFileSync(env.originalFile.path);
@@ -2182,6 +2192,7 @@ export class SignatureEnvelopeService {
     return {
       pdf,
       etag: `"${sha256Hex(env.originalSha256 + env.status + stateKey).slice(0, 32)}"`,
+      filename,
     };
   }
 
@@ -2263,16 +2274,51 @@ export class SignatureEnvelopeService {
    * mesmo escopo, e NÃO pelo código de verificação: aquele código é impresso em
    * todas as páginas do PDF e circula muito mais longe.
    *
-   * Devolve apenas nome e estado de cada signatário. Nada de CPF, telefone ou
-   * token de acesso.
+   * O que sai por signatário é EXATAMENTE o que o selo carimbado no PDF já
+   * imprime (`drawSeal` em `quote-assembler.service.ts`): nome, cargo, empresa,
+   * CPF e telefone MASCARADOS, data/hora, método de autenticação, IP e código do
+   * envelope. Não é uma ampliação de escopo — é o mesmo conjunto de dados que
+   * esta mesma página entrega em PDF pela rota irmã
+   * `GET /assinatura/publico/orcamento/:id/documento.pdf`, sob a MESMA
+   * capability (o UUID do orçamento). O que mudou é só o painel na tela deixar
+   * de mostrar menos do que o documento que ele descreve.
+   *
+   * Continua de fora: CPF completo, telefone completo, e-mail e token de acesso.
+   * E os campos que só existem por causa do ATO (CPF, telefone, IP) só saem para
+   * quem de fato assinou — num slot pendente não há ato a descrever.
    */
   async getPublicQuoteSummary(quoteId: string) {
     const env = await this.prisma.signatureEnvelope.findFirst({
       where: { quoteId },
       orderBy: { version: 'desc' },
-      include: { signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] } },
+      include: {
+        signers: {
+          orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }],
+          // Mesmas relações que `getVerificationByCode` carrega, pela mesma
+          // razão: o cargo do selo tem três fontes em cascata.
+          include: {
+            responsible: { select: { roles: true } },
+            user: {
+              select: {
+                position: { select: { name: true } },
+                sector: { select: { name: true } },
+              },
+            },
+          },
+        },
+        quote: {
+          select: {
+            task: { select: { customer: { select: { corporateName: true, fantasyName: true } } } },
+          },
+        },
+      },
     });
     if (!env) return { hasEnvelope: false as const };
+
+    // A linha "empresa" do selo: razão social do cliente do lado CUSTOMER, a
+    // Ankaa do lado ANKAA. Idêntico ao que `renderServedDocument` monta.
+    const customer = env.quote.task?.customer ?? null;
+    const customerLabel = customer?.corporateName ?? customer?.fantasyName ?? null;
 
     const changes = (await this.changesSinceFrozen(quoteId, [env])).get(env.id) ?? [];
 
@@ -2293,13 +2339,30 @@ export class SignatureEnvelopeService {
        * cerimônia inteira.
        */
       changes,
-      signers: env.signers.map(s => ({
-        name: s.declaredName,
-        cargo: s.informedCargo,
-        side: s.orderGroup === 1 ? 'ANKAA' : 'CUSTOMER',
-        status: s.status,
-        signedAt: s.signedAt,
-      })),
+      signers: env.signers.map(s => {
+        // Os dados do ATO só existem depois dele. Antes disso o slot está em
+        // branco no PDF, e descrevê-lo na tela seria descrever o que não houve.
+        const acted = !!s.signedAt;
+        return {
+          name: s.declaredName,
+          // Informado no ato > funções do contato > posição/setor do colaborador
+          // — a mesma cascata do selo e da página de verificação.
+          cargo:
+            s.informedCargo ||
+            formatResponsibleRoles(s.responsible?.roles ?? []) ||
+            s.user?.position?.name?.trim() ||
+            s.user?.sector?.name?.trim() ||
+            null,
+          companyLabel: s.orderGroup === 1 ? COMPANY.name : customerLabel,
+          cpfMasked: acted && s.informedCpf ? maskCpf(s.informedCpf) : null,
+          phoneMasked: acted && s.declaredPhone ? maskPhone(s.declaredPhone) : null,
+          authMethodLabel: AUTH_METHOD_LABELS[s.authMethod] ?? s.authMethod,
+          ipAddress: acted ? s.ipAddress : null,
+          side: s.orderGroup === 1 ? 'ANKAA' : 'CUSTOMER',
+          status: s.status,
+          signedAt: s.signedAt,
+        };
+      }),
     };
   }
 
@@ -2311,7 +2374,9 @@ export class SignatureEnvelopeService {
    * orçamentos antigos, que nunca passaram pela assinatura eletrônica e são a
    * maioria; nenhum deles vai ganhar envelope retroativamente.
    */
-  async renderPublicQuoteDocument(quoteId: string): Promise<{ pdf: Buffer; etag: string }> {
+  async renderPublicQuoteDocument(
+    quoteId: string,
+  ): Promise<{ pdf: Buffer; etag: string; filename: string }> {
     // Prefere a coleta CONCLUÍDA: uma reemissão invalidada não pode fazer o
     // artefato assinado sumir da vista do cliente. E, para coletas em
     // andamento, o prazo é respeitado — o `GET /task-quotes/public/:id`
@@ -2343,9 +2408,25 @@ export class SignatureEnvelopeService {
       // com as linhas de assinatura em branco. `renderUnsignedQuoteDocument` já
       // devolve 404 quando o orçamento em si não existe.
       const pdf = await this.renderUnsignedQuoteDocument(quoteId);
+      // O nome do arquivo é o MESMO do orçamento assinado — quem baixa não
+      // deveria conseguir distinguir pela pasta de Downloads se o documento
+      // passou ou não pela assinatura eletrônica; isso é conteúdo do PDF, não do
+      // nome. Consulta própria porque `renderUnsignedQuoteDocument` devolve só
+      // os bytes e é compartilhada com o dossiê.
+      const quote = await this.prisma.taskQuote.findUnique({
+        where: { id: quoteId },
+        select: {
+          budgetNumber: true,
+          task: { select: { customer: { select: { corporateName: true, fantasyName: true } } } },
+        },
+      });
       // ETag sobre os bytes servidos: a renderização é feita a partir dos dados
       // ATUAIS, então não há hash congelado de onde derivar.
-      return { pdf, etag: `"${sha256Hex(pdf).slice(0, 32)}"` };
+      return {
+        pdf,
+        etag: `"${sha256Hex(pdf).slice(0, 32)}"`,
+        filename: budgetPdfFilename(quote?.task?.customer, quote?.budgetNumber),
+      };
     }
     return this.renderServedDocument(env.id);
   }
@@ -2400,7 +2481,9 @@ export class SignatureEnvelopeService {
     // Código vazio: sem envelope não há o que verificar, e imprimir um código
     // inexistente no rodapé convidaria o cliente a consultar algo que não existe.
     const rendered = await this.renderQuoteDocument(quote, seeds, '');
-    return rendered.pdf;
+    // A faixa de rodapé com número do orçamento e paginação — a parte da faixa
+    // do documento assinado que existe sem coleta. Ver `stampPlainFooter`.
+    return this.assembler.stampPlainFooter(rendered.pdf, quote.budgetNumber);
   }
 
   /**

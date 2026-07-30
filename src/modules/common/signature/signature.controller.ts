@@ -44,6 +44,7 @@ import {
 import { SignatureEnvelopeService, RequestContext } from './services/signature-envelope.service';
 import { SignatureAuditService } from './services/signature-audit.service';
 import { DossierAssemblerService } from './dossier/dossier-assembler.service';
+import { contentDisposition } from './document/document-filename';
 
 function ctxOf(req: Request): RequestContext {
   // x-forwarded-for pode trazer a cadeia inteira; o primeiro salto é o cliente.
@@ -163,9 +164,10 @@ export class SignatureController {
   @Get(':id/document.pdf')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
   async document(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
-    const { pdf, etag } = await this.envelopes.renderServedDocument(id);
+    const { pdf, etag, filename } = await this.envelopes.renderServedDocument(id);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('ETag', etag);
+    res.setHeader('Content-Disposition', contentDisposition('inline', filename));
     res.setHeader('Cache-Control', 'private, no-store');
     res.send(pdf);
   }
@@ -195,7 +197,7 @@ export class SignatureController {
       dropAuditTrail: trilha === '0',
     });
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${result.filename}"`);
+    res.setHeader('Content-Disposition', contentDisposition('inline', result.filename));
     res.setHeader('Cache-Control', 'private, no-store');
     // O que ficou de fora vai no cabeçalho para o cliente HTTP poder avisar sem
     // precisar abrir o PDF — a capa também diz, mas ninguém lê capa de PDF.
@@ -264,9 +266,10 @@ export class PublicSignatureController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async document(@Param('token') token: string, @Req() req: Request, @Res() res: Response) {
     const signer = await this.envelopes.getByToken(token);
-    const { pdf, etag } = await this.envelopes.renderServedDocument(signer.envelopeId);
+    const { pdf, etag, filename } = await this.envelopes.renderServedDocument(signer.envelopeId);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('ETag', etag);
+    res.setHeader('Content-Disposition', contentDisposition('inline', filename));
     res.setHeader('Cache-Control', 'no-store');
     res.send(pdf);
   }
@@ -358,7 +361,7 @@ export class PublicSignatureController {
   async publicDossier(@Param('quoteId', ParseUUIDPipe) quoteId: string, @Res() res: Response) {
     const result = await this.dossiers.build(quoteId, { attachSigned: false });
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${result.filename}"`);
+    res.setHeader('Content-Disposition', contentDisposition('inline', result.filename));
     res.setHeader('Cache-Control', 'no-store');
     res.send(result.pdf);
   }
@@ -369,9 +372,10 @@ export class PublicSignatureController {
   // é um vetor de exaustão de CPU trivial.
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async quoteDocument(@Param('quoteId', ParseUUIDPipe) quoteId: string, @Res() res: Response) {
-    const { pdf, etag } = await this.envelopes.renderPublicQuoteDocument(quoteId);
+    const { pdf, etag, filename } = await this.envelopes.renderPublicQuoteDocument(quoteId);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('ETag', etag);
+    res.setHeader('Content-Disposition', contentDisposition('inline', filename));
     res.setHeader('Cache-Control', 'no-store');
     res.send(pdf);
   }
