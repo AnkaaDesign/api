@@ -17,6 +17,7 @@ import {
   ENTITY_TYPE,
   CHANGE_ACTION,
   CHANGE_TRIGGERED_BY,
+  TASK_STATUS,
   TASK_STATUS_LABELS,
   SERVICE_ORDER_STATUS_LABELS,
   SERVICE_ORDER_TYPE_LABELS,
@@ -1477,6 +1478,19 @@ export class NotificationDispatchService {
         triggeringUserId === 'system' ? undefined : triggeringUserId,
       );
 
+      // Production shop-floor users must not hear about a task before it is queued
+      // for production. Until the task reaches WAITING_PRODUCTION it is still being
+      // prepared (commercial/artwork/measurements) and the floor does not know the
+      // task exists, so field-change and cut chatter is pure noise to them.
+      // PRODUCTION_MANAGER is deliberately NOT gated — they plan the shop and need
+      // pipeline visibility while a task is still in PREPARATION.
+      targetUsers = await this.filterProductionUsersByTaskReadiness(
+        targetUsers,
+        allowedSectors,
+        context,
+        configKey,
+      );
+
       // Sector-aware filtering for task notifications:
       // When the task has a specific sector assigned and the config targets PRODUCTION-privilege
       // sectors, only notify PRODUCTION/PRODUCTION_MANAGER users who belong to that specific
@@ -1977,6 +1991,96 @@ export class NotificationDispatchService {
     }
     // Fallback to all admin/production sectors if no specific rule defined
     return [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION];
+  }
+
+  /**
+   * Task statuses at which the production floor is entitled to task notifications.
+   * A task in PREPARATION is still being set up by commercial/artwork/logistics and
+   * has not been queued for production, so shop-floor users are not notified about it.
+   * CANCELLED stays allowed: a task pulled after it reached the floor must be
+   * communicated, and the pre-production cancellations that slip through are few.
+   */
+  private static readonly PRODUCTION_VISIBLE_TASK_STATUSES: ReadonlySet<string> = new Set([
+    TASK_STATUS.WAITING_PRODUCTION,
+    TASK_STATUS.IN_PRODUCTION,
+    TASK_STATUS.COMPLETED,
+    TASK_STATUS.CANCELLED,
+  ]);
+
+  /**
+   * Privileges treated as "shop floor" for the readiness gate. PRODUCTION_MANAGER is
+   * intentionally excluded — the manager schedules the shop and needs to see tasks
+   * while they are still in PREPARATION.
+   */
+  private static readonly SHOP_FLOOR_PRIVILEGES: ReadonlySet<string> = new Set([
+    SECTOR_PRIVILEGES.PRODUCTION,
+  ]);
+
+  /**
+   * Drop shop-floor recipients when the related task has not yet reached
+   * WAITING_PRODUCTION. Returns `users` untouched whenever the gate does not apply
+   * (config does not target production, or no task can be resolved from the context).
+   *
+   * The task status is resolved from the dispatch context when the emitter supplied
+   * it, otherwise it is read from the DB. Resolving it here rather than trusting the
+   * ~14 emit sites to pass it means a new emitter cannot silently bypass the gate.
+   */
+  private async filterProductionUsersByTaskReadiness(
+    users: User[],
+    allowedSectors: SECTOR_PRIVILEGES[],
+    context: NotificationContext,
+    configKey: string,
+  ): Promise<User[]> {
+    // Only relevant when the config can reach shop-floor users at all.
+    if (!allowedSectors.some(s => NotificationDispatchService.SHOP_FLOOR_PRIVILEGES.has(s))) {
+      return users;
+    }
+    if (!users.some(u => NotificationDispatchService.SHOP_FLOOR_PRIVILEGES.has(u.sector?.privileges ?? ''))) {
+      return users;
+    }
+
+    const taskId =
+      (context.data?.taskId as string | undefined) ??
+      (context.entityType === 'Task' ? context.entityId : undefined);
+    if (!taskId) {
+      return users;
+    }
+
+    let status = context.data?.taskStatus as string | undefined;
+    if (!status) {
+      try {
+        const task = await this.prisma.task.findUnique({
+          where: { id: taskId },
+          select: { status: true },
+        });
+        // Task genuinely missing (deleted mid-flight): fail OPEN rather than
+        // silently swallowing the notification.
+        if (!task) return users;
+        status = task.status as string;
+      } catch (error) {
+        this.logger.warn(
+          `Task readiness gate: could not resolve status for task ${taskId} ` +
+            `(${configKey}): ${error?.message}. Allowing dispatch.`,
+        );
+        return users;
+      }
+    }
+
+    if (NotificationDispatchService.PRODUCTION_VISIBLE_TASK_STATUSES.has(status)) {
+      return users;
+    }
+
+    const filtered = users.filter(
+      u => !NotificationDispatchService.SHOP_FLOOR_PRIVILEGES.has(u.sector?.privileges ?? ''),
+    );
+    if (filtered.length !== users.length) {
+      this.logger.log(
+        `Task readiness gate applied for ${configKey} (task ${taskId} is ${status}): ` +
+          `${users.length} → ${filtered.length} users ` +
+          `(${users.length - filtered.length} shop-floor users excluded pre-production)`,
+      );
+    }
+    return filtered;
   }
 
   /**
