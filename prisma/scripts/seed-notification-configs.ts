@@ -69,8 +69,59 @@
  *   prepends the title; body-only). The 3 explicitly-authored whatsapp bodies
  *   (bank_slip.due, bank_slip.paid, truck.movement_request) are kept (updated
  *   in the 2026-06-10 overhaul: actor-free, grounded vars); all others derive
- *   from the FINAL inApp body (post-overhaul). Prod WHATSAPP channel FLAGS
- *   are preserved as-is (61 configs have the channel enabled).
+ *   from the FINAL inApp body (post-overhaul). Templates are kept for EVERY
+ *   config even where the channel is off — same convention as EMAIL, so
+ *   re-enabling is a flag flip.
+ *
+ * WHATSAPP VOLUME POLICY (2026-07-29 — migration to the official Meta API)
+ *   WhatsApp is being moved off Baileys onto the metered WhatsApp Business
+ *   Platform, where every template message is billed and each surviving config
+ *   needs its own Meta-approved template. The channel was therefore cut from
+ *   61 configs to 12 — measured ~282 msgs/day down to ~24/day.
+ *
+ *   WhatsApp is now reserved for the shop floor (PRODUCTION / WAREHOUSE, who
+ *   are away from a desk — and note WAREHOUSE has ZERO push tokens, so for them
+ *   in-app is the only alternative), for safety/compliance (EPI, advertências),
+ *   and for boleto due/paid. THE 12 SURVIVORS:
+ *
+ *     item.low_stock, item.out_of_stock, order_schedule.run.failed   (almoxarifado)
+ *     task.deadline_1hour, artwork.reproved, cut.request.created     (produção)
+ *     ppe.requested, ppe.signature_required, ppe.signature_failed    (EPI — NR-6)
+ *     warning.issued                                                 (advertência)
+ *     bank_slip.due, bank_slip.paid                                  (boleto)
+ *
+ *   Deliberately NOT on WhatsApp: task_quote.settled (orçamento quitado) and
+ *   bank_slip.overdue — due+paid is the whole boleto surface. The task.field.*
+ *   and service_order.status_changed_* families are off entirely; they were
+ *   sector broadcasts of audit-trail edits (task.field.entryDate alone was 56
+ *   msgs/day, 20% of the entire bill).
+ *
+ *   When disabling, ALWAYS set the WHATSAPP row to {false,false,false}. Do NOT
+ *   rely on `defaultOn: false` to keep a channel quiet: this seed converges
+ *   defaultOn on every run and a single admin toggle re-arms it. Three configs
+ *   were silent that way and carried real latent volume — task.field.bonification
+ *   alone would be ~250 msgs/day at fan-out 43.5.
+ *
+ *   FAN-OUT IS THE COST DRIVER, NOT EVENT RATE. `allowedSectors` IS the
+ *   recipient set (getTargetUsersByRoles), not a permission filter. PRODUCTION
+ *   is 17 of the 31 active employees, so any config listing it costs 7-21
+ *   messages per event (7-9 after the task-sector narrowing at
+ *   notification-dispatch.service.ts:1484). Check the sector list before
+ *   keeping any config on WhatsApp. PLOTTING / EXTERNAL / HUMAN_RESOURCES have
+ *   no users at all — listing them delivers to nobody.
+ *
+ * SECTOR ROUTING BACKPORT (2026-07-29)
+ *   ACCOUNTING had been added to 32 target rules in prod (and HUMAN_RESOURCES
+ *   to secullum.sync.failed / .conflict) via the admin UI, but was never written
+ *   back here. Since upsertConfig converges allowedSectors on every run, the
+ *   next seed would have silently stripped it and undone that routing work.
+ *   Those 34 sector lists are now reconciled with prod.
+ *
+ *   Anything editable in /administracao/notificacoes is owned by THIS FILE and
+ *   is overwritten on the next run — name, importance, templates, allowedSectors,
+ *   excludeOnVacation, batching, maxFrequencyPerDay, deduplicationWindow and all
+ *   channel flags. The ONLY UI change that survives is the config-level `enabled`
+ *   toggle. Make routing changes here, not in the UI.
  *
  * IN-APP VOLUME POLICY (2026-07-29, notification improvement plan phase 4)
  *   Until now 194 of the 196 configs declared IN_APP as `mandatory: true`.
@@ -250,7 +301,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -292,7 +343,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -334,7 +385,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: true },
+      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
     },
     templates: {
       inApp: {
@@ -377,7 +428,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -415,7 +466,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -517,7 +568,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "FINANCIAL"],
+    sectors: ["ADMIN", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: false, mandatory: false, defaultOn: false },
@@ -551,7 +602,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "FINANCIAL"],
+    sectors: ["ADMIN", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: false, mandatory: false, defaultOn: false },
@@ -583,14 +634,14 @@ const CONFIGS: ConfigDef[] = [
     importance: "NORMAL",
     workHoursOnly: true,
     batchingEnabled: true,
-    maxFrequencyPerDay: null,
-    deduplicationWindow: null,
-    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL"],
+    maxFrequencyPerDay: 1,
+    deduplicationWindow: 5760,
+    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: false },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
     },
     templates: {
       inApp: {
@@ -627,7 +678,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL"],
+    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
@@ -665,12 +716,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: true,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL"],
+    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -707,12 +758,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL"],
+    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
     },
     templates: {
       inApp: {
@@ -754,7 +805,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: false, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -787,12 +838,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "FINANCIAL"],
+    sectors: ["ADMIN", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: false, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -873,7 +924,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -915,7 +966,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -1037,7 +1088,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "PLOTTING", "PRODUCTION"],
+    sectors: ["PRODUCTION", "PRODUCTION_MANAGER"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
@@ -1365,12 +1416,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL"],
+    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -1408,7 +1459,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: 1,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "WAREHOUSE"],
+    sectors: ["WAREHOUSE"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
@@ -1450,7 +1501,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: 2,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "WAREHOUSE"],
+    sectors: ["WAREHOUSE"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
@@ -1497,7 +1548,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: false, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: false, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -1620,7 +1671,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -1658,7 +1709,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -1692,12 +1743,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "BASIC", "COMMERCIAL", "DESIGNER", "EXTERNAL", "FINANCIAL", "HUMAN_RESOURCES", "LOGISTIC", "MAINTENANCE", "PLOTTING", "PRODUCTION", "PRODUCTION_MANAGER", "WAREHOUSE"],
+    sectors: ["ADMIN", "BASIC", "COMMERCIAL", "DESIGNER", "EXTERNAL", "FINANCIAL", "HUMAN_RESOURCES", "LOGISTIC", "MAINTENANCE", "PLOTTING", "PRODUCTION", "PRODUCTION_MANAGER", "WAREHOUSE", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -1735,7 +1786,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "FINANCIAL"],
+    sectors: ["ADMIN", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: false, mandatory: false, defaultOn: false },
@@ -1769,12 +1820,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL"],
+    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -2149,12 +2200,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: true,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "WAREHOUSE"],
+    sectors: ["WAREHOUSE"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
     },
     templates: {
       inApp: {
@@ -2231,12 +2282,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "FINANCIAL", "HUMAN_RESOURCES"],
+    sectors: ["ADMIN", "FINANCIAL", "HUMAN_RESOURCES", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -2273,7 +2324,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "FINANCIAL", "HUMAN_RESOURCES"],
+    sectors: ["ADMIN", "FINANCIAL", "HUMAN_RESOURCES", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
@@ -2438,7 +2489,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "HUMAN_RESOURCES", "WAREHOUSE"],
+    sectors: ["HUMAN_RESOURCES", "WAREHOUSE"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
@@ -2706,12 +2757,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "FINANCIAL"],
+    sectors: ["ADMIN", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -2748,7 +2799,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "FINANCIAL"],
+    sectors: ["ADMIN", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: false, mandatory: false, defaultOn: false },
@@ -2782,7 +2833,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: 1,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "FINANCIAL"],
+    sectors: ["ADMIN", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: false, mandatory: false, defaultOn: false },
@@ -2817,12 +2868,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: true,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "BASIC", "COMMERCIAL", "DESIGNER", "EXTERNAL", "FINANCIAL", "HUMAN_RESOURCES", "LOGISTIC", "MAINTENANCE", "PLOTTING", "PRODUCTION", "PRODUCTION_MANAGER", "WAREHOUSE"],
+    sectors: ["ADMIN", "BASIC", "COMMERCIAL", "DESIGNER", "EXTERNAL", "FINANCIAL", "HUMAN_RESOURCES", "LOGISTIC", "MAINTENANCE", "PLOTTING", "PRODUCTION", "PRODUCTION_MANAGER", "WAREHOUSE", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -2860,7 +2911,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: false, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -2898,7 +2949,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: false, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -2931,12 +2982,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "HUMAN_RESOURCES"],
+    sectors: ["ADMIN", "HUMAN_RESOURCES", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: false, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -2969,7 +3020,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["FINANCIAL", "HUMAN_RESOURCES"],
+    sectors: ["FINANCIAL", "HUMAN_RESOURCES", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: false, mandatory: false, defaultOn: false },
@@ -3003,12 +3054,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: true,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "HUMAN_RESOURCES"],
+    sectors: ["ADMIN", "HUMAN_RESOURCES", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -3079,12 +3130,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "HUMAN_RESOURCES"],
+    sectors: ["ADMIN", "HUMAN_RESOURCES", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -3121,7 +3172,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "HUMAN_RESOURCES"],
+    sectors: ["ADMIN", "HUMAN_RESOURCES", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
@@ -3201,7 +3252,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "BASIC", "COMMERCIAL", "DESIGNER", "EXTERNAL", "FINANCIAL", "HUMAN_RESOURCES", "LOGISTIC", "MAINTENANCE", "PLOTTING", "PRODUCTION", "PRODUCTION_MANAGER", "WAREHOUSE"],
+    sectors: ["ADMIN", "BASIC", "COMMERCIAL", "DESIGNER", "EXTERNAL", "FINANCIAL", "HUMAN_RESOURCES", "LOGISTIC", "MAINTENANCE", "PLOTTING", "PRODUCTION", "PRODUCTION_MANAGER", "WAREHOUSE", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: true, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
@@ -3248,7 +3299,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: true, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -3319,12 +3370,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN"],
+    sectors: ["ADMIN", "HUMAN_RESOURCES"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -3353,12 +3404,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN"],
+    sectors: ["ADMIN", "HUMAN_RESOURCES"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -3397,7 +3448,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -4069,7 +4120,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -4153,7 +4204,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -4741,7 +4792,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -4783,7 +4834,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -4825,7 +4876,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -4867,7 +4918,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -5447,7 +5498,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: 1,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "COMMERCIAL", "LOGISTIC", "PRODUCTION", "PRODUCTION_MANAGER"],
+    sectors: ["LOGISTIC", "PRODUCTION_MANAGER"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
@@ -5620,7 +5671,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -5713,7 +5764,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -5758,7 +5809,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -5848,7 +5899,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -5893,7 +5944,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -5937,7 +5988,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -5982,7 +6033,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -6744,7 +6795,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -6876,7 +6927,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: false, mandatory: false, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -6920,7 +6971,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -6958,7 +7009,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -7046,7 +7097,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -7302,7 +7353,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -7344,7 +7395,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -7428,7 +7479,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -7580,7 +7631,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL"],
+    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
@@ -7623,7 +7674,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -7694,7 +7745,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "FINANCIAL"],
+    sectors: ["ADMIN", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
@@ -7736,12 +7787,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL"],
+    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -7779,7 +7830,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL"],
+    sectors: ["ADMIN", "COMMERCIAL", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
@@ -7818,7 +7869,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: 4,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "BASIC", "COMMERCIAL", "DESIGNER", "EXTERNAL", "FINANCIAL", "HUMAN_RESOURCES", "LOGISTIC", "MAINTENANCE", "PLOTTING", "PRODUCTION", "PRODUCTION_MANAGER", "WAREHOUSE"],
+    sectors: ["ADMIN", "BASIC", "COMMERCIAL", "DESIGNER", "EXTERNAL", "FINANCIAL", "HUMAN_RESOURCES", "LOGISTIC", "MAINTENANCE", "PLOTTING", "PRODUCTION", "PRODUCTION_MANAGER", "WAREHOUSE", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
@@ -7902,12 +7953,12 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: 4,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "BASIC", "COMMERCIAL", "DESIGNER", "EXTERNAL", "FINANCIAL", "HUMAN_RESOURCES", "LOGISTIC", "MAINTENANCE", "PLOTTING", "PRODUCTION", "PRODUCTION_MANAGER", "WAREHOUSE"],
+    sectors: ["ADMIN", "BASIC", "COMMERCIAL", "DESIGNER", "EXTERNAL", "FINANCIAL", "HUMAN_RESOURCES", "LOGISTIC", "MAINTENANCE", "PLOTTING", "PRODUCTION", "PRODUCTION_MANAGER", "WAREHOUSE", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -7989,7 +8040,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: true,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["HUMAN_RESOURCES"],
+    sectors: ["HUMAN_RESOURCES", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: true, defaultOn: false },
       PUSH: { enabled: true, mandatory: true, defaultOn: false },
@@ -8031,7 +8082,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "HUMAN_RESOURCES", "PRODUCTION_MANAGER"],
+    sectors: ["ADMIN", "HUMAN_RESOURCES", "PRODUCTION_MANAGER", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: true, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
@@ -8190,7 +8241,7 @@ const CONFIGS: ConfigDef[] = [
     batchingEnabled: false,
     maxFrequencyPerDay: null,
     deduplicationWindow: null,
-    sectors: ["ADMIN", "HUMAN_RESOURCES", "WAREHOUSE"],
+    sectors: ["ADMIN", "HUMAN_RESOURCES", "WAREHOUSE", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: true, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },

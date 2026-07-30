@@ -38,6 +38,13 @@ export interface NotificationConfiguration {
   eventType: string | null;
   defaultChannels: NOTIFICATION_CHANNEL[];
   mandatoryChannels: NOTIFICATION_CHANNEL[];
+  /**
+   * Every channel whose NotificationChannelConfig row is `enabled`, regardless of
+   * `mandatory`/`defaultOn`. This is the authoritative allow-list for the config:
+   * a channel absent from here must never be delivered, not even when a user's
+   * saved preference asks for it. See resolveChannelsForUser.
+   */
+  enabledChannels: NOTIFICATION_CHANNEL[];
   importance: NOTIFICATION_IMPORTANCE;
   isEnabled: boolean;
   isMandatory: boolean;
@@ -779,9 +786,20 @@ export class NotificationConfigurationService {
           return Array.from(channels);
         }
 
-        // Add user's preferred channels
+        // Add the user's preferred channels, but only those the configuration
+        // still has enabled. A saved preference must never resurrect a channel
+        // that was turned off on the config — before this intersection, a stale
+        // UserNotificationPreference row kept delivering on a disabled channel
+        // (the seed does not touch that table, so the rows outlive the change).
+        const enabled = new Set(config.enabledChannels);
         for (const channel of userPreference.channels as NOTIFICATION_CHANNEL[]) {
-          channels.add(channel);
+          if (enabled.has(channel)) {
+            channels.add(channel);
+          } else {
+            this.logger.debug(
+              `Ignoring preferred channel ${channel} for ${configKey}: disabled on the configuration`,
+            );
+          }
         }
       } else {
         // No user preference, use default channels
@@ -1245,6 +1263,7 @@ export class NotificationConfigurationService {
     const channelConfigs = entity.channelConfigs || [];
     const defaultChannels = this.getDefaultChannelsFromConfigs(channelConfigs);
     const mandatoryChannels = this.getMandatoryChannelsFromConfigs(channelConfigs);
+    const enabledChannels = this.getEnabledChannelsFromConfigs(channelConfigs);
 
     // Check if any channel is mandatory to determine isMandatory
     const hasMandatoryChannels = mandatoryChannels.length > 0;
@@ -1270,6 +1289,7 @@ export class NotificationConfigurationService {
       eventType: entity.eventType,
       defaultChannels: defaultChannels,
       mandatoryChannels: mandatoryChannels,
+      enabledChannels: enabledChannels,
       importance: entity.importance as NOTIFICATION_IMPORTANCE,
       isEnabled: entity.enabled,
       isMandatory: hasMandatoryChannels,
@@ -1298,6 +1318,16 @@ export class NotificationConfigurationService {
   private getMandatoryChannelsFromConfigs(channelConfigs: any[]): NOTIFICATION_CHANNEL[] {
     return channelConfigs
       .filter((config: any) => config.mandatory && config.enabled)
+      .map((config: any) => config.channel as NOTIFICATION_CHANNEL);
+  }
+
+  /**
+   * Extract every enabled channel, ignoring mandatory/defaultOn. Used to bound
+   * what a user preference is allowed to re-add.
+   */
+  private getEnabledChannelsFromConfigs(channelConfigs: any[]): NOTIFICATION_CHANNEL[] {
+    return channelConfigs
+      .filter((config: any) => config.enabled)
       .map((config: any) => config.channel as NOTIFICATION_CHANNEL);
   }
 
