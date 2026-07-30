@@ -602,7 +602,8 @@ export class OrderItemController {
   // =====================
 
   @Put('batch/mark-fulfilled')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  // Fulfillment is the purchasing-side confirmation with the supplier — ADMIN only.
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async batchMarkFulfilled(
     @Body() data: { ids: string[] },
     @Query(new ZodQueryValidationPipe(orderItemQuerySchema)) query: OrderItemQueryFormData,
@@ -622,7 +623,8 @@ export class OrderItemController {
   }
 
   @Put('batch/mark-received')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  // Receiving goods into stock is the warehouse's job.
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async batchMarkReceived(
     @Body() data: { items: Array<{ id: string; receivedQuantity: number }> },
     @Query(new ZodQueryValidationPipe(orderItemQuerySchema)) query: OrderItemQueryFormData,

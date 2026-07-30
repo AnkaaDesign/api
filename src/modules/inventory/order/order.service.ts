@@ -688,7 +688,14 @@ export class OrderService {
       return { success: true, message: 'Pedido atualizado com sucesso.', data: updatedOrder };
     } catch (error) {
       this.logger.error('Erro ao atualizar pedido:', error);
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+      // Deliberate business-rule rejections carry their own status + message (e.g. the
+      // WAREHOUSE-cannot-receive gate below). Re-throw them as-is; masking them behind a
+      // 500 turns a clear "you can't do this" into a bogus "system error" for the user.
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
+      ) {
         throw error;
       }
       throw new InternalServerErrorException(
@@ -723,15 +730,39 @@ export class OrderService {
     // Snapshot before any mutation, for the payment-assignment event check.
     const oldPaymentResponsibleId = existingOrder.paymentResponsibleId;
 
-        // WAREHOUSE sector cannot mark orders as received — only ADMIN can close orders.
-        if (data.status === ORDER_STATUS.RECEIVED && userSector === SECTOR_PRIVILEGES.WAREHOUSE) {
+        // Fulfilling is the purchasing-side confirmation that the order was actually placed
+        // with the supplier — ADMIN only. WAREHOUSE owns the receiving side instead: they
+        // physically take the goods into stock, which is exactly the RECEIVED transition.
+        if (
+          (data.status === ORDER_STATUS.FULFILLED ||
+            data.status === ORDER_STATUS.PARTIALLY_FULFILLED) &&
+          userSector === SECTOR_PRIVILEGES.WAREHOUSE
+        ) {
           throw new ForbiddenException(
-            'O setor de Almoxarifado não pode marcar pedidos como recebidos. Apenas administradores podem concluir pedidos.',
+            'O setor de Almoxarifado não pode marcar pedidos como feitos. Apenas administradores podem confirmar o pedido junto ao fornecedor.',
           );
         }
 
-        // Handle special case: CREATED → RECEIVED should go through FULFILLED first
         const currentStatus = existingOrder.status as ORDER_STATUS;
+
+        // An order can only be received once it has actually been placed: every item must
+        // carry a fulfilledAt. This blocks receiving a CREATED draft or an order whose items
+        // are still partially fulfilled, and mirrors the per-item guard in OrderItemService.
+        // Checked against the live rows, not `existingOrder.status`, so an OVERDUE order whose
+        // items were all fulfilled still receives normally.
+        if (data.status === ORDER_STATUS.RECEIVED && currentStatus !== ORDER_STATUS.RECEIVED) {
+          const itemsForReceiptCheck = await tx.orderItem.findMany({
+            where: { orderId: id },
+            select: { fulfilledAt: true },
+          });
+          const unfulfilledCount = itemsForReceiptCheck.filter(i => !i.fulfilledAt).length;
+          if (unfulfilledCount > 0) {
+            throw new BadRequestException(
+              `Não é possível receber um pedido que ainda não foi marcado como feito. ${unfulfilledCount} item(ns) pendente(s). Marque o pedido como feito antes de registrar o recebimento.`,
+            );
+          }
+        }
+
         let actualUpdateData: any = { ...data };
 
         // Auto-set paymentAssignedById when paymentResponsibleId changes
@@ -774,76 +805,11 @@ export class OrderService {
           }
         }
 
-        if (currentStatus === ORDER_STATUS.CREATED && data.status === ORDER_STATUS.RECEIVED) {
-          // First, update to FULFILLED status with fulfilled dates
-          const fulfilledData = {
-            ...data,
-            status: ORDER_STATUS.FULFILLED,
-          };
-
-          // Update order items with fulfilled dates set to order creation date
-          if (existingOrder.items && existingOrder.items.length > 0) {
-            const orderCreationDate = new Date(existingOrder.createdAt);
-
-            for (const item of existingOrder.items) {
-              await tx.orderItem.update({
-                where: { id: item.id },
-                data: {
-                  fulfilledAt: orderCreationDate,
-                },
-              });
-            }
-          }
-
-          // First validate and apply FULFILLED status
-          await this.validateOrder(fulfilledData, id, tx);
-          // Don't call handleOrderStatusInventoryChanges for FULFILLED - it doesn't do anything
-
-          // Update the order to FULFILLED
-          await this.orderRepository.updateWithTransaction(tx, id, {
-            status: ORDER_STATUS.FULFILLED,
-          });
-
-          // Log the intermediate FULFILLED status change
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.ORDER,
-            entityId: id,
-            action: CHANGE_ACTION.UPDATE,
-            field: 'status_transition',
-            oldValue: currentStatus,
-            newValue: ORDER_STATUS.FULFILLED,
-            reason: 'Status atualizado automaticamente para FULFILLED antes de RECEIVED',
-            triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
-            triggeredById: null,
-            userId: userId || null,
-            transaction: tx,
-          });
-
-          // Update existingOrder status for the next validation
-          existingOrder.status = ORDER_STATUS.FULFILLED;
-
-          // Reload the order items to get the updated fulfilledAt values
-          existingOrder.items = await tx.orderItem.findMany({
-            where: { orderId: id },
-          });
-
-          this.logger.log(
-            `After FULFILLED update: Reloaded ${existingOrder.items.length} items for order ${id}`,
-          );
-          for (const item of existingOrder.items) {
-            this.logger.debug(
-              `Reloaded item ${item.id}: orderedQty=${item.orderedQuantity}, receivedQty=${item.receivedQuantity}, itemId=${item.itemId}`,
-            );
-          }
-
-          // Now proceed with RECEIVED status. Spread the already-mutated actualUpdateData
-          // (not the raw `data`) so prior mutations — paymentAssignedById auto-stamp and
-          // the settled-schedule scalar strip above — survive this rebuild.
-          actualUpdateData = {
-            ...actualUpdateData,
-            status: ORDER_STATUS.RECEIVED,
-          };
-        }
+        // NOTE: CREATED → RECEIVED used to be auto-routed here through FULFILLED, backdating
+        // every item's fulfilledAt to the order creation date. That silently fabricated a
+        // fulfillment that never happened and let a draft be closed in one click. Receiving now
+        // requires a real prior fulfillment (guard above), so the shortcut is gone: mark the
+        // order as done first, then receive it.
 
         // Validate order update (já inclui validação de transição de status)
         await this.validateOrder(actualUpdateData, id, tx);
@@ -1812,7 +1778,9 @@ export class OrderService {
                   ? 'VALIDATION_ERROR'
                   : error instanceof NotFoundException
                     ? 'NOT_FOUND'
-                    : 'UNKNOWN_ERROR',
+                    : error instanceof ForbiddenException
+                      ? 'FORBIDDEN'
+                      : 'UNKNOWN_ERROR',
               index,
               id: updateData.id,
             });

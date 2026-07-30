@@ -33,7 +33,8 @@ export function isValidStatusTransition(fromStatus: ORDER_STATUS, toStatus: ORDE
       ORDER_STATUS.FULFILLED,
       ORDER_STATUS.OVERDUE,
       ORDER_STATUS.CANCELLED,
-      ORDER_STATUS.RECEIVED, // Allow direct transition (handled by service to go through FULFILLED)
+      // No direct CREATED → RECEIVED: a draft must be marked as done (fulfilled) before it
+      // can be received. The service used to fake the intermediate fulfillment; it no longer does.
     ],
     [ORDER_STATUS.PARTIALLY_FULFILLED]: [
       ORDER_STATUS.FULFILLED,
