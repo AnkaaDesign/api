@@ -18,6 +18,14 @@ describe('MessageService', () => {
     $queryRaw: jest.fn(),
     $queryRawUnsafe: jest.fn(),
     $executeRaw: jest.fn(),
+    message: {
+      findUnique: jest.fn(),
+      delete: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    messageTarget: {
+      findMany: jest.fn(),
+    },
   };
 
   const mockAdminId = '550e8400-e29b-41d4-a716-446655440000';
@@ -299,16 +307,21 @@ describe('MessageService', () => {
         createdById: mockAdminId,
       };
 
-      mockPrismaService.$queryRaw.mockResolvedValue([mockMessage]);
-      mockPrismaService.$executeRaw.mockResolvedValue(undefined);
+      mockPrismaService.message.findUnique.mockResolvedValue(mockMessage);
+      mockPrismaService.message.delete.mockResolvedValue(mockMessage);
 
       await service.remove(mockMessageId);
 
-      expect(mockPrismaService.$executeRaw).toHaveBeenCalledTimes(2); // Delete views and message
+      // Children (MessageView / MessageTarget) cascade — a single typed delete,
+      // never raw SQL (a `::uuid` cast against these `text` columns 500s).
+      expect(mockPrismaService.message.delete).toHaveBeenCalledWith({
+        where: { id: mockMessageId },
+      });
+      expect(mockPrismaService.$executeRaw).not.toHaveBeenCalled();
     });
 
     it('should throw NotFoundException if message to delete not found', async () => {
-      mockPrismaService.$queryRaw.mockResolvedValue([]);
+      mockPrismaService.message.findUnique.mockResolvedValue(null);
 
       await expect(service.remove(mockMessageId)).rejects.toThrow(NotFoundException);
     });

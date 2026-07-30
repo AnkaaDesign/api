@@ -669,15 +669,12 @@ export class MessageService {
       // Check if message exists
       await this.findOne(id);
 
-      // Delete associated views first
-      await this.prisma.$executeRaw`
-        DELETE FROM "MessageView" WHERE "messageId" = ${id}::uuid
-      `;
-
-      // Delete message
-      await this.prisma.$executeRaw`
-        DELETE FROM "Message" WHERE id = ${id}::uuid
-      `;
+      // MessageView / MessageTarget rows cascade (onDelete: Cascade), so a single
+      // delete is enough. Do NOT hand-roll this as raw SQL with a `::uuid` cast —
+      // `Message.id` and `MessageView."messageId"` are Prisma `String` columns
+      // (Postgres `text`), so `"messageId" = $1::uuid` blows up with
+      // `operator does not exist: text = uuid` and every delete 500s.
+      await this.prisma.message.delete({ where: { id } });
 
       this.logger.log(`Message deleted successfully: ${id}`);
     } catch (error) {

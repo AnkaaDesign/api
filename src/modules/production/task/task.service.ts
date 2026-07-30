@@ -2246,7 +2246,7 @@ export class TaskService {
         // did, with no new lock contention and no deadlock surface.
         if (expectedUpdatedAt) {
           const locked = await tx.$queryRaw<Array<{ updatedAt: Date }>>`
-            SELECT "updatedAt" FROM "Task" WHERE "id" = ${id}::uuid FOR UPDATE
+            SELECT "updatedAt" FROM "Task" WHERE "id" = ${id} FOR UPDATE
           `;
           if (locked.length === 0) {
             throw new NotFoundException('Tarefa não encontrada.');
