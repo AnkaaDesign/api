@@ -9,6 +9,13 @@ import { SicrediWebhookService } from './sicredi-webhook.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { BANK_SLIP_STATUS, INSTALLMENT_STATUS, INVOICE_STATUS } from '@constants';
+import {
+  bankDateToYMD,
+  daysBetweenDueDates,
+  formatDueDateYMD,
+  parseDueDateYMD,
+  todayInSaoPauloAtNoonUtc,
+} from '@utils/due-date.util';
 
 const MAX_WEBHOOK_RETRIES = 3;
 const DEFAULT_WEBHOOK_URL = 'https://api.ankaadesign.com.br/webhooks/sicredi';
@@ -427,11 +434,21 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           // ── End customer data validation ──────────────────────────────
 
           const dueDate = new Date(installment.dueDate);
-          // Sicredi rejects past due dates — clamp to today (São Paulo) if needed
-          const nowSP = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-          nowSP.setHours(0, 0, 0, 0);
-          const effectiveDueDate = dueDate < nowSP ? nowSP : dueDate;
-          const formattedDueDate = `${effectiveDueDate.getFullYear()}-${String(effectiveDueDate.getMonth() + 1).padStart(2, '0')}-${String(effectiveDueDate.getDate()).padStart(2, '0')}`;
+          // Sicredi rejects past due dates — clamp to today (São Paulo) if needed.
+          // Both sides are calendar dates at noon UTC, so the comparison is timezone-safe
+          // and the clamped value can be persisted as-is (see dueDateWasClamped below).
+          const todaySP = todayInSaoPauloAtNoonUtc();
+          const effectiveDueDate = dueDate < todaySP ? todaySP : dueDate;
+          const dueDateWasClamped = effectiveDueDate.getTime() !== dueDate.getTime();
+          const formattedDueDate = formatDueDateYMD(effectiveDueDate);
+
+          if (dueDateWasClamped) {
+            this.logger.warn(
+              `[BOLETO_CREATE] Installment ${installment.id} was due ${formatDueDateYMD(dueDate)} ` +
+                `(in the past) — registering at Sicredi for ${formattedDueDate} and moving the ` +
+                `parcela to the same date so the system matches the boleto.`,
+            );
+          }
 
           this.logger.log(
             `[BOLETO_CREATE] Creating boleto for installment ${installment.id}: ` +
@@ -504,7 +521,10 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             }
           }
 
-          // Upsert BankSlip record
+          // Upsert BankSlip record.
+          // Always store the date the boleto was ACTUALLY registered with
+          // (effectiveDueDate) — storing installment.dueDate here would leave the
+          // system showing a different vencimento than the boleto the customer holds.
           const seuNumero = this.buildSeuNumero(installment);
           if (installment.bankSlip) {
             await this.prisma.bankSlip.update({
@@ -516,6 +536,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                 digitableLine: boletoResponse.linhaDigitavel,
                 pixQrCode,
                 txid: boletoResponse.txid || null,
+                dueDate: effectiveDueDate,
                 status: BANK_SLIP_STATUS.ACTIVE,
                 errorMessage: null,
                 errorCount: 0,
@@ -535,11 +556,19 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                 txid: boletoResponse.txid || null,
                 type: 'NORMAL',
                 amount: installment.amount,
-                dueDate: installment.dueDate,
+                dueDate: effectiveDueDate,
                 status: BANK_SLIP_STATUS.ACTIVE,
                 lastSyncAt: new Date(),
                 ...(pdfFileId && { pdfFileId }),
               },
+            });
+          }
+
+          // Keep the parcela aligned with the boleto that was actually registered.
+          if (dueDateWasClamped) {
+            await this.prisma.installment.update({
+              where: { id: installment.id },
+              data: { dueDate: effectiveDueDate },
             });
           }
 
@@ -556,7 +585,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
               installment.invoice.id,
               boletoResponse.nossoNumero,
               Number(installment.amount),
-              new Date(installment.dueDate),
+              effectiveDueDate,
             );
           }
         } catch (error) {
@@ -961,6 +990,13 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     if (spaceTs) {
       return new Date(`${spaceTs[1]}T00:00:00-03:00`);
     }
+    // Bare "yyyy-MM-dd" — the boleto query endpoint returns dataVencimento in this
+    // form. `new Date('2026-09-08')` is read as UTC midnight, which is 21:00 of the
+    // PREVIOUS day in São Paulo; anchoring to -03:00 keeps the calendar day intact.
+    const bareDate = value.match(/^(\d{4}-\d{2}-\d{2})$/);
+    if (bareDate) {
+      return new Date(`${bareDate[1]}T00:00:00-03:00`);
+    }
     // ISO 8601 or any other parseable format
     const parsed = new Date(value);
     return isNaN(parsed.getTime()) ? null : parsed;
@@ -1210,19 +1246,13 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     try {
       this.logger.log('Starting boleto overdue check...');
 
-      // Compute SP-midnight (UTC-3) expressed as a UTC Date.
-      // Brazil abolished DST in 2019, so SP is a constant UTC-3 year-round.
-      // toLocaleString with en-CA yields "YYYY-MM-DD" in SP wall-clock time.
-      const SP_OFFSET = '-03:00';
-      const spDateParts = new Date().toLocaleString('en-CA', {
-        timeZone: 'America/Sao_Paulo',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      });
-      const today = new Date(`${spDateParts}T00:00:00${SP_OFFSET}`);
+      // Today's São Paulo calendar date at noon UTC — the same convention every stored
+      // due date uses, so `dueDate < today` is a pure calendar-day comparison.
+      const today = todayInSaoPauloAtNoonUtc();
 
-      // Find ACTIVE bank slips with dueDate before today
+      // A boleto is overdue only from the DAY AFTER its due date — the customer has all
+      // of the due date itself to pay. `lt: today` gives exactly that: a slip due today
+      // is excluded, one due yesterday is included.
       const overdueBankSlips = await this.prisma.bankSlip.findMany({
         where: {
           status: BANK_SLIP_STATUS.ACTIVE,
@@ -1467,8 +1497,9 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           }).format(Number(bankSlip.amount));
 
           const dueDate = bankSlip.dueDate;
-          const diffTime = dueDate.getTime() - today.getTime();
-          const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          // Whole calendar days — comparing raw instants made a boleto due TODAY
+          // report "1 day remaining" (noon UTC vs SP midnight is +9h).
+          const daysRemaining = daysBetweenDueDates(dueDate, todayInSaoPauloAtNoonUtc());
 
           const formattedDueDate = new Intl.DateTimeFormat('pt-BR', {
             timeZone: 'America/Sao_Paulo',
@@ -1655,24 +1686,27 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     let newParsedDate: Date | undefined;
 
     // --- Due date ---
-    // Use the existing parseSicrediDate for parsing, then compare calendar days in
-    // SP timezone (the authoritative local timezone for these dates). Store any
-    // change at noon UTC — the convention used everywhere else in the system.
-    const sicrediRaw = this.parseSicrediDate(sicrediData.dataVencimento);
-    if (sicrediRaw) {
-      const sicrediYMD = sicrediRaw.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-      const localYMD = bankSlip.dueDate.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    // Compare CALENDAR DAYS taken literally from both sides — never convert either
+    // one through a timezone. Sicredi's dataVencimento and our stored noon-UTC value
+    // are both calendar dates; rendering an offset-less Sicredi date in SP used to
+    // report D-1 and silently rewrote the slip AND its installment one day back.
+    const sicrediYMD = bankDateToYMD(sicrediData.dataVencimento);
+    if (sicrediYMD) {
+      const localYMD = formatDueDateYMD(bankSlip.dueDate);
 
       if (localYMD !== sicrediYMD) {
         dueDateChanged = true;
         // Rebuild at noon UTC for timezone-safe storage
-        const [y, m, d] = sicrediYMD.split('-').map(Number);
-        newParsedDate = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+        newParsedDate = parseDueDateYMD(sicrediYMD);
         bankSlipUpdates.dueDate = newParsedDate;
 
-        // If the boleto was OVERDUE and Sicredi's date is now in the future,
-        // restore it to ACTIVE so the overdue-check job won't re-mark it immediately.
-        if (bankSlip.status === BANK_SLIP_STATUS.OVERDUE && newParsedDate > new Date()) {
+        // If the boleto was OVERDUE and Sicredi's date is today or later, restore it
+        // to ACTIVE so the overdue-check job won't re-mark it immediately. Compare
+        // calendar days: a boleto due TODAY is not overdue, whatever the clock says.
+        if (
+          bankSlip.status === BANK_SLIP_STATUS.OVERDUE &&
+          newParsedDate >= todayInSaoPauloAtNoonUtc()
+        ) {
           bankSlipUpdates.status = BANK_SLIP_STATUS.ACTIVE;
         }
 
@@ -1747,10 +1781,11 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     if (dueDateChanged && newParsedDate && bankSlip.installment) {
       const installmentUpdates: Record<string, unknown> = { dueDate: newParsedDate };
 
-      // Restore OVERDUE installment to PENDING when date is pushed into the future
+      // Restore OVERDUE installment to PENDING when the date is today or later
+      // (calendar-day comparison — a parcela due TODAY is not overdue).
       if (
         bankSlip.installment.status === INSTALLMENT_STATUS.OVERDUE &&
-        newParsedDate > new Date()
+        newParsedDate >= todayInSaoPauloAtNoonUtc()
       ) {
         installmentUpdates.status = INSTALLMENT_STATUS.PENDING;
       }

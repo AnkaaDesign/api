@@ -1,5 +1,6 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { isDueDateOverdue } from '@utils/due-date.util';
 import {
   ReceivableRow,
   ReceivableSource,
@@ -92,8 +93,11 @@ export class ReceivablesService {
             ? 'TASK_QUOTE'
             : 'INVOICE';
 
+        // A parcela due TODAY is not overdue — it only becomes overdue the day after
+        // its due date. Comparing raw instants flipped it at 09:00 SP (noon UTC) on the
+        // due date itself.
         const overdue =
-          inst.status !== 'PAID' && inst.dueDate != null && inst.dueDate < now;
+          inst.status !== 'PAID' && inst.dueDate != null && isDueDateOverdue(inst.dueDate);
         let state: ReceivableState;
         if (inst.status === 'PAID') state = 'RECEIVED';
         else if (overdue) state = 'OVERDUE';

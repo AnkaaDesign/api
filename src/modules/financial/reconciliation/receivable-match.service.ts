@@ -12,6 +12,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { nameSimilarity } from './text-normalization';
+import { isDueDateOverdue } from '@utils/due-date.util';
 import { RECON_ADVISORY_LOCK_KEY } from './reconciliation-matcher.service';
 
 /** How far apart (days) a credit's postedAt and an installment's dueDate may be
@@ -1719,7 +1720,6 @@ export class ReceivableMatchService {
       throw new BadRequestException('Nenhuma conciliação de entrada para reverter.');
     }
 
-    const now = new Date();
     await this.prisma.$transaction(async db => {
       // Delete this transaction's matches first (NOT soft-reverse): the
       // (transactionId, installmentId) unique index counts reversed rows, so
@@ -1749,7 +1749,9 @@ export class ReceivableMatchService {
           where: { id: installmentId },
           data: {
             paidAmount: paid,
-            status: fullyPaid ? 'PAID' : inst.dueDate < now ? 'OVERDUE' : 'PENDING',
+            // Calendar-day comparison — reversing a match on a parcela due TODAY must
+            // leave it PENDING, not OVERDUE.
+            status: fullyPaid ? 'PAID' : isDueDateOverdue(inst.dueDate) ? 'OVERDUE' : 'PENDING',
             paidAt: fullyPaid ? inst.dueDate : null,
           },
         });

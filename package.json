@@ -46,7 +46,8 @@
     "reconcile:cnpj": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/cnpj-reconciliation.ts",
     "seed:notifications": "tsx prisma/scripts/seed-notification-configs.ts",
     "test:guards": "tsx tests/airbrushing-relation-clear.test.ts",
-    "test:quote-diff": "tsx tests/quote-diff.test.ts"
+    "test:quote-diff": "tsx tests/quote-diff.test.ts",
+    "test:due-date": "tsx tests/due-date.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

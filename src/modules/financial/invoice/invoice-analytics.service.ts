@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { isDueDateOverdue } from '@utils/due-date.util';
 import {
   INVOICE_STATUS,
   INSTALLMENT_STATUS,
@@ -233,7 +234,7 @@ export class InvoiceAnalyticsService {
       for (const inst of invoice.installments) {
         const isOverdue =
           inst.status === INSTALLMENT_STATUS.OVERDUE ||
-          (inst.dueDate < now &&
+          (isDueDateOverdue(inst.dueDate) &&
             inst.status !== INSTALLMENT_STATUS.PAID &&
             inst.status !== INSTALLMENT_STATUS.CANCELLED);
         if (!isOverdue) continue;
@@ -299,7 +300,7 @@ export class InvoiceAnalyticsService {
     const overdueInstallments = allInstallments.filter(
       inst =>
         inst.status === INSTALLMENT_STATUS.OVERDUE ||
-        (inst.dueDate < now &&
+        (isDueDateOverdue(inst.dueDate) &&
           inst.status !== INSTALLMENT_STATUS.PAID &&
           inst.status !== INSTALLMENT_STATUS.CANCELLED),
     );
@@ -965,7 +966,9 @@ export class InvoiceAnalyticsService {
       const customerId = inst.invoice?.customer?.id;
       if (customerId) activeCustomerIds.add(customerId);
 
-      if (inst.dueDate >= now) totalCurrent += remaining;
+      // A parcela due TODAY is still "current" — it only counts as overdue from the
+      // day after its due date.
+      if (!isDueDateOverdue(inst.dueDate)) totalCurrent += remaining;
       else totalOverdue += remaining;
     }
 
@@ -1083,7 +1086,7 @@ export class InvoiceAnalyticsService {
       if (remaining <= 0) continue;
 
       let bucketKey: string;
-      if (inst.dueDate < now) {
+      if (isDueDateOverdue(inst.dueDate)) {
         bucketKey = 'OVERDUE';
       } else if (inst.dueDate <= currentPeriod.end) {
         // Due in the in-progress period, not yet overdue.

@@ -5,6 +5,7 @@ import { SicrediAuthService } from '@modules/integrations/sicredi/sicredi-auth.s
 import { INVOICE_STATUS, INSTALLMENT_STATUS, BANK_SLIP_STATUS } from '@constants';
 import type { Invoice } from '@types';
 import { nextBrazilianBusinessDay } from '@utils/brazilian-holidays.util';
+import { formatDueDateYMD, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
 
 /**
  * Service responsible for auto-generating invoices from approved task quotes.
@@ -781,6 +782,22 @@ export class InvoiceGenerationService {
           `[BOLETO_REGISTER] Creating boleto for installment ${installment.id}: customer=${customerName}, amount=${installment.amount}, dueDate=${installment.dueDate}`,
         );
 
+        // Sicredi rejects past due dates — clamp to today (São Paulo) if needed.
+        // Both sides are calendar dates at noon UTC, so this is timezone-safe and the
+        // clamped value is persisted below, keeping the system equal to the boleto.
+        const originalDueDate = new Date(installment.dueDate);
+        const effectiveDueDate =
+          originalDueDate < todayInSaoPauloAtNoonUtc() ? todayInSaoPauloAtNoonUtc() : originalDueDate;
+        const dueDateWasClamped = effectiveDueDate.getTime() !== originalDueDate.getTime();
+
+        if (dueDateWasClamped) {
+          this.logger.warn(
+            `[BOLETO_REGISTER] Installment ${installment.id} was due ${formatDueDateYMD(originalDueDate)} ` +
+              `(in the past) — registering at Sicredi for ${formatDueDateYMD(effectiveDueDate)} and moving ` +
+              `the parcela to the same date so the system matches the boleto.`,
+          );
+        }
+
         const boletoResponse = await this.sicrediService.createBoleto({
           codigoBeneficiario,
           tipoCobranca: 'NORMAL',
@@ -798,20 +815,16 @@ export class InvoiceGenerationService {
           especieDocumento: 'DUPLICATA_MERCANTIL_INDICACAO',
           seuNumero: this.buildSeuNumero(installment),
           informativos: this.buildBoletoLines(installment),
-          dataVencimento: (() => {
-            const d = new Date(installment.dueDate);
-            // Sicredi rejects past due dates — clamp to today (São Paulo) if needed
-            const nowSP = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-            nowSP.setHours(0, 0, 0, 0);
-            const effective = d < nowSP ? nowSP : d;
-            return `${effective.getFullYear()}-${String(effective.getMonth() + 1).padStart(2, '0')}-${String(effective.getDate()).padStart(2, '0')}`;
-          })(),
+          dataVencimento: formatDueDateYMD(effectiveDueDate),
           valor: Number(installment.amount),
         });
 
         const pixQrCode =
           (boletoResponse as any).qrCode || (boletoResponse as any).codigoQrCode || null;
 
+        // Store the date the boleto was ACTUALLY registered with — never the original
+        // installment date, or the system would show a vencimento the customer's
+        // boleto does not have.
         await this.prisma.bankSlip.update({
           where: { id: installment.bankSlip.id },
           data: {
@@ -821,12 +834,21 @@ export class InvoiceGenerationService {
             digitableLine: boletoResponse.linhaDigitavel,
             pixQrCode,
             txid: (boletoResponse as any).txid || null,
+            dueDate: effectiveDueDate,
             status: 'ACTIVE',
             errorMessage: null,
             errorCount: 0,
             lastSyncAt: new Date(),
           },
         });
+
+        // Keep the parcela aligned with the boleto that was actually registered.
+        if (dueDateWasClamped) {
+          await this.prisma.installment.update({
+            where: { id: installment.id },
+            data: { dueDate: effectiveDueDate },
+          });
+        }
 
         this.logger.log(
           `[BOLETO_REGISTER] Boleto created: nossoNumero=${boletoResponse.nossoNumero}, barcode=${boletoResponse.codigoBarras}`,
