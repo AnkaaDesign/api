@@ -15,6 +15,10 @@ export interface MunicipalEmitNfseInput {
     corporateName?: string;
     email?: string;
     phone?: string;
+    /** Inscrição municipal do tomador — Elotech only accepts it as a numeric string. */
+    municipalRegistration?: string;
+    /** Inscrição estadual do tomador — idem. */
+    stateRegistration?: string;
     address?: {
       cityName?: string;
       state?: string;
@@ -242,6 +246,14 @@ export class ElotechOxyNfseService {
       const payload = await this.buildPayload(invoice);
 
       this.logger.debug(`[MUNICIPAL] Payload: ${JSON.stringify(payload).slice(0, 2000)}`);
+      // Contact/IM land on the printed DANFSe, so make them greppable at log level:
+      // a blank here means the customer (and its responsáveis) carry no such data.
+      this.logger.log(
+        `[MUNICIPAL] Tomador ${payload.formTomador.cnpjCpf}: telefone="${payload.formTomador.telefone}" ` +
+          `email="${payload.formTomador.email}" inscricaoEstadual=${JSON.stringify(payload.formTomador.inscricaoEstadual)} ` +
+          `inscricaoMunicipal=${JSON.stringify(payload.formTomador.inscricaoMunicipal)} ` +
+          `inscricaoOutroMunicipio=${JSON.stringify(payload.formTomador.inscricaoOutroMunicipio)}`,
+      );
 
       const baseUrl = this.authService.baseUrl;
 
@@ -1116,6 +1128,31 @@ export class ElotechOxyNfseService {
     const isJuridica = !!invoice.customer.cnpj;
     const cleanDoc = (invoice.customer.cnpj || invoice.customer.cpf || '').replace(/\D/g, '');
 
+    // Tomador registrations, all three shapes verified against the live API — get one wrong
+    // and the call 400s, the value is silently dropped, or (worst) the emission is REJECTED:
+    //
+    //   inscricaoEstadual      → bare string (objeto = 400).
+    //   inscricaoMunicipal     → nested DTO `{ inscricaoMunicipal: <numérico> }`; a bare string
+    //                            is a 400. This is NOT free text: it is the tomador's cadastro
+    //                            NA PREFEITURA EMISSORA, and `salvar-nota-fiscal` looks it up —
+    //                            sending an IM the prefeitura does not know kills the emission
+    //                            with `Cadastro "X" inexistente`. So it is only ever sent for a
+    //                            tomador sediado no próprio município.
+    //   inscricaoOutroMunicipio → bare string, for the IM of a tomador de FORA. No lookup.
+    //
+    // Non-numeric registrations ("ISENTO" and friends) are left out rather than sent as garbage.
+    const municipalRegistration = (invoice.customer.municipalRegistration || '').replace(/\D/g, '');
+    const stateRegistration = (invoice.customer.stateRegistration || '').replace(/\D/g, '');
+    const normalizeCityName = (value?: string): string =>
+      (value ?? '')
+        .toUpperCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+    const tomadorNoMunicipioEmissor =
+      !!invoice.customer.address?.cityName &&
+      normalizeCityName(invoice.customer.address.cityName) === normalizeCityName(this.emissionCityName);
+
     const formTomador: Record<string, any> = {
       tipoTomador: 'I',
       tipoPessoa: isJuridica ? 'J' : 'F',
@@ -1123,9 +1160,13 @@ export class ElotechOxyNfseService {
       nif: null,
       motivoNaoNif: null,
       idCadastro: null,
-      inscricaoMunicipal: null,
-      inscricaoEstadual: null,
-      inscricaoOutroMunicipio: null,
+      inscricaoMunicipal:
+        municipalRegistration && tomadorNoMunicipioEmissor
+          ? { inscricaoMunicipal: municipalRegistration }
+          : null,
+      inscricaoEstadual: stateRegistration || null,
+      inscricaoOutroMunicipio:
+        municipalRegistration && !tomadorNoMunicipioEmissor ? municipalRegistration : null,
       razao: invoice.customer.corporateName || invoice.customer.name,
       cep: invoice.customer.address?.zipCode?.replace(/\D/g, '') || '',
       endereco: invoice.customer.address?.street || '',

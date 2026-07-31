@@ -4,6 +4,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { NfseService } from './nfse.service';
 import { ElotechOxyNfseService } from './elotech-oxy-nfse.service';
+import { buildNfseCustomer, NFSE_CUSTOMER_SELECT } from './nfse-tomador.mapper';
 import { NfseStatus } from '@prisma/client';
 
 /**
@@ -255,24 +256,7 @@ export class NfseEmissionScheduler {
         include: {
           invoice: {
             include: {
-              customer: {
-                select: {
-                  id: true,
-                  fantasyName: true,
-                  corporateName: true,
-                  cnpj: true,
-                  cpf: true,
-                  email: true,
-                  phones: true,
-                  address: true,
-                  city: true,
-                  state: true,
-                  zipCode: true,
-                  neighborhood: true,
-                  addressNumber: true,
-                  addressComplement: true,
-                },
-              },
+              customer: { select: NFSE_CUSTOMER_SELECT },
               task: {
                 select: {
                   id: true,
@@ -302,7 +286,12 @@ export class NfseEmissionScheduler {
                 },
               },
               customerConfig: {
-                select: { orderNumber: true, discountType: true, discountValue: true },
+                select: {
+                  orderNumber: true,
+                  discountType: true,
+                  discountValue: true,
+                  responsible: { select: { email: true, phone: true, roles: true } },
+                },
               },
               externalOperation: {
                 include: {
@@ -446,25 +435,7 @@ export class NfseEmissionScheduler {
           const emitInput = {
             id: invoice.id,
             totalAmount: Number(invoice.totalAmount),
-            customer: {
-              cnpj: customer.cnpj || undefined,
-              cpf: customer.cpf || undefined,
-              name: customer.fantasyName || '',
-              corporateName: (customer as any).corporateName || undefined,
-              email: customer.email || undefined,
-              phone: customer.phones?.[0] || undefined,
-              address: customer.address
-                ? {
-                    cityName: customer.city || undefined,
-                    state: customer.state || undefined,
-                    zipCode: customer.zipCode || '',
-                    street: customer.address,
-                    number: customer.addressNumber || 'S/N',
-                    complement: customer.addressComplement || undefined,
-                    neighborhood: customer.neighborhood || '',
-                  }
-                : undefined,
-            },
+            customer: buildNfseCustomer(customer, (invoice as any).customerConfig?.responsible),
             task: emitTask,
             truck: emitTruck,
             orderNumber,
@@ -542,24 +513,7 @@ export class NfseEmissionScheduler {
       include: {
         invoice: {
           include: {
-            customer: {
-              select: {
-                id: true,
-                fantasyName: true,
-                corporateName: true,
-                cnpj: true,
-                cpf: true,
-                email: true,
-                phones: true,
-                address: true,
-                city: true,
-                state: true,
-                zipCode: true,
-                neighborhood: true,
-                addressNumber: true,
-                addressComplement: true,
-              },
-            },
+            customer: { select: NFSE_CUSTOMER_SELECT },
             task: {
               select: {
                 id: true,
@@ -589,7 +543,12 @@ export class NfseEmissionScheduler {
               },
             },
             customerConfig: {
-              select: { orderNumber: true, discountType: true, discountValue: true },
+              select: {
+                orderNumber: true,
+                discountType: true,
+                discountValue: true,
+                responsible: { select: { email: true, phone: true, roles: true } },
+              },
             },
             externalOperation: {
               include: {
@@ -707,25 +666,7 @@ export class NfseEmissionScheduler {
         const targetedResult = await this.municipalNfseService.emitNfse({
           id: invoice.id,
           totalAmount: Number(invoice.totalAmount),
-          customer: {
-            cnpj: customer.cnpj || undefined,
-            cpf: customer.cpf || undefined,
-            name: customer.fantasyName || '',
-            corporateName: (customer as any).corporateName || undefined,
-            email: customer.email || undefined,
-            phone: customer.phones?.[0] || undefined,
-            address: customer.address
-              ? {
-                  cityName: customer.city || undefined,
-                  state: customer.state || undefined,
-                  zipCode: customer.zipCode || '',
-                  street: customer.address,
-                  number: customer.addressNumber || 'S/N',
-                  complement: customer.addressComplement || undefined,
-                  neighborhood: customer.neighborhood || '',
-                }
-              : undefined,
-          },
+          customer: buildNfseCustomer(customer, (invoice as any).customerConfig?.responsible),
           task: emitTask,
           truck: emitTruck,
           orderNumber,

@@ -420,6 +420,9 @@ model Customer {
   economicActivityId   String?
   registrationStatus   RegistrationStatus?
   stateRegistration    String?
+  /// Inscrição municipal do tomador. Vai para a NFS-e (campo "Insc. Municipal" da DANFSe)
+  /// quando preenchida; a Elotech só aceita valor numérico.
+  municipalRegistration String?
   streetType           StreetType?
   economicActivity     EconomicActivity?         @relation(fields: [economicActivityId], references: [id])
   logo                 File?                     @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])

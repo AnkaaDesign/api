@@ -77,6 +77,7 @@ export const customerSelectSchema = z
     economicActivityId: z.boolean().optional(),
     registrationStatus: z.boolean().optional(),
     stateRegistration: z.boolean().optional(),
+    municipalRegistration: z.boolean().optional(),
     createdAt: z.boolean().optional(),
     updatedAt: z.boolean().optional(),
 
@@ -145,6 +146,7 @@ export const customerOrderBySchema = z
         logoId: orderByDirectionSchema.optional(),
         registrationStatus: orderByDirectionSchema.optional(),
         stateRegistration: orderByDirectionSchema.optional(),
+        municipalRegistration: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
       })
@@ -169,6 +171,7 @@ export const customerOrderBySchema = z
           site: orderByDirectionSchema.optional(),
           registrationStatus: orderByDirectionSchema.optional(),
           stateRegistration: orderByDirectionSchema.optional(),
+          municipalRegistration: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
         })
@@ -427,6 +430,20 @@ export const customerWhereSchema: z.ZodType<any> = z
       .optional(),
 
     stateRegistration: z
+      .union([
+        z.string().nullable(),
+        z.object({
+          equals: z.string().nullable().optional(),
+          not: z.string().nullable().optional(),
+          contains: z.string().optional(),
+          startsWith: z.string().optional(),
+          endsWith: z.string().optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
+        }),
+      ])
+      .optional(),
+
+    municipalRegistration: z
       .union([
         z.string().nullable(),
         z.object({
@@ -845,6 +862,7 @@ export const customerCreateSchema = z
       .nullable()
       .optional(),
     stateRegistration: z.string().nullable().optional(),
+    municipalRegistration: z.string().nullable().optional(),
   })
   .transform(toFormData)
   .refine(
@@ -918,6 +936,7 @@ export const customerQuickCreateSchema = z
       .nullable()
       .optional(),
     stateRegistration: z.string().nullable().optional(),
+    municipalRegistration: z.string().nullable().optional(),
   })
   .transform(toFormData);
 
@@ -987,6 +1006,7 @@ export const customerUpdateSchema = z
       .nullable()
       .optional(),
     stateRegistration: z.string().nullable().optional(),
+    municipalRegistration: z.string().nullable().optional(),
   })
   .transform(toFormData);
 
@@ -1101,5 +1121,6 @@ export const mapCustomerToFormData = createMapToFormDataHelper<Customer, Custome
       | 'DEREGISTERED'
       | null,
     stateRegistration: customer.stateRegistration,
+    municipalRegistration: customer.municipalRegistration,
   }),
 );

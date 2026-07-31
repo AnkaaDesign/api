@@ -543,6 +543,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     logoId: 'Logo',
     registrationStatus: 'Status de Registro',
     stateRegistration: 'Inscrição Estadual',
+    municipalRegistration: 'Inscrição Municipal',
     // Nested relationship fields
     'logo.filename': 'Nome do Logo',
     'tasks.length': 'Quantidade de Tarefas',
