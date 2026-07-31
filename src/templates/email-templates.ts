@@ -51,7 +51,12 @@ interface WelcomeTemplateData extends BaseTemplateData {
 }
 
 /**
- * Logotipo servido pelo app web (`web/public/logo.png`).
+ * Logotipo servido pelo app web (`web/public/branding/logo.png`).
+ *
+ * ⚠️ O caminho é um contrato entre os dois repositórios: o web declara a URL
+ * canônica em `web/src/config/assets.ts` (`BRAND_ASSETS.logo`) e este arquivo a
+ * repete porque a API não importa código do web. Ao mover o arquivo, publique o
+ * WEB ANTES da API — senão os e-mails saem apontando para um 404.
  *
  * Referenciado por URL, não embutido. Duas razões:
  *  1. O Gmail descarta `<img src="data:...">`, então data URI simplesmente não
@@ -62,7 +67,7 @@ interface WelcomeTemplateData extends BaseTemplateData {
  * Usa o PNG e não os `.webp` do mesmo diretório: o Outlook para desktop
  * renderiza com o motor do Word e não suporta WebP.
  */
-export const EMAIL_LOGO_URL = `${process.env.WEB_APP_URL || 'https://ankaadesign.com.br'}/logo.png`;
+export const EMAIL_LOGO_URL = `${process.env.WEB_APP_URL || 'https://ankaadesign.com.br'}/branding/logo.png`;
 
 const BRAND = {
   green: '#16802B',

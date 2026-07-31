@@ -14,7 +14,7 @@
 
 import { COMPANY } from '../config/company';
 
-const LOGO_URL = `${process.env.WEB_APP_URL || 'https://ankaadesign.com.br'}/logo.png`;
+const LOGO_URL = `${process.env.WEB_APP_URL || 'https://ankaadesign.com.br'}/branding/logo.png`;
 
 const GREEN = '#16802B';
 const INK = '#1a1a1a';
