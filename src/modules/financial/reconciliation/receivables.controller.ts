@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
@@ -6,7 +6,9 @@ import { ZodValidationPipe } from '@modules/common/pipes/zod-validation.pipe';
 import { SECTOR_PRIVILEGES } from '@constants';
 import { ReceivablesService } from './receivables.service';
 import { ReceivableMatchService } from './receivable-match.service';
-import { ReceivablesResponse } from '../../../types';
+import { ReceivableTaskMatchService } from './receivable-task-match.service';
+import { taskMatchSchema } from './dto/task-match.dto';
+import { ReceivablesResponse, TaskMatchAllocationInput } from '../../../types';
 
 const matchInstallmentSchema = z.object({
   transactionId: z.string().uuid(),
@@ -29,6 +31,7 @@ export class ReceivablesController {
   constructor(
     private readonly receivablesService: ReceivablesService,
     private readonly matchService: ReceivableMatchService,
+    private readonly taskMatchService: ReceivableTaskMatchService,
   ) {}
 
   /** Unified Contas a Receber list (open + recently received installments). */
@@ -83,6 +86,47 @@ export class ReceivablesController {
     @UserId() userId: string,
   ) {
     return this.matchService.allocateInflow(body.transactionId, body.allocations, userId);
+  }
+
+  /**
+   * Tasks offered as conciliation targets for a credit — including tasks that
+   * have NO quote, which the installment candidate list structurally cannot
+   * see (no quote → no invoice → no parcela → nothing to anchor a match to).
+   *
+   * Without `search` the list is identity-derived (who paid, by CNPJ/CPF or
+   * counterparty name). With `search` the operator overrides identity and looks
+   * the task up by name, série, placa, chassi or cliente.
+   */
+  @Get('task-candidates/:transactionId')
+  async taskCandidates(
+    @Param('transactionId') transactionId: string,
+    @Query('search') search?: string,
+  ) {
+    const data = await this.taskMatchService.getTaskCandidates(transactionId, search);
+    return { success: true, message: 'Tarefas candidatas carregadas.', data };
+  }
+
+  /**
+   * Conciliate a credit against one or more tasks, creating the orçamento /
+   * fatura / parcela chain for whichever tasks are missing it, then allocating
+   * the money onto the resulting parcelas. The quote's own status is left to
+   * the ordinary cascade, which lands it on PARTIAL or SETTLED.
+   */
+  @Post('match-task')
+  @HttpCode(HttpStatus.OK)
+  async matchTask(
+    // Body typed by hand rather than via `z.infer`: the API compiles with
+    // `strict: false`, under which zod widens every field to optional.
+    @Body(new ZodValidationPipe(taskMatchSchema))
+    body: { transactionId: string; allocations: TaskMatchAllocationInput[]; notes?: string },
+    @UserId() userId: string,
+  ) {
+    return this.taskMatchService.matchTasks(
+      body.transactionId,
+      body.allocations,
+      userId,
+      body.notes,
+    );
   }
 
   /** Reverse an inflow conciliation. */

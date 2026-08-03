@@ -35,6 +35,7 @@ import { RecurrentPayableController } from '../recurrent-payable/recurrent-payab
 import { ReceivablesService } from './receivables.service';
 import { ReceivablesController } from './receivables.controller';
 import { ReceivableMatchService } from './receivable-match.service';
+import { ReceivableTaskMatchService } from './receivable-task-match.service';
 import { PayableMatchService } from './payable-match.service';
 import { OrderModule } from '@modules/inventory/order/order.module';
 import { TaskQuoteModule } from '@modules/production/task-quote/task-quote.module';
@@ -93,6 +94,10 @@ const categoryLearnersProvider = {
     RecurrentPayableScheduler,
     ReceivablesService,
     ReceivableMatchService,
+    // Task-anchored manual conciliation: the only path that can conciliate a
+    // credit against a task whose quote was lost in the migration, because it
+    // builds the missing quote → fatura → parcela spine before allocating.
+    ReceivableTaskMatchService,
     PayableMatchService,
     ReconciliationService,
     ReconciliationImportService,

@@ -75,3 +75,105 @@ export interface ReceivablesResponse {
     summary: ReceivablesSummary;
   };
 }
+
+// =====================
+// Task-anchored manual conciliation (credit ↔ Task, quote optional)
+// =====================
+
+/**
+ * Billing shape of a Task, as far as an incoming credit is concerned.
+ *
+ * The migration left many tasks with `quoteId = NULL`, so the receivable spine
+ * (quote → customerConfig → invoice → installment) that the whole matcher is
+ * built on simply does not exist for them. This enum is what the operator sees
+ * and what decides how much work `matchTasks` has to do before it can allocate.
+ */
+export type TaskBillingState =
+  /** No quote at all — the migration casualty. One will be minted on match. */
+  | 'NO_QUOTE'
+  /** Quote exists but was never billed: no installments to allocate against. */
+  | 'QUOTE_UNBILLED'
+  /** Quote is billed and still has open balance. Allocate straight onto it. */
+  | 'QUOTE_OPEN'
+  /** Quote is billed and fully settled. Extra money needs new capacity. */
+  | 'QUOTE_SETTLED';
+
+/** A Task offered as a conciliation target for a bank credit. */
+export interface TaskMatchCandidate {
+  taskId: string;
+  taskName: string | null;
+  taskSerialNumber: string | null;
+  taskStatus: string;
+  plate: string | null;
+  /** The task's own customer — the default billing target when minting. */
+  customerId: string | null;
+  customerName: string | null;
+  customerCnpjCpf: string | null;
+  quoteId: string | null;
+  budgetNumber: number | null;
+  quoteStatus: string | null;
+  quoteTotal: number | null;
+  billingState: TaskBillingState;
+  /** Outstanding balance already billed and allocatable without new capacity. */
+  openCapacity: number;
+  /** Already-open installments, so the UI can show what the money will land on. */
+  openInstallments: {
+    installmentId: string;
+    number: number;
+    dueDate: Date;
+    amount: number;
+    paidAmount: number;
+    remaining: number;
+    status: string;
+    hasBankSlip: boolean;
+  }[];
+  /** Sum already conciliated against this task from ANY credit. */
+  reconciledAmount: number;
+  /** How much of THIS credit is still unallocated when the list was built. */
+  suggestedAmount: number;
+  /** 0-100, same scorer as the installment candidates. */
+  confidence: number;
+  /** Human-readable "why this showed up". */
+  reason: string;
+  /** Reference date used for scoring/dating (finishedAt ?? entryDate ?? createdAt). */
+  referenceDate: Date | null;
+}
+
+/** One task's share of a credit. */
+export interface TaskMatchAllocationInput {
+  taskId: string;
+  amount: number;
+  /** Billing customer. Required when the task has neither a quote nor a customer. */
+  customerId?: string;
+  /** Due date for any parcela that has to be created. Defaults to the credit's date. */
+  dueDate?: Date;
+  /** Service line description for a minted/extended quote. */
+  description?: string;
+}
+
+/** What `matchTasks` did, per task — surfaced so the UI can be honest about it. */
+export interface TaskMatchOutcome {
+  taskId: string;
+  quoteId: string;
+  budgetNumber: number;
+  /** True when this call created the quote. */
+  quoteCreated: boolean;
+  /** True when this call added a service + parcela to an existing quote. */
+  quoteExtended: boolean;
+  /** True when this call materialized invoice + parcelas from an unbilled quote. */
+  invoiceCreated: boolean;
+  allocated: number;
+  installmentIds: string[];
+}
+
+export interface TaskMatchResponse {
+  success: boolean;
+  message: string;
+  data: {
+    transactionId: string;
+    totalAllocated: number;
+    /** RECONCILED when the credit is fully allocated, else PARTIAL. */
+    reconciliationStatus: string;
+    outcomes: TaskMatchOutcome[];
+  };
+}

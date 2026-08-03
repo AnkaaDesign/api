@@ -47,7 +47,9 @@
     "seed:notifications": "tsx prisma/scripts/seed-notification-configs.ts",
     "test:guards": "tsx tests/airbrushing-relation-clear.test.ts",
     "test:quote-diff": "tsx tests/quote-diff.test.ts",
-    "test:due-date": "tsx tests/due-date.test.ts"
+    "test:due-date": "tsx tests/due-date.test.ts",
+    "test:task-match": "tsx tests/task-match-allocation.test.ts",
+    "test:task-match:integration": "tsx tests/task-match-integration.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
