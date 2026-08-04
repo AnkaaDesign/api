@@ -344,7 +344,9 @@ export class FileOrganizationSchedulerService {
 
       // Orçamento persistido para assinatura (SignatureEnvelope -> quote -> task -> customer).
       const envelope = await this.prisma.signatureEnvelope.findFirst({
-        where: { OR: [{ originalFileId: fileId }, { finalFileId: fileId }] },
+        where: {
+          OR: [{ originalFileId: fileId }, { finalFileId: fileId }, { dossierFileId: fileId }],
+        },
         select: {
           quote: { select: { task: { select: { customer: { select: { fantasyName: true } } } } } },
         },

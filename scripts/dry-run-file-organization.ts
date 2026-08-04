@@ -133,7 +133,9 @@ async function referencesOf(fileId: string, quoteLayoutId: string | null): Promi
   }
 
   const env = await prisma.signatureEnvelope.findFirst({
-    where: { OR: [{ originalFileId: fileId }, { finalFileId: fileId }] },
+    where: {
+      OR: [{ originalFileId: fileId }, { finalFileId: fileId }, { dossierFileId: fileId }],
+    },
     select: { quote: { select: { task: { select: { customer: { select: { fantasyName: true } } } } } } },
   });
   if (env) {

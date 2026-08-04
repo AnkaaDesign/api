@@ -717,6 +717,7 @@ model File {
   fispqPdfs                              Fispq[]                   @relation("FISPQ_PDF")
   signatureEnvelopeOriginals             SignatureEnvelope[]       @relation("ENVELOPE_ORIGINAL_FILE")
   signatureEnvelopeFinals                SignatureEnvelope[]       @relation("ENVELOPE_FINAL_FILE")
+  signatureEnvelopeDossiers              SignatureEnvelope[]       @relation("ENVELOPE_DOSSIER_FILE")
 
   filenameNormalized     String? /// accent-insensitive search (generated column, see migration)
   mimetypeNormalized     String? /// accent-insensitive search (generated column, see migration)
@@ -7022,6 +7023,10 @@ model SignatureEnvelope {
 
   /// Artefato final: original + selos visuais + trilha de auditoria + PAdES.
   finalFileId String?
+  /// Dossiê congelado no momento do selamento. O documento só é FINAL quando o
+  /// envelope conclui — antes disso ele muda a cada assinatura coletada, e por isso
+  /// o endpoint sob demanda continua existindo (é o preview do envelope aberto).
+  dossierFileId String?
   finalSha256 String?
   sealedAt    DateTime?
 
@@ -7050,6 +7055,7 @@ model SignatureEnvelope {
   quote            TaskQuote             @relation("QUOTE_SIGNATURE_ENVELOPES", fields: [quoteId], references: [id], onDelete: Cascade)
   originalFile     File                  @relation("ENVELOPE_ORIGINAL_FILE", fields: [originalFileId], references: [id])
   finalFile        File?                 @relation("ENVELOPE_FINAL_FILE", fields: [finalFileId], references: [id])
+  dossierFile      File?                 @relation("ENVELOPE_DOSSIER_FILE", fields: [dossierFileId], references: [id])
   previousEnvelope SignatureEnvelope?    @relation("ENVELOPE_VERSION_CHAIN", fields: [previousEnvelopeId], references: [id], onDelete: SetNull)
   nextEnvelope     SignatureEnvelope?    @relation("ENVELOPE_VERSION_CHAIN")
   signers          EnvelopeSigner[]      @relation("ENVELOPE_SIGNERS")

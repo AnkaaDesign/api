@@ -86,6 +86,7 @@ const PLACEMENT: Record<string, { root: 'Clientes' | 'Fornecedores' | 'Colaborad
   'BankSlip.pdfFileId': { root: 'Clientes', sub: 'Boletos' },
   'SignatureEnvelope.originalFileId': { root: 'Clientes', sub: 'Orcamentos/Assinaturas' },
   'SignatureEnvelope.finalFileId': { root: 'Clientes', sub: 'Orcamentos/Assinaturas' },
+  'SignatureEnvelope.dossierFileId': { root: 'Clientes', sub: 'Orcamentos/Dossies' },
 };
 
 function rootFolderOf(p: string): string {

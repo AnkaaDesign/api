@@ -44,7 +44,7 @@
  *    artefato assinado para preservar.
  */
 
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
@@ -91,6 +91,10 @@ export class DossierAssemblerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    // forwardRef dos DOIS lados: o SignatureEnvelopeService passou a injetar este
+    // serviço para congelar o dossiê no selamento, então o par virou cíclico. Marcar
+    // só um lado não basta — o Nest falha ao resolver o outro.
+    @Inject(forwardRef(() => SignatureEnvelopeService))
     private readonly envelopes: SignatureEnvelopeService,
     private readonly elotech: ElotechOxyNfseService,
     private readonly sicredi: SicrediService,

@@ -21,19 +21,12 @@
  *    é isso que dá peso probatório ao código.
  */
 
-import {
-  BadRequestException,
-  ForbiddenException,
-  HttpException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, Injectable, Logger, NotFoundException, ServiceUnavailableException, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, randomBytes, randomUUID } from 'crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
+import { DossierAssemblerService } from '../dossier/dossier-assembler.service';
 import { join, resolve as resolvePath, dirname, basename } from 'path';
 import { EnvelopeSignerStatus, EnvelopeStatus, Prisma, SignatureAuthMethod } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
@@ -124,6 +117,10 @@ export class SignatureEnvelopeService {
     private readonly assembler: QuoteAssemblerService,
     private readonly pades: PadesSignerService,
     private readonly filesStorage: FilesStorageService,
+    // forwardRef: o DossierAssemblerService injeta ESTE serviço, então o par é cíclico
+    // por construção. Mesmo padrão que o módulo já usa para Nfse e Sicredi.
+    @Inject(forwardRef(() => DossierAssemblerService))
+    private readonly dossiers: DossierAssemblerService,
   ) {
     this.secretProblems = inspectSignatureSecrets(key => this.config.get<string>(key));
     if (this.secretProblems.length) {
@@ -1810,6 +1807,45 @@ export class SignatureEnvelopeService {
       payload: { padesLevel: padesLevel ?? 'none' },
     });
 
+    // Congela o dossiê AGORA, ao lado do PDF selado.
+    //
+    // Enquanto o envelope está aberto o dossiê é montado sob demanda, e tem de continuar
+    // sendo: ele muda a cada assinatura coletada, e um arquivo salvo no meio do caminho
+    // seria uma foto desatualizada. No selamento o conteúdo para de mudar — é aí que ele
+    // vira artefato.
+    //
+    // Best-effort, igual ao `onCompleted` abaixo: assinaturas já coletadas e seladas não
+    // podem ser desfeitas porque a montagem do dossiê falhou (ele depende de NFS-e na
+    // Elotech e de boleto no Sicredi, que são rede). Se falhar, o endpoint sob demanda
+    // continua entregando — não se perde capacidade, só o congelamento.
+    try {
+      const dossier = await this.dossiers.build(env.quoteId, { attachSigned: true });
+      const dossierFileId = await this.persistPdf(
+        env.quote as any,
+        dossier.pdf,
+        'dossie',
+        env.verificationCode,
+      );
+      await this.prisma.signatureEnvelope.update({
+        where: { id: envelopeId },
+        data: { dossierFileId },
+      });
+      // Mesmo critério do header X-Dossie-Incompleto no controller.
+      const faltando = dossier.components.filter(c => !c.included).length;
+      if (faltando) {
+        this.logger.warn(
+          `Dossiê do envelope ${envelopeId} congelado INCOMPLETO (${faltando} componente(s) ` +
+            `ausente(s)). O endpoint sob demanda remonta com o que existir depois.`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Envelope ${envelopeId} concluído, mas o dossiê não pôde ser congelado: ${
+          error instanceof Error ? error.message : error
+        }. Segue disponível sob demanda.`,
+      );
+    }
+
     // A assinatura do cliente É a aprovação do orçamento. Roteia pelo
     // `budgetApprove()` do domínio, e não por uma escrita direta de status, para
     // que o gate de layout, o dispatch de `task_quote.budget_approved` e o
@@ -2730,7 +2766,7 @@ export class SignatureEnvelopeService {
   private async persistPdf(
     quote: { budgetNumber: number; task?: { customer?: { fantasyName?: string } | null } | null },
     pdf: Buffer,
-    kind: 'original' | 'assinado',
+    kind: 'original' | 'assinado' | 'dossie',
     verificationCode: string,
   ): Promise<string> {
     // O caminho vem do FilesStorageService, não de um sanitizador local.
@@ -2748,11 +2784,14 @@ export class SignatureEnvelopeService {
     // `./files` em dev, e um caminho relativo ao cwd estourava ENOENT em qualquer
     // processo iniciado de outro diretório (cron, script, worker).
     const customerName = quote.task?.customer?.fantasyName ?? 'Sem Cliente';
-    const baseName = `orcamento_${quote.budgetNumber}_${verificationCode}_${kind}.pdf`;
+    const baseName =
+      kind === 'dossie'
+        ? `dossie_${quote.budgetNumber}_${verificationCode}.pdf`
+        : `orcamento_${quote.budgetNumber}_${verificationCode}_${kind}.pdf`;
 
     const path = this.filesStorage.generateFilePath(
       baseName,
-      'budgetSignatures',
+      kind === 'dossie' ? 'budgetDossiers' : 'budgetSignatures',
       'application/pdf',
       undefined,
       undefined,
@@ -2766,7 +2805,10 @@ export class SignatureEnvelopeService {
     const file = await this.prisma.file.create({
       data: {
         filename: basename(path),
-        originalName: `Orçamento ${quote.budgetNumber} — ${kind}.pdf`,
+        originalName:
+          kind === 'dossie'
+            ? `Dossiê ${quote.budgetNumber}.pdf`
+            : `Orçamento ${quote.budgetNumber} — ${kind}.pdf`,
         mimetype: 'application/pdf',
         path,
         size: pdf.length,

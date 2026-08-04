@@ -40,6 +40,11 @@ import {
   deriveTransactionState,
   ALLOCATION_TOLERANCE,
 } from './transaction-status';
+import {
+  SETTLEMENT_ANCHOR_INCLUDE,
+  deriveSettlement,
+  settlementStateWhere,
+} from './settlement-summary';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../constants/enums';
 
@@ -252,6 +257,14 @@ export class ReconciliationService {
         where.matches = { none: liveMatch };
       }
     }
+    if (filters.settlementState) {
+      // ANDed in as a whole predicate — it composes relation filters that would
+      // otherwise clobber `where.matches` set by `linkage`/`matchType` above.
+      where.AND = [
+        ...((where.AND as Prisma.BankTransactionWhereInput[]) ?? []),
+        settlementStateWhere(filters.settlementState),
+      ];
+    }
     if (filters.type) where.type = filters.type;
     if (filters.subtype) where.subtype = filters.subtype;
     if (filters.counterparty) {
@@ -300,9 +313,15 @@ export class ReconciliationService {
                   emitName: true,
                   emitCnpj: true,
                   issueDate: true,
+                  nfNumber: true,
+                  status: true,
                 },
               },
               bankSlip: { select: { id: true, nossoNumero: true, paidAmount: true } },
+              // The four non-NF anchors. Omitting them is what made an
+              // order/recorrente/aerografia clearance render as a green chip
+              // with an empty "Vínculo" column.
+              ...SETTLEMENT_ANCHOR_INCLUDE,
             },
           },
         },
@@ -310,7 +329,10 @@ export class ReconciliationService {
       this.prisma.bankTransaction.count({ where }),
     ]);
     return {
-      data,
+      // One derived `settlement` per row, computed from the same helper the
+      // detail endpoint uses, so the list badge and the detail badge can never
+      // disagree again.
+      data: data.map(tx => ({ ...tx, settlement: deriveSettlement(tx) })),
       meta: {
         page: filters.page,
         pageSize: filters.pageSize,
@@ -427,6 +449,9 @@ export class ReconciliationService {
             // Nest invoice → customer/task so the detail page can show what
             // the credit was conciliated against (parcela, NF, cliente).
             installment: { select: INSTALLMENT_RECEIVABLE_SELECT },
+            // Pedido / recorrente / aerografia / folha — the anchors the detail
+            // page previously had no way to name.
+            ...SETTLEMENT_ANCHOR_INCLUDE,
           },
         },
       },
@@ -434,6 +459,7 @@ export class ReconciliationService {
     if (!tx) throw new NotFoundException('Transação não encontrada');
     return {
       ...tx,
+      settlement: deriveSettlement(tx),
       matches: tx.matches.map(m => ({
         ...m,
         installment: m.installment ? normalizeInstallmentInvoice(m.installment) : m.installment,

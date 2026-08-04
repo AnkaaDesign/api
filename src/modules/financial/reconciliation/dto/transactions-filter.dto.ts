@@ -45,6 +45,17 @@ export const transactionsFilterSchema = z.object({
   //                       parcela, recorrente, pedido, folha)
   //   NONE — no live match; resolved by category, or not resolved
   linkage: z.enum(['FISCAL_DOCUMENT', 'SETTLEMENT_ANCHOR', 'NONE']).optional(),
+  // Higher-level than `linkage`: "does this row still need me?". Drives the
+  // green/yellow split in the Extrato.
+  //   SETTLED      — closed, nothing owed (NF linked, or a resolving category)
+  //   AWAITING_NF  — the money provably left the bank against a pedido/conta
+  //                  recorrente, but the nota is still missing
+  //   UNBACKED     — RECONCILED with no match AND no resolving category
+  //   OPEN         — PENDING / PARTIAL
+  //   NEEDS_ACTION — the union of the three yellow buckets above
+  settlementState: z
+    .enum(['SETTLED', 'AWAITING_NF', 'UNBACKED', 'OPEN', 'NEEDS_ACTION'])
+    .optional(),
   type: z.nativeEnum(BankTransactionType).optional(),
   subtype: z.nativeEnum(BankTransactionSubtype).optional(),
   // ZodValidationPipe auto-converts ISO/`YYYY-MM-DD` strings to `Date` objects

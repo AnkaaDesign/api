@@ -195,6 +195,10 @@ const INBOUND_REFERENCES: Readonly<
     context: 'budgetSignatures',
     label: 'orçamento assinado',
   },
+  'SignatureEnvelope.dossierFileId': {
+    context: 'budgetDossiers',
+    label: 'dossiê do orçamento',
+  },
   'TaskQuoteCustomerConfig.customerSignatureId': {
     context: null,
     label: 'assinatura do cliente no orçamento',
