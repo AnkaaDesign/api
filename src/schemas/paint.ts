@@ -1757,6 +1757,42 @@ export const paintTypeBatchDeleteSchema = z.object({
     .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
+/* Ajuste de renderização da tinta no Truck Studio.
+   Mora sob a PRÓPRIA chave porque `previewConfig` é compartilhado: a raiz dele
+   é do gerador da miniatura 2D da cor (lights/effectIntensity/flake/flip), e as
+   duas features gravam o mesmo objeto. Espalhar os campos do estúdio na raiz
+   faria uma comer a outra no primeiro save.
+
+   Os nomes são EXATAMENTE os de `PaintParams` em
+   web/src/pages/tools/truck-studio/engine/vehicle/paint.ts, que é a fonte de
+   verdade do motor, mais `envMapIntensity` (que mora no material, não em
+   PaintParams). Nada além disso: um campo aqui que o motor não lê é um controle
+   que promete e não entrega.
+
+   Objeto FECHADO de propósito: zod descarta chave não declarada em silêncio, e
+   um parâmetro novo que chega aqui sem estar listado sumiria sem erro nenhum. */
+const tsUnit = z.number().min(0).max(1);
+const tsHex = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'cor inválida');
+
+const truckStudioPaintSchema = z
+  .object({
+    finish: z.enum(['solid', 'metallic', 'pearl']).optional(),
+    ccGloss: tsUnit.optional(),
+    peel: tsUnit.optional(),
+    baseRough: tsUnit.optional(),
+    metallic: tsUnit.optional(),
+    flop: tsUnit.optional(),
+    flakeSize: tsUnit.optional(),
+    flakeColor: tsHex.optional(),
+    flakeGlint: tsUnit.optional(),
+    pearl: tsUnit.optional(),
+    pearlColor: tsHex.optional(),
+    pearlSharp: tsUnit.optional(),
+    envMapIntensity: z.number().min(0).max(4).optional(),
+  })
+  .nullable()
+  .optional();
+
 // Preview config schema for paint image generator settings
 const previewConfigSchema = z
   .object({
@@ -1778,6 +1814,7 @@ const previewConfigSchema = z
     effectIntensity: z.number().min(0).max(100).optional().default(60),
     flakeColor: z.string().optional().default('#c0c0c0'),
     flipColor: z.string().optional().default('#ffd700'),
+    truckStudio: truckStudioPaintSchema,
   })
   .nullable()
   .optional();

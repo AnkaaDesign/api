@@ -398,40 +398,40 @@ model EconomicActivity {
 }
 
 model Customer {
-  id                   String                    @id @default(uuid())
-  fantasyName          String                    @unique
-  cnpj                 String?                   @unique
-  cpf                  String?                   @unique
-  corporateName        String?
-  email                String?
-  address              String?
-  addressNumber        String?
-  addressComplement    String?
-  neighborhood         String?
-  city                 String?
-  state                String?
-  zipCode              String?
-  site                 String?
-  phones               String[]
-  tags                 String[]
-  logoId               String?
-  createdAt            DateTime                  @default(now())
-  updatedAt            DateTime                  @updatedAt
-  economicActivityId   String?
-  registrationStatus   RegistrationStatus?
-  stateRegistration    String?
+  id                    String                    @id @default(uuid())
+  fantasyName           String                    @unique
+  cnpj                  String?                   @unique
+  cpf                   String?                   @unique
+  corporateName         String?
+  email                 String?
+  address               String?
+  addressNumber         String?
+  addressComplement     String?
+  neighborhood          String?
+  city                  String?
+  state                 String?
+  zipCode               String?
+  site                  String?
+  phones                String[]
+  tags                  String[]
+  logoId                String?
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+  economicActivityId    String?
+  registrationStatus    RegistrationStatus?
+  stateRegistration     String?
   /// Inscrição municipal do tomador. Vai para a NFS-e (campo "Insc. Municipal" da DANFSe)
   /// quando preenchida; a Elotech só aceita valor numérico.
   municipalRegistration String?
-  streetType           StreetType?
-  economicActivity     EconomicActivity?         @relation(fields: [economicActivityId], references: [id])
-  logo                 File?                     @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
-  tasks                Task[]                    @relation("TaskCustomer")
-  quoteServiceInvoices TaskQuoteService[]        @relation("QuoteServiceInvoiceToCustomer")
-  quoteCustomerConfigs TaskQuoteCustomerConfig[] @relation("QuoteCustomerConfigCustomer")
-  responsibles         Responsible[]             @relation("CompanyResponsibles")
-  invoiceEntities      Invoice[]                 @relation("CustomerInvoiceEntities")
-  externalOperations   ExternalOperation[]       @relation("CustomerExternalOperations")
+  streetType            StreetType?
+  economicActivity      EconomicActivity?         @relation(fields: [economicActivityId], references: [id])
+  logo                  File?                     @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
+  tasks                 Task[]                    @relation("TaskCustomer")
+  quoteServiceInvoices  TaskQuoteService[]        @relation("QuoteServiceInvoiceToCustomer")
+  quoteCustomerConfigs  TaskQuoteCustomerConfig[] @relation("QuoteCustomerConfigCustomer")
+  responsibles          Responsible[]             @relation("CompanyResponsibles")
+  invoiceEntities       Invoice[]                 @relation("CustomerInvoiceEntities")
+  externalOperations    ExternalOperation[]       @relation("CustomerExternalOperations")
 
   addressNormalized       String? /// accent-insensitive search (generated column, see migration)
   cityNormalized          String? /// accent-insensitive search (generated column, see migration)
@@ -680,6 +680,8 @@ model File {
   quoteLayout                            TaskQuote?                @relation("QUOTE_LAYOUT", fields: [quoteLayoutId], references: [id], onDelete: SetNull)
   userAvatar                             User[]                    @relation("USER_AVATAR")
   thumbnailJob                           ThumbnailJob?
+  paintingFaceFiles                      PaintingAnalysisFace[]    @relation("PAINTING_FACE_FILE")
+  paintingFaceOverlays                   PaintingAnalysisFace[]    @relation("PAINTING_FACE_OVERLAY")
   airbrushingInvoices                    Airbrushing[]             @relation("AIRBRUSHING_INVOICES")
   airbrushingReceipts                    Airbrushing[]             @relation("AIRBRUSHING_RECEIPTS")
   externalOperationInvoices              ExternalOperation[]       @relation("EXTERNAL_OPERATION_INVOICES")
@@ -850,6 +852,9 @@ model Item {
   paintTypes                     PaintType[]             @relation("PAINT_TYPE_COMPONENT_ITEMS")
   relatedTo                      Item[]                  @relation("RelatedItems")
   relatedItems                   Item[]                  @relation("RelatedItems")
+  paintingStepMaterials          PaintingStepMaterial[]  @relation("PAINTING_STEP_MATERIAL_ITEM")
+  paintingSystemCatalysts        PaintingPaintSystem[]   @relation("PAINTING_SYSTEM_CATALYST_ITEM")
+  paintingSystemThinners         PaintingPaintSystem[]   @relation("PAINTING_SYSTEM_THINNER_ITEM")
 
   nameNormalized    String? /// accent-insensitive search (generated column, see migration)
   uniCodeNormalized String? /// accent-insensitive search (generated column, see migration)
@@ -1389,29 +1394,33 @@ model PaintProduction {
 }
 
 model Paint {
-  id               String             @id @default(uuid())
-  name             String
-  hex              String
-  finish           PaintFinish
-  manufacturer     TruckManufacturer?
-  tags             String[]
-  paintTypeId      String
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
-  code             String?
-  paintBrandId     String?
-  colorOrder       Int                @default(0)
-  colorPreview     String?
-  previewConfig    Json?
-  paintBrand       PaintBrand?        @relation(fields: [paintBrandId], references: [id])
-  paintType        PaintType          @relation(fields: [paintTypeId], references: [id], onDelete: Cascade)
-  formulas         PaintFormula[]
-  groundPaintFor   PaintGround[]      @relation("GROUND_PAINT_FOR")
-  paintGrounds     PaintGround[]      @relation("PAINT_REQUIRES_GROUND")
-  generalPaintings Task[]             @relation("TASK_GENERAL_PAINTING")
-  relatedTo        Paint[]            @relation("RelatedPaints")
-  relatedPaints    Paint[]            @relation("RelatedPaints")
-  logoTasks        Task[]             @relation("TASK_LOGO_PAINT")
+  id                      String                 @id @default(uuid())
+  name                    String
+  hex                     String
+  finish                  PaintFinish
+  manufacturer            TruckManufacturer?
+  tags                    String[]
+  paintTypeId             String
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  code                    String?
+  paintBrandId            String?
+  colorOrder              Int                    @default(0)
+  colorPreview            String?
+  previewConfig           Json?
+  paintBrand              PaintBrand?            @relation(fields: [paintBrandId], references: [id])
+  paintType               PaintType              @relation(fields: [paintTypeId], references: [id], onDelete: Cascade)
+  formulas                PaintFormula[]
+  groundPaintFor          PaintGround[]          @relation("GROUND_PAINT_FOR")
+  paintGrounds            PaintGround[]          @relation("PAINT_REQUIRES_GROUND")
+  generalPaintings        Task[]                 @relation("TASK_GENERAL_PAINTING")
+  relatedTo               Paint[]                @relation("RelatedPaints")
+  relatedPaints           Paint[]                @relation("RelatedPaints")
+  logoTasks               Task[]                 @relation("TASK_LOGO_PAINT")
+  paintingFaceBackgrounds PaintingAnalysisFace[] @relation("PAINTING_FACE_BACKGROUND_PAINT")
+  paintingRegions         PaintingRegion[]       @relation("PAINTING_REGION_PAINT")
+  paintingStepMaterials   PaintingStepMaterial[] @relation("PAINTING_STEP_MATERIAL_PAINT")
+  paintingAnalysisTargets PaintingAnalysis[]     @relation("PAINTING_ANALYSIS_TARGET_PAINT")
 
   codeNormalized String? /// accent-insensitive search (generated column, see migration)
   nameNormalized String? /// accent-insensitive search (generated column, see migration)
@@ -1437,13 +1446,15 @@ model PaintBrand {
 }
 
 model PaintType {
-  id             String   @id @default(uuid())
-  name           String   @unique
-  needGround     Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  paints         Paint[]
-  componentItems Item[]   @relation("PAINT_TYPE_COMPONENT_ITEMS")
+  id                       String                    @id @default(uuid())
+  name                     String                    @unique
+  needGround               Boolean                   @default(false)
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  paints                   Paint[]
+  componentItems           Item[]                    @relation("PAINT_TYPE_COMPONENT_ITEMS")
+  paintingProcessParameter PaintingProcessParameter? @relation("PAINTING_PROCESS_PARAM_TYPE")
+  paintingSystems          PaintingPaintSystem[]     @relation("PAINTING_SYSTEM_PAINT_TYPE")
 
   nameNormalized String? /// accent-insensitive search (generated column, see migration)
 
@@ -1933,6 +1944,7 @@ model Task {
   sector                Sector?               @relation(fields: [sectorId], references: [id])
   fieldChangeLogs       TaskFieldChangeLog[]  @relation("TASK_FIELD_CHANGE_LOGS")
   truck                 Truck?
+  paintingAnalyses      PaintingAnalysis[]    @relation("TASK_PAINTING_ANALYSES")
   bonuses               Bonus[]               @relation("BonusTasks")
   relatedTo             Task[]                @relation("RelatedTasks")
   relatedTasks          Task[]                @relation("RelatedTasks")
@@ -2079,16 +2091,17 @@ model Truck {
 }
 
 model ImplementMeasure {
-  id              String                    @id @default(uuid())
-  height          Float
-  photoId         String?
-  createdAt       DateTime                  @default(now())
-  updatedAt       DateTime                  @updatedAt
-  photo           File?                     @relation("IMPLEMENT_MEASURE_PHOTO", fields: [photoId], references: [id])
-  sections        ImplementMeasureSection[] @relation("ImplementMeasureSections")
-  trucksBackSide  Truck[]                   @relation("TRUCK_BACK_SIDE")
-  trucksLeftSide  Truck[]                   @relation("TRUCK_LEFT_SIDE")
-  trucksRightSide Truck[]                   @relation("TRUCK_RIGHT_SIDE")
+  id               String                    @id @default(uuid())
+  height           Float
+  photoId          String?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  photo            File?                     @relation("IMPLEMENT_MEASURE_PHOTO", fields: [photoId], references: [id])
+  sections         ImplementMeasureSection[] @relation("ImplementMeasureSections")
+  trucksBackSide   Truck[]                   @relation("TRUCK_BACK_SIDE")
+  trucksLeftSide   Truck[]                   @relation("TRUCK_LEFT_SIDE")
+  trucksRightSide  Truck[]                   @relation("TRUCK_RIGHT_SIDE")
+  paintingAnalyses PaintingAnalysis[]        @relation("PAINTING_ANALYSIS_IMPLEMENT_MEASURE")
 }
 
 model ImplementMeasureSection {
@@ -2371,20 +2384,20 @@ model RefreshToken {
 }
 
 model Preferences {
-  id                    String      @id @default(uuid())
-  userId                String      @unique
-  colorSchema           ColorSchema @default(LIGHT)
-  pricesVisibleByDefault Boolean    @default(false) /// "Mostrar valores por padrão": false (default) = money starts MASKED on every page load/navigation and the eye reveals it; true = money starts VISIBLE and the eye hides it. Only the DEFAULT is persisted — the current on/off state stays in memory and resets to this on reload/navigation.
-  favorites             String[]    @default([])
-  dashboardLayoutWeb    Json?
-  dashboardLayoutMobile Json?
-  tableConfigsWeb       Json? /// { [tableId]: PersistedTableConfig } — web DataTable per-user layout (column order/sizing/visibility/alignment, pinned rows, page size, default sort). Filters/search/selection/page are transient (URL only), not persisted. Validated client-side, same approach as dashboardLayoutWeb.
-  detailConfigsWeb      Json? /// { [detailKey]: PersistedDetailConfig } — web detail-page per-user layout (section order/visibility/width, field visibility/order). No collapse/pin feature. Validated client-side, same approach as tableConfigsWeb.
-  tableConfigsMobile    Json? /// { [tableId]: PersistedTableConfigMobile } — Flutter mobile ListScaffold per-user layout (column order/visibility). Separate from *Web because mobile has different columns/widths. Validated client-side.
-  detailConfigsMobile   Json? /// { [detailKey]: PersistedDetailConfigMobile } — Flutter mobile detail-page per-user layout (section order/visibility/width). Separate from *Web. Validated client-side.
-  createdAt             DateTime    @default(now())
-  updatedAt             DateTime    @updatedAt
-  user                  User        @relation("USER_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)
+  id                     String      @id @default(uuid())
+  userId                 String      @unique
+  colorSchema            ColorSchema @default(LIGHT)
+  pricesVisibleByDefault Boolean     @default(false) /// "Mostrar valores por padrão": false (default) = money starts MASKED on every page load/navigation and the eye reveals it; true = money starts VISIBLE and the eye hides it. Only the DEFAULT is persisted — the current on/off state stays in memory and resets to this on reload/navigation.
+  favorites              String[]    @default([])
+  dashboardLayoutWeb     Json?
+  dashboardLayoutMobile  Json?
+  tableConfigsWeb        Json? /// { [tableId]: PersistedTableConfig } — web DataTable per-user layout (column order/sizing/visibility/alignment, pinned rows, page size, default sort). Filters/search/selection/page are transient (URL only), not persisted. Validated client-side, same approach as dashboardLayoutWeb.
+  detailConfigsWeb       Json? /// { [detailKey]: PersistedDetailConfig } — web detail-page per-user layout (section order/visibility/width, field visibility/order). No collapse/pin feature. Validated client-side, same approach as tableConfigsWeb.
+  tableConfigsMobile     Json? /// { [tableId]: PersistedTableConfigMobile } — Flutter mobile ListScaffold per-user layout (column order/visibility). Separate from *Web because mobile has different columns/widths. Validated client-side.
+  detailConfigsMobile    Json? /// { [detailKey]: PersistedDetailConfigMobile } — Flutter mobile detail-page per-user layout (section order/visibility/width). Separate from *Web. Validated client-side.
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+  user                   User        @relation("USER_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model StatisticsPagePreference {
@@ -7242,4 +7255,500 @@ enum SignatureEventType {
   DOCUMENT_FINALIZED
   DOCUMENT_DOWNLOADED
   VERIFICATION_VIEWED
+}
+
+// ============================================================================
+// PAINTING PRODUCTION COST ENGINE (plano: api/PAINTING_COST_ENGINE_PLAN.md)
+// ============================================================================
+
+enum PaintingAnalysisStatus {
+  DRAFT
+  PROCESSING
+  REVIEW
+  APPROVED
+  ARCHIVED
+  FAILED
+}
+
+enum PaintingServiceContext {
+  NEW_IMPLEMENT
+  REFORM
+}
+
+enum PaintingSubstrate {
+  CHAPA_FRISOS
+  ISOPLASTIC
+  SIDER_LONA
+  OUTRO
+}
+
+/// Natureza de uma linha da composição de custo do passo (mão de obra NÃO é material).
+enum PaintingCostLineKind {
+  MATERIAL
+  MAO_DE_OBRA
+  SERVICO
+  EQUIPAMENTO
+}
+
+/// Base de medida da linha — a coluna "Un." da tabela do passo deriva daqui.
+enum PaintingMeasureBasis {
+  AREA
+  LINEAR
+  VOLUME
+  UNIT
+  TIME
+}
+
+/// Papel de um grupo de demãos dentro do esquema de um sistema de pintura.
+enum PaintingCoatRole {
+  GROUND
+  COLOR
+  CLEAR
+}
+
+enum PaintingFaceView {
+  LEFT_SIDE
+  RIGHT_SIDE
+  BACK
+  FRONT
+  ROOF
+}
+
+enum PaintingBackgroundMode {
+  WHITE_PLATE
+  GENERAL_PAINT
+  SIDER_CANVAS
+}
+
+enum PaintingRegionKind {
+  CHAPADA
+  DEGRADE
+  FOTOGRAFICO
+  MICRO
+  TEXTURA
+  RESERVA
+}
+
+enum PaintingStrategy {
+  ADESIVO_RECORTE
+  FITA_CORTE
+  FITA_FLEXIVEL
+  STENCIL
+  CURA_ADESIVO
+  AEROGRAFIA
+  AEROGRAFIA_ARTISTICA
+  NENHUMA
+}
+
+enum PaintingBoundaryKind {
+  PAINT_PAINT
+  WITH_BACKGROUND
+  KEYLINE
+}
+
+enum PaintingBoundaryResolution {
+  FITA_CORTE
+  FITA_FLEXIVEL
+  CURA_ADESIVO
+  NENHUMA
+}
+
+enum PaintingValueSource {
+  AUTO
+  MANUAL
+}
+
+enum PaintingStepKind {
+  REMOCAO_ADESIVO_ANTIGO
+  REMOCAO_REFLETIVA
+  DESMONTAGEM
+  REMONTAGEM
+  PREPARACAO
+  SECAGEM
+  MASCARAMENTO
+  LIMPEZA_TETO
+  PINTURA_TETO
+  LAVAGEM
+  VEDACAO_PU
+  EMPAPELAMENTO
+  MASCARAMENTO_LIQUIDO
+  LIXAMENTO
+  FUNDO
+  PINTURA
+  VERNIZ
+  ADESIVO_PLOTAGEM
+  ADESIVO_DEPILACAO
+  ADESIVO_APLICACAO
+  FITA
+  CORTE
+  STENCIL
+  CURA
+  REMOCAO_MASCARA
+  AEROGRAFIA
+  APLICACAO_REFLETIVA
+  LIMPEZA
+  INSPECAO
+}
+
+enum PaintingRateMode {
+  M2_PER_MIN
+  M_PER_MIN
+  CM_PER_MIN
+  MIN_FIXED
+  MIN_PER_UNIT
+}
+
+enum PaintingIndirectMode {
+  FIXED
+  PER_HOUR
+  PER_M2
+  PCT_COST
+  PCT_PRICE
+}
+
+model PaintingAnalysis {
+  id                 String                  @id @default(uuid())
+  name               String
+  status             PaintingAnalysisStatus  @default(DRAFT)
+  engineVersion      String?
+  serviceContext     PaintingServiceContext  @default(NEW_IMPLEMENT)
+  substrate          PaintingSubstrate       @default(CHAPA_FRISOS)
+  substrateSource    PaintingValueSource     @default(AUTO)
+  alreadyPrepared    Boolean                 @default(false)
+  taskId             String?
+  implementMeasureId String?
+  processingError    String?
+
+  // --- programa de superfície (pintura geral) — v3 -------------------------
+  /// DERIVADO da arte no compute (fundo GENERAL_PAINT) — não é escolha do usuário.
+  generalPaint       Boolean                 @default(false)
+  paintSystemKey     String?
+  /// Override manual da cor final; vazio = a cor de fundo detectada na arte.
+  targetPaintId      String?
+  /// ÚNICAS medidas digitadas (cm). Largura, teto, chassi e frames são inferidos
+  /// a partir delas + a regra IMPLEMENT_DEFAULTS.
+  lengthCm           Float?
+  heightCm           Float?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  task               Task?                   @relation("TASK_PAINTING_ANALYSES", fields: [taskId], references: [id], onDelete: SetNull)
+  implementMeasure   ImplementMeasure?       @relation("PAINTING_ANALYSIS_IMPLEMENT_MEASURE", fields: [implementMeasureId], references: [id], onDelete: SetNull)
+  targetPaint        Paint?                  @relation("PAINTING_ANALYSIS_TARGET_PAINT", fields: [targetPaintId], references: [id], onDelete: SetNull)
+  paintSystem        PaintingPaintSystem?    @relation("PAINTING_ANALYSIS_SYSTEM", fields: [paintSystemKey], references: [key], onDelete: SetNull)
+  faces              PaintingAnalysisFace[]
+  plan               PaintingProductionPlan?
+  alerts             PaintingAnalysisAlert[]
+
+  @@index([taskId])
+  @@index([status])
+}
+
+model PaintingAnalysisFace {
+  id                   String                  @id @default(uuid())
+  analysisId           String
+  view                 PaintingFaceView
+  fileId               String
+  overlayFileId        String?
+  referenceKind        String
+  referenceValueCm     Float
+  pxPerCm              Float?
+  widthCm              Float?
+  heightCm             Float?
+  areaM2               Float?
+  backgroundMode       PaintingBackgroundMode?
+  backgroundModeSource PaintingValueSource     @default(AUTO)
+  backgroundHex        String?
+  backgroundPaintId    String?
+  engineArtifact       Json?
+  processedAt          DateTime?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  analysis             PaintingAnalysis        @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  file                 File                    @relation("PAINTING_FACE_FILE", fields: [fileId], references: [id])
+  overlayFile          File?                   @relation("PAINTING_FACE_OVERLAY", fields: [overlayFileId], references: [id], onDelete: SetNull)
+  backgroundPaint      Paint?                  @relation("PAINTING_FACE_BACKGROUND_PAINT", fields: [backgroundPaintId], references: [id], onDelete: SetNull)
+  regions              PaintingRegion[]
+  boundaries           PaintingBoundary[]
+  elements             PaintingElement[]
+
+  @@unique([analysisId, view])
+  @@index([analysisId])
+}
+
+model PaintingRegion {
+  id             String               @id @default(uuid())
+  faceId         String
+  engineId       String
+  colorHex       String
+  paintId        String?
+  paintSource    PaintingValueSource  @default(AUTO)
+  kind           PaintingRegionKind
+  kindSource     PaintingValueSource  @default(AUTO)
+  strategy       PaintingStrategy?
+  strategySource PaintingValueSource  @default(AUTO)
+  areaM2         Float
+  perimeterM     Float
+  islands        Int                  @default(0)
+  minStrokeMm    Float                @default(0)
+  bboxWidthCm    Float                @default(0)
+  bboxHeightCm   Float                @default(0)
+  geometry       Json?
+  gradient       Json?
+  autoSnapshot   Json?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  face           PaintingAnalysisFace @relation(fields: [faceId], references: [id], onDelete: Cascade)
+  paint          Paint?               @relation("PAINTING_REGION_PAINT", fields: [paintId], references: [id], onDelete: SetNull)
+
+  @@unique([faceId, engineId])
+  @@index([faceId])
+}
+
+model PaintingBoundary {
+  id               String                      @id @default(uuid())
+  faceId           String
+  engineId         String
+  regionAId        String
+  regionBId        String?
+  kind             PaintingBoundaryKind
+  lengthM          Float
+  dominantCurve    String?
+  curveHist        Json?
+  corners          Int                         @default(0)
+  resolution       PaintingBoundaryResolution?
+  resolutionSource PaintingValueSource         @default(AUTO)
+  cutLengthM       Float                       @default(0)
+  tapeLengthM      Float                       @default(0)
+  samplePath       Json?
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+  face             PaintingAnalysisFace        @relation(fields: [faceId], references: [id], onDelete: Cascade)
+
+  @@unique([faceId, engineId])
+  @@index([faceId])
+}
+
+model PaintingAnalysisAlert {
+  id         String           @id @default(uuid())
+  analysisId String
+  code       String
+  severity   String
+  message    String
+  resolvedAt DateTime?
+  createdAt  DateTime         @default(now())
+  analysis   PaintingAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@index([analysisId])
+}
+
+model PaintingProductionPlan {
+  id               String                   @id @default(uuid())
+  analysisId       String                   @unique
+  totalMinutes     Float                    @default(0)
+  totalWaitMinutes Float                    @default(0)
+  totalDays        Int                      @default(0)
+  materialCost     Decimal                  @default(0) @db.Decimal(12, 2)
+  laborCost        Decimal                  @default(0) @db.Decimal(12, 2)
+  indirectCost     Decimal                  @default(0) @db.Decimal(12, 2)
+  totalCost        Decimal                  @default(0) @db.Decimal(12, 2)
+  profitMarginPct  Float                    @default(0)
+  suggestedPrice   Decimal                  @default(0) @db.Decimal(12, 2)
+  laborRatePerHour Decimal                  @default(0) @db.Decimal(12, 2)
+  priceSnapshotAt  DateTime                 @default(now())
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  analysis         PaintingAnalysis         @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  steps            PaintingProductionStep[]
+}
+
+model PaintingProductionStep {
+  id            String                 @id @default(uuid())
+  planId        String
+  position      Int
+  day           Int                    @default(1)
+  session       Int                    @default(0)
+  kind          PaintingStepKind
+  title         String
+  description   String?
+  faceId        String?
+  regionIds     Json?
+  quantity      Float                  @default(0)
+  quantityUnit  String?
+  windowAreaM2  Float?
+  visualization Json?
+  rateUsed      Float?
+  minutes       Float                  @default(0)
+  minutesSource PaintingValueSource    @default(AUTO)
+  waitMinutes   Float                  @default(0)
+  laborCost     Decimal                @default(0) @db.Decimal(12, 2)
+  materialCost  Decimal                @default(0) @db.Decimal(12, 2)
+  actualMinutes Float?
+  actualNotes   String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  plan          PaintingProductionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  materials     PaintingStepMaterial[]
+  tasks         PaintingStepTask[]
+
+  @@index([planId, position])
+}
+
+/// Sub-tarefa de um passo (a preparação é UM passo com checklist, não seis passos).
+model PaintingStepTask {
+  id            String                 @id @default(uuid())
+  stepId        String
+  position      Int                    @default(0)
+  label         String
+  rateKey       String?
+  basisQuantity Float                  @default(0)
+  basisUnit     String?
+  minutes       Float                  @default(0)
+  minutesSource PaintingValueSource    @default(AUTO)
+  crewSize      Int                    @default(1)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  step          PaintingProductionStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  @@index([stepId, position])
+}
+
+model PaintingStepMaterial {
+  id                String                 @id @default(uuid())
+  stepId            String
+  itemId            String?
+  paintId           String?
+  label             String
+  /// MATERIAL | MAO_DE_OBRA | SERVICO | EQUIPAMENTO — agrupa a tabela do passo.
+  kind              PaintingCostLineKind   @default(MATERIAL)
+  basis             PaintingMeasureBasis   @default(AREA)
+  /// Nº de pessoas na linha de mão de obra (custo = qtd × crewSize × valor unit.).
+  crewSize          Int                    @default(1)
+  position          Int                    @default(0)
+  /// Base do consumo (ex.: 53,24 m² de chapa). Com `quantity` dá o RENDIMENTO
+  /// mostrado na tabela do passo: 53,24 m² ÷ 2,13 L = 25 m²/L.
+  basisQuantity     Float?
+  basisUnit         String?
+  quantity          Float
+  unit              String
+  sizeLabel         String?
+  unitPriceSnapshot Decimal                @default(0) @db.Decimal(12, 4)
+  totalCost         Decimal                @default(0) @db.Decimal(12, 2)
+  source            PaintingValueSource    @default(AUTO)
+  step              PaintingProductionStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  item              Item?                  @relation("PAINTING_STEP_MATERIAL_ITEM", fields: [itemId], references: [id], onDelete: SetNull)
+  paint             Paint?                 @relation("PAINTING_STEP_MATERIAL_PAINT", fields: [paintId], references: [id], onDelete: SetNull)
+
+  @@index([stepId])
+}
+
+model PaintingProductivityRate {
+  id                     String           @id @default(uuid())
+  key                    String           @unique
+  label                  String
+  mode                   PaintingRateMode
+  value                  Float
+  /// Nº de pessoas que executam a tarefa nessa cadência (custo × crewSize).
+  crewSize               Int              @default(1)
+  complexityFactorMedium Float            @default(1.3)
+  complexityFactorHigh   Float            @default(1.8)
+  notes                  String?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+}
+
+model PaintingIndirectCost {
+  id        String               @id @default(uuid())
+  key       String               @unique
+  label     String
+  mode      PaintingIndirectMode
+  value     Float
+  active    Boolean              @default(true)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+}
+
+model PaintingStrategyRule {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  label     String
+  params    Json
+  active    Boolean  @default(true)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Sistema de pintura (Laca, Acrílico, Poliéster, PU, Verniz): esquema de demãos +
+/// proporção de mistura + rendimento da MISTURA PRONTA. É aqui que mora a catálise.
+model PaintingPaintSystem {
+  id                String             @id @default(uuid())
+  key               String             @unique
+  label             String
+  paintTypeId       String?
+  /// [{ role: GROUND|COLOR|CLEAR, systemKey: "LACA", coats: 2 }] — o fundo referencia
+  /// outro sistema, então a laca de tom próximo herda a proporção DA LACA.
+  coatsSchedule     Json
+  /// Partes por volume — ex. laca 2:1:0 (só thinner), verniz 3:1:1.
+  mixBase           Float              @default(1)
+  mixCatalyst       Float              @default(0)
+  mixThinner        Float              @default(0)
+  catalystItemId    String?
+  thinnerItemId     String?
+  /// Rendimento da mistura pronta, não da tinta pura.
+  coverageM2PerL    Float              @default(6)
+  sprayLossPct      Float              @default(0.15)
+  prepLossPct       Float              @default(0.05)
+  /// Lote mínimo de preparo (L) — não se prepara 200 ml de laca.
+  minBatchL         Float              @default(0.5)
+  cureMinutes       Float              @default(180)
+  /// true enquanto o valor for palpite do seed — o plano mostra alerta amarelo.
+  needsConfirmation Boolean            @default(true)
+  active            Boolean            @default(true)
+  position          Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  paintType         PaintType?         @relation("PAINTING_SYSTEM_PAINT_TYPE", fields: [paintTypeId], references: [id], onDelete: SetNull)
+  catalystItem      Item?              @relation("PAINTING_SYSTEM_CATALYST_ITEM", fields: [catalystItemId], references: [id], onDelete: SetNull)
+  thinnerItem       Item?              @relation("PAINTING_SYSTEM_THINNER_ITEM", fields: [thinnerItemId], references: [id], onDelete: SetNull)
+  analyses          PaintingAnalysis[] @relation("PAINTING_ANALYSIS_SYSTEM")
+}
+
+/// Elemento gráfico (logo, bloco de texto) agrupado pelo estágio `elements` do engine.
+/// `engineId` + `labelSource` fazem o rótulo editado sobreviver ao reprocessamento.
+model PaintingElement {
+  id             String               @id @default(uuid())
+  faceId         String
+  engineId       String
+  label          String?
+  labelSource    PaintingValueSource  @default(AUTO)
+  xCm            Float                @default(0)
+  yCm            Float                @default(0)
+  wCm            Float                @default(0)
+  hCm            Float                @default(0)
+  areaM2         Float                @default(0)
+  adhesiveAreaM2 Float                @default(0)
+  paperAreaM2    Float                @default(0)
+  regionIds      Json?
+  colorIndexes   Json?
+  geometry       Json?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  face           PaintingAnalysisFace @relation(fields: [faceId], references: [id], onDelete: Cascade)
+
+  @@unique([faceId, engineId])
+  @@index([faceId])
+}
+
+model PaintingProcessParameter {
+  id             String     @id @default(uuid())
+  paintTypeId    String?    @unique
+  coatsDefault   Int        @default(2)
+  coverageM2PerL Float      @default(6)
+  sprayLossPct   Float      @default(0.15)
+  prepLossPct    Float      @default(0.05)
+  cureMinutes    Float      @default(180)
+  needsClearCoat Boolean    @default(false)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  paintType      PaintType? @relation("PAINTING_PROCESS_PARAM_TYPE", fields: [paintTypeId], references: [id], onDelete: Cascade)
 }

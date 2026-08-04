@@ -86,3 +86,7 @@ certs/
 # INSS, IRRF, abono). São instantâneos operacionais: envelhecem sozinhos e, uma
 # vez no histórico do git, não saem mais. Mesma razão pela qual .env* é ignorado.
 prisma/manual/
+
+# Python bytecode (painting-engine)
+__pycache__/
+*.py[cod]

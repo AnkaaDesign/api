@@ -82,6 +82,7 @@ import { ReconciliationModule } from './modules/financial/reconciliation/reconci
 import { SkillModule } from './modules/skill/skill.module';
 import { QuestionnaireModule } from './modules/questionnaire/questionnaire.module';
 import { WasteCertificateModule } from './modules/waste-certificate/waste-certificate.module';
+import { PaintingAnalysisModule } from './modules/paint/painting-analysis/painting-analysis.module';
 
 @Module({
   imports: [
@@ -172,6 +173,7 @@ import { WasteCertificateModule } from './modules/waste-certificate/waste-certif
     SkillModule,
     QuestionnaireModule,
     WasteCertificateModule,
+    PaintingAnalysisModule,
   ],
   controllers: [AppController],
   providers: [

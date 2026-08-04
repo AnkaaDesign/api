@@ -49,7 +49,8 @@
     "test:quote-diff": "tsx tests/quote-diff.test.ts",
     "test:due-date": "tsx tests/due-date.test.ts",
     "test:task-match": "tsx tests/task-match-allocation.test.ts",
-    "test:task-match:integration": "tsx tests/task-match-integration.test.ts"
+    "test:task-match:integration": "tsx tests/task-match-integration.test.ts",
+    "seed:painting": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/seed-painting-config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
