@@ -36,6 +36,15 @@ export const transactionsFilterSchema = z.object({
   expectsFiscalDocument: queryBoolean.optional(),
   reconciliationSource: z.nativeEnum(ReconciliationSource).optional(),
   matchType: z.nativeEnum(ReconciliationMatchType).optional(),
+  // What actually backs the reconciliation. reconciliationStatus alone cannot
+  // express this: RECONCILED covers both "linked to a document" and "explained
+  // by a resolving category", and until this filter existed there was no way to
+  // ask for the second group at all.
+  //   FISCAL_DOCUMENT — at least one live match carrying a fiscalDocumentId
+  //   SETTLEMENT_ANCHOR — live match(es), none of them to an NF (boleto,
+  //                       parcela, recorrente, pedido, folha)
+  //   NONE — no live match; resolved by category, or not resolved
+  linkage: z.enum(['FISCAL_DOCUMENT', 'SETTLEMENT_ANCHOR', 'NONE']).optional(),
   type: z.nativeEnum(BankTransactionType).optional(),
   subtype: z.nativeEnum(BankTransactionSubtype).optional(),
   // ZodValidationPipe auto-converts ISO/`YYYY-MM-DD` strings to `Date` objects

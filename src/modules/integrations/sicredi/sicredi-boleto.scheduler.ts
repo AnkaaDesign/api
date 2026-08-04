@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
 import { SicrediService } from './sicredi.service';
 import { SicrediAuthService } from './sicredi-auth.service';
 import { SicrediWebhookService } from './sicredi-webhook.service';
@@ -51,6 +52,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly notificationDispatchService: NotificationDispatchService,
     private readonly events: EventEmitter2,
+    private readonly filesStorage: FilesStorageService,
   ) {}
 
   // ─── Webhook Contract Auto-Registration ─────────────────────────────────────
@@ -86,9 +88,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             ? contractsRaw.items
             : [];
 
-      this.logger.log(
-        `[WEBHOOK_CONTRACT] Found ${contracts.length} existing contract(s)`,
-      );
+      this.logger.log(`[WEBHOOK_CONTRACT] Found ${contracts.length} existing contract(s)`);
 
       if (contracts.length > 0) {
         // Look for a contract with the correct URL and ATIVO status
@@ -495,15 +495,31 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           if (pdfBuffer) {
             try {
               const fs = await import('node:fs/promises');
-              const path = await import('node:path');
-              const uploadDir = path.join(process.cwd(), 'uploads', 'boleto');
-              await fs.mkdir(uploadDir, { recursive: true });
+              const nodePath = await import('node:path');
+              // Grava em /srv/files, NAO em `process.cwd()/uploads` -- ver a nota em
+              // reconciliation-import.persistRawFile. O boleto e cobranca emitida: a
+              // copia do PDF tem de sobreviver a um redeploy e entrar no backup.
               const filename = `boleto-${boletoResponse.nossoNumero}.pdf`;
-              const filePath = path.join(uploadDir, filename);
+              // A query ja traz invoice.customer com fantasyName; nada de include novo.
+              // Parcela de retirada externa nao tem cliente -> cai em Clientes/Outros/ e o
+              // organizador recolhe quando/se o vinculo existir.
+              const customerNameForStorage =
+                installment.invoice?.customer?.fantasyName ?? undefined;
+              const filePath = this.filesStorage.generateFilePath(
+                filename,
+                'taskBankSlips',
+                'application/pdf',
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                customerNameForStorage,
+              );
+              await this.filesStorage.ensureDirectory(nodePath.dirname(filePath));
               await fs.writeFile(filePath, pdfBuffer);
               const file = await this.prisma.file.create({
                 data: {
-                  filename,
+                  filename: nodePath.basename(filePath),
                   originalName: filename,
                   path: filePath,
                   mimetype: 'application/pdf',
@@ -933,8 +949,20 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     fromDate?: Date,
     toDate?: Date,
   ): Promise<{ reconciled: number; total: number; datesChecked: string[] }> {
-    const end = toDate ?? (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d; })();
-    const start = fromDate ?? (() => { const d = new Date(); d.setDate(d.getDate() - 14); return d; })();
+    const end =
+      toDate ??
+      (() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        return d;
+      })();
+    const start =
+      fromDate ??
+      (() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 14);
+        return d;
+      })();
 
     this.logger.log(
       `[RECONCILE_MANUAL] Triggered for range ${start.toISOString().split('T')[0]} → ${end.toISOString().split('T')[0]}`,
@@ -1122,7 +1150,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           if (!paidAt) {
             this.logger.warn(
               `${logPrefix} Cannot parse paidAt for nossoNumero=${paidBoleto.nossoNumero} ` +
-              `(dataLiquidacao=${paidBoleto.dataLiquidacao}, raw=${JSON.stringify(paidBoleto)}), skipping`,
+                `(dataLiquidacao=${paidBoleto.dataLiquidacao}, raw=${JSON.stringify(paidBoleto)}), skipping`,
             );
             continue;
           }
@@ -1137,9 +1165,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           const expectedAmount =
             bankSlip.installment != null ? Number(bankSlip.installment.amount) : null;
           const fullyPaid =
-            paidAmount == null ||
-            expectedAmount == null ||
-            paidAmount >= expectedAmount - 0.01;
+            paidAmount == null || expectedAmount == null || paidAmount >= expectedAmount - 0.01;
 
           if (!fullyPaid) {
             this.logger.warn(
@@ -1627,7 +1653,8 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     });
 
     const bankSlips = allActive.filter(
-      bs => bs.nossoNumero && !bs.nossoNumero.startsWith('TMP-') && !bs.nossoNumero.startsWith('ERR-'),
+      bs =>
+        bs.nossoNumero && !bs.nossoNumero.startsWith('TMP-') && !bs.nossoNumero.startsWith('ERR-'),
     );
 
     this.logger.log(
@@ -1938,9 +1965,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       taskName: isWithdrawal ? 'Operação Externa' : invoice.task?.name || 'N/A',
       customerName: invoice.customer?.fantasyName || 'N/A',
       externalOperationId,
-      refLabel: isWithdrawal
-        ? 'da operação externa'
-        : `da tarefa ${invoice.task?.name || 'N/A'}`,
+      refLabel: isWithdrawal ? 'da operação externa' : `da tarefa ${invoice.task?.name || 'N/A'}`,
       webUrl: isWithdrawal
         ? `/estoque/operacoes-externas/detalhes/${externalOperationId}`
         : taskId
@@ -1975,29 +2000,33 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
       const { webUrl, mobileUrl } = ctx;
 
-      await this.notificationDispatchService.dispatchByConfiguration('bank_slip.overdue', 'system', {
-        entityType: 'BankSlip',
-        entityId: ctx.taskId ?? ctx.externalOperationId ?? invoiceId,
-        action: 'overdue',
-        data: {
-          customerName: ctx.customerName,
-          taskName: ctx.taskName,
-          nossoNumero: nossoNumero || 'N/A',
-          amount: formattedAmount,
-          dueDate: formattedDueDate,
-          invoiceId,
-          bankSlipId,
-          taskId: ctx.taskId || undefined,
-          externalOperationId: ctx.externalOperationId || undefined,
+      await this.notificationDispatchService.dispatchByConfiguration(
+        'bank_slip.overdue',
+        'system',
+        {
+          entityType: 'BankSlip',
+          entityId: ctx.taskId ?? ctx.externalOperationId ?? invoiceId,
+          action: 'overdue',
+          data: {
+            customerName: ctx.customerName,
+            taskName: ctx.taskName,
+            nossoNumero: nossoNumero || 'N/A',
+            amount: formattedAmount,
+            dueDate: formattedDueDate,
+            invoiceId,
+            bankSlipId,
+            taskId: ctx.taskId || undefined,
+            externalOperationId: ctx.externalOperationId || undefined,
+          },
+          overrides: {
+            title: 'Boleto Vencido',
+            body: `O boleto ${nossoNumero || ''} ${ctx.refLabel} (${ctx.customerName}) venceu em ${formattedDueDate}. Valor: ${formattedAmount}.`,
+            relatedEntityType: 'BANK_SLIP',
+            ...(webUrl ? { webUrl } : {}),
+            ...(mobileUrl ? { mobileUrl } : {}),
+          },
         },
-        overrides: {
-          title: 'Boleto Vencido',
-          body: `O boleto ${nossoNumero || ''} ${ctx.refLabel} (${ctx.customerName}) venceu em ${formattedDueDate}. Valor: ${formattedAmount}.`,
-          relatedEntityType: 'BANK_SLIP',
-          ...(webUrl ? { webUrl } : {}),
-          ...(mobileUrl ? { mobileUrl } : {}),
-        },
-      });
+      );
     } catch (error) {
       this.logger.error(
         `Failed to dispatch bank_slip.overdue notification for bankSlip: ${bankSlipId}`,
@@ -2033,28 +2062,32 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         ? 'a operação externa'
         : `a tarefa ${ctx.taskName}`;
 
-      await this.notificationDispatchService.dispatchByConfiguration('bank_slip.created', 'system', {
-        entityType: 'BankSlip',
-        entityId: ctx.taskId ?? ctx.externalOperationId ?? invoiceId,
-        action: 'created',
-        data: {
-          customerName: ctx.customerName,
-          taskName: ctx.taskName,
-          nossoNumero,
-          amount: formattedAmount,
-          dueDate: formattedDueDate,
-          invoiceId,
-          taskId: ctx.taskId || undefined,
-          externalOperationId: ctx.externalOperationId || undefined,
+      await this.notificationDispatchService.dispatchByConfiguration(
+        'bank_slip.created',
+        'system',
+        {
+          entityType: 'BankSlip',
+          entityId: ctx.taskId ?? ctx.externalOperationId ?? invoiceId,
+          action: 'created',
+          data: {
+            customerName: ctx.customerName,
+            taskName: ctx.taskName,
+            nossoNumero,
+            amount: formattedAmount,
+            dueDate: formattedDueDate,
+            invoiceId,
+            taskId: ctx.taskId || undefined,
+            externalOperationId: ctx.externalOperationId || undefined,
+          },
+          overrides: {
+            title: 'Boleto Gerado',
+            body: `Boleto ${nossoNumero} gerado para ${generatedFor} (${ctx.customerName}). Valor: ${formattedAmount}, vencimento ${formattedDueDate}.`,
+            relatedEntityType: 'BANK_SLIP',
+            ...(webUrl ? { webUrl } : {}),
+            ...(mobileUrl ? { mobileUrl } : {}),
+          },
         },
-        overrides: {
-          title: 'Boleto Gerado',
-          body: `Boleto ${nossoNumero} gerado para ${generatedFor} (${ctx.customerName}). Valor: ${formattedAmount}, vencimento ${formattedDueDate}.`,
-          relatedEntityType: 'BANK_SLIP',
-          ...(webUrl ? { webUrl } : {}),
-          ...(mobileUrl ? { mobileUrl } : {}),
-        },
-      });
+      );
     } catch (error) {
       this.logger.error(
         `Failed to dispatch bank_slip.created notification for invoice: ${invoiceId}`,
@@ -2183,5 +2216,4 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       );
     }
   }
-
 }

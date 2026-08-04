@@ -43,14 +43,20 @@ const MEMO_RULES: readonly MemoRule[] = [
   { slug: 'folha', pattern: /\bfolha\s+pagto\b/i, direction: BankTransactionType.DEBIT },
   { slug: 'folha', pattern: /\bfolha\s+de\s+pagamento\b/i, direction: BankTransactionType.DEBIT },
   // Investment in/out and refunds are direction-neutral (resgate is a CREDIT,
-  // aplicação a DEBIT — same "transferência" category either way).
-  { slug: 'transferencia', pattern: /aplic\.?\s*financ/i },
-  { slug: 'transferencia', pattern: /\bcaptacao\b/i },
-  { slug: 'transferencia', pattern: /aplic\s+fundos/i },
-  { slug: 'transferencia', pattern: /resg\s+fundos/i },
-  { slug: 'transferencia', pattern: /resg\.?\s*aplic/i },
-  { slug: 'transferencia', pattern: /resgate\s+aplic/i },
-  { slug: 'transferencia', pattern: /plano\s+int\s+capital/i },
+  // aplicação a DEBIT — same treasury category either way).
+  //
+  // These previously pointed at a 'transferencia' slug that was later hard-deleted
+  // from TransactionCategory. snap.bySlug.get() then returned undefined and all
+  // seven rules silently no-opped, so treasury sweeps stopped being categorized
+  // entirely — they are the 25 APLIC/RESG transactions left RECONCILED with no
+  // category and no match. Repointed at the surviving resolving category.
+  { slug: 'aplicacao-financeira', pattern: /aplic\.?\s*financ/i },
+  { slug: 'aplicacao-financeira', pattern: /\bcaptacao\b/i },
+  { slug: 'aplicacao-financeira', pattern: /aplic\s+fundos/i },
+  { slug: 'aplicacao-financeira', pattern: /resg\s+fundos/i },
+  { slug: 'aplicacao-financeira', pattern: /resg\.?\s*aplic/i },
+  { slug: 'aplicacao-financeira', pattern: /resgate\s+aplic/i },
+  { slug: 'aplicacao-financeira', pattern: /plano\s+int\s+capital/i },
   { slug: 'estorno', pattern: /^\s*devolucao\s+pix/i },
   // ENTRADA income: bank yield / interest credited (never a payable).
   { slug: 'rendimentos', pattern: /\brendimento/i, direction: BankTransactionType.CREDIT },
@@ -76,10 +82,37 @@ export class LadderLearner implements CategoryLearner {
     private readonly categories: TransactionCategoryService,
   ) {}
 
+  /**
+   * Slugs referenced by the static rule tables that no longer exist in
+   * TransactionCategory. A deleted category silently disables every rule that
+   * points at it (bySlug.get() returns undefined and the rule is skipped), which
+   * is a failure mode with no symptom other than transactions quietly ceasing to
+   * be categorized. Warn once per process rather than per transaction.
+   */
+  private missingSlugsReported = false;
+
+  private reportMissingSlugs(snap: { bySlug: Map<string, unknown> }): void {
+    if (this.missingSlugsReported) return;
+    this.missingSlugsReported = true;
+    const referenced = new Set<string>([
+      ...Object.values(COUNTERPARTY_CATEGORY_RULES),
+      ...MEMO_RULES.map(r => r.slug),
+    ]);
+    const missing = [...referenced].filter(s => !snap.bySlug.has(s)).sort();
+    if (missing.length) {
+      this.logger.error(
+        `TransactionCategory slugs referenced by classification rules do not exist: ` +
+          `${missing.join(', ')}. Every rule pointing at them is silently disabled — ` +
+          `transactions matching those patterns will not be categorized.`,
+      );
+    }
+  }
+
   async collect(tx: ClassifierSignalInput): Promise<CategorySignal[]> {
     const out: CategorySignal[] = [];
     try {
       const snap = await this.categories.snapshot();
+      this.reportMissingSlugs(snap);
 
       // 1. Counterparty CPF/CNPJ hardcoded rule. DEBIT-only: every entry maps to
       // an outflow payee (pró-labore, aluguel, energia, água, internet), so it

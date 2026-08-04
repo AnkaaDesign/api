@@ -4,6 +4,7 @@ import { CronJob } from 'cron';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { FilesStorageService, type FilesFolderMapping } from './files-storage.service';
+import { FileReferenceService } from './file-reference.service';
 import { existsSync } from 'fs';
 import { dirname } from 'path';
 import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../../constants/enums';
@@ -58,6 +59,15 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
   'quote-layouts': 'customer',
   plotterEspovo: 'customer',
   plotterAdesivo: 'customer',
+  // Faltavam neste mapa: sem entrada aqui, getEntityNameForFile nem era chamado
+  // (`if (!entityType) continue`) e o arquivo ficava onde estivesse. A auditoria de
+  // 2026-08-04 achou 53 comprovantes de parcela parados em Auxiliares/ por causa disto.
+  installmentReceipts: 'customer',
+  truckVinPlate: 'customer',
+  budgetSignatures: 'customer',
+  budgetDossiers: 'customer',
+  serviceOrderCheckinFiles: 'customer',
+  serviceOrderCheckoutFiles: 'customer',
   airbrushingLayouts: 'customer',
   airbrushingBudgets: 'customer',
   airbrushingInvoices: 'customer',
@@ -73,12 +83,22 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
   userAvatar: 'user',
   warning: 'user',
   signedPpeDocuments: 'user',
+  admissionDocuments: 'user',
+  terminationDocuments: 'user',
+  medicalExams: 'user',
+  leaveDocuments: 'user',
+  benefitDocuments: 'user',
 
   // No entity name required (root-level or non-entity)
   externalOperationInvoices: null,
   externalOperationReceipts: null,
   externalOperationReimbursements: null,
   externalOperationNfeReimbursements: null,
+  // Sem entidade dona: `if (!entityType) continue` -> o organizador NUNCA mexe nestes.
+  // A saída de uploads/ para /srv/files é feita por script dedicado, com dry-run e
+  // conferência byte a byte, e não de madrugada por um cron.
+  fiscalDocumentXml: null,
+  bankStatements: null,
   thumbnails: null,
   paintColor: null,
   messageImages: null,
@@ -117,6 +137,8 @@ const FOLDER_TO_CONTEXT_MAP: Array<{ pattern: RegExp; context: keyof FilesFolder
   { pattern: /\/Clientes\/[^/]+\/Traseiras\//, context: 'implementMeasurePhotos' },
   { pattern: /\/Clientes\/[^/]+\/Notas Fiscais Reembolso\//, context: 'taskNfeReimbursements' },
   { pattern: /\/Clientes\/[^/]+\/Notas Fiscais\//, context: 'taskInvoices' },
+  { pattern: /\/Clientes\/[^/]+\/Orcamentos\/Assinaturas\//, context: 'budgetSignatures' },
+  { pattern: /\/Clientes\/[^/]+\/Orcamentos\/Dossies\//, context: 'budgetDossiers' },
   { pattern: /\/Clientes\/[^/]+\/Orcamentos\//, context: 'taskBudgets' },
   { pattern: /\/Clientes\/[^/]+\/Comprovantes\//, context: 'taskReceipts' },
   { pattern: /\/Clientes\/[^/]+\/Boletos\//, context: 'taskBankSlips' },
@@ -142,6 +164,15 @@ const FOLDER_TO_CONTEXT_MAP: Array<{ pattern: RegExp; context: keyof FilesFolder
   // User contexts (entity-first: Colaboradores/{userName}/{subfolder}/)
   { pattern: /\/Colaboradores\/[^/]+\/EPIs\//, context: 'signedPpeDocuments' },
   { pattern: /\/Colaboradores\/[^/]+\/Advertencias\//, context: 'warning' },
+  { pattern: /\/Colaboradores\/[^/]+\/Admissao\//, context: 'admissionDocuments' },
+  { pattern: /\/Colaboradores\/[^/]+\/Rescisao\//, context: 'terminationDocuments' },
+  { pattern: /\/Colaboradores\/[^/]+\/Exames Medicos\//, context: 'medicalExams' },
+  { pattern: /\/Colaboradores\/[^/]+\/Afastamentos\//, context: 'leaveDocuments' },
+  { pattern: /\/Colaboradores\/[^/]+\/Beneficios\//, context: 'benefitDocuments' },
+  // "EPI's" com apostrofo e a pasta que o servico de EPI criava a mao; o mapa sempre
+  // declarou 'EPIs'. Duas pastas para a mesma coisa -- a regra abaixo reconhece a antiga
+  // para que o organizador recolha o que ficou la.
+  { pattern: /\/Colaboradores\/[^/]+\/EPI's\//, context: 'signedPpeDocuments' },
   { pattern: /\/Colaboradores\/[^/]+\/Fotos\//, context: 'userAvatar' },
 
   // Root-level strays — MUST STAY LAST. Matching is first-match-wins, so the
@@ -163,6 +194,7 @@ export class FileOrganizationSchedulerService {
     private readonly prisma: PrismaService,
     private readonly changeLogService: ChangeLogService,
     private readonly filesStorageService: FilesStorageService,
+    private readonly fileReferenceService: FileReferenceService,
   ) {
     this.filesRoot = process.env.FILES_ROOT || './files';
   }
@@ -297,6 +329,64 @@ export class FileOrganizationSchedulerService {
         return quoteLayoutFile.quoteLayout.task.customer.fantasyName;
       }
 
+      // Boleto (BankSlip.pdfFileId -> installment -> customerConfig -> customer).
+      const bankSlip = await this.prisma.bankSlip.findFirst({
+        where: { pdfFileId: fileId },
+        select: {
+          installment: {
+            select: { customerConfig: { select: { customer: { select: { fantasyName: true } } } } },
+          },
+        },
+      });
+      if (bankSlip?.installment?.customerConfig?.customer?.fantasyName) {
+        return bankSlip.installment.customerConfig.customer.fantasyName;
+      }
+
+      // Orçamento persistido para assinatura (SignatureEnvelope -> quote -> task -> customer).
+      const envelope = await this.prisma.signatureEnvelope.findFirst({
+        where: { OR: [{ originalFileId: fileId }, { finalFileId: fileId }] },
+        select: {
+          quote: { select: { task: { select: { customer: { select: { fantasyName: true } } } } } },
+        },
+      });
+      if (envelope?.quote?.task?.customer?.fantasyName) {
+        return envelope.quote.task.customer.fantasyName;
+      }
+
+      // Comprovante de parcela (Installment.receiptFiles -> customerConfig -> customer).
+      const installment = await this.prisma.installment.findFirst({
+        where: { receiptFiles: { some: { id: fileId } } },
+        select: {
+          customerConfig: { select: { customer: { select: { fantasyName: true } } } },
+        },
+      });
+      if (installment?.customerConfig?.customer?.fantasyName) {
+        return installment.customerConfig.customer.fantasyName;
+      }
+
+      // Plaqueta de chassi (Truck.vinPlateId -> task -> customer).
+      const truck = await this.prisma.truck.findFirst({
+        where: { vinPlateId: fileId },
+        select: { task: { select: { customer: { select: { fantasyName: true } } } } },
+      });
+      if (truck?.task?.customer?.fantasyName) {
+        return truck.task.customer.fantasyName;
+      }
+
+      // Check-in / check-out de ordem de serviço -> task -> customer.
+      const serviceOrder = await this.prisma.serviceOrder.findFirst({
+        where: {
+          OR: [
+            { checkinFiles: { some: { id: fileId } } },
+            { checkoutFiles: { some: { id: fileId } } },
+          ],
+        },
+        select: { task: { select: { customer: { select: { fantasyName: true } } } } },
+      });
+      if (serviceOrder?.task?.customer?.fantasyName) {
+        return serviceOrder.task.customer.fantasyName;
+      }
+
       // Check customer logo (Customer.logoId = fileId)
       const customerWithLogo = await this.prisma.customer.findFirst({
         where: { logoId: fileId },
@@ -370,10 +460,7 @@ export class FileOrganizationSchedulerService {
       // Check airbrushing (airbrushing -> task -> customer)
       const airbrushing = await this.prisma.airbrushing.findFirst({
         where: {
-          OR: [
-            { receipts: { some: { id: fileId } } },
-            { invoices: { some: { id: fileId } } },
-          ],
+          OR: [{ receipts: { some: { id: fileId } } }, { invoices: { some: { id: fileId } } }],
         },
         include: {
           task: {
@@ -411,9 +498,7 @@ export class FileOrganizationSchedulerService {
       // Check order relationships
       const order = await this.prisma.order.findFirst({
         where: {
-          OR: [
-            { receipts: { some: { id: fileId } } },
-          ],
+          OR: [{ receipts: { some: { id: fileId } } }],
         },
         include: { supplier: { select: { fantasyName: true } } },
       });
@@ -451,6 +536,76 @@ export class FileOrganizationSchedulerService {
       });
       if (warning?.collaborator?.name) {
         return warning.collaborator.name;
+      }
+
+      // Advertência assinada (WarningSignature -> warning -> collaborator).
+      const warningSignature = await this.prisma.warningSignature.findFirst({
+        where: { signedDocumentId: fileId },
+        select: { warning: { select: { collaborator: { select: { name: true } } } } },
+      });
+      if (warningSignature?.warning?.collaborator?.name) {
+        return warningSignature.warning.collaborator.name;
+      }
+
+      // EPI: termo assinado (PpeDeliverySignature) e documento de entrega (PpeDelivery).
+      const ppeSignature = await this.prisma.ppeDeliverySignature.findFirst({
+        where: { signedDocumentId: fileId },
+        select: { delivery: { select: { user: { select: { name: true } } } } },
+      });
+      if (ppeSignature?.delivery?.user?.name) {
+        return ppeSignature.delivery.user.name;
+      }
+      const ppeDelivery = await this.prisma.ppeDelivery.findFirst({
+        where: { deliveryDocumentId: fileId },
+        select: { user: { select: { name: true } } },
+      });
+      if (ppeDelivery?.user?.name) {
+        return ppeDelivery.user.name;
+      }
+
+      // Admissão (documento enviado ou assinado) -> admission.user.
+      const admissionDoc = await this.prisma.admissionDocument.findFirst({
+        where: { OR: [{ fileId }, { signedFileId: fileId }] },
+        select: { admission: { select: { user: { select: { name: true } } } } },
+      });
+      if (admissionDoc?.admission?.user?.name) {
+        return admissionDoc.admission.user.name;
+      }
+
+      // Rescisão -> termination.user.
+      const terminationDoc = await this.prisma.terminationDocument.findFirst({
+        where: { fileId },
+        select: { termination: { select: { user: { select: { name: true } } } } },
+      });
+      if (terminationDoc?.termination?.user?.name) {
+        return terminationDoc.termination.user.name;
+      }
+
+      // ASO / exame médico.
+      const medicalExam = await this.prisma.medicalExam.findFirst({
+        where: { fileId },
+        select: { user: { select: { name: true } } },
+      });
+      if (medicalExam?.user?.name) {
+        return medicalExam.user.name;
+      }
+
+      // Declaração de benefício.
+      const userBenefit = await this.prisma.userBenefit.findFirst({
+        where: { declarationFileId: fileId },
+        select: { user: { select: { name: true } } },
+      });
+      if (userBenefit?.user?.name) {
+        return userBenefit.user.name;
+      }
+
+      // Afastamento (Leave.files M2M).
+      const leave = await this.prisma.leave.findFirst({
+        where: { files: { some: { id: fileId } } },
+        select: { user: { select: { name: true } } },
+      });
+      if (leave?.user?.name) {
+        return leave.user.name;
       }
 
       return null;
@@ -504,8 +659,23 @@ export class FileOrganizationSchedulerService {
       this.logger.log(`Scanning ${files.length} files for misplacement...`);
 
       for (const file of files) {
-        // Detect context from path
-        const context = this.detectContextFromPath(file.path);
+        // O contexto vem da REFERENCIA, nao da pasta.
+        //
+        // Antes era so detectContextFromPath: o organizador adivinhava a que o arquivo
+        // pertence pela pasta em que ele ja estava. Isso torna o conserto impossivel
+        // justamente no caso que importa -- um arquivo arquivado errado numa pasta
+        // generica (Fotos/, Auxiliares/, Uploads/) nao casa com regra nenhuma, cai no
+        // `continue` e fica invisivel para sempre. Foi assim que 32 layouts de orcamento
+        // ficaram em /srv/files/Fotos/ ate serem apagados como "orfaos" em 2026-06-07,
+        // e e por isso que 110 arquivos vinculados ainda estao la hoje.
+        //
+        // Perguntar a referencia inverte a logica: quem usa o arquivo diz onde ele
+        // deveria estar, entao ele pode ser trazido de volta de QUALQUER pasta. A deteccao
+        // por caminho continua como fallback para arquivos cuja relacao ainda nao tem
+        // contexto canonico mapeado.
+        const context =
+          (await this.fileReferenceService.resolveCanonicalContext(file.id)) ??
+          this.detectContextFromPath(file.path);
         if (!context) continue;
 
         // Get expected entity type for this context
@@ -614,31 +784,60 @@ export class FileOrganizationSchedulerService {
     }
 
     // Use transaction to ensure atomicity
-    await this.prisma.$transaction(async tx => {
-      // Move physical file
-      await this.filesStorageService.moveWithinStorage(currentPath, expectedPath);
+    //
+    // ATENÇÃO à compensação abaixo: `rename` não faz rollback. Se a transação abortasse
+    // depois do move (deadlock, timeout, conflito), os bytes ficavam no caminho NOVO e o
+    // banco continuava apontando para o VELHO — e aí o arquivo no caminho novo não tem
+    // linha em File, então o coletor de órfãos o apaga 7 dias depois. Um reorganizador
+    // que perde arquivo é pior que um que não organiza nada.
+    let physicallyMoved = false;
+    try {
+      await this.prisma.$transaction(async tx => {
+        // Move physical file
+        await this.filesStorageService.moveWithinStorage(currentPath, expectedPath);
+        physicallyMoved = true;
 
-      // Update database
-      await tx.file.update({
-        where: { id },
-        data: { path: expectedPath },
-      });
+        // Update database
+        await tx.file.update({
+          where: { id },
+          data: { path: expectedPath },
+        });
 
-      // Log to ChangeLog
-      await this.changeLogService.logChange({
-        entityType: ENTITY_TYPE.FILE,
-        entityId: id,
-        action: CHANGE_ACTION.UPDATE,
-        field: 'path',
-        oldValue: currentPath,
-        newValue: expectedPath,
-        reason: `File reorganized: moved from root folder to ${file.entityType} subfolder (${file.entityName})`,
-        triggeredBy: CHANGE_TRIGGERED_BY.SCHEDULED_JOB,
-        triggeredById: id,
-        userId: null,
-        transaction: tx,
+        // Log to ChangeLog
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.FILE,
+          entityId: id,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'path',
+          oldValue: currentPath,
+          newValue: expectedPath,
+          reason: `File reorganized: moved from root folder to ${file.entityType} subfolder (${file.entityName})`,
+          triggeredBy: CHANGE_TRIGGERED_BY.SCHEDULED_JOB,
+          triggeredById: id,
+          userId: null,
+          transaction: tx,
+        });
       });
-    });
+    } catch (error: any) {
+      if (physicallyMoved) {
+        try {
+          await this.filesStorageService.moveWithinStorage(expectedPath, currentPath);
+          this.logger.warn(
+            `[File Organization] Transação falhou para ${id}; bytes devolvidos a ${currentPath}.`,
+          );
+        } catch (revertError: any) {
+          // Estado divergente e sem conserto automático: grita alto com os dois caminhos,
+          // porque agora só uma pessoa resolve — e o arquivo NÃO pode ser recolhido como
+          // órfão enquanto isso.
+          this.logger.error(
+            `[File Organization] INCONSISTÊNCIA: bytes de ${id} estão em ${expectedPath}, ` +
+              `File.path continua ${currentPath}, e a devolução falhou (${revertError.message}). ` +
+              `Corrija manualmente antes da próxima limpeza de órfãos.`,
+          );
+        }
+      }
+      throw error;
+    }
 
     this.logger.log(`Moved file "${filename}" to ${dirname(expectedPath)}`);
   }

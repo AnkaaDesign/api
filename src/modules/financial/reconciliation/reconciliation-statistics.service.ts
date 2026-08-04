@@ -98,13 +98,41 @@ export class ReconciliationStatisticsService {
   }
 
   private async aggregateMatchedOverTime(from: Date, to: Date) {
+    // "Matched" used to mean RECONCILED|PARTIAL wholesale, which counted a
+    // transaction closed by a resolving category (bank fee, DARF, payroll)
+    // identically to one backed by an actual document. In a month where most of
+    // the "conciliado" volume was classifier-resolved, the chart reported
+    // perfect health. IGNORED fell out of both series entirely, so real costs a
+    // supplier never invoiced simply vanished from the totals.
+    //
+    // Three honest series plus ignored, so the parts sum to the whole.
     const rows = await this.prisma.$queryRaw<
-      Array<{ period: string; matched: number; unmatched: number }>
+      Array<{
+        period: string;
+        matched: number;
+        settledWithoutDocument: number;
+        unmatched: number;
+        ignored: number;
+      }>
     >(Prisma.sql`
       SELECT
         TO_CHAR(t."postedAt", 'YYYY-MM') AS period,
-        SUM(CASE WHEN t."reconciliationStatus" IN ('RECONCILED','PARTIAL') THEN ABS(t.amount) ELSE 0 END)::float AS matched,
-        SUM(CASE WHEN t."reconciliationStatus" = 'PENDING' THEN ABS(t.amount) ELSE 0 END)::float AS unmatched
+        SUM(CASE
+          WHEN t."reconciliationStatus" IN ('RECONCILED','PARTIAL')
+           AND EXISTS (
+             SELECT 1 FROM "ReconciliationMatch" m
+             WHERE m."transactionId" = t.id AND m."reversedAt" IS NULL
+           )
+          THEN ABS(t.amount) ELSE 0 END)::float AS matched,
+        SUM(CASE
+          WHEN t."reconciliationStatus" IN ('RECONCILED','PARTIAL')
+           AND NOT EXISTS (
+             SELECT 1 FROM "ReconciliationMatch" m
+             WHERE m."transactionId" = t.id AND m."reversedAt" IS NULL
+           )
+          THEN ABS(t.amount) ELSE 0 END)::float AS "settledWithoutDocument",
+        SUM(CASE WHEN t."reconciliationStatus" IN ('PENDING','DISPUTED') THEN ABS(t.amount) ELSE 0 END)::float AS unmatched,
+        SUM(CASE WHEN t."reconciliationStatus" = 'IGNORED' THEN ABS(t.amount) ELSE 0 END)::float AS ignored
       FROM "BankTransaction" t
       WHERE t."postedAt" >= ${from} AND t."postedAt" <= ${to}
       GROUP BY 1

@@ -28,7 +28,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
-import { PpePadesSignerService, CertMetadata } from '@modules/inventory/ppe/ppe-pades-signer.service';
+import {
+  PpePadesSignerService,
+  CertMetadata,
+} from '@modules/inventory/ppe/ppe-pades-signer.service';
 import {
   ADMISSION_DOCUMENT_STATUS,
   CHANGE_ACTION,
@@ -38,7 +41,8 @@ import {
 } from '../../../constants';
 import * as crypto from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { join, dirname, basename } from 'path';
+import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
 import type { AdmissionDocumentSignFormData } from '../../../schemas';
 
 const LEGAL_BASIS =
@@ -78,6 +82,7 @@ export class AdmissionSignatureService {
     private readonly configService: ConfigService,
     private readonly changeLogService: ChangeLogService,
     private readonly padesSigner: PpePadesSignerService,
+    private readonly filesStorage: FilesStorageService,
   ) {
     // Reuse the same HMAC secret as the PPE pipeline so verification tooling and
     // legal posture are uniform across the company's in-app signatures.
@@ -475,37 +480,29 @@ export class AdmissionSignatureService {
     documentId: string,
   ): Promise<string | null> {
     try {
-      const sanitizedName = userName
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .replace(/[^a-zA-Z0-9\s]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      const now = new Date();
-      const year = String(now.getFullYear());
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-
-      const dirPath = join(
-        this.filesRoot,
-        'Colaboradores',
-        sanitizedName,
-        'Admissão',
-        'Assinados',
-        year,
-        month,
+      // Caminho vem do FilesStorageService -- ver a mesma nota em ppe-inapp-signature.
+      // A copia local do sanitizador tirava acento e pontuacao e divergia do resto do
+      // sistema para 12 dos 65 colaboradores; e a pasta era 'Admissao' aqui contra
+      // 'Admissao' no mapa (aqui vinha com acento), duas pastas para a mesma coisa.
+      const baseName = `assinado_${docType.toLowerCase()}_${documentId.substring(0, 8)}.pdf`;
+      const filePath = this.filesStorage.generateFilePath(
+        baseName,
+        'admissionDocuments',
+        'application/pdf',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        userName,
       );
-      if (!existsSync(dirPath)) {
-        mkdirSync(dirPath, { recursive: true });
-      }
-
-      const filename = `assinado_${docType.toLowerCase()}_${documentId.substring(0, 8)}_${Date.now()}.pdf`;
-      const filePath = join(dirPath, filename);
+      await this.filesStorage.ensureDirectory(dirname(filePath));
       writeFileSync(filePath, pdfBuffer);
 
       const file = await this.prisma.file.create({
         data: {
-          filename,
+          filename: basename(filePath),
           originalName: `Termo de Admissão (${docType}) - ${userName} - Assinado.pdf`,
           mimetype: 'application/pdf',
           path: filePath,

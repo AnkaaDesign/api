@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ElotechOxyAuthService, ElotechCity } from './elotech-oxy-auth.service';
 import axios from 'axios';
-import { NfseStatus } from '@prisma/client';
+import { FiscalDocumentStatus, NfseStatus } from '@prisma/client';
 
 export interface MunicipalEmitNfseInput {
   id: string;
@@ -871,6 +871,16 @@ export class ElotechOxyNfseService {
     data.status = status;
     await this.prisma.nfseDocument.update({ where: { id: nfseDocId }, data });
 
+    // Propagate to the FiscalDocument mirror. Without this the prefeitura's
+    // cancellation stopped at NfseDocument and the FiscalDocument stayed
+    // AUTHORIZED, leaving cancelled notes counted as live outbound revenue
+    // (R$134.701,87 across 15 documents when this was found) and leaving them in
+    // the reconciliation candidate pool.
+    //
+    // CANCEL_REJECTED must NOT cancel the mirror — the prefeitura refused the
+    // cancellation, so the note is still valid.
+    await this.syncFiscalDocumentCancellation(nfseDocId, status);
+
     return {
       cancelled: status === NfseStatus.CANCELLED,
       pending: status === NfseStatus.CANCEL_REQUESTED,
@@ -880,6 +890,57 @@ export class ElotechOxyNfseService {
       requestStatus: ultimoStatus,
       rejectionMessage,
     };
+  }
+
+  /**
+   * Mirrors an NfseDocument's cancellation onto its FiscalDocument, reversing any
+   * live reconciliation matches the cancelled note still carries — reconciling a
+   * bank line against a void document is not a valid settlement.
+   *
+   * Idempotent: re-running against an already-consistent pair writes nothing.
+   */
+  private async syncFiscalDocumentCancellation(
+    nfseDocId: string,
+    status: NfseStatus,
+  ): Promise<void> {
+    try {
+      const fd = await this.prisma.fiscalDocument.findFirst({
+        where: { nfseDocumentId: nfseDocId },
+        select: { id: true, status: true },
+      });
+      if (!fd) return;
+
+      if (status === NfseStatus.CANCELLED) {
+        if (fd.status === FiscalDocumentStatus.CANCELLED) return;
+        await this.prisma.$transaction(async db => {
+          await db.fiscalDocument.update({
+            where: { id: fd.id },
+            data: { status: FiscalDocumentStatus.CANCELLED, cancelledAt: new Date() },
+          });
+          await db.reconciliationMatch.updateMany({
+            where: { fiscalDocumentId: fd.id, reversedAt: null },
+            data: { reversedAt: new Date() },
+          });
+        });
+        this.logger.log(`FiscalDocument ${fd.id} cancelled following NFS-e ${nfseDocId}`);
+        return;
+      }
+
+      // The note is live again (rejection, or a re-query that found it active).
+      // Only undo a cancellation we would have made ourselves.
+      if (
+        (status === NfseStatus.AUTHORIZED || status === NfseStatus.CANCEL_REJECTED) &&
+        fd.status === FiscalDocumentStatus.CANCELLED
+      ) {
+        await this.prisma.fiscalDocument.update({
+          where: { id: fd.id },
+          data: { status: FiscalDocumentStatus.AUTHORIZED, cancelledAt: null },
+        });
+      }
+    } catch (err) {
+      // Never let mirror maintenance break the cancellation flow itself.
+      this.logger.error(`Failed to sync FiscalDocument for NFS-e ${nfseDocId}: ${err}`);
+    }
   }
 
   /**

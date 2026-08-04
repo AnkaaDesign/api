@@ -26,12 +26,13 @@ import {
   CHANGE_TRIGGERED_BY,
 } from '@constants';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
+import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
 import { FileService } from '@modules/common/file/file.service';
 import { PpePadesSignerService, CertMetadata } from './ppe-pades-signer.service';
 import { PpeSignatureAuditService } from './ppe-signature-audit.service';
 import * as crypto from 'crypto';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, dirname, basename } from 'path';
 import type { PpeDeliverySignFormData } from '@schemas';
 
 /**
@@ -71,6 +72,7 @@ export class PpeInAppSignatureService {
     private readonly fileService: FileService,
     private readonly padesSigner: PpePadesSignerService,
     private readonly auditService: PpeSignatureAuditService,
+    private readonly filesStorage: FilesStorageService,
   ) {
     this.hmacSecret = this.configService.get<string>('PPE_SIGNATURE_HMAC_SECRET') || '';
     this.filesRoot = this.configService.get<string>('FILES_ROOT') || './files';
@@ -586,32 +588,36 @@ export class PpeInAppSignatureService {
   ): Promise<string | null> {
     try {
       const userName = delivery.user?.name || 'Desconhecido';
-      const sanitizedName = userName
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-zA-Z0-9\s]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      const now = new Date();
-      const year = String(now.getFullYear()).slice(-2);
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-
-      const dirPath = join(this.filesRoot, 'Colaboradores', sanitizedName, "EPI's", year, month);
-
-      if (!existsSync(dirPath)) {
-        mkdirSync(dirPath, { recursive: true });
-      }
-
-      const filename = `${prefix}_epi_${delivery.id.substring(0, 8)}_${Date.now()}.pdf`;
-      const filePath = join(dirPath, filename);
-
+      // Caminho vem do FilesStorageService -- um sanitizador so para todo o sistema.
+      //
+      // Este metodo montava a pasta a mao com uma copia local do sanitizador (tira acento e
+      // pontuacao). Ela DISCORDA do resto do sistema para 12 dos 65 colaboradores
+      // ("Joao Vitor Neves Silva" aqui, "Joao Vitor Neves Silva" -> "Joao..." vs
+      // "Joao Vitor Neves Silva" com acento no resto), e o resultado e uma SEGUNDA pasta do
+      // mesmo colaborador -- foi assim que o cliente "53.842.320 ..." ganhou uma pasta gemea
+      // "53842320 ...". generateFilePath ainda garante nome unico, cria o diretorio com a
+      // permissao certa e devolve caminho ABSOLUTO (FILES_ROOT e './files' em dev, e caminho
+      // relativo ao cwd estoura ENOENT em cron/worker).
+      const baseName = `${prefix}_epi_${delivery.id.substring(0, 8)}.pdf`;
+      const filePath = this.filesStorage.generateFilePath(
+        baseName,
+        'signedPpeDocuments',
+        'application/pdf',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        userName,
+      );
+      await this.filesStorage.ensureDirectory(dirname(filePath));
       writeFileSync(filePath, pdfBuffer);
 
       // Create File record in database
       const file = await this.prisma.file.create({
         data: {
-          filename,
+          filename: basename(filePath),
           originalName: `Termo de Entrega EPI - ${userName} - Assinado.pdf`,
           mimetype: 'application/pdf',
           path: filePath,

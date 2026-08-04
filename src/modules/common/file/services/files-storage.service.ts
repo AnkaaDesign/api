@@ -57,6 +57,15 @@ export interface FilesFolderMapping {
   signedPpeDocuments: string;
 
   // Entity-specific folders - Financial
+  budgetSignatures: string;
+  budgetDossiers: string;
+  admissionDocuments: string;
+  terminationDocuments: string;
+  medicalExams: string;
+  leaveDocuments: string;
+  benefitDocuments: string;
+  fiscalDocumentXml: string;
+  bankStatements: string;
   installmentReceipts: string;
 
   // Entity-specific folders - Other
@@ -153,8 +162,39 @@ export class FilesStorageService {
     supplierLogo: 'Logo',
 
     // User folders (under Colaboradores/{userName}/)
+    //
+    // Documento de pessoa mora na pasta da pessoa. Admissao, rescisao, ASO, afastamento e
+    // declaracao de beneficio subiam com o contexto generico 'documents' -> Auxiliares/,
+    // um deposito sem dono: nao da pra achar pelo colaborador, o organizador nao consegue
+    // recolher (sem entidade resolvivel) e uma limpeza de "orfaos" nao ve diferenca entre
+    // isso e um arquivo solto.
     userAvatar: 'Fotos',
     signedPpeDocuments: 'EPIs',
+    admissionDocuments: 'Admissao',
+    terminationDocuments: 'Rescisao',
+    medicalExams: 'Exames Medicos',
+    leaveDocuments: 'Afastamentos',
+    benefitDocuments: 'Beneficios',
+
+    // Orçamento assinado (under Clientes/{customerName}/)
+    // O PDF selado do orçamento e o dossiê de assinatura passaram a ser PERSISTIDOS em
+    // vez de renderizados a cada download. Antes o serviço de assinatura montava o
+    // caminho na mão, com um sanitizador PRÓPRIO que tirava acentos e pontuação — e que
+    // portanto discorda deste para 78 dos 231 clientes, criando uma SEGUNDA pasta do
+    // mesmo cliente ("53842320 …" ao lado de "53.842.320 …"). Contexto de verdade aqui,
+    // um sanitizador só, tudo cai na pasta do cliente que o resto do sistema usa.
+    budgetSignatures: 'Orcamentos/Assinaturas',
+    budgetDossiers: 'Orcamentos/Dossies',
+
+    // Raiz do storage (sem entidade dona).
+    //
+    // FiscalDocument so guarda CNPJ em texto -- nao tem FK para Customer nem Supplier --,
+    // entao nao existe pasta de entidade para ele. O que importa aqui e sair de
+    // `process.cwd()/uploads`, que fica FORA de /srv/files: nao entra no espelho do HD nem
+    // no Google Drive, e esta no .gitignore (um `git clean -xfd` apaga). Eram 968 XMLs
+    // fiscais -- documento de guarda obrigatoria -- sem uma unica copia.
+    fiscalDocumentXml: 'Notas Fiscais/XML',
+    bankStatements: 'Financeiro/Extratos',
 
     // Financial folders (under Clientes/{customerName}/)
     installmentReceipts: 'Comprovantes',
@@ -260,6 +300,8 @@ export class FilesStorageService {
     'implementMeasurePhotos',
     'truckVinPlate',
     'quote-layouts',
+    'budgetSignatures',
+    'budgetDossiers',
     'plotterEspovo',
     'plotterAdesivo',
     'installmentReceipts',
@@ -280,6 +322,11 @@ export class FilesStorageService {
     'userAvatar',
     'signedPpeDocuments',
     'warning',
+    'admissionDocuments',
+    'terminationDocuments',
+    'medicalExams',
+    'leaveDocuments',
+    'benefitDocuments',
   ]);
 
   /**
@@ -639,12 +686,21 @@ export class FilesStorageService {
    * Sanitize filename for safe filesystem usage
    */
   sanitizeFileName(filename: string): string {
-    return filename
-      .replace(/[<>:"|?*\x00-\x1f]/g, '_')
-      .replace(/\.\./g, '_')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .substring(0, 100);
+    return (
+      filename
+        // Separadores de caminho TÊM de sair. Isto aqui é um sanitizador de SEGMENTO —
+        // o resultado é interpolado como uma única pasta em `Clientes/{nome}/...`. Sem
+        // esta linha, "Goncalves & Tortola S/A" virava DUAS pastas aninhadas e o cliente
+        // acabava com a árvore partida em `Clientes/Goncalves & Tortola S/A/Comprovantes`
+        // (já existe assim no disco). Três clientes têm barra no nome hoje — "S/A" é
+        // corriqueiro em razão social brasileira, então isto só tende a crescer.
+        .replace(/[/\\]/g, '_')
+        .replace(/[<>:"|?*\x00-\x1f]/g, '_')
+        .replace(/\.\./g, '_')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 100)
+    );
   }
 
   /**
@@ -705,9 +761,7 @@ export class FilesStorageService {
         'taskReimbursements',
         'taskNfeReimbursements',
       ],
-      order: [
-        'orderReceipts',
-      ],
+      order: ['orderReceipts'],
       customer: ['customerLogo'],
       supplier: ['supplierLogo'],
       observation: ['observations'],

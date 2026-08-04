@@ -1,6 +1,8 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
+import { FilesStorageModule } from '@modules/common/file/services/files-storage.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
 import { SiegModule } from '@modules/integrations/sieg/sieg.module';
 import { PayrollModule } from '@modules/personnel-department/payroll/payroll.module';
@@ -62,8 +64,14 @@ const categoryLearnersProvider = {
 
 @Module({
   imports: [
+    // Caminho canonico dos arquivos gravados por este modulo (antes iam para
+    // process.cwd()/uploads, fora do FILES_ROOT e fora do backup).
+    FilesStorageModule,
     ConfigModule,
     PrismaModule,
+    // Reconciliation state changes are now audited (BANK_TRANSACTION /
+    // RECONCILIATION_MATCH entity types).
+    ChangeLogModule,
     NotificationModule,
     forwardRef(() => SiegModule),
     // Payroll aggregate for the "Previsão de Saídas" composite (folha com

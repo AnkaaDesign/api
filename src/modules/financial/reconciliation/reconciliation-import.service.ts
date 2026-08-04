@@ -1,10 +1,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  Prisma,
-  ReconciliationRunStatus,
-  ReconciliationRunTrigger,
-} from '@prisma/client';
+import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
+import { Prisma, ReconciliationRunStatus, ReconciliationRunTrigger } from '@prisma/client';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import unzipper from 'unzipper';
@@ -42,6 +39,7 @@ export class ReconciliationImportService {
     private readonly payableMatch: PayableMatchService,
     private readonly classifier: ReconciliationClassifierService,
     private readonly dispatchService: NotificationDispatchService,
+    private readonly filesStorage: FilesStorageService,
   ) {}
 
   /**
@@ -140,9 +138,9 @@ export class ReconciliationImportService {
       // successful link, also derives the NF's item categories.
       let autoMatched = 0;
       for (const id of newlyInsertedIds) {
-        await this.classifier.classifyAndPersist(id).catch(err =>
-          this.logger.warn(`Classifier failed for ${id}: ${err}`),
-        );
+        await this.classifier
+          .classifyAndPersist(id)
+          .catch(err => this.logger.warn(`Classifier failed for ${id}: ${err}`));
         const tx = await this.prisma.bankTransaction.findUnique({
           where: { id },
           select: {
@@ -440,10 +438,20 @@ export class ReconciliationImportService {
   }
 
   private async persistRawFile(entry: OfxEntry): Promise<string> {
-    const dir = path.join(process.cwd(), 'uploads', 'bank-transactions');
-    await fs.mkdir(dir, { recursive: true });
-    const safeName = path.basename(entry.fileName).replace(/[^a-zA-Z0-9._-]/g, '_');
-    const target = path.join(dir, `${Date.now()}-${safeName}`);
+    // Grava em /srv/files, NAO em `process.cwd()/uploads`.
+    //
+    // `uploads/` fica fora do FILES_ROOT: nao entra no espelho do HD (files-sync.sh
+    // espelha so /srv/files/), logo nao chega no Google Drive, e esta no .gitignore --
+    // um `git clean -xfd` na arvore da API apaga. O extrato bruto e a evidencia de
+    // origem de toda conciliacao; perde-lo significa nao conseguir reconstruir de onde
+    // veio um lancamento. Caminho relativo ao cwd ainda estourava ENOENT em qualquer
+    // processo iniciado de outro diretorio (cron, worker).
+    const target = this.filesStorage.generateFilePath(
+      path.basename(entry.fileName),
+      'bankStatements',
+      'application/x-ofx',
+    );
+    await this.filesStorage.ensureDirectory(path.dirname(target));
     await fs.writeFile(target, entry.buffer);
 
     const file = await this.prisma.file.create({

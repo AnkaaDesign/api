@@ -968,7 +968,7 @@ export class AdmissionService {
     const createdFile = await this.fileService.createFromUploadWithTransaction(
       tx,
       file,
-      'documents',
+      'admissionDocuments',
       userId,
       {
         entityId: id,

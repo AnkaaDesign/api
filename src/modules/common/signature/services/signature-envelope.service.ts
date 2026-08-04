@@ -33,11 +33,16 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { createHmac, randomBytes, randomUUID } from 'crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
-import { join, resolve as resolvePath } from 'path';
+import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
+import { join, resolve as resolvePath, dirname, basename } from 'path';
 import { EnvelopeSignerStatus, EnvelopeStatus, Prisma, SignatureAuthMethod } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { COMPANY } from '@/config/company';
-import { formatResponsibleRoles, RESPONSIBLE_ROLE_LABELS, RESPONSIBLE_ROLE } from '@constants/enums';
+import {
+  formatResponsibleRoles,
+  RESPONSIBLE_ROLE_LABELS,
+  RESPONSIBLE_ROLE,
+} from '@constants/enums';
 import { SignatureAuditService } from './signature-audit.service';
 import { SigningChallengeService, SIGNING_CODE_TTL_MINUTES } from './signing-challenge.service';
 import {
@@ -118,6 +123,7 @@ export class SignatureEnvelopeService {
     private readonly renderer: QuoteRendererService,
     private readonly assembler: QuoteAssemblerService,
     private readonly pades: PadesSignerService,
+    private readonly filesStorage: FilesStorageService,
   ) {
     this.secretProblems = inspectSignatureSecrets(key => this.config.get<string>(key));
     if (this.secretProblems.length) {
@@ -618,7 +624,9 @@ export class SignatureEnvelopeService {
         // O signatário da Ankaa é um User, não um Responsible: sem isto ele não
         // tem cargo de cadastro nenhum e a cerimônia obriga o diretor a digitar
         // o próprio cargo, que o sistema já sabe.
-        user: { select: { position: { select: { name: true } }, sector: { select: { name: true } } } },
+        user: {
+          select: { position: { select: { name: true } }, sector: { select: { name: true } } },
+        },
         envelope: { include: { quote: { include: { task: { include: { customer: true } } } } } },
       },
     });
@@ -696,7 +704,7 @@ export class SignatureEnvelopeService {
     const changes =
       env.status === EnvelopeStatus.RUNNING
         ? []
-        : (await this.changesSinceFrozen(env.quoteId, [env])).get(env.id) ?? [];
+        : ((await this.changesSinceFrozen(env.quoteId, [env])).get(env.id) ?? []);
 
     return {
       envelope: {
@@ -810,9 +818,7 @@ export class SignatureEnvelopeService {
     // desaparecia sem log nem evento de auditoria.
     const parts = emailMaskParts(signer.declaredEmail);
     if (!parts.domain) {
-      this.logger.error(
-        `Signatário ${signer.id} sem e-mail mascarável — confirmação impossível.`,
-      );
+      this.logger.error(`Signatário ${signer.id} sem e-mail mascarável — confirmação impossível.`);
       throw new BadRequestException(
         'O e-mail cadastrado para este signatário é inválido. Fale com a Ankaa.',
       );
@@ -1572,12 +1578,7 @@ export class SignatureEnvelopeService {
       budgetNumber: signer.envelope.quote.budgetNumber,
       signingUrl: this.signingUrl(signer.accessToken),
     });
-    const ok = await this.sendEmail(
-      signer.declaredEmail,
-      subject,
-      html,
-      'SIGNATURE_ANKAA_NOTICE',
-    );
+    const ok = await this.sendEmail(signer.declaredEmail, subject, html, 'SIGNATURE_ANKAA_NOTICE');
     await this.audit.recordBestEffort(envelopeId, {
       eventType: ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
       actorType: 'SYSTEM',
@@ -1879,10 +1880,7 @@ export class SignatureEnvelopeService {
         continue;
       }
       try {
-        out.set(
-          env.id,
-          this.snapshots.changes(env.quoteSnapshot as QuoteSnapshot, fresh.snapshot),
-        );
+        out.set(env.id, this.snapshots.changes(env.quoteSnapshot as QuoteSnapshot, fresh.snapshot));
       } catch (error) {
         this.logger.warn(
           `Diff do envelope ${env.id} falhou: ${error instanceof Error ? error.message : error}`,
@@ -2019,12 +2017,7 @@ export class SignatureEnvelopeService {
           after: c.after,
         })),
       });
-      const notified = await this.sendEmail(
-        s.declaredEmail,
-        subject,
-        html,
-        'SIGNATURE_VOIDED',
-      );
+      const notified = await this.sendEmail(s.declaredEmail, subject, html, 'SIGNATURE_VOIDED');
       // SIGNER_VOIDED só para quem tinha assinatura a perder: é esse o fato
       // probatório. Para os pendentes o aviso é cortesia, e o ENVELOPE_INVALIDATED
       // já registra a mudança de estado da coleta inteira.
@@ -2686,7 +2679,11 @@ export class SignatureEnvelopeService {
       actorLabel: signer.declaredName,
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
-      payload: { channel: 'email', destination: maskEmail(signer.declaredEmail), resentBy: actorUserId },
+      payload: {
+        channel: 'email',
+        destination: maskEmail(signer.declaredEmail),
+        resentBy: actorUserId,
+      },
     });
     return ok;
   }
@@ -2736,31 +2733,39 @@ export class SignatureEnvelopeService {
     kind: 'original' | 'assinado',
     verificationCode: string,
   ): Promise<string> {
-    // ABSOLUTO. `FILES_ROOT` é `./files` em dev, então `join()` produzia um
-    // caminho relativo ao cwd: qualquer processo iniciado de outro diretório
-    // (cron, script, worker) lia o File.path e estourava ENOENT.
-    const filesRoot = resolvePath(
-      process.cwd(),
-      this.config.get<string>('FILES_ROOT') ?? './files',
-    );
+    // O caminho vem do FilesStorageService, não de um sanitizador local.
+    //
+    // Este método montava a pasta na mão com um sanitizador próprio — tirava acentos e
+    // toda pontuação. Ele DISCORDA do resto do sistema para 78 dos 231 clientes, e o
+    // resultado é uma segunda pasta do mesmo cliente: "53842320 Kennedy de Campos
+    // Teixeira" (criada aqui) ao lado de "53.842.320 Kennedy de Campos Teixeira" (onde
+    // moram checkin, checkout, layouts e base files do mesmo cliente). Enquanto o
+    // orçamento era renderizado sob demanda isso atingia um punhado de PDFs; com o
+    // documento PERSISTIDO para assinatura, atingiria um terço da base de clientes.
+    //
+    // `generateFilePath` também garante nome único (sufixo anti-colisão), cria o
+    // diretório com a permissão certa e devolve caminho ABSOLUTO — `FILES_ROOT` é
+    // `./files` em dev, e um caminho relativo ao cwd estourava ENOENT em qualquer
+    // processo iniciado de outro diretório (cron, script, worker).
     const customerName = quote.task?.customer?.fantasyName ?? 'Sem Cliente';
-    const sanitized = customerName
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-zA-Z0-9\s]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const baseName = `orcamento_${quote.budgetNumber}_${verificationCode}_${kind}.pdf`;
 
-    const dir = join(filesRoot, 'Clientes', sanitized, 'Orcamentos', 'Assinaturas');
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-
-    const filename = `orcamento_${quote.budgetNumber}_${verificationCode}_${kind}.pdf`;
-    const path = join(dir, filename);
+    const path = this.filesStorage.generateFilePath(
+      baseName,
+      'budgetSignatures',
+      'application/pdf',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      customerName,
+    );
+    await this.filesStorage.ensureDirectory(dirname(path));
     writeFileSync(path, pdf);
 
     const file = await this.prisma.file.create({
       data: {
-        filename,
+        filename: basename(path),
         originalName: `Orçamento ${quote.budgetNumber} — ${kind}.pdf`,
         mimetype: 'application/pdf',
         path,

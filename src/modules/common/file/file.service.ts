@@ -30,6 +30,7 @@ import { validateFileLimit } from './config/file-limits.config';
 import { ThumbnailService } from './thumbnail.service';
 import { ThumbnailQueueService, ThumbnailJobData } from './thumbnail-queue.service';
 import { FilesStorageService, type FilesFolderMapping } from './services/files-storage.service';
+import { FileReferenceService } from './services/file-reference.service';
 import { FileRelationshipField, FILE_RELATIONSHIP_MAP } from '../../../utils';
 import type {
   FileBatchCreateResponse,
@@ -67,6 +68,7 @@ export class FileService {
     private readonly thumbnailService: ThumbnailService,
     private readonly thumbnailQueueService: ThumbnailQueueService,
     private readonly filesStorageService: FilesStorageService,
+    private readonly fileReferenceService: FileReferenceService,
   ) {}
 
   /**
@@ -245,7 +247,7 @@ export class FileService {
         where: { id: { in: excludeIds } },
         select: { path: true },
       });
-      excludePaths = [...new Set(excludedFiles.map((f) => f.path))];
+      excludePaths = [...new Set(excludedFiles.map(f => f.path))];
     }
 
     // ── Layout contexts are separated by their DB RELATION, not by folder. ────────────
@@ -357,10 +359,7 @@ export class FileService {
     // The clone has a NEW id but shares the source's path/bytes; its thumbnail must be
     // keyed by the clone id, else the UI falls back to a generic icon. Generate it now
     // (best-effort — the on-demand thumbnail endpoint also covers it on first request).
-    if (
-      sourceFile.mimetype.startsWith('image/') &&
-      !sourceFile.mimetype.includes('eps')
-    ) {
+    if (sourceFile.mimetype.startsWith('image/') && !sourceFile.mimetype.includes('eps')) {
       try {
         const thumb = await this.thumbnailService.generateThumbnail(
           sourceFile.path,
@@ -813,7 +812,12 @@ export class FileService {
   /**
    * Serve file thumbnail by ID
    */
-  async serveThumbnailById(id: string, res: Response, size?: string, format?: string): Promise<void> {
+  async serveThumbnailById(
+    id: string,
+    res: Response,
+    size?: string,
+    format?: string,
+  ): Promise<void> {
     try {
       // Resolve the requested output format. Default is webp (backward compatible with
       // the web app); png/jpeg are for clients that cannot decode webp (e.g. iOS 12).
@@ -912,108 +916,104 @@ export class FileService {
         // Lock key includes the format so concurrent png/webp requests don't dedup wrongly.
         const lockKey = `${file.id}-${thumbnailSizeStr}-${requestedExt}`;
 
-            // Check if generation is already in progress for this file
-            const existingLock = this.thumbnailGenerationLocks.get(lockKey);
-            if (existingLock) {
-              this.logger.log(
-                `Thumbnail generation already in progress for ${file.id}, waiting...`,
-              );
-              try {
-                const result = await existingLock;
-                if (result?.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
-                  actualPath = result.thumbnailPath;
-                  contentType = requestedContentType;
-                } else {
-                  throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
-                }
-              } catch (waitError: any) {
-                throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
-              }
+        // Check if generation is already in progress for this file
+        const existingLock = this.thumbnailGenerationLocks.get(lockKey);
+        if (existingLock) {
+          this.logger.log(`Thumbnail generation already in progress for ${file.id}, waiting...`);
+          try {
+            const result = await existingLock;
+            if (result?.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
+              actualPath = result.thumbnailPath;
+              contentType = requestedContentType;
             } else {
-              // Resolve file path before attempting generation
-              const absoluteFilePath = file.path.startsWith('/') ? file.path : resolve(file.path);
-
-              // Guard: if the source file is gone from disk, skip generation entirely
-              // and return 404 at WARN level — no ERROR noise for a known-missing file
-              if (!existsSync(absoluteFilePath)) {
-                this.logger.warn(
-                  `Source file missing on disk for thumbnail request (file ID: ${file.id}, path: ${absoluteFilePath}). ` +
-                    `The file record exists in the database but the physical file was deleted or moved.`,
-                );
-                throw new NotFoundException(
-                  'Arquivo de origem não encontrado. O arquivo pode ter sido movido ou excluído.',
-                );
-              }
-
-              // Start new generation with lock
-              this.logger.log(`Thumbnail not found for ${file.id}, generating on-demand...`);
-
-              const generatePromise = (async () => {
-                try {
-                  this.logger.log(`Generating thumbnail from path: ${absoluteFilePath}`);
-
-                  const result = await this.thumbnailService.generateThumbnail(
-                    absoluteFilePath,
-                    file.mimetype,
-                    file.id,
-                    {
-                      // Honor the requested preset AND format so the generated file lands at
-                      // the `<id>_WxH.<ext>` path the serve check looks for. Without width/height
-                      // generation falls back to defaultOptions (300x300), so any size other
-                      // than `medium` would be regenerated on every request and never cached,
-                      // and larger presets (large/xlarge) were effectively unreachable. Format
-                      // drives the encoder + extension so png/jpeg are cached separately.
-                      width: thumbnailSize.width,
-                      height: thumbnailSize.height,
-                      format: outputFormat,
-                      quality: 80,
-                    },
-                  );
-
-                  if (result.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
-                    this.logger.log(`On-demand thumbnail generated successfully for ${file.id}`);
-
-                    // Update database with thumbnailUrl if it wasn't set
-                    if (!file.thumbnailUrl && result.thumbnailUrl) {
-                      await this.fileRepository.update(
-                        file.id,
-                        { thumbnailUrl: result.thumbnailUrl },
-                        {},
-                      );
-                      this.logger.log(`Updated thumbnailUrl in database for ${file.id}`);
-                    }
-                  }
-
-                  return result;
-                } finally {
-                  // Always clean up lock after completion (success or failure)
-                  this.thumbnailGenerationLocks.delete(lockKey);
-                }
-              })();
-
-              // Store the promise so other requests can wait
-              this.thumbnailGenerationLocks.set(lockKey, generatePromise);
-
-              try {
-                const result = await generatePromise;
-
-                if (result.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
-                  actualPath = result.thumbnailPath;
-                  contentType = requestedContentType;
-                } else {
-                  this.logger.warn(
-                    `Thumbnail generation failed for ${file.id}. Result: ${JSON.stringify({ success: result.success, error: result.error })}`,
-                  );
-                  throw new NotFoundException(
-                    'Não foi possível gerar thumbnail para este arquivo.',
-                  );
-                }
-              } catch (genError: any) {
-                if (genError instanceof NotFoundException) throw genError;
-                this.logger.warn(`Thumbnail generation error for ${file.id}: ${genError.message}`);
-                throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
-              }
+              throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
             }
+          } catch (waitError: any) {
+            throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
+          }
+        } else {
+          // Resolve file path before attempting generation
+          const absoluteFilePath = file.path.startsWith('/') ? file.path : resolve(file.path);
+
+          // Guard: if the source file is gone from disk, skip generation entirely
+          // and return 404 at WARN level — no ERROR noise for a known-missing file
+          if (!existsSync(absoluteFilePath)) {
+            this.logger.warn(
+              `Source file missing on disk for thumbnail request (file ID: ${file.id}, path: ${absoluteFilePath}). ` +
+                `The file record exists in the database but the physical file was deleted or moved.`,
+            );
+            throw new NotFoundException(
+              'Arquivo de origem não encontrado. O arquivo pode ter sido movido ou excluído.',
+            );
+          }
+
+          // Start new generation with lock
+          this.logger.log(`Thumbnail not found for ${file.id}, generating on-demand...`);
+
+          const generatePromise = (async () => {
+            try {
+              this.logger.log(`Generating thumbnail from path: ${absoluteFilePath}`);
+
+              const result = await this.thumbnailService.generateThumbnail(
+                absoluteFilePath,
+                file.mimetype,
+                file.id,
+                {
+                  // Honor the requested preset AND format so the generated file lands at
+                  // the `<id>_WxH.<ext>` path the serve check looks for. Without width/height
+                  // generation falls back to defaultOptions (300x300), so any size other
+                  // than `medium` would be regenerated on every request and never cached,
+                  // and larger presets (large/xlarge) were effectively unreachable. Format
+                  // drives the encoder + extension so png/jpeg are cached separately.
+                  width: thumbnailSize.width,
+                  height: thumbnailSize.height,
+                  format: outputFormat,
+                  quality: 80,
+                },
+              );
+
+              if (result.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
+                this.logger.log(`On-demand thumbnail generated successfully for ${file.id}`);
+
+                // Update database with thumbnailUrl if it wasn't set
+                if (!file.thumbnailUrl && result.thumbnailUrl) {
+                  await this.fileRepository.update(
+                    file.id,
+                    { thumbnailUrl: result.thumbnailUrl },
+                    {},
+                  );
+                  this.logger.log(`Updated thumbnailUrl in database for ${file.id}`);
+                }
+              }
+
+              return result;
+            } finally {
+              // Always clean up lock after completion (success or failure)
+              this.thumbnailGenerationLocks.delete(lockKey);
+            }
+          })();
+
+          // Store the promise so other requests can wait
+          this.thumbnailGenerationLocks.set(lockKey, generatePromise);
+
+          try {
+            const result = await generatePromise;
+
+            if (result.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
+              actualPath = result.thumbnailPath;
+              contentType = requestedContentType;
+            } else {
+              this.logger.warn(
+                `Thumbnail generation failed for ${file.id}. Result: ${JSON.stringify({ success: result.success, error: result.error })}`,
+              );
+              throw new NotFoundException('Não foi possível gerar thumbnail para este arquivo.');
+            }
+          } catch (genError: any) {
+            if (genError instanceof NotFoundException) throw genError;
+            this.logger.warn(`Thumbnail generation error for ${file.id}: ${genError.message}`);
+            throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
+          }
+        }
       }
 
       // Set headers for thumbnail
@@ -1438,47 +1438,21 @@ export class FileService {
 
         fileToDelete = file as File;
 
-        // Verificar se o arquivo está associado a alguma entidade
-        const associations = await tx.file.findUnique({
-          where: { id },
-          include: {
-            layouts: true,
-            customerLogo: true,
-            supplierLogo: true,
-            observations: true,
-            warning: true,
-            taskBudgets: true,
-            taskInvoices: true,
-            taskReceipts: true,
-            orderReceipts: true,
-            airbrushingReceipts: true,
-            airbrushingInvoices: true,
-            externalOperationInvoices: true,
-            externalOperationReceipts: true,
-          },
+        // Verificar se o arquivo está associado a alguma entidade.
+        //
+        // Vem do catálogo de FKs vivo + as colunas de saída do próprio File (ver
+        // FileReferenceService). A lista escrita à mão que existia aqui cobria 13 das
+        // ~50 relações e não incluía quoteLayoutId — era possível excluir o layout
+        // aprovado de um orçamento ativo, um EPI assinado ou um XML fiscal.
+        const references = await this.fileReferenceService.getReferences(id, {
+          transaction: tx,
         });
 
-        if (associations) {
-          const hasAssociations =
-            !!associations.layouts || // layouts is one-to-one, not array
-            (associations.customerLogo?.length || 0) > 0 ||
-            (associations.supplierLogo?.length || 0) > 0 ||
-            (associations.observations?.length || 0) > 0 ||
-            (associations.warning?.length || 0) > 0 ||
-            (associations.taskBudgets?.length || 0) > 0 ||
-            (associations.taskInvoices?.length || 0) > 0 ||
-            (associations.taskReceipts?.length || 0) > 0 ||
-            (associations.orderReceipts?.length || 0) > 0 ||
-            (associations.airbrushingReceipts?.length || 0) > 0 ||
-            (associations.airbrushingInvoices?.length || 0) > 0 ||
-            (associations.externalOperationInvoices?.length || 0) > 0 ||
-            (associations.externalOperationReceipts?.length || 0) > 0;
-
-          if (hasAssociations) {
-            throw new BadRequestException(
-              'Não é possível excluir o arquivo pois ele está associado a outras entidades.',
-            );
-          }
+        if (references.length > 0) {
+          throw new BadRequestException(
+            `Não é possível excluir o arquivo pois ele está em uso: ` +
+              `${this.fileReferenceService.describeReferences(references)}.`,
+          );
         }
 
         // Registrar exclusão com campos essenciais
@@ -1742,48 +1716,18 @@ export class FileService {
         const files = await this.fileRepository.findByIdsWithTransaction(tx, data.fileIds);
         filesToDelete = files;
 
-        // Verificar se algum arquivo está associado
+        // Verificar se algum arquivo está associado (mesma fonte de verdade do delete
+        // individual — catálogo de FKs vivo + colunas de saída do File).
         for (const file of files) {
-          const associations = await tx.file.findUnique({
-            where: { id: file.id },
-            include: {
-              layouts: true,
-              customerLogo: true,
-              supplierLogo: true,
-              observations: true,
-              warning: true,
-              taskBudgets: true,
-              taskInvoices: true,
-              taskReceipts: true,
-              orderReceipts: true,
-              airbrushingReceipts: true,
-              airbrushingInvoices: true,
-              externalOperationInvoices: true,
-              externalOperationReceipts: true,
-            },
+          const references = await this.fileReferenceService.getReferences(file.id, {
+            transaction: tx,
           });
 
-          if (associations) {
-            const hasAssociations =
-              !!associations.layouts || // layouts is one-to-one, not array
-              (associations.customerLogo?.length || 0) > 0 ||
-              (associations.supplierLogo?.length || 0) > 0 ||
-              (associations.observations?.length || 0) > 0 ||
-              (associations.warning?.length || 0) > 0 ||
-              (associations.taskBudgets?.length || 0) > 0 ||
-              (associations.taskInvoices?.length || 0) > 0 ||
-              (associations.taskReceipts?.length || 0) > 0 ||
-              (associations.orderReceipts?.length || 0) > 0 ||
-              (associations.airbrushingReceipts?.length || 0) > 0 ||
-              (associations.airbrushingInvoices?.length || 0) > 0 ||
-              (associations.externalOperationInvoices?.length || 0) > 0 ||
-              (associations.externalOperationReceipts?.length || 0) > 0;
-
-            if (hasAssociations) {
-              throw new BadRequestException(
-                `O arquivo ${file.filename} está associado a outras entidades e não pode ser excluído.`,
-              );
-            }
+          if (references.length > 0) {
+            throw new BadRequestException(
+              `O arquivo ${file.filename} está em uso ` +
+                `(${this.fileReferenceService.describeReferences(references)}) e não pode ser excluído.`,
+            );
           }
         }
 

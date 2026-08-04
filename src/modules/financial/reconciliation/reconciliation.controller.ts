@@ -184,8 +184,12 @@ export class ReconciliationController {
 
   @Post('transactions/:id/ignore')
   @UsePipes(new ZodValidationPipe(ignoreTransactionSchema))
-  ignore(@Param('id') id: string, @Body() payload: IgnoreTransactionDto) {
-    return this.service.ignore(id, payload);
+  ignore(
+    @Param('id') id: string,
+    @Body() payload: IgnoreTransactionDto,
+    @Req() req: Request & { user?: { id?: string } },
+  ) {
+    return this.service.ignore(id, payload, req.user?.id);
   }
 
   /**

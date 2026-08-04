@@ -17,10 +17,11 @@
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import PDFDocument from 'pdfkit';
-import { join } from 'path';
+import { join, dirname, basename } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { TERMINATION_DOCUMENT_TYPE, TERMINATION_TYPE } from '../../../constants';
 
@@ -70,11 +71,13 @@ const TERMINATION_TYPE_LABELS: Record<string, string> = {
   [TERMINATION_TYPE.RESIGNATION]: 'Pedido de demissão',
   [TERMINATION_TYPE.MUTUAL_AGREEMENT]: 'Acordo mútuo (CLT 484-A)',
   [TERMINATION_TYPE.EXPERIENCE_END]: 'Término do contrato de experiência',
-  [TERMINATION_TYPE.EXPERIENCE_EARLY_EMPLOYER]: 'Rescisão antecipada da experiência pelo empregador',
+  [TERMINATION_TYPE.EXPERIENCE_EARLY_EMPLOYER]:
+    'Rescisão antecipada da experiência pelo empregador',
   [TERMINATION_TYPE.EXPERIENCE_EARLY_EMPLOYEE]: 'Rescisão antecipada da experiência pelo empregado',
   [TERMINATION_TYPE.INDIRECT]: 'Rescisão indireta (CLT 483)',
   [TERMINATION_TYPE.DEATH]: 'Falecimento do colaborador',
-  [TERMINATION_TYPE.FIXED_TERM_EARLY_EMPLOYEE]: 'Rescisão antecipada de contrato a prazo pelo empregado (CLT 480)',
+  [TERMINATION_TYPE.FIXED_TERM_EARLY_EMPLOYEE]:
+    'Rescisão antecipada de contrato a prazo pelo empregado (CLT 480)',
   [TERMINATION_TYPE.INTERMITTENT_END]: 'Encerramento de contrato intermitente',
 };
 
@@ -105,6 +108,7 @@ export class TerminationDocumentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly filesStorage: FilesStorageService,
   ) {
     this.filesRoot = this.configService.get<string>('FILES_ROOT') || './files';
     this.loadLogo();
@@ -179,10 +183,11 @@ export class TerminationDocumentService {
     }
 
     const round2 = (v: number) => Math.round(v * 100) / 100;
-    const items = (termination as any).items as Array<{ description: string | null; amount: number }>;
-    const earnings = round2(
-      items.filter(i => i.amount > 0).reduce((s, i) => s + i.amount, 0),
-    );
+    const items = (termination as any).items as Array<{
+      description: string | null;
+      amount: number;
+    }>;
+    const earnings = round2(items.filter(i => i.amount > 0).reduce((s, i) => s + i.amount, 0));
     const discounts = round2(
       items.filter(i => i.amount < 0).reduce((s, i) => s + Math.abs(i.amount), 0),
     );
@@ -217,7 +222,11 @@ export class TerminationDocumentService {
       case TERMINATION_DOCUMENT_TYPE.WARNING_LETTER:
         return this.createPdf('CARTA DE AVISO PRÉVIO', data, 'notice');
       case TERMINATION_DOCUMENT_TYPE.TERM_484A:
-        return this.createPdf('TERMO DE RESCISÃO POR ACORDO MÚTUO (CLT ART. 484-A)', data, 'term484a');
+        return this.createPdf(
+          'TERMO DE RESCISÃO POR ACORDO MÚTUO (CLT ART. 484-A)',
+          data,
+          'term484a',
+        );
       case TERMINATION_DOCUMENT_TYPE.HOMOLOGATION_TERM:
         return this.createPdf('TERMO DE HOMOLOGAÇÃO E QUITAÇÃO', data, 'homologation');
       default:
@@ -278,11 +287,7 @@ export class TerminationDocumentService {
     }
   }
 
-  private createPdf(
-    title: string,
-    data: TerminationDocData,
-    variant: string,
-  ): Promise<Buffer> {
+  private createPdf(title: string, data: TerminationDocData, variant: string): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       try {
         const chunks: Buffer[] = [];
@@ -398,7 +403,10 @@ export class TerminationDocumentService {
               doc.rect(LAYOUT.marginLeft, y, contentWidth, rowHeight).fill(COLORS.tableAlt);
             }
             const isDiscount = item.amount < 0;
-            doc.font(FONTS.regular).fontSize(8).fillColor(isDiscount ? COLORS.discount : COLORS.text);
+            doc
+              .font(FONTS.regular)
+              .fontSize(8)
+              .fillColor(isDiscount ? COLORS.discount : COLORS.text);
             doc.text(item.description, LAYOUT.marginLeft + 8, y + 5, { width: colDesc - 16 });
             doc.text(this.fmtCurrency(item.amount), LAYOUT.marginLeft + colDesc, y + 5, {
               width: colValue - 8,
@@ -490,35 +498,26 @@ export class TerminationDocumentService {
     docType: TERMINATION_DOCUMENT_TYPE,
   ): Promise<string | null> {
     try {
-      const sanitizedName = (data.employeeName || 'Desconhecido')
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .replace(/[^a-zA-Z0-9\s]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      const now = new Date();
-      const year = String(now.getFullYear()).slice(-2);
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const dirPath = join(
-        this.filesRoot,
-        'Colaboradores',
-        sanitizedName,
-        'Rescisao',
-        year,
-        month,
+      // Caminho vem do FilesStorageService -- ver a nota em ppe-inapp-signature.
+      const baseName = `${docType.toLowerCase()}_${data.terminationId.substring(0, 8)}.pdf`;
+      const filePath = this.filesStorage.generateFilePath(
+        baseName,
+        'terminationDocuments',
+        'application/pdf',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        data.employeeName,
       );
-      if (!existsSync(dirPath)) {
-        mkdirSync(dirPath, { recursive: true });
-      }
-
-      const filename = `${docType.toLowerCase()}_${data.terminationId.substring(0, 8)}_${Date.now()}.pdf`;
-      const filePath = join(dirPath, filename);
+      await this.filesStorage.ensureDirectory(dirname(filePath));
       writeFileSync(filePath, pdfBuffer);
 
       const file = await tx.file.create({
         data: {
-          filename,
+          filename: basename(filePath),
           originalName: `${docType} - ${data.employeeName}.pdf`,
           mimetype: 'application/pdf',
           path: filePath,

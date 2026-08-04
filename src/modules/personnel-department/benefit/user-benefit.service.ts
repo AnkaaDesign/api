@@ -676,7 +676,7 @@ export class UserBenefitService {
         const newFile = await this.fileService.createFromUploadWithTransaction(
           tx,
           file,
-          'documents',
+          'benefitDocuments',
           userId,
           {
             entityId: id,
