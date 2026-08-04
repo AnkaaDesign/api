@@ -85,6 +85,14 @@ export const envSchema = z.object({
   // File Storage
   FILES_ROOT: z.string().default('./files'),
 
+  // Truck Studio 3D assets (geometry, HDRIs, textures, manufacturer logos).
+  // Served publicly at /studio-assets/ — see the mount in main.ts.
+  // This tree is deliberately NOT in the repository: models/vehicles/trailer.glb
+  // alone is ~300 MB and GitHub hard-rejects any blob over 100 MB, so the assets
+  // reach a server by rsync and never by `git pull`. Without this path pointing
+  // at a real rsync'd directory, a fresh deploy 404s on every model.
+  STUDIO_ASSETS_ROOT: z.string().default('./studio-assets'),
+
   // Secullum Auth URL (OAuth2 token endpoint)
   SECULLUM_AUTH_URL: z.string().url().default('https://autenticador.secullum.com.br/Token'),
 

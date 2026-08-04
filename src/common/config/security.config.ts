@@ -287,6 +287,14 @@ export const securityConfig = {
       'x-file-type',
       'content-disposition',
       'content-length',
+      // Ranged reads (`/studio-assets/`). `Range` is NOT a CORS-safelisted
+      // request header, so a GLTFLoader asking for a byte range of a 300 MB
+      // trailer.glb fires a preflight first — and a preflight that does not
+      // echo `range` back in Access-Control-Allow-Headers fails the whole
+      // request before a single byte is fetched. `if-range` rides along for
+      // the conditional re-request after a dropped connection.
+      'range',
+      'if-range',
     ],
     exposedHeaders: [
       'x-request-id',
