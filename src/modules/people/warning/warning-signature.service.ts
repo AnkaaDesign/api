@@ -23,16 +23,17 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
+import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
+import { WarningDocumentService, WarningSignerEvidence } from './warning-document.service';
 import {
-  WarningDocumentService,
-  WarningSignerEvidence,
-} from './warning-document.service';
-import { PpePadesSignerService, CertMetadata } from '@modules/inventory/ppe/ppe-pades-signer.service';
+  PpePadesSignerService,
+  CertMetadata,
+} from '@modules/inventory/ppe/ppe-pades-signer.service';
 import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '@constants';
 import { WarningSignatureEventType, Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, dirname, basename } from 'path';
 import type { WarningSignFormData, WarningRefuseSignFormData } from '@schemas';
 
 /**
@@ -78,6 +79,7 @@ export class WarningSignatureService {
     private readonly warningDocumentService: WarningDocumentService,
     private readonly changeLogService: ChangeLogService,
     private readonly padesSigner: PpePadesSignerService,
+    private readonly filesStorage: FilesStorageService,
   ) {
     // Dedicated secret with fallback to the PPE secret (shared HMAC keying).
     this.hmacSecret =
@@ -302,9 +304,7 @@ export class WarningSignatureService {
       this.logger.error('Failed to log changelog for warning signature:', error as Error);
     }
 
-    this.logger.log(
-      `Warning ${warningId} signed by ${authenticatedUserId} (${signerRole})`,
-    );
+    this.logger.log(`Warning ${warningId} signed by ${authenticatedUserId} (${signerRole})`);
 
     return { success: true, signatureId: signature.id, hmac: hmacSignature, signerRole };
   }
@@ -486,7 +486,9 @@ export class WarningSignatureService {
     });
 
     if (signatures.length === 0) {
-      throw new NotFoundException('Nenhuma assinatura eletrônica encontrada para esta advertência.');
+      throw new NotFoundException(
+        'Nenhuma assinatura eletrônica encontrada para esta advertência.',
+      );
     }
 
     if (!this.hmacSecret) {
@@ -535,15 +537,15 @@ export class WarningSignatureService {
    * storage and returned as-is. Otherwise a fresh, unsealed preview is rendered
    * from the warning's current state.
    */
-  async getWarningDocumentPdf(
-    warningId: string,
-  ): Promise<{ buffer: Buffer; filename: string }> {
+  async getWarningDocumentPdf(warningId: string): Promise<{ buffer: Buffer; filename: string }> {
     const warning = await this.prisma.warning.findUnique({
       where: { id: warningId },
       include: {
         collaborator: { select: { id: true, name: true, cpf: true } },
         supervisor: { select: { id: true, name: true } },
-        witness: { select: { id: true, name: true, cpf: true, position: { select: { name: true } } } },
+        witness: {
+          select: { id: true, name: true, cpf: true, position: { select: { name: true } } },
+        },
         signatures: {
           include: {
             signedByUser: { select: { id: true, name: true, cpf: true } },
@@ -576,9 +578,7 @@ export class WarningSignatureService {
     const signers: WarningSignerEvidence[] = (warning.signatures as any[]).map(s => ({
       name: s.signedByUser?.name || 'Signatário',
       cpf: s.signedByUser?.cpf || s.signedByCpf || '',
-      role: (s.signerRole === 'WITNESS' ? 'WITNESS' : 'COLLABORATOR') as
-        | 'COLLABORATOR'
-        | 'WITNESS',
+      role: (s.signerRole === 'WITNESS' ? 'WITNESS' : 'COLLABORATOR') as 'COLLABORATOR' | 'WITNESS',
       position: null,
       signed: !s.refused,
       refused: !!s.refused,
@@ -647,10 +647,8 @@ export class WarningSignatureService {
     locationAccuracy: number | null;
   } {
     return {
-      latitude:
-        evidence.latitude != null ? Math.round(evidence.latitude * 10000) / 10000 : null,
-      longitude:
-        evidence.longitude != null ? Math.round(evidence.longitude * 10000) / 10000 : null,
+      latitude: evidence.latitude != null ? Math.round(evidence.latitude * 10000) / 10000 : null,
+      longitude: evidence.longitude != null ? Math.round(evidence.longitude * 10000) / 10000 : null,
       locationAccuracy:
         evidence.locationAccuracy != null
           ? Math.round(evidence.locationAccuracy * 100) / 100
@@ -717,7 +715,9 @@ export class WarningSignatureService {
         where: { id: warningId },
         include: {
           collaborator: { select: { id: true, name: true, cpf: true } },
-          witness: { select: { id: true, name: true, cpf: true, position: { select: { name: true } } } },
+          witness: {
+            select: { id: true, name: true, cpf: true, position: { select: { name: true } } },
+          },
           signatures: true,
         },
       });
@@ -834,9 +834,7 @@ export class WarningSignatureService {
       biometricMethod: collabSig?.biometricMethod ?? null,
       serverTimestamp: collabSig?.serverTimestamp ?? null,
       deviceModel: collabSig?.deviceModel ?? null,
-      verificationCode: collabSig?.hmacSignature
-        ? collabSig.hmacSignature.substring(0, 16)
-        : null,
+      verificationCode: collabSig?.hmacSignature ? collabSig.hmacSignature.substring(0, 16) : null,
     });
 
     for (const w of warning.witness || []) {
@@ -864,29 +862,35 @@ export class WarningSignatureService {
     warningId: string,
   ): Promise<string | null> {
     try {
-      const sanitizedName = userName
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .replace(/[^a-zA-Z0-9\s]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      const now = new Date();
-      const year = String(now.getFullYear()).slice(-2);
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-
-      const dirPath = join(this.filesRoot, 'Colaboradores', sanitizedName, 'Advertencias', year, month);
-      if (!existsSync(dirPath)) {
-        mkdirSync(dirPath, { recursive: true });
-      }
-
-      const filename = `advertencia_${warningId.substring(0, 8)}_${Date.now()}.pdf`;
-      const filePath = join(dirPath, filename);
+      // Caminho vem do FilesStorageService -- um sanitizador so para todo o sistema.
+      //
+      // Este metodo montava a pasta a mao com uma copia local do sanitizador (tira acento e
+      // pontuacao). Ela DISCORDA do resto do sistema para 12 dos 65 colaboradores
+      // ("Joao Vitor Neves Silva" aqui, "Joao Vitor Neves Silva" -> "Joao..." vs
+      // "Joao Vitor Neves Silva" com acento no resto), e o resultado e uma SEGUNDA pasta do
+      // mesmo colaborador -- foi assim que o cliente "53.842.320 ..." ganhou uma pasta gemea
+      // "53842320 ...". generateFilePath ainda garante nome unico, cria o diretorio com a
+      // permissao certa e devolve caminho ABSOLUTO (FILES_ROOT e './files' em dev, e caminho
+      // relativo ao cwd estoura ENOENT em cron/worker).
+      const baseName = `advertencia_${warningId.substring(0, 8)}.pdf`;
+      const filePath = this.filesStorage.generateFilePath(
+        baseName,
+        'warning',
+        'application/pdf',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        userName,
+      );
+      await this.filesStorage.ensureDirectory(dirname(filePath));
       writeFileSync(filePath, pdfBuffer);
 
       const file = await this.prisma.file.create({
         data: {
-          filename,
+          filename: basename(filePath),
           originalName: `Termo de Ciência de Advertência - ${userName} - Assinado.pdf`,
           mimetype: 'application/pdf',
           path: filePath,

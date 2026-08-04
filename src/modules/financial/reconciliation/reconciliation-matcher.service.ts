@@ -42,6 +42,12 @@ const PERFECT_MATCH_DATE_WINDOW_DAYS = 365;
 const FUZZY_AMOUNT_TOLERANCE = 0.02; // 2% widening for fee/rounding noise (PIX fees, IOF)
 const AUTO_MATCH_SCORE_THRESHOLD = 90;
 const AUTO_MATCH_RUNNER_UP_GAP = 8;
+// Plausible settlement lag for an AUTOMATIC match, in days relative to the NF's
+// issue date (negative = paid before the note exists). 97% of healthy production
+// matches sit within -15…+29d; +60 leaves room for slow suppliers. Outside this
+// band the pair stays a manual candidate rather than being auto-confirmed.
+const AUTO_MATCH_MIN_LAG_DAYS = -15;
+const AUTO_MATCH_MAX_LAG_DAYS = 60;
 // Single tolerance for "perfect" value matches. Covers PIX fees, fiscal
 // rounding and small adjustments under one threshold instead of separate
 // "cents" and "R$ 1" tiers.
@@ -208,7 +214,7 @@ const INSTALLMENT_SIBLING_CAP = 80;
 // Single app-wide advisory lock serializing all reconciliation WRITES. Matching
 // is low-frequency batch work, so a global lock is cheap and closes the
 // check-then-act race where two concurrent runs both read an NF as unmatched
-// (`matches: { none: {} }`) and each link it to a different transaction.
+// (`matches: { none: { reversedAt: null } }`) and each link it to a different transaction.
 export const RECON_ADVISORY_LOCK_KEY = 4_337_271;
 
 const SUBSET_OPTS = {
@@ -438,6 +444,7 @@ function scoreCandidate(
   },
   doc: {
     totalValue: Prisma.Decimal | number;
+    valorServicos?: Prisma.Decimal | number | null;
     issueDate: Date;
     emitCnpj?: string | null;
     destCnpj?: string | null;
@@ -449,7 +456,15 @@ function scoreCandidate(
 ): CandidateScore {
   const absAmount = Math.abs(Number(tx.amount));
   const total = Number(doc.totalValue);
-  const v = valueScore(absAmount, total);
+  // An NFS-e can legitimately be settled at either its net (totalValue =
+  // valorLiquido, after ISS retention) or its gross (valorServicos) figure —
+  // which one the bank moves depends on whether the customer retained. Score
+  // against whichever is closer instead of forcing the net reading.
+  const gross = doc.valorServicos == null ? null : Number(doc.valorServicos);
+  const v =
+    gross != null && Math.abs(absAmount - gross) < Math.abs(absAmount - total)
+      ? valueScore(absAmount, gross)
+      : valueScore(absAmount, total);
   const d = dateScore(tx.postedAt, doc.issueDate);
 
   // Use the alias-resolved CNPJ only when the OFX itself didn't carry one.
@@ -1141,7 +1156,7 @@ export class ReconciliationMatcherService {
       where: {
         status: 'AUTHORIZED',
         offBankResolvedAt: null,
-        matches: { none: {} },
+        matches: { none: { reversedAt: null } },
         issueDate: { gte: lower, lte: upper },
         orderCodes: { some: {} },
         OR: [
@@ -1234,7 +1249,7 @@ export class ReconciliationMatcherService {
   /**
    * Acquires the app-wide reconciliation advisory lock for the current
    * transaction. Held until the transaction commits/rolls back, so all matching
-   * writers serialize and the `matches: { none: {} }` reads they re-run after
+   * writers serialize and the `matches: { none: { reversedAt: null } }` reads they re-run after
    * acquiring it are race-free.
    */
   private async lockWrites(tx2: Prisma.TransactionClient): Promise<void> {
@@ -1342,7 +1357,7 @@ export class ReconciliationMatcherService {
         status: 'AUTHORIZED',
         offBankResolvedAt: null,
         operationType: FiscalDocumentOperation.ENTRADA,
-        matches: { none: {} },
+        matches: { none: { reversedAt: null } },
         issueDate: { gte: lower, lte: upper },
         // Members are each smaller than the summed payment (plus tolerance).
         totalValue: { lte: absAmount + SUBSET_MAX_TOLERANCE },
@@ -1484,7 +1499,7 @@ export class ReconciliationMatcherService {
         status: 'AUTHORIZED',
         offBankResolvedAt: null,
         operationType: FiscalDocumentOperation.ENTRADA,
-        matches: { none: {} },
+        matches: { none: { reversedAt: null } },
         issueDate: { gte: lower, lte: upper },
         OR: [{ emitCnpj: effectiveCnpj }, { emitCnpj: { startsWith: root } }],
       },
@@ -1774,7 +1789,7 @@ export class ReconciliationMatcherService {
       issueDate: { gte: dateLower, lte: dateUpper },
       status: 'AUTHORIZED',
       offBankResolvedAt: null,
-      matches: { none: {} },
+      matches: { none: { reversedAt: null } },
     };
 
     const select = {
@@ -1825,7 +1840,7 @@ export class ReconciliationMatcherService {
         where: {
           status: 'AUTHORIZED',
           offBankResolvedAt: null,
-          matches: { none: {} },
+          matches: { none: { reversedAt: null } },
           issueDate: { gte: wideLower, lte: wideUpper },
           OR: [
             { emitCnpj: counterparty },
@@ -1862,7 +1877,7 @@ export class ReconciliationMatcherService {
         where: {
           status: 'AUTHORIZED',
           offBankResolvedAt: null,
-          matches: { none: {} },
+          matches: { none: { reversedAt: null } },
           issueDate: { gte: widestLower, lte: widestUpper },
           OR: [
             { emitCnpj: counterparty },
@@ -1903,7 +1918,7 @@ export class ReconciliationMatcherService {
           // Cloud / monitoring / vale-refeição service notes out of it.
           docType: { in: [...MARKETPLACE_CANDIDATE_DOC_TYPES] },
           destCnpj: this.companyCnpj,
-          matches: { none: {} },
+          matches: { none: { reversedAt: null } },
           issueDate: { gte: mktLower, lte: mktUpper },
           totalValue: {
             gte: absAmount * (1 - MARKETPLACE_VALUE_BELOW_TOLERANCE),
@@ -1932,7 +1947,7 @@ export class ReconciliationMatcherService {
 
     // --- Installment support (parcelas) ------------------------------------
     // Every pass above excludes any NF that already has a match row
-    // (`matches: { none: {} }`). But an NF paid in installments is settled by
+    // (`matches: { none: { reversedAt: null } }`). But an NF paid in installments is settled by
     // SEVERAL transactions and keeps an OPEN balance until the cumulative
     // allocation reaches its total (the write-time guard in
     // reconciliation.service enforces that ceiling). Without this pass the NF
@@ -2026,7 +2041,7 @@ export class ReconciliationMatcherService {
         );
       }
       const searchDocs = await this.prisma.fiscalDocument.findMany({
-        where: { status: 'AUTHORIZED', offBankResolvedAt: null, matches: { none: {} }, OR: or },
+        where: { status: 'AUTHORIZED', offBankResolvedAt: null, matches: { none: { reversedAt: null } }, OR: or },
         orderBy: { issueDate: 'desc' },
         take: 30,
         select,
@@ -2695,7 +2710,7 @@ export class ReconciliationMatcherService {
       where: {
         status: 'AUTHORIZED',
         offBankResolvedAt: null,
-        matches: { none: {} },
+        matches: { none: { reversedAt: null } },
         issueDate: { gte: lower, lte: upper },
         orderCodes: { some: {} },
         OR: [
@@ -3027,17 +3042,25 @@ export class ReconciliationMatcherService {
       ],
     };
 
+    const valueBand = {
+      gte: absAmount - AUTO_MATCH_VALUE_TOLERANCE,
+      lte: absAmount + AUTO_MATCH_VALUE_TOLERANCE,
+    };
+
     const candidates = await this.prisma.fiscalDocument.findMany({
       where: {
         status: 'AUTHORIZED',
         offBankResolvedAt: null,
-        totalValue: {
-          gte: absAmount - AUTO_MATCH_VALUE_TOLERANCE,
-          lte: absAmount + AUTO_MATCH_VALUE_TOLERANCE,
-        },
+        // NFS-e store totalValue = valorLiquido (net of ISS retention) while the
+        // bank may credit/debit the GROSS valorServicos. 110 production notes
+        // have the two figures differing, and matching on totalValue alone made
+        // every one of them structurally unreachable. Accept either.
+        //
+        // Combined under AND because cnpjFilter is itself an OR — spreading it
+        // alongside a sibling OR key would silently replace one with the other.
         issueDate: { gte: lower, lte: upper },
-        ...cnpjFilter,
-        matches: { none: {} },
+        matches: { none: { reversedAt: null } },
+        AND: [{ OR: [{ totalValue: valueBand }, { valorServicos: valueBand }] }, cnpjFilter],
       },
       take: 30,
       select: {
@@ -3049,6 +3072,11 @@ export class ReconciliationMatcherService {
         destCpf: true,
         emitName: true,
         destName: true,
+        // Needed by the direction and lag vetoes below.
+        operationType: true,
+        nfNumber: true,
+        // NFS-e gross figure — see the value band above.
+        valorServicos: true,
       },
     });
 
@@ -3120,6 +3148,38 @@ export class ReconciliationMatcherService {
       (!runnerUp || best.score.total - runnerUp.score.total >= AUTO_MATCH_RUNNER_UP_GAP);
 
     if (!acceptPerfect && !acceptThreshold) return false;
+
+    // ---- Hard vetoes. Applied AFTER both accept paths, because Path B carries
+    // no date or direction guard of its own and was the route by which a
+    // KURICA NF-e got auto-matched to a payment made 165 days before it was
+    // issued. Neither veto rejects any currently-correct match in production.
+
+    // Money must flow the right way: an inbound (supplier) note is settled by a
+    // DEBIT, an outbound (customer) note by a CREDIT. 343 live matches, zero
+    // violations — this only ever removes false positives.
+    const expectedTxType =
+      best.doc.operationType === FiscalDocumentOperation.ENTRADA
+        ? BankTransactionType.DEBIT
+        : BankTransactionType.CREDIT;
+    if (tx.type !== expectedTxType) {
+      this.logger.warn(
+        `Auto-match rejected: ${best.doc.operationType} NF ${best.doc.nfNumber ?? best.doc.id} ` +
+          `cannot be settled by a ${tx.type} (tx ${tx.id}).`,
+      );
+      return false;
+    }
+
+    // Plausible settlement lag. Positive = paid after the note was issued.
+    // 97% of healthy matches fall inside -15…+29 days; the band is widened to
+    // +60 for slow suppliers. Anything outside stays a manual candidate.
+    const lagDays = (tx.postedAt.getTime() - best.doc.issueDate.getTime()) / 86_400_000;
+    if (lagDays < AUTO_MATCH_MIN_LAG_DAYS || lagDays > AUTO_MATCH_MAX_LAG_DAYS) {
+      this.logger.warn(
+        `Auto-match rejected: NF ${best.doc.nfNumber ?? best.doc.id} is ${Math.round(lagDays)}d ` +
+          `from tx ${tx.id} (allowed ${AUTO_MATCH_MIN_LAG_DAYS}…${AUTO_MATCH_MAX_LAG_DAYS}d).`,
+      );
+      return false;
+    }
 
     // Surface which path accepted the match so audit can tell them apart.
     const perfectPrefix: string[] = [];
@@ -3225,7 +3285,7 @@ export class ReconciliationMatcherService {
           lte: absAmount + valueTolerance,
         },
         issueDate: { gte: lower, lte: upper },
-        matches: { none: {} },
+        matches: { none: { reversedAt: null } },
       },
       // Pull a couple extra so we can detect (and refuse) ambiguity.
       take: 5,

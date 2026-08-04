@@ -33,6 +33,7 @@ import { recalcQuoteTotals } from '../../../../utils/task-quote-totals';
 import { reconcileQuoteCustomerConfigs } from '../../../../utils/task-quote-customer-config-sync';
 import { syncTaskLayoutsFromQuote } from '../../../../utils/sync-quote-task-layouts';
 import { allocateBudgetNumber } from '../../../../utils/budget-number';
+import { syncTruckSpotWithCleared } from '../../../../utils/task-truck-spot';
 
 // =====================
 // Query Pattern Definitions
@@ -2308,12 +2309,12 @@ export class TaskPrismaRepository
         await syncTaskLayoutsFromQuote(transaction, quoteIdForLayoutSync, undefined);
       }
 
-      // When cleared becomes true, move truck to YARD_WAIT if spot is currently null
-      if (data.cleared === true) {
-        await transaction.truck.updateMany({
-          where: { taskId: id, spot: null },
-          data: { spot: 'YARD_WAIT' },
-        });
+      // Keep the yard position in sync with `cleared`. Read the *effective* value from
+      // updateInput, not from `data` — `cleared` is also derived here from entryDate
+      // (auto-clear) and forecastDate (auto-unclear), and those derivations must move
+      // the truck too.
+      if (typeof updateInput.cleared === 'boolean') {
+        await syncTruckSpotWithCleared(transaction, id, updateInput.cleared);
       }
 
       return this.mapDatabaseEntityToEntity(result);

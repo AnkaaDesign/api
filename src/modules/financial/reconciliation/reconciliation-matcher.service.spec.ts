@@ -103,7 +103,9 @@ describe('ReconciliationMatcherService — marketplace value-only matching', () 
     expect(where.operationType).toBe(FiscalDocumentOperation.ENTRADA);
     expect(where.destCnpj).toBe(COMPANY_CNPJ);
     expect(where.status).toBe('AUTHORIZED');
-    expect(where.matches).toEqual({ none: {} });
+    // Scoped to LIVE matches: reversed matches are retained now, and a document
+    // whose only match was reversed must become re-matchable.
+    expect(where.matches).toEqual({ none: { reversedAt: null } });
     // Linked as a value/date match, not EXACT (no CNPJ corroboration).
     expect(matchCreate).toHaveBeenCalledTimes(1);
     expect(matchCreate.mock.calls[0][0].data.matchType).toBe(

@@ -44,7 +44,7 @@
  *    artefato assinado para preservar.
  */
 
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
@@ -55,6 +55,7 @@ import { ConfigService } from '@nestjs/config';
 import { COMPANY, BRAND_COLORS } from '@/config/company';
 import { winAnsi } from '../document/quote-assembler.service';
 import { dossierPdfFilename } from '../document/document-filename';
+import { formatDateBR } from '../document/quote-text';
 import { SignatureEnvelopeService } from '../services/signature-envelope.service';
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
@@ -90,6 +91,10 @@ export class DossierAssemblerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    // forwardRef dos DOIS lados: o SignatureEnvelopeService passou a injetar este
+    // serviço para congelar o dossiê no selamento, então o par virou cíclico. Marcar
+    // só um lado não basta — o Nest falha ao resolver o outro.
+    @Inject(forwardRef(() => SignatureEnvelopeService))
     private readonly envelopes: SignatureEnvelopeService,
     private readonly elotech: ElotechOxyNfseService,
     private readonly sicredi: SicrediService,
@@ -229,8 +234,12 @@ export class DossierAssemblerService {
       const component: DossierComponent = {
         kind: 'BOLETO',
         label:
+          // `toLocaleDateString` lê a data gravada pelo fuso do PROCESSO — o
+          // vencimento é data de calendário (meio-dia UTC) e não pode depender
+          // de onde o serviço roda. `formatDateBR` é a mesma formatação do
+          // corpo do orçamento, então rótulo e cláusula nunca divergem.
           `Boleto${n ? ` ${n}` : ''} — vencimento ` +
-          `${slip.dueDate.toLocaleDateString('pt-BR')} — ${formatBRL(Number(slip.amount))}`,
+          `${formatDateBR(slip.dueDate)} — ${formatBRL(Number(slip.amount))}`,
         sha256: null,
         pages: 0,
         included: false,

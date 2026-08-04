@@ -719,6 +719,7 @@ model File {
   fispqPdfs                              Fispq[]                   @relation("FISPQ_PDF")
   signatureEnvelopeOriginals             SignatureEnvelope[]       @relation("ENVELOPE_ORIGINAL_FILE")
   signatureEnvelopeFinals                SignatureEnvelope[]       @relation("ENVELOPE_FINAL_FILE")
+  signatureEnvelopeDossiers              SignatureEnvelope[]       @relation("ENVELOPE_DOSSIER_FILE")
 
   filenameNormalized     String? /// accent-insensitive search (generated column, see migration)
   mimetypeNormalized     String? /// accent-insensitive search (generated column, see migration)
@@ -3868,6 +3869,12 @@ enum ChangeLogEntityType {
   VACATION
   VERIFICATION
   WARNING
+  // Reconciliation. Added 2026-08-04: there was previously no entity type
+  // covering these, so bank-transaction status flips, match create/reverse and
+  // fiscal-document cancellations could not be logged at all.
+  BANK_TRANSACTION
+  RECONCILIATION_MATCH
+  FISCAL_DOCUMENT
 }
 
 enum ChangeLogAction {
@@ -4486,6 +4493,18 @@ enum ReconciliationAdjustmentReason {
   OUTROS // other (see match notes)
 }
 
+/// Why the part of a PAYMENT not covered by any fiscal document is nonetheless
+/// accounted for. Mirrors the values the manual-match UI already offers as
+/// "Restante sem nota" chips; promoted from free text so the status recompute
+/// can read it.
+enum ReconciliationRemainderReason {
+  FRETE
+  SEGURO
+  TAXAS
+  ITEM_SEM_NOTA
+  OUTROS
+}
+
 enum FiscalDocumentType {
   NFE
   NFSE
@@ -4823,6 +4842,14 @@ model ReconciliationMatch {
   // transaction's allocation (still allocatedAmount) — only the note's settlement.
   adjustmentAmount         Decimal?                        @db.Decimal(14, 2)
   adjustmentReason         ReconciliationAdjustmentReason?
+  // Why the slice of the PAYMENT not backed by any note is nonetheless accounted
+  // for (frete, seguro, taxas de marketplace, item sem nota). Distinct from
+  // adjustmentReason, which reconciles a single NOTE's total with what was paid
+  // for it. Was previously folded into `notes` as free text, which made it
+  // unqueryable and — worse — invisible to the status recompute in
+  // unmatchFiscalDocument, so removing one NF from a multi-NF transaction
+  // silently demoted a legitimately-RECONCILED row to PARTIAL.
+  remainderReason          ReconciliationRemainderReason?
   matchType                ReconciliationMatchType
   confidenceScore          Int                             @default(100)
   matchedByUserId          String?
@@ -4832,7 +4859,7 @@ model ReconciliationMatch {
   reversedById             String?
   transaction              BankTransaction                 @relation("TransactionMatches", fields: [transactionId], references: [id], onDelete: Cascade)
   fiscalDocument           FiscalDocument?                 @relation("DocumentMatches", fields: [fiscalDocumentId], references: [id], onDelete: Restrict)
-  bankSlip                 BankSlip?                       @relation("BankSlipMatches", fields: [bankSlipId], references: [id])
+  bankSlip                 BankSlip?                       @relation("BankSlipMatches", fields: [bankSlipId], references: [id], onDelete: Restrict)
   installment              Installment?                    @relation("InstallmentMatches", fields: [installmentId], references: [id], onDelete: Restrict)
   orderInstallment         OrderInstallment?               @relation("OrderInstallmentMatches", fields: [orderInstallmentId], references: [id], onDelete: Restrict)
   recurrentOccurrence      RecurrentPayableOccurrence?     @relation("RecurrentOccurrenceMatches", fields: [recurrentOccurrenceId], references: [id], onDelete: Restrict)
@@ -4842,13 +4869,18 @@ model ReconciliationMatch {
 
   notesNormalized String? /// accent-insensitive search (generated column, see migration)
 
-  @@unique([transactionId, fiscalDocumentId])
-  @@unique([transactionId, installmentId])
-  @@unique([transactionId, bankSlipId])
-  @@unique([transactionId, orderInstallmentId])
-  @@unique([transactionId, recurrentOccurrenceId])
-  @@unique([transactionId, airbrushingId])
-  @@unique([transactionId, payrollMonthSettlementId])
+  // Idempotency is enforced by PARTIAL unique indexes scoped to live rows
+  // (WHERE "reversedAt" IS NULL), created in raw SQL by the
+  // 20260804_reconciliation_integrity migration — Prisma cannot express a
+  // filtered index, so they are deliberately absent from this block.
+  //
+  // They used to be plain @@unique([transactionId, <anchor>]). Because a reversed
+  // row still occupied the tuple, a reversal permanently blocked re-matching the
+  // same pair, which forced every unmatch path to hard-DELETE the row one
+  // statement after stamping reversedAt. The result was that all 524 matches
+  // carried reversedAt = NULL and every correction ever made had been erased:
+  // no un-match audit trail and no way to measure any matcher's precision.
+  // Scoping the uniqueness to live rows lets reversals persist.
   @@index([transactionId])
   @@index([fiscalDocumentId])
   @@index([bankSlipId])
@@ -7004,6 +7036,10 @@ model SignatureEnvelope {
 
   /// Artefato final: original + selos visuais + trilha de auditoria + PAdES.
   finalFileId String?
+  /// Dossiê congelado no momento do selamento. O documento só é FINAL quando o
+  /// envelope conclui — antes disso ele muda a cada assinatura coletada, e por isso
+  /// o endpoint sob demanda continua existindo (é o preview do envelope aberto).
+  dossierFileId String?
   finalSha256 String?
   sealedAt    DateTime?
 
@@ -7032,6 +7068,7 @@ model SignatureEnvelope {
   quote            TaskQuote             @relation("QUOTE_SIGNATURE_ENVELOPES", fields: [quoteId], references: [id], onDelete: Cascade)
   originalFile     File                  @relation("ENVELOPE_ORIGINAL_FILE", fields: [originalFileId], references: [id])
   finalFile        File?                 @relation("ENVELOPE_FINAL_FILE", fields: [finalFileId], references: [id])
+  dossierFile      File?                 @relation("ENVELOPE_DOSSIER_FILE", fields: [dossierFileId], references: [id])
   previousEnvelope SignatureEnvelope?    @relation("ENVELOPE_VERSION_CHAIN", fields: [previousEnvelopeId], references: [id], onDelete: SetNull)
   nextEnvelope     SignatureEnvelope?    @relation("ENVELOPE_VERSION_CHAIN")
   signers          EnvelopeSigner[]      @relation("ENVELOPE_SIGNERS")

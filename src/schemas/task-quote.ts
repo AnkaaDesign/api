@@ -509,8 +509,15 @@ export const paymentConfigSchema = z.object({
 
 export const taskQuoteCustomerConfigCreateNestedSchema = z.object({
   customerId: z.string().uuid('ID de cliente invalido'),
-  subtotal: moneySchema.optional().default(0),
-  total: moneySchema.optional().default(0),
+  // NOTE on wrapper order: `.default(x).optional()` yields ZodOptional(ZodDefault),
+  // which leaves an OMITTED key as `undefined`. The reverse, `.optional().default(x)`,
+  // yields ZodDefault(ZodOptional) and MATERIALIZES x for an absent key — which
+  // silently defeats the "absence = preserve" contract that
+  // task-quote-customer-config-sync.ts relies on to keep DB-owned values. The two
+  // orderings are one token apart with opposite semantics and no type-level signal,
+  // so keep them all in this form. Real columns already carry @default in Prisma.
+  subtotal: moneySchema.default(0).optional(),
+  total: moneySchema.default(0).optional(),
   // Global customer discount
   discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE).optional(),
   discountValue: moneySchema.nullable().optional(),
@@ -520,8 +527,12 @@ export const taskQuoteCustomerConfigCreateNestedSchema = z.object({
   // Structured payment config (replaces paymentCondition for new billing flow)
   paymentConfig: paymentConfigSchema.optional().nullable(),
   customPaymentText: z.string().max(2000).optional().nullable(),
-  generateInvoice: z.boolean().optional().default(true),
-  generateBankSlip: z.boolean().optional().default(true),
+  // Must stay `.default().optional()` — see the ordering note above. With the
+  // reverse order an update that omits these silently reset BOTH to true,
+  // re-enabling NFS-e emission and boleto registration for a customer configured
+  // not to receive them.
+  generateInvoice: z.boolean().default(true).optional(),
+  generateBankSlip: z.boolean().default(true).optional(),
   orderNumber: z.string().max(100, 'Máximo de 100 caracteres').optional().nullable(),
   responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),
   // Direct installments (alternative to paymentCondition-based generation)
@@ -659,7 +670,13 @@ export const taskQuoteUpdateSchema = z.object({
   layoutFileIds: z.array(z.string().uuid()).max(2).optional().nullable(),
 
   simultaneousTasks: simultaneousTasksSchema,
-  customerConfigs: z.array(taskQuoteCustomerConfigCreateNestedSchema).optional(),
+  // `.min(1)` mirrors the create schema: an empty array is not "no change", it
+  // instructs the reconcile to DELETE every billing config, collapsing the quote to
+  // the raw undiscounted services sum. No client intends that.
+  customerConfigs: z
+    .array(taskQuoteCustomerConfigCreateNestedSchema)
+    .min(1, 'Pelo menos uma configuracao de cliente e obrigatoria')
+    .optional(),
 });
 
 // =====================

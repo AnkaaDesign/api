@@ -821,7 +821,7 @@ export class LeaveService {
           const newFile = await this.fileService.createFromUploadWithTransaction(
             tx,
             file,
-            'documents',
+            'leaveDocuments',
             userId,
             {
               entityId: id,

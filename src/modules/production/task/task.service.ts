@@ -61,6 +61,7 @@ import {
 } from '../task-quote/task-quote.guards';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 import { syncTaskLayoutsFromQuote } from '../../../utils/sync-quote-task-layouts';
+import { syncTruckSpotWithCleared } from '../../../utils/task-truck-spot';
 import { allocateBudgetNumber } from '../../../utils/budget-number';
 import { TaskRepository, PrismaTransaction } from './repositories/task.repository';
 import {
@@ -13673,6 +13674,11 @@ export class TaskService {
           });
           this.logger.log(`[copyFromTask] Task update successful`);
 
+          // Copiar a previsão desfaz a liberação (acima) — tire o caminhão do pátio também.
+          if (typeof updateData.cleared === 'boolean') {
+            await syncTruckSpotWithCleared(tx, destinationTaskId, updateData.cleared);
+          }
+
           // A copied quote brings its own (cloned) layout files but no task
           // Layout rows — materialize them as APPROVED task layouts now that the
           // destination task↔quote link is set.
@@ -13940,6 +13946,9 @@ export class TaskService {
         data: { forecastDate: data.forecastDate, cleared: false },
         include: include || undefined,
       });
+
+      // Reagendar desfaz a liberação — o caminhão sai do pátio junto.
+      await syncTruckSpotWithCleared(tx, taskId, false);
 
       // Only create reschedule history when there was a previous forecast date.
       // Setting a forecast for the first time (previousDate is null) is not a reschedule.

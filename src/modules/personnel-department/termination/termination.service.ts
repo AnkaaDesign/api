@@ -1373,7 +1373,7 @@ export class TerminationService {
         const createdFile = await this.fileService.createFromUploadWithTransaction(
           tx,
           file,
-          'documents',
+          'terminationDocuments',
           userId,
           {
             entityId: id,

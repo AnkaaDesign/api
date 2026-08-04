@@ -90,3 +90,10 @@ prisma/manual/
 # Python bytecode (painting-engine)
 __pycache__/
 *.py[cod]
+
+# Árvore de assets 3D do Truck Studio servida em /studio-assets/.
+# NÃO é do repositório: são centenas de MB de geometria e HDRI, empurrados por
+# rsync para /srv/studio-assets/<versão>/ (ver STUDIO_ASSETS_ROOT no .env.example).
+# Em dev isto costuma ser um symlink para web/public — commitar o link quebraria
+# a árvore de qualquer outra máquina.
+studio-assets/

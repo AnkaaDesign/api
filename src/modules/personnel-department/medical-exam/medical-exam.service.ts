@@ -771,7 +771,7 @@ export class MedicalExamService {
         const newFile = await this.fileService.createFromUploadWithTransaction(
           tx,
           file,
-          'documents',
+          'medicalExams',
           userId,
           {
             entityId: id,

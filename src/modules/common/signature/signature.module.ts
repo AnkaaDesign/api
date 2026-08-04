@@ -14,6 +14,7 @@
 import { Module, OnModuleInit, Logger, forwardRef } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
+import { FilesStorageModule } from '@modules/common/file/services/files-storage.module';
 import { MailerModule } from '@modules/common/mailer/mailer.module';
 import { EmailService } from '@modules/common/mailer/services/email.service';
 import { assertSignatureSecrets } from './utils/secrets';
@@ -36,6 +37,9 @@ import { SignatureController, PublicSignatureController } from './signature.cont
   imports: [
     ConfigModule,
     PrismaModule,
+    // Caminho dos PDFs persistidos (orçamento selado / dossiê). Folha, sem ciclo:
+    // FilesStorageModule só importa PrismaModule.
+    FilesStorageModule,
     // MailerModule é folha (imports: []) e exporta por token de CLASSE, então
     // não há ciclo a evitar e nenhum forwardRef é necessário — ao contrário do
     // transporte de WhatsApp, que vinha sob token string e arrastava o

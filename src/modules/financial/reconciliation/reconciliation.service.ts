@@ -5,6 +5,7 @@ import {
   ReconciliationAdjustmentReason as AdjustmentReason,
   ReconciliationAliasSource,
   ReconciliationMatchType,
+  ReconciliationRemainderReason,
   ReconciliationSource,
   ReconciliationStatus,
 } from '@prisma/client';
@@ -34,6 +35,18 @@ import { CategoryFusionService } from './learning/category-fusion.service';
 import { OrderService } from '../../inventory/order/order.service';
 import { LearnedRuleSource } from '@prisma/client';
 import { memoFingerprint } from './text-normalization';
+import {
+  computeReconciliationStatus,
+  deriveTransactionState,
+  ALLOCATION_TOLERANCE,
+} from './transaction-status';
+import {
+  SETTLEMENT_ANCHOR_INCLUDE,
+  deriveSettlement,
+  settlementStateWhere,
+} from './settlement-summary';
+import { ChangeLogService } from '@modules/common/changelog/changelog.service';
+import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../constants/enums';
 
 // Categories included on every transaction list/detail response.
 const CATEGORY_INCLUDE = {
@@ -51,6 +64,12 @@ const CATEGORY_INCLUDE = {
           // Chart-of-accounts rollup (grupo contábil) — surfaced in the Extrato
           // category column and on the transaction detail page.
           accountingType: true,
+          // How many ACTIVE recurring bills live under this category. A
+          // resolving category with none (Tarifa Bancária, Tributo, Folha) is
+          // genuinely self-justifying; one WITH them (Energia Elétrica, Água,
+          // Aluguel) means a real obligation exists and this payment was never
+          // tied to it — which must not read as "done".
+          _count: { select: { recurrentPayables: { where: { isActive: true } } } },
         },
       },
     },
@@ -152,7 +171,44 @@ export class ReconciliationService {
     private readonly recurrenceLearner: RecurrenceLearnerService,
     private readonly fusion: CategoryFusionService,
     private readonly orderService: OrderService,
+    private readonly changeLogService: ChangeLogService,
   ) {}
+
+  /**
+   * Records a reconciliation state transition. Best-effort: an audit failure must
+   * never roll back the user's actual action, so this swallows its own errors.
+   *
+   * Deliberately called AFTER the mutating transaction commits rather than
+   * inside it — the log is evidence that something happened, and a log write
+   * failing is not a reason to undo a settled reconciliation.
+   */
+  private async logStatusChange(params: {
+    transactionId: string;
+    from: ReconciliationStatus | null;
+    to: ReconciliationStatus;
+    reason: string;
+    userId: string | undefined;
+    metadata?: Record<string, any>;
+  }): Promise<void> {
+    if (params.from === params.to) return;
+    try {
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.BANK_TRANSACTION,
+        entityId: params.transactionId,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'reconciliationStatus',
+        oldValue: params.from,
+        newValue: params.to,
+        reason: params.reason,
+        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+        triggeredById: params.userId ?? null,
+        userId: params.userId ?? null,
+        metadata: params.metadata,
+      });
+    } catch (err) {
+      this.logger.warn(`ChangeLog write failed for transaction ${params.transactionId}: ${err}`);
+    }
+  }
 
   async listTransactions(filters: TransactionsFilterDto) {
     const where: Prisma.BankTransactionWhereInput = {};
@@ -191,6 +247,29 @@ export class ReconciliationService {
       // Filters to transactions whose latest non-reversed match has this type.
       // Useful for stats drill-down (e.g. "show me all FUZZY matches I should audit").
       where.matches = { some: { matchType: filters.matchType, reversedAt: null } };
+    }
+    if (filters.linkage) {
+      // See the DTO for why this cannot be expressed via reconciliationStatus.
+      const liveMatch = { reversedAt: null } as const;
+      if (filters.linkage === 'FISCAL_DOCUMENT') {
+        where.matches = { some: { ...liveMatch, fiscalDocumentId: { not: null } } };
+      } else if (filters.linkage === 'SETTLEMENT_ANCHOR') {
+        where.AND = [
+          ...((where.AND as Prisma.BankTransactionWhereInput[]) ?? []),
+          { matches: { some: liveMatch } },
+          { matches: { none: { ...liveMatch, fiscalDocumentId: { not: null } } } },
+        ];
+      } else {
+        where.matches = { none: liveMatch };
+      }
+    }
+    if (filters.settlementState) {
+      // ANDed in as a whole predicate — it composes relation filters that would
+      // otherwise clobber `where.matches` set by `linkage`/`matchType` above.
+      where.AND = [
+        ...((where.AND as Prisma.BankTransactionWhereInput[]) ?? []),
+        settlementStateWhere(filters.settlementState),
+      ];
     }
     if (filters.type) where.type = filters.type;
     if (filters.subtype) where.subtype = filters.subtype;
@@ -240,9 +319,15 @@ export class ReconciliationService {
                   emitName: true,
                   emitCnpj: true,
                   issueDate: true,
+                  nfNumber: true,
+                  status: true,
                 },
               },
               bankSlip: { select: { id: true, nossoNumero: true, paidAmount: true } },
+              // The four non-NF anchors. Omitting them is what made an
+              // order/recorrente/aerografia clearance render as a green chip
+              // with an empty "Vínculo" column.
+              ...SETTLEMENT_ANCHOR_INCLUDE,
             },
           },
         },
@@ -250,7 +335,10 @@ export class ReconciliationService {
       this.prisma.bankTransaction.count({ where }),
     ]);
     return {
-      data,
+      // One derived `settlement` per row, computed from the same helper the
+      // detail endpoint uses, so the list badge and the detail badge can never
+      // disagree again.
+      data: data.map(tx => ({ ...tx, settlement: deriveSettlement(tx) })),
       meta: {
         page: filters.page,
         pageSize: filters.pageSize,
@@ -367,6 +455,9 @@ export class ReconciliationService {
             // Nest invoice → customer/task so the detail page can show what
             // the credit was conciliated against (parcela, NF, cliente).
             installment: { select: INSTALLMENT_RECEIVABLE_SELECT },
+            // Pedido / recorrente / aerografia / folha — the anchors the detail
+            // page previously had no way to name.
+            ...SETTLEMENT_ANCHOR_INCLUDE,
           },
         },
       },
@@ -374,6 +465,7 @@ export class ReconciliationService {
     if (!tx) throw new NotFoundException('Transação não encontrada');
     return {
       ...tx,
+      settlement: deriveSettlement(tx),
       matches: tx.matches.map(m => ({
         ...m,
         installment: m.installment ? normalizeInstallmentInvoice(m.installment) : m.installment,
@@ -645,38 +737,46 @@ export class ReconciliationService {
         }
       }
 
-      // Drop any prior matches NOT in the new payload, so re-matching with a
+      // Retire any prior matches NOT in the new payload, so re-matching with a
       // different/smaller set can't leave stale (double-counted) matches behind.
-      await tx2.reconciliationMatch.deleteMany({
-        where: { transactionId, fiscalDocumentId: { notIn: keepDocIds } },
+      // Reversed, not deleted — the correction is itself the record.
+      await tx2.reconciliationMatch.updateMany({
+        where: {
+          transactionId,
+          fiscalDocumentId: { notIn: keepDocIds },
+          reversedAt: null,
+        },
+        data: { reversedAt: new Date(), reversedById: userId ?? null },
       });
       for (const [fiscalDocumentId, amount] of allocByDoc) {
         const adj = adjByDoc.get(fiscalDocumentId);
-        await tx2.reconciliationMatch.upsert({
-          where: { transactionId_fiscalDocumentId: { transactionId, fiscalDocumentId } },
-          create: {
-            transactionId,
-            fiscalDocumentId,
-            allocatedAmount: amount,
-            adjustmentAmount: adj?.amount ?? null,
-            adjustmentReason: adj?.reason ?? null,
-            matchType: ReconciliationMatchType.MANUAL,
-            confidenceScore: 100,
-            matchedByUserId: userId ?? null,
-            notes: matchNotes,
-          },
-          update: {
-            allocatedAmount: amount,
-            // Re-saving without a reason clears any prior write-off on this note.
-            adjustmentAmount: adj?.amount ?? null,
-            adjustmentReason: adj?.reason ?? null,
-            matchType: ReconciliationMatchType.MANUAL,
-            matchedByUserId: userId ?? null,
-            notes: matchNotes,
-            reversedAt: null,
-            reversedById: null,
-          },
+        // Uniqueness is now a partial index over live rows only, so the compound
+        // where-key no longer exists on the Prisma client. Resolve the live row
+        // explicitly instead of upserting on the constraint.
+        const existing = await tx2.reconciliationMatch.findFirst({
+          where: { transactionId, fiscalDocumentId, reversedAt: null },
+          select: { id: true },
         });
+        const matchPayload = {
+          allocatedAmount: amount,
+          // Re-saving without a reason clears any prior write-off on this note.
+          adjustmentAmount: adj?.amount ?? null,
+          adjustmentReason: adj?.reason ?? null,
+          // Structured, so unmatchFiscalDocument's recompute can see it.
+          remainderReason: remainderResolved
+            ? (payload.remainderReason as ReconciliationRemainderReason)
+            : null,
+          matchType: ReconciliationMatchType.MANUAL,
+          matchedByUserId: userId ?? null,
+          notes: matchNotes,
+        };
+        if (existing) {
+          await tx2.reconciliationMatch.update({ where: { id: existing.id }, data: matchPayload });
+        } else {
+          await tx2.reconciliationMatch.create({
+            data: { transactionId, fiscalDocumentId, confidenceScore: 100, ...matchPayload },
+          });
+        }
       }
 
       return tx2.bankTransaction.update({
@@ -688,10 +788,11 @@ export class ReconciliationService {
           // under-covered tx with an UNRESOLVED remainder stays PARTIAL. Keeps
           // manual matches consistent with the auto order-group/subset passes and
           // avoids stats double-counting PARTIAL as both "pending" and "matched".
-          reconciliationStatus:
-            Math.abs(sum - txAmount) <= 0.05 || remainderResolved
-              ? ReconciliationStatus.RECONCILED
-              : ReconciliationStatus.PARTIAL,
+          reconciliationStatus: computeReconciliationStatus({
+            txAmount,
+            allocations: [sum],
+            remainderResolved,
+          }),
           reconciliationSource: ReconciliationSource.MANUAL,
           expectsFiscalDocument: true,
           categorySource: ReconciliationSource.MANUAL,
@@ -806,10 +907,9 @@ export class ReconciliationService {
 
     const updated = await this.prisma.$transaction(async tx2 => {
       await tx2.reconciliationMatch.updateMany({
-        where: { transactionId },
+        where: { transactionId, reversedAt: null },
         data: { reversedAt: new Date(), reversedById: userId ?? null },
       });
-      await tx2.reconciliationMatch.deleteMany({ where: { transactionId } });
       // The NF link is gone, so the AUTO item-derived category tags it produced
       // are no longer justified. Drop them; MANUAL tags the user set stay.
       await tx2.bankTransactionCategory.deleteMany({
@@ -824,17 +924,30 @@ export class ReconciliationService {
         },
         data: { categoryId: null, categoryConfidence: null, categorySource: null },
       });
+      // MANUAL resolving tags can survive an un-match, in which case the row is
+      // still legitimately reconciled by category rather than falling back to
+      // PENDING. Derive rather than assume.
+      const state = await deriveTransactionState(tx2, transactionId);
       return tx2.bankTransaction.update({
         where: { id: transactionId },
         data: {
-          reconciliationStatus: ReconciliationStatus.PENDING,
-          reconciliationSource: null,
-          // Still expects an NF — user un-matched intentionally; the matcher can
-          // retry on the next run.
+          reconciliationStatus: state.status,
+          reconciliationSource:
+            state.status === ReconciliationStatus.PENDING ? null : ReconciliationSource.MANUAL,
+          expectsFiscalDocument: state.expectsFiscalDocument,
           bankSlipId: null,
         },
         include: { matches: true },
       });
+    });
+
+    await this.logStatusChange({
+      transactionId,
+      from: ReconciliationStatus.RECONCILED,
+      to: updated.reconciliationStatus,
+      reason: 'Conciliação desfeita',
+      userId,
+      metadata: { reversedFiscalDocumentIds: matchedDocIds },
     });
 
     for (const counterparty of reversedCounterparties) {
@@ -967,7 +1080,6 @@ export class ReconciliationService {
         where: { fiscalDocumentId, reversedAt: null },
         data: { reversedAt: new Date(), reversedById: userId ?? null },
       });
-      await tx2.reconciliationMatch.deleteMany({ where: { fiscalDocumentId } });
 
       // AUTO item-categories derived from this NF are no longer justified.
       await tx2.fiscalDocumentItem.updateMany({
@@ -979,34 +1091,30 @@ export class ReconciliationService {
       // matches: fully covered → RECONCILED, partly → PARTIAL, none → PENDING.
       for (const t of txById.values()) {
         if (!t) continue;
-        const remaining = await tx2.reconciliationMatch.findMany({
+        const stillMatched = await tx2.reconciliationMatch.count({
           where: { transactionId: t.id, reversedAt: null },
-          select: { allocatedAmount: true },
         });
-        if (remaining.length === 0) {
+        if (stillMatched === 0) {
           await tx2.bankTransactionCategory.deleteMany({
             where: { transactionId: t.id, source: ReconciliationSource.AUTO },
           });
-          await tx2.bankTransaction.update({
-            where: { id: t.id },
-            data: {
-              reconciliationStatus: ReconciliationStatus.PENDING,
-              reconciliationSource: null,
-            },
-          });
-        } else {
-          const allocated = remaining.reduce((s, r) => s + Number(r.allocatedAmount), 0);
-          const txAmount = Math.abs(Number(t.amount));
-          await tx2.bankTransaction.update({
-            where: { id: t.id },
-            data: {
-              reconciliationStatus:
-                Math.abs(allocated - txAmount) <= 0.05
-                  ? ReconciliationStatus.RECONCILED
-                  : ReconciliationStatus.PARTIAL,
-            },
-          });
         }
+        // Shared derivation. The hand-rolled version this replaces dropped the
+        // remainderResolved flag that manualMatch honours, so un-linking one NF
+        // from a multi-NF transaction whose remainder was explained by a
+        // frete/seguro/taxas reason silently demoted it from RECONCILED to
+        // PARTIAL. Any surviving MANUAL resolving tag is also respected now.
+        const state = await deriveTransactionState(tx2, t.id);
+        await tx2.bankTransaction.update({
+          where: { id: t.id },
+          data: {
+            reconciliationStatus: state.status,
+            expectsFiscalDocument: state.expectsFiscalDocument,
+            ...(state.status === ReconciliationStatus.PENDING
+              ? { reconciliationSource: null }
+              : {}),
+          },
+        });
       }
     });
 
@@ -1025,13 +1133,13 @@ export class ReconciliationService {
     return this.getFiscalDocument(fiscalDocumentId);
   }
 
-  async ignore(transactionId: string, payload: IgnoreTransactionDto) {
+  async ignore(transactionId: string, payload: IgnoreTransactionDto, userId?: string) {
     const tx = await this.prisma.bankTransaction.findUnique({
       where: { id: transactionId },
-      select: { id: true },
+      select: { id: true, reconciliationStatus: true },
     });
     if (!tx) throw new NotFoundException('Transação não encontrada');
-    return this.prisma.bankTransaction.update({
+    const updated = await this.prisma.bankTransaction.update({
       where: { id: transactionId },
       data: {
         reconciliationStatus: ReconciliationStatus.IGNORED,
@@ -1039,6 +1147,14 @@ export class ReconciliationService {
         ignoredReason: payload.reason,
       },
     });
+    await this.logStatusChange({
+      transactionId,
+      from: tx.reconciliationStatus,
+      to: ReconciliationStatus.IGNORED,
+      reason: payload.reason,
+      userId,
+    });
+    return updated;
   }
 
   /**
@@ -1076,7 +1192,6 @@ export class ReconciliationService {
     if (chosen.length !== ids.length) {
       throw new BadRequestException('Uma ou mais categorias informadas não existem');
     }
-    const hasResolving = chosen.some(c => c!.isResolving);
     // Per-category amount split (only meaningful when >1 category). Categories
     // without an entry store null → the stats fallback handles them.
     const allocMap = new Map(
@@ -1108,19 +1223,51 @@ export class ReconciliationService {
           },
         });
       }
+      // Derive the whole terminal state from what the transaction now actually
+      // carries, instead of one-way-latching RECONCILED whenever a resolving
+      // category happens to be present. Two bugs lived in the old ternary:
+      //
+      //  1. expectsFiscalDocument was never written, so a row the classifier had
+      //     flagged as expecting an NF stayed flagged forever once a human hand
+      //     assigned a resolving category — 19 transactions in production.
+      //  2. The ternary had no else branch, so removing the last resolving
+      //     category from a category-reconciled row left it RECONCILED with zero
+      //     tags and zero matches.
+      const state = await deriveTransactionState(db, transactionId);
       await db.bankTransaction.update({
         where: { id: transactionId },
         data: {
           categorySource: ReconciliationSource.MANUAL,
           classifiedAt: new Date(),
-          ...(hasResolving
-            ? {
-                reconciliationStatus: ReconciliationStatus.RECONCILED,
-                reconciliationSource: ReconciliationSource.MANUAL,
-              }
+          reconciliationStatus: state.status,
+          expectsFiscalDocument: state.expectsFiscalDocument,
+          // Attribute the resolution to the human only when the category is what
+          // resolved it. A match-backed row keeps its original attribution.
+          ...(state.status === ReconciliationStatus.PENDING
+            ? { reconciliationSource: null }
+            : state.hasLiveMatch
+              ? {}
+              : { reconciliationSource: ReconciliationSource.MANUAL }),
+          // Leaving IGNORED must not carry the old justification along.
+          ...(tx.reconciliationStatus === ReconciliationStatus.IGNORED &&
+          state.status !== ReconciliationStatus.IGNORED
+            ? { ignoredReason: null }
             : {}),
         },
       });
+    });
+
+    const after = await this.prisma.bankTransaction.findUnique({
+      where: { id: transactionId },
+      select: { reconciliationStatus: true },
+    });
+    await this.logStatusChange({
+      transactionId,
+      from: tx.reconciliationStatus,
+      to: after!.reconciliationStatus,
+      reason: 'Alteração de categoria',
+      userId,
+      metadata: { categoryIds: ids },
     });
 
     // Persist an alias for the first resolving (transaction-only) category so
