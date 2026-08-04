@@ -108,6 +108,7 @@ export const SETTLEMENT_ANCHOR_INCLUDE = {
 export type SettlementState =
   | 'SETTLED'
   | 'AWAITING_NF'
+  | 'UNTIED'
   | 'UNBACKED'
   | 'OPEN'
   | 'IGNORED'
@@ -161,14 +162,26 @@ export interface TransactionSettlement {
   link: SettlementLink | null;
   /** Whether a fiscal document is still owed for this line. */
   expectsNf: boolean;
-  /** Note already linked to THIS transaction, if any. */
+  /** First note linked to THIS transaction, if any (see `nfs` for all of them). */
   nf: SettlementNf | null;
+  /** EVERY note linked to this transaction. One payment routinely settles
+   *  several — an NF-e for parts plus an NFS-e for the labour on the same
+   *  service order — and judging the reconciliation by only the first one
+   *  reports a false divergence for the difference. */
+  nfs: SettlementNf[];
   /** Note reachable through the matched order but NOT yet linked to this
    *  transaction — the "Vincular nota" suggestion. */
   suggestedNf: SettlementNf | null;
   threeWay: ThreeWayView | null;
   /** Name of the resolving category holding an NF-less line up. */
   resolvedByCategory: string | null;
+  /** Σ allocatedAmount over the live matches. */
+  allocated: number;
+  /** The live matches claim MORE money than the transaction moved — the payment
+   *  is booked twice. Independent of the anchor, so it catches the recurrent
+   *  fan-out (one debit written in full into each of N occurrence matches) that
+   *  no per-anchor check would see. */
+  overAllocated: boolean;
 }
 
 /** Tolerance for "these two amounts are the same money" (mirrors order-clearance). */
@@ -196,6 +209,9 @@ interface MatchLike {
   bankSlipId?: string | null;
   installmentId?: string | null;
   allocatedAmount?: Prisma.Decimal | number | null;
+  /** Set when the operator closed the un-noted slice of a payment with a reason
+   *  (frete, seguro, taxas) — it explains a shortfall against the notes. */
+  remainderReason?: string | null;
   fiscalDocument?: Record<string, unknown> | null;
   bankSlip?: { nossoNumero?: string | null; installment?: unknown } | null;
   installment?: Record<string, unknown> | null;
@@ -232,7 +248,15 @@ interface TransactionLike {
   amount: Prisma.Decimal | number;
   reconciliationStatus: string;
   matches?: MatchLike[] | null;
-  categories?: { category?: { name: string; isResolving: boolean } | null }[] | null;
+  categories?:
+    | {
+        category?: {
+          name: string;
+          isResolving: boolean;
+          _count?: { recurrentPayables?: number } | null;
+        } | null;
+      }[]
+    | null;
 }
 
 const toNf = (
@@ -266,8 +290,39 @@ const toNf = (
 export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
   const bank = Math.abs(num(tx.amount));
   const matches = tx.matches ?? [];
-  const resolvedByCategory =
-    tx.categories?.find(c => c.category?.isResolving)?.category?.name ?? null;
+  const resolvingCategory = tx.categories?.find(c => c.category?.isResolving)?.category ?? null;
+  const resolvedByCategory = resolvingCategory?.name ?? null;
+  // Does that category track real, recurring obligations? "Energia Elétrica" and
+  // "Água" do; "Tarifa Bancária" and "Tributo" do not.
+  const categoryHasObligations = (resolvingCategory?._count?.recurrentPayables ?? 0) > 0;
+
+  // Allocation is summed PER ANCHOR KIND, never across kinds.
+  //
+  // Within one kind the allocations partition the payment: two notes sharing one
+  // PIX must together not exceed it. ACROSS kinds they are parallel DESCRIPTIONS
+  // of the same money — a supplier payment legitimately carries both the order
+  // installment it settles and the NF that documents it, and adding those two
+  // together would report every correctly tied-back payment as double-booked.
+  const byKind = new Map<string, number>();
+  const addKind = (kind: string, v: number) => byKind.set(kind, (byKind.get(kind) ?? 0) + v);
+  for (const m of matches) {
+    const v = num(m.allocatedAmount);
+    if (m.fiscalDocument || m.fiscalDocumentId) addKind('fiscalDocument', v);
+    if (m.bankSlip || m.bankSlipId) addKind('bankSlip', v);
+    if (m.installment || m.installmentId) addKind('installment', v);
+    if (m.orderInstallment) addKind('orderInstallment', v);
+    if (m.recurrentOccurrence) addKind('recurrentOccurrence', v);
+    if (m.airbrushing) addKind('airbrushing', v);
+    if (m.payrollMonthSettlement) addKind('payroll', v);
+  }
+  const tolerance = Math.max(TOLERANCE_ABS, bank * TOLERANCE_PCT);
+  // Tolerance mirrors the amount comparisons above; a genuine double-booking is
+  // an exact 2×/3×, never a rounding artefact.
+  const overAllocated = [...byKind.values()].some(v => v > bank + tolerance);
+  const allocatedOf = (kind: string): number => byKind.get(kind) ?? 0;
+  // Headline figure: the largest single dimension, which is the one a human
+  // would compare against the bank line.
+  const allocated = byKind.size > 0 ? Math.max(...byKind.values()) : 0;
 
   const empty: TransactionSettlement = {
     state: 'OPEN',
@@ -276,9 +331,12 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
     link: null,
     expectsNf: false,
     nf: null,
+    nfs: [],
     suggestedNf: null,
     threeWay: null,
     resolvedByCategory,
+    allocated,
+    overAllocated,
   };
 
   if (tx.reconciliationStatus === 'IGNORED') return { ...empty, state: 'IGNORED' };
@@ -286,23 +344,57 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
 
   const open = tx.reconciliationStatus === 'PENDING' || tx.reconciliationStatus === 'PARTIAL';
 
-  // --- 1. Linked fiscal document — the strongest close. ------------------------
-  const docMatch = matches.find(m => m.fiscalDocument || m.fiscalDocumentId);
-  if (docMatch) {
-    const nf = toNf(docMatch.fiscalDocument, tx.id, null);
-    const nfTotal = nf?.totalValue ?? null;
+  // --- 1. Linked fiscal documents — the strongest close. -----------------------
+  const docMatches = matches.filter(m => m.fiscalDocument || m.fiscalDocumentId);
+  if (docMatches.length > 0) {
+    const nfs: SettlementNf[] = [];
+    for (const m of docMatches) {
+      const n = toNf(m.fiscalDocument, tx.id, null);
+      if (n && !nfs.some(x => x.id === n.id)) nfs.push(n);
+    }
+    const nf = nfs[0] ?? null;
+    const nfTotal = nfs.some(n => n.totalValue != null)
+      ? nfs.reduce((s, n) => s + (n.totalValue ?? 0), 0)
+      : null;
+
+    const label = nf
+      ? [
+          `NF ${nf.nfNumber ?? ''}`.trim() + (nfs.length > 1 ? ` +${nfs.length - 1}` : ''),
+          nf.emitName,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : 'Nota fiscal';
+
+    // What must reconcile is the money ALLOCATED to the notes versus the money
+    // that moved — NOT the notes' face totals. Two independent, legitimate
+    // shapes break the naive "bank vs nf total" comparison:
+    //   • one payment settling SEVERAL notes (an NF-e for parts + an NFS-e for
+    //     the labour on the same OS) — the total of any single note is smaller;
+    //   • one payment settling ONE INSTALLMENT of a note — the note's total is
+    //     several times larger.
+    // Both reported a false "divergência". `allocatedAmount` already encodes the
+    // operator's intent in both cases, so compare against that.
+    // Only the money allocated to NOTES counts here — an order-installment
+    // anchor on the same transaction describes the same payment, not extra.
+    const docAllocated = allocatedOf('fiscalDocument');
+    const shortfall = bank - docAllocated;
+    // A payment can be legitimately larger than the notes when the remainder was
+    // explicitly closed with a reason (frete, seguro, taxas).
+    const remainderExplained = matches.some(m => m.remainderReason != null);
+    const flag: 'OK' | 'MISMATCH' =
+      overAllocated || (shortfall > tolerance && !remainderExplained) ? 'MISMATCH' : 'OK';
+
     return {
       ...empty,
       state: open ? 'OPEN' : 'SETTLED',
       anchor: 'FISCAL_DOCUMENT',
-      label: nf?.emitName ? `NF ${nf.nfNumber ?? ''} · ${nf.emitName}`.trim() : 'Nota fiscal',
-      link: { kind: 'fiscalDocument', id: nf?.id ?? docMatch.fiscalDocumentId ?? null },
+      label,
+      link: { kind: 'fiscalDocument', id: nf?.id ?? docMatches[0].fiscalDocumentId ?? null },
       expectsNf: false,
       nf,
-      threeWay:
-        nfTotal == null
-          ? null
-          : { bank, anchor: null, nf: nfTotal, flag: agrees(bank, nfTotal) ? 'OK' : 'MISMATCH' },
+      nfs,
+      threeWay: { bank, anchor: docAllocated, nf: nfTotal, flag },
     };
   }
 
@@ -311,17 +403,23 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
   if (orderMatch?.orderInstallment) {
     const oi = orderMatch.orderInstallment;
     const order = oi.order ?? null;
-    // Every note reachable from the order, by either path, tagged with the
-    // "#Ped:" code when that is how it was reached.
-    const reachable: SettlementNf[] = [];
-    for (const fd of order?.fiscalDocuments ?? []) {
-      const n = toNf(fd, tx.id, null);
-      if (n) reachable.push(n);
-    }
+    // Every note reachable from the order, by either path. The "#Ped:" code is
+    // resolved FIRST so a note reachable both ways still carries it — that code
+    // is the human-readable proof of the tie and belongs on the suggestion.
+    const codeByFd = new Map<string, string>();
     for (const oc of order?.fiscalDocumentOrderCodes ?? []) {
-      const n = toNf(oc.fiscalDocument, tx.id, oc.code ?? null);
-      if (n && !reachable.some(r => r.id === n.id)) reachable.push(n);
+      const fdId = (oc.fiscalDocument as { id?: string } | null | undefined)?.id;
+      if (fdId && oc.code) codeByFd.set(fdId, oc.code);
     }
+    const reachable: SettlementNf[] = [];
+    const pushNf = (raw: Record<string, unknown> | null | undefined) => {
+      const id = typeof raw?.id === 'string' ? raw.id : null;
+      if (!id || reachable.some(r => r.id === id)) return;
+      const n = toNf(raw, tx.id, codeByFd.get(id) ?? null);
+      if (n) reachable.push(n);
+    };
+    for (const fd of order?.fiscalDocuments ?? []) pushNf(fd);
+    for (const oc of order?.fiscalDocumentOrderCodes ?? []) pushNf(oc.fiscalDocument);
     // Prefer a note whose total matches the payment — with several notes on one
     // order that is the one this specific debit paid.
     const suggested =
@@ -435,15 +533,19 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
   // Folha, Tributo) is a legitimate, self-justifying close and must read GREEN —
   // it was rendering grey, which looks like unfinished work. Anything else is a
   // genuine orphan and needs a human.
-  return resolvedByCategory
-    ? {
-        ...empty,
-        state: 'SETTLED',
-        anchor: 'CATEGORY',
-        label: resolvedByCategory,
-        expectsNf: false,
-      }
-    : { ...empty, state: 'UNBACKED' };
+  if (!resolvedByCategory) return { ...empty, state: 'UNBACKED' };
+  return {
+    ...empty,
+    // A category only CLOSES a payment when nothing else is tracking it. When
+    // the category carries active recurring bills, an untied payment means the
+    // obligation exists somewhere and this bank line was never attached to it —
+    // e.g. three COPEL meters against two "Energia Elétrica" contas, so one bill
+    // a month falls through and reads as finished while nothing accounts for it.
+    state: categoryHasObligations ? 'UNTIED' : 'SETTLED',
+    anchor: 'CATEGORY',
+    label: resolvedByCategory,
+    expectsNf: false,
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -492,6 +594,7 @@ const AWAITING_NF_ANCHOR_MATCH: Prisma.ReconciliationMatchWhereInput = {
 export type SettlementStateFilter =
   | 'SETTLED'
   | 'AWAITING_NF'
+  | 'UNTIED'
   | 'UNBACKED'
   | 'OPEN'
   | 'NEEDS_ACTION';
@@ -514,6 +617,17 @@ export function settlementStateWhere(
     matches: { none: { reversedAt: null } },
     categories: { none: { category: { isResolving: true } } },
   };
+  // Closed by a category that DOES track recurring obligations, with nothing
+  // tied — the obligation exists, this payment just isn't attached to it.
+  const untied: Prisma.BankTransactionWhereInput = {
+    reconciliationStatus: 'RECONCILED',
+    matches: { none: { reversedAt: null } },
+    categories: {
+      some: {
+        category: { isResolving: true, recurrentPayables: { some: { isActive: true } } },
+      },
+    },
+  };
   const open: Prisma.BankTransactionWhereInput = {
     reconciliationStatus: { in: ['PENDING', 'PARTIAL'] },
   };
@@ -521,17 +635,19 @@ export function settlementStateWhere(
   switch (state) {
     case 'AWAITING_NF':
       return awaitingNf;
+    case 'UNTIED':
+      return untied;
     case 'UNBACKED':
       return unbacked;
     case 'OPEN':
       return open;
     case 'NEEDS_ACTION':
-      return { OR: [open, awaitingNf, unbacked] };
+      return { OR: [open, awaitingNf, untied, unbacked] };
     case 'SETTLED':
       // Everything terminal that is NOT one of the yellow buckets.
       return {
         reconciliationStatus: 'RECONCILED',
-        NOT: { OR: [awaitingNf, unbacked] },
+        NOT: { OR: [awaitingNf, untied, unbacked] },
       };
   }
 }

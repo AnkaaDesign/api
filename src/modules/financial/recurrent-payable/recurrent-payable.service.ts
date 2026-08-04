@@ -322,6 +322,28 @@ export class RecurrentPayableService {
             expectsNf: updated.expectsNf,
           },
         });
+
+        // Turning "espera nota" OFF is a statement about the BILL, not about a
+        // period: vale-transporte, aluguel de pessoa física and diárias never
+        // issue one, for any competence. The window above only reaches future,
+        // unsettled occurrences, so without this the already-reconciled ones
+        // would sit at "Aguardando nota" forever with no way to close them —
+        // the bank line is settled and the note is never coming.
+        //
+        // Deliberately one-directional. Occurrences that already HAVE a note are
+        // excluded (nothing to quiet), and turning the flag ON is not applied
+        // retroactively: demanding notes for competences already closed would
+        // re-open settled history.
+        if (dto.expectsNf === false) {
+          await this.prisma.recurrentPayableOccurrence.updateMany({
+            where: {
+              recurrentPayableId: id,
+              expectsNf: true,
+              fiscalDocumentId: null,
+            },
+            data: { expectsNf: false },
+          });
+        }
       }
     }
 

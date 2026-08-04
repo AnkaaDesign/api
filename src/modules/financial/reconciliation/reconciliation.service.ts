@@ -64,6 +64,12 @@ const CATEGORY_INCLUDE = {
           // Chart-of-accounts rollup (grupo contábil) — surfaced in the Extrato
           // category column and on the transaction detail page.
           accountingType: true,
+          // How many ACTIVE recurring bills live under this category. A
+          // resolving category with none (Tarifa Bancária, Tributo, Folha) is
+          // genuinely self-justifying; one WITH them (Energia Elétrica, Água,
+          // Aluguel) means a real obligation exists and this payment was never
+          // tied to it — which must not read as "done".
+          _count: { select: { recurrentPayables: { where: { isActive: true } } } },
         },
       },
     },

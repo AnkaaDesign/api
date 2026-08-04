@@ -53,8 +53,11 @@ export const transactionsFilterSchema = z.object({
   //   UNBACKED     — RECONCILED with no match AND no resolving category
   //   OPEN         — PENDING / PARTIAL
   //   NEEDS_ACTION — the union of the three yellow buckets above
+  //   UNTIED       — fechada por uma categoria que TEM contas recorrentes
+  //                  ativas, sem nenhuma amarrada: a obrigação existe e este
+  //                  pagamento não foi ligado a ela
   settlementState: z
-    .enum(['SETTLED', 'AWAITING_NF', 'UNBACKED', 'OPEN', 'NEEDS_ACTION'])
+    .enum(['SETTLED', 'AWAITING_NF', 'UNTIED', 'UNBACKED', 'OPEN', 'NEEDS_ACTION'])
     .optional(),
   type: z.nativeEnum(BankTransactionType).optional(),
   subtype: z.nativeEnum(BankTransactionSubtype).optional(),

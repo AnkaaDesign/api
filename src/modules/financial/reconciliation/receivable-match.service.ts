@@ -13,7 +13,10 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { nameSimilarity } from './text-normalization';
 import { isDueDateOverdue } from '@utils/due-date.util';
-import { RECON_ADVISORY_LOCK_KEY } from './reconciliation-matcher.service';
+import {
+  RECON_ADVISORY_LOCK_KEY,
+  TOP_MATCH_SCORE_BADGE_FLOOR,
+} from './reconciliation-matcher.service';
 
 /** How far apart (days) a credit's postedAt and an installment's dueDate may be
  *  for an automatic receivable match. Wider than the boleto bridge — non-boleto
@@ -592,7 +595,11 @@ export class ReceivableMatchService {
             return true;
           }
           // Customer resolved but value doesn't reconcile → record the near-miss.
-          await this.stampTopScore(tx.id, resolved.score);
+          // NOT `resolved.score`: that is the IDENTITY score ("we are 100% sure
+          // who paid"), on a different scale from the parcela-fit score the
+          // detail page's candidate list shows. Stamping it made the extrato
+          // read "Pendente · 100%" over a row whose best parcela scored 39%.
+          await this.stampTopScore(tx.id, await this.bestCandidateScore(tx));
           return false;
         }
         // Resolved below the auto bar (raiz branch or fuzzy name): a one-click
@@ -615,7 +622,10 @@ export class ReceivableMatchService {
   ): Promise<boolean> {
     const candidates = await this.findScoredCandidates(tx, { exactValueOnly: true });
     if (candidates.length === 0) {
-      await this.stampTopScore(tx.id, floorScore);
+      // `floorScore` is an identity score and is deliberately NOT used for the
+      // badge — see bestCandidateScore(). It still gates nothing else here.
+      void floorScore;
+      await this.stampTopScore(tx.id, await this.bestCandidateScore(tx));
       return false;
     }
 
@@ -633,10 +643,40 @@ export class ReceivableMatchService {
       return true;
     }
 
-    // Ambiguous → leave for manual, but surface how close the best one is
-    // (the higher of the value-first best and any identity near-miss).
-    await this.stampTopScore(tx.id, Math.max(best.confidence, floorScore ?? 0));
+    // Ambiguous → leave for manual, but surface how close the best one is, on
+    // the SAME scale the detail page's candidate list uses.
+    await this.stampTopScore(tx.id, await this.bestCandidateScore(tx));
     return false;
+  }
+
+  /**
+   * Best candidate confidence for a credit, computed exactly the way
+   * `getReceivableCandidates` computes the list the operator sees — same window,
+   * same scorer, boletos included.
+   *
+   * This is the ONLY number allowed onto the "Pendente · NN%" chip. The
+   * alternative sources are on incompatible scales (the customer-identity score
+   * is "how sure are we who paid", not "how well does this parcela fit"), and
+   * mixing them is what let the Extrato advertise 100% on a credit whose closest
+   * parcela was a 39% fit, R$14,75 and 46 days away.
+   *
+   * Returns null below the display floor so faint proximity stays quiet.
+   */
+  private async bestCandidateScore(tx: RawCredit): Promise<number | null> {
+    try {
+      const [installments, boletos] = await Promise.all([
+        this.findScoredCandidates(tx, { exactValueOnly: false, windowDays: 60 }),
+        this.findBoletoCandidates(tx),
+      ]);
+      const best = Math.max(
+        0,
+        ...installments.map(c => c.confidence),
+        ...boletos.map(c => c.confidence),
+      );
+      return best >= TOP_MATCH_SCORE_BADGE_FLOOR ? Math.round(best) : null;
+    } catch {
+      return null;
+    }
   }
 
   private async stampTopScore(transactionId: string, score: number | null): Promise<void> {
@@ -1414,7 +1454,30 @@ export class ReceivableMatchService {
     const boletoCandidates = await this.findBoletoCandidates(tx);
 
     // Same installment can't appear twice; boletos are keyed by their own slip.
-    return [...installmentCandidates, ...boletoCandidates].sort((a, b) => b.confidence - a.confidence);
+    const all = [...installmentCandidates, ...boletoCandidates].sort(
+      (a, b) => b.confidence - a.confidence,
+    );
+
+    // Converge the stored badge score onto what this page is about to render.
+    // The NF path already does this (ReconciliationService.getCandidates); the
+    // receivable path did not, so a credit could keep an old, differently-scaled
+    // score forever and the Extrato chip would contradict the detail page.
+    // Best-effort, never blocks the response, and only while still unresolved.
+    const best = all.length ? all[0].confidence : null;
+    const top = best != null && best >= TOP_MATCH_SCORE_BADGE_FLOOR ? Math.round(best) : null;
+    this.prisma.bankTransaction
+      .updateMany({
+        where: {
+          id: transactionId,
+          reconciliationStatus: {
+            in: [ReconciliationStatus.PENDING, ReconciliationStatus.PARTIAL],
+          },
+        },
+        data: { topMatchScore: top },
+      })
+      .catch(() => undefined);
+
+    return all;
   }
 
   /** Unlinked PAID boletos as manual conciliation candidates (the operator's path
