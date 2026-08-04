@@ -985,11 +985,68 @@ export class TaskQuoteService {
           // createMany, which silently wiped the signature and could cascade-
           // delete an issued invoice. Installments stay created at
           // BILLING_APPROVED time, not here.
-          const { cancelledInvoices } = await reconcileQuoteCustomerConfigs(
+          const { cancelledInvoices, diff: configDiff } = await reconcileQuoteCustomerConfigs(
             tx,
             id,
             data.customerConfigs as any,
           );
+
+          // Audit the per-customer billing terms. The discount lives on the config
+          // row, so when it moved off TaskQuote (migration 20260408000003) it left
+          // the `fieldsToTrack` scalar allowlist behind and stopped being audited
+          // entirely — a discount could be wiped with no trace beyond the derived
+          // quote total. Logged against the QUOTE id so the entries surface on the
+          // quote timeline, mirroring how TASK_QUOTE_SERVICE entries are anchored.
+          // Names for every customer on either side of this write — used by the
+          // per-field logs below AND by the customer-set log further down.
+          const namedCustomerIds = [
+            ...new Set([
+              ...configDiff.map(d => d.customerId),
+              ...((existing as any).customerConfigs || []).map((c: any) => c.customerId),
+              ...(data.customerConfigs as any[]).map(c => c.customerId),
+            ]),
+          ].filter(Boolean);
+          const configCustomers = namedCustomerIds.length
+            ? await tx.customer.findMany({
+                where: { id: { in: namedCustomerIds } },
+                select: { id: true, fantasyName: true },
+              })
+            : [];
+          const configCustomerNames = new Map(configCustomers.map(c => [c.id, c.fantasyName]));
+
+          if (configDiff.length > 0) {
+            for (const entry of configDiff) {
+              const who = configCustomerNames.get(entry.customerId) || entry.customerId;
+              const reason =
+                entry.type === 'added'
+                  ? entry.inherited
+                    ? `Faturamento '${who}' adicionado — desconto herdado do cliente substituido`
+                    : `Faturamento '${who}' adicionado ao orcamento`
+                  : entry.type === 'removed'
+                    ? `Faturamento '${who}' removido do orcamento`
+                    : `Faturamento '${who}' — ${entry.field} alterado`;
+
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK_QUOTE_CUSTOMER_CONFIG,
+                entityId: id,
+                action:
+                  entry.type === 'added'
+                    ? (CHANGE_LOG_ACTION.CREATE as any)
+                    : entry.type === 'removed'
+                      ? (CHANGE_LOG_ACTION.DELETE as any)
+                      : (CHANGE_LOG_ACTION.UPDATE as any),
+                field: entry.field ?? null,
+                oldValue: entry.oldValue ?? null,
+                newValue: entry.newValue ?? null,
+                reason,
+                metadata: { customerId: entry.customerId, customerName: who, inherited: !!entry.inherited },
+                userId: userId || '',
+                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                triggeredById: userId,
+                transaction: tx,
+              });
+            }
+          }
 
           // If a removed customer's stale invoice was auto-cancelled and the
           // quote was already in a billing status, revert it to BUDGET_APPROVED
@@ -1044,8 +1101,13 @@ export class TaskQuoteService {
           const oldConfigNames =
             oldConfigs.map((c: any) => c.customer?.fantasyName || c.customerId).join(', ') ||
             'Nenhum';
+          // Resolve the NEW side to names too. This previously mapped `customerId`
+          // despite the variable name, so every entry read "Cliente A → 187bff5f-…":
+          // a name replaced by a hex string, giving no hint that money had moved.
           const newConfigNames =
-            data.customerConfigs.map((c: any) => c.customerId).join(', ') || 'Nenhum';
+            data.customerConfigs
+              .map((c: any) => configCustomerNames.get(c.customerId) || c.customerId)
+              .join(', ') || 'Nenhum';
 
           if (oldConfigIds !== newConfigIds) {
             await this.changeLogService.logChange({

@@ -10,6 +10,7 @@
 
 import { TRUCK_CATEGORY_LABELS, IMPLEMENT_TYPE_LABELS } from '@constants/enum-labels';
 import { toTitleCase } from '@utils/formatters';
+import { parseDueDateYMD } from '@utils/due-date.util';
 
 const NUMBER_WORDS: Record<number, string> = {
   1: 'uma',
@@ -84,11 +85,26 @@ function formatDays(n: number): string {
   return `${n} ${n === 1 ? 'dia' : 'dias'}`;
 }
 
+/**
+ * `specificDate` é uma DATA DE CALENDÁRIO ("2026-08-12"), não um instante.
+ *
+ * O porte do web usava `new Date(y, m - 1, d)` — meia-noite LOCAL — porque no
+ * browser o local É São Paulo e `formatDate` também formata em local: os dois
+ * se cancelam. No servidor não: o `ankaa-api.service` não define `TZ` e a
+ * máquina é `Etc/UTC`, então meia-noite local vira meia-noite UTC, e
+ * `formatDateBR` (que fixa America/Sao_Paulo, UTC-3) renderiza o dia ANTERIOR.
+ * O orçamento 609 (Nutrymax 15,50 — série 38772) saiu com "vencimento em
+ * 11/08/2026" no dossiê enquanto a parcela e o boleto diziam 12/08.
+ *
+ * `parseDueDateYMD` materializa ao MEIO-DIA UTC, a mesma convenção com que
+ * parcela e boleto são gravados — daí o dia do calendário ser o mesmo em
+ * qualquer fuso, e o texto do documento bater com o boleto por construção.
+ */
 function parseSpecificDate(iso?: string): Date | null {
   if (!iso) return null;
-  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
-  if (!y || !m || !d) return null;
-  const date = new Date(y, m - 1, d);
+  const ymd = iso.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const date = parseDueDateYMD(ymd);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -147,6 +163,21 @@ export function generatePaymentText(args: {
   paymentCondition?: string | null;
   total: number;
   paymentMethod?: string | null;
+  /**
+   * Vencimento da 1ª parcela REAL, quando o faturamento já a gerou.
+   *
+   * O `specificDate` do `paymentConfig` é o que foi *combinado*; a parcela é o
+   * que foi *emitido*. `generateInstallmentsFromPaymentConfig` ainda aplica o
+   * piso de hoje+3 e rola sábado/domingo/feriado para o próximo dia útil, então
+   * os dois divergem sempre que a data combinada cai em dia não útil ou já
+   * passou — e o dossiê ficava citando um dia que o boleto não tem. O web já
+   * preferia a parcela real (`configInstallments[0]?.dueDate`); esta porta não
+   * aceitava o parâmetro, e era essa a segunda fonte de divergência.
+   *
+   * Na assinatura ainda não há parcela: fica `null` e a cláusula sai do
+   * `specificDate`, exatamente como antes.
+   */
+  firstDueDate?: Date | null;
 }): string {
   if (args.customPaymentText) return args.customPaymentText;
 
@@ -159,7 +190,10 @@ export function generatePaymentText(args: {
   const phrase = PAYMENT_METHOD_PHRASES[method];
   const methodPhrase = phrase ? ` ${phrase}` : '';
 
-  return fromConfig(config, args.total, methodPhrase, null);
+  const firstDueDate =
+    args.firstDueDate && !Number.isNaN(args.firstDueDate.getTime()) ? args.firstDueDate : null;
+
+  return fromConfig(config, args.total, methodPhrase, firstDueDate);
 }
 
 export function generateGuaranteeText(args: {

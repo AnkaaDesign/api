@@ -55,6 +55,7 @@ import { ConfigService } from '@nestjs/config';
 import { COMPANY, BRAND_COLORS } from '@/config/company';
 import { winAnsi } from '../document/quote-assembler.service';
 import { dossierPdfFilename } from '../document/document-filename';
+import { formatDateBR } from '../document/quote-text';
 import { SignatureEnvelopeService } from '../services/signature-envelope.service';
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
@@ -229,8 +230,12 @@ export class DossierAssemblerService {
       const component: DossierComponent = {
         kind: 'BOLETO',
         label:
+          // `toLocaleDateString` lê a data gravada pelo fuso do PROCESSO — o
+          // vencimento é data de calendário (meio-dia UTC) e não pode depender
+          // de onde o serviço roda. `formatDateBR` é a mesma formatação do
+          // corpo do orçamento, então rótulo e cláusula nunca divergem.
           `Boleto${n ? ` ${n}` : ''} — vencimento ` +
-          `${slip.dueDate.toLocaleDateString('pt-BR')} — ${formatBRL(Number(slip.amount))}`,
+          `${formatDateBR(slip.dueDate)} — ${formatBRL(Number(slip.amount))}`,
         sha256: null,
         pages: 0,
         included: false,

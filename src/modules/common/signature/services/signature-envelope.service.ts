@@ -501,6 +501,13 @@ export class SignatureEnvelopeService {
         paymentConfig: (firstConfig?.paymentConfig as any) ?? null,
         paymentCondition: firstConfig?.paymentCondition ?? null,
         total,
+        // Quando o faturamento já emitiu as parcelas, a cláusula cita o
+        // vencimento da 1ª parcela — a MESMA data do boleto anexado ao dossiê.
+        // Antes da assinatura não há parcela e cai no `specificDate`.
+        firstDueDate:
+          firstConfig?.installments?.find(i => i.number === 1)?.dueDate ??
+          firstConfig?.installments?.[0]?.dueDate ??
+          null,
       }),
       guaranteeText: generateGuaranteeText({
         customGuaranteeText: quote.customGuaranteeText ?? null,

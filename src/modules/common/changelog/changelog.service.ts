@@ -94,13 +94,19 @@ export class ChangeLogService {
       triggeredById,
       userId: user,
       transaction: tx,
+      metadata: callerMetadata,
     } = params;
 
     // Convert ENTITY_TYPE to CHANGE_LOG_ENTITY_TYPE
     const changeLogEntityType = convertToChangeLogEntityType(entityType);
 
-    // Build metadata object
+    // Build metadata object. Caller-supplied metadata is merged FIRST: it was
+    // previously destructured away and dropped, so every child-entity log
+    // (TASK_QUOTE_SERVICE and friends) lost the provenance it passed in — the
+    // customer/service it referred to was unrecoverable from the row itself.
+    // `timestamp` stays authoritative and cannot be overridden by a caller.
     const metadata: Record<string, any> = {
+      ...(callerMetadata ?? {}),
       timestamp: new Date().toISOString(),
     };
 

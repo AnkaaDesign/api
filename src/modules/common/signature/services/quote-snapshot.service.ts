@@ -188,7 +188,15 @@ export const QUOTE_SNAPSHOT_INCLUDE = {
   layoutFiles: { orderBy: { createdAt: 'asc' } },
   customerConfigs: {
     orderBy: { createdAt: 'asc' },
-    include: { customer: true },
+    include: {
+      customer: true,
+      // As parcelas NÃO entram no snapshot (ver `build`, que escolhe campo a
+      // campo) — não mudam o hash nem a materialidade. Elas existem aqui só para
+      // o renderizador poder citar o vencimento REAL na cláusula de pagamento
+      // quando o faturamento já as gerou. Na assinatura ainda não existem, e a
+      // cláusula continua saindo do `specificDate`, como antes.
+      installments: { orderBy: { number: 'asc' } },
+    },
   },
   task: {
     include: {
