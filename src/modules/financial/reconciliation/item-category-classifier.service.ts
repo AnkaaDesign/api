@@ -5,6 +5,7 @@ import {
   ItemCategoryAliasSource,
   Prisma,
   ReconciliationSource,
+  TransactionCategoryKind,
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TransactionCategoryService } from './transaction-category.service';
@@ -1062,8 +1063,20 @@ export class ItemCategoryClassifierService {
         });
       }
       // Replace AUTO tags; keep MANUAL ones untouched.
+      //
+      // Scoped to non-TRANSACTION_ONLY categories. This derives categories from
+      // the NF's LINE ITEMS, so it has no business removing a transaction-level
+      // resolving tag (Tarifa Bancária, Folha, Tributo, Aplicação Financeira):
+      // those are what hold the row's RECONCILED status up when there is no
+      // match, and dropping one silently strands the transaction as reconciled
+      // with no evidence at all. replaceAutoTag() in category-fusion already
+      // scopes itself this way; this call site did not.
       await db.bankTransactionCategory.deleteMany({
-        where: { transactionId, source: ReconciliationSource.AUTO },
+        where: {
+          transactionId,
+          source: ReconciliationSource.AUTO,
+          category: { kind: { not: TransactionCategoryKind.TRANSACTION_ONLY } },
+        },
       });
       const manual = await db.bankTransactionCategory.findMany({
         where: { transactionId, source: ReconciliationSource.MANUAL },

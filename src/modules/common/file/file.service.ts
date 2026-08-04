@@ -30,6 +30,7 @@ import { validateFileLimit } from './config/file-limits.config';
 import { ThumbnailService } from './thumbnail.service';
 import { ThumbnailQueueService, ThumbnailJobData } from './thumbnail-queue.service';
 import { FilesStorageService, type FilesFolderMapping } from './services/files-storage.service';
+import { FileReferenceService } from './services/file-reference.service';
 import { FileRelationshipField, FILE_RELATIONSHIP_MAP } from '../../../utils';
 import type {
   FileBatchCreateResponse,
@@ -67,6 +68,7 @@ export class FileService {
     private readonly thumbnailService: ThumbnailService,
     private readonly thumbnailQueueService: ThumbnailQueueService,
     private readonly filesStorageService: FilesStorageService,
+    private readonly fileReferenceService: FileReferenceService,
   ) {}
 
   /**
@@ -1438,47 +1440,21 @@ export class FileService {
 
         fileToDelete = file as File;
 
-        // Verificar se o arquivo está associado a alguma entidade
-        const associations = await tx.file.findUnique({
-          where: { id },
-          include: {
-            layouts: true,
-            customerLogo: true,
-            supplierLogo: true,
-            observations: true,
-            warning: true,
-            taskBudgets: true,
-            taskInvoices: true,
-            taskReceipts: true,
-            orderReceipts: true,
-            airbrushingReceipts: true,
-            airbrushingInvoices: true,
-            externalOperationInvoices: true,
-            externalOperationReceipts: true,
-          },
+        // Verificar se o arquivo está associado a alguma entidade.
+        //
+        // Vem do catálogo de FKs vivo + as colunas de saída do próprio File (ver
+        // FileReferenceService). A lista escrita à mão que existia aqui cobria 13 das
+        // ~50 relações e não incluía quoteLayoutId — era possível excluir o layout
+        // aprovado de um orçamento ativo, um EPI assinado ou um XML fiscal.
+        const references = await this.fileReferenceService.getReferences(id, {
+          transaction: tx,
         });
 
-        if (associations) {
-          const hasAssociations =
-            !!associations.layouts || // layouts is one-to-one, not array
-            (associations.customerLogo?.length || 0) > 0 ||
-            (associations.supplierLogo?.length || 0) > 0 ||
-            (associations.observations?.length || 0) > 0 ||
-            (associations.warning?.length || 0) > 0 ||
-            (associations.taskBudgets?.length || 0) > 0 ||
-            (associations.taskInvoices?.length || 0) > 0 ||
-            (associations.taskReceipts?.length || 0) > 0 ||
-            (associations.orderReceipts?.length || 0) > 0 ||
-            (associations.airbrushingReceipts?.length || 0) > 0 ||
-            (associations.airbrushingInvoices?.length || 0) > 0 ||
-            (associations.externalOperationInvoices?.length || 0) > 0 ||
-            (associations.externalOperationReceipts?.length || 0) > 0;
-
-          if (hasAssociations) {
-            throw new BadRequestException(
-              'Não é possível excluir o arquivo pois ele está associado a outras entidades.',
-            );
-          }
+        if (references.length > 0) {
+          throw new BadRequestException(
+            `Não é possível excluir o arquivo pois ele está em uso: ` +
+              `${this.fileReferenceService.describeReferences(references)}.`,
+          );
         }
 
         // Registrar exclusão com campos essenciais
@@ -1742,48 +1718,18 @@ export class FileService {
         const files = await this.fileRepository.findByIdsWithTransaction(tx, data.fileIds);
         filesToDelete = files;
 
-        // Verificar se algum arquivo está associado
+        // Verificar se algum arquivo está associado (mesma fonte de verdade do delete
+        // individual — catálogo de FKs vivo + colunas de saída do File).
         for (const file of files) {
-          const associations = await tx.file.findUnique({
-            where: { id: file.id },
-            include: {
-              layouts: true,
-              customerLogo: true,
-              supplierLogo: true,
-              observations: true,
-              warning: true,
-              taskBudgets: true,
-              taskInvoices: true,
-              taskReceipts: true,
-              orderReceipts: true,
-              airbrushingReceipts: true,
-              airbrushingInvoices: true,
-              externalOperationInvoices: true,
-              externalOperationReceipts: true,
-            },
+          const references = await this.fileReferenceService.getReferences(file.id, {
+            transaction: tx,
           });
 
-          if (associations) {
-            const hasAssociations =
-              !!associations.layouts || // layouts is one-to-one, not array
-              (associations.customerLogo?.length || 0) > 0 ||
-              (associations.supplierLogo?.length || 0) > 0 ||
-              (associations.observations?.length || 0) > 0 ||
-              (associations.warning?.length || 0) > 0 ||
-              (associations.taskBudgets?.length || 0) > 0 ||
-              (associations.taskInvoices?.length || 0) > 0 ||
-              (associations.taskReceipts?.length || 0) > 0 ||
-              (associations.orderReceipts?.length || 0) > 0 ||
-              (associations.airbrushingReceipts?.length || 0) > 0 ||
-              (associations.airbrushingInvoices?.length || 0) > 0 ||
-              (associations.externalOperationInvoices?.length || 0) > 0 ||
-              (associations.externalOperationReceipts?.length || 0) > 0;
-
-            if (hasAssociations) {
-              throw new BadRequestException(
-                `O arquivo ${file.filename} está associado a outras entidades e não pode ser excluído.`,
-              );
-            }
+          if (references.length > 0) {
+            throw new BadRequestException(
+              `O arquivo ${file.filename} está em uso ` +
+                `(${this.fileReferenceService.describeReferences(references)}) e não pode ser excluído.`,
+            );
           }
         }
 

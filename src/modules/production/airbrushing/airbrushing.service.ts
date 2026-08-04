@@ -9,6 +9,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { AirbrushingRepository, PrismaTransaction } from './repositories/airbrushing.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { FileService } from '@modules/common/file/file.service';
+import { FileReferenceService } from '@modules/common/file/services/file-reference.service';
 import {
   CHANGE_TRIGGERED_BY,
   CHANGE_ACTION,
@@ -47,6 +48,7 @@ export class AirbrushingService {
     private readonly airbrushingRepository: AirbrushingRepository,
     private readonly changeLogService: ChangeLogService,
     private readonly fileService: FileService,
+    private readonly fileReferenceService: FileReferenceService,
   ) {}
 
   /**
@@ -590,80 +592,28 @@ export class AirbrushingService {
    * that is still referenced. Asking the catalog keeps the check correct by construction.
    * Cached per process: the schema cannot change while the app runs.
    */
-  private fileReferenceColumns: Array<{ table: string; column: string }> | null = null;
-
-  private async getFileReferenceColumns(
-    tx: PrismaTransaction,
-  ): Promise<Array<{ table: string; column: string }>> {
-    if (this.fileReferenceColumns) return this.fileReferenceColumns;
-
-    const rows = await tx.$queryRaw<Array<{ table_name: string; column_name: string }>>`
-      SELECT tc.table_name, kcu.column_name
-      FROM information_schema.table_constraints tc
-      JOIN information_schema.key_column_usage kcu
-        ON kcu.constraint_name = tc.constraint_name
-       AND kcu.table_schema = tc.table_schema
-      JOIN information_schema.constraint_column_usage ccu
-        ON ccu.constraint_name = tc.constraint_name
-       AND ccu.table_schema = tc.table_schema
-      WHERE tc.constraint_type = 'FOREIGN KEY'
-        AND tc.table_schema = 'public'
-        AND ccu.table_name = 'File'
-        AND ccu.column_name = 'id'
-    `;
-
-    this.fileReferenceColumns = rows.map(r => ({ table: r.table_name, column: r.column_name }));
-    return this.fileReferenceColumns;
-  }
-
   /**
    * True when anything OTHER than the airbrushing being deleted still points at this File.
-   * Errs on the side of "referenced" — any failure means we keep the file.
+   *
+   * Delegates to FileReferenceService — the same check the file-delete endpoints and the
+   * organizer use. This method used to carry its own private copy of the FK-catalog logic
+   * (plus the explicit quoteLayoutId check), which is exactly the kind of duplication that
+   * let the 2026-06 purge use a DIFFERENT, incomplete definition of "orphan".
    */
   private async fileHasOtherReferences(
     tx: PrismaTransaction,
     fileId: string,
     airbrushingId: string,
   ): Promise<boolean> {
-    try {
-      // The catalog query below finds FKs pointing AT File.id. File.quoteLayoutId points the
-      // other way (File -> TaskQuote), so it is invisible there — check it explicitly, or a
-      // file that is also a quote layout could be deleted out from under the quote.
-      const self = await tx.file.findUnique({
-        where: { id: fileId },
-        select: { quoteLayoutId: true },
-      });
-      if (self?.quoteLayoutId) return true;
-
-      const columns = await this.getFileReferenceColumns(tx);
-
-      for (const { table, column } of columns) {
-        // Identifiers come from the catalog, not from user input.
-        let sql = `SELECT 1 FROM "${table}" WHERE "${column}" = $1`;
-        const params: any[] = [fileId];
-
-        // Ignore this airbrushing's OWN links — they are what we are tearing down.
-        if (table === '_AIRBRUSHING_RECEIPTS' || table === '_AIRBRUSHING_INVOICES') {
-          sql += ` AND "A" <> $2`;
-          params.push(airbrushingId);
-        } else if (table === 'Layout') {
-          sql += ` AND ("airbrushingId" IS DISTINCT FROM $2)`;
-          params.push(airbrushingId);
-        }
-
-        const hit = await tx.$queryRawUnsafe<Array<{ '?column?': number }>>(
-          `${sql} LIMIT 1`,
-          ...params,
-        );
-        if (hit.length > 0) return true;
-      }
-      return false;
-    } catch (error: any) {
-      this.logger.error(
-        `[Airbrushing Delete] Reference check failed for file ${fileId}: ${error.message}. Keeping the file.`,
-      );
-      return true;
-    }
+    // Ignore this airbrushing's OWN links — they are what we are tearing down.
+    return this.fileReferenceService.hasReferences(fileId, {
+      transaction: tx,
+      exclude: [
+        { table: '_AIRBRUSHING_RECEIPTS', ownerColumn: 'A', ownerId: airbrushingId },
+        { table: '_AIRBRUSHING_INVOICES', ownerColumn: 'A', ownerId: airbrushingId },
+        { table: 'Layout', ownerColumn: 'airbrushingId', ownerId: airbrushingId },
+      ],
+    });
   }
 
   /**
@@ -733,7 +683,12 @@ export class AirbrushingService {
       }
       try {
         const file = await tx.file.findUnique({ where: { id: fileId }, select: { path: true } });
-        // Deleting the File row cascades its Layout row and its join-table entries.
+        // Dono explicito ANTES do arquivo. Antes isto contava com o cascade de
+        // Layout.fileId, mas o gatilho file_no_delete_when_referenced roda BEFORE DELETE:
+        // naquele instante a linha Layout ainda existe e o arquivo ainda esta "em uso".
+        // Apagar o Layout primeiro deixa a ordem honesta -- e a trava continua valendo
+        // para todo mundo, em vez de abrir excecao para este caminho.
+        await tx.layout.deleteMany({ where: { fileId } });
         await tx.file.delete({ where: { id: fileId } });
         if (file?.path) purge.push({ id: fileId, path: file.path });
       } catch (error: any) {

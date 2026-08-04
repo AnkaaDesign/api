@@ -4,6 +4,7 @@ import { CronJob } from 'cron';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { FilesStorageService, type FilesFolderMapping } from './files-storage.service';
+import { FileReferenceService } from './file-reference.service';
 import { existsSync } from 'fs';
 import { dirname } from 'path';
 import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../../constants/enums';
@@ -163,6 +164,7 @@ export class FileOrganizationSchedulerService {
     private readonly prisma: PrismaService,
     private readonly changeLogService: ChangeLogService,
     private readonly filesStorageService: FilesStorageService,
+    private readonly fileReferenceService: FileReferenceService,
   ) {
     this.filesRoot = process.env.FILES_ROOT || './files';
   }
@@ -504,8 +506,23 @@ export class FileOrganizationSchedulerService {
       this.logger.log(`Scanning ${files.length} files for misplacement...`);
 
       for (const file of files) {
-        // Detect context from path
-        const context = this.detectContextFromPath(file.path);
+        // O contexto vem da REFERENCIA, nao da pasta.
+        //
+        // Antes era so detectContextFromPath: o organizador adivinhava a que o arquivo
+        // pertence pela pasta em que ele ja estava. Isso torna o conserto impossivel
+        // justamente no caso que importa -- um arquivo arquivado errado numa pasta
+        // generica (Fotos/, Auxiliares/, Uploads/) nao casa com regra nenhuma, cai no
+        // `continue` e fica invisivel para sempre. Foi assim que 32 layouts de orcamento
+        // ficaram em /srv/files/Fotos/ ate serem apagados como "orfaos" em 2026-06-07,
+        // e e por isso que 110 arquivos vinculados ainda estao la hoje.
+        //
+        // Perguntar a referencia inverte a logica: quem usa o arquivo diz onde ele
+        // deveria estar, entao ele pode ser trazido de volta de QUALQUER pasta. A deteccao
+        // por caminho continua como fallback para arquivos cuja relacao ainda nao tem
+        // contexto canonico mapeado.
+        const context =
+          (await this.fileReferenceService.resolveCanonicalContext(file.id)) ??
+          this.detectContextFromPath(file.path);
         if (!context) continue;
 
         // Get expected entity type for this context

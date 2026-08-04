@@ -7,10 +7,12 @@ import {
 import {
   Prisma,
   ReconciliationSource,
+  ReconciliationStatus,
   RecurrentPayable,
   RecurrentPayableOccurrence,
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { deriveTransactionState } from '../reconciliation/transaction-status';
 import { CreateRecurrentPayableDto, UpdateRecurrentPayableDto } from './dto/recurrent-payable.dto';
 
 /** São Paulo is UTC-3 year-round (no DST since 2019). Because the offset is
@@ -1176,23 +1178,67 @@ export class RecurrentPayableService {
     const diff = Math.abs(debitAbs - assertedAmount);
     const tolerance = Math.max(2, assertedAmount * 0.005);
     const disputed = diff > tolerance;
-    await this.prisma.reconciliationMatch
-      .createMany({
-        data: [
-          {
+
+    try {
+      await this.prisma.$transaction(async db => {
+        // How much of this bank line is still unspoken for. Previously the FULL
+        // transaction amount was written into every occurrence match, so one
+        // payment bound to N occurrences allocated N× its own value — 18
+        // production transactions were over-allocated by exact integer multiples
+        // (2×, 3×, 4×), and the NF matcher and this sweep independently claimed
+        // the same payment at 100% each. Allocation is a budget, not a label.
+        const existing = await db.reconciliationMatch.findMany({
+          where: { transactionId: tx.id, reversedAt: null },
+          select: { allocatedAmount: true, recurrentOccurrenceId: true },
+        });
+        if (existing.some(m => m.recurrentOccurrenceId === occurrenceId)) return;
+
+        const txAbs = Math.abs(Number(tx.amount));
+        const spent = existing.reduce((s, m) => s + Number(m.allocatedAmount), 0);
+        const available = Number((txAbs - spent).toFixed(2));
+        if (available <= 0.01) {
+          this.logger.warn(
+            `Occurrence ${occurrenceId} not matched to tx ${tx.id}: the transaction is ` +
+              `already fully allocated (R$${spent.toFixed(2)} of R$${txAbs.toFixed(2)}).`,
+          );
+          return;
+        }
+
+        // Never allocate more than this occurrence is worth, nor more than the
+        // payment has left.
+        const allocate = Number(Math.min(available, assertedAmount || available).toFixed(2));
+
+        await db.reconciliationMatch.create({
+          data: {
             transactionId: tx.id,
             recurrentOccurrenceId: occurrenceId,
-            allocatedAmount: new Prisma.Decimal(debitAbs),
+            allocatedAmount: new Prisma.Decimal(allocate),
             matchType: 'VALUE_DATE',
             confidenceScore: disputed ? 50 : 95,
             notes: disputed
               ? `Conciliação automática com divergência de valor: débito R$${debitAbs.toFixed(2)} vs. baixa R$${assertedAmount.toFixed(2)}.`
               : null,
           },
-        ],
-        skipDuplicates: true,
-      })
-      .catch(err => this.logger.warn(`Occurrence match write failed for tx ${tx.id}: ${err}`));
+        });
+
+        // The sweep used to close the occurrence and leave the bank transaction
+        // untouched, so the money was accounted for on the payables side while
+        // the transaction still showed PENDING in the reconciliation screen.
+        const state = await deriveTransactionState(db, tx.id);
+        await db.bankTransaction.update({
+          where: { id: tx.id },
+          data: {
+            reconciliationStatus: state.status,
+            expectsFiscalDocument: state.expectsFiscalDocument,
+            ...(state.status === ReconciliationStatus.PENDING
+              ? {}
+              : { reconciliationSource: ReconciliationSource.AUTO }),
+          },
+        });
+      });
+    } catch (err) {
+      this.logger.warn(`Occurrence match write failed for tx ${tx.id}: ${err}`);
+    }
   }
 
   private async linkNf(

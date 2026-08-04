@@ -148,16 +148,26 @@ export class CategoryFusionService {
     }
 
     const cat = snap.byId.get(w.categoryId);
+    // Whether an NF is expected is a property of the CATEGORY, not of how
+    // confident the classifier happened to be.
+    //
+    // This was previously `tier !== AUTO_APPLY && (...)`, which forced the flag
+    // false for every auto-applied decision — including auto-applied
+    // NON-resolving categories (any ITEM_DERIVED, contabilidade, monitoramento,
+    // receita-servicos). Those rows then kept reconciliationStatus = PENDING
+    // while expectsFiscalDocument = false excluded them from every matcher scan,
+    // so they could never be reconciled by any means: a silent dead end that
+    // grew with every learned counterparty rule.
+    const resolving = Boolean(cat?.isResolving);
     const expectsNf =
-      tier !== DecisionTier.AUTO_APPLY &&
-      (w.sigs.some(s => s.expectsFiscalDocument) || Boolean(tx.counterpartyCnpjCpf));
+      !resolving && (w.sigs.some(s => s.expectsFiscalDocument) || Boolean(tx.counterpartyCnpjCpf));
 
     return {
       tier,
       categoryId: w.categoryId,
       expectsFiscalDocument: expectsNf,
       confidence: w.score,
-      shouldReconcile: tier === DecisionTier.AUTO_APPLY && Boolean(cat?.isResolving),
+      shouldReconcile: tier === DecisionTier.AUTO_APPLY && resolving,
       breakdown: signals,
       winners: w.sigs,
       conflicts,
@@ -208,7 +218,18 @@ export class CategoryFusionService {
     decision: FusedDecision,
     prismaTx?: Prisma.TransactionClient,
   ): Promise<void> {
-    const db = prismaTx ?? this.prisma;
+    // AUTO_APPLY writes three rows (transaction, tag, provenance). Called
+    // without a prismaTx — as classifyBatch does — those were three independent
+    // statements, and the caller swallows the exception. A failure between them
+    // committed `reconciliationStatus = RECONCILED` while the tag and the
+    // decision log never landed, producing transactions that are reconciled with
+    // no match AND no category, i.e. no evidence at all of why. Run the whole
+    // decision in one transaction when the caller has not already opened one.
+    if (!prismaTx) {
+      return this.prisma.$transaction(tx2 => this.applyDecision(txId, decision, tx2));
+    }
+
+    const db = prismaTx;
     const tx = await db.bankTransaction.findUnique({
       where: { id: txId },
       select: { reconciliationStatus: true, categorySource: true },

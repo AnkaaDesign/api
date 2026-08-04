@@ -142,7 +142,7 @@ export class ReconciliationAliasService {
     const db = opts.prismaTx ?? this.prisma;
     const now = new Date();
 
-    return db.reconciliationAlias.upsert({
+    const alias = await db.reconciliationAlias.upsert({
       where: {
         memoFingerprint_counterpartyCnpjCpf_txType: {
           memoFingerprint: fp,
@@ -178,6 +178,21 @@ export class ReconciliationAliasService {
           : {}),
       },
     });
+
+    // Prisma cannot express GREATEST(0, rejectedCount - 1) in an atomic update,
+    // so the decrement above is unbounded. Left unclamped it drives the counter
+    // negative on every repeated manual confirmation, which makes the
+    // rejectedCount >= ALIAS_DISABLE_REQUIRED_REJECTIONS soft-disable test in
+    // recordReversal() arithmetically unreachable — the demotion half of the
+    // learning loop silently stops working. Clamp back to the floor.
+    if (alias.rejectedCount < 0) {
+      return db.reconciliationAlias.update({
+        where: { id: alias.id },
+        data: { rejectedCount: 0 },
+      });
+    }
+
+    return alias;
   }
 
   /**

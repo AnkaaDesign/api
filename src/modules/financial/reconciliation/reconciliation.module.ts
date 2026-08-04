@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
@@ -64,6 +65,9 @@ const categoryLearnersProvider = {
   imports: [
     ConfigModule,
     PrismaModule,
+    // Reconciliation state changes are now audited (BANK_TRANSACTION /
+    // RECONCILIATION_MATCH entity types).
+    ChangeLogModule,
     NotificationModule,
     forwardRef(() => SiegModule),
     // Payroll aggregate for the "Previsão de Saídas" composite (folha com

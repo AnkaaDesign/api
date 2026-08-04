@@ -1406,6 +1406,13 @@ export enum ENTITY_TYPE {
   DEPENDENT = 'DEPENDENT',
   AGENDA_EVENT = 'AGENDA_EVENT',
   NOTE = 'NOTE',
+  // Reconciliation. Until these existed there was no entity type to log a bank
+  // transaction's status flip against, so the reconciliation module wrote no
+  // audit trail at all — which is why 415 transactions reconciled with no
+  // evidence could only be explained by forensics.
+  BANK_TRANSACTION = 'BANK_TRANSACTION',
+  RECONCILIATION_MATCH = 'RECONCILIATION_MATCH',
+  FISCAL_DOCUMENT = 'FISCAL_DOCUMENT',
 }
 
 export enum CHANGE_ACTION {
@@ -2042,6 +2049,10 @@ export enum CHANGE_LOG_ENTITY_TYPE {
   WARNING = 'WARNING',
   THIRTEENTH = 'THIRTEENTH',
   VERIFICATION = 'VERIFICATION',
+  // Reconciliation — see the note on ENTITY_TYPE above.
+  BANK_TRANSACTION = 'BANK_TRANSACTION',
+  RECONCILIATION_MATCH = 'RECONCILIATION_MATCH',
+  FISCAL_DOCUMENT = 'FISCAL_DOCUMENT',
 }
 
 // Alias for Prisma compatibility
