@@ -2313,9 +2313,257 @@ export class TaskQuoteService {
   }
 
   /**
+   * Guard shared by every billing teardown (revert / cancel-by-task): refuse to touch anything
+   * until each boleto and each NFS-e this task produced is CONFIRMED in its own system.
+   *
+   * Registration at Sicredi and emission at Elotech are both ASYNCHRONOUS — the bank answers a
+   * registration with `MOVIMENTO_ENVIADO`, not with a live title. Tearing down while one is
+   * still in flight deletes our only pointer to a document that then goes live at the bank or
+   * the prefeitura, with nothing left in Ankaa to find it by. That is exactly how boleto
+   * 600003389 (task "Adel Coco 15,50", #38771) survived a revert as a live VENCIDO title of
+   * R$ 10.512,00 — 37 seconds elapsed between registration and the revert, the baixa was
+   * refused because the title did not exist yet, and the row was deleted anyway.
+   *
+   * Throws BadRequestException listing every blocker; the operator retries once the external
+   * systems have settled.
+   *
+   * @param taskId Task whose billing artifacts are being verified
+   * @param action Infinitive used in the error message ("reverter o faturamento", …)
+   */
+  private async assertBillingArtifactsConfirmed(taskId: string, action: string): Promise<void> {
+    const blockers: string[] = [];
+
+    // ─── Boletos ───────────────────────────────────────────────────────────
+    const slips = await this.prisma.bankSlip.findMany({
+      where: { installment: { invoice: { taskId } } },
+      select: {
+        nossoNumero: true,
+        status: true,
+        installment: { select: { number: true } },
+      },
+    });
+
+    // A slip still being registered has no real nossoNumero to baixar or even to write down.
+    const awaitingRegistration = (s: (typeof slips)[number]) =>
+      s.status === BANK_SLIP_STATUS.CREATING ||
+      s.status === BANK_SLIP_STATUS.REGISTERING ||
+      !s.nossoNumero ||
+      s.nossoNumero.startsWith('TMP-');
+
+    for (const slip of slips.filter(awaitingRegistration)) {
+      blockers.push(
+        `O boleto da parcela ${slip.installment.number} ainda está em registro no Sicredi ` +
+          `(${slip.status}). Aguarde a confirmação do registro antes de ${action}.`,
+      );
+    }
+
+    // Titles we believe are live (ACTIVE/OVERDUE) must be readable at the bank. One we cannot
+    // read is one we cannot safely baixar — and deleting its row would hide it forever. A bank
+    // outage blocks the teardown, which is the point: it is transient, and tearing down blind
+    // is what strands titles.
+    //
+    // REJECTED/ERROR are deliberately NOT checked here. Registration failed for those, so
+    // demanding a confirmation the bank can never give would deadlock the revert permanently
+    // (the very trap documented for NFS-e cancellation below). They are probed instead, one by
+    // one, in baixarBoletosAndConfirm.
+    const liveSlips = slips.filter(
+      s =>
+        !awaitingRegistration(s) &&
+        (s.status === BANK_SLIP_STATUS.ACTIVE || s.status === BANK_SLIP_STATUS.OVERDUE),
+    );
+    const slipChecks = await Promise.allSettled(
+      liveSlips.map(s => this.sicrediService.queryBoleto(s.nossoNumero)),
+    );
+    slipChecks.forEach((outcome, i) => {
+      const slip = liveSlips[i];
+      if (outcome.status === 'rejected') {
+        const detail =
+          outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+        blockers.push(
+          `Não foi possível confirmar o boleto ${slip.nossoNumero} no Sicredi (${detail}). ` +
+            `Sem essa confirmação não é seguro ${action}.`,
+        );
+      } else if (!outcome.value?.situacao) {
+        blockers.push(
+          `O Sicredi não informou a situação do boleto ${slip.nossoNumero}. ` +
+            `Sem essa confirmação não é seguro ${action}.`,
+        );
+      }
+    });
+
+    // ─── NFS-e ─────────────────────────────────────────────────────────────
+    const nfses = await this.prisma.nfseDocument.findMany({
+      where: { invoice: { taskId } },
+      select: { id: true, status: true, nfseNumber: true, elotechNfseId: true },
+    });
+    const label = (n: (typeof nfses)[number]) => `NFS-e ${n.nfseNumber ?? '(sem número)'}`;
+
+    // An emission genuinely in flight could race a note into existence after we delete its record.
+    for (const nfse of nfses.filter(n => n.status === 'PENDING' || n.status === 'PROCESSING')) {
+      blockers.push(
+        `A ${label(nfse)} ainda está em emissão (${nfse.status}). ` +
+          `Aguarde a conclusão da emissão antes de ${action}.`,
+      );
+    }
+
+    // Notes we believe are LIVE at the prefeitura must be readable there. Already-CANCELLED
+    // notes are deliberately excluded: they are dead, cannot come back to life, and demanding
+    // a confirmation Elotech might not give for an old note would deadlock the teardown.
+    const liveStatuses = ['AUTHORIZED', 'CANCEL_REQUESTED', 'CANCEL_REJECTED'];
+    const emitted = nfses.filter(n => liveStatuses.includes(n.status));
+
+    for (const nfse of emitted.filter(n => !n.elotechNfseId)) {
+      blockers.push(
+        `A ${label(nfse)} está como ${nfse.status} mas não tem o id da Elotech, ` +
+          `então a nota não pode ser confirmada na prefeitura antes de ${action}.`,
+      );
+    }
+
+    const checkableNfses = emitted.filter(n => n.elotechNfseId);
+    const nfseChecks = await Promise.allSettled(
+      checkableNfses.map(n => this.elotechNfseService.getCancellationStatus(n.elotechNfseId!)),
+    );
+    nfseChecks.forEach((outcome, i) => {
+      const nfse = checkableNfses[i];
+      if (outcome.status === 'rejected') {
+        const detail =
+          outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+        blockers.push(
+          `Não foi possível confirmar a ${label(nfse)} na Elotech (${detail}). ` +
+            `Sem essa confirmação não é seguro ${action}.`,
+        );
+      } else if (String(outcome.value?.notaSituacao ?? 'DESCONHECIDA').toUpperCase() === 'DESCONHECIDA') {
+        blockers.push(
+          `A Elotech não informou a situação da ${label(nfse)}. ` +
+            `Sem essa confirmação não é seguro ${action}.`,
+        );
+      }
+    });
+
+    if (blockers.length > 0) {
+      this.logger.warn(
+        `[BILLING_TEARDOWN] Bloqueado para a tarefa ${taskId}: ${blockers.join(' | ')}`,
+      );
+      throw new BadRequestException(blockers.join(' '));
+    }
+  }
+
+  /**
+   * Baixa every live boleto of a task at Sicredi and CONFIRM each one actually went down.
+   *
+   * The baixa PATCH is asynchronous (HTTP 202 `MOVIMENTO_ENVIADO`), so a 2xx proves only that
+   * the instruction was queued. Each title is re-read until the bank reports `BAIXADO …`.
+   *
+   * Confirmed slips are marked CANCELLED locally right away, so the work already done survives
+   * a later failure and a retry only targets what is left. Returns the slips that could NOT be
+   * confirmed — the caller must NOT delete those rows.
+   */
+  private async baixarBoletosAndConfirm(
+    taskId: string,
+  ): Promise<Array<{ nossoNumero: string; detail: string }>> {
+    const activeSlips = await this.prisma.bankSlip.findMany({
+      where: {
+        installment: { invoice: { taskId } },
+        status: { notIn: [BANK_SLIP_STATUS.CANCELLED, BANK_SLIP_STATUS.PAID] },
+      },
+      select: { id: true, nossoNumero: true, status: true },
+    });
+    if (activeSlips.length === 0) return [];
+
+    const results = await Promise.allSettled(
+      activeSlips.map(async slip => {
+        // REJECTED/ERROR mean the registration itself failed, so there may be no title to
+        // baixar. Probe first: if the bank does not know it, there is nothing to strand and
+        // the row can go — blocking on it forever would make the billing unrevertable.
+        if (slip.status === BANK_SLIP_STATUS.REJECTED || slip.status === BANK_SLIP_STATUS.ERROR) {
+          let probed: string | null = null;
+          try {
+            probed = (await this.sicrediService.queryBoleto(slip.nossoNumero))?.situacao ?? null;
+          } catch (err) {
+            this.logger.warn(
+              `[BILLING_TEARDOWN] Boleto ${slip.nossoNumero} (${slip.status}) não existe no ` +
+                `Sicredi (${err}); registro liberado para exclusão.`,
+            );
+            return { slip, situacao: null };
+          }
+          const upper = (probed ?? '').toUpperCase();
+          if (!probed || upper.startsWith('BAIXADO')) return { slip, situacao: probed };
+          // The title IS live despite the local status — fall through and baixa it.
+          this.logger.warn(
+            `[BILLING_TEARDOWN] Boleto ${slip.nossoNumero} está ${slip.status} localmente mas ` +
+              `consta como "${probed}" no Sicredi; dando baixa antes de excluir.`,
+          );
+        }
+
+        await this.sicrediService.cancelBoleto(slip.nossoNumero);
+
+        // Poll until the bank reflects the baixa. ~11s worst case, run in parallel per slip.
+        let situacao: string | null = null;
+        for (const waitMs of [1500, 3000, 3000, 3000]) {
+          await new Promise(resolve => setTimeout(resolve, waitMs));
+          try {
+            situacao = (await this.sicrediService.queryBoleto(slip.nossoNumero))?.situacao ?? null;
+          } catch (err) {
+            this.logger.warn(
+              `[BILLING_TEARDOWN] Falha ao reconsultar o boleto ${slip.nossoNumero}: ${err}`,
+            );
+            continue;
+          }
+          const upper = (situacao ?? '').toUpperCase();
+          if (upper.startsWith('BAIXADO')) return { slip, situacao };
+          // Paid between the guard and the baixa — real money, never delete this.
+          if (upper.startsWith('LIQUIDADO') || upper.startsWith('PAGO')) {
+            throw new Error(`o título consta como ${situacao} no Sicredi (pagamento recebido)`);
+          }
+        }
+        throw new Error(`o Sicredi ainda reporta a situação "${situacao ?? 'desconhecida'}"`);
+      }),
+    );
+
+    const failures: Array<{ nossoNumero: string; detail: string }> = [];
+    for (const [i, outcome] of results.entries()) {
+      const slip = activeSlips[i];
+      if (outcome.status === 'fulfilled') {
+        // Persist the confirmed baixa immediately so a retry skips this slip.
+        await this.prisma.bankSlip.update({
+          where: { id: slip.id },
+          data: {
+            status: BANK_SLIP_STATUS.CANCELLED,
+            sicrediStatus: outcome.value.situacao,
+            lastSyncAt: new Date(),
+          },
+        });
+        this.logger.log(
+          `[BILLING_TEARDOWN] Boleto ${slip.nossoNumero} baixado e confirmado (${outcome.value.situacao}).`,
+        );
+      } else {
+        const detail =
+          outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+        this.logger.error(
+          `[BILLING_TEARDOWN] Boleto ${slip.nossoNumero} NÃO foi baixado: ${detail}. ` +
+            `O registro será preservado.`,
+        );
+        await this.prisma.bankSlip.update({
+          where: { id: slip.id },
+          data: {
+            errorMessage: `Baixa não confirmada no Sicredi: ${detail}`.slice(0, 500),
+            errorCount: { increment: 1 },
+            lastSyncAt: new Date(),
+          },
+        });
+        failures.push({ nossoNumero: slip.nossoNumero, detail });
+      }
+    }
+    return failures;
+  }
+
+  /**
    * Revert billing approval — undo internalApprove when all bank slips and NFS-e are cancelled.
    * Deletes the invoices (cascading installments, bank slips, NFS-e docs) and reverts the
    * quote status back to BUDGET_APPROVED so the operator can re-approve after corrections.
+   *
+   * Nothing is deleted until every boleto is confirmed baixado at Sicredi — see
+   * {@link assertBillingArtifactsConfirmed} and {@link baixarBoletosAndConfirm}.
    */
   async revertBillingApproval(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
     this.logger.log(`[REVERT_BILLING] Starting revert billing for quote ${id} by user ${userId}`);
@@ -2345,14 +2593,10 @@ export class TaskQuoteService {
     });
     if (!task) throw new NotFoundException(`Tarefa para o orçamento ${id} não encontrada.`);
 
-    // Collect active bank slips to baixar at Sicredi (best-effort, before deleting records)
-    const activeSlips = await this.prisma.bankSlip.findMany({
-      where: {
-        installment: { invoice: { taskId: task.id } },
-        status: { notIn: ['CANCELLED', 'PAID'] },
-      },
-      select: { id: true, nossoNumero: true, status: true },
-    });
+    // Nothing may be torn down until every boleto is registered at Sicredi and every NFS-e is
+    // emitted at Elotech — an artifact still in flight would go live AFTER we deleted the row
+    // that points at it. This also subsumes the old PROCESSING/PENDING NFS-e check.
+    await this.assertBillingArtifactsConfirmed(task.id, 'reverter o faturamento');
 
     // Collect NFS-e that are still ACTIVE at the prefeitura to cancel at Elotech before
     // deleting records. AUTHORIZED and CANCEL_REJECTED notes are both live (a rejected
@@ -2366,24 +2610,6 @@ export class TaskQuoteService {
       select: { id: true, nfseNumber: true, elotechNfseId: true },
     });
 
-    // Block ONLY if an emission is genuinely in flight (PROCESSING/PENDING) — reverting mid-
-    // emission could race a note into existence after we delete its record. A CANCEL_REQUESTED
-    // note does NOT block: it survives the revert linked to the task (invoiceId→null) and the
-    // reconciler keeps tracking it, so there is no deadlock.
-    const pendingNfses = await this.prisma.nfseDocument.findMany({
-      where: {
-        invoice: { taskId: task.id },
-        status: { in: ['PROCESSING', 'PENDING'] },
-      },
-      select: { id: true, status: true },
-    });
-    if (pendingNfses.length > 0) {
-      throw new BadRequestException(
-        `Existem NFS-e(s) em emissão (${pendingNfses.map(n => n.status).join(', ')}). ` +
-          `Aguarde a conclusão da emissão antes de reverter o faturamento.`,
-      );
-    }
-
     // Verify no installment has been paid
     const paidInstallments = await this.prisma.installment.findMany({
       where: {
@@ -2395,6 +2621,22 @@ export class TaskQuoteService {
     if (paidInstallments.length > 0) {
       throw new BadRequestException(
         `Existem ${paidInstallments.length} parcela(s) paga(s). Não é possível reverter um faturamento com pagamentos registrados.`,
+      );
+    }
+
+    // Baixa every live boleto at Sicredi and CONFIRM it BEFORE touching the NFS-e. A slip whose
+    // baixa could not be confirmed keeps its row (and its invoice/installment) — deleting it
+    // would leave a payable title at the bank that Ankaa can no longer see. The revert aborts
+    // instead; the slips already confirmed are marked CANCELLED, so a retry only chases what is
+    // left. This runs first precisely so an abort here cannot leave a cancelled NF sitting on an
+    // otherwise intact faturamento.
+    const unconfirmedSlips = await this.baixarBoletosAndConfirm(task.id);
+    if (unconfirmedSlips.length > 0) {
+      throw new BadRequestException(
+        `Não foi possível confirmar a baixa no Sicredi de ${unconfirmedSlips.length} boleto(s): ` +
+          unconfirmedSlips.map(s => `${s.nossoNumero} (${s.detail})`).join('; ') +
+          `. O faturamento foi mantido para que o(s) título(s) não fique(m) em aberto sem ` +
+          `registro no sistema. Tente novamente em alguns minutos ou dê baixa manualmente no Sicredi.`,
       );
     }
 
@@ -2433,26 +2675,6 @@ export class TaskQuoteService {
           this.logger.warn(
             `[REVERT_BILLING] NFS-e #${nfse.nfseNumber} segue ATIVA (${detail}). ` +
               `Permanece vinculada à tarefa; cancele-a citando a nova NF como substituta após refaturar.`,
-          );
-        }
-      });
-    }
-
-    // Best-effort baixa at Sicredi for all active/overdue bank slips
-    if (activeSlips.length > 0) {
-      const slipOutcomes = await Promise.allSettled(
-        activeSlips
-          .filter(s => s.nossoNumero && !s.nossoNumero.startsWith('TMP-'))
-          .map(s => this.sicrediService.cancelBoleto(s.nossoNumero!)),
-      );
-      slipOutcomes.forEach((outcome, i) => {
-        if (outcome.status === 'rejected') {
-          this.logger.warn(
-            `[REVERT_BILLING] Failed to baixar boleto ${activeSlips[i].nossoNumero} at Sicredi: ${outcome.reason}`,
-          );
-        } else {
-          this.logger.log(
-            `[REVERT_BILLING] Baixado boleto ${activeSlips[i].nossoNumero} at Sicredi`,
           );
         }
       });
@@ -2542,18 +2764,10 @@ export class TaskQuoteService {
     const taskId = task?.id ?? null;
 
     if (taskId) {
-      // In-flight NFS-e emission blocks teardown (could race a note into existence
-      // after we delete its record).
-      const pendingNfses = await this.prisma.nfseDocument.findMany({
-        where: { invoice: { taskId }, status: { in: ['PROCESSING', 'PENDING'] } },
-        select: { id: true, status: true },
-      });
-      if (pendingNfses.length > 0) {
-        throw new BadRequestException(
-          `Existem NFS-e(s) em emissão (${pendingNfses.map(n => n.status).join(', ')}). ` +
-            `Aguarde a conclusão da emissão antes de cancelar o orçamento.`,
-        );
-      }
+      // Every boleto must be registered at Sicredi and every NFS-e emitted at Elotech before
+      // anything is torn down — an artifact still in flight would go live after we delete the
+      // row that points at it. Subsumes the old PROCESSING/PENDING NFS-e check.
+      await this.assertBillingArtifactsConfirmed(taskId, 'cancelar o orçamento');
 
       // Real money received → cannot silently cancel; needs manual estorno.
       const paidInstallments = await this.prisma.installment.findMany({
@@ -2564,6 +2778,19 @@ export class TaskQuoteService {
         throw new BadRequestException(
           `Existem ${paidInstallments.length} parcela(s) paga(s). Não é possível cancelar um ` +
             `orçamento com pagamentos registrados — trate o estorno manualmente.`,
+        );
+      }
+
+      // Baixa the active boletos and confirm each one BEFORE touching the NFS-e. An unconfirmed
+      // baixa aborts the cancellation rather than deleting the row of a title still payable at
+      // the bank — and running it first keeps an abort from leaving a cancelled NF behind.
+      const unconfirmedSlips = await this.baixarBoletosAndConfirm(taskId);
+      if (unconfirmedSlips.length > 0) {
+        throw new BadRequestException(
+          `Não foi possível confirmar a baixa no Sicredi de ${unconfirmedSlips.length} boleto(s): ` +
+            unconfirmedSlips.map(s => `${s.nossoNumero} (${s.detail})`).join('; ') +
+            `. O faturamento foi mantido para que o(s) título(s) não fique(m) em aberto sem ` +
+            `registro no sistema. Tente novamente em alguns minutos ou dê baixa manualmente no Sicredi.`,
         );
       }
 
@@ -2596,22 +2823,6 @@ export class TaskQuoteService {
             );
           }
         });
-      }
-
-      // Best-effort baixa of active boletos at Sicredi.
-      const activeSlips = await this.prisma.bankSlip.findMany({
-        where: {
-          installment: { invoice: { taskId } },
-          status: { notIn: ['CANCELLED', 'PAID'] },
-        },
-        select: { nossoNumero: true },
-      });
-      if (activeSlips.length > 0) {
-        await Promise.allSettled(
-          activeSlips
-            .filter(s => s.nossoNumero && !s.nossoNumero.startsWith('TMP-'))
-            .map(s => this.sicrediService.cancelBoleto(s.nossoNumero!)),
-        );
       }
     }
 

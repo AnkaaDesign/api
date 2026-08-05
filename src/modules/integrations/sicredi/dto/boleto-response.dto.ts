@@ -12,12 +12,19 @@ export class BoletoResponseDto {
 export class BoletoQueryDto {
   nossoNumero: string;
   seuNumero?: string;
+  // "ACTIVE"-ish values seen in production: EM CARTEIRA, VENCIDO, LIQUIDADO COMPE,
+  // BAIXADO POR SOLICITACAO. Prefix-match rather than comparing the whole string.
   situacao: string;
   dataVencimento: string;
+  // Present only once the title has been baixado (yyyy-MM-dd).
+  dataBaixa?: string;
+  // Sicredi names the face value `valorNominal`; `valor` is kept for older callers.
+  valorNominal?: number;
   valor: number;
   valorLiquidacao?: number;
   dataLiquidacao?: string;
   tipoCobranca: string;
+  [key: string]: any;
 }
 
 export class PaidBoletoDto {
