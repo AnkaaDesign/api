@@ -1,0 +1,437 @@
+{
+  "arte": "BURES 2 8.40.png",
+  "comprimento_cm": 856.7,
+  "altura_cm": 245.1,
+  "area_m2": 21.0,
+  "px_por_cm": 11.58,
+  "fundo": {
+    "index": 0,
+    "hex": "#ffffff",
+    "mode": "WHITE_PLATE",
+    "coveragePct": 0.6827
+  },
+  "substrato": "CHAPA",
+  "tons_fundidos": {},
+  "elementos": [
+    {
+      "id": "e4",
+      "tipo": "FAIXA",
+      "regioes": [
+        "r29",
+        "r30",
+        "r50",
+        "r51",
+        "r52",
+        "r53",
+        "r54",
+        "r55",
+        "r56",
+        "r57",
+        "r58",
+        "r59",
+        "r60",
+        "r61",
+        "r62",
+        "r63",
+        "r64",
+        "r65",
+        "r66",
+        "r67",
+        "r68",
+        "r69",
+        "r70",
+        "r71",
+        "r72",
+        "r73",
+        "r74",
+        "r75",
+        "r76",
+        "r77",
+        "r78",
+        "r79",
+        "r80",
+        "r81",
+        "r82",
+        "r83",
+        "r84",
+        "r85",
+        "r86",
+        "r87",
+        "r88",
+        "r89",
+        "r90",
+        "r91",
+        "r92",
+        "r93",
+        "r94",
+        "r95",
+        "r96",
+        "r97",
+        "r98",
+        "r99",
+        "r100",
+        "r101",
+        "r102",
+        "r103",
+        "r104"
+      ],
+      "area_m2": 3.58,
+      "area_tinta_m2": 12.0,
+      "menor_traco_mm": 4.8,
+      "cores": [
+        "#00153f",
+        "#002f61",
+        "#014c8a",
+        "#ca7a02"
+      ],
+      "tons_originais": [
+        "#00153f",
+        "#002f61",
+        "#014c8a",
+        "#ca7a02"
+      ],
+      "degrade": false,
+      "aerografia": false,
+      "toca_tinta": true,
+      "campo": "CHAPA",
+      "verticalidade_deg": 4.6,
+      "bbox_norm": [
+        0.0,
+        0.535,
+        0.999,
+        0.999
+      ],
+      "rota": "FITA_AMARELA",
+      "motivo": "traçado a 5° da horizontal — curva tranquila, a amarela passa"
+    },
+    {
+      "id": "e1",
+      "tipo": "NOME",
+      "regioes": [
+        "r25",
+        "r26",
+        "r27",
+        "r31"
+      ],
+      "area_m2": 1.97,
+      "area_tinta_m2": 4.47,
+      "menor_traco_mm": 126.5,
+      "cores": [
+        "#014c8a",
+        "#ca7a02"
+      ],
+      "tons_originais": [
+        "#014c8a",
+        "#ca7a02"
+      ],
+      "degrade": false,
+      "aerografia": false,
+      "toca_tinta": false,
+      "campo": "CHAPA",
+      "verticalidade_deg": 39.2,
+      "bbox_norm": [
+        0.331,
+        0.096,
+        0.804,
+        0.468
+      ],
+      "rota": "ADESIVO_SOBRE_CHAPA",
+      "motivo": "só encosta em chapa — adesivo aplicado inteiro, depilado por cor. Sem corte manual, sem verniz"
+    },
+    {
+      "id": "e0",
+      "tipo": "LOGOMARCA",
+      "regioes": [
+        "r24",
+        "r28",
+        "r32",
+        "r33",
+        "r34",
+        "r35"
+      ],
+      "area_m2": 0.82,
+      "area_tinta_m2": 1.83,
+      "menor_traco_mm": 14.3,
+      "cores": [
+        "#014c8a",
+        "#ca7a02"
+      ],
+      "tons_originais": [
+        "#014c8a",
+        "#ca7a02"
+      ],
+      "degrade": false,
+      "aerografia": false,
+      "toca_tinta": false,
+      "campo": "CHAPA",
+      "verticalidade_deg": 48.7,
+      "bbox_norm": [
+        0.185,
+        0.096,
+        0.327,
+        0.54
+      ],
+      "rota": "ADESIVO_SOBRE_CHAPA",
+      "motivo": "só encosta em chapa — adesivo aplicado inteiro, depilado por cor. Sem corte manual, sem verniz"
+    },
+    {
+      "id": "e3",
+      "tipo": "TELEFONE",
+      "regioes": [
+        "r36",
+        "r37",
+        "r38",
+        "r39",
+        "r40",
+        "r41",
+        "r42",
+        "r43",
+        "r44",
+        "r45",
+        "r46",
+        "r47",
+        "r48",
+        "r49"
+      ],
+      "area_m2": 0.12,
+      "area_tinta_m2": 0.66,
+      "menor_traco_mm": 10.6,
+      "cores": [
+        "#014c8a"
+      ],
+      "tons_originais": [
+        "#014c8a"
+      ],
+      "degrade": false,
+      "aerografia": false,
+      "toca_tinta": false,
+      "campo": "CHAPA",
+      "verticalidade_deg": 75.0,
+      "bbox_norm": [
+        0.582,
+        0.615,
+        0.804,
+        0.698
+      ],
+      "rota": "ADESIVO_SOBRE_CHAPA",
+      "motivo": "só encosta em chapa — adesivo aplicado inteiro, depilado por cor. Sem corte manual, sem verniz"
+    },
+    {
+      "id": "e2",
+      "tipo": "TAGLINE",
+      "regioes": [
+        "r106",
+        "r107",
+        "r108",
+        "r109",
+        "r110",
+        "r111",
+        "r112",
+        "r113",
+        "r114",
+        "r115",
+        "r116",
+        "r117",
+        "r118",
+        "r119",
+        "r120",
+        "r121",
+        "r122",
+        "r123",
+        "r124",
+        "r125",
+        "r126"
+      ],
+      "area_m2": 0.12,
+      "area_tinta_m2": 1.48,
+      "menor_traco_mm": 5.9,
+      "cores": [
+        "#6b7075"
+      ],
+      "tons_originais": [
+        "#6b7075"
+      ],
+      "degrade": false,
+      "aerografia": false,
+      "toca_tinta": false,
+      "campo": "CHAPA",
+      "verticalidade_deg": 77.9,
+      "bbox_norm": [
+        0.331,
+        0.5,
+        0.804,
+        0.596
+      ],
+      "rota": "ADESIVO_SOBRE_CHAPA",
+      "motivo": "só encosta em chapa — adesivo aplicado inteiro, depilado por cor. Sem corte manual, sem verniz"
+    }
+  ],
+  "passos": [
+    {
+      "n": 1,
+      "tipo": "PREPARO",
+      "titulo": "Limpeza",
+      "detalhe": "Limpar a face. Sem pintura geral não há lavagem completa nem empapelamento do implemento. As 5 caixas marcam onde cada elemento entra, com 8 cm de folga entre o desenho e a borda do adesivo.",
+      "img": "img/passo_01.jpg"
+    },
+    {
+      "n": 2,
+      "tipo": "ADESIVO",
+      "titulo": "Adesivo — nome",
+      "detalhe": "só encosta em chapa — adesivo aplicado inteiro, depilado por cor. Sem corte manual, sem verniz. Traço de corte do plotter; a folha vai inteira (1.97 m²) e a depilação libera cada cor na sua vez.",
+      "img": "img/passo_02.jpg",
+      "rota": "ADESIVO_SOBRE_CHAPA",
+      "elemento": "NOME"
+    },
+    {
+      "n": 3,
+      "tipo": "ADESIVO",
+      "titulo": "Adesivo — logomarca",
+      "detalhe": "só encosta em chapa — adesivo aplicado inteiro, depilado por cor. Sem corte manual, sem verniz. Traço de corte do plotter; a folha vai inteira (0.82 m²) e a depilação libera cada cor na sua vez.",
+      "img": "img/passo_03.jpg",
+      "rota": "ADESIVO_SOBRE_CHAPA",
+      "elemento": "LOGOMARCA"
+    },
+    {
+      "n": 4,
+      "tipo": "ADESIVO",
+      "titulo": "Adesivo — telefone",
+      "detalhe": "só encosta em chapa — adesivo aplicado inteiro, depilado por cor. Sem corte manual, sem verniz. Traço de corte do plotter; a folha vai inteira (0.12 m²) e a depilação libera cada cor na sua vez.",
+      "img": "img/passo_04.jpg",
+      "rota": "ADESIVO_SOBRE_CHAPA",
+      "elemento": "TELEFONE"
+    },
+    {
+      "n": 5,
+      "tipo": "ADESIVO",
+      "titulo": "Adesivo — tagline",
+      "detalhe": "só encosta em chapa — adesivo aplicado inteiro, depilado por cor. Sem corte manual, sem verniz. Traço de corte do plotter; a folha vai inteira (0.12 m²) e a depilação libera cada cor na sua vez.",
+      "img": "img/passo_05.jpg",
+      "rota": "ADESIVO_SOBRE_CHAPA",
+      "elemento": "TAGLINE"
+    },
+    {
+      "n": 6,
+      "tipo": "FITA",
+      "titulo": "Fita Amarela — faixa",
+      "detalhe": "traçado a 5° da horizontal — curva tranquila, a amarela passa. 3.58 m². A fita delimita e a tinta entra: sem adesivo e sem corte.",
+      "img": "img/passo_06.jpg",
+      "rota": "FITA_AMARELA",
+      "elemento": "FAIXA"
+    },
+    {
+      "n": 7,
+      "tipo": "PREPARO",
+      "titulo": "Empapelamento",
+      "detalhe": "Kraft em folhas de 100 cm (9 nesta face) em volta das janelas. Ainda não há tinta nenhuma na peça — só a chapa e o traço dos adesivos.",
+      "img": "img/passo_07.jpg"
+    },
+    {
+      "n": 8,
+      "tipo": "PINTURA",
+      "titulo": "Sessão 1 — 1 cor(es)",
+      "detalhe": "#6b7075. 0.12 m². Cor isolada nesta sessão.",
+      "img": "img/passo_08.jpg",
+      "cor": "#6b7075",
+      "cores": [
+        "#6b7075"
+      ]
+    },
+    {
+      "n": 9,
+      "tipo": "PREPARO",
+      "titulo": "Cobrir sessão 1",
+      "detalhe": "Papel sobre #6b7075, na caixa de cada parte e dentro do território dela. 9 parte(s) ainda por pintar.",
+      "img": "img/passo_09.jpg"
+    },
+    {
+      "n": 10,
+      "tipo": "PINTURA",
+      "titulo": "Sessão 2 — 2 cor(es)",
+      "detalhe": "#00153f, #014c8a. 3.02 m². Nenhuma destas cores encosta em outra da mesma sessão, então todas entram na mesma demão.",
+      "img": "img/passo_10.jpg",
+      "cor": "#00153f",
+      "cores": [
+        "#00153f",
+        "#014c8a"
+      ]
+    },
+    {
+      "n": 11,
+      "tipo": "PREPARO",
+      "titulo": "Cobrir sessão 2",
+      "detalhe": "Papel sobre #00153f, #014c8a, na caixa de cada parte e dentro do território dela. 4 parte(s) ainda por pintar.",
+      "img": "img/passo_11.jpg"
+    },
+    {
+      "n": 12,
+      "tipo": "PINTURA",
+      "titulo": "Sessão 3 — 2 cor(es)",
+      "detalhe": "#002f61, #ca7a02. 3.47 m². Nenhuma destas cores encosta em outra da mesma sessão, então todas entram na mesma demão.",
+      "img": "img/passo_12.jpg",
+      "cor": "#002f61",
+      "cores": [
+        "#002f61",
+        "#ca7a02"
+      ]
+    },
+    {
+      "n": 13,
+      "tipo": "PREPARO",
+      "titulo": "Remover o papel das cores",
+      "detalhe": "Sai só o papel que protegia as cores entre si. O empapelamento da face continua.",
+      "img": "img/passo_13.jpg"
+    },
+    {
+      "n": 14,
+      "tipo": "VERNIZ",
+      "titulo": "Verniz sobre o que foi pintado",
+      "detalhe": "Verniz na área de cada adesivo e na banda da fita — não há como envernizar só o desenho, mas também não se enverniza chapa vazia. 4 adesivos viram 1 passada(s) por se sobreporem; a faixa entra como banda própria.",
+      "img": "img/passo_14.jpg"
+    },
+    {
+      "n": 15,
+      "tipo": "PREPARO",
+      "titulo": "Remover o empapelamento",
+      "detalhe": "Sai todo o kraft e o que restou de adesivo. Depois: faixa refletiva.",
+      "img": "img/passo_15.jpg"
+    }
+  ],
+  "alertas": [
+    {
+      "code": "GRADIENT_COLORS_PRESENT",
+      "severity": "INFO",
+      "message": "2 cor(es) de rampa de degradê. São tintas próprias: pinta-se todas e só depois se corta a separação para esfumar."
+    },
+    {
+      "code": "EDGE_CROPPED_CONTENT",
+      "severity": "WARNING",
+      "message": "7 elemento(s) tocam a borda do arquivo (r29, r30, r50, r105, r127, r128) — verificar se a arte está cortada/incompleta."
+    },
+    {
+      "code": "MICRO_DETAIL_PRESENT",
+      "severity": "INFO",
+      "message": "39 região(ões) com traço abaixo de 8 mm — recorte fino de alta complexidade ou aerografia à mão livre."
+    },
+    {
+      "code": "BAND_STACKED",
+      "severity": "INFO",
+      "message": "Faixa st1: altura 245 cm exige 3 bandas empilhadas (120+90+50)."
+    },
+    {
+      "code": "SPLICE_ALIGNMENT_RISK",
+      "severity": "WARNING",
+      "message": "Faixa st1: emendas de bobina em múltiplos níveis empilhados — desalinhar as emendas para não coincidirem."
+    },
+    {
+      "code": "SEAM_CROSSES_DETAIL",
+      "severity": "WARNING",
+      "message": "Faixa st1: emenda de bandas cruza detalhe fino (r105, r61, r77) — deslocar a emenda em até ±10 cm."
+    },
+    {
+      "code": "BAND_EXCEEDS_FACE",
+      "severity": "INFO",
+      "message": "Faixa st1: banda ultrapassa o limite da face — o material excede; recortar na aplicação."
+    }
+  ]
+}

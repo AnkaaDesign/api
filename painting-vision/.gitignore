@@ -1,0 +1,8 @@
+.venv/
+.venv-paddle/
+__pycache__/
+*.pyc
+# nunca versionar chave de API nem saída de teste
+.env
+*.env
+resultados/

@@ -130,6 +130,8 @@ def run_pipeline(
                 "hex": quant.palette_hex[i],
                 "lab": [round(float(v), 2) for v in quant.palette_lab[i]],
                 "pixelPct": quant.palette_pct[i],
+                "gradient": (quant.palette_gradient[i]
+                             if i < len(quant.palette_gradient) else False),
             }
             for i in range(quant.palette_lab.shape[0])
         ]

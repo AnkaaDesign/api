@@ -20,8 +20,22 @@ class EngineParams:
     # --- quantization -------------------------------------------------------
     max_colors: int = 24              # cap for k-means centers
     min_peak_pct: float = 0.002       # histogram peak must hold >=0.2% of pixels
-    merge_delta_e: float = 6.0        # merge centers closer than this (CIE76)
+    merge_delta_e: float = 3.0        # merge centers closer than this (CIE76)
+                                      # 6.0 nunca disparava: a semeadura antiga
+                                      # impunha piso de 10.0 entre centros.
     min_region_cm2: float = 0.5       # regions smaller than this are absorbed
+
+    # --- semeadura: resolver tons próximos sem fabricar tons em rampas ------
+    seed_bin_lab: float = 2.0         # passo do histograma LAB (era 5.0 fixo)
+    seed_min_delta_e: float = 3.0     # raio de exclusão entre sementes
+    seed_flat_grad_max: float = 1.0   # ΔE/px: só interiores chapados semeiam
+    seed_min_peak_pct: float = 0.0008 # massa mínima de um bin para virar semente
+
+    # --- pureza modal: separa tinta chapada de rampa de degradê -------------
+    gradient_step_delta_e: float = 12.0  # passo entre tons de uma rampa:
+                                      # o pintor bate ~3 tons, não 6
+    flat_modal_min: float = 0.35      # abaixo disto o cluster é rampa
+    flat_modal_sample_px: int = 3_000_000  # amostra na resolução ORIGINAL
     aa_uncertain_delta_e: float = 14.0  # px farther than this from own center -> modal vote
 
     # --- background ---------------------------------------------------------

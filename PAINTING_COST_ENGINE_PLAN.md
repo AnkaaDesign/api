@@ -1,5 +1,20 @@
 # Motor de Planejamento e Custo de Produção de Pintura
 
+> ⚠️ **DOUTRINA (2026-08-05): `PAINTING_PRODUCTION_DOCTRINE.md` tem precedência
+> sobre este documento e sobre `layout database/analysis/analysis_A..F.md`.**
+> Ela é a correção do dono sobre o processo real. O que este plano já acertava e
+> as análises A–F violavam: **adesivo é sempre só máscara; nada é impresso**
+> (§35, §140 aqui). O que este plano ainda não tem:
+> - ordem de pintura pela **menor cobertura primeiro** (doutrina §2)
+> - escolha de fita pelo **substrato**, não pela curvatura (§4) — fita amarela só
+>   em isoplastic/lona; em chapa branca é fita branca, que não curva e exige corte
+> - `ADESIVO_SOBRE_CHAPA` × `SOBRE_VERNIZ` (§3.2-a/b): sem tinta embaixo
+>   não há ciclo de verniz — 4 reanálises independentes apontaram esta lacuna
+> - `sobre: CHAPA | TINTA` como sinal de cortabilidade à mão (§7.1)
+> - `internal_split`: parte chapada + parte em degradê no mesmo elemento (§7.3)
+>
+> As reanálises corrigidas vivem em `layout database/analysis_v2/`.
+
 > **STATUS (2026-08-04): implementado de ponta a ponta (v1).**
 > - Engine Python (visão/geometria): `api/painting-engine/` — S0–S6 + bandas de adesivo; CLI/FastAPI com estágios independentes; 11 testes (sintéticos + artes reais). **Mudança vs. plano original: o pipeline de imagem foi para Python (numpy/scipy/scikit-image/shapely), não sharp+TS** — decisão autorizada pelo dono para robustez dos algoritmos.
 > - API NestJS: módulo `api/src/modules/paint/painting-analysis/` — CRUD, runner do engine, MATCH (ΔE), STRATEGY (rules-as-data), PLAN (sessões→passos→materiais→custos com snapshot); rotas `/painting-analyses` (+`/config`). Migração `20260804140000_painting_cost_engine` (12 tabelas). Seed: `npm run seed:painting` (27 taxas, 6 indiretos, 17 regras, custo-hora da média CLT viva).
@@ -22,7 +37,7 @@ A análise das 66 artes confirmou que o custo real é dominado por **decisões d
 
 1. **A decisão nº 1 é o fundo.** O lote se divide em 3 arquétipos limpos:
    - **Chapa branca original** (~60% das artes): todo elemento vira fronteira tinta-fundo (T-F) — só adesivo, sem corte, sem fita. 1–2 dias.
-   - **Pintura geral** (cor ≥ ~80% da superfície ≠ branco): +2 dias (lavar, empapelar, fundo, cor, verniz) e TODAS as fronteiras re-ancoram para tinta-tinta (T-T) sobre fundo curado — resolvidas por cura 3h + adesivo, quase nunca por fita.
+   - **Pintura geral** (cor ≥ ~80% da superfície ≠ branco): +2 dias (lavar, empapelar, fundo, cor, verniz). As fronteiras entre **duas tintas** re-ancoram para tinta-tinta (T-T) sobre fundo curado — resolvidas por cura 3h + adesivo, quase nunca por fita. **Elementos em RESERVA (chapa preservada por máscara antes da pintura geral) continuam T-F** e não geram sessão: não há segunda tinta para proteger.
    - **Sider de lona**: rota própria — não é chapa; pintura sobre lona usa a linha vinílica (11 cores em estoque) com processo/rendimento distintos.
    - Zona ambígua (off-white/cinza-gelo, ex.: BALALAC, AAN): errar muda o plano de 1 para 3 dias → **flag obrigatória de confirmação humana**.
 
@@ -132,7 +147,8 @@ Para cada região/zona, classificar em:
   - `T-F` — tinta × fundo original (branco da chapa ou cor preservada da pintura geral): **não gera corte, nem fita, nem sessão**; só existe no adesivo.
   - `T-T` — tinta × tinta: gera decisão de processo (S7).
   - `KEYLINE` — filete de fundo entre 2 tintas: converte para 2×T-F (registrar a economia p/ exibir "por que ficou barato").
-- Em pintura geral, re-ancorar: toda fronteira com o fundo vira T-T-sobre-curado (resolvida por cura+adesivo, sem corte manual).
+- Em pintura geral, re-ancorar **apenas as fronteiras entre duas tintas**: viram T-T-sobre-curado (resolvida por cura+adesivo, sem corte manual). Fronteira de tinta com **reserva** (branco/chapa preservada) permanece T-F — coerente com a definição de `T-F` acima.
+  > Esta linha dizia "toda fronteira com o fundo vira T-T". Estava errada e contradizia a própria definição de `T-F` três linhas acima. As reanálises v2 mediram o custo: ~45 fronteiras T-T falsas só na "mar e rio" e ~14 m na A&P — transformando o elemento **mais barato** de cada arte (texto branco negativo, custo de tinta zero) no mais caro. Branco contado como tinta apareceu em 8/8 artes de uma das fatias.
 
 ### S7 — Atribuição de estratégias (rules-as-data)
 Árvore de decisão avaliada por elemento (ordem de precedência; todos os limiares em `StrategyRule`):

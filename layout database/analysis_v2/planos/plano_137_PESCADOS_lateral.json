@@ -1,0 +1,729 @@
+{
+  "arte": "137 PESCADOS lateral.png",
+  "comprimento_cm": 875.1,
+  "altura_cm": 245.0,
+  "area_m2": 21.443,
+  "px_por_cm": 12.69,
+  "fundo": {
+    "index": 0,
+    "hex": "#aaacae",
+    "mode": "GENERAL_PAINT",
+    "coveragePct": 0.823
+  },
+  "substrato": "ISOPLASTIC",
+  "tons_fundidos": {},
+  "elementos": [
+    {
+      "id": "e5",
+      "tipo": "ORNAMENTO",
+      "regioes": [
+        "r69",
+        "r128",
+        "r131",
+        "r132",
+        "r134",
+        "r135",
+        "r136",
+        "r137",
+        "r138",
+        "r139",
+        "r140",
+        "r141",
+        "r142",
+        "r143",
+        "r144",
+        "r145",
+        "r146",
+        "r147",
+        "r148",
+        "r168",
+        "r170",
+        "r172",
+        "r173",
+        "r175",
+        "r176",
+        "r177",
+        "r178",
+        "r179",
+        "r180",
+        "r181",
+        "r182",
+        "r183",
+        "r184",
+        "r185",
+        "r186",
+        "r187",
+        "r188",
+        "r189",
+        "r190",
+        "r191",
+        "r192",
+        "r207",
+        "r209",
+        "r210",
+        "r212",
+        "r214",
+        "r215",
+        "r216",
+        "r217",
+        "r218",
+        "r219",
+        "r220",
+        "r221",
+        "r222",
+        "r223",
+        "r224",
+        "r225",
+        "r226",
+        "r232",
+        "r234",
+        "r236",
+        "r237",
+        "r238",
+        "r239",
+        "r240",
+        "r253",
+        "r254",
+        "r255",
+        "r256",
+        "r257",
+        "r258",
+        "r259",
+        "r260",
+        "r261",
+        "r262",
+        "r263",
+        "r264"
+      ],
+      "area_m2": 1.17,
+      "area_tinta_m2": 3.12,
+      "menor_traco_mm": 4.9,
+      "cores": [
+        "#142149",
+        "#1e4785",
+        "#233d7a",
+        "#2769b4",
+        "#295491",
+        "#2d5ea3"
+      ],
+      "tons_originais": [
+        "#142149",
+        "#1e4785",
+        "#233d7a",
+        "#2769b4",
+        "#295491",
+        "#2d5ea3"
+      ],
+      "degrade": false,
+      "aerografia": false,
+      "toca_tinta": true,
+      "campo": "PINTURA_GERAL",
+      "verticalidade_deg": 45.8,
+      "bbox_norm": [
+        0.0,
+        0.287,
+        0.186,
+        0.998
+      ],
+      "rota": "ADESIVO_SOBRE_VERNIZ",
+      "motivo": "encosta em tinta e o traço de 5 mm está abaixo dos 14 mm confirmados"
+    },
+    {
+      "id": "e6",
+      "tipo": "ORNAMENTO",
+      "regioes": [
+        "r114",
+        "r115",
+        "r116",
+        "r117",
+        "r118",
+        "r119",
+        "r120",
+        "r121",
+        "r122",
+        "r123",
+        "r124",
+        "r125",
+        "r126",
+        "r127",
+        "r129",
+        "r130",
+        "r133",
+        "r150",
+        "r151",
+        "r152",
+        "r153",
+        "r154",
+        "r155",
+        "r156",
+        "r157",
+        "r158",
+        "r159",
+        "r160",
+        "r161",
+        "r162",
+        "r163",
+        "r164",
+        "r165",
+        "r166",
+        "r167",
+        "r169",
+        "r171",
+        "r174",
+        "r193",
+        "r194",
+        "r195",
+        "r196",
+        "r197",
+        "r198",
+        "r199",
+        "r200",
+        "r201",
+        "r202",
+        "r203",
+        "r204",
+        "r205",
+        "r206",
+        "r208",
+        "r211",
+        "r213",
+        "r227",
+        "r228",
+        "r229",
+        "r230",
+        "r231",
+        "r233",
+        "r235",
+        "r241",
+        "r242",
+        "r243",
+        "r244",
+        "r245",
+        "r246",
+        "r247",
+        "r248",
+        "r249",
+        "r250",
+        "r251",
+        "r252"
+      ],
+      "area_m2": 1.17,
+      "area_tinta_m2": 3.12,
+      "menor_traco_mm": 4.9,
+      "cores": [
+        "#1e4785",
+        "#233d7a",
+        "#2769b4",
+        "#295491",
+        "#2d5ea3"
+      ],
+      "tons_originais": [
+        "#1e4785",
+        "#233d7a",
+        "#2769b4",
+        "#295491",
+        "#2d5ea3"
+      ],
+      "degrade": false,
+      "aerografia": false,
+      "toca_tinta": true,
+      "campo": "PINTURA_GERAL",
+      "verticalidade_deg": 45.9,
+      "bbox_norm": [
+        0.807,
+        0.0,
+        0.999,
+        0.998
+      ],
+      "rota": "ADESIVO_SOBRE_VERNIZ",
+      "motivo": "encosta em tinta e o traço de 5 mm está abaixo dos 14 mm confirmados"
+    },
+    {
+      "id": "e1",
+      "tipo": "NOME",
+      "regioes": [
+        "r32",
+        "r33",
+        "r34"
+      ],
+      "area_m2": 0.66,
+      "area_tinta_m2": 3.91,
+      "menor_traco_mm": 65.2,
+      "cores": [
+        "#142149"
+      ],
+      "tons_originais": [
+        "#142149"
+      ],
+      "degrade": false,
+      "aerografia": false,
+      "toca_tinta": false,
+      "campo": "PINTURA_GERAL",
+      "verticalidade_deg": 88.1,
+      "bbox_norm": [
+        0.348,
+        0.04,
+        0.657,
+        0.585
+      ],
+      "rota": "ADESIVO_SOBRE_GERAL",
+      "motivo": "nenhuma cor do desenho se toca aqui; o adesivo assenta sobre a pintura geral já curada do dia anterior — sem verniz, sem espera"
+    },
+    {
+      "id": "e2",
+      "tipo": "NOME",
+      "regioes": [
+        "r70",
+        "r71",
+        "r72",
+        "r73",
+        "r74",
+        "r75",
+        "r76",
+        "r77"
+      ],
+      "area_m2": 0.6,
+      "area_tinta_m2": 3.29,
+      "menor_traco_mm": 41.3,
+      "cores": [
+        "#142149"
+      ],
+      "tons_originais": [
+        "#142149"
+      ],
+      "degrade": false,
+      "aerografia": false,
+      "toca_tinta": false,
+      "campo": "PINTURA_GERAL",
+      "verticalidade_deg": 44.8,
+      "bbox_norm": [
+        0.215,
+        0.634,
+        0.784,
+        0.859
+      ],
+      "rota": "ADESIVO_SOBRE_GERAL",
+      "motivo": "nenhuma cor do desenho se toca aqui; o adesivo assenta sobre a pintura geral já curada do dia anterior — sem verniz, sem espera"
+    },
+    {
+      "id": "e3",
+      "tipo": "SITE",
+      "regioes": [
+        "r78",
+        "r79",
+        "r80",
+        "r83",
+        "r84",
+        "r89",
+        "r90",
+        "r91",
+        "r92",
+        "r93",
+        "r94",
+        "r95",
+        "r96",
+        "r97",
+        "r98",
+        "r106",
+        "r107",
+        "r108",
+        "r109",
+        "r111",
+        "r112",
+        "r113"
+      ],
+      "area_m2": 0.1,
+      "area_tinta_m2": 0.71,
+      "menor_traco_mm": 10.9,
+      "cores": [
+        "#142149"
+      ],
+      "tons_originais": [
+        "#142149"
+      ],
+      "degrade": false,
+      "aerografia": false,
+      "toca_tinta": false,
+      "campo": "PINTURA_GERAL",
+      "verticalidade_deg": 50.6,
+      "bbox_norm": [
+        0.376,
+        0.884,
+        0.627,
+        0.957
+      ],
+      "rota": "ADESIVO_SOBRE_GERAL",
+      "motivo": "nenhuma cor do desenho se toca aqui; o adesivo assenta sobre a pintura geral já curada do dia anterior — sem verniz, sem espera"
+    },
+    {
+      "id": "e4",
+      "tipo": "TELEFONE",
+      "regioes": [
+        "r81",
+        "r82",
+        "r85",
+        "r86",
+        "r87",
+        "r88",
+        "r99",
+        "r100",
+        "r101",
+        "r102",
+        "r103",
+        "r104",
+        "r105",
+        "r110"
+      ],
+      "area_m2": 0.06,
+      "area_tinta_m2": 0.42,
+      "menor_traco_mm": 9.7,
+      "cores": [
+        "#142149"
+      ],
+      "tons_originais": [
+        "#142149"
+      ],
+      "degrade": false,
+      "aerografia": false,
+      "toca_tinta": false,
+      "campo": "PINTURA_GERAL",
+      "verticalidade_deg": 70.1,
+      "bbox_norm": [
+        0.827,
+        0.893,
+        0.986,
+        0.957
+      ],
+      "rota": "ADESIVO_SOBRE_GERAL",
+      "motivo": "nenhuma cor do desenho se toca aqui; o adesivo assenta sobre a pintura geral já curada do dia anterior — sem verniz, sem espera"
+    },
+    {
+      "id": "e0",
+      "tipo": "TAGLINE",
+      "regioes": [
+        "r35",
+        "r36",
+        "r37",
+        "r38",
+        "r39",
+        "r40",
+        "r41",
+        "r42",
+        "r43",
+        "r44",
+        "r45",
+        "r46",
+        "r47",
+        "r48",
+        "r49",
+        "r50",
+        "r51",
+        "r52",
+        "r53",
+        "r54",
+        "r55",
+        "r56",
+        "r57",
+        "r58",
+        "r59",
+        "r60",
+        "r61",
+        "r62",
+        "r63",
+        "r64",
+        "r65",
+        "r66",
+        "r67"
+      ],
+      "area_m2": 0.04,
+      "area_tinta_m2": 0.64,
+      "menor_traco_mm": 4.9,
+      "cores": [
+        "#142149"
+      ],
+      "tons_originais": [
+        "#142149"
+      ],
+      "degrade": false,
+      "aerografia": false,
+      "toca_tinta": false,
+      "campo": "PINTURA_GERAL",
+      "verticalidade_deg": 42.8,
+      "bbox_norm": [
+        0.015,
+        0.079,
+        0.213,
+        0.164
+      ],
+      "rota": "ADESIVO_SOBRE_GERAL",
+      "motivo": "nenhuma cor do desenho se toca aqui; o adesivo assenta sobre a pintura geral já curada do dia anterior — sem verniz, sem espera"
+    }
+  ],
+  "passos": [
+    {
+      "n": 1,
+      "tipo": "PREPARO",
+      "titulo": "Lavagem",
+      "detalhe": "Lavar e desengraxar a face inteira. Existe porque há pintura geral.",
+      "img": "img/passo_01.jpg"
+    },
+    {
+      "n": 2,
+      "tipo": "PREPARO",
+      "titulo": "Empapelamento do implemento",
+      "detalhe": "Cobrir perfis de borda, borrachas, ferragens e a faixa refletiva — nada disso recebe tinta.",
+      "img": "img/passo_02.jpg"
+    },
+    {
+      "n": 3,
+      "tipo": "PINTURA",
+      "titulo": "Pintura geral",
+      "detalhe": "Fundo e cor geral (#aaacae) em toda a face. Cura até o dia seguinte; só então entram os adesivos.",
+      "img": "img/passo_03.jpg"
+    },
+    {
+      "n": 4,
+      "tipo": "PREPARO",
+      "titulo": "Conferência da face curada",
+      "detalhe": "A geral está curada — daqui em diante o adesivo assenta direto sobre ela. As 7 caixas marcam onde cada elemento entra, com 8 cm de folga entre o desenho e a borda do adesivo.",
+      "img": "img/passo_04.jpg"
+    },
+    {
+      "n": 5,
+      "tipo": "ADESIVO",
+      "titulo": "Adesivo — ornamento",
+      "detalhe": "encosta em tinta e o traço de 5 mm está abaixo dos 14 mm confirmados. Traço de corte do plotter; a folha vai inteira (1.17 m²) e a depilação libera cada cor na sua vez.",
+      "img": "img/passo_05.jpg",
+      "rota": "ADESIVO_SOBRE_VERNIZ",
+      "elemento": "ORNAMENTO"
+    },
+    {
+      "n": 6,
+      "tipo": "ADESIVO",
+      "titulo": "Adesivo — ornamento",
+      "detalhe": "encosta em tinta e o traço de 5 mm está abaixo dos 14 mm confirmados. Traço de corte do plotter; a folha vai inteira (1.17 m²) e a depilação libera cada cor na sua vez.",
+      "img": "img/passo_06.jpg",
+      "rota": "ADESIVO_SOBRE_VERNIZ",
+      "elemento": "ORNAMENTO"
+    },
+    {
+      "n": 7,
+      "tipo": "ADESIVO",
+      "titulo": "Adesivo — nome",
+      "detalhe": "nenhuma cor do desenho se toca aqui; o adesivo assenta sobre a pintura geral já curada do dia anterior — sem verniz, sem espera. Traço de corte do plotter; a folha vai inteira (0.66 m²) e a depilação libera cada cor na sua vez.",
+      "img": "img/passo_07.jpg",
+      "rota": "ADESIVO_SOBRE_GERAL",
+      "elemento": "NOME"
+    },
+    {
+      "n": 8,
+      "tipo": "ADESIVO",
+      "titulo": "Adesivo — nome",
+      "detalhe": "nenhuma cor do desenho se toca aqui; o adesivo assenta sobre a pintura geral já curada do dia anterior — sem verniz, sem espera. Traço de corte do plotter; a folha vai inteira (0.6 m²) e a depilação libera cada cor na sua vez.",
+      "img": "img/passo_08.jpg",
+      "rota": "ADESIVO_SOBRE_GERAL",
+      "elemento": "NOME"
+    },
+    {
+      "n": 9,
+      "tipo": "ADESIVO",
+      "titulo": "Adesivo — site",
+      "detalhe": "nenhuma cor do desenho se toca aqui; o adesivo assenta sobre a pintura geral já curada do dia anterior — sem verniz, sem espera. Traço de corte do plotter; a folha vai inteira (0.1 m²) e a depilação libera cada cor na sua vez.",
+      "img": "img/passo_09.jpg",
+      "rota": "ADESIVO_SOBRE_GERAL",
+      "elemento": "SITE"
+    },
+    {
+      "n": 10,
+      "tipo": "ADESIVO",
+      "titulo": "Adesivo — telefone",
+      "detalhe": "nenhuma cor do desenho se toca aqui; o adesivo assenta sobre a pintura geral já curada do dia anterior — sem verniz, sem espera. Traço de corte do plotter; a folha vai inteira (0.06 m²) e a depilação libera cada cor na sua vez.",
+      "img": "img/passo_10.jpg",
+      "rota": "ADESIVO_SOBRE_GERAL",
+      "elemento": "TELEFONE"
+    },
+    {
+      "n": 11,
+      "tipo": "ADESIVO",
+      "titulo": "Adesivo — tagline",
+      "detalhe": "nenhuma cor do desenho se toca aqui; o adesivo assenta sobre a pintura geral já curada do dia anterior — sem verniz, sem espera. Traço de corte do plotter; a folha vai inteira (0.04 m²) e a depilação libera cada cor na sua vez.",
+      "img": "img/passo_11.jpg",
+      "rota": "ADESIVO_SOBRE_GERAL",
+      "elemento": "TAGLINE"
+    },
+    {
+      "n": 12,
+      "tipo": "PREPARO",
+      "titulo": "Empapelamento",
+      "detalhe": "Kraft em folhas de 100 cm (9 nesta face) em volta das janelas. Ainda não há tinta nenhuma na peça — só a chapa e o traço dos adesivos.",
+      "img": "img/passo_12.jpg"
+    },
+    {
+      "n": 13,
+      "tipo": "PINTURA",
+      "titulo": "Sessão 1 — 1 cor(es)",
+      "detalhe": "#1e4785. 0.28 m². Cor isolada nesta sessão.",
+      "img": "img/passo_13.jpg",
+      "cor": "#1e4785",
+      "cores": [
+        "#1e4785"
+      ]
+    },
+    {
+      "n": 14,
+      "tipo": "PREPARO",
+      "titulo": "Cobrir sessão 1",
+      "detalhe": "Papel sobre #1e4785, na caixa de cada parte e dentro do território dela. 14 parte(s) ainda por pintar.",
+      "img": "img/passo_14.jpg"
+    },
+    {
+      "n": 15,
+      "tipo": "PINTURA",
+      "titulo": "Sessão 2 — 1 cor(es)",
+      "detalhe": "#2769b4. 0.31 m². Cor isolada nesta sessão.",
+      "img": "img/passo_15.jpg",
+      "cor": "#2769b4",
+      "cores": [
+        "#2769b4"
+      ]
+    },
+    {
+      "n": 16,
+      "tipo": "PREPARO",
+      "titulo": "Cobrir sessão 2",
+      "detalhe": "Papel sobre #2769b4, na caixa de cada parte e dentro do território dela. 12 parte(s) ainda por pintar.",
+      "img": "img/passo_16.jpg"
+    },
+    {
+      "n": 17,
+      "tipo": "PINTURA",
+      "titulo": "Sessão 3 — 1 cor(es)",
+      "detalhe": "#233d7a. 0.50 m². Cor isolada nesta sessão.",
+      "img": "img/passo_17.jpg",
+      "cor": "#233d7a",
+      "cores": [
+        "#233d7a"
+      ]
+    },
+    {
+      "n": 18,
+      "tipo": "PREPARO",
+      "titulo": "Cobrir sessão 3",
+      "detalhe": "Papel sobre #233d7a, na caixa de cada parte e dentro do território dela. 10 parte(s) ainda por pintar.",
+      "img": "img/passo_18.jpg"
+    },
+    {
+      "n": 19,
+      "tipo": "PINTURA",
+      "titulo": "Sessão 4 — 1 cor(es)",
+      "detalhe": "#295491. 0.57 m². Cor isolada nesta sessão.",
+      "img": "img/passo_19.jpg",
+      "cor": "#295491",
+      "cores": [
+        "#295491"
+      ]
+    },
+    {
+      "n": 20,
+      "tipo": "PREPARO",
+      "titulo": "Cobrir sessão 4",
+      "detalhe": "Papel sobre #295491, na caixa de cada parte e dentro do território dela. 8 parte(s) ainda por pintar.",
+      "img": "img/passo_20.jpg"
+    },
+    {
+      "n": 21,
+      "tipo": "PINTURA",
+      "titulo": "Sessão 5 — 2 cor(es)",
+      "detalhe": "#2d5ea3, #142149. 2.13 m². Nenhuma destas cores encosta em outra da mesma sessão, então todas entram na mesma demão.",
+      "img": "img/passo_21.jpg",
+      "cor": "#2d5ea3",
+      "cores": [
+        "#2d5ea3",
+        "#142149"
+      ]
+    },
+    {
+      "n": 22,
+      "tipo": "PREPARO",
+      "titulo": "Remover o papel das cores",
+      "detalhe": "Sai só o papel que protegia as cores entre si. O empapelamento da face continua.",
+      "img": "img/passo_22.jpg"
+    },
+    {
+      "n": 23,
+      "tipo": "VERNIZ",
+      "titulo": "Verniz sobre o que foi pintado",
+      "detalhe": "Verniz na área de cada adesivo e na banda da fita — não há como envernizar só o desenho, mas também não se enverniza chapa vazia. 7 adesivos viram 6 passada(s) por se sobreporem; a faixa entra como banda própria.",
+      "img": "img/passo_23.jpg"
+    },
+    {
+      "n": 24,
+      "tipo": "PREPARO",
+      "titulo": "Remover o empapelamento",
+      "detalhe": "Sai todo o kraft e o que restou de adesivo. Depois: faixa refletiva.",
+      "img": "img/passo_24.jpg"
+    }
+  ],
+  "alertas": [
+    {
+      "code": "AMBIGUOUS_BACKGROUND",
+      "severity": "WARNING",
+      "message": "Fundo cinza-neutro (L* 70) — pode ser o cinza de apresentação do mockup, não uma pintura geral real. Se a chapa é branca de fábrica, troque o 'Fundo da face' para 'Chapa branca' e recalcule."
+    },
+    {
+      "code": "LOW_DELTA_E_PAIR",
+      "severity": "WARNING",
+      "message": "Cores #2d5ea3 e #295491 muito próximas (ΔE 5.8) — confirmar se são duas tintas distintas."
+    },
+    {
+      "code": "LOW_DELTA_E_PAIR",
+      "severity": "WARNING",
+      "message": "Cores #2d5ea3 e #2769b4 muito próximas (ΔE 5.5) — confirmar se são duas tintas distintas."
+    },
+    {
+      "code": "LOW_DELTA_E_PAIR",
+      "severity": "WARNING",
+      "message": "Cores #295491 e #1e4785 muito próximas (ΔE 5.5) — confirmar se são duas tintas distintas."
+    },
+    {
+      "code": "LOW_DELTA_E_PAIR",
+      "severity": "WARNING",
+      "message": "Cores #233d7a e #1e4785 muito próximas (ΔE 5.1) — confirmar se são duas tintas distintas."
+    },
+    {
+      "code": "EDGE_CROPPED_CONTENT",
+      "severity": "WARNING",
+      "message": "10 elemento(s) tocam a borda do arquivo (r68, r69, r128, r133, r149, r186) — verificar se a arte está cortada/incompleta."
+    },
+    {
+      "code": "MICRO_DETAIL_PRESENT",
+      "severity": "INFO",
+      "message": "76 região(ões) com traço abaixo de 8 mm — recorte fino de alta complexidade ou aerografia à mão livre."
+    },
+    {
+      "code": "INCLINED_STRIP_FALLBACK",
+      "severity": "WARNING",
+      "message": "Faixa st1 inclinada (-8.5°) — bandas aplicadas na horizontal (modo rotacionado indisponível); considerar rotação manual."
+    },
+    {
+      "code": "BAND_STACKED",
+      "severity": "INFO",
+      "message": "Faixa st1: altura 245 cm exige 3 bandas empilhadas (120+90+50)."
+    },
+    {
+      "code": "SPLICE_ALIGNMENT_RISK",
+      "severity": "WARNING",
+      "message": "Faixa st1: emendas de bobina em múltiplos níveis empilhados — desalinhar as emendas para não coincidirem."
+    },
+    {
+      "code": "SEAM_CROSSES_DETAIL",
+      "severity": "WARNING",
+      "message": "Faixa st1: emenda de bandas cruza detalhe fino (r169, r186) — deslocar a emenda em até ±10 cm."
+    },
+    {
+      "code": "BAND_EXCEEDS_FACE",
+      "severity": "INFO",
+      "message": "Faixa st1: banda ultrapassa o limite da face — o material excede; recortar na aplicação."
+    }
+  ]
+}

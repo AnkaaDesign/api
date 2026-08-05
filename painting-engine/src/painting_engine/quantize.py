@@ -46,6 +46,9 @@ class QuantizeResult:
     background_index: int
     background_mode: str               # WHITE_PLATE | GENERAL_PAINT
     background_coverage: float
+    # tom de rampa: é tinta própria (tem demão), mas o acabamento esfuma a
+    # separação. Default vazio para não quebrar construção em teste.
+    palette_gradient: list[bool] = field(default_factory=list)
     alerts: list[dict] = field(default_factory=list)
     photo_zone_audit: list[dict] = field(default_factory=list)
 
@@ -252,24 +255,76 @@ def _rescue_vector_zones(
 # k-means in LAB
 # --------------------------------------------------------------------------
 
+def _flat_interior(lab_work: np.ndarray) -> np.ndarray:
+    """|∇LAB| em ΔE/px. Alto na borda (antialias) e no ruído; baixo no miolo
+    de um fill chapado. Serve para que só o interior das cores vote."""
+    g = [np.gradient(lab_work[:, :, c]) for c in range(3)]
+    return np.sqrt(sum(gy ** 2 + gx ** 2 for gy, gx in g))
+
+
 def _histogram_seeds(lab: np.ndarray, params: EngineParams) -> np.ndarray:
-    bin_size = 5.0
+    """Sementes do k-means, por seleção gulosa com raio de exclusão.
+
+    A versão anterior usava bins de 5,0 com supressão de não-máximo 3x3x3, o
+    que impunha um **piso algébrico de ΔE 10,0 entre sementes** — e o k-means
+    nunca cria um cluster que a semeadura não propôs. Medido em 24 artes: o ΔE
+    mínimo entre sementes era exatamente 10,00 em todas, e `merge_delta_e=6.0`
+    jamais disparou.
+
+    O piso errava nos dois sentidos: fundia dezenas de triângulos do 137
+    PESCADOS (6 azuis reais, ΔE mediano 5,5 entre vizinhos) e fabricava três
+    azuis na BURES ao varrer uma rampa contínua a cada ~10 ΔE.
+    """
+    bin_size = params.seed_bin_lab
     mins = lab.min(axis=0)
     idx = np.floor((lab - mins) / bin_size).astype(np.int32)
     dims = idx.max(axis=0) + 1
     flat = np.ravel_multi_index((idx[:, 0], idx[:, 1], idx[:, 2]), dims)
     counts = np.bincount(flat, minlength=int(np.prod(dims)))
-    grid = counts.reshape(dims)
 
-    footprint = np.ones((3, 3, 3), dtype=bool)
-    local_max = ndi.maximum_filter(grid, footprint=footprint, mode="constant")
-    threshold = max(int(params.min_peak_pct * lab.shape[0]), 8)
-    peaks = np.argwhere((grid == local_max) & (grid >= threshold))
-    if peaks.size == 0:
+    threshold = max(int(params.seed_min_peak_pct * lab.shape[0]), 8)
+    dense = np.flatnonzero(counts >= threshold)
+    if dense.size == 0:
         return lab.mean(axis=0, keepdims=True)
-    order = np.argsort(grid[tuple(peaks.T)])[::-1]
-    peaks = peaks[order[: params.max_colors]]
-    return (peaks + 0.5) * bin_size + mins
+
+    order = dense[np.argsort(counts[dense])[::-1]]
+    seeds: list[np.ndarray] = []
+    for b in order:
+        c = (np.array(np.unravel_index(b, dims), dtype=float) + 0.5) * bin_size + mins
+        if seeds and float(delta_e76(np.array(seeds), c).min()) < params.seed_min_delta_e:
+            continue
+        seeds.append(c)
+        if len(seeds) >= params.max_colors:
+            break
+    return np.array(seeds)
+
+
+def _modal_purity(rgb_original, centers, params, rng) -> np.ndarray:
+    """Fração do RGB exato dominante dentro de cada cluster.
+
+    É o que separa tinta chapada de rampa de degradê, e a separação é limpa:
+    medido em 3M px, tinta fica entre 0,95 e 1,00 e rampa entre 0,10 e 0,12,
+    com banda vazia entre 0,12 e 0,65.
+
+    Tem de ser medida na resolução ORIGINAL — o downscale LANCZOS destrói os
+    valores exatos de que a pureza depende.
+    """
+    orig = rgb_original.reshape(-1, 3)
+    n = min(params.flat_modal_sample_px, orig.shape[0])
+    sel = rng.choice(orig.shape[0], n, replace=False) if n < orig.shape[0] else slice(None)
+    sample = orig[sel]
+    assign = _assign_chunked(srgb_to_lab(sample), centers)
+    code = ((sample[:, 0].astype(np.int64) << 16)
+            | (sample[:, 1].astype(np.int64) << 8) | sample[:, 2])
+    purity = np.ones(centers.shape[0])
+    for i in range(centers.shape[0]):
+        m = assign == i
+        size = int(m.sum())
+        if size < 200:
+            continue   # amostra insuficiente -> MANTÉM; área é policiada por
+                       # min_region_cm2, nunca por um piso de amostra de cor
+        purity[i] = np.unique(code[m], return_counts=True)[1].max() / size
+    return purity
 
 
 def _assign_chunked(lab_flat: np.ndarray, centers: np.ndarray, chunk: int = 500_000) -> np.ndarray:
@@ -299,8 +354,9 @@ def _merge_centers(centers: np.ndarray, threshold: float) -> np.ndarray:
     return centers
 
 
-def _kmeans(lab_samples: np.ndarray, params: EngineParams) -> np.ndarray:
-    centers = _histogram_seeds(lab_samples, params)
+def _kmeans(lab_samples: np.ndarray, params: EngineParams,
+            seeds: np.ndarray | None = None) -> np.ndarray:
+    centers = _histogram_seeds(lab_samples, params) if seeds is None else seeds
     for _ in range(_KMEANS_ITERS):
         labels = _assign_chunked(lab_samples, centers)
         new_centers = np.empty_like(centers)
@@ -546,12 +602,64 @@ def quantize(
     )
 
     flat = lab_work.reshape(-1, 3)
+
+    # Sementes vêm SÓ do interior de fills chapados, fora de zonas
+    # fotográficas: assim antialias e rampa não viram cor própria.
+    gmag = _flat_interior(lab_work)
+    seed_pool = np.flatnonzero(
+        (~photo_mask & (gmag < params.seed_flat_grad_max)).reshape(-1))
+    if seed_pool.size == 0:
+        seed_pool = np.flatnonzero(~photo_mask.reshape(-1))
+    if seed_pool.size > _MAX_KMEANS_SAMPLES:
+        seed_pool = rng.choice(seed_pool, _MAX_KMEANS_SAMPLES, replace=False)
+
     candidates = np.flatnonzero(~photo_mask.reshape(-1))
     if candidates.size == 0:
         candidates = np.arange(flat.shape[0])
     if candidates.size > _MAX_KMEANS_SAMPLES:
         candidates = rng.choice(candidates, _MAX_KMEANS_SAMPLES, replace=False)
-    centers = _kmeans(flat[candidates], params)
+    centers = _kmeans(flat[candidates], params,
+                      seeds=_histogram_seeds(flat[seed_pool], params))
+
+    # Portão de pureza modal: MARCA a rampa, não a absorve.
+    #
+    # Absorver estava errado. Um degradê é pintado como 3-4 cores distintas e
+    # só depois as separações são cortadas para esfumar — então os tons SÃO
+    # tintas, cada uma com sua demão. O que muda é o acabamento, não a
+    # contagem. Fundi-los apagava demãos reais do orçamento.
+    purity = _modal_purity(rgb_original, centers, params, rng)
+    pure = purity >= params.flat_modal_min
+    # Rampa não precisa da mesma resolução que tinta chapada: o pintor bate
+    # 3 tons para um degradê, não 6. Consolida os impuros entre si com um
+    # limiar mais largo, mantendo-os como tintas próprias.
+    if (~pure).sum() > 1:
+        ramp_idx = np.flatnonzero(~pure)
+        keep = []
+        for i in ramp_idx:
+            if not keep or float(delta_e76(centers[keep], centers[i]).min()) >= params.gradient_step_delta_e:
+                keep.append(int(i))
+        drop = sorted(set(ramp_idx.tolist()) - set(keep))
+        if drop:
+            mask = np.ones(centers.shape[0], dtype=bool)
+            mask[drop] = False
+            centers = centers[mask]
+            purity = purity[mask]
+            pure = purity >= params.flat_modal_min
+
+    purity_alerts: list[dict] = []
+    if not pure.all():
+        purity_alerts.append({
+            "code": "GRADIENT_COLORS_PRESENT", "severity": "INFO",
+            "message": (f"{int((~pure).sum())} cor(es) de rampa de degradê. "
+                        "São tintas próprias: pinta-se todas e só depois se "
+                        "corta a separação para esfumar."),
+        })
+    if not pure.any():
+        purity_alerts.append({
+            "code": "NO_FLAT_FILL_DETECTED", "severity": "WARNING",
+            "message": ("Nenhuma cor chapada detectada (arte rasterizada/JPEG?). "
+                        "Paleta pode estar fragmentada — revisar manualmente."),
+        })
 
     labels = _assign_chunked(flat, centers).reshape(h, w)
     labels[photo_mask] = -1
@@ -577,7 +685,7 @@ def quantize(
     )
     keylines = _register_keylines(keyline_mask, labels, background_index, px_per_cm_work)
 
-    alerts = list(rescue_alerts) + list(bg_alerts)
+    alerts = list(rescue_alerts) + list(purity_alerts) + list(bg_alerts)
     non_bg = [i for i in range(centers.shape[0]) if i != background_index and palette_pct_arr[i] > 0.001]
     for ai_pos, a in enumerate(non_bg):
         for b in non_bg[ai_pos + 1 :]:
@@ -595,6 +703,7 @@ def quantize(
                 )
 
     return QuantizeResult(
+        palette_gradient=[bool(v) for v in ~pure],
         labels=labels,
         palette_lab=centers,
         palette_hex=[lab_to_hex(c) for c in centers],
