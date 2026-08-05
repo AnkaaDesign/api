@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Orçamento técnico demonstrativo — BURES 2 · 8,40 m</title>
+  <style>
+    :root {
+      --ink:#172033; --muted:#667085; --line:#dde3ec; --paper:#f4f6f9;
+      --navy:#00153f; --mid:#002f61; --blue:#014c8a; --orange:#ca7a02;
+      --gray:#6b7075; --green:#177245; --amber:#a45d00; --red:#b42318;
+      --shadow:0 12px 38px rgba(16,24,40,.08);
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+    .page{width:min(1280px,calc(100% - 32px));margin:24px auto 80px}
+    .hero,.card,.step{background:white;border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow)}
+    .hero{overflow:hidden}.hero-head{padding:30px 34px 24px;background:linear-gradient(135deg,#071a3b,#0c4071 62%,#cc7b00);color:white}
+    .eyebrow{text-transform:uppercase;letter-spacing:.12em;font-size:11px;font-weight:800;opacity:.78}
+    h1{font-size:34px;line-height:1.13;margin:7px 0 8px}h2{font-size:23px;margin:0 0 14px}h3{font-size:17px;margin:0 0 8px}
+    p{margin:6px 0 12px}.muted{color:var(--muted)}.small{font-size:12px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+    .hero-art{position:relative;background:#fff;padding:18px}.hero-art img,.visual img{display:block;width:100%;height:auto}
+    .badge{display:inline-flex;align-items:center;gap:7px;padding:5px 10px;border-radius:999px;background:#eef3f8;color:#344054;font-size:12px;font-weight:700}
+    .badge.ok{background:#eaf8ef;color:var(--green)}.badge.warn{background:#fff4e5;color:var(--amber)}.badge.blue{background:#e9f2ff;color:#145ea8}
+    .section{margin-top:22px}.card{padding:24px}.grid{display:grid;gap:16px}.g4{grid-template-columns:repeat(4,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:repeat(2,1fr)}
+    .metric{padding:16px;border:1px solid var(--line);border-radius:14px;background:#fbfcfe}.metric b{display:block;font-size:24px;line-height:1.2}.metric span{color:var(--muted);font-size:12px}
+    .callout{padding:14px 16px;border-radius:12px;border-left:4px solid #2e78bd;background:#edf6ff}.callout.warn{border-color:#e09a29;background:#fff8e8}.callout strong{display:block;margin-bottom:3px}
+    table{width:100%;border-collapse:collapse}th,td{padding:11px 9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:#fafbfc}td.num,th.num{text-align:right;white-space:nowrap}tfoot td{font-weight:800;background:#fafbfc}
+    .swatch{display:inline-block;width:13px;height:13px;border-radius:4px;vertical-align:-2px;margin-right:6px;border:1px solid rgba(0,0,0,.14)}
+    .formula{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#344054;font-size:12px}
+    .elements{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.element{border:1px solid var(--line);border-radius:14px;padding:16px}.element header{display:flex;justify-content:space-between;gap:12px}.element dl{display:grid;grid-template-columns:1fr 1fr;margin:12px 0 0;gap:7px 12px}.element dt{color:var(--muted);font-size:11px}.element dd{margin:0;font-weight:700}
+    .steps{display:grid;gap:18px}.step{overflow:hidden;display:grid;grid-template-columns:minmax(340px,46%) 1fr}
+    /* O canvas usa a proporção exata do PNG. A linha do grid pode crescer com
+       o texto, mas o painel visual não pode ser esticado junto: as caixas são
+       coordenadas relativas à imagem, não à altura total do cartão. */
+    .visual{position:relative;align-self:start;width:100%;aspect-ratio:9924/2838;overflow:hidden;background:#edf0f4}.visual img{display:block;width:100%;height:100%;object-fit:fill;filter:saturate(.35);opacity:.44}.visual.final img{filter:none;opacity:1}
+    .visual::after{content:"";position:absolute;inset:0;background:var(--overlay,transparent);mix-blend-mode:multiply;opacity:.72}.visual.bw img{filter:grayscale(1);opacity:.62}
+    .box{position:absolute;border:3px solid var(--box,#1677c8);background:color-mix(in srgb,var(--box,#1677c8) 17%,transparent);border-radius:5px}
+    .box::before{content:attr(data-label);position:absolute;left:3px;top:3px;background:var(--box,#1677c8);color:white;padding:2px 5px;border-radius:4px;font-size:10px;font-weight:800}
+    .b-logo{left:17.55%;top:6.29%;width:16.11%;height:51.06%}.b-name{left:32.14%;top:6.29%;width:49.2%;height:43.86%}.b-tag{left:32.14%;top:46.69%;width:49.2%;height:16.27%}.b-phone{left:57.25%;top:58.18%;width:24.11%;height:14.94%}.b-stripe{left:0;top:53.52%;width:100%;height:46.48%}
+    .step-body{padding:22px 24px}.step-no{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:#246da8;font-weight:800}.step-meta{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.check{margin:10px 0 0;padding-left:19px}.check li{margin:4px 0}
+    .totals{display:grid;grid-template-columns:1.2fr .8fr;gap:18px}.price-box{background:#071a3b;color:white;border-radius:16px;padding:24px}.price-box .grand{font-size:38px;font-weight:900}.price-box table td{border-color:rgba(255,255,255,.14)}
+    .legend{display:flex;gap:14px;flex-wrap:wrap}.legend span{font-size:12px;color:var(--muted)}
+    .footer{margin-top:22px;color:var(--muted);font-size:12px;text-align:center}
+    @media(max-width:850px){.g4,.g3,.g2,.elements,.totals{grid-template-columns:1fr 1fr}.step{grid-template-columns:1fr}}
+    @media(max-width:560px){.page{width:min(100% - 16px,1280px);margin-top:8px}.g4,.g3,.g2,.elements,.totals{grid-template-columns:1fr}.hero-head,.card{padding:20px}h1{font-size:27px}.step-body{padding:18px}}
+    @media print{body{background:white}.page{width:100%;margin:0}.hero,.card,.step{box-shadow:none;break-inside:avoid}.section{break-before:auto}.step{margin-bottom:12px}.footer{display:none}}
+  </style>
+</head>
+<body>
+<main class="page">
+  <section class="hero">
+    <div class="hero-head">
+      <div class="eyebrow">Orçamento técnico demonstrativo · comunicação visual pintada</div>
+      <h1>BURES 2 — lateral de 8,40 m</h1>
+      <p>Plano reconstruído a partir da geometria atual, sem depender do significado semântico dos textos.</p>
+      <div class="legend">
+        <span class="badge ok">Chapa branca preservada</span>
+        <span class="badge blue">4 adesivos + 1 faixa com fita</span>
+        <span class="badge warn">Preços fictícios para demonstração</span>
+      </div>
+    </div>
+    <div class="hero-art"><img src="../../BURES%202%208.40.png" alt="Arte BURES 2" /></div>
+  </section>
+
+  <section class="section card">
+    <h2>Resumo físico e comercial</h2>
+    <div class="grid g4">
+      <div class="metric"><b>20,188 m²</b><span>área total da face</span></div>
+      <div class="metric"><b>6,405 m²</b><span>forma colorida medida</span></div>
+      <div class="metric"><b>59,71 m</b><span>corte de plotter dos 4 adesivos</span></div>
+      <div class="metric"><b id="saleTop">R$ 4.322,60</b><span>preço demonstrativo calculado</span></div>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="callout"><strong>Escala adotada</strong>O nome do arquivo informa 8,40 m. A altura é recalculada pelo aspecto original 9924 × 2838 px: <span class="formula">840 × 2838 / 9924 = 240,3 cm</span>.</div>
+      <div class="callout warn"><strong>Premissas comerciais inventadas</strong>Preços, produtividade, duas demãos, rendimento de 8 m²/L, 20% de perdas, mix 4:1:1, indiretos de 12% e margem de 25%. As quantidades geométricas não foram inventadas.</div>
+    </div>
+  </section>
+
+  <section class="section card">
+    <h2>Critério de cálculo</h2>
+    <div class="grid g3">
+      <div><h3>Forma</h3><p class="muted">Pixels realmente coloridos. Usada para auditoria visual, complexidade e identificação de reservas.</p><p class="formula">20,188 × (1 − 0,6827) = 6,405 m²</p></div>
+      <div><h3>Janela de tinta</h3><p class="muted">Bounding físico por cor. É a área pulverizada; a máscara bloqueia o que não recebe tinta.</p><p class="formula">litros prontos = área × 2 / 8 × 1,20</p></div>
+      <div><h3>Corte e vinil</h3><p class="muted">Corte segue os contornos. Vinil segue a janela retangular do elemento com 8 cm de folga em cada lado.</p><p class="formula">vinil = (largura + 16) × (altura + 16)</p></div>
+    </div>
+  </section>
+
+  <section class="section card">
+    <h2>Elementos físicos detectados</h2>
+    <p class="muted">Os nomes abaixo servem apenas para leitura humana. O cálculo depende de caixas, formas, cores e contatos.</p>
+    <div class="elements" id="elements"></div>
+  </section>
+
+  <section class="section card">
+    <h2>Paleta, áreas e consumo de tinta</h2>
+    <p>A faixa contém uma base azul e dois tons adicionais de rampa. Cada tom recebe sua aplicação; depois a transição é suavizada. O laranja e o azul também aparecem nos adesivos superiores.</p>
+    <div style="overflow:auto"><table id="paintTable"><thead><tr><th>Cor</th><th class="num">Forma colorida</th><th class="num">Janela pulverizada</th><th class="num">Mistura pronta</th><th class="num">Base</th><th class="num">Catalisador</th><th class="num">Diluente</th><th class="num">Custo</th></tr></thead><tbody></tbody><tfoot></tfoot></table></div>
+  </section>
+
+  <section class="section card">
+    <h2>Mapa de corte, máscaras e acabamento</h2>
+    <div style="overflow:auto"><table><thead><tr><th>Elemento</th><th>Processo</th><th class="num">Forma</th><th class="num">Janela/vinil</th><th class="num">Corte</th><th>Observação</th></tr></thead><tbody>
+      <tr><td>Marca lateral</td><td>Adesivo sobre chapa</td><td class="num">0,792 m²</td><td class="num">1,660 m²</td><td class="num">11,64 m</td><td>Folha inteira; depilar azul e laranja.</td></tr>
+      <tr><td>Nome principal</td><td>Adesivo sobre chapa</td><td class="num">1,891 m²</td><td class="num">4,356 m²</td><td class="num">24,65 m</td><td>Uma folha; cores separadas pela própria máscara.</td></tr>
+      <tr><td>Linha cinza</td><td>Adesivo sobre chapa</td><td class="num">0,116 m²</td><td class="num">1,615 m²</td><td class="num">14,79 m</td><td>Recorte fino; cobrar complexidade de depilação.</td></tr>
+      <tr><td>Linha azul inferior</td><td>Adesivo sobre chapa</td><td class="num">0,119 m²</td><td class="num">0,728 m²</td><td class="num">8,63 m</td><td>Uma cor, sem T-T.</td></tr>
+      <tr><td>Faixa inferior</td><td>Fita amarela</td><td class="num">3,502 m²</td><td class="num">10,058 m² território</td><td class="num">0,00 m</td><td>17,64 m de fita; não usa adesivo nem corte.</td></tr>
+    </tbody><tfoot><tr><td colspan="2">Totais</td><td class="num">6,420 m²*</td><td class="num">8,359 m² de vinil</td><td class="num">59,71 m</td><td>*Diferença residual de 0,015 m² por versão de regiões/arredondamento.</td></tr></tfoot></table></div>
+    <div class="callout" style="margin-top:15px"><strong>Verniz sem dupla contagem</strong>A união geométrica das quatro janelas de adesivo com o território da faixa resulta em <b>15,465 m²</b>. Não se somam retângulos sobrepostos duas vezes e não se enverniza a chapa vazia fora desses territórios.</div>
+  </section>
+
+  <section class="section">
+    <h2>Passo a passo de produção esperado</h2>
+    <div class="steps" id="steps"></div>
+  </section>
+
+  <section class="section card">
+    <h2>Composição de materiais e serviços</h2>
+    <div style="overflow:auto"><table id="materials"><thead><tr><th>Item</th><th>Base</th><th class="num">Quantidade</th><th>Un.</th><th class="num">Valor unit.</th><th class="num">Total</th></tr></thead><tbody></tbody><tfoot></tfoot></table></div>
+  </section>
+
+  <section class="section totals">
+    <div class="card"><h2>Mão de obra</h2><div style="overflow:auto"><table id="labor"><thead><tr><th>Grupo</th><th class="num">Horas-pessoa</th><th class="num">R$/h</th><th class="num">Total</th></tr></thead><tbody></tbody><tfoot></tfoot></table></div><p class="small muted">Horas são horas-pessoa. Duas pessoas durante uma hora equivalem a 2 h-pessoa; esperas de cura não geram mão de obra.</p></div>
+    <div class="price-box"><div class="eyebrow">Preço final demonstrativo</div><div class="grand" id="grand">R$ 4.322,60</div><table><tbody><tr><td>Materiais + serviços</td><td class="num" id="matTotal"></td></tr><tr><td>Mão de obra</td><td class="num" id="labTotal"></td></tr><tr><td>Custos indiretos (12%)</td><td class="num" id="indirect"></td></tr><tr><td>Custo completo</td><td class="num" id="fullCost"></td></tr><tr><td>Margem sobre venda</td><td class="num">25%</td></tr></tbody></table><p class="small" style="opacity:.78">Fórmula: preço = custo completo ÷ (1 − margem). Valores servem para validar a matemática, não como tabela comercial real.</p></div>
+  </section>
+
+  <section class="section card">
+    <h2>Validações e pendências antes de vender</h2>
+    <div class="grid g2">
+      <div class="callout"><strong>Validado automaticamente</strong>Escala de 8,40 m; chapa branca; branco como reserva; quatro adesivos sobre chapa; faixa horizontal com fita amarela; ausência de aerografia fotográfica; corte manual zero.</div>
+      <div class="callout warn"><strong>Confirmar com produção</strong>Rendimento e mix reais das tintas; preço do estoque; tempo de depilação fina; largura de papel disponível; necessidade de uma ou duas demãos por sistema; cura do verniz.</div>
+    </div>
+  </section>
+  <div class="footer">Documento demonstrativo gerado para estudo do motor de orçamento · BURES 2 · 2026-08-05</div>
+</main>
+
+<script>
+const BRL = new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'});
+const N = (v,d=2) => Number(v).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const elements = [
+ {name:'Marca lateral',route:'ADESIVO SOBRE CHAPA',box:'119,3 × 106,7 cm',window:'135,3 × 122,7 cm',shape:.7916,vinyl:1.660,cut:11.644,colors:['#014c8a','#ca7a02']},
+ {name:'Nome principal',route:'ADESIVO SOBRE CHAPA',box:'397,3 × 89,4 cm',window:'413,3 × 105,4 cm',shape:1.891,vinyl:4.356,cut:24.651,colors:['#014c8a','#ca7a02']},
+ {name:'Linha cinza',route:'ADESIVO SOBRE CHAPA',box:'397,3 × 23,1 cm',window:'413,3 × 39,1 cm',shape:.1164,vinyl:1.615,cut:14.789,colors:['#6b7075']},
+ {name:'Linha azul inferior',route:'ADESIVO SOBRE CHAPA',box:'186,5 × 19,9 cm',window:'202,5 × 35,9 cm',shape:.1194,vinyl:.728,cut:8.625,colors:['#014c8a']},
+ {name:'Faixa inferior',route:'FITA AMARELA',box:'839,2 × 111,5 cm',window:'território 10,058 m²',shape:3.5019,vinyl:0,cut:0,colors:['#ca7a02','#014c8a','#002f61','#00153f']}
+];
+document.querySelector('#elements').innerHTML=elements.map(e=>`<article class="element"><header><div><h3>${e.name}</h3><span class="badge ${e.route.includes('FITA')?'warn':'blue'}">${e.route}</span></div><div>${e.colors.map(c=>`<span class="swatch" style="background:${c}"></span>`).join('')}</div></header><dl><div><dt>Bounding da forma</dt><dd>${e.box}</dd></div><div><dt>Janela com folga</dt><dd>${e.window}</dd></div><div><dt>Área de forma</dt><dd>${N(e.shape,3)} m²</dd></div><div><dt>Vinil</dt><dd>${N(e.vinyl,3)} m²</dd></div><div><dt>Corte plotter</dt><dd>${N(e.cut,2)} m</dd></div><div><dt>Corte manual</dt><dd>0,00 m</dd></div></dl></article>`).join('');
+
+const paints=[
+ {name:'Laranja',hex:'#ca7a02',shape:2.713,area:13.890,price:120},
+ {name:'Azul base',hex:'#014c8a',shape:2.633,area:8.390,price:130},
+ {name:'Azul médio — rampa',hex:'#002f61',shape:.623,area:3.856,price:135},
+ {name:'Azul escuro — rampa',hex:'#00153f',shape:.273,area:1.137,price:140},
+ {name:'Cinza',hex:'#6b7075',shape:.163,area:.918,price:110}
+];
+let paintMaterial=0, catalyst=0, thinner=0;
+for(const p of paints){p.ready=p.area*2/8*1.20;p.base=p.ready*4/6;p.cat=p.ready/6;p.thin=p.ready/6;p.cost=p.base*p.price+p.cat*80+p.thin*35;paintMaterial+=p.base*p.price;catalyst+=p.cat;thinner+=p.thin}
+document.querySelector('#paintTable tbody').innerHTML=paints.map(p=>`<tr><td><span class="swatch" style="background:${p.hex}"></span>${p.name}<div class="small muted mono">${p.hex}</div></td><td class="num">${N(p.shape,3)} m²</td><td class="num">${N(p.area,3)} m²</td><td class="num">${N(p.ready,3)} L</td><td class="num">${N(p.base,3)} L</td><td class="num">${N(p.cat,3)} L</td><td class="num">${N(p.thin,3)} L</td><td class="num">${BRL.format(p.cost)}</td></tr>`).join('');
+document.querySelector('#paintTable tfoot').innerHTML=`<tr><td>Totais</td><td class="num">${N(paints.reduce((a,p)=>a+p.shape,0),3)} m²</td><td class="num">${N(paints.reduce((a,p)=>a+p.area,0),3)} m²</td><td class="num">${N(paints.reduce((a,p)=>a+p.ready,0),3)} L</td><td class="num">${N(paints.reduce((a,p)=>a+p.base,0),3)} L</td><td class="num">${N(catalyst,3)} L</td><td class="num">${N(thinner,3)} L</td><td class="num">${BRL.format(paints.reduce((a,p)=>a+p.cost,0))}</td></tr>`;
+
+const art='../../BURES%202%208.40.png';
+const boxes=`<i class="box b-logo" data-label="E1"></i><i class="box b-name" data-label="E2"></i><i class="box b-tag" data-label="E3"></i><i class="box b-phone" data-label="E4"></i><i class="box b-stripe" data-label="FITA"></i>`;
+const steps=[
+ {t:'Conferir escala, arte e fundo',kind:'CONTROLE',visual:'bw',boxes,meta:['20,188 m²','chapa branca'],text:'Confirmar 8,40 m, altura calculada de 2,403 m e que o branco é a própria chapa. Nenhuma tinta branca é criada.',tasks:['Validar arquivo sem corte indevido','Aprovar cinco territórios físicos','Separar quatro adesivos e uma faixa']},
+ {t:'Limpar somente os territórios de trabalho',kind:'PREPARO',visual:'bw',boxes,meta:['sem lavagem completa','1,0 h-pessoa'],text:'Desengraxar a região dos adesivos e da faixa. Não executar o ciclo de lavagem e pintura geral da face inteira.',tasks:['Remover poeira e gordura','Manter chapa branca como reserva']},
+ {t:'Plotar e recortar os quatro adesivos',kind:'PLOTTER',visual:'bw',boxes,meta:['8,359 m² de vinil','59,71 m de corte'],text:'Cada elemento recebe folha retangular com 8 cm de folga. O corte segue os contornos das formas; não há corte manual sobre a chapa.',tasks:['Marca: 11,64 m','Nome: 24,65 m','Linha cinza: 14,79 m','Linha azul: 8,63 m']},
+ {t:'Depilar e aplicar os adesivos inteiros',kind:'ADESIVO',visual:'bw',boxes,meta:['4 folhas','sem verniz prévio'],text:'Aplicar cada folha inteira. O que muda entre as cores é a abertura/depilação da máscara, preservando a chapa e as próximas cores.',tasks:['Usar máscara de transferência','Alinhar os quatro territórios','Não remover a teia de vinil antes da última cor']},
+ {t:'Marcar a faixa com fita amarela',kind:'FITA',visual:'bw',boxes:'<i class="box b-stripe" data-label="17,64 m de fita"></i>',meta:['17,64 m','0 m de corte'],text:'Duas bordas longitudinais de aproximadamente 8,40 m, mais 5% de folga. O traçado é quase horizontal e aceita fita flexível.',tasks:['Conferir a curva na peça','Fechar as extremidades','Não usar adesivo na faixa']},
+ {t:'Empapelar contra overspray',kind:'PAPEL',visual:'bw',boxes,meta:['9,0 m² kraft','30 m fita crepe'],text:'Proteger ao redor das janelas. O papel é mantido durante as aplicações de cor e retirado apenas antes do verniz final.',tasks:['Folhas de kraft de 100 cm','Desalinhar emendas','Preservar territórios ainda não pintados']},
+ {t:'Aplicar cinza e proteger',kind:'PINTURA',visual:'bw',overlay:'rgba(107,112,117,.8)',boxes:'<i class="box b-tag" data-label="CINZA"></i>',meta:['0,918 m²·demão','0,275 L prontos'],text:'Primeira aplicação por ser a menor janela isolada. Após a cura operacional, cobrir sua caixa antes das próximas cores.',tasks:['2 demãos','Cobrir a caixa da linha, não letra por letra']},
+ {t:'Aplicar laranja e azul base',kind:'PINTURA',visual:'bw',overlay:'rgba(1,76,138,.66)',boxes,meta:['22,280 m² de janelas','6,684 L prontos'],text:'Aplicar as cores sólidas nos adesivos e na faixa. A máscara já separa as formas que não se tocam; preservar o que ainda será aberto.',tasks:['Laranja: 13,890 m² de janela','Azul base: 8,390 m² de janela','Cobrir as áreas concluídas']},
+ {t:'Aplicar os dois tons da rampa',kind:'PINTURA',visual:'bw',overlay:'rgba(0,21,63,.74)',boxes:'<i class="box b-stripe" data-label="RAMPA AZUL"></i>',meta:['4,993 m² de janelas','1,498 L prontos'],text:'Aplicar azul médio e azul escuro como tons próprios na faixa. As separações iniciais permanecem visíveis até o acabamento.',tasks:['Azul médio primeiro','Azul escuro depois','Manter adesivos superiores protegidos']},
+ {t:'Suavizar a transição do degradê',kind:'ACABAMENTO',visual:'',boxes:'<i class="box b-stripe" data-label="ESFUMAÇAR"></i>',meta:['1 operação','0,75 h-pessoa'],text:'Fazer o esfumado controlado entre azul base, médio e escuro. Isto é acabamento da rampa, não uma nova cor e não aerografia fotográfica.',tasks:['Conferir continuidade tonal','Não apagar as demãos calculadas']},
+ {t:'Remover proteção interna e conferir',kind:'CONTROLE',visual:'',boxes,meta:['sem remover máscara externa','1,0 h-pessoa'],text:'Retirar apenas a proteção entre cores. O empapelamento externo permanece até o verniz. Corrigir falhas antes do acabamento.',tasks:['Inspecionar bordas','Corrigir overspray ou falhas','Confirmar reservas brancas']},
+ {t:'Aplicar verniz coletivo',kind:'VERNIZ',visual:'',boxes,meta:['15,465 m²','1,856 L'],text:'Envernizar a união das janelas e o território da faixa sem contar sobreposições duas vezes e sem pulverizar a chapa vazia fora delas.',tasks:['1 demão demonstrativa','Aguardar 12 h de cura — sem mão de obra']},
+ {t:'Remover máscaras, limpar e inspecionar',kind:'FINAL',visual:'final',boxes:'',meta:['resultado final','2,0 h-pessoa'],text:'Retirar kraft, fita e vinil remanescente; limpar resíduos; conferir bordas, rampa, alinhamento e acabamento.',tasks:['Remover sem marcar o verniz','Inspeção de qualidade','Liberar a face após cura']}
+];
+document.querySelector('#steps').innerHTML=steps.map((s,i)=>`<article class="step"><div class="visual ${s.visual||''}" style="--overlay:${s.overlay||'transparent'}"><img src="${art}" alt="Visual do passo ${i+1}"/>${s.boxes||''}</div><div class="step-body"><div class="step-no">Passo ${String(i+1).padStart(2,'0')} · ${s.kind}</div><h3>${s.t}</h3><div class="step-meta">${s.meta.map(x=>`<span class="badge">${x}</span>`).join('')}</div><p>${s.text}</p><ul class="check">${s.tasks.map(x=>`<li>${x}</li>`).join('')}</ul></div></article>`).join('');
+
+const materials=[
+ {name:'Bases de tinta (5 cores)',basis:'janelas × demãos',qty:paints.reduce((a,p)=>a+p.base,0),unit:'L',unitPrice:paintMaterial/paints.reduce((a,p)=>a+p.base,0)},
+ {name:'Catalisador',basis:'mix 4:1:1',qty:catalyst,unit:'L',unitPrice:80},
+ {name:'Diluente',basis:'mix 4:1:1',qty:thinner,unit:'L',unitPrice:35},
+ {name:'Vinil de recorte',basis:'4 janelas + 8 cm',qty:8.359,unit:'m²',unitPrice:28},
+ {name:'Máscara de transferência',basis:'área dos adesivos',qty:8.359,unit:'m²',unitPrice:12},
+ {name:'Papel kraft 100 cm',basis:'9 folhas equivalentes',qty:9,unit:'m²',unitPrice:4.5},
+ {name:'Fita amarela flexível',basis:'2 × 8,40 m + 5%',qty:17.64,unit:'m',unitPrice:3.2},
+ {name:'Fita crepe',basis:'emendas e kraft',qty:30,unit:'m',unitPrice:.55},
+ {name:'Serviço de plotter',basis:'perímetro de forma',qty:59.71,unit:'m',unitPrice:1.8},
+ {name:'Verniz PU pronto',basis:'15,465/10 × 1,20',qty:1.856,unit:'L',unitPrice:95},
+ {name:'Desengraxante e consumíveis',basis:'lote',qty:1,unit:'lote',unitPrice:22}
+];
+const materialTotal=materials.reduce((a,m)=>a+m.qty*m.unitPrice,0);
+document.querySelector('#materials tbody').innerHTML=materials.map(m=>`<tr><td>${m.name}</td><td class="small muted">${m.basis}</td><td class="num">${N(m.qty,3)}</td><td>${m.unit}</td><td class="num">${BRL.format(m.unitPrice)}</td><td class="num">${BRL.format(m.qty*m.unitPrice)}</td></tr>`).join('');
+document.querySelector('#materials tfoot').innerHTML=`<tr><td colspan="5">Total de materiais e serviços</td><td class="num">${BRL.format(materialTotal)}</td></tr>`;
+
+const labor=[
+ {name:'Conferência, limpeza e preparação',hours:1.5},
+ {name:'Plotagem, recorte e organização',hours:1.5},
+ {name:'Depilação dos quatro adesivos',hours:6.5},
+ {name:'Aplicação dos adesivos',hours:4},
+ {name:'Fita amarela e empapelamento',hours:4.5},
+ {name:'Pintura, trocas e proteções entre cores',hours:6.5},
+ {name:'Esfumado da rampa',hours:.75},
+ {name:'Verniz',hours:1.5},
+ {name:'Remoção, limpeza e inspeção final',hours:1.5}
+];
+const rate=45, laborTotal=labor.reduce((a,l)=>a+l.hours*rate,0);
+document.querySelector('#labor tbody').innerHTML=labor.map(l=>`<tr><td>${l.name}</td><td class="num">${N(l.hours)}</td><td class="num">${BRL.format(rate)}</td><td class="num">${BRL.format(l.hours*rate)}</td></tr>`).join('');
+document.querySelector('#labor tfoot').innerHTML=`<tr><td>Total</td><td class="num">${N(labor.reduce((a,l)=>a+l.hours,0))}</td><td></td><td class="num">${BRL.format(laborTotal)}</td></tr>`;
+const direct=materialTotal+laborTotal, indirect=direct*.12, full=direct+indirect, sale=full/(1-.25);
+document.querySelector('#matTotal').textContent=BRL.format(materialTotal);document.querySelector('#labTotal').textContent=BRL.format(laborTotal);document.querySelector('#indirect').textContent=BRL.format(indirect);document.querySelector('#fullCost').textContent=BRL.format(full);document.querySelector('#grand').textContent=BRL.format(sale);document.querySelector('#saleTop').textContent=BRL.format(sale);
+</script>
+</body>
+</html>
