@@ -111,7 +111,9 @@ export class PaintPrismaRepository
         connect: { id: restFormData.paintTypeId },
       },
       colorPreview: restFormData.colorPreview || null,
-      previewConfig: restFormData.previewConfig ?? undefined,
+      // O schema é .passthrough() (preserva a receita PBR do paint-lab), então o
+      // tipo inferido traz um índice `unknown` que não casa com InputJsonValue.
+      previewConfig: (restFormData.previewConfig ?? undefined) as Prisma.InputJsonValue | undefined,
     };
 
     // Handle ground paints connection
