@@ -412,12 +412,46 @@ async function bootstrap() {
           'Content-Length, Content-Range, Accept-Ranges',
         );
 
-        // A full year, immutable. This is safe ONLY BECAUSE the version lives
-        // in the path (/studio-assets/v1/..., v2/...), which makes each URL a
-        // promise that its bytes never change; a new build ships as a new vN
-        // directory. Start overwriting files inside a live vN and this becomes
-        // a year-long stale-cache bug with no cache-buster left to pull.
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        // Strip the .br that the negotiation middleware may have appended, so
+        // the extension below describes the DECODED entity, not its envelope.
+        const realPath = filePath.endsWith('.br') ? filePath.slice(0, -3) : filePath;
+        const ext = extname(realPath).slice(1).toLowerCase();
+
+        // THE MANIFESTS ARE THE ONE THING IN THIS TREE THAT CHANGES IN PLACE.
+        //
+        // Everything else here is content-addressed by its path: a new bake
+        // ships as a new filename (or a new vN directory), so its bytes really
+        // are a promise and a year of `immutable` is free. cabs.json,
+        // brands.json and environments.json are the opposite — they are the
+        // INDEX that points at those files, they are edited where they lie, and
+        // an edit is worthless until clients see it.
+        //
+        // Sending `immutable` on them was a year-long stale-cache bug, exactly
+        // the one the note below warns about, aimed at the only files that can
+        // trigger it. It bit for real: the Studio's own fetches pass
+        // `cache: 'no-cache'` (catalog.ts / vehicle/models.ts), which is what
+        // kept it survivable, but that made a CLIENT flag the only thing
+        // standing between a manifest edit and a browser that ignores it for a
+        // year — and anything that fetches without the flag (a plain reload of
+        // a cached response, a proxy, a future call site) simply never sees the
+        // change. The correct cache policy belongs on the response, not on
+        // every caller.
+        //
+        // `no-cache` is NOT "do not store": it stores and REVALIDATES, so the
+        // steady state is a 304 with an empty body against the ETag express
+        // already emits. The cost is one conditional request per manifest per
+        // load — three of them, a few hundred bytes.
+        if (ext === 'json') {
+          res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+        } else {
+          // A full year, immutable. This is safe ONLY BECAUSE the version lives
+          // in the path (/studio-assets/v1/..., v2/...), which makes each URL a
+          // promise that its bytes never change; a new build ships as a new vN
+          // directory. Start overwriting BINARIES inside a live vN and this
+          // becomes a year-long stale-cache bug with no cache-buster left to
+          // pull — ship a new filename instead.
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
 
         // DELIBERATELY NO Content-Disposition. The /uploads/ and /files/storage/
         // mounts above force `attachment` because their payloads are untrusted
@@ -426,11 +460,10 @@ async function bootstrap() {
         // manufacturer logo into a download prompt and stop three.js from
         // loading anything at all.
 
-        // Strip the .br that the negotiation middleware may have appended, so
-        // the type describes the DECODED entity rather than its envelope.
-        // (Without this the .br responses would carry no Content-Type at all.)
-        const realPath = filePath.endsWith('.br') ? filePath.slice(0, -3) : filePath;
-        const contentType = STUDIO_CONTENT_TYPES[extname(realPath).slice(1).toLowerCase()];
+        // `realPath`/`ext` já foram derivados acima (a política de cache também
+        // depende da extensão DECODIFICADA). Sem isto, uma resposta .br sairia
+        // sem Content-Type nenhum.
+        const contentType = STUDIO_CONTENT_TYPES[ext];
         if (contentType) {
           res.setHeader('Content-Type', contentType);
         }
