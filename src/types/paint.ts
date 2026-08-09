@@ -778,6 +778,73 @@ export interface PaintUpdateResponse extends BaseUpdateResponse<Paint> {}
 export interface PaintDeleteResponse extends BaseDeleteResponse {}
 export interface PaintMergeResponse extends BaseMergeResponse<Paint> {}
 
+// =====================
+// Truck Studio — catálogo PÚBLICO de cores (GET /studio/colors)
+// =====================
+
+/**
+ * Uma cor como o Truck Studio (web + Electron) a enxerga.
+ *
+ * FRONTEIRA DE SEGURANÇA. Esta rota é `@Public()` — sem JWT, sem papéis —, e
+ * por isso este tipo NÃO estende `Paint` e NÃO é `Partial<Paint>`: um dia
+ * alguém acrescenta uma coluna a `Paint` e um tipo derivado a herdaria em
+ * silêncio, junto do vazamento. Aqui cada campo é escrito à mão e casa 1:1 com
+ * o `select` de `PaintRepository.findStudioColors()`.
+ *
+ * O que NUNCA pode aparecer aqui: fórmulas, componentes de fórmula, custos,
+ * relações com item/estoque, produções, tarefas, clientes, carimbos de tempo e
+ * qualquer dado de usuário.
+ *
+ * O espelho do lado do consumidor é `PaintColorDef`, em
+ * web/src/pages/tools/truck-studio/engine/catalog/colors.ts — os nomes `brand`
+ * e `manufacturer` daqui são os de lá, de propósito.
+ */
+export interface StudioColor {
+  /** `Paint.id` — estável; é o que o estúdio grava no localStorage. */
+  id: string;
+  /** `Paint.name` — o rótulo pt-BR do card. */
+  name: string;
+  /** `Paint.hex` — sRGB do basecoat. */
+  hex: string;
+  /**
+   * `Paint.finish` CRU, como está no banco.
+   *
+   * O banco tem cinco acabamentos (SOLID, METALLIC, PEARL, MATTE, SATIN) e o
+   * motor de tinta do estúdio tem três — MATTE/SATIN não têm shader próprio e
+   * o cliente os mapeia para 'solid' (ver `FINISH_FROM_API` em colors.ts).
+   * Essa redução fica NO CLIENTE de propósito: o dia em que o motor ganhar um
+   * shader fosco, quem muda é o estúdio, e esta rota não precisa de deploy.
+   */
+  finish: PAINT_FINISH;
+  /** `Paint.code` — código do fabricante da tinta, quando houver. */
+  code: string | null;
+  /** `Paint.colorOrder` — a ordenação curada pelo setor de pintura. */
+  colorOrder: number;
+  /** `Paint.paintBrand.name` achatado (Farben, PPG, ...). */
+  brand: string | null;
+  /**
+   * A MONTADORA do caminhão, já no id do catálogo do estúdio
+   * (`scania`, `volvo`, `daf`, `iveco`, `mb`, `vw`) — NÃO o enum do banco.
+   *
+   * A tradução acontece no servidor (ver `STUDIO_MANUFACTURER_BY_ENUM` em
+   * studio-colors.service.ts) para que web e Electron não dupliquem a tabela e
+   * não divirjam. `null` = tinta do catálogo geral, sem montadora.
+   */
+  manufacturer: string | null;
+  /**
+   * `Paint.previewConfig` cru — o ajuste curado do gerador de amostra 2D.
+   *
+   * Vai inteiro porque quem sabe o que aproveitar dele é o shader do cliente
+   * (`paintEffectFrom()`): daqui sai o JSON, de lá sai o `PaintEffect`. É
+   * configuração de RENDERIZAÇÃO — cor de flip, cor de floco, intensidade —,
+   * nunca receita de mistura, que mora em `PaintFormula` e não é selecionada.
+   */
+  previewConfig: Record<string, any> | null;
+}
+
+/** `data` é a lista inteira: a rota não pagina (são ~522 linhas magras). */
+export interface StudioColorGetManyResponse extends BaseGetManyResponse<StudioColor> {}
+
 // PaintGround responses
 export interface PaintGroundGetUniqueResponse extends BaseGetUniqueResponse<PaintGround> {}
 export interface PaintGroundGetManyResponse extends BaseGetManyResponse<PaintGround> {}

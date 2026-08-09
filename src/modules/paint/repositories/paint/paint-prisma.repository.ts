@@ -12,7 +12,7 @@ import {
   PaintSelect,
 } from '../../../../schemas/paint';
 import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../types';
-import { PaintRepository } from './paint.repository';
+import { PaintRepository, StudioColorRow } from './paint.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import {
@@ -49,6 +49,59 @@ export class PaintPrismaRepository
     private readonly filesStorageService: FilesStorageService,
   ) {
     super(prisma);
+  }
+
+  // ============================================================
+  // Truck Studio — catálogo PÚBLICO de cores
+  // ============================================================
+
+  /**
+   * A PROJEÇÃO da rota pública `GET /studio/colors`. É a fronteira de
+   * segurança inteira, num objeto só, para que uma revisão caiba num olhar.
+   *
+   * É um `select` e não um `include`: um `include` traria a linha `Paint`
+   * inteira e mais a relação, e a rota passaria a depender de alguém lembrar
+   * de apagar campos depois — que é exatamente o descuido que vaza custo de
+   * fórmula no dia em que a coluna aparecer. Aqui o padrão é o contrário: o
+   * que não está escrito abaixo não sai do banco.
+   *
+   * NÃO SELECIONADO, de propósito: `formulas` (e portanto componentes, itens,
+   * preços e a receita de mistura), `paintGrounds`/`groundPaintFor`,
+   * `generalPaintings`/`logoTasks` (tarefas e, por elas, clientes),
+   * `paintingRegions` e demais relações de análise, `paintType`, `tags`,
+   * `colorPreview`, `createdAt`/`updatedAt` e qualquer `*Normalized`.
+   *
+   * O `satisfies` obriga o compilador a conferir cada chave contra o modelo
+   * `Paint` — um campo inventado ou renomeado quebra o build em vez de virar
+   * um 500 em produção.
+   */
+  private static readonly STUDIO_COLOR_SELECT = {
+    id: true,
+    name: true,
+    hex: true,
+    finish: true,
+    code: true,
+    colorOrder: true,
+    manufacturer: true,
+    previewConfig: true,
+    // A marca vai ACHATADA: só o nome. `paintBrand: true` traria id e
+    // carimbos de tempo junto, sem que ninguém precisasse deles.
+    paintBrand: { select: { name: true } },
+  } satisfies Prisma.PaintSelect;
+
+  async findStudioColors(): Promise<StudioColorRow[]> {
+    const rows = await this.prisma.paint.findMany({
+      select: PaintPrismaRepository.STUDIO_COLOR_SELECT,
+      // A ordem curada pelo setor de pintura primeiro; o nome só desempata,
+      // para que a grade do estúdio não dance entre recargas.
+      orderBy: [{ colorOrder: 'asc' }, { name: 'asc' }],
+    });
+
+    /* O cast é NOMINAL, não estrutural: o Prisma tipa os enums como união de
+       literais ('SOLID' | ...) e o resto do repositório usa os enums de
+       `@constants`, que têm os mesmos valores mas são tipos distintos para o
+       TypeScript. A forma já foi conferida pelo `satisfies` acima. */
+    return rows as unknown as StudioColorRow[];
   }
 
   // Abstract method implementations from BaseStringPrismaRepository
