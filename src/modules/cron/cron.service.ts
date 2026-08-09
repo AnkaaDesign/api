@@ -49,7 +49,13 @@ export class CronService {
         where: {
           status: { in: ['PENDING', 'PROCESSING'] },
           dueDate: { lt: now },
-          bankSlip: { is: null },
+          // Parcelas collected by a LIVE boleto get their overdue state from
+          // `checkOverdueBoletos`, which ages the slip. But that sweep skips
+          // CANCELLED slips, and this one used to require `bankSlip: null` — so a
+          // parcela whose boleto was cancelled while the debt stayed open fell
+          // between the two and could never become OVERDUE. RKO's three parcelas
+          // sat PENDING 104 days past due exactly that way.
+          OR: [{ bankSlip: { is: null } }, { bankSlip: { status: 'CANCELLED' } }],
         },
         data: { status: 'OVERDUE' },
       });

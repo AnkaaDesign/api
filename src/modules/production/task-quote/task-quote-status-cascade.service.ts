@@ -348,19 +348,24 @@ export class TaskQuoteStatusCascadeService {
       const paidCount = allInstallments.filter(inst => inst.status === 'PAID').length;
       const cancelledInstallments = allInstallments.filter(inst => inst.status === 'CANCELLED');
       const activeInstallments = allInstallments.filter(inst => inst.status !== 'CANCELLED');
-      // A past-due, unpaid installment is only "overdue" if it is still actively being
-      // collected. If its sole charge instrument (boleto) is CANCELLED, the charge no
-      // longer exists, so it must NOT force the quote to DUE. Installments with NO bank
-      // slip (e.g. PIX/ENTRADA receivables) keep counting as overdue when past due.
+      // A past-due installment that is neither PAID nor CANCELLED is money still
+      // owed, full stop.
+      //
+      // This used to also skip an installment whose boleto was CANCELLED, on the
+      // reasoning that "the charge no longer exists". That conflates two opposite
+      // situations. When a charge is genuinely abandoned, `cancelBoleto` cancels
+      // the INSTALLMENT too, and the `status === 'CANCELLED'` test above already
+      // excludes it. When only the rail changes — the customer will pay by PIX,
+      // so `markBoletoAsPaid` cancels the slip — the debt is still owed, and if
+      // that payment never arrives the parcela stays open. Skipping those made
+      // the quote report "a vencer" forever: RKO budget 273 sat at UPCOMING with
+      // three parcelas and R$13.850,60 unpaid, 104 days past the first due date.
       const overdueCount = allInstallments.filter(inst => {
         if (inst.status === 'PAID' || inst.status === 'CANCELLED') return false;
         // Calendar-day comparison in SP: a parcela due TODAY is not overdue. Comparing raw
         // instants flipped the quote to DUE at 09:00 SP on the parcela's own due date
         // (stored noon UTC), before the customer could possibly have missed it.
-        if (!isDueDateOverdue(new Date(inst.dueDate), today)) return false;
-        const slipStatus = (inst as any).bankSlip?.status;
-        if (slipStatus === 'CANCELLED') return false;
-        return true;
+        return isDueDateOverdue(new Date(inst.dueDate), today);
       }).length;
 
       // Guard: if all installments were cancelled (e.g. after invoice cancellation)
