@@ -8,6 +8,7 @@ import { NotificationModule } from '@modules/common/notification/notification.mo
 // Controllers
 import { PaintUnifiedController } from './paint.controller';
 import { PaintBrandController } from './paint-brand.controller';
+import { StudioColorsController } from './studio-colors.controller';
 
 // Services
 import { PaintService } from './paint.service';
@@ -19,6 +20,7 @@ import { PaintGroundService } from './paint-ground.service';
 import { PaintBrandService } from './paint-brand.service';
 import { PaintCompatibilityService } from './paint-compatibility.service';
 import { PaintAnalyticsService } from './paint-analytics.service';
+import { StudioColorsService } from './studio-colors.service';
 
 // Listeners
 import { PaintProductionListener } from './paint-production.listener';
@@ -59,9 +61,13 @@ import { PaintBrandPrismaRepository } from './repositories/paint-brand/paint-bra
     PaintBrandRepository,
     PaintFormulaComponentRepository,
   ],
-  controllers: [PaintUnifiedController, PaintBrandController],
+  // StudioColorsController é a rota PÚBLICA do Truck Studio (GET /studio/colors).
+  // Mora aqui, e não num módulo próprio, porque lê a mesma tabela pelo mesmo
+  // PaintRepository — um módulo separado só duplicaria a fiação do repositório.
+  controllers: [PaintUnifiedController, PaintBrandController, StudioColorsController],
   providers: [
     PaintService,
+    StudioColorsService,
     PaintTypeService,
     PaintFormulaService,
     PaintFormulaComponentService,

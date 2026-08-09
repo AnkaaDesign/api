@@ -5,6 +5,7 @@ import { BonusController } from './bonus.controller';
 import { BonusService } from './bonus.service';
 import { BonusCalculationService } from './bonus-calculation.service';
 import { BonusCalculationContextService } from './bonus-calculation-context.service';
+import { BonusEligibilityService } from './bonus-eligibility.service';
 import { BonusDiscountService } from './bonus-discount.service';
 import { SecullumBonusIntegrationService } from './secullum-bonus-integration.service';
 import { BonusRepository } from './repositories/bonus/bonus.repository';
@@ -34,6 +35,7 @@ import { NotificationModule } from '@modules/common/notification/notification.mo
     BonusService,
     BonusCalculationService,
     BonusCalculationContextService,
+    BonusEligibilityService,
     BonusDiscountService,
     SecullumBonusIntegrationService,
     {
@@ -49,6 +51,7 @@ import { NotificationModule } from '@modules/common/notification/notification.mo
     BonusService,
     BonusCalculationService,
     BonusCalculationContextService,
+    BonusEligibilityService,
     BonusDiscountService,
     BonusRepository,
   ],

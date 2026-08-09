@@ -29,8 +29,15 @@ import { roundCurrency } from '../../../utils/currency-precision.util';
  * Bumped whenever the formula or default parameters change.
  * Stored on each saved Bonus row so historical bonuses remain
  * reproducible even if the formula evolves.
+ *
+ * v3-proportional-2026-08: a fórmula em si não mudou — mudou o que alimenta
+ * `averageTasksPerUser` (B1). O divisor deixou de ser a contagem inteira de
+ * elegíveis no instante da consulta e passou a ser o headcount médio do
+ * período (Σ dias_úteis_elegíveis / dias_úteis_do_período), e o mesmo peso
+ * prorrateia o valor individual. Linhas gravadas antes desta versão têm
+ * `eligibilityWeight = 1` por default e um divisor inteiro.
  */
-export const BONUS_CALCULATION_VERSION = 'v2-logistic-2026-04';
+export const BONUS_CALCULATION_VERSION = 'v3-proportional-2026-08';
 
 /**
  * Default parameters — match bonus-simulator.html page 1 defaults.
