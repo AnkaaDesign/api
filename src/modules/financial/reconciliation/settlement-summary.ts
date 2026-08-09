@@ -45,7 +45,55 @@ export const SETTLEMENT_FD_SELECT = {
  * the four "settlement" anchors are invisible to the client — which is exactly
  * how 42 reconciled rows ended up with a green chip and a blank Vínculo.
  */
+/**
+ * Task-quote context behind a receivable parcela, so the Extrato's "Vínculo"
+ * column can name the tarefa and link to it instead of printing the constant
+ * "Parcela a receber" with nowhere to click. Two paths reach a task: an
+ * Invoice (the normal billing flow) or a TaskQuoteCustomerConfig (receivables
+ * that never materialized an invoice).
+ */
+export const INSTALLMENT_RECEIVABLE_SELECT = {
+  id: true,
+  number: true,
+  dueDate: true,
+  amount: true,
+  paidAmount: true,
+  paidAt: true,
+  status: true,
+  invoice: {
+    select: {
+      id: true,
+      totalAmount: true,
+      status: true,
+      customer: { select: { id: true, fantasyName: true, corporateName: true, cnpj: true } },
+      task: { select: { id: true, name: true, serialNumber: true } },
+      installments: { select: { id: true } },
+    },
+  },
+  // Faturamento (task-quote) receivables have no Invoice row — they hang off a
+  // TaskQuoteCustomerConfig instead.
+  customerConfig: {
+    select: {
+      id: true,
+      total: true,
+      customer: { select: { id: true, fantasyName: true, corporateName: true, cnpj: true } },
+      quote: { select: { task: { select: { id: true, name: true, serialNumber: true } } } },
+      _count: { select: { installments: true } },
+    },
+  },
+} satisfies Prisma.InstallmentSelect;
+
 export const SETTLEMENT_ANCHOR_INCLUDE = {
+  // Receivable parcela settled directly (PIX/TED) …
+  installment: { select: INSTALLMENT_RECEIVABLE_SELECT },
+  // … and the same parcela reached through its boleto (the bridge anchor).
+  bankSlip: {
+    select: {
+      id: true,
+      nossoNumero: true,
+      installment: { select: INSTALLMENT_RECEIVABLE_SELECT },
+    },
+  },
   orderInstallment: {
     select: {
       id: true,
@@ -204,6 +252,25 @@ const monthLabel = (competence: string): string => {
  * (the list query loads less NF detail than the detail query) without fighting
  * the type checker.
  */
+/** Shape produced by {@link INSTALLMENT_RECEIVABLE_SELECT}. */
+interface ReceivableInstallmentLike {
+  id: string;
+  number?: number | null;
+  amount?: Prisma.Decimal | number | null;
+  invoice?: {
+    id: string;
+    totalAmount?: Prisma.Decimal | number | null;
+    customer?: { fantasyName?: string | null; corporateName?: string | null } | null;
+    task?: { id: string; name?: string | null; serialNumber?: string | null } | null;
+    installments?: { id: string }[] | null;
+  } | null;
+  customerConfig?: {
+    customer?: { fantasyName?: string | null; corporateName?: string | null } | null;
+    quote?: { task?: { id: string; name?: string | null; serialNumber?: string | null } | null } | null;
+    _count?: { installments: number } | null;
+  } | null;
+}
+
 interface MatchLike {
   fiscalDocumentId?: string | null;
   bankSlipId?: string | null;
@@ -213,8 +280,8 @@ interface MatchLike {
    *  (frete, seguro, taxas) — it explains a shortfall against the notes. */
   remainderReason?: string | null;
   fiscalDocument?: Record<string, unknown> | null;
-  bankSlip?: { nossoNumero?: string | null; installment?: unknown } | null;
-  installment?: Record<string, unknown> | null;
+  bankSlip?: { nossoNumero?: string | null; installment?: ReceivableInstallmentLike | null } | null;
+  installment?: ReceivableInstallmentLike | null;
   orderInstallment?: {
     id: string;
     number: number;
@@ -470,12 +537,40 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
   const instMatch = matches.find(m => m.installment || m.installmentId);
   if (slipMatch || instMatch) {
     const slip = slipMatch?.bankSlip;
+    // The parcela reached either directly or through its boleto. Both carry the
+    // same task-quote context; prefer whichever this match actually anchored.
+    const inst = instMatch?.installment ?? slip?.installment ?? null;
+    const task = inst?.invoice?.task ?? inst?.customerConfig?.quote?.task ?? null;
+    const customer = inst?.invoice?.customer ?? inst?.customerConfig?.customer;
+    const customerName = customer?.fantasyName ?? customer?.corporateName ?? null;
+    const parcelCount =
+      inst?.invoice?.installments?.length ?? inst?.customerConfig?._count?.installments ?? 0;
+    const parcelNumber = inst?.number ?? 0;
+
+    // Name the tarefa, not the abstraction. This used to be the constant
+    // "Parcela a receber" with `link.id = null`, so the Extrato's Vínculo column
+    // showed a dead label for every receivable while the payables side linked
+    // straight through to its pedido — even though the task route already
+    // existed in the web's anchorHref switch.
+    const label =
+      [
+        task?.serialNumber ? `Tarefa ${task.serialNumber}` : null,
+        customerName,
+        parcelCount > 1 ? `parcela ${parcelNumber}/${parcelCount}` : null,
+        slip?.nossoNumero && !task ? `Boleto ${slip.nossoNumero}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ') ||
+      (slip?.nossoNumero ? `Boleto ${slip.nossoNumero}` : 'Parcela a receber');
+
     return {
       ...empty,
       state: open ? 'OPEN' : 'SETTLED',
       anchor: slip ? 'BANK_SLIP' : 'RECEIVABLE_INSTALLMENT',
-      label: slip?.nossoNumero ? `Boleto ${slip.nossoNumero}` : 'Parcela a receber',
-      link: { kind: 'receivable', id: null },
+      label,
+      // Fall back to the old inert link only when there is genuinely no tarefa
+      // behind the parcela (avulso / operação externa).
+      link: task?.id ? { kind: 'task', id: task.id } : { kind: 'receivable', id: null },
       expectsNf: false,
     };
   }

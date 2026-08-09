@@ -42,6 +42,7 @@ import {
 } from './transaction-status';
 import {
   SETTLEMENT_ANCHOR_INCLUDE,
+  INSTALLMENT_RECEIVABLE_SELECT,
   deriveFiscalDocumentLinked,
   deriveSettlement,
   settlementStateWhere,
@@ -83,37 +84,6 @@ const CATEGORY_INCLUDE = {
  * Shared by both the direct (installment) and boleto (bankSlip → installment)
  * match paths.
  */
-const INSTALLMENT_RECEIVABLE_SELECT = {
-  id: true,
-  number: true,
-  dueDate: true,
-  amount: true,
-  paidAmount: true,
-  paidAt: true,
-  status: true,
-  invoice: {
-    select: {
-      id: true,
-      totalAmount: true,
-      status: true,
-      customer: { select: { id: true, fantasyName: true, corporateName: true, cnpj: true } },
-      task: { select: { id: true, name: true, serialNumber: true } },
-      installments: { select: { id: true } },
-    },
-  },
-  // Faturamento (task-quote) receivables have no Invoice row — they hang off a
-  // TaskQuoteCustomerConfig instead. Selected so normalizeInstallmentInvoice()
-  // below can synthesize the same shape the detail page reads off `invoice`.
-  customerConfig: {
-    select: {
-      id: true,
-      total: true,
-      customer: { select: { id: true, fantasyName: true, corporateName: true, cnpj: true } },
-      quote: { select: { task: { select: { id: true, name: true, serialNumber: true } } } },
-      _count: { select: { installments: true } },
-    },
-  },
-} satisfies Prisma.InstallmentSelect;
 
 type InstallmentReceivable = Prisma.InstallmentGetPayload<{ select: typeof INSTALLMENT_RECEIVABLE_SELECT }>;
 
