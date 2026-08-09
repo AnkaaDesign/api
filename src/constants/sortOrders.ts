@@ -609,6 +609,7 @@ export const TRUCK_MANUFACTURER_ORDER: Record<string, number> = {
   [TRUCK_MANUFACTURER.VOLVO]: 4,
   [TRUCK_MANUFACTURER.DAF]: 5,
   [TRUCK_MANUFACTURER.IVECO]: 6,
+  [TRUCK_MANUFACTURER.MAN]: 7,
 };
 
 // =====================

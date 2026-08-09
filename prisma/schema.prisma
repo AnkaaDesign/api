@@ -3429,6 +3429,7 @@ enum TruckManufacturer {
   VOLKSWAGEN
   IVECO
   MERCEDES_BENZ
+  MAN
 }
 
 enum WarningSeverity {

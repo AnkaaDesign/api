@@ -1,0 +1,17 @@
+-- MAN entra em `TruckManufacturer`.
+--
+-- POR QUÊ. O catálogo do Truck Studio (`brands/trucks/brands.json`) lista sete
+-- montadoras; o enum tinha seis. A MAN TGX estava no seletor 3D com três
+-- chassis e ZERO tintas amarradas a ela — e `colorsFor()` (web/.../catalog/
+-- colors.ts) devolve a PALETA INTEIRA quando a montadora não casa nenhuma
+-- tinta, de propósito ("um passo de cor vazio não tem leitura possível").
+-- Resultado: o passo "Cor" da MAN abria com as 519 tintas do catálogo, contra
+-- 7 a 28 das outras marcas, e o pipeline de renders de card teria de produzir
+-- 519 imagens por chassi da MAN — 1.557 no total, contra ~850 para todas as
+-- outras marcas somadas.
+--
+-- ALTER TYPE ... ADD VALUE roda dentro de transação a partir do PostgreSQL 12
+-- (aqui: 16.14) DESDE QUE o valor novo não seja USADO na mesma transação. Por
+-- isso esta migração só acrescenta o rótulo; quem o utiliza é a migração
+-- seguinte, 20260809170100_paint_white_per_manufacturer.
+ALTER TYPE "TruckManufacturer" ADD VALUE IF NOT EXISTS 'MAN';
