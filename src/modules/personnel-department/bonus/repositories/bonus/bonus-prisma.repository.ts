@@ -787,7 +787,18 @@ export class BonusPrismaRepository
       }
     }
 
-    // Get eligible users count
+    // ⚠️ DIVISOR OBSOLETO — NÃO USE ESTE CAMINHO.
+    //
+    // Esta contagem é uma foto do "quem é elegível AGORA" e diverge do divisor
+    // canônico em quatro eixos: não tem eixo temporal (uma demissão apaga a
+    // pessoa retroativamente), não filtra `position.bonifiable`, não filtra
+    // `secullumEmployeeId` e não arredonda a média. O divisor correto é o
+    // headcount médio do período, em `BonusEligibilityService`.
+    //
+    // O método inteiro é código morto: `BonusRepository` é injetado em
+    // `BonusService` e nunca invocado. Mantido apenas para não quebrar a
+    // interface do repositório. Se algum dia voltar a ser chamado, troque por
+    // `bonusEligibilityService.resolvePeriodEligibility(year, month).divisor`.
     const eligibleUsersCount = await model.user.count({
       where: {
         performanceLevel: { gt: 0 },

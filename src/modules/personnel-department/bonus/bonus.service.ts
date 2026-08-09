@@ -19,6 +19,7 @@ import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { BonusCalculationService } from './bonus-calculation.service';
 import { BonusCalculationContextService } from './bonus-calculation-context.service';
 import type { BonusCalculationContext } from './bonus-calculation-context.service';
+import { BonusEligibilityService } from './bonus-eligibility.service';
 import { SecullumBonusIntegrationService } from './secullum-bonus-integration.service';
 import type { SecullumBonusAnalysis } from './secullum-bonus-integration.service';
 import { BonusRepository } from './repositories/bonus/bonus.repository';
@@ -79,6 +80,19 @@ interface LiveBonusData {
   // Relations for extras and discounts
   bonusExtras?: any[];
   bonusDiscounts?: any[];
+  // ---- Proporcionalidade temporal (ver BonusEligibilityService) ----
+  /** [0,1] — fração de dias úteis do período em que a pessoa foi elegível. */
+  eligibilityWeight: number;
+  eligibleDays: number;
+  periodBusinessDays: number;
+  /** Divisor B1 do período (Σ dos pesos). Fracionário. */
+  periodDivisor: number;
+  /** Data de desligamento quando ocorreu DENTRO do período. */
+  terminatedAt: Date | null;
+  /** `false` = desligada hoje (badge na UI). */
+  currentlyEmployed: boolean;
+  /** `false` = sem ponto eletrônico ⇒ sem desconto de falta e sem assiduidade. */
+  hasSecullumId: boolean;
 }
 
 interface LiveBonusCalculationResult {
@@ -86,7 +100,15 @@ interface LiveBonusCalculationResult {
   month: number;
   bonuses: LiveBonusData[];
   totalActiveUsers: number;
-  totalEligibleUsersForAverage: number; // Users with performanceLevel > 0
+  /**
+   * O DIVISOR de B1 — agora FRACIONÁRIO: Σ dos pesos de elegibilidade de quem
+   * tem performanceLevel > 0. Antes era a contagem inteira de elegíveis no
+   * instante da consulta, o que fazia uma demissão inflar o bônus de todos
+   * retroativamente.
+   */
+  totalEligibleUsersForAverage: number;
+  /** Dias úteis do período (Mon–Fri menos feriados nacionais). */
+  periodBusinessDays: number;
   totalWeightedTasks: number;
   totalRawTaskCount: number; // Task count with suspended as 1.0
   totalSuspendedTasks: number;
@@ -370,6 +392,7 @@ export class BonusService {
     private readonly changeLogService: ChangeLogService,
     private readonly bonusCalculationService: BonusCalculationService,
     private readonly bonusCalculationContextService: BonusCalculationContextService,
+    private readonly bonusEligibilityService: BonusEligibilityService,
     private readonly bonusRepository: BonusRepository,
     private readonly secullumBonusIntegrationService: SecullumBonusIntegrationService,
     private readonly cacheService: CacheService,
@@ -613,10 +636,10 @@ export class BonusService {
         throw new NotFoundException('Usuário não encontrado.');
       }
 
-      // Check if user is bonifiable
-      if (!user.position?.bonifiable) {
-        throw new BadRequestException('Usuário não está em um cargo bonificável.');
-      }
+      // A elegibilidade é resolvida por PERÍODO logo abaixo — não pelo cargo de
+      // hoje. Quem foi desligado (ou mudou de cargo) depois do fechamento tem
+      // direito ao bônus do período que trabalhou, e precisa conseguir abrir a
+      // própria tela para vê-lo.
 
       // ========================================================================
       // PERIOD-LEVEL DATA (lightweight DB queries, no Secullum)
@@ -625,21 +648,44 @@ export class BonusService {
       const startDate = getPeriodStart(year, month);
       const endDate = getPeriodEnd(year, month);
 
-      // Get all bonifiable users (for user count + eligible users list)
-      const allBonifiableUsers = await this.prisma.user.findMany({
-        where: {
-          ...BONIFIABLE_USER_WHERE,
-          position: { bonifiable: true },
-          secullumEmployeeId: { not: null },
-        },
+      // Elegíveis DO PERÍODO, com peso proporcional — mesma fonte que o cálculo
+      // do período inteiro usa, para que o detalhe individual nunca divirja da
+      // lista.
+      const detailEligibility = await this.bonusEligibilityService.resolvePeriodEligibility(
+        year,
+        month,
+      );
+
+      const userEligibility = detailEligibility.byUserId.get(userId);
+      if (!userEligibility) {
+        throw new BadRequestException(
+          'Usuário não foi elegível à bonificação neste período.',
+        );
+      }
+
+      const detailUserIds = detailEligibility.entries.map(e => e.userId);
+      const detailSectors = await this.prisma.user.findMany({
+        where: { id: { in: detailUserIds } },
         select: {
           id: true,
-          name: true,
-          performanceLevel: true,
           secullumEmployeeId: true,
-          position: { select: { id: true, name: true, bonifiable: true } },
           sector: { select: { id: true, name: true } },
         },
+      });
+      const detailSectorById = new Map(detailSectors.map(u => [u.id, u]));
+
+      const allBonifiableUsers = detailEligibility.entries.map(e => {
+        const extra = detailSectorById.get(e.userId);
+        return {
+          id: e.userId,
+          name: e.userName,
+          performanceLevel: e.performanceLevel,
+          secullumEmployeeId: extra?.secullumEmployeeId ?? null,
+          position: e.positionId
+            ? { id: e.positionId, name: e.positionName ?? '', bonifiable: true }
+            : null,
+          sector: extra?.sector ?? null,
+        };
       });
 
       // Get ALL tasks in the period (including NO_BONIFICATION for history)
@@ -675,14 +721,15 @@ export class BonusService {
       const totalWeightedTasks = calculatePonderedTaskCount(allTasks);
       const totalSuspendedTasks = countSuspendedTasks(allTasks);
       const usersWithPerformance = allBonifiableUsers.filter(u => u.performanceLevel > 0);
-      const totalEligibleUsers = usersWithPerformance.length;
+      // Divisor ponderado — idêntico ao do cálculo do período inteiro.
+      const totalEligibleUsers = detailEligibility.divisor;
       const rawAverageTasksPerUser =
         totalEligibleUsers > 0 ? roundAverage(totalRawTaskCount / totalEligibleUsers) : 0;
       const averageTasksPerUser =
         totalEligibleUsers > 0 ? roundAverage(totalWeightedTasks / totalEligibleUsers) : 0;
 
       this.logger.log(
-        `Period ${month}/${year} (single-user): ${totalWeightedTasks} weighted tasks, avg: ${averageTasksPerUser.toFixed(2)}, ${totalEligibleUsers} eligible users`,
+        `Period ${month}/${year} (single-user): ${totalWeightedTasks} weighted tasks, avg: ${averageTasksPerUser.toFixed(2)}, divisor ${totalEligibleUsers.toFixed(4)} (peso deste usuário: ${userEligibility.weight})`,
       );
 
       // ========================================================================
@@ -719,9 +766,14 @@ export class BonusService {
       // FIX: clamp BEFORE rounding once. Rounding both operands separately
       // and then subtracting can erase sub-cent differences that should
       // produce a discount of one or two cents.
-      const netBonusValue = roundCurrency(Math.min(baseBonusValue, calculatedNetBonus));
+      // PRORRATEIO: mesma fração que esta pessoa ocupa no divisor.
+      const detailWeight = userEligibility.weight;
+      const baseBonusProrated = roundCurrency(baseBonusValue * detailWeight);
+      const netBonusValue = roundCurrency(
+        Math.min(baseBonusValue, calculatedNetBonus) * detailWeight,
+      );
       const suspendedTasksDiscount = roundCurrency(
-        Math.max(0, baseBonusValue - netBonusValue),
+        Math.max(0, baseBonusProrated - netBonusValue),
       );
 
       // ========================================================================
@@ -885,7 +937,10 @@ export class BonusService {
         }
       }
 
-      const allEligibleUsers = allBonifiableUsers.map(u => ({
+      // Só quem entra no divisor — o detalhe individual listava TODOS os
+      // bonificáveis aqui enquanto dividia por um subconjunto, mostrando N
+      // colaboradores e dividindo por M < N.
+      const allEligibleUsers = usersWithPerformance.map(u => ({
         id: u.id,
         name: u.name,
       }));
@@ -896,10 +951,19 @@ export class BonusService {
         year,
         month,
         performanceLevel: user.performanceLevel || 0,
-        baseBonus: roundCurrency(baseBonusValue),
+        baseBonus: baseBonusProrated,
         netBonus: finalNetBonus,
         weightedTasks: totalWeightedTasks,
         averageTaskPerUser: averageTasksPerUser,
+        eligibilityWeight: detailWeight,
+        eligibleDays: userEligibility.eligibleDays,
+        periodBusinessDays: detailEligibility.periodBusinessDays,
+        periodDivisor: detailEligibility.divisor,
+        terminatedAt: userEligibility.terminatedInPeriod
+          ? userEligibility.terminationDate
+          : null,
+        currentlyEmployed: userEligibility.currentlyEmployed,
+        hasSecullumId: userEligibility.hasSecullumId,
         payrollId: null,
         createdAt: now,
         updatedAt: now,
@@ -2043,15 +2107,10 @@ export class BonusService {
     const startDate = getPeriodStart(year, month);
     const endDate = getPeriodEnd(year, month);
 
-    // Count eligible users (bonifiable + performanceLevel > 0)
-    const eligibleUsers = await this.prisma.user.count({
-      where: {
-        ...BONIFIABLE_USER_WHERE,
-        position: { bonifiable: true },
-        performanceLevel: { gt: 0 },
-        secullumEmployeeId: { not: null },
-      },
-    });
+    // Divisor ponderado pelo tempo — mesmo número que o cálculo live usa, para
+    // que simulador e folha nunca divirjam. É FRACIONÁRIO (headcount médio).
+    const eligibility = await this.bonusEligibilityService.resolvePeriodEligibility(year, month);
+    const eligibleUsers = eligibility.divisor;
 
     // Get tasks in period (including NO_BONIFICATION for history)
     const allTasks = await this.prisma.task.findMany({
@@ -2078,7 +2137,11 @@ export class BonusService {
       totalRawTaskCount,
       totalWeightedTasks,
       totalSuspendedTasks,
+      /** Divisor B1 — fracionário desde a proporcionalidade temporal. */
       eligibleUsers,
+      periodBusinessDays: eligibility.periodBusinessDays,
+      /** Quantas pessoas tiveram peso > 0 (contagem inteira, para exibição). */
+      eligibleHeadcount: eligibility.entries.filter(e => e.performanceLevel > 0).length,
       averageTasksPerEmployee:
         eligibleUsers > 0 ? roundAverage(totalWeightedTasks / eligibleUsers) : 0,
       rawAverageTasksPerEmployee:
@@ -2200,35 +2263,41 @@ export class BonusService {
         `Calculating live bonuses for ${month}/${year} (${startDate.toISOString()} to ${endDate.toISOString()})`,
       );
 
-      // Get ALL bonifiable users (including performanceLevel = 0)
-      // We need all of them for display, but only those with performanceLevel > 0 count for the average
-      const allBonifiableUsers = await this.prisma.user.findMany({
-        where: {
-          ...BONIFIABLE_USER_WHERE,
-          position: {
-            bonifiable: true,
-          },
-          secullumEmployeeId: { not: null },
-        },
+      // Quem foi elegível DURANTE o período, com o peso proporcional de cada um.
+      // Substitui o `BONIFIABLE_USER_WHERE` que lia o cache do User e portanto
+      // respondia "quem é elegível AGORA" — apagando retroativamente do divisor
+      // qualquer pessoa desligada depois do fechamento.
+      const eligibility = await this.bonusEligibilityService.resolvePeriodEligibility(year, month);
+
+      // Dados de exibição (setor, secullumEmployeeId) para os elegíveis do período.
+      // Note que o conjunto vem da elegibilidade temporal, NÃO de um `where` sobre
+      // o estado atual — por isso inclui quem já foi desligado.
+      const userIds = eligibility.entries.map(e => e.userId);
+      const userDetails = await this.prisma.user.findMany({
+        where: { id: { in: userIds } },
         select: {
           id: true,
           name: true,
-          performanceLevel: true,
           secullumEmployeeId: true,
-          position: {
-            select: {
-              id: true,
-              name: true,
-              bonifiable: true,
-            },
-          },
-          sector: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
+          sector: { select: { id: true, name: true } },
         },
+      });
+      const detailsById = new Map(userDetails.map(u => [u.id, u]));
+
+      // Forma equivalente à antiga `allBonifiableUsers`, para o resto do método.
+      const allBonifiableUsers = eligibility.entries.map(e => {
+        const d = detailsById.get(e.userId);
+        return {
+          id: e.userId,
+          name: e.userName,
+          performanceLevel: e.performanceLevel,
+          secullumEmployeeId: d?.secullumEmployeeId ?? null,
+          position: e.positionId
+            ? { id: e.positionId, name: e.positionName ?? '', bonifiable: true }
+            : null,
+          sector: d?.sector ?? null,
+          eligibility: e,
+        };
       });
 
       // Get ALL tasks in the period (including NO_BONIFICATION for history)
@@ -2285,10 +2354,10 @@ export class BonusService {
       // Count suspended tasks
       const totalSuspendedTasks = countSuspendedTasks(allTasks);
 
-      // For average calculation, only count users with performanceLevel > 0
-      // (this is the divisor in the bonus formula)
-      const usersWithPerformance = allBonifiableUsers.filter(u => u.performanceLevel > 0);
-      const totalEligibleUsers = usersWithPerformance.length;
+      // O DIVISOR é o headcount médio do período — Σ dos pesos de elegibilidade
+      // de quem tem performanceLevel > 0 — e não mais a contagem inteira de
+      // quem está elegível no instante da consulta.
+      const totalEligibleUsers = eligibility.divisor;
 
       // Calculate RAW average (for BASE bonus - includes suspended as 1.0)
       const rawAverageTasksPerUser =
@@ -2298,8 +2367,9 @@ export class BonusService {
       const averageTasksPerUser =
         totalEligibleUsers > 0 ? roundAverage(totalWeightedTasks / totalEligibleUsers) : 0;
 
+      const partialCount = eligibility.entries.filter(e => e.weight < 1).length;
       this.logger.log(
-        `Period ${month}/${year}: RAW ${totalRawTaskCount} tasks (raw avg: ${rawAverageTasksPerUser.toFixed(2)}) | WEIGHTED ${totalWeightedTasks} tasks (weighted avg: ${averageTasksPerUser.toFixed(2)}) | ${totalSuspendedTasks} suspended tasks | ${totalEligibleUsers} eligible users`,
+        `Period ${month}/${year}: RAW ${totalRawTaskCount} tasks (raw avg: ${rawAverageTasksPerUser.toFixed(2)}) | WEIGHTED ${totalWeightedTasks} tasks (weighted avg: ${averageTasksPerUser.toFixed(2)}) | ${totalSuspendedTasks} suspended tasks | divisor ${totalEligibleUsers.toFixed(4)} (${eligibility.entries.length} pessoas, ${partialCount} parciais, ${eligibility.periodBusinessDays} dias úteis)`,
       );
 
       // Salary-based logistic algorithm — load context once for the period.
@@ -2341,12 +2411,17 @@ export class BonusService {
         // FIX: clamp BEFORE rounding once. Rounding both operands separately
         // and then subtracting can erase sub-cent differences that should
         // produce a discount of one or two cents.
-        const netBonusValue = roundCurrency(Math.min(baseBonusValue, calculatedNetBonus));
+        const netBonusValue = Math.min(baseBonusValue, calculatedNetBonus);
+
+        // PRORRATEIO: quem foi elegível parte do período conta essa mesma fração
+        // no divisor e recebe essa mesma fração do valor. Contar 0,93 no
+        // denominador e pagar 1,0 desequilibraria o custo do programa.
+        const w = user.eligibility.weight;
+        const proratedBase = roundCurrency(baseBonusValue * w);
+        const proratedNet = roundCurrency(netBonusValue * w);
 
         // Calculate discount from suspended tasks (always >= 0)
-        const suspendedTasksDiscount = roundCurrency(
-          Math.max(0, baseBonusValue - netBonusValue),
-        );
+        const suspendedTasksDiscount = roundCurrency(Math.max(0, proratedBase - proratedNet));
 
         // ALL users share the same tasks pool - this is how the bonus system works
         // The weighted tasks and average are period-level, not user-level
@@ -2355,8 +2430,8 @@ export class BonusService {
           userName: user.name,
           positionName,
           performanceLevel: user.performanceLevel,
-          baseBonus: roundCurrency(baseBonusValue),
-          netBonus: roundCurrency(netBonusValue),
+          baseBonus: proratedBase,
+          netBonus: proratedNet,
           weightedTasks: totalWeightedTasks,
           rawTaskCount: totalRawTaskCount,
           suspendedTasksCount: totalSuspendedTasks,
@@ -2365,6 +2440,15 @@ export class BonusService {
           averageTasksPerEmployee: averageTasksPerUser,
           rawAverageTasksPerEmployee: rawAverageTasksPerUser,
           isLive: true as const,
+          eligibilityWeight: w,
+          eligibleDays: user.eligibility.eligibleDays,
+          periodBusinessDays: eligibility.periodBusinessDays,
+          periodDivisor: eligibility.divisor,
+          terminatedAt: user.eligibility.terminatedInPeriod
+            ? user.eligibility.terminationDate
+            : null,
+          currentlyEmployed: user.eligibility.currentlyEmployed,
+          hasSecullumId: user.eligibility.hasSecullumId,
         };
       });
 
@@ -2497,6 +2581,7 @@ export class BonusService {
         bonuses,
         totalActiveUsers: allBonifiableUsers.length,
         totalEligibleUsersForAverage: totalEligibleUsers,
+        periodBusinessDays: eligibility.periodBusinessDays,
         totalWeightedTasks,
         totalRawTaskCount,
         totalSuspendedTasks,
@@ -2616,14 +2701,13 @@ export class BonusService {
         filterMonthValues?.length === 1 &&
         filterMonthValues[0] === currentPeriod.month;
 
-      // Get ALL users with bonifiable positions (like payroll does for all users)
-      // This ensures we show data even for users with performanceLevel = 0
+      // Universo das linhas exibidas = quem teve peso > 0 no período, o MESMO
+      // conjunto que formou o divisor. Antes este `where` lia o cache do User,
+      // então uma pessoa desligada sumia da lista do período corrente e a linha
+      // `Bonus` dela — já carregada do banco em `savedBonusMap` — era descartada
+      // em silêncio dentro do laço abaixo.
       const allBonifiableUsers = await this.prisma.user.findMany({
-        where: {
-          ...BONIFIABLE_USER_WHERE,
-          position: { bonifiable: true },
-          secullumEmployeeId: { not: null },
-        },
+        where: { id: { in: liveData.bonuses.map(b => b.userId) } },
         include: {
           position: {
             include: {
@@ -2829,6 +2913,16 @@ export class BonusService {
             averageTaskPerUser: liveData.averageTasksPerEmployee,
             payrollId: null,
 
+            // Proporcionalidade temporal — a UI usa para o "%" e o badge
+            // "Desligado em DD/MM".
+            eligibilityWeight: liveBonus.eligibilityWeight,
+            eligibleDays: liveBonus.eligibleDays,
+            periodBusinessDays: liveBonus.periodBusinessDays,
+            periodDivisor: liveBonus.periodDivisor,
+            terminatedAt: liveBonus.terminatedAt,
+            currentlyEmployed: liveBonus.currentlyEmployed,
+            hasSecullumId: liveBonus.hasSecullumId,
+
             // Timestamps (same structure as saved bonus)
             createdAt: now,
             updatedAt: now,
@@ -2866,6 +2960,16 @@ export class BonusService {
             weightedTasks: liveData.totalWeightedTasks,
             averageTaskPerUser: liveData.averageTasksPerEmployee,
             payrollId: null,
+
+            // Mesmos campos de proporcionalidade, para a UI não precisar tratar
+            // duas formas de linha.
+            eligibilityWeight: 0,
+            eligibleDays: 0,
+            periodBusinessDays: liveData.periodBusinessDays,
+            periodDivisor: liveData.totalEligibleUsersForAverage,
+            terminatedAt: null,
+            currentlyEmployed: true,
+            hasSecullumId: true,
 
             // Timestamps (same structure as saved bonus)
             createdAt: now,
@@ -2954,26 +3058,21 @@ export class BonusService {
         );
       }
 
-      // Get ALL active users with payroll numbers (not just eligible ones)
-      const allActiveUsers = await this.prisma.user.findMany({
-        where: {
-          ...BONIFIABLE_USER_WHERE,
-          payrollNumber: { not: null },
-          secullumEmployeeId: { not: null },
-        },
-        select: {
-          id: true,
-          name: true,
-          performanceLevel: true,
-          position: {
-            select: {
-              id: true,
-              name: true,
-              bonifiable: true,
-            },
-          },
-        },
-      });
+      // O conjunto que RECEBE linha `Bonus` é exatamente o conjunto que formou
+      // o divisor — quem teve peso > 0 no período.
+      //
+      // Antes este `where` era `BONIFIABLE_USER_WHERE + payrollNumber != null`,
+      // divergindo do conjunto usado no cálculo (que exigia `position.bonifiable`
+      // e não exigia `payrollNumber`): o `averageTaskPerUser` gravado vinha de um
+      // conjunto de pessoas diferente das linhas gravadas. Pior, ao ler o cache
+      // do User ele excluía quem tinha sido desligado — e o bônus do período
+      // trabalhado sumia sem erro nem log.
+      const allActiveUsers = liveData.bonuses.map(b => ({
+        id: b.userId,
+        name: b.userName,
+        performanceLevel: b.performanceLevel,
+        position: { id: '', name: b.positionName, bonifiable: true },
+      }));
 
       let successCount = 0;
       let failedCount = 0;
@@ -3125,6 +3224,14 @@ export class BonusService {
               calculationVersion: paramsSnapshot.version,
               // Plain JSON-serializable snapshot; cast for Prisma's InputJsonValue.
               calculationParams: paramsSnapshot as unknown as Prisma.InputJsonValue,
+              // Proporcionalidade temporal — persistida para que o período
+              // fechado seja auditável sem reconsultar contratos. Sem isto o
+              // divisor não existe em lugar nenhum do banco, só o seu efeito.
+              eligibilityWeight: isEligible ? eligibleBonus.eligibilityWeight : 0,
+              eligibleDays: isEligible ? eligibleBonus.eligibleDays : 0,
+              periodBusinessDays: liveData.periodBusinessDays,
+              periodDivisor: liveData.totalEligibleUsersForAverage,
+              terminatedAt: isEligible ? eligibleBonus.terminatedAt : null,
             };
 
             let bonusId: string;
@@ -3563,28 +3670,22 @@ export class BonusService {
     const sectorFilter =
       sectorIds && sectorIds.length > 0 ? { sectorId: { in: sectorIds } } : {};
 
-    const allBonifiableUsers = await this.prisma.user.findMany({
-      where: {
-        ...BONIFIABLE_USER_WHERE,
-        position: { bonifiable: true },
-        secullumEmployeeId: { not: null },
-        // Eligible user count is always company-wide — it's the denominator of
-        // B1 (avg tasks/user) which drives the bonus polynomial. Applying a
-        // sector filter here would change B1 non-linearly and produce a pool
-        // amount inconsistent with calculateLiveBonuses (HR bonus page), which
-        // also uses all eligible users regardless of display sector.
-      },
-      select: {
-        id: true,
-        name: true,
-        performanceLevel: true,
-        secullumEmployeeId: true,
-        position: {
-          select: { id: true, name: true, bonifiable: true },
-        },
-        sector: { select: { id: true, name: true } },
-      },
-    });
+    // Divisor company-wide e ponderado pelo tempo — o mesmo de
+    // `computeLiveBonusesForPeriod`, para que a timeline não conte um
+    // denominador diferente da página de bônus. O filtro de setor NÃO é
+    // aplicado aqui de propósito: B1 é o denominador global e recortá-lo por
+    // setor mudaria a curva não-linearmente.
+    const timelineEligibility = await this.bonusEligibilityService.resolvePeriodEligibility(
+      year,
+      month,
+    );
+    const allBonifiableUsers = timelineEligibility.entries.map(e => ({
+      id: e.userId,
+      name: e.userName,
+      performanceLevel: e.performanceLevel,
+      position: e.positionId ? { id: e.positionId } : null,
+      weight: e.weight,
+    }));
 
     const allTasks = await this.prisma.task.findMany({
       where: {
@@ -3610,8 +3711,10 @@ export class BonusService {
     const resolvedUsers = allBonifiableUsers.map(user => ({
       salary: this.bonusCalculationContextService.resolveSalary(calcContext, user),
       performanceLevel: user.performanceLevel,
+      weight: user.weight,
     }));
-    const eligibleUserCount = allBonifiableUsers.filter(u => u.performanceLevel > 0).length;
+    // Fracionário: headcount médio do período, não a contagem de cabeças.
+    const eligibleUserCount = timelineEligibility.divisor;
 
     // Generate the day list by stepping date-by-date — robust against DST and
     // off-by-one errors that crop up with diff-then-round.

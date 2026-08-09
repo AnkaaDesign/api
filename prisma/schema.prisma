@@ -141,6 +141,23 @@ model Bonus {
   salaryUsed         Decimal?        @db.Decimal(10, 2)
   calculationVersion String?
   calculationParams  Json?
+  /// Proporcionalidade temporal (26→25). Antes destes campos o divisor B1 era
+  /// `count(elegíveis AGORA)` e não sobrevivia a uma demissão: quem saía no meio
+  /// do período sumia do denominador retroativamente, inflando o bônus de todos.
+  ///
+  /// eligibilityWeight  = eligibleDays / periodBusinessDays, em [0, 1]. Multiplica
+  ///                      o bônus individual E é a parcela desta pessoa no divisor.
+  /// eligibleDays       = dias úteis em que esteve elegível dentro do período.
+  /// periodBusinessDays = dias úteis do período (Mon–Fri menos feriados nacionais).
+  /// periodDivisor      = Σ dos pesos de quem tem performanceLevel > 0 — o
+  ///                      denominador de B1. Fracionário por construção.
+  eligibilityWeight  Decimal         @default(1) @db.Decimal(6, 4)
+  eligibleDays       Int?
+  periodBusinessDays Int?
+  periodDivisor      Decimal?        @db.Decimal(8, 4)
+  /// Data de desligamento quando o vínculo encerrou DENTRO do período — deixa a
+  /// UI mostrar "Desligado em DD/MM" sem reconsultar o contrato.
+  terminatedAt       DateTime?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   payrollId          String?         @unique

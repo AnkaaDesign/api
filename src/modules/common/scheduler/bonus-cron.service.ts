@@ -5,7 +5,7 @@ import { PayrollService } from '../../personnel-department/payroll/payroll.servi
 import { CacheService } from '../cache/cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationDispatchService } from '../notification/notification-dispatch.service';
-import { BONIFIABLE_USER_WHERE } from '../../../utils/contract';
+import { BonusEligibilityService } from '../../personnel-department/bonus/bonus-eligibility.service';
 
 @Injectable()
 export class BonusCronService {
@@ -15,6 +15,7 @@ export class BonusCronService {
 
   constructor(
     private readonly bonusService: BonusService,
+    private readonly bonusEligibilityService: BonusEligibilityService,
     private readonly payrollService: PayrollService,
     private readonly cacheService: CacheService,
     private readonly prisma: PrismaService,
@@ -58,23 +59,42 @@ export class BonusCronService {
     );
 
     try {
-      // Check what is already persisted for this period
-      const [savedBonusCount, savedPayrollCount, expectedUserCount] = await Promise.all([
-        this.prisma.bonus.count({ where: { year: periodYear, month: periodMonth } }),
+      // Check what is already persisted for this period.
+      //
+      // A completude é comparada por CONJUNTO, não por contagem. Comparar
+      // `count(Bonus) >= count(elegíveis agora)` dava falso-positivo assim que
+      // alguém era desligado: 40 linhas gravadas contra 39 elegíveis restantes
+      // marcava o período como "completo" e pulava o recálculo, mesmo faltando
+      // a linha de um recém-contratado. E os dois lados nem eram o mesmo
+      // conjunto — um filtrava `payrollNumber`, o outro `position.bonifiable`.
+      const [savedBonusUserIds, savedPayrollCount, expectedEligibility] = await Promise.all([
+        this.prisma.bonus
+          .findMany({
+            where: { year: periodYear, month: periodMonth },
+            select: { userId: true },
+          })
+          .then(rows => new Set(rows.map(r => r.userId))),
         this.prisma.payroll.count({ where: { year: periodYear, month: periodMonth } }),
-        this.prisma.user.count({
-          where: {
-            ...BONIFIABLE_USER_WHERE,
-            payrollNumber: { not: null },
-            secullumEmployeeId: { not: null },
-          },
-        }),
+        this.bonusEligibilityService.resolvePeriodEligibility(periodYear, periodMonth),
       ]);
 
-      // Bonuses are complete only when every currently-eligible user has a record.
-      // A partial count (savedBonusCount > 0 but < expected) means the first run
-      // succeeded for some users but new hires were added after — must re-run upsert.
-      const bonusesComplete = savedBonusCount >= expectedUserCount && expectedUserCount > 0;
+      const expectedUserIds = expectedEligibility.entries.map(e => e.userId);
+      const expectedUserCount = expectedUserIds.length;
+      const savedBonusCount = savedBonusUserIds.size;
+      const missingUserIds = expectedUserIds.filter(id => !savedBonusUserIds.has(id));
+
+      const bonusesComplete = expectedUserCount > 0 && missingUserIds.length === 0;
+
+      if (missingUserIds.length > 0 && savedBonusCount > 0) {
+        this.logger.warn(
+          `[FINALIZATION] Período ${year}/${month}: ${missingUserIds.length} pessoa(s) do ` +
+            `período sem linha Bonus — recalculando. ` +
+            expectedEligibility.entries
+              .filter(e => missingUserIds.includes(e.userId))
+              .map(e => e.userName)
+              .join(', '),
+        );
+      }
 
       if (bonusesComplete && savedPayrollCount > 0) {
         this.logger.log(
