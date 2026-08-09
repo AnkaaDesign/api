@@ -30,6 +30,7 @@ import {
   invalidContractStatusTransitionMessage,
   isOpenStatus,
   validateEmployeeContractTypeIntegrity,
+  EFFECTED_INITIAL_PERFORMANCE_LEVEL,
 } from '../../../utils/contract';
 import type {
   EmploymentContractBatchCreateResponse,
@@ -588,24 +589,34 @@ export class EmploymentContractService {
     if (data.stabilityEnd !== undefined) updateData.stabilityEnd = data.stabilityEnd;
     if (data.notes !== undefined) updateData.notes = data.notes;
 
-    // Efetivação (CLT art. 451): mudança de modalidade EXPERIENCE_PERIOD_2 → INDETERMINATE
-    // (a situação já é/permanece ACTIVE). Grava effectedAt se ainda não houver.
-    if (
+    // Efetivação (CLT art. 451): saída de QUALQUER modalidade de experiência
+    // para INDETERMINATE (a situação já é/permanece ACTIVE).
+    //
+    // Não basta olhar EXPERIENCE_PERIOD_2: contrato de fase única (sem datas de
+    // exp2) efetiva direto da fase 1 — é o mesmo caminho que o cron trata em
+    // `processExperiencePeriodTransitions`. Reconhecer só a fase 2 deixava quem
+    // o RH efetivava a partir da fase 1 sem `effectedAt` e em nível 0: fora do
+    // divisor da bonificação e com bônus zero, sem nada explicando na tela.
+    const EXPERIENCE_TYPES: ReadonlyArray<string> = [
+      CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
+      CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
+    ];
+    const isManualEffectivation =
       data.contractType === CONTRACT_TYPE.INDETERMINATE &&
-      existing.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2
-    ) {
+      existing.contractType != null &&
+      EXPERIENCE_TYPES.includes(existing.contractType);
+
+    if (isManualEffectivation) {
       if (data.effectedAt === undefined && !existing.effectedAt) {
         updateData.effectedAt = new Date();
       }
     }
 
     // Encerramento: status=TERMINATED sem data → grava agora.
-    if (
-      data.status === CONTRACT_STATUS.TERMINATED &&
-      existing.status !== CONTRACT_STATUS.TERMINATED &&
-      data.terminationDate === undefined &&
-      !existing.terminationDate
-    ) {
+    const isTermination =
+      data.status === CONTRACT_STATUS.TERMINATED && existing.status !== CONTRACT_STATUS.TERMINATED;
+
+    if (isTermination && data.terminationDate === undefined && !existing.terminationDate) {
       updateData.terminationDate = new Date();
     }
 
@@ -641,7 +652,7 @@ export class EmploymentContractService {
     });
 
     // Histórico de fases: quando a MODALIDADE muda de fato (inclui a efetivação
-    // manual EXPERIENCE_PERIOD_2 → INDETERMINATE), encerra a fase aberta e abre a
+    // manual EXPERIENCE_* → INDETERMINATE), encerra a fase aberta e abre a
     // nova. Guard contra dupla-abertura: só dispara se contractType realmente mudou.
     if (
       updateData.contractType !== undefined &&
@@ -654,18 +665,66 @@ export class EmploymentContractService {
         contractId: id,
         userId: existing.userId,
         newContractType: updated.contractType as CONTRACT_TYPE,
-        date:
-          updated.contractType === CONTRACT_TYPE.INDETERMINATE &&
-          existing.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2
-            ? transitionDate
-            : new Date(),
+        date: isManualEffectivation ? transitionDate : new Date(),
         triggeredBy: CHANGE_TRIGGERED_BY.USER,
-        reason:
-          updated.contractType === CONTRACT_TYPE.INDETERMINATE &&
-          existing.contractType === CONTRACT_TYPE.EXPERIENCE_PERIOD_2
-            ? 'Efetivação (alteração manual)'
-            : 'Alteração manual de modalidade',
+        reason: isManualEffectivation
+          ? 'Efetivação (alteração manual)'
+          : 'Alteração manual de modalidade',
       });
+    }
+
+    // ENCERRAMENTO DA FASE NA RESCISÃO.
+    //
+    // A demissão não muda a modalidade, então o bloco acima nunca dispara e a
+    // fase corrente ficava ABERTA para sempre. Os 5 desligamentos reais desde o
+    // backfill de fases (22/06/2026) ficaram todos assim — 5 de 5.
+    //
+    // Não é cosmético: `BonusEligibilityService` lê "fase aberta iniciada depois
+    // da rescisão" como sinal de readmissão. Enquanto a fase começa ANTES da
+    // rescisão o sinal é falso e nada quebra, mas basta a pessoa ser readmitida
+    // sobre o mesmo vínculo para o artefato virar um fantasma no divisor —
+    // exatamente o que estourou o divisor de 07/2026 de 18 para 29.
+    //
+    // Idempotente: `updateMany` sobre `endDate: null` não faz nada quando a fase
+    // já foi fechada por outro caminho (TerminationService, por exemplo).
+    if (isTermination) {
+      const closedAt =
+        (updateData.terminationDate as Date | undefined) ??
+        (updated.terminationDate as Date | null) ??
+        new Date();
+      await this.closeOpenContractPhase(tx, { contractId: id, endDate: closedAt });
+    }
+
+    // Nível de desempenho inicial na efetivação MANUAL — a mesma regra da
+    // efetivação automática (`processExperiencePeriodTransitions`).
+    //
+    // Sem isto, quem o RH efetiva pela tela ficava em nível 0: fora do divisor
+    // da bonificação E com bônus zero, sem nada na tela explicando por quê. Só
+    // sobe a partir de 0, para não rebaixar um nível já atribuído.
+    if (isManualEffectivation) {
+      const person = await tx.user.findUnique({
+        where: { id: existing.userId },
+        select: { performanceLevel: true },
+      });
+      if ((person?.performanceLevel ?? 0) <= 0) {
+        await tx.user.update({
+          where: { id: existing.userId },
+          data: { performanceLevel: EFFECTED_INITIAL_PERFORMANCE_LEVEL },
+        });
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.USER,
+          entityId: existing.userId,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'performanceLevel',
+          oldValue: person?.performanceLevel?.toString() ?? null,
+          newValue: String(EFFECTED_INITIAL_PERFORMANCE_LEVEL),
+          reason: 'Nível de desempenho inicial definido na efetivação',
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: existing.userId,
+          userId: userId || null,
+          transaction: tx,
+        });
+      }
     }
 
     // Re-sincroniza o cache se este for (ou puder ter virado) o vínculo atual.

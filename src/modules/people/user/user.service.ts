@@ -18,6 +18,7 @@ import {
   UserSecullumSyncService,
   type SecullumSyncResult,
 } from '@modules/integrations/secullum/user-secullum-sync.service';
+import { USER_CONTRACT_TERMINATED_EVENT } from '../../../constants/events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { UserRepository, PrismaTransaction } from './repositories/user.repository';
 import type {
@@ -72,6 +73,8 @@ import {
   canTransitionContractStatus,
   invalidContractStatusTransitionMessage,
   validateEmployeeContractTypeIntegrity,
+  NOT_TERMINATED_CONTRACT_WHERE,
+  EFFECTED_INITIAL_PERFORMANCE_LEVEL,
 } from '../../../utils/contract';
 import { FileService } from '@modules/common/file/file.service';
 import { FolderRenameService } from '@modules/common/file/services/folder-rename.service';
@@ -1072,6 +1075,11 @@ export class UserService {
     userId?: string,
     avatarFile?: Express.Multer.File,
   ): Promise<UserUpdateResponse> {
+    // Situação ANTES da escrita, capturada fora da transação: é o que distingue
+    // "acabou de ser desligado" de "já estava desligado e alguém editou o
+    // telefone". Só a TRANSIÇÃO dispara o fechamento da bonificação.
+    let statusBeforeUpdate: string | null = null;
+
     try {
       const updatedUser = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar usuário existente com relações para o tracking
@@ -1082,6 +1090,9 @@ export class UserService {
         if (!existingUser) {
           throw new NotFoundException('Usuário não encontrado.');
         }
+
+        statusBeforeUpdate =
+          (existingUser as { currentContractStatus?: string | null }).currentContractStatus ?? null;
 
         // Security: privilege-escalation/account-takeover guards (audit B1/B8, decision 12)
         await this.enforceUserWriteGuards(
@@ -1582,6 +1593,25 @@ export class UserService {
         });
       } catch (err) {
         this.logger.error('Failed to emit secullum.user.updated:', err);
+      }
+
+      // Fecha a bonificação de quem acabou de ser desligado, sem esperar o cron
+      // do dia 5. A rescisão é paga muito antes disso, e até aqui o valor do
+      // período trabalhado só existia depois que o cron rodasse — quando rodava.
+      //
+      // Evento, e não chamada direta: `BonusModule` importa `UserModule`, então
+      // injetar `BonusService` aqui fecharia um ciclo de DI.
+      if (dismissalJustHappened && statusBeforeUpdate !== CONTRACT_STATUS.TERMINATED) {
+        try {
+          this.eventEmitter.emit(USER_CONTRACT_TERMINATED_EVENT, {
+            userId: id,
+            terminationDate:
+              (updatedUser as { currentContract?: { terminationDate?: Date | null } | null })
+                ?.currentContract?.terminationDate ?? null,
+          });
+        } catch (err) {
+          this.logger.error(`Failed to emit ${USER_CONTRACT_TERMINATED_EVENT}:`, err);
+        }
       }
 
       // Remove password from response
@@ -2189,6 +2219,15 @@ export class UserService {
       const contractsEndingExp1 = await this.prisma.employmentContract.findMany({
         where: {
           isCurrent: true,
+          // Vínculo ENCERRADO não avança de fase. `isCurrent` significa "o mais
+          // recente", não "aberto": um contrato rescindido durante a experiência
+          // continua isCurrent e continua com `contractType = EXPERIENCE_*`.
+          // Sem este filtro, em 24/06/2026 este cron "efetivou" 13 pessoas
+          // desligadas entre 2022 e 2025 — abriu fase INDETERMINATE, carimbou
+          // effectedAt, subiu performanceLevel para 3 e promoveu o cargo. A
+          // bonificação leu essas fases abertas como readmissão e inchou o
+          // divisor do período de 18 para 29.
+          ...NOT_TERMINATED_CONTRACT_WHERE,
           contractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
           employeeType: EMPLOYEE_TYPE.CLT,
           exp1EndAt: { lt: tomorrow },
@@ -2271,6 +2310,8 @@ export class UserService {
       const contractsEndingExp2 = await this.prisma.employmentContract.findMany({
         where: {
           isCurrent: true,
+          // Mesma trava da fase 1 — ver comentário acima.
+          ...NOT_TERMINATED_CONTRACT_WHERE,
           employeeType: EMPLOYEE_TYPE.CLT,
           ...(userId ? { userId } : {}),
           OR: [
@@ -2354,10 +2395,21 @@ export class UserService {
             });
 
             // Performance level + position promotion live on the User.
+            //
+            // Nível inicial 1, não 3: quem acaba de sair da experiência entra na
+            // bonificação no primeiro degrau e sobe por avaliação. Carimbar 3
+            // dava de largada o mesmo nível de quem já está há anos na casa e
+            // inflava o bônus do recém-efetivado — o nível entra direto no
+            // polinômio do cálculo (ver EFFECTED_INITIAL_PERFORMANCE_LEVEL).
+            //
+            // Só sobe a partir de 0. Se o RH já tiver atribuído um nível durante
+            // a experiência, a efetivação não o rebaixa.
+            const currentLevel = user.performanceLevel ?? 0;
+            const shouldSeedLevel = currentLevel <= 0;
             await tx.user.update({
               where: { id: user.id },
               data: {
-                performanceLevel: 3,
+                ...(shouldSeedLevel && { performanceLevel: EFFECTED_INITIAL_PERFORMANCE_LEVEL }),
                 ...(shouldPromote && { positionId: nextPosition!.id }),
                 updatedAt: new Date(),
               },
@@ -2382,19 +2434,21 @@ export class UserService {
               transaction: tx,
             });
 
-            await this.changeLogService.logChange({
-              entityType: ENTITY_TYPE.USER,
-              entityId: user.id,
-              action: CHANGE_ACTION.UPDATE,
-              field: 'performanceLevel',
-              oldValue: user.performanceLevel?.toString() ?? null,
-              newValue: '3',
-              reason: 'Nível de desempenho inicial definido na efetivação automática',
-              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
-              triggeredById: user.id,
-              userId: userId,
-              transaction: tx,
-            });
+            if (shouldSeedLevel) {
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.USER,
+                entityId: user.id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'performanceLevel',
+                oldValue: user.performanceLevel?.toString() ?? null,
+                newValue: String(EFFECTED_INITIAL_PERFORMANCE_LEVEL),
+                reason: 'Nível de desempenho inicial definido na efetivação automática',
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+                triggeredById: user.id,
+                userId: userId,
+                transaction: tx,
+              });
+            }
 
             if (shouldPromote) {
               // Histórico de cargo: promoção automática na efetivação

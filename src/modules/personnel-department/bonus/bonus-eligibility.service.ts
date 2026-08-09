@@ -31,6 +31,7 @@ import {
   EMPLOYEE_TYPE,
   ENTITY_TYPE,
 } from '../../../constants/enums';
+import { isNonPayrollAccount } from '../../../constants/payroll-exclusions';
 import { countBrazilianBusinessDaysInRange } from '../../../utils/brazilian-holidays.util';
 import {
   businessPeriodStart,
@@ -175,6 +176,7 @@ export class BonusEligibilityService {
       select: {
         id: true,
         name: true,
+        email: true,
         performanceLevel: true,
         currentContractStatus: true,
         secullumEmployeeId: true,
@@ -220,18 +222,34 @@ export class BonusEligibilityService {
 
     // Fonte mais forte para `performanceLevel` num período FECHADO: o snapshot
     // que o próprio fechamento gravou. O ChangeLog tem lacunas (nem todo
-    // caminho de escrita passa por `fieldsToTrack`), então quando existe linha
-    // `Bonus` do período ela vence o rebobinamento.
-    const savedPerformance = new Map(
-      (
-        await this.prisma.bonus.findMany({
-          where: { year, month },
-          select: { userId: true, performanceLevel: true },
-        })
-      ).map(b => [b.userId, b.performanceLevel]),
-    );
+    // caminho de escrita passa por `fieldsToTrack`), então numa folha já fechada
+    // a linha `Bonus` vence o rebobinamento.
+    //
+    // SÓ EM PERÍODO FECHADO. Leitura e escrita são a mesma célula — o valor lido
+    // aqui é o que `calculateAndSaveBonuses` grava de volta —, então num período
+    // ABERTO o snapshot vira um laço: a primeira gravação congela o nível e
+    // nenhuma promoção posterior entra até o período fechar. Pior, uma linha
+    // gravada com nível 0 se auto-perpetuaria, mantendo a pessoa fora do divisor
+    // e com bônus zero para sempre, sem nada capaz de quebrar o ciclo além de
+    // uma escrita manual no banco.
+    const periodIsClosed = periodEnd < new Date();
+    const savedPerformance = periodIsClosed
+      ? new Map(
+          (
+            await this.prisma.bonus.findMany({
+              where: { year, month },
+              select: { userId: true, performanceLevel: true },
+            })
+          ).map(b => [b.userId, b.performanceLevel]),
+        )
+      : new Map<string, number>();
 
     for (const user of users) {
+      // Conta que não representa colaborador real fica FORA do divisor, não só
+      // fora da tela: com peso 1 ela elevaria o headcount médio do período e
+      // reduziria o bônus de todo mundo.
+      if (isNonPayrollAccount(user.email)) continue;
+
       const positionId = historical.positionIdFor(user.id, user.positionId);
       if (!historical.bonifiableFor(positionId)) continue;
 
@@ -239,7 +257,11 @@ export class BonusEligibilityService {
         savedPerformance.get(user.id) ??
         historical.performanceLevelFor(user.id, user.performanceLevel);
 
-      const intervals = this.buildEligibleIntervals(user.contracts, user.name);
+      const intervals = this.buildEligibleIntervals(
+        user.contracts,
+        user.name,
+        user.currentContractStatus === CONTRACT_STATUS.ACTIVE,
+      );
       if (intervals.length === 0) continue;
 
       let eligibleDays = 0;
@@ -452,6 +474,7 @@ export class BonusEligibilityService {
       phaseHistory: Array<{ startDate: Date; endDate: Date | null }>;
     }>,
     userName: string,
+    userIsEmployedToday: boolean,
   ): EligibleInterval[] {
     const intervals: EligibleInterval[] = [];
 
@@ -483,25 +506,36 @@ export class BonusEligibilityService {
       let terminationDate: Date | null = null;
 
       if (c.status === CONTRACT_STATUS.TERMINATED) {
-        // Reconciliação de dado inconsistente: uma fase de contrato AINDA
-        // ABERTA e iniciada DEPOIS da data de rescisão significa readmissão
-        // registrada por cima do mesmo vínculo, sem criar novo `sequence`.
-        // Nesse caso a rescisão é de um vínculo anterior e não encerra este
-        // intervalo. Sem esta regra, essas pessoas receberiam peso ZERO num
-        // período que trabalharam inteiro.
-        const reopenedByPhase =
+        // Uma fase AINDA ABERTA iniciada DEPOIS da data de rescisão é ambígua:
+        // pode ser readmissão lançada por cima do mesmo `sequence` (sem criar
+        // novo), ou lixo escrito por automação sobre um vínculo já encerrado.
+        //
+        // O desempate é a situação de HOJE. Readmissão de verdade deixa a
+        // pessoa empregada; o artefato, não. Sem esse desempate, a regra
+        // ressuscitava gente desligada desde 2022: em 24/06/2026 o cron de
+        // experiência abriu fase INDETERMINATE em 13 contratos rescindidos e
+        // todos os 13 voltaram ao divisor com peso 1 — nenhum era readmissão.
+        //
+        // Errar para o lado de "encerrado" é o lado seguro: no máximo alguém
+        // realmente readmitido fica de fora até o contrato ser separado em dois
+        // `sequence`, e o aviso abaixo aponta exatamente qual corrigir.
+        const phaseAfterTermination =
           openPhase != null &&
           c.terminationDate != null &&
           openPhase.startDate > c.terminationDate;
+        const reopenedByPhase = phaseAfterTermination && userIsEmployedToday;
 
-        if (reopenedByPhase) {
+        if (phaseAfterTermination) {
           this.logger.warn(
             `Contrato ${c.id} (${userName}, seq ${c.sequence}) está TERMINATED em ` +
               `${c.terminationDate?.toISOString().slice(0, 10)} mas tem fase aberta desde ` +
-              `${openPhase!.startDate.toISOString().slice(0, 10)} — tratado como vínculo ` +
-              `REABERTO. Corrija o contrato (separar em dois sequence) para eliminar este aviso.`,
+              `${openPhase!.startDate.toISOString().slice(0, 10)} — tratado como ` +
+              `${reopenedByPhase ? 'vínculo REABERTO (pessoa empregada hoje)' : 'FASE ESPÚRIA (pessoa desligada hoje); o vínculo segue encerrado'}. ` +
+              `Corrija o contrato para eliminar este aviso.`,
           );
-        } else {
+        }
+
+        if (!reopenedByPhase) {
           end = c.terminationDate;
           terminationDate = c.terminationDate;
           // Rescisão anterior à própria efetivação ⇒ o par de datas é do

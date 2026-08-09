@@ -12,3 +12,5 @@ export * from './service-descriptions';
 // Deployment enums are already exported from "./enums"
 export * from './deployment-labels';
 export * from './deployment-sort-orders';
+export * from './events';
+export * from './payroll-exclusions';

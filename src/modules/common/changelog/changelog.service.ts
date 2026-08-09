@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ChangeLogRepository } from '../changelog/repositories/changelog.repository';
 import {
   CHANGE_LOG_ENTITY_TYPE,
@@ -24,8 +24,27 @@ interface LogChangeParams {
   metadata?: Record<string, any>;
 }
 
+/**
+ * Sentinelas de "ator não humano" que circulam pelo código como `userId`.
+ *
+ * `ChangeLog.userId` é uma FK para `User`: o repositório monta
+ * `user: { connect: { id } }`, e um id inexistente derruba o `create` com P2025
+ * — que, dentro de uma `$transaction`, arrasta junto a escrita de negócio que
+ * estava sendo auditada. Foi exatamente isso que apagou 7 linhas de bonificação
+ * de 07/2026: o cron chamava `calculateAndSaveBonuses(..., 'system')`, o
+ * desconto de falta tentava logar, o `connect` falhava e a transação inteira do
+ * colaborador ia embora — sem linha `Bonus`, e o único rastro era um erro de
+ * changelog no journal.
+ *
+ * A autoria do sistema já está registrada em `triggeredBy = SYSTEM`; o campo
+ * `userId` só existe para apontar uma PESSOA. Sentinela vira `null`.
+ */
+const ACTOR_SENTINELS = new Set(['system', 'System', 'SYSTEM', 'cron', '']);
+
 @Injectable()
 export class ChangeLogService {
+  private readonly logger = new Logger(ChangeLogService.name);
+
   constructor(private readonly changeLogRepository: ChangeLogRepository) {}
 
   async findMany(params: any): Promise<any> {
@@ -130,6 +149,17 @@ export class ChangeLogService {
       }
     }
 
+    // Ver `ACTOR_SENTINELS`: um id que não existe em `User` transforma a
+    // auditoria em causa de rollback da própria escrita auditada.
+    let actorId = user ?? null;
+    if (actorId !== null && ACTOR_SENTINELS.has(actorId)) {
+      this.logger.debug(
+        `ChangeLog ${changeLogEntityType}/${id}: userId sentinela "${actorId}" ` +
+          'normalizado para null (autoria fica em triggeredBy).',
+      );
+      actorId = null;
+    }
+
     const changeLogData: ChangeLogCreateFormData = {
       entityType: changeLogEntityType as string,
       entityId: id,
@@ -140,7 +170,7 @@ export class ChangeLogService {
       reason,
       triggeredBy: trigger,
       triggeredById,
-      userId: user,
+      userId: actorId,
       metadata,
     };
 

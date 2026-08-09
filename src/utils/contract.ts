@@ -72,6 +72,36 @@ export const BONIFIABLE_USER_WHERE = {
 } as const;
 
 /**
+ * Nível de desempenho com que alguém entra na bonificação ao ser EFETIVADO
+ * (EXPERIENCE_PERIOD_2 → INDETERMINATE, automático ou manual).
+ *
+ * É o primeiro degrau: recém-efetivado começa em 1 e sobe por avaliação. Era 3
+ * — o mesmo nível de quem tem anos de casa —, e como o nível entra direto no
+ * polinômio do bônus, isso dava ao recém-efetivado o valor cheio já no primeiro
+ * período. Nível 0 continua significando "fora do divisor", então não serve
+ * como valor de entrada.
+ */
+export const EFFECTED_INITIAL_PERFORMANCE_LEVEL = 1;
+
+/**
+ * Fragmento de `where` Prisma sobre `EmploymentContract` que isola os vínculos
+ * ABERTOS — os únicos que qualquer automação de ciclo de vida (transição de
+ * fase, efetivação, promoção) pode tocar.
+ *
+ * `isCurrent` NÃO serve para isso: significa "o vínculo mais recente da pessoa",
+ * e um contrato rescindido permanece `isCurrent = true` enquanto não houver um
+ * sucessor. Filtrar só por `isCurrent` foi o que deixou o cron de experiência
+ * efetivar 13 desligados em 24/06/2026.
+ *
+ * `terminationDate` entra junto porque a rescisão pode ser lançada com o status
+ * ainda não propagado — e efetivar quem já tem data de saída é sempre errado.
+ */
+export const NOT_TERMINATED_CONTRACT_WHERE = {
+  status: { not: CONTRACT_STATUS.TERMINATED },
+  terminationDate: null,
+} as const;
+
+/**
  * `true` se a situação representa um vínculo aberto (não encerrado).
  */
 export function isOpenStatus(status: CONTRACT_STATUS | string | null | undefined): boolean {

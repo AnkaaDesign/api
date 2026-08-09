@@ -60,6 +60,7 @@ interface StubContract {
 interface StubUser {
   id: string;
   name: string;
+  email: string | null;
   performanceLevel: number;
   currentContractStatus: string | null;
   secullumEmployeeId: number | null;
@@ -89,6 +90,7 @@ const d = (iso: string): Date => {
 
 function user(over: Partial<StubUser> & { id: string; name: string }): StubUser {
   return {
+    email: null,
     performanceLevel: 3,
     currentContractStatus: 'ACTIVE',
     secullumEmployeeId: 1,
@@ -278,6 +280,23 @@ async function main(): Promise<void> {
     const r = await resolve(users, Y, M);
     check('tratado como vínculo reaberto, não zerado', r.entries.length, 1);
     check('peso cheio (fase cobre o período)', r.byUserId.get('x')!.weight, 1);
+  }
+
+  // --- 9b. Mesma forma, mas a pessoa NÃO está empregada hoje ---
+  //
+  // Foi o que o cron de experiência produziu em 24/06/2026: fase INDETERMINATE
+  // aberta sobre 13 contratos rescindidos entre 2022 e 2025. Nenhuma readmissão
+  // — e todos voltavam ao divisor com peso 1, levando-o de 18 para 29.
+  console.log('\n9b. TERMINATED com fase aberta posterior, mas desligado hoje (fase espúria)');
+  {
+    const c = contract('2023-01-01', '2023-06-01');
+    c.phaseHistory = [{ startDate: d('2026-06-20'), endDate: null }];
+    const users = [
+      user({ id: 'z', name: 'Espúrio', contracts: [c], currentContractStatus: 'TERMINATED' }),
+    ];
+    const r = await resolve(users, Y, M);
+    check('fase espúria não ressuscita o vínculo', r.entries.length, 0);
+    check('fora do divisor', r.divisor, 0);
   }
 
   // --- 10. Contrato CLT sucedido por PJ ---
