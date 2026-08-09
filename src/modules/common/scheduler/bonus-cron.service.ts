@@ -67,23 +67,52 @@ export class BonusCronService {
       // marcava o período como "completo" e pulava o recálculo, mesmo faltando
       // a linha de um recém-contratado. E os dois lados nem eram o mesmo
       // conjunto — um filtrava `payrollNumber`, o outro `position.bonifiable`.
-      const [savedBonusUserIds, savedPayrollCount, expectedEligibility] = await Promise.all([
-        this.prisma.bonus
-          .findMany({
-            where: { year: periodYear, month: periodMonth },
-            select: { userId: true },
-          })
-          .then(rows => new Set(rows.map(r => r.userId))),
+      const [savedBonuses, savedPayrollCount, expectedEligibility] = await Promise.all([
+        this.prisma.bonus.findMany({
+          where: { year: periodYear, month: periodMonth },
+          select: { userId: true, updatedAt: true },
+        }),
         this.prisma.payroll.count({ where: { year: periodYear, month: periodMonth } }),
         this.bonusEligibilityService.resolvePeriodEligibility(periodYear, periodMonth),
       ]);
+      const savedBonusUserIds = new Set(savedBonuses.map(r => r.userId));
 
       const expectedUserIds = expectedEligibility.entries.map(e => e.userId);
       const expectedUserCount = expectedUserIds.length;
       const savedBonusCount = savedBonusUserIds.size;
+      const expectedIdSet = new Set(expectedUserIds);
       const missingUserIds = expectedUserIds.filter(id => !savedBonusUserIds.has(id));
+      // Sobra conta tanto quanto falta. Só olhar o que FALTA deixava o período
+      // "completo" carregando linhas de gente que a elegibilidade do período já
+      // não reconhece — a lista mostrava N pessoas e o divisor contava M < N.
+      // `calculateAndSaveBonuses` poda essas linhas (as que não estão presas a
+      // uma folha), então basta forçar o recálculo.
+      const strayUserIds = [...savedBonusUserIds].filter(id => !expectedIdSet.has(id));
 
-      const bonusesComplete = expectedUserCount > 0 && missingUserIds.length === 0;
+      // O CONJUNTO estar certo não basta: o VALOR também precisa ser do período
+      // fechado. O fechamento no desligamento (`BonusTerminationListener`) grava
+      // o período CORRENTE, ainda aberto — números que ainda vão mudar até o dia
+      // 25. Se a completude olhasse só o conjunto, essas linhas passariam por
+      // completas e o cron pularia o Step 1, congelando o bônus de TODA a folha
+      // no valor que existia no dia da demissão.
+      //
+      // A trava é temporal: alguma linha gravada ANTES do fim do período obriga
+      // pelo menos um recálculo depois do fechamento.
+      const staleRows = savedBonuses.filter(r => r.updatedAt < expectedEligibility.periodEnd);
+
+      const bonusesComplete =
+        expectedUserCount > 0 &&
+        missingUserIds.length === 0 &&
+        strayUserIds.length === 0 &&
+        staleRows.length === 0;
+
+      if (staleRows.length > 0) {
+        this.logger.warn(
+          `[FINALIZATION] Período ${year}/${month}: ${staleRows.length} linha(s) Bonus ` +
+            `calculada(s) antes do fechamento (${expectedEligibility.periodEnd.toISOString().slice(0, 10)}) — ` +
+            `recalculando com os números definitivos.`,
+        );
+      }
 
       if (missingUserIds.length > 0 && savedBonusCount > 0) {
         this.logger.warn(
@@ -93,6 +122,13 @@ export class BonusCronService {
               .filter(e => missingUserIds.includes(e.userId))
               .map(e => e.userName)
               .join(', '),
+        );
+      }
+
+      if (strayUserIds.length > 0) {
+        this.logger.warn(
+          `[FINALIZATION] Período ${year}/${month}: ${strayUserIds.length} linha(s) Bonus ` +
+            `fora do conjunto elegível do período — recalculando para podar.`,
         );
       }
 
@@ -114,7 +150,11 @@ export class BonusCronService {
           `[FINALIZATION] Step 1: Calculating and saving bonuses for ${year}/${month}` +
             ` (${savedBonusCount} existing / ${expectedUserCount} expected)...`,
         );
-        const bonusResult = await this.bonusService.calculateAndSaveBonuses(year, month, 'system');
+        // Sem `userId`: não existe pessoa por trás do cron. Passar a string
+        // 'system' fazia o `ChangeLog` tentar `connect` num User inexistente e
+        // derrubar a transação de CADA colaborador que tivesse desconto de
+        // falta — 7 pessoas ficaram sem linha `Bonus` em 07/2026 por isso.
+        const bonusResult = await this.bonusService.calculateAndSaveBonuses(year, month);
         this.logger.log(
           `[FINALIZATION] Bonuses: ${bonusResult.totalSuccess} ok, ${bonusResult.totalFailed} failed`,
         );
@@ -232,11 +272,8 @@ export class BonusCronService {
       this.logger.log(`Manual bonus calculation triggered by ${triggeredBy}`);
 
       // Use calculateAndSaveBonuses which properly determines bonus status
-      const result = await this.bonusService.calculateAndSaveBonuses(
-        year,
-        month,
-        userId || 'system',
-      );
+      // `userId` só quando há gente de verdade por trás — ver comentário acima.
+      const result = await this.bonusService.calculateAndSaveBonuses(year, month, userId);
 
       this.logger.log(
         `Manual bonus calculation completed for ${year}/${month}. Success: ${result.totalSuccess}, Failed: ${result.totalFailed}`,

@@ -55,6 +55,41 @@ export class CacheService implements OnModuleDestroy {
   }
 
   /**
+   * Trava distribuída: `SET key token NX EX ttl` — atômico, ao contrário do par
+   * `exists()` + `set()`, que tem uma janela de corrida entre as duas chamadas.
+   *
+   * Vale entre PROCESSOS (API + scripts de manutenção), que é o ponto: um
+   * `recalculate-bonus-period` rodando ao lado da API não é detectável por
+   * mutex em memória.
+   *
+   * Devolve o token do dono, ou `null` se a trava já é de outro. O TTL é o
+   * disjuntor: se o processo morrer sem liberar, a trava expira sozinha.
+   */
+  async acquireLock(key: string, ttlSeconds: number): Promise<string | null> {
+    const token = `${process.pid}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const result = await this.redis.set(key, token, 'EX', ttlSeconds, 'NX');
+    return result === 'OK' ? token : null;
+  }
+
+  /**
+   * Libera a trava SOMENTE se ainda for do dono informado.
+   *
+   * O compare-and-delete é obrigatório: sem ele, um dono que estourou o TTL
+   * apagaria a trava que outro processo já adquiriu, deixando dois rodando ao
+   * mesmo tempo — exatamente o que a trava existe para impedir.
+   */
+  async releaseLock(key: string, token: string): Promise<boolean> {
+    const script = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+      else
+        return 0
+      end`;
+    const released = await this.redis.eval(script, 1, `cache:${key}`, token);
+    return released === 1;
+  }
+
+  /**
    * Get object from cache (JSON)
    */
   async getObject<T>(key: string): Promise<T | null> {

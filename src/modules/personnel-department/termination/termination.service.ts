@@ -3,11 +3,14 @@
 
 import {
   BadRequestException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter } from 'events';
+import { USER_CONTRACT_TERMINATED_EVENT } from '../../../constants/events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { FileService } from '@modules/common/file/file.service';
@@ -141,6 +144,9 @@ export class TerminationService {
     private readonly calculationService: TerminationCalculationService,
     private readonly documentService: TerminationDocumentService,
     private readonly employmentContractService: EmploymentContractService,
+    // Barramento do Node (token 'EventEmitter'), o mesmo que `UserService`
+    // publica — NÃO o EventEmitter2 do Nest, em que o listener não escuta.
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
   // =====================
@@ -995,6 +1001,8 @@ export class TerminationService {
         // exam (created since this termination started) to be COMPLETED.
         // Result UNFIT does not block, but a warning is returned in the message.
         let warningMessage = '';
+        /** `true` só quando ESTA transição encerra de fato o vínculo. */
+        let dismissalJustHappened = false;
         if (
           currentStatus === TERMINATION_STATUS.MEDICAL_EXAM &&
           targetStatus === TERMINATION_STATUS.CALCULATION
@@ -1175,6 +1183,7 @@ export class TerminationService {
             user.currentContractStatus !== CONTRACT_STATUS.TERMINATED &&
             contractId
           ) {
+            dismissalJustHappened = true;
             await tx.employmentContract.update({
               where: { id: contractId },
               data: {
@@ -1226,8 +1235,31 @@ export class TerminationService {
           }
         }
 
-        return { updated, warningMessage };
+        return {
+          updated,
+          warningMessage,
+          terminated: dismissalJustHappened,
+          terminatedUserId: existing.userId,
+          terminatedAt: existing.terminationDate ?? null,
+        };
       });
+
+      // Fecha a bonificação do desligado, como o caminho do cadastro já faz.
+      //
+      // Este é o fluxo DESENHADO para rescisão — e é justamente ele que precisa
+      // do número para o acerto. Sem o evento, quem sai por aqui só teria bônus
+      // quando o cron do dia 5 rodasse, e ninguém notaria a diferença até lá.
+      // Emitido FORA da transação: só depois do commit o desligamento é fato.
+      if (termination.terminated) {
+        try {
+          this.eventEmitter.emit(USER_CONTRACT_TERMINATED_EVENT, {
+            userId: termination.terminatedUserId,
+            terminationDate: termination.terminatedAt,
+          });
+        } catch (err) {
+          this.logger.error(`Falha ao emitir ${USER_CONTRACT_TERMINATED_EVENT}:`, err as Error);
+        }
+      }
 
       return {
         success: true,

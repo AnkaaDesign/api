@@ -54,6 +54,13 @@ interface LiveBonusData {
   userId: string;
   userName: string;
   positionName: string;
+  /**
+   * Cargo VIGENTE NO PERÍODO (vem da elegibilidade, não do cadastro de hoje).
+   * `calculateAndSaveBonuses` precisa dele para resolver o salário do snapshot
+   * — `resolveSalary` indexa por `position.id`, e sem ele `salaryUsed` e
+   * `calculationParams` seriam gravados com salário 0.
+   */
+  positionId: string | null;
   performanceLevel: number;
   baseBonus: number;
   netBonus?: number;
@@ -736,11 +743,24 @@ export class BonusService {
       // SINGLE USER BONUS CALCULATION
       // ========================================================================
 
-      const positionName = user.position?.name || 'DEFAULT';
+      // Cargo, nível e salário são os DO PERÍODO, não os de hoje.
+      //
+      // O divisor já é montado com o estado histórico (`resolvePeriodEligibility`).
+      // Ler `user.performanceLevel` e `user.position` do cadastro atual punha
+      // numerador e denominador em épocas diferentes: bastava a pessoa mudar de
+      // cargo ou de nível depois do fechamento para esta tela mostrar um valor
+      // que a folha não reproduz.
+      const periodPosition = userEligibility.positionId
+        ? { id: userEligibility.positionId, name: userEligibility.positionName ?? '' }
+        : null;
+      const positionName = periodPosition?.name || user.position?.name || 'DEFAULT';
+      const periodPerformanceLevel = userEligibility.performanceLevel;
 
       // Salary-based logistic algorithm — needs salary range + this user's salary.
       const calcContext = await this.bonusCalculationContextService.load();
-      const userSalary = this.bonusCalculationContextService.resolveSalary(calcContext, user);
+      const userSalary = this.bonusCalculationContextService.resolveSalary(calcContext, {
+        position: periodPosition ?? user.position,
+      });
       // Inject the period reajuste so single-user live values stay consistent
       // with the full-period live calc and with HR's applied adjustment.
       const periodAdjustment = await this.loadPeriodAdjustmentFraction(year, month);
@@ -749,7 +769,7 @@ export class BonusService {
       // BASE bonus (suspended = 1.0)
       const baseBonusValue = this.bonusCalculationService.calculateBonus({
         salary: userSalary,
-        performanceLevel: user.performanceLevel,
+        performanceLevel: periodPerformanceLevel,
         averageTasksPerUser: rawAverageTasksPerUser,
         salaryRange: calcContext.salaryRange,
         config: calcConfig,
@@ -758,7 +778,7 @@ export class BonusService {
       // NET bonus (suspended = 0.0)
       const calculatedNetBonus = this.bonusCalculationService.calculateBonus({
         salary: userSalary,
-        performanceLevel: user.performanceLevel,
+        performanceLevel: periodPerformanceLevel,
         averageTasksPerUser,
         salaryRange: calcContext.salaryRange,
         config: calcConfig,
@@ -820,9 +840,9 @@ export class BonusService {
 
         if (secullumAnalysis) {
           bonusExtraPercentage = secullumAnalysis.extraPercentage;
-          bonusExtraValue = roundCurrency(
-            (roundCurrency(baseBonusValue) * bonusExtraPercentage) / 100,
-          );
+          // Percentual sobre a base JÁ PRORRATEADA — o extra de assiduidade é
+          // uma fração do bônus da pessoa, não do bônus de período inteiro.
+          bonusExtraValue = roundCurrency((baseBonusProrated * bonusExtraPercentage) / 100);
         }
       } catch (error) {
         // Defensive: the new analyzeAllUsers shouldn't throw at the top level, but
@@ -838,7 +858,16 @@ export class BonusService {
       // RECALCULATE NET BONUS WITH SECULLUM DISCOUNTS (cascading)
       // ========================================================================
 
-      let finalNetBonus = roundCurrency(baseBonusValue);
+      // A cascata parte da base PRORRATEADA, não de `baseBonusValue`.
+      //
+      // Este método é a rota individual (`GET /bonus/:id` composto e a tela
+      // "Meu Bônus" do próprio colaborador). Partir do valor cheio devolvia um
+      // objeto que se contradizia: `baseBonus` prorrateado ao lado de um
+      // `netBonus` de período inteiro. Para quem tem peso 0,0455 isso era
+      // R$ 33,63 em vez de R$ 1,53 — 22× a mais — e ficava visível para o
+      // colaborador em todo o intervalo entre o dia 26 e o primeiro salvamento
+      // do período, quando o curto-circuito da linha salva ainda não existe.
+      let finalNetBonus = baseBonusProrated;
 
       // Add extras
       finalNetBonus += bonusExtraValue;
@@ -950,7 +979,8 @@ export class BonusService {
         userId,
         year,
         month,
-        performanceLevel: user.performanceLevel || 0,
+        // Nível DO PERÍODO — o mesmo que alimentou o cálculo acima.
+        performanceLevel: periodPerformanceLevel || 0,
         baseBonus: baseBonusProrated,
         netBonus: finalNetBonus,
         weightedTasks: totalWeightedTasks,
@@ -1618,6 +1648,19 @@ export class BonusService {
 
     this.logger.debug(
       `Recalculated netBonus for bonus ${bonusId}: baseBonus=${baseBonus}, extras=${totalExtras.toFixed(2)}, netBonus=${netBonus} (${bonus.bonusExtras.length} extras, ${bonus.bonusDiscounts.length} discounts applied)`,
+    );
+
+    // Invalidação no ÚNICO ponto por onde toda mutação de valor passa.
+    //
+    // Os 7 caminhos de desconto/extra do `BonusDiscountService` terminam aqui, e
+    // nenhum deles invalidava o cache: o RH mexia num desconto e a lista do
+    // período corrente continuava mostrando o valor velho por até 2 h (TTL do
+    // SWR). Fire-and-forget: falha de cache não pode derrubar a escrita que já
+    // aconteceu.
+    void this.invalidateLiveBonusesCache(bonus.year, bonus.month).catch(err =>
+      this.logger.warn(
+        `Falha ao invalidar o cache de ${bonus.month}/${bonus.year}: ${(err as Error)?.message ?? err}`,
+      ),
     );
 
     return updatedBonus;
@@ -2429,6 +2472,7 @@ export class BonusService {
           userId: user.id,
           userName: user.name,
           positionName,
+          positionId: user.position?.id ?? null,
           performanceLevel: user.performanceLevel,
           baseBonus: proratedBase,
           netBonus: proratedNet,
@@ -3035,12 +3079,97 @@ export class BonusService {
     month: string,
     userId?: string,
   ): Promise<{ totalSuccess: number; totalFailed: number }> {
+    // SERIALIZAÇÃO POR PERÍODO.
+    //
+    // Este método NÃO é uma transação única: é um laço de transações por
+    // colaborador, mais a poda no fim. Duas execuções simultâneas sobre o mesmo
+    // período se atropelam de duas formas concretas:
+    //
+    //  • ambas fazem `findFirst` → null → `create`, e a segunda bate no unique
+    //    (userId, year, month) → a linha daquela pessoa falha;
+    //  • a poda de uma calcula os "órfãos" a partir de um snapshot velho e
+    //    apaga uma linha que a outra acabou de gravar.
+    //
+    // Não é hipótese: demitir um lote (foi o que aconteceu em 29/07) dispara um
+    // `BonusTerminationListener` por pessoa, cada um fechando até 3 períodos.
+    //
+    // A trava é no Redis, não em memória, porque os scripts de recálculo rodam
+    // em OUTRO processo. Quem não consegue a trava ESPERA — desistir em silêncio
+    // perderia justamente o recálculo que motivou a chamada.
+    const lockKey = `bonus:save:${year}-${month}`;
+    const token = await this.acquireSaveLock(lockKey, `${month}/${year}`);
+    try {
+      return await this.calculateAndSaveBonusesLocked(year, month, userId);
+    } finally {
+      if (token) {
+        await this.cacheService
+          .releaseLock(lockKey, token)
+          .catch(err => this.logger.warn(`Falha ao liberar ${lockKey}: ${err?.message ?? err}`));
+      }
+    }
+  }
+
+  /** TTL da trava de gravação: acima do pior caso observado (~10 s para 30 pessoas). */
+  private readonly SAVE_LOCK_TTL_SEC = 300;
+  /** Quanto tempo esperar a trava de outro processo antes de desistir. */
+  private readonly SAVE_LOCK_WAIT_MS = 120_000;
+
+  private async acquireSaveLock(lockKey: string, label: string): Promise<string | null> {
+    const deadline = Date.now() + this.SAVE_LOCK_WAIT_MS;
+    let waited = false;
+
+    for (;;) {
+      let token: string | null = null;
+      try {
+        token = await this.cacheService.acquireLock(lockKey, this.SAVE_LOCK_TTL_SEC);
+      } catch (err) {
+        // Redis fora do ar não pode impedir o fechamento da folha. Segue sem
+        // trava — é o mesmo grau de exposição de antes desta mudança.
+        this.logger.warn(
+          `Trava ${lockKey} indisponível (${(err as Error)?.message ?? err}) — seguindo sem serialização.`,
+        );
+        return null;
+      }
+
+      if (token) {
+        if (waited) this.logger.log(`Trava de ${label} liberada — prosseguindo.`);
+        return token;
+      }
+
+      if (Date.now() >= deadline) {
+        throw new ServiceUnavailableException(
+          `Outro cálculo de bonificação de ${label} está em andamento e não terminou em ` +
+            `${this.SAVE_LOCK_WAIT_MS / 1000}s. Tente novamente em alguns instantes.`,
+        );
+      }
+
+      if (!waited) {
+        this.logger.log(`Aguardando o cálculo de ${label} em andamento em outro processo...`);
+        waited = true;
+      }
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+
+  private async calculateAndSaveBonusesLocked(
+    year: string,
+    month: string,
+    userId?: string,
+  ): Promise<{ totalSuccess: number; totalFailed: number }> {
     try {
       const yearNum = parseInt(year);
       const monthNum = parseInt(month);
 
-      // Get live calculation data for eligible users (now includes suspended task calculations)
-      const liveData = await this.calculateLiveBonuses(yearNum, monthNum);
+      // Recalcula do zero — NUNCA pelo `calculateLiveBonuses`, que serve de um
+      // cache stale-while-revalidate com TTL de 2 h.
+      //
+      // Gravar é o ato autoritativo do período: ler cache aqui significa
+      // PERSISTIR uma projeção velha. Aconteceu em 08/2026 — o cache guardava a
+      // foto de antes da correção dos contratos ressuscitados, e o fechamento
+      // disparado por uma demissão gravou 30 linhas com divisor 29,82 quando a
+      // elegibilidade real já era de 18 pessoas e divisor 15,14. A leitura, essa
+      // sim, continua servindo do cache; o cache é invalidado no fim do método.
+      const liveData = await this.computeLiveBonusesForPeriod(yearNum, monthNum);
 
       // PAYROLL SAFETY GUARD — refuse to persist if Secullum is down.
       // Without time-clock data the bonuses would save with zero atestado/falta
@@ -3071,7 +3200,13 @@ export class BonusService {
         id: b.userId,
         name: b.userName,
         performanceLevel: b.performanceLevel,
-        position: { id: '', name: b.positionName, bonifiable: true },
+        // `id` real: `resolveSalary` indexa o salário por `position.id`. Com o
+        // placeholder vazio que estava aqui, todo `salaryUsed` e todo
+        // `calculationParams` gravado saía com salário 0 — o valor pago vinha
+        // certo (de `liveData`), mas o snapshot de auditoria era irreproduzível.
+        position: b.positionId
+          ? { id: b.positionId, name: b.positionName, bonifiable: true }
+          : null,
       }));
 
       let successCount = 0;
@@ -3399,9 +3534,19 @@ export class BonusService {
                 );
               }
 
-              // Recalculate netBonus with all extras and discounts
-              await this.recalculateNetBonus(bonusId, tx);
             }
+
+            // SEMPRE recalcular, fora dos `if` acima.
+            //
+            // Antes, o recálculo só rodava dentro do ramo de tarefas suspensas ou
+            // do ramo do Secullum. Quem não tem tarefa suspensa E não tem
+            // `secullumEmployeeId` — o grupo que a própria elegibilidade sinaliza
+            // como "conta no divisor e recebe, mas sem apuração de ponto" —
+            // ficava com o `netBonus` cru do cálculo live, e QUALQUER desconto ou
+            // extra lançado à mão pelo RH era ignorado em silêncio.
+            //
+            // É idempotente: soma extras e aplica descontos na ordem gravada.
+            await this.recalculateNetBonus(bonusId, tx);
           });
           successCount++;
         } catch (error) {
@@ -3417,6 +3562,123 @@ export class BonusService {
       this.logger.log(
         `Monthly bonus calculation completed: ${successCount} success, ${failedCount} failed (${allActiveUsers.length} total active users). Suspended tasks: ${suspendedTaskIds.length}`,
       );
+
+      // PODA — linhas do período que não pertencem mais ao conjunto elegível.
+      //
+      // O `where` antigo gravava por `payrollNumber != null`, então o período
+      // ficou com linhas de gente em cargo NÃO bonificável (R$ 0,00, nível 0) e
+      // de gente que a elegibilidade temporal exclui. Elas nunca sumiam sozinhas:
+      // o laço acima só faz upsert, nunca apaga, e a completude do cron olha
+      // apenas o que FALTA. Resultado: a lista do período exibia N pessoas
+      // enquanto o divisor contava M < N — a divergência que o usuário via.
+      //
+      // Só se apaga linha SEM folha do período. Uma linha já consumida por um
+      // `Payroll` foi paga; corrigir isso é decisão humana, não de rotina — por
+      // isso ela sobrevive e sai no log.
+      //
+      // TRÊS TRAVAS, todas obrigatórias:
+      //
+      //  a) `successCount > 0` e `eligibleIds.size > 0`. `notIn: []` casa com
+      //     TODAS as linhas no Prisma — com o conjunto elegível vazio o `where`
+      //     efetivo vira só `year/month` e a poda apagaria o período inteiro.
+      //     Conjunto vazio nunca é uma conclusão legítima: é sinal de falha.
+      //  b) `failedCount === 0`. Com falhas parciais, "não está no conjunto"
+      //     pode significar "não deu para gravar", não "não pertence".
+      //  c) A folha é consultada por (userId, ano, mês), não por
+      //     `Bonus.payrollId`: `generateForMonth` lê `netBonus` e monta a folha
+      //     mas NUNCA grava o vínculo de volta, então `payrollId` é sempre null
+      //     e sozinho não protege nada.
+      const eligibleIds = new Set(allActiveUsers.map(u => u.id));
+      const pruneBlocked =
+        failedCount > 0
+          ? `${failedCount} falha(s) no salvamento`
+          : eligibleIds.size === 0
+            ? 'conjunto elegível vazio (nunca é conclusão legítima)'
+            : successCount === 0
+              ? 'nenhuma linha gravada com sucesso'
+              : null;
+
+      if (pruneBlocked) {
+        this.logger.warn(
+          `Bonus ${monthNum}/${yearNum}: poda de linhas órfãs ABORTADA — ${pruneBlocked}.`,
+        );
+      } else {
+        const strays = await this.prisma.bonus.findMany({
+          where: { year: yearNum, month: monthNum, userId: { notIn: [...eligibleIds] } },
+          select: {
+            id: true,
+            userId: true,
+            payrollId: true,
+            netBonus: true,
+            baseBonus: true,
+            performanceLevel: true,
+            eligibilityWeight: true,
+            user: { select: { name: true } },
+          },
+        });
+
+        // Folha do MESMO período para os candidatos — a trava real.
+        const payrolls =
+          strays.length > 0
+            ? await this.prisma.payroll.findMany({
+                where: {
+                  year: yearNum,
+                  month: monthNum,
+                  userId: { in: strays.map(s => s.userId) },
+                },
+                select: { userId: true },
+              })
+            : [];
+        const paidUserIds = new Set(payrolls.map(p => p.userId));
+
+        const deletable = strays.filter(s => s.payrollId == null && !paidUserIds.has(s.userId));
+        const locked = strays.filter(s => s.payrollId != null || paidUserIds.has(s.userId));
+
+        if (deletable.length > 0) {
+          // Snapshot ANTES de apagar. `deleteMany` cru não deixava rastro algum
+          // e as cascatas levam `BonusDiscount`/`BonusExtra` junto (e zeram
+          // `Task.bonusDiscountId`), tornando o valor irrecuperável fora do
+          // backup. Mesmo buraco de auditoria do `Task.cleared`.
+          for (const s of deletable) {
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.BONUS,
+              entityId: s.id,
+              action: CHANGE_ACTION.DELETE,
+              oldValue: {
+                userId: s.userId,
+                userName: s.user?.name ?? null,
+                year: yearNum,
+                month: monthNum,
+                baseBonus: s.baseBonus,
+                netBonus: s.netBonus,
+                performanceLevel: s.performanceLevel,
+                eligibilityWeight: s.eligibilityWeight,
+              },
+              newValue: null,
+              reason:
+                `Linha removida no recálculo de ${monthNum}/${yearNum}: o colaborador não ` +
+                `pertence ao conjunto elegível do período.`,
+              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+              triggeredById: s.id,
+              userId: userId || null,
+            });
+          }
+
+          await this.prisma.bonus.deleteMany({ where: { id: { in: deletable.map(s => s.id) } } });
+          this.logger.warn(
+            `Bonus ${monthNum}/${yearNum}: ${deletable.length} linha(s) removida(s) por não ` +
+              `pertencerem mais ao conjunto elegível do período: ` +
+              deletable.map(s => `${s.user?.name ?? s.userId} (R$ ${s.netBonus})`).join(', '),
+          );
+        }
+        if (locked.length > 0) {
+          this.logger.error(
+            `Bonus ${monthNum}/${yearNum}: ${locked.length} linha(s) fora do conjunto elegível MAS ` +
+              `já consumida(s) por uma folha — mantidas, exigem revisão manual: ` +
+              locked.map(s => s.user?.name ?? s.userId).join(', '),
+          );
+        }
+      }
 
       if (failures.length > 0) {
         this.logger.warn(
