@@ -13,10 +13,12 @@ import { FilesStorageModule } from '@modules/common/file/services/files-storage.
 // forwardRef: TaskQuoteModule imports this module back (invoice generation on approval),
 // so the pair is circular by design.
 import { TaskQuoteModule } from '@modules/production/task-quote/task-quote.module';
+import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 
 @Module({
   imports: [
     PrismaModule,
+    ChangeLogModule,
     SicrediModule,
     NfseModule,
     NotificationModule,

@@ -3781,6 +3781,14 @@ enum ChangeLogTriggeredByType {
 enum ChangeLogEntityType {
   ABSENCE
   ACTIVITY
+  // Receivables settlement. Added 2026-08-09: these three had NO member, so
+  // every "marcar como pago", boleto cancellation and invoice recalc in the
+  // system was unauditable — 0 ChangeLog rows existed for 810 financial
+  // entities, and 210 parcelas stamped PAID with no bank match had no
+  // recoverable author. An audit trail was not missing, it was impossible.
+  INSTALLMENT
+  INVOICE
+  BANK_SLIP
   ADMISSION
   AGENDA_EVENT
   AIRBRUSHING

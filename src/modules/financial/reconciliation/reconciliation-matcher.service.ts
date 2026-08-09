@@ -2842,7 +2842,12 @@ export class ReconciliationMatcherService {
   private async tryBoletoBridge(tx: RawTransaction): Promise<boolean> {
     const absAmount = Math.abs(Number(tx.amount));
     const lower = new Date(tx.postedAt.getTime() - BOLETO_BRIDGE_WINDOW_DAYS * 86_400_000);
-    const upper = new Date(tx.postedAt.getTime() + BOLETO_BRIDGE_WINDOW_DAYS * 86_400_000);
+    // Causality: Sicredi credits a day's liquidations on the next business day, so
+    // the slip is always liquidated BEFORE (or on) the credit's posting date. The
+    // upper bound used to sit BOLETO_BRIDGE_WINDOW_DAYS in the future, which let a
+    // credit claim a boleto the customer had not paid yet. One day of grace covers
+    // timezone edges.
+    const upper = new Date(tx.postedAt.getTime() + 86_400_000);
 
     // PAID, UNBRIDGED slips whose liquidation equals this credit. "Unbridged" =
     // no linked bank line AND no active ReconciliationMatch: a lump-collection
@@ -3060,6 +3065,15 @@ export class ReconciliationMatcherService {
         // alongside a sibling OR key would silently replace one with the other.
         issueDate: { gte: lower, lte: upper },
         matches: { none: { reversedAt: null } },
+        // ENTRADA only. An emitted (SAIDA) note is settled through the
+        // receivable ledger — its Invoice/Installment — never by a bank match on
+        // the document itself; `deriveFiscalDocumentLinked` encodes the same rule
+        // for display and getTransactionCandidatesForFiscalDocument already
+        // refuses SAIDA. This query did not, and the direction veto below
+        // explicitly ALLOWED SAIDA→CREDIT, so 7 emitted notes were auto-matched
+        // to customer receipts for R$294k — booking the money against the nota
+        // while the parcela was settled separately, double-counting the receipt.
+        operationType: FiscalDocumentOperation.ENTRADA,
         AND: [{ OR: [{ totalValue: valueBand }, { valorServicos: valueBand }] }, cnpjFilter],
       },
       take: 30,
@@ -3157,10 +3171,17 @@ export class ReconciliationMatcherService {
     // Money must flow the right way: an inbound (supplier) note is settled by a
     // DEBIT, an outbound (customer) note by a CREDIT. 343 live matches, zero
     // violations — this only ever removes false positives.
-    const expectedTxType =
-      best.doc.operationType === FiscalDocumentOperation.ENTRADA
-        ? BankTransactionType.DEBIT
-        : BankTransactionType.CREDIT;
+    // Belt and braces: the candidate query is now ENTRADA-only, but if a SAIDA
+    // doc ever reaches here again it must be refused outright rather than
+    // waved through as "CREDIT settles an outbound note".
+    if (best.doc.operationType !== FiscalDocumentOperation.ENTRADA) {
+      this.logger.warn(
+        `Auto-match rejected: NF ${best.doc.nfNumber ?? best.doc.id} is ${best.doc.operationType}; ` +
+          `emitted notes settle through the receivable ledger, not a document match (tx ${tx.id}).`,
+      );
+      return false;
+    }
+    const expectedTxType = BankTransactionType.DEBIT;
     if (tx.type !== expectedTxType) {
       this.logger.warn(
         `Auto-match rejected: ${best.doc.operationType} NF ${best.doc.nfNumber ?? best.doc.id} ` +
@@ -3373,7 +3394,9 @@ export class ReconciliationMatcherService {
       if (alreadyBridged) return;
 
       const paidAt = new Date(payload.paidAt);
-      const lower = new Date(paidAt.getTime() - BOLETO_BRIDGE_WINDOW_DAYS * 86_400_000);
+      // Mirror of tryBoletoBridge: the credit lands on or AFTER the liquidation
+      // (D+1, or the next business day over a weekend), never days before it.
+      const lower = new Date(paidAt.getTime() - 86_400_000);
       const upper = new Date(paidAt.getTime() + BOLETO_BRIDGE_WINDOW_DAYS * 86_400_000);
 
       const candidates = await this.prisma.bankTransaction.findMany({

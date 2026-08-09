@@ -221,13 +221,46 @@ export class SicrediWebhookService {
       throw new PermanentWebhookError(`BankSlip not found for nossoNumero: ${nossoNumero}`);
     }
 
-    // Skip if already PAID or locally CANCELLED (idempotent — prevents double-processing
-    // and processing payments for bank slips cancelled after Sicredi was never notified)
-    if (bankSlip.status === 'PAID' || bankSlip.status === 'CANCELLED') {
-      this.logger.log(
-        `BankSlip ${bankSlip.id} is ${bankSlip.status}, skipping liquidation`,
-      );
+    // Already PAID: genuine idempotency, a repeat of a liquidation we processed.
+    if (bankSlip.status === 'PAID') {
+      this.logger.log(`BankSlip ${bankSlip.id} is already PAID, skipping liquidation`);
       return;
+    }
+
+    // Locally CANCELLED is the OPPOSITE of idempotency and used to share the branch
+    // above — the event was swallowed and still marked PROCESSED, so a real payment
+    // disappeared with no FAILED row, no errorMessage and no alert. Three cancellation
+    // paths (cancelBoleto, markBoletoAsPaid, settleManually) call Sicredi
+    // fire-and-forget and write CANCELLED even when the bank refused the baixa, so a
+    // "cancelled" boleto can still be live and collectible. R$196.559,56 across 30
+    // slips sit in exactly that state.
+    //
+    // If Sicredi says it was liquidated, the money is REAL and the local cancellation
+    // was wrong. Restore the slip and settle — unless the parcela was already settled
+    // through another rail, which means the customer paid twice and only a human can
+    // decide what to refund.
+    if (bankSlip.status === 'CANCELLED') {
+      if (bankSlip.installment.status === 'PAID') {
+        throw new PermanentWebhookError(
+          `Boleto ${nossoNumero} estava CANCELADO localmente e foi liquidado no Sicredi, ` +
+            `mas a parcela ${bankSlip.installmentId} já consta PAGA por outra via. ` +
+            `Possível pagamento em duplicidade — verificar e devolver ao cliente.`,
+        );
+      }
+      this.logger.warn(
+        `[LIQUIDATION] BankSlip ${bankSlip.id} (nossoNumero=${nossoNumero}) estava ` +
+          `CANCELADO localmente mas foi PAGO no Sicredi: a baixa nunca foi aceita pelo ` +
+          `banco. Restaurando o boleto e processando a liquidação.`,
+      );
+      await this.prismaService.bankSlip.update({
+        where: { id: bankSlip.id },
+        data: {
+          status: 'ACTIVE',
+          sicrediStatus: 'REATIVADO_LIQUIDADO',
+          errorMessage:
+            'Cancelado localmente sem baixa efetiva no Sicredi; reativado ao ser liquidado.',
+        },
+      });
     }
 
     const paidAmount = event.valorLiquidacao

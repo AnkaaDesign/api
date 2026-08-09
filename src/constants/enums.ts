@@ -1413,6 +1413,11 @@ export enum ENTITY_TYPE {
   BANK_TRANSACTION = 'BANK_TRANSACTION',
   RECONCILIATION_MATCH = 'RECONCILIATION_MATCH',
   FISCAL_DOCUMENT = 'FISCAL_DOCUMENT',
+  // Receivables settlement. Added 2026-08-09 — without these, "marcar como
+  // pago", boleto cancellation and invoice recalc left no audit trail at all.
+  INSTALLMENT = 'INSTALLMENT',
+  INVOICE = 'INVOICE',
+  BANK_SLIP = 'BANK_SLIP',
 }
 
 export enum CHANGE_ACTION {
@@ -2053,6 +2058,11 @@ export enum CHANGE_LOG_ENTITY_TYPE {
   BANK_TRANSACTION = 'BANK_TRANSACTION',
   RECONCILIATION_MATCH = 'RECONCILIATION_MATCH',
   FISCAL_DOCUMENT = 'FISCAL_DOCUMENT',
+  // Receivables settlement. Added 2026-08-09 — without these, "marcar como
+  // pago", boleto cancellation and invoice recalc left no audit trail at all.
+  INSTALLMENT = 'INSTALLMENT',
+  INVOICE = 'INVOICE',
+  BANK_SLIP = 'BANK_SLIP',
 }
 
 // Alias for Prisma compatibility

@@ -42,6 +42,7 @@ import {
 } from './transaction-status';
 import {
   SETTLEMENT_ANCHOR_INCLUDE,
+  deriveFiscalDocumentLinked,
   deriveSettlement,
   settlementStateWhere,
 } from './settlement-summary';
@@ -547,7 +548,10 @@ export class ReconciliationService {
       },
     });
     if (!doc) throw new NotFoundException('Nota fiscal não encontrada');
-    return doc;
+    // Same "vinculada" rule the list uses. Without it the detail panel read
+    // `linked === undefined` and rendered every emitted note as "Pendente",
+    // right next to the faturamento link it was showing from the same payload.
+    return { ...doc, linked: deriveFiscalDocumentLinked(doc) };
   }
 
   /**
@@ -789,8 +793,10 @@ export class ReconciliationService {
           // manual matches consistent with the auto order-group/subset passes and
           // avoids stats double-counting PARTIAL as both "pending" and "matched".
           reconciliationStatus: computeReconciliationStatus({
+            // `sum` is the total allocated across the NF(s) linked here — one
+            // anchor kind, so it is already the per-kind coverage figure.
             txAmount,
-            allocations: [sum],
+            allocations: [{ amount: sum, kind: 'fiscalDocument' }],
             remainderResolved,
           }),
           reconciliationSource: ReconciliationSource.MANUAL,
@@ -1581,13 +1587,7 @@ export class ReconciliationService {
     ]);
     // Single source of truth for "vinculada": ENTRADA → has an open bank match;
     // SAIDA → its NfseDocument carries an Invoice/Task (faturamento) link.
-    const data = rows.map(doc => ({
-      ...doc,
-      linked:
-        doc.operationType === FiscalDocumentOperation.ENTRADA
-          ? doc.matches.length > 0 || doc.offBankResolvedAt != null
-          : doc.nfseDocument?.invoiceId != null || doc.nfseDocument?.taskId != null,
-    }));
+    const data = rows.map(doc => ({ ...doc, linked: deriveFiscalDocumentLinked(doc) }));
     return {
       data,
       meta: {

@@ -123,6 +123,13 @@ type ScoredCandidate = {
   customerCnpjCpf: string | null;
   /** 0-100 fused confidence (value + date proximity + CNPJ + name). */
   confidence: number;
+  /**
+   * True when the installment is ALREADY stamped PAID and only needs to be tied
+   * to this bank line. Settling it again would double `paidAmount`, so the UI
+   * must label it "já baixada — vincular ao extrato" and the write path must
+   * create the match WITHOUT re-running settlement.
+   */
+  linkOnly: boolean;
   /** Task-quote context (faturamento detail target) — null for non-task receivables. */
   taskId: string | null;
   taskName: string | null;
@@ -985,13 +992,23 @@ export class ReceivableMatchService {
       customerId: s.installment?.invoice?.customerId ?? null,
     }));
 
-    const dateDelta = (paidAt: Date | null): number =>
-      paidAt ? Math.abs(paidAt.getTime() - tx.postedAt.getTime()) : Infinity;
+    // Causality: Sicredi settles a day's liquidations into ONE credit posted on the
+    // next business day, so a boleto can never be liquidated AFTER the credit that
+    // pays it. The old comparison used Math.abs on both sides of the credit date,
+    // which let a slip liquidated on 02/06 be bridged to a credit posted 29/05 —
+    // four days before the customer paid. Grace of one day absorbs timezone edges.
+    const lagDays = (paidAt: Date | null): number =>
+      paidAt ? (tx.postedAt.getTime() - paidAt.getTime()) / 86_400_000 : Infinity;
+    const causal = (c: SlipCandidate): boolean => lagDays(c.paidAt) >= -1;
+    const dateDelta = (paidAt: Date | null): number => {
+      const lag = lagDays(paidAt);
+      return lag < -1 ? Infinity : Math.abs(lag);
+    };
 
     // 1. Single slip whose liquidation equals the credit — the common 1:1 boleto.
     //    Prefer the slip whose paidAt is closest to the credit (settlement lag).
     const exacts = cands
-      .filter(c => Math.abs(c.amount - creditAbs) <= tol)
+      .filter(c => causal(c) && Math.abs(c.amount - creditAbs) <= tol)
       .sort((a, b) => dateDelta(a.paidAt) - dateDelta(b.paidAt));
     let chosen: SlipCandidate[] | null = exacts.length > 0 ? [exacts[0]] : null;
     let kind = 'boleto-single';
@@ -1024,6 +1041,9 @@ export class ReceivableMatchService {
 
     const byDay = new Map<string, SlipCandidate[]>();
     for (const c of cands) {
+      // Causality (see the note in tryBoletoBridge): a boleto liquidated after the
+      // credit cannot be part of the lote that produced it.
+      if (!c.paidAt || (postedAt.getTime() - c.paidAt.getTime()) / 86_400_000 < -1) continue;
       const key = dayKey(c.paidAt);
       const grp = byDay.get(key);
       if (grp) grp.push(c);
@@ -1036,21 +1056,23 @@ export class ReceivableMatchService {
     };
     const days = [...byDay.entries()].sort((a, b) => dayDelta(a[0]) - dayDelta(b[0]));
 
+    // A lote is a WHOLE liquidation day, never a hand-picked subset of one. Verified
+    // against production: 37 liquidation days each sum to exactly one credit, 1:1,
+    // with zero ambiguity — weekends land on D+3. So the whole-day sum is the only
+    // rule that should ever fire here.
     for (const [, grp] of days) {
       if (grp.length < 2) continue;
       const sum = grp.reduce((s, c) => s + c.amount, 0);
-      if (Math.abs(sum - creditAbs) <= tol) return grp; // whole-day COB batch
-      if (grp.length <= SUBSET_SUM_MAX_ITEMS) {
-        const sub = this.subsetSum(grp, creditAbs, tol, c => c.amount);
-        if (sub && sub.length >= 2) return sub;
-      }
+      if (Math.abs(sum - creditAbs) <= tol) return grp;
     }
 
-    // Fallback: bounded subset-sum across the whole window (batches spanning days).
-    if (cands.length <= SUBSET_SUM_MAX_ITEMS) {
-      const sub = this.subsetSum(cands, creditAbs, tol, c => c.amount);
-      if (sub && sub.length >= 2) return sub;
-    }
+    // Deliberately NO subset-sum fallback. Two used to run — a subset WITHIN a day
+    // and a subset ACROSS the whole window — and both are unsound: with dozens of
+    // same-value boletos (six RDD parcelas of R$2.653,66, three Taipastur of
+    // R$2.810,00) an arbitrary subset can hit the target by coincidence while
+    // belonging to entirely different lotes. That is what scrambled the 29/05 and
+    // 23/06 credits, mixing three liquidation days into one and over-allocating
+    // them. A day that does not sum exactly is left for a human.
     return null;
   }
 
@@ -1280,7 +1302,7 @@ export class ReceivableMatchService {
    */
   private async findScoredCandidates(
     tx: { postedAt: Date; amount: Prisma.Decimal | number; counterpartyName?: string | null; counterpartyCnpjCpf?: string | null },
-    opts: { exactValueOnly: boolean; windowDays?: number },
+    opts: { exactValueOnly: boolean; windowDays?: number; includePaidLink?: boolean },
   ): Promise<ScoredCandidate[]> {
     const abs = Math.abs(Number(tx.amount));
     const windowDays = opts.windowDays ?? RECEIVABLE_WINDOW_DAYS;
@@ -1291,17 +1313,53 @@ export class ReceivableMatchService {
       ? { gte: abs - AMOUNT_TOLERANCE, lte: abs + AMOUNT_TOLERANCE }
       : { gt: 0 };
 
+    // A boleto installment normally settles through the Sicredi bridge, so it is
+    // kept out of this pool. A CANCELLED slip means that rail was abandoned —
+    // the operator cancelled the boleto and took a PIX/TED instead — so the
+    // installment is a direct receivable again and belongs here. Excluding it on
+    // the mere existence of a slip is what made the reference case invisible.
+    const slipLane: Prisma.InstallmentWhereInput = {
+      OR: [{ bankSlip: null }, { bankSlip: { status: 'CANCELLED' } }],
+    };
+
+    // Lane 1 — still open: the classic candidate.
+    const openLane: Prisma.InstallmentWhereInput = {
+      status: { in: OPEN_INSTALLMENT_STATUSES as unknown as Prisma.EnumInstallmentStatusFilter['in'] },
+      dueDate: { gte: lower, lte: upper },
+    };
+
+    // Lane 2 — already stamped PAID but never conciliated (hand-settled via
+    // "marcar como pago", or liquidated by the Sicredi webhook, neither of which
+    // writes a ReconciliationMatch). The money is real and the bank line is
+    // sitting right here; the row just needs LINKING, not settling. Mirrors
+    // `gatherMatchableInstallments`' PAID branch so the manual pool is never
+    // narrower than the auto pool.
+    const paidLower = new Date(tx.postedAt.getTime() - PAID_LINK_WINDOW_DAYS * 86_400_000);
+    const paidUpper = new Date(tx.postedAt.getTime() + PAID_LINK_WINDOW_DAYS * 86_400_000);
+    const paidLinkLane: Prisma.InstallmentWhereInput = {
+      status: 'PAID',
+      paidAt: { gte: paidLower, lte: paidUpper },
+      reconciliationMatches: { none: { reversedAt: null } },
+    };
+
+    const lanes: Prisma.InstallmentWhereInput[] = [openLane];
+    if (opts.includePaidLink && this.linkPaidEnabled) lanes.push(paidLinkLane);
+
     const installments = await this.prisma.installment.findMany({
       where: {
-        status: { in: OPEN_INSTALLMENT_STATUSES as unknown as Prisma.EnumInstallmentStatusFilter['in'] },
-        bankSlip: null, // boleto installments settle via the Sicredi bridge
+        AND: [
+          slipLane,
+          { OR: lanes },
+          // Never offer an installment whose slip is already tied to a bank
+          // credit — that would clear the same money twice.
+          { NOT: { bankSlip: { transactions: { some: {} } } } },
+        ],
         amount: amountFilter,
-        dueDate: { gte: lower, lte: upper },
         // Auto path: never touch an installment that already has a live match.
         // Manual path: open-but-partially-allocated installments (status still
         // PENDING/OVERDUE, balance remaining) stay eligible so the operator can
-        // top them up via allocate — only fully-settled (PAID) ones drop out,
-        // and those are already excluded by the open-status filter above.
+        // top them up via allocate. The PAID link lane carries its own
+        // no-live-match guard above.
         ...(opts.exactValueOnly ? { reconciliationMatches: { none: { reversedAt: null } } } : {}),
       },
       include: {
@@ -1363,6 +1421,7 @@ export class ReceivableMatchService {
           customerName,
           customerCnpjCpf,
           confidence,
+          linkOnly: inst.status === 'PAID',
           taskId: task?.id ?? inst.invoice?.taskId ?? null,
           taskName: task?.name ?? null,
           taskSerialNumber: task?.serialNumber ?? null,
@@ -1423,7 +1482,13 @@ export class ReceivableMatchService {
     if (!tx) throw new NotFoundException('Transação não encontrada.');
     if (tx.type !== 'CREDIT') throw new BadRequestException('Conciliação de entrada requer um crédito.');
 
-    const candidates = await this.findScoredCandidates(tx, { exactValueOnly: false, windowDays: 60 });
+    const candidates = await this.findScoredCandidates(tx, {
+      exactValueOnly: false,
+      windowDays: 60,
+      // Manual pool must never be narrower than the auto pool: offer parcelas
+      // already stamped PAID but never conciliated, as link-only.
+      includePaidLink: true,
+    });
     const installmentCandidates = candidates.map(c => ({
       installmentId: c.id,
       number: c.number,
@@ -1435,6 +1500,7 @@ export class ReceivableMatchService {
       customerName: c.customerName,
       invoiceId: c.invoiceId,
       confidence: c.confidence,
+      linkOnly: c.linkOnly,
       taskId: c.taskId,
       taskName: c.taskName,
       taskSerialNumber: c.taskSerialNumber,
@@ -1608,6 +1674,9 @@ export class ReceivableMatchService {
 
     // Boleto receivable already PAID (Sicredi) with no bank line linked yet: link
     // the credit to the boleto (bridge) instead of re-settling the installment.
+    // A CANCELLED slip is deliberately NOT bridged — that boleto was abandoned
+    // and the money came in by another rail, so the anchor belongs on the
+    // installment itself.
     const slip = installment.bankSlip;
     if (slip && slip.status === 'PAID') {
       if (slip.transactions.length > 0) {
@@ -1617,8 +1686,14 @@ export class ReceivableMatchService {
       return { success: true, message: 'Recebimento conciliado ao boleto com sucesso.' };
     }
 
+    const linkOnly = installment.status === 'PAID';
     await this.settleInstallment(tx, installmentId, ReconciliationSource.MANUAL, userId);
-    return { success: true, message: 'Recebimento conciliado com sucesso.' };
+    return {
+      success: true,
+      message: linkOnly
+        ? 'Parcela já baixada vinculada ao extrato com sucesso.'
+        : 'Recebimento conciliado com sucesso.',
+    };
   }
 
   /** Manually link a credit to an already-PAID boleto (mirror of the auto bridge).
@@ -1861,18 +1936,25 @@ export class ReceivableMatchService {
     await this.prisma.$transaction(async db => {
       const installment = await db.installment.findUniqueOrThrow({
         where: { id: installmentId },
-        select: { id: true, amount: true, invoiceId: true },
+        select: { id: true, amount: true, invoiceId: true, status: true },
       });
       invoiceId = installment.invoiceId;
 
-      await db.installment.update({
-        where: { id: installmentId },
-        data: {
-          status: 'PAID',
-          paidAmount: installment.amount,
-          paidAt: tx.postedAt,
-        },
-      });
+      // Link-only: the parcela was already stamped PAID by some other path
+      // (mark-paid by hand, Sicredi liquidation, manual settle) and all this
+      // credit does is supply the missing bank anchor. Re-stamping would
+      // rewrite a real settlement date with the OFX posting date and re-assert
+      // paidAmount — so we touch nothing but the match.
+      if (installment.status !== 'PAID') {
+        await db.installment.update({
+          where: { id: installmentId },
+          data: {
+            status: 'PAID',
+            paidAmount: installment.amount,
+            paidAt: tx.postedAt,
+          },
+        });
+      }
 
       await db.reconciliationMatch.create({
         data: {

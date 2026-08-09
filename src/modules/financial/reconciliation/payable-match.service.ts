@@ -473,11 +473,36 @@ export class PayableMatchService {
         : null;
 
     await this.prisma.$transaction(async db => {
+      // Allocation is a budget, not a label. This sweep used to write the FULL
+      // debit amount into every anchor it confirmed, and its only exclusivity
+      // test was "is this anchor already claimed?" — which cannot see that the
+      // TRANSACTION has already been spent. Because the daily rematch re-reads
+      // the same debit every night, each run handed it to the next unclaimed
+      // occurrence: one R$370 cleaning payment ended up clearing four weekly
+      // occurrences (07-08, 07-22, 08-05, 08-12), and the recurring payables
+      // were marked PAID two months into the future off money that was never
+      // paid. `recurrent-payable.service.ts` already guards this way; this path
+      // did not.
+      const existing = await db.reconciliationMatch.findMany({
+        where: { transactionId: tx.id, reversedAt: null },
+        select: { allocatedAmount: true },
+      });
+      const spent = existing.reduce((s, m) => s + Number(m.allocatedAmount), 0);
+      const available = Number((abs - spent).toFixed(2));
+      if (available <= 0.01) {
+        this.logger.warn(
+          `Payable ${c.label} not confirmed against tx ${tx.id}: the debit is already ` +
+            `fully allocated (R$${spent.toFixed(2)} of R$${abs.toFixed(2)}).`,
+        );
+        return;
+      }
+      const allocate = Number(Math.min(available, abs).toFixed(2));
+
       // Scalar-FK form so createMany({ skipDuplicates }) can ride the per-anchor
       // unique constraint for idempotency (createMany rejects nested connect).
       const data: Prisma.ReconciliationMatchCreateManyInput = {
         transactionId: tx.id,
-        allocatedAmount: new Decimal(abs),
+        allocatedAmount: new Decimal(allocate),
         matchType: ReconciliationMatchType.VALUE_DATE,
         // A clean clearance is high-confidence; a disputed one carries a low
         // score so the review queue surfaces it. A cross-validated order+nf+tx
@@ -492,8 +517,19 @@ export class PayableMatchService {
       };
 
       // Idempotent: a re-run of the same (transactionId, anchor) hits the unique
-      // constraint and is skipped rather than double-settling.
-      await db.reconciliationMatch.createMany({ data: [data], skipDuplicates: true });
+      // constraint and is skipped rather than double-settling. If it WAS skipped
+      // the pair already exists, so there is nothing further to settle — bail
+      // instead of re-stamping clearance and re-flipping the transaction.
+      const { count: created } = await db.reconciliationMatch.createMany({
+        data: [data],
+        skipDuplicates: true,
+      });
+      if (created === 0) {
+        this.logger.debug(
+          `Payable ${c.label} already matched to tx ${tx.id}; skipping re-settle.`,
+        );
+        return;
+      }
 
       // Record clearance on entities that already carry the fields. A DISPUTED
       // match still RECONCILEs the bank line (it IS matched) but is flagged for

@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { FiscalDocumentOperation, Prisma } from '@prisma/client';
 
 /**
  * What actually backs a bank transaction, and whether anything is still owed to
@@ -590,6 +590,41 @@ const AWAITING_NF_ANCHOR_MATCH: Prisma.ReconciliationMatchWhereInput = {
     },
   ],
 };
+
+/**
+ * The direction-aware "vinculada" rule for a nota fiscal, in one place.
+ *
+ * ENTRADA (received): the note is linked when a live bank match backs it, or
+ * when it was explicitly closed off-bank (cartão, bonificação, sem pagamento).
+ *
+ * SAIDA (emitted): an emitted NFS-e can NEVER earn a bank ReconciliationMatch —
+ * the matcher only scores ENTRADA docs — so its link is the NfseDocument that
+ * generated it, which carries the durable Invoice/Task (faturamento) pointer.
+ * A live match is still honoured as a disjunct for the handful of SAIDA rows
+ * that were tied by hand.
+ *
+ * Kept next to `deriveSettlement` deliberately: both the list and the detail
+ * endpoint MUST call this. They used to each carry their own copy of the rule,
+ * and the detail endpoint simply forgot it — which made every emitted note read
+ * "Pendente" on the detail panel while the list said "Conciliada".
+ */
+export function deriveFiscalDocumentLinked(doc: {
+  operationType: FiscalDocumentOperation;
+  offBankResolvedAt?: Date | null;
+  matches?: { id: string }[];
+  nfseDocument?: { invoiceId: string | null; taskId: string | null } | null;
+}): boolean {
+  const hasLiveMatch = (doc.matches?.length ?? 0) > 0;
+  if (doc.operationType === FiscalDocumentOperation.ENTRADA) {
+    return hasLiveMatch || doc.offBankResolvedAt != null;
+  }
+  return (
+    doc.nfseDocument?.invoiceId != null ||
+    doc.nfseDocument?.taskId != null ||
+    hasLiveMatch ||
+    doc.offBankResolvedAt != null
+  );
+}
 
 export type SettlementStateFilter =
   | 'SETTLED'

@@ -116,13 +116,20 @@ export class ReconciliationScheduler {
   }
 
   /**
-   * Stale-paid aging alert at 05:00 BRT. Finds payables that were ASSERTED paid
-   * (paidAt set, terminal status) but remain UNCLEARED — no non-reversed
+   * Stale-paid aging alert at 05:00 BRT. Finds obligations that were ASSERTED
+   * paid (paidAt set, terminal status) but remain UNCLEARED — no non-reversed
    * ReconciliationMatch on their anchor — past PAYABLE_CONFIRMATION_STALE_DAYS
    * (≈2× the OFX upload cadence, default 7). These are "Pago · aguardando
    * conciliação" items that never got a confirming bank line, so a never-actually
    * -paid one stops looking identical to a real one forever. One summary
    * notification per run (not per item) to avoid spam.
+   *
+   * Covers BOTH directions. The receivable leg (`Installment`) was missing for a
+   * long time and that omission is what let the entrada side rot silently: a
+   * parcela stamped PAID without a match disappears from the candidate pool of
+   * every future credit (the pool only offers OPEN parcelas), so the money it
+   * was supposed to settle can never be tied to it again — and nothing ever
+   * said so out loud. Payables had this alarm from day one; receivables did not.
    */
   @Cron('0 5 * * *', { timeZone: 'America/Sao_Paulo' })
   async runStalePaidAging(): Promise<void> {
@@ -130,7 +137,8 @@ export class ReconciliationScheduler {
       const staleDays = this.config.get<number>('PAYABLE_CONFIRMATION_STALE_DAYS', 7);
       const cutoff = new Date(Date.now() - staleDays * 86_400_000);
 
-      const [orderInstallments, airbrushings, occurrences, payrolls] = await Promise.all([
+      const [orderInstallments, airbrushings, occurrences, payrolls, receivables] =
+        await Promise.all([
         this.prisma.orderInstallment.count({
           where: {
             status: 'PAID',
@@ -152,23 +160,34 @@ export class ReconciliationScheduler {
             reconciliationMatches: { none: { reversedAt: null } },
           },
         }),
-        this.prisma.payrollMonthSettlement.count({
-          where: {
-            paidAt: { not: null, lt: cutoff },
-            reconciliationMatches: { none: { reversedAt: null } },
-          },
-        }),
-      ]);
+          this.prisma.payrollMonthSettlement.count({
+            where: {
+              paidAt: { not: null, lt: cutoff },
+              reconciliationMatches: { none: { reversedAt: null } },
+            },
+          }),
+          // Receivable leg: a parcela de faturamento marked PAID with no bank
+          // line behind it. Same shape as the payable counts above.
+          this.prisma.installment.count({
+            where: {
+              status: 'PAID',
+              paidAt: { not: null, lt: cutoff },
+              reconciliationMatches: { none: { reversedAt: null } },
+            },
+          }),
+        ]);
 
-      const staleCount = orderInstallments + airbrushings + occurrences + payrolls;
+      const payableCount = orderInstallments + airbrushings + occurrences + payrolls;
+      const staleCount = payableCount + receivables;
       if (staleCount === 0) {
-        this.logger.debug('Stale-paid aging: no unconfirmed paid payables');
+        this.logger.debug('Stale-paid aging: no unconfirmed paid obligations');
         return;
       }
 
       this.logger.log(
-        `Stale-paid aging: ${staleCount} paid-but-unconfirmed payable(s) older than ${staleDays}d ` +
-          `(orders ${orderInstallments}, airbrushing ${airbrushings}, recorrentes ${occurrences}, folha ${payrolls})`,
+        `Stale-paid aging: ${staleCount} paid-but-unconfirmed item(s) older than ${staleDays}d ` +
+          `(orders ${orderInstallments}, airbrushing ${airbrushings}, recorrentes ${occurrences}, ` +
+          `folha ${payrolls}, parcelas a receber ${receivables})`,
       );
 
       await this.dispatchService
@@ -183,11 +202,17 @@ export class ReconciliationScheduler {
             airbrushings,
             occurrences,
             payrolls,
+            receivables,
           },
           overrides: {
-            title: 'Pagamentos sem conciliação',
-            body: `${staleCount} pagamento(s) marcado(s) como pago(s) há mais de ${staleDays} dias ainda não foram conciliados com o extrato bancário. Importe o OFX ou revise as baixas.`,
-            webUrl: `/financeiro/contas-a-pagar`,
+            title: 'Baixas sem conciliação',
+            body:
+              `${staleCount} baixa(s) marcada(s) como paga(s) há mais de ${staleDays} dias ainda não foram conciliadas com o extrato bancário` +
+              (receivables > 0 ? `, sendo ${receivables} parcela(s) a receber` : '') +
+              `. Importe o OFX ou revise as baixas.`,
+            // Send the user to the side that actually has the backlog.
+            webUrl:
+              receivables > payableCount ? `/financeiro/contas-a-receber` : `/financeiro/contas-a-pagar`,
             relatedEntityType: 'PAYABLE',
           },
         })

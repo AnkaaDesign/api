@@ -30,6 +30,8 @@ import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/ta
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
+import { ChangeLogService } from '@modules/common/changelog/changelog.service';
+import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../constants/enums';
 import { Public } from '@modules/common/auth/decorators/public.decorator';
 import {
   SECTOR_PRIVILEGES,
@@ -67,6 +69,7 @@ export class InvoiceController {
     private readonly dispatchService: NotificationDispatchService,
     private readonly filesStorageService: FilesStorageService,
     private readonly cascadeService: TaskQuoteStatusCascadeService,
+    private readonly changeLogService: ChangeLogService,
   ) {}
 
   /**
@@ -740,6 +743,7 @@ export class InvoiceController {
       receiptFileIds?: string[];
       observations?: string | null;
     },
+    @UserId() userId?: string,
   ) {
     if (!body.paymentMethod) {
       throw new BadRequestException('Método de pagamento é obrigatório.');
@@ -834,6 +838,36 @@ export class InvoiceController {
       if (installment.invoiceId) {
         await this.invoiceService.recalcInvoicePaymentState(tx, installment.invoiceId);
       }
+
+      // Audit. This settlement asserts money arrived WITHOUT any bank line behind
+      // it — no ReconciliationMatch is created here, because there is nothing yet
+      // to point at. That is legitimate, but it must not be anonymous: 210
+      // parcelas (R$1,78M) reached PAID through this endpoint with no recorded
+      // actor and no ChangeLog row, so "who marked this paid, and why" was
+      // unanswerable. The nightly stale-paid sweep now ages these; this row says
+      // who created one.
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.INSTALLMENT,
+        entityId: installmentId,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'status',
+        oldValue: installment.status,
+        newValue: INSTALLMENT_STATUS.PAID,
+        reason:
+          `Baixa manual (${paymentMethod}) de R$ ${Number(installment.amount).toFixed(2)}` +
+          (installment.bankSlip ? ' com cancelamento do boleto' : '') +
+          '. Sem conciliação bancária no momento da baixa.',
+        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+        triggeredById: userId ?? null,
+        userId: userId ?? null,
+        transaction: tx,
+        metadata: {
+          paymentMethod,
+          invoiceId: installment.invoiceId,
+          bankSlipId: installment.bankSlip?.id ?? null,
+          awaitingBankReconciliation: true,
+        },
+      });
     });
 
     if (installment.invoiceId) {
