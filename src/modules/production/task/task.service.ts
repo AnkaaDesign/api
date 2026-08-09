@@ -2364,6 +2364,15 @@ export class TaskService {
 
         // Handle truck and implementMeasure updates (consolidated in single truck object)
         const truckData = (data as any).truck;
+
+        // Foto NOVA da plaqueta vence o `truck.vinPlateId` do payload. O front manda o objeto
+        // `truck` inteiro quando QUALQUER campo dele muda (chassi, placa...), e nesse objeto o
+        // `vinPlateId` de um arquivo ainda não enviado vem null. Sem isso, o upsert do
+        // repositório (que roda DEPOIS do upload) gravava null por cima do id recém-criado —
+        // salvar chassi + foto juntos perdia a foto, e só o segundo save é que a gravava.
+        if (files?.truckVinPlate?.[0] && truckData && typeof truckData === 'object') {
+          delete truckData.vinPlateId;
+        }
         if (truckData !== undefined) {
           if (truckData === null) {
             // Delete truck if explicitly set to null
