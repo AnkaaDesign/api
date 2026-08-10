@@ -76,3 +76,68 @@ old-app users would be logged out hourly.
 ## Optional housekeeping
 - Add a periodic cleanup of expired/revoked `RefreshToken` rows (e.g. a daily job
   deleting `expiresAt < now() OR revokedAt IS NOT NULL AND revokedAt < now() - 30d`).
+
+---
+
+# Post-mortem — 2026-08-10: the logouts never actually stopped
+
+The rollout above shipped, and the shop floor kept logging in ~3-4 times a day.
+Measured over 15 days of production logs:
+
+| client | logins/day | `/auth/refresh`/day |
+|---|---|---|
+| Flutter app (`Dart/3.12`) | ~40 | ~1-17 |
+| Web (`Mozilla/*`)         | ~1-7 | ~100-130 |
+
+Web was renewing normally. The app was not renewing at all — it re-authenticated
+instead. One user (32 logins in 8 days) had 32 refresh tokens in `RefreshToken`,
+**all active, none ever revoked, none ever used**. The server was handing out
+refresh tokens the app then never presented.
+
+## Three causes, all required to be fixed
+
+### 1. `JWT_ACCESS_EXPIRATION` was never set in production
+Step 5 above says to tighten it *after* mobile adoption. It was never set at all —
+so `auth.service.ts` fell through to its `'1h'` code default. Access tokens lived
+one hour, which meant the refresh path ran on *every* app open and any weakness in
+it turned into a login prompt.
+
+**Fixed:** `JWT_ACCESS_EXPIRATION="30d"`, `JWT_REFRESH_EXPIRATION_DAYS="365"` in the
+production `.env`, and the code defaults raised to match so a missing variable can
+never again mean "log everyone out hourly". A short access TTL only bounds the
+window for a *stolen* token — it does not bound a terminated employee, because the
+guard re-reads the user (and `isUserEmployed`) on every single request.
+
+### 2. The app could not produce its refresh token
+Cold-start traces show the app sending an expired access token (401 body =
+"Token inválido ou expirado", so the token *was* read back from storage) and then
+making **zero** `/auth/refresh` calls before dropping to the login screen. The
+access token survived the restart; its refresh token did not. They were two keys in
+`flutter_secure_storage` written back-to-back.
+
+**Fixed:** both values now live in ONE json blob under ONE key
+(`ankaa:auth:session`), so "access token without refresh token" cannot be
+represented. Writes are read back and retried. Android auto-backup is off (it
+restores the encrypted prefs file without the Keystore key that decrypts it) and
+iOS uses `first_unlock` so a background launch on a locked handset can still read
+the session.
+
+### 3. Every layer treated "I couldn't refresh" as "the session is over"
+- `dio_client`: no refresh token in hand → `dead` → logout, *without ever asking
+  the server*.
+- `auth_controller._restore()` / `refreshUser()`: any 401 → `_clearSession()`,
+  which threw away the still-valid refresh token — undoing the interceptor's own
+  "don't log out on transient failures" logic.
+
+**Fixed:** exactly one signal ends a session — the server answering 401 to
+`/auth/refresh`. A missing refresh token, a network failure, a 5xx, a timeout and a
+replayed request that 401s again all keep the session. The refresh itself retries
+3× with backoff. Covered by `test/core/auth_refresh_flow_test.dart` in the app repo.
+
+## Known trade-off
+With a 30-day access token, `adminLogoutUser` (revoke refresh tokens + clear
+`sessionToken`) no longer forces a still-employed user off within the hour — the
+guard does not check `sessionToken`, so their current access token stays valid until
+it expires. Deactivating/terminating the account *is* immediate. If instant forced
+logout matters, add a `sessionsInvalidatedAt` column on `User` and reject tokens
+whose `iat` predates it — the guard already loads the user, so it costs nothing.

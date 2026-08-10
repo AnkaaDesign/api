@@ -42,12 +42,21 @@ import {
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
-  // Short-lived access token. The refresh token (below) keeps the user logged in
-  // silently, so a short access TTL is invisible to users but limits the blast
-  // radius of a leaked access token. Overridable via env.
-  private readonly accessTokenTtl = process.env.JWT_ACCESS_EXPIRATION || '1h';
+  // Access-token lifetime. The refresh token (below) renews it silently, so in
+  // theory this could be short. In practice it is the app's last line of
+  // defence: whenever a client cannot refresh — offline, a storage fault, a bug
+  // in the client — this TTL is exactly how long the user stays logged in before
+  // being sent back to the login screen.
+  //
+  // The default used to be '1h'. Production never set JWT_ACCESS_EXPIRATION, so
+  // it silently ran on that default, and a mobile client that could not produce
+  // its refresh token forced ~40 re-logins a day on the shop floor. A generous
+  // default means the same class of failure costs one login a month instead of
+  // one an hour. Revocation does not depend on this: the guard re-reads the user
+  // on every request, so a terminated or deactivated account is cut off at once.
+  private readonly accessTokenTtl = process.env.JWT_ACCESS_EXPIRATION || '30d';
   // Long-lived refresh token TTL, in days.
-  private readonly refreshTokenTtlDays = Number(process.env.JWT_REFRESH_EXPIRATION_DAYS) || 60;
+  private readonly refreshTokenTtlDays = Number(process.env.JWT_REFRESH_EXPIRATION_DAYS) || 365;
 
   constructor(
     private readonly usersRepository: UserRepository,
