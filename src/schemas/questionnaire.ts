@@ -395,16 +395,48 @@ export const questionnaireEntryGetManySchema = z
     status: z.union([questionnaireEntryStatusSchema, z.array(questionnaireEntryStatusSchema)]).optional(),
     questionnaireId: z.string().uuid().optional(),
     respondentId: z.union([z.string().uuid(), z.literal('me')]).optional(),
+    // Estado da CAMPANHA (não da ficha). Filtrar por ele é o que tira da fila
+    // pessoal a ficha de campanha já encerrada — sem isto o usuário era
+    // redirecionado para um preenchimento que só devolve 400.
+    //
+    // Precisa ser param de RAIZ, e não `where.questionnaire`, por dois motivos
+    // independentes, cada um bastando sozinho: `questionnaireEntryWhereSchema`
+    // não tem a chave `questionnaire` (z.object descarta em silêncio), e
+    // findManyEntries monta `finalWhere` com `questionnaire: { deletedAt: null }`
+    // LITERAL, sobrescrevendo qualquer filtro homônimo que viesse do cliente.
+    // Como convenience param a condição entra em `where.AND`, que sobrevive aos
+    // dois — e o Prisma emite um segundo JOIN, aplicando as duas restrições.
+    questionnaireStatus: z
+      .union([questionnaireStatusSchema, z.array(questionnaireStatusSchema)])
+      .optional(),
   })
   .transform(data => {
     data = baseTransform(data);
-    const { status, questionnaireId, respondentId } = data;
+    const { status, questionnaireId, respondentId, questionnaireStatus } = data;
     const and: any[] = [];
     if (status) and.push({ status: Array.isArray(status) ? { in: status } : status });
     if (questionnaireId) and.push({ questionnaireId });
     // respondentId === 'me' is resolved by the controller using current user id.
     if (respondentId && respondentId !== 'me') and.push({ respondentId });
-    return mergeAnd(data, and);
+    if (questionnaireStatus)
+      and.push({
+        questionnaire: {
+          status: Array.isArray(questionnaireStatus) ? { in: questionnaireStatus } : questionnaireStatus,
+        },
+      });
+    const merged = mergeAnd(data, and);
+    // `questionnaire` NÃO PODE FICAR NA RAIZ do where. findManyEntries monta o
+    // where final com a chave `questionnaire` LITERAL (`{ deletedAt: null }`),
+    // que sobrescreve qualquer homônima vinda daqui — o filtro sumiria sem erro
+    // nenhum. Dentro de `AND` ele sobrevive: o Prisma emite um segundo JOIN e
+    // aplica as duas restrições.
+    //
+    // Só cai na raiz quando `mergeAnd` recebe UMA condição e nenhum `where`
+    // prévio (ele devolve a condição crua nesse caso). Com `status` junto, como
+    // a fila pessoal manda, já viria em `AND` — depender disso seria depender de
+    // um acidente do chamador.
+    if (merged.where?.questionnaire) merged.where = { AND: [merged.where] };
+    return merged;
   });
 
 // =====================

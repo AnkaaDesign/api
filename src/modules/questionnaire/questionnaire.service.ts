@@ -776,6 +776,16 @@ export class QuestionnaireService {
         : respondentId
       : currentUserId;
 
+    // ATENÇÃO: `questionnaire` aqui é LITERAL e vem DEPOIS do spread — ela
+    // sobrescreve qualquer chave homônima que viesse em `where`, sem erro e sem
+    // aviso. Um filtro do cliente sobre a campanha (ex.: `status: 'OPEN'`)
+    // desaparece aqui em silêncio; foi assim que a fila pessoal ficou meses
+    // devolvendo ficha de campanha encerrada.
+    //
+    // Por isso o filtro por estado da campanha entra como convenience param
+    // (`questionnaireStatus` em questionnaireEntryGetManySchema), que o
+    // transform garante depositar dentro de `where.AND` — lá ele sobrevive a
+    // este spread e o Prisma aplica as duas restrições via um segundo JOIN.
     const finalWhere: any = {
       ...(where ?? {}),
       deletedAt: null,
