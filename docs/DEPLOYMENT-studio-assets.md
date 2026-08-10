@@ -88,6 +88,18 @@ Tem de dar **4 passed** e imprimir `7 marcas · 24 modelos · 60 chassis · 53
 arquivos distintos`. Se não der, **pare**: o que está em `public/` não está
 íntegro e publicar espalharia o problema.
 
+> **Em 2026-08-10 ele NÃO passa**, e a diferença não é pequena: sai
+> `7 marcas · 20 modelos · 49 chassis · 49 arquivos` e um teste vermelho —
+> `renders.json` promete `renders/trucks/iveco/iveco-s-way-480/4x2/{neutro,
+> metallica}.webp` e o diretório `iveco-s-way-480` não existe em `public/`
+> (existem `iveco-s-way-440` e `iveco-s-way-metallica`).
+>
+> Isso é o **oposto** do caso que o `--delete` do passo 2 existe para resolver:
+> aqui é a nossa árvore que tem MENOS que o esperado, então um
+> `rsync --delete` apagaria do servidor os 11 chassis que só existem lá. Até o
+> teste voltar ao verde, publique **arquivo a arquivo** (`scp`), nunca com
+> `--delete`.
+
 O teste lê `web/public/` direto do disco, sem mock — é a mesma árvore que o
 rsync leva. Ele passa pelo carregador de verdade (`loadCatalog()` → `getModel()`
 → `getChassis()` → `fileOf()`), porque os normalizadores do motor **descartam em
@@ -129,9 +141,24 @@ porque quem não manda `Accept-Encoding: br` recebe o `.glb` puro.
 
 ## 2. rsync para a árvore servida
 
+> ### São DUAS árvores enquanto a virada não acontecer
+>
+> `/srv/files/Estudio3D/v1/` é o **destino** e `/srv/studio-assets/v1/` é quem
+> **está no ar** — `STUDIO_ASSETS_ROOT` no `.env.production` ainda aponta para a
+> segunda (ver "Estado", no fim). Elas são árvores independentes, não hard links:
+> `stat -c %d:%i` nos mesmos arquivos devolve inodes diferentes.
+>
+> **Publicar só no destino não muda nada no ar**, e o sintoma é silencioso: o
+> upload confere, o `sha256sum` bate, e o `curl` continua devolvendo os bytes
+> velhos com 200. Aconteceu em 2026-08-10 com o `set.glb` do distrito industrial.
+>
+> Enquanto as duas existirem, publique nas **duas** — a de destino para não
+> ficar para trás (e entrar no rclone), a viva para o efeito acontecer.
+
 ```bash
-rsync -avn --delete web/public/ ankaa:/srv/files/Estudio3D/v1/   # ENSAIO
-rsync -av  --delete web/public/ ankaa:/srv/files/Estudio3D/v1/
+for T in /srv/files/Estudio3D /srv/studio-assets; do
+  rsync -avn --delete web/public/ ankaa:$T/v1/   # ENSAIO
+done
 ```
 
 **Rode o ensaio (`-n`) primeiro e leia a lista de `deleting …`.** O `--delete` é
@@ -228,6 +255,26 @@ No DevTools do studio publicado:
 4. Acoplar um caminhão: o engate encosta sem vão nem interpenetração.
 
 ---
+
+## Estado em 2026-08-10
+
+Publicado por `scp`, **nas duas árvores**, com conferência de `sha256sum` antes
+da troca e por HTTP depois:
+
+- `environments/distrito-industrial/set.glb` — 14.700.908 → 17.428.964 B
+- `environments/environments.json` — 40.938 → 44.843 B
+
+`models/vehicles/trailer.glb` **não foi tocado**: o hash local e o do servidor
+já eram o mesmo (`59c890bd…`). A porta lateral do implemento é geometria gerada
+em runtime a partir desse GLB — código, não asset —, então uma feature inteira
+de porta pode sair sem que nada suba para `/srv`.
+
+Nenhum `.br` existe para esses dois caminhos, então não há companheiro velho
+para o middleware servir no lugar. O `Cache-Control: immutable` continua valendo:
+quem já carregou o cenário antigo só vê o novo depois de esvaziar o cache.
+
+Sem `rsync` (a publicação saiu de uma máquina Windows) e sem `--delete`, pelo
+motivo do aviso do passo 0.
 
 ## Estado em 2026-08-09
 
