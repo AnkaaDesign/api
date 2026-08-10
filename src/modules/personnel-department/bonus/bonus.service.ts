@@ -511,6 +511,98 @@ export class BonusService {
   }
 
   /**
+   * Aplica extras e descontos sobre uma base, na ordem de cálculo. Extraído
+   * para que a LISTA e o DETALHE cheguem ao mesmo líquido a partir da mesma
+   * base — as duas telas divergirem em centavos é bug de confiança.
+   */
+  private applyModifiersToBase(base: number, extras: any[], discounts: any[]): number {
+    let totalExtras = 0;
+    for (const extra of extras) {
+      if (extra.value !== null && extra.value !== undefined) {
+        totalExtras += Number(extra.value);
+      } else if (extra.percentage !== null && extra.percentage !== undefined) {
+        totalExtras += base * (Number(extra.percentage) / 100);
+      }
+    }
+
+    let calculatedNet = base + totalExtras;
+
+    const sortedDiscounts = [...discounts].sort(
+      (a: any, b: any) =>
+        (a.calculationOrder || 0) - (b.calculationOrder || 0) ||
+        String(a.id || '').localeCompare(String(b.id || '')),
+    );
+
+    for (const discount of sortedDiscounts) {
+      if (discount.percentage !== null && discount.percentage !== undefined) {
+        const discountAmount = calculatedNet * (Number(discount.percentage) / 100);
+        calculatedNet = Math.max(0, calculatedNet - discountAmount);
+      } else if (discount.value !== null && discount.value !== undefined) {
+        const discountAmount = Math.min(Number(discount.value), calculatedNet);
+        calculatedNet = Math.max(0, calculatedNet - discountAmount);
+      }
+    }
+
+    const hasModifiers = discounts.length > 0 || extras.length > 0;
+    return hasModifiers ? roundCurrency(calculatedNet) : base;
+  }
+
+  /**
+   * REGRA ÚNICA de frescor de uma linha salva.
+   *
+   * Enquanto o período está ABERTO, tudo que uma linha `Bonus` guarda de
+   * derivado do período — base, líquido, `periodDivisor`, `eligibilityWeight`,
+   * `terminatedAt` — é PROJEÇÃO do instante em que alguém rodou um save. Uma
+   * demissão (ou efetivação) posterior muda o divisor e, com ele, o valor de
+   * todo mundo. Por isso o cálculo vivo tem precedência aqui.
+   *
+   * Existia em três caminhos de leitura, cada um resolvendo à sua maneira:
+   * a lista fazia o merge, `findByIdOrLive` devolvia o banco cru e
+   * `calculateLiveBonusData` curto-circuitava para a linha salva. Resultado
+   * visível: quem foi desligado DEPOIS do último save aparecia com o mês
+   * inteiro (`eligibilityWeight` 1.0000, `terminatedAt` nulo) na tela de
+   * detalhe, enquanto quem já estava desligado no save aparecia proporcional.
+   *
+   * Não toca: período FECHADO (a linha salva é a verdade histórica) nem linha
+   * presa a folha (`payrollId` — virou dinheiro pago).
+   */
+  private async overlayLivePeriodNumbers(savedBonus: any): Promise<any> {
+    if (!savedBonus || savedBonus.payrollId != null) return savedBonus;
+
+    const current = getCurrentPeriod();
+    if (savedBonus.year !== current.year || savedBonus.month !== current.month) {
+      return savedBonus;
+    }
+
+    const live = await this.calculateLiveBonusForUser(
+      savedBonus.userId,
+      savedBonus.year,
+      savedBonus.month,
+    );
+    if (!live) return savedBonus;
+
+    const base = Number(live.baseBonus) || 0;
+    return {
+      ...savedBonus,
+      baseBonus: base,
+      netBonus: this.applyModifiersToBase(
+        base,
+        savedBonus.bonusExtras || [],
+        savedBonus.bonusDiscounts || [],
+      ),
+      weightedTasks: live.weightedTasks,
+      averageTaskPerUser: live.averageTasksPerEmployee,
+      periodDivisor: live.periodDivisor,
+      eligibilityWeight: live.eligibilityWeight,
+      eligibleDays: live.eligibleDays,
+      periodBusinessDays: live.periodBusinessDays,
+      performanceLevel: live.performanceLevel,
+      terminatedAt: live.terminatedAt,
+      currentlyEmployed: live.currentlyEmployed,
+    };
+  }
+
+  /**
    * Find bonus by ID or generate live calculation if composite ID
    * Supports both database UUIDs and composite live IDs (live-{userId}-{year}-{month})
    *
@@ -542,8 +634,8 @@ export class BonusService {
       return liveBonus;
     }
 
-    // Regular UUID - fetch from database
-    return this.findById(id, include, userId);
+    // Regular UUID - fetch from database, refrescando o período aberto.
+    return this.overlayLivePeriodNumbers(await this.findById(id, include, userId));
   }
 
   /**
@@ -616,7 +708,7 @@ export class BonusService {
         // Position priority: payroll.position (snapshot at bonus creation) > user.position (current)
         const position = savedBonus.payroll?.position || savedBonus.user?.position || null;
         return {
-          ...savedBonus,
+          ...(await this.overlayLivePeriodNumbers(savedBonus)),
           // Add position field for frontend consistency
           position,
         };
@@ -2895,37 +2987,7 @@ export class BonusService {
           }
 
           // Recalculate netBonus from all extras and discounts
-          {
-            let totalExtras = 0;
-            for (const extra of mergedExtras) {
-              if (extra.value !== null && extra.value !== undefined) {
-                totalExtras += Number(extra.value);
-              } else if (extra.percentage !== null && extra.percentage !== undefined) {
-                totalExtras += savedBaseBonus * (Number(extra.percentage) / 100);
-              }
-            }
-
-            let calculatedNet = savedBaseBonus + totalExtras;
-
-            const sortedDiscounts = [...mergedDiscounts].sort(
-              (a: any, b: any) =>
-                (a.calculationOrder || 0) - (b.calculationOrder || 0) ||
-                String(a.id || '').localeCompare(String(b.id || '')),
-            );
-
-            for (const discount of sortedDiscounts) {
-              if (discount.percentage !== null && discount.percentage !== undefined) {
-                const discountAmount = calculatedNet * (Number(discount.percentage) / 100);
-                calculatedNet = Math.max(0, calculatedNet - discountAmount);
-              } else if (discount.value !== null && discount.value !== undefined) {
-                const discountAmount = Math.min(Number(discount.value), calculatedNet);
-                calculatedNet = Math.max(0, calculatedNet - discountAmount);
-              }
-            }
-
-            const hasModifiers = mergedDiscounts.length > 0 || mergedExtras.length > 0;
-            savedNetBonus = hasModifiers ? roundCurrency(calculatedNet) : savedBaseBonus;
-          }
+          savedNetBonus = this.applyModifiersToBase(savedBaseBonus, mergedExtras, mergedDiscounts);
 
           // Junto com o valor, as grandezas que o EXPLICAM na tela precisam vir
           // da mesma origem. Mostrar um bônus recalculado ao lado do divisor
