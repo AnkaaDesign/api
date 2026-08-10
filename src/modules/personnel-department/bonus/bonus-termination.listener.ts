@@ -37,7 +37,8 @@ import {
   USER_CONTRACT_TERMINATED_EVENT,
   type UserContractTerminatedPayload,
 } from '../../../constants/events';
-import { businessPeriodStart } from '../../../utils/business-period';
+import { businessPeriodStart, businessPeriodEnd } from '../../../utils/business-period';
+import { getCurrentPeriod } from '../../../utils/bonus';
 
 /**
  * Quantos períodos varrer para trás a partir do desligamento.
@@ -85,6 +86,9 @@ export class BonusTerminationListener implements OnModuleInit {
       const periods = this.periodsToSettle(terminationDate);
       const settled: string[] = [];
       const failures: string[] = [];
+      // Períodos que este laço realmente regravou — evita refazer o trabalho na
+      // reconciliação do período corrente logo abaixo.
+      const rewritten = new Set<string>();
 
       for (const { year, month } of periods) {
         const label = `${String(month).padStart(2, '0')}/${year}`;
@@ -99,10 +103,38 @@ export class BonusTerminationListener implements OnModuleInit {
         const entry = eligibility.byUserId.get(userId);
         if (!entry || entry.weight <= 0) continue;
 
-        const alreadySaved = await this.prisma.bonus.count({ where: { userId, year, month } });
-        if (alreadySaved > 0) {
-          this.logger.log(`[demissão] ${label}: linha já existe para ${userId} — mantida.`);
+        // Uma linha já gravada só é INTOCÁVEL quando virou dinheiro pago
+        // (`payrollId` preenchido) ou quando o período já fechou. Enquanto o
+        // período está ABERTO, a linha é uma projeção — e uma projeção que
+        // ignora a demissão que acabou de acontecer é pior que nenhuma:
+        // `periodDivisor` encolhe com o desligamento, então o valor gravado
+        // fica defasado para TODO MUNDO do período, não só para quem saiu.
+        //
+        // Era exatamente esse o furo: o cabeçalho deste arquivo promete um
+        // "upsert por (userId, ano, mês)" que o cron reescreve, mas o guard
+        // pulava a gravação sempre que existisse linha — e a tela do período
+        // corrente prefere a linha salva ao cálculo live (ver
+        // `getBonusesWithLiveCalculation`). Resultado: o número só se corrigia
+        // no fechamento, dias depois de a rescisão ter sido paga.
+        const paidRows = await this.prisma.bonus.count({
+          where: { year, month, payrollId: { not: null } },
+        });
+        if (paidRows > 0) {
+          this.logger.log(
+            `[demissão] ${label}: período já vinculado a folha (${paidRows} linha(s) paga(s)) — preservado.`,
+          );
           continue;
+        }
+
+        const periodIsOpen = businessPeriodEnd(year, month) >= new Date();
+        if (!periodIsOpen) {
+          const alreadySaved = await this.prisma.bonus.count({ where: { userId, year, month } });
+          if (alreadySaved > 0) {
+            this.logger.log(
+              `[demissão] ${label}: período fechado e linha já existe para ${userId} — mantida.`,
+            );
+            continue;
+          }
         }
 
         try {
@@ -115,6 +147,7 @@ export class BonusTerminationListener implements OnModuleInit {
             String(month),
           );
           settled.push(`${label} (${result.totalSuccess} ok, ${result.totalFailed} falhas)`);
+          rewritten.add(`${year}-${month}`);
           if (result.totalFailed > 0) failures.push(`${label}: ${result.totalFailed} linha(s)`);
         } catch (err) {
           // Secullum fora do ar é o caso esperado aqui — `calculateAndSaveBonuses`
@@ -123,6 +156,8 @@ export class BonusTerminationListener implements OnModuleInit {
           failures.push(`${label}: ${(err as Error)?.message ?? err}`);
         }
       }
+
+      await this.reconcileCurrentPeriod(rewritten, failures);
 
       if (settled.length > 0) {
         this.logger.log(
@@ -140,6 +175,67 @@ export class BonusTerminationListener implements OnModuleInit {
         `[demissão] falha inesperada ao fechar a bonificação de ${userId}`,
         err as Error,
       );
+    }
+  }
+
+  /**
+   * Garante que o PERÍODO CORRENTE reflita a demissão, mesmo quando o laço
+   * principal não o tocou.
+   *
+   * O laço é centrado no usuário: pula período em que ESTA pessoa teve peso 0.
+   * Mas um desligamento com data antiga tira a pessoa do denominador do período
+   * corrente (peso 1 → 0), e `periodDivisor` é um valor DO PERÍODO — o bônus de
+   * todos os outros muda junto. Sem esta reconciliação, esse caso só se
+   * corrigiria no fechamento.
+   *
+   * Três situações, nesta ordem:
+   *   • alguma linha do período já virou folha  → não toca (dinheiro pago);
+   *   • existem linhas salvas e não pagas       → regrava o período inteiro
+   *                                               (`calculateAndSaveBonuses` já
+   *                                               invalida o cache live);
+   *   • não existe linha salva                  → basta derrubar o cache SWR,
+   *                                               porque sem linha a tela do
+   *                                               período corrente já serve o
+   *                                               cálculo live, que lê o estado
+   *                                               atual.
+   */
+  private async reconcileCurrentPeriod(
+    rewritten: Set<string>,
+    failures: string[],
+  ): Promise<void> {
+    const { year, month } = getCurrentPeriod();
+    const label = `${String(month).padStart(2, '0')}/${year}`;
+    if (rewritten.has(`${year}-${month}`)) return;
+
+    try {
+      const paidRows = await this.prisma.bonus.count({
+        where: { year, month, payrollId: { not: null } },
+      });
+      if (paidRows > 0) {
+        this.logger.log(
+          `[demissão] ${label} (corrente): vinculado a folha — preservado, sem recálculo.`,
+        );
+        return;
+      }
+
+      const savedRows = await this.prisma.bonus.count({ where: { year, month } });
+      if (savedRows === 0) {
+        await this.bonusService.invalidateLiveBonusesCache(year, month);
+        this.logger.log(
+          `[demissão] ${label} (corrente): sem linhas salvas — cache live invalidado.`,
+        );
+        return;
+      }
+
+      const result = await this.bonusService.calculateAndSaveBonuses(String(year), String(month));
+      this.logger.log(
+        `[demissão] ${label} (corrente): ${savedRows} linha(s) regravadas com o divisor novo ` +
+          `(${result.totalSuccess} ok, ${result.totalFailed} falhas).`,
+      );
+      if (result.totalFailed > 0) failures.push(`${label}: ${result.totalFailed} linha(s)`);
+    } catch (err) {
+      // Mesmo contrato do laço: nunca derruba a demissão, que já foi commitada.
+      failures.push(`${label} (corrente): ${(err as Error)?.message ?? err}`);
     }
   }
 

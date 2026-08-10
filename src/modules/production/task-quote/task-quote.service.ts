@@ -1492,11 +1492,26 @@ export class TaskQuoteService {
 
       const taskId = existing.task?.id;
 
-      // Assinatura eletrônica: recusa a exclusão quando já existe assinatura
-      // coletada ou envelope selado (a política e o porquê estão em
-      // `SignatureDeletionService`). Fica ANTES da transação para que o
-      // BadRequestException chegue ao usuário com a mensagem correta.
-      await this.signatureDeletion.assertQuotesDeletable([id]);
+      // Assinatura eletrônica: um orçamento com assinatura coletada ou envelope
+      // selado não pode ser apagado (o documento assinado é a prova da
+      // contratação — a política está em `SignatureDeletionService`). Em vez de
+      // recusar com erro, a exclusão DEGRADA para cancelamento automático: o
+      // orçamento vira CANCELLED (com teardown de faturamento e cancelamento das
+      // cerimônias em andamento), e envelope + trilha + PDFs são preservados.
+      const protectedQuoteIds = await this.signatureDeletion.findProtectedQuoteIds([id]);
+      if (protectedQuoteIds.length > 0) {
+        await this.cancelForTaskCancellation(
+          id,
+          userId,
+          'Orçamento com assinatura eletrônica coletada — exclusão convertida em cancelamento para preservar o documento assinado',
+        );
+        return {
+          success: true,
+          message:
+            `Orçamento nº ${existing.budgetNumber} possui assinatura eletrônica coletada e não pode ser ` +
+            'excluído — foi cancelado automaticamente, preservando o documento assinado.',
+        };
+      }
 
       const purged = await this.prisma.$transaction(async tx => {
         // A trilha de auditoria é append-only por trigger; o `onDelete: Cascade`
@@ -2747,13 +2762,18 @@ export class TaskQuoteService {
    * Called from the task-cancel cascade POST-commit (external Sicredi/Elotech
    * calls cannot run inside the task's transaction).
    */
-  async cancelForTaskCancellation(id: string, userId: string): Promise<void> {
+  async cancelForTaskCancellation(
+    id: string,
+    userId: string,
+    changeLogReason = 'Orçamento cancelado automaticamente pelo cancelamento da tarefa',
+  ): Promise<void> {
     const existing = await this.taskQuoteRepository.findById(id);
     if (!existing) {
       this.logger.warn(`[CANCEL_QUOTE] Quote ${id} not found; nothing to cancel.`);
       return;
     }
     if (existing.status === TASK_QUOTE_STATUS.CANCELLED) {
+      await this.cancelRunningEnvelopes(id, userId);
       return; // idempotent
     }
 
@@ -2848,6 +2868,12 @@ export class TaskQuoteService {
       await syncEmNegociacaoForTask(this.prisma, taskId, userId);
     }
 
+    // Uma cerimônia de assinatura em andamento não pode sobreviver ao orçamento
+    // cancelado: o link continuaria assinável e o scheduler de expiração seguiria
+    // varrendo o envelope. O cancelamento preserva a trilha (evento
+    // ENVELOPE_CANCELLED na cadeia de auditoria) e as assinaturas já colhidas.
+    await this.cancelRunningEnvelopes(id, userId);
+
     await this.changeLogService.logChange({
       entityType: ENTITY_TYPE.TASK_QUOTE,
       entityId: id,
@@ -2855,15 +2881,42 @@ export class TaskQuoteService {
       field: 'status',
       oldValue: existing.status,
       newValue: TASK_QUOTE_STATUS.CANCELLED,
-      reason: 'Orçamento cancelado automaticamente pelo cancelamento da tarefa',
+      reason: changeLogReason,
       triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
       triggeredById: userId,
       userId,
     });
 
     this.logger.log(
-      `[CANCEL_QUOTE] Quote ${id} cancelled (was ${existing.status}) after task cancellation.`,
+      `[CANCEL_QUOTE] Quote ${id} cancelled (was ${existing.status}): ${changeLogReason}`,
     );
+  }
+
+  /**
+   * Cancela toda cerimônia RUNNING do orçamento — best-effort: uma falha aqui
+   * não pode desfazer um cancelamento de orçamento já commitado.
+   */
+  private async cancelRunningEnvelopes(quoteId: string, userId: string): Promise<void> {
+    const running = await this.prisma.signatureEnvelope.findMany({
+      where: { quoteId, status: 'RUNNING' },
+      select: { id: true, verificationCode: true },
+    });
+    for (const envelope of running) {
+      try {
+        await this.signatureEnvelopes.cancel(envelope.id, userId, {
+          ipAddress: null,
+          userAgent: null,
+        });
+        this.logger.log(
+          `[CANCEL_QUOTE] Envelope ${envelope.verificationCode} cancelado junto com o orçamento ${quoteId}.`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `[CANCEL_QUOTE] Falha ao cancelar envelope ${envelope.verificationCode} do orçamento ${quoteId}: ` +
+            (error instanceof Error ? error.message : String(error)),
+        );
+      }
+    }
   }
 
   /**

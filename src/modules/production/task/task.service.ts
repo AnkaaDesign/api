@@ -9493,13 +9493,91 @@ export class TaskService {
   }
 
   /**
+   * Exclusão degradada para cancelamento: a tarefa tem orçamento com assinatura
+   * eletrônica coletada (ou envelope selado), então apagar destruiria a prova da
+   * contratação. Em vez de recusar com erro, a tarefa vira CANCELLED e o
+   * orçamento é cascade-cancelado (`cancelForTaskCancellation`: teardown de
+   * faturamento + cancelamento de cerimônias RUNNING), preservando envelope,
+   * trilha de auditoria e PDFs congelados.
+   */
+  private async cancelTaskInsteadOfDelete(id: string, userId?: string): Promise<TaskDeleteResponse> {
+    const task = await this.prisma.task.findUnique({
+      where: { id },
+      select: { id: true, name: true, status: true, quoteId: true },
+    });
+    if (!task) {
+      throw new NotFoundException('Tarefa não encontrada. Verifique se o ID está correto.');
+    }
+
+    const alreadyCancelled = task.status === TASK_STATUS.CANCELLED;
+    if (!alreadyCancelled) {
+      await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        await tx.task.update({
+          where: { id },
+          data: {
+            status: TASK_STATUS.CANCELLED,
+            statusOrder: 5, // CANCELLED statusOrder
+          },
+        });
+
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK,
+          entityId: id,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'status',
+          oldValue: task.status,
+          newValue: TASK_STATUS.CANCELLED,
+          reason:
+            'Exclusão convertida em cancelamento: o orçamento possui assinatura eletrônica coletada e o documento assinado deve ser preservado',
+          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+          triggeredById: id,
+          userId: userId || '',
+          transaction: tx,
+        });
+      });
+    }
+
+    // Pós-commit (chamadas externas Sicredi/Elotech): cascade-cancel do
+    // orçamento, espelhando o caminho de cancelamento do update(). Uma falha
+    // aqui não desfaz o cancelamento da tarefa — fica logada para teardown
+    // manual, como lá.
+    if (task.quoteId) {
+      try {
+        await this.taskQuoteService.cancelForTaskCancellation(
+          task.quoteId,
+          userId || '',
+          'Orçamento com assinatura eletrônica coletada — exclusão da tarefa convertida em cancelamento para preservar o documento assinado',
+        );
+      } catch (cancelError) {
+        this.logger.error(
+          `[Task Delete→Cancel] Could not cascade-cancel quote ${task.quoteId} of task ${id} (manual teardown may be required): ${
+            cancelError instanceof Error ? cancelError.message : String(cancelError)
+          }`,
+        );
+      }
+    }
+
+    return {
+      success: true,
+      message: alreadyCancelled
+        ? 'A tarefa possui assinatura eletrônica coletada no orçamento e não pode ser excluída — ela permanece cancelada, com o documento assinado preservado.'
+        : 'A tarefa possui assinatura eletrônica coletada no orçamento e não pode ser excluída — tarefa e orçamento foram cancelados automaticamente, preservando o documento assinado.',
+    };
+  }
+
+  /**
    * Delete a task
    */
   async delete(id: string, userId?: string): Promise<TaskDeleteResponse> {
-    // Assinatura eletrônica: recusa quando o orçamento da tarefa já tem
-    // assinatura coletada ou envelope selado. Fora do try porque o catch abaixo
-    // converte tudo em 500 — e esta recusa precisa chegar como 400 legível.
-    await this.signatureDeletion.assertTasksDeletable([id]);
+    // Assinatura eletrônica: quando o orçamento da tarefa já tem assinatura
+    // coletada ou envelope selado, a exclusão degrada para cancelamento
+    // automático (nada é apagado). Fora do try porque erros do cancelamento
+    // (ex.: boleto com baixa não confirmada) precisam chegar legíveis, não
+    // convertidos em 500.
+    const protectedTaskIds = await this.signatureDeletion.findProtectedTaskIds([id]);
+    if (protectedTaskIds.length > 0) {
+      return this.cancelTaskInsteadOfDelete(id, userId);
+    }
 
     try {
       const purged = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -9561,18 +9639,55 @@ export class TaskService {
     data: TaskBatchDeleteFormData,
     userId?: string,
   ): Promise<TaskBatchDeleteResponse> {
-    // Recusa o LOTE INTEIRO se qualquer tarefa tiver orçamento assinado. A
-    // alternativa (pular as bloqueadas) é pior: o lote reportaria sucesso
-    // parcial num fluxo em que o operador quase sempre selecionou tudo por
-    // engano, e o item recusado passaria despercebido no meio do resumo.
-    await this.signatureDeletion.assertTasksDeletable(data.taskIds);
+    // Tarefas com orçamento assinado não são excluídas: cada uma degrada para
+    // cancelamento automático (tarefa + orçamento CANCELLED, envelope
+    // preservado). As demais seguem para a exclusão normal, e o resumo final
+    // reporta as duas contagens separadamente para o operador enxergar o que
+    // NÃO foi apagado.
+    const protectedTaskIds = await this.signatureDeletion.findProtectedTaskIds(data.taskIds);
+    const deletableTaskIds = data.taskIds.filter(id => !protectedTaskIds.includes(id));
+
+    let cancelledCount = 0;
+    const cancelFailures: string[] = [];
+    for (const taskId of protectedTaskIds) {
+      try {
+        await this.cancelTaskInsteadOfDelete(taskId, userId);
+        cancelledCount++;
+      } catch (error) {
+        cancelFailures.push(
+          `${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        this.logger.error(`[batchDelete] Falha ao cancelar tarefa protegida ${taskId}:`, error);
+      }
+    }
+
+    if (deletableTaskIds.length === 0) {
+      const cancelMessage =
+        cancelledCount === 1
+          ? '1 tarefa possuía assinatura eletrônica coletada e foi cancelada (não excluída), preservando o documento assinado'
+          : `${cancelledCount} tarefas possuíam assinatura eletrônica coletada e foram canceladas (não excluídas), preservando os documentos assinados`;
+      return {
+        success: cancelFailures.length === 0,
+        message:
+          cancelledCount > 0
+            ? cancelMessage
+            : `Nenhuma tarefa excluída${cancelFailures.length ? `: ${cancelFailures.join('; ')}` : ''}`,
+        data: {
+          success: [],
+          failed: [],
+          totalProcessed: data.taskIds.length,
+          totalSuccess: cancelledCount,
+          totalFailed: cancelFailures.length,
+        },
+      } as any;
+    }
 
     try {
       const { result, purged } = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        const purgeResult = await this.signatureDeletion.purgeForTasks(tx, data.taskIds);
+        const purgeResult = await this.signatureDeletion.purgeForTasks(tx, deletableTaskIds);
 
         // Get tasks before deletion for logging
-        const tasks = await this.tasksRepository.findByIdsWithTransaction(tx, data.taskIds);
+        const tasks = await this.tasksRepository.findByIdsWithTransaction(tx, deletableTaskIds);
 
         // Log deletions
         for (const task of tasks) {
@@ -9594,7 +9709,7 @@ export class TaskService {
 
         // Batch delete
         return {
-          result: await this.tasksRepository.deleteManyWithTransaction(tx, data.taskIds),
+          result: await this.tasksRepository.deleteManyWithTransaction(tx, deletableTaskIds),
           purged: purgeResult,
         };
       });
@@ -9605,7 +9720,16 @@ export class TaskService {
         result.totalDeleted === 1
           ? '1 tarefa excluída com sucesso'
           : `${result.totalDeleted} tarefas excluídas com sucesso`;
-      const failureMessage = result.totalFailed > 0 ? `, ${result.totalFailed} falharam` : '';
+      const cancelledMessage =
+        cancelledCount > 0
+          ? `, ${cancelledCount} com assinatura eletrônica coletada ${
+              cancelledCount === 1 ? 'foi cancelada' : 'foram canceladas'
+            } (não excluída${cancelledCount === 1 ? '' : 's'}) para preservar o documento assinado`
+          : '';
+      const failureMessage =
+        result.totalFailed + cancelFailures.length > 0
+          ? `, ${result.totalFailed + cancelFailures.length} falharam`
+          : '';
 
       // Convert BatchDeleteResult to BatchOperationResult
       const batchOperationResult = {
@@ -9624,7 +9748,7 @@ export class TaskService {
 
       return {
         success: true,
-        message: `${successMessage}${failureMessage}`,
+        message: `${successMessage}${cancelledMessage}${failureMessage}`,
         data: batchOperationResult,
       };
     } catch (error) {
@@ -12717,6 +12841,11 @@ export class TaskService {
     }
 
     try {
+      // Orçamento órfão protegido por assinatura coletada: não pode ser purgado
+      // dentro da transação — é cancelado (preservado) DEPOIS do commit, porque
+      // o cancelamento pode fazer chamadas externas (Sicredi/Elotech).
+      let protectedOrphanQuoteId: string | null = null;
+
       const transactionResult = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Fetch source task with all necessary relations
         const sourceTask = await tx.task.findUnique({
@@ -13749,26 +13878,39 @@ export class TaskService {
           });
 
           if (activeInvoiceCount === 0) {
-            // Mesmo cascade append-only do delete de orçamento: sem a purga
-            // explícita este `taskQuote.delete` estoura `restrict_violation` e
-            // derruba a cópia inteira. Aqui a purga é incondicional de
-            // propósito — a quote está sendo descartada por já ter sido
-            // substituída, e um envelope dela não vincula ninguém a nada. Se
-            // houvesse assinatura colhida, o gate de `delete()` é quem recusa;
-            // este caminho não é acionável pelo usuário como "excluir".
-            const purgedQuote = await this.signatureDeletion.purgeForQuotes(tx, [
-              orphanedOldQuoteId,
-            ]);
-            if (purgedQuote.envelopesRemoved) {
+            // Assinatura colhida/envelope selado protege o orçamento órfão:
+            // ele NÃO é apagado — fica preservado (sem tarefa apontando para
+            // ele) e é cancelado após o commit, junto das cerimônias RUNNING.
+            const protectedIds = await this.signatureDeletion.findProtectedQuoteIds(
+              [orphanedOldQuoteId],
+              tx,
+            );
+            if (protectedIds.length > 0) {
+              protectedOrphanQuoteId = orphanedOldQuoteId;
               this.logger.warn(
-                `[copyFromTask] Purgados ${purgedQuote.envelopesRemoved} envelope(s) de assinatura ` +
-                  `do orçamento órfão ${orphanedOldQuoteId}`,
+                `[copyFromTask] Orçamento órfão ${orphanedOldQuoteId} tem assinatura coletada — ` +
+                  'será cancelado (preservado) em vez de excluído',
+              );
+            } else {
+              // Mesmo cascade append-only do delete de orçamento: sem a purga
+              // explícita este `taskQuote.delete` estoura `restrict_violation` e
+              // derruba a cópia inteira. A quote está sendo descartada por já
+              // ter sido substituída, e um envelope não-vinculante dela não
+              // obriga ninguém a nada.
+              const purgedQuote = await this.signatureDeletion.purgeForQuotes(tx, [
+                orphanedOldQuoteId,
+              ]);
+              if (purgedQuote.envelopesRemoved) {
+                this.logger.warn(
+                  `[copyFromTask] Purgados ${purgedQuote.envelopesRemoved} envelope(s) de assinatura ` +
+                    `do orçamento órfão ${orphanedOldQuoteId}`,
+                );
+              }
+              await tx.taskQuote.delete({ where: { id: orphanedOldQuoteId } });
+              this.logger.log(
+                `[copyFromTask] Deleted orphaned previous quote ${orphanedOldQuoteId} (no active invoice)`,
               );
             }
-            await tx.taskQuote.delete({ where: { id: orphanedOldQuoteId } });
-            this.logger.log(
-              `[copyFromTask] Deleted orphaned previous quote ${orphanedOldQuoteId} (no active invoice)`,
-            );
           } else {
             this.logger.warn(
               `[copyFromTask] Kept orphaned previous quote ${orphanedOldQuoteId}: ${activeInvoiceCount} non-cancelled invoice(s) still reference it`,
@@ -13837,6 +13979,24 @@ export class TaskService {
           destinationTaskId,
         };
       });
+
+      // Pós-commit: cancela (preservando) o orçamento órfão protegido por
+      // assinatura coletada. Best-effort — a cópia já foi commitada.
+      if (protectedOrphanQuoteId) {
+        try {
+          await this.taskQuoteService.cancelForTaskCancellation(
+            protectedOrphanQuoteId,
+            userId || '',
+            'Orçamento substituído por cópia de outra tarefa — cancelado (não excluído) por possuir assinatura eletrônica coletada',
+          );
+        } catch (cancelError) {
+          this.logger.error(
+            `[copyFromTask] Could not cancel protected orphan quote ${protectedOrphanQuoteId}: ${
+              cancelError instanceof Error ? cancelError.message : String(cancelError)
+            }`,
+          );
+        }
+      }
 
       // After transaction success: Emit field change events for notifications
       // This triggers the notification system to send individual notifications per field

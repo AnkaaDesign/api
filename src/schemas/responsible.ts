@@ -58,15 +58,29 @@ const withLegacyRole = <T extends z.ZodTypeAny>(schema: T) =>
     return value;
   }, schema);
 
+// E-mail opcional que tolera ausência COMO OS CLIENTES REALMENTE A ENVIAM:
+// formulários mandam `""` para campo vazio, não `null`/undefined. "" vira null
+// antes da validação — a coluna Responsible.email tem @unique e strings vazias
+// colidiriam entre si (mesmo preprocess dos newResponsibles em schemas/task.ts).
+const optionalEmailSchema = z.preprocess(
+  v => (typeof v === 'string' && v.trim() === '' ? null : v),
+  z
+    .string()
+    .email('Email inválido')
+    .transform(v => v.trim().toLowerCase())
+    .nullable()
+    .optional(),
+);
+
 export const responsibleContactSchema = z.object({
   name: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
   phone: z.string().regex(/^\d{10,11}$/, 'Telefone inválido'),
-  email: z.string().email('Email inválido').optional().nullable(),
+  email: optionalEmailSchema,
 });
 
 export const responsibleCreateObjectSchema = z.object({
   name: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
-  email: z.string().email('Email inválido').optional().nullable(), // Optional for contact-only responsibles
+  email: optionalEmailSchema, // Optional for contact-only responsibles
   phone: z.string().regex(/^\d{10,11}$/, 'Telefone inválido'),
   // Âncora de identidade da assinatura eletrônica. Opcional: contato sem CPF
   // continua valendo, e a primeira assinatura preenche o campo.
@@ -81,7 +95,7 @@ export const responsibleCreateSchema = withLegacyRole(responsibleCreateObjectSch
 
 export const responsibleUpdateObjectSchema = z.object({
   name: z.string().min(3).optional(),
-  email: z.string().email().optional().nullable(),
+  email: optionalEmailSchema,
   cpf: cpfSchema.optional().nullable(),
   phone: z
     .string()

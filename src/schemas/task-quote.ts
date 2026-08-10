@@ -380,30 +380,55 @@ const taskQuoteTransform = (data: any) => {
   // matched service descriptions, so a logomarca/série/cliente search found
   // nothing).
   if (typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
-    const term = normalizeSearchTerm(data.searchingFor.trim());
+    const rawTerm = data.searchingFor.trim();
+    const term = normalizeSearchTerm(rawTerm);
+    const searchConditions: any[] = [
+      // Logomarca + série (direct task fields)
+      { task: { nameNormalized: { contains: term } } },
+      { task: { serialNumberNormalized: { contains: term } } },
+      { task: { truck: { plateNormalized: { contains: term } } } },
+      // Cliente — task's own customer and each billing customer config
+      { task: { customer: { fantasyNameNormalized: { contains: term } } } },
+      { task: { customer: { corporateNameNormalized: { contains: term } } } },
+      {
+        customerConfigs: {
+          some: { customer: { fantasyNameNormalized: { contains: term } } },
+        },
+      },
+      {
+        customerConfigs: {
+          some: { customer: { corporateNameNormalized: { contains: term } } },
+        },
+      },
+      // Service descriptions (original behaviour, preserved)
+      { services: { some: { descriptionNormalized: { contains: term } } } },
+    ];
+    // CNPJ/CPF — stored digits-only, so match both the term as typed and its
+    // stripped digits ("13.636" and "13636" both hit)
+    const searchDigits = rawTerm.replace(/\D/g, '');
+    if (searchDigits.length > 0) {
+      const documentTerms =
+        searchDigits === term ? [searchDigits] : [term, searchDigits];
+      for (const documentTerm of documentTerms) {
+        searchConditions.push(
+          { task: { customer: { cnpjNormalized: { contains: documentTerm } } } },
+          { task: { customer: { cpfNormalized: { contains: documentTerm } } } },
+          {
+            customerConfigs: {
+              some: { customer: { cnpjNormalized: { contains: documentTerm } } },
+            },
+          },
+          {
+            customerConfigs: {
+              some: { customer: { cpfNormalized: { contains: documentTerm } } },
+            },
+          },
+        );
+      }
+    }
     transformed.where = {
       ...transformed.where,
-      OR: [
-        // Logomarca + série (direct task fields)
-        { task: { nameNormalized: { contains: term } } },
-        { task: { serialNumberNormalized: { contains: term } } },
-        { task: { truck: { plateNormalized: { contains: term } } } },
-        // Cliente — task's own customer and each billing customer config
-        { task: { customer: { fantasyNameNormalized: { contains: term } } } },
-        { task: { customer: { corporateNameNormalized: { contains: term } } } },
-        {
-          customerConfigs: {
-            some: { customer: { fantasyNameNormalized: { contains: term } } },
-          },
-        },
-        {
-          customerConfigs: {
-            some: { customer: { corporateNameNormalized: { contains: term } } },
-          },
-        },
-        // Service descriptions (original behaviour, preserved)
-        { services: { some: { descriptionNormalized: { contains: term } } } },
-      ],
+      OR: searchConditions,
     };
     delete transformed.searchingFor;
   }

@@ -1344,32 +1344,46 @@ const taskTransform = (data: any): any => {
   // Enhanced search filter - search across multiple fields and relations
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     const searchTerm = data.searchingFor.trim();
-    andConditions.push({
-      OR: [
-        // Direct task fields
-        { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } },
-        { serialNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } },
-        { detailsNormalized: { contains: normalizeSearchTerm(searchTerm) } },
-        // Related entities
-        { customer: { fantasyNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
-        { customer: { corporateNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
-        { customer: { cpfNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
-        { customer: { cnpjNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
-        { sector: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
-        { createdBy: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
-        { observation: { descriptionNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
-        // ProductionServiceOrder only has description field, no name field
-        { serviceOrders: { some: { descriptionNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
-        // Paint relations - search by paint name
-        { generalPainting: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
-        { generalPainting: { codeNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
-        { logoPaints: { some: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
-        { logoPaints: { some: { codeNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
-        // Truck search - plate, chassisNumber
-        { truck: { plateNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
-        { truck: { chassisNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
-      ],
-    });
+    const searchConditions: any[] = [
+      // Direct task fields
+      { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+      { serialNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+      { detailsNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+      // Related entities
+      { customer: { fantasyNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+      { customer: { corporateNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+      { customer: { cpfNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+      { customer: { cnpjNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+      { sector: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+      { createdBy: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+      { observation: { descriptionNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+      // ProductionServiceOrder only has description field, no name field
+      { serviceOrders: { some: { descriptionNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
+      // Paint relations - search by paint name
+      { generalPainting: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+      { generalPainting: { codeNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+      { logoPaints: { some: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
+      { logoPaints: { some: { codeNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
+      // Truck search - plate, chassisNumber
+      { truck: { plateNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+      { truck: { chassisNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+      // Billing customers ("Faturar Para") — the quote's customer configs, which
+      // are usually different customers than the task's own customer
+      { quote: { customerConfigs: { some: { customer: { fantasyNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } } } },
+      { quote: { customerConfigs: { some: { customer: { corporateNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } } } },
+      { quote: { customerConfigs: { some: { customer: { cpfNormalized: { contains: normalizeSearchTerm(searchTerm) } } } } } },
+      { quote: { customerConfigs: { some: { customer: { cnpjNormalized: { contains: normalizeSearchTerm(searchTerm) } } } } } },
+    ];
+    // CNPJ/CPF are stored digits-only, so a formatted term ("13.636.972")
+    // must also be matched by its stripped digits
+    const searchDigits = searchTerm.replace(/\D/g, '');
+    if (searchDigits.length > 0 && searchDigits !== searchTerm) {
+      searchConditions.push({ customer: { cnpjNormalized: { contains: searchDigits } } });
+      searchConditions.push({ customer: { cpfNormalized: { contains: searchDigits } } });
+      searchConditions.push({ quote: { customerConfigs: { some: { customer: { cnpjNormalized: { contains: searchDigits } } } } } });
+      searchConditions.push({ quote: { customerConfigs: { some: { customer: { cpfNormalized: { contains: searchDigits } } } } } });
+    }
+    andConditions.push({ OR: searchConditions });
     delete data.searchingFor;
   }
 
@@ -2524,15 +2538,22 @@ export const taskCreateSchema = z
         z.object({
           name: z.string().min(1, 'Nome é obrigatório'),
           phone: z.string().min(10, 'Telefone inválido'),
-          // E-mail OBRIGATÓRIO no cadastro inline: a assinatura eletrônica de
-          // orçamento (convite e código de uso único) sai por e-mail, então um
-          // contato criado sem ele nasce impedido de assinar. Este é o ponto de
-          // autoridade — o formulário web também barra, mas só isto vale.
-          email: z
-            .string()
-            .min(1, 'E-mail é obrigatório')
-            .email('E-mail inválido')
-            .transform(v => v.trim().toLowerCase()),
+          // E-mail OPCIONAL no cadastro inline: um contato pode ser criado sem
+          // e-mail e recebê-lo depois. A assinatura eletrônica de orçamento
+          // (convite e código de uso único) sai por e-mail, mas essa exigência
+          // vale SOMENTE no envio do envelope (signature-envelope.service
+          // barra com "Responsáveis sem e-mail válido no cadastro: ..."), não
+          // aqui. "" e null viram null — a coluna tem @unique e strings vazias
+          // colidiriam entre si.
+          email: z.preprocess(
+            v => (typeof v === 'string' && v.trim() === '' ? null : v),
+            z
+              .string()
+              .email('E-mail inválido')
+              .transform(v => v.trim().toLowerCase())
+              .nullable()
+              .optional(),
+          ),
           // CPF opcional: o cadastro inline pode informá-lo, e é ele que permite
           // a conferência PARCIAL do documento na assinatura eletrônica. Sem esta
           // chave o Zod descartava o campo em silêncio (z.object faz strip).
@@ -2776,15 +2797,22 @@ export const taskUpdateSchema = z
         z.object({
           name: z.string().min(1, 'Nome é obrigatório'),
           phone: z.string().min(10, 'Telefone inválido'),
-          // E-mail OBRIGATÓRIO no cadastro inline: a assinatura eletrônica de
-          // orçamento (convite e código de uso único) sai por e-mail, então um
-          // contato criado sem ele nasce impedido de assinar. Este é o ponto de
-          // autoridade — o formulário web também barra, mas só isto vale.
-          email: z
-            .string()
-            .min(1, 'E-mail é obrigatório')
-            .email('E-mail inválido')
-            .transform(v => v.trim().toLowerCase()),
+          // E-mail OPCIONAL no cadastro inline: um contato pode ser criado sem
+          // e-mail e recebê-lo depois. A assinatura eletrônica de orçamento
+          // (convite e código de uso único) sai por e-mail, mas essa exigência
+          // vale SOMENTE no envio do envelope (signature-envelope.service
+          // barra com "Responsáveis sem e-mail válido no cadastro: ..."), não
+          // aqui. "" e null viram null — a coluna tem @unique e strings vazias
+          // colidiriam entre si.
+          email: z.preprocess(
+            v => (typeof v === 'string' && v.trim() === '' ? null : v),
+            z
+              .string()
+              .email('E-mail inválido')
+              .transform(v => v.trim().toLowerCase())
+              .nullable()
+              .optional(),
+          ),
           // CPF opcional: o cadastro inline pode informá-lo, e é ele que permite
           // a conferência PARCIAL do documento na assinatura eletrônica. Sem esta
           // chave o Zod descartava o campo em silêncio (z.object faz strip).

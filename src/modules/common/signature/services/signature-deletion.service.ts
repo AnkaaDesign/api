@@ -21,7 +21,7 @@
  * não há `try/finally` aqui: seria mais fraco, não mais forte.
  *
  * ---------------------------------------------------------------------------
- * A POLÍTICA — e por que ela recusa em vez de apagar
+ * A POLÍTICA — e por que ela cancela em vez de apagar
  * ---------------------------------------------------------------------------
  * Apagar um orçamento assinado destrói prova. Sob o **CPC art. 429, II**, se o
  * cliente impugnar a autenticidade da assinatura, o ônus da prova é da Ankaa: o
@@ -29,29 +29,30 @@
  * evidência do signatário. Um DELETE apaga os três de uma vez, em silêncio, a
  * partir de um clique numa listagem.
  *
- * Então a regra é a que a própria migration declara (linhas 266-269):
+ * Então a regra, na fronteira que a migration declara (linhas 266-269):
  *
- *   RECUSA quando  →  algum envelope está `COMPLETED`  (documento selado, com
- *                     PAdES e hash publicados no portal de verificação)
- *              ou  →  algum signatário chegou a `SIGNED` (ato de uma pessoa
- *                     real, autenticado por OTP, com IP e timestamp)
+ *   PROTEGIDO quando →  algum envelope está `COMPLETED`  (documento selado, com
+ *                       PAdES e hash publicados no portal de verificação)
+ *                  ou →  algum signatário chegou a `SIGNED` (ato de uma pessoa
+ *                       real, autenticado por OTP, com IP e timestamp)
  *
- *   PERMITE quando →  todo o resto: DRAFT, RUNNING sem nenhuma assinatura
- *                     colhida, REFUSED, EXPIRED, CANCELLED, INVALIDATED,
- *                     SUPERSEDED.
+ *   APAGÁVEL quando  →  todo o resto: DRAFT, RUNNING sem nenhuma assinatura
+ *                       colhida, REFUSED, EXPIRED, CANCELLED, INVALIDATED,
+ *                       SUPERSEDED.
  *
  * A assimetria é deliberada. Um envelope `RUNNING` sem assinatura é uma
- * cerimônia que ninguém atendeu — não há ato de vontade a preservar, e travar a
- * exclusão nesse caso só obrigaria o operador a cancelar o envelope antes, sem
- * ganho probatório nenhum. Um envelope `REFUSED` também não vincula ninguém: a
- * recusa está registrada no changelog do orçamento, e o orçamento recusado é
- * exatamente o que o comercial quer poder apagar.
+ * cerimônia que ninguém atendeu — não há ato de vontade a preservar. Um
+ * envelope `REFUSED` também não vincula ninguém: a recusa está registrada no
+ * changelog do orçamento, e o orçamento recusado é exatamente o que o
+ * comercial quer poder apagar.
  *
- * O caso `COMPLETED` não tem escape por flag nem por privilégio: quem precisa
- * tirar um orçamento assinado da frente **cancela** (o registro permanece), não
- * apaga. Se um dia surgir uma obrigação legal de eliminação (LGPD art. 18, VI),
- * ela é um procedimento auditado e explícito, não um efeito colateral de um
- * botão de lixeira.
+ * Um alvo PROTEGIDO não é excluído nem a exclusão é recusada com erro: o fluxo
+ * de exclusão **degrada para cancelamento automático** (tarefa/orçamento viram
+ * CANCELLED via `cancelForTaskCancellation`, cerimônias RUNNING são
+ * canceladas), preservando envelope, trilha e PDFs. `findProtectedQuoteIds` /
+ * `findProtectedTaskIds` são a consulta dessa fronteira. Se um dia surgir uma
+ * obrigação legal de eliminação (LGPD art. 18, VI), ela é um procedimento
+ * auditado e explícito, não um efeito colateral de um botão de lixeira.
  *
  * ---------------------------------------------------------------------------
  * ORDEM DA LIMPEZA
@@ -70,7 +71,7 @@
  * commit, em melhor esforço.
  */
 
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { unlink } from 'fs/promises';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
@@ -105,77 +106,51 @@ export class SignatureDeletionService {
   constructor(private readonly prisma: PrismaService) {}
 
   // ===========================================================================
-  // GATE
+  // FRONTEIRA DE PROTEÇÃO
   // ===========================================================================
 
   /**
-   * Recusa a exclusão quando há assinatura colhida ou envelope selado.
-   *
-   * Roda FORA da transação de propósito: assim o `BadRequestException` chega ao
-   * usuário com a mensagem certa, em vez de ser engolido pelo `catch` genérico
-   * que converte tudo em 500.
+   * IDs dos orçamentos (dentre os informados) protegidos por assinatura já
+   * colhida ou envelope selado. Os fluxos de exclusão usam isto para DEGRADAR
+   * para cancelamento automático — o registro assinado é preservado e o
+   * orçamento vira CANCELLED — em vez de recusar a operação com erro.
    */
-  async assertQuotesDeletable(quoteIds: string[], client: PrismaLike = this.prisma): Promise<void> {
-    if (!quoteIds.length) return;
-    const blocking = await this.findBlockingEnvelopes({ quoteId: { in: quoteIds } }, client);
-    if (blocking.length) throw this.refusal(blocking);
-  }
-
-  /**
-   * Mesma regra, partindo da tarefa: o orçamento é alcançado por `Task.quoteId`.
-   *
-   * Vale para `TaskService.delete`/`batchDelete` mesmo com a tarefa sendo o LADO
-   * FILHO da relação (`Task.quoteId → TaskQuote.id`): apagar a tarefa não apaga o
-   * orçamento, mas deixa o envelope apontando para um documento cujo veículo,
-   * número de série e responsáveis já não existem. Um envelope `RUNNING` nesse
-   * estado continua mandando link de assinatura por WhatsApp e continua sendo
-   * varrido pelo scheduler de expiração.
-   */
-  async assertTasksDeletable(taskIds: string[], client: PrismaLike = this.prisma): Promise<void> {
-    if (!taskIds.length) return;
-    const blocking = await this.findBlockingEnvelopes(
-      { quote: { task: { id: { in: taskIds } } } },
-      client,
-    );
-    if (blocking.length) throw this.refusal(blocking);
-  }
-
-  private async findBlockingEnvelopes(
-    where: Record<string, unknown>,
-    client: PrismaLike,
-  ): Promise<Array<{ budgetNumber: number; code: string; reason: string }>> {
+  async findProtectedQuoteIds(
+    quoteIds: string[],
+    client: PrismaLike = this.prisma,
+  ): Promise<string[]> {
+    if (!quoteIds.length) return [];
     const envelopes = await client.signatureEnvelope.findMany({
       where: {
-        ...where,
+        quoteId: { in: quoteIds },
         OR: [{ status: 'COMPLETED' }, { signers: { some: { status: 'SIGNED' } } }],
       },
-      select: {
-        status: true,
-        verificationCode: true,
-        quote: { select: { budgetNumber: true } },
-        signers: { where: { status: 'SIGNED' }, select: { declaredName: true } },
-      },
+      select: { quoteId: true },
     });
-
-    return envelopes.map(e => ({
-      budgetNumber: e.quote?.budgetNumber ?? 0,
-      code: e.verificationCode,
-      reason:
-        e.status === 'COMPLETED'
-          ? 'documento selado e concluído'
-          : `assinado por ${e.signers.map(s => s.declaredName).join(', ')}`,
-    }));
+    return [...new Set(envelopes.map(e => e.quoteId).filter((id): id is string => Boolean(id)))];
   }
 
-  private refusal(blocking: Array<{ budgetNumber: number; code: string; reason: string }>) {
-    const detail = blocking
-      .map(b => `orçamento nº ${b.budgetNumber} (envelope ${b.code}: ${b.reason})`)
-      .join('; ');
-    return new BadRequestException(
-      'Não é possível excluir: existe assinatura eletrônica já coletada — ' +
-        `${detail}. O documento assinado é a prova da contratação e não pode ser ` +
-        'apagado. Use o cancelamento do orçamento, que preserva o registro.',
-    );
+  /** Mesma consulta, partindo das tarefas: devolve os IDs de tarefa protegidos. */
+  async findProtectedTaskIds(
+    taskIds: string[],
+    client: PrismaLike = this.prisma,
+  ): Promise<string[]> {
+    if (!taskIds.length) return [];
+    const envelopes = await client.signatureEnvelope.findMany({
+      where: {
+        quote: { task: { id: { in: taskIds } } },
+        OR: [{ status: 'COMPLETED' }, { signers: { some: { status: 'SIGNED' } } }],
+      },
+      select: { quote: { select: { task: { select: { id: true } } } } },
+    });
+    return [
+      ...new Set(
+        envelopes
+          .map(e => e.quote?.task?.id)
+          .filter((id): id is string => Boolean(id))
+          .filter(id => taskIds.includes(id)),
+      ),
+    ];
   }
 
   // ===========================================================================

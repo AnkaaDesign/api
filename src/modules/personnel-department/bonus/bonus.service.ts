@@ -2798,13 +2798,56 @@ export class BonusService {
           }));
 
         if (savedBonus) {
-          // User has saved bonus - use it, but enrich with live Secullum analysis
-          const savedBaseBonus = Number(savedBonus.baseBonus) || 0;
+          // Linha salva do período CORRENTE é PROJEÇÃO, não verdade.
+          //
+          // Enquanto o período está aberto, `baseBonus` depende de grandezas que
+          // ainda se movem — `periodDivisor` (headcount médio), `weightedTasks`,
+          // o nível de desempenho. Uma demissão ou uma efetivação no meio do
+          // período muda o divisor e portanto o bônus de TODO MUNDO, não só de
+          // quem entrou ou saiu. Preferir o valor salvo congelava a tela no
+          // número do dia em que alguém rodou um save, e o RH só via a correção
+          // no fechamento (o cron força recálculo via `staleRows`, dias depois).
+          //
+          // Por isso o valor VIVO manda aqui: ele é recalculado a partir da
+          // elegibilidade atual (ver `calculateLiveBonuses`) e já inclui o
+          // reajuste do período. A linha salva continua soberana para períodos
+          // FECHADOS — este método nem chega aqui nesse caso, retorna o banco
+          // direto lá em cima — e para qualquer linha já presa a uma folha.
+          //
+          // Override manual de `baseBonus` (PUT /bonus/:id) é preservado apenas
+          // quando a linha está vinculada a uma folha; fora disso não há como
+          // distinguir edição humana de número gravado pelo cron, e o form que
+          // permitiria essa edição não está montado em nenhuma rota da web.
+          const isPaidRow = savedBonus.payrollId != null;
+          const liveBase = liveBonus ? Number(liveBonus.baseBonus) || 0 : null;
+          const savedBaseBonus =
+            !isPaidRow && liveBase !== null ? liveBase : Number(savedBonus.baseBonus) || 0;
           let savedNetBonus = Number(savedBonus.netBonus) || 0;
 
           // Merge saved extras/discounts with live Secullum analysis
           let mergedExtras = [...(savedBonus.bonusExtras || [])];
           let mergedDiscounts = [...(savedBonus.bonusDiscounts || [])];
+
+          // "Tarefas Suspensas" é DERIVADO da base (`proratedBase - proratedNet`).
+          // Tendo trocado a base pelo valor vivo, manter a linha salva misturaria
+          // duas apurações: um desconto calculado sobre a base antiga abatido de
+          // uma base nova. Trocamos as duas juntas, pelo mesmo motivo que as
+          // linhas do Secullum são substituídas logo abaixo.
+          if (!isPaidRow && liveBonus) {
+            mergedDiscounts = mergedDiscounts.filter(
+              (d: any) => d.reference !== 'Tarefas Suspensas',
+            );
+            if (liveBonus.suspendedTasksDiscount > 0) {
+              mergedDiscounts.push({
+                id: `live-discount-suspended-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+                bonusId: savedBonus.id,
+                reference: 'Tarefas Suspensas',
+                value: liveBonus.suspendedTasksDiscount,
+                percentage: null,
+                calculationOrder: 1,
+              });
+            }
+          }
 
           // If live Secullum analysis is available, replace/add Secullum-based items
           if (liveBonus?.secullumAnalysis) {
@@ -2884,8 +2927,28 @@ export class BonusService {
             savedNetBonus = hasModifiers ? roundCurrency(calculatedNet) : savedBaseBonus;
           }
 
+          // Junto com o valor, as grandezas que o EXPLICAM na tela precisam vir
+          // da mesma origem. Mostrar um bônus recalculado ao lado do divisor
+          // antigo daria um número que não fecha com a própria conta exibida.
+          const livePeriodStats =
+            !isPaidRow && liveBonus
+              ? {
+                  weightedTasks: liveBonus.weightedTasks,
+                  averageTaskPerUser: liveBonus.averageTasksPerEmployee,
+                  periodDivisor: liveBonus.periodDivisor,
+                  eligibilityWeight: liveBonus.eligibilityWeight,
+                  eligibleDays: liveBonus.eligibleDays,
+                  periodBusinessDays: liveBonus.periodBusinessDays,
+                  performanceLevel: liveBonus.performanceLevel,
+                  terminatedAt: liveBonus.terminatedAt,
+                  currentlyEmployed: liveBonus.currentlyEmployed,
+                }
+              : {};
+
           mergedBonuses.push({
             ...savedBonus,
+            ...livePeriodStats,
+            baseBonus: savedBaseBonus,
             netBonus: savedNetBonus,
             bonusExtras: mergedExtras,
             bonusDiscounts: mergedDiscounts,
