@@ -24,11 +24,16 @@ import {
   TRUCK_SPOT,
   AIRBRUSHING_DESCRIPTION_PREFIX,
 } from '@constants';
-import { responsibleRolesSchema } from './responsible';
+import { responsibleRolesSchema, makeOptionalEmailSchema } from './responsible';
 import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
 import { taskQuoteCreateNestedSchema } from './task-quote';
 import { businessPeriodStart, businessPeriodEnd } from '../utils/business-period';
+
+// E-mail dos responsáveis criados inline (newResponsibles). A regra é a mesma
+// do cadastro avulso — mesma coluna `@unique`, mesma normalização — só a
+// mensagem muda, porque aqui o texto usado é "E-mail" com hífen.
+const inlineResponsibleEmailSchema = makeOptionalEmailSchema('E-mail inválido');
 
 // Helper to filter out empty strings from UUID arrays before validation
 // This handles cases where FormData sends [''] for empty arrays
@@ -2543,17 +2548,12 @@ export const taskCreateSchema = z
           // (convite e código de uso único) sai por e-mail, mas essa exigência
           // vale SOMENTE no envio do envelope (signature-envelope.service
           // barra com "Responsáveis sem e-mail válido no cadastro: ..."), não
-          // aqui. "" e null viram null — a coluna tem @unique e strings vazias
+          // aqui. Vazio vira null — a coluna tem @unique e strings vazias
           // colidiriam entre si.
-          email: z.preprocess(
-            v => (typeof v === 'string' && v.trim() === '' ? null : v),
-            z
-              .string()
-              .email('E-mail inválido')
-              .transform(v => v.trim().toLowerCase())
-              .nullable()
-              .optional(),
-          ),
+          //
+          // Mesma regra do cadastro avulso de responsável, importada de lá:
+          // é a mesma coluna, não pode divergir.
+          email: inlineResponsibleEmailSchema,
           // CPF opcional: o cadastro inline pode informá-lo, e é ele que permite
           // a conferência PARCIAL do documento na assinatura eletrônica. Sem esta
           // chave o Zod descartava o campo em silêncio (z.object faz strip).
@@ -2802,17 +2802,12 @@ export const taskUpdateSchema = z
           // (convite e código de uso único) sai por e-mail, mas essa exigência
           // vale SOMENTE no envio do envelope (signature-envelope.service
           // barra com "Responsáveis sem e-mail válido no cadastro: ..."), não
-          // aqui. "" e null viram null — a coluna tem @unique e strings vazias
+          // aqui. Vazio vira null — a coluna tem @unique e strings vazias
           // colidiriam entre si.
-          email: z.preprocess(
-            v => (typeof v === 'string' && v.trim() === '' ? null : v),
-            z
-              .string()
-              .email('E-mail inválido')
-              .transform(v => v.trim().toLowerCase())
-              .nullable()
-              .optional(),
-          ),
+          //
+          // Mesma regra do cadastro avulso de responsável, importada de lá:
+          // é a mesma coluna, não pode divergir.
+          email: inlineResponsibleEmailSchema,
           // CPF opcional: o cadastro inline pode informá-lo, e é ele que permite
           // a conferência PARCIAL do documento na assinatura eletrônica. Sem esta
           // chave o Zod descartava o campo em silêncio (z.object faz strip).

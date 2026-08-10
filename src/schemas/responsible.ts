@@ -58,19 +58,42 @@ const withLegacyRole = <T extends z.ZodTypeAny>(schema: T) =>
     return value;
   }, schema);
 
-// E-mail opcional que tolera ausência COMO OS CLIENTES REALMENTE A ENVIAM:
-// formulários mandam `""` para campo vazio, não `null`/undefined. "" vira null
-// antes da validação — a coluna Responsible.email tem @unique e strings vazias
-// colidiriam entre si (mesmo preprocess dos newResponsibles em schemas/task.ts).
-const optionalEmailSchema = z.preprocess(
-  v => (typeof v === 'string' && v.trim() === '' ? null : v),
-  z
-    .string()
-    .email('Email inválido')
-    .transform(v => v.trim().toLowerCase())
-    .nullable()
-    .optional(),
-);
+// E-mail é OPCIONAL em todo o cadastro de responsável. A exigência real não
+// mora aqui: quem cobra é a emissão do envelope de assinatura, que recusa
+// nominalmente quem está sem endereço ("Responsáveis sem e-mail válido no
+// cadastro: ..." em signature-envelope.service) — no momento em que o e-mail
+// é de fato usado.
+//
+// Vazio vira null COMO OS CLIENTES REALMENTE ENVIAM: formulário manda `""`
+// para campo em branco, não null. A coluna é `@unique`, então gravar '' faria
+// o segundo contato sem e-mail colidir com o primeiro.
+//
+// `undefined` (chave AUSENTE) tem de continuar `undefined` — é o que distingue
+// "não mexi neste campo" de "limpe este campo". Colapsar ausente em null faria
+// todo PATCH parcial apagar o e-mail de quem já tinha.
+//
+// A normalização (trim + lowercase) acontece no preprocess, ANTES do .email().
+// Se fosse um `.transform()` depois da validação, " a@b.com " — colado ou vindo
+// do autocomplete do teclado — seria recusado pelos espaços antes de chegar a
+// ser limpo.
+//
+// Exportado porque os newResponsibles inline de schemas/task.ts gravam NA MESMA
+// coluna e precisam da mesma regra. As duas cópias já nasceram uma vez e
+// divergiram; com uma fonte só, não têm como divergir de novo. A mensagem fica
+// por conta de quem usa — os dois arquivos escrevem "e-mail" de formas
+// diferentes e isso é visível para o usuário.
+export const makeOptionalEmailSchema = (invalidMessage: string) =>
+  z.preprocess(
+    v => {
+      if (v === undefined) return undefined;
+      if (v === null) return null;
+      if (typeof v === 'string') return v.trim().toLowerCase() || null;
+      return v;
+    },
+    z.string().email(invalidMessage).nullable().optional(),
+  );
+
+const optionalEmailSchema = makeOptionalEmailSchema('Email inválido');
 
 export const responsibleContactSchema = z.object({
   name: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
