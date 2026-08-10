@@ -5699,6 +5699,24 @@ enum QuestionnaireEntryStatus {
   SUBMITTED
 }
 
+/// How a question is answered.
+///   OPTIONS — pergunta fechada: the respondent picks ONE of the question's
+///             QuestionnaireOption rows (the answer carries the option `value`).
+///   TEXT    — pergunta de texto livre: no options; the answer carries
+///             `textValue` and NO numeric value (it never enters averages).
+enum QuestionnaireQuestionType {
+  OPTIONS
+  TEXT
+}
+
+/// Como o público-alvo de uma campanha é escolhido. Ver `Questionnaire.audience`.
+enum QuestionnaireAudience {
+  ALL_USERS
+  SECTORS
+  POSITIONS
+  USERS
+}
+
 model QuestionnaireGroup {
   id          String    @id @default(uuid())
   name        String    @unique
@@ -5720,16 +5738,21 @@ model QuestionnaireGroup {
 }
 
 model QuestionnaireQuestion {
-  id          String    @id @default(uuid())
+  id          String                    @id @default(uuid())
   groupId     String
   order       Int
   title       String
   description String
   helpText    String?
-  isActive    Boolean   @default(true)
+  /// OPTIONS (fechada) → answered by picking one of `options`.
+  /// TEXT (texto livre) → answered with free text; `options` must be empty.
+  type        QuestionnaireQuestionType @default(OPTIONS)
+  /// When false the respondent may submit the entry leaving this one blank.
+  isRequired  Boolean                   @default(true)
+  isActive    Boolean                   @default(true)
   deletedAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
 
   group   QuestionnaireGroup          @relation(fields: [groupId], references: [id])
   options QuestionnaireOption[]
@@ -5742,6 +5765,7 @@ model QuestionnaireQuestion {
   @@unique([groupId, order])
   @@index([groupId])
   @@index([deletedAt])
+  @@index([type])
 }
 
 model QuestionnaireOption {
@@ -5763,25 +5787,37 @@ model QuestionnaireOption {
 }
 
 model Questionnaire {
-  id             String              @id @default(uuid())
-  name           String
-  description    String?
-  periodStart    DateTime
-  periodEnd      DateTime
-  status         QuestionnaireStatus @default(DRAFT)
-  createdById    String
-  /// When true, opening generates an entry for every active user. When false,
-  /// only the explicitly targeted collaborators (targetUsers) get an entry.
-  targetAllUsers Boolean             @default(false)
+  id          String              @id @default(uuid())
+  name        String
+  description String?
+  periodStart DateTime
+  periodEnd   DateTime
+  status      QuestionnaireStatus @default(DRAFT)
+  createdById String
+
+  /// Como o público-alvo é escolhido. A resolução em pessoas acontece na
+  /// ABERTURA (openQuestionnaire), não na criação: assim quem entra no setor/
+  /// cargo entre o rascunho e a abertura também recebe a ficha.
+  ///   ALL_USERS → todo colaborador com vínculo ativo
+  ///   SECTORS   → quem está em `targetSectorIds`
+  ///   POSITIONS → quem ocupa um cargo de `targetPositionIds`
+  ///   USERS     → exatamente os colaboradores de `targetUsers`
+  audience QuestionnaireAudience @default(ALL_USERS)
+
+  /// Critérios de público. Guardam ids soltos de propósito (sem FK): são um
+  /// filtro, não um vínculo — um setor apagado simplesmente deixa de casar.
+  targetSectorIds   String[] @default([])
+  targetPositionIds String[] @default([])
+
   /// Incognito mode. When true, responses are NEVER attributable to a respondent
   /// via the API: per-respondent admin review is blocked, respondent identity is
   /// stripped from every payload, and admins only ever see anonymized aggregate
   /// results. The respondent↔answers link still exists in the DB (for delivery,
   /// dedup and resume) but is never exposed. Locked once the questionnaire opens.
-  isAnonymous    Boolean             @default(false)
-  deletedAt      DateTime?
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  isAnonymous Boolean   @default(false)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   createdBy   User                        @relation("QUESTIONNAIRE_CREATED_BY", fields: [createdById], references: [id])
   targetUsers QuestionnaireUser[]
@@ -5797,8 +5833,11 @@ model Questionnaire {
   @@index([deletedAt])
 }
 
-/// Explicit per-campaign target collaborators. When openQuestionnaire runs and
-/// targetAllUsers is false, one QuestionnaireEntry is generated per user listed here.
+/// Explicit per-campaign target collaborators — only written when
+/// `Questionnaire.audience = USERS`. The other modes leave this empty and are
+/// resolved straight off `targetSectorIds`/`targetPositionIds` (or nothing, for
+/// ALL_USERS) when openQuestionnaire runs, which is what lets someone who joined
+/// the sector/position after the draft still receive the ficha.
 model QuestionnaireUser {
   questionnaireId String
   userId          String
@@ -5852,7 +5891,10 @@ model QuestionnaireAnswer {
   id         String   @id @default(uuid())
   entryId    String
   questionId String
-  value      Int
+  /// Picked option value (0..5) for OPTIONS questions. NULL for TEXT questions.
+  value      Int?
+  /// Free-text answer for TEXT questions. NULL for OPTIONS questions.
+  textValue  String?
   comment    String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt

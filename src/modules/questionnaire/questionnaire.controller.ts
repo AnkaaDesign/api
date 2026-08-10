@@ -287,7 +287,7 @@ export class QuestionnaireController {
   @Post('questionnaire-entry/:id/reopen')
   @Roles(...MANAGE_ROLES)
   @HttpCode(HttpStatus.OK)
-  async reopenEntry(@Param('id', ParseUUIDPipe) id: string) {
-    return this.questionnaireService.reopenEntry(id);
+  async reopenEntry(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
+    return this.questionnaireService.reopenEntry(id, userId);
   }
 }

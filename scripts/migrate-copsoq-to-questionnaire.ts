@@ -143,7 +143,7 @@ async function main() {
         periodEnd: assessment.periodEnd,
         status: 'CLOSED',
         createdById: assessment.createdById,
-        targetAllUsers: false,
+        audience: 'USERS',
         isAnonymous: false,
         questions: {
           create: Array.from(questionByTopicId.values()).map(questionId => ({ questionId })),

@@ -124,7 +124,9 @@ async function main() {
         periodEnd: opts.periodEnd,
         status: opts.status,
         createdById: creator.id,
-        targetAllUsers: true,
+        // O seed já materializa os respondentes em `targetUsers` (e as fichas
+        // logo abaixo), então o modo que descreve a campanha é USERS.
+        audience: "USERS",
         createdAt: opts.createdAt,
         questions: { create: questionIds.map((questionId) => ({ questionId })) },
         targetUsers: { create: opts.respondents.map((u) => ({ userId: u.id })) },

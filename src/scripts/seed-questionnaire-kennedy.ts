@@ -102,7 +102,7 @@ async function main() {
       periodEnd: new Date(now + 30 * day),
       status: "OPEN",
       createdById: user.id,
-      targetAllUsers: false,
+      audience: "USERS",
       questions: { create: questionIds.map((questionId) => ({ questionId })) },
       targetUsers: { create: [{ userId: user.id }] },
       entries: { create: [{ respondentId: user.id, status: "PENDING" }] },

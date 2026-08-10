@@ -28,6 +28,10 @@ import type { User } from './user';
 
 export type QuestionnaireStatus = 'DRAFT' | 'OPEN' | 'CLOSED' | 'CANCELLED';
 export type QuestionnaireEntryStatus = 'PENDING' | 'IN_PROGRESS' | 'SUBMITTED';
+/** OPTIONS = pergunta fechada (escolhe uma opção); TEXT = texto livre. */
+export type QuestionnaireQuestionType = 'OPTIONS' | 'TEXT';
+/** Como o público-alvo da campanha é escolhido (resolvido na abertura). */
+export type QuestionnaireAudience = 'ALL_USERS' | 'SECTORS' | 'POSITIONS' | 'USERS';
 
 // =====================
 // Entities
@@ -48,6 +52,8 @@ export interface QuestionnaireQuestion extends BaseEntity {
   title: string;
   description: string;
   helpText?: string | null;
+  type: QuestionnaireQuestionType;
+  isRequired: boolean;
   isActive: boolean;
   deletedAt?: Date | null;
   group?: QuestionnaireGroup;
@@ -84,7 +90,10 @@ export interface QuestionnaireQuestionLink {
 export interface QuestionnaireAnswer extends BaseEntity {
   entryId: string;
   questionId: string;
-  value: number;
+  /** Nota da opção escolhida — null em perguntas de texto livre. */
+  value?: number | null;
+  /** Texto livre — null em perguntas fechadas. */
+  textValue?: string | null;
   comment?: string | null;
   entry?: QuestionnaireEntry;
   question?: QuestionnaireQuestion;
@@ -111,7 +120,9 @@ export interface Questionnaire extends BaseEntity {
   periodEnd: Date;
   status: QuestionnaireStatus;
   createdById: string;
-  targetAllUsers: boolean;
+  audience: QuestionnaireAudience;
+  targetSectorIds: string[];
+  targetPositionIds: string[];
   isAnonymous: boolean;
   deletedAt?: Date | null;
   createdBy?: User;
@@ -196,10 +207,13 @@ export interface QuestionnaireOptionFormData {
 
 export interface QuestionnaireQuestionCreateFormData {
   groupId: string;
-  order: number;
+  /** Ausente = o serviço usa a última ordem do tema + 1. */
+  order?: number;
   title: string;
   description: string;
   helpText?: string | null;
+  type?: QuestionnaireQuestionType;
+  isRequired?: boolean;
   isActive?: boolean;
   options?: QuestionnaireOptionFormData[];
 }
@@ -209,6 +223,8 @@ export interface QuestionnaireQuestionUpdateFormData {
   title?: string;
   description?: string;
   helpText?: string | null;
+  type?: QuestionnaireQuestionType;
+  isRequired?: boolean;
   isActive?: boolean;
 }
 export interface QuestionnaireOptionsUpsertFormData {
@@ -220,9 +236,11 @@ export interface QuestionnaireCreateFormData {
   description?: string | null;
   periodStart: Date;
   periodEnd: Date;
-  targetAllUsers?: boolean;
+  audience?: QuestionnaireAudience;
   isAnonymous?: boolean;
   userIds?: string[];
+  sectorIds?: string[];
+  positionIds?: string[];
   questionIds?: string[];
   groupIds?: string[];
 }
@@ -231,16 +249,19 @@ export interface QuestionnaireUpdateFormData {
   description?: string | null;
   periodStart?: Date;
   periodEnd?: Date;
-  targetAllUsers?: boolean;
+  audience?: QuestionnaireAudience;
   isAnonymous?: boolean;
   userIds?: string[];
+  sectorIds?: string[];
+  positionIds?: string[];
   questionIds?: string[];
   groupIds?: string[];
 }
 
 export interface QuestionnaireAnswerFormData {
   questionId: string;
-  value: number;
+  value?: number | null;
+  textValue?: string | null;
   comment?: string | null;
 }
 export interface QuestionnaireEntryAnswersUpsertFormData {
@@ -273,6 +294,8 @@ export interface QuestionnaireQuestionGetManyFormData {
   groupId?: string;
   groupIds?: string[];
   isActive?: boolean;
+  isRequired?: boolean;
+  types?: QuestionnaireQuestionType[];
 }
 export interface QuestionnaireGetManyFormData {
   page?: number;

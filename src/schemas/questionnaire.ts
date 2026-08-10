@@ -16,6 +16,13 @@ import { orderByDirectionSchema, normalizeOrderBy,
 
 export const questionnaireStatusSchema = z.enum(['DRAFT', 'OPEN', 'CLOSED', 'CANCELLED']);
 export const questionnaireEntryStatusSchema = z.enum(['PENDING', 'IN_PROGRESS', 'SUBMITTED']);
+export const questionnaireQuestionTypeSchema = z.enum(['OPTIONS', 'TEXT']);
+export const questionnaireAudienceSchema = z.enum([
+  'ALL_USERS',
+  'SECTORS',
+  'POSITIONS',
+  'USERS',
+]);
 
 // =====================
 // Common reusable shapes
@@ -144,8 +151,31 @@ const buildOrderBySchema = (fields: string[]) => {
   return z.union([object, z.array(object.partial())]).optional();
 };
 
-export const questionnaireGroupOrderBySchema = buildOrderBySchema(['id', 'name', 'order', 'createdAt', 'updatedAt']);
-export const questionnaireQuestionOrderBySchema = buildOrderBySchema(['id', 'groupId', 'order', 'title', 'createdAt', 'updatedAt']);
+export const questionnaireGroupOrderBySchema = buildOrderBySchema(['id', 'name', 'order', 'isActive', 'createdAt', 'updatedAt']);
+
+/// Perguntas ordenam também PELO TEMA — e por `group.order`/`group.name`, não
+/// por `groupId`: ordenar pelo uuid do tema agrupa as perguntas, mas numa
+/// sequência aleatória, que é como a listagem se comportava.
+const questionOrderByObject = z.object({
+  id: orderByDirectionSchema.optional(),
+  groupId: orderByDirectionSchema.optional(),
+  order: orderByDirectionSchema.optional(),
+  title: orderByDirectionSchema.optional(),
+  type: orderByDirectionSchema.optional(),
+  isRequired: orderByDirectionSchema.optional(),
+  isActive: orderByDirectionSchema.optional(),
+  createdAt: orderByDirectionSchema.optional(),
+  updatedAt: orderByDirectionSchema.optional(),
+  group: z
+    .object({
+      name: orderByDirectionSchema.optional(),
+      order: orderByDirectionSchema.optional(),
+    })
+    .optional(),
+});
+export const questionnaireQuestionOrderBySchema = z
+  .union([questionOrderByObject, z.array(questionOrderByObject.partial())])
+  .optional();
 export const questionnaireOrderBySchema = buildOrderBySchema(['id', 'name', 'status', 'periodStart', 'periodEnd', 'createdAt', 'updatedAt']);
 export const questionnaireEntryOrderBySchema = buildOrderBySchema(['id', 'status', 'startedAt', 'submittedAt', 'createdAt', 'updatedAt']);
 
@@ -180,6 +210,13 @@ export const questionnaireQuestionWhereSchema: z.ZodType<any> = z.lazy(() =>
       groupId: uuidFilter,
       order: intFilter,
       title: stringFilter,
+      type: z
+        .union([
+          questionnaireQuestionTypeSchema,
+          z.object({ in: z.array(questionnaireQuestionTypeSchema).optional() }),
+        ])
+        .optional(),
+      isRequired: boolFilter,
       isActive: boolFilter,
       deletedAt: z.union([z.null(), dateFilter, z.object({ not: z.null().optional() })]).optional(),
       createdAt: dateFilter,
@@ -295,10 +332,16 @@ export const questionnaireQuestionGetManySchema = z
     groupId: z.string().uuid().optional(),
     groupIds: z.array(z.string().uuid()).optional(),
     isActive: z.coerce.boolean().optional(),
+    isRequired: z.coerce.boolean().optional(),
+    // União: `?types=TEXT` (valor único) é a forma natural de chamar e o pipe
+    // não a converte em array — só `?types[]=TEXT` virava lista, e o resto 400.
+    types: z
+      .union([questionnaireQuestionTypeSchema, z.array(questionnaireQuestionTypeSchema)])
+      .optional(),
   })
   .transform(data => {
     data = baseTransform(data);
-    const { searchingFor, groupId, groupIds, isActive } = data;
+    const { searchingFor, groupId, groupIds, isActive, isRequired, types } = data;
     const and: any[] = [];
     if (searchingFor) {
       and.push({
@@ -311,6 +354,8 @@ export const questionnaireQuestionGetManySchema = z
     if (groupId) and.push({ groupId });
     if (groupIds?.length) and.push({ groupId: { in: groupIds } });
     if (typeof isActive === 'boolean') and.push({ isActive });
+    if (typeof isRequired === 'boolean') and.push({ isRequired });
+    if (types) and.push({ type: { in: Array.isArray(types) ? types : [types] } });
     return mergeAnd(data, and);
   });
 
@@ -394,22 +439,59 @@ export const questionnaireOptionFormSchema = z.object({
   description: z.string().max(2000).nullable().optional(),
 });
 
+/// 2..6 opções com valor 0..5. O valor cresce junto com a ordem — é ele que
+/// pinta a opção na régua de notas (0 roxo … 5 verde), então uma escala com os
+/// valores fora de ordem exibiria as cores embaralhadas. Uma escala de 6 opções
+/// obrigatoriamente começa no 0 (só existem seis valores).
 const optionsArray = z
   .array(questionnaireOptionFormSchema)
   .min(2, 'Pelo menos duas opções')
   .max(6, 'No máximo 6 opções (valor 0..5)')
-  .refine(arr => new Set(arr.map(o => o.value)).size === arr.length, 'Valores duplicados não são permitidos')
-  .refine(arr => new Set(arr.map(o => o.order)).size === arr.length, 'Ordens duplicadas não são permitidas');
+  .refine(
+    arr => new Set(arr.map(o => o.value)).size === arr.length,
+    'Valores duplicados não são permitidos',
+  )
+  .refine(
+    arr => new Set(arr.map(o => o.order)).size === arr.length,
+    'Ordens duplicadas não são permitidas',
+  )
+  .refine(arr => {
+    const sorted = [...arr].sort((a, b) => a.order - b.order);
+    return sorted.every((o, i) => i === 0 || o.value > sorted[i - 1].value);
+  }, 'Os valores das opções devem crescer junto com a ordem');
 
-export const questionnaireQuestionCreateSchema = z.object({
-  groupId: z.string().uuid('Grupo inválido'),
-  order: z.coerce.number().int().min(0).max(9999),
-  title: z.string().min(1).max(200),
-  description: z.string().min(1).max(2000),
-  helpText: z.string().max(2000).nullable().optional(),
-  isActive: z.boolean().default(true).optional(),
-  options: optionsArray.optional(),
-});
+export const questionnaireQuestionCreateSchema = z
+  .object({
+    groupId: z.string().uuid('Grupo inválido'),
+    /// Opcional: sem valor, o serviço usa a última ordem do tema + 1. A ordem é
+    /// única por tema, então deixá-la a cargo do servidor evita colisão e
+    /// dispensa o admin de adivinhar o próximo número.
+    order: z.coerce.number().int().min(0).max(9999).optional(),
+    title: z.string().min(1).max(200),
+    description: z.string().min(1).max(2000),
+    helpText: z.string().max(2000).nullable().optional(),
+    type: questionnaireQuestionTypeSchema.default('OPTIONS').optional(),
+    isRequired: z.boolean().default(true).optional(),
+    isActive: z.boolean().default(true).optional(),
+    options: optionsArray.optional(),
+  })
+  .superRefine((d, ctx) => {
+    const type = d.type ?? 'OPTIONS';
+    if (type === 'OPTIONS' && !d.options?.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Perguntas fechadas precisam de opções de resposta',
+        path: ['options'],
+      });
+    }
+    if (type === 'TEXT' && d.options?.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Perguntas de texto livre não podem ter opções de resposta',
+        path: ['options'],
+      });
+    }
+  });
 
 export const questionnaireQuestionUpdateSchema = z.object({
   groupId: z.string().uuid().optional(),
@@ -417,6 +499,8 @@ export const questionnaireQuestionUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().min(1).max(2000).optional(),
   helpText: z.string().max(2000).nullable().optional(),
+  type: questionnaireQuestionTypeSchema.optional(),
+  isRequired: z.boolean().optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -428,15 +512,37 @@ export const questionnaireOptionsUpsertSchema = z.object({
 // CRUD: Questionnaire (campaign)
 // =====================
 
+/// Cada modo de público exige a SUA coleção de critérios e ignora as demais.
+/// Aplicado no create (onde o modo é obrigatório) e no update (onde só vale se
+/// o modo vier no payload).
+const audienceIssue = (
+  ctx: z.RefinementCtx,
+  audience: 'ALL_USERS' | 'SECTORS' | 'POSITIONS' | 'USERS',
+  d: { userIds?: string[]; sectorIds?: string[]; positionIds?: string[] },
+) => {
+  const required: Record<typeof audience, { list?: string[]; path: string; message: string }> = {
+    ALL_USERS: { list: undefined, path: 'audience', message: '' },
+    SECTORS: { list: d.sectorIds, path: 'sectorIds', message: 'Selecione ao menos um setor' },
+    POSITIONS: { list: d.positionIds, path: 'positionIds', message: 'Selecione ao menos um cargo' },
+    USERS: { list: d.userIds, path: 'userIds', message: 'Selecione ao menos um colaborador' },
+  };
+  const rule = required[audience];
+  if (rule.message && !(rule.list?.length ?? 0)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: rule.message, path: [rule.path] });
+  }
+};
+
 export const questionnaireCreateSchema = z
   .object({
     name: z.string().min(1, 'Nome é obrigatório').max(200),
     description: z.string().max(2000).nullable().optional(),
     periodStart: z.coerce.date(),
     periodEnd: z.coerce.date(),
-    targetAllUsers: z.boolean().default(false).optional(),
+    audience: questionnaireAudienceSchema.default('ALL_USERS').optional(),
     isAnonymous: z.boolean().default(false).optional(),
     userIds: z.array(z.string().uuid()).optional(),
+    sectorIds: z.array(z.string().uuid()).optional(),
+    positionIds: z.array(z.string().uuid()).optional(),
     questionIds: z.array(z.string().uuid()).optional(),
     groupIds: z.array(z.string().uuid()).optional(),
   })
@@ -448,10 +554,7 @@ export const questionnaireCreateSchema = z
     message: 'Selecione ao menos uma pergunta',
     path: ['questionIds'],
   })
-  .refine(d => d.targetAllUsers === true || (d.userIds?.length ?? 0) > 0, {
-    message: 'Selecione colaboradores ou marque "todos os colaboradores"',
-    path: ['userIds'],
-  });
+  .superRefine((d, ctx) => audienceIssue(ctx, d.audience ?? 'ALL_USERS', d));
 
 export const questionnaireUpdateSchema = z
   .object({
@@ -459,11 +562,16 @@ export const questionnaireUpdateSchema = z
     description: z.string().max(2000).nullable().optional(),
     periodStart: z.coerce.date().optional(),
     periodEnd: z.coerce.date().optional(),
-    targetAllUsers: z.boolean().optional(),
+    audience: questionnaireAudienceSchema.optional(),
     isAnonymous: z.boolean().optional(),
     userIds: z.array(z.string().uuid()).optional(),
+    sectorIds: z.array(z.string().uuid()).optional(),
+    positionIds: z.array(z.string().uuid()).optional(),
     questionIds: z.array(z.string().uuid()).optional(),
     groupIds: z.array(z.string().uuid()).optional(),
+  })
+  .superRefine((d, ctx) => {
+    if (d.audience) audienceIssue(ctx, d.audience, d);
   })
   .refine(
     d => d.periodStart === undefined || d.periodEnd === undefined || d.periodEnd >= d.periodStart,
@@ -474,9 +582,17 @@ export const questionnaireUpdateSchema = z
 // Entry: answers & metadata
 // =====================
 
+/// Uma resposta traz OU a nota da opção escolhida (pergunta fechada) OU o texto
+/// livre (pergunta de texto). `comment` continua sendo o comentário opcional de
+/// uma resposta fechada — nunca o conteúdo de uma pergunta de texto.
+///
+/// Sem nota E sem texto significa APAGAR a resposta: é assim que o respondente
+/// esvazia uma pergunta opcional que já tinha respondido (o autosave manda o
+/// campo vazio e a linha some, em vez de gravar uma resposta em branco).
 export const questionnaireAnswerFormSchema = z.object({
   questionId: z.string().uuid(),
-  value: z.coerce.number().int().min(0).max(5),
+  value: z.coerce.number().int().min(0).max(5).nullable().optional(),
+  textValue: z.string().max(5000).nullable().optional(),
   comment: z.string().max(2000).nullable().optional(),
 });
 
