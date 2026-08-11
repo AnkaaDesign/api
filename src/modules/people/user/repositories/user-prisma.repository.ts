@@ -289,7 +289,8 @@ export class UserPrismaRepository
       position: {
         include: {
           remunerations: {
-            orderBy: { createdAt: 'desc' },
+            where: { current: true },
+            orderBy: { effectiveDate: 'desc' },
             take: 1,
           },
         },

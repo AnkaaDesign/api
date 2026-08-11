@@ -154,7 +154,8 @@ export class PositionPrismaRepository
         },
       },
       remunerations: {
-        orderBy: { createdAt: 'desc' },
+        where: { current: true },
+        orderBy: { effectiveDate: 'desc' },
         take: 1,
       },
       _count: {
